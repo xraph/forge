@@ -322,4 +322,48 @@ describe('useQuery', () => {
 
     expect(wrapper.text()).toBe('error:nope');
   });
+
+  it('passes a per-call staleTime through to the cache', async () => {
+    const fx = harness(() => [{ id: 1, total: 10 }]);
+
+    const List = defineComponent({
+      setup() {
+        useQuery<Order[]>(useOrderList, undefined, { staleTime: 250 });
+
+        return () => h('div');
+      },
+    });
+
+    mount(List, withClient(fx));
+    await flushPromises();
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(250);
+  });
+
+  it('keeps the per-call staleTime after the handle rebuilds on a key change', async () => {
+    const fx = harness((request) => ({ id: request.args.path?.['id'], total: 7 }));
+
+    const id = ref(1);
+    const Detail = defineComponent({
+      setup() {
+        useQuery<Order>(useOrderGet, () => ({ path: { id: id.value } }), { staleTime: 250 });
+
+        return () => h('div');
+      },
+    });
+
+    mount(Detail, withClient(fx));
+    await flushPromises();
+
+    expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 1 } })).toBe(250);
+
+    // The rebuild trap: a component whose key changes tears down the handle
+    // built at the first construction site and builds a new one at the
+    // second. Missing `staleTime` there makes the option work only until the
+    // arguments change, and then silently stop.
+    id.value = 2;
+    await flushPromises();
+
+    expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 2 } })).toBe(250);
+  });
 });

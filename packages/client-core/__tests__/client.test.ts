@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { configureClient, getClient, mutation, query, setClient } from '../src/client';
+import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { RestTransport } from '../src/transport';
 import type { OperationMeta } from '../src/transport';
-import { fakeClient, HttpFailure, settleMicrotasks } from './harness';
+import { fakeClient, fakeTransport, HttpFailure, settleMicrotasks } from './harness';
 import { schema } from './schema';
 
 /**
@@ -173,5 +174,20 @@ describe('the server snapshot', () => {
 
     expect(handle.getServerState().data).toEqual([{ id: 7, total: 99 }]);
     expect(handle.getServerState()).toBe(handle.getState());
+  });
+});
+
+describe('per-call staleTime', () => {
+  it('passes a per-call staleTime from the binding through to the cache', async () => {
+    const transport = fakeTransport(() => [{ id: 7, total: 99 }]);
+    const queries = new QueryCache({ transport, entities: schema, staleTime: 60_000 });
+    const list = query<unknown>(ops.orderList);
+
+    const handle = list(undefined, { client: queries, staleTime: 250 });
+    const stop = handle.subscribe(() => undefined);
+
+    expect(queries.effectiveStaleTime(ops.orderList)).toBe(250);
+
+    stop();
   });
 });

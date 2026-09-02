@@ -22,6 +22,8 @@ export interface UseQueryOptions {
    * subscribing per component instead of per query.
    */
   readonly live?: boolean;
+  /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
+  readonly staleTime?: number;
 }
 
 /** What `useQuery` returns: the query's state, plus the manual refetch. */
@@ -92,7 +94,12 @@ export function useQuery<T>(
    * here because `key` is a dependency. Pinning the handle in a ref instead
    * would invert exactly that trade, which is why it is not done.
    */
-  const handle = useMemo(() => op(args, { client }), [op, client, key]);
+  const staleTime = options?.staleTime;
+
+  const handle = useMemo(
+    () => op(args, staleTime === undefined ? { client } : { client, staleTime }),
+    [op, client, key, staleTime],
+  );
 
   /**
    * `handle.getState` returns the *same* `QueryState` object on every call

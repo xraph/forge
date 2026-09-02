@@ -33,6 +33,8 @@ export interface UseQueryOptions {
    * whose entities ride the same channel are one connection.
    */
   readonly live?: MaybeRefOrGetter<boolean | undefined>;
+  /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
+  readonly staleTime?: number;
 }
 
 /** What `useQuery` returns: the query's state as refs, plus the controls. */
@@ -100,7 +102,10 @@ export function useQuery<T>(
    */
   const key = computed(() => client.key(op.meta, toValue(args)));
 
-  let handle: QueryHandle<T> = op(toValue(args), { client });
+  let handle: QueryHandle<T> = op(
+    toValue(args),
+    options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
+  );
 
   /**
    * A `shallowRef`, and the entire adapter turns on that one word.
@@ -205,7 +210,10 @@ export function useQuery<T>(
    */
   const stop = watch(key, () => {
     detach();
-    handle = op(toValue(args), { client });
+    handle = op(
+      toValue(args),
+      options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
+    );
     state.value = handle.getState();
     attach();
   });

@@ -353,4 +353,61 @@ describe('injectQuery', () => {
 
     expect(fixture.nativeElement.textContent).toBe('error:nope');
   });
+
+  it('passes a per-call staleTime through to the cache', async () => {
+    const fx = harness(() => [{ id: 1, total: 10 }]);
+
+    @Component({
+      selector: 'app-list',
+      changeDetection: ChangeDetectionStrategy.OnPush,
+      template: '',
+    })
+    class List {
+      readonly orders = injectQuery<Order[]>(useOrderList, undefined, { staleTime: 250 });
+    }
+
+    configure(fx);
+
+    const fixture = render(List);
+
+    await settle(fixture);
+
+    expect(fx.cache.effectiveStaleTime(orderList)).toBe(250);
+  });
+
+  it('keeps the per-call staleTime after the handle rebuilds on a key change', async () => {
+    const fx = harness((request) => ({ id: request.args.path?.['id'], total: 7 }));
+
+    @Component({
+      selector: 'app-detail',
+      changeDetection: ChangeDetectionStrategy.OnPush,
+      template: '{{ order.data()?.id ?? "-" }}',
+    })
+    class Detail {
+      readonly id = signal(1);
+      readonly order = injectQuery<Order>(
+        useOrderGet,
+        () => ({ path: { id: this.id() } }),
+        { staleTime: 250 },
+      );
+    }
+
+    configure(fx);
+
+    const fixture = render(Detail);
+
+    await settle(fixture);
+
+    expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 1 } })).toBe(250);
+
+    // The rebuild trap: a component whose key changes tears down the handle
+    // built at the first construction site and builds a new one at the
+    // second. Missing `staleTime` there makes the option work only until the
+    // arguments change, and then silently stop.
+    fixture.componentInstance.id.set(2);
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(fx.cache.effectiveStaleTime(orderGet, { path: { id: 2 } })).toBe(250);
+  });
 });

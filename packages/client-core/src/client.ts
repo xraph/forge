@@ -54,6 +54,14 @@ export function getClient(): QueryCache {
 export interface QueryOptions {
   /** Use this cache rather than the configured default. */
   readonly client?: QueryCache;
+  /**
+   * Milliseconds this call considers the result fresh for.
+   *
+   * Beats the operation's own `staleTime` and the cache default. When several
+   * components mount one query with different values the strictest wins, so
+   * this can only ever make a query refresh more eagerly, never less.
+   */
+  readonly staleTime?: number;
 }
 
 /** Per-call options a mutation binding accepts. */
@@ -157,7 +165,13 @@ export function query<T = unknown>(meta: OperationMeta): QueryBinding<T> {
 
     return {
       key: cache.key(meta, args),
-      subscribe: (listener) => cache.subscribe(meta, args, listener),
+      subscribe: (listener) =>
+        cache.subscribe(
+          meta,
+          args,
+          listener,
+          options?.staleTime === undefined ? undefined : { staleTime: options.staleTime },
+        ),
       getState: () => cache.getState<T>(meta, args),
       getServerState: () => cache.peek<T>(meta, args) ?? (IDLE as QueryState<T>),
       fetch: () => cache.fetch<T>(meta, args),

@@ -50,6 +50,8 @@ export interface InjectQueryOptions {
    * whose entities ride the same channel are one connection.
    */
   readonly live?: boolean | (() => boolean | undefined);
+  /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
+  readonly staleTime?: number;
 }
 
 /** What `injectQuery` returns: the query's state as signals, plus the controls. */
@@ -121,7 +123,10 @@ function bind<T>(
   const client = injectClient(options?.client);
   const destroyRef = inject(DestroyRef);
 
-  let handle: QueryHandle<T> = op(resolve(args), { client });
+  let handle: QueryHandle<T> = op(
+    resolve(args),
+    options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
+  );
 
   /**
    * A signal holding the snapshot, and nothing on the way out of it copies.
@@ -229,7 +234,10 @@ function bind<T>(
        */
       untracked(() => {
         detach();
-        handle = op(resolve(args), { client });
+        handle = op(
+          resolve(args),
+          options?.staleTime === undefined ? { client } : { client, staleTime: options.staleTime },
+        );
         attach();
 
         // The live half follows the arguments too: `{live: true}` on

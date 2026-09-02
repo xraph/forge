@@ -434,4 +434,39 @@ describe('useQuery', () => {
 
     expect(screen.getByTestId('list').textContent).toBe('error:nope');
   });
+
+  it('passes a per-call staleTime through to the cache', async () => {
+    const h = harness(() => [{ id: 1, total: 10 }]);
+
+    function List() {
+      useQuery<Order[]>(useOrderList, undefined, { staleTime: 250 });
+
+      return <div data-testid="list" />;
+    }
+
+    render(wrap(h, <List />));
+    await flush();
+
+    expect(h.cache.effectiveStaleTime(useOrderList.meta)).toBe(250);
+  });
+
+  it('rebuilds the handle when staleTime changes', async () => {
+    const h = harness(() => [{ id: 1, total: 10 }]);
+
+    function List({ ms }: { ms: number }) {
+      useQuery<Order[]>(useOrderList, undefined, { staleTime: ms });
+
+      return <div data-testid="list" />;
+    }
+
+    const view = render(wrap(h, <List ms={250} />));
+    await flush();
+    expect(h.cache.effectiveStaleTime(useOrderList.meta)).toBe(250);
+
+    // The memo-dependency trap. Without `staleTime` in the deps this still
+    // reads 250 and the change is silently lost.
+    view.rerender(wrap(h, <List ms={50} />));
+    await flush();
+    expect(h.cache.effectiveStaleTime(useOrderList.meta)).toBe(50);
+  });
 });
