@@ -22,6 +22,10 @@
       "types": "./dist/overlay.d.ts",
       "import": "./dist/overlay.js"
     },
+    "./panel": {
+      "types": "./dist/panel.d.ts",
+      "import": "./dist/panel.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -48,6 +52,15 @@
       "name": "overlay",
       "path": "dist/overlay.js",
       "limit": "3.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "panel",
+      "path": "dist/panel.js",
+      "limit": "12 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"
