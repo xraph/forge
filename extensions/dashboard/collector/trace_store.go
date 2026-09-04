@@ -11,6 +11,11 @@ import (
 // OnTraceAddedFunc is called when a new span is added to the store.
 type OnTraceAddedFunc func(traceID string, spanCount int)
 
+// IngestGateFunc reports whether spans should be retained right now. It is
+// called on the request path for every span, so it must be cheap and must not
+// block. A nil gate means retain everything.
+type IngestGateFunc func() bool
+
 // defaultMaxSpansPerTrace bounds a single trace. A websocket or SSE connection
 // reuses one TraceID for its whole life, so without this a single connection
 // grows the store until the retention window rolls.
@@ -41,6 +46,7 @@ type TraceStore struct {
 
 	mu           sync.RWMutex
 	onTraceAdded OnTraceAddedFunc
+	ingestGate   IngestGateFunc
 
 	// droppedSpans counts spans refused because their trace was already at
 	// maxSpansPerTrace. Read it with DroppedSpans.
@@ -112,6 +118,14 @@ func (ts *TraceStore) SetOnTraceAdded(fn OnTraceAddedFunc) {
 	ts.startOnce.Do(func() { go ts.drainNotifications() })
 }
 
+// SetIngestGate installs the predicate that decides whether spans are retained.
+// Pass nil to retain everything.
+func (ts *TraceStore) SetIngestGate(fn IngestGateFunc) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.ingestGate = fn
+}
+
 // drainNotifications runs the registered callback for queued events, one at a
 // time, until Close is called.
 func (ts *TraceStore) drainNotifications() {
@@ -145,6 +159,14 @@ func (ts *TraceStore) DroppedNotifications() uint64 {
 // AddSpan adds a completed span to the store, grouping it under its TraceID.
 func (ts *TraceStore) AddSpan(span *SpanView) {
 	if span == nil || span.TraceID == "" {
+		return
+	}
+
+	ts.mu.RLock()
+	gate := ts.ingestGate
+	ts.mu.RUnlock()
+
+	if gate != nil && !gate() {
 		return
 	}
 

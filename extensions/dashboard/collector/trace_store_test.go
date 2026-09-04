@@ -161,3 +161,68 @@ func TestTraceStore_CloseIsIdempotent(t *testing.T) {
 	ts.Close()
 	ts.Close()
 }
+
+// With the gate closed, spans must not reach the store at all. This is the
+// common case: a service nobody has the dashboard open against.
+func TestTraceStore_ClosedGateRejectsSpans(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetIngestGate(func() bool { return false })
+
+	for i := 0; i < 50; i++ {
+		ts.AddSpan(span("trace-a", "span"))
+	}
+
+	ts.mu.RLock()
+	n := len(ts.traces)
+	ts.mu.RUnlock()
+
+	if n != 0 {
+		t.Errorf("stored %d traces with the gate closed, want 0", n)
+	}
+}
+
+func TestTraceStore_OpenGateAcceptsSpans(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetIngestGate(func() bool { return true })
+
+	ts.AddSpan(span("trace-a", "span"))
+
+	ts.mu.RLock()
+	n := len(ts.traces["trace-a"])
+	ts.mu.RUnlock()
+
+	if n != 1 {
+		t.Errorf("stored %d spans with the gate open, want 1", n)
+	}
+}
+
+// A store with no gate set must keep its current behaviour, so that callers
+// which never call SetIngestGate are unaffected.
+func TestTraceStore_NoGateAcceptsSpans(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+
+	ts.AddSpan(span("trace-a", "span"))
+
+	ts.mu.RLock()
+	n := len(ts.traces["trace-a"])
+	ts.mu.RUnlock()
+
+	if n != 1 {
+		t.Errorf("stored %d spans with no gate set, want 1", n)
+	}
+}
+
+// Gate rejections are not span drops. DroppedSpans counts spans refused by the
+// per-trace cap, and conflating the two would hide a real capacity problem.
+func TestTraceStore_GateRejectionIsNotCountedAsDroppedSpan(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetIngestGate(func() bool { return false })
+
+	for i := 0; i < 50; i++ {
+		ts.AddSpan(span("trace-a", "span"))
+	}
+
+	if got := ts.DroppedSpans(); got != 0 {
+		t.Errorf("counted %d dropped spans from gate rejections, want 0", got)
+	}
+}
