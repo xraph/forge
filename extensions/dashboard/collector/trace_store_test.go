@@ -75,13 +75,19 @@ func TestTraceStore_DefaultCapAppliesWithoutOption(t *testing.T) {
 }
 
 // Adding spans must not scale goroutines with the number of spans. Before this
-// fix AddSpan spawned one goroutine per span to notify SSE subscribers.
+// fix AddSpan spawned one goroutine per span to notify SSE subscribers. The
+// callback sleeps so that, under the old per-span-goroutine code, spawned
+// goroutines would visibly pile up instead of retiring before the next
+// sample; the peak is tracked across the loop rather than sampled once at
+// the end, since accumulation is transient and a single post-loop reading
+// can miss it.
 func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 	ts := NewTraceStore(1000, time.Hour, WithMaxSpansPerTrace(10000))
 
 	var mu sync.Mutex
 	seen := 0
 	ts.SetOnTraceAdded(func(traceID string, spanCount int) {
+		time.Sleep(time.Millisecond)
 		mu.Lock()
 		seen++
 		mu.Unlock()
@@ -90,14 +96,20 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 
 	runtime.GC()
 	before := runtime.NumGoroutine()
+	peak := before
 
-	for i := 0; i < 2000; i++ {
+	for i := 0; i < 500; i++ {
 		ts.AddSpan(span("trace-a", "span"))
+		if i%100 == 0 {
+			if n := runtime.NumGoroutine(); n > peak {
+				peak = n
+			}
+		}
 	}
 
-	grew := runtime.NumGoroutine() - before
+	grew := peak - before
 	if grew > 2 {
-		t.Errorf("2000 spans added %d goroutines, want at most 2 (one drain goroutine)", grew)
+		t.Errorf("500 spans added a peak of %d goroutines, want at most 2 (one drain goroutine)", grew)
 	}
 
 	// The callback should have run for at least some spans. Notifications are
