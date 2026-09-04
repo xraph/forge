@@ -290,6 +290,84 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 	}
 }
 
+// TestTraceStore_EvictsExpiredTraceEvenWhileAnotherTraceIsSaturated pins down
+// the guarantee documented on the ts.evict() call inside AddSpan's
+// cap-exceeded branch: retention must not become conditional on a successful
+// insert. Without that call, a store whose only traffic is one saturated
+// trace ("hot") would never call evict() again — every further AddSpan on
+// "hot" takes the early-return cap-rejection branch — so an unrelated expired
+// trace ("old") would sit in memory forever instead of aging out.
+//
+// "old" is seeded directly into the store's internals (this test lives in
+// package collector, so it can) rather than through AddSpan, for two reasons.
+// First, the span() helper always stamps StartTime with time.Now(), so an
+// already-expired span has to be built by hand. Second, and more subtly, if
+// "old" were seeded before "hot" existed, the unconditional ts.evict() call
+// at the end of AddSpan's normal (non-cap) path — the one that runs on every
+// successful insert, not only the cap branch — would reclaim it the moment
+// "hot"'s first (still normal-path) span landed, long before "hot" ever
+// saturates. So "hot" is saturated first, while "old" does not exist yet,
+// and "old" is only seeded afterward, bypassing AddSpan entirely so its
+// insertion triggers no evict() call of its own. It is placed ahead of
+// "hot" in eviction order, because evict() walks oldest-first and stops at
+// the first non-expired trace — "hot" is fresh, so if it came first, evict()
+// would never even look at "old".
+func TestTraceStore_EvictsExpiredTraceEvenWhileAnotherTraceIsSaturated(t *testing.T) {
+	const retention = 200 * time.Millisecond
+	const spanCap = 3
+
+	ts := NewTraceStore(10, retention, WithMaxSpansPerTrace(spanCap))
+
+	// Saturate "hot" first, before "old" exists, so nothing here can
+	// accidentally evict "old".
+	for i := 0; i < spanCap; i++ {
+		ts.AddSpan(span("hot", "span"))
+	}
+
+	ts.mu.RLock()
+	hotCount := len(ts.traces["hot"])
+	ts.mu.RUnlock()
+	if hotCount != spanCap {
+		t.Fatalf("trace \"hot\" has %d spans after saturating, want %d", hotCount, spanCap)
+	}
+
+	expiredStart := time.Now().Add(-time.Hour)
+	oldSpan := &SpanView{
+		SpanID:     "span",
+		TraceID:    "old",
+		Name:       "GET /x",
+		Kind:       SpanKindServer,
+		Status:     SpanStatusOK,
+		StartTime:  expiredStart,
+		EndTime:    expiredStart.Add(time.Millisecond),
+		Duration:   time.Millisecond,
+		Attributes: map[string]string{},
+		Events:     []SpanEventView{},
+	}
+	ts.mu.Lock()
+	ts.traces["old"] = []*SpanView{oldSpan}
+	ts.order = append([]string{"old"}, ts.order...)
+	ts.mu.Unlock()
+
+	// From here, every AddSpan on "hot" takes the cap-rejection branch
+	// exclusively (its span count is already at the cap and no insert can
+	// ever succeed again). That branch's evict() call is the only thing
+	// that can still reclaim "old".
+	for i := 0; i < 20; i++ {
+		ts.AddSpan(span("hot", "span"))
+
+		ts.mu.RLock()
+		_, stillPresent := ts.traces["old"]
+		ts.mu.RUnlock()
+
+		if !stillPresent {
+			return // "old" was reclaimed: the guarantee holds.
+		}
+	}
+
+	t.Error("trace \"old\" was never evicted while \"hot\" stayed saturated at its cap")
+}
+
 // MarkAccessed runs on the request path alongside AddSpan. It must not race.
 func TestTraceStore_MarkAccessedIsRaceFree(t *testing.T) {
 	ts := NewTraceStore(100, time.Hour)

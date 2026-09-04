@@ -109,11 +109,14 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 				status = collector.SpanStatusError
 			}
 
-			// Build attributes.
+			// Build attributes. http.path and http.host are caller-controlled
+			// and unbounded (Go accepts a request line up to MaxHeaderBytes+4096,
+			// about 1MB by default), so they are truncated at the point of
+			// storage just like the query and user-agent attributes below.
 			attrs := map[string]string{
 				"http.method": req.Method,
-				"http.path":   path,
-				"http.host":   req.Host,
+				"http.path":   truncateAttr(req.URL.Path, maxAttrValueLen),
+				"http.host":   truncateAttr(req.Host, maxAttrValueLen),
 				"protocol":    protocol,
 			}
 			if req.URL.RawQuery != "" {
@@ -129,7 +132,7 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 			span := &collector.SpanView{
 				SpanID:     spanID,
 				TraceID:    traceID,
-				Name:       req.Method + " " + path,
+				Name:       truncateAttr(req.Method+" "+path, maxAttrValueLen),
 				Kind:       collector.SpanKindServer,
 				Status:     status,
 				StartTime:  start,

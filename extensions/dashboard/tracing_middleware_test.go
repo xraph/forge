@@ -143,3 +143,78 @@ func TestTracingMiddleware_StampsAccessOnDashboardRequests(t *testing.T) {
 		})
 	}
 }
+
+// TestTracingMiddleware_TruncatesStoredAttributes drives the real
+// TracingMiddleware end to end and inspects what actually landed in the
+// TraceStore. Unit tests on truncateAttr alone cannot see this: the reviewer
+// deleted every truncateAttr call site inside TracingMiddleware and the
+// truncateAttr unit tests, plus the rest of the suite, stayed green — nothing
+// exercised the middleware's own attribute construction. This test also
+// covers the http.path, http.host, and span Name fields, which were never
+// truncated at all: all three are caller-controlled (a request line can run
+// to about 1MB by default) and the path was being stored twice per span,
+// unbounded, for the whole retention window.
+func TestTracingMiddleware_TruncatesStoredAttributes(t *testing.T) {
+	const basePath = "/dashboard"
+
+	store := collector.NewTraceStore(10, time.Hour)
+	// No ingest gate installed: a store with no gate retains everything. If a
+	// gate were installed here and left closed, AddSpan would silently discard
+	// the span and every assertion below would pass vacuously.
+
+	noopNext := func(ctx forge.Context) error { return nil }
+
+	longQuery := strings.Repeat("q", 5000)
+	longUA := strings.Repeat("a", 5000)
+	longPath := "/" + strings.Repeat("p", 5000)
+	longHost := strings.Repeat("h", 5000) + ".example.com"
+
+	req := httptest.NewRequest("GET", longPath+"?"+longQuery, nil)
+	req.Host = longHost
+	req.Header.Set("User-Agent", longUA)
+	w := httptest.NewRecorder()
+	ctx := forge_http.NewContext(w, req, nil)
+
+	middleware := TracingMiddleware(store, basePath)
+	handler := middleware(noopNext)
+
+	if err := handler(ctx); err != nil {
+		t.Fatalf("unexpected error handling request: %v", err)
+	}
+
+	// The middleware picks its own trace ID from time.Now(), so recover it by
+	// listing the store rather than guessing it.
+	summaries, _ := store.ListTraces(collector.TraceFilter{})
+	if len(summaries) != 1 {
+		t.Fatalf("store has %d traces after one traced request, want 1", len(summaries))
+	}
+	traceID := summaries[0].TraceID
+
+	detail := store.GetTrace(traceID)
+	if detail == nil {
+		t.Fatalf("GetTrace(%q) returned nil", traceID)
+	}
+	if len(detail.Spans) != 1 {
+		t.Fatalf("trace has %d spans, want 1", len(detail.Spans))
+	}
+
+	span := detail.Spans[0]
+
+	if len(span.Name) > maxAttrValueLen {
+		t.Errorf("stored span Name is %d bytes, want at most %d", len(span.Name), maxAttrValueLen)
+	}
+
+	for key, val := range span.Attributes {
+		if len(val) > maxAttrValueLen {
+			t.Errorf("stored attribute %q is %d bytes, want at most %d", key, len(val), maxAttrValueLen)
+		}
+	}
+
+	// Spot-check the two attributes the earlier review found unbounded.
+	if got := len(span.Attributes["http.path"]); got > maxAttrValueLen {
+		t.Errorf("http.path attribute is %d bytes, want at most %d", got, maxAttrValueLen)
+	}
+	if got := len(span.Attributes["http.host"]); got > maxAttrValueLen {
+		t.Errorf("http.host attribute is %d bytes, want at most %d", got, maxAttrValueLen)
+	}
+}

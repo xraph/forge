@@ -213,7 +213,7 @@ func (e *Extension) Register(app forge.App) error {
 	e.collector.SetCacheTTL(e.config.RefreshInterval)
 
 	// Initialize trace store for dashboard tracing UI
-	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention)
+	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention, collector.WithMaxSpansPerTrace(e.config.TraceMaxSpansPerTrace))
 
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {
