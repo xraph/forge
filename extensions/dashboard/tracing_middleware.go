@@ -23,6 +23,13 @@ func truncateAttr(s string, max int) string {
 	}
 
 	const marker = "..."
+	if max <= len(marker) {
+		if max <= 0 {
+			return ""
+		}
+		return marker[:max]
+	}
+
 	cut := max - len(marker)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--

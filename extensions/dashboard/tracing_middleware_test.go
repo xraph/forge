@@ -3,6 +3,7 @@ package dashboard
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestTruncateAttr_LeavesShortValuesAlone(t *testing.T) {
@@ -25,17 +26,40 @@ func TestTruncateAttr_CutsLongValuesAndMarksThem(t *testing.T) {
 // A truncation boundary in the middle of a multi-byte rune must not produce
 // invalid UTF-8, because these values are marshalled to JSON for the UI.
 func TestTruncateAttr_DoesNotSplitRunes(t *testing.T) {
-	got := truncateAttr(strings.Repeat("é", 500), 257)
+	got := truncateAttr(strings.Repeat("é", 500), 258)
 
-	for i, r := range got {
-		if r == '�' {
-			t.Fatalf("truncation produced an invalid rune at byte %d", i)
-		}
+	if !utf8.ValidString(got) {
+		t.Errorf("truncation produced invalid UTF-8: %q", got[len(got)-8:])
+	}
+	if len(got) > 258 {
+		t.Errorf("truncateAttr returned %d bytes, want at most 258", len(got))
+	}
+	// cut lands mid-rune at 255, so the backtrack must have moved it to 254.
+	if want := 254 + len("..."); len(got) != want {
+		t.Errorf("truncateAttr returned %d bytes, want %d — the rune backtrack did not run", len(got), want)
 	}
 }
 
 func TestMaxAttrValueLen_IsSane(t *testing.T) {
 	if maxAttrValueLen < 64 || maxAttrValueLen > 4096 {
 		t.Errorf("maxAttrValueLen is %d, which is outside a sensible range", maxAttrValueLen)
+	}
+}
+
+func TestTruncateAttr_SmallMaxDoesNotPanic(t *testing.T) {
+	for _, max := range []int{0, 1, 2, 3, 4} {
+		got := truncateAttr("hello world, this is long", max)
+		if len(got) > max {
+			t.Errorf("truncateAttr with max=%d returned %d bytes", max, len(got))
+		}
+	}
+}
+
+func TestTruncateAttr_InvalidUTF8DoesNotPanic(t *testing.T) {
+	// A raw query string or user agent can carry arbitrary bytes.
+	got := truncateAttr(strings.Repeat("\xff\xfe", 500), 257)
+
+	if len(got) > 257 {
+		t.Errorf("truncateAttr returned %d bytes, want at most 257", len(got))
 	}
 }
