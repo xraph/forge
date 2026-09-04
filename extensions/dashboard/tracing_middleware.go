@@ -38,10 +38,15 @@ func truncateAttr(s string, max int) string {
 	return s[:cut] + marker
 }
 
-// isDashboardPath reports whether a request path belongs to the dashboard. It is
-// a plain prefix match, matching the skip logic below it.
+// isDashboardPath reports whether a request path belongs to the dashboard: an
+// exact match on basePath, or basePath followed by a "/". This is deliberately
+// stricter than the plain-prefix skip logic below it — that logic only decides
+// whether to trace a request that is already known to be a dashboard request,
+// whereas this decides whether an unrelated sibling route (e.g. a
+// "/dashboard-admin" service that gets polled) is allowed to hold the ingest
+// gate open, which a bare prefix match would do incorrectly.
 func isDashboardPath(path, basePath string) bool {
-	return strings.HasPrefix(path, basePath)
+	return path == basePath || strings.HasPrefix(path, basePath+"/")
 }
 
 // TracingMiddleware creates a forge middleware that auto-captures request traces

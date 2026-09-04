@@ -1,9 +1,15 @@
 package dashboard
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/dashboard/collector"
+	forge_http "github.com/xraph/go-utils/http"
 )
 
 func TestTruncateAttr_LeavesShortValuesAlone(t *testing.T) {
@@ -78,12 +84,62 @@ func TestIsDashboardPath(t *testing.T) {
 		{"/dashboard/static/app.css", true},
 		{"/api/users", false},
 		{"/", false},
-		{"/dashboards-elsewhere", true}, // prefix match, documented below
+		{"/dashboards-elsewhere", false}, // segment-boundary match, not a bare prefix
+		{"/dashboard-admin", false},      // unrelated sibling route must not hold the gate open
 	}
 
 	for _, c := range cases {
 		if got := isDashboardPath(c.path, base); got != c.want {
 			t.Errorf("isDashboardPath(%q, %q) = %v, want %v", c.path, base, got, c.want)
 		}
+	}
+}
+
+// TestTracingMiddleware_StampsAccessOnDashboardRequests drives the real
+// TracingMiddleware end to end (not just the isDashboardPath helper) to prove
+// the stamp is actually wired into the request path. This is the wiring that
+// TestIsDashboardPath cannot see: deleting the "if isDashboardPath(...) {
+// store.MarkAccessed() }" block in TracingMiddleware leaves that test green
+// (isDashboardPath itself is untouched) while silently breaking the whole
+// gate — the trace list would stay empty forever. Static assets and SSE
+// requests under the dashboard are not themselves traced (TracingMiddleware
+// returns early for them) but must still count as activity; a request outside
+// the dashboard must not.
+func TestTracingMiddleware_StampsAccessOnDashboardRequests(t *testing.T) {
+	const basePath = "/dashboard"
+
+	noopNext := func(ctx forge.Context) error { return nil }
+
+	cases := []struct {
+		name string
+		path string
+		want bool // whether LastAccessed should be non-zero after the request
+	}{
+		{"static asset under dashboard counts as activity", basePath + "/static/app.css", true},
+		{"SSE stream under dashboard counts as activity", basePath + "/sse", true},
+		{"unrelated API route does not count as activity", "/api/users", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Fresh store per case so the cases cannot contaminate each other.
+			store := collector.NewTraceStore(10, time.Hour)
+
+			req := httptest.NewRequest("GET", c.path, nil)
+			w := httptest.NewRecorder()
+			ctx := forge_http.NewContext(w, req, nil)
+
+			middleware := TracingMiddleware(store, basePath)
+			handler := middleware(noopNext)
+
+			if err := handler(ctx); err != nil {
+				t.Fatalf("unexpected error handling %s: %v", c.path, err)
+			}
+
+			gotAccessed := !store.LastAccessed().IsZero()
+			if gotAccessed != c.want {
+				t.Errorf("after request to %q, LastAccessed().IsZero() reports accessed=%v, want %v", c.path, gotAccessed, c.want)
+			}
+		})
 	}
 }

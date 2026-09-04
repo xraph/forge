@@ -59,7 +59,11 @@ type Config struct {
 	TraceMaxCount  int           `json:"trace_max_count"  yaml:"trace_max_count"`
 	TraceRetention time.Duration `json:"trace_retention"  yaml:"trace_retention"`
 	// TraceIdleTTL is how long after the last dashboard request spans keep being
-	// retained. Zero or negative retains always, which is the pre-gate behaviour.
+	// retained. A negative duration disables the gate, retaining always (the
+	// pre-gate behaviour). Zero is not a reliable way to disable it: under a
+	// ConfigManager, config merging (see extension_config.go) only overrides a
+	// field when the source value is non-zero, so an explicit 0 here is
+	// silently skipped and the default survives.
 	TraceIdleTTL time.Duration `json:"trace_idle_ttl" yaml:"trace_idle_ttl"`
 
 	// Proxy/Remote
@@ -276,7 +280,10 @@ func WithTraceRetention(duration time.Duration) ConfigOption {
 }
 
 // WithTraceIdleTTL sets how long after the last dashboard request traces keep
-// being collected. Pass zero or a negative duration to collect always.
+// being collected. Pass a negative duration to collect always, disabling the
+// gate. Passing zero is not reliable for this: under a ConfigManager, config
+// merging only overrides a field when the source value is non-zero, so an
+// explicit zero here can be silently skipped in favor of the existing value.
 func WithTraceIdleTTL(duration time.Duration) ConfigOption {
 	return func(c *Config) { c.TraceIdleTTL = duration }
 }
