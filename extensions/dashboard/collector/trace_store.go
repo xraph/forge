@@ -4,18 +4,25 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // OnTraceAddedFunc is called when a new span is added to the store.
 type OnTraceAddedFunc func(traceID string, spanCount int)
 
+// defaultMaxSpansPerTrace bounds a single trace. A websocket or SSE connection
+// reuses one TraceID for its whole life, so without this a single connection
+// grows the store until the retention window rolls.
+const defaultMaxSpansPerTrace = 200
+
 // TraceStore is a thread-safe in-memory store for completed traces.
 // It organises spans by TraceID and supports listing, filtering, and
 // detail retrieval for the dashboard tracing UI.
 type TraceStore struct {
-	maxTraces int
-	retention time.Duration
+	maxTraces        int
+	maxSpansPerTrace int
+	retention        time.Duration
 
 	// traces maps TraceID → ordered list of spans in that trace.
 	traces map[string][]*SpanView
@@ -24,24 +31,52 @@ type TraceStore struct {
 
 	mu           sync.RWMutex
 	onTraceAdded OnTraceAddedFunc
+
+	// droppedSpans counts spans refused because their trace was already at
+	// maxSpansPerTrace. Read it with DroppedSpans.
+	droppedSpans atomic.Uint64
+}
+
+// TraceStoreOption configures a TraceStore at construction.
+type TraceStoreOption func(*TraceStore)
+
+// WithMaxSpansPerTrace caps how many spans a single trace retains. Spans
+// arriving after the cap are dropped and counted. Values below 1 are ignored.
+func WithMaxSpansPerTrace(n int) TraceStoreOption {
+	return func(ts *TraceStore) {
+		if n > 0 {
+			ts.maxSpansPerTrace = n
+		}
+	}
 }
 
 // NewTraceStore creates a new TraceStore.
 // maxTraces controls the maximum number of distinct traces kept in memory.
 // retention controls the maximum age of traces before they are evicted.
-func NewTraceStore(maxTraces int, retention time.Duration) *TraceStore {
+func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOption) *TraceStore {
 	if maxTraces <= 0 {
 		maxTraces = 1000
 	}
 	if retention <= 0 {
 		retention = time.Hour
 	}
-	return &TraceStore{
-		maxTraces: maxTraces,
-		retention: retention,
-		traces:    make(map[string][]*SpanView),
-		order:     make([]string, 0, maxTraces),
+	ts := &TraceStore{
+		maxTraces:        maxTraces,
+		maxSpansPerTrace: defaultMaxSpansPerTrace,
+		retention:        retention,
+		traces:           make(map[string][]*SpanView),
+		order:            make([]string, 0, maxTraces),
 	}
+	for _, opt := range opts {
+		opt(ts)
+	}
+	return ts
+}
+
+// DroppedSpans returns the number of spans refused because their trace had
+// already reached maxSpansPerTrace.
+func (ts *TraceStore) DroppedSpans() uint64 {
+	return ts.droppedSpans.Load()
 }
 
 // SetOnTraceAdded registers a callback invoked when a new span is added.
@@ -64,7 +99,17 @@ func (ts *TraceStore) AddSpan(span *SpanView) {
 		ts.order = append(ts.order, span.TraceID)
 	}
 
-	ts.traces[span.TraceID] = append(ts.traces[span.TraceID], span)
+	existing := ts.traces[span.TraceID]
+	if len(existing) >= ts.maxSpansPerTrace {
+		// Still evict. Retention is a separate guarantee from the cap, and a
+		// store whose only traffic is one saturated trace would otherwise stop
+		// reclaiming expired traces entirely.
+		ts.evict()
+		ts.mu.Unlock()
+		ts.droppedSpans.Add(1)
+		return
+	}
+	ts.traces[span.TraceID] = append(existing, span)
 
 	// Evict old traces.
 	ts.evict()
