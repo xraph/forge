@@ -1,6 +1,8 @@
 package collector
 
 import (
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -70,4 +72,80 @@ func TestTraceStore_DefaultCapAppliesWithoutOption(t *testing.T) {
 	if ts.maxSpansPerTrace != defaultMaxSpansPerTrace {
 		t.Errorf("default cap is %d, want %d", ts.maxSpansPerTrace, defaultMaxSpansPerTrace)
 	}
+}
+
+// Adding spans must not scale goroutines with the number of spans. Before this
+// fix AddSpan spawned one goroutine per span to notify SSE subscribers.
+func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
+	ts := NewTraceStore(1000, time.Hour, WithMaxSpansPerTrace(10000))
+
+	var mu sync.Mutex
+	seen := 0
+	ts.SetOnTraceAdded(func(traceID string, spanCount int) {
+		mu.Lock()
+		seen++
+		mu.Unlock()
+	})
+	defer ts.Close()
+
+	runtime.GC()
+	before := runtime.NumGoroutine()
+
+	for i := 0; i < 2000; i++ {
+		ts.AddSpan(span("trace-a", "span"))
+	}
+
+	grew := runtime.NumGoroutine() - before
+	if grew > 2 {
+		t.Errorf("2000 spans added %d goroutines, want at most 2 (one drain goroutine)", grew)
+	}
+
+	// The callback should have run for at least some spans. Notifications are
+	// allowed to drop under pressure, so this asserts liveness, not a count.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := seen
+		mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("callback never fired for any span")
+}
+
+// A blocked callback must not block the request path or accumulate goroutines.
+func TestTraceStore_SlowCallbackDropsRatherThanBlocks(t *testing.T) {
+	ts := NewTraceStore(1000, time.Hour, WithMaxSpansPerTrace(10000))
+
+	release := make(chan struct{})
+	ts.SetOnTraceAdded(func(traceID string, spanCount int) { <-release })
+	defer func() { close(release); ts.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 5000; i++ {
+			ts.AddSpan(span("trace-a", "span"))
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("AddSpan blocked behind a stuck callback")
+	}
+
+	if ts.DroppedNotifications() == 0 {
+		t.Error("no notifications dropped while the callback was stuck, want some")
+	}
+}
+
+// Close must be safe to call more than once.
+func TestTraceStore_CloseIsIdempotent(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetOnTraceAdded(func(string, int) {})
+	ts.Close()
+	ts.Close()
 }

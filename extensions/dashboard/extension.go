@@ -698,6 +698,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 		e.collector.Stop()
 	}
 
+	if e.traceStore != nil {
+		e.traceStore.Close()
+	}
+
 	e.MarkStopped()
 	e.Logger().Info("dashboard extension stopped")
 

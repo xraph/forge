@@ -16,6 +16,16 @@ type OnTraceAddedFunc func(traceID string, spanCount int)
 // grows the store until the retention window rolls.
 const defaultMaxSpansPerTrace = 200
 
+// notifyBuffer is how many trace-added events queue before new ones are
+// dropped. Notifications are advisory: the dashboard re-reads the store on the
+// next poll, so dropping one costs a moment of staleness and nothing more.
+const notifyBuffer = 256
+
+type traceNotification struct {
+	traceID   string
+	spanCount int
+}
+
 // TraceStore is a thread-safe in-memory store for completed traces.
 // It organises spans by TraceID and supports listing, filtering, and
 // detail retrieval for the dashboard tracing UI.
@@ -35,6 +45,16 @@ type TraceStore struct {
 	// droppedSpans counts spans refused because their trace was already at
 	// maxSpansPerTrace. Read it with DroppedSpans.
 	droppedSpans atomic.Uint64
+
+	// notify carries trace-added events to the single drain goroutine. AddSpan
+	// sends without blocking, so a stuck callback costs dropped notifications
+	// instead of goroutines on the request path.
+	notify    chan traceNotification
+	startOnce sync.Once
+	closeOnce sync.Once
+	stop      chan struct{}
+
+	droppedNotifications atomic.Uint64
 }
 
 // TraceStoreOption configures a TraceStore at construction.
@@ -66,6 +86,8 @@ func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOpt
 		retention:        retention,
 		traces:           make(map[string][]*SpanView),
 		order:            make([]string, 0, maxTraces),
+		notify:           make(chan traceNotification, notifyBuffer),
+		stop:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(ts)
@@ -80,10 +102,44 @@ func (ts *TraceStore) DroppedSpans() uint64 {
 }
 
 // SetOnTraceAdded registers a callback invoked when a new span is added.
+// The callback runs on a single drain goroutine, started on first use, and is
+// never invoked from the request path. Call Close to stop that goroutine.
 func (ts *TraceStore) SetOnTraceAdded(fn OnTraceAddedFunc) {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
 	ts.onTraceAdded = fn
+	ts.mu.Unlock()
+
+	ts.startOnce.Do(func() { go ts.drainNotifications() })
+}
+
+// drainNotifications runs the registered callback for queued events, one at a
+// time, until Close is called.
+func (ts *TraceStore) drainNotifications() {
+	for {
+		select {
+		case <-ts.stop:
+			return
+		case n := <-ts.notify:
+			ts.mu.RLock()
+			cb := ts.onTraceAdded
+			ts.mu.RUnlock()
+			if cb != nil {
+				cb(n.traceID, n.spanCount)
+			}
+		}
+	}
+}
+
+// Close stops the drain goroutine. It is safe to call more than once, and safe
+// to call on a store that never had a callback registered.
+func (ts *TraceStore) Close() {
+	ts.closeOnce.Do(func() { close(ts.stop) })
+}
+
+// DroppedNotifications returns the number of trace-added events discarded
+// because the drain queue was full.
+func (ts *TraceStore) DroppedNotifications() uint64 {
+	return ts.droppedNotifications.Load()
 }
 
 // AddSpan adds a completed span to the store, grouping it under its TraceID.
@@ -114,16 +170,22 @@ func (ts *TraceStore) AddSpan(span *SpanView) {
 	// Evict old traces.
 	ts.evict()
 
-	// Capture callback and data before releasing lock.
-	callback := ts.onTraceAdded
+	hasCallback := ts.onTraceAdded != nil
 	traceID := span.TraceID
 	spanCount := len(ts.traces[traceID])
 
 	ts.mu.Unlock()
 
-	// Notify outside of lock to avoid deadlocks.
-	if callback != nil {
-		go callback(traceID, spanCount)
+	if !hasCallback {
+		return
+	}
+
+	// Never block the request path. A full queue means the consumer is behind,
+	// and a dropped notification costs staleness until the next poll.
+	select {
+	case ts.notify <- traceNotification{traceID: traceID, spanCount: spanCount}:
+	default:
+		ts.droppedNotifications.Add(1)
 	}
 }
 
