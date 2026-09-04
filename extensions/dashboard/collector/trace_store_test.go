@@ -94,6 +94,8 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 	})
 	defer ts.Close()
 
+	// Let the drain goroutine reach its parked state before measuring.
+	time.Sleep(50 * time.Millisecond)
 	runtime.GC()
 	before := runtime.NumGoroutine()
 	peak := before
@@ -108,8 +110,10 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 	}
 
 	grew := peak - before
-	if grew > 2 {
-		t.Errorf("500 spans added a peak of %d goroutines, want at most 2 (one drain goroutine)", grew)
+	if grew > 1 {
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		t.Errorf("500 spans added %d goroutines at peak, want at most 1\n%s", grew, buf[:n])
 	}
 
 	// The callback should have run for at least some spans. Notifications are
