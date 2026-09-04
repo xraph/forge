@@ -215,6 +215,17 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize trace store for dashboard tracing UI
 	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention)
 
+	// Retain spans only while somebody is actually using the dashboard. The
+	// marker is stamped by TracingMiddleware on any request under BasePath, and
+	// an open dashboard re-polls well inside any sane TTL, so this stays open
+	// for as long as someone is looking and shuts a few minutes after they stop.
+	// A service nobody ever visits pays nothing.
+	if ttl := e.config.TraceIdleTTL; ttl > 0 {
+		e.traceStore.SetIngestGate(func() bool {
+			return time.Since(e.traceStore.LastAccessed()) < ttl
+		})
+	}
+
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {
 		e.sseBroker = sse.NewBroker(e.config.SSEKeepAlive, e.Logger())

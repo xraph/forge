@@ -61,6 +61,11 @@ type TraceStore struct {
 	stop      chan struct{}
 
 	droppedNotifications atomic.Uint64
+
+	// lastAccess is the Unix-nano time the dashboard was last used, stamped by
+	// MarkAccessed from the request path. Atomic because it is written on every
+	// dashboard request and read by the ingest gate on every traced request.
+	lastAccess atomic.Int64
 }
 
 // TraceStoreOption configures a TraceStore at construction.
@@ -124,6 +129,22 @@ func (ts *TraceStore) SetIngestGate(fn IngestGateFunc) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.ingestGate = fn
+}
+
+// MarkAccessed records that the dashboard was used just now. It is safe to call
+// concurrently and is cheap enough for the request path.
+func (ts *TraceStore) MarkAccessed() {
+	ts.lastAccess.Store(time.Now().UnixNano())
+}
+
+// LastAccessed reports when the dashboard was last used, or the zero time if it
+// never has been. A TTL gate built on this is therefore shut at startup.
+func (ts *TraceStore) LastAccessed() time.Time {
+	ns := ts.lastAccess.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 // drainNotifications runs the registered callback for queued events, one at a

@@ -38,6 +38,12 @@ func truncateAttr(s string, max int) string {
 	return s[:cut] + marker
 }
 
+// isDashboardPath reports whether a request path belongs to the dashboard. It is
+// a plain prefix match, matching the skip logic below it.
+func isDashboardPath(path, basePath string) bool {
+	return strings.HasPrefix(path, basePath)
+}
+
 // TracingMiddleware creates a forge middleware that auto-captures request traces
 // and feeds them into the given TraceStore. Only dashboard internals (static
 // assets, SSE streams, and bridge calls) are excluded — page navigations and
@@ -47,6 +53,13 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 		return func(ctx forge.Context) error {
 			req := ctx.Request()
 			path := req.URL.Path
+
+			// Any dashboard request, including static assets and SSE, counts as
+			// someone looking. This is what holds the ingest gate open; see the
+			// gate installed in extension.go.
+			if isDashboardPath(path, basePath) {
+				store.MarkAccessed()
+			}
 
 			// Skip dashboard internal plumbing — these are high-frequency,
 			// low-value requests that would create noise in the trace list.

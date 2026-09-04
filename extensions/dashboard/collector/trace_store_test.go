@@ -230,3 +230,81 @@ func TestTraceStore_GateRejectionIsNotCountedAsDroppedSpan(t *testing.T) {
 		t.Errorf("counted %d dropped spans from gate rejections, want 0", got)
 	}
 }
+
+// A store nobody has touched reports the zero time, so a TTL gate built on it
+// is closed at startup. A service that never opens the dashboard retains nothing.
+func TestTraceStore_LastAccessedIsZeroBeforeAnyAccess(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+
+	if got := ts.LastAccessed(); !got.IsZero() {
+		t.Errorf("LastAccessed on a fresh store is %v, want the zero time", got)
+	}
+}
+
+func TestTraceStore_MarkAccessedRecordsTheTime(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+
+	before := time.Now()
+	ts.MarkAccessed()
+	after := time.Now()
+
+	got := ts.LastAccessed()
+	if got.Before(before) || got.After(after) {
+		t.Errorf("LastAccessed is %v, want between %v and %v", got, before, after)
+	}
+}
+
+// The composed TTL gate: shut before anyone looks, open just after, shut again
+// once the window lapses.
+func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+
+	const ttl = 50 * time.Millisecond
+	gate := func() bool { return time.Since(ts.LastAccessed()) < ttl }
+	ts.SetIngestGate(gate)
+
+	ts.AddSpan(span("trace-a", "span"))
+	ts.mu.RLock()
+	n := len(ts.traces)
+	ts.mu.RUnlock()
+	if n != 0 {
+		t.Errorf("stored %d traces before any dashboard access, want 0", n)
+	}
+
+	ts.MarkAccessed()
+	ts.AddSpan(span("trace-b", "span"))
+	ts.mu.RLock()
+	n = len(ts.traces)
+	ts.mu.RUnlock()
+	if n != 1 {
+		t.Errorf("stored %d traces just after access, want 1", n)
+	}
+
+	time.Sleep(2 * ttl)
+	ts.AddSpan(span("trace-c", "span"))
+	ts.mu.RLock()
+	n = len(ts.traces)
+	ts.mu.RUnlock()
+	if n != 1 {
+		t.Errorf("stored %d traces after the window lapsed, want the original 1", n)
+	}
+}
+
+// MarkAccessed runs on the request path alongside AddSpan. It must not race.
+func TestTraceStore_MarkAccessedIsRaceFree(t *testing.T) {
+	ts := NewTraceStore(100, time.Hour)
+	ts.SetIngestGate(func() bool { return !ts.LastAccessed().IsZero() })
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				ts.MarkAccessed()
+				ts.AddSpan(span("trace-a", "span"))
+			}
+		}()
+	}
+	wg.Wait()
+}

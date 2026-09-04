@@ -58,6 +58,9 @@ type Config struct {
 	// Tracing
 	TraceMaxCount  int           `json:"trace_max_count"  yaml:"trace_max_count"`
 	TraceRetention time.Duration `json:"trace_retention"  yaml:"trace_retention"`
+	// TraceIdleTTL is how long after the last dashboard request spans keep being
+	// retained. Zero or negative retains always, which is the pre-gate behaviour.
+	TraceIdleTTL time.Duration `json:"trace_idle_ttl" yaml:"trace_idle_ttl"`
 
 	// Proxy/Remote
 	ProxyTimeout time.Duration `json:"proxy_timeout"  yaml:"proxy_timeout"`
@@ -121,6 +124,7 @@ func DefaultConfig() Config {
 
 		TraceMaxCount:  200,
 		TraceRetention: 30 * time.Minute,
+		TraceIdleTTL:   5 * time.Minute,
 
 		ProxyTimeout: 10 * time.Second,
 		CacheMaxSize: 100,
@@ -271,6 +275,12 @@ func WithTraceRetention(duration time.Duration) ConfigOption {
 	return func(c *Config) { c.TraceRetention = duration }
 }
 
+// WithTraceIdleTTL sets how long after the last dashboard request traces keep
+// being collected. Pass zero or a negative duration to collect always.
+func WithTraceIdleTTL(duration time.Duration) ConfigOption {
+	return func(c *Config) { c.TraceIdleTTL = duration }
+}
+
 // WithProxyTimeout sets the timeout for proxying requests to remote contributors.
 func WithProxyTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) { c.ProxyTimeout = timeout }
@@ -374,18 +384,21 @@ func WithMemoryProfile(profile MemoryProfile) ConfigOption {
 			c.HistoryDuration = 15 * time.Minute
 			c.TraceMaxCount = 50
 			c.TraceRetention = 10 * time.Minute
+			c.TraceIdleTTL = 1 * time.Minute
 			c.CacheMaxSize = 50
 		case MemoryProfileHigh:
 			c.MaxDataPoints = 500
 			c.HistoryDuration = 1 * time.Hour
 			c.TraceMaxCount = 1000
 			c.TraceRetention = 1 * time.Hour
+			c.TraceIdleTTL = 15 * time.Minute
 			c.CacheMaxSize = 500
 		default: // medium — same as DefaultConfig
 			c.MaxDataPoints = 120
 			c.HistoryDuration = 30 * time.Minute
 			c.TraceMaxCount = 200
 			c.TraceRetention = 30 * time.Minute
+			c.TraceIdleTTL = 5 * time.Minute
 			c.CacheMaxSize = 100
 		}
 	}

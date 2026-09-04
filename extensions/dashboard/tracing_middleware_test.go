@@ -63,3 +63,27 @@ func TestTruncateAttr_InvalidUTF8DoesNotPanic(t *testing.T) {
 		t.Errorf("truncateAttr returned %d bytes, want at most 257", len(got))
 	}
 }
+
+func TestIsDashboardPath(t *testing.T) {
+	const base = "/dashboard"
+
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/dashboard", true},
+		{"/dashboard/", true},
+		{"/dashboard/ui", true},
+		{"/dashboard/api/dashboard/v1", true},
+		{"/dashboard/static/app.css", true},
+		{"/api/users", false},
+		{"/", false},
+		{"/dashboards-elsewhere", true}, // prefix match, documented below
+	}
+
+	for _, c := range cases {
+		if got := isDashboardPath(c.path, base); got != c.want {
+			t.Errorf("isDashboardPath(%q, %q) = %v, want %v", c.path, base, got, c.want)
+		}
+	}
+}
