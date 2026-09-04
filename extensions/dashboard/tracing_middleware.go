@@ -4,10 +4,32 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 )
+
+// maxAttrValueLen bounds a single span attribute value. Query strings and user
+// agents come straight from the caller and are retained for the whole
+// retention window, so they need a ceiling.
+const maxAttrValueLen = 256
+
+// truncateAttr shortens s to at most max bytes, ending on a rune boundary and
+// marking the cut. Values already within the limit are returned unchanged.
+func truncateAttr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+
+	const marker = "..."
+	cut := max - len(marker)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+
+	return s[:cut] + marker
+}
 
 // TracingMiddleware creates a forge middleware that auto-captures request traces
 // and feeds them into the given TraceStore. Only dashboard internals (static
@@ -70,13 +92,13 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 				"protocol":    protocol,
 			}
 			if req.URL.RawQuery != "" {
-				attrs["http.query"] = req.URL.RawQuery
+				attrs["http.query"] = truncateAttr(req.URL.RawQuery, maxAttrValueLen)
 			}
 			if ua := req.UserAgent(); ua != "" {
-				attrs["http.user_agent"] = ua
+				attrs["http.user_agent"] = truncateAttr(ua, maxAttrValueLen)
 			}
 			if err != nil {
-				attrs["error"] = err.Error()
+				attrs["error"] = truncateAttr(err.Error(), maxAttrValueLen)
 			}
 
 			span := &collector.SpanView{
