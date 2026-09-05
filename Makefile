@@ -516,6 +516,14 @@ docs-generate:
 # Tools installation
 # ==============================================================================
 
+.PHONY: hooks
+## hooks: Install the repo's git hooks (commit message validation)
+hooks:
+	@git config core.hooksPath .githooks
+	@echo "$(COLOR_GREEN)✓ core.hooksPath set to .githooks$(COLOR_RESET)"
+	@echo "  commit-msg now checks the same rules as the PR Conventional Commits workflow."
+	@echo "  Run 'git config --unset core.hooksPath' to undo."
+
 .PHONY: install-tools
 ## install-tools: Install development tools
 install-tools:
