@@ -109,6 +109,16 @@ type Extension struct {
 	forwardingMu        sync.Mutex
 	forwardingInstalled bool
 
+	// contributorStatus maps a contract contributor's name to the extension
+	// that registered it, for extensions implementing DashboardStatusAware.
+	// The interface value is stored rather than a DashboardStatus snapshot so
+	// the capabilities endpoint reads the live answer — Configured can flip
+	// after boot when an extension is configured at runtime. contributorStatusMu
+	// guards the map: discovery writes at Start, remote watchers write later,
+	// and the capabilities handler reads concurrently with both.
+	contributorStatusMu sync.Mutex
+	contributorStatus   map[string]DashboardStatusAware
+
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
 	// Each entry's cancel func is invoked from Stop so watchers shut down
@@ -510,6 +520,15 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			continue
 		}
 
+		// Snapshot the contract registry before this extension registers
+		// anything, so recordContributorStatus can tell which contributor
+		// names below belong to it. Only DashboardStatusAware extensions
+		// need the snapshot; for the rest it stays nil.
+		var contractBefore map[string]struct{}
+		if _, ok := ext.(DashboardStatusAware); ok {
+			contractBefore = e.contractContributorNames()
+		}
+
 		// Auto-register DashboardAware contributors. Wrapped in a closure so
 		// early returns skip only the contributor block — later interface
 		// checks (BridgeAware, DashboardAuthAware, DashboardFooterContributor)
@@ -634,12 +653,73 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				)
 			}
 		}
+
+		// Attribute every contract contributor this extension just
+		// registered — via ContractContributorAware above or via the
+		// manifest mirrored from its legacy contributor — to its
+		// DashboardStatusAware implementation.
+		e.recordContributorStatus(ext, contractBefore)
 	}
 
 	// Rebuild search index after auto-discovery
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
+}
+
+// contractContributorNames returns the set of contributor names currently in
+// the contract registry.
+func (e *Extension) contractContributorNames() map[string]struct{} {
+	if e.contractRegistry == nil {
+		return nil
+	}
+	all := e.contractRegistry.All()
+	names := make(map[string]struct{}, len(all))
+	for _, m := range all {
+		names[m.Contributor.Name] = struct{}{}
+	}
+	return names
+}
+
+// recordContributorStatus associates ext's DashboardStatusAware implementation
+// with each contract contributor that appeared in the registry since the before
+// snapshot was taken. Contributor names are not known at the call site — an
+// extension registers its own manifest — so they are recovered by diffing.
+func (e *Extension) recordContributorStatus(ext forge.Extension, before map[string]struct{}) {
+	sa, ok := ext.(DashboardStatusAware)
+	if !ok || e.contractRegistry == nil {
+		return
+	}
+	e.contributorStatusMu.Lock()
+	defer e.contributorStatusMu.Unlock()
+	for _, m := range e.contractRegistry.All() {
+		if _, existed := before[m.Contributor.Name]; existed {
+			continue
+		}
+		if e.contributorStatus == nil {
+			e.contributorStatus = make(map[string]DashboardStatusAware)
+		}
+		e.contributorStatus[m.Contributor.Name] = sa
+	}
+}
+
+// contributorStatusFor is the transport.ContributorStatusFunc the capabilities
+// endpoint reads. ok is false for contributors whose extension does not report
+// a status — including the dashboard's own contributors and remotes — and the
+// handler then applies the permissive default.
+func (e *Extension) contributorStatusFor(name string) (transport.ContributorStatus, bool) {
+	e.contributorStatusMu.Lock()
+	sa, ok := e.contributorStatus[name]
+	e.contributorStatusMu.Unlock()
+	if !ok {
+		return transport.ContributorStatus{}, false
+	}
+	st := sa.DashboardStatus()
+	return transport.ContributorStatus{
+		Version:    st.Version,
+		Configured: st.Configured,
+		Message:    st.Message,
+	}, true
 }
 
 // startNotificationForwarding subscribes to all NotifiableContributor channels
@@ -1695,7 +1775,7 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 // currently registered with contract manifests. The shell envelope list here
 // must stay in sync with transport.NewHandler's supported set.
 func (e *Extension) handleContractCapabilities() http.HandlerFunc {
-	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}).ServeHTTP
+	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}, e.contributorStatusFor).ServeHTTP
 }
 
 // mountEmbeddedAssets iterates local contributors and mounts static asset handlers
