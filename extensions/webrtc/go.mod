@@ -136,3 +136,7 @@ replace github.com/xraph/forge/extensions/streaming => ../streaming
 replace github.com/xraph/forge => ../../
 
 replace github.com/xraph/forge/extensions/auth => ../auth
+
+// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
+// is unreleased. Remove together with the root's when go-utils is tagged.
+replace github.com/xraph/go-utils => ../../../go-utils

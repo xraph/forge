@@ -119,3 +119,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
+// is unreleased. Remove together with the root's when go-utils is tagged.
+replace github.com/xraph/go-utils => ../../../go-utils
