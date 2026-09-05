@@ -58,6 +58,16 @@ type Config struct {
 	// Tracing
 	TraceMaxCount  int           `json:"trace_max_count"  yaml:"trace_max_count"`
 	TraceRetention time.Duration `json:"trace_retention"  yaml:"trace_retention"`
+	// TraceMaxSpansPerTrace caps how many spans one trace retains. A single
+	// long-lived trace, such as a websocket, would otherwise grow unbounded.
+	TraceMaxSpansPerTrace int `json:"trace_max_spans_per_trace" yaml:"trace_max_spans_per_trace"`
+	// TraceIdleTTL is how long after the last dashboard request spans keep being
+	// retained. A negative duration disables the gate, retaining always (the
+	// pre-gate behaviour). Zero is not a reliable way to disable it: under a
+	// ConfigManager, config merging (see extension_config.go) only overrides a
+	// field when the source value is non-zero, so an explicit 0 here is
+	// silently skipped and the default survives.
+	TraceIdleTTL time.Duration `json:"trace_idle_ttl" yaml:"trace_idle_ttl"`
 
 	// Proxy/Remote
 	ProxyTimeout time.Duration `json:"proxy_timeout"  yaml:"proxy_timeout"`
@@ -119,8 +129,10 @@ func DefaultConfig() Config {
 		HistoryDuration: 30 * time.Minute,
 		MaxDataPoints:   120,
 
-		TraceMaxCount:  200,
-		TraceRetention: 30 * time.Minute,
+		TraceMaxCount:         200,
+		TraceRetention:        30 * time.Minute,
+		TraceMaxSpansPerTrace: 200,
+		TraceIdleTTL:          5 * time.Minute,
 
 		ProxyTimeout: 10 * time.Second,
 		CacheMaxSize: 100,
@@ -271,6 +283,20 @@ func WithTraceRetention(duration time.Duration) ConfigOption {
 	return func(c *Config) { c.TraceRetention = duration }
 }
 
+// WithTraceMaxSpansPerTrace sets how many spans a single trace retains.
+func WithTraceMaxSpansPerTrace(n int) ConfigOption {
+	return func(c *Config) { c.TraceMaxSpansPerTrace = n }
+}
+
+// WithTraceIdleTTL sets how long after the last dashboard request traces keep
+// being collected. Pass a negative duration to collect always, disabling the
+// gate. Passing zero is not reliable for this: under a ConfigManager, config
+// merging only overrides a field when the source value is non-zero, so an
+// explicit zero here can be silently skipped in favor of the existing value.
+func WithTraceIdleTTL(duration time.Duration) ConfigOption {
+	return func(c *Config) { c.TraceIdleTTL = duration }
+}
+
 // WithProxyTimeout sets the timeout for proxying requests to remote contributors.
 func WithProxyTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) { c.ProxyTimeout = timeout }
@@ -374,18 +400,24 @@ func WithMemoryProfile(profile MemoryProfile) ConfigOption {
 			c.HistoryDuration = 15 * time.Minute
 			c.TraceMaxCount = 50
 			c.TraceRetention = 10 * time.Minute
+			c.TraceMaxSpansPerTrace = 50
+			c.TraceIdleTTL = 1 * time.Minute
 			c.CacheMaxSize = 50
 		case MemoryProfileHigh:
 			c.MaxDataPoints = 500
 			c.HistoryDuration = 1 * time.Hour
 			c.TraceMaxCount = 1000
 			c.TraceRetention = 1 * time.Hour
+			c.TraceMaxSpansPerTrace = 500
+			c.TraceIdleTTL = 15 * time.Minute
 			c.CacheMaxSize = 500
 		default: // medium — same as DefaultConfig
 			c.MaxDataPoints = 120
 			c.HistoryDuration = 30 * time.Minute
 			c.TraceMaxCount = 200
 			c.TraceRetention = 30 * time.Minute
+			c.TraceMaxSpansPerTrace = 200
+			c.TraceIdleTTL = 5 * time.Minute
 			c.CacheMaxSize = 100
 		}
 	}

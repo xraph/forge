@@ -4,10 +4,50 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 )
+
+// maxAttrValueLen bounds a single span attribute value. Query strings and user
+// agents come straight from the caller and are retained for the whole
+// retention window, so they need a ceiling.
+const maxAttrValueLen = 256
+
+// truncateAttr shortens s to at most max bytes, ending on a rune boundary and
+// marking the cut. Values already within the limit are returned unchanged.
+func truncateAttr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+
+	const marker = "..."
+	if max <= len(marker) {
+		if max <= 0 {
+			return ""
+		}
+		return marker[:max]
+	}
+
+	cut := max - len(marker)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+
+	return s[:cut] + marker
+}
+
+// isDashboardPath reports whether a request path belongs to the dashboard: an
+// exact match on basePath, or basePath followed by a "/". This is deliberately
+// stricter than the plain-prefix skip logic below it — that logic only decides
+// whether to trace a request that is already known to be a dashboard request,
+// whereas this decides whether an unrelated sibling route (e.g. a
+// "/dashboard-admin" service that gets polled) is allowed to hold the ingest
+// gate open, which a bare prefix match would do incorrectly.
+func isDashboardPath(path, basePath string) bool {
+	return path == basePath || strings.HasPrefix(path, basePath+"/")
+}
 
 // TracingMiddleware creates a forge middleware that auto-captures request traces
 // and feeds them into the given TraceStore. Only dashboard internals (static
@@ -18,6 +58,13 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 		return func(ctx forge.Context) error {
 			req := ctx.Request()
 			path := req.URL.Path
+
+			// Any dashboard request, including static assets and SSE, counts as
+			// someone looking. This is what holds the ingest gate open; see the
+			// gate installed in extension.go.
+			if isDashboardPath(path, basePath) {
+				store.MarkAccessed()
+			}
 
 			// Skip dashboard internal plumbing — these are high-frequency,
 			// low-value requests that would create noise in the trace list.
@@ -62,27 +109,30 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 				status = collector.SpanStatusError
 			}
 
-			// Build attributes.
+			// Build attributes. http.path and http.host are caller-controlled
+			// and unbounded (Go accepts a request line up to MaxHeaderBytes+4096,
+			// about 1MB by default), so they are truncated at the point of
+			// storage just like the query and user-agent attributes below.
 			attrs := map[string]string{
 				"http.method": req.Method,
-				"http.path":   path,
-				"http.host":   req.Host,
+				"http.path":   truncateAttr(req.URL.Path, maxAttrValueLen),
+				"http.host":   truncateAttr(req.Host, maxAttrValueLen),
 				"protocol":    protocol,
 			}
 			if req.URL.RawQuery != "" {
-				attrs["http.query"] = req.URL.RawQuery
+				attrs["http.query"] = truncateAttr(req.URL.RawQuery, maxAttrValueLen)
 			}
 			if ua := req.UserAgent(); ua != "" {
-				attrs["http.user_agent"] = ua
+				attrs["http.user_agent"] = truncateAttr(ua, maxAttrValueLen)
 			}
 			if err != nil {
-				attrs["error"] = err.Error()
+				attrs["error"] = truncateAttr(err.Error(), maxAttrValueLen)
 			}
 
 			span := &collector.SpanView{
 				SpanID:     spanID,
 				TraceID:    traceID,
-				Name:       req.Method + " " + path,
+				Name:       truncateAttr(req.Method+" "+path, maxAttrValueLen),
 				Kind:       collector.SpanKindServer,
 				Status:     status,
 				StartTime:  start,

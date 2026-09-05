@@ -109,6 +109,25 @@ type Extension struct {
 	forwardingMu        sync.Mutex
 	forwardingInstalled bool
 
+	// contributorStatus maps a contract contributor's name to the extension
+	// that registered it, for extensions implementing DashboardStatusAware.
+	// The interface value is stored rather than a DashboardStatus snapshot so
+	// the capabilities endpoint reads the live answer — Configured can flip
+	// after boot when an extension is configured at runtime.
+	//
+	// contributorStatusMu guards the map and nothing else. Writers are
+	// attributeContributorStatus and forgetContributorStatus; the capabilities
+	// handler reads through contributorStatusFor while serving. Discovery
+	// writes during Start, but an extension may hold the registry it was
+	// handed and register more contributors later from its own goroutine, so
+	// "writes finish before serving begins" is not an invariant we have.
+	// What the lock does not cover, because the recorder made it moot: the
+	// registry state around a registration. Attribution is now observed
+	// inside the Register call rather than reconstructed from before/after
+	// snapshots, so no cross-registry window needs guarding.
+	contributorStatusMu sync.Mutex
+	contributorStatus   map[string]DashboardStatusAware
+
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
 	// Each entry's cancel func is invoked from Stop so watchers shut down
@@ -213,7 +232,7 @@ func (e *Extension) Register(app forge.App) error {
 	e.collector.SetCacheTTL(e.config.RefreshInterval)
 
 	// Initialize trace store for dashboard tracing UI
-	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention)
+	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention, collector.WithMaxSpansPerTrace(e.config.TraceMaxSpansPerTrace))
 
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {
@@ -221,6 +240,30 @@ func (e *Extension) Register(app forge.App) error {
 		e.Logger().Debug("SSE broker initialized",
 			forge.F("keep_alive", e.config.SSEKeepAlive.String()),
 		)
+	}
+
+	// Retain spans only while somebody is actually using the dashboard. The
+	// marker is stamped by TracingMiddleware on any request under BasePath, and
+	// a live SSE subscriber counts too: the shell consumes SSE directly and does
+	// not poll, so a viewer who only streams would otherwise fall outside the
+	// TTL window and starve. The gate stays open for as long as someone is
+	// looking (streaming or requesting) and shuts a few minutes after they
+	// stop. A service nobody ever visits pays nothing. Installed after the SSE
+	// broker so the closure can capture it (it is nil when realtime is
+	// disabled, which the closure handles).
+	if ttl := e.config.TraceIdleTTL; ttl > 0 {
+		ts := e.traceStore
+		broker := e.sseBroker
+		ts.SetIngestGate(func() bool {
+			// Somebody has a live stream open: they are watching right now, even
+			// if the shell issues no further requests. The React shell consumes
+			// SSE directly and does not poll, so without this the gate would shut
+			// under an active viewer.
+			if broker != nil && broker.ClientCount() > 0 {
+				return true
+			}
+			return time.Since(ts.LastAccessed()) < ttl
+		})
 	}
 
 	// Initialize fragment proxy for remote contributors
@@ -486,6 +529,16 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			continue
 		}
 
+		// Extensions that report a dashboard status get a recorder, which
+		// captures the name of every contract contributor they register as
+		// they register it. Nothing is inferred: attribution is a fact
+		// observed at the registration call, so it does not depend on start
+		// order and has no window between observing and recording.
+		var statusRec *contributorStatusRecorder
+		if sa, ok := ext.(DashboardStatusAware); ok {
+			statusRec = &contributorStatusRecorder{ext: sa, host: e}
+		}
+
 		// Auto-register DashboardAware contributors. Wrapped in a closure so
 		// early returns skip only the contributor block — later interface
 		// checks (BridgeAware, DashboardAuthAware, DashboardFooterContributor)
@@ -540,6 +593,10 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 							forge.F("extension", ext.Name()),
 							forge.F("error", err.Error()),
 						)
+					} else {
+						// The manifest names its contributor, so this path
+						// attributes directly without a recorder.
+						statusRec.record(mn.Contract.Contributor.Name)
 					}
 				}
 
@@ -599,7 +656,15 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 		// legacy templ contributor (if any) keeps working in parallel.
 		if cca, ok := ext.(ContractContributorAware); ok &&
 			e.dispatcher != nil && e.contractRegistry != nil && e.wardenRegistry != nil {
-			if err := cca.RegisterContractContributor(e.dispatcher, e.contractRegistry, e.wardenRegistry); err != nil {
+			// The extension registers its own manifest, so the contributor
+			// name is only knowable from inside the call. Wrapping the
+			// registry is what makes it knowable; unwrapped extensions get
+			// the bare registry so their path is unchanged.
+			reg := e.contractRegistry
+			if statusRec != nil {
+				reg = &recordingRegistry{Registry: e.contractRegistry, rec: statusRec}
+			}
+			if err := cca.RegisterContractContributor(e.dispatcher, reg, e.wardenRegistry); err != nil {
 				e.Logger().Error("failed to register contract contributor",
 					forge.F("extension", ext.Name()),
 					forge.F("error", err.Error()),
@@ -610,12 +675,155 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				)
 			}
 		}
+
+		// An extension that reports a status but registered no contract
+		// contributor here has nothing to attach that status to, so the
+		// capabilities endpoint will report its contributors with the
+		// permissive default. Silently rendering an unconfigured extension
+		// as ready is the failure the four-state design exists to prevent,
+		// so say so at startup. The usual cause is a registration path
+		// attribution does not cover — see RegisterContributor.
+		if statusRec != nil && statusRec.attributed() == 0 {
+			e.Logger().Warn("extension reports a dashboard status but registered no contract contributor to attach it to; its plugins will render as configured",
+				forge.F("extension", ext.Name()),
+			)
+		}
 	}
 
 	// Rebuild search index after auto-discovery
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
+}
+
+// contributorStatusRecorder attributes contract contributors to the one
+// extension that registered them. A nil recorder is a working no-op, which is
+// what extensions that do not implement DashboardStatusAware get.
+//
+// Attribution happens inside the registration call, not around it, so there is
+// no window during which another registration could be miscredited and no
+// dependence on whether the extension was already in the registry when
+// discovery reached it.
+type contributorStatusRecorder struct {
+	ext  DashboardStatusAware
+	host *Extension
+
+	// mu guards count only. It is separate from the host's
+	// contributorStatusMu because an extension is free to keep the registry
+	// it was handed and register more contributors later, from its own
+	// goroutine.
+	mu    sync.Mutex
+	count int
+}
+
+func (r *contributorStatusRecorder) record(name string) {
+	if r == nil || r.ext == nil || name == "" {
+		return
+	}
+	r.host.attributeContributorStatus(name, r.ext)
+	r.mu.Lock()
+	r.count++
+	r.mu.Unlock()
+}
+
+// attributed reports how many contributors this extension registered.
+func (r *contributorStatusRecorder) attributed() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.count
+}
+
+// recordingRegistry is the contract.Registry handed to an extension that
+// reports a dashboard status. Both registration methods record the manifest's
+// contributor name after the underlying registry accepts it, and Unregister
+// drops it again; every other method delegates untouched through the embedded
+// interface.
+type recordingRegistry struct {
+	contract.Registry
+
+	rec *contributorStatusRecorder
+}
+
+func (r *recordingRegistry) Register(m *contract.ContractManifest) error {
+	if err := r.Registry.Register(m); err != nil {
+		return err
+	}
+	if m != nil {
+		r.rec.record(m.Contributor.Name)
+	}
+
+	return nil
+}
+
+func (r *recordingRegistry) RegisterRemote(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
+	if err := r.Registry.RegisterRemote(m, endpoint); err != nil {
+		return err
+	}
+	if m != nil {
+		r.rec.record(m.Contributor.Name)
+	}
+
+	return nil
+}
+
+// Unregister drops the contributor's status attribution along with the
+// registration itself. Contributors are keyed by name and a freed name can be
+// claimed by a different party later; without this the new owner would serve
+// the previous owner's live status. This is the same hazard
+// UnregisterRemoteContractContributor closes, reached through the other of the
+// two routes that free a name.
+func (r *recordingRegistry) Unregister(contributor string) {
+	r.Registry.Unregister(contributor)
+	if r.rec != nil && r.rec.host != nil {
+		r.rec.host.forgetContributorStatus(contributor)
+	}
+}
+
+// attributeContributorStatus records that the named contract contributor is
+// served by sa, so the capabilities endpoint can ask sa for its live status.
+func (e *Extension) attributeContributorStatus(name string, sa DashboardStatusAware) {
+	if sa == nil || name == "" {
+		return
+	}
+	e.contributorStatusMu.Lock()
+	defer e.contributorStatusMu.Unlock()
+	if e.contributorStatus == nil {
+		e.contributorStatus = make(map[string]DashboardStatusAware)
+	}
+	e.contributorStatus[name] = sa
+}
+
+// forgetContributorStatus drops a contributor's attribution. Contributors are
+// keyed by name, and a name freed by an unregister can be claimed by a
+// different party later; without this the new owner would serve the old
+// owner's live status.
+func (e *Extension) forgetContributorStatus(name string) {
+	e.contributorStatusMu.Lock()
+	defer e.contributorStatusMu.Unlock()
+	delete(e.contributorStatus, name)
+}
+
+// contributorStatusFor is the transport.ContributorStatusFunc the capabilities
+// endpoint reads. ok is false for contributors whose extension does not report
+// a status — including the dashboard's own contributors and remotes — and the
+// handler then applies the permissive default.
+func (e *Extension) contributorStatusFor(name string) (transport.ContributorStatus, bool) {
+	e.contributorStatusMu.Lock()
+	sa, ok := e.contributorStatus[name]
+	e.contributorStatusMu.Unlock()
+	if !ok {
+		return transport.ContributorStatus{}, false
+	}
+	st := sa.DashboardStatus()
+	return transport.ContributorStatus{
+		Version:    st.Version,
+		Configured: st.Configured,
+		Message:    st.Message,
+	}, true
 }
 
 // startNotificationForwarding subscribes to all NotifiableContributor channels
@@ -696,6 +904,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 	// Stop data collector
 	if e.collector != nil {
 		e.collector.Stop()
+	}
+
+	if e.traceStore != nil {
+		e.traceStore.Close()
 	}
 
 	e.MarkStopped()
@@ -790,6 +1002,7 @@ func (e *Extension) UnregisterRemoteContractContributor(name string) {
 	if e.contractRegistry != nil {
 		e.contractRegistry.Unregister(name)
 	}
+	e.forgetContributorStatus(name)
 }
 
 // installForwardingDispatcherOnce wires a ForwardingDispatcher into the
@@ -811,6 +1024,15 @@ func (e *Extension) installForwardingDispatcherOnce() {
 
 // RegisterContributor registers a local contributor with the dashboard.
 // This is the primary API for extensions to contribute UI to the dashboard.
+//
+// Dashboard-status attribution does not cover this path. It takes a
+// LocalContributor, not an extension, so there is no DashboardStatusAware
+// value to attach: a contract contributor registered here reports the
+// permissive default (empty version, configured) no matter what its extension
+// would say. discoverExtensionContributors logs a warning naming any
+// DashboardStatusAware extension that ends up with nothing attributed, which
+// is how this shows up. Any new registration path has the same gap unless it
+// routes through a recordingRegistry or calls attributeContributorStatus.
 func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
 	if err := e.registry.RegisterLocal(c); err != nil {
 		return err
@@ -1128,6 +1350,11 @@ func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *co
 	// Mirror the contract manifest into the contract registry when the remote
 	// publishes one. Same validate-then-register path as local contributors so
 	// remote-published contracts get the same warden checks.
+	//
+	// Like RegisterContributor, this path carries no dashboard-status
+	// attribution: a remote contributor is not a local extension, so there is
+	// no DashboardStatusAware value here. Remotes report the permissive
+	// default.
 	if manifest != nil && manifest.Contract != nil {
 		if err := e.registerContractManifest(manifest.Contract); err != nil {
 			// Best-effort: log and unwind the legacy registration so we don't
@@ -1667,7 +1894,7 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 // currently registered with contract manifests. The shell envelope list here
 // must stay in sync with transport.NewHandler's supported set.
 func (e *Extension) handleContractCapabilities() http.HandlerFunc {
-	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}).ServeHTTP
+	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}, e.contributorStatusFor).ServeHTTP
 }
 
 // mountEmbeddedAssets iterates local contributors and mounts static asset handlers
