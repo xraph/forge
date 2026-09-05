@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+#
+# Rejects commit messages that .github/workflows/pr-conventional-commits.yml
+# would reject, so you find out now instead of after pushing a PR.
+#
+# Deliberately has no dependencies. The CI job installs commitlint; this repo is
+# Go, and needing an npm install to make a commit is a worse trade than an
+# approximation that runs instantly. CI remains the authority. If the two ever
+# disagree, CI is right and this file is wrong.
+#
+# Install with: make hooks
+
+set -uo pipefail
+
+MSG_FILE="$1"
+LIMIT=100
+
+TYPES="build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test"
+
+# Strip comments and anything below the verbose-commit scissors line, so a diff
+# in the editor buffer is never mistaken for the message body.
+BODY_TEXT="$(sed -e '/^# ------------------------ >8 ------------------------$/,$d' -e '/^#/d' "$MSG_FILE")"
+
+# First non-blank line is the header.
+HEADER="$(printf '%s\n' "$BODY_TEXT" | grep -v '^[[:space:]]*$' | head -n 1)"
+
+# Nothing to check: an empty message aborts the commit on git's own terms.
+[ -z "$HEADER" ] && exit 0
+
+# Cases commitlint's defaultIgnores skips, and so do we.
+case "$HEADER" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*)
+    exit 0
+    ;;
+esac
+
+fail() {
+  echo ""
+  echo "  commit-msg: $1"
+  shift
+  for line in "$@"; do echo "              $line"; done
+  FAILED=1
+}
+
+FAILED=0
+
+# ---- header shape: type(optional scope)(optional !): subject -----------------
+# The scope allows commas and spaces because commitlint does: this repo really
+# ships commits like "feat(client-vue,client-angular): ...", and rejecting those
+# would be the hook inventing a rule CI does not have.
+if ! printf '%s' "$HEADER" | grep -qE "^($TYPES)(\([a-z0-9._/, -]+\))?!?: .+"; then
+  fail "header is not 'type(scope): subject'" \
+       "got:   $HEADER" \
+       "types: $(echo "$TYPES" | tr '|' ' ')"
+  # Everything below reads the subject, which we cannot trust now.
+  echo ""
+  exit 1
+fi
+
+SUBJECT="${HEADER#*: }"
+
+# ---- lengths ----------------------------------------------------------------
+if [ "${#HEADER}" -gt "$LIMIT" ]; then
+  fail "header is ${#HEADER} characters, limit is $LIMIT" \
+       "Shorten the subject and move the detail into the body," \
+       "where there is no length limit per paragraph."
+fi
+
+if [ "${#SUBJECT}" -gt "$LIMIT" ]; then
+  fail "subject is ${#SUBJECT} characters, limit is $LIMIT"
+fi
+
+# ---- subject punctuation ----------------------------------------------------
+case "$SUBJECT" in
+  *.) fail "subject ends with a full stop" "got: $SUBJECT" ;;
+esac
+
+# ---- subject case -----------------------------------------------------------
+# commitlint forbids start-case, pascal-case and upper-case here. These are
+# approximations of those checks, kept deliberately lenient: a false reject
+# blocks real work, while a false accept only defers the failure to CI.
+if printf '%s' "$SUBJECT" | grep -qE '^[^a-z]+$' && printf '%s' "$SUBJECT" | grep -qE '[A-Z]'; then
+  fail "subject is upper-case" "got: $SUBJECT"
+fi
+
+if printf '%s' "$SUBJECT" | grep -qE '^([A-Z][a-z0-9]*)( [A-Z][a-z0-9]*)+$'; then
+  fail "subject is Start Case" "got: $SUBJECT" "Write it as a normal sentence, lower case."
+fi
+
+if printf '%s' "$SUBJECT" | grep -qE '^[A-Z][a-z0-9]*([A-Z][a-z0-9]*)+$'; then
+  fail "subject is PascalCase" "got: $SUBJECT"
+fi
+
+# ---- body and footer line length --------------------------------------------
+# commitlint caps body and footer lines at 100 each. Both limits are the same
+# here, so every line after the header gets the same check.
+LONG_LINES="$(printf '%s\n' "$BODY_TEXT" | tail -n +2 | awk -v lim="$LIMIT" 'length($0) > lim { print NR+1 ": " length($0) " chars" }')"
+if [ -n "$LONG_LINES" ]; then
+  fail "these lines exceed $LIMIT characters:"
+  printf '%s\n' "$LONG_LINES" | while IFS= read -r l; do echo "              $l"; done
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+  echo ""
+  echo "              Commit rejected. Fix the message and try again, or pass"
+  echo "              --no-verify if you are certain and will fix it before pushing."
+  echo ""
+  exit 1
+fi
+
+exit 0
