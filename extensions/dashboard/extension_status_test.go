@@ -383,6 +383,36 @@ func TestUnregisterRemoteContractContributor_ForgetsStatus(t *testing.T) {
 	}
 }
 
+// TestRecordingRegistry_UnregisterForgetsStatus is the sibling of the test
+// above, taking the other of the two routes that free a contributor name. An
+// extension keeps the registry it was handed and can unregister through it at
+// any time; if that route leaves the attribution behind, the next party to
+// claim the name serves this extension's live status.
+func TestRecordingRegistry_UnregisterForgetsStatus(t *testing.T) {
+	e := newDiscoveryTestExt(t, nil)
+	sa := newStatusExt("billing", "", DashboardStatus{Version: "1.0.0", Configured: false})
+	reg := &recordingRegistry{
+		Registry: e.contractRegistry,
+		rec:      &contributorStatusRecorder{ext: sa, host: e},
+	}
+
+	if err := reg.Register(testManifest(t, "billing")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	if _, ok := e.contributorStatusFor("billing"); !ok {
+		t.Fatalf("billing has no status after registering through the recording registry")
+	}
+
+	reg.Unregister("billing")
+
+	if st, ok := e.contributorStatusFor("billing"); ok {
+		t.Errorf("billing still has status %+v after unregistering through the "+
+			"recording registry; the next owner of the name would serve the "+
+			"previous owner's status", st)
+	}
+}
+
 // TestDiscovery_AttributesStatusFromMirroredContractManifest covers the second
 // way a contract contributor reaches the registry during discovery: a legacy
 // DashboardAware contributor whose manifest publishes a contract manifest

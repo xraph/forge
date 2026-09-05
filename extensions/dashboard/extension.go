@@ -739,8 +739,9 @@ func (r *contributorStatusRecorder) attributed() int {
 
 // recordingRegistry is the contract.Registry handed to an extension that
 // reports a dashboard status. Both registration methods record the manifest's
-// contributor name after the underlying registry accepts it; every other
-// method delegates untouched through the embedded interface.
+// contributor name after the underlying registry accepts it, and Unregister
+// drops it again; every other method delegates untouched through the embedded
+// interface.
 type recordingRegistry struct {
 	contract.Registry
 
@@ -767,6 +768,19 @@ func (r *recordingRegistry) RegisterRemote(m *contract.ContractManifest, endpoin
 	}
 
 	return nil
+}
+
+// Unregister drops the contributor's status attribution along with the
+// registration itself. Contributors are keyed by name and a freed name can be
+// claimed by a different party later; without this the new owner would serve
+// the previous owner's live status. This is the same hazard
+// UnregisterRemoteContractContributor closes, reached through the other of the
+// two routes that free a name.
+func (r *recordingRegistry) Unregister(contributor string) {
+	r.Registry.Unregister(contributor)
+	if r.rec != nil && r.rec.host != nil {
+		r.rec.host.forgetContributorStatus(contributor)
+	}
 }
 
 // attributeContributorStatus records that the named contract contributor is
