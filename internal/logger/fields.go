@@ -6,17 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/go-utils/log"
-	"go.uber.org/zap"
 )
-
-// ZapField wraps a zap.Field and implements the Field interface.
-type ZapField = log.ZapField
-
-// CustomField represents a field with custom key-value pairs.
-type CustomField = log.CustomField
-
-// LazyField represents a field that evaluates its value lazily.
-type LazyField = log.LazyField
 
 // Field constructors that return wrapped fields.
 var (
@@ -72,10 +62,6 @@ var (
 	Complex64 = log.Complex64
 
 	Complex128 = log.Complex128
-
-	Object = log.Object
-
-	Array = log.Array
 
 	Stack = log.Stack
 
@@ -149,43 +135,6 @@ var (
 	ContextFields = log.ContextFields
 )
 
-// Enhanced field conversion functions
-
-// FieldsToZap converts Field interfaces to zap.Field efficiently.
-func FieldsToZap(fields []Field) []zap.Field {
-	return log.FieldsToZap(fields)
-}
-
-// MergeFields merges multiple field slices into one.
-func MergeFields(fieldSlices ...[]Field) []Field {
-	totalLen := 0
-	for _, slice := range fieldSlices {
-		totalLen += len(slice)
-	}
-
-	result := make([]Field, 0, totalLen)
-
-	for _, slice := range fieldSlices {
-		for _, field := range slice {
-			if field != nil {
-				result = append(result, field)
-			}
-		}
-	}
-
-	return result
-}
-
-// WrapZapField wraps a zap.Field to implement the Field interface.
-func WrapZapField(zapField zap.Field) Field {
-	return log.WrapZapField(zapField)
-}
-
-// WrapZapFields wraps multiple zap.Fields.
-func WrapZapFields(zapFields []zap.Field) []Field {
-	return log.WrapZapFields(zapFields)
-}
-
 // FieldGroup represents a group of related fields.
 type FieldGroup = log.FieldGroup
 
@@ -220,20 +169,3 @@ var (
 		)
 	}
 )
-
-// Field validation and sanitization
-
-// ValidateField validates a field and returns an error if invalid.
-func ValidateField(field Field) error {
-	return log.ValidateField(field)
-}
-
-// SanitizeFields removes nil and invalid fields.
-func SanitizeFields(fields []Field) []Field {
-	return log.SanitizeFields(fields)
-}
-
-// FieldMap creates a map representation of fields for debugging.
-func FieldMap(fields []Field) map[string]any {
-	return log.FieldMap(fields)
-}

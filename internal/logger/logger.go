@@ -2,7 +2,6 @@ package logger
 
 import (
 	"github.com/xraph/go-utils/log"
-	"go.uber.org/zap/zapcore"
 )
 
 type LogLevel = log.LogLevel
@@ -15,38 +14,36 @@ const (
 	LevelDebug = log.LevelDebug
 )
 
-// NewLogger creates a new logger with the given configuration.
-func NewLogger(config LoggingConfig) Logger {
-	return log.NewLogger(config)
-}
+// Config is the full logger construction surface.
+type Config = log.Config
 
-// NewDevelopmentLogger creates a development logger with enhanced colors.
-func NewDevelopmentLogger() Logger {
-	return log.NewDevelopmentLogger()
-}
+// Format selects the output encoder.
+type Format = log.Format
 
-// NewDevelopmentLoggerWithLevel creates a development logger with specified level.
-func NewDevelopmentLoggerWithLevel(level zapcore.Level) Logger {
-	return log.NewDevelopmentLoggerWithLevel(level)
-}
+const (
+	FormatAuto   = log.FormatAuto
+	FormatPretty = log.FormatPretty
+	FormatJSON   = log.FormatJSON
+)
 
-// NewProductionLogger creates a production logger.
-func NewProductionLogger() Logger {
-	return log.NewProductionLogger()
-}
+// New creates a logger from a full Config.
+func New(cfg Config) Logger { return log.New(cfg) }
 
-// NewNoopLogger creates a logger that does nothing.
-func NewNoopLogger() Logger {
-	return log.NewNoopLogger()
-}
+// NewLogger creates a logger from the configuration-file struct.
+func NewLogger(config LoggingConfig) Logger { return log.NewLogger(config) }
 
-func GetGlobalLogger() Logger {
-	return log.GetGlobalLogger()
-}
+// NewDevelopmentLogger creates a pretty logger at debug level.
+func NewDevelopmentLogger() Logger { return log.NewDevelopmentLogger() }
 
-func SetGlobalLogger(logger Logger) {
-	log.SetGlobalLogger(logger)
-}
+// NewProductionLogger creates a JSON logger.
+func NewProductionLogger() Logger { return log.NewProductionLogger() }
+
+// NewNoopLogger creates a logger that discards everything.
+func NewNoopLogger() Logger { return log.NewNoopLogger() }
+
+func GetGlobalLogger() Logger { return log.GetGlobalLogger() }
+
+func SetGlobalLogger(logger Logger) { log.SetGlobalLogger(logger) }
 
 // ErrorHandler provides a callback-based error handler with logging.
 type ErrorHandler = log.ErrorHandler
