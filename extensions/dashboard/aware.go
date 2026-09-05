@@ -146,10 +146,15 @@ type ContractContributorAware interface {
 
 // DashboardStatus is what an extension reports about itself to the dashboard.
 //
-// The zero value is deliberately the permissive one. An extension that does not
-// implement DashboardStatusAware reports an empty Version and Configured=true,
-// so the plugin host skips the version check rather than failing it, and renders
-// the plugin normally. Nobody has to implement this to keep working.
+// Set Configured explicitly on every value you return. The struct's zero value
+// is Configured=false, the restrictive answer, so a bare DashboardStatus{}
+// returned from a switch default asks the dashboard for a setup panel.
+//
+// The permissive default lives elsewhere: an extension that does not implement
+// DashboardStatusAware at all is reported with an empty Version and
+// Configured=true, so the plugin host skips the version check rather than
+// failing it, and renders the plugin normally. Nobody has to implement this to
+// keep working.
 type DashboardStatus struct {
 	// Version is the extension's semver, checked against the plugin's
 	// `requires` range. Empty means "do not check".
