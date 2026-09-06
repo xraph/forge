@@ -22,8 +22,14 @@ import (
 // path containing a quote or an angle bracket is escaped instead of breaking
 // out of the script tag.
 //
-// The client reads contractBase for its endpoint and basePath for its router
-// basename. Two more fields once lived here, loginContributor and loginOp,
+// The client reads contractBase for its endpoint and shellBase for its router
+// basename. Not basePath, which is the contract's prefix and one directory
+// above the pages: routing on it matches nothing and leaves an empty content
+// pane under chrome that looks perfectly healthy. That was a real bug, it
+// survived a whole wave, and the field sitting right here is what makes it
+// the natural mistake to make.
+//
+// Two more fields once lived here, loginContributor and loginOp,
 // hardcoded to authsome's values with a note that deployments could override
 // them later. Later never came, and nothing consumed them by the time the old
 // shell was deleted. They are deliberately absent: whether the bootstrap is
