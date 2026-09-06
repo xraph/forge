@@ -94,19 +94,19 @@ func (pm *PagesManager) RegisterPages() error {
 	// Resolve the default access level middleware for core pages
 	defaultMW := pm.defaultAccessMiddleware()
 
-	// Slice (i): legacy CoreContributor templ pages are retired. The contract
-	// React shell at {basePath}/ui/* now serves Overview / Health /
-	// Metrics / Traces / Services / Extensions. Old paths 302 to the shell so
-	// existing bookmarks keep working. /metrics/all, /metrics/collectors/:name
-	// and /metrics/detail/*name collapse onto /ui/metrics — slice (j)
-	// adds proper deep-link routes when those pages get rebuilt on the React
-	// side.
-	shellBase := pm.basePath + "/ui"
-
+	// The core dashboard paths — overview, health, metrics, services,
+	// extensions, traces — are unserved by default. The legacy CoreContributor
+	// templ pages were retired and the React shell that briefly replaced them
+	// was deleted along with the rest of the server-driven UI, so these paths
+	// 404 until the prebuilt shell artifact lands. Nothing redirects: bouncing
+	// through a prefix that no longer exists is worse than a clean 404.
+	//
+	// WithLegacyUI(true) serves the templ pages at those paths in the meantime.
+	// RootContributor still owns "/" either way when a deployment set it.
 	if pm.config.LegacyUI {
 		pm.registerLegacyCorePages(defaultMW)
-	} else {
-		pm.registerShellRedirects(shellBase, defaultMW)
+	} else if pm.config.RootContributor != "" {
+		pm.registerRootContributor(pm.config.RootContributor, defaultMW)
 	}
 
 	// Settings pages (use "settings" layout = settings sub-nav → dashboard → root)
@@ -226,14 +226,16 @@ func (pm *PagesManager) registerExtensionLayoutPages() {
 // registerRootContributor wires the dashboard root ("/") to render the named
 // contributor's landing page in place, mirroring how the contributor's own
 // /ext|/remote/<name>/pages route renders (same handler + manifest layout). This
-// lets an embedded dashboard (e.g. authsome) keep owning {BasePath} instead of
-// 302-redirecting to the React shell. Falls back to the shell redirect when the
-// contributor can't be served in place (a remote with no fragment proxy).
+// lets an embedded dashboard (e.g. authsome) own {BasePath}.
+//
+// When the contributor can't be served in place (a remote with no fragment
+// proxy) the root is left unregistered and 404s, same as it would with no
+// RootContributor set. There is nothing to fall back to: the core paths have no
+// default renderer until the prebuilt shell artifact lands.
 func (pm *PagesManager) registerRootContributor(name string, mw []router.Middleware) {
 	var handler router.PageHandler
 	if pm.registry.IsRemote(name) {
 		if pm.fragmentProxy == nil {
-			pm.fuiApp.Page("/").Handler(redirectTo(pm.basePath + "/ui/")).Middleware(mw...).Register()
 			return
 		}
 		handler = pm.remoteExtensionHandler(name)
@@ -435,31 +437,6 @@ func (pm *PagesManager) enforceContributorAccess(ctx *router.PageContext, manife
 	return true, templ.Raw("")
 }
 
-// redirectTo returns a forgeui PageHandler that emits a 302 to the given target.
-// Used by slice (i) to forward legacy templ paths to the React shell.
-func redirectTo(target string) router.PageHandler {
-	return func(ctx *router.PageContext) (templ.Component, error) {
-		http.Redirect(ctx.ResponseWriter, ctx.Request, target, http.StatusFound)
-		return templ.Raw(""), nil
-	}
-}
-
-// redirectTraceDetail forwards /traces/:id to {shellBase}/traces/<id>. Slice (j)
-// added the matching /traces/:id route to the React shell + pilot manifest, so
-// we can use a clean path-style redirect (it was a ?id= query string under
-// slice (i) before the shell knew the route).
-func redirectTraceDetail(shellBase string) router.PageHandler {
-	return func(ctx *router.PageContext) (templ.Component, error) {
-		id := ctx.Param("id")
-		target := shellBase + "/traces"
-		if id != "" {
-			target += "/" + url.PathEscape(id)
-		}
-		http.Redirect(ctx.ResponseWriter, ctx.Request, target, http.StatusFound)
-		return templ.Raw(""), nil
-	}
-}
-
 // SettingsPage renders the settings index page listing all available settings.
 // ---------------------------------------------------------------------------
 // Legacy templ core pages.
@@ -588,30 +565,6 @@ func (pm *PagesManager) TraceDetailPage(ctx *router.PageContext) (templ.Componen
 		PageBase:   pm.basePath,
 		PathParams: map[string]string{"id": traceID},
 	})
-}
-
-// registerShellRedirects points the core dashboard paths at the React shell.
-// This is the default: the templ pages that used to serve these routes were
-// retired, and the redirects keep old bookmarks working.
-func (pm *PagesManager) registerShellRedirects(shellBase string, defaultMW []router.Middleware) {
-	// Root: embedded dashboards (e.g. authsome) can opt to keep owning the
-	// landing page via RootContributor — render that contributor in place rather
-	// than 302-ing into the React shell. Empty keeps the default shell redirect.
-	if pm.config.RootContributor != "" {
-		pm.registerRootContributor(pm.config.RootContributor, defaultMW)
-	} else {
-		pm.fuiApp.Page("/").Handler(redirectTo(shellBase + "/")).Middleware(defaultMW...).Register()
-	}
-
-	pm.fuiApp.Page("/health").Handler(redirectTo(shellBase + "/health")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/all").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/collectors/:name").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/metrics/detail/*name").Handler(redirectTo(shellBase + "/metrics")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/services").Handler(redirectTo(shellBase + "/services")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/extensions").Handler(redirectTo(shellBase + "/extensions")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/traces").Handler(redirectTo(shellBase + "/traces")).Middleware(defaultMW...).Register()
-	pm.fuiApp.Page("/traces/:id").Handler(redirectTraceDetail(shellBase)).Middleware(defaultMW...).Register()
 }
 
 // registerLegacyCorePages serves the templ dashboard at the core paths instead

@@ -26,20 +26,20 @@ type Config struct {
 	Title    string `json:"title"     yaml:"title"`
 
 	// RootContributor, when set, makes the dashboard root ({BasePath}) render the
-	// named contributor's landing page in place instead of 302-redirecting to the
-	// React shell at {BasePath}/ui. Used by embedded dashboards (e.g. authsome)
-	// whose legacy contributor still owns the root. Empty keeps the shell redirect.
+	// named contributor's landing page in place. Used by embedded dashboards
+	// (e.g. authsome) whose contributor owns the root. Empty leaves the root
+	// unserved unless LegacyUI is on.
 	RootContributor string `json:"root_contributor" yaml:"root_contributor"`
 
 	// LegacyUI serves the original templ dashboard at {BasePath} -- overview,
-	// health, metrics, services, extensions and traces -- instead of
-	// 302-redirecting those paths to the React shell. The shell stays mounted at
-	// {BasePath}/ui either way, so both remain reachable and deep links into the
-	// shell keep working; this only decides what the core paths render.
+	// health, metrics, services, extensions and traces.
 	//
-	// Off by default. Redirecting has been the behaviour since the templ pages
-	// were retired, and defaulting this on would move every deployment that has
-	// since standardised on the shell.
+	// Off by default, which means those core paths are unserved and 404: the
+	// templ pages were retired and the server-driven React shell that replaced
+	// them has been deleted, so nothing renders them until the prebuilt shell
+	// artifact lands. Turning this on is the escape hatch for a deployment that
+	// needs a dashboard before then. Everything else the extension mounts --
+	// the data contract, settings, contributor pages, assets -- is unaffected.
 	LegacyUI bool `json:"legacy_ui" yaml:"legacy_ui"`
 
 	// Features

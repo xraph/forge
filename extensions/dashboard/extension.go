@@ -323,15 +323,17 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Slice (i) retired the legacy CoreContributor: the React shell at
-	// {BasePath}/ui serves Overview / Health / Metrics / Traces / Extensions /
-	// Services, and the old templ paths 302 to it (see pages.RegisterPages).
+	// The legacy CoreContributor is off by default. Nothing else serves the core
+	// paths right now -- Overview / Health / Metrics / Traces / Extensions /
+	// Services are unserved and 404 until the prebuilt shell artifact lands (see
+	// pages.RegisterPages).
 	//
-	// WithLegacyUI brings it back for deployments the shell does not yet cover.
-	// It is registered here rather than unconditionally because it is what the
-	// templ core pages render through -- without it those routes have nothing to
-	// delegate to -- and because registering a contributor nobody renders would
-	// put its nav entries in the sidebar of shell-only deployments.
+	// WithLegacyUI(true) brings the templ pages back, and is the escape hatch for
+	// a deployment that needs a dashboard in the meantime. The contributor is
+	// registered here rather than unconditionally because it is what those templ
+	// pages render through -- without it the routes have nothing to delegate to
+	// -- and because registering a contributor nobody renders would put its nav
+	// entries in the sidebar of every other deployment.
 	if e.config.LegacyUI {
 		core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
 		if err := e.registry.RegisterLocal(core); err != nil {

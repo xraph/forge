@@ -77,12 +77,18 @@ type Contributor struct {
 // behaviour on conflict is "first registered wins" via the natural
 // ordering in apps.list).
 //
-// Slug controls URL namespacing for non-root apps: when set, Home is
-// projected to /@<slug><home> on the wire (see apps.list's
-// projectAppHome), and the contributor's own React routes live under
-// that same /@<slug>/* namespace. Defaults to Contributor.Name when
-// unset. Has no effect on a root app — root URLs are always bare
-// regardless of slug.
+// Slug names a non-root app for URL namespacing. When set, apps.list
+// projects Home to /@<slug><home> on the wire (see projectAppHome).
+// Defaults to Contributor.Name when unset. Has no effect on a root app —
+// root URLs are always bare regardless of slug.
+//
+// That projection has no consumer. apps.list is not called from any
+// TypeScript in forge-dashboard, and definePlugin's own routes are declared
+// bare (the spec's example declares /authsome/users, not /@authsome/users).
+// So do NOT assume your plugin's React routes must live under /@<slug>/*.
+// A later wave has to settle it one way or the other: either definePlugin
+// adopts the /@<slug> prefix and this projection becomes real, or the
+// projection is dropped.
 type AppInfo struct {
 	DisplayName string `yaml:"displayName" json:"displayName"`
 	Slug        string `yaml:"slug,omitempty" json:"slug,omitempty"`
@@ -134,8 +140,13 @@ type IntentSchema struct {
 	Output any            `yaml:"output,omitempty" json:"output,omitempty"`
 }
 
-// Query is a named, reusable, cacheable data binding a contributor's own
-// React code references by name (e.g. `queries.overview`).
+// Query is a named binding of an intent plus its parameters. It is parsed from
+// the manifest and validated (loader.Validate checks the intent it names is
+// declared by the same contributor), and it is carried in the manifest wire
+// shape — but nothing consumes it at runtime today. Plugins never see the Go
+// manifest; they call intents through their scoped client. Cache is likewise
+// parsed and read by nobody. Retained deliberately so the manifest schema stays
+// stable; do not build on it until something actually reads it.
 type Query struct {
 	Intent string                 `yaml:"intent" json:"intent"`
 	Params map[string]ParamSource `yaml:"params,omitempty" json:"params,omitempty"`

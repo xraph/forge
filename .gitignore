@@ -123,9 +123,6 @@ METRICS_DEADLOCK_FIX.md
 !/CONTRIBUTING.md
 !docs/**/*.md
 !extensions/dashboard/contract/*.md
-!extensions/dashboard/contract/shell/*.md
-!extensions/dashboard/contract/shell/test/
-!extensions/dashboard/contract/shell/test/**
 /**/*.disabled
 extensions/dashboard/forgeui
 *.blob

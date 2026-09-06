@@ -7,13 +7,18 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 )
 
-// AppInfo is the wire shape one entry in the app switcher consumes. It's a
-// projection of contract.AppInfo joined with the owning contributor's name
-// so the React shell can group nav items by app without a second lookup.
+// AppInfo is the wire shape of one app-switcher entry: contract.AppInfo joined
+// with the owning contributor's name so a caller can group nav items by app
+// without a second lookup.
 //
-// For root apps (Root=true), Slug is empty and Home stays unprefixed —
-// the platform app owns the bare URL space (/, /health, ...). For other
-// apps Home is projected to /@<slug><home>.
+// For root apps (Root=true), Slug is empty and Home stays unprefixed — the
+// platform app owns the bare URL space (/, /health, ...). For other apps Home
+// is projected to /@<slug><home>.
+//
+// Nothing consumes this yet: apps.list has no TypeScript caller, and
+// definePlugin declares plugin routes bare rather than under /@<slug>/*. Read
+// the /@<slug> form as a proposal, not as the plugin routing contract. A later
+// wave decides whether definePlugin adopts the prefix or the projection goes.
 type AppInfo struct {
 	Contributor string `json:"contributor"`
 	DisplayName string `json:"displayName"`
@@ -24,9 +29,9 @@ type AppInfo struct {
 	Home        string `json:"home,omitempty"`
 }
 
-// projectAppHome rewrites the manifest's unprefixed Home into the
-// /@<slug><home> form the React shell expects for a non-root app's
-// entry point.
+// projectAppHome rewrites the manifest's unprefixed Home into the /@<slug><home>
+// form for a non-root app's entry point. See the AppInfo doc above: no client
+// depends on this shape today.
 func projectAppHome(home, slug string) string {
 	if home == "" || slug == "" {
 		return home
