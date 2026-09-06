@@ -133,9 +133,15 @@ func newShellSPAHandler(shellFS fs.FS, cfg Config) http.HandlerFunc {
 //
 // The header is applied only once the file server has settled on a status, so
 // an error response cannot inherit a one-year immutable directive and get
-// cached by an intermediary as permanently missing. Go's http.Error happens to
-// clear the header map before it writes, so on the current stdlib a 404 would
-// come out clean either way; this does not depend on that.
+// cached by an intermediary as permanently missing.
+//
+// On the current stdlib a 404 would come out clean either way, but not for
+// the reason it is tempting to write down. http.FileServer does not answer
+// errors through http.Error at all; it goes through the unexported
+// net/http.serveError in fs.go, which deletes Cache-Control and ETag before
+// writing -- and only unless GODEBUG=httpservecontentkeepheaders=1 is set, in
+// which case it keeps them. So the stdlib's stripping is neither http.Error's
+// doing nor unconditional. This handler does not rely on it either way.
 //
 // stripPrefix is the URL prefix the handler is mounted at; paths beneath it
 // resolve against the embedded FS. The request and its URL are cloned before

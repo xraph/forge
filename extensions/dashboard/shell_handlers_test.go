@@ -366,10 +366,13 @@ func TestShellSourceMounting(t *testing.T) {
 // response never carries the immutable directive, so a mistyped hashed asset
 // cannot be cached by an intermediary as permanently missing.
 //
-// It is a contract test, not a regression test for cacheOnSuccess. Go's
-// http.Error clears the header map before writing, so this passes with the
-// header set up front too. The point is that the guarantee holds whichever way
-// the handler is written, and keeps holding if the stdlib changes.
+// It is a contract test, not a regression test for cacheOnSuccess. The stdlib
+// already strips Cache-Control on a file-server error -- through the
+// unexported net/http.serveError in fs.go, not through http.Error, and only
+// while GODEBUG=httpservecontentkeepheaders is unset -- so this would pass
+// with the header set up front too, on a default toolchain. The point is that
+// the guarantee holds whichever way the handler is written, and keeps holding
+// if either of those two stdlib details changes.
 func TestShellStaticMissingAssetIsNotCached(t *testing.T) {
 	cfg := shellTestConfig()
 	r := newShellTestRouter(t, cfg)

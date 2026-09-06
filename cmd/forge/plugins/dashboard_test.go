@@ -49,15 +49,12 @@ func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 	}
 }
 
-// TestScaffoldDashboardPackageJSONNamesPublishedPackages is the load-bearing
-// assertion for this task: the scaffold's package.json must depend on all
-// three package names Task 2 published under @forge-go. dashboard-runtime
-// joined dashboard-plugin and dashboard-kit in fix round 1, when review
-// caught that App.tsx used no error boundary -- ForgeDashboardProvider and
-// PluginErrorBoundary both live in dashboard-runtime, so the dependency
-// followed the fix. This is also the discriminator target -- see the task
-// report for the break/confirm-fail/restore/paste-real-output cycle run
-// against this test.
+// TestScaffoldDashboardPackageJSONNamesPublishedPackages pins the scaffold's
+// dependency set: package.json must name all three @forge-go packages the
+// dashboard front end is split into. dashboard-runtime is easy to leave out
+// and was, once -- it is the one that supplies ForgeDashboardProvider and
+// PluginErrorBoundary, so App.tsx cannot render or contain a plugin without
+// it, and a scaffold missing it fails only at the user's first build.
 func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
@@ -84,12 +81,12 @@ func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 // pluginErrorBoundaryWrapsSetup and pluginErrorBoundaryWrapsRoute anchor the
 // boundary check to structure, not to a bare occurrence count.
 //
-// Fix round 1 added a counting assertion (`strings.Count(src,
-// "<PluginErrorBoundary") >= 2`) that discriminated against the historical
-// W2 regression -- one boundary, or none -- but could not tell two correct
-// placements apart from two boundaries stacked on the *same* element (both
-// wrapping the route, say, with the setup panel left bare). That is exactly
-// the W2 shape, reproduced with a passing count. These two patterns instead
+// A counting assertion (`strings.Count(src, "<PluginErrorBoundary") >= 2`)
+// came first. It discriminated against the historical shell regression --
+// one boundary, or none -- but could not tell two correct placements apart
+// from two boundaries stacked on the *same* element (both wrapping the route,
+// say, with the setup panel left bare). That is exactly the shape the
+// regression had, reproduced with a passing count. These two patterns instead
 // require a PluginErrorBoundary's opening tag to be the immediate parent of
 // <Setup and, separately, of <PluginProvider (which itself wraps the routed
 // <Page/>) -- so a boundary that wraps the wrong element, or wraps neither,
@@ -100,15 +97,16 @@ var (
 	pluginErrorBoundaryWrapsRoute = regexp.MustCompile(`<PluginErrorBoundary[^>]*>\s*<PluginProvider\b`)
 )
 
-// TestScaffoldDashboardAppUsesPluginErrorBoundary is the fix-round-1 (and,
-// after fix round 2 tightened the anchoring, fix-round-2) discriminator
-// target: the scaffold must wrap both places apps/shell's own PluginHost
-// wraps in PluginErrorBoundary -- a plugin's setup panel and its route
-// element -- so a third-party plugin's throw is contained to its own box
-// instead of blanking the whole dashboard. Both sites, not just two
-// occurrences of the tag: see the discriminator run recorded in the task
-// report, which moves both boundaries onto the route and leaves the setup
-// panel bare -- the exact W2 shape -- and confirms this test catches it.
+// TestScaffoldDashboardAppUsesPluginErrorBoundary requires the scaffold to
+// wrap both of the places apps/shell's own PluginHost wraps in
+// PluginErrorBoundary -- a plugin's setup panel and its route element -- so
+// a third-party plugin's throw is contained to its own box instead of
+// blanking the whole dashboard.
+//
+// Both sites, not just two occurrences of the tag. The regression this
+// guards against stacks two boundaries on the route and leaves the setup
+// panel bare, which a counting assertion reads as correct; see the comment
+// on the two patterns above.
 func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}

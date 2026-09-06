@@ -85,6 +85,14 @@ extensions/dashboard/shellassets/dist/*
 !extensions/dashboard/shellassets/dist/index.html
 !extensions/dashboard/shellassets/dist/README.md
 
+# scripts/fetch-dashboard-shell.sh extracts into a sibling staging directory
+# and moves the old dist/ aside before swapping, so both of these live next
+# to dist/ rather than inside it and neither is covered by the rules above.
+# They are cleaned up on the way out, including on the EXIT trap, but a hard
+# kill mid-run leaves one behind and it should not turn up in `git status`.
+extensions/dashboard/shellassets/.dist-staging.*
+extensions/dashboard/shellassets/dist.stale.*
+
 # Documentation artifacts
 /_impl_docs/docs/_build/
 _impl_docs/

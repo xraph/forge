@@ -4,8 +4,8 @@
 // published by github.com/xraph/forge-dashboard on release, which this repo's
 // release CI downloads and unpacks over the top before the release build.
 // Nothing built is ever committed here: an earlier design committed an 11MB
-// dist and //go:embed all:dist pulled every byte of it into every binary that
-// imported the dashboard extension, 6MB of which was sourcemaps.
+// dist and embedded it with all:dist, pulling every byte into every binary
+// that imported the dashboard extension, 6MB of which was sourcemaps.
 //
 // The placeholder exists because //go:embed needs the files present at build
 // time. Without it a plain `go build` fails, which would make the repo
@@ -18,6 +18,12 @@ import (
 	"io/fs"
 )
 
+// Plain `dist`, never `all:dist`. The default //go:embed rules skip files
+// whose names begin with "." or "_", and scripts/fetch-dashboard-shell.sh
+// drops a provenance dotfile (dist/.fetched.sha256) in here on every
+// successful fetch. `all:` would sweep that into every binary. Restoring the
+// prefix to "be safe" is the one change to this line that does damage.
+//
 //go:embed dist
 var distFS embed.FS
 

@@ -19,11 +19,18 @@
 # are needed for a normal run):
 #   DASHBOARD_SHELL_VERSION   Use this version instead of reading
 #                             .dashboard-shell-version.
+#   DASHBOARD_SHELL_SHA256    Expect this SHA-256 of the downloaded tarball
+#                             instead of reading
+#                             .dashboard-shell-version.sha256. Needed
+#                             whenever DASHBOARD_SHELL_URL points somewhere
+#                             the committed digest does not describe.
 #   DASHBOARD_SHELL_URL       Fetch this URL instead of constructing the
 #                             GitHub release URL. Accepts file:// URLs, so
 #                             a locally built tarball can be exercised
 #                             without touching the network:
+#                               DASHBOARD_SHELL_VERSION=0.0.0 \
 #                               DASHBOARD_SHELL_URL=file:///tmp/forge-dashboard-shell-v0.0.0.tar.gz \
+#                               DASHBOARD_SHELL_SHA256="$(shasum -a 256 /tmp/forge-dashboard-shell-v0.0.0.tar.gz | awk '{print $1}')" \
 #                                 scripts/fetch-dashboard-shell.sh
 #   DASHBOARD_SHELL_STRICT    "1" to fail loudly when the artifact can't be
 #                             reached, "0" to warn and keep the current
@@ -32,6 +39,38 @@
 #                             "Reachability" below.
 #   DASHBOARD_SHELL_FORCE     "1" to skip the uncommitted-changes guard
 #                             (see "Guard" below) unconditionally.
+#
+# The version pin (and the "nothing pinned yet" sentinel):
+#   .dashboard-shell-version holds a bare semver -- 1.4.0, no leading "v".
+#   The tag and the asset name both carry the v, and this script adds it. A
+#   leading v in the file is tolerated and stripped, because the mistake is
+#   easy to make and "download/vv1.4.0/" is a confusing way to find out.
+#
+#   An empty file, or the literal "none", is the sentinel for "no shell
+#   release is pinned yet". That is a real state, not a failure: the shell
+#   lives in a separate repo on its own release cadence, and this one has to
+#   keep building before the first tarball exists. The sentinel skips the
+#   fetch entirely, leaves the committed placeholder in dist/, and exits 0 --
+#   in CI as well as out of it, which is the one place the STRICT rule below
+#   does not apply. It warns loudly on the way out, because a release built
+#   this way ships a dashboard that renders a placeholder page.
+#
+# Integrity (why a digest sits beside the version):
+#   GitHub release assets are mutable. An asset can be deleted and
+#   re-uploaded on an existing tag, with no commit and no trace in git
+#   history, so pinning a version pins a name and not a single byte of
+#   content. Anybody who can write to xraph/forge-dashboard's releases could
+#   otherwise put arbitrary JavaScript into every Forge binary's dashboard,
+#   and this script would fetch it, verify that it is a well-formed tar with
+#   an index.html, and embed it.
+#
+#   So .dashboard-shell-version.sha256 pins the content next to the version
+#   pinning the name, and the downloaded tarball is checked against it before
+#   anything is unpacked. A mismatch is a hard failure in every mode, CI or
+#   not, strict or not: unlike an unreachable artifact, it is not a network
+#   condition, and there is no reading of it that is safe to continue past.
+#   A pinned version with no digest available is refused for the same reason
+#   -- an unverified artifact and a wrong one are the same risk.
 #
 # Reachability (soft-fail vs. hard-fail):
 #   This repo's release.yml only runs this workflow on a tag push or an
@@ -107,6 +146,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 VERSION_FILE=".dashboard-shell-version"
+DIGEST_FILE=".dashboard-shell-version.sha256"
 DIST_DIR="extensions/dashboard/shellassets/dist"
 MARKER="$DIST_DIR/.fetched.sha256"
 GITHUB_REPO="xraph/forge-dashboard"
@@ -116,15 +156,78 @@ mkdir -p "$DIST_DIR"
 # --- 1. Resolve the version -------------------------------------------------
 
 if [ -n "${DASHBOARD_SHELL_VERSION:-}" ]; then
-  VERSION="$DASHBOARD_SHELL_VERSION"
+  VERSION="$(printf '%s' "$DASHBOARD_SHELL_VERSION" | tr -d '[:space:]')"
+  VERSION_SOURCE='the DASHBOARD_SHELL_VERSION environment variable'
 else
   [ -f "$VERSION_FILE" ] || die "$VERSION_FILE not found (expected at repo root)"
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
-  [ -n "$VERSION" ] || die "$VERSION_FILE is empty"
+  VERSION_SOURCE="$VERSION_FILE"
+fi
+
+# The sentinel. Empty or "none" means no shell release is pinned yet, which
+# is a state this repo has to be able to sit in: the shell ships from another
+# repo, and the first tarball does not exist until somebody tags it. Warn
+# loudly, keep the placeholder, and exit 0 -- deliberately including CI, so a
+# release cut before the first shell tag produces a working binary with a
+# placeholder dashboard rather than a failed before-hook.
+if [ -z "$VERSION" ] || [ "$(printf '%s' "$VERSION" | tr '[:upper:]' '[:lower:]')" = "none" ]; then
+  warn "================================================================"
+  warn "NO DASHBOARD SHELL PINNED."
+  warn "$VERSION_SOURCE is ${VERSION:-empty} (the \"nothing pinned yet\" sentinel)."
+  warn "$DIST_DIR keeps the committed PLACEHOLDER, so any binary built from"
+  warn "this tree serves a placeholder page at {BasePath}/ui, not the real"
+  warn "dashboard. If you are cutting a release, this is what it will ship."
+  warn "To pin a real shell, see $DIST_DIR/README.md."
+  warn "================================================================"
+  exit 0
+fi
+
+# One leading "v" is tolerated and stripped: the file holds a bare semver,
+# the tag and asset name carry the v, and this script is what adds it.
+# Without this, a file saying "v1.4.0" builds a URL under "download/vv1.4.0/"
+# and fails with a 404 that names neither the cause nor the fix.
+VERSION="${VERSION#v}"
+
+if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+  die "$VERSION_SOURCE holds \"$VERSION\", which is not a bare semver.
+  Expected something like 1.4.0 (no leading \"v\" -- this script adds it),
+  or the sentinel \"none\" for \"no shell pinned yet\"."
 fi
 
 ASSET="forge-dashboard-shell-v${VERSION}.tar.gz"
 URL="${DASHBOARD_SHELL_URL:-https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/${ASSET}}"
+
+# --- 1b. Resolve the expected digest ----------------------------------------
+#
+# Resolved here, before the download, so a missing or malformed pin fails on
+# configuration rather than after a network round trip. See "Integrity" in
+# the header for why a version pin alone is not enough.
+
+if [ -n "${DASHBOARD_SHELL_SHA256:-}" ]; then
+  EXPECTED_SHA="$DASHBOARD_SHELL_SHA256"
+  DIGEST_SOURCE='the DASHBOARD_SHELL_SHA256 environment variable'
+else
+  [ -f "$DIGEST_FILE" ] || die "$VERSION_SOURCE pins v$VERSION but $DIGEST_FILE does not exist.
+  A pinned version names an artifact; it does not pin its bytes, because a
+  GitHub release asset can be replaced in place. Record the digest with:
+    shasum -a 256 $ASSET
+  and write the 64-character hash into $DIGEST_FILE.
+  For a one-off local run against your own tarball, set DASHBOARD_SHELL_SHA256."
+  # First field of the first non-empty line, so both a bare hash and the
+  # "<hash>  <filename>" that shasum itself prints are accepted.
+  EXPECTED_SHA="$(awk 'NF {print $1; exit}' "$DIGEST_FILE")"
+  DIGEST_SOURCE="$DIGEST_FILE"
+fi
+
+EXPECTED_SHA="$(printf '%s' "$EXPECTED_SHA" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+EXPECTED_SHA="${EXPECTED_SHA#sha256:}"
+
+if ! printf '%s' "$EXPECTED_SHA" | grep -Eq '^[0-9a-f]{64}$'; then
+  die "$DIGEST_SOURCE does not hold a SHA-256 digest (got: \"${EXPECTED_SHA:-<empty>}\").
+  Expected 64 hex characters, as printed by: shasum -a 256 $ASSET
+  The version and the digest are bumped together -- if one still reads
+  \"none\" while the other names a release, only one of the two moved."
+fi
 
 # --- 2. Decide strict vs. soft-fail on an unreachable artifact --------------
 
@@ -204,9 +307,26 @@ fi
 #
 # A 404 (or a captive-portal / proxy error page) can still produce a
 # 200-shaped response body; --fail above catches the HTTP status, but not a
-# corrupt or wrongly-shaped tarball. Both checks below are unconditional
-# hard failures regardless of STRICT: something was downloaded, so this is
+# corrupt or wrongly-shaped tarball. Every check below is an unconditional
+# hard failure regardless of STRICT: something was downloaded, so this is
 # no longer a reachability problem.
+#
+# The digest goes first. The structural checks that follow it answer "is this
+# a dashboard shell"; only this one answers "is this THE dashboard shell we
+# pinned", and a substituted artifact would sail through the other two.
+
+ACTUAL_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+  die "SHA-256 mismatch on the downloaded artifact. NOT unpacking it.
+  url:      $URL
+  expected: $EXPECTED_SHA  (from $DIGEST_SOURCE)
+  actual:   $ACTUAL_SHA
+  Either the release asset was replaced after the digest was recorded, or
+  the pin is stale. Confirm which before touching either file: a release
+  asset changing under a fixed tag is exactly what this check exists for."
+fi
+
+log "verified: SHA-256 matches the digest pinned in $DIGEST_SOURCE"
 
 LISTING="$WORK_DIR/listing.txt"
 if ! tar -tzf "$ARCHIVE" > "$LISTING" 2>"$WORK_DIR/tar-error.txt"; then

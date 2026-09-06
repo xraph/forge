@@ -101,6 +101,13 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 	ctx.Println("  4. pnpm build")
 	ctx.Println("  5. Serve dist/ yourself and pass WithShellSource(dashboard.ShellExternal) to dashboard.NewExtension")
 	ctx.Println("")
+	// Said here and not only in the source comments, because the person who
+	// hits it is standing at step 2 with a registry error and no idea whether
+	// they typed something wrong. The three @forge-go packages are not
+	// published yet.
+	ctx.Println("Note: the three @forge-go/dashboard-* packages this depends on are not")
+	ctx.Println("published to npm yet, so step 2 will fail to resolve them until they are.")
+	ctx.Println("")
 	ctx.Println("See README.md in the scaffolded directory for details.")
 
 	return nil
@@ -116,12 +123,12 @@ type dashboardScaffoldData struct {
 }
 
 // scaffoldDashboard writes a standalone Vite + React + TypeScript dashboard
-// shell into targetDir. It depends on all three packages Task 2 published
-// under @forge-go: dashboard-plugin, dashboard-kit, and dashboard-runtime
-// (the last supplies ForgeDashboardProvider and PluginErrorBoundary -- a
-// third-party plugin's throw must not blank the whole dashboard, and that
-// containment matters more in a custom build than in the first-party shell,
-// not less).
+// shell into targetDir. It depends on all three @forge-go packages the
+// dashboard front end is split into: dashboard-plugin, dashboard-kit, and
+// dashboard-runtime (the last supplies ForgeDashboardProvider and
+// PluginErrorBoundary -- a third-party plugin's throw must not blank the
+// whole dashboard, and that containment matters more in a custom build than
+// in the first-party shell, not less).
 //
 // It does not run `pnpm install`, `pnpm build`, or anything else that needs a
 // registry -- those packages are not published yet, so a scaffolded project

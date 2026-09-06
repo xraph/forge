@@ -2,11 +2,21 @@
 package plugins
 
 // dashboardPackageJSONTemplate is the package.json for a scaffolded external
-// dashboard shell. It depends on all three packages Task 2 published under
-// @forge-go: dashboard-plugin, dashboard-kit, and dashboard-runtime (the
-// last supplies ForgeDashboardProvider and PluginErrorBoundary, used in
-// App.tsx below). None of the three are published to a registry yet, so
-// pnpm install will not resolve them until they are.
+// dashboard shell. It depends on all three @forge-go packages the dashboard
+// front end is split into: dashboard-plugin, dashboard-kit, and
+// dashboard-runtime (the last supplies ForgeDashboardProvider and
+// PluginErrorBoundary, used in App.tsx below). None of the three are
+// published to a registry yet, so pnpm install will not resolve them until
+// they are.
+//
+// The three are pinned to "latest" rather than a range. "^0.0.0" is not the
+// wide range it looks like -- caret does not widen on a 0.0.x, so it means
+// exactly 0.0.0, and unless the first publish is literally that version every
+// scaffolded project fails its first install. Naming a guessed first version
+// instead would couple this CLI to a release number nobody has committed to.
+// "latest" is what a scaffold wants anyway: one `pnpm install`, and the
+// user's own lockfile pins it from then on. That is how create-* tools
+// behave.
 const dashboardPackageJSONTemplate = `{
   "name": "{{.Name}}",
   "private": true,
@@ -19,9 +29,9 @@ const dashboardPackageJSONTemplate = `{
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@forge-go/dashboard-kit": "^0.0.0",
-    "@forge-go/dashboard-plugin": "^0.0.0",
-    "@forge-go/dashboard-runtime": "^0.0.0",
+    "@forge-go/dashboard-kit": "latest",
+    "@forge-go/dashboard-plugin": "latest",
+    "@forge-go/dashboard-runtime": "latest",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router": "^8.3.1"
@@ -436,7 +446,12 @@ pnpm install
 pnpm build
 ` + "```" + `
 
-This produces a static ` + "`dist/`" + `. ` + "`vite.config.ts`" + ` sets
+**Not yet installable.** The three ` + "`@forge-go/dashboard-*`" + ` packages in
+` + "`package.json`" + ` are not published to npm yet, so ` + "`pnpm install`" + `
+cannot resolve them today. Everything else in here is ready; the scaffold is
+correct and waiting on the publish, not broken.
+
+Once it installs, this produces a static ` + "`dist/`" + `. ` + "`vite.config.ts`" + ` sets
 ` + "`base: \"./\"`" + ` on purpose (see the comment there): this shell does
 not know at build time where you will mount it, and a deployment under any
 base path other than the default one 404s every asset it asks for unless the
