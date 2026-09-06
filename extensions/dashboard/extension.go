@@ -213,7 +213,7 @@ func (e *Extension) Register(app forge.App) error {
 	e.collector.SetCacheTTL(e.config.RefreshInterval)
 
 	// Initialize trace store for dashboard tracing UI
-	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention)
+	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention, collector.WithMaxSpansPerTrace(e.config.TraceMaxSpansPerTrace))
 
 	// Initialize SSE broker (if real-time is enabled)
 	if e.config.EnableRealtime {
@@ -221,6 +221,30 @@ func (e *Extension) Register(app forge.App) error {
 		e.Logger().Debug("SSE broker initialized",
 			forge.F("keep_alive", e.config.SSEKeepAlive.String()),
 		)
+	}
+
+	// Retain spans only while somebody is actually using the dashboard. The
+	// marker is stamped by TracingMiddleware on any request under BasePath, and
+	// a live SSE subscriber counts too: the shell consumes SSE directly and does
+	// not poll, so a viewer who only streams would otherwise fall outside the
+	// TTL window and starve. The gate stays open for as long as someone is
+	// looking (streaming or requesting) and shuts a few minutes after they
+	// stop. A service nobody ever visits pays nothing. Installed after the SSE
+	// broker so the closure can capture it (it is nil when realtime is
+	// disabled, which the closure handles).
+	if ttl := e.config.TraceIdleTTL; ttl > 0 {
+		ts := e.traceStore
+		broker := e.sseBroker
+		ts.SetIngestGate(func() bool {
+			// Somebody has a live stream open: they are watching right now, even
+			// if the shell issues no further requests. The React shell consumes
+			// SSE directly and does not poll, so without this the gate would shut
+			// under an active viewer.
+			if broker != nil && broker.ClientCount() > 0 {
+				return true
+			}
+			return time.Since(ts.LastAccessed()) < ttl
+		})
 	}
 
 	// Initialize fragment proxy for remote contributors
@@ -696,6 +720,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 	// Stop data collector
 	if e.collector != nil {
 		e.collector.Stop()
+	}
+
+	if e.traceStore != nil {
+		e.traceStore.Close()
 	}
 
 	e.MarkStopped()

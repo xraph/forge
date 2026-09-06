@@ -4,18 +4,40 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // OnTraceAddedFunc is called when a new span is added to the store.
 type OnTraceAddedFunc func(traceID string, spanCount int)
 
+// IngestGateFunc reports whether spans should be retained right now. It is
+// called on the request path for every span, so it must be cheap and must not
+// block. A nil gate means retain everything.
+type IngestGateFunc func() bool
+
+// defaultMaxSpansPerTrace bounds a single trace. A websocket or SSE connection
+// reuses one TraceID for its whole life, so without this a single connection
+// grows the store until the retention window rolls.
+const defaultMaxSpansPerTrace = 200
+
+// notifyBuffer is how many trace-added events queue before new ones are
+// dropped. Notifications are advisory: the dashboard re-reads the store on the
+// next poll, so dropping one costs a moment of staleness and nothing more.
+const notifyBuffer = 256
+
+type traceNotification struct {
+	traceID   string
+	spanCount int
+}
+
 // TraceStore is a thread-safe in-memory store for completed traces.
 // It organises spans by TraceID and supports listing, filtering, and
 // detail retrieval for the dashboard tracing UI.
 type TraceStore struct {
-	maxTraces int
-	retention time.Duration
+	maxTraces        int
+	maxSpansPerTrace int
+	retention        time.Duration
 
 	// traces maps TraceID → ordered list of spans in that trace.
 	traces map[string][]*SpanView
@@ -24,36 +46,148 @@ type TraceStore struct {
 
 	mu           sync.RWMutex
 	onTraceAdded OnTraceAddedFunc
+	ingestGate   IngestGateFunc
+
+	// droppedSpans counts spans refused because their trace was already at
+	// maxSpansPerTrace. Read it with DroppedSpans.
+	droppedSpans atomic.Uint64
+
+	// notify carries trace-added events to the single drain goroutine. AddSpan
+	// sends without blocking, so a stuck callback costs dropped notifications
+	// instead of goroutines on the request path.
+	notify    chan traceNotification
+	startOnce sync.Once
+	closeOnce sync.Once
+	stop      chan struct{}
+
+	droppedNotifications atomic.Uint64
+
+	// lastAccess is the Unix-nano time the dashboard was last used, stamped by
+	// MarkAccessed from the request path. Atomic because it is written on every
+	// dashboard request and read by the ingest gate on every traced request.
+	lastAccess atomic.Int64
+}
+
+// TraceStoreOption configures a TraceStore at construction.
+type TraceStoreOption func(*TraceStore)
+
+// WithMaxSpansPerTrace caps how many spans a single trace retains. Spans
+// arriving after the cap are dropped and counted. Values below 1 are ignored.
+func WithMaxSpansPerTrace(n int) TraceStoreOption {
+	return func(ts *TraceStore) {
+		if n > 0 {
+			ts.maxSpansPerTrace = n
+		}
+	}
 }
 
 // NewTraceStore creates a new TraceStore.
 // maxTraces controls the maximum number of distinct traces kept in memory.
 // retention controls the maximum age of traces before they are evicted.
-func NewTraceStore(maxTraces int, retention time.Duration) *TraceStore {
+func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOption) *TraceStore {
 	if maxTraces <= 0 {
 		maxTraces = 1000
 	}
 	if retention <= 0 {
 		retention = time.Hour
 	}
-	return &TraceStore{
-		maxTraces: maxTraces,
-		retention: retention,
-		traces:    make(map[string][]*SpanView),
-		order:     make([]string, 0, maxTraces),
+	ts := &TraceStore{
+		maxTraces:        maxTraces,
+		maxSpansPerTrace: defaultMaxSpansPerTrace,
+		retention:        retention,
+		traces:           make(map[string][]*SpanView),
+		order:            make([]string, 0, maxTraces),
+		notify:           make(chan traceNotification, notifyBuffer),
+		stop:             make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(ts)
+	}
+	return ts
+}
+
+// DroppedSpans returns the number of spans refused because their trace had
+// already reached maxSpansPerTrace.
+func (ts *TraceStore) DroppedSpans() uint64 {
+	return ts.droppedSpans.Load()
 }
 
 // SetOnTraceAdded registers a callback invoked when a new span is added.
+// The callback runs on a single drain goroutine, started on first use, and is
+// never invoked from the request path. Call Close to stop that goroutine.
 func (ts *TraceStore) SetOnTraceAdded(fn OnTraceAddedFunc) {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
 	ts.onTraceAdded = fn
+	ts.mu.Unlock()
+
+	ts.startOnce.Do(func() { go ts.drainNotifications() })
+}
+
+// SetIngestGate installs the predicate that decides whether spans are retained.
+// Pass nil to retain everything.
+func (ts *TraceStore) SetIngestGate(fn IngestGateFunc) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.ingestGate = fn
+}
+
+// MarkAccessed records that the dashboard was used just now. It is safe to call
+// concurrently and is cheap enough for the request path.
+func (ts *TraceStore) MarkAccessed() {
+	ts.lastAccess.Store(time.Now().UnixNano())
+}
+
+// LastAccessed reports when the dashboard was last used, or the zero time if it
+// never has been. A TTL gate built on this is therefore shut at startup.
+func (ts *TraceStore) LastAccessed() time.Time {
+	ns := ts.lastAccess.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// drainNotifications runs the registered callback for queued events, one at a
+// time, until Close is called.
+func (ts *TraceStore) drainNotifications() {
+	for {
+		select {
+		case <-ts.stop:
+			return
+		case n := <-ts.notify:
+			ts.mu.RLock()
+			cb := ts.onTraceAdded
+			ts.mu.RUnlock()
+			if cb != nil {
+				cb(n.traceID, n.spanCount)
+			}
+		}
+	}
+}
+
+// Close stops the drain goroutine. It is safe to call more than once, and safe
+// to call on a store that never had a callback registered.
+func (ts *TraceStore) Close() {
+	ts.closeOnce.Do(func() { close(ts.stop) })
+}
+
+// DroppedNotifications returns the number of trace-added events discarded
+// because the drain queue was full.
+func (ts *TraceStore) DroppedNotifications() uint64 {
+	return ts.droppedNotifications.Load()
 }
 
 // AddSpan adds a completed span to the store, grouping it under its TraceID.
 func (ts *TraceStore) AddSpan(span *SpanView) {
 	if span == nil || span.TraceID == "" {
+		return
+	}
+
+	ts.mu.RLock()
+	gate := ts.ingestGate
+	ts.mu.RUnlock()
+
+	if gate != nil && !gate() {
 		return
 	}
 
@@ -64,21 +198,37 @@ func (ts *TraceStore) AddSpan(span *SpanView) {
 		ts.order = append(ts.order, span.TraceID)
 	}
 
-	ts.traces[span.TraceID] = append(ts.traces[span.TraceID], span)
+	existing := ts.traces[span.TraceID]
+	if len(existing) >= ts.maxSpansPerTrace {
+		// Still evict. Retention is a separate guarantee from the cap, and a
+		// store whose only traffic is one saturated trace would otherwise stop
+		// reclaiming expired traces entirely.
+		ts.evict()
+		ts.mu.Unlock()
+		ts.droppedSpans.Add(1)
+		return
+	}
+	ts.traces[span.TraceID] = append(existing, span)
 
 	// Evict old traces.
 	ts.evict()
 
-	// Capture callback and data before releasing lock.
-	callback := ts.onTraceAdded
+	hasCallback := ts.onTraceAdded != nil
 	traceID := span.TraceID
 	spanCount := len(ts.traces[traceID])
 
 	ts.mu.Unlock()
 
-	// Notify outside of lock to avoid deadlocks.
-	if callback != nil {
-		go callback(traceID, spanCount)
+	if !hasCallback {
+		return
+	}
+
+	// Never block the request path. A full queue means the consumer is behind,
+	// and a dropped notification costs staleness until the next poll.
+	select {
+	case ts.notify <- traceNotification{traceID: traceID, spanCount: spanCount}:
+	default:
+		ts.droppedNotifications.Add(1)
 	}
 }
 
