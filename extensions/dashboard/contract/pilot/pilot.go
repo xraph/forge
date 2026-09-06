@@ -111,10 +111,11 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterSubscription(d, c, "audit.tail", 1, auditTailSub(deps.Audit)); err != nil {
 		return err
 	}
-	// apps.list: feeds the React shell's app switcher with every
-	// contributor that opted into being a switchable app. Separate from
-	// extensions.list (the broader catalog) so the switcher's dropdown
-	// stays focused on user-facing apps.
+	// apps.list: every contributor that opted into being a switchable app,
+	// for an app switcher to render. Separate from extensions.list (the
+	// broader catalog) so a switcher's dropdown stays focused on user-facing
+	// apps. Registered but uncalled: no client asks for this intent today.
+	// See the AppInfo doc in apps.go for what a later wave has to settle.
 	if err := dispatcher.RegisterQuery(d, c, "apps.list", 1, appsListHandler(contractReg)); err != nil {
 		return err
 	}

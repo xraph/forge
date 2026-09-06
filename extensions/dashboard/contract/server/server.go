@@ -3,7 +3,7 @@
 // can discover + dispatch into.
 //
 // The dashboard extension already serves /api/dashboard/v1 for its own
-// React shell. A service that doesn't host the dashboard — but wants to
+// clients. A service that doesn't host the dashboard, but wants to
 // contribute intents into one — uses this helper to mount the equivalent
 // surface at /_forge/contract/{manifest,dispatch}. Slice (m) introduced it
 // so multiple microservices can feed a single dashboard, mirroring the

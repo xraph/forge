@@ -55,24 +55,27 @@ type BridgeAware interface {
 //	    ext.EnableAuth()
 //	}
 //
-// Slice (l) note — wiring an auth extension into the contract React shell:
+// Wiring an auth extension into the contract:
 //
-// The dashboard shell ships a built-in LoginScreen that submits a contract
-// command (default `auth.login`) and reloads the principal on success. Auth
-// extensions can plug in by implementing both DashboardAuthAware *and*
+// Auth extensions plug in by implementing both DashboardAuthAware *and*
 // ContractContributorAware:
 //
 //   - DashboardAuthAware.RegisterDashboardAuth wires the AuthChecker so
-//     /api/dashboard/v1/principal returns the current user. The shell's
-//     AuthGate listens for the 401 envelope (auth required) vs the 200
-//     `{authenticated:false}` envelope (auth disabled) and renders the
-//     LoginScreen only in the former case.
+//     /api/dashboard/v1/principal returns the current user. That endpoint
+//     distinguishes the 401 envelope (auth required) from the 200
+//     `{authenticated:false}` envelope (auth disabled), so a client can tell
+//     "log in" apart from "auth is off".
 //   - ContractContributorAware.RegisterContractContributor registers the
 //     `auth.login` command intent (and optionally `auth.logout`) on the
-//     dispatcher. The built-in LoginScreen issues the command; an
-//     extension that wants a richer flow can also ship its own `/login`
-//     page in its React package, and the shell's AuthGate will render
-//     that page instead of the built-in form.
+//     dispatcher.
+//
+// Both halves are live and this is the whole server side. The client side is
+// not: the built-in LoginScreen and the AuthGate that chose between it and a
+// contributor's own /login page belonged to the server-driven shell, which was
+// deleted. Nothing consumes the principal endpoint or issues `auth.login`
+// today. Register them anyway if you own an auth extension, because the
+// endpoint and the intent are what a future login UI builds on, but do not
+// expect a login screen to appear because you did.
 //
 // Example combined integration sketch:
 //

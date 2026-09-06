@@ -92,9 +92,13 @@ type Config struct {
 	LogoutPath    string `json:"logout_path"    yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
 	DefaultAccess string `json:"default_access" yaml:"default_access"` // "public", "protected", "partial"
 	// RequiredRoles, when non-empty, restricts dashboard access to users
-	// carrying at least one matching role. The principal endpoint surfaces
-	// 403 PERMISSION_DENIED to the React shell for users who don't qualify;
-	// the shell renders an "access denied" panel instead of the dashboard.
+	// carrying at least one matching role. The principal endpoint returns
+	// 403 PERMISSION_DENIED for users who don't qualify.
+	//
+	// That is the whole of it on this side. Turning the 403 into an "access
+	// denied" screen is the client's job, and the client that used to do it
+	// was deleted with the server-driven shell, so nothing renders it today.
+	// The gate itself still holds: the endpoint answers 403 regardless.
 	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Theming
@@ -210,20 +214,33 @@ func WithTitle(title string) ConfigOption {
 	return func(c *Config) { c.Title = title }
 }
 
-// WithRootContributor makes the dashboard root render the named contributor's
-// landing page in place instead of redirecting to the React shell. Empty
-// (default) keeps the shell redirect.
+// WithRootContributor makes the dashboard root ({BasePath}) render the named
+// contributor's landing page in place. Used by embedded dashboards whose own
+// contributor owns the landing page.
+//
+// Empty is the default and leaves the root unserved: it returns 404 unless
+// WithLegacyUI(true) is also set. Nothing redirects anywhere. This applies in
+// both modes, so a deployment that names a root contributor keeps it whether
+// legacy UI is on or off.
 func WithRootContributor(name string) ConfigOption {
 	return func(c *Config) { c.RootContributor = name }
 }
 
 // WithLegacyUI serves the original templ dashboard at the core paths under
-// {BasePath} rather than redirecting them to the React shell.
+// {BasePath}: the root, /health, /metrics (plus /metrics/all,
+// /metrics/collectors/:name and /metrics/detail/*name), /services,
+// /extensions, /traces and /traces/:id.
 //
-// The shell is still mounted at {BasePath}/ui, so this does not remove it --
-// it only stops {BasePath}, /health, /metrics, /services, /extensions and
-// /traces from forwarding there. Use it where the shell does not yet cover
-// what the templ pages did.
+// Leave it off and those paths return 404. That is the default. The templ
+// pages were retired and the server-driven React shell that replaced them has
+// been deleted, so no core path has a renderer until the prebuilt shell
+// artifact lands in a later wave. Nothing is mounted at {BasePath}/ui any
+// more and nothing redirects there.
+//
+// Turn it on if you need a working dashboard before that artifact ships. It
+// changes only what the core paths render: the data contract under
+// /api/dashboard/v1, settings, contributor pages and assets all serve the
+// same either way, and a RootContributor still owns the root in both modes.
 func WithLegacyUI(enabled bool) ConfigOption {
 	return func(c *Config) { c.LegacyUI = enabled }
 }

@@ -75,11 +75,13 @@ func appsListHandler(reg contract.Registry) func(ctx context.Context, _ struct{}
 			if displayName == "" {
 				displayName = m.Contributor.Name
 			}
-			// Project the prefixed Home so the React shell navigates to
-			// /@<slug><home>, matching the /@<slug>/* namespace each
-			// non-root plugin's own routes live under. ResolvedSlug
+			// Project the prefixed Home to /@<slug><home>. ResolvedSlug
 			// returns "" for root apps, which makes projectAppHome a
 			// no-op: root apps own the bare URL space.
+			//
+			// Nothing consumes this projection, and definePlugin declares
+			// plugin routes bare rather than under /@<slug>/*. See the
+			// AppInfo doc above before you build on the prefixed form.
 			slug := a.ResolvedSlug(m.Contributor.Name)
 			home := projectAppHome(a.Home, slug)
 			out = append(out, AppInfo{

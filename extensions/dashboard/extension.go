@@ -239,9 +239,9 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Retain spans only while somebody is actually using the dashboard. The
 	// marker is stamped by TracingMiddleware on any request under BasePath, and
-	// a live SSE subscriber counts too: the shell consumes SSE directly and does
-	// not poll, so a viewer who only streams would otherwise fall outside the
-	// TTL window and starve. The gate stays open for as long as someone is
+	// a live SSE subscriber counts too: a dashboard client consumes SSE directly
+	// rather than polling, so a viewer who only streams would otherwise fall
+	// outside the TTL window and starve. The gate stays open for as long as someone is
 	// looking (streaming or requesting) and shuts a few minutes after they
 	// stop. A service nobody ever visits pays nothing. Installed after the SSE
 	// broker so the closure can capture it (it is nil when realtime is
@@ -251,9 +251,9 @@ func (e *Extension) Register(app forge.App) error {
 		broker := e.sseBroker
 		ts.SetIngestGate(func() bool {
 			// Somebody has a live stream open: they are watching right now, even
-			// if the shell issues no further requests. The React shell consumes
-			// SSE directly and does not poll, so without this the gate would shut
-			// under an active viewer.
+			// if the client issues no further requests. A dashboard client
+			// consumes SSE directly rather than polling, so without this the gate
+			// would shut under an active viewer.
 			if broker != nil && broker.ClientCount() > 0 {
 				return true
 			}
@@ -1516,8 +1516,9 @@ func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 // hold at least one of the given roles. Pass nil/empty to clear the gate.
 // Auth extensions like authsome call this from RegisterDashboardAuth when
 // their own configuration declares a role list. The principal endpoint
-// returns 403 PERMISSION_DENIED for users who don't qualify; the React
-// shell renders an "access denied" panel.
+// returns 403 PERMISSION_DENIED for users who don't qualify. Rendering that
+// as an "access denied" screen is the client's job, and no client does it
+// today; the 403 itself is served regardless.
 func (e *Extension) SetRequiredRoles(roles []string) {
 	e.config.RequiredRoles = append([]string(nil), roles...)
 }
@@ -1750,7 +1751,7 @@ func (e *Extension) registerRoutes() {
 			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream), routeOpts...))
 			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl), routeOpts...))
 		}
-		// Slice (b) Phase 6: surface CSRF tokens to the shell only when the
+		// Slice (b) Phase 6: surface CSRF tokens to the client only when the
 		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,
 		// and EnableContractSecurity gates the contract path's enforcement).
 		if e.csrfMgr != nil && e.config.EnableContractSecurity {
@@ -1758,14 +1759,16 @@ func (e *Extension) registerRoutes() {
 				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
 		}
 
-		// Slice (d) Phase 7: principal endpoint surfaces the current user to
-		// the React shell's topbar. Reads from dashauth.UserFromContext, so it
+		// The principal endpoint surfaces auth state to whatever client is
+		// driving the dashboard. Reads from dashauth.UserFromContext, so it
 		// honors whatever auth middleware the deployment has wired upstream.
-		// Slice (l): the principal endpoint surfaces auth state to the React shell.
-		// Auth-disabled deployments get a 200 anonymous response so the shell skips
-		// the login gate; auth-enabled deployments get a 401 with the loginPath the
-		// shell should redirect to. Slice (l.5): RequiredRoles, if set, gets a 403
-		// for authenticated users without a matching role.
+		// Auth-disabled deployments get a 200 anonymous response, so a client can
+		// skip its login gate; auth-enabled deployments get a 401 carrying the
+		// loginPath to send the user to. RequiredRoles, if set, gets a 403 for
+		// authenticated users without a matching role.
+		//
+		// The endpoint is live and correct. Its consumer is not: the shell that
+		// read it was deleted, so nothing calls this today.
 		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
 			AuthEnabled:   e.config.EnableAuth,

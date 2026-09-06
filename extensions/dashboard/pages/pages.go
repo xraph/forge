@@ -29,15 +29,17 @@ type PagesConfig struct {
 	DefaultAccess  string // "public", "protected", "partial"
 	LoginPath      string // relative login path (e.g. "/auth/login")
 	// RootContributor, when set, makes "/" render this contributor's landing
-	// page in place instead of redirecting to the React shell at {BasePath}/ui.
+	// page in place. Honoured in both modes. Empty leaves "/" unserved unless
+	// LegacyUI is on.
 	RootContributor string
 	// LegacyUI serves the templ dashboard (overview, health, metrics, services,
-	// extensions, traces) at {BasePath}/* instead of 302-ing those paths to the
-	// React shell. The shell stays mounted at {BasePath}/ui either way, so both
-	// UIs are reachable; this only decides what the core paths render.
+	// extensions, traces) at {BasePath}/*.
 	//
-	// Off by default: the redirects have been the behaviour since the templ
-	// pages were retired, and flipping it would move every existing deployment.
+	// Off by default, and off means those paths 404. Nothing is mounted at
+	// {BasePath}/ui any more, so there is no second UI to reach and nothing to
+	// redirect to; the core paths simply have no renderer until the prebuilt
+	// shell artifact lands in a later wave. Turn this on to serve the templ
+	// pages in the meantime.
 	LegacyUI bool
 }
 
