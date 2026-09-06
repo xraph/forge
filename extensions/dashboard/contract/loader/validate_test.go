@@ -28,8 +28,6 @@ intents:
       requires: { warden: tenantOwner } }
 queries:
   userList: { intent: users.list }
-graph:
-  - { route: /users, intent: page.shell, data: queries.userList }
 `)
 	wreg := contract.NewWardenRegistry()
 	_ = wreg.Register("tenantOwner", &noopWarden{})

@@ -1,9 +1,6 @@
 package contract
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"sort"
 	"strings"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -90,30 +87,4 @@ func toString(v any) string {
 		return s
 	}
 	return "" // claims that aren't strings can't be matched by claim:K=V
-}
-
-// PermissionsHash returns a stable, order-independent hash of a user's
-// roles and scopes. Used as part of the graph cache key so that users with
-// the same effective permissions share a cache entry. Claims are NOT included
-// because the contract treats only role/scope as graph-shape-determining.
-func PermissionsHash(user *dashauth.UserInfo) string {
-	if user == nil {
-		return "anon"
-	}
-	roles := append([]string(nil), user.Roles...)
-	scopes := append([]string(nil), user.Scopes...)
-	sort.Strings(roles)
-	sort.Strings(scopes)
-	h := sha256.New()
-	for _, r := range roles {
-		h.Write([]byte("r:"))
-		h.Write([]byte(r))
-		h.Write([]byte{0})
-	}
-	for _, s := range scopes {
-		h.Write([]byte("s:"))
-		h.Write([]byte(s))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
 }

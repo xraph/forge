@@ -26,9 +26,7 @@ type AppInfo struct {
 
 // projectAppHome rewrites the manifest's unprefixed Home into the
 // /@<slug><home> form the React shell expects for a non-root app's
-// entry point. Identical to contract.prefixAppHome (lives there for use
-// during merge); duplicated here to keep the apps.list projection
-// self-contained without re-exporting the helper.
+// entry point.
 func projectAppHome(home, slug string) string {
 	if home == "" || slug == "" {
 		return home

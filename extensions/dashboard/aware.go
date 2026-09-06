@@ -70,8 +70,8 @@ type BridgeAware interface {
 //   - ContractContributorAware.RegisterContractContributor registers the
 //     `auth.login` command intent (and optionally `auth.logout`) on the
 //     dispatcher. The built-in LoginScreen issues the command; an
-//     extension that wants a richer flow can also publish a `/login`
-//     graph route in its manifest, and the shell's AuthGate will render
+//     extension that wants a richer flow can also ship its own `/login`
+//     page in its React package, and the shell's AuthGate will render
 //     that page instead of the built-in form.
 //
 // Example combined integration sketch:
@@ -87,8 +87,8 @@ type BridgeAware interface {
 //	) error {
 //	    return authsomecontract.Register(disp, reg, wreg, authsomecontract.Deps{
 //	        Sessions: a.sessions,
-//	        // Registers `auth.login` (command) and optionally a `/login`
-//	        // graph route that overrides the built-in LoginScreen.
+//	        // Registers `auth.login` (command) and optionally ships a
+//	        // `/login` page that overrides the built-in LoginScreen.
 //	    })
 //	}
 type DashboardAuthAware interface {

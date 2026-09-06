@@ -15,8 +15,6 @@ contributor:
   envelope: { supports: [v1], preferred: v1 }
 intents:
   - { name: users.list, kind: query, version: 1, capability: read }
-graph:
-  - { route: /users, intent: page.shell }
 `
 
 func TestLoad_OK(t *testing.T) {

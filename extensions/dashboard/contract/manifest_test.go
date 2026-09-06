@@ -57,36 +57,6 @@ func TestManifest_YAML_RoundTrip(t *testing.T) {
 	}
 }
 
-// dataBindingHolder wraps a DataBinding so the test can exercise
-// DataBinding's custom UnmarshalYAML (both the queryRef-shorthand and the
-// inline {intent, params} shape) directly, without routing through the
-// deleted UI-graph node type the way this used to.
-type dataBindingHolder struct {
-	Data *DataBinding `yaml:"data"`
-}
-
-func TestDataBinding_BothShapes(t *testing.T) {
-	var shorthand dataBindingHolder
-	if err := yaml.Unmarshal([]byte(`data: queries.userList`), &shorthand); err != nil {
-		t.Fatalf("unmarshal shorthand: %v", err)
-	}
-	if shorthand.Data == nil || shorthand.Data.QueryRef != "queries.userList" {
-		t.Errorf("shorthand not parsed: %+v", shorthand.Data)
-	}
-
-	var inline dataBindingHolder
-	if err := yaml.Unmarshal([]byte(`
-data:
-  intent: count.events
-  params: { since: { value: "1h" } }
-`), &inline); err != nil {
-		t.Fatalf("unmarshal inline: %v", err)
-	}
-	if inline.Data == nil || inline.Data.Intent != "count.events" {
-		t.Errorf("inline form not parsed: %+v", inline.Data)
-	}
-}
-
 const paramShorthandYAML = `
 schemaVersion: 1
 contributor: { name: x, envelope: { supports: [v1], preferred: v1 } }

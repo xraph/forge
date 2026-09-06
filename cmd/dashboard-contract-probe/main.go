@@ -15,7 +15,7 @@ import (
 
 func main() {
 	base := flag.String("base", "http://localhost:8080", "dashboard base URL (no trailing slash)")
-	kind := flag.String("kind", "query", "graph | query | command")
+	kind := flag.String("kind", "query", "query | command | subscribe")
 	contributor := flag.String("contributor", "", "contributor name")
 	intent := flag.String("intent", "", "intent name")
 	payload := flag.String("payload", "{}", "JSON payload")

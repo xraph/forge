@@ -15,8 +15,8 @@ import (
 const SupportedSchemaVersion = 1
 
 // Load parses a contributor manifest YAML stream and validates its schemaVersion.
-// Cross-reference validation (intent refs, slot accepts, warden names) runs separately
-// in Validate.
+// Cross-reference validation (intent refs, warden names) runs separately in
+// Validate.
 func Load(r io.Reader, source string) (*contract.ContractManifest, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {

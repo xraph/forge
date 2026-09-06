@@ -7,9 +7,9 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 )
 
-// Validate runs cross-reference checks that require the full manifest in hand.
-// It does not enforce slot-accepts (that needs the global registry to know about
-// other contributors' intent kinds); slot validation runs in registry.Register.
+// Validate runs cross-reference checks that require the full manifest in hand:
+// duplicate intent names, kind/capability consistency, warden references, and
+// query-to-intent bindings.
 func Validate(m *contract.ContractManifest, wardens contract.WardenRegistry) error {
 	intentByName := map[string]contract.Intent{}
 	for _, in := range m.Intents {

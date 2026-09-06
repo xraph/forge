@@ -165,9 +165,9 @@ func (r *registry) Remote(contributor string) (RemoteEndpoint, bool) {
 	return ep, ok
 }
 
-// Unregister removes a contributor and all derived state (intents, highest
-// version map, remote endpoint). Used by discovery loops when
-// a remote goes offline. Safe for unknown names.
+// Unregister removes a contributor and all derived state (intents,
+// highest version map, remote endpoint). Used by discovery loops when a
+// remote goes offline. Safe for unknown names.
 func (r *registry) Unregister(contributor string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

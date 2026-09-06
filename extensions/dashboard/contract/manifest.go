@@ -77,11 +77,12 @@ type Contributor struct {
 // behaviour on conflict is "first registered wins" via the natural
 // ordering in apps.list).
 //
-// Slug controls URL namespacing for non-root apps: when set, every
-// top-level graph route the contributor declares is projected to
-// /@<slug><route> on the wire, and Home is projected the same way.
-// Defaults to Contributor.Name when unset. Has no effect on a root
-// app — root URLs are always bare regardless of slug.
+// Slug controls URL namespacing for non-root apps: when set, Home is
+// projected to /@<slug><home> on the wire (see apps.list's
+// projectAppHome), and the contributor's own React routes live under
+// that same /@<slug>/* namespace. Defaults to Contributor.Name when
+// unset. Has no effect on a root app — root URLs are always bare
+// regardless of slug.
 type AppInfo struct {
 	DisplayName string `yaml:"displayName" json:"displayName"`
 	Slug        string `yaml:"slug,omitempty" json:"slug,omitempty"`
@@ -133,7 +134,8 @@ type IntentSchema struct {
 	Output any            `yaml:"output,omitempty" json:"output,omitempty"`
 }
 
-// Query is a named, reusable, cacheable data binding referenced by graph nodes.
+// Query is a named, reusable, cacheable data binding a contributor's own
+// React code references by name (e.g. `queries.overview`).
 type Query struct {
 	Intent string                 `yaml:"intent" json:"intent"`
 	Params map[string]ParamSource `yaml:"params,omitempty" json:"params,omitempty"`
@@ -172,52 +174,6 @@ type QueryCache struct {
 	StaleTime string `yaml:"staleTime,omitempty" json:"staleTime,omitempty"`
 }
 
-// NavConfig is per-route nav metadata; mirrors today's contributor.NavItem fields.
-type NavConfig struct {
-	Group    string `yaml:"group,omitempty"    json:"group,omitempty"`
-	Icon     string `yaml:"icon,omitempty"     json:"icon,omitempty"`
-	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"`
-	Badge    string `yaml:"badge,omitempty"    json:"badge,omitempty"`
-}
-
-// DataBinding is either an inline {intent, params} pair or a named query reference.
-// YAML supports both shapes:
-//
-//	data: queries.userList
-//	data: { intent: users.list, params: {...} }
-//
-// Kind is not authored in YAML; it's stamped at merge time from the
-// referenced intent's declared kind so the React shell can pick the right
-// hook (useContractQuery for query, useSubscription for subscription)
-// without having to chase the manifest's intent table client-side.
-type DataBinding struct {
-	QueryRef string                 `yaml:"-" json:"queryRef,omitempty"`
-	Intent   string                 `yaml:"intent,omitempty"  json:"intent,omitempty"`
-	Kind     IntentKind             `yaml:"-"                 json:"kind,omitempty"`
-	Params   map[string]ParamSource `yaml:"params,omitempty"  json:"params,omitempty"`
-}
-
-// UnmarshalYAML accepts either a scalar (treated as a named query reference) or
-// a mapping with the inline {intent, params} form.
-func (d *DataBinding) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.ScalarNode:
-		d.QueryRef = value.Value
-		return nil
-	case yaml.MappingNode:
-		// Decode into a shadow type to avoid recursion.
-		type alias DataBinding
-		var a alias
-		if err := value.Decode(&a); err != nil {
-			return err
-		}
-		*d = DataBinding(a)
-		return nil
-	default:
-		return fmt.Errorf("data: expected scalar or mapping, got kind=%d", value.Kind)
-	}
-}
-
 // Predicate is the boolean access expression: any of all/any/not, plus an optional
 // named Warden delegate. An empty Predicate evaluates to allow.
 type Predicate struct {
@@ -225,11 +181,4 @@ type Predicate struct {
 	Any    []string `yaml:"any,omitempty"    json:"any,omitempty"`
 	Not    []string `yaml:"not,omitempty"    json:"not,omitempty"`
 	Warden string   `yaml:"warden,omitempty" json:"warden,omitempty"`
-}
-
-// ExtensionTarget identifies the host node to extend.
-type ExtensionTarget struct {
-	Contributor string `yaml:"contributor" json:"contributor"`
-	Intent      string `yaml:"intent"      json:"intent"`
-	Route       string `yaml:"route,omitempty" json:"route,omitempty"`
 }

@@ -141,8 +141,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// legitimately need to touch HTTP (e.g. authsome's auth.login issuing a
 	// Set-Cookie) can reach them via dashauth.ResponseWriterFromContext. Pure
 	// data handlers ignore them. Slice (l) added this for the auth extension
-	// integration; widening to graph/query is harmless because those handlers
-	// already get a fresh copy of r.Context() and won't accidentally read it.
+	// integration; widening to query/subscribe is harmless because those
+	// handlers already get a fresh copy of r.Context() and won't accidentally
+	// read it.
 	dispatchCtx := dashauth.WithHTTP(r.Context(), w, r)
 	data, meta, err := h.disp.Dispatch(dispatchCtx, req, p)
 	latency := time.Since(t0)
