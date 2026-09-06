@@ -1,14 +1,10 @@
 package dashboard
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,7 +26,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
-	contractshell "github.com/xraph/forge/extensions/dashboard/contract/shell"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
@@ -1775,27 +1770,6 @@ func (e *Extension) registerRoutes() {
 			LoginPath:     loginPath,
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
 		}), routeOpts...))
-
-		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
-		// Static assets at /dashboard/ui/static/* are served from the embedded
-		// dist/. Any other path under /dashboard/ui/* serves index.html; React
-		// Router handles client-side routing. The concrete "static" segment
-		// takes precedence over the SPA catch-all in the router trie.
-		shellFS, shellErr := contractshell.FS()
-		if shellErr == nil {
-			staticPrefix := base + "/ui/static"
-			must(router.GET(staticPrefix+"/*filepath", e.makeShellStaticHandler(shellFS, staticPrefix)))
-			must(router.GET(base+"/ui", e.makeShellSPAHandler(shellFS)))
-			must(router.GET(base+"/ui/*filepath", e.makeShellSPAHandler(shellFS)))
-
-			// Backward-compat: the shell used to live at /{base}/contract/app.
-			// 302 the old entry + any deep link to the new /{base}/ui path so
-			// existing bookmarks keep working.
-			legacyPrefix := base + "/contract/app"
-			legacyRedirect := e.makeShellRedirectHandler(legacyPrefix, base+"/ui")
-			must(router.GET(legacyPrefix, legacyRedirect))
-			must(router.GET(legacyPrefix+"/*filepath", legacyRedirect))
-		}
 	}
 
 	// 4. Export endpoints (stay on forge.Router)
@@ -2062,115 +2036,4 @@ func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c 
 		StoredAt: c.StoredAt,
 		TTL:      c.TTL,
 	})
-}
-
-// makeShellStaticHandler serves files from the embedded React shell at
-// /{base}/ui/static/*. Hashed asset paths (under /assets/) are cached
-// aggressively; everything else uses a no-cache header so deploys land
-// immediately. The stripPrefix is the URL prefix the static handler is
-// mounted at — request paths beneath it are resolved against the embedded FS.
-func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) http.HandlerFunc {
-	fileServer := http.FileServer(http.FS(shellFS))
-	return func(w http.ResponseWriter, r *http.Request) {
-		trimmed := strings.TrimPrefix(r.URL.Path, stripPrefix)
-		if trimmed == "" {
-			trimmed = "/"
-		}
-		if strings.Contains(trimmed, "/assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		r2 := r.Clone(r.Context())
-		r2.URL = cloneURLWithPath(r.URL, trimmed)
-		fileServer.ServeHTTP(w, r2)
-	}
-}
-
-// makeShellRedirectHandler 302s requests from a legacy shell prefix to the
-// current one, preserving the trailing subpath and query string. Used to keep
-// old /{base}/contract/app bookmarks working after the shell moved to
-// /{base}/ui.
-func (e *Extension) makeShellRedirectHandler(oldPrefix, newPrefix string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		target := newPrefix + strings.TrimPrefix(r.URL.Path, oldPrefix)
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-
-		http.Redirect(w, r, target, http.StatusFound)
-	}
-}
-
-// makeShellSPAHandler returns the SPA index.html for any path under
-// /{base}/ui/*. React Router handles the client-side routing.
-//
-// The handler injects a small bootstrap script just before </head> that
-// surfaces the configured BasePath to the shell. This lets the React shell
-// derive its API endpoint and Router basename at runtime instead of baking
-// /dashboard into the bundle — required when the dashboard is mounted at a
-// non-default base (e.g. /admin) or rebased behind a reverse proxy.
-func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		raw, err := fs.ReadFile(shellFS, "index.html")
-		if err != nil {
-			http.Error(w, "shell index missing — has `pnpm build` been run inside extensions/dashboard/contract/shell?", http.StatusInternalServerError)
-			return
-		}
-		// Build the inline bootstrap. Marshal through JSON so the basePath is
-		// safely string-escaped even if it ever contains odd characters.
-		cfg := map[string]any{
-			"basePath":     e.config.BasePath,
-			"contractBase": e.config.BasePath + "/api/dashboard/v1",
-			"shellBase":    e.config.BasePath + "/ui",
-			"authEnabled":  e.config.EnableAuth,
-			"loginPath":    e.config.BasePath + e.config.LoginPath,
-			// Slice (l): the contributor that owns the contract /login graph
-			// route. Auth extensions like authsome register a `/login` route
-			// under their own contributor and the shell renders that page
-			// instead of the built-in LoginScreen. Default "auth" for
-			// authsome; deployments can override via config later.
-			"loginContributor": "auth",
-			"loginOp":          "auth.login",
-		}
-		cfgJSON, _ := json.Marshal(cfg)
-		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
-
-		// Vite emits document-relative asset URLs ("./assets/index-abc.js") so
-		// that the bundle is relocatable — see the `base` note in
-		// shell/vite.config.ts. Document-relative is correct for the chunks,
-		// which resolve against their own URL, but not for index.html: this
-		// same HTML is served for every path under {base}/ui, so "./assets/"
-		// would resolve against /_forge/dashboard/ui on the entry page and
-		// against /_forge/dashboard/ui/metrics on a deep link. Rewrite them to
-		// one absolute URL under the configured base instead.
-		//
-		// This cannot be left to the bootstrap script below: the browser
-		// resolves src/href while parsing the document, long before any script
-		// of ours runs.
-		out := bytes.ReplaceAll(raw, []byte(`"./assets/`), []byte(`"`+e.config.BasePath+`/ui/static/assets/`))
-
-		if idx := bytes.Index(out, []byte("</head>")); idx >= 0 {
-			out = append(out[:idx:idx], append(bootstrap, out[idx:]...)...)
-		} else {
-			// No </head> (unlikely with Vite output) — prepend the bootstrap so
-			// it still runs before any module script.
-			out = append(bootstrap, out...)
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(out)
-	}
-}
-
-// cloneURLWithPath returns a copy of u with Path replaced. Used by the static
-// handler so it doesn't mutate the original request's URL.
-func cloneURLWithPath(u *url.URL, path string) *url.URL {
-	if u == nil {
-		return &url.URL{Path: path}
-	}
-	clone := *u
-	clone.Path = path
-	clone.RawPath = ""
-	return &clone
 }
