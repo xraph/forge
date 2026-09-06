@@ -81,7 +81,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.2 // indirect
-	github.com/xraph/go-utils v1.2.2 // indirect
+	github.com/xraph/go-utils v1.3.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
@@ -118,7 +118,3 @@ require (
 replace github.com/xraph/forge => ../..
 
 replace github.com/xraph/forge/extensions/auth => ../auth
-
-// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
-// is unreleased. Remove together with the root's when go-utils is tagged.
-replace github.com/xraph/go-utils => ../../../go-utils

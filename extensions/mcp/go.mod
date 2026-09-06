@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/xraph/confy v1.0.2
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/go-utils v1.2.2
+	github.com/xraph/go-utils v1.3.0
 	github.com/xraph/vessel v1.0.4
 )
 
@@ -104,7 +104,3 @@ require (
 )
 
 replace github.com/xraph/forge => ../..
-
-// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
-// is unreleased. Remove together with the root's when go-utils is tagged.
-replace github.com/xraph/go-utils => ../../../go-utils

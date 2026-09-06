@@ -8,7 +8,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.14
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/forge v1.9.13
-	github.com/xraph/go-utils v1.2.2
+	github.com/xraph/go-utils v1.3.0
 	github.com/xraph/vessel v1.0.4
 )
 
@@ -109,7 +109,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
-// is unreleased. Remove together with the root's when go-utils is tagged.
-replace github.com/xraph/go-utils => ../../../go-utils

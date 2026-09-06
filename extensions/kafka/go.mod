@@ -90,7 +90,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
-	github.com/xraph/go-utils v1.2.2 // indirect
+	github.com/xraph/go-utils v1.3.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
@@ -121,7 +121,3 @@ require (
 )
 
 replace github.com/xraph/forge => ../..
-
-// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
-// is unreleased. Remove together with the root's when go-utils is tagged.
-replace github.com/xraph/go-utils => ../../../go-utils

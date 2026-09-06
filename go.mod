@@ -19,7 +19,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/xraph/confy v1.0.2
 	github.com/xraph/forgeui v1.4.1
-	github.com/xraph/go-utils v1.2.2
+	github.com/xraph/go-utils v1.3.0
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
@@ -128,5 +128,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/xraph/go-utils => ../go-utils

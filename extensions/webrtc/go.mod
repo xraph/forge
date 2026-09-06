@@ -97,7 +97,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.2 // indirect
 	github.com/xraph/forgeui v1.4.1 // indirect
-	github.com/xraph/go-utils v1.2.2 // indirect
+	github.com/xraph/go-utils v1.3.0 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
@@ -136,7 +136,3 @@ replace github.com/xraph/forge/extensions/streaming => ../streaming
 replace github.com/xraph/forge => ../../
 
 replace github.com/xraph/forge/extensions/auth => ../auth
-
-// Temporary: mirrors the root go.mod replace while go-utils' logger rewrite
-// is unreleased. Remove together with the root's when go-utils is tagged.
-replace github.com/xraph/go-utils => ../../../go-utils
