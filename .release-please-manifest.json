@@ -8,7 +8,7 @@
   "extensions/features": "1.10.0",
   "extensions/graphql": "1.10.0",
   "extensions/grpc": "1.10.0",
-  "extensions/hls": "1.10.0",
+  "extensions/hls": "2.0.0",
   "extensions/kafka": "1.10.0",
   "extensions/mcp": "1.10.0",
   "extensions/mqtt": "1.10.0",
