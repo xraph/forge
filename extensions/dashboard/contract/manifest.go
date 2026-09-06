@@ -33,19 +33,16 @@ type ContractManifest struct {
 	Contributor   Contributor      `yaml:"contributor"   json:"contributor"`
 	Queries       map[string]Query `yaml:"queries,omitempty" json:"queries,omitempty"`
 	Intents       []Intent         `yaml:"intents"       json:"intents"`
-	Graph         []GraphNode      `yaml:"graph,omitempty" json:"graph,omitempty"`
-	Extends       []Extension      `yaml:"extends,omitempty" json:"extends,omitempty"`
 }
 
 // Contributor names a single contributor and declares its supported envelope versions.
 //
 // App, when set, opts this contributor into the dashboard's app switcher.
 // A contributor without an App block is a "library" contributor — it may
-// declare intents and inject nodes into other contributors' graphs via
-// Extends, but its own routes (if any) won't appear as a switchable app
-// in the sidebar header. The pilot and authsome both set App so they
-// surface as first-class apps; helper contributors (e.g. a future shared
-// "design system" contributor) can stay invisible.
+// declare intents without appearing as a switchable app in the sidebar
+// header. The pilot and authsome both set App so they surface as
+// first-class apps; helper contributors (e.g. a future shared "design
+// system" contributor) can stay invisible.
 type Contributor struct {
 	Name         string          `yaml:"name"         json:"name"`
 	Envelope     EnvelopeSupport `yaml:"envelope"     json:"envelope"`
@@ -175,26 +172,6 @@ type QueryCache struct {
 	StaleTime string `yaml:"staleTime,omitempty" json:"staleTime,omitempty"`
 }
 
-// GraphNode is a single node in the UI graph (an intent invocation with slot fills).
-type GraphNode struct {
-	Route       string                 `yaml:"route,omitempty"       json:"route,omitempty"` // top-level only
-	Intent      string                 `yaml:"intent"                json:"intent"`
-	Title       string                 `yaml:"title,omitempty"       json:"title,omitempty"`
-	Nav         *NavConfig             `yaml:"nav,omitempty"         json:"nav,omitempty"`
-	Root        bool                   `yaml:"root,omitempty"        json:"root,omitempty"`
-	Data        *DataBinding           `yaml:"data,omitempty"        json:"data,omitempty"`
-	Props       map[string]any         `yaml:"props,omitempty"       json:"props,omitempty"`
-	Slots       map[string][]GraphNode `yaml:"slots,omitempty"       json:"slots,omitempty"`
-	VisibleWhen *Predicate             `yaml:"visibleWhen,omitempty" json:"visibleWhen,omitempty"`
-	EnabledWhen *Predicate             `yaml:"enabledWhen,omitempty" json:"enabledWhen,omitempty"`
-	Op          string                 `yaml:"op,omitempty"          json:"op,omitempty"` // for action nodes
-	Payload     map[string]ParamSource `yaml:"payload,omitempty"     json:"payload,omitempty"`
-	Component   string                 `yaml:"component,omitempty"   json:"component,omitempty"` // intent: custom escape hatch
-	Src         string                 `yaml:"src,omitempty"         json:"src,omitempty"`       // intent: iframe escape hatch
-	Sandbox     []string               `yaml:"sandbox,omitempty"     json:"sandbox,omitempty"`
-	Protocol    string                 `yaml:"protocol,omitempty"    json:"protocol,omitempty"`
-}
-
 // NavConfig is per-route nav metadata; mirrors today's contributor.NavItem fields.
 type NavConfig struct {
 	Group    string `yaml:"group,omitempty"    json:"group,omitempty"`
@@ -248,13 +225,6 @@ type Predicate struct {
 	Any    []string `yaml:"any,omitempty"    json:"any,omitempty"`
 	Not    []string `yaml:"not,omitempty"    json:"not,omitempty"`
 	Warden string   `yaml:"warden,omitempty" json:"warden,omitempty"`
-}
-
-// Extension declares that this contributor wants to add nodes into another contributor's slot.
-type Extension struct {
-	Target ExtensionTarget `yaml:"target" json:"target"`
-	Slot   string          `yaml:"slot"   json:"slot"` // dotted path: "detailDrawer.fields"
-	Add    []GraphNode     `yaml:"add"    json:"add"`
 }
 
 // ExtensionTarget identifies the host node to extend.

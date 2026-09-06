@@ -33,15 +33,6 @@ intents:
       all: ["role:admin", "scope:users.write"]
       warden: tenantOwner
     invalidates: [users.list, user.detail]
-
-graph:
-  - route: /users
-    intent: page.shell
-    title: Users
-    nav:
-      group: Identity
-      icon: users
-      priority: 10
 `
 
 func TestManifest_YAML_RoundTrip(t *testing.T) {
@@ -64,39 +55,35 @@ func TestManifest_YAML_RoundTrip(t *testing.T) {
 	if m.Intents[1].Requires.Warden != "tenantOwner" {
 		t.Errorf("warden ref = %q", m.Intents[1].Requires.Warden)
 	}
-	if got := len(m.Graph); got != 1 {
-		t.Fatalf("graph count = %d", got)
-	}
-	if m.Graph[0].Route != "/users" {
-		t.Errorf("route = %q", m.Graph[0].Route)
-	}
 }
 
-const dataShorthandYAML = `
-schemaVersion: 1
-contributor:
-  name: users
-  envelope: { supports: [v1], preferred: v1 }
-intents: []
-graph:
-  - intent: resource.list
-    data: queries.userList
-  - intent: metric.counter
-    data:
-      intent: count.events
-      params: { since: { value: "1h" } }
-`
+// dataBindingHolder wraps a DataBinding so the test can exercise
+// DataBinding's custom UnmarshalYAML (both the queryRef-shorthand and the
+// inline {intent, params} shape) directly, without routing through the
+// deleted UI-graph node type the way this used to.
+type dataBindingHolder struct {
+	Data *DataBinding `yaml:"data"`
+}
 
 func TestDataBinding_BothShapes(t *testing.T) {
-	var m ContractManifest
-	if err := yaml.Unmarshal([]byte(dataShorthandYAML), &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	var shorthand dataBindingHolder
+	if err := yaml.Unmarshal([]byte(`data: queries.userList`), &shorthand); err != nil {
+		t.Fatalf("unmarshal shorthand: %v", err)
 	}
-	if m.Graph[0].Data == nil || m.Graph[0].Data.QueryRef != "queries.userList" {
-		t.Errorf("shorthand not parsed: %+v", m.Graph[0].Data)
+	if shorthand.Data == nil || shorthand.Data.QueryRef != "queries.userList" {
+		t.Errorf("shorthand not parsed: %+v", shorthand.Data)
 	}
-	if m.Graph[1].Data == nil || m.Graph[1].Data.Intent != "count.events" {
-		t.Errorf("inline form not parsed: %+v", m.Graph[1].Data)
+
+	var inline dataBindingHolder
+	if err := yaml.Unmarshal([]byte(`
+data:
+  intent: count.events
+  params: { since: { value: "1h" } }
+`), &inline); err != nil {
+		t.Fatalf("unmarshal inline: %v", err)
+	}
+	if inline.Data == nil || inline.Data.Intent != "count.events" {
+		t.Errorf("inline form not parsed: %+v", inline.Data)
 	}
 }
 
