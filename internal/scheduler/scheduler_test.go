@@ -118,24 +118,55 @@ func TestScheduler_SkipsOverlappingRuns(t *testing.T) {
 }
 
 // A cancelled job stops running; the others carry on.
+//
+// Cancel promises that no further run starts once it returns, so the test pins
+// one run open across the cancel rather than sleeping and hoping. A job never
+// overlaps itself, so while that run is held the scheduler cannot start
+// another of it, which makes the count at cancel time exact instead of a race
+// with a run already under way.
 func TestScheduler_CancelStopsOneJob(t *testing.T) {
 	s := New("test")
 
 	var cancelled, kept atomic.Int64
 
-	stop := s.Every("cancelled", 10*time.Millisecond, func(context.Context) { cancelled.Add(1) })
+	var holding atomic.Bool
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+
+	stop := s.Every("cancelled", 10*time.Millisecond, func(context.Context) {
+		cancelled.Add(1)
+
+		if holding.CompareAndSwap(false, true) {
+			close(entered)
+			<-release
+		}
+	})
 	s.Every("kept", 10*time.Millisecond, func(context.Context) { kept.Add(1) })
 
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	time.Sleep(60 * time.Millisecond)
+	<-entered // a run is under way, so no other run of it can start
+
 	stop()
 
 	atCancel := cancelled.Load()
 
-	time.Sleep(80 * time.Millisecond)
+	close(release)
+
+	// Give the cancelled job every chance to run again: wait for the job we
+	// kept to tick several more times.
+	target := kept.Load() + 3
+
+	for deadline := time.Now().Add(2 * time.Second); kept.Load() < target; {
+		if time.Now().After(deadline) {
+			t.Fatalf("the other job stopped running too: %d runs", kept.Load())
+		}
+
+		time.Sleep(time.Millisecond)
+	}
 
 	if err := s.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -143,10 +174,6 @@ func TestScheduler_CancelStopsOneJob(t *testing.T) {
 
 	if after := cancelled.Load(); after > atCancel {
 		t.Errorf("cancelled job ran %d more times after cancel", after-atCancel)
-	}
-
-	if kept.Load() <= atCancel {
-		t.Error("the other job stopped running too")
 	}
 }
 
@@ -260,5 +287,38 @@ func TestScheduler_StartStopAreIdempotent(t *testing.T) {
 
 	if err := s.Stop(ctx); err != nil {
 		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+// Cancel must beat a run the scheduler has already committed to but has not
+// yet started.
+//
+// runDue picks the due jobs under the lock, releases it, and only then starts
+// a goroutine per job, so there is a window where a run is committed and the
+// job is still cancellable. Pinning the process to one P keeps that window
+// open on purpose: the goroutine runDue starts is queued rather than run, so
+// cancel is guaranteed to land inside the window instead of racing for it.
+func TestScheduler_CancelBeatsACommittedRun(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+
+	s := New("test")
+	s.ctx, s.stop = context.WithCancel(context.Background())
+
+	var ran atomic.Bool
+
+	cancel := s.Every("job", time.Hour, func(context.Context) { ran.Store(true) })
+
+	// Bring the job forward so runDue picks it up on this call.
+	s.mu.Lock()
+	s.jobs[0].next = time.Now().Add(-time.Second)
+	s.mu.Unlock()
+
+	s.runDue() // commits to the run and queues its goroutine
+	cancel()   // lands before that goroutine gets a turn
+
+	s.inWork.Wait() // the committed run has finished, or skipped itself
+
+	if ran.Load() {
+		t.Error("a cancelled job ran after its cancel function returned")
 	}
 }
