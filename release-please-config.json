@@ -4,6 +4,7 @@
     ".": {
       "release-type": "go",
       "package-name": "forge",
+      "include-component-in-tag": false,
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
@@ -16,120 +17,101 @@
         { "type": "test", "section": "Tests", "hidden": true },
         { "type": "build", "section": "Build System", "hidden": true },
         { "type": "ci", "section": "Continuous Integration", "hidden": true }
-      ],
-      "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": false
+      ]
     },
     "extensions/auth": {
       "release-type": "go",
       "package-name": "auth",
-      "component": "extensions/auth",
-      "bump-minor-pre-major": true
+      "component": "extensions/auth"
     },
     "extensions/cache": {
       "release-type": "go",
       "package-name": "cache",
-      "component": "extensions/cache",
-      "bump-minor-pre-major": true
+      "component": "extensions/cache"
     },
     "extensions/consensus": {
       "release-type": "go",
       "package-name": "consensus",
-      "component": "extensions/consensus",
-      "bump-minor-pre-major": true
+      "component": "extensions/consensus"
     },
     "extensions/discovery": {
       "release-type": "go",
       "package-name": "discovery",
-      "component": "extensions/discovery",
-      "bump-minor-pre-major": true
+      "component": "extensions/discovery"
     },
     "extensions/events": {
       "release-type": "go",
       "package-name": "events",
-      "component": "extensions/events",
-      "bump-minor-pre-major": true
+      "component": "extensions/events"
     },
     "extensions/features": {
       "release-type": "go",
       "package-name": "features",
-      "component": "extensions/features",
-      "bump-minor-pre-major": true
+      "component": "extensions/features"
     },
     "extensions/graphql": {
       "release-type": "go",
       "package-name": "graphql",
-      "component": "extensions/graphql",
-      "bump-minor-pre-major": true
+      "component": "extensions/graphql"
     },
     "extensions/grpc": {
       "release-type": "go",
       "package-name": "grpc",
-      "component": "extensions/grpc",
-      "bump-minor-pre-major": true
+      "component": "extensions/grpc"
     },
     "extensions/hls": {
       "release-type": "go",
       "package-name": "hls",
-      "component": "extensions/hls",
-      "bump-minor-pre-major": true
+      "component": "extensions/hls"
     },
     "extensions/kafka": {
       "release-type": "go",
       "package-name": "kafka",
-      "component": "extensions/kafka",
-      "bump-minor-pre-major": true
+      "component": "extensions/kafka"
     },
     "extensions/mcp": {
       "release-type": "go",
       "package-name": "mcp",
-      "component": "extensions/mcp",
-      "bump-minor-pre-major": true
+      "component": "extensions/mcp"
     },
     "extensions/mqtt": {
       "release-type": "go",
       "package-name": "mqtt",
-      "component": "extensions/mqtt",
-      "bump-minor-pre-major": true
+      "component": "extensions/mqtt"
     },
     "extensions/orpc": {
       "release-type": "go",
       "package-name": "orpc",
-      "component": "extensions/orpc",
-      "bump-minor-pre-major": true
+      "component": "extensions/orpc"
     },
     "extensions/queue": {
       "release-type": "go",
       "package-name": "queue",
-      "component": "extensions/queue",
-      "bump-minor-pre-major": true
+      "component": "extensions/queue"
     },
     "extensions/search": {
       "release-type": "go",
       "package-name": "search",
-      "component": "extensions/search",
-      "bump-minor-pre-major": true
+      "component": "extensions/search"
     },
     "extensions/security": {
       "release-type": "go",
       "package-name": "security",
-      "component": "extensions/security",
-      "bump-minor-pre-major": true
+      "component": "extensions/security"
     },
     "extensions/streaming": {
       "release-type": "go",
       "package-name": "streaming",
-      "component": "extensions/streaming",
-      "bump-minor-pre-major": true
+      "component": "extensions/streaming"
     },
     "extensions/webrtc": {
       "release-type": "go",
       "package-name": "webrtc",
-      "component": "extensions/webrtc",
-      "bump-minor-pre-major": true
+      "component": "extensions/webrtc"
     }
   },
   "changelog-path": "CHANGELOG.md",
+  "tag-separator": "/",
   "separate-pull-requests": true,
   "pull-request-title-pattern": "chore(${scope}): release ${component} ${version}",
   "skip-github-release": true
