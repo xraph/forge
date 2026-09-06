@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -80,13 +81,34 @@ func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 	}
 }
 
-// TestScaffoldDashboardAppUsesPluginErrorBoundary is the fix-round-1
-// discriminator target: the scaffold must wrap both places apps/shell's own
-// PluginHost wraps in PluginErrorBoundary -- a plugin's setup panel and its
-// route element -- so a third-party plugin's throw is contained to its own
-// box instead of blanking the whole dashboard. Two usage sites, not one: a
-// boundary around only the route (or only the setup panel) is the same class
-// of gap W2 shipped and a review caught.
+// pluginErrorBoundaryWrapsSetup and pluginErrorBoundaryWrapsRoute anchor the
+// boundary check to structure, not to a bare occurrence count.
+//
+// Fix round 1 added a counting assertion (`strings.Count(src,
+// "<PluginErrorBoundary") >= 2`) that discriminated against the historical
+// W2 regression -- one boundary, or none -- but could not tell two correct
+// placements apart from two boundaries stacked on the *same* element (both
+// wrapping the route, say, with the setup panel left bare). That is exactly
+// the W2 shape, reproduced with a passing count. These two patterns instead
+// require a PluginErrorBoundary's opening tag to be the immediate parent of
+// <Setup and, separately, of <PluginProvider (which itself wraps the routed
+// <Page/>) -- so a boundary that wraps the wrong element, or wraps neither,
+// fails the corresponding pattern regardless of how many boundaries exist
+// elsewhere in the file.
+var (
+	pluginErrorBoundaryWrapsSetup = regexp.MustCompile(`<PluginErrorBoundary[^>]*>\s*<Setup\b`)
+	pluginErrorBoundaryWrapsRoute = regexp.MustCompile(`<PluginErrorBoundary[^>]*>\s*<PluginProvider\b`)
+)
+
+// TestScaffoldDashboardAppUsesPluginErrorBoundary is the fix-round-1 (and,
+// after fix round 2 tightened the anchoring, fix-round-2) discriminator
+// target: the scaffold must wrap both places apps/shell's own PluginHost
+// wraps in PluginErrorBoundary -- a plugin's setup panel and its route
+// element -- so a third-party plugin's throw is contained to its own box
+// instead of blanking the whole dashboard. Both sites, not just two
+// occurrences of the tag: see the discriminator run recorded in the task
+// report, which moves both boundaries onto the route and leaves the setup
+// panel bare -- the exact W2 shape -- and confirms this test catches it.
 func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
@@ -98,10 +120,11 @@ func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 
 	assert.Contains(t, src, "@forge-go/dashboard-runtime", "App.tsx must import from @forge-go/dashboard-runtime")
 
-	usages := strings.Count(src, "<PluginErrorBoundary")
-	assert.GreaterOrEqualf(t, usages, 2,
-		"App.tsx must wrap both the plugin setup panel and the route element in <PluginErrorBoundary>, found %d usage(s):\n%s",
-		usages, src)
+	assert.Truef(t, pluginErrorBoundaryWrapsSetup.MatchString(src),
+		"App.tsx must wrap the plugin setup panel (<Setup .../>) directly in <PluginErrorBoundary>, source:\n%s", src)
+
+	assert.Truef(t, pluginErrorBoundaryWrapsRoute.MatchString(src),
+		"App.tsx must wrap the route's <PluginProvider>...<Page/></PluginProvider> directly in <PluginErrorBoundary>, source:\n%s", src)
 }
 
 // TestScaffoldDashboardPackageJSONNameIsSanitized covers the directory-name

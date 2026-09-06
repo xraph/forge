@@ -31,9 +31,11 @@ func NewDashboardPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &DashboardPlugin{config: cfg}
 }
 
-func (p *DashboardPlugin) Name() string           { return "dashboard" }
-func (p *DashboardPlugin) Version() string        { return "1.0.0" }
-func (p *DashboardPlugin) Description() string    { return "Standalone dashboard shell scaffolding" }
+func (p *DashboardPlugin) Name() string    { return "dashboard" }
+func (p *DashboardPlugin) Version() string { return "1.0.0" }
+func (p *DashboardPlugin) Description() string {
+	return "Standalone dashboard shell scaffolding (for WithShellSource(ShellExternal))"
+}
 func (p *DashboardPlugin) Dependencies() []string { return nil }
 func (p *DashboardPlugin) Initialize() error      { return nil }
 
@@ -122,9 +124,9 @@ type dashboardScaffoldData struct {
 // not less).
 //
 // It does not run `pnpm install`, `pnpm build`, or anything else that needs a
-// registry -- those packages are not published yet (this wave is barred from
-// running `npm publish`), so a scaffolded project cannot install today. That
-// is a known, accepted gap; see the wave report for how it's tracked.
+// registry -- those packages are not published yet, so a scaffolded project
+// cannot install today. That is expected until they are released; it is not
+// a bug in the scaffold.
 func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName string) error {
 	if strings.TrimSpace(rawName) == "" {
 		rawName = "dashboard"
