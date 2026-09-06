@@ -288,12 +288,12 @@ github.com/vektah/gqlparser/v2 v2.5.14 h1:dzLq75BJe03jjQm6n56PdH1oweB8ana42wj7E4
 github.com/vektah/gqlparser/v2 v2.5.14/go.mod h1:WQQjFc+I1YIzoPvZBhUQX7waZgg3pMLi0r8KymvAE2w=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
-github.com/xraph/confy v1.0.2 h1:90jmVLdw9J0uqJOnfDxqatOVJHeZ/IM1R89zd3df1FA=
-github.com/xraph/confy v1.0.2/go.mod h1:/jKqCF8cMpCatuNO2uFQ/7VClDBP2+V74fM5KFM42o8=
+github.com/xraph/confy v1.0.3 h1:mY0kIo9+dU+XcGGN7cm4IfOhvk4SDj5TrnccpGi21fs=
+github.com/xraph/confy v1.0.3/go.mod h1:DcYB+N0yKpr3t1yhhkdIIiCfch30Kh5wW6GRntUMOGk=
 github.com/xraph/forge v1.9.4 h1:HZK08RiCcuxHD1k5U77IKAt8gOBv/3KJo9R1KhjdThc=
 github.com/xraph/forge v1.9.4/go.mod h1:YFViY9JilzFoPRAIvuLKp1+cJLz/fpKz+0CwNI4AwLM=
-github.com/xraph/go-utils v1.2.2 h1:zwRV3jRWDSGTqoC4zoYqxyXhXOCEI8tp66GJIPhqf8Y=
-github.com/xraph/go-utils v1.2.2/go.mod h1:Mckdi+nR0bI4bUESKSYajJq4tNSPsvZiuLRYJ0+qDQw=
+github.com/xraph/go-utils v1.3.0 h1:bMZxwH9Xi/6UqhHSotKHB3a+/FnqnlUnEKf+aHZaw5c=
+github.com/xraph/go-utils v1.3.0/go.mod h1:NfSn00r74ZjcIhVujIDPdKV25Ktghy2yz0DQmIKEARk=
 github.com/xraph/vessel v1.0.4 h1:YVG80hm7bAKTwogwLXZMlp46tMHHJThUcvCUOWao9Yk=
 github.com/xraph/vessel v1.0.4/go.mod h1:5hgrMbuczxu2kRIM3iVJ3wPSb6HOvbMhV4nkRFaPNqs=
 github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 h1:bAn7/zixMGCfxrRTfdpNzjtPYqr8smhKouy9mxVdGPU=
