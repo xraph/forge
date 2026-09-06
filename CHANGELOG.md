@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.11.0](https://github.com/xraph/forge/compare/v1.10.0...v1.11.0) (2026-09-06)
+
+
+### Features
+
+* **dashboard:** gate trace ingest on recent dashboard use ([82e3626](https://github.com/xraph/forge/commit/82e3626e898294959585663667e210b0e6114ce9))
+* **dashboard:** let the trace store gate ingest on demand ([d75b6e5](https://github.com/xraph/forge/commit/d75b6e5c01a97530078a5cdb227bc8f6e3a35b4c))
+* **logger:** adopt the rewritten logger with automatic format selection ([0c0b5de](https://github.com/xraph/forge/commit/0c0b5dee6180228e5d830447a9398bcfe7d1d2c0))
+
+
+### Bug Fixes
+
+* **ci:** reconcile release-please with the repository's real tags ([29a4655](https://github.com/xraph/forge/commit/29a4655a5b3f26d04ba4720a9c6b057098e05531))
+* **dashboard:** bound caller-controlled span attribute values ([167819b](https://github.com/xraph/forge/commit/167819bd4630b4836e2798eab521325833b1f783))
+* **dashboard:** bound the remaining span fields and wire the per-trace cap ([2d271ee](https://github.com/xraph/forge/commit/2d271ee57c0efc0cefe50a269e0263105817ca84))
+* **dashboard:** cap the spans a single trace can retain ([2c78625](https://github.com/xraph/forge/commit/2c78625e2e5a3d9ef995ae74bfe4cd0550aaaa4b))
+* **dashboard:** drain trace notifications on one goroutine, not one per span ([87ed904](https://github.com/xraph/forge/commit/87ed90492d91f2b44173c328f9267309250e75b3))
+* **dashboard:** handle edge cases in truncateAttr and add comprehensive tests ([adef783](https://github.com/xraph/forge/commit/adef7831e0f4d867b82d4f0b3557697b4cb861cf))
+* **dashboard:** keep gate open for SSE viewers, tighten dashboard path match ([cb87fb8](https://github.com/xraph/forge/commit/cb87fb893ff8d6b32c5aafa3b408ee7ca7235c90))
+* **dashboard:** make goroutine-per-span regression test discriminate reliably ([306999f](https://github.com/xraph/forge/commit/306999f01c4e3dcfe8c3c42970b12856c135d3fb))
+* **dashboard:** stop the trace collector retaining spans nobody is watching ([351fbf1](https://github.com/xraph/forge/commit/351fbf14b04e42c146cefedab07046175dbb6daf))
+
+
+### Documentation
+
+* **changelog:** update CHANGELOG.md for v1.10.0 ([8dd10aa](https://github.com/xraph/forge/commit/8dd10aa7cd661dfe6a4fdc7092ca0bba6278fa78))
+
 ## [1.10.0](https://github.com/xraph/forge/compare/v1.9.16...v1.10.0) (2026-09-02)
 
 
