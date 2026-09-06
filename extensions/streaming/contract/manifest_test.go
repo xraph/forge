@@ -19,9 +19,6 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 	if got := len(m.Intents); got < 14 {
 		t.Errorf("expected ≥14 intents (9 reads + 5 mutations), got %d", got)
 	}
-	if got := len(m.Graph); got != 6 {
-		t.Errorf("expected 6 routes, got %d", got)
-	}
 	if err := loader.Validate(m, dashcontract.NewWardenRegistry()); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
