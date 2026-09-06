@@ -8,7 +8,6 @@ import "encoding/json"
 type Kind string
 
 const (
-	KindGraph     Kind = "graph"
 	KindQuery     Kind = "query"
 	KindCommand   Kind = "command"
 	KindSubscribe Kind = "subscribe"

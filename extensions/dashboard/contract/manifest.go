@@ -12,7 +12,6 @@ import (
 type IntentKind string
 
 const (
-	IntentKindGraph        IntentKind = "graph"
 	IntentKindQuery        IntentKind = "query"
 	IntentKindCommand      IntentKind = "command"
 	IntentKindSubscription IntentKind = "subscription"
@@ -20,13 +19,12 @@ const (
 
 // Capability is the data-classification of an intent's effects.
 // It composes with IntentKind: a command must be capability=write; a query/subscription
-// must be capability=read; a graph must be capability=render.
+// must be capability=read.
 type Capability string
 
 const (
-	CapRead   Capability = "read"
-	CapWrite  Capability = "write"
-	CapRender Capability = "render"
+	CapRead  Capability = "read"
+	CapWrite Capability = "write"
 )
 
 // ContractManifest is the top-level YAML each contributor publishes.

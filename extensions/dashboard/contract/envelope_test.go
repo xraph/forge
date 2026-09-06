@@ -34,7 +34,7 @@ func TestRequest_RoundTrip_Command(t *testing.T) {
 }
 
 func TestKind_Constants(t *testing.T) {
-	for _, k := range []Kind{KindGraph, KindQuery, KindCommand, KindSubscribe} {
+	for _, k := range []Kind{KindQuery, KindCommand, KindSubscribe} {
 		if k == "" {
 			t.Errorf("kind constant empty")
 		}

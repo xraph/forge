@@ -51,19 +51,6 @@ intents:
 	}
 }
 
-func TestValidate_UnknownQueryRef(t *testing.T) {
-	m := mustLoad(t, `
-schemaVersion: 1
-contributor: { name: x, envelope: { supports: [v1], preferred: v1 } }
-intents: []
-graph:
-  - { intent: page.shell, data: queries.nope }
-`)
-	if err := Validate(m, contract.NewWardenRegistry()); err == nil {
-		t.Error("expected unknown-query error")
-	}
-}
-
 func TestValidate_KindCapabilityMismatch(t *testing.T) {
 	cases := []string{
 		"kind: command, capability: read", // command must be write
