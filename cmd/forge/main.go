@@ -47,6 +47,7 @@ func main() {
 		plugins.NewDatabasePlugin(forgeConfig),    // forge db:*
 		plugins.NewExtensionPlugin(forgeConfig),   // forge extension:*
 		plugins.NewContributorPlugin(forgeConfig), // forge contributor:*
+		plugins.NewDashboardPlugin(forgeConfig),   // forge dashboard:*
 		plugins.NewDoctorPlugin(forgeConfig),      // forge doctor
 		plugins.NewInitPlugin(forgeConfig),        // forge init
 		plugins.NewClientPlugin(forgeConfig),      // forge client:*
