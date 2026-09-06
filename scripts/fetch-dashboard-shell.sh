@@ -60,6 +60,18 @@
 #   not a network problem; unpacking it anyway would silently ship (or
 #   locally build) garbage instead of failing loudly.
 #
+#   KNOWN LIMITATION: nothing in GoReleaser's before.hooks interface
+#   distinguishes "a real `goreleaser release`" from any other invocation.
+#   CI=true / GITHUB_ACTIONS=true is a proxy for "this is the blessed
+#   pipeline," not a guarantee of it. A maintainer running
+#   `goreleaser release --clean` by hand outside CI, with a real
+#   GORELEASER_TOKEN, bypassing release.yml entirely, would hit the SOFT
+#   path on any network hiccup and could publish a binary with the
+#   placeholder embedded, silently. No stronger signal is available to a
+#   before-hook -- there is nothing to check it against. Mitigation: cut
+#   releases through the workflow, not by hand; if you must run
+#   `goreleaser release` outside CI, set DASHBOARD_SHELL_STRICT=1 yourself.
+#
 # Guard (protecting uncommitted local changes):
 #   extensions/dashboard/shellassets/dist/index.html and README.md are
 #   tracked files (see the repo .gitignore) so a fresh clone builds without
@@ -138,20 +150,42 @@ tree_hash() {
 
 if [ "${DASHBOARD_SHELL_FORCE:-0}" = "1" ]; then
   warn "DASHBOARD_SHELL_FORCE=1: skipping the uncommitted-changes guard"
-elif [ -n "$(git status --porcelain -- "$DIST_DIR")" ]; then
-  if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$(tree_hash)" ]; then
-    log "dist/ is dirty but matches this script's last recorded fetch; continuing"
-  else
-    die "uncommitted changes under $DIST_DIR that this script did not make.
+else
+  # Captured and checked separately -- not inlined into the `[ -n ... ]` test
+  # below -- so that a failing `git status` (not merely "no output") cannot
+  # be misread as "clean" and silently skip the guard it is supposed to run.
+  DIST_STATUS="$(git status --porcelain -- "$DIST_DIR")" \
+    || die "git status failed while checking $DIST_DIR for uncommitted changes"
+
+  if [ -n "$DIST_STATUS" ]; then
+    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$(tree_hash)" ]; then
+      log "dist/ is dirty but matches this script's last recorded fetch; continuing"
+    else
+      die "uncommitted changes under $DIST_DIR that this script did not make.
   Restore with:  git checkout -- $DIST_DIR && git clean -fdx $DIST_DIR
   Or override with DASHBOARD_SHELL_FORCE=1 if you are sure."
+    fi
   fi
 fi
 
 # --- 4. Download -------------------------------------------------------------
 
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+STAGING_DIR=""
+STALE_DIR=""
+cleanup() {
+  # Every statement here is best-effort: this runs on the EXIT trap, under
+  # `set -e`, and its own exit status would otherwise become the script's
+  # exit status (bash re-raises a failing EXIT-trap command as the process's
+  # final code) -- silently turning a successful run into a reported
+  # failure. `|| true` on each, and an explicit `return 0`, keep cleanup
+  # from ever overriding the real result.
+  rm -rf "$WORK_DIR" || true
+  if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then rm -rf "$STAGING_DIR" || true; fi
+  if [ -n "$STALE_DIR" ] && [ -d "$STALE_DIR" ]; then rm -rf "$STALE_DIR" || true; fi
+  return 0
+}
+trap cleanup EXIT
 ARCHIVE="$WORK_DIR/$ASSET"
 
 log "fetching $URL"
@@ -185,10 +219,49 @@ fi
 
 log "verified: $ASSET has index.html at its root ($(wc -l < "$LISTING" | tr -d ' ') entries)"
 
-# --- 6. Clear and unpack ------------------------------------------------------
+# --- 6. Extract into a staging directory, then swap it into place -----------
+#
+# Extraction happens in a scratch directory, never in $DIST_DIR itself: if
+# `tar -xzf` fails partway (disk full, an I/O error, a permission problem on
+# one entry), the failure lands entirely in $STAGING_DIR and $DIST_DIR is
+# never touched. Clearing $DIST_DIR first and extracting into it directly
+# would leave an empty dist/ on exactly that failure -- which fails the
+# //go:embed at compile time with an error nowhere near its real cause.
+#
+# The staging directory is created as a sibling of $DIST_DIR (same
+# filesystem) rather than under $WORK_DIR (which may be a different
+# filesystem, e.g. a tmpfs /tmp), so the swap below is two same-filesystem
+# renames rather than a cross-filesystem copy -- fast, and the only window
+# where dist/ could be observed missing is the instant between those two
+# renames, not however long extraction takes.
 
-find "$DIST_DIR" -mindepth 1 -delete
-tar -xzf "$ARCHIVE" -C "$DIST_DIR"
+STAGING_PARENT="$(dirname "$DIST_DIR")"
+if ! STAGING_DIR="$(mktemp -d "${STAGING_PARENT}/.dist-staging.XXXXXX" 2>"$WORK_DIR/mktemp-error.txt")"; then
+  die "could not create a staging directory for extraction: $(cat "$WORK_DIR/mktemp-error.txt")"
+fi
+chmod 755 "$STAGING_DIR"
+
+if ! tar -xzf "$ARCHIVE" -C "$STAGING_DIR" 2>"$WORK_DIR/extract-error.txt"; then
+  die "extraction into the staging directory failed (dist/ left untouched): $(cat "$WORK_DIR/extract-error.txt")"
+fi
+
+if [ ! -f "$STAGING_DIR/index.html" ]; then
+  die "extraction incomplete: index.html missing from the staged output (dist/ left untouched)"
+fi
+
+STALE_DIR="${DIST_DIR}.stale.$$"
+rm -rf "$STALE_DIR"
+mv "$DIST_DIR" "$STALE_DIR" || die "could not move the current dist/ aside for the swap (dist/ unchanged)"
+if ! mv "$STAGING_DIR" "$DIST_DIR"; then
+  # Extremely unlikely (both renames are on the same filesystem, moments
+  # apart) but worth guarding: put the previous contents straight back
+  # rather than leave dist/ missing.
+  mv "$STALE_DIR" "$DIST_DIR" 2>/dev/null || true
+  die "could not move staged content into dist/; restored the previous dist/ contents"
+fi
+STAGING_DIR=""   # moved into place; nothing left for cleanup() to remove there
+rm -rf "$STALE_DIR"
+STALE_DIR=""
 
 # --- 7. Record provenance for the guard on the next run ----------------------
 
