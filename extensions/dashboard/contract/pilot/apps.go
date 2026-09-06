@@ -25,10 +25,10 @@ type AppInfo struct {
 }
 
 // projectAppHome rewrites the manifest's unprefixed Home into the
-// /@<slug><home> form that the merged graph routes use. Identical to
-// contract.prefixAppHome (lives there for use during merge); duplicated
-// here to keep the apps.list projection self-contained without
-// re-exporting the helper.
+// /@<slug><home> form the React shell expects for a non-root app's
+// entry point. Identical to contract.prefixAppHome (lives there for use
+// during merge); duplicated here to keep the apps.list projection
+// self-contained without re-exporting the helper.
 func projectAppHome(home, slug string) string {
 	if home == "" || slug == "" {
 		return home
@@ -73,9 +73,10 @@ func appsListHandler(reg contract.Registry) func(ctx context.Context, _ struct{}
 				displayName = m.Contributor.Name
 			}
 			// Project the prefixed Home so the React shell navigates to
-			// /@<slug><home> — matching the hrefs the navigation handler
-			// emits. ResolvedSlug returns "" for root apps, which makes
-			// projectAppHome a no-op: root apps own the bare URL space.
+			// /@<slug><home>, matching the /@<slug>/* namespace each
+			// non-root plugin's own routes live under. ResolvedSlug
+			// returns "" for root apps, which makes projectAppHome a
+			// no-op: root apps own the bare URL space.
 			slug := a.ResolvedSlug(m.Contributor.Name)
 			home := projectAppHome(a.Home, slug)
 			out = append(out, AppInfo{

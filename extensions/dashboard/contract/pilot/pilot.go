@@ -111,11 +111,6 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterSubscription(d, c, "audit.tail", 1, auditTailSub(deps.Audit)); err != nil {
 		return err
 	}
-	// Slice (l) navigation. Walks the merged contract registry to produce the
-	// pre-grouped sidebar payload the React shell renders.
-	if err := dispatcher.RegisterQuery(d, c, "navigation", 1, navigationHandler(contractReg)); err != nil {
-		return err
-	}
 	// apps.list: feeds the React shell's app switcher with every
 	// contributor that opted into being a switchable app. Separate from
 	// extensions.list (the broader catalog) so the switcher's dropdown
