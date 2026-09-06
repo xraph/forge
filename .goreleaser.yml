@@ -30,6 +30,16 @@ before:
     # sit inside another workspace -- which a git worktree under the main clone
     # does. Pinning it keeps the hook working wherever the tree is checked out.
     - sh -c 'rm -f go.work go.work.sum && GOWORK="$PWD/go.work" go work init . ./cmd/forge'
+    # Swaps the committed placeholder in extensions/dashboard/shellassets/dist/
+    # for the real dashboard shell artifact published by xraph/forge-dashboard,
+    # since //go:embed reads that directory at build time below. Runs on every
+    # goreleaser invocation this file drives -- the real release job AND its
+    # snapshot dry-run rehearsal (release.yml:455-461 runs the same
+    # .goreleaser.yml with --snapshot), so the two can never embed different
+    # things -- as well as a developer's local `goreleaser --snapshot`, which
+    # the script degrades gracefully for. See the script's own header comment
+    # for the reachability and uncommitted-changes rules it applies.
+    - scripts/fetch-dashboard-shell.sh
     - go mod tidy
     - go mod verify
     - sh -c "cd cmd/forge && go mod tidy"
