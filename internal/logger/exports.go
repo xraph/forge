@@ -4,49 +4,25 @@ import (
 	"github.com/xraph/go-utils/log"
 )
 
-// FormatConfig controls what components are shown in the output.
-type FormatConfig = log.FormatConfig
+// NewBeautifulLogger creates a logger that picks its format automatically.
+//
+// Deprecated: use New(Config{Name: name}).
+func NewBeautifulLogger(name string) Logger { return log.NewBeautifulLogger(name) }
 
-// DefaultFormatConfig provides sensible defaults.
-func DefaultFormatConfig() FormatConfig {
-	return log.DefaultFormatConfig()
-}
+// NewBeautifulLoggerCompact creates a logger without caller information.
+//
+// Deprecated: use New(Config{Name: name}).
+func NewBeautifulLoggerCompact(name string) Logger { return log.NewBeautifulLoggerCompact(name) }
 
-// BeautifulLogger is a visually appealing alternative logger implementation
-// with CLI-style output, caller information, and configurable formatting.
-type BeautifulLogger = log.BeautifulLogger
+// NewBeautifulLoggerMinimal creates a logger without caller information.
+//
+// Deprecated: use New(Config{Name: name}).
+func NewBeautifulLoggerMinimal(name string) Logger { return log.NewBeautifulLoggerMinimal(name) }
 
-// BeautifulColorScheme defines the color palette for beautiful output.
-type BeautifulColorScheme = log.BeautifulColorScheme
-
-// DefaultBeautifulColorScheme provides a modern minimalist color scheme.
-func DefaultBeautifulColorScheme() BeautifulColorScheme {
-	return *log.DefaultBeautifulColorScheme()
-}
-
-// NewBeautifulLogger creates a new beautiful logger with defaults.
-func NewBeautifulLogger(name string) *BeautifulLogger {
-	return log.NewBeautifulLogger(name)
-}
-
-// ============================================================================
-// Constructor Shortcuts
-// ============================================================================
-
-// NewBeautifulLoggerCompact creates a compact logger optimized for high-frequency logs.
-func NewBeautifulLoggerCompact(name string) *BeautifulLogger {
-	return log.NewBeautifulLoggerCompact(name)
-}
-
-// NewBeautifulLoggerMinimal creates an ultra-minimal logger.
-func NewBeautifulLoggerMinimal(name string) *BeautifulLogger {
-	return log.NewBeautifulLoggerMinimal(name)
-}
-
-// NewBeautifulLoggerJSON creates a logger similar to JSON output (caller, fields, timestamp).
-func NewBeautifulLoggerJSON(name string) *BeautifulLogger {
-	return log.NewBeautifulLoggerJSON(name)
-}
+// NewBeautifulLoggerJSON creates a JSON logger.
+//
+// Deprecated: use New(Config{Name: name, Format: FormatJSON}).
+func NewBeautifulLoggerJSON(name string) Logger { return log.NewBeautifulLoggerJSON(name) }
 
 // StructuredLog provides a fluent interface for structured logging.
 type StructuredLog = log.StructuredLog
