@@ -35,11 +35,10 @@ type PagesConfig struct {
 	// LegacyUI serves the templ dashboard (overview, health, metrics, services,
 	// extensions, traces) at {BasePath}/*.
 	//
-	// Off by default, and off means those paths 404. Nothing is mounted at
-	// {BasePath}/ui any more, so there is no second UI to reach and nothing to
-	// redirect to; the core paths simply have no renderer until the prebuilt
-	// shell artifact lands in a later wave. Turn this on to serve the templ
-	// pages in the meantime.
+	// Off by default, and off means those paths 404. The dashboard lives at
+	// {BasePath}/ui now, served from the prebuilt shell; these core paths are
+	// the server-rendered ones it replaced, and nothing redirects between the
+	// two. Turn this on if you still want the templ pages.
 	LegacyUI bool
 }
 
@@ -96,14 +95,14 @@ func (pm *PagesManager) RegisterPages() error {
 	// Resolve the default access level middleware for core pages
 	defaultMW := pm.defaultAccessMiddleware()
 
-	// The core dashboard paths — overview, health, metrics, services,
-	// extensions, traces — are unserved by default. The legacy CoreContributor
-	// templ pages were retired and the React shell that briefly replaced them
-	// was deleted along with the rest of the server-driven UI, so these paths
-	// 404 until the prebuilt shell artifact lands. Nothing redirects: bouncing
-	// through a prefix that no longer exists is worse than a clean 404.
+	// The core dashboard paths (overview, health, metrics, services,
+	// extensions, traces) are unserved by default and 404. The legacy
+	// CoreContributor templ pages were retired, and what replaced them is the
+	// prebuilt shell at {BasePath}/ui, which the extension mounts itself: see
+	// mountShellRoutes in the dashboard package. These paths are not part of
+	// it and nothing redirects them there.
 	//
-	// WithLegacyUI(true) serves the templ pages at those paths in the meantime.
+	// WithLegacyUI(true) serves the templ pages at those paths instead.
 	// RootContributor still owns "/" either way when a deployment set it.
 	if pm.config.LegacyUI {
 		pm.registerLegacyCorePages(defaultMW)
@@ -233,7 +232,8 @@ func (pm *PagesManager) registerExtensionLayoutPages() {
 // When the contributor can't be served in place (a remote with no fragment
 // proxy) the root is left unregistered and 404s, same as it would with no
 // RootContributor set. There is nothing to fall back to: the core paths have no
-// default renderer until the prebuilt shell artifact lands.
+// default renderer, and the prebuilt shell is mounted under {BasePath}/ui
+// rather than at the root.
 func (pm *PagesManager) registerRootContributor(name string, mw []router.Middleware) {
 	var handler router.PageHandler
 	if pm.registry.IsRemote(name) {

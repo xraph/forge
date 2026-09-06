@@ -27,6 +27,9 @@ func fakeShellFS() fs.FS {
 		"assets/index-abc123.js":  &fstest.MapFile{Data: []byte("console.log('shell')\n")},
 		"assets/index-def456.css": &fstest.MapFile{Data: []byte(":root{}\n")},
 		"favicon.ico":             &fstest.MapFile{Data: []byte("\x00\x00\x01\x00")},
+		// Not something the shell build produces. It exists only so the cache
+		// rule can be shown to test a prefix rather than a substring.
+		"vendor/assets/x.js": &fstest.MapFile{Data: []byte("// vendored\n")},
 	}
 }
 
@@ -264,6 +267,15 @@ func TestShellStaticRoutesWinOverSPA(t *testing.T) {
 			wantCache: "no-cache",
 			wantBody:  "",
 		},
+		{
+			// strings.Contains(path, "/assets/") would call this immutable.
+			// It is not a shell asset and carries no hash, so a year of
+			// caching would be a promise nothing can keep.
+			name:      "assets nested deeper is not treated as a shell asset",
+			path:      "/_forge/dashboard/ui/static/vendor/assets/x.js",
+			wantCache: "no-cache",
+			wantBody:  "// vendored",
+		},
 	}
 
 	for _, tt := range tests {
@@ -345,6 +357,100 @@ func TestShellSourceMounting(t *testing.T) {
 					t.Errorf("GET %s = %d; mounted=%v, want mounted=%v",
 						path, rec.Code, mounted, tt.wantMounted)
 				}
+			}
+		})
+	}
+}
+
+// TestShellStaticMissingAssetIsNotCached pins the contract that an error
+// response never carries the immutable directive, so a mistyped hashed asset
+// cannot be cached by an intermediary as permanently missing.
+//
+// It is a contract test, not a regression test for cacheOnSuccess. Go's
+// http.Error clears the header map before writing, so this passes with the
+// header set up front too. The point is that the guarantee holds whichever way
+// the handler is written, and keeps holding if the stdlib changes.
+func TestShellStaticMissingAssetIsNotCached(t *testing.T) {
+	cfg := shellTestConfig()
+	r := newShellTestRouter(t, cfg)
+
+	for _, path := range []string{
+		"/_forge/dashboard/ui/static/assets/index-typo999.js",
+		"/_forge/dashboard/ui/static/nope.txt",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rec := shellGet(t, r, path)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("GET %s = %d, want 404", path, rec.Code)
+			}
+
+			if got := rec.Header().Get("Cache-Control"); strings.Contains(got, "immutable") {
+				t.Errorf("404 carries Cache-Control %q; a missing asset must not be cached as permanent", got)
+			}
+		})
+	}
+}
+
+// TestShellStaticNotModifiedKeepsCacheControl pins the 304 case in
+// cacheOnSuccess. A revalidation response has to carry the same freshness
+// directives the 200 would have, or a client that revalidates ends up worse off
+// than one that never asked.
+//
+// The handler is driven directly here. http.ServeContent cannot produce a 304
+// over an embed.FS, whose files have a zero modtime and so no Last-Modified to
+// revalidate against, so a fake writer is what exercises the branch.
+func TestShellStaticNotModifiedKeepsCacheControl(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := &cacheOnSuccess{ResponseWriter: rec, value: "public, max-age=31536000, immutable"}
+
+	w.WriteHeader(http.StatusNotModified)
+
+	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Errorf("304 Cache-Control = %q, want the directive the 200 would have carried", got)
+	}
+
+	for _, status := range []int{http.StatusNotFound, http.StatusInternalServerError, http.StatusMovedPermanently} {
+		rec := httptest.NewRecorder()
+		w := &cacheOnSuccess{ResponseWriter: rec, value: "public, max-age=31536000, immutable"}
+
+		w.WriteHeader(status)
+
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("status %d carries Cache-Control %q, want none", status, got)
+		}
+	}
+}
+
+// TestShellSourceValidation pins that a typo is rejected at config time.
+//
+// The serving path treats everything that is not ShellEmbedded or "" as "do not
+// mount", so `shell_source: embeded` in a YAML file would otherwise cost a
+// deployment its dashboard with nothing in the logs to explain it.
+func TestShellSourceValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  ShellSource
+		wantErr bool
+	}{
+		{name: "embedded", source: ShellEmbedded},
+		{name: "external", source: ShellExternal},
+		{name: "empty means embedded", source: ""},
+		{name: "typo is rejected", source: "embeded", wantErr: true},
+		{name: "unknown value is rejected", source: "cdn", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.ShellSource = tt.source
+
+			err := cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr && !strings.Contains(err.Error(), "shell_source") {
+				t.Errorf("error %q does not name the offending field", err)
 			}
 		})
 	}

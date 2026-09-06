@@ -28,9 +28,11 @@ const (
 	// working dashboard with no frontend toolchain anywhere near you.
 	ShellEmbedded ShellSource = "embedded"
 
-	// ShellExternal serves nothing at {BasePath}/ui, for deployments that
+	// ShellExternal serves no shell at {BasePath}/ui, for deployments that
 	// build their own dashboard with their own plugins and serve it
-	// themselves. See `forge dashboard new`.
+	// themselves. See `forge dashboard new`. It means the routes are not
+	// registered, not that the path is guaranteed to 404; see
+	// WithShellSource.
 	ShellExternal ShellSource = "external"
 )
 
@@ -209,6 +211,17 @@ func (c Config) Validate() error {
 		return fmt.Errorf("dashboard: invalid theme: %s (must be light, dark, or auto)", c.Theme)
 	}
 
+	// Empty is legal and means ShellEmbedded. Anything else unrecognised is a
+	// typo, and a typo has to be caught here: the serving path treats every
+	// value that is not ShellEmbedded or "" as "do not mount", so
+	// `shell_source: embeded` in a YAML file would quietly cost a deployment
+	// its dashboard with nothing in the logs to explain it.
+	switch c.ShellSource {
+	case "", ShellEmbedded, ShellExternal:
+	default:
+		return fmt.Errorf("dashboard: invalid shell_source: %s (must be embedded or external)", c.ShellSource)
+	}
+
 	if c.ProxyTimeout < time.Second {
 		return fmt.Errorf("dashboard: proxy_timeout too short: %v (minimum 1s)", c.ProxyTimeout)
 	}
@@ -275,8 +288,13 @@ func WithLegacyUI(enabled bool) ConfigOption {
 // ShellEmbedded is the default and needs no call: the prebuilt shell is
 // compiled into the binary, so registering the extension is enough to get a
 // working dashboard. Pass ShellExternal when the deployment builds its own
-// shell with its own plugins and serves it itself, and nothing is mounted at
-// {BasePath}/ui at all.
+// shell with its own plugins and serves it itself.
+//
+// ShellExternal means the extension serves no shell, not that {BasePath}/ui is
+// unrouted. The three shell routes are never registered, and the path then
+// falls through to the ForgeUI catch-all the extension mounts at {BasePath}/*,
+// which has no page for it. So it 404s today, but through a different handler,
+// and a deployment that registers its own page there gets it.
 //
 // Everything else the extension mounts is unaffected either way. An external
 // shell still talks to the same data contract under /api/dashboard/v1.

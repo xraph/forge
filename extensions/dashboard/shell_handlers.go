@@ -80,6 +80,12 @@ func shellBootstrapFor(cfg Config) shellBootstrap {
 // fix, and it has to happen here on the bytes: the browser resolves src and
 // href while parsing the document, long before any script of ours could run,
 // so by the time the bootstrap executes the wrong requests are already out.
+//
+// Note the asymmetry with the bootstrap above. cfg.BasePath goes into the JSON
+// escaped, and into the HTML attribute here raw. A base path carrying a quote
+// would break the attribute. It is developer-supplied and Validate() rejects an
+// empty one, so this is hygiene rather than a vulnerability, but do not read
+// the JSON escaping as covering this path too.
 func newShellSPAHandler(shellFS fs.FS, cfg Config) http.HandlerFunc {
 	cfgJSON, err := json.Marshal(shellBootstrapFor(cfg))
 	if err != nil {
@@ -119,9 +125,17 @@ func newShellSPAHandler(shellFS fs.FS, cfg Config) http.HandlerFunc {
 // newShellStaticHandler serves the shell's files at {base}/ui/static/*, which
 // is where the SPA handler's rewrite points.
 //
-// Anything under /assets/ is cached for a year and marked immutable, because
-// those filenames are content-hashed and a new build produces new names.
-// Everything else gets no-cache so a deploy lands immediately.
+// Files directly under /assets/ are cached for a year and marked immutable,
+// because Vite content-hashes those filenames and a new build produces new
+// ones. Everything else gets no-cache so a deploy lands immediately. The test
+// is a prefix, not a substring: a path like /vendor/assets/x.js is not
+// something this build produces and has no hash to make the promise safe.
+//
+// The header is applied only once the file server has settled on a status, so
+// an error response cannot inherit a one-year immutable directive and get
+// cached by an intermediary as permanently missing. Go's http.Error happens to
+// clear the header map before it writes, so on the current stdlib a 404 would
+// come out clean either way; this does not depend on that.
 //
 // stripPrefix is the URL prefix the handler is mounted at; paths beneath it
 // resolve against the embedded FS. The request and its URL are cloned before
@@ -135,17 +149,62 @@ func newShellStaticHandler(shellFS fs.FS, stripPrefix string) http.HandlerFunc {
 			trimmed = "/"
 		}
 
-		if strings.Contains(trimmed, "/assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
+		cache := "no-cache"
+		if strings.HasPrefix(trimmed, "/assets/") {
+			cache = "public, max-age=31536000, immutable"
 		}
 
 		r2 := r.Clone(r.Context())
 		r2.URL = cloneURLWithPath(r.URL, trimmed)
 
-		fileServer.ServeHTTP(w, r2)
+		fileServer.ServeHTTP(&cacheOnSuccess{ResponseWriter: w, value: cache}, r2)
 	}
+}
+
+// cacheOnSuccess sets a Cache-Control value on the way out, but only on a
+// status where caching the response is the right answer.
+//
+// http.FileServer picks the status after the calling handler has already run,
+// so there is no point before the hand-off at which the outcome is known. This
+// waits for WriteHeader.
+//
+// 304 counts alongside 2xx deliberately. A revalidation response should carry
+// the same freshness directives the 200 would have carried, and dropping them
+// there would leave a client that revalidates worse off than one that did not.
+// http.ServeContent cannot currently produce a 304 over an embed.FS, whose
+// files have a zero modtime and so get no Last-Modified to revalidate against,
+// but a rule that is only correct because a branch is unreachable is not a rule
+// worth writing.
+type cacheOnSuccess struct {
+	http.ResponseWriter
+
+	value       string
+	wroteHeader bool
+}
+
+// Unwrap lets http.ResponseController reach the real writer, so Flush, Hijack
+// and the rest keep working through the wrapper.
+func (w *cacheOnSuccess) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *cacheOnSuccess) WriteHeader(status int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+
+		cacheable := status >= http.StatusOK && status < http.StatusMultipleChoices
+		if cacheable || status == http.StatusNotModified {
+			w.Header().Set("Cache-Control", w.value)
+		}
+	}
+
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *cacheOnSuccess) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	return w.ResponseWriter.Write(b)
 }
 
 // cloneURLWithPath returns a copy of u with Path replaced, so the static
@@ -166,14 +225,22 @@ func cloneURLWithPath(u *url.URL, path string) *url.URL {
 // an embedded shell, and nothing at all when it asks for an external one.
 //
 // The concrete "static" segment is registered first, ahead of the SPA
-// catch-all, so it is unambiguous which one owns an asset path. Every router
-// backend forge ships today resolves this by specificity rather than by
-// registration order, so all three orderings measure the same: forgemux,
-// bunrouter and chi all route {base}/ui/static/assets/x.js to the static
-// handler whichever way round they are registered. Keep the order anyway. A
-// backend that resolved first-registered-wins would answer every asset request
-// with index.html, the browser would try to parse the document as JavaScript,
-// and nothing in the logs would point at route registration.
+// catch-all, so it is unambiguous which one owns an asset path. Measured, all
+// three backends this resolves against route {base}/ui/static/assets/x.js to
+// the static handler whichever way round they are registered: forgemux (the
+// default, see internal/router/forgemux/walk.go, which walks children in fixed
+// specificity order with no registration-order tiebreak), extras.bunrouter and
+// extras.chi. The extension already leans on that, registering a ForgeUI
+// catch-all at base+"/*" after this function runs.
+//
+// extras.httprouter is the fourth shipped adapter and is not in that list. It
+// rejects conflicting catch-alls at registration rather than resolving them,
+// so these three routes would not survive it in the first place.
+//
+// Keep the order anyway. A backend that resolved first-registered-wins would
+// answer every asset request with index.html, the browser would try to parse
+// the document as JavaScript, and nothing in the logs would point at route
+// registration.
 //
 // TestShellStaticRoutesWinOverSPA asserts the outcome (an asset request gets
 // the file, not the SPA document) rather than the ordering, so it stays honest

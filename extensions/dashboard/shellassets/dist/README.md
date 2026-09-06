@@ -1,9 +1,10 @@
 # Dashboard shell artifact
 
-Everything in this directory except `index.html` and this README is a
-placeholder. **Do not commit a built shell here.** An earlier design committed
-an 11MB `dist` and `//go:embed all:dist` pulled every byte of it into every
-binary that imported the dashboard extension, 6MB of which was sourcemaps.
+`index.html` and this README are the placeholder, and they are the only two
+files that belong in here. Anything else you see is an unpacked artifact.
+**Do not commit a built shell here.** An earlier design committed an 11MB `dist`
+and `//go:embed all:dist` pulled every byte of it into every binary that
+imported the dashboard extension, 6MB of which was sourcemaps.
 
 The real shell is built and published by
 [`xraph/forge-dashboard`](https://github.com/xraph/forge-dashboard) as a
