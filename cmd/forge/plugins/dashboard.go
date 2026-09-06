@@ -114,8 +114,12 @@ type dashboardScaffoldData struct {
 }
 
 // scaffoldDashboard writes a standalone Vite + React + TypeScript dashboard
-// shell into targetDir. It depends on exactly the two packages Task 2
-// published under @forge-go: dashboard-plugin and dashboard-kit.
+// shell into targetDir. It depends on all three packages Task 2 published
+// under @forge-go: dashboard-plugin, dashboard-kit, and dashboard-runtime
+// (the last supplies ForgeDashboardProvider and PluginErrorBoundary -- a
+// third-party plugin's throw must not blank the whole dashboard, and that
+// containment matters more in a custom build than in the first-party shell,
+// not less).
 //
 // It does not run `pnpm install`, `pnpm build`, or anything else that needs a
 // registry -- those packages are not published yet (this wave is barred from

@@ -2,10 +2,11 @@
 package plugins
 
 // dashboardPackageJSONTemplate is the package.json for a scaffolded external
-// dashboard shell. It depends on exactly the two packages Task 2 published
-// under @forge-go: dashboard-plugin and dashboard-kit. It is not published
-// to a registry, so pnpm install will not resolve those two dependencies
-// until they are.
+// dashboard shell. It depends on all three packages Task 2 published under
+// @forge-go: dashboard-plugin, dashboard-kit, and dashboard-runtime (the
+// last supplies ForgeDashboardProvider and PluginErrorBoundary, used in
+// App.tsx below). None of the three are published to a registry yet, so
+// pnpm install will not resolve them until they are.
 const dashboardPackageJSONTemplate = `{
   "name": "{{.Name}}",
   "private": true,
@@ -20,6 +21,7 @@ const dashboardPackageJSONTemplate = `{
   "dependencies": {
     "@forge-go/dashboard-kit": "^0.0.0",
     "@forge-go/dashboard-plugin": "^0.0.0",
+    "@forge-go/dashboard-runtime": "^0.0.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router": "^8.3.1"
@@ -140,21 +142,23 @@ createRoot(document.getElementById("root")!).render(
 `
 
 // dashboardAppTSXTemplate renders a host in the shape apps/shell's own
-// PluginHost uses -- sidebar chrome, a capabilities fetch, per-plugin
-// resolution (hidden / mismatch / setup / ready), and routed pages, each
-// wrapped in a client scoped to its own extension.
-//
-// It is deliberately smaller than apps/shell's real host: it skips
-// @forge-go/dashboard-runtime entirely (ForgeDashboardProvider,
-// useDashboardConfig, PluginErrorBoundary), because this scaffold names only
-// two @forge-go dependencies, dashboard-plugin and dashboard-kit. Everything
-// this file needs from the resolver, the scoped client, and the plugin
-// contract comes from dashboard-plugin alone; the config that would normally
-// come from the runtime's provider is read directly from
-// window.__FORGE_DASHBOARD__ instead.
+// PluginHost uses -- sidebar chrome, a config provider, a capabilities
+// fetch, per-plugin resolution (hidden / mismatch / setup / ready), and
+// routed pages, each wrapped in a client scoped to its own extension AND in
+// PluginErrorBoundary, at both call sites apps/shell wraps: the setup panel
+// and the route element. Third-party plugins are exactly what a custom build
+// installs, and an uncontained throw from one must not blank the whole
+// dashboard -- that is what the boundary is for, and it matters more here
+// than in the first-party shell, not less.
 const dashboardAppTSXTemplate = `import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router"
+import {
+  ForgeDashboardProvider,
+  PluginErrorBoundary,
+  configFromWindow,
+  useDashboardConfig,
+} from "@forge-go/dashboard-runtime"
 import {
   createScopedClient,
   MismatchPanel,
@@ -180,28 +184,21 @@ import { TooltipProvider } from "@forge-go/dashboard-kit/components/tooltip"
 // Add your own plugins here, each built with definePlugin from
 // @forge-go/dashboard-plugin -- the same function the shipping Forge shell's
 // own core plugin is built on. See README.md for the pnpm add step.
+//
+// Hoisted beside config below: ForgeDashboardProvider memoizes on config
+// identity, so an inline object literal in JSX would re-derive the config
+// and cascade a re-render to every consumer on each render of App.
 const plugins: ForgePlugin[] = []
 
-/**
- * Forge's embedded shell has this injected by the Go handler that serves it
- * before the bundle loads. WithShellSource(ShellExternal) never does that --
- * Forge mounts no handler at {BasePath}/ui in that mode -- so this is only
- * populated if you wire up the same injection yourself on whatever page
- * serves this build. Absent that, contractBase falls back to the default
- * Forge dashboard mount.
- */
-declare global {
-  interface Window {
-    __FORGE_DASHBOARD__?: { basePath?: string; contractBase?: string }
-  }
-}
-
-function readConfig() {
-  const injected = window.__FORGE_DASHBOARD__ ?? {}
-  return {
-    contractBase: injected.contractBase ?? "/dashboard/api/dashboard/v1",
-  }
-}
+// configFromWindow() reads window.__FORGE_DASHBOARD__ -- what Forge's own
+// embedded shell has injected for it before the bundle loads. Nothing injects
+// that for this build: WithShellSource(ShellExternal) means Forge mounts no
+// handler at {BasePath}/ui, so configFromWindow() falls through to its own
+// empty-object default and basePath below picks the same default Forge
+// itself uses. Wire up the same injection yourself if you serve this build
+// from a Go handler that knows a different BasePath.
+const injected = configFromWindow()
+const config = { basePath: injected.basePath ?? "/dashboard", ...injected }
 
 /** The chrome every host state renders inside: sidebar, header, content. */
 function HostShell({ children }: { children: ReactNode }) {
@@ -222,7 +219,7 @@ type CapabilitiesState =
   | { status: "error"; message: string }
 
 function Host() {
-  const { contractBase } = readConfig()
+  const { contractBase } = useDashboardConfig()
   const [state, setState] = useState<CapabilitiesState>({ status: "loading" })
 
   useEffect(() => {
@@ -335,7 +332,14 @@ function Host() {
         }
         if (pluginState.kind === "setup") {
           const Setup = plugin.setup ?? SetupPanel
-          return <Setup key={plugin.extension} message={pluginState.message} />
+          return (
+            // plugin.setup is third-party code exactly as a route element is,
+            // so it gets the same containment: a throw here must take down
+            // only this plugin's box, not the whole dashboard.
+            <PluginErrorBoundary key={plugin.extension} plugin={plugin.extension}>
+              <Setup message={pluginState.message} />
+            </PluginErrorBoundary>
+          )
         }
         return null
       })}
@@ -357,9 +361,14 @@ function Host() {
                   key={` + "`${plugin.extension}:${route.path}`" + `}
                   path={route.path}
                   element={
-                    <PluginProvider client={clients.get(plugin.extension)!}>
-                      <Page />
-                    </PluginProvider>
+                    // Same containment as the setup branch above: a
+                    // third-party bundle throwing during render takes down
+                    // its own page, not every other plugin's.
+                    <PluginErrorBoundary plugin={plugin.extension}>
+                      <PluginProvider client={clients.get(plugin.extension)!}>
+                        <Page />
+                      </PluginProvider>
+                    </PluginErrorBoundary>
                   }
                 />
               )
@@ -376,11 +385,13 @@ function Host() {
 
 export function App() {
   return (
-    <TooltipProvider>
-      <BrowserRouter>
-        <Host />
-      </BrowserRouter>
-    </TooltipProvider>
+    <ForgeDashboardProvider config={config}>
+      <TooltipProvider>
+        <BrowserRouter>
+          <Host />
+        </BrowserRouter>
+      </TooltipProvider>
+    </ForgeDashboardProvider>
   )
 }
 

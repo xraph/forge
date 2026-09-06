@@ -14,7 +14,7 @@ import (
 
 // scaffoldDashboardPackageJSON is the shape this test cares about. It leaves
 // everything else in package.json (scripts, devDependencies, ...) alone: the
-// contract under test is "the right two @forge-go packages are named",
+// contract under test is "the right three @forge-go packages are named",
 // nothing more.
 type scaffoldDashboardPackageJSON struct {
 	Name         string            `json:"name"`
@@ -49,10 +49,14 @@ func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 }
 
 // TestScaffoldDashboardPackageJSONNamesPublishedPackages is the load-bearing
-// assertion for this task: the scaffold's package.json must depend on
-// exactly the two package names Task 2 published under @forge-go. This is
-// also the discriminator target -- see the task report for the
-// break/confirm-fail/restore/paste-real-output cycle run against this test.
+// assertion for this task: the scaffold's package.json must depend on all
+// three package names Task 2 published under @forge-go. dashboard-runtime
+// joined dashboard-plugin and dashboard-kit in fix round 1, when review
+// caught that App.tsx used no error boundary -- ForgeDashboardProvider and
+// PluginErrorBoundary both live in dashboard-runtime, so the dependency
+// followed the fix. This is also the discriminator target -- see the task
+// report for the break/confirm-fail/restore/paste-real-output cycle run
+// against this test.
 func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
@@ -66,11 +70,38 @@ func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 
 	assert.Equal(t, "my-dashboard", pkg.Name)
 
-	_, hasPlugin := pkg.Dependencies["@forge-go/dashboard-plugin"]
-	assert.True(t, hasPlugin, "package.json dependencies must name @forge-go/dashboard-plugin, got: %v", pkg.Dependencies)
+	for _, name := range []string{
+		"@forge-go/dashboard-plugin",
+		"@forge-go/dashboard-kit",
+		"@forge-go/dashboard-runtime",
+	} {
+		_, has := pkg.Dependencies[name]
+		assert.Truef(t, has, "package.json dependencies must name %s, got: %v", name, pkg.Dependencies)
+	}
+}
 
-	_, hasKit := pkg.Dependencies["@forge-go/dashboard-kit"]
-	assert.True(t, hasKit, "package.json dependencies must name @forge-go/dashboard-kit, got: %v", pkg.Dependencies)
+// TestScaffoldDashboardAppUsesPluginErrorBoundary is the fix-round-1
+// discriminator target: the scaffold must wrap both places apps/shell's own
+// PluginHost wraps in PluginErrorBoundary -- a plugin's setup panel and its
+// route element -- so a third-party plugin's throw is contained to its own
+// box instead of blanking the whole dashboard. Two usage sites, not one: a
+// boundary around only the route (or only the setup panel) is the same class
+// of gap W2 shipped and a review caught.
+func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
+	dir := t.TempDir()
+	p := &DashboardPlugin{}
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+
+	raw, err := os.ReadFile(filepath.Join(dir, "src", "App.tsx"))
+	require.NoError(t, err)
+	src := string(raw)
+
+	assert.Contains(t, src, "@forge-go/dashboard-runtime", "App.tsx must import from @forge-go/dashboard-runtime")
+
+	usages := strings.Count(src, "<PluginErrorBoundary")
+	assert.GreaterOrEqualf(t, usages, 2,
+		"App.tsx must wrap both the plugin setup panel and the route element in <PluginErrorBoundary>, found %d usage(s):\n%s",
+		usages, src)
 }
 
 // TestScaffoldDashboardPackageJSONNameIsSanitized covers the directory-name
