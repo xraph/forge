@@ -73,6 +73,18 @@ vendor/
 bin/
 dist/
 
+# ...except the dashboard shell placeholder, which is committed on purpose.
+# //go:embed needs files present at build time, so without it a plain
+# `go build` fails in a fresh clone and in every consumer's CI. Only these two
+# files: the real shell artifact is a tarball that release CI unpacks over this
+# directory, and it must never be committed. Un-exclude the directory before
+# re-including anything inside it. Git cannot re-include a file whose parent
+# directory is excluded.
+!extensions/dashboard/shellassets/dist/
+extensions/dashboard/shellassets/dist/*
+!extensions/dashboard/shellassets/dist/index.html
+!extensions/dashboard/shellassets/dist/README.md
+
 # Documentation artifacts
 /_impl_docs/docs/_build/
 _impl_docs/

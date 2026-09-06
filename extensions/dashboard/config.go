@@ -19,6 +19,21 @@ const (
 	MemoryProfileHigh MemoryProfile = "high"
 )
 
+// ShellSource selects where the dashboard UI comes from.
+type ShellSource string
+
+const (
+	// ShellEmbedded serves the prebuilt shell compiled into this binary.
+	// The default: RegisterExtension(dashboard.NewExtension()) gives you a
+	// working dashboard with no frontend toolchain anywhere near you.
+	ShellEmbedded ShellSource = "embedded"
+
+	// ShellExternal serves nothing at {BasePath}/ui, for deployments that
+	// build their own dashboard with their own plugins and serve it
+	// themselves. See `forge dashboard new`.
+	ShellExternal ShellSource = "external"
+)
+
 // Config contains dashboard extension configuration.
 type Config struct {
 	// Server settings
@@ -34,13 +49,22 @@ type Config struct {
 	// LegacyUI serves the original templ dashboard at {BasePath} -- overview,
 	// health, metrics, services, extensions and traces.
 	//
-	// Off by default, which means those core paths are unserved and 404: the
-	// templ pages were retired and the server-driven React shell that replaced
-	// them has been deleted, so nothing renders them until the prebuilt shell
-	// artifact lands. Turning this on is the escape hatch for a deployment that
-	// needs a dashboard before then. Everything else the extension mounts --
-	// the data contract, settings, contributor pages, assets -- is unaffected.
+	// Off by default, which means those core paths are unserved and 404. The
+	// dashboard lives at {BasePath}/ui now, served from the prebuilt shell (see
+	// ShellSource); these paths are the server-rendered ones it replaced.
+	// Turning this on is the escape hatch for a deployment that still wants
+	// them. Everything else the extension mounts -- the data contract,
+	// settings, contributor pages, assets -- is unaffected.
 	LegacyUI bool `json:"legacy_ui" yaml:"legacy_ui"`
+
+	// ShellSource selects where the dashboard UI at {BasePath}/ui comes from.
+	// ShellEmbedded, the default, serves the prebuilt shell compiled into this
+	// binary. ShellExternal mounts nothing there.
+	//
+	// The zero value "" is read as ShellEmbedded everywhere it is consumed, so
+	// a Config assembled as a struct literal rather than through
+	// DefaultConfig() still gets a dashboard.
+	ShellSource ShellSource `json:"shell_source" yaml:"shell_source"`
 
 	// Features
 	EnableRealtime  bool `json:"enable_realtime"  yaml:"enable_realtime"` // SSE real-time updates
@@ -121,6 +145,8 @@ func DefaultConfig() Config {
 	return Config{
 		BasePath: "/dashboard",
 		Title:    "Forge Dashboard",
+
+		ShellSource: ShellEmbedded,
 
 		EnableRealtime:  true,
 		EnableExport:    true,
@@ -231,18 +257,31 @@ func WithRootContributor(name string) ConfigOption {
 // /metrics/collectors/:name and /metrics/detail/*name), /services,
 // /extensions, /traces and /traces/:id.
 //
-// Leave it off and those paths return 404. That is the default. The templ
-// pages were retired and the server-driven React shell that replaced them has
-// been deleted, so no core path has a renderer until the prebuilt shell
-// artifact lands in a later wave. Nothing is mounted at {BasePath}/ui any
-// more and nothing redirects there.
+// Leave it off and those paths return 404. That is the default: the dashboard
+// lives at {BasePath}/ui now, served from the prebuilt shell, and these core
+// paths are the server-rendered ones it replaced. Nothing redirects between
+// the two.
 //
-// Turn it on if you need a working dashboard before that artifact ships. It
-// changes only what the core paths render: the data contract under
-// /api/dashboard/v1, settings, contributor pages and assets all serve the
-// same either way, and a RootContributor still owns the root in both modes.
+// Turn it on if you still want the templ pages. It changes only what the core
+// paths render: the data contract under /api/dashboard/v1, settings,
+// contributor pages and assets all serve the same either way, and a
+// RootContributor still owns the root in both modes.
 func WithLegacyUI(enabled bool) ConfigOption {
 	return func(c *Config) { c.LegacyUI = enabled }
+}
+
+// WithShellSource selects where the dashboard UI at {BasePath}/ui comes from.
+//
+// ShellEmbedded is the default and needs no call: the prebuilt shell is
+// compiled into the binary, so registering the extension is enough to get a
+// working dashboard. Pass ShellExternal when the deployment builds its own
+// shell with its own plugins and serves it itself, and nothing is mounted at
+// {BasePath}/ui at all.
+//
+// Everything else the extension mounts is unaffected either way. An external
+// shell still talks to the same data contract under /api/dashboard/v1.
+func WithShellSource(source ShellSource) ConfigOption {
+	return func(c *Config) { c.ShellSource = source }
 }
 
 // WithRealtime enables or disables real-time SSE updates.

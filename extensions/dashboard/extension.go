@@ -324,12 +324,13 @@ func (e *Extension) Register(app forge.App) error {
 	})
 
 	// The legacy CoreContributor is off by default. Nothing else serves the core
-	// paths right now -- Overview / Health / Metrics / Traces / Extensions /
-	// Services are unserved and 404 until the prebuilt shell artifact lands (see
-	// pages.RegisterPages).
+	// paths under {BasePath} -- Overview / Health / Metrics / Traces /
+	// Extensions / Services are unserved and 404 (see pages.RegisterPages).
+	// The dashboard itself lives at {BasePath}/ui now, served from the prebuilt
+	// shell; these paths are the old server-rendered ones it replaced.
 	//
 	// WithLegacyUI(true) brings the templ pages back, and is the escape hatch for
-	// a deployment that needs a dashboard in the meantime. The contributor is
+	// a deployment that still wants them. The contributor is
 	// registered here rather than unconditionally because it is what those templ
 	// pages render through -- without it the routes have nothing to delegate to
 	// -- and because registering a contributor nobody renders would put its nav
@@ -1776,6 +1777,12 @@ func (e *Extension) registerRoutes() {
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
 		}), routeOpts...))
 	}
+
+	// 3c. The dashboard shell at {base}/ui, served from the prebuilt artifact
+	// embedded in this binary. ShellExternal mounts nothing here, for
+	// deployments that build and serve their own shell. See mountShellRoutes
+	// for the route ordering and why it is written the way it is.
+	e.mountShell(router, base, must)
 
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {
