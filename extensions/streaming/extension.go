@@ -14,19 +14,16 @@ import (
 	"github.com/xraph/forge/errors"
 	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 	streamauth "github.com/xraph/forge/extensions/streaming/auth"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	redisbackend "github.com/xraph/forge/extensions/streaming/backends/redis"
 	streamingcontract "github.com/xraph/forge/extensions/streaming/contract"
 	"github.com/xraph/forge/extensions/streaming/coordinator"
-	"github.com/xraph/forge/extensions/streaming/dashboard"
 	"github.com/xraph/forge/extensions/streaming/filters"
 	"github.com/xraph/forge/extensions/streaming/lb"
 	"github.com/xraph/forge/extensions/streaming/ratelimit"
 	"github.com/xraph/forge/extensions/streaming/trackers"
 	"github.com/xraph/forge/extensions/streaming/validation"
-	"github.com/xraph/forgeui/bridge"
 	"github.com/xraph/vessel"
 )
 
@@ -1129,34 +1126,14 @@ func createLoadBalancer(config Config) lb.LoadBalancer {
 	}
 }
 
-// DashboardContributor implements dashboard.DashboardAware.
-// Returns a streaming dashboard contributor for auto-registration.
-// Uses resolver closures so the manager/config are resolved at render time,
-// not at discovery time (when they may not yet be initialized).
-func (e *Extension) DashboardContributor() contributor.LocalContributor {
-	return dashboard.NewStreamingContributor(
-		func() Manager { return e.manager },
-		func() Config { return e.config },
-	)
-}
-
-// RegisterDashboardBridge implements dashboard.BridgeAware.
-// Registers streaming bridge functions for Go↔JS communication.
-// Uses resolver closures so the manager/config are resolved at request time.
-func (e *Extension) RegisterDashboardBridge(b *bridge.Bridge) error {
-	return dashboard.RegisterBridge(b,
-		func() Manager { return e.manager },
-		func() Config { return e.config },
-	)
-}
-
 // RegisterContractContributor implements dashboard.ContractContributorAware.
-// Wires the streaming-contract handlers (slice f migration target) into the
-// dashboard's contract dispatcher and registers the embedded YAML manifest.
-// Coexists with DashboardContributor: both are registered during dashboard
-// startup, so the legacy /dashboard/ext/streaming/* and the new
-// /dashboard/contract/streaming-contract/* paths both stay live during the
-// migration window. See extensions/dashboard/contract/SLICE_F_DESIGN.md.
+// Wires the streaming-contract handlers into the dashboard's contract
+// dispatcher and registers the embedded YAML manifest, serving
+// /dashboard/contract/streaming-contract/*. This is the only dashboard surface
+// streaming exposes: the server-rendered contributor that used to sit beside it
+// on /dashboard/ext/streaming/* is gone, and the UI is now the
+// @forge-go/dashboard-plugin-streaming React package, which joins to this
+// contributor by its manifest name.
 func (e *Extension) RegisterContractContributor(
 	disp *dispatcher.Dispatcher,
 	reg dashcontract.Registry,
