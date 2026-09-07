@@ -323,25 +323,6 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// The legacy CoreContributor is off by default. Nothing else serves the core
-	// paths under {BasePath} -- Overview / Health / Metrics / Traces /
-	// Extensions / Services are unserved and 404 (see pages.RegisterPages).
-	// The dashboard itself lives at {BasePath}/ui now, served from the prebuilt
-	// shell; these paths are the old server-rendered ones it replaced.
-	//
-	// WithLegacyUI(true) brings the templ pages back, and is the escape hatch for
-	// a deployment that still wants them. The contributor is
-	// registered here rather than unconditionally because it is what those templ
-	// pages render through -- without it the routes have nothing to delegate to
-	// -- and because registering a contributor nobody renders would put its nav
-	// entries in the sidebar of every other deployment.
-	if e.config.LegacyUI {
-		core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
-		if err := e.registry.RegisterLocal(core); err != nil {
-			return fmt.Errorf("failed to register core contributor: %w", err)
-		}
-	}
-
 	// Rebuild the search index against any contributors registered later.
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
@@ -1615,7 +1596,6 @@ func (e *Extension) initializeForgeUI() {
 		DefaultAccess:   e.config.DefaultAccess,
 		LoginPath:       e.config.LoginPath,
 		RootContributor: e.config.RootContributor,
-		LegacyUI:        e.config.LegacyUI,
 	})
 }
 

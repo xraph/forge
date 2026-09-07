@@ -29,17 +29,8 @@ type PagesConfig struct {
 	DefaultAccess  string // "public", "protected", "partial"
 	LoginPath      string // relative login path (e.g. "/auth/login")
 	// RootContributor, when set, makes "/" render this contributor's landing
-	// page in place. Honoured in both modes. Empty leaves "/" unserved unless
-	// LegacyUI is on.
+	// page in place. Empty leaves "/" unserved.
 	RootContributor string
-	// LegacyUI serves the templ dashboard (overview, health, metrics, services,
-	// extensions, traces) at {BasePath}/*.
-	//
-	// Off by default, and off means those paths 404. The dashboard lives at
-	// {BasePath}/ui now, served from the prebuilt shell; these core paths are
-	// the server-rendered ones it replaced, and nothing redirects between the
-	// two. Turn this on if you still want the templ pages.
-	LegacyUI bool
 }
 
 // PagesManager registers and serves dashboard pages using forgeui's routing system.
@@ -96,17 +87,14 @@ func (pm *PagesManager) RegisterPages() error {
 	defaultMW := pm.defaultAccessMiddleware()
 
 	// The core dashboard paths (overview, health, metrics, services,
-	// extensions, traces) are unserved by default and 404. The legacy
-	// CoreContributor templ pages were retired, and what replaced them is the
-	// prebuilt shell at {BasePath}/ui, which the extension mounts itself: see
+	// extensions, traces) are unserved and 404. The legacy CoreContributor
+	// templ pages were retired, and what replaced them is the prebuilt shell
+	// at {BasePath}/ui, which the extension mounts itself: see
 	// mountShellRoutes in the dashboard package. These paths are not part of
 	// it and nothing redirects them there.
 	//
-	// WithLegacyUI(true) serves the templ pages at those paths instead.
-	// RootContributor still owns "/" either way when a deployment set it.
-	if pm.config.LegacyUI {
-		pm.registerLegacyCorePages(defaultMW)
-	} else if pm.config.RootContributor != "" {
+	// RootContributor still owns "/" when a deployment set it.
+	if pm.config.RootContributor != "" {
 		pm.registerRootContributor(pm.config.RootContributor, defaultMW)
 	}
 
@@ -443,9 +431,12 @@ func (pm *PagesManager) enforceContributorAccess(ctx *router.PageContext, manife
 // ---------------------------------------------------------------------------
 // Legacy templ core pages.
 //
-// Each delegates to the "core" local contributor, which owns the templ
-// rendering. They are only reachable when LegacyUI is set; see
-// registerLegacyCorePages.
+// Each delegates to the "core" local contributor, which owned the templ
+// rendering. Nothing constructs that contributor any more (the LegacyUI
+// escape hatch and CoreContributor are gone) and nothing calls
+// registerLegacyCorePages, so these handlers are unreachable. Left in place
+// pending a separate decision on the rest of the templ contributor system
+// in pages.go; see the W6 GA legacy-surface-map.
 // ---------------------------------------------------------------------------
 
 // OverviewPage renders the dashboard overview by delegating to the core contributor.
@@ -570,9 +561,11 @@ func (pm *PagesManager) TraceDetailPage(ctx *router.PageContext) (templ.Componen
 }
 
 // registerLegacyCorePages serves the templ dashboard at the core paths instead
-// of redirecting. Every handler delegates to the "core" local contributor, which
-// the extension only registers when LegacyUI is on — so if that registration is
-// missing these render an error page naming the cause rather than a blank screen.
+// of redirecting. Every handler delegates to the "core" local contributor,
+// which nothing constructs any more (see the comment above OverviewPage) —
+// so if it were ever called these would render an error page naming the
+// cause rather than a blank screen. It is unreachable: RegisterPages no
+// longer calls it.
 //
 // RootContributor still wins at "/" when set: a deployment that has handed the
 // landing page to its own contributor asked for that explicitly, and legacy mode

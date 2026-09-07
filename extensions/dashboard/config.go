@@ -45,19 +45,8 @@ type Config struct {
 	// RootContributor, when set, makes the dashboard root ({BasePath}) render the
 	// named contributor's landing page in place. Used by embedded dashboards
 	// (e.g. authsome) whose contributor owns the root. Empty leaves the root
-	// unserved unless LegacyUI is on.
+	// unserved.
 	RootContributor string `json:"root_contributor" yaml:"root_contributor"`
-
-	// LegacyUI serves the original templ dashboard at {BasePath} -- overview,
-	// health, metrics, services, extensions and traces.
-	//
-	// Off by default, which means those core paths are unserved and 404. The
-	// dashboard lives at {BasePath}/ui now, served from the prebuilt shell (see
-	// ShellSource); these paths are the server-rendered ones it replaced.
-	// Turning this on is the escape hatch for a deployment that still wants
-	// them. Everything else the extension mounts -- the data contract,
-	// settings, contributor pages, assets -- is unaffected.
-	LegacyUI bool `json:"legacy_ui" yaml:"legacy_ui"`
 
 	// ShellSource selects where the dashboard UI at {BasePath}/ui comes from.
 	// ShellEmbedded, the default, serves the prebuilt shell compiled into this
@@ -257,30 +246,10 @@ func WithTitle(title string) ConfigOption {
 // contributor's landing page in place. Used by embedded dashboards whose own
 // contributor owns the landing page.
 //
-// Empty is the default and leaves the root unserved: it returns 404 unless
-// WithLegacyUI(true) is also set. Nothing redirects anywhere. This applies in
-// both modes, so a deployment that names a root contributor keeps it whether
-// legacy UI is on or off.
+// Empty is the default and leaves the root unserved: it returns 404. Nothing
+// redirects anywhere.
 func WithRootContributor(name string) ConfigOption {
 	return func(c *Config) { c.RootContributor = name }
-}
-
-// WithLegacyUI serves the original templ dashboard at the core paths under
-// {BasePath}: the root, /health, /metrics (plus /metrics/all,
-// /metrics/collectors/:name and /metrics/detail/*name), /services,
-// /extensions, /traces and /traces/:id.
-//
-// Leave it off and those paths return 404. That is the default: the dashboard
-// lives at {BasePath}/ui now, served from the prebuilt shell, and these core
-// paths are the server-rendered ones it replaced. Nothing redirects between
-// the two.
-//
-// Turn it on if you still want the templ pages. It changes only what the core
-// paths render: the data contract under /api/dashboard/v1, settings,
-// contributor pages and assets all serve the same either way, and a
-// RootContributor still owns the root in both modes.
-func WithLegacyUI(enabled bool) ConfigOption {
-	return func(c *Config) { c.LegacyUI = enabled }
 }
 
 // WithShellSource selects where the dashboard UI at {BasePath}/ui comes from.
