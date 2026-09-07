@@ -1,16 +1,30 @@
 # Slice (i) — Retire CoreContributor templ pages
 
-**Status:** Active
+**Status:** Implemented, with one design change: see "What actually shipped" below.
 **Branch:** `dashboard-contract-slice-a`
 **Depends on:** slice (h) — `core-contract` pilot covers Overview/Health/Metrics/Traces/Extensions/Services
 **Predecessors:** (a) contract foundation, (b) security+observability, (c) dispatcher+pilot, (d) React shell, (e) shadcn/Base UI vocabulary, (f) streaming contract, (h) CoreContributor migration
 
+## What actually shipped
+
+This slice landed as three tasks in the W6 GA wave: removing the `LegacyUI` config
+flag and `CoreContributor`, then deleting the ten now-unreachable templ pages and
+their handler methods outright. The redirect design below (the "replace with
+redirects" section) was reconsidered during that work and **not built**. The old
+core paths (`/`, `/health`, `/metrics`, `/services`, `/extensions`, `/traces`, and
+their sub-routes) are simply unserved: they 404, and nothing redirects them anywhere.
+The React shell that replaced them is mounted at `{BasePath}/ui`, not at
+`/dashboard/contract/app/*` as this document originally proposed. The rest of this
+document is left as the historical design record; read the redirect section and the
+verification/risk notes about 302s with that correction in mind.
+
 ## Why now
 
 Slice (h) shipped the `core-contract` pilot covering every page CoreContributor served:
-`/`, `/health`, `/metrics`, `/traces`, `/extensions`, `/services`. The React shell at
-`/dashboard/contract/app/*` renders all of them via the contract envelope. The legacy
-templ pages now exist purely as a parallel path with no unique data.
+`/`, `/health`, `/metrics`, `/traces`, `/extensions`, `/services`. The React shell,
+then targeted at `/dashboard/contract/app/*` and since mounted at `{BasePath}/ui`,
+renders all of them via the contract envelope. The legacy templ pages existed purely
+as a parallel path with no unique data.
 
 Two-system coexistence was the right move during slices (b)–(h). Now it's overhead:
 duplicate routes, ~2,000 LOC of templ that has to keep compiling, and an active
@@ -18,7 +32,7 @@ CoreContributor that hits the same data sources twice.
 
 ## Scope
 
-**In scope — remove:**
+**In scope, removed:**
 - `extensions/dashboard/core_contributor.go` (CoreContributor type + manifest + RenderPage/Widget/Settings impls)
 - The `NewCoreContributor` registration in `extension.go::Register`
 - Ten CoreContributor-only templ pages and their `_templ.go` artifacts:
@@ -29,17 +43,22 @@ CoreContributor that hits the same data sources twice.
   - `overview_helpers.go`, `health_helpers.go`, `metrics_helpers.go`,
     `metrics_detail_helpers.go`, `services_helpers.go`, `traces_helpers.go`,
     `extensions_helpers.go`, `chart_helpers.go`
-- The ten templ-rendering page methods on `PagesManager` in `pages/pages.go`:
-  `OverviewPage`, `HealthPage`, `MetricsPage`, `MetricsAllPage`,
-  `MetricsCollectorDetailPage`, `MetricsDetailPage`, `ServicesPage`,
-  `ExtensionsPage`, `TracesPage`, `TraceDetailPage`
+- The ten templ-rendering page methods that used to live on `PagesManager` in
+  `pages/pages.go`, now gone: `OverviewPage`, `HealthPage`, `MetricsPage`,
+  `MetricsAllPage`, `MetricsCollectorDetailPage`, `MetricsDetailPage`,
+  `ServicesPage`, `ExtensionsPage`, `TracesPage`, `TraceDetailPage`
 
-**In scope — replace with redirects:**
-- `pages.go::RegisterPages` registers the same ten routes as native HTTP 302 handlers
-  on the underlying `forge.Router` (not as `forgeui.Page` handlers — the redirect must
-  beat ForgeUI's catch-all). Each redirect points to the equivalent React shell route:
+**Originally proposed here as "replace with redirects": rejected, not built.**
 
-  | Old templ path                          | Redirect target                                   |
+This section originally called for `pages.go::RegisterPages` to register the same ten
+routes as native HTTP 302 handlers on the underlying `forge.Router`, each pointing at
+an equivalent React shell route, per the table below. That design was reconsidered
+before implementation: none of these redirects exist, the table's targets were never
+correct (the shell was moved to `{BasePath}/ui`, not `/dashboard/contract/app/*`), and
+the ten old paths simply 404 today with nothing forwarding them anywhere. The table is
+kept for the historical record of what was considered and turned down:
+
+  | Old templ path                          | Redirect target considered, never built           |
   | ---                                     | ---                                               |
   | `/dashboard/`                           | `/dashboard/contract/app/`                        |
   | `/dashboard/health`                     | `/dashboard/contract/app/health`                  |
@@ -52,9 +71,10 @@ CoreContributor that hits the same data sources twice.
   | `/dashboard/traces`                     | `/dashboard/contract/app/traces`                  |
   | `/dashboard/traces/:id`                 | `/dashboard/contract/app/traces?id=:id`           |
 
-  `metrics/all`, `/metrics/collectors/:name`, `/metrics/detail/*name` collapse into the
-  single `/metrics` shell route — slice (j) will add deep-linked detail routes when we
-  rebuild those pages on the React side.
+  The original design also reasoned that `metrics/all`, `/metrics/collectors/:name`,
+  and `/metrics/detail/*name` would collapse into a single `/metrics` shell route.
+  That reasoning applied only to this rejected redirect design and describes no route
+  that exists today.
 
 **Out of scope — keep:**
 - `ui/shell/*.templ` — sidebar/topbar/breadcrumbs/scripts still feed extension contributors (auth, settings) through `LayoutManager`.
@@ -74,13 +94,13 @@ CoreContributor that hits the same data sources twice.
 
 - `go build ./...` clean
 - `go test ./extensions/dashboard/...` all green (registry tests use `"core"` as a stub name in `registry_test.go` — those don't touch the deleted `core_contributor.go`, just the string `"core"`. They keep passing.)
-- Manual smoke: `curl -sIL http://localhost:8080/dashboard/health` returns 302 → `/dashboard/contract/app/health`; the React shell loads at the new URL.
-- LOC delta: removes ~2,000 lines of templ + helpers.
+- Manual smoke, as actually shipped: `curl -sIL http://localhost:8080/dashboard/health` returns 404. There is no redirect to check; the React shell loads separately at `http://localhost:8080/dashboard/ui`.
+- LOC delta: removed 15,096 lines across pages.go, the ten templ pages, and their helpers (larger than the ~2,000-line estimate in "Why now" above, which predates counting the generated `_templ.go` files).
 
 ## Risks / mitigations
 
-- **Bookmarks.** Old links to `/dashboard/health` etc. still work via 302 — no broken bookmarks.
-- **CLI/API tooling that scrapes templ HTML.** Anything in that bucket already had to stop in slice (h) when the React shell appeared. If we missed a tool, the 302 is detectable.
+- **Bookmarks.** Old links to `/dashboard/health` etc. now 404. The redirect design considered above was rejected before implementation, so these bookmarks are broken, not preserved.
+- **CLI/API tooling that scrapes templ HTML.** Anything in that bucket already had to stop in slice (h) when the React shell appeared. With no redirect built, a tool that missed that memo now gets a 404 instead of HTML, which is at least loud about it.
 - **Extension contributor pages that depended on `pages.go` templ helpers re-exported.** Cross-check: `extensions_helpers.go::IsCore` references `name == "core"` for badge rendering. With CoreContributor gone, the registry has no `"core"` entry, so the bool is always false — harmless. But that file gets deleted as part of this slice anyway.
 - **Test breakage in `contributor/registry_test.go`.** Those tests build their own `newStub("core", …)` instances; they don't reference `core_contributor.go` or any deleted templ. No change required.
 
