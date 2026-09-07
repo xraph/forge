@@ -22,9 +22,10 @@ const DefaultMetricsInterval = 5 * time.Second
 // extension constructs this when it wires the pilot at startup.
 //
 // Slice (c) introduced ExtensionsRegistry / Services / Metrics. Slice (h)
-// adds Overview / Health / MetricsReport / Traces so the pilot covers every
-// page CoreContributor serves today; nil providers are tolerated and the
-// corresponding handlers return CodeUnavailable.
+// adds Overview / Health / MetricsReport / Traces so the pilot's intents
+// cover the same data every one of the old core pages rendered; nil
+// providers are tolerated and the corresponding handlers return
+// CodeUnavailable.
 type Deps struct {
 	ExtensionsRegistry *contributor.ContributorRegistry
 	Services           ServicesProvider

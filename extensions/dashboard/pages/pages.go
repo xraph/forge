@@ -80,10 +80,12 @@ func (pm *PagesManager) SetAuthEnabled(enabled bool, defaultAccess, loginPath st
 }
 
 // RegisterPages registers all dashboard page routes with forgeui's router.
-// Core dashboard pages inherit the default layout (typically "dashboard").
-// Settings pages use the "settings" layout (nested under dashboard).
+// The root contributor page (when configured) inherits the default layout
+// (typically "dashboard"). Settings pages use the "settings" layout (nested
+// under dashboard).
 func (pm *PagesManager) RegisterPages() error {
-	// Resolve the default access level middleware for core pages
+	// Resolve the default access level middleware, shared by the root
+	// contributor, settings pages and remote contributor pages below.
 	defaultMW := pm.defaultAccessMiddleware()
 
 	// The core dashboard paths (overview, health, metrics, services,

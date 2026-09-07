@@ -323,7 +323,12 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Rebuild the search index against any contributors registered later.
+	// e.registry was constructed fresh just above and nothing has registered
+	// into it yet, so this rebuild indexes zero contributors. It is kept
+	// anyway: RebuildIndex is a cheap, idempotent scan, and the call it
+	// mirrors 1:1 with the meaningful rebuild in discoverExtensionContributors
+	// below, which runs after contributors are actually registered and is
+	// the one that populates the index for real.
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
@@ -371,8 +376,9 @@ func (e *Extension) Register(app forge.App) error {
 		ExtensionsRegistry: e.registry,
 		Services:           e.collector,
 		Metrics:            e.collector,
-		// Slice (h) — wire the rest of CoreContributor's data sources so the
-		// pilot covers Overview / Health / Metrics report / Traces.
+		// Slice (h): wire the remaining data sources (the same ones the old
+		// core pages rendered) so the pilot covers Overview / Health /
+		// Metrics report / Traces.
 		Overview:      e.collector,
 		Health:        e.collector,
 		MetricsReport: e.collector,
