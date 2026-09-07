@@ -17,16 +17,15 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
-	github.com/xraph/confy v1.0.2
+	github.com/xraph/confy v1.0.3
 	github.com/xraph/forgeui v1.4.1
-	github.com/xraph/go-utils v1.2.2
+	github.com/xraph/go-utils v1.3.0
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	go.uber.org/zap v1.28.0
 	golang.org/x/term v0.45.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/yaml.v3 v3.0.1
@@ -103,7 +102,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect

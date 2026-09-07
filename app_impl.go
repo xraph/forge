@@ -87,18 +87,15 @@ func newApp(config AppConfig) *app {
 	// Create DI container
 	container := NewContainer()
 
-	// Create logger if not provided
+	// Create logger if not provided. Format is chosen automatically: a
+	// terminal gets human-readable output, anything else gets JSON, and
+	// FORGE_LOG_FORMAT overrides both.
 	logger := config.Logger
 	if logger == nil {
-		// Use development logger for dev, production for prod, noop otherwise
-		switch config.Environment {
-		case "development":
-			logger = NewBeautifulLogger("forge")
-		case "production":
-			logger = NewProductionLogger()
-		default:
-			logger = NewNoopLogger()
-		}
+		logger = NewLogger(LoggingConfig{
+			Environment: config.Environment,
+			Name:        config.Name,
+		})
 	}
 
 	// Create error handler
