@@ -1,8 +1,10 @@
-// Package main demonstrates a basic dashboard setup with built-in pages only.
+// Package main demonstrates a basic dashboard setup with default configuration
+// and no contributors registered.
 //
-// This example creates a Forge application with the dashboard extension
-// using default configuration. The dashboard will provide built-in pages
-// for overview, health checks, metrics, and services.
+// This example creates a Forge application with the dashboard extension.
+// The dashboard is the prebuilt React shell, mounted at {BasePath}/ui, which
+// covers overview, health checks, metrics, and services. The same data is
+// also available directly as JSON under {BasePath}/api.
 //
 // NOTE: This is an illustrative stub. It requires a full Forge application
 // environment to run.
@@ -24,7 +26,8 @@ func main() {
 	)
 
 	// Register the dashboard extension with custom configuration.
-	// All built-in pages (overview, health, metrics, services) are included automatically.
+	// The React shell (overview, health, metrics, services) and its JSON API
+	// are mounted automatically; no contributor registration is required.
 	if err := app.RegisterExtension(dashboard.NewExtension(
 		dashboard.WithTitle("My Dashboard"),
 		dashboard.WithBasePath("/dashboard"),
@@ -39,9 +42,9 @@ func main() {
 	}
 
 	// Start the application. The dashboard will be available at:
-	//   http://localhost:8080/dashboard
+	//   http://localhost:8080/dashboard/ui
 	//
-	// Built-in API endpoints:
+	// JSON API endpoints (same data as the shell):
 	//   GET /dashboard/api/overview
 	//   GET /dashboard/api/health
 	//   GET /dashboard/api/metrics
