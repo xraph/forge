@@ -273,7 +273,8 @@ least capable UI in the package with nothing telling you a better one existed
 one subpath away. If you were on `/overlay` before 1.11 and it looked thin,
 that is why, and updating is the whole fix.
 
-The lean view is still here and still worth having. It is `/mini` now:
+The lean view is still here, deprecated, and going away in the next major. It
+is `/mini`:
 
 ```ts
 import { mountMini } from '@forge-go/client-devtools/mini';
@@ -281,9 +282,11 @@ import { mountMini } from '@forge-go/client-devtools/mini';
 const unmount = mountMini(forge);
 ```
 
-Six read-only tables and a filter box in 3.5 kB gzipped, which is the right
-trade for a demo, a production-adjacent build, or anything that wants to see
-the cache without shipping a debugger.
+Six read-only tables and a filter box in 3.5 kB gzipped. Prefer `/overlay`.
+The bytes were the whole case for a second UI and they do not survive contact
+with the fact that this package is dev-only: none of it reaches a production
+bundle, so what you save comes off a development build. Meanwhile the lean view
+drifted, and still has a `log` tab where the panel has a causal trace.
 
 A DOM panel in a shadow root: `document.createElement` and nothing else.
 Deliberately **not a component** — a React panel forces React on a Vue

@@ -7,12 +7,17 @@ export interface ForgeDevtoolsProps {
   /** Beats the provider and the module default, as everywhere else. */
   readonly client?: QueryCache;
   /**
-   * The full panel. Defaults to true.
+   * @deprecated Ignored, and removed in the next major.
    *
-   * `false` mounts the lean view instead: six read-only tables and a filter
-   * box, in a fraction of the bytes. It used to reach for `/overlay`, which is
-   * the full panel now, so this branch would have quietly stopped meaning
-   * anything.
+   * This used to choose between the full panel and the lean six-table view.
+   * The lean view is deprecated, so `false` now warns once and mounts the
+   * panel anyway: honouring it would hand you a worse UI than passing nothing
+   * at all, and silently ignoring a prop is worse than either.
+   *
+   * The case for the lean view was bytes, and it does not hold here. The
+   * effect below is behind a `development` export condition and a `NODE_ENV`
+   * guard, so none of this reaches your production bundle. What `false` bought
+   * was a smaller development build and a UI that had not kept up.
    */
   readonly panel?: boolean;
   /** Start open rather than as a button in the corner. */
@@ -126,9 +131,31 @@ function release(cache: QueryCache): void {
  * cannot reach it. That is the argument the panel itself makes about
  * frameworks, drawn one level out.
  */
+/**
+ * Said once per page, not once per render.
+ *
+ * A deprecation that fires on every render of every component is noise you
+ * learn to scroll past, which is the opposite of what a deprecation is for.
+ */
+let warnedAboutPanel = false;
+
+function warnAboutPanelProp(): void {
+  if (warnedAboutPanel) return;
+
+  warnedAboutPanel = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[forge] ForgeDevtools: panel={false} is deprecated and ignored; the full ' +
+      'panel is mounted instead. The lean view it used to select is deprecated ' +
+      'too. Drop the prop.',
+  );
+}
+
 export function ForgeDevtools(props: ForgeDevtoolsProps = {}): null {
   const client = useClient(props.client);
   const { panel = true, open, frames, limit, manager, binder } = props;
+
+  if (!panel) warnAboutPanelProp();
 
   useEffect(() => {
     let live = true;
@@ -177,27 +204,15 @@ export function ForgeDevtools(props: ForgeDevtoolsProps = {}): null {
 
         if (entry === undefined) return;
 
-        if (panel) {
-          const { mountPanel } = await import('@forge-go/client-devtools/panel');
+        const { mountPanel } = await import('@forge-go/client-devtools/panel');
 
-          if (!live) {
-            releaseOnce();
+        if (!live) {
+          releaseOnce();
 
-            return;
-          }
-
-          unmount = mountPanel(entry.devtools, { open });
-        } else {
-          const { mountMini } = await import('@forge-go/client-devtools/mini');
-
-          if (!live) {
-            releaseOnce();
-
-            return;
-          }
-
-          unmount = mountMini(entry.devtools, { open });
+          return;
         }
+
+        unmount = mountPanel(entry.devtools, { open });
       })();
     }
 

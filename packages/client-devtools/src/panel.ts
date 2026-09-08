@@ -318,7 +318,7 @@ button[aria-selected="true"] { background: #4b5bd6; border-color: #4b5bd6; }
 .patch .key { color: #e6e6e6; word-break: break-all; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #2b2b33;
-  vertical-align: top; word-break: break-word; }
+  vertical-align: top; overflow-wrap: break-word; }
 th { color: #9a9aa8; font-weight: normal; position: sticky; top: -8px; background: #1c1c22; }
 tr.row { cursor: pointer; }
 tr.row[aria-selected="true"] td { background: #2a2233; }

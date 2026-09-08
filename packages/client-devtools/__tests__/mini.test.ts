@@ -171,3 +171,32 @@ describe('the launcher ring', () => {
     devtools.dispose();
   });
 });
+
+describe('table layout', () => {
+  /**
+   * A regression, and one jsdom cannot catch by measuring: it has no layout
+   * engine, so the assertion is on the declaration rather than on the width.
+   *
+   * `word-break: break-word` is a deprecated alias that computes to
+   * `word-break: normal; overflow-wrap: anywhere`, and `anywhere` -- unlike
+   * `break-word` -- shrinks an element's min-content size. In a table that
+   * makes every column's minimum one character wide, so a long query key gets
+   * a 1ch column and the header reads downwards, one letter per line.
+   *
+   * `overflow-wrap: break-word` still wraps a long key and leaves min-content
+   * at the longest word, which is what keeps the columns usable.
+   */
+  it('does not shrink table columns to a single character', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountMini(devtools, { parent: document.body, open: true });
+
+    const css = shadow().querySelector('style')?.textContent ?? '';
+
+    expect(css).not.toContain('word-break: break-word');
+    expect(css).toContain('overflow-wrap: break-word');
+
+    unmount();
+    devtools.dispose();
+  });
+});

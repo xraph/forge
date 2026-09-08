@@ -4,6 +4,21 @@ import type { LogEntry, MissReport, RefetchReport } from './types.js';
 /**
  * The lean view: six read-only tables and a filter box.
  *
+ * @deprecated Use `mountOverlay` from `./overlay`. Removed in the next major.
+ *
+ * The case for a second, smaller UI was bytes, and it does not hold. This
+ * package is dev-only by construction: the React adapter sits behind a
+ * `development` export condition and a `NODE_ENV` guard, and the documented
+ * way to reach the inspector directly is a dynamic import behind a development
+ * check. None of it is in a production bundle, so the ten kilobytes this saves
+ * come off a development build, which is not a trade worth maintaining a
+ * second UI for.
+ *
+ * The cost of keeping it was never bytes anyway, it was drift. This view still
+ * has a `log` tab where the panel has a causal trace, and none of the network,
+ * overlay-stack or explain-from-a-row work reached it. A second UI nobody
+ * updates is a second UI that lies about what the cache can tell you.
+ *
  * This used to be `/overlay`, which was the wrong name for it. `overlay` is
  * what people reach for when they want the devtools, and what they wanted was
  * the full panel; leaving the smallest view on the most obvious import meant
@@ -29,6 +44,7 @@ import type { LogEntry, MissReport, RefetchReport } from './types.js';
  * the API is what a developer calls from the console at three in the morning,
  * what a test asserts on, and what somebody else's panel is built from.
  */
+/** @deprecated See `mountMini`. */
 export interface MiniOptions {
   /** Where to attach. Defaults to `document.body`. */
   readonly parent?: Element;
@@ -94,7 +110,7 @@ button[aria-selected="true"] { background: #4b5bd6; border-color: #4b5bd6; }
 .body { overflow: auto; padding: 8px; flex: 1; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #2b2b33;
-  vertical-align: top; word-break: break-word; }
+  vertical-align: top; overflow-wrap: break-word; }
 th { color: #9a9aa8; font-weight: normal; position: sticky; top: -8px; background: #1c1c22; }
 tr.hot td { background: #2a2233; }
 code { color: #9fd0ff; }
@@ -119,6 +135,7 @@ input { font: inherit; color: inherit; background: #14141a; border: 1px solid #4
  * inspector that makes the application it is inspecting janky is measuring
  * itself.
  */
+/** @deprecated Use `mountOverlay` from `@forge-go/client-devtools/overlay`. */
 export function mountMini(devtools: Devtools, options: MiniOptions = {}): () => void {
   const doc = globalThis.document as Document | undefined;
 
