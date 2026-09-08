@@ -238,6 +238,41 @@ func TestScaffoldDashboardNextPageContractBase(t *testing.T) {
 		"contractBase must proxy to Forge's actual mount, {BasePath}/api/dashboard/v1")
 }
 
+// dashboardNextDynamicImportPattern requires ForgeDashboard to be loaded
+// through next/dynamic with ssr:false, not a direct named import. A loose
+// strings.Contains(page, "ForgeDashboard") check would pass against the
+// broken direct-import version too, since the identifier still appears in
+// the JSX at the bottom of the page -- this anchors on the actual dynamic()
+// call shape instead: the dashboard-host import as dynamic()'s loader,
+// immediately paired with { ssr: false }.
+var dashboardNextDynamicImportPattern = regexp.MustCompile(
+	`const ForgeDashboard = dynamic\(\s*\(\)\s*=>\s*import\("@forge-go/dashboard-host"\)\.then\(\(mod\)\s*=>\s*mod\.ForgeDashboard\),\s*\{\s*ssr:\s*false\s*\}`,
+)
+
+// TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically guards against
+// the exact crash Task 8 hit against a live server: the App Router still
+// server-renders "use client" pages on first load, and ForgeDashboard
+// composes a BrowserRouter and base-ui portal components that touch
+// `document` during render, not just in effects, so a direct import of it
+// throws "document is not defined" on that server pass. Loading it through
+// next/dynamic with ssr:false skips the server pass.
+func TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically(t *testing.T) {
+	dir := t.TempDir()
+	p := &DashboardPlugin{}
+
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+
+	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
+	require.NoError(t, err)
+	src := string(page)
+
+	assert.NotContains(t, src, `import { ForgeDashboard } from "@forge-go/dashboard-host"`,
+		"ForgeDashboard must not be imported directly -- that is the exact form that crashes with \"document is not defined\" on the server-rendered first load")
+
+	assert.Truef(t, dashboardNextDynamicImportPattern.MatchString(src),
+		"page.tsx must load ForgeDashboard via next/dynamic with ssr:false, source:\n%s", src)
+}
+
 // TestScaffoldDashboardUnknownTarget guards filesForTarget's default case: an
 // unrecognized --target must fail loudly rather than silently falling back
 // to the Vite scaffold.

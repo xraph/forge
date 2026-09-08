@@ -484,8 +484,20 @@ data contract under ` + "`{BasePath}/api/dashboard/v1`" + `.
 // scoped plugin the user adds lands under its own "/@namespace".
 const dashboardNextPageTemplate = `"use client"
 
-import { ForgeDashboard } from "@forge-go/dashboard-host"
+import dynamic from "next/dynamic"
 import corePlugin from "@forge-go/dashboard-plugin-core"
+
+// ForgeDashboard composes a BrowserRouter and base-ui portal components that
+// touch ` + "`document`" + ` during render, not just in effects. The App Router still
+// server-renders "use client" pages on first load, which crashes with
+// "document is not defined" for anything assuming a real DOM outside an
+// effect. Loading it through next/dynamic with ssr:false skips that server
+// pass and mounts it purely on the client, which is what a browser-only SPA
+// shell needs.
+const ForgeDashboard = dynamic(
+  () => import("@forge-go/dashboard-host").then((mod) => mod.ForgeDashboard),
+  { ssr: false },
+)
 
 // contractBase is a path on this app's own origin, so every request is
 // same-origin and the client's CSRF handshake works untouched. It is not

@@ -102,8 +102,10 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 	if target == "next" {
 		ctx.Println("  2. pnpm install")
 		ctx.Println("  3. Add plugins to the `plugins` array in app/admin/[[...slug]]/page.tsx")
-		ctx.Println("  4. Set FORGE_URL to your Forge server's origin")
-		ctx.Println("  5. pnpm dev")
+		ctx.Println("  4. Set FORGE_URL to your Forge server's dashboard base URL (origin + BasePath, e.g. http://localhost:8080/dashboard)")
+		ctx.Println("  5. List the @forge-go/dashboard-* packages in transpilePackages in next.config.ts -- they ship TS source with no build step")
+		ctx.Println("  6. If your app styles Tailwind via PostCSS (not the Vite plugin), add @source entries for those packages or the dashboard renders unstyled")
+		ctx.Println("  7. pnpm dev")
 	} else {
 		ctx.Println("  2. pnpm install")
 		ctx.Println("  3. pnpm add <your plugin package>, then list it in the `plugins` array in src/App.tsx")
