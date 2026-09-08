@@ -200,8 +200,35 @@ button:focus-visible { outline: 2px solid var(--ember); outline-offset: 1px; }
 .panel[data-mode="full"] { width: 96vw; height: 92vh; }
 .panel[data-mode="right"] { width: min(560px, 96vw); height: 92vh; }
 
-.bar { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line);
-  align-items: center; flex-wrap: wrap; background: var(--panel); }
+.titlebar { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: 38px;
+  background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+.titlebar .mark { color: var(--ember); display: grid; place-items: center; }
+.titlebar .mark svg { width: 15px; height: 15px; display: block; }
+.titlebar .name { font: 500 12px var(--mono); color: var(--text); }
+.titlebar .crumb { display: flex; align-items: center; gap: 6px; font: 11px var(--mono);
+  color: var(--faint); }
+.titlebar .crumb b { color: var(--dim); font-weight: 400; }
+.titlebar .spacer { flex: 1; }
+
+.statusbar { display: flex; align-items: center; gap: 14px; height: 26px; padding: 0 10px;
+  background: var(--panel); border-top: 1px solid var(--line); flex: none;
+  font: 10.5px var(--mono); color: var(--faint); overflow-x: auto; white-space: nowrap; }
+.statusbar .spacer { flex: 1; }
+.statusbar span { display: flex; align-items: center; gap: 5px; }
+.statusbar button { font: 10.5px var(--mono); padding: 2px 8px; border: 1px solid var(--line2);
+  border-radius: 5px; color: var(--dim); }
+.statusbar button:hover { color: var(--text); background: var(--hover); }
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; background: var(--faint); }
+.dot.ok { background: var(--mint); }
+.dot.warn { background: var(--amber); }
+.dot.hot { background: var(--ember); }
+
+.bar { display: flex; gap: 3px; padding: 7px 8px; border-bottom: 1px solid var(--line);
+  align-items: center; flex-wrap: wrap; background: var(--ground); }
+.bar .tab { padding: 5px 11px; font: 500 13px/1.3 var(--ui); display: flex; align-items: baseline;
+  gap: 7px; }
+.bar .tab .n { font: 10.5px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+.bar .tab[aria-selected="true"] .n { color: var(--ember); }
 .bar .spacer { flex: 1; }
 .bar > span.dim { font: 11px var(--mono); color: var(--faint); padding: 0 6px; }
 
@@ -243,6 +270,9 @@ ul { margin: 6px 0; padding-left: 18px; }
 li { margin: 4px 0; font: 11.5px/1.6 var(--mono); color: var(--dim); }
 pre { font: 10.5px/1.6 var(--mono); background: var(--ground); border: 1px solid var(--line);
   border-radius: 5px; padding: 8px 10px; overflow-x: auto; color: var(--dim); margin: 0; }
+.pillrow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.pilllabel { font: 500 9.5px/1.4 var(--ui); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--faint); margin-right: 6px; }
 .pill { display: inline-block; padding: 1px 6px; border-radius: 3px; margin: 0 3px 3px 0;
   font: 10px var(--mono); border: 1px solid var(--line2); color: var(--violet);
   background: rgba(174,140,255,.08); }
@@ -302,6 +332,9 @@ pre { font: 10.5px/1.6 var(--mono); background: var(--ground); border: 1px solid
   letter-spacing: .12em; text-transform: uppercase; }
 .vital .v { color: var(--text); font: 14px var(--mono); font-variant-numeric: tabular-nums; }
 .vital .n { color: var(--faint); font: 10px var(--mono); margin-left: 5px; }
+.vital.spark { flex: 1; min-width: 120px; border-right: 0; display: flex; align-items: center;
+  color: var(--ember); padding: 6px 14px; }
+.vital.spark svg { width: 100%; height: 30px; display: block; }
 .vital[data-vital="pending"] .v { color: var(--amber); }
 
 /* rail */
@@ -313,7 +346,12 @@ pre { font: 10.5px/1.6 var(--mono); background: var(--ground); border: 1px solid
 .latency { width: 84px; accent-color: var(--ember); }
 
 /* facets */
-.facets { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 10px 6px; }
+.facets { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 12px 8px; align-items: center;
+  border-bottom: 1px solid var(--line); }
+.facets .spacer { flex: 1; }
+.facets .only { font: 500 9.5px/1.4 var(--ui); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--faint); margin-right: 4px; }
+.facets .shown { font: 10.5px var(--mono); color: var(--faint); }
 .facet { font: 10px var(--mono); padding: 2px 9px; border-radius: 10px;
   border: 1px solid var(--line2); color: var(--dim); }
 .facet:hover { color: var(--text); background: var(--hover); }
@@ -324,21 +362,28 @@ pre { font: 10.5px/1.6 var(--mono); background: var(--ground); border: 1px solid
 .facet.clear { border-color: transparent; text-decoration: underline; }
 
 /* trace */
-.cause { position: relative; padding: 10px 12px 10px 30px; border-bottom: 1px solid var(--line); }
-.cause::before { content: ""; position: absolute; left: 14px; top: 26px; bottom: 10px;
+.cause { position: relative; padding: 11px 14px 11px 34px; border-bottom: 1px solid var(--line); }
+.cause::before { content: ""; position: absolute; left: 15px; top: 30px; bottom: 11px;
   width: 1px; background: var(--line2); }
-.cause::after { content: ""; position: absolute; left: 10px; top: 12px; width: 9px; height: 9px;
-  border-radius: 2px; background: var(--faint); }
-.cause[data-kind="mutation"]::after { background: var(--violet); }
-.cause[data-kind="frames"]::after { background: var(--sky); }
-.cause[data-kind="action"]::after { background: var(--ember); }
-.cause[data-kind="error"]::after { background: var(--coral); }
 .cause-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
   font: 11.5px var(--mono); }
 .cause-head .seq { color: var(--faint); font-variant-numeric: tabular-nums; }
 .cause-head .kind { color: var(--faint); font: 500 9.5px/1.4 var(--ui); letter-spacing: .1em;
   text-transform: uppercase; }
 .cause-head .op { color: var(--text); }
+.cause-head .when { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
+.cause > .mark { position: absolute; left: 8px; top: 10px; width: 14px; height: 14px;
+  border-radius: 3px; display: grid; place-items: center; color: #0e1116;
+  font: 600 9px var(--ui); background: var(--faint); }
+.cause[data-kind="mutation"] > .mark { background: var(--violet); }
+.cause[data-kind="frames"] > .mark { background: var(--sky); }
+.cause[data-kind="action"] > .mark { background: var(--ember); }
+.cause[data-kind="error"] > .mark { background: var(--coral); }
+.effect .verb { color: var(--dim); margin-right: 6px; }
+.effect .verb.good { color: var(--mint); }
+.effect .verb.bad { color: var(--coral); }
+.effect .verb.miss { color: var(--faint); }
+.effect .said { color: var(--dim); }
 .effect { position: relative; margin-top: 7px; padding-left: 14px; font: 11px var(--mono);
   color: var(--dim); }
 .effect::before { content: ""; position: absolute; left: -12px; top: 8px; width: 20px;
@@ -904,6 +949,57 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   const blockText = (one: Block): string =>
     [describe(one.entry), ...one.effects.map(describe)].join(' ');
 
+  /** The letter in the square beside a cause. */
+  const markOf = (entry: LogEntry): string =>
+    entry.kind === 'mutation'
+      ? 'M'
+      : entry.kind === 'frames'
+        ? 'F'
+        : entry.kind === 'action'
+          ? 'Y'
+          : entry.kind === 'error'
+            ? 'E'
+            : '·';
+
+  /** Wall clock, to the millisecond. Two causes 4ms apart are a different story. */
+  const clockOf = (at: number): string => {
+    const when = new Date(at);
+    const pad = (value: number, size = 2): string => String(value).padStart(size, '0');
+
+    return `${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}.${pad(
+      when.getMilliseconds(),
+      3,
+    )}`;
+  };
+
+  /** What the effect did, as one word, so the sentence after it can be data. */
+  const verbOf = (entry: LogEntry): string => {
+    switch (entry.kind) {
+      case 'invalidated':
+        return 'reached';
+      case 'placed':
+        return 'placed';
+      case 'fetch':
+        return 'fetch';
+      case 'settle':
+        return 'settled';
+      case 'error':
+        return 'failed';
+      default:
+        return entry.kind;
+    }
+  };
+
+  /** Green for something that worked, coral for a failure, faint for a no-op. */
+  const toneOf = (entry: LogEntry): string =>
+    entry.kind === 'error'
+      ? 'bad'
+      : entry.kind === 'placed'
+        ? 'miss'
+        : entry.kind === 'settle' || entry.kind === 'invalidated'
+          ? 'good'
+          : '';
+
   /** The word in the eyebrow. `action` is rendered as what it is: you. */
   const kindOf = (entry: LogEntry): string =>
     entry.kind === 'action' ? 'you' : entry.kind === 'frames' ? 'frames' : entry.kind;
@@ -917,9 +1013,11 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     const head = el('div', 'cause-head');
 
     node.setAttribute('data-kind', one.entry.kind);
+    node.append(el('span', 'mark', markOf(one.entry)));
     head.append(el('span', 'seq', `#${String(one.entry.seq)}`));
     head.append(el('span', 'kind', kindOf(one.entry)));
     head.append(el('span', 'op', describe(one.entry)));
+    head.append(el('span', 'when', clockOf(one.entry.at)));
     node.append(head);
 
     const raised = raisedBy(one.entry);
@@ -929,10 +1027,16 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     // The single most common cause of an invalidation that silently did not
     // happen, and invisible without this.
     if (one.entry.kind === 'mutation' && one.entry.unresolved.length > 0) {
-      node.append(pills(one.entry.unresolved, 'skipped, resolved to nothing'));
+      node.append(pills(one.entry.unresolved, 'skipped'));
     }
 
-    for (const effect of one.effects) node.append(el('div', 'effect', describe(effect)));
+    for (const effect of one.effects) {
+      const row = el('div', 'effect');
+
+      row.append(el('span', `verb ${toneOf(effect)}`, verbOf(effect)));
+      row.append(el('span', 'said', describe(effect)));
+      node.append(row);
+    }
 
     for (const miss of missedBy(one)) node.append(missBanner(miss));
 
@@ -972,7 +1076,10 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     // it is just as much a near miss.
     const carried = devtools.tags().map((row) => row.tag);
 
-    return nearMisses(missed, carried, 3);
+    // The closest one only. `nearMisses` sorts most-suspicious first, and
+    // three banners for one cause is a wall you skim rather than a warning you
+    // read. The rest are a click away on the explain tab.
+    return nearMisses(missed, carried, 1);
   };
 
   const missBanner = (miss: NearMiss): HTMLElement => {
@@ -992,9 +1099,9 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   };
 
   const pills = (values: readonly string[], label: string): HTMLElement => {
-    const wrap = el('div');
+    const wrap = el('div', 'pillrow');
 
-    wrap.append(el('span', 'dim', `${label}: `));
+    wrap.append(el('span', 'pilllabel', label));
 
     if (values.length === 0) wrap.append(el('span', 'dim', 'none'));
     else for (const value of values) wrap.append(el('span', 'pill', value));
@@ -1356,12 +1463,13 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
           );
         }
 
-        const blocks = trace()
-          .filter((one) => matches(blockText(one)))
-          .slice(-200)
-          .reverse();
+        const traceSource = trace().filter((one) => passes({ text: blockText(one) }));
 
-        if (blocks.length === 0) body.append(el('p', 'dim', 'nothing here'));
+        body.append(chipBar(traceSource, TRACE_FACETS));
+
+        const blocks = narrow(traceSource, TRACE_FACETS).slice(-200).reverse();
+
+        if (blocks.length === 0) body.append(el('p', 'no-rows', 'Nothing matches.'));
         else for (const one of blocks) body.append(causeBlock(one));
 
         break;
@@ -1918,6 +2026,14 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     test(row: T): boolean;
   }
 
+  const TRACE_FACETS: readonly Facet<Block>[] = [
+    { id: 'mutations', label: 'mutations', test: (one) => one.entry.kind === 'mutation' },
+    { id: 'frames', label: 'frames', test: (one) => one.entry.kind === 'frames' },
+    { id: 'yours', label: 'yours', test: (one) => one.entry.kind === 'action' },
+    { id: 'errors', label: 'errors', test: (one) => one.entry.kind === 'error' },
+    { id: 'misses', label: 'near misses', test: (one) => missedBy(one).length > 0 },
+  ];
+
   const QUERY_FACETS: readonly Facet<QuerySnapshot>[] = [
     { id: 'mounted', label: 'mounted', test: (row) => row.mounts > 0 },
     { id: 'unmounted', label: 'unmounted', test: (row) => row.mounts === 0 },
@@ -1979,6 +2095,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     const bar = el('div', 'facets');
     const on = chosen();
 
+    bar.append(el('span', 'only', 'only'));
+
     for (const one of all) {
       const button = el('button', 'facet');
 
@@ -1994,6 +2112,11 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       });
       bar.append(button);
     }
+
+    bar.append(el('div', 'spacer'));
+    bar.append(
+      el('span', 'shown', `${String(narrow(source, all).length)} of ${String(source.length)}`),
+    );
 
     if (on.size > 0 || filter !== '') {
       const clear = el('button', 'facet clear', 'clear');
@@ -2047,6 +2170,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     cell('tags', 'tags', String(counts.indexedTags), `${String(counts.stampedTags)} stamped`);
     cell('tombstones', 'tombstones', String(counts.tombstones));
     cell('tracked', 'tracked', String(counts.tracked));
+    strip.append(spark());
 
     return strip;
   };
@@ -2098,6 +2222,44 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     }
 
     return bar;
+  };
+
+  /**
+   * Causes per slice of the log, drawn small.
+   *
+   * Not a chart, a shape: what it answers is "is the cache busy right now, and
+   * was it busy a moment ago", which is the question the numbers to its left
+   * cannot answer because they are all instantaneous.
+   */
+  const spark = (): HTMLElement => {
+    const wrap = el('div', 'vital spark');
+    const entries = devtools.log();
+    const buckets = 24;
+    const counts = new Array<number>(buckets).fill(0);
+
+    for (const [index, entry] of entries.entries()) {
+      if (entry.kind !== 'mutation' && entry.kind !== 'frames' && entry.kind !== 'fetch') continue;
+
+      counts[Math.min(buckets - 1, Math.floor((index / Math.max(1, entries.length)) * buckets))] +=
+        1;
+    }
+
+    const peak = Math.max(1, ...counts);
+    const points = counts
+      .map((value, index) => {
+        const x = (index / (buckets - 1)) * 100;
+        const y = 26 - (value / peak) * 22;
+
+        return `${String(Math.round(x * 10) / 10)},${String(Math.round(y * 10) / 10)}`;
+      })
+      .join(' ');
+
+    wrap.innerHTML =
+      '<svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' +
+      `<polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.2" ` +
+      'stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>';
+
+    return wrap;
   };
 
   /** One icon button on the rail. Icon only, so the tooltip carries the name. */
@@ -2246,6 +2408,121 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     return 'idle';
   };
 
+  /**
+   * The row that names what you are looking at.
+   *
+   * The panel had no title bar at all: it opened straight onto tabs, so
+   * nothing said which cache this was, which session, or which version of the
+   * runtime you were debugging. Those three are the first questions when two
+   * tabs of the same app are open.
+   */
+  const titleBar = (): HTMLElement => {
+    const bar = el('div', 'titlebar');
+    const mark = el('span', 'mark');
+
+    mark.innerHTML = MARK;
+    bar.append(mark);
+    bar.append(el('span', 'name', 'devtools'));
+
+    const crumb = el('span', 'crumb');
+
+    // Session, not identity: the cache is emptied on an identity change, so a
+    // rising session number is the thing that tells you the log above spans
+    // two principals and the earlier half explains nothing about this one.
+    crumb.append(el('span', 'sep', '/'));
+    crumb.append(el('span', undefined, 'session'));
+    crumb.append(el('b', undefined, String(devtools.session)));
+    crumb.append(el('span', 'sep', '/'));
+    crumb.append(el('b', undefined, `${String(devtools.log().length)} events`));
+    bar.append(crumb);
+    bar.append(el('div', 'spacer'));
+    bar.append(dockBar());
+
+    const density = el('button', 'ico tip');
+
+    density.innerHTML = icon('<path d="M2.5 4h9M2.5 7h9M2.5 10h9"/>');
+    density.setAttribute('data-act', 'density');
+    density.setAttribute('data-tip', 'Compact rows');
+    density.setAttribute('aria-label', 'Compact rows');
+    density.setAttribute('aria-pressed', String(compact));
+    density.addEventListener('click', () => {
+      compact = !compact;
+      render();
+    });
+    bar.append(density);
+
+    const close = el('button', 'ico tip tip-r');
+
+    close.innerHTML = icon('<path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8"/>');
+    close.setAttribute('data-tip', 'Close the panel');
+    close.setAttribute('aria-label', 'Close the panel');
+    close.addEventListener('click', () => {
+      open = false;
+      render();
+    });
+    bar.append(close);
+
+    return bar;
+  };
+
+  /** How many rows each tab would show, so you can see before you click. */
+  const countFor = (name: Tab): number | undefined => {
+    switch (name) {
+      case 'trace':
+        return devtools.log().length;
+      case 'network':
+        return devtools.watchingRequests ? devtools.requests().length : undefined;
+      case 'queries':
+        return devtools.queries().length;
+      case 'entities':
+        return devtools.store().records;
+      case 'overlay':
+        return devtools.overlays().length;
+      case 'tags':
+        return devtools.tags().length;
+      case 'sockets':
+        return devtools.sockets().length;
+      default:
+        return undefined;
+    }
+  };
+
+  /**
+   * The line along the bottom, which is where the numbers that are true of the
+   * whole session belong rather than in a tab that happens to be open.
+   */
+  const statusBar = (): HTMLElement => {
+    const bar = el('div', 'statusbar');
+    const counts = devtools.store();
+    const pending = devtools.overlays().length;
+    const orphans = devtools.tags().filter((row) => row.carriers.length === 0).length;
+
+    const cell = (text: string, dot?: string, cls?: string): void => {
+      const node = el('span', cls);
+
+      if (dot !== undefined) node.append(el('i', `dot ${dot}`));
+
+      node.append(el('span', undefined, text));
+      bar.append(node);
+    };
+
+    cell('cache live', 'ok');
+    cell(buckets(), undefined, 'buckets');
+    cell(`${String(devtools.log().length)} events`);
+
+    if (devtools.dropped > 0) cell(`${String(devtools.dropped)} dropped`);
+    if (devtools.watchingRequests) cell(`${String(devtools.requests().length)} requests`);
+    if (pending > 0) cell(`${String(pending)} pending writes`, 'hot');
+
+    bar.append(el('div', 'spacer'));
+
+    if (orphans > 0) cell(`${String(orphans)} orphan tag${orphans === 1 ? '' : 's'}`, 'warn');
+
+    cell(`v${String(counts.version)} · ${String(counts.tracked)} tracked`);
+
+    return bar;
+  };
+
   /** The four dock modes, as one segmented control. */
   const dockBar = (): HTMLElement => {
     const group = el('div', 'docks');
@@ -2285,7 +2562,12 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     const bar = el('div', 'bar');
 
     for (const name of TABS) {
-      const button = el('button', undefined, name);
+      const button = el('button', 'tab');
+      const count = countFor(name);
+
+      button.append(el('span', undefined, name));
+
+      if (count !== undefined) button.append(el('span', 'n', String(count)));
 
       button.setAttribute('aria-selected', String(name === tab));
       button.addEventListener('click', () => {
@@ -2308,10 +2590,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     });
     bar.append(search);
 
-    const spacer = el('div', 'spacer');
-    bar.append(spacer);
-
-    bar.append(el('span', 'dim', buckets()));
+    const status = statusBar();
 
     const clearCache = el('button', undefined, 'clear cache');
 
@@ -2323,7 +2602,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       selected.clear();
       render();
     });
-    bar.append(clearCache);
+    status.append(clearCache);
 
     // Named for both halves when there is a second half. `devtools.clear()`
     // empties the frame ring along with the event log, and losing a capture to
@@ -2339,32 +2618,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       devtools.clear();
       render();
     });
-    bar.append(clearLog);
-    bar.append(dockBar());
-
-    const density = el('button', 'ico tip');
-
-    density.innerHTML = icon('<path d="M2.5 4h9M2.5 7h9M2.5 10h9"/>');
-    density.setAttribute('data-act', 'density');
-    density.setAttribute('data-tip', 'Compact rows');
-    density.setAttribute('aria-label', 'Compact rows');
-    density.setAttribute('aria-pressed', String(compact));
-    density.addEventListener('click', () => {
-      compact = !compact;
-      render();
-    });
-    bar.append(density);
-
-    const close = el('button', 'ico tip tip-r');
-
-    close.innerHTML = icon('<path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8"/>');
-    close.setAttribute('data-tip', 'Close the panel');
-    close.setAttribute('aria-label', 'Close the panel');
-    close.addEventListener('click', () => {
-      open = false;
-      render();
-    });
-    bar.append(close);
+    status.append(clearLog);
 
     const rail = controlRail();
     const vitals = vitalsStrip();
@@ -2382,11 +2636,11 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       split.append(detail);
     }
 
-    panel.append(bar, vitals);
+    panel.append(titleBar(), vitals);
 
     if (rail !== undefined) panel.append(rail);
 
-    panel.append(split);
+    panel.append(bar, split, status);
     root.append(panel);
   };
 

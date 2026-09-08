@@ -27,7 +27,8 @@ afterEach(() => {
 
 function tabs(): string[] {
   return [...shadow().querySelectorAll('.bar button')]
-    .map((node) => node.textContent ?? '')
+    // The name is the first span; the second is the row count.
+    .map((node) => node.querySelector('span')?.textContent ?? node.textContent ?? '')
     .filter((text) => text !== '');
 }
 

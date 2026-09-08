@@ -220,8 +220,9 @@ describe('choosing the UI', () => {
   const labels = (): string[] => {
     const host = [...document.body.children].find((node) => node.shadowRoot !== null);
 
+    // A tab button holds its name and its row count; the name is the first span.
     return [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
-      (node) => node.textContent ?? '',
+      (node) => node.querySelector('span')?.textContent ?? node.textContent ?? '',
     );
   };
 
