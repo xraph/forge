@@ -28,7 +28,8 @@ type scaffoldDashboardPackageJSON struct {
 func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
+	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
+	require.NoError(t, err)
 
 	want := []string{
 		"package.json",
@@ -58,7 +59,8 @@ func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
+	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
+	require.NoError(t, err)
 
 	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	require.NoError(t, err)
@@ -110,7 +112,8 @@ var (
 func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
+	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
+	require.NoError(t, err)
 
 	raw, err := os.ReadFile(filepath.Join(dir, "src", "App.tsx"))
 	require.NoError(t, err)
@@ -132,7 +135,8 @@ func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 func TestScaffoldDashboardPackageJSONNameIsSanitized(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "My Cool Dashboard!!", "vite"))
+	_, err := p.scaffoldDashboard(dir, "My Cool Dashboard!!", "vite")
+	require.NoError(t, err)
 
 	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	require.NoError(t, err)
@@ -153,7 +157,8 @@ func TestScaffoldDashboardPackageJSONNameIsSanitized(t *testing.T) {
 func TestScaffoldDashboardViteConfigSetsRelativeBase(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
+	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
+	require.NoError(t, err)
 
 	raw, err := os.ReadFile(filepath.Join(dir, "vite.config.ts"))
 	require.NoError(t, err)
@@ -167,7 +172,8 @@ func TestScaffoldDashboardViteConfigSetsRelativeBase(t *testing.T) {
 func TestScaffoldDashboardReadmeCoversShellExternal(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
+	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
+	require.NoError(t, err)
 
 	raw, err := os.ReadFile(filepath.Join(dir, "README.md"))
 	require.NoError(t, err)
@@ -188,7 +194,8 @@ func TestScaffoldDashboardNextTarget(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
 
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+	_, err := p.scaffoldDashboard(dir, "my-dash", "next")
+	require.NoError(t, err)
 
 	for _, want := range []string{
 		"app/admin/[[...slug]]/page.tsx",
@@ -211,6 +218,45 @@ func TestScaffoldDashboardNextTarget(t *testing.T) {
 	}
 }
 
+// TestScaffoldDashboardNextDoesNotOverwriteExistingFiles is the regression
+// test for the critical finding in the final review: dashboardNextFiles
+// includes package.json, writeTemplate is a bare os.WriteFile (which
+// truncates), and the "next" target is documented as writing into an
+// *existing* Next app -- whose package.json holds the app's real name,
+// dependencies, scripts and package manager config. Without a guard,
+// scaffolding into a real app would have silently replaced all of that with
+// the 10-dependency Next stub, unrecoverable outside git. Pre-seeding a
+// distinctive package.json and asserting it is byte-for-byte unchanged is
+// the only way to catch this: every prior test scaffolds into an empty
+// t.TempDir(), so none of them could have seen it.
+func TestScaffoldDashboardNextDoesNotOverwriteExistingFiles(t *testing.T) {
+	dir := t.TempDir()
+	existing := []byte(`{"name":"my-real-nextjs-app","version":"3.4.1","dependencies":{"next":"15.0.0"}}` + "\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), existing, 0644))
+
+	p := &DashboardPlugin{}
+	skipped, err := p.scaffoldDashboard(dir, "my-dash", "next")
+	require.NoError(t, err)
+
+	assert.Contains(t, skipped, "package.json", "scaffoldDashboard must report package.json as skipped")
+
+	raw, readErr := os.ReadFile(filepath.Join(dir, "package.json"))
+	require.NoError(t, readErr)
+	assert.Equal(t, existing, raw, "an existing package.json must survive scaffoldDashboard byte-for-byte")
+
+	// The two files that genuinely did not exist yet must still be written --
+	// the guard protects existing files, it must not turn into a blanket
+	// refusal that makes the command useless against a real app.
+	for _, want := range []string{
+		"app/admin/[[...slug]]/page.tsx",
+		"app/api/forge/[...path]/route.ts",
+	} {
+		if _, statErr := os.Stat(filepath.Join(dir, want)); statErr != nil {
+			t.Errorf("missing %s: %v", want, statErr)
+		}
+	}
+}
+
 // TestScaffoldDashboardNextPageContractBase pins the one value in the Next
 // scaffold that is not derivable from either repo alone, and was wrong in an
 // earlier draft of this template: contractBase must resolve, once proxied,
@@ -229,7 +275,8 @@ func TestScaffoldDashboardNextPageContractBase(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
 
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+	_, err := p.scaffoldDashboard(dir, "my-dash", "next")
+	require.NoError(t, err)
 
 	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
 	require.NoError(t, err)
@@ -260,7 +307,8 @@ func TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
 
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+	_, err := p.scaffoldDashboard(dir, "my-dash", "next")
+	require.NoError(t, err)
 
 	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
 	require.NoError(t, err)
@@ -269,8 +317,42 @@ func TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically(t *testing.T) {
 	assert.NotContains(t, src, `import { ForgeDashboard } from "@forge-go/dashboard-host"`,
 		"ForgeDashboard must not be imported directly -- that is the exact form that crashes with \"document is not defined\" on the server-rendered first load")
 
+	// dashboardNextDynamicImportPattern alone would still pass on a page
+	// missing this import line entirely -- the dynamic() call shape it
+	// matches never mentions "next/dynamic" by name -- so a template that
+	// dropped this import would compile the regexp check clean while
+	// shipping a page that fails to build. Assert the import exists too.
+	assert.Contains(t, src, `import dynamic from "next/dynamic"`,
+		"page.tsx must import dynamic from next/dynamic")
+
 	assert.Truef(t, dashboardNextDynamicImportPattern.MatchString(src),
 		"page.tsx must load ForgeDashboard via next/dynamic with ssr:false, source:\n%s", src)
+}
+
+// TestScaffoldDashboardNextRouteDocumentsForgeURL pins the FORGE_URL
+// explanation inside the generated route.ts itself, not just in a Go source
+// comment or transient console output. That it must be the dashboard's base
+// URL (including BasePath), not the bare server origin, is exactly the
+// value class the contractBase fix above addressed: not derivable from
+// either repo in isolation, so it has to survive as part of the artifact a
+// developer actually opens, not just in git history.
+func TestScaffoldDashboardNextRouteDocumentsForgeURL(t *testing.T) {
+	dir := t.TempDir()
+	p := &DashboardPlugin{}
+
+	_, err := p.scaffoldDashboard(dir, "my-dash", "next")
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "app/api/forge/[...path]/route.ts"))
+	require.NoError(t, err)
+	route := string(raw)
+
+	assert.Contains(t, route, "FORGE_URL",
+		"route.ts must mention FORGE_URL directly, not only in a Go source comment")
+	assert.Contains(t, route, "BasePath",
+		"route.ts must explain that FORGE_URL needs Forge's BasePath included, not just the server origin")
+	assert.Contains(t, route, "http://localhost:8080/dashboard",
+		"route.ts must give a concrete example FORGE_URL value")
 }
 
 // TestScaffoldDashboardUnknownTarget guards filesForTarget's default case: an
@@ -278,7 +360,7 @@ func TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically(t *testing.T) {
 // to the Vite scaffold.
 func TestScaffoldDashboardUnknownTarget(t *testing.T) {
 	p := &DashboardPlugin{}
-	if err := p.scaffoldDashboard(t.TempDir(), "my-dash", "svelte"); err == nil {
+	if _, err := p.scaffoldDashboard(t.TempDir(), "my-dash", "svelte"); err == nil {
 		t.Error("expected an error for an unknown target")
 	}
 }

@@ -87,7 +87,8 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 
 	spinner := ctx.Spinner(fmt.Sprintf("Scaffolding dashboard shell in %s...", targetDir))
 
-	if err := p.scaffoldDashboard(targetDir, name, target); err != nil {
+	skipped, err := p.scaffoldDashboard(targetDir, name, target)
+	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 		return err
 	}
@@ -96,15 +97,30 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 
 	cwd, _ := os.Getwd()
 
+	if len(skipped) > 0 {
+		// scaffoldDashboard never overwrites a file that was already there --
+		// worth saying explicitly, since a silent skip reads as "nothing
+		// happened" rather than "this one file is yours, untouched."
+		ctx.Println("")
+		ctx.Println(cli.Yellow(fmt.Sprintf("⚠ %d file(s) already existed and were left untouched:", len(skipped))))
+		for _, rel := range skipped {
+			ctx.Println("  - " + rel)
+		}
+		if target == "next" {
+			ctx.Println("  Merge the @forge-go/dashboard-* entries from the scaffold's package.json")
+			ctx.Println("  dependencies into your own by hand.")
+		}
+	}
+
 	ctx.Println("")
 	ctx.Success("Next steps:")
 	ctx.Println(fmt.Sprintf("  1. cd %s", relPath(cwd, targetDir)))
 	if target == "next" {
 		ctx.Println("  2. pnpm install")
 		ctx.Println("  3. Add plugins to the `plugins` array in app/admin/[[...slug]]/page.tsx")
-		ctx.Println("  4. Set FORGE_URL to your Forge server's dashboard base URL (origin + BasePath, e.g. http://localhost:8080/dashboard)")
+		ctx.Println("  4. Set FORGE_URL to your Forge server's dashboard base URL (origin + BasePath, e.g. http://localhost:8080/dashboard) -- see the comment in app/api/forge/[...path]/route.ts")
 		ctx.Println("  5. List the @forge-go/dashboard-* packages in transpilePackages in next.config.ts -- they ship TS source with no build step")
-		ctx.Println("  6. If your app styles Tailwind via PostCSS (not the Vite plugin), add @source entries for those packages or the dashboard renders unstyled")
+		ctx.Println("  6. Tailwind v4: add @source entries for those packages to your CSS. Tailwind v3: add them to the `content` globs in tailwind.config.js instead (@source is v4-only). No Tailwind at all: install and configure it first. Any of these skipped and the dashboard renders unstyled.")
 		ctx.Println("  7. pnpm dev")
 	} else {
 		ctx.Println("  2. pnpm install")
@@ -199,14 +215,26 @@ func filesForTarget(target string) ([]scaffoldFile, error) {
 // registry -- those packages are not published yet, so a scaffolded project
 // cannot install today. That is expected until they are released; it is not
 // a bug in the scaffold.
-func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName, target string) error {
+//
+// It never overwrites a file that already exists at the destination -- it
+// skips it and reports the relative path back to the caller instead. This
+// matters most for the "next" target: it is documented as writing into an
+// *existing* Next app (the next-steps text tells the user to edit
+// next.config.ts, a file only an existing app has), so package.json at
+// targetDir almost always already exists, with the app's real name,
+// dependencies, scripts and package manager config. writeTemplate is a bare
+// os.WriteFile, which truncates -- without this guard, scaffolding into a
+// real app would silently replace all of that with the 10-dependency Next
+// stub and flip "type" to "module", breaking a CJS next.config.js, with no
+// prompt and no way back outside git.
+func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName, target string) ([]string, error) {
 	if strings.TrimSpace(rawName) == "" {
 		rawName = "dashboard"
 	}
 
 	files, err := filesForTarget(target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	data := dashboardScaffoldData{
@@ -214,20 +242,27 @@ func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName, target string) e
 		DisplayName: toDisplayName(strings.ReplaceAll(rawName, "-", "_")),
 	}
 
+	var skipped []string
 	for _, f := range files {
 		dest := filepath.Join(targetDir, f.rel)
 		// Next's App Router paths nest ("app/admin/[[...slug]]/page.tsx"), so
 		// unlike the flat Vite file set this needs an explicit MkdirAll per
 		// file rather than one fixed "src" directory up front.
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-			return err
+			return skipped, err
+		}
+		if _, statErr := os.Stat(dest); statErr == nil {
+			skipped = append(skipped, f.rel)
+			continue
+		} else if !os.IsNotExist(statErr) {
+			return skipped, statErr
 		}
 		if err := writeTemplate(dest, f.tmpl, data); err != nil {
-			return err
+			return skipped, err
 		}
 	}
 
-	return nil
+	return skipped, nil
 }
 
 // npmPackageNamePattern matches characters legal in an unscoped npm package

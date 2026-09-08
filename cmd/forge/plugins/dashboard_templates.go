@@ -516,17 +516,23 @@ export default function Page() {
 `
 
 // dashboardNextRouteTemplate is the proxy. FORGE_URL is read server-side and
-// never reaches the browser.
-//
-// FORGE_URL is the dashboard's *base* URL, not the server root -- it must
-// already include Forge's BasePath, e.g. "http://localhost:8080/dashboard"
-// for a server running on port 8080 with the default BasePath. The route
-// appends the wildcard path it captures (everything after "/api/forge/") to
-// FORGE_URL as-is, so a bare server root here (just
-// "http://localhost:8080") drops the "/dashboard" segment Forge actually
-// mounts the contract under and every request 404s.
+// never reaches the browser. The FORGE_URL semantics (base URL including
+// BasePath, not the server root) are documented in the generated file
+// itself, not just here -- a Go source comment is invisible to whoever
+// opens route.ts in the scaffolded app, and this is the same class of
+// "not derivable from either repo alone" value as the contractBase fix
+// above, so it needs to survive in the artifact, not just in git history.
 const dashboardNextRouteTemplate = `import { createForgeProxy } from "@forge-go/dashboard-next"
 
+// FORGE_URL must be the dashboard's *base* URL, not the server root -- it
+// has to already include Forge's BasePath, e.g.
+// "http://localhost:8080/dashboard" for a server on port 8080 with the
+// default BasePath (Forge mounts the dashboard contract at
+// "{BasePath}/api/dashboard/v1", and BasePath defaults to "/dashboard").
+// This route appends the wildcard path it captures (everything after
+// "/api/forge/") to FORGE_URL as-is, so a bare server root here (just
+// "http://localhost:8080") drops the BasePath segment and every request
+// 404s.
 export const { GET, POST } = createForgeProxy({
   target: process.env.FORGE_URL!,
 })
