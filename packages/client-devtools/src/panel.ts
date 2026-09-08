@@ -4,10 +4,15 @@ import type {
   EntitySnapshot,
   LogEntry,
   MissReport,
+  OverlaySnapshot,
   QueryDetail,
+  QuerySnapshot,
   RecordSnapshot,
   RefetchReport,
+  TagSnapshot,
 } from './types.js';
+import type { RequestSnapshot } from './requests.js';
+import type { RevalidationSource } from './control.js';
 
 /**
  * The panel: everything the inspection API knows, with somewhere to click.
@@ -27,18 +32,135 @@ export interface PanelOptions {
   readonly open?: boolean;
 }
 
-type Tab = 'queries' | 'entities' | 'tags' | 'sockets' | 'streams' | 'frames' | 'log' | 'explain';
+type Tab =
+  | 'trace'
+  | 'network'
+  | 'queries'
+  | 'entities'
+  | 'overlay'
+  | 'tags'
+  | 'sockets'
+  | 'streams'
+  | 'frames'
+  | 'explain';
 
 const TABS: readonly Tab[] = [
+  'trace',
+  'network',
   'queries',
   'entities',
+  'overlay',
   'tags',
   'sockets',
   'streams',
   'frames',
-  'log',
   'explain',
 ];
+
+/**
+ * The forge mark, as markup. See the note on the copy in `./overlay`.
+ *
+ * Duplicated rather than shared, deliberately. The two UIs are chosen rather
+ * than layered, and neither imports the other precisely so that neither can
+ * bloat the other's budget; a `mark.ts` they both pull in would put the string
+ * into the bundle of an application that only wanted one of them.
+ */
+const MARK =
+  '<svg viewBox="0 0 559 552" fill="currentColor" aria-hidden="true" focusable="false">' +
+  '<rect x="559" y="0" width="125" height="425" transform="rotate(90 559 0)"/>' +
+  '<rect x="425" y="218" width="125" height="291" transform="rotate(90 425 218)"/>' +
+  '<path d="M432 342.304V218H558.551L432 342.304Z"/>' +
+  '<path d="M0 551.304V136H127V427L0 551.304Z"/>' +
+  '<path d="M127 125H0.342773L127 0.137726V125Z"/></svg>';
+
+/** Where the panel sits. `window` is the detached one. */
+type Mode = 'bottom' | 'right' | 'full' | 'window';
+
+/**
+ * The dock control: mode, what the tooltip says, and the glyph.
+ *
+ * Icon only, with a tooltip and an `aria-label` carrying the name. Four
+ * labelled buttons cost more of the title bar than the breadcrumb beside them,
+ * and the tabs below are where words actually earn their room -- those are the
+ * navigation, and an icon row you have to learn would be a worse trade there.
+ */
+const DOCKS: readonly (readonly [Mode, string, string])[] = [
+  [
+    'bottom',
+    'Dock bottom',
+    '<rect x="1.6" y="2.2" width="10.8" height="9.6" rx="1.4"/><path d="M1.6 8.6h10.8" stroke-width="2.4"/>',
+  ],
+  [
+    'right',
+    'Dock right',
+    '<rect x="1.6" y="2.2" width="10.8" height="9.6" rx="1.4"/><path d="M8.6 2.2v9.6" stroke-width="2.4"/>',
+  ],
+  ['full', 'Fullscreen', '<path d="M2 5.2V2h3.2M12 5.2V2H8.8M2 8.8V12h3.2M12 8.8V12H8.8"/>'],
+  [
+    'window',
+    'Detach to its own window',
+    '<path d="M7 2.2H2.4v9.4h9.4V7"/><path d="M8.8 2.2h3v3M11.8 2.2 7.4 6.6"/>',
+  ],
+];
+
+/**
+ * Signal bars at three strengths, and the glyphs the rail needs.
+ *
+ * Filled rather than stroked for the bars, because three stroked rectangles at
+ * 13px read as a smear.
+ */
+const NETWORK: readonly (readonly ['online' | 'slow' | 'offline', string, string])[] = [
+  [
+    'online',
+    'Online',
+    '<g fill="currentColor" stroke="none"><rect x="1" y="9" width="2.6" height="4" rx=".6"/>' +
+      '<rect x="5.7" y="6" width="2.6" height="7" rx=".6"/>' +
+      '<rect x="10.4" y="2.4" width="2.6" height="10.6" rx=".6"/></g>',
+  ],
+  [
+    'slow',
+    'Throttle to a slow connection',
+    '<g fill="currentColor" stroke="none"><rect x="1" y="9" width="2.6" height="4" rx=".6"/>' +
+      '<rect x="5.7" y="6" width="2.6" height="7" rx=".6" opacity=".26"/>' +
+      '<rect x="10.4" y="2.4" width="2.6" height="10.6" rx=".6" opacity=".26"/></g>',
+  ],
+  [
+    'offline',
+    'Go offline',
+    '<g fill="currentColor" stroke="none" opacity=".26">' +
+      '<rect x="1" y="9" width="2.6" height="4" rx=".6"/>' +
+      '<rect x="5.7" y="6" width="2.6" height="7" rx=".6"/>' +
+      '<rect x="10.4" y="2.4" width="2.6" height="10.6" rx=".6"/></g>' +
+      '<path d="M1.7 12.3 12.3 1.7"/>',
+  ],
+];
+
+const REVALIDATE: Record<RevalidationSource, readonly [string, string]> = {
+  focus: [
+    'Revalidate on window focus',
+    '<circle cx="7" cy="7" r="4.6"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/>',
+  ],
+  reconnect: [
+    'Revalidate on reconnect',
+    '<path d="M11.7 7a4.7 4.7 0 1 1-1.5-3.4"/><path d="M11.8 1.5v3H8.9"/>',
+  ],
+  poll: ['Poll on an interval', '<circle cx="7" cy="7" r="5"/><path d="M7 4.1V7l2.1 1.4"/>'],
+};
+
+const ICONS = {
+  zap: '<path d="M7.9 1.4 3.1 8.1h3.5l-.6 4.5L10.9 5.9H7.3z"/>',
+  snow: '<path d="M7 1.6v10.8M2.3 4.3l9.4 5.4M11.7 4.3 2.3 9.7"/>',
+} as const;
+
+/** A stroked 14x14 glyph. Every icon in this file is drawn on the same grid. */
+function icon(paths: string): string {
+  return (
+    '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    paths +
+    '</svg>'
+  );
+}
 
 const CSS = `
 :host { all: initial; }
@@ -46,6 +168,57 @@ const CSS = `
   position: fixed; right: 12px; bottom: 12px; z-index: 2147483000;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #e6e6e6;
 }
+.launcher { width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
+  position: relative; border-radius: 8px; background: #14181f; border: 1px solid #2e3542;
+  box-shadow: 0 6px 22px rgba(0,0,0,.34); color: #e3e7ee; }
+.launcher:hover { background: #1a1f28; }
+.launcher svg { width: 15px; height: 15px; display: block; }
+.launcher::after { content: ""; position: absolute; inset: -2px; border-radius: 10px;
+  border: 1.5px solid #3fd39c; opacity: .55; pointer-events: none; }
+.launcher[data-pulse="fetching"]::after { border-color: #62a8ff; }
+.launcher[data-pulse="error"]::after { border-color: #ff6b6b; opacity: .9; }
+.launcher[data-pulse="offline"]::after { border-color: #ff6a2b; opacity: .95; }
+.launcher[data-pulse="slow"]::after { border-color: #ff6a2b; opacity: .5; }
+.launcher .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px;
+  border-radius: 8px; background: #ff6b6b; color: #12151b; font-size: 10px; font-weight: 600;
+  display: grid; place-items: center; padding: 0 4px; border: 2px solid #14181f; }
+.ico { width: 26px; height: 22px; padding: 0; display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent; border-radius: 5px; color: #8992a2; }
+.ico:hover { background: #1f2531; color: #e3e7ee; }
+.ico[aria-pressed="true"] { background: #1a1f28; color: #ff6a2b; border-color: #2e3542; }
+.ico svg { width: 13px; height: 13px; display: block; }
+.docks { display: flex; border: 1px solid #2e3542; border-radius: 6px; overflow: hidden; }
+.docks .ico { border-radius: 0; border: 0; border-right: 1px solid #2e3542; width: 28px; }
+.docks .ico:last-child { border-right: 0; }
+.tip { position: relative; }
+.tip::after { content: attr(data-tip); position: absolute; top: calc(100% + 7px); left: 50%;
+  transform: translateX(-50%); background: #1a1f28; color: #e3e7ee; border: 1px solid #2e3542;
+  border-radius: 5px; padding: 3px 7px; font-size: 10px; white-space: nowrap;
+  pointer-events: none; opacity: 0; transition: opacity .12s ease .3s; z-index: 20; }
+.tip:hover::after, .tip:focus-visible::after { opacity: 1; }
+.tip-r::after { left: auto; right: 0; transform: none; }
+.panel[data-mode="full"] { width: 96vw; height: 92vh; }
+.panel[data-mode="right"] { width: min(560px, 96vw); height: 92vh; }
+.detail-head { display: flex; align-items: center; gap: 8px; position: sticky; top: -8px;
+  margin: -8px -8px 8px; padding: 6px 6px 6px 8px; background: #1c1c22;
+  border-bottom: 1px solid #35353d; z-index: 3; }
+.detail-head .what { color: #8a8a98; font-size: 10px; letter-spacing: .13em;
+  text-transform: uppercase; }
+.detail-head .spacer { flex: 1; }
+.rail { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; padding: 5px 6px;
+  border-bottom: 1px solid #35353d; }
+.rail .spacer { flex: 1; }
+.rail-label { color: #8a8a98; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.facets { display: flex; gap: 5px; flex-wrap: wrap; padding: 0 0 8px; }
+.facet { font-size: 10px; padding: 2px 9px; border-radius: 10px; background: transparent;
+  border: 1px solid #45454f; color: #9a9aa8; }
+.facet:hover { color: #e6e6e6; background: #2c2c34; }
+.facet[aria-pressed="true"] { background: rgba(255,106,43,.12); border-color: rgba(255,106,43,.5);
+  color: #ff6a2b; }
+.facet .count { color: #6b6b78; margin-left: 5px; }
+.facet[aria-pressed="true"] .count { color: #ff6a2b; }
+.facet.clear { border-color: transparent; text-decoration: underline; }
+.latency { width: 84px; accent-color: #ff6a2b; }
 button { font: inherit; color: inherit; background: #2c2c34; border: 1px solid #45454f;
   border-radius: 4px; padding: 3px 8px; cursor: pointer; }
 button:hover { background: #3a3a44; }
@@ -58,7 +231,32 @@ button[aria-selected="true"] { background: #4b5bd6; border-color: #4b5bd6; }
 .bar .spacer { flex: 1; }
 .split { display: flex; flex: 1; min-height: 0; }
 .list { flex: 1 1 55%; overflow: auto; padding: 8px; border-right: 1px solid #35353d; }
+.list:only-child { flex: 1 1 100%; border-right: 0; }
 .detail { flex: 1 1 45%; overflow: auto; padding: 8px; }
+.cause { position: relative; padding: 8px 4px 8px 24px; border-bottom: 1px solid #2b2b33; }
+.cause::before { content: ""; position: absolute; left: 8px; top: 22px; bottom: 8px; width: 1px;
+  background: #35353d; }
+.cause::after { content: ""; position: absolute; left: 4px; top: 10px; width: 9px; height: 9px;
+  border-radius: 2px; background: #8a8a98; }
+.cause[data-kind="mutation"]::after { background: #ae8cff; }
+.cause[data-kind="frames"]::after { background: #62a8ff; }
+.cause[data-kind="action"]::after { background: #ff6a2b; }
+.cause[data-kind="error"]::after { background: #ff6b6b; }
+.cause-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cause-head .seq { color: #8a8a98; }
+.cause-head .kind { color: #8a8a98; font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; }
+.cause-head .op { color: #e6e6e6; }
+.effect { position: relative; margin-top: 6px; padding-left: 14px; color: #9a9aa8; }
+.effect::before { content: ""; position: absolute; left: -12px; top: 8px; width: 20px; height: 1px;
+  background: #35353d; }
+.layer { border: 1px solid #45454f; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.patch { display: flex; gap: 8px; margin-top: 4px; }
+.patch .kind { min-width: 46px; text-align: right; color: #8a8a98; }
+.patch .kind.merge { color: #62a8ff; }
+.patch .kind.create { color: #3fd39c; }
+.patch .kind.delete { color: #ff6b6b; }
+.patch .key { color: #e6e6e6; word-break: break-all; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #2b2b33;
   vertical-align: top; word-break: break-word; }
@@ -112,6 +310,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   let tab: Tab = 'queries';
   let filter = '';
   let scheduled = false;
+  let mode: Mode = 'bottom';
+  let frozen = false;
 
   /**
    * The row selected on each list tab, and the column each list tab is
@@ -130,6 +330,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    */
   const selected = new Map<Tab, string>();
   const sortBy = new Map<Tab, { readonly column: number; readonly descending: boolean }>();
+  /** Which facet chips are pressed, per tab. Same reasoning as `sortBy`. */
+  const facets = new Map<Tab, Set<string>>();
 
   const el = (tag: string, className?: string, text?: string): HTMLElement => {
     const node = doc.createElement(tag);
@@ -246,6 +448,68 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     return node;
   };
 
+  /**
+   * What one row offers the filter box.
+   *
+   * The operators need structure, not a joined string: `status:4xx` over a
+   * concatenation of every cell would match a query whose *key* contained
+   * `404`, and `>100ms` cannot be answered by substring at all. Each tab hands
+   * over the fields it actually has, and a term the tab cannot answer matches
+   * nothing rather than everything -- asking a duration question of the
+   * entities tab should return no rows, not all of them.
+   */
+  interface Matchable {
+    readonly text: string;
+    readonly status?: number | undefined;
+    readonly ms?: number | undefined;
+    readonly tags?: readonly string[] | undefined;
+  }
+
+  type Term =
+    | { readonly kind: 'none' }
+    | { readonly kind: 'text'; readonly value: string }
+    | { readonly kind: 'status'; readonly klass: number }
+    | { readonly kind: 'slower'; readonly ms: number }
+    | { readonly kind: 'tag'; readonly value: string };
+
+  /** `status:4xx`, `>100ms`, `tag:Order[]`, or a plain substring. */
+  const parseFilter = (): Term => {
+    const text = filter.trim();
+
+    if (text === '') return { kind: 'none' };
+
+    const status = /^status:([1-5])xx$/i.exec(text);
+
+    if (status !== null) return { kind: 'status', klass: Number(status[1]) };
+
+    const slower = /^>\s*(\d+)\s*ms$/i.exec(text);
+
+    if (slower !== null) return { kind: 'slower', ms: Number(slower[1]) };
+
+    const tag = /^tag:(.+)$/i.exec(text);
+
+    if (tag !== null) return { kind: 'tag', value: (tag[1] ?? '').toLowerCase() };
+
+    return { kind: 'text', value: text.toLowerCase() };
+  };
+
+  const passes = (row: Matchable): boolean => {
+    const term = parseFilter();
+
+    switch (term.kind) {
+      case 'none':
+        return true;
+      case 'text':
+        return row.text.toLowerCase().includes(term.value);
+      case 'status':
+        return row.status !== undefined && Math.floor(row.status / 100) === term.klass;
+      case 'slower':
+        return row.ms !== undefined && row.ms > term.ms;
+      case 'tag':
+        return (row.tags ?? []).some((one) => one.toLowerCase().includes(term.value));
+    }
+  };
+
   const matches = (text: string): boolean =>
     filter === '' || text.toLowerCase().includes(filter.toLowerCase());
 
@@ -312,6 +576,150 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       case 'action':
         return `${entry.action} ${entry.target}`;
     }
+  };
+
+  /**
+   * One cause and everything it went on to do.
+   *
+   * The log is already causal: every `invalidated`, `placed` and `fetch` entry
+   * carries the `seq` of the mutation or frame batch responsible. Rendering it
+   * as one reversed table throws that away and leaves you reading a timeline
+   * backwards, matching sequence numbers by eye. This is the same data, shaped
+   * the way it was recorded.
+   */
+  interface Block {
+    readonly entry: LogEntry;
+    readonly effects: LogEntry[];
+  }
+
+  /** The kinds that can head a block rather than sit inside one. */
+  const isCause = (entry: LogEntry): boolean =>
+    entry.kind === 'mutation' ||
+    entry.kind === 'frames' ||
+    entry.kind === 'action' ||
+    entry.kind === 'principal';
+
+  const trace = (): Block[] => {
+    const blocks = new Map<number, Block>();
+    const order: Block[] = [];
+    /**
+     * The cause each query's current request was attributed to.
+     *
+     * A `settle` carries no cause of its own and an `error` carries none
+     * either, but both are the tail of a `fetch` that did. Without this they
+     * would each become a block of their own and the refetch you are reading
+     * would be split across three of them.
+     */
+    const owner = new Map<string, number>();
+
+    const start = (entry: LogEntry): Block => {
+      const made: Block = { entry, effects: [] };
+
+      blocks.set(entry.seq, made);
+      order.push(made);
+
+      return made;
+    };
+
+    for (const entry of devtools.log()) {
+      if (isCause(entry)) {
+        start(entry);
+        continue;
+      }
+
+      const named = 'query' in entry ? entry.query : undefined;
+      const cause =
+        'cause' in entry && entry.cause !== undefined
+          ? entry.cause
+          : named === undefined
+            ? undefined
+            : owner.get(named);
+
+      if (named !== undefined && cause !== undefined) owner.set(named, cause);
+
+      const target = cause === undefined ? undefined : blocks.get(cause);
+
+      // An effect whose cause has been overwritten by the ring, and one that
+      // never had a cause -- a mount fetch, an error on a query nothing
+      // invalidated -- both stand on their own rather than being dropped.
+      if (target === undefined) start(entry);
+      else target.effects.push(entry);
+    }
+
+    return order;
+  };
+
+  /**
+   * One pending optimistic write.
+   *
+   * Push order, bottom first, which is the order a fold applies them in and
+   * therefore the only order in which a stack of overlapping patches makes
+   * sense to read.
+   */
+  const layerBlock = (one: OverlaySnapshot): HTMLElement => {
+    const node = el('div', 'layer');
+    const head = el('div', 'cause-head');
+
+    node.setAttribute('data-layer', String(one.id));
+    head.append(el('span', 'seq', `#${String(one.id)}`));
+
+    if (one.created !== undefined) head.append(el('span', 'kind', 'create'));
+    if (one.places) head.append(el('span', 'kind', 'places'));
+
+    node.append(head);
+
+    for (const patch of one.patches) {
+      const row = el('div', 'patch');
+
+      row.append(el('span', `kind ${patch.kind}`, patch.kind));
+      row.append(el('span', 'key', patch.key));
+      node.append(row);
+    }
+
+    if (one.created !== undefined) {
+      node.append(pills([one.created], 'minted, never promoted'));
+    }
+
+    node.append(pills(one.tags, 'raises when it settles'));
+
+    return node;
+  };
+
+  /** What a block reads as, for the filter box. */
+  const blockText = (one: Block): string =>
+    [describe(one.entry), ...one.effects.map(describe)].join(' ');
+
+  /** The word in the eyebrow. `action` is rendered as what it is: you. */
+  const kindOf = (entry: LogEntry): string =>
+    entry.kind === 'action' ? 'you' : entry.kind === 'frames' ? 'frames' : entry.kind;
+
+  /** The tags a cause raised, when it is the sort of thing that raises tags. */
+  const raisedBy = (entry: LogEntry): readonly string[] =>
+    entry.kind === 'mutation' || entry.kind === 'frames' ? entry.tags : [];
+
+  const causeBlock = (one: Block): HTMLElement => {
+    const node = el('div', 'cause');
+    const head = el('div', 'cause-head');
+
+    node.setAttribute('data-kind', one.entry.kind);
+    head.append(el('span', 'seq', `#${String(one.entry.seq)}`));
+    head.append(el('span', 'kind', kindOf(one.entry)));
+    head.append(el('span', 'op', describe(one.entry)));
+    node.append(head);
+
+    const raised = raisedBy(one.entry);
+
+    if (raised.length > 0) node.append(pills(raised, 'raised'));
+
+    // The single most common cause of an invalidation that silently did not
+    // happen, and invisible without this.
+    if (one.entry.kind === 'mutation' && one.entry.unresolved.length > 0) {
+      node.append(pills(one.entry.unresolved, 'skipped, resolved to nothing'));
+    }
+
+    for (const effect of one.effects) node.append(el('div', 'effect', describe(effect)));
+
+    return node;
   };
 
   const pills = (values: readonly string[], label: string): HTMLElement => {
@@ -397,10 +805,13 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   const renderList = (body: HTMLElement): void => {
     switch (tab) {
       case 'queries': {
-        const items = devtools
+        const source = devtools
           .queries()
-          .filter((entry) => matches(entry.key))
-          .map((entry) => ({
+          .filter((entry) => passes({ text: entry.key, tags: entry.tags }));
+
+        body.append(chipBar(source, QUERY_FACETS));
+
+        const items = narrow(source, QUERY_FACETS).map((entry) => ({
             key: entry.key,
             cells: [
               entry.key,
@@ -415,10 +826,13 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       }
 
       case 'entities': {
-        const items = devtools
+        const source = devtools
           .entities({ limit: 300 })
-          .filter((record) => matches(record.key))
-          .map((record) => ({
+          .filter((record) => passes({ text: record.key }));
+
+        body.append(chipBar(source, ENTITY_FACETS));
+
+        const items = narrow(source, ENTITY_FACETS).map((record) => ({
             key: record.key,
             cells: [
               record.key,
@@ -433,10 +847,11 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       }
 
       case 'tags': {
-        const tagRows = devtools
-          .tags()
-          .filter((row) => matches(row.tag))
-          .map((row) => [
+        const tagSource = devtools.tags().filter((row) => passes({ text: row.tag, tags: [row.tag] }));
+
+        body.append(chipBar(tagSource, TAG_FACETS));
+
+        const tagRows = narrow(tagSource, TAG_FACETS).map((row) => [
             row.tag,
             String(row.mounted.length),
             String(row.carriers.length),
@@ -562,13 +977,100 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
         break;
       }
 
-      case 'log': {
-        const entries = devtools.log().filter((entry) => matches(describe(entry)));
-        const logRows = entries
-          .slice(-300)
-          .reverse()
-          .map((entry) => [String(entry.seq), entry.kind, describe(entry)]);
+      case 'network': {
+        if (!devtools.watchingRequests) {
+          body.append(
+            el(
+              'p',
+              'dim',
+              'Nothing is recording requests. Import RequestLog from ' +
+                '@forge-go/client-devtools/requests, pass log.observer as the observer option ' +
+                'on RestTransport, and pass the log to attach({ requests: log }). The seam is ' +
+                'at the transport because that is the only place the retries and the credential ' +
+                'refresh are visible: they happen inside one execute, so nothing wrapped around ' +
+                'the transport can see them.',
+            ),
+          );
 
+          break;
+        }
+
+        if (devtools.requestsDropped > 0) {
+          body.append(
+            el(
+              'p',
+              'dim',
+              `${String(devtools.requestsDropped)} earlier request(s) have been overwritten.`,
+            ),
+          );
+        }
+
+        const requestSource = devtools
+          .requests()
+          .filter((one) =>
+            passes({ text: `${one.operation} ${one.args}`, status: one.status, ms: one.duration }),
+          );
+
+        body.append(chipBar(requestSource, REQUEST_FACETS));
+
+        const requests = narrow(requestSource, REQUEST_FACETS).slice().reverse();
+
+        body.append(
+          rows(
+            ['request', 'status', 'try', 'ms'],
+            requests.map((one) => ({
+              key: String(one.id),
+              cells: [
+                `${one.operation} ${one.args}`,
+                one.outcome === 'pending'
+                  ? 'pending'
+                  : one.outcome === 'ok'
+                    ? String(one.status ?? 'ok')
+                    : String(one.status ?? 'failed'),
+                `${String(one.attempts)}/${String(one.limit)}`,
+                one.duration === undefined ? '' : String(one.duration),
+              ],
+            })),
+          ),
+        );
+
+        break;
+      }
+
+      case 'overlay': {
+        const layerSource = devtools
+          .overlays()
+          .filter((one) =>
+            passes({
+              text: [...one.patches.map((patch) => patch.key), ...one.tags].join(' '),
+              tags: one.tags,
+            }),
+          );
+
+        body.append(chipBar(layerSource, OVERLAY_FACETS));
+
+        const layers = narrow(layerSource, OVERLAY_FACETS);
+
+        if (layers.length === 0) {
+          body.append(
+            el(
+              'p',
+              'dim',
+              'No optimistic write is pending. Anything here has been folded over the store ' +
+                'but not written to it, and rolling one back is removing it rather than ' +
+                'applying an inverse.',
+            ),
+          );
+
+          break;
+        }
+
+        for (const one of layers) body.append(layerBlock(one));
+
+        break;
+      }
+
+      case 'trace': {
         if (devtools.dropped > 0) {
           body.append(
             el(
@@ -580,7 +1082,14 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
           );
         }
 
-        body.append(table(['#', 'kind', 'what'], logRows));
+        const blocks = trace()
+          .filter((one) => matches(blockText(one)))
+          .slice(-200)
+          .reverse();
+
+        if (blocks.length === 0) body.append(el('p', 'dim', 'nothing here'));
+        else for (const one of blocks) body.append(causeBlock(one));
+
         break;
       }
 
@@ -782,45 +1291,456 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     );
   };
 
-  const renderDetail = (body: HTMLElement): void => {
-    const key = selected.get(tab);
+  /**
+   * The inspector, which is built only when something is selected.
+   *
+   * Not rendered-but-empty: with no selection there is no `.detail` element at
+   * all, and the list takes the whole panel. A permanently reserved column
+   * spends 45% of the width on the sentence "Pick a query on the left", and a
+   * query key is exactly the sort of long string that needs the room back.
+   */
+  const renderDetail = (body: HTMLElement, key: string): void => {
+    const head = el('div', 'detail-head');
+    const close = el('button', 'ico tip tip-r');
 
-    if (key === undefined) {
-      body.append(
-        el(
-          'p',
-          'dim',
-          tab === 'queries'
-            ? 'Pick a query on the left.'
-            : tab === 'entities'
-              ? 'Pick a record on the left.'
-              : 'Nothing on this tab has a detail view. Try queries or entities.',
-        ),
-      );
+    head.append(
+      el('span', 'what', tab === 'entities' ? 'entity' : tab === 'network' ? 'request' : 'query'),
+    );
+    head.append(el('div', 'spacer'));
+
+    close.innerHTML = icon('<path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8"/>');
+    close.setAttribute('data-act', 'close-detail');
+    close.setAttribute('data-tip', 'Close the inspector');
+    close.setAttribute('aria-label', 'Close the inspector');
+    close.addEventListener('click', () => {
+      selected.delete(tab);
+      render();
+    });
+    head.append(close);
+    body.append(head);
+
+    if (tab === 'entities') renderEntityDetail(body, key);
+    else if (tab === 'network') renderRequestDetail(body, key);
+    else renderQueryDetail(body, key);
+  };
+
+  /**
+   * Why this request did what it did.
+   *
+   * The sentence at the top is the whole reason this view exists. A browser
+   * network tab shows a failed `POST` and a failed `GET` identically -- one
+   * request, one failure -- and cannot say that the first was never eligible
+   * for a retry in the first place.
+   */
+  const renderRequestDetail = (body: HTMLElement, id: string): void => {
+    const one = devtools.requests().find((entry) => String(entry.id) === id);
+
+    if (one === undefined) {
+      body.append(el('p', 'dim', 'That request has been overwritten by newer traffic.'));
 
       return;
     }
 
-    if (tab === 'entities') renderEntityDetail(body, key);
-    else renderQueryDetail(body, key);
+    body.append(el('h4', undefined, one.operation));
+
+    if (one.args !== '') body.append(el('p', 'dim', one.args));
+
+    body.append(field('outcome', one.outcome));
+    body.append(field('status', one.status === undefined ? 'none' : String(one.status)));
+    body.append(field('attempts', `${String(one.attempts)} of ${String(one.limit)} allowed`));
+    body.append(
+      field('duration', one.duration === undefined ? 'still in flight' : `${String(one.duration)}`),
+    );
+
+    body.append(el('h4', undefined, 'retry policy'));
+    body.append(el('p', one.outcome === 'failed' ? 'warn' : 'dim', retryStory(one)));
+
+    if (one.retries.length > 0) {
+      const list = doc.createElement('ul');
+
+      for (const retry of one.retries) {
+        list.append(
+          el(
+            'li',
+            undefined,
+            `attempt ${String(retry.attempt + 1)} failed with ` +
+              `${retry.status === undefined ? 'no status' : String(retry.status)}, ` +
+              `backed off ${String(Math.round(retry.delay))}ms`,
+          ),
+        );
+      }
+
+      body.append(list);
+    }
+
+    if (one.refreshes > 0) {
+      body.append(el('h4', undefined, 'credentials'));
+      body.append(
+        el(
+          'p',
+          'dim',
+          one.joined
+            ? `Hit a 401 and waited on a refresh another request had already started. ` +
+              `That is the single flight: one refresh, however many requests stampede it.`
+            : `Hit a 401 and started the credential refresh. Any other request that 401'd ` +
+              `while it ran waited on this one rather than asking for its own.`,
+        ),
+      );
+    }
+  };
+
+  /**
+   * The one sentence to read first.
+   *
+   * `limit` is what makes this answerable: a budget that went unused says the
+   * status was the reason, and a budget of one says the method was.
+   */
+  const retryStory = (one: RequestSnapshot): string => {
+    if (one.outcome === 'pending') return 'Still in flight.';
+    if (one.outcome === 'ok') {
+      return one.attempts > 1
+        ? `Retried ${String(one.attempts - 1)} time(s) and succeeded.`
+        : 'Succeeded first time, so the policy never came into it.';
+    }
+
+    if (one.attempts < one.limit) {
+      return (
+        `Not retried: ${one.status === undefined ? 'that failure' : String(one.status)} is not ` +
+        `a status this policy retries. It allows 408 and 429 and no other 4xx, because a 4xx is ` +
+        `the server saying the request is wrong and repeating it gets the same answer. ` +
+        `${String(one.limit - one.attempts)} attempt(s) went unused.`
+      );
+    }
+
+    if (one.limit === 1) {
+      return (
+        `Not retried: ${one.method} is not idempotent, so a retry was never on the table. ` +
+        `The client cannot tell a request the server never saw from one it processed and ` +
+        `failed to acknowledge, and only the idempotent methods make that difference safe.`
+      );
+    }
+
+    return `Gave up after ${String(one.attempts)} attempts, which is the whole budget.`;
+  };
+
+  /**
+   * The closed state: the mark, a status ring and an error count.
+   *
+   * Both readings come from `records()`, which carries the scalar fields for
+   * every tracked query and no response bodies, so drawing the button stays
+   * O(tracked queries) and never O(bytes in the cache).
+   */
+  const launcher = (): HTMLElement => {
+    const button = el('button', 'launcher');
+    let fetching = false;
+    let errors = 0;
+
+    for (const record of devtools.records()) {
+      if (record.fetching) fetching = true;
+      if (record.status === 'error') errors += 1;
+    }
+
+    button.innerHTML = MARK;
+    button.setAttribute('aria-label', 'Open Forge devtools');
+    button.setAttribute('data-pulse', pulse(fetching, errors));
+
+    if (errors > 0) button.append(el('span', 'badge', String(errors)));
+
+    button.addEventListener('click', () => {
+      open = true;
+      render();
+    });
+
+    return button;
+  };
+
+  /**
+   * The facets of each tab.
+   *
+   * OR within a tab, then AND with the text box. Two chips on means "either of
+   * these", which is what you want when you press `stale` and then `error`;
+   * ANDing them would silently empty the list and read as a bug.
+   *
+   * Typed per tab rather than over a common row shape, because the useful
+   * question differs: entities have no status and requests have no mounts, and
+   * a shared shape would flatten both into a string nobody can filter on.
+   */
+  interface Facet<T> {
+    readonly id: string;
+    readonly label: string;
+    test(row: T): boolean;
+  }
+
+  const QUERY_FACETS: readonly Facet<QuerySnapshot>[] = [
+    { id: 'mounted', label: 'mounted', test: (row) => row.mounts > 0 },
+    { id: 'unmounted', label: 'unmounted', test: (row) => row.mounts === 0 },
+    { id: 'stale', label: 'stale', test: (row) => row.stale },
+    { id: 'empty', label: 'never settled', test: (row) => !row.settled },
+  ];
+
+  const ENTITY_FACETS: readonly Facet<EntitySnapshot>[] = [
+    { id: 'framed', label: 'written by a frame', test: (row) => row.frameAt > 0 },
+    { id: 'linked', label: 'points at something', test: (row) => row.refs.length > 0 },
+  ];
+
+  const TAG_FACETS: readonly Facet<TagSnapshot>[] = [
+    { id: 'orphan', label: 'carried by nobody', test: (row) => row.carriers.length === 0 },
+    { id: 'unmounted', label: 'no mounted carrier', test: (row) => row.mounted.length === 0 },
+  ];
+
+  const REQUEST_FACETS: readonly Facet<RequestSnapshot>[] = [
+    { id: 'failed', label: 'failed', test: (row) => row.outcome === 'failed' },
+    { id: 'pending', label: 'in flight', test: (row) => row.outcome === 'pending' },
+    { id: 'retried', label: 'retried', test: (row) => row.attempts > 1 },
+    { id: 'refreshed', label: 'hit a refresh', test: (row) => row.refreshes > 0 },
+  ];
+
+  const OVERLAY_FACETS: readonly Facet<OverlaySnapshot>[] = [
+    { id: 'creates', label: 'creates a record', test: (row) => row.created !== undefined },
+    { id: 'places', label: 'has placement', test: (row) => row.places },
+  ];
+
+  /** The ids switched on for this tab. Per tab, like the sort and the selection. */
+  const chosen = (): Set<string> => {
+    const found = facets.get(tab);
+
+    if (found !== undefined) return found;
+
+    const made = new Set<string>();
+
+    facets.set(tab, made);
+
+    return made;
+  };
+
+  /** OR within the tab. No chips on means no narrowing at all. */
+  const narrow = <T,>(source: readonly T[], all: readonly Facet<T>[]): readonly T[] => {
+    const on = all.filter((one) => chosen().has(one.id));
+
+    return on.length === 0 ? source : source.filter((row) => on.some((one) => one.test(row)));
+  };
+
+  /**
+   * The chips, each carrying what pressing it would leave behind.
+   *
+   * The count is measured before the chips are applied and after the text box
+   * is, so it answers "how many of what I am looking at" rather than "how many
+   * exist", and pressing a chip that reads 0 is a thing you can decide not to
+   * do.
+   */
+  const chipBar = <T,>(source: readonly T[], all: readonly Facet<T>[]): HTMLElement => {
+    const bar = el('div', 'facets');
+    const on = chosen();
+
+    for (const one of all) {
+      const button = el('button', 'facet');
+
+      button.append(el('span', undefined, one.label));
+      button.append(el('span', 'count', String(source.filter((row) => one.test(row)).length)));
+      button.setAttribute('data-facet', one.id);
+      button.setAttribute('aria-pressed', String(on.has(one.id)));
+      button.addEventListener('click', () => {
+        if (on.has(one.id)) on.delete(one.id);
+        else on.add(one.id);
+
+        render();
+      });
+      bar.append(button);
+    }
+
+    if (on.size > 0 || filter !== '') {
+      const clear = el('button', 'facet clear', 'clear');
+
+      clear.setAttribute('data-act', 'clear-filters');
+      clear.addEventListener('click', () => {
+        on.clear();
+        filter = '';
+        render();
+      });
+      bar.append(clear);
+    }
+
+    return bar;
+  };
+
+  /** One icon button on the rail. Icon only, so the tooltip carries the name. */
+  const railButton = (
+    paths: string,
+    tip: string,
+    pressed: boolean,
+    onPress: () => void,
+  ): HTMLElement => {
+    const button = el('button', 'ico tip');
+
+    button.innerHTML = icon(paths);
+    button.setAttribute('data-tip', tip);
+    button.setAttribute('aria-label', tip);
+    button.setAttribute('aria-pressed', String(pressed));
+    button.addEventListener('click', onPress);
+
+    return button;
+  };
+
+  /**
+   * The conditions and the toggles, or nothing at all.
+   *
+   * Rendered only for what the application actually wired. A rail of switches
+   * that silently do nothing is worse than no rail: you would spend the
+   * afternoon wondering why going offline changed no behaviour.
+   */
+  const controlRail = (): HTMLElement | undefined => {
+    const controls = devtools.controls;
+    const revalidation = devtools.revalidation;
+    const sources: RevalidationSource[] = (['focus', 'reconnect', 'poll'] as const).filter(
+      (name) => revalidation?.registered(name) === true,
+    );
+
+    if (controls === undefined && sources.length === 0) return undefined;
+
+    const rail = el('div', 'rail');
+
+    if (controls !== undefined) {
+      const group = el('div', 'docks');
+
+      for (const [name, tip, paths] of NETWORK) {
+        const button = railButton(paths, tip, controls.mode === name, () => {
+          controls.mode = name;
+          render();
+        });
+
+        button.setAttribute('data-net', name);
+        group.append(button);
+      }
+
+      rail.append(el('span', 'rail-label', 'network'), group);
+
+      const latency = doc.createElement('input');
+
+      latency.type = 'range';
+      latency.min = '0';
+      latency.max = '3000';
+      latency.step = '50';
+      latency.value = String(controls.latency);
+      latency.className = 'latency';
+      latency.setAttribute('data-act', 'latency');
+      latency.setAttribute('aria-label', 'Injected latency in milliseconds');
+      latency.addEventListener('input', () => {
+        controls.latency = Number(latency.value);
+        readout.textContent = `${latency.value}ms`;
+      });
+
+      const readout = el('span', 'rail-label', `${String(controls.latency)}ms`);
+
+      rail.append(el('span', 'rail-label', 'latency'), latency, readout);
+
+      // Pressing it again gives up on the armed failure rather than arming a
+      // second one, which there is no such thing as.
+      const fail = railButton(ICONS.zap, 'Fail the next request', controls.armed, () => {
+        if (controls.armed) controls.disarm();
+        else controls.failNext();
+
+        render();
+      });
+
+      fail.setAttribute('data-act', 'fail-next');
+      rail.append(fail);
+    }
+
+    if (sources.length > 0) {
+      const group = el('div', 'docks');
+
+      for (const name of sources) {
+        const button = railButton(
+          REVALIDATE[name][1],
+          REVALIDATE[name][0],
+          revalidation?.enabled(name) === true,
+          () => {
+            revalidation?.toggle(name);
+            render();
+          },
+        );
+
+        button.setAttribute('data-reval', name);
+        group.append(button);
+      }
+
+      rail.append(el('span', 'rail-label', 'revalidate'), group);
+    }
+
+    rail.append(el('div', 'spacer'));
+
+    // Freezing the *view*, and named that way on purpose. The panel can
+    // honestly stop repainting; it cannot stop the cache committing, which
+    // would need a seam in the cache rather than in here.
+    const freeze = railButton(ICONS.snow, 'Freeze the view', frozen, () => {
+      frozen = !frozen;
+      render();
+    });
+
+    freeze.setAttribute('data-act', 'freeze');
+    rail.append(freeze);
+
+    return rail;
+  };
+
+  /**
+   * What the ring says, most explanatory first.
+   *
+   * Offline outranks the errors it causes. Every request fails while the rail
+   * is offline, and a red ring over failures you switched on yourself sends
+   * you debugging a request that was never sent. The error *count* is
+   * unaffected and stays on the badge: only the explanation changes.
+   *
+   * Slow ranks below both, because unlike offline it does not prevent anything
+   * from succeeding, so a real error or a request in flight is the more useful
+   * thing to be told about while it is on.
+   */
+  const pulse = (fetching: boolean, errors: number): string => {
+    const mode = devtools.controls?.mode;
+
+    if (mode === 'offline') return 'offline';
+    if (errors > 0) return 'error';
+    if (fetching) return 'fetching';
+    if (mode === 'slow') return 'slow';
+
+    return 'idle';
+  };
+
+  /** The four dock modes, as one segmented control. */
+  const dockBar = (): HTMLElement => {
+    const group = el('div', 'docks');
+
+    for (const [name, tip, paths] of DOCKS) {
+      const button = el('button', 'ico tip');
+
+      button.innerHTML = icon(paths);
+      button.setAttribute('data-dock', name);
+      button.setAttribute('data-tip', tip);
+      button.setAttribute('aria-label', tip);
+      button.setAttribute('aria-pressed', String(name === mode));
+      button.addEventListener('click', () => {
+        mode = name;
+        render();
+      });
+      group.append(button);
+    }
+
+    return group;
   };
 
   const render = (): void => {
     root.replaceChildren();
 
     if (!open) {
-      const button = el('button', undefined, 'forge');
-
-      button.addEventListener('click', () => {
-        open = true;
-        render();
-      });
-      root.append(button);
+      root.append(launcher());
 
       return;
     }
 
     const panel = el('div', 'panel');
+
+    panel.setAttribute('data-mode', mode);
+
     const bar = el('div', 'bar');
 
     for (const name of TABS) {
@@ -837,7 +1757,10 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     const search = doc.createElement('input');
 
     search.value = filter;
-    search.placeholder = tab === 'explain' ? 'query key, then Enter' : 'filter';
+    // The grammar is only discoverable from here, so the placeholder teaches
+    // it rather than saying "filter" and leaving you to guess.
+    search.placeholder =
+      tab === 'explain' ? 'query key, then Enter' : 'filter, or status:4xx  >100ms  tag:Order[]';
     search.addEventListener('change', () => {
       filter = search.value;
       render();
@@ -876,28 +1799,53 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       render();
     });
     bar.append(clearLog);
+    bar.append(dockBar());
 
-    const close = el('button', undefined, 'x');
+    const close = el('button', 'ico tip tip-r');
+
+    close.innerHTML = icon('<path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8"/>');
+    close.setAttribute('data-tip', 'Close the panel');
+    close.setAttribute('aria-label', 'Close the panel');
     close.addEventListener('click', () => {
       open = false;
       render();
     });
     bar.append(close);
 
+    const rail = controlRail();
     const split = el('div', 'split');
     const list = el('div', 'list');
-    const detail = el('div', 'detail');
+    const key = selected.get(tab);
 
     renderList(list);
-    renderDetail(detail);
+    split.append(list);
 
-    split.append(list, detail);
-    panel.append(bar, split);
+    if (key !== undefined) {
+      const detail = el('div', 'detail');
+
+      renderDetail(detail, key);
+      split.append(detail);
+    }
+
+    panel.append(bar);
+
+    if (rail !== undefined) panel.append(rail);
+
+    panel.append(split);
     root.append(panel);
   };
 
   const schedule = (): void => {
-    if (scheduled || !open) return;
+    // Frozen holds the view still. The cache carries on committing and the
+    // next repaint after release shows where it got to, which is the point: a
+    // channel at twelve frames a second otherwise scrolls the thing you are
+    // reading off the screen while you read it.
+    //
+    // Note this does *not* bail when closed. The launcher carries a status
+    // ring, and a ring drawn once when the panel mounted is decoration rather
+    // than status. Redrawing one button is cheap and is already coalesced to
+    // one animation frame, which is the whole budget this costs.
+    if (scheduled || frozen) return;
 
     scheduled = true;
 

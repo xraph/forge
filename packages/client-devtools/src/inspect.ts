@@ -13,6 +13,7 @@ import type {
   CacheSnapshot,
   EntitySnapshot,
   QueryDetail,
+  OverlaySnapshot,
   QuerySnapshot,
   RecordSnapshot,
   StoreSnapshot,
@@ -386,4 +387,21 @@ export function binderView(
   if (!('manager' in binder)) return undefined;
 
   return binderSnapshot(binder);
+}
+
+/**
+ * The pending optimistic writes, bottom of the stack first.
+ *
+ * Reading, on the same terms as everything else in this file: `list()` hands
+ * back a copy of the entry array and this reduces each entry to a snapshot, so
+ * nothing here can reorder the stack, promote anything or trigger a fold.
+ */
+export function overlays(cache: QueryCache): readonly OverlaySnapshot[] {
+  return cache.overlays.list().map((entry) => ({
+    id: entry.id,
+    patches: [...entry.patches].map(([key, patch]) => ({ key, kind: patch.kind })),
+    tags: [...entry.tags],
+    created: entry.created,
+    places: entry.place !== undefined,
+  }));
 }

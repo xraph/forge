@@ -378,3 +378,62 @@ describe('detail', () => {
     devtools.dispose();
   });
 });
+
+describe('the overlay stack', () => {
+  /**
+   * Three pending mutations against overlapping entities is where optimistic
+   * UI goes wrong, and until this existed nothing could see the stack at all:
+   * `keys()` says which records are under a pending write, and flattens away
+   * which write, patching what, in what order.
+   */
+  it('lists the pending writes in push order, with their patches and tags', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 99 } } as const]]),
+      undefined,
+      ['Order[]'],
+    );
+    h.cache.overlays.add(
+      new Map([['Order:2', { kind: 'delete' } as const]]),
+      undefined,
+      ['Order:2'],
+      'Order:~opt1',
+    );
+
+    const layers = read.overlays(h.cache);
+
+    expect(layers).toHaveLength(2);
+    expect(layers[0]?.patches).toEqual([{ key: 'Order:1', kind: 'merge' }]);
+    expect(layers[0]?.tags).toEqual(['Order[]']);
+    expect(layers[0]?.created).toBeUndefined();
+    expect(layers[1]?.patches).toEqual([{ key: 'Order:2', kind: 'delete' }]);
+    expect(layers[1]?.created).toBe('Order:~opt1');
+
+    devtools.dispose();
+  });
+
+  /**
+   * A merge source is either an arbitrary object or a function over the
+   * previous record. Carrying either one into a snapshot would put application
+   * data, or a closure over it, into a structure the panel holds across
+   * repaints. The kind is what a reader needs; the value is already visible as
+   * the folded record on the entities tab.
+   */
+  it('carries the shape of each patch and never the value it would write', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const secret = { total: 99, note: 'do not retain me' };
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: secret } as const]]),
+      undefined,
+      [],
+    );
+
+    expect(JSON.stringify(read.overlays(h.cache))).not.toContain('do not retain me');
+
+    devtools.dispose();
+  });
+});

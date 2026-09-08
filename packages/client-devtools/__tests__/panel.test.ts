@@ -1,6 +1,7 @@
 import {
   applyFrames,
   manualClock,
+  RestTransport,
   StreamBinder,
   SubscriptionManager,
 } from '@forge-go/client-core';
@@ -8,7 +9,20 @@ import type { StreamConnect, StreamConnection } from '@forge-go/client-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { attach } from '../src/devtools';
 import { mountPanel } from '../src/panel';
+import { RequestLog } from '../src/requests';
+import { Revalidation, TransportControls } from '../src/control';
 import { counter, harness, ops } from './harness';
+
+/** A generated client's HTTP error, faked down to what `statusOf` reads. */
+class HttpFail extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number) {
+    super(`HTTP ${statusCode}`);
+    this.name = 'HTTPError';
+    this.statusCode = statusCode;
+  }
+}
 
 function shadow(): ShadowRoot {
   const host = document.body.lastElementChild;
@@ -35,6 +49,484 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('the launcher', () => {
+  it('shows the forge mark rather than the word "forge"', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    const button = shadow().querySelector('button');
+
+    expect(button?.getAttribute('aria-label')).toBe('Open Forge devtools');
+    expect(button?.querySelector('svg')).not.toBeNull();
+    expect(button?.textContent?.trim()).toBe('');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the inspector', () => {
+  it('stays shut until a row is picked, and the list takes the whole panel', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    // Not "rendered but empty": there is no detail element at all, which is
+    // what gives the list the full width it needs for a query key.
+    expect(shadow().querySelector('.detail')).toBeNull();
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    expect(shadow().querySelector('.detail')).not.toBeNull();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('shuts again when its close button is pressed', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    shadow()
+      .querySelector('.detail [data-act="close-detail"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelector('.detail')).toBeNull();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the chrome', () => {
+  it('offers four dock modes as icon buttons that name themselves', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const dock = [...shadow().querySelectorAll('[data-dock]')];
+
+    expect(dock.map((node) => node.getAttribute('data-dock'))).toEqual([
+      'bottom',
+      'right',
+      'full',
+      'window',
+    ]);
+
+    // Icon only, so the tooltip and the label are the only thing naming them.
+    for (const node of dock) {
+      expect(node.querySelector('svg')).not.toBeNull();
+      expect(node.getAttribute('data-tip')).toBeTruthy();
+      expect(node.getAttribute('aria-label')).toBeTruthy();
+      expect(node.textContent?.trim()).toBe('');
+    }
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('switches the panel to fullscreen and back', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const dockTo = (mode: string): void =>
+      shadow()
+        .querySelector(`[data-dock="${mode}"]`)
+        ?.dispatchEvent(new Event('click', { bubbles: true })) as unknown as void;
+
+    expect(shadow().querySelector('.panel')?.getAttribute('data-mode')).toBe('bottom');
+
+    dockTo('full');
+    expect(shadow().querySelector('.panel')?.getAttribute('data-mode')).toBe('full');
+
+    dockTo('bottom');
+    expect(shadow().querySelector('.panel')?.getAttribute('data-mode')).toBe('bottom');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the trace', () => {
+  /**
+   * The whole point of replacing the flat log. Every `invalidated`, `fetch`
+   * and `settle` entry already carries the `seq` of the cause that produced it;
+   * rendering them as one reversed table throws that structure away.
+   */
+  it('nests what a mutation caused underneath the mutation', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    await h.cache.mutate(ops.orderUpdate, { path: { id: 1 } });
+    h.flush();
+    await h.settle();
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'trace')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const causes = [...shadow().querySelectorAll('.cause')];
+    const mutation = causes.find((node) => node.textContent?.includes('PATCH /orders/{id}'));
+
+    expect(mutation).toBeDefined();
+    // The tags it raised, and the query it went on to reach, both inside the
+    // block for the cause rather than three unrelated rows away from it.
+    expect(mutation?.textContent).toContain('Order[]');
+    expect(
+      [...(mutation?.querySelectorAll('.effect') ?? [])].map((node) => node.textContent ?? ''),
+    ).toSatisfy((effects: string[]) =>
+      effects.some((text) => text.includes(h.cache.key(ops.orderList))),
+    );
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('marks what you did yourself as a cause of its own', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    devtools.actions.invalidateTag('Order[]');
+    h.flush();
+    await h.settle();
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'trace')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const yours = [...shadow().querySelectorAll('.cause[data-kind="action"]')];
+
+    expect(yours.length).toBe(1);
+    expect(yours[0]?.textContent).toContain('invalidateTag');
+    expect(yours[0]?.textContent).toContain('Order[]');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the control rail', () => {
+  it('is absent when the application wired no controls', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    expect(shadow().querySelector('.rail')).toBeNull();
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('switches the network mode, one of three at a time', () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const modes = [...shadow().querySelectorAll('[data-net]')];
+
+    expect(modes.map((node) => node.getAttribute('data-net'))).toEqual([
+      'online',
+      'slow',
+      'offline',
+    ]);
+    expect(modes[0]?.getAttribute('aria-pressed')).toBe('true');
+
+    modes[2]?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(controls.mode).toBe('offline');
+    expect(
+      [...shadow().querySelectorAll('[data-net]')].map((node) => node.getAttribute('aria-pressed')),
+    ).toEqual(['false', 'false', 'true']);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('arms a single synthetic failure and shows that it is armed', () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const arm = (): void =>
+      shadow()
+        .querySelector('[data-act="fail-next"]')
+        ?.dispatchEvent(new Event('click', { bubbles: true })) as unknown as void;
+
+    expect(controls.armed).toBe(false);
+
+    arm();
+
+    expect(controls.armed).toBe(true);
+    expect(shadow().querySelector('[data-act="fail-next"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    // Pressing it again gives up on the armed failure rather than arming a second.
+    arm();
+
+    expect(controls.armed).toBe(false);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('sets the injected latency from the slider', () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const slider = shadow().querySelector('[data-act="latency"]') as HTMLInputElement | null;
+
+    expect(slider).not.toBeNull();
+
+    if (slider !== null) {
+      slider.value = '800';
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    expect(controls.latency).toBe(800);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('only offers the revalidation sources the application actually wired', () => {
+    let stopped = 0;
+    const revalidation = new Revalidation({
+      focus: () => (): void => {
+        stopped += 1;
+      },
+    });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), revalidation });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const toggles = [...shadow().querySelectorAll('[data-reval]')];
+
+    expect(toggles.map((node) => node.getAttribute('data-reval'))).toEqual(['focus']);
+
+    toggles[0]?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(revalidation.enabled('focus')).toBe(true);
+
+    shadow()
+      .querySelector('[data-reval="focus"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(revalidation.enabled('focus')).toBe(false);
+    expect(stopped).toBe(1);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * Freezing the view, not the cache. A stream at twelve frames a second
+   * repaints the thing you are reading out from under you, and the panel can
+   * honestly stop repainting; it cannot stop the cache committing, which would
+   * need a seam in the cache itself.
+   */
+  it('holds the view still while frozen and catches up when released', async () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const freeze = (): void =>
+      shadow()
+        .querySelector('[data-act="freeze"]')
+        ?.dispatchEvent(new Event('click', { bubbles: true })) as unknown as void;
+
+    freeze();
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    expect(shadow().textContent).not.toContain(h.cache.key(ops.orderList));
+
+    freeze();
+
+    expect(shadow().textContent).toContain(h.cache.key(ops.orderList));
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the network tab', () => {
+  it('says so plainly when no request log is wired', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'network')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const text = shadow().querySelector('.list')?.textContent ?? '';
+
+    expect(text).toContain('RequestLog');
+    expect(text).toContain('observer');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('renders a retried request with its attempts and its backoff', async () => {
+    const log = new RequestLog(20, counter());
+    const rest = new RestTransport({
+      client: {
+        request<T>(_config: unknown): Promise<T> {
+          calls += 1;
+
+          return calls === 1
+            ? Promise.reject(new HttpFail(503))
+            : (Promise.resolve({ ok: true }) as Promise<T>);
+        },
+      },
+      sleep: () => Promise.resolve(),
+      random: () => 0,
+      observer: log.observer,
+    });
+    let calls = 0;
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'network')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const row = shadow().querySelector('tr.row');
+
+    expect(row?.textContent).toContain('GET /orders');
+    // Two attempts against a limit of three, so the ledger is the point.
+    expect(row?.textContent).toContain('2/3');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * The distinction a browser network tab cannot draw, and the reason this
+   * view is worth its bytes at all.
+   */
+  it('names the reason a failed POST was never retried', async () => {
+    const log = new RequestLog(20, counter());
+    const rest = new RestTransport({
+      client: {
+        request<T>(_config: unknown): Promise<T> {
+          return Promise.reject(new HttpFail(500)) as Promise<T>;
+        },
+      },
+      sleep: () => Promise.resolve(),
+      observer: log.observer,
+    });
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await expect(
+      rest.execute({
+        meta: { method: 'POST', path: '/orders', provides: [], invalidates: [] },
+        args: { body: {} },
+      }),
+    ).rejects.toThrow();
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'network')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    expect(shadow().querySelector('.detail')?.textContent).toContain('not idempotent');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the overlay tab', () => {
+  it('lists each pending write with its patches and what it will raise', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 99 } } as const]]),
+      undefined,
+      ['Order[]'],
+    );
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'overlay')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const layers = [...shadow().querySelectorAll('.layer')];
+
+    expect(layers).toHaveLength(1);
+    expect(layers[0]?.textContent).toContain('Order:1');
+    expect(layers[0]?.textContent).toContain('merge');
+    expect(layers[0]?.textContent).toContain('Order[]');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('says the stack is empty rather than showing a blank tab', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    [...shadow().querySelectorAll('.bar button')]
+      .find((node) => node.textContent === 'overlay')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelector('.list')?.textContent).toContain('No optimistic write');
+
+    unmount();
+    devtools.dispose();
+  });
 });
 
 describe('the panel shell', () => {
@@ -70,13 +562,13 @@ describe('the panel shell', () => {
     const labels = [...shadow().querySelectorAll('button')].map((node) => node.textContent);
 
     for (const tab of [
+      'trace',
       'queries',
       'entities',
       'tags',
       'sockets',
       'streams',
       'frames',
-      'log',
       'explain',
     ]) {
       expect(labels).toContain(tab);
@@ -590,6 +1082,326 @@ describe('the streams and frames tabs, populated', () => {
     expect(text).toContain('missed');
 
     release();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the launcher ring', () => {
+  it('reads idle when nothing is happening', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('idle');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('reads offline the moment you switch the rail offline', async () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    controls.mode = 'offline';
+    // The launcher redraws on cache activity like everything else, coalesced
+    // onto an animation frame, so let that frame run before reading it.
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('offline');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * Offline outranks the failures it causes. A red ring over errors you
+   * switched on yourself sends you debugging a request that was never sent.
+   */
+  it('keeps saying offline even while queries are failing because of it', async () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+
+    h.fail('GET /orders', new Error('nope'));
+
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    expect(devtools.records().some((record) => record.status === 'error')).toBe(true);
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('error');
+
+    controls.mode = 'offline';
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('offline');
+    // The count is still carried; only the explanation on the ring changed.
+    expect(shadow().querySelector('.badge')?.textContent).toBe('1');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('reads throttled when the rail is set to a slow connection', async () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    controls.mode = 'slow';
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('slow');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+/** Type the filter box the way a person does, then read what survived. */
+function typeFilter(text: string): void {
+  const input = shadow().querySelector('.bar input') as HTMLInputElement | null;
+
+  if (input === null) throw new Error('no filter input');
+
+  input.value = text;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function goTo(name: string): void {
+  [...shadow().querySelectorAll('.bar button')]
+    .find((node) => node.textContent === name)
+    ?.dispatchEvent(new Event('click', { bubbles: true }));
+}
+
+function chip(label: string): Element | undefined {
+  return [...shadow().querySelectorAll('.facet')].find((node) =>
+    node.textContent?.startsWith(label),
+  );
+}
+
+describe('the facet chips', () => {
+  it('offers the facets of the tab you are on, each carrying its own count', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+
+    // A count on the chip says what pressing it would cost, before you press it.
+    expect(chip('mounted')?.textContent).toContain('1');
+    expect(chip('unmounted')?.textContent).toContain('0');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('narrows the list to what the chip selects', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(1);
+
+    chip('unmounted')?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(0);
+    expect(chip('unmounted')?.getAttribute('aria-pressed')).toBe('true');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('keeps one tab\'s chips out of the next tab\'s', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    chip('unmounted')?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    goTo('entities');
+
+    // The entities tab has its own facets and none of them are pressed.
+    expect(
+      [...shadow().querySelectorAll('.facet')].every(
+        (node) => node.getAttribute('aria-pressed') === 'false',
+      ),
+    ).toBe(true);
+    expect(shadow().querySelectorAll('tr.row').length).toBeGreaterThan(0);
+
+    goTo('queries');
+
+    // Coming back, the chip is still where you left it.
+    expect(chip('unmounted')?.getAttribute('aria-pressed')).toBe('true');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('clears the chips and the text box together', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    chip('unmounted')?.dispatchEvent(new Event('click', { bubbles: true }));
+    typeFilter('nothing matches this');
+
+    shadow()
+      .querySelector('[data-act="clear-filters"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(1);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the filter operators', () => {
+  it('selects a response class with status:', async () => {
+    const log = new RequestLog(20, counter());
+    const rest = new RestTransport({
+      client: {
+        request<T>(config: { url: string }): Promise<T> {
+          return config.url.includes('orders')
+            ? (Promise.resolve({ ok: true }) as Promise<T>)
+            : (Promise.reject(new HttpFail(404)) as Promise<T>);
+        },
+      },
+      sleep: () => Promise.resolve(),
+      observer: log.observer,
+    });
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+    await expect(
+      rest.execute({ meta: { method: 'GET', path: '/gone', provides: [], invalidates: [] }, args: {} }),
+    ).rejects.toThrow();
+
+    goTo('network');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(2);
+
+    typeFilter('status:4xx');
+
+    const remaining = [...shadow().querySelectorAll('tr.row')];
+
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.textContent).toContain('/gone');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('selects the slow ones with a duration threshold', async () => {
+    // The injected clock advances one per read, so each request measures a
+    // duration of exactly one tick; the threshold is what is under test.
+    const log = new RequestLog(20, counter());
+    const rest = new RestTransport({
+      client: {
+        request<T>(): Promise<T> {
+          return Promise.resolve({ ok: true }) as Promise<T>;
+        },
+      },
+      observer: log.observer,
+    });
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    goTo('network');
+    typeFilter('>0ms');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(1);
+
+    typeFilter('>500ms');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(0);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('selects by carried tag with tag:', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    typeFilter('tag:Order[]');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(1);
+
+    typeFilter('tag:Customer[]');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(0);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('still does a plain substring when no operator is used', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    typeFilter('/orders');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(1);
+
+    typeFilter('/invoices');
+
+    expect(shadow().querySelectorAll('tr.row')).toHaveLength(0);
+
+    stop();
     unmount();
     devtools.dispose();
   });

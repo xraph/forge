@@ -106,6 +106,24 @@ export class OverlayStack implements OverlayLayer {
     return this.entries.length === 0;
   }
 
+  /**
+   * The live overlays, in push order.
+   *
+   * The read surface an inspector needs and `keys()` cannot give it. `keys()`
+   * answers the store's question -- is this record under a pending write --
+   * and flattens away the thing a person debugging optimistic UI is actually
+   * looking at: which mutation, patching what, stacked in what order, and what
+   * a rollback would therefore remove.
+   *
+   * A copy, so nothing outside can splice the stack. The entries themselves are
+   * already immutable by declaration and are handed over as they are: a defensive
+   * clone of every patch map would make reading the stack cost more than folding
+   * it, on a path a panel walks on every repaint.
+   */
+  list(): readonly OverlayEntry[] {
+    return [...this.entries];
+  }
+
   /** Every key any live overlay touches. */
   keys(): Set<EntityKey> {
     const keys = new Set<EntityKey>();

@@ -26,6 +26,14 @@
       "types": "./dist/panel.d.ts",
       "import": "./dist/panel.js"
     },
+    "./requests": {
+      "types": "./dist/requests.d.ts",
+      "import": "./dist/requests.js"
+    },
+    "./control": {
+      "types": "./dist/control.d.ts",
+      "import": "./dist/control.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -67,12 +75,30 @@
       ]
     },
     {
+      "name": "request recording",
+      "path": "dist/requests.js",
+      "limit": "1.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "network controls",
+      "path": "dist/control.js",
+      "limit": "1.5 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
       "name": "inspector and overlay together",
       "path": [
         "dist/index.js",
         "dist/overlay.js"
       ],
-      "limit": "9 kB",
+      "limit": "9.5 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"

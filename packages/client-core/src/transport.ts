@@ -240,6 +240,57 @@ export interface AuthProvider {
  *
  * `attempts` counts the first try, so 3 means one request and two retries.
  */
+/**
+ * One request, as the observer is told about it.
+ *
+ * `id` is per transport and monotonic, so two concurrent calls to the same
+ * operation with the same arguments -- which are otherwise indistinguishable --
+ * remain two requests to whoever is watching.
+ */
+export interface RequestReport {
+  readonly id: number;
+  readonly meta: OperationMeta;
+  readonly args: TagContext;
+}
+
+/**
+ * What this transport did, reported as it happens.
+ *
+ * Every one of these is a decision the retry policy and the 401 path already
+ * make, and currently make silently. That silence is the whole problem a
+ * network view exists to fix: a decorator wrapped around `execute` sees one
+ * call whether it was retried twice or not at all, because the retries, the
+ * backoff and the credential refresh all happen inside it.
+ *
+ * `limit` on `start` is the one that matters most. It is 1 for a method that
+ * is not idempotent, which is why a failed `POST` was never going to be
+ * retried -- a fact that is invisible in any view built from the outside, and
+ * indistinguishable there from a `GET` that simply happened to fail once.
+ */
+export type RequestEvent =
+  /** Dispatched. `limit` is how many attempts this method is allowed at all. */
+  | { readonly type: 'start'; readonly limit: number }
+  | { readonly type: 'attempt'; readonly attempt: number }
+  /** A 401 sent this request to the credential refresh. */
+  | { readonly type: 'refresh'; readonly joined: boolean }
+  | {
+      readonly type: 'retry';
+      readonly attempt: number;
+      readonly delay: number;
+      readonly status: number | undefined;
+    }
+  | { readonly type: 'settled'; readonly ok: boolean; readonly status: number | undefined };
+
+/**
+ * The debug seam, on the same terms as the cache's.
+ *
+ * One slot rather than a list, unset by default. An optional call does not
+ * evaluate its arguments, so an unwatched transport does not allocate an event
+ * object, and a production build that never assigns this pays a nullish check
+ * per request and nothing else.
+ */
+export type RequestObserver = (report: RequestReport, event: RequestEvent) => void;
+
 export interface RetryPolicy {
   readonly attempts?: number;
   readonly baseDelay?: number;
@@ -268,6 +319,10 @@ export interface RestTransportOptions {
    * runtime sets it.
    */
   readonly credentials?: RequestCredentials;
+  /**
+   * Told what each request did. Unset in production; see `RequestObserver`.
+   */
+  readonly observer?: RequestObserver;
 }
 
 const IDEMPOTENT = new Set(['GET', 'HEAD', 'PUT', 'DELETE']);
@@ -310,6 +365,9 @@ export class RestTransport implements Transport {
    * stampede and one refresh per request in it.
    */
   private generation = 0;
+  private readonly observer: RequestObserver | undefined;
+  /** Per transport and monotonic. Names one request across all of its events. */
+  private requests = 0;
 
   constructor(options: RestTransportOptions) {
     this.client = options.client;
@@ -321,6 +379,7 @@ export class RestTransport implements Transport {
     this.maxDelay = options.retry?.maxDelay ?? 30000;
     this.baseUrl = options.baseUrl ?? '';
     this.credentials = options.credentials;
+    this.observer = options.observer;
   }
 
   async execute(request: TransportRequest): Promise<unknown> {
@@ -351,14 +410,43 @@ export class RestTransport implements Transport {
     }
 
     const limit = IDEMPOTENT.has(method) ? this.attempts : 1;
+    const observer = this.observer;
+    // Built only when somebody is watching. `watch?.(...)` does not evaluate
+    // its argument when `watch` is undefined, so an unwatched transport does
+    // not allocate a single event object.
+    const watch =
+      observer === undefined
+        ? undefined
+        : ((report: RequestReport) =>
+            (event: RequestEvent): void => {
+              observer(report, event);
+            })({ id: ++this.requests, meta: request.meta, args: request.args });
+
+    watch?.({ type: 'start', limit });
 
     for (let attempt = 0; ; attempt++) {
-      try {
-        return await this.send(config, request.meta);
-      } catch (error) {
-        if (attempt + 1 >= limit || !retryable(error)) throw error;
+      watch?.({ type: 'attempt', attempt });
 
-        await this.sleep(this.backoff(attempt));
+      try {
+        const value = await this.send(config, request.meta, watch);
+
+        watch?.({ type: 'settled', ok: true, status: undefined });
+
+        return value;
+      } catch (error) {
+        const status = statusOf(error);
+
+        if (attempt + 1 >= limit || !retryable(error)) {
+          watch?.({ type: 'settled', ok: false, status });
+
+          throw error;
+        }
+
+        const delay = this.backoff(attempt);
+
+        watch?.({ type: 'retry', attempt, delay, status });
+
+        await this.sleep(delay);
       }
     }
   }
@@ -374,7 +462,11 @@ export class RestTransport implements Transport {
    * transient failure, and looping on it is how a client hammers a login
    * endpoint.
    */
-  private async send(config: RestRequestConfig, meta: OperationMeta): Promise<unknown> {
+  private async send(
+    config: RestRequestConfig,
+    meta: OperationMeta,
+    watch?: (event: RequestEvent) => void,
+  ): Promise<unknown> {
     // Read *after* the credentials, not before. `credentials` may await, and a
     // refresh landing inside that window would make this request look older
     // than the credential it is actually carrying -- costing one spurious
@@ -391,7 +483,7 @@ export class RestTransport implements Transport {
       // retry against it rather than asking for another one.
       if (generation === this.generation) {
         try {
-          await this.refresh();
+          await this.refresh(watch);
         } catch {
           // The refresh failed, so the 401 stands. Reporting the refresh's own
           // error here would replace "you are not authorized" with whatever
@@ -405,7 +497,13 @@ export class RestTransport implements Transport {
   }
 
   /** One refresh, however many callers arrive while it runs. */
-  private refresh(): Promise<void> {
+  private refresh(watch?: (event: RequestEvent) => void): Promise<void> {
+    // Reported here rather than at the call site because this is the only
+    // place that knows which it was. Three requests stampeding one 401 all
+    // arrive here; one starts the flight and the other two adopt it, and that
+    // difference is the single thing a per-request view cannot infer.
+    watch?.({ type: 'refresh', joined: this.refreshing !== undefined });
+
     if (this.refreshing !== undefined) return this.refreshing;
 
     const provider = this.auth as AuthProvider;

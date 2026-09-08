@@ -18,6 +18,8 @@ import { capture, FrameRing } from './frames.js';
 import * as read from './inspect.js';
 import type { EntityFilter } from './inspect.js';
 import { EventLog } from './log.js';
+import type { Revalidation, TransportControls } from './control.js';
+import type { RequestLog, RequestSnapshot } from './requests.js';
 import type {
   CacheSnapshot,
   EntitySnapshot,
@@ -25,6 +27,7 @@ import type {
   InvalidationPreview,
   LogEntry,
   MissReport,
+  OverlaySnapshot,
   QueryDetail,
   QuerySnapshot,
   RecordSnapshot,
@@ -60,6 +63,36 @@ export interface DevtoolsOptions {
    * is the same escape hatch `manager` is, for the same reason.
    */
   readonly binder?: StreamBinder;
+  /**
+   * The request log the transport is reporting into.
+   *
+   * Opt in, and opt in at the transport rather than here, because that is the
+   * only place the retries and the credential refresh are visible: they happen
+   * inside one `execute`, so nothing wrapped around the transport can see
+   * them. Build a `RequestLog`, hand `log.observer` to `RestTransport`, hand
+   * the log to this. An application that does neither pays nothing, and the
+   * network tab says so rather than showing an empty table.
+   */
+  readonly requests?: RequestLog;
+  /**
+   * The network conditions the panel can impose.
+   *
+   * A decorator rather than an observer, and wired at the transport for the
+   * same reason `requests` is, but for the opposite half of the problem:
+   * offline has to fail before the inner transport, not after. Build a
+   * `TransportControls`, pass `controls.wrap(rest)` to the cache, and pass the
+   * controls here. Absent means the panel shows no rail at all rather than a
+   * row of switches that do nothing.
+   */
+  readonly controls?: TransportControls;
+  /**
+   * The revalidation sources the application wired.
+   *
+   * The panel toggles what it is given and never installs one itself: a panel
+   * that started polling because somebody pressed a button would be generating
+   * the traffic it exists to explain.
+   */
+  readonly revalidation?: Revalidation;
   /**
    * Keep the last N decoded stream frames, payloads included.
    *
@@ -137,6 +170,25 @@ export interface Devtools {
    * the tracked records and one bounded copy of a settled response per query.
    */
   records(): RecordSnapshot[];
+
+  /** The pending optimistic writes, bottom of the stack first. */
+  overlays(): readonly OverlaySnapshot[];
+
+  /**
+   * What the transport did, newest last. Empty when nothing is wired.
+   *
+   * `watchingRequests` is the difference between "no requests have been made"
+   * and "nothing is recording them", which are the same empty list and very
+   * different problems.
+   */
+  requests(): readonly RequestSnapshot[];
+  readonly watchingRequests: boolean;
+  /** The network conditions, when the application wired any. */
+  readonly controls: TransportControls | undefined;
+  /** The revalidation toggles, when the application wired any. */
+  readonly revalidation: Revalidation | undefined;
+  /** How many requests the ring has overwritten. */
+  readonly requestsDropped: number;
   /** The stream binder: bindings, live queries, queue depth, gap recovery. */
   streams(): BinderSnapshot | undefined;
   /** What the cache holds for one entity, and which queries depend on it. */
@@ -472,6 +524,12 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     query: (key) => read.query(cache, key),
     detail: (key) => read.detail(cache, key),
     records: () => read.records(cache),
+    overlays: () => read.overlays(cache),
+    requests: () => options.requests?.entries() ?? [],
+    controls: options.controls,
+    revalidation: options.revalidation,
+    watchingRequests: options.requests !== undefined,
+    requestsDropped: options.requests?.dropped ?? 0,
     streams: () => read.binderView(cache, options.binder),
     entity: (key) => read.entity(cache, key),
     entities: (filter) => read.entities(cache, filter),

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { attach } from '../src/devtools';
 import { mountOverlay } from '../src/overlay';
+import { TransportControls } from '../src/control';
 import { counter, harness, ops } from './harness';
 
 /**
@@ -16,6 +17,36 @@ function shadow(): ShadowRoot {
   return host.shadowRoot;
 }
 
+/** Same reason as the panel's: jsdom's rAF is timer-backed, not microtask-backed. */
+beforeEach(() => {
+  vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+    queueMicrotask(cb);
+
+    return 0;
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('the launcher', () => {
+  it('shows the forge mark rather than the word "forge"', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountOverlay(devtools, { parent: document.body });
+
+    const button = shadow().querySelector('button');
+
+    expect(button?.getAttribute('aria-label')).toBe('Open Forge devtools');
+    expect(button?.querySelector('svg')).not.toBeNull();
+    expect(button?.textContent?.trim()).toBe('');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
 describe('the overlay', () => {
   it('starts closed, opens, and shows the queries', async () => {
     const h = harness();
@@ -27,7 +58,9 @@ describe('the overlay', () => {
 
     const button = shadow().querySelector('button');
 
-    expect(button?.textContent).toBe('forge');
+    // Closed means the panel is not built, not merely hidden: the launcher is
+    // the whole of the DOM until it is pressed.
+    expect(shadow().querySelector('.panel')).toBeNull();
 
     button?.dispatchEvent(new Event('click'));
 
@@ -105,6 +138,36 @@ describe('the overlay', () => {
     await expect(h.cache.fetch(ops.orderList)).resolves.toBeDefined();
 
     stop();
+    devtools.dispose();
+  });
+});
+
+describe('the launcher ring', () => {
+  it('reads offline rather than error when the rail put it there', async () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+
+    h.fail('GET /orders', new Error('nope'));
+
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountOverlay(devtools, { parent: document.body });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    const ring = (): string | null | undefined =>
+      shadow().querySelector('button')?.getAttribute('data-pulse');
+
+    expect(ring()).toBe('error');
+
+    controls.mode = 'offline';
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(ring()).toBe('offline');
+
+    stop();
+    unmount();
     devtools.dispose();
   });
 });
