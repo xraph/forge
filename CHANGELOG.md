@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.0.0](https://github.com/xraph/forge/compare/v1.11.0...v2.0.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **client-devtools:** `mountOverlay` from `@forge-go/client-devtools/overlay` now renders the full panel rather than the lean six-table view, and the bundle it pulls in grows accordingly. If you wanted the small one, import `mountMini` from `@forge-go/client-devtools/mini`. `/panel` is unchanged.
+* **dashboard:** replace the server-rendered UI with React plugins ([#99](https://github.com/xraph/forge/issues/99))
+
+### Features
+
+* **client-devtools:** causal trace, network view and control rail ([#101](https://github.com/xraph/forge/issues/101)) ([a84dc2d](https://github.com/xraph/forge/commit/a84dc2dc61b64463a21eca7532f580e59a645bf1))
+* **client-devtools:** close the gap to the panel design ([#102](https://github.com/xraph/forge/issues/102)) ([a4c5975](https://github.com/xraph/forge/commit/a4c59755fa8d1c292ad5bfeb8dd918a18a617194))
+* **client-devtools:** make /overlay the full panel, move the lean view to /mini ([#104](https://github.com/xraph/forge/issues/104)) ([1c23a5c](https://github.com/xraph/forge/commit/1c23a5c6927eac031f908f06a051ee034e0bdd11))
+* **cli:** scaffold a Next.js dashboard with forge dashboard new --target=next ([#103](https://github.com/xraph/forge/issues/103)) ([9523267](https://github.com/xraph/forge/commit/9523267bba65912c93c0da903224efd7795e435e))
+
+
+### Bug Fixes
+
+* **client-devtools:** stop table columns collapsing, deprecate the lean view ([#105](https://github.com/xraph/forge/issues/105)) ([d96026c](https://github.com/xraph/forge/commit/d96026ccddebc4d05f685497e7981cbf8910a9cc))
+* **deps:** move the last three modules onto forge v1.11.0 ([4ee53c3](https://github.com/xraph/forge/commit/4ee53c37c2f411421c1c02f1907233697ccd46e4))
+
+
+### Code Refactoring
+
+* **dashboard:** replace the server-rendered UI with React plugins ([#99](https://github.com/xraph/forge/issues/99)) ([4f29ed0](https://github.com/xraph/forge/commit/4f29ed012aaa27df396a1a9728314d74f330e507))
+
 ## [1.11.0](https://github.com/xraph/forge/compare/v1.10.0...v1.11.0) (2026-09-06)
 
 
