@@ -201,12 +201,23 @@ describe('the panel entry point', () => {
     // API underneath it. `size-limit` holds the finer-grained ceilings on each
     // module on its own; this one is the number an application actually pays.
     //
-    // Raised from 12 kB to 14 kB for the causal trace, the overlay-stack view
-    // and the network view, and again to 16 kB for the control rail and the
-    // facet chips. Two increases in one body of work is worth a deliberate
-    // look rather than a third nudge: either the panel earns its size or it
-    // wants splitting the way `./requests` and `./control` already were.
-    expect(panel.gzipped - production.gzipped).toBeLessThan(16_000);
+    // Re-baselined once, deliberately, rather than nudged a fourth time.
+    //
+    // The original 12 kB was written for a panel of eight plain tables. This
+    // one has a causal trace, a network view, the overlay stack, a control
+    // rail, facet chips, a vitals strip and a keyboard layer. The question the
+    // earlier increases deferred was whether to split instead, and the answer
+    // is no: the panel is one closure over shared UI state (tab, filter,
+    // selection, sort, facets, density) and every renderer reads it, so
+    // splitting would mean threading that state through an interface and
+    // paying for it on both sides. There is also nothing here a consumer could
+    // decline to import; you do not want "the panel without the network tab".
+    // The parts that *could* be declined were split out already, and they are
+    // `./requests` and `./control`.
+    //
+    // 20 kB leaves room to finish the remaining views without moving it again.
+    // If it needs a fifth increase, that is the signal to split for real.
+    expect(panel.gzipped - production.gzipped).toBeLessThan(20_000);
   });
 });
 

@@ -2,7 +2,16 @@ import type { QueryCache } from '@forge-go/client-core';
 import type { EventLog } from './log.js';
 
 /** The kinds an `ActionLog` can carry. Kept beside the calls that record them. */
-type ActionKind = 'refetch' | 'invalidate' | 'invalidateTag' | 'evict' | 'drop' | 'clear';
+type ActionKind =
+  | 'refetch'
+  | 'invalidate'
+  | 'invalidateTag'
+  | 'evict'
+  | 'drop'
+  | 'clear'
+  | 'rollback'
+  | 'hold'
+  | 'release';
 
 /**
  * The half that writes.
@@ -38,6 +47,31 @@ export interface DevtoolsActions {
   drop(key: string): boolean;
   /** Drop every entity, every skeleton and every registry entry. */
   clear(): void;
+  /**
+   * Take one pending optimistic write off the stack.
+   *
+   * Removal, not an inverse. That is the whole of rollback in `OverlayStack`
+   * and it is what keeps it correct when an earlier layer fails after a later
+   * one has already landed: an inverse recorded for the second was computed
+   * against a base that already included the first.
+   */
+  rollback(id: number): boolean;
+  /**
+   * Commit one pending optimistic write to the base store by hand.
+   *
+   * What the runtime does when a mutation settles, minus the response. A
+   * `create` is never promoted; its temp key exists only to be rendered, so
+   * promoting a layer that minted one writes its merges and drops the create.
+   */
+  promote(id: number): boolean;
+  /**
+   * Record that the panel is holding a query in a state it did not reach.
+   *
+   * Nothing in the cache moves. This exists so the trace says a held query was
+   * held by you, on the same terms as every other action here.
+   */
+  hold(key: string, state: string): void;
+  release(key: string): void;
 }
 
 /**
@@ -116,6 +150,38 @@ export function createActions(
     clear() {
       record('clear', '*');
       cache.clear();
+    },
+
+    rollback(id) {
+      const entry = cache.overlays.take(id);
+
+      if (entry === undefined) return false;
+
+      record('rollback', `overlay #${String(id)}`);
+      // The stack changed under everything reading through it, so say so.
+      cache.notifyChanged();
+
+      return true;
+    },
+
+    promote(id) {
+      const entry = cache.overlays.take(id);
+
+      if (entry === undefined) return false;
+
+      record('rollback', `promote overlay #${String(id)}`);
+      cache.overlays.promote(entry);
+      cache.notifyChanged();
+
+      return true;
+    },
+
+    hold(key, state) {
+      record('hold', `${key} in ${state}`);
+    },
+
+    release(key) {
+      record('release', key);
     },
   };
 }

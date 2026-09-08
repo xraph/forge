@@ -77,6 +77,8 @@ describe('the inspector', () => {
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
 
+    goTo('queries');
+
     // Not "rendered but empty": there is no detail element at all, which is
     // what gives the list the full width it needs for a query key.
     expect(shadow().querySelector('.detail')).toBeNull();
@@ -99,6 +101,8 @@ describe('the inspector', () => {
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
+
+    goTo('queries');
 
     [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
       new Event('click', { bubbles: true }),
@@ -704,6 +708,8 @@ describe('the detail pane', () => {
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
 
+    goTo('queries');
+
     [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
       new Event('click', { bubbles: true }),
     );
@@ -726,6 +732,8 @@ describe('the detail pane', () => {
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
+
+    goTo('queries');
 
     [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
       new Event('click', { bubbles: true }),
@@ -880,6 +888,8 @@ describe('sort and selection are per tab', () => {
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
+
+    goTo('queries');
 
     [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
       new Event('click', { bubbles: true }),
@@ -1400,6 +1410,717 @@ describe('the filter operators', () => {
     typeFilter('/invoices');
 
     expect(shadow().querySelectorAll('tr.row')).toHaveLength(0);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the launcher, fully dressed', () => {
+  it('goes amber while an optimistic write is pending', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 99 } } as const]]),
+      undefined,
+      ['Order[]'],
+    );
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('pending');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * A stuck optimistic write is a bug you want to see; a request in flight is
+   * Tuesday. So pending outranks fetching, and a real error outranks both.
+   */
+  it('lets an error outrank a pending write', async () => {
+    const h = harness();
+
+    h.fail('GET /orders', new Error('nope'));
+
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 99 } } as const]]),
+      undefined,
+      [],
+    );
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    expect(shadow().querySelector('button')?.getAttribute('data-pulse')).toBe('error');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('carries the vitals beside the mark', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    const vitals = shadow().querySelector('.launcher-vitals')?.textContent ?? '';
+
+    // Records held, queries mounted. The counts a glance should answer.
+    expect(vitals).toContain('3');
+    expect(vitals).toContain('ent');
+    expect(vitals).toContain('1');
+    expect(vitals).toContain('mnt');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('counts pending writes in the vitals only when there are some', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    expect(shadow().querySelector('.launcher-vitals')?.textContent).not.toContain('pend');
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: {} } as const]]),
+      undefined,
+      [],
+    );
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('.launcher-vitals')?.textContent).toContain('pend');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the launcher, out of the way', () => {
+  /** The collision in the corner that started all of this. */
+  it('lifts itself above a framework dev badge already in the corner', () => {
+    const badge = document.createElement('nextjs-portal');
+
+    document.body.append(badge);
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('badge');
+
+    unmount();
+    badge.remove();
+    devtools.dispose();
+  });
+
+  it('sits in the corner when nothing else is there', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('none');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('takes an explicit offset over anything it guessed', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, offset: 96 });
+
+    const root = shadow().querySelector('.root') as HTMLElement | null;
+
+    expect(root?.style.bottom).toBe('96px');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the near-miss banner', () => {
+  /**
+   * The threshold, stated: flag per raised tag, not per cause. A tag that
+   * reached no mounted query and has a near miss gets a banner even when the
+   * same cause reached something through a different tag.
+   *
+   * `orderCreate` invalidates `Order:{res.id}` and nothing else. The list
+   * carries `Order[]`, so the tag resolves fine, reaches nothing, and the
+   * screen stays stale with no error anywhere. That is the defect this whole
+   * package exists to explain, and the trace should say so where it happened.
+   */
+  it('flags a raised tag that reached nothing but nearly matched', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    await h.cache.mutate(ops.orderCreate, { body: { total: 30 } });
+    h.flush();
+    await h.settle();
+
+    goTo('trace');
+
+    const banner = shadow().querySelector('.nearmiss');
+
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain('Order:9');
+    expect(banner?.textContent).toContain('Order[]');
+    // The relation, and the fix, both already computed by tag.ts.
+    expect(banner?.textContent).toContain('instance-vs-collection');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('says nothing when every raised tag reached something', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    // `orderUpdate` raises `Order[]`, which the list carries and is reached by.
+    await h.cache.mutate(ops.orderUpdate, { path: { id: 1 } });
+    h.flush();
+    await h.settle();
+
+    goTo('trace');
+
+    const banners = [...shadow().querySelectorAll('.nearmiss')].filter((node) =>
+      node.textContent?.includes('Order[]'),
+    );
+
+    expect(banners).toHaveLength(0);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('stays quiet for a tag that reached nothing and resembles nothing', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    // Nothing carries a Customer tag, and it is not a near miss for Order[].
+    devtools.actions.invalidateTag('Customer[]');
+    h.flush();
+    await h.settle();
+
+    goTo('trace');
+
+    expect(shadow().querySelector('.nearmiss')).toBeNull();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the vitals strip', () => {
+  it('reports the counters that say whether anything is leaking', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    const vitals = shadow().querySelector('.vitals');
+    const read = (key: string): string | undefined =>
+      vitals?.querySelector(`[data-vital="${key}"]`)?.textContent ?? undefined;
+
+    expect(vitals).not.toBeNull();
+    expect(read('entities')).toContain('3');
+    expect(read('mounted')).toContain('1');
+    expect(read('store')).toContain('v');
+    expect(read('tags')).toBeDefined();
+    // Tombstones and stamped tags are both bounded caches; a number that keeps
+    // climbing is the shape of a leak, and neither was visible anywhere.
+    expect(read('tombstones')).toBeDefined();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('flags pending optimistic writes in the strip only when there are some', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    expect(shadow().querySelector('[data-vital="pending"]')).toBeNull();
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: {} } as const]]),
+      undefined,
+      [],
+    );
+    devtools.actions.invalidateTag('Order[]');
+    await Promise.resolve();
+
+    expect(shadow().querySelector('[data-vital="pending"]')?.textContent).toContain('1');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('density', () => {
+  it('switches the panel to compact rows and back', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const press = (): void =>
+      shadow()
+        .querySelector('[data-act="density"]')
+        ?.dispatchEvent(new Event('click', { bubbles: true })) as unknown as void;
+
+    expect(shadow().querySelector('.panel')?.getAttribute('data-density')).toBe('comfortable');
+
+    press();
+    expect(shadow().querySelector('.panel')?.getAttribute('data-density')).toBe('compact');
+
+    press();
+    expect(shadow().querySelector('.panel')?.getAttribute('data-density')).toBe('comfortable');
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the keyboard', () => {
+  const key = (init: KeyboardEventInit): void => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true }));
+  };
+
+  it('closes the inspector on escape', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+    expect(shadow().querySelector('.detail')).not.toBeNull();
+
+    key({ key: 'Escape' });
+
+    expect(shadow().querySelector('.detail')).toBeNull();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('switches tabs by number', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const current = (): string | null | undefined =>
+      [...shadow().querySelectorAll('.bar button')]
+        .find((node) => node.getAttribute('aria-selected') === 'true')
+        ?.textContent;
+
+    expect(current()).toBe('trace');
+
+    key({ key: '3' });
+
+    expect(current()).toBe('queries');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('toggles the panel with the mount shortcut', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body });
+
+    expect(shadow().querySelector('.panel')).toBeNull();
+
+    key({ key: 'F', metaKey: true, shiftKey: true });
+
+    expect(shadow().querySelector('.panel')).not.toBeNull();
+
+    key({ key: 'F', metaKey: true, shiftKey: true });
+
+    expect(shadow().querySelector('.panel')).toBeNull();
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('freezes and releases the view on f', () => {
+    const controls = new TransportControls({ sleep: () => Promise.resolve() });
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), controls });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    key({ key: 'f' });
+
+    expect(shadow().querySelector('[data-act="freeze"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    key({ key: 'f' });
+
+    expect(shadow().querySelector('[data-act="freeze"]')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * Typing "3" into the filter box must filter, not jump to the third tab.
+   * A devtools panel that eats keystrokes out of its own input is worse than
+   * one with no shortcuts at all.
+   */
+  it('keeps its hands off keys typed into an input', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const input = shadow().querySelector('.bar input');
+
+    input?.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true }));
+
+    expect(
+      [...shadow().querySelectorAll('.bar button')].find(
+        (node) => node.getAttribute('aria-selected') === 'true',
+      )?.textContent,
+    ).toBe('trace');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('does nothing at all once unmounted', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    unmount();
+    devtools.dispose();
+
+    // No shadow root to read any more; the assertion is that this does not throw.
+    expect(() => {
+      key({ key: '3' });
+    }).not.toThrow();
+  });
+});
+
+describe('the request waterfall', () => {
+  function wired(): { log: RequestLog; rest: RestTransport } {
+    const log = new RequestLog(20, counter());
+    let calls = 0;
+    const rest = new RestTransport({
+      client: {
+        request<T>(): Promise<T> {
+          calls += 1;
+
+          return calls === 1
+            ? (Promise.reject(new HttpFail(503)) as Promise<T>)
+            : (Promise.resolve({ ok: true }) as Promise<T>);
+        },
+      },
+      sleep: () => Promise.resolve(),
+      random: () => 0,
+      observer: log.observer,
+    });
+
+    return { log, rest };
+  }
+
+  it('draws a bar per request, proportional to the slowest one', async () => {
+    const { log, rest } = wired();
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    goTo('network');
+
+    const bar = shadow().querySelector('tr.row .wf');
+
+    expect(bar).not.toBeNull();
+    // Segments are widths, so the sum is the whole bar.
+    expect(bar?.querySelectorAll('i').length).toBeGreaterThan(0);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('shows the backoff as its own segment, distinct from the wire', async () => {
+    const { log, rest } = wired();
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    goTo('network');
+
+    expect(shadow().querySelector('tr.row .wf .backoff')).not.toBeNull();
+
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the overlay stack, acted on', () => {
+  it('rolls a pending write back off the stack', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 99 } } as const]]),
+      undefined,
+      ['Order[]'],
+    );
+
+    goTo('overlay');
+
+    expect(shadow().querySelectorAll('.layer')).toHaveLength(1);
+
+    shadow()
+      .querySelector('[data-act="rollback"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(devtools.overlays()).toHaveLength(0);
+    expect(shadow().querySelectorAll('.layer')).toHaveLength(0);
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('shows the base record beside what the patch makes of it', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 999 } } as const]]),
+      undefined,
+      [],
+    );
+
+    goTo('overlay');
+
+    const diff = shadow().querySelector('.layer .diff')?.textContent ?? '';
+
+    expect(diff).toContain('10');
+    expect(diff).toContain('999');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('holding a query in a state', () => {
+  it('holds it in loading, marks it, and gives the real record back', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+
+    const key = h.cache.key(ops.orderList);
+    const row = [...shadow().querySelectorAll('tr.row')].find((node) =>
+      node.textContent?.includes(key),
+    );
+
+    row?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    shadow()
+      .querySelector('[data-act="hold-loading"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelector('.held')).not.toBeNull();
+    expect(shadow().querySelector('.detail')?.textContent).toContain('Held in loading');
+    // The cache itself is untouched: the record still says what it said.
+    expect(devtools.detail(key)?.status).toBe('success');
+
+    shadow()
+      .querySelector('[data-act="release"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(shadow().querySelector('.held')).toBeNull();
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('writes the hold to the trace, so it is not mistaken for the app', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+    shadow()
+      .querySelector('[data-act="hold-error"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    goTo('trace');
+
+    const yours = [...shadow().querySelectorAll('.cause[data-kind="action"]')];
+
+    expect(yours.some((node) => node.textContent?.includes('hold'))).toBe(true);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('reaching the explanation', () => {
+  it('jumps from a query row to its explanation', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    await h.cache.mutate(ops.orderCreate, { body: { total: 30 } });
+    h.flush();
+    await h.settle();
+
+    goTo('queries');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    shadow()
+      .querySelector('[data-act="why"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const text = shadow().textContent ?? '';
+
+    // Explain, already pointed at the pair you were looking at, rather than
+    // asking you to type an exact query key from memory.
+    expect(text).toContain('outcome: missed');
+    expect(text).toContain('instance-vs-collection');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('refetches and invalidates the selected row from the keyboard', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const before = h.calls.length;
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }));
+    await h.settle();
+
+    expect(h.calls.length).toBeGreaterThan(before);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true }));
+    h.flush();
+    await h.settle();
+
+    goTo('trace');
+
+    expect(
+      [...shadow().querySelectorAll('.cause[data-kind="action"]')].some((node) =>
+        node.textContent?.includes('invalidate'),
+      ),
+    ).toBe(true);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('promoting a pending write', () => {
+  it('commits the overlay to the base store by hand', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: { total: 777 } } as const]]),
+      undefined,
+      [],
+    );
+
+    goTo('overlay');
+
+    shadow()
+      .querySelector('[data-act="promote"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(devtools.overlays()).toHaveLength(0);
+    // Promoted means written, so the base record now carries it.
+    expect(devtools.baseRecord('Order:1')?.['total']).toBe(777);
 
     stop();
     unmount();
