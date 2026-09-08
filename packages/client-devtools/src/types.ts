@@ -382,3 +382,29 @@ export interface InvalidationPreview {
   /** Tags no query carries at all. A refetch nobody asked for. */
   readonly missed: readonly string[];
 }
+
+/**
+ * One pending optimistic write, as it sits on the overlay stack.
+ *
+ * Nothing here carries what a patch would *write*. A merge source is either an
+ * arbitrary object or a function over the previous record, and retaining
+ * either would put application data, or a closure over it, into a structure
+ * the panel holds across repaints -- the one thing every other snapshot in
+ * this file is careful not to do. The kind is what a reader needs, and the
+ * value is already on screen as the folded record on the entities tab.
+ */
+export interface OverlaySnapshot {
+  /** Its position in the stack is its position in the array; this is its id. */
+  readonly id: number;
+  /** The entity keys it patches, and what each patch would do. */
+  readonly patches: readonly {
+    readonly key: string;
+    readonly kind: 'merge' | 'create' | 'delete';
+  }[];
+  /** Its `invalidates`, resolved against its arguments. Raised when it settles. */
+  readonly tags: readonly string[];
+  /** The minted key, for a create. Never promoted; see `OverlayStack.promote`. */
+  readonly created: string | undefined;
+  /** Whether it declares placement callbacks for the membership plane. */
+  readonly places: boolean;
+}
