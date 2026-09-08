@@ -189,7 +189,7 @@ describe('the trace', () => {
     await h.settle();
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'trace')
+      .find((node) => node.textContent?.startsWith('trace') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     const causes = [...shadow().querySelectorAll('.cause')];
@@ -223,7 +223,7 @@ describe('the trace', () => {
     await h.settle();
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'trace')
+      .find((node) => node.textContent?.startsWith('trace') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     const yours = [...shadow().querySelectorAll('.cause[data-kind="action"]')];
@@ -395,7 +395,7 @@ describe('the network tab', () => {
     const unmount = mountPanel(devtools, { parent: document.body, open: true });
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'network')
+      .find((node) => node.textContent?.startsWith('network') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     const text = shadow().querySelector('.list')?.textContent ?? '';
@@ -435,7 +435,7 @@ describe('the network tab', () => {
     });
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'network')
+      .find((node) => node.textContent?.startsWith('network') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     const row = shadow().querySelector('tr.row');
@@ -476,7 +476,7 @@ describe('the network tab', () => {
     ).rejects.toThrow();
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'network')
+      .find((node) => node.textContent?.startsWith('network') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
@@ -503,7 +503,7 @@ describe('the overlay tab', () => {
     );
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'overlay')
+      .find((node) => node.textContent?.startsWith('overlay') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     const layers = [...shadow().querySelectorAll('.layer')];
@@ -523,7 +523,7 @@ describe('the overlay tab', () => {
     const unmount = mountPanel(devtools, { parent: document.body, open: true });
 
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'overlay')
+      .find((node) => node.textContent?.startsWith('overlay') === true)
       ?.dispatchEvent(new Event('click', { bubbles: true }));
 
     expect(shadow().querySelector('.list')?.textContent).toContain('No optimistic write');
@@ -563,7 +563,9 @@ describe('the panel shell', () => {
     const devtools = attach(h.cache, { now: counter() });
     const unmount = mountPanel(devtools, { parent: document.body, open: true });
 
-    const labels = [...shadow().querySelectorAll('button')].map((node) => node.textContent);
+    const labels = [...shadow().querySelectorAll('button')].map(
+      (node) => node.querySelector('span')?.textContent ?? node.textContent,
+    );
 
     for (const tab of [
       'trace',
@@ -609,7 +611,8 @@ describe('the header buckets', () => {
    * counts, so `explainfresh 1` is what a greedy word match actually sees.
    */
   const bucket = (name: string): number => {
-    const text = shadow().querySelector('.bar')?.textContent ?? '';
+    // Only the buckets, not every number that shares the status bar with them.
+    const text = shadow().querySelector('.statusbar .buckets')?.textContent ?? '';
     const found = new RegExp(`${name} (\\d+)`).exec(text);
 
     return found?.[1] === undefined ? -1 : Number(found[1]);
@@ -618,7 +621,7 @@ describe('the header buckets', () => {
   /** Repaint now, rather than waiting on the coalesced animation frame. */
   const repaint = (): void => {
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === 'queries')
+      .find((node) => node.textContent?.startsWith('queries') === true)
       ?.dispatchEvent(new Event('click'));
   };
 
@@ -762,7 +765,9 @@ describe('the detail pane', () => {
 
     await h.cache.fetch(ops.orderList);
 
-    [...shadow().querySelectorAll('.bar button')]
+    // Session-wide actions live in the status bar, beside the session-wide
+    // numbers, rather than in the row of tabs.
+    [...shadow().querySelectorAll('.statusbar button')]
       .find((node) => node.textContent === 'clear cache')
       ?.dispatchEvent(new Event('click'));
 
@@ -776,7 +781,7 @@ describe('the detail pane', () => {
 describe('sort and selection are per tab', () => {
   const clickTab = (name: string): void => {
     [...shadow().querySelectorAll('.bar button')]
-      .find((node) => node.textContent === name)
+      .find((node) => node.textContent?.startsWith(name) === true)
       ?.dispatchEvent(new Event('click'));
   };
 
@@ -921,7 +926,7 @@ describe('the streams and frames tabs', () => {
     const unmount = mountPanel(devtools, { parent: document.body, open: true });
 
     [...shadow().querySelectorAll('button')]
-      .find((node) => node.textContent === 'streams')
+      .find((node) => node.textContent?.startsWith('streams') === true)
       ?.dispatchEvent(new Event('click'));
 
     expect(shadow().textContent).toContain('no stream runtime');
@@ -936,7 +941,7 @@ describe('the streams and frames tabs', () => {
     const unmount = mountPanel(devtools, { parent: document.body, open: true });
 
     [...shadow().querySelectorAll('button')]
-      .find((node) => node.textContent === 'frames')
+      .find((node) => node.textContent?.startsWith('frames') === true)
       ?.dispatchEvent(new Event('click'));
 
     const text = shadow().textContent ?? '';
@@ -1187,8 +1192,9 @@ function typeFilter(text: string): void {
 }
 
 function goTo(name: string): void {
+  // A tab button holds its name and its row count, so the name is a prefix.
   [...shadow().querySelectorAll('.bar button')]
-    .find((node) => node.textContent === name)
+    .find((node) => node.textContent?.startsWith(name) === true)
     ?.dispatchEvent(new Event('click', { bubbles: true }));
 }
 
@@ -1509,8 +1515,12 @@ describe('the launcher, fully dressed', () => {
 });
 
 describe('the launcher, out of the way', () => {
-  /** The collision in the corner that started all of this. */
-  it('lifts itself above a framework dev badge already in the corner', () => {
+  /**
+   * It sits where you put it. Guessing from an element name got this wrong:
+   * a framework whose badge exists but is not in this corner still matched,
+   * and the launcher lifted itself away from the edge for no reason.
+   */
+  it('stays in the corner even with a framework dev badge on the page', () => {
     const badge = document.createElement('nextjs-portal');
 
     document.body.append(badge);
@@ -1519,7 +1529,7 @@ describe('the launcher, out of the way', () => {
     const devtools = attach(h.cache, { now: counter() });
     const unmount = mountPanel(devtools, { parent: document.body });
 
-    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('badge');
+    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('none');
 
     unmount();
     badge.remove();
@@ -1748,7 +1758,7 @@ describe('the keyboard', () => {
     const current = (): string | null | undefined =>
       [...shadow().querySelectorAll('.bar button')]
         .find((node) => node.getAttribute('aria-selected') === 'true')
-        ?.textContent;
+        ?.querySelector('span')?.textContent;
 
     expect(current()).toBe('trace');
 
@@ -1816,9 +1826,9 @@ describe('the keyboard', () => {
     input?.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true }));
 
     expect(
-      [...shadow().querySelectorAll('.bar button')].find(
-        (node) => node.getAttribute('aria-selected') === 'true',
-      )?.textContent,
+      [...shadow().querySelectorAll('.bar button')]
+        .find((node) => node.getAttribute('aria-selected') === 'true')
+        ?.querySelector('span')?.textContent,
     ).toBe('trace');
 
     unmount();

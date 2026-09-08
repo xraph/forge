@@ -3,7 +3,7 @@ import { ClientProvider } from '@forge-go/client-react';
 import { act, createElement, StrictMode, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Devtools } from '@forge-go/client-devtools';
 import { ForgeDevtools, useForgeDevtools } from '../src/dev';
 import type { ForgeDevtoolsProps } from '../src/dev';
@@ -204,33 +204,27 @@ describe('ForgeDevtools', () => {
 });
 
 describe('choosing the UI', () => {
-  /**
-   * `panel={false}` is the escape hatch for the lean view. It used to mount
-   * `/overlay`, which is the full panel now, so the prop would have quietly
-   * stopped meaning anything.
-   */
-  it('mounts the lean view when the panel is declined', async () => {
-    const app = mount(
-      createElement(
-        ClientProvider,
-        { client: cache() },
-        createElement<ForgeDevtoolsProps>(ForgeDevtools, { panel: false, open: true }),
-      ),
-    );
+  const warnings: string[] = [];
 
-    await waitForPanel();
+  beforeEach(() => {
+    warnings.length = 0;
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '));
+    });
+  });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const labels = (): string[] => {
     const host = [...document.body.children].find((node) => node.shadowRoot !== null);
 
-    const labels = [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
-      (node) => node.textContent ?? '',
+    // A tab button holds its name and its row count; the name is the first span.
+    return [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
+      (node) => node.querySelector('span')?.textContent ?? node.textContent ?? '',
     );
-
-    expect(labels).toContain('queries');
-    expect(labels).not.toContain('trace');
-
-    app.unmount();
-  });
+  };
 
   it('mounts the full panel by default', async () => {
     const app = mount(
@@ -243,13 +237,46 @@ describe('choosing the UI', () => {
 
     await waitForPanel();
 
-    const host = [...document.body.children].find((node) => node.shadowRoot !== null);
-    const labels = [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
-      (node) => node.textContent ?? '',
+    expect(labels()).toContain('trace');
+
+    app.unmount();
+  });
+
+  /**
+   * `panel={false}` used to reach for the lean view. That view is deprecated,
+   * so honouring it would hand you a worse UI than passing nothing at all.
+   * Mounting the panel and saying so is the one behaviour that never surprises
+   * anyone; silently ignoring the prop would be worse than either.
+   *
+   * Two components, one warning. A deprecation that fires per render of per
+   * component is noise you learn to scroll past, which is the opposite of what
+   * a deprecation is for, so the flag behind it is deliberately per page.
+   */
+  it('mounts the panel even when declined, warning once', async () => {
+    const app = mount(
+      createElement(
+        ClientProvider,
+        { client: cache() },
+        createElement<ForgeDevtoolsProps>(ForgeDevtools, { panel: false, open: true }),
+      ),
     );
 
-    expect(labels).toContain('trace');
+    await waitForPanel();
 
+    const app2 = mount(
+      createElement(
+        ClientProvider,
+        { client: cache() },
+        createElement<ForgeDevtoolsProps>(ForgeDevtools, { panel: false }),
+      ),
+    );
+
+    await waitForPanel();
+
+    expect(labels()).toContain('trace');
+    expect(warnings.filter((line) => line.includes('panel={false}'))).toHaveLength(1);
+
+    app2.unmount();
     app.unmount();
   });
 });
