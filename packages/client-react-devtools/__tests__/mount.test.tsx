@@ -42,6 +42,24 @@ function mount(node: ReactNode): { unmount: () => void } {
 const panels = (): number =>
   [...document.body.children].filter((node) => node.shadowRoot !== null).length;
 
+/**
+ * Wait for the panel to actually be in the DOM.
+ *
+ * A fixed number of ticks is the wrong tool here: how long the effect's
+ * dynamic import takes depends on whether that module is already in the
+ * graph, so the same wait is generous for a warm module and short for a cold
+ * one. Polling for the thing we are waiting on is stable either way.
+ */
+async function waitForPanel(): Promise<void> {
+  for (let i = 0; i < 50 && panels() === 0; i++) {
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
+    });
+  }
+}
+
 /** The dynamic imports inside the effect settle on the microtask queue. */
 async function settle(): Promise<void> {
   await act(async () => {
@@ -181,5 +199,56 @@ describe('ForgeDevtools', () => {
     expect(box.value).toBeUndefined();
 
     probe.unmount();
+  });
+});
+
+describe('choosing the UI', () => {
+  /**
+   * `panel={false}` is the escape hatch for the lean view. It used to mount
+   * `/overlay`, which is the full panel now, so the prop would have quietly
+   * stopped meaning anything.
+   */
+  it('mounts the lean view when the panel is declined', async () => {
+    const app = mount(
+      createElement(
+        ClientProvider,
+        { client: cache() },
+        createElement(ForgeDevtools, { panel: false, open: true }),
+      ),
+    );
+
+    await waitForPanel();
+
+    const host = [...document.body.children].find((node) => node.shadowRoot !== null);
+
+    const labels = [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
+      (node) => node.textContent ?? '',
+    );
+
+    expect(labels).toContain('queries');
+    expect(labels).not.toContain('trace');
+
+    app.unmount();
+  });
+
+  it('mounts the full panel by default', async () => {
+    const app = mount(
+      createElement(
+        ClientProvider,
+        { client: cache() },
+        createElement(ForgeDevtools, { open: true }),
+      ),
+    );
+
+    await waitForPanel();
+
+    const host = [...document.body.children].find((node) => node.shadowRoot !== null);
+    const labels = [...(host?.shadowRoot?.querySelectorAll('.bar button') ?? [])].map(
+      (node) => node.textContent ?? '',
+    );
+
+    expect(labels).toContain('trace');
+
+    app.unmount();
   });
 });

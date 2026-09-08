@@ -259,8 +259,31 @@ teach.
 ```ts
 import { mountOverlay } from '@forge-go/client-devtools/overlay';
 
-const unmount = mountOverlay(forge);
+const unmount = mountOverlay(forge, { open: true });
 ```
+
+This is the whole panel: the causal trace, the network view, the overlay stack,
+the control rail, the detail pane and the actions. `/overlay` and `/panel` are
+the same implementation under two names, so it does not matter which you reach
+for.
+
+It used to be the other way round. `/overlay` was six read-only tables and
+`/panel` was everything, which meant that following your instincts got you the
+least capable UI in the package with nothing telling you a better one existed
+one subpath away. If you were on `/overlay` before 1.11 and it looked thin,
+that is why, and updating is the whole fix.
+
+The lean view is still here and still worth having. It is `/mini` now:
+
+```ts
+import { mountMini } from '@forge-go/client-devtools/mini';
+
+const unmount = mountMini(forge);
+```
+
+Six read-only tables and a filter box in 3.5 kB gzipped, which is the right
+trade for a demo, a production-adjacent build, or anything that wants to see
+the cache without shipping a debugger.
 
 A DOM panel in a shadow root: `document.createElement` and nothing else.
 Deliberately **not a component** — a React panel forces React on a Vue
@@ -270,9 +293,6 @@ plain panel beats the reverse: the API is what you call from the console at
 three in the morning, what a test asserts on, and what somebody else's panel is
 built from.
 
-If you want the detail pane, the actions and the stream views, import
-`/panel` instead. They are two entry points, not a base and an extension.
-
 ## The panel
 
 ```ts
@@ -281,9 +301,8 @@ import { mountPanel } from '@forge-go/client-devtools/panel';
 const unmount = mountPanel(forge, { open: true });
 ```
 
-The other entry point, and you pick one. `/overlay` is six read-only tables
-and a filter box; `/panel` is that plus everything the overlay deliberately
-does not have:
+The same thing `/overlay` gives you, under the name it had first. Both are the
+full panel; `/mini` is the lean one. What the panel has that `/mini` does not:
 
 - **A detail pane.** Click a query and get its status, its mounts, its
   provides, tags and deps, and its last settled response as a `<details>`

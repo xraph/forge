@@ -62,11 +62,18 @@
  * off unless asked for.
  *
  * The UI is deliberately secondary, and there are two of them, chosen rather
- * than layered. `./overlay` is the lean one, six read-only tables and a filter
- * box. `./panel` adds the detail pane, the action bar and the stream and frame
- * views. Both are `document.createElement` in a shadow root -- no framework, no
- * React tree, nothing an Angular or a Vue application has to take a dependency
- * on -- and both are views over this API and nothing more.
+ * than layered. `./overlay` and `./panel` are the same full panel under two
+ * names: the causal trace, the network view, the overlay stack, the control
+ * rail, the detail pane and the actions. `./mini` is the lean one, six
+ * read-only tables and a filter box in a fraction of the bytes.
+ *
+ * The lean view used to own `./overlay`, which was the wrong way round.
+ * `overlay` is the import people reach for, so leaving the smallest UI on it
+ * meant that following your instincts got you the least capable one with
+ * nothing to say a better one existed. Both are `document.createElement` in a
+ * shadow root -- no framework, no React tree, nothing an Angular or a Vue
+ * application has to take a dependency on -- and both are views over this API
+ * and nothing more.
  */
 
 export { createActions } from './actions.js';

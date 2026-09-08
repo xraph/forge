@@ -26,6 +26,10 @@
       "types": "./dist/panel.d.ts",
       "import": "./dist/panel.js"
     },
+    "./mini": {
+      "types": "./dist/mini.d.ts",
+      "import": "./dist/mini.js"
+    },
     "./requests": {
       "types": "./dist/requests.d.ts",
       "import": "./dist/requests.js"
@@ -57,8 +61,17 @@
       ]
     },
     {
-      "name": "overlay",
+      "name": "overlay (the full panel)",
       "path": "dist/overlay.js",
+      "limit": "16 kB",
+      "gzip": true,
+      "ignore": [
+        "@forge-go/client-core"
+      ]
+    },
+    {
+      "name": "the lean view",
+      "path": "dist/mini.js",
       "limit": "3.5 kB",
       "gzip": true,
       "ignore": [
@@ -93,10 +106,10 @@
       ]
     },
     {
-      "name": "inspector and overlay together",
+      "name": "inspector and the lean view together",
       "path": [
         "dist/index.js",
-        "dist/overlay.js"
+        "dist/mini.js"
       ],
       "limit": "10 kB",
       "gzip": true,

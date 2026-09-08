@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { attach } from '../src/devtools';
-import { mountOverlay } from '../src/overlay';
+import { mountMini } from '../src/mini';
 import { TransportControls } from '../src/control';
 import { counter, harness, ops } from './harness';
 
@@ -12,7 +12,7 @@ import { counter, harness, ops } from './harness';
 function shadow(): ShadowRoot {
   const host = document.body.lastElementChild;
 
-  if (host?.shadowRoot == null) throw new Error('the overlay did not attach a shadow root');
+  if (host?.shadowRoot == null) throw new Error('the lean view did not attach a shadow root');
 
   return host.shadowRoot;
 }
@@ -34,7 +34,7 @@ describe('the launcher', () => {
   it('shows the forge mark rather than the word "forge"', () => {
     const h = harness();
     const devtools = attach(h.cache, { now: counter() });
-    const unmount = mountOverlay(devtools, { parent: document.body });
+    const unmount = mountMini(devtools, { parent: document.body });
 
     const button = shadow().querySelector('button');
 
@@ -47,11 +47,11 @@ describe('the launcher', () => {
   });
 });
 
-describe('the overlay', () => {
+describe('the lean view', () => {
   it('starts closed, opens, and shows the queries', async () => {
     const h = harness();
     const devtools = attach(h.cache, { now: counter() });
-    const unmount = mountOverlay(devtools, { parent: document.body });
+    const unmount = mountMini(devtools, { parent: document.body });
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
@@ -75,7 +75,7 @@ describe('the overlay', () => {
   it('renders the near-miss explanation for a query key', async () => {
     const h = harness();
     const devtools = attach(h.cache, { now: counter() });
-    const unmount = mountOverlay(devtools, { parent: document.body, open: true });
+    const unmount = mountMini(devtools, { parent: document.body, open: true });
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
@@ -111,7 +111,7 @@ describe('the overlay', () => {
     const h = harness();
     const devtools = attach(h.cache, { now: counter() });
     const before = document.body.childElementCount;
-    const unmount = mountOverlay(devtools, { parent: document.body, open: true });
+    const unmount = mountMini(devtools, { parent: document.body, open: true });
 
     expect(document.body.childElementCount).toBe(before + 1);
     // Scoped: the stylesheet is inside the shadow root, not in the document.
@@ -150,7 +150,7 @@ describe('the launcher ring', () => {
     h.fail('GET /orders', new Error('nope'));
 
     const devtools = attach(h.cache, { now: counter(), controls });
-    const unmount = mountOverlay(devtools, { parent: document.body });
+    const unmount = mountMini(devtools, { parent: document.body });
 
     const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
     await h.settle();
