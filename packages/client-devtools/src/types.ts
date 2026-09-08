@@ -257,7 +257,8 @@ export interface ActionLog extends LogBase {
     | 'clear'
     | 'rollback'
     | 'hold'
-    | 'release';
+    | 'release'
+    | 'stale';
   /** The query key, entity key or tag the action was aimed at. */
   readonly target: string;
 }

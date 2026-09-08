@@ -240,6 +240,7 @@ const CSS = `
   overflow: hidden; }
 .wf i { display: block; height: 100%; }
 .wf .wire { background: #62a8ff; }
+.wf .auth { background: #ae8cff; }
 .wf .backoff { background: repeating-linear-gradient(90deg, #45454f 0 3px, transparent 3px 6px); }
 .wf .pending { width: 100%; background: repeating-linear-gradient(90deg, #35353d 0 4px,
   transparent 4px 8px); }
@@ -1447,6 +1448,15 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   const holdBar = (key: string): HTMLElement => {
     const bar = el('div', 'buttons');
 
+    const stale = el('button', undefined, 'force stale');
+
+    stale.setAttribute('data-act', 'force-stale');
+    stale.addEventListener('click', () => {
+      devtools.actions.forceStale(key);
+      render();
+    });
+    bar.append(stale);
+
     for (const state of ['loading', 'error'] as const) {
       const button = el('button', undefined, `hold ${state}`);
 
@@ -1458,6 +1468,55 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       });
       bar.append(button);
     }
+
+    return bar;
+  };
+
+  /**
+   * Edit one field, as an overlay entry.
+   *
+   * The argument the whole state-manipulation section rests on: a devtools
+   * edit rides the same stack a pending mutation does, so it never writes the
+   * base store, undo is removing the entry rather than applying an inverse,
+   * and a stream frame that evicts the row takes this with it exactly as it
+   * would take a real optimistic write. A merge over a base record that is
+   * gone patches nothing, and that rule is already in `OverlayStack`.
+   */
+  const editBar = (key: string): HTMLElement => {
+    const bar = el('div', 'buttons');
+    const field = doc.createElement('input');
+    const value = doc.createElement('input');
+
+    field.setAttribute('data-act', 'edit-field');
+    field.placeholder = 'field';
+    field.setAttribute('aria-label', 'Field to edit');
+    value.setAttribute('data-act', 'edit-value');
+    value.placeholder = 'value';
+    value.setAttribute('aria-label', 'New value');
+
+    const apply = el('button', undefined, 'patch');
+
+    apply.setAttribute('data-act', 'edit-apply');
+    apply.addEventListener('click', () => {
+      const name = field.value.trim();
+
+      if (name === '') return;
+
+      // JSON first so a number stays a number, falling back to the raw string
+      // for the common case of typing a word rather than a quoted one.
+      let parsed: unknown = value.value;
+
+      try {
+        parsed = JSON.parse(value.value) as unknown;
+      } catch {
+        parsed = value.value;
+      }
+
+      devtools.patchEntity(key, { [name]: parsed });
+      render();
+    });
+
+    bar.append(field, value, apply);
 
     return bar;
   };
@@ -1544,6 +1603,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    */
   const renderEntityDetail = (body: HTMLElement, key: string): void => {
     const record: EntitySnapshot | undefined = devtools.entity(key);
+
+    if (record !== undefined) body.append(editBar(key));
 
     if (record === undefined) {
       body.append(el('p', 'dim', `${key} is not in the store.`));
@@ -1642,6 +1703,24 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     body.append(field('attempts', `${String(one.attempts)} of ${String(one.limit)} allowed`));
     body.append(
       field('duration', one.duration === undefined ? 'still in flight' : `${String(one.duration)}`),
+    );
+
+    const curl = el('pre', 'curl');
+
+    curl.setAttribute('data-curl', '');
+    curl.textContent =
+      `curl -X ${one.method} '${one.operation.slice(one.method.length + 1)}' \\\n` +
+      `  -H 'authorization: Bearer $TOKEN' \\\n` +
+      `  -H 'accept: application/json'${one.args === '' || one.args === '{}' ? '' : ` \\\n  -d '${one.args}'`}`;
+    body.append(el('h4', undefined, 'as curl'));
+    body.append(curl);
+    body.append(
+      el(
+        'p',
+        'dim',
+        'The credential is a placeholder. This log never keeps the real one, ' +
+          'which is why it is cheap enough to leave on.',
+      ),
     );
 
     body.append(el('h4', undefined, 'retry policy'));
@@ -1934,8 +2013,16 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     }
 
     const waited = one.retries.reduce((total, retry) => total + retry.delay, 0);
-    const wire = Math.max(0, one.duration - waited);
+    const wire = Math.max(0, one.duration - waited - one.authMs);
     const scale = (ms: number): string => `${String((ms / slowest) * 100)}%`;
+
+    if (one.authMs > 0) {
+      const auth = el('i', 'auth');
+
+      auth.style.width = scale(one.authMs);
+      auth.title = `${String(Math.round(one.authMs))}ms waiting on the credential refresh`;
+      bar.append(auth);
+    }
 
     const sent = el('i', 'wire');
 
@@ -2306,7 +2393,52 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       return;
     }
 
+    // Jump to the filter box. The mock drew a command palette here; the filter
+    // box already parses `status:4xx`, `>100ms` and `tag:`, so a palette would
+    // be a second front door to the same room.
+    if (open && ((meta && event.key.toLowerCase() === 'k') || (!meta && event.key === '/'))) {
+      event.preventDefault();
+      (root.querySelector('.bar input') as HTMLInputElement | null)?.focus();
+
+      return;
+    }
+
+    // Pop the top of the overlay stack. Removal is the whole of rollback, so
+    // undo here means what undo means everywhere else in this package.
+    if (open && meta && event.key.toLowerCase() === 'z') {
+      const stack = devtools.overlays();
+      const top = stack[stack.length - 1];
+
+      if (top === undefined) return;
+
+      event.preventDefault();
+      devtools.actions.rollback(top.id);
+      render();
+
+      return;
+    }
+
+    if (open && event.key === 'F11') {
+      event.preventDefault();
+      mode = mode === 'full' ? 'bottom' : 'full';
+      render();
+
+      return;
+    }
+
     if (!open || meta || event.altKey) return;
+
+    if (event.key === 'Enter') {
+      const picked = selected.get(tab);
+
+      if (picked === undefined) return;
+
+      filter = picked;
+      tab = 'explain';
+      render();
+
+      return;
+    }
 
     if (event.key === 'Escape') {
       if (selected.get(tab) === undefined) return;

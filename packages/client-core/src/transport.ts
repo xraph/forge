@@ -273,6 +273,14 @@ export type RequestEvent =
   | { readonly type: 'attempt'; readonly attempt: number }
   /** A 401 sent this request to the credential refresh. */
   | { readonly type: 'refresh'; readonly joined: boolean }
+  /**
+   * The refresh this request was waiting on has finished, either way.
+   *
+   * Paired with `refresh` so the wait has a duration. Without it a watcher can
+   * say a request hit the credential refresh but not how long it sat there,
+   * which is the only number that tells an auth stall apart from a slow server.
+   */
+  | { readonly type: 'refreshed'; readonly ok: boolean }
   | {
       readonly type: 'retry';
       readonly attempt: number;
@@ -484,7 +492,10 @@ export class RestTransport implements Transport {
       if (generation === this.generation) {
         try {
           await this.refresh(watch);
+          watch?.({ type: 'refreshed', ok: true });
         } catch {
+          watch?.({ type: 'refreshed', ok: false });
+
           // The refresh failed, so the 401 stands. Reporting the refresh's own
           // error here would replace "you are not authorized" with whatever
           // the token endpoint said, which is not what the caller asked for.

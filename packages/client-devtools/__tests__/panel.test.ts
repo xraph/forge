@@ -2127,3 +2127,246 @@ describe('promoting a pending write', () => {
     devtools.dispose();
   });
 });
+
+describe('closing the last gaps', () => {
+  it('draws the auth wait as its own segment', async () => {
+    const log = new RequestLog(20, counter());
+    let token = 't0';
+    const rest = new RestTransport({
+      client: {
+        request<T>(config: { headers?: Record<string, string> }): Promise<T> {
+          return config.headers?.['Authorization'] === 'Bearer t0'
+            ? (Promise.reject(new HttpFail(401)) as Promise<T>)
+            : (Promise.resolve({ ok: true }) as Promise<T>);
+        },
+      },
+      auth: {
+        credentials: () => ({ Authorization: `Bearer ${token}` }),
+        refresh: () => {
+          token = 't1';
+
+          return Promise.resolve();
+        },
+      },
+      sleep: () => Promise.resolve(),
+      observer: log.observer,
+    });
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    goTo('network');
+
+    expect(shadow().querySelector('tr.row .wf .auth')).not.toBeNull();
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('writes a curl line for the selected request', async () => {
+    const log = new RequestLog(20, counter());
+    const rest = new RestTransport({
+      client: {
+        request<T>(): Promise<T> {
+          return Promise.resolve({ ok: true }) as Promise<T>;
+        },
+      },
+      observer: log.observer,
+    });
+
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter(), requests: log });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    await rest.execute({
+      meta: { method: 'GET', path: '/orders', provides: [], invalidates: [] },
+      args: {},
+    });
+
+    goTo('network');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const curl = shadow().querySelector('[data-curl]')?.textContent ?? '';
+
+    expect(curl).toContain("curl -X GET");
+    expect(curl).toContain('/orders');
+    // Never the real credential, which the log does not keep in the first place.
+    expect(curl).toContain('$TOKEN');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  /**
+   * The mock's argument, finally built: a devtools edit is an overlay entry.
+   * It never writes the base store, so undo is removing it rather than
+   * applying an inverse, and a stream frame that evicts the row takes it with
+   * it exactly as it would a real optimistic write.
+   */
+  it('edits an entity field by pushing a patch onto the overlay stack', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('entities');
+
+    const row = [...shadow().querySelectorAll('tr.row')].find((node) =>
+      node.textContent?.includes('Order:1'),
+    );
+
+    row?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    const field = shadow().querySelector('[data-act="edit-field"]') as HTMLInputElement | null;
+    const value = shadow().querySelector('[data-act="edit-value"]') as HTMLInputElement | null;
+
+    expect(field).not.toBeNull();
+
+    if (field !== null && value !== null) {
+      field.value = 'total';
+      value.value = '4242';
+    }
+
+    shadow()
+      .querySelector('[data-act="edit-apply"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(devtools.overlays()).toHaveLength(1);
+    expect(devtools.foldedRecord('Order:1')?.['total']).toBe(4242);
+    // The base is untouched, which is the whole point.
+    expect(devtools.baseRecord('Order:1')?.['total']).toBe(10);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+
+  it('marks a query stale without refetching it', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    goTo('queries');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    const before = h.calls.length;
+
+    shadow()
+      .querySelector('[data-act="force-stale"]')
+      ?.dispatchEvent(new Event('click', { bubbles: true }));
+    await h.settle();
+
+    expect(devtools.queries()[0]?.stale).toBe(true);
+    // Stale, not refetched: no request went out.
+    expect(h.calls.length).toBe(before);
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});
+
+describe('the remaining shortcuts', () => {
+  const key = (init: KeyboardEventInit): void => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true }));
+  };
+
+  it('focuses the filter box on slash and on the jump shortcut', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    key({ key: '/' });
+    expect(shadow().activeElement?.tagName).toBe('INPUT');
+
+    (shadow().activeElement as HTMLElement | null)?.blur();
+
+    key({ key: 'k', metaKey: true });
+    expect(shadow().activeElement?.tagName).toBe('INPUT');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('pops the top overlay on undo', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    h.cache.overlays.add(
+      new Map([['Order:1', { kind: 'merge', source: {} } as const]]),
+      undefined,
+      [],
+    );
+    h.cache.overlays.add(
+      new Map([['Order:2', { kind: 'merge', source: {} } as const]]),
+      undefined,
+      [],
+    );
+
+    key({ key: 'z', metaKey: true });
+
+    expect(devtools.overlays()).toHaveLength(1);
+    // The top of the stack went, not the bottom.
+    expect(devtools.overlays()[0]?.patches[0]?.key).toBe('Order:1');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('goes fullscreen and back on the fullscreen key', () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    key({ key: 'F11' });
+    expect(shadow().querySelector('.panel')?.getAttribute('data-mode')).toBe('full');
+
+    key({ key: 'F11' });
+    expect(shadow().querySelector('.panel')?.getAttribute('data-mode')).toBe('bottom');
+
+    unmount();
+    devtools.dispose();
+  });
+
+  it('explains the selected row on enter', async () => {
+    const h = harness();
+    const devtools = attach(h.cache, { now: counter() });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    const stop = h.cache.subscribe(ops.orderList, undefined, () => undefined);
+    await h.settle();
+
+    await h.cache.mutate(ops.orderCreate, { body: { total: 30 } });
+    h.flush();
+    await h.settle();
+
+    goTo('queries');
+    [...shadow().querySelectorAll('tr.row')][0]?.dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+
+    key({ key: 'Enter' });
+
+    expect(shadow().textContent).toContain('outcome: missed');
+
+    stop();
+    unmount();
+    devtools.dispose();
+  });
+});

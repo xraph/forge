@@ -11,7 +11,8 @@ type ActionKind =
   | 'clear'
   | 'rollback'
   | 'hold'
-  | 'release';
+  | 'release'
+  | 'stale';
 
 /**
  * The half that writes.
@@ -64,6 +65,24 @@ export interface DevtoolsActions {
    * promoting a layer that minted one writes its merges and drops the create.
    */
   promote(id: number): boolean;
+  /**
+   * Mark one query behind the server without asking for it again.
+   *
+   * `invalidate` raises the query's tags, which reaches every query sharing
+   * them and refetches the mounted ones. This marks exactly one, and leaves
+   * the request for whenever something next needs it, which is the state you
+   * want when you are trying to see what a stale read looks like.
+   */
+  forceStale(key: string): boolean;
+  /**
+   * Push one hand-written field change onto the overlay stack.
+   *
+   * Deliberately an overlay and not a store write. See `editBar` in the panel:
+   * this rides the same machinery a pending optimistic mutation does, which is
+   * what makes it reversible by removal and correctly beaten by an evicting
+   * stream frame. Returns the overlay id, for the undo.
+   */
+  patchEntity(key: string, fields: Readonly<Record<string, unknown>>): number;
   /**
    * Record that the panel is holding a query in a state it did not reach.
    *
@@ -174,6 +193,28 @@ export function createActions(
       cache.notifyChanged();
 
       return true;
+    },
+
+    forceStale(key) {
+      const entry = cache.registry.get(key);
+
+      if (entry === undefined) return false;
+
+      record('stale', key);
+      cache.registry.markStale(entry);
+      cache.notifyChanged();
+
+      return true;
+    },
+
+    patchEntity(key, fields) {
+      record('rollback', `patch ${key}`);
+
+      const id = cache.overlays.add(new Map([[key, { kind: 'merge', source: { ...fields } }]]), undefined, []);
+
+      cache.notifyChanged();
+
+      return id;
     },
 
     hold(key, state) {

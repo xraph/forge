@@ -49,6 +49,14 @@ export interface RequestSnapshot {
    * one refresh, and only the transport knows which of them asked for it.
    */
   readonly joined: boolean;
+  /**
+   * Milliseconds spent waiting on the credential refresh.
+   *
+   * Zero for a request that never met a 401. This is what tells an auth stall
+   * apart from a slow server: both look like one long request from outside,
+   * and only this says which half of it was queueing behind a token.
+   */
+  readonly authMs: number;
 }
 
 /** The mutable half, while a request is still running. */
@@ -66,6 +74,9 @@ interface Live {
   retries: { attempt: number; delay: number; status: number | undefined }[];
   refreshes: number;
   joined: boolean;
+  authMs: number;
+  /** When the refresh this request is waiting on began. */
+  authAt: number | undefined;
 }
 
 /**
@@ -119,7 +130,11 @@ export class RequestLog {
     for (let i = 0; i < this.filled; i++) {
       const live = this.ring[(this.cursor + this.capacity - this.filled + i) % this.capacity];
 
-      if (live !== undefined) out.push({ ...live, retries: [...live.retries] });
+      if (live !== undefined) {
+        const { authAt: _at, ...snapshot } = live;
+
+        out.push({ ...snapshot, retries: [...live.retries] });
+      }
     }
 
     return out;
@@ -149,6 +164,8 @@ export class RequestLog {
         retries: [],
         refreshes: 0,
         joined: false,
+        authMs: 0,
+        authAt: undefined,
       });
 
       return;
@@ -172,10 +189,19 @@ export class RequestLog {
 
       case 'refresh':
         live.refreshes += 1;
+        live.authAt = this.now();
         // Only ever waited: one request that started a flight is not a joiner,
         // even if a later 401 on the same request joined one.
         if (live.refreshes === 1) live.joined = event.joined;
         else if (!event.joined) live.joined = false;
+        break;
+
+      case 'refreshed':
+        if (live.authAt !== undefined) {
+          live.authMs += this.now() - live.authAt;
+          live.authAt = undefined;
+        }
+
         break;
 
       case 'settled':
