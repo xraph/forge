@@ -6,7 +6,14 @@ import { useClient } from '@forge-go/client-react';
 export interface ForgeDevtoolsProps {
   /** Beats the provider and the module default, as everywhere else. */
   readonly client?: QueryCache;
-  /** The full panel. `false` mounts the lean overlay instead. Defaults to true. */
+  /**
+   * The full panel. Defaults to true.
+   *
+   * `false` mounts the lean view instead: six read-only tables and a filter
+   * box, in a fraction of the bytes. It used to reach for `/overlay`, which is
+   * the full panel now, so this branch would have quietly stopped meaning
+   * anything.
+   */
   readonly panel?: boolean;
   /** Start open rather than as a button in the corner. */
   readonly open?: boolean;
@@ -181,7 +188,7 @@ export function ForgeDevtools(props: ForgeDevtoolsProps = {}): null {
 
           unmount = mountPanel(entry.devtools, { open });
         } else {
-          const { mountOverlay } = await import('@forge-go/client-devtools/overlay');
+          const { mountMini } = await import('@forge-go/client-devtools/mini');
 
           if (!live) {
             releaseOnce();
@@ -189,7 +196,7 @@ export function ForgeDevtools(props: ForgeDevtoolsProps = {}): null {
             return;
           }
 
-          unmount = mountOverlay(entry.devtools, { open });
+          unmount = mountMini(entry.devtools, { open });
         }
       })();
     }
