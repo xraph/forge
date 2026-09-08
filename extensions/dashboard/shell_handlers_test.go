@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/xraph/forge"
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 )
 
 // fakeShellFS stands in for a real Vite build. It carries the two things the
@@ -477,5 +479,107 @@ func TestShellStaticHandlerDoesNotMutateRequest(t *testing.T) {
 
 	if req.URL.Path != path {
 		t.Errorf("handler mutated the request URL path to %q, want %q", req.URL.Path, path)
+	}
+}
+
+// shellBootstrapJSONForTest marshals the bootstrap for a config and a user,
+// the same way the request handler does at serve time.
+func shellBootstrapJSONForTest(t *testing.T, cfg Config, user *dashauth.UserInfo) string {
+	t.Helper()
+
+	b, err := json.Marshal(shellBootstrapWithPrincipal(shellBootstrapFor(cfg), user))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(b)
+}
+
+// TestShellBootstrap_PrincipalIsAlwaysPresent pins the half of the contract
+// the client cannot see. The shell distinguishes "no principal key" (nobody
+// told me, show a spinner) from "principal: null" (the server looked and
+// found nobody, show the gate). Omitting the key when there is no user would
+// collapse those two, and the collapse shows up as a sign-in screen flashed
+// at signed-in people rather than as a failing test over here.
+func TestShellBootstrap_PrincipalIsAlwaysPresent(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.EnableAuth = true
+
+	body := shellBootstrapJSONForTest(t, cfg, nil)
+
+	if !strings.Contains(body, `"principal":null`) {
+		t.Fatalf("bootstrap = %s, want an explicit principal:null", body)
+	}
+}
+
+func TestShellBootstrap_CarriesTheSignedInUser(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.EnableAuth = true
+
+	body := shellBootstrapJSONForTest(t, cfg, &dashauth.UserInfo{
+		Subject:     "usr_1",
+		DisplayName: "Ada Lovelace",
+		Email:       "ada@example.com",
+		Roles:       []string{"admin"},
+	})
+
+	for _, want := range []string{
+		`"authenticated":true`,
+		`"subject":"usr_1"`,
+		`"displayName":"Ada Lovelace"`,
+		`"email":"ada@example.com"`,
+		`"admin"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bootstrap = %s, want it to contain %s", body, want)
+		}
+	}
+}
+
+// TestShellSPABootstrap_CarriesTheRequestPrincipal proves the middleware
+// actually reaches the shell route, not just that the plumbing compiles. A
+// direct call to shellBootstrapWithPrincipal cannot catch a routing mistake:
+// mountShellRoutes used to register {base}/ui and {base}/ui/*filepath with no
+// route options at all, so dashauth.UserFromContext returned nil on every
+// shell request even when ForgeMiddleware was wired everywhere else on the
+// contract routes. This drives a real request through the registered route,
+// with the real dashauth.ForgeMiddleware standing in for what extension.go
+// wires up, and checks the served document's injected principal rather than
+// calling a builder function directly.
+func TestShellSPABootstrap_CarriesTheRequestPrincipal(t *testing.T) {
+	cfg := shellTestConfig()
+	cfg.EnableAuth = true
+
+	const wantSubject = "usr_e2e"
+
+	checker := dashauth.AuthCheckerFunc(func(_ context.Context, _ *http.Request) (*dashauth.UserInfo, error) {
+		return &dashauth.UserInfo{Subject: wantSubject, DisplayName: "E2E User"}, nil
+	})
+	routeOpts := []forge.RouteOption{forge.WithMiddleware(dashauth.ForgeMiddleware(checker))}
+
+	r := forge.NewRouter()
+
+	mountShellRoutes(r, cfg.BasePath, fakeShellFS(), cfg, func(err error) {
+		t.Helper()
+
+		if err != nil {
+			t.Fatalf("registering shell routes: %v", err)
+		}
+	}, routeOpts...)
+
+	rec := shellGet(t, r, "/_forge/dashboard/ui")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /_forge/dashboard/ui = %d, want 200", rec.Code)
+	}
+
+	got := extractBootstrap(t, rec.Body.String())
+
+	principal, ok := got["principal"].(map[string]any)
+	if !ok {
+		t.Fatalf("bootstrap[principal] = %#v, want an object; the shell route never ran the auth middleware", got["principal"])
+	}
+
+	if principal["subject"] != wantSubject {
+		t.Errorf("bootstrap[principal][subject] = %#v, want %q; the shell route never ran the auth middleware", principal["subject"], wantSubject)
 	}
 }

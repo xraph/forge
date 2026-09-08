@@ -1768,7 +1768,7 @@ func (e *Extension) registerRoutes() {
 	// embedded in this binary. ShellExternal mounts nothing here, for
 	// deployments that build and serve their own shell. See mountShellRoutes
 	// for the route ordering and why it is written the way it is.
-	e.mountShell(router, base, must)
+	e.mountShell(router, base, must, routeOpts...)
 
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {

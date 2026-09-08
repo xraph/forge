@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/xraph/forge"
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/shellassets"
 )
 
@@ -41,6 +42,51 @@ type shellBootstrap struct {
 	ShellBase    string `json:"shellBase"`
 	AuthEnabled  bool   `json:"authEnabled"`
 	LoginPath    string `json:"loginPath"`
+	// Always written, null when nobody is signed in. No omitempty: the shell
+	// reads an absent key as "nobody told me" and renders loading chrome,
+	// and a present null as "the server looked and found nobody" and renders
+	// the gate on the first frame. Dropping the key would turn every
+	// signed-out visit into a spinner followed by a gate.
+	Principal *shellPrincipal `json:"principal"`
+}
+
+// shellPrincipal mirrors handlers.principalResponse on the wire so the client
+// has exactly one type for the injected value and the fetched one. It is a
+// separate struct rather than a reuse because that one is unexported in
+// another package, and exporting it to save fifteen lines would widen that
+// package's API for no caller outside this file.
+type shellPrincipal struct {
+	Authenticated bool     `json:"authenticated"`
+	Subject       string   `json:"subject,omitempty"`
+	DisplayName   string   `json:"displayName,omitempty"`
+	Email         string   `json:"email,omitempty"`
+	Roles         []string `json:"roles,omitempty"`
+	Scopes        []string `json:"scopes,omitempty"`
+}
+
+// shellBootstrapWithPrincipal fills in the principal for one request.
+//
+// Split from shellBootstrapFor because that one is per-config and cached-ish
+// in spirit, while this is per-request: two visitors hitting the same
+// dashboard get the same config and different principals.
+func shellBootstrapWithPrincipal(base shellBootstrap, user *dashauth.UserInfo) shellBootstrap {
+	if user == nil || !user.Authenticated() {
+		base.Principal = nil
+		return base
+	}
+	display := user.DisplayName
+	if display == "" {
+		display = user.Subject
+	}
+	base.Principal = &shellPrincipal{
+		Authenticated: true,
+		Subject:       user.Subject,
+		DisplayName:   display,
+		Email:         user.Email,
+		Roles:         append([]string{}, user.Roles...),
+		Scopes:        append([]string{}, user.Scopes...),
+	}
+	return base
 }
 
 // shellEnabled reports whether the shell should be mounted at {BasePath}/ui.
@@ -93,14 +139,7 @@ func shellBootstrapFor(cfg Config) shellBootstrap {
 // empty one, so this is hygiene rather than a vulnerability, but do not read
 // the JSON escaping as covering this path too.
 func newShellSPAHandler(shellFS fs.FS, cfg Config) http.HandlerFunc {
-	cfgJSON, err := json.Marshal(shellBootstrapFor(cfg))
-	if err != nil {
-		// Cannot happen: every field is a string or a bool. Fail loudly
-		// rather than serving a page with no bootstrap at all.
-		panic("dashboard: marshalling the shell bootstrap: " + err.Error())
-	}
-
-	bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
+	base := shellBootstrapFor(cfg)
 	assetsFrom := []byte(`"./assets/`)
 	assetsTo := []byte(`"` + cfg.BasePath + `/ui/static/assets/`)
 
@@ -113,6 +152,19 @@ func newShellSPAHandler(shellFS fs.FS, cfg Config) http.HandlerFunc {
 
 			return
 		}
+
+		// Filled in per request: two visitors hitting the same dashboard get
+		// the same config and different principals. dashauth.UserFromContext
+		// reads whatever ForgeMiddleware populated on this route.
+		cfgJSON, err := json.Marshal(shellBootstrapWithPrincipal(base, dashauth.UserFromContext(r.Context())))
+		if err != nil {
+			// Cannot happen: every field is a string, a bool, or the
+			// principal struct, all of which marshal cleanly. Fail loudly
+			// rather than serving a page with no bootstrap at all.
+			panic("dashboard: marshalling the shell bootstrap: " + err.Error())
+		}
+
+		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
 
 		out := bytes.ReplaceAll(raw, assetsFrom, assetsTo)
 
@@ -257,16 +309,24 @@ func cloneURLWithPath(u *url.URL, path string) *url.URL {
 // TestShellStaticRoutesWinOverSPA asserts the outcome (an asset request gets
 // the file, not the SPA document) rather than the ordering, so it stays honest
 // if the backend ever changes.
-func mountShellRoutes(router forge.Router, base string, shellFS fs.FS, cfg Config, must func(error)) {
+//
+// routeOpts carries the auth (and tenant) middleware built in extension.go so
+// it can attach to the two SPA routes, the ones that read
+// dashauth.UserFromContext to fill in the injected principal. It deliberately
+// does not apply to the static route above: that one serves files and has no
+// identity to inject, so running auth middleware ahead of it would only cost
+// every asset request a wasted check.
+func mountShellRoutes(router forge.Router, base string, shellFS fs.FS, cfg Config, must func(error), routeOpts ...forge.RouteOption) {
 	if !cfg.shellEnabled() {
 		return
 	}
 
 	staticPrefix := base + "/ui/static"
+	spaHandler := newShellSPAHandler(shellFS, cfg)
 
 	must(router.GET(staticPrefix+"/*filepath", newShellStaticHandler(shellFS, staticPrefix)))
-	must(router.GET(base+"/ui", newShellSPAHandler(shellFS, cfg)))
-	must(router.GET(base+"/ui/*filepath", newShellSPAHandler(shellFS, cfg)))
+	must(router.GET(base+"/ui", spaHandler, routeOpts...))
+	must(router.GET(base+"/ui/*filepath", spaHandler, routeOpts...))
 }
 
 // mountShell resolves the embedded shell assets and mounts them, warning when
@@ -275,7 +335,12 @@ func mountShellRoutes(router forge.Router, base string, shellFS fs.FS, cfg Confi
 // The placeholder renders as a readable page explaining itself, but a warning
 // at startup is what stops someone spending an afternoon on a dashboard that
 // was never bundled in the first place.
-func (e *Extension) mountShell(router forge.Router, base string, must func(error)) {
+//
+// routeOpts is passed straight through to mountShellRoutes. It is how the
+// same auth+tenant middleware extension.go attaches to the contract API
+// routes also reaches the shell's SPA routes, which is what lets the shell
+// handler's dashauth.UserFromContext call see anyone at all.
+func (e *Extension) mountShell(router forge.Router, base string, must func(error), routeOpts ...forge.RouteOption) {
 	shellFS, err := shellassets.FS()
 	if err != nil {
 		e.Logger().Warn("dashboard shell assets unavailable; nothing will serve at the shell path",
@@ -291,5 +356,5 @@ func (e *Extension) mountShell(router forge.Router, base string, must func(error
 			forge.F("fix", "see extensions/dashboard/shellassets/dist/README.md"))
 	}
 
-	mountShellRoutes(router, base, shellFS, e.config, must)
+	mountShellRoutes(router, base, shellFS, e.config, must, routeOpts...)
 }
