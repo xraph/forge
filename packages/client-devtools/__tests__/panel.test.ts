@@ -1509,8 +1509,12 @@ describe('the launcher, fully dressed', () => {
 });
 
 describe('the launcher, out of the way', () => {
-  /** The collision in the corner that started all of this. */
-  it('lifts itself above a framework dev badge already in the corner', () => {
+  /**
+   * It sits where you put it. Guessing from an element name got this wrong:
+   * a framework whose badge exists but is not in this corner still matched,
+   * and the launcher lifted itself away from the edge for no reason.
+   */
+  it('stays in the corner even with a framework dev badge on the page', () => {
     const badge = document.createElement('nextjs-portal');
 
     document.body.append(badge);
@@ -1519,7 +1523,7 @@ describe('the launcher, out of the way', () => {
     const devtools = attach(h.cache, { now: counter() });
     const unmount = mountPanel(devtools, { parent: document.body });
 
-    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('badge');
+    expect(shadow().querySelector('.root')?.getAttribute('data-offset')).toBe('none');
 
     unmount();
     badge.remove();
