@@ -488,9 +488,14 @@ import { ForgeDashboard } from "@forge-go/dashboard-host"
 import corePlugin from "@forge-go/dashboard-plugin-core"
 
 // contractBase is a path on this app's own origin, so every request is
-// same-origin and the client's CSRF handshake works untouched. Point it at
-// wherever the proxy route below is mounted.
-const config = { basePath: "/admin", contractBase: "/api/forge/dashboard/v1" }
+// same-origin and the client's CSRF handshake works untouched. It is not
+// "/api/forge/dashboard/v1" -- the "/api/forge" prefix only picks the route
+// below, which then forwards everything after it to FORGE_URL. Forge itself
+// mounts the dashboard contract at "{BasePath}/api/dashboard/v1" (BasePath
+// defaults to "/dashboard"), so the part after "/api/forge" has to spell
+// that out too: "api/dashboard/v1". Point it at wherever the proxy route
+// below is mounted, with that suffix appended.
+const config = { basePath: "/admin", contractBase: "/api/forge/api/dashboard/v1" }
 const plugins = [corePlugin]
 
 export default function Page() {
@@ -500,6 +505,14 @@ export default function Page() {
 
 // dashboardNextRouteTemplate is the proxy. FORGE_URL is read server-side and
 // never reaches the browser.
+//
+// FORGE_URL is the dashboard's *base* URL, not the server root -- it must
+// already include Forge's BasePath, e.g. "http://localhost:8080/dashboard"
+// for a server running on port 8080 with the default BasePath. The route
+// appends the wildcard path it captures (everything after "/api/forge/") to
+// FORGE_URL as-is, so a bare server root here (just
+// "http://localhost:8080") drops the "/dashboard" segment Forge actually
+// mounts the contract under and every request 404s.
 const dashboardNextRouteTemplate = `import { createForgeProxy } from "@forge-go/dashboard-next"
 
 export const { GET, POST } = createForgeProxy({

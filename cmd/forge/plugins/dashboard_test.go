@@ -211,6 +211,33 @@ func TestScaffoldDashboardNextTarget(t *testing.T) {
 	}
 }
 
+// TestScaffoldDashboardNextPageContractBase pins the one value in the Next
+// scaffold that is not derivable from either repo alone, and was wrong in an
+// earlier draft of this template: contractBase must resolve, once proxied,
+// to wherever Forge actually mounts the dashboard contract.
+//
+// extension.go mounts the contract at BasePath + "/api/dashboard/v1"
+// (BasePath defaults to "/dashboard"). The generated route captures
+// everything after "/api/forge/" and forwards it to FORGE_URL verbatim, so
+// contractBase's suffix after "/api/forge" has to spell out
+// "api/dashboard/v1" itself -- "/api/forge/dashboard/v1" (missing the
+// "api/" segment) silently 404s instead. With the documented
+// FORGE_URL=http://localhost:8080/dashboard, a browser request to
+// contractBase resolves to http://localhost:8080/dashboard/api/dashboard/v1,
+// matching where Forge actually serves it.
+func TestScaffoldDashboardNextPageContractBase(t *testing.T) {
+	dir := t.TempDir()
+	p := &DashboardPlugin{}
+
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+
+	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(page), `contractBase: "/api/forge/api/dashboard/v1"`,
+		"contractBase must proxy to Forge's actual mount, {BasePath}/api/dashboard/v1")
+}
+
 // TestScaffoldDashboardUnknownTarget guards filesForTarget's default case: an
 // unrecognized --target must fail loudly rather than silently falling back
 // to the Vite scaffold.
