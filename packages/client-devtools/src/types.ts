@@ -248,7 +248,17 @@ export interface PrincipalLog extends LogBase {
  */
 export interface ActionLog extends LogBase {
   readonly kind: 'action';
-  readonly action: 'refetch' | 'invalidate' | 'invalidateTag' | 'evict' | 'drop' | 'clear';
+  readonly action:
+    | 'refetch'
+    | 'invalidate'
+    | 'invalidateTag'
+    | 'evict'
+    | 'drop'
+    | 'clear'
+    | 'rollback'
+    | 'hold'
+    | 'release'
+    | 'stale';
   /** The query key, entity key or tag the action was aimed at. */
   readonly target: string;
 }

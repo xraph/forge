@@ -173,6 +173,12 @@ export interface Devtools {
 
   /** The pending optimistic writes, bottom of the stack first. */
   overlays(): readonly OverlaySnapshot[];
+  /** One record as the store holds it, before any overlay is folded over it. */
+  baseRecord(key: string): Readonly<Record<string, unknown>> | undefined;
+  /** Push a hand-written field change onto the overlay stack. */
+  patchEntity(key: string, fields: Readonly<Record<string, unknown>>): number;
+  /** The same record, with the pending overlays folded over it. */
+  foldedRecord(key: string): Readonly<Record<string, unknown>> | undefined;
 
   /**
    * What the transport did, newest last. Empty when nothing is wired.
@@ -525,6 +531,9 @@ export function attach(cache: QueryCache, options: DevtoolsOptions = {}): Devtoo
     detail: (key) => read.detail(cache, key),
     records: () => read.records(cache),
     overlays: () => read.overlays(cache),
+    baseRecord: (key) => read.baseRecord(cache, key),
+    patchEntity: (key, fields) => actions.patchEntity(key, fields),
+    foldedRecord: (key) => read.foldedRecord(cache, key),
     requests: () => options.requests?.entries() ?? [],
     controls: options.controls,
     revalidation: options.revalidation,

@@ -1,4 +1,6 @@
 import { capture } from './frames.js';
+import { nearMisses } from './tag.js';
+import type { NearMiss } from './tag.js';
 import type { Devtools } from './devtools.js';
 import type {
   EntitySnapshot,
@@ -30,7 +32,24 @@ export interface PanelOptions {
   readonly parent?: Element;
   /** Start with the panel open. Defaults to false -- a button in the corner. */
   readonly open?: boolean;
+  /**
+   * How far off the bottom edge to sit, in pixels.
+   *
+   * Set this and nothing is guessed. Left unset, the launcher looks for a
+   * framework's own dev badge in the same corner and lifts itself above one if
+   * it finds it, because the bottom right is a crowded address.
+   */
+  readonly offset?: number;
 }
+
+/**
+ * Dev badges that already own the bottom-right corner.
+ *
+ * Matched by element name rather than by position: reading layout would mean
+ * measuring, and measuring on mount is how a devtools panel starts causing the
+ * reflows it exists to help you find.
+ */
+const BADGES = 'nextjs-portal, #__next-build-watcher, [data-nextjs-toast], vite-error-overlay';
 
 type Tab =
   | 'trace'
@@ -171,6 +190,18 @@ const CSS = `
 .launcher { width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
   position: relative; border-radius: 8px; background: #14181f; border: 1px solid #2e3542;
   box-shadow: 0 6px 22px rgba(0,0,0,.34); color: #e3e7ee; }
+.root[data-offset="badge"] { bottom: 62px; }
+.launcher-dock { display: flex; align-items: center; background: #14181f;
+  border: 1px solid #2e3542; border-radius: 9px; padding: 5px;
+  box-shadow: 0 6px 22px rgba(0,0,0,.34); }
+.launcher-dock .launcher { box-shadow: none; border: 0; background: transparent; }
+.launcher-vitals { display: none; align-items: center; gap: 4px; padding: 0 8px 0 8px;
+  margin-left: 3px; border-left: 1px solid #242a35; color: #8992a2; font-size: 10.5px;
+  white-space: nowrap; }
+.launcher-vitals b { color: #e3e7ee; font-weight: 500; }
+.launcher-dock:hover .launcher-vitals, .launcher-dock:focus-within .launcher-vitals {
+  display: flex; }
+.launcher[data-pulse="pending"]::after { border-color: #ffb648; }
 .launcher:hover { background: #1a1f28; }
 .launcher svg { width: 15px; height: 15px; display: block; }
 .launcher::after { content: ""; position: absolute; inset: -2px; border-radius: 10px;
@@ -205,6 +236,31 @@ const CSS = `
 .detail-head .what { color: #8a8a98; font-size: 10px; letter-spacing: .13em;
   text-transform: uppercase; }
 .detail-head .spacer { flex: 1; }
+.wf { display: flex; height: 8px; min-width: 90px; border-radius: 2px; background: #2b2b33;
+  overflow: hidden; }
+.wf i { display: block; height: 100%; }
+.wf .wire { background: #62a8ff; }
+.wf .auth { background: #ae8cff; }
+.wf .backoff { background: repeating-linear-gradient(90deg, #45454f 0 3px, transparent 3px 6px); }
+.wf .pending { width: 100%; background: repeating-linear-gradient(90deg, #35353d 0 4px,
+  transparent 4px 8px); }
+.diff { line-height: 1.6; }
+.diff .was { color: #ff8f8f; }
+.diff .now { color: #8ce99a; }
+.diff .same { color: #6b6b78; }
+.held { color: #ff6a2b; }
+.held-banner { border: 1px solid rgba(255,106,43,.45); background: rgba(255,106,43,.08);
+  border-radius: 5px; padding: 7px 9px; color: #ff6a2b; margin-bottom: 8px; }
+.vitals { display: flex; overflow-x: auto; border-bottom: 1px solid #35353d; }
+.vital { padding: 5px 12px; border-right: 1px solid #2b2b33; white-space: nowrap; }
+.vital .k { display: block; color: #6b6b78; font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; }
+.vital .v { color: #e6e6e6; font-size: 13px; }
+.vital .n { color: #6b6b78; font-size: 10px; margin-left: 5px; }
+.vital[data-vital="pending"] .v { color: #ffb648; }
+.panel[data-density="compact"] td, .panel[data-density="compact"] th { padding: 1px 6px; }
+.panel[data-density="compact"] .vital { padding: 3px 10px; }
+.panel[data-density="compact"] .cause { padding: 5px 4px 5px 24px; }
 .rail { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; padding: 5px 6px;
   border-bottom: 1px solid #35353d; }
 .rail .spacer { flex: 1; }
@@ -250,6 +306,9 @@ button[aria-selected="true"] { background: #4b5bd6; border-color: #4b5bd6; }
 .effect { position: relative; margin-top: 6px; padding-left: 14px; color: #9a9aa8; }
 .effect::before { content: ""; position: absolute; left: -12px; top: 8px; width: 20px; height: 1px;
   background: #35353d; }
+.nearmiss { margin-top: 8px; padding: 6px 9px; border: 1px solid rgba(255,182,72,.28);
+  background: rgba(255,182,72,.06); border-radius: 5px; color: #ffb86b; }
+.nearmiss .warn { text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
 .layer { border: 1px solid #45454f; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
 .patch { display: flex; gap: 8px; margin-top: 4px; }
 .patch .kind { min-width: 46px; text-align: right; color: #8a8a98; }
@@ -302,16 +361,41 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
   shadow.append(style);
 
   const root = doc.createElement('div');
+
   root.className = 'root';
+
+  // Explicit beats guessed. Guessed beats colliding with the framework's badge.
+  if (options.offset !== undefined) {
+    root.style.bottom = `${String(options.offset)}px`;
+    root.setAttribute('data-offset', 'set');
+  } else {
+    const crowded = doc.querySelector(BADGES) !== null;
+
+    root.setAttribute('data-offset', crowded ? 'badge' : 'none');
+  }
+
   shadow.append(root);
   parent.append(host);
 
   let open = options.open ?? false;
-  let tab: Tab = 'queries';
+  // The first tab, and the same one `1` selects. The trace is what the panel
+  // is for; a list of queries is what every other devtools panel opens on.
+  let tab: Tab = 'trace';
   let filter = '';
   let scheduled = false;
   let mode: Mode = 'bottom';
   let frozen = false;
+  let compact = false;
+  /**
+   * Queries the panel is holding in a state they did not reach.
+   *
+   * Panel-local on purpose. Nothing here writes the cache, so the real record
+   * is untouched and comes back whole on release; there is no state to unwind
+   * and no way for a held query to outlive the panel that held it. Every hold
+   * and release goes to the trace as an action, so a spinner you caused never
+   * reads as a spinner the application caused.
+   */
+  const holds = new Map<string, 'loading' | 'error'>();
 
   /**
    * The row selected on each list tab, and the column each list tab is
@@ -374,7 +458,12 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    */
   const rows = (
     headers: readonly string[],
-    items: readonly { readonly key: string; readonly cells: readonly string[] }[],
+    items: readonly {
+      readonly key: string;
+      readonly cells: readonly string[];
+      /** Drawn into the last cell. For a bar, which is not a string. */
+      readonly extra?: HTMLElement;
+    }[],
   ): HTMLElement => {
     const node = doc.createElement('table');
     const head = doc.createElement('tr');
@@ -433,6 +522,9 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       });
 
       for (const cell of item.cells) tr.append(el('td', undefined, cell));
+
+      if (item.extra !== undefined) tr.lastElementChild?.append(item.extra);
+
       node.append(tr);
     }
 
@@ -682,6 +774,72 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
     node.append(pills(one.tags, 'raises when it settles'));
 
+    for (const patch of one.patches) node.append(diffOf(patch.key));
+
+    const act = el('div', 'buttons');
+    const rollback = el('button', undefined, 'roll back');
+
+    rollback.setAttribute('data-act', 'rollback');
+    rollback.addEventListener('click', (event) => {
+      event.stopPropagation();
+      devtools.actions.rollback(one.id);
+      render();
+    });
+    const promote = el('button', undefined, 'promote');
+
+    promote.setAttribute('data-act', 'promote');
+    promote.addEventListener('click', (event) => {
+      event.stopPropagation();
+      devtools.actions.promote(one.id);
+      render();
+    });
+    act.append(rollback, promote);
+    node.append(act);
+
+    return node;
+  };
+
+  /**
+   * The base record beside what the stack makes of it.
+   *
+   * `store.getRecord` is the base and `overlays.effective` is the fold, so this
+   * is the actual before and after rather than a re-derivation of the patch.
+   * Only changed fields are listed; a record with forty fields and one edit
+   * should read as one edit.
+   */
+  const diffOf = (key: string): HTMLElement => {
+    const node = el('div', 'diff');
+    const base = devtools.baseRecord(key);
+    const folded = devtools.foldedRecord(key);
+
+    node.append(el('div', 'same', key));
+
+    if (folded === undefined) {
+      node.append(el('div', 'was', 'deleted by this overlay'));
+
+      return node;
+    }
+
+    if (base === undefined) {
+      node.append(el('div', 'now', 'created by this overlay, no base record'));
+
+      return node;
+    }
+
+    let changed = 0;
+
+    for (const [field, next] of Object.entries(folded)) {
+      const before = base[field];
+
+      if (Object.is(before, next)) continue;
+
+      changed += 1;
+      node.append(el('div', 'was', `- ${field}: ${String(before)}`));
+      node.append(el('div', 'now', `+ ${field}: ${String(next)}`));
+    }
+
+    if (changed === 0) node.append(el('div', 'same', 'no field actually moves'));
+
     return node;
   };
 
@@ -718,6 +876,60 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     }
 
     for (const effect of one.effects) node.append(el('div', 'effect', describe(effect)));
+
+    for (const miss of missedBy(one)) node.append(missBanner(miss));
+
+    return node;
+  };
+
+  /**
+   * The near misses worth interrupting you about, for one cause.
+   *
+   * Flagged per raised tag, not per cause. A tag that reached no mounted query
+   * and closely resembles one somebody carries gets a banner even when the same
+   * cause reached something through a different tag, because the tag that
+   * missed is still wrong and the one that landed is what hides it. Suppressing
+   * on "the cause reached something" would silence exactly the case this is
+   * for: a mutation raising two tags where only one of them works.
+   *
+   * A tag that reached nothing and resembles nothing is not flagged. That is an
+   * invalidation for a query nobody has open, which is ordinary.
+   */
+  const missedBy = (one: Block): readonly NearMiss[] => {
+    const raised = raisedBy(one.entry);
+
+    if (raised.length === 0) return [];
+
+    const landed = new Set<string>();
+
+    for (const effect of one.effects) {
+      if (effect.kind === 'invalidated') for (const tag of effect.matched) landed.add(tag);
+    }
+
+    const missed = raised.filter((tag) => !landed.has(tag));
+
+    if (missed.length === 0) return [];
+
+    // What anything currently carries, mounted or merely remembered: a query
+    // that is only remembered still refetches on mount, so a near miss against
+    // it is just as much a near miss.
+    const carried = devtools.tags().map((row) => row.tag);
+
+    return nearMisses(missed, carried, 3);
+  };
+
+  const missBanner = (miss: NearMiss): HTMLElement => {
+    const node = el('div', 'nearmiss');
+
+    node.append(el('span', 'warn', 'near miss'));
+    node.append(
+      el(
+        'span',
+        undefined,
+        ` ${miss.invalidated} reached nothing, and ${miss.carried} is carried ` +
+          `(${miss.relation}). ${miss.hint}`,
+      ),
+    );
 
     return node;
   };
@@ -816,9 +1028,10 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
             cells: [
               entry.key,
               String(entry.mounts),
-              entry.stale ? 'stale' : entry.settled ? 'fresh' : 'empty',
+              holds.get(entry.key) ?? (entry.stale ? 'stale' : entry.settled ? 'fresh' : 'empty'),
               entry.tags.join(' '),
             ],
+            ...(holds.has(entry.key) ? { extra: el('span', 'held', ' held') } : {}),
           }));
 
         body.append(rows(['key', 'mounts', 'state', 'tags'], items));
@@ -1015,9 +1228,11 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
 
         const requests = narrow(requestSource, REQUEST_FACETS).slice().reverse();
 
+        const slowest = requestSource.reduce((most, one) => Math.max(most, one.duration ?? 0), 1);
+
         body.append(
           rows(
-            ['request', 'status', 'try', 'ms'],
+            ['request', 'status', 'try', 'ms', ''],
             requests.map((one) => ({
               key: String(one.id),
               cells: [
@@ -1029,7 +1244,9 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
                     : String(one.status ?? 'failed'),
                 `${String(one.attempts)}/${String(one.limit)}`,
                 one.duration === undefined ? '' : String(one.duration),
+                '',
               ],
+              extra: waterfall(one, slowest),
             })),
           ),
         );
@@ -1198,6 +1415,112 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    * entity, `clear` off the global bar. `invalidateTag` is the one left to the
    * console, because it takes a tag rather than a row.
    */
+  /**
+   * The two forced states, and the one rule that makes them safe.
+   *
+   * A faked state has to be impossible to mistake for a real one and reversible
+   * without the cache having to unwind anything. Holding it in a register the
+   * panel owns satisfies both: the row says held, the pane says held, the trace
+   * says you did it, and release is a map delete.
+   */
+  /**
+   * Straight to the explanation for this query.
+   *
+   * `explain` used to need an exact query key typed from memory into the
+   * filter box, which is a strange thing to ask of the one tab that exists to
+   * answer a question you already have.
+   */
+  const whyBar = (key: string): HTMLElement => {
+    const bar = el('div', 'buttons');
+    const why = el('button', undefined, 'why did this not refetch?');
+
+    why.setAttribute('data-act', 'why');
+    why.addEventListener('click', () => {
+      filter = key;
+      tab = 'explain';
+      render();
+    });
+    bar.append(why);
+
+    return bar;
+  };
+
+  const holdBar = (key: string): HTMLElement => {
+    const bar = el('div', 'buttons');
+
+    const stale = el('button', undefined, 'force stale');
+
+    stale.setAttribute('data-act', 'force-stale');
+    stale.addEventListener('click', () => {
+      devtools.actions.forceStale(key);
+      render();
+    });
+    bar.append(stale);
+
+    for (const state of ['loading', 'error'] as const) {
+      const button = el('button', undefined, `hold ${state}`);
+
+      button.setAttribute('data-act', `hold-${state}`);
+      button.addEventListener('click', () => {
+        holds.set(key, state);
+        devtools.actions.hold(key, state);
+        render();
+      });
+      bar.append(button);
+    }
+
+    return bar;
+  };
+
+  /**
+   * Edit one field, as an overlay entry.
+   *
+   * The argument the whole state-manipulation section rests on: a devtools
+   * edit rides the same stack a pending mutation does, so it never writes the
+   * base store, undo is removing the entry rather than applying an inverse,
+   * and a stream frame that evicts the row takes this with it exactly as it
+   * would take a real optimistic write. A merge over a base record that is
+   * gone patches nothing, and that rule is already in `OverlayStack`.
+   */
+  const editBar = (key: string): HTMLElement => {
+    const bar = el('div', 'buttons');
+    const field = doc.createElement('input');
+    const value = doc.createElement('input');
+
+    field.setAttribute('data-act', 'edit-field');
+    field.placeholder = 'field';
+    field.setAttribute('aria-label', 'Field to edit');
+    value.setAttribute('data-act', 'edit-value');
+    value.placeholder = 'value';
+    value.setAttribute('aria-label', 'New value');
+
+    const apply = el('button', undefined, 'patch');
+
+    apply.setAttribute('data-act', 'edit-apply');
+    apply.addEventListener('click', () => {
+      const name = field.value.trim();
+
+      if (name === '') return;
+
+      // JSON first so a number stays a number, falling back to the raw string
+      // for the common case of typing a word rather than a quoted one.
+      let parsed: unknown = value.value;
+
+      try {
+        parsed = JSON.parse(value.value) as unknown;
+      } catch {
+        parsed = value.value;
+      }
+
+      devtools.patchEntity(key, { [name]: parsed });
+      render();
+    });
+
+    bar.append(field, value, apply);
+
+    return bar;
+  };
+
   const entityBar = (key: string): HTMLElement =>
     buttonBar([
       [
@@ -1217,8 +1540,36 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       return;
     }
 
+    const held = holds.get(key);
+
+    if (held !== undefined) {
+      const banner = el('div', 'held-banner');
+
+      banner.append(
+        el(
+          'div',
+          undefined,
+          `Held in ${held} by devtools. The real record is untouched in the cache ` +
+            'and comes back the moment you release.',
+        ),
+      );
+
+      const release = el('button', undefined, 'release');
+
+      release.setAttribute('data-act', 'release');
+      release.addEventListener('click', () => {
+        holds.delete(key);
+        devtools.actions.release(key);
+        render();
+      });
+      banner.append(release);
+      body.append(banner);
+    }
+
     body.append(el('h4', undefined, detail.key));
     body.append(actionBar(detail));
+    body.append(holdBar(key));
+    body.append(whyBar(key));
     body.append(field('operation', detail.operation));
     body.append(field('status', detail.status));
     body.append(field('fetching', String(detail.fetching)));
@@ -1252,6 +1603,8 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    */
   const renderEntityDetail = (body: HTMLElement, key: string): void => {
     const record: EntitySnapshot | undefined = devtools.entity(key);
+
+    if (record !== undefined) body.append(editBar(key));
 
     if (record === undefined) {
       body.append(el('p', 'dim', `${key} is not in the store.`));
@@ -1352,6 +1705,24 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       field('duration', one.duration === undefined ? 'still in flight' : `${String(one.duration)}`),
     );
 
+    const curl = el('pre', 'curl');
+
+    curl.setAttribute('data-curl', '');
+    curl.textContent =
+      `curl -X ${one.method} '${one.operation.slice(one.method.length + 1)}' \\\n` +
+      `  -H 'authorization: Bearer $TOKEN' \\\n` +
+      `  -H 'accept: application/json'${one.args === '' || one.args === '{}' ? '' : ` \\\n  -d '${one.args}'`}`;
+    body.append(el('h4', undefined, 'as curl'));
+    body.append(curl);
+    body.append(
+      el(
+        'p',
+        'dim',
+        'The credential is a placeholder. This log never keeps the real one, ' +
+          'which is why it is cheap enough to leave on.',
+      ),
+    );
+
     body.append(el('h4', undefined, 'retry policy'));
     body.append(el('p', one.outcome === 'failed' ? 'warn' : 'dim', retryStory(one)));
 
@@ -1440,9 +1811,12 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       if (record.status === 'error') errors += 1;
     }
 
+    const counts = devtools.store();
+    const pending = devtools.overlays().length;
+
     button.innerHTML = MARK;
     button.setAttribute('aria-label', 'Open Forge devtools');
-    button.setAttribute('data-pulse', pulse(fetching, errors));
+    button.setAttribute('data-pulse', pulse(fetching, errors, pending));
 
     if (errors > 0) button.append(el('span', 'badge', String(errors)));
 
@@ -1451,7 +1825,23 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       render();
     });
 
-    return button;
+    // The three numbers a glance should answer, revealed on hover so the
+    // resting state is still one 30px tile. `pend` appears only when there is
+    // something pending: a permanent `0 pend` teaches you to stop reading it.
+    const vitals = el('div', 'launcher-vitals');
+
+    vitals.append(el('b', undefined, String(counts.records)), el('span', undefined, 'ent'));
+    vitals.append(el('b', undefined, String(counts.mounted)), el('span', undefined, 'mnt'));
+
+    if (pending > 0) {
+      vitals.append(el('b', undefined, String(pending)), el('span', undefined, 'pend'));
+    }
+
+    const dock = el('div', 'launcher-dock');
+
+    dock.append(button, vitals);
+
+    return dock;
   };
 
   /**
@@ -1558,6 +1948,96 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
         render();
       });
       bar.append(clear);
+    }
+
+    return bar;
+  };
+
+  /**
+   * The counters that say whether anything is leaking.
+   *
+   * `StoreSnapshot` carries nine of these and the old header showed three of
+   * them as a sentence. Tombstones and stamped tags are both bounded caches, so
+   * a number that keeps climbing is the shape of a leak, and neither was
+   * visible anywhere before this.
+   *
+   * `pending` appears only when the overlay stack is non-empty. A permanent
+   * `0 pending` teaches you to stop reading the strip.
+   */
+  const vitalsStrip = (): HTMLElement => {
+    const counts = devtools.store();
+    const pending = devtools.overlays().length;
+    const strip = el('div', 'vitals');
+
+    const cell = (key: string, label: string, value: string, note?: string): void => {
+      const node = el('div', 'vital');
+
+      node.setAttribute('data-vital', key);
+      node.append(el('span', 'k', label));
+      node.append(el('span', 'v', value));
+
+      if (note !== undefined) node.append(el('span', 'n', note));
+
+      strip.append(node);
+    };
+
+    cell('entities', 'entities', String(counts.records), `v${String(counts.version)}`);
+    cell('mounted', 'mounted', String(counts.mounted), `of ${String(counts.remembered)}`);
+    cell('store', 'store', `v${String(counts.version)}`, `f${String(counts.frameVersion)}`);
+
+    if (pending > 0) cell('pending', 'pending', String(pending), 'writes');
+
+    cell('tags', 'tags', String(counts.indexedTags), `${String(counts.stampedTags)} stamped`);
+    cell('tombstones', 'tombstones', String(counts.tombstones));
+    cell('tracked', 'tracked', String(counts.tracked));
+
+    return strip;
+  };
+
+  /**
+   * One request, drawn to scale against the slowest one on screen.
+   *
+   * Two segments, and only two, because only two are measured. The transport
+   * reports attempt boundaries and the backoff between them, so the wire time
+   * and the waiting are real numbers. It does not report when a response
+   * started decoding or when the store committed it, and a bar that split
+   * those out would be drawing a shape nobody measured.
+   */
+  const waterfall = (one: RequestSnapshot, slowest: number): HTMLElement => {
+    const bar = el('div', 'wf');
+
+    if (one.duration === undefined) {
+      bar.append(el('i', 'pending'));
+
+      return bar;
+    }
+
+    const waited = one.retries.reduce((total, retry) => total + retry.delay, 0);
+    const wire = Math.max(0, one.duration - waited - one.authMs);
+    const scale = (ms: number): string => `${String((ms / slowest) * 100)}%`;
+
+    if (one.authMs > 0) {
+      const auth = el('i', 'auth');
+
+      auth.style.width = scale(one.authMs);
+      auth.title = `${String(Math.round(one.authMs))}ms waiting on the credential refresh`;
+      bar.append(auth);
+    }
+
+    const sent = el('i', 'wire');
+
+    sent.style.width = scale(wire);
+    sent.title = `${String(Math.round(wire))}ms on the wire`;
+    bar.append(sent);
+
+    if (waited > 0) {
+      const held = el('i', 'backoff');
+
+      held.style.width = scale(waited);
+      held.title = `${String(Math.round(waited))}ms backing off across ${String(
+        one.retries.length,
+      )} retry(s)`;
+      bar.append(held);
     }
 
     return bar;
@@ -1695,11 +2175,14 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
    * from succeeding, so a real error or a request in flight is the more useful
    * thing to be told about while it is on.
    */
-  const pulse = (fetching: boolean, errors: number): string => {
+  const pulse = (fetching: boolean, errors: number, pending: number): string => {
     const mode = devtools.controls?.mode;
 
     if (mode === 'offline') return 'offline';
     if (errors > 0) return 'error';
+    // A stuck optimistic write is a bug you want to see. A request in flight
+    // is Tuesday. So pending outranks fetching, and an error outranks both.
+    if (pending > 0) return 'pending';
     if (fetching) return 'fetching';
     if (mode === 'slow') return 'slow';
 
@@ -1740,6 +2223,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     const panel = el('div', 'panel');
 
     panel.setAttribute('data-mode', mode);
+    panel.setAttribute('data-density', compact ? 'compact' : 'comfortable');
 
     const bar = el('div', 'bar');
 
@@ -1801,6 +2285,19 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     bar.append(clearLog);
     bar.append(dockBar());
 
+    const density = el('button', 'ico tip');
+
+    density.innerHTML = icon('<path d="M2.5 4h9M2.5 7h9M2.5 10h9"/>');
+    density.setAttribute('data-act', 'density');
+    density.setAttribute('data-tip', 'Compact rows');
+    density.setAttribute('aria-label', 'Compact rows');
+    density.setAttribute('aria-pressed', String(compact));
+    density.addEventListener('click', () => {
+      compact = !compact;
+      render();
+    });
+    bar.append(density);
+
     const close = el('button', 'ico tip tip-r');
 
     close.innerHTML = icon('<path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8"/>');
@@ -1813,6 +2310,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     bar.append(close);
 
     const rail = controlRail();
+    const vitals = vitalsStrip();
     const split = el('div', 'split');
     const list = el('div', 'list');
     const key = selected.get(tab);
@@ -1827,7 +2325,7 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
       split.append(detail);
     }
 
-    panel.append(bar);
+    panel.append(bar, vitals);
 
     if (rail !== undefined) panel.append(rail);
 
@@ -1860,12 +2358,148 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
     else void Promise.resolve().then(run);
   };
 
+  /**
+   * The shortcuts, on the document rather than on the panel.
+   *
+   * The panel lives in a shadow root and does not hold focus, so a listener
+   * bound inside it would only fire once you had already clicked into it,
+   * which is exactly when you do not need a shortcut.
+   *
+   * Nothing fires while you are typing. A devtools panel that eats a `3` out
+   * of its own filter box is worse than one with no shortcuts at all, so any
+   * event whose composed path contains an input or a textarea is left alone.
+   */
+  const typing = (event: KeyboardEvent): boolean => {
+    for (const node of event.composedPath()) {
+      const name = (node as Partial<Element>).tagName;
+
+      if (name === 'INPUT' || name === 'TEXTAREA') return true;
+    }
+
+    return false;
+  };
+
+  const onKey = (event: KeyboardEvent): void => {
+    if (typing(event)) return;
+
+    const meta = event.metaKey || event.ctrlKey;
+
+    // Toggling the panel is the only one that works while it is closed.
+    if (meta && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      open = !open;
+      render();
+
+      return;
+    }
+
+    // Jump to the filter box. The mock drew a command palette here; the filter
+    // box already parses `status:4xx`, `>100ms` and `tag:`, so a palette would
+    // be a second front door to the same room.
+    if (open && ((meta && event.key.toLowerCase() === 'k') || (!meta && event.key === '/'))) {
+      event.preventDefault();
+      (root.querySelector('.bar input') as HTMLInputElement | null)?.focus();
+
+      return;
+    }
+
+    // Pop the top of the overlay stack. Removal is the whole of rollback, so
+    // undo here means what undo means everywhere else in this package.
+    if (open && meta && event.key.toLowerCase() === 'z') {
+      const stack = devtools.overlays();
+      const top = stack[stack.length - 1];
+
+      if (top === undefined) return;
+
+      event.preventDefault();
+      devtools.actions.rollback(top.id);
+      render();
+
+      return;
+    }
+
+    if (open && event.key === 'F11') {
+      event.preventDefault();
+      mode = mode === 'full' ? 'bottom' : 'full';
+      render();
+
+      return;
+    }
+
+    if (!open || meta || event.altKey) return;
+
+    if (event.key === 'Enter') {
+      const picked = selected.get(tab);
+
+      if (picked === undefined) return;
+
+      filter = picked;
+      tab = 'explain';
+      render();
+
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      if (selected.get(tab) === undefined) return;
+
+      selected.delete(tab);
+      render();
+
+      return;
+    }
+
+    const slot = Number(event.key);
+
+    if (Number.isInteger(slot) && slot >= 1 && slot <= TABS.length) {
+      tab = TABS[slot - 1] as Tab;
+      render();
+
+      return;
+    }
+
+    if (event.key.toLowerCase() === 'f') {
+      frozen = !frozen;
+      render();
+
+      return;
+    }
+
+    // The two actions worth a key, and only for the row you have selected.
+    const picked = selected.get(tab);
+
+    if (picked !== undefined && (tab === 'queries' || tab === 'trace')) {
+      if (event.key.toLowerCase() === 'r') {
+        void devtools.actions.refetch(picked).catch(() => undefined);
+        render();
+
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'i') {
+        devtools.actions.invalidate(picked);
+        render();
+
+        return;
+      }
+    }
+
+    if (event.key === ' ') {
+      event.preventDefault();
+      frozen = !frozen;
+      render();
+    }
+  };
+
+  doc.addEventListener('keydown', onKey);
+
   const unsubscribe = devtools.subscribe(schedule);
 
   render();
 
   return () => {
     unsubscribe();
+    doc.removeEventListener('keydown', onKey);
     host.remove();
   };
 }

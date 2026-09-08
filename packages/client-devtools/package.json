@@ -50,7 +50,7 @@
     {
       "name": "inspection API",
       "path": "dist/index.js",
-      "limit": "6 kB",
+      "limit": "6.5 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"
@@ -68,7 +68,7 @@
     {
       "name": "panel",
       "path": "dist/panel.js",
-      "limit": "12 kB",
+      "limit": "16 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"
@@ -98,7 +98,7 @@
         "dist/index.js",
         "dist/overlay.js"
       ],
-      "limit": "9.5 kB",
+      "limit": "10 kB",
       "gzip": true,
       "ignore": [
         "@forge-go/client-core"

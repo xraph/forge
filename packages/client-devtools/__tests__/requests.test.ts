@@ -163,3 +163,45 @@ describe('the request log', () => {
     expect(log.dropped).toBe(1);
   });
 });
+
+describe('the credential refresh, timed', () => {
+  it('measures how long a request sat waiting on the refresh', async () => {
+    const log = new RequestLog(20, counter());
+    let token = 't0';
+    const rest = new RestTransport({
+      client: {
+        request<T>(config: { headers?: Record<string, string> }): Promise<T> {
+          return config.headers?.['Authorization'] === 'Bearer t0'
+            ? (Promise.reject(new Failure(401)) as Promise<T>)
+            : (Promise.resolve({ ok: true }) as Promise<T>);
+        },
+      },
+      auth: {
+        credentials: () => ({ Authorization: `Bearer ${token}` }),
+        refresh: () => {
+          token = 't1';
+
+          return Promise.resolve();
+        },
+      },
+      sleep: () => Promise.resolve(),
+      observer: log.observer,
+    });
+
+    await rest.execute({ meta: list, args: {} });
+
+    const [entry] = log.entries();
+
+    expect(entry?.refreshes).toBe(1);
+    // The clock ticks once per read, so any wait at all is a positive number.
+    expect(entry?.authMs).toBeGreaterThan(0);
+  });
+
+  it('reports no auth time for a request that never met a 401', async () => {
+    const { log, rest } = wired(() => ({ ok: true }));
+
+    await rest.execute({ meta: list, args: {} });
+
+    expect(log.entries()[0]?.authMs).toBe(0);
+  });
+});

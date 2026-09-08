@@ -390,6 +390,31 @@ export function binderView(
 }
 
 /**
+ * One entity record as the store holds it, with no overlay folded over it.
+ *
+ * A plain copy of the fields, on the same terms as `entities`: reading it
+ * neither opens the record nor moves it in the LRU order.
+ */
+export function baseRecord(
+  cache: QueryCache,
+  key: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const found = cache.store.getRecord(key);
+
+  return found === undefined ? undefined : { ...found.data };
+}
+
+/** The same record with every pending overlay folded over it. */
+export function foldedRecord(
+  cache: QueryCache,
+  key: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const found = cache.overlays.effective(key);
+
+  return found === undefined ? undefined : { ...found.data };
+}
+
+/**
  * The pending optimistic writes, bottom of the stack first.
  *
  * Reading, on the same terms as everything else in this file: `list()` hands

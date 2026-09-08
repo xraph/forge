@@ -150,6 +150,55 @@ describe('watching what the transport did', () => {
     expect(refreshed.filter((event) => !(event as { joined: boolean }).joined)).toHaveLength(1);
   });
 
+  /**
+   * The refresh has a duration and nothing reported it. Without a closing
+   * event the waterfall can say a request hit the credential refresh but not
+   * how long it sat there, which is the only number that makes an auth stall
+   * distinguishable from a slow server.
+   */
+  it('closes the refresh so its duration is measurable', async () => {
+    const seen = recorder();
+    let token = 't0';
+    const client = fakeClient((config) => {
+      if (config.headers?.['Authorization'] === 'Bearer t0') throw new HttpFailure(401);
+
+      return { ok: true };
+    });
+    const auth: AuthProvider = {
+      credentials: () => ({ Authorization: `Bearer ${token}` }),
+      refresh: () => {
+        token = 't1';
+
+        return Promise.resolve();
+      },
+    };
+    const rest = new RestTransport({ client, auth, sleep: () => Promise.resolve(), observer: seen.observe });
+
+    await rest.execute({ meta: list, args: {} });
+
+    const kinds = seen.events.map((event) => event.type);
+
+    expect(kinds).toContain('refresh');
+    expect(kinds).toContain('refreshed');
+    expect(kinds.indexOf('refreshed')).toBeGreaterThan(kinds.indexOf('refresh'));
+  });
+
+  it('closes the refresh even when it fails', async () => {
+    const seen = recorder();
+    const client = fakeClient(() => {
+      throw new HttpFailure(401);
+    });
+    const auth: AuthProvider = {
+      credentials: () => ({ Authorization: 'Bearer t0' }),
+      refresh: () => Promise.reject(new Error('refresh is down')),
+    };
+    const rest = new RestTransport({ client, auth, sleep: () => Promise.resolve(), observer: seen.observe });
+
+    await expect(rest.execute({ meta: list, args: {} })).rejects.toThrow();
+
+    expect(seen.events.map((event) => event.type)).toContain('refreshed');
+  });
+
   it('costs an unwatched transport nothing but an undefined field', async () => {
     const client = fakeClient(() => ({ ok: true }));
     const rest = new RestTransport({ client });
