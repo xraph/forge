@@ -474,3 +474,67 @@ assets -- your own file server, a reverse proxy, a CDN. The rest of the
 dashboard extension is unaffected either way; this shell talks to the same
 data contract under ` + "`{BasePath}/api/dashboard/v1`" + `.
 `
+
+// dashboardNextPageTemplate is the App Router mount. "use client" is required
+// because the host renders a BrowserRouter, which needs the browser. The
+// dashboard pages therefore get no RSC benefit; only the shell around them
+// does. next-sanity makes the same tradeoff for the same reason.
+//
+// corePlugin carries root: true, so it claims "/" inside the mount and any
+// scoped plugin the user adds lands under its own "/@namespace".
+const dashboardNextPageTemplate = `"use client"
+
+import { ForgeDashboard } from "@forge-go/dashboard-host"
+import corePlugin from "@forge-go/dashboard-plugin-core"
+
+// contractBase is a path on this app's own origin, so every request is
+// same-origin and the client's CSRF handshake works untouched. Point it at
+// wherever the proxy route below is mounted.
+const config = { basePath: "/admin", contractBase: "/api/forge/dashboard/v1" }
+const plugins = [corePlugin]
+
+export default function Page() {
+  return <ForgeDashboard basename="/admin" config={config} plugins={plugins} />
+}
+`
+
+// dashboardNextRouteTemplate is the proxy. FORGE_URL is read server-side and
+// never reaches the browser.
+const dashboardNextRouteTemplate = `import { createForgeProxy } from "@forge-go/dashboard-next"
+
+export const { GET, POST } = createForgeProxy({
+  target: process.env.FORGE_URL!,
+})
+`
+
+// dashboardNextPackageJSONTemplate is the package.json for a dashboard
+// mounted inside an existing Next.js app, as an alternative to the
+// standalone Vite shell dashboardPackageJSONTemplate produces. It names all
+// six @forge-go packages the Next-embedded dashboard front end is split
+// into: dashboard-host, dashboard-next and dashboard-plugin-core (built in
+// this change's companion tasks in the forge-dashboard repo, and consumed
+// here only as strings -- nothing is imported at Go build time), plus the
+// three shared packages the standalone shell also depends on.
+const dashboardNextPackageJSONTemplate = `{
+  "name": "{{ .Name }}",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@forge-go/dashboard-host": "latest",
+    "@forge-go/dashboard-kit": "latest",
+    "@forge-go/dashboard-next": "latest",
+    "@forge-go/dashboard-plugin": "latest",
+    "@forge-go/dashboard-plugin-core": "latest",
+    "@forge-go/dashboard-runtime": "latest",
+    "next": "^15",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router": "^8.3.1"
+  }
+}
+`

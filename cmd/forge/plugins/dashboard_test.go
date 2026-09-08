@@ -28,7 +28,7 @@ type scaffoldDashboardPackageJSON struct {
 func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
 
 	want := []string{
 		"package.json",
@@ -58,7 +58,7 @@ func TestScaffoldDashboardWritesExpectedFiles(t *testing.T) {
 func TestScaffoldDashboardPackageJSONNamesPublishedPackages(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
 
 	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ var (
 func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
 
 	raw, err := os.ReadFile(filepath.Join(dir, "src", "App.tsx"))
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 func TestScaffoldDashboardPackageJSONNameIsSanitized(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "My Cool Dashboard!!"))
+	require.NoError(t, p.scaffoldDashboard(dir, "My Cool Dashboard!!", "vite"))
 
 	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestScaffoldDashboardPackageJSONNameIsSanitized(t *testing.T) {
 func TestScaffoldDashboardViteConfigSetsRelativeBase(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
 
 	raw, err := os.ReadFile(filepath.Join(dir, "vite.config.ts"))
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestScaffoldDashboardViteConfigSetsRelativeBase(t *testing.T) {
 func TestScaffoldDashboardReadmeCoversShellExternal(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
-	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard"))
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dashboard", "vite"))
 
 	raw, err := os.ReadFile(filepath.Join(dir, "README.md"))
 	require.NoError(t, err)
@@ -177,6 +177,48 @@ func TestScaffoldDashboardReadmeCoversShellExternal(t *testing.T) {
 	assert.Contains(t, readme, "pnpm add")
 	assert.Contains(t, readme, "pnpm build")
 	assert.Contains(t, readme, "404")
+}
+
+// TestScaffoldDashboardNextTarget covers --target=next: the App Router mount
+// and proxy route land at their nested paths, no vite.config.ts is emitted,
+// and the page starts with "use client" -- required because the host it
+// renders (ForgeDashboard, from @forge-go/dashboard-host) mounts a
+// BrowserRouter, which needs the browser.
+func TestScaffoldDashboardNextTarget(t *testing.T) {
+	dir := t.TempDir()
+	p := &DashboardPlugin{}
+
+	require.NoError(t, p.scaffoldDashboard(dir, "my-dash", "next"))
+
+	for _, want := range []string{
+		"app/admin/[[...slug]]/page.tsx",
+		"app/api/forge/[...path]/route.ts",
+		"package.json",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+			t.Errorf("missing %s: %v", want, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vite.config.ts")); err == nil {
+		t.Error("next target emitted vite.config.ts")
+	}
+
+	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
+	require.NoError(t, err)
+	// BrowserRouter needs the browser, so the mount must be a client component.
+	if !strings.HasPrefix(string(page), `"use client"`) {
+		t.Error("page.tsx does not start with the use client directive")
+	}
+}
+
+// TestScaffoldDashboardUnknownTarget guards filesForTarget's default case: an
+// unrecognized --target must fail loudly rather than silently falling back
+// to the Vite scaffold.
+func TestScaffoldDashboardUnknownTarget(t *testing.T) {
+	p := &DashboardPlugin{}
+	if err := p.scaffoldDashboard(t.TempDir(), "my-dash", "svelte"); err == nil {
+		t.Error("expected an error for an unknown target")
+	}
 }
 
 // TestNpmPackageNameSanitization exercises the sanitizer directly, since it
