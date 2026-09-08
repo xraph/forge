@@ -6,7 +6,7 @@
   "extensions/discovery": "1.10.0",
   "extensions/events": "1.10.0",
   "extensions/features": "1.10.0",
-  "extensions/graphql": "1.10.0",
+  "extensions/graphql": "1.10.1",
   "extensions/grpc": "1.10.0",
   "extensions/hls": "1.10.0",
   "extensions/kafka": "1.10.0",
