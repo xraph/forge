@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import type { Devtools } from '@forge-go/client-devtools';
 import { ForgeDevtools, useForgeDevtools } from '../src/dev';
+import type { ForgeDevtoolsProps } from '../src/dev';
 
 function cache(): QueryCache {
   const scheduler = manualScheduler();
@@ -213,7 +214,7 @@ describe('choosing the UI', () => {
       createElement(
         ClientProvider,
         { client: cache() },
-        createElement(ForgeDevtools, { panel: false, open: true }),
+        createElement<ForgeDevtoolsProps>(ForgeDevtools, { panel: false, open: true }),
       ),
     );
 
@@ -236,7 +237,7 @@ describe('choosing the UI', () => {
       createElement(
         ClientProvider,
         { client: cache() },
-        createElement(ForgeDevtools, { open: true }),
+        createElement<ForgeDevtoolsProps>(ForgeDevtools, { open: true }),
       ),
     );
 
