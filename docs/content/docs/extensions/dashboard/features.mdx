@@ -82,16 +82,13 @@ Each contributor provides a manifest describing its capabilities:
 
 See the [Contributors guide](/docs/extensions/dashboard/contributors) for full details.
 
-## Built-in Pages
+## The Dashboard UI
 
-Four pages are provided by the built-in core contributor:
+The dashboard itself is a prebuilt React shell, served at `{BasePath}/ui` and mounted directly by the extension (the router registers `{BasePath}/ui` plus a wildcard beneath it, both handled by the same SPA handler). The shell covers the overview, health, metrics, and services views that used to be separate server-rendered pages, and it reads its data over the contract envelope rather than rendering server-side.
 
-| Page | Path | Description |
-|---|---|---|
-| Overview | `/` | Application health, extension count, uptime, key metrics |
-| Health | `/health` | Per-extension health checks with status indicators |
-| Metrics | `/metrics` | Counters, gauges, and histograms from the Forge metrics system |
-| Services | `/services` | Registered services with status and configuration |
+A JSON API also still serves the same data directly, at `{BasePath}/api/overview`, `{BasePath}/api/health`, `{BasePath}/api/metrics`, and `{BasePath}/api/services`, for scripted or direct access outside the shell.
+
+The templ **contributor system** described above is separate from the shell and still fully supported: extensions can contribute their own pages, widget fragments, and settings panels, which render through the fragment proxy.
 
 ## Widgets
 

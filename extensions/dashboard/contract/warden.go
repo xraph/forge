@@ -34,7 +34,7 @@ func PrincipalFor(user *dashauth.UserInfo) Principal {
 }
 
 // Action is the operation being authorized. Kind is the wire-side envelope
-// discriminator (graph/query/command/subscribe) so HTTP and SSE callers can
+// discriminator (query/command/subscribe) so HTTP and SSE callers can
 // pass req.Kind directly. Note this is the wire Kind, not the manifest's
 // IntentKind — the values mostly overlap but "subscription" (manifest) is
 // "subscribe" (wire).

@@ -55,15 +55,20 @@ func main() {
 }
 ```
 
-The dashboard is available at `http://localhost:8080/dashboard`.
+The dashboard is available at `http://localhost:8080/dashboard/ui`.
 
 ## Architecture
 
 ```
-ForgeUI App
-  |-- Layouts (root -> dashboard/base/full/settings/auth)
-  |-- Pages (overview, health, metrics, services)
-  |-- Auth (login, logout, register -- via AuthPageProvider)
+Dashboard Extension
+  |-- React Shell ({base}/ui) -- prebuilt SPA covering overview, health,
+  |     metrics, services; reads data over the contract envelope
+  |-- JSON API ({base}/api/*) -- same data (overview, health, metrics,
+  |     services, ...) for direct or scripted access
+  |-- ForgeUI App
+  |     |-- Layouts (root -> dashboard/base/full/settings/auth)
+  |     |-- Contributor pages, widgets, and settings forms
+  |     +-- Auth (login, logout, register -- via AuthPageProvider)
   |-- Contributors
   |     |-- Local (in-process, gomponents)
   |     +-- Remote (HTTP fragment proxy)
@@ -301,10 +306,8 @@ All routes are under the configured base path (default `/dashboard`):
 
 | Category | Path | Description |
 |---|---|---|
-| Pages | `/` | Dashboard overview |
-| Pages | `/health` | Health status page |
-| Pages | `/metrics` | Metrics page |
-| Pages | `/services` | Services page |
+| Shell | `/ui` | React shell: overview, health, metrics, services |
+| Shell | `/ui/*` | Shell static assets and client-side routes |
 | Auth | `/auth/login` | Login page (when auth enabled) |
 | Auth | `/auth/logout` | Logout page (when auth enabled) |
 | Auth | `/auth/register` | Register page (when provider supplies it) |
@@ -329,8 +332,10 @@ All routes are under the configured base path (default `/dashboard`):
 | Settings | `/settings` | Settings index |
 | Settings | `/ext/:name/settings/:id` | Contributor settings |
 
+`/`, `/health`, `/metrics`, and `/services` at the dashboard base path are not served. Use the shell at `/ui` instead; nothing redirects the old paths there.
+
 ## Examples
 
-- **[basic](examples/basic/)** -- Minimal dashboard with built-in pages only
+- **[basic](examples/basic/)** -- Minimal dashboard with the React shell only, no contributors registered
 - **[contributor](examples/contributor/)** -- Custom local contributor with pages, widgets, and settings
 - **[remote](examples/remote/)** -- Remote contributor registration and service discovery

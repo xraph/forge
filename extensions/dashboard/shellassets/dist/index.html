@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="forge-dashboard-shell-placeholder" content="true" />
+    <title>Dashboard shell not bundled</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        padding: 3rem 1.5rem;
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main { max-width: 40rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+      }
+      ul { padding-left: 1.25rem; }
+      li { margin-bottom: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>The dashboard shell was not bundled into this binary</h1>
+      <p>
+        This page is a placeholder. The dashboard extension embeds a prebuilt
+        shell, and the real one is a tarball published by
+        <code>github.com/xraph/forge-dashboard</code> on release. This repo's
+        release CI downloads it and unpacks it over
+        <code>extensions/dashboard/shellassets/dist/</code> before the release
+        build. Nothing built is ever committed there, so a binary compiled
+        straight from a source checkout gets this page instead.
+      </p>
+      <p>You are most likely seeing this because one of these is true:</p>
+      <ul>
+        <li>You built from source yourself, without running the release CI step.</li>
+        <li>The CI step that fetches the tarball did not run, or failed quietly.</li>
+      </ul>
+      <p>
+        To fetch the real artifact by hand, follow
+        <code>extensions/dashboard/shellassets/dist/README.md</code> in the
+        forge source tree.
+      </p>
+      <p>
+        Nothing else about the dashboard is affected. The data contract under
+        <code>{basePath}/api/dashboard/v1</code> and every other route the
+        extension mounts serve normally.
+      </p>
+    </main>
+  </body>
+</html>

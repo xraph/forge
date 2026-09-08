@@ -73,6 +73,26 @@ vendor/
 bin/
 dist/
 
+# ...except the dashboard shell placeholder, which is committed on purpose.
+# //go:embed needs files present at build time, so without it a plain
+# `go build` fails in a fresh clone and in every consumer's CI. Only these two
+# files: the real shell artifact is a tarball that release CI unpacks over this
+# directory, and it must never be committed. Un-exclude the directory before
+# re-including anything inside it. Git cannot re-include a file whose parent
+# directory is excluded.
+!extensions/dashboard/shellassets/dist/
+extensions/dashboard/shellassets/dist/*
+!extensions/dashboard/shellassets/dist/index.html
+!extensions/dashboard/shellassets/dist/README.md
+
+# scripts/fetch-dashboard-shell.sh extracts into a sibling staging directory
+# and moves the old dist/ aside before swapping, so both of these live next
+# to dist/ rather than inside it and neither is covered by the rules above.
+# They are cleaned up on the way out, including on the EXIT trap, but a hard
+# kill mid-run leaves one behind and it should not turn up in `git status`.
+extensions/dashboard/shellassets/.dist-staging.*
+extensions/dashboard/shellassets/dist.stale.*
+
 # Documentation artifacts
 /_impl_docs/docs/_build/
 _impl_docs/
@@ -123,9 +143,6 @@ METRICS_DEADLOCK_FIX.md
 !/CONTRIBUTING.md
 !docs/**/*.md
 !extensions/dashboard/contract/*.md
-!extensions/dashboard/contract/shell/*.md
-!extensions/dashboard/contract/shell/test/
-!extensions/dashboard/contract/shell/test/**
 /**/*.disabled
 extensions/dashboard/forgeui
 *.blob

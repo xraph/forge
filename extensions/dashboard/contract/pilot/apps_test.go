@@ -89,3 +89,27 @@ func TestAppsListHandler_NilRegistry(t *testing.T) {
 		t.Errorf("expected CodeUnavailable, got %v", err)
 	}
 }
+
+// TestProjectAppHome_PrefixesWithSlug guards the /@<slug><home> URL shape
+// apps.list projects for non-root apps. This is the last surviving
+// assertion of that contract: the only other test that ever checked it,
+// TestNavigationHandler_PrefixesHrefWithAppSlug, was deleted along with the
+// navigation intent it drove.
+func TestProjectAppHome_PrefixesWithSlug(t *testing.T) {
+	cases := []struct {
+		name, home, slug, want string
+	}{
+		{"root path prefixes to bare slug", "/", "authsome", "/@authsome"},
+		{"sub path prefixes with slug segment", "/users", "authsome", "/@authsome/users"},
+		{"empty slug leaves home untouched", "/users", "", "/users"},
+		{"empty home stays empty", "", "authsome", ""},
+		{"already-prefixed home passes through", "/@authsome/users", "authsome", "/@authsome/users"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := projectAppHome(c.home, c.slug); got != c.want {
+				t.Errorf("projectAppHome(%q, %q) = %q, want %q", c.home, c.slug, got, c.want)
+			}
+		})
+	}
+}

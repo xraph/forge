@@ -1,14 +1,10 @@
 package dashboard
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,7 +26,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
-	contractshell "github.com/xraph/forge/extensions/dashboard/contract/shell"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
 	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
@@ -108,6 +103,25 @@ type Extension struct {
 	// SetRemoteDispatcher reconfiguration.
 	forwardingMu        sync.Mutex
 	forwardingInstalled bool
+
+	// contributorStatus maps a contract contributor's name to the extension
+	// that registered it, for extensions implementing DashboardStatusAware.
+	// The interface value is stored rather than a DashboardStatus snapshot so
+	// the capabilities endpoint reads the live answer — Configured can flip
+	// after boot when an extension is configured at runtime.
+	//
+	// contributorStatusMu guards the map and nothing else. Writers are
+	// attributeContributorStatus and forgetContributorStatus; the capabilities
+	// handler reads through contributorStatusFor while serving. Discovery
+	// writes during Start, but an extension may hold the registry it was
+	// handed and register more contributors later from its own goroutine, so
+	// "writes finish before serving begins" is not an invariant we have.
+	// What the lock does not cover, because the recorder made it moot: the
+	// registry state around a registration. Attribution is now observed
+	// inside the Register call rather than reconstructed from before/after
+	// snapshots, so no cross-registry window needs guarding.
+	contributorStatusMu sync.Mutex
+	contributorStatus   map[string]DashboardStatusAware
 
 	// remoteWatchers tracks long-running goroutines that maintain explicit
 	// remote-contributor registrations (set up via WatchRemoteContributor).
@@ -225,9 +239,9 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Retain spans only while somebody is actually using the dashboard. The
 	// marker is stamped by TracingMiddleware on any request under BasePath, and
-	// a live SSE subscriber counts too: the shell consumes SSE directly and does
-	// not poll, so a viewer who only streams would otherwise fall outside the
-	// TTL window and starve. The gate stays open for as long as someone is
+	// a live SSE subscriber counts too: a dashboard client consumes SSE directly
+	// rather than polling, so a viewer who only streams would otherwise fall
+	// outside the TTL window and starve. The gate stays open for as long as someone is
 	// looking (streaming or requesting) and shuts a few minutes after they
 	// stop. A service nobody ever visits pays nothing. Installed after the SSE
 	// broker so the closure can capture it (it is nil when realtime is
@@ -237,9 +251,9 @@ func (e *Extension) Register(app forge.App) error {
 		broker := e.sseBroker
 		ts.SetIngestGate(func() bool {
 			// Somebody has a live stream open: they are watching right now, even
-			// if the shell issues no further requests. The React shell consumes
-			// SSE directly and does not poll, so without this the gate would shut
-			// under an active viewer.
+			// if the client issues no further requests. A dashboard client
+			// consumes SSE directly rather than polling, so without this the gate
+			// would shut under an active viewer.
 			if broker != nil && broker.ClientCount() > 0 {
 				return true
 			}
@@ -309,23 +323,12 @@ func (e *Extension) Register(app forge.App) error {
 		CustomCSS: e.config.CustomCSS,
 	})
 
-	// Slice (i) retired the legacy CoreContributor: the React shell at
-	// {BasePath}/ui serves Overview / Health / Metrics / Traces / Extensions /
-	// Services, and the old templ paths 302 to it (see pages.RegisterPages).
-	//
-	// WithLegacyUI brings it back for deployments the shell does not yet cover.
-	// It is registered here rather than unconditionally because it is what the
-	// templ core pages render through -- without it those routes have nothing to
-	// delegate to -- and because registering a contributor nobody renders would
-	// put its nav entries in the sidebar of shell-only deployments.
-	if e.config.LegacyUI {
-		core := NewCoreContributor(e.collector, e.history, e.traceStore, e.registry)
-		if err := e.registry.RegisterLocal(core); err != nil {
-			return fmt.Errorf("failed to register core contributor: %w", err)
-		}
-	}
-
-	// Rebuild the search index against any contributors registered later.
+	// e.registry was constructed fresh just above and nothing has registered
+	// into it yet, so this rebuild indexes zero contributors. It is kept
+	// anyway: RebuildIndex is a cheap, idempotent scan, and the call it
+	// mirrors 1:1 with the meaningful rebuild in discoverExtensionContributors
+	// below, which runs after contributors are actually registered and is
+	// the one that populates the index for real.
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
@@ -373,8 +376,9 @@ func (e *Extension) Register(app forge.App) error {
 		ExtensionsRegistry: e.registry,
 		Services:           e.collector,
 		Metrics:            e.collector,
-		// Slice (h) — wire the rest of CoreContributor's data sources so the
-		// pilot covers Overview / Health / Metrics report / Traces.
+		// Slice (h): wire the remaining data sources (the same ones the old
+		// core pages rendered) so the pilot covers Overview / Health /
+		// Metrics report / Traces.
 		Overview:      e.collector,
 		Health:        e.collector,
 		MetricsReport: e.collector,
@@ -510,6 +514,16 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			continue
 		}
 
+		// Extensions that report a dashboard status get a recorder, which
+		// captures the name of every contract contributor they register as
+		// they register it. Nothing is inferred: attribution is a fact
+		// observed at the registration call, so it does not depend on start
+		// order and has no window between observing and recording.
+		var statusRec *contributorStatusRecorder
+		if sa, ok := ext.(DashboardStatusAware); ok {
+			statusRec = &contributorStatusRecorder{ext: sa, host: e}
+		}
+
 		// Auto-register DashboardAware contributors. Wrapped in a closure so
 		// early returns skip only the contributor block — later interface
 		// checks (BridgeAware, DashboardAuthAware, DashboardFooterContributor)
@@ -564,6 +578,10 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 							forge.F("extension", ext.Name()),
 							forge.F("error", err.Error()),
 						)
+					} else {
+						// The manifest names its contributor, so this path
+						// attributes directly without a recorder.
+						statusRec.record(mn.Contract.Contributor.Name)
 					}
 				}
 
@@ -623,7 +641,15 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 		// legacy templ contributor (if any) keeps working in parallel.
 		if cca, ok := ext.(ContractContributorAware); ok &&
 			e.dispatcher != nil && e.contractRegistry != nil && e.wardenRegistry != nil {
-			if err := cca.RegisterContractContributor(e.dispatcher, e.contractRegistry, e.wardenRegistry); err != nil {
+			// The extension registers its own manifest, so the contributor
+			// name is only knowable from inside the call. Wrapping the
+			// registry is what makes it knowable; unwrapped extensions get
+			// the bare registry so their path is unchanged.
+			reg := e.contractRegistry
+			if statusRec != nil {
+				reg = &recordingRegistry{Registry: e.contractRegistry, rec: statusRec}
+			}
+			if err := cca.RegisterContractContributor(e.dispatcher, reg, e.wardenRegistry); err != nil {
 				e.Logger().Error("failed to register contract contributor",
 					forge.F("extension", ext.Name()),
 					forge.F("error", err.Error()),
@@ -634,12 +660,155 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 				)
 			}
 		}
+
+		// An extension that reports a status but registered no contract
+		// contributor here has nothing to attach that status to, so the
+		// capabilities endpoint will report its contributors with the
+		// permissive default. Silently rendering an unconfigured extension
+		// as ready is the failure the four-state design exists to prevent,
+		// so say so at startup. The usual cause is a registration path
+		// attribution does not cover — see RegisterContributor.
+		if statusRec != nil && statusRec.attributed() == 0 {
+			e.Logger().Warn("extension reports a dashboard status but registered no contract contributor to attach it to; its plugins will render as configured",
+				forge.F("extension", ext.Name()),
+			)
+		}
 	}
 
 	// Rebuild search index after auto-discovery
 	if e.searcher != nil {
 		e.searcher.RebuildIndex()
 	}
+}
+
+// contributorStatusRecorder attributes contract contributors to the one
+// extension that registered them. A nil recorder is a working no-op, which is
+// what extensions that do not implement DashboardStatusAware get.
+//
+// Attribution happens inside the registration call, not around it, so there is
+// no window during which another registration could be miscredited and no
+// dependence on whether the extension was already in the registry when
+// discovery reached it.
+type contributorStatusRecorder struct {
+	ext  DashboardStatusAware
+	host *Extension
+
+	// mu guards count only. It is separate from the host's
+	// contributorStatusMu because an extension is free to keep the registry
+	// it was handed and register more contributors later, from its own
+	// goroutine.
+	mu    sync.Mutex
+	count int
+}
+
+func (r *contributorStatusRecorder) record(name string) {
+	if r == nil || r.ext == nil || name == "" {
+		return
+	}
+	r.host.attributeContributorStatus(name, r.ext)
+	r.mu.Lock()
+	r.count++
+	r.mu.Unlock()
+}
+
+// attributed reports how many contributors this extension registered.
+func (r *contributorStatusRecorder) attributed() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.count
+}
+
+// recordingRegistry is the contract.Registry handed to an extension that
+// reports a dashboard status. Both registration methods record the manifest's
+// contributor name after the underlying registry accepts it, and Unregister
+// drops it again; every other method delegates untouched through the embedded
+// interface.
+type recordingRegistry struct {
+	contract.Registry
+
+	rec *contributorStatusRecorder
+}
+
+func (r *recordingRegistry) Register(m *contract.ContractManifest) error {
+	if err := r.Registry.Register(m); err != nil {
+		return err
+	}
+	if m != nil {
+		r.rec.record(m.Contributor.Name)
+	}
+
+	return nil
+}
+
+func (r *recordingRegistry) RegisterRemote(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
+	if err := r.Registry.RegisterRemote(m, endpoint); err != nil {
+		return err
+	}
+	if m != nil {
+		r.rec.record(m.Contributor.Name)
+	}
+
+	return nil
+}
+
+// Unregister drops the contributor's status attribution along with the
+// registration itself. Contributors are keyed by name and a freed name can be
+// claimed by a different party later; without this the new owner would serve
+// the previous owner's live status. This is the same hazard
+// UnregisterRemoteContractContributor closes, reached through the other of the
+// two routes that free a name.
+func (r *recordingRegistry) Unregister(contributor string) {
+	r.Registry.Unregister(contributor)
+	if r.rec != nil && r.rec.host != nil {
+		r.rec.host.forgetContributorStatus(contributor)
+	}
+}
+
+// attributeContributorStatus records that the named contract contributor is
+// served by sa, so the capabilities endpoint can ask sa for its live status.
+func (e *Extension) attributeContributorStatus(name string, sa DashboardStatusAware) {
+	if sa == nil || name == "" {
+		return
+	}
+	e.contributorStatusMu.Lock()
+	defer e.contributorStatusMu.Unlock()
+	if e.contributorStatus == nil {
+		e.contributorStatus = make(map[string]DashboardStatusAware)
+	}
+	e.contributorStatus[name] = sa
+}
+
+// forgetContributorStatus drops a contributor's attribution. Contributors are
+// keyed by name, and a name freed by an unregister can be claimed by a
+// different party later; without this the new owner would serve the old
+// owner's live status.
+func (e *Extension) forgetContributorStatus(name string) {
+	e.contributorStatusMu.Lock()
+	defer e.contributorStatusMu.Unlock()
+	delete(e.contributorStatus, name)
+}
+
+// contributorStatusFor is the transport.ContributorStatusFunc the capabilities
+// endpoint reads. ok is false for contributors whose extension does not report
+// a status — including the dashboard's own contributors and remotes — and the
+// handler then applies the permissive default.
+func (e *Extension) contributorStatusFor(name string) (transport.ContributorStatus, bool) {
+	e.contributorStatusMu.Lock()
+	sa, ok := e.contributorStatus[name]
+	e.contributorStatusMu.Unlock()
+	if !ok {
+		return transport.ContributorStatus{}, false
+	}
+	st := sa.DashboardStatus()
+	return transport.ContributorStatus{
+		Version:    st.Version,
+		Configured: st.Configured,
+		Message:    st.Message,
+	}, true
 }
 
 // startNotificationForwarding subscribes to all NotifiableContributor channels
@@ -818,6 +987,7 @@ func (e *Extension) UnregisterRemoteContractContributor(name string) {
 	if e.contractRegistry != nil {
 		e.contractRegistry.Unregister(name)
 	}
+	e.forgetContributorStatus(name)
 }
 
 // installForwardingDispatcherOnce wires a ForwardingDispatcher into the
@@ -839,6 +1009,15 @@ func (e *Extension) installForwardingDispatcherOnce() {
 
 // RegisterContributor registers a local contributor with the dashboard.
 // This is the primary API for extensions to contribute UI to the dashboard.
+//
+// Dashboard-status attribution does not cover this path. It takes a
+// LocalContributor, not an extension, so there is no DashboardStatusAware
+// value to attach: a contract contributor registered here reports the
+// permissive default (empty version, configured) no matter what its extension
+// would say. discoverExtensionContributors logs a warning naming any
+// DashboardStatusAware extension that ends up with nothing attributed, which
+// is how this shows up. Any new registration path has the same gap unless it
+// routes through a recordingRegistry or calls attributeContributorStatus.
 func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
 	if err := e.registry.RegisterLocal(c); err != nil {
 		return err
@@ -1156,6 +1335,11 @@ func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *co
 	// Mirror the contract manifest into the contract registry when the remote
 	// publishes one. Same validate-then-register path as local contributors so
 	// remote-published contracts get the same warden checks.
+	//
+	// Like RegisterContributor, this path carries no dashboard-status
+	// attribution: a remote contributor is not a local extension, so there is
+	// no DashboardStatusAware value here. Remotes report the permissive
+	// default.
 	if manifest != nil && manifest.Contract != nil {
 		if err := e.registerContractManifest(manifest.Contract); err != nil {
 			// Best-effort: log and unwind the legacy registration so we don't
@@ -1320,8 +1504,9 @@ func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 // hold at least one of the given roles. Pass nil/empty to clear the gate.
 // Auth extensions like authsome call this from RegisterDashboardAuth when
 // their own configuration declares a role list. The principal endpoint
-// returns 403 PERMISSION_DENIED for users who don't qualify; the React
-// shell renders an "access denied" panel.
+// returns 403 PERMISSION_DENIED for users who don't qualify. Rendering that
+// as an "access denied" screen is the client's job, and no client does it
+// today; the 403 itself is served regardless.
 func (e *Extension) SetRequiredRoles(roles []string) {
 	e.config.RequiredRoles = append([]string(nil), roles...)
 }
@@ -1417,7 +1602,6 @@ func (e *Extension) initializeForgeUI() {
 		DefaultAccess:   e.config.DefaultAccess,
 		LoginPath:       e.config.LoginPath,
 		RootContributor: e.config.RootContributor,
-		LegacyUI:        e.config.LegacyUI,
 	})
 }
 
@@ -1554,7 +1738,7 @@ func (e *Extension) registerRoutes() {
 			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream), routeOpts...))
 			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl), routeOpts...))
 		}
-		// Slice (b) Phase 6: surface CSRF tokens to the shell only when the
+		// Slice (b) Phase 6: surface CSRF tokens to the client only when the
 		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,
 		// and EnableContractSecurity gates the contract path's enforcement).
 		if e.csrfMgr != nil && e.config.EnableContractSecurity {
@@ -1562,42 +1746,29 @@ func (e *Extension) registerRoutes() {
 				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
 		}
 
-		// Slice (d) Phase 7: principal endpoint surfaces the current user to
-		// the React shell's topbar. Reads from dashauth.UserFromContext, so it
+		// The principal endpoint surfaces auth state to whatever client is
+		// driving the dashboard. Reads from dashauth.UserFromContext, so it
 		// honors whatever auth middleware the deployment has wired upstream.
-		// Slice (l): the principal endpoint surfaces auth state to the React shell.
-		// Auth-disabled deployments get a 200 anonymous response so the shell skips
-		// the login gate; auth-enabled deployments get a 401 with the loginPath the
-		// shell should redirect to. Slice (l.5): RequiredRoles, if set, gets a 403
-		// for authenticated users without a matching role.
+		// Auth-disabled deployments get a 200 anonymous response, so a client can
+		// skip its login gate; auth-enabled deployments get a 401 carrying the
+		// loginPath to send the user to. RequiredRoles, if set, gets a 403 for
+		// authenticated users without a matching role.
+		//
+		// The endpoint is live and correct. Its consumer is not: the shell that
+		// read it was deleted, so nothing calls this today.
 		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
 			AuthEnabled:   e.config.EnableAuth,
 			LoginPath:     loginPath,
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
 		}), routeOpts...))
-
-		// Slice (d) Phase 7: static + SPA serving for the embedded React shell.
-		// Static assets at /dashboard/ui/static/* are served from the embedded
-		// dist/. Any other path under /dashboard/ui/* serves index.html; React
-		// Router handles client-side routing. The concrete "static" segment
-		// takes precedence over the SPA catch-all in the router trie.
-		shellFS, shellErr := contractshell.FS()
-		if shellErr == nil {
-			staticPrefix := base + "/ui/static"
-			must(router.GET(staticPrefix+"/*filepath", e.makeShellStaticHandler(shellFS, staticPrefix)))
-			must(router.GET(base+"/ui", e.makeShellSPAHandler(shellFS)))
-			must(router.GET(base+"/ui/*filepath", e.makeShellSPAHandler(shellFS)))
-
-			// Backward-compat: the shell used to live at /{base}/contract/app.
-			// 302 the old entry + any deep link to the new /{base}/ui path so
-			// existing bookmarks keep working.
-			legacyPrefix := base + "/contract/app"
-			legacyRedirect := e.makeShellRedirectHandler(legacyPrefix, base+"/ui")
-			must(router.GET(legacyPrefix, legacyRedirect))
-			must(router.GET(legacyPrefix+"/*filepath", legacyRedirect))
-		}
 	}
+
+	// 3c. The dashboard shell at {base}/ui, served from the prebuilt artifact
+	// embedded in this binary. ShellExternal mounts nothing here, for
+	// deployments that build and serve their own shell. See mountShellRoutes
+	// for the route ordering and why it is written the way it is.
+	e.mountShell(router, base, must)
 
 	// 4. Export endpoints (stay on forge.Router)
 	if e.config.EnableExport {
@@ -1695,7 +1866,7 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 // currently registered with contract manifests. The shell envelope list here
 // must stay in sync with transport.NewHandler's supported set.
 func (e *Extension) handleContractCapabilities() http.HandlerFunc {
-	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}).ServeHTTP
+	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}, e.contributorStatusFor).ServeHTTP
 }
 
 // mountEmbeddedAssets iterates local contributors and mounts static asset handlers
@@ -1863,115 +2034,4 @@ func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c 
 		StoredAt: c.StoredAt,
 		TTL:      c.TTL,
 	})
-}
-
-// makeShellStaticHandler serves files from the embedded React shell at
-// /{base}/ui/static/*. Hashed asset paths (under /assets/) are cached
-// aggressively; everything else uses a no-cache header so deploys land
-// immediately. The stripPrefix is the URL prefix the static handler is
-// mounted at — request paths beneath it are resolved against the embedded FS.
-func (e *Extension) makeShellStaticHandler(shellFS fs.FS, stripPrefix string) http.HandlerFunc {
-	fileServer := http.FileServer(http.FS(shellFS))
-	return func(w http.ResponseWriter, r *http.Request) {
-		trimmed := strings.TrimPrefix(r.URL.Path, stripPrefix)
-		if trimmed == "" {
-			trimmed = "/"
-		}
-		if strings.Contains(trimmed, "/assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		r2 := r.Clone(r.Context())
-		r2.URL = cloneURLWithPath(r.URL, trimmed)
-		fileServer.ServeHTTP(w, r2)
-	}
-}
-
-// makeShellRedirectHandler 302s requests from a legacy shell prefix to the
-// current one, preserving the trailing subpath and query string. Used to keep
-// old /{base}/contract/app bookmarks working after the shell moved to
-// /{base}/ui.
-func (e *Extension) makeShellRedirectHandler(oldPrefix, newPrefix string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		target := newPrefix + strings.TrimPrefix(r.URL.Path, oldPrefix)
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-
-		http.Redirect(w, r, target, http.StatusFound)
-	}
-}
-
-// makeShellSPAHandler returns the SPA index.html for any path under
-// /{base}/ui/*. React Router handles the client-side routing.
-//
-// The handler injects a small bootstrap script just before </head> that
-// surfaces the configured BasePath to the shell. This lets the React shell
-// derive its API endpoint and Router basename at runtime instead of baking
-// /dashboard into the bundle — required when the dashboard is mounted at a
-// non-default base (e.g. /admin) or rebased behind a reverse proxy.
-func (e *Extension) makeShellSPAHandler(shellFS fs.FS) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		raw, err := fs.ReadFile(shellFS, "index.html")
-		if err != nil {
-			http.Error(w, "shell index missing — has `pnpm build` been run inside extensions/dashboard/contract/shell?", http.StatusInternalServerError)
-			return
-		}
-		// Build the inline bootstrap. Marshal through JSON so the basePath is
-		// safely string-escaped even if it ever contains odd characters.
-		cfg := map[string]any{
-			"basePath":     e.config.BasePath,
-			"contractBase": e.config.BasePath + "/api/dashboard/v1",
-			"shellBase":    e.config.BasePath + "/ui",
-			"authEnabled":  e.config.EnableAuth,
-			"loginPath":    e.config.BasePath + e.config.LoginPath,
-			// Slice (l): the contributor that owns the contract /login graph
-			// route. Auth extensions like authsome register a `/login` route
-			// under their own contributor and the shell renders that page
-			// instead of the built-in LoginScreen. Default "auth" for
-			// authsome; deployments can override via config later.
-			"loginContributor": "auth",
-			"loginOp":          "auth.login",
-		}
-		cfgJSON, _ := json.Marshal(cfg)
-		bootstrap := []byte("<script>window.__FORGE_DASHBOARD__=" + string(cfgJSON) + ";</script>")
-
-		// Vite emits document-relative asset URLs ("./assets/index-abc.js") so
-		// that the bundle is relocatable — see the `base` note in
-		// shell/vite.config.ts. Document-relative is correct for the chunks,
-		// which resolve against their own URL, but not for index.html: this
-		// same HTML is served for every path under {base}/ui, so "./assets/"
-		// would resolve against /_forge/dashboard/ui on the entry page and
-		// against /_forge/dashboard/ui/metrics on a deep link. Rewrite them to
-		// one absolute URL under the configured base instead.
-		//
-		// This cannot be left to the bootstrap script below: the browser
-		// resolves src/href while parsing the document, long before any script
-		// of ours runs.
-		out := bytes.ReplaceAll(raw, []byte(`"./assets/`), []byte(`"`+e.config.BasePath+`/ui/static/assets/`))
-
-		if idx := bytes.Index(out, []byte("</head>")); idx >= 0 {
-			out = append(out[:idx:idx], append(bootstrap, out[idx:]...)...)
-		} else {
-			// No </head> (unlikely with Vite output) — prepend the bootstrap so
-			// it still runs before any module script.
-			out = append(bootstrap, out...)
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(out)
-	}
-}
-
-// cloneURLWithPath returns a copy of u with Path replaced. Used by the static
-// handler so it doesn't mutate the original request's URL.
-func cloneURLWithPath(u *url.URL, path string) *url.URL {
-	if u == nil {
-		return &url.URL{Path: path}
-	}
-	clone := *u
-	clone.Path = path
-	clone.RawPath = ""
-	return &clone
 }

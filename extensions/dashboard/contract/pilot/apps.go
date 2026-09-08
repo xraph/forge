@@ -7,13 +7,18 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 )
 
-// AppInfo is the wire shape one entry in the app switcher consumes. It's a
-// projection of contract.AppInfo joined with the owning contributor's name
-// so the React shell can group nav items by app without a second lookup.
+// AppInfo is the wire shape of one app-switcher entry: contract.AppInfo joined
+// with the owning contributor's name so a caller can group nav items by app
+// without a second lookup.
 //
-// For root apps (Root=true), Slug is empty and Home stays unprefixed —
-// the platform app owns the bare URL space (/, /health, ...). For other
-// apps Home is projected to /@<slug><home>.
+// For root apps (Root=true), Slug is empty and Home stays unprefixed — the
+// platform app owns the bare URL space (/, /health, ...). For other apps Home
+// is projected to /@<slug><home>.
+//
+// Nothing consumes this yet: apps.list has no TypeScript caller, and
+// definePlugin declares plugin routes bare rather than under /@<slug>/*. Read
+// the /@<slug> form as a proposal, not as the plugin routing contract. A later
+// wave decides whether definePlugin adopts the prefix or the projection goes.
 type AppInfo struct {
 	Contributor string `json:"contributor"`
 	DisplayName string `json:"displayName"`
@@ -24,11 +29,9 @@ type AppInfo struct {
 	Home        string `json:"home,omitempty"`
 }
 
-// projectAppHome rewrites the manifest's unprefixed Home into the
-// /@<slug><home> form that the merged graph routes use. Identical to
-// contract.prefixAppHome (lives there for use during merge); duplicated
-// here to keep the apps.list projection self-contained without
-// re-exporting the helper.
+// projectAppHome rewrites the manifest's unprefixed Home into the /@<slug><home>
+// form for a non-root app's entry point. See the AppInfo doc above: no client
+// depends on this shape today.
 func projectAppHome(home, slug string) string {
 	if home == "" || slug == "" {
 		return home
@@ -72,10 +75,13 @@ func appsListHandler(reg contract.Registry) func(ctx context.Context, _ struct{}
 			if displayName == "" {
 				displayName = m.Contributor.Name
 			}
-			// Project the prefixed Home so the React shell navigates to
-			// /@<slug><home> — matching the hrefs the navigation handler
-			// emits. ResolvedSlug returns "" for root apps, which makes
-			// projectAppHome a no-op: root apps own the bare URL space.
+			// Project the prefixed Home to /@<slug><home>. ResolvedSlug
+			// returns "" for root apps, which makes projectAppHome a
+			// no-op: root apps own the bare URL space.
+			//
+			// Nothing consumes this projection, and definePlugin declares
+			// plugin routes bare rather than under /@<slug>/*. See the
+			// AppInfo doc above before you build on the prefixed form.
 			slug := a.ResolvedSlug(m.Contributor.Name)
 			home := projectAppHome(a.Home, slug)
 			out = append(out, AppInfo{

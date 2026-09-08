@@ -28,8 +28,6 @@ intents:
       requires: { warden: tenantOwner } }
 queries:
   userList: { intent: users.list }
-graph:
-  - { route: /users, intent: page.shell, data: queries.userList }
 `)
 	wreg := contract.NewWardenRegistry()
 	_ = wreg.Register("tenantOwner", &noopWarden{})
@@ -51,16 +49,68 @@ intents:
 	}
 }
 
-func TestValidate_UnknownQueryRef(t *testing.T) {
-	m := mustLoad(t, `
+// TestValidate_QueryIntentBinding pins the query -> intent check, which is the
+// only thing that reads ContractManifest.Queries. The two failing cases and the
+// passing one straddle looksCrossContributor: a bare name and a name whose first
+// dotted segment is this contributor are both "mine", so an undeclared intent is
+// an authoring mistake; a name owned by someone else is allowed through because
+// this contributor's manifest cannot see the other's intents.
+func TestValidate_QueryIntentBinding(t *testing.T) {
+	const head = `
 schemaVersion: 1
-contributor: { name: x, envelope: { supports: [v1], preferred: v1 } }
-intents: []
-graph:
-  - { intent: page.shell, data: queries.nope }
-`)
-	if err := Validate(m, contract.NewWardenRegistry()); err == nil {
-		t.Error("expected unknown-query error")
+contributor: { name: users, envelope: { supports: [v1], preferred: v1 } }
+intents:
+  - { name: users.list, kind: query, version: 1, capability: read }
+queries:
+`
+
+	cases := []struct {
+		name    string
+		queries string
+		wantErr bool
+		errHas  string
+	}{
+		{
+			name:    "same contributor, intent not declared",
+			queries: "  userList: { intent: users.listAll }\n",
+			wantErr: true,
+			errHas:  "users.listAll",
+		},
+		{
+			name:    "undotted name, intent not declared",
+			queries: "  userList: { intent: listAll }\n",
+			wantErr: true,
+			errHas:  "listAll",
+		},
+		{
+			name:    "other contributor's intent is allowed through",
+			queries: "  billingPlan: { intent: billing.plan }\n",
+			wantErr: false,
+		},
+		{
+			name:    "declared intent resolves",
+			queries: "  userList: { intent: users.list }\n",
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := mustLoad(t, head+tc.queries)
+			err := Validate(m, contract.NewWardenRegistry())
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected validation to fail for queries %q", tc.queries)
+				}
+				if !strings.Contains(err.Error(), tc.errHas) {
+					t.Fatalf("error %q does not name the bad intent %q", err, tc.errHas)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+		})
 	}
 }
 

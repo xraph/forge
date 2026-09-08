@@ -22,9 +22,10 @@ const DefaultMetricsInterval = 5 * time.Second
 // extension constructs this when it wires the pilot at startup.
 //
 // Slice (c) introduced ExtensionsRegistry / Services / Metrics. Slice (h)
-// adds Overview / Health / MetricsReport / Traces so the pilot covers every
-// page CoreContributor serves today; nil providers are tolerated and the
-// corresponding handlers return CodeUnavailable.
+// adds Overview / Health / MetricsReport / Traces so the pilot's intents
+// cover the same data every one of the old core pages rendered; nil
+// providers are tolerated and the corresponding handlers return
+// CodeUnavailable.
 type Deps struct {
 	ExtensionsRegistry *contributor.ContributorRegistry
 	Services           ServicesProvider
@@ -111,15 +112,11 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterSubscription(d, c, "audit.tail", 1, auditTailSub(deps.Audit)); err != nil {
 		return err
 	}
-	// Slice (l) navigation. Walks the merged contract registry to produce the
-	// pre-grouped sidebar payload the React shell renders.
-	if err := dispatcher.RegisterQuery(d, c, "navigation", 1, navigationHandler(contractReg)); err != nil {
-		return err
-	}
-	// apps.list: feeds the React shell's app switcher with every
-	// contributor that opted into being a switchable app. Separate from
-	// extensions.list (the broader catalog) so the switcher's dropdown
-	// stays focused on user-facing apps.
+	// apps.list: every contributor that opted into being a switchable app,
+	// for an app switcher to render. Separate from extensions.list (the
+	// broader catalog) so a switcher's dropdown stays focused on user-facing
+	// apps. Registered but uncalled: no client asks for this intent today.
+	// See the AppInfo doc in apps.go for what a later wave has to settle.
 	if err := dispatcher.RegisterQuery(d, c, "apps.list", 1, appsListHandler(contractReg)); err != nil {
 		return err
 	}

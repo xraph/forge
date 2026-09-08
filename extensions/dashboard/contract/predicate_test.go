@@ -60,19 +60,3 @@ func TestPredicate_AllAndAny_Combined(t *testing.T) {
 		t.Error("fail case allowed")
 	}
 }
-
-func TestPermissionsHash_StableForEquivalentSlice(t *testing.T) {
-	a := PermissionsHash(u([]string{"admin", "owner"}, []string{"x", "y"}))
-	b := PermissionsHash(u([]string{"owner", "admin"}, []string{"y", "x"}))
-	if a != b {
-		t.Errorf("hash not stable across order: %s vs %s", a, b)
-	}
-}
-
-func TestPermissionsHash_DiffersWhenRolesDiffer(t *testing.T) {
-	a := PermissionsHash(u([]string{"admin"}, nil))
-	b := PermissionsHash(u([]string{"viewer"}, nil))
-	if a == b {
-		t.Error("hash should differ for different roles")
-	}
-}

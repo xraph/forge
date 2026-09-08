@@ -16,15 +16,15 @@ import (
 //     401 with `{code:"UNAUTHENTICATED",loginPath:...}` when not — the shell
 //     interprets that as "render the LoginScreen".
 //
-// LoginPath is the absolute URL the shell should send users to for sign-in
+// LoginPath is the absolute URL a client should send users to for sign-in
 // (e.g. /<basePath>/login). Only included in the 401 envelope; ignored when
 // auth is disabled.
 //
 // RequiredRoles, if non-empty, restricts dashboard access to users carrying
 // at least one of the listed roles. Authenticated users without any matching
-// role get a 403 with `{code:"PERMISSION_DENIED"}` so the React shell can
-// render an "access denied" panel instead of the dashboard. Slice (l.5)
-// added this so authsome can wire role-gated dashboards via config.
+// role get a 403 with `{code:"PERMISSION_DENIED"}`, which a client is meant to
+// render as an "access denied" panel. Added so authsome can wire role-gated
+// dashboards via config. The 403 is served; no client renders it yet.
 type PrincipalOptions struct {
 	AuthEnabled   bool
 	LoginPath     string
@@ -74,9 +74,9 @@ type accessDeniedResponse struct {
 }
 
 // NewPrincipalHandler returns the GET /api/dashboard/v1/principal handler
-// configured for a given dashboard. Slice (l) replaced the static handler so
-// the React shell can distinguish "auth disabled" from "auth required, not
-// signed in".
+// configured for a given dashboard. It replaced an earlier static handler so
+// a client can distinguish "auth disabled" from "auth required, not signed
+// in".
 func NewPrincipalHandler(opts PrincipalOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := dashauth.UserFromContext(r.Context())

@@ -4,7 +4,6 @@ package transport
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -61,16 +60,6 @@ type handler struct {
 	csrfMgr *security.CSRFManager // optional; nil disables CSRF validation
 }
 
-// graphPayload is the payload shape for kind=graph requests.
-// The shell sends `{ "route": "/some/path" }` and expects the merged graph
-// for that route in the response Data plus extracted :name params (if any)
-// in Meta.RouteParams. Slice (j) introduced this; before it, the graph kind
-// 404'd because page.shell isn't a registered intent — it's a vocabulary
-// marker for slot validation only.
-type graphPayload struct {
-	Route string `json:"route"`
-}
-
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, &contract.Error{Code: contract.CodeBadRequest, Message: "POST required"})
@@ -88,13 +77,6 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateKind(req); err != nil {
 		writeError(w, http.StatusBadRequest, &contract.Error{Code: contract.CodeBadRequest, Message: err.Error()})
-		return
-	}
-	// Graph dispatches don't go through the dispatcher's intent table — page.shell
-	// is a vocabulary root, not a registered handler. Resolve straight against the
-	// merged manifest graph via GraphBuilder, with visibleWhen filtering applied.
-	if req.Kind == contract.KindGraph {
-		h.serveGraph(w, r, req)
 		return
 	}
 	in, ok := h.reg.Intent(req.Contributor, req.Intent, intentVersionOrHighest(h.reg, req))
@@ -159,8 +141,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// legitimately need to touch HTTP (e.g. authsome's auth.login issuing a
 	// Set-Cookie) can reach them via dashauth.ResponseWriterFromContext. Pure
 	// data handlers ignore them. Slice (l) added this for the auth extension
-	// integration; widening to graph/query is harmless because those handlers
-	// already get a fresh copy of r.Context() and won't accidentally read it.
+	// integration; widening to query/subscribe is harmless because those
+	// handlers already get a fresh copy of r.Context() and won't accidentally
+	// read it.
 	dispatchCtx := dashauth.WithHTTP(r.Context(), w, r)
 	data, meta, err := h.disp.Dispatch(dispatchCtx, req, p)
 	latency := time.Since(t0)
@@ -176,75 +159,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// serveGraph handles kind=graph requests. The payload carries `{route}`; the
-// builder walks the contributor's merged graph, applies visibleWhen filters
-// against the principal, and surfaces any :name route params in Meta.
-func (h *handler) serveGraph(w http.ResponseWriter, r *http.Request, req contract.Request) {
-	var pl graphPayload
-	if len(req.Payload) > 0 {
-		if err := json.Unmarshal(req.Payload, &pl); err != nil {
-			writeError(w, http.StatusBadRequest, &contract.Error{Code: contract.CodeBadRequest, Message: "graph payload: " + err.Error()})
-			return
-		}
-	}
-	if pl.Route == "" {
-		// fall back to the request context's route if the payload omitted it;
-		// the shell sometimes sends only the latter.
-		pl.Route = req.Context.Route
-	}
-	user := dashauth.UserFromContext(r.Context())
-	p := contract.PrincipalFor(user)
-
-	builder := contract.NewGraphBuilder(h.reg, h.wreg)
-	node, params, err := builder.BuildWithParams(r.Context(), req.Contributor, pl.Route, p)
-	if err != nil {
-		ce := mapBuildError(err)
-		writeError(w, statusForBuildError(ce), ce)
-		return
-	}
-	data, mErr := json.Marshal(node)
-	if mErr != nil {
-		writeError(w, http.StatusInternalServerError, &contract.Error{Code: contract.CodeInternal, Message: "graph encode: " + mErr.Error()})
-		return
-	}
-	meta := contract.ResponseMeta{}
-	if len(params) > 0 {
-		meta.RouteParams = params
-	}
-	writeOK(w, contract.Response{
-		OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta,
-	})
-}
-
-// mapBuildError translates GraphBuilder errors into wire contract errors.
-func mapBuildError(err error) *contract.Error {
-	switch {
-	case errors.Is(err, contract.ErrNotFound):
-		return &contract.Error{Code: contract.CodeNotFound, Message: err.Error()}
-	case errors.Is(err, contract.ErrPermissionDenied):
-		return &contract.Error{Code: contract.CodePermissionDenied, Message: err.Error()}
-	default:
-		return &contract.Error{Code: contract.CodeInternal, Message: err.Error()}
-	}
-}
-
-// statusForBuildError picks the HTTP status that mirrors the contract error
-// code. The wire envelope carries the canonical code regardless; the status
-// is for HTTP-aware infrastructure (proxies, logs, browser fetch handlers).
-func statusForBuildError(ce *contract.Error) int {
-	switch ce.Code {
-	case contract.CodeNotFound:
-		return http.StatusNotFound
-	case contract.CodePermissionDenied:
-		return http.StatusForbidden
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func validateKind(req contract.Request) error {
 	switch req.Kind {
-	case contract.KindGraph, contract.KindQuery, contract.KindCommand:
+	case contract.KindQuery, contract.KindCommand:
 		return nil
 	case contract.KindSubscribe:
 		return errKind("subscribe is GET-only on /stream")
@@ -260,8 +177,6 @@ func kindMatchesCapability(k contract.Kind, c contract.Capability) bool {
 		return c == contract.CapWrite
 	case contract.KindQuery:
 		return c == contract.CapRead
-	case contract.KindGraph:
-		return c == contract.CapRender
 	}
 	return false
 }

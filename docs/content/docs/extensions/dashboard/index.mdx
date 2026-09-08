@@ -50,7 +50,7 @@ func main() {
         log.Fatalf("failed to register dashboard: %v", err)
     }
 
-    // Dashboard available at http://localhost:8080/dashboard
+    // Dashboard available at http://localhost:8080/dashboard/ui
     if err := app.Run(); err != nil {
         log.Fatalf("application error: %v", err)
     }
@@ -91,18 +91,25 @@ checker := ext.AuthChecker()
 
 All routes are under the configured base path (default `/dashboard`):
 
-### Pages (ForgeUI)
+### Dashboard UI
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | Dashboard overview |
-| GET | `/health` | Health status page |
-| GET | `/metrics` | Metrics page |
-| GET | `/services` | Services page |
+| GET | `/ui` | Prebuilt React shell (overview, health, metrics, services) |
+| GET | `/ui/*` | Shell static assets and client-side routes |
+
+The shell reads its data over the contract envelope (see below), not through the ForgeUI pages listed next. `/`, `/health`, `/metrics`, and `/services` are not served: nothing renders those paths and nothing redirects them to the shell.
+
+### Contributor Pages (ForgeUI)
+
+| Method | Path | Description |
+|---|---|---|
 | GET | `/ext/:name/pages/*` | Contributor extension pages |
 | GET | `/ext/:name/widgets/:id` | Widget HTMX fragments |
 | GET | `/remote/:name/pages/*` | Remote contributor pages |
 | GET | `/remote/:name/widgets/:id` | Remote contributor widgets |
+
+These are still served by the templ contributor system: extensions can register their own pages, widget fragments, and settings panels, and the shell embeds them through the fragment proxy. Only forge's own built-in core pages were removed.
 
 ### Authentication (when `EnableAuth` is true)
 

@@ -19,6 +19,23 @@ const (
 	MemoryProfileHigh MemoryProfile = "high"
 )
 
+// ShellSource selects where the dashboard UI comes from.
+type ShellSource string
+
+const (
+	// ShellEmbedded serves the prebuilt shell compiled into this binary.
+	// The default: RegisterExtension(dashboard.NewExtension()) gives you a
+	// working dashboard with no frontend toolchain anywhere near you.
+	ShellEmbedded ShellSource = "embedded"
+
+	// ShellExternal serves no shell at {BasePath}/ui, for deployments that
+	// build their own dashboard with their own plugins and serve it
+	// themselves. See `forge dashboard new`. It means the routes are not
+	// registered, not that the path is guaranteed to 404; see
+	// WithShellSource.
+	ShellExternal ShellSource = "external"
+)
+
 // Config contains dashboard extension configuration.
 type Config struct {
 	// Server settings
@@ -26,21 +43,19 @@ type Config struct {
 	Title    string `json:"title"     yaml:"title"`
 
 	// RootContributor, when set, makes the dashboard root ({BasePath}) render the
-	// named contributor's landing page in place instead of 302-redirecting to the
-	// React shell at {BasePath}/ui. Used by embedded dashboards (e.g. authsome)
-	// whose legacy contributor still owns the root. Empty keeps the shell redirect.
+	// named contributor's landing page in place. Used by embedded dashboards
+	// (e.g. authsome) whose contributor owns the root. Empty leaves the root
+	// unserved.
 	RootContributor string `json:"root_contributor" yaml:"root_contributor"`
 
-	// LegacyUI serves the original templ dashboard at {BasePath} -- overview,
-	// health, metrics, services, extensions and traces -- instead of
-	// 302-redirecting those paths to the React shell. The shell stays mounted at
-	// {BasePath}/ui either way, so both remain reachable and deep links into the
-	// shell keep working; this only decides what the core paths render.
+	// ShellSource selects where the dashboard UI at {BasePath}/ui comes from.
+	// ShellEmbedded, the default, serves the prebuilt shell compiled into this
+	// binary. ShellExternal mounts nothing there.
 	//
-	// Off by default. Redirecting has been the behaviour since the templ pages
-	// were retired, and defaulting this on would move every deployment that has
-	// since standardised on the shell.
-	LegacyUI bool `json:"legacy_ui" yaml:"legacy_ui"`
+	// The zero value "" is read as ShellEmbedded everywhere it is consumed, so
+	// a Config assembled as a struct literal rather than through
+	// DefaultConfig() still gets a dashboard.
+	ShellSource ShellSource `json:"shell_source" yaml:"shell_source"`
 
 	// Features
 	EnableRealtime  bool `json:"enable_realtime"  yaml:"enable_realtime"` // SSE real-time updates
@@ -92,9 +107,13 @@ type Config struct {
 	LogoutPath    string `json:"logout_path"    yaml:"logout_path"`    // relative auth logout path (e.g. "/auth/logout")
 	DefaultAccess string `json:"default_access" yaml:"default_access"` // "public", "protected", "partial"
 	// RequiredRoles, when non-empty, restricts dashboard access to users
-	// carrying at least one matching role. The principal endpoint surfaces
-	// 403 PERMISSION_DENIED to the React shell for users who don't qualify;
-	// the shell renders an "access denied" panel instead of the dashboard.
+	// carrying at least one matching role. The principal endpoint returns
+	// 403 PERMISSION_DENIED for users who don't qualify.
+	//
+	// That is the whole of it on this side. Turning the 403 into an "access
+	// denied" screen is the client's job, and the client that used to do it
+	// was deleted with the server-driven shell, so nothing renders it today.
+	// The gate itself still holds: the endpoint answers 403 regardless.
 	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Theming
@@ -117,6 +136,8 @@ func DefaultConfig() Config {
 	return Config{
 		BasePath: "/dashboard",
 		Title:    "Forge Dashboard",
+
+		ShellSource: ShellEmbedded,
 
 		EnableRealtime:  true,
 		EnableExport:    true,
@@ -179,6 +200,17 @@ func (c Config) Validate() error {
 		return fmt.Errorf("dashboard: invalid theme: %s (must be light, dark, or auto)", c.Theme)
 	}
 
+	// Empty is legal and means ShellEmbedded. Anything else unrecognised is a
+	// typo, and a typo has to be caught here: the serving path treats every
+	// value that is not ShellEmbedded or "" as "do not mount", so
+	// `shell_source: embeded` in a YAML file would quietly cost a deployment
+	// its dashboard with nothing in the logs to explain it.
+	switch c.ShellSource {
+	case "", ShellEmbedded, ShellExternal:
+	default:
+		return fmt.Errorf("dashboard: invalid shell_source: %s (must be embedded or external)", c.ShellSource)
+	}
+
 	if c.ProxyTimeout < time.Second {
 		return fmt.Errorf("dashboard: proxy_timeout too short: %v (minimum 1s)", c.ProxyTimeout)
 	}
@@ -210,22 +242,33 @@ func WithTitle(title string) ConfigOption {
 	return func(c *Config) { c.Title = title }
 }
 
-// WithRootContributor makes the dashboard root render the named contributor's
-// landing page in place instead of redirecting to the React shell. Empty
-// (default) keeps the shell redirect.
+// WithRootContributor makes the dashboard root ({BasePath}) render the named
+// contributor's landing page in place. Used by embedded dashboards whose own
+// contributor owns the landing page.
+//
+// Empty is the default and leaves the root unserved: it returns 404. Nothing
+// redirects anywhere.
 func WithRootContributor(name string) ConfigOption {
 	return func(c *Config) { c.RootContributor = name }
 }
 
-// WithLegacyUI serves the original templ dashboard at the core paths under
-// {BasePath} rather than redirecting them to the React shell.
+// WithShellSource selects where the dashboard UI at {BasePath}/ui comes from.
 //
-// The shell is still mounted at {BasePath}/ui, so this does not remove it --
-// it only stops {BasePath}, /health, /metrics, /services, /extensions and
-// /traces from forwarding there. Use it where the shell does not yet cover
-// what the templ pages did.
-func WithLegacyUI(enabled bool) ConfigOption {
-	return func(c *Config) { c.LegacyUI = enabled }
+// ShellEmbedded is the default and needs no call: the prebuilt shell is
+// compiled into the binary, so registering the extension is enough to get a
+// working dashboard. Pass ShellExternal when the deployment builds its own
+// shell with its own plugins and serves it itself.
+//
+// ShellExternal means the extension serves no shell, not that {BasePath}/ui is
+// unrouted. The three shell routes are never registered, and the path then
+// falls through to the ForgeUI catch-all the extension mounts at {BasePath}/*,
+// which has no page for it. So it 404s today, but through a different handler,
+// and a deployment that registers its own page there gets it.
+//
+// Everything else the extension mounts is unaffected either way. An external
+// shell still talks to the same data contract under /api/dashboard/v1.
+func WithShellSource(source ShellSource) ConfigOption {
+	return func(c *Config) { c.ShellSource = source }
 }
 
 // WithRealtime enables or disables real-time SSE updates.

@@ -4,7 +4,7 @@
 
 ## Context
 
-Slices (a)–(e.5) shipped the contract package, dispatcher, security stack, pilot contributor, React shell, the v1 vocabulary on shadcn/Base UI, and the docs. The streaming extension is the only **external** contributor today. Its dashboard surface (6 routes, 4 widgets, 1 settings page, 5 mutations) is implemented as a templ-rendering `LocalContributor` at [extensions/streaming/dashboard/](../../streaming/dashboard/).
+Slices (a)–(e.5) shipped the contract package, dispatcher, security stack, pilot contributor, React shell, the v1 vocabulary on shadcn/Base UI, and the docs. The streaming extension is the only **external** contributor today. Its dashboard surface (6 routes, 4 widgets, 1 settings page, 5 mutations) was implemented as a templ-rendering `LocalContributor` at `extensions/streaming/dashboard/`. That package has since been deleted; the contract package that replaced it is [extensions/streaming/contract/](../../streaming/contract/).
 
 Slice (f) ports that surface to the new contract: a YAML manifest declaring the routes + intents, typed dispatcher handlers calling the existing `Manager` interface, and a small wire-up in `extensions/streaming/extension.go` to register both the legacy and the contract paths during the migration window.
 
