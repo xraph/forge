@@ -79,6 +79,8 @@ export interface Harness {
   settle(): Promise<void>;
   /** What the transport answers with, by `METHOD path`. */
   reply(operation: string, value: unknown): void;
+  /** Make an operation reject, so the error path is reachable from a test. */
+  fail(operation: string, error: Error): void;
 }
 
 export function harness(): Harness {
@@ -104,9 +106,15 @@ export function harness(): Harness {
     execute(request) {
       calls.push(request);
 
-      return Promise.resolve().then(() =>
-        clone(replies.get(`${request.meta.method} ${request.meta.path}`)),
-      );
+      return Promise.resolve().then(() => {
+        const value = replies.get(`${request.meta.method} ${request.meta.path}`);
+
+        // Stored errors are thrown rather than returned, which is the only way
+        // a test can reach a query's error state through the real code path.
+        if (value instanceof Error) throw value;
+
+        return clone(value);
+      });
     },
   };
 
@@ -124,6 +132,9 @@ export function harness(): Harness {
     },
     reply(operation, value) {
       replies.set(operation, value);
+    },
+    fail(operation, error) {
+      replies.set(operation, error);
     },
   };
 }

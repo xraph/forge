@@ -1109,3 +1109,54 @@ describe('surfacing pending state', () => {
     await pending;
   });
 });
+
+describe('reading the stack', () => {
+  /**
+   * The inspector needs the stack itself, not just the keys it touches.
+   * `keys()` answers "is this record under a pending write", which is the
+   * question the store asks. "Which mutation, patching what, in what order"
+   * is the question a person debugging optimistic UI asks, and nothing
+   * answered it.
+   */
+  it('lists the live overlays in push order', () => {
+    const { stack } = host();
+
+    const first = stack.add(patches([['Order:1', merge({ total: 11 })]]), undefined, ['Order[]']);
+    const second = stack.add(
+      patches([['Order:2', merge({ total: 22 })]]),
+      undefined,
+      ['Order:2'],
+      'Order:~opt1',
+    );
+
+    const live = stack.list();
+
+    expect(live.map((entry) => entry.id)).toEqual([first, second]);
+    expect([...live[0]!.patches.keys()]).toEqual(['Order:1']);
+    expect(live[1]!.tags).toEqual(['Order:2']);
+    expect(live[1]!.created).toBe('Order:~opt1');
+  });
+
+  it('drops an overlay from the listing once it is taken', () => {
+    const { stack } = host();
+
+    const first = stack.add(patches([['Order:1', merge({ total: 11 })]]), undefined, []);
+    const second = stack.add(patches([['Order:2', merge({ total: 22 })]]), undefined, []);
+
+    stack.take(first);
+
+    expect(stack.list().map((entry) => entry.id)).toEqual([second]);
+  });
+
+  it('hands out a copy, so a reader cannot reorder the stack', () => {
+    const { stack } = host();
+
+    stack.add(patches([['Order:1', merge({ total: 11 })]]), undefined, []);
+
+    const live = stack.list() as unknown as { length: number; pop(): unknown };
+
+    live.pop();
+
+    expect(stack.list()).toHaveLength(1);
+  });
+});

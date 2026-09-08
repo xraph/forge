@@ -197,7 +197,16 @@ describe('the panel entry point', () => {
       expect(panel.code).toContain(marker);
     }
 
-    expect(panel.gzipped - production.gzipped).toBeLessThan(12_000);
+    // The whole cost of importing the panel: its own UI plus the inspection
+    // API underneath it. `size-limit` holds the finer-grained ceilings on each
+    // module on its own; this one is the number an application actually pays.
+    //
+    // Raised from 12 kB to 14 kB for the causal trace, the overlay-stack view
+    // and the network view, and again to 16 kB for the control rail and the
+    // facet chips. Two increases in one body of work is worth a deliberate
+    // look rather than a third nudge: either the panel earns its size or it
+    // wants splitting the way `./requests` and `./control` already were.
+    expect(panel.gzipped - production.gzipped).toBeLessThan(16_000);
   });
 });
 

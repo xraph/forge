@@ -30,12 +30,47 @@ type Tab = 'queries' | 'entities' | 'tags' | 'sockets' | 'log' | 'explain';
 
 const TABS: readonly Tab[] = ['queries', 'entities', 'tags', 'sockets', 'log', 'explain'];
 
+/**
+ * The forge mark, as markup.
+ *
+ * Inlined rather than linked, for the same reason everything else in this file
+ * is: an inspector that needs a network request to draw its own button is an
+ * inspector that does not draw when you are debugging the network. `fill` is
+ * `currentColor` so one copy serves every state the launcher has.
+ *
+ * A constant string through `innerHTML` rather than five `createElementNS`
+ * calls. There is no interpolation here and never will be -- the whole value is
+ * a literal in this file -- and the calls cost more bytes than the budget for
+ * this module has to spare.
+ */
+const MARK =
+  '<svg viewBox="0 0 559 552" fill="currentColor" aria-hidden="true" focusable="false">' +
+  '<rect x="559" y="0" width="125" height="425" transform="rotate(90 559 0)"/>' +
+  '<rect x="425" y="218" width="125" height="291" transform="rotate(90 425 218)"/>' +
+  '<path d="M432 342.304V218H558.551L432 342.304Z"/>' +
+  '<path d="M0 551.304V136H127V427L0 551.304Z"/>' +
+  '<path d="M127 125H0.342773L127 0.137726V125Z"/></svg>';
+
 const CSS = `
 :host { all: initial; }
 .root {
   position: fixed; right: 12px; bottom: 12px; z-index: 2147483000;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #e6e6e6;
 }
+.launcher { width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
+  position: relative; border-radius: 8px; background: #14181f; border: 1px solid #2e3542;
+  box-shadow: 0 6px 22px rgba(0,0,0,.34); color: #e3e7ee; }
+.launcher:hover { background: #1a1f28; }
+.launcher svg { width: 15px; height: 15px; display: block; }
+.launcher::after { content: ""; position: absolute; inset: -2px; border-radius: 10px;
+  border: 1.5px solid #3fd39c; opacity: .55; pointer-events: none; }
+.launcher[data-pulse="fetching"]::after { border-color: #62a8ff; }
+.launcher[data-pulse="error"]::after { border-color: #ff6b6b; opacity: .9; }
+.launcher[data-pulse="offline"]::after { border-color: #ff6a2b; opacity: .95; }
+.launcher[data-pulse="slow"]::after { border-color: #ff6a2b; opacity: .5; }
+.launcher .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px;
+  border-radius: 8px; background: #ff6b6b; color: #12151b; font-size: 10px; font-weight: 600;
+  display: grid; place-items: center; padding: 0 4px; border: 2px solid #14181f; }
 button { font: inherit; color: inherit; background: #2c2c34; border: 1px solid #45454f;
   border-radius: 4px; padding: 3px 8px; cursor: pointer; }
 button:hover { background: #3a3a44; }
@@ -333,17 +368,62 @@ export function mountOverlay(devtools: Devtools, options: OverlayOptions = {}): 
     }
   };
 
+  /**
+   * The closed state: the mark, a status ring and an error count.
+   *
+   * This button is the only part of the inspector most people see most of the
+   * time, and a launcher that cannot say whether anything is in flight or
+   * anything has failed is one you have to open in order to learn nothing. Both
+   * readings come from `records()`, which carries the scalar fields for every
+   * tracked query and no response bodies, so drawing the button stays O(tracked
+   * queries) and never O(bytes in the cache).
+   */
+  const launcher = (): HTMLElement => {
+    const button = el('button', 'launcher');
+    let fetching = false;
+    let errors = 0;
+
+    for (const record of devtools.records()) {
+      if (record.fetching) fetching = true;
+      if (record.status === 'error') errors += 1;
+    }
+
+    // Offline outranks the errors it causes: every request fails while the
+    // rail is offline, and a red ring over failures you switched on yourself
+    // sends you debugging a request that was never sent. Slow ranks below a
+    // real error, because unlike offline it stops nothing from succeeding.
+    const mode = devtools.controls?.mode;
+
+    button.innerHTML = MARK;
+    button.setAttribute('aria-label', 'Open Forge devtools');
+    button.setAttribute(
+      'data-pulse',
+      mode === 'offline'
+        ? 'offline'
+        : errors > 0
+          ? 'error'
+          : fetching
+            ? 'fetching'
+            : mode === 'slow'
+              ? 'slow'
+              : 'idle',
+    );
+
+    if (errors > 0) button.append(el('span', 'badge', String(errors)));
+
+    button.addEventListener('click', () => {
+      open = true;
+      render();
+    });
+
+    return button;
+  };
+
   const render = (): void => {
     root.replaceChildren();
 
     if (!open) {
-      const button = el('button', undefined, 'forge');
-
-      button.addEventListener('click', () => {
-        open = true;
-        render();
-      });
-      root.append(button);
+      root.append(launcher());
 
       return;
     }
@@ -401,7 +481,9 @@ export function mountOverlay(devtools: Devtools, options: OverlayOptions = {}): 
   };
 
   const schedule = (): void => {
-    if (scheduled || !open) return;
+    // Not gated on `open`: the launcher carries a status ring, and one drawn
+    // only when the panel was mounted is decoration rather than status.
+    if (scheduled) return;
 
     scheduled = true;
 
