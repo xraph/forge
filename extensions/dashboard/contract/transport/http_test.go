@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/security"
 )
@@ -188,5 +189,96 @@ func TestHandler_CommandAcceptsValidCSRF(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body)
+	}
+}
+
+// setupGatedRegistry mirrors setupRegistry but declares a predicate on
+// users.list, so requests reach the authorization branch at all. Every
+// intent in the repo's manifests today declares nothing, which is why this
+// fixture has to exist rather than reusing the one above.
+func setupGatedRegistry(t *testing.T) (contract.Registry, contract.WardenRegistry) {
+	t.Helper()
+	r := contract.NewRegistry()
+	src := `
+schemaVersion: 1
+contributor: { name: users, envelope: { supports: [v1], preferred: v1 } }
+intents:
+  - { name: users.list, kind: query, version: 1, capability: read, requires: { any: ["role:admin"] } }
+  - { name: users.open, kind: query, version: 1, capability: read }
+`
+	var m contract.ContractManifest
+	if err := contract.UnmarshalManifestForTest([]byte(src), &m); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(&m); err != nil {
+		t.Fatal(err)
+	}
+	return r, contract.NewWardenRegistry()
+}
+
+func gatedRequest(t *testing.T, intent string, user *dashauth.UserInfo) *httptest.ResponseRecorder {
+	t.Helper()
+	reg, wreg := setupGatedRegistry(t)
+	disp := &stubDispatcher{response: json.RawMessage(`{"users":[]}`)}
+	h := NewHandler(reg, wreg, disp, contract.NoopAuditEmitter{})
+
+	body, _ := json.Marshal(contract.Request{
+		Envelope: "v1", Kind: contract.KindQuery, Contributor: "users", Intent: intent, IntentVersion: 1,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	if user != nil {
+		req = req.WithContext(dashauth.WithUser(req.Context(), user))
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+// TestHandler_UnauthenticatedIsNot403 pins the difference a client cannot
+// work without. A caller with no identity has to be told to sign in; a
+// caller with an identity that falls short of the predicate has to be told
+// it fell short. Both answered 403 PERMISSION_DENIED before, so the shell
+// had no way to tell "sign in" from "you are not allowed" and could only
+// guess which screen to render.
+func TestHandler_UnauthenticatedIsNot403(t *testing.T) {
+	w := gatedRequest(t, "users.list", nil)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), string(contract.CodeUnauthenticated)) {
+		t.Errorf("body = %s, want code %s", w.Body, contract.CodeUnauthenticated)
+	}
+}
+
+func TestHandler_AuthenticatedButUnauthorizedIs403(t *testing.T) {
+	w := gatedRequest(t, "users.list", &dashauth.UserInfo{Subject: "u1", Roles: []string{"viewer"}})
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), string(contract.CodePermissionDenied)) {
+		t.Errorf("body = %s, want code %s", w.Body, contract.CodePermissionDenied)
+	}
+}
+
+func TestHandler_AuthenticatedAndAuthorizedPasses(t *testing.T) {
+	w := gatedRequest(t, "users.list", &dashauth.UserInfo{Subject: "u1", Roles: []string{"admin"}})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
+	}
+}
+
+// TestHandler_NoPredicateStillAllowsAnonymous is the regression guard that
+// matters most here. Every intent in every manifest in the repo declares no
+// predicate today, so a change that answered 401 whenever the user is nil
+// would lock every existing dashboard out of itself, including the login
+// intent that has to work while signed out.
+func TestHandler_NoPredicateStillAllowsAnonymous(t *testing.T) {
+	w := gatedRequest(t, "users.open", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
 	}
 }

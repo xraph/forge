@@ -45,6 +45,12 @@ func (b *StreamBroker) ServeControl(w http.ResponseWriter, r *http.Request) {
 		}
 		p := contract.PrincipalFor(conn.user)
 		if !in.Requires.Allow(conn.user, nil) {
+			// Same split as the HTTP transport. A subscription refused for
+			// want of identity is a sign-in prompt, not a dead end.
+			if conn.user == nil {
+				http.Error(w, "unauthenticated", http.StatusUnauthorized)
+				return
+			}
 			http.Error(w, "permission denied", http.StatusForbidden)
 			return
 		}

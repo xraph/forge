@@ -117,6 +117,20 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := contract.PrincipalFor(user)
 
 	if !in.Requires.Allow(user, nil) {
+		// Two different answers, because a client has two different things to
+		// do about them. No identity at all means sign in, and the shell puts
+		// its gate up. An identity that falls short of the predicate means
+		// this account cannot have it, and no amount of signing in again
+		// changes that.
+		//
+		// The transport is not told whether auth is enabled and does not need
+		// to be: the only way to reach this branch is a non-empty predicate,
+		// and "there is no identity here" is the honest reason for the failure
+		// either way.
+		if user == nil {
+			writeError(w, http.StatusUnauthorized, &contract.Error{Code: contract.CodeUnauthenticated})
+			return
+		}
 		writeError(w, http.StatusForbidden, &contract.Error{Code: contract.CodePermissionDenied})
 		return
 	}
