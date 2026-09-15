@@ -7,6 +7,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
+// componentMessagesPrefix is where a document that does not follow AsyncAPI 3
+// to the letter keeps the messages its operations reference.
+const componentMessagesPrefix = "#/components/messages/"
+
 // spokenMessage is one channel message an operation sends or receives.
 type spokenMessage struct {
 	// key is the message's key under channels.<name>.messages.
@@ -55,9 +59,17 @@ func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncA
 	// came last -- the unnamed direction this whole path exists to prevent.
 	// The segment has to be a key the channel actually declares, so this can
 	// only ever narrow the fallback, never invent a message.
+	//
+	// Only a components reference qualifies. A reference into another
+	// channel's messages shares the key vocabulary with this one, and reading
+	// its last segment here would bind a direction to the wrong message.
 	if listed && len(wanted) == 0 {
 		for _, ref := range operation.Messages {
-			key := ref.Ref[strings.LastIndex(ref.Ref, "/")+1:]
+			key, ok := strings.CutPrefix(ref.Ref, componentMessagesPrefix)
+			if !ok {
+				continue
+			}
+
 			if _, declared := channel.Messages[key]; declared {
 				wanted[key] = struct{}{}
 			}

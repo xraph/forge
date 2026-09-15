@@ -564,3 +564,35 @@ func TestWholeChannelFallbackDoesNotRelabelAClaimedDirection(t *testing.T) {
 		t.Errorf("Metadata[messages] = %v, want ReceiveMessage still claimed by the receive operation", names)
 	}
 }
+
+// The trailing-segment pass is for `#/components/messages/<key>` and nothing
+// else. A reference into ANOTHER channel's messages shares the key vocabulary
+// (`send`, `receive`) with this one, and reading its last segment as this
+// channel's key would bind a direction to the wrong message with no warning.
+// Such a reference resolves nothing here, the whole-channel fallback engages,
+// and the warning says so.
+func TestOperationMessagesDoNotResolveAnotherChannelsMessageByName(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for id, action := range map[string]string{"query.live.wsReceive": "receive", "query.live.wsSend": "send"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/channels/otherChannel/messages/" + action}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	warned := false
+	for _, w := range spec.Warnings {
+		if strings.Contains(w, "query.live.wsSend") {
+			warned = true
+		}
+	}
+
+	if !warned {
+		t.Fatalf("a reference into another channel resolved as this channel's message; warnings = %v", spec.Warnings)
+	}
+}
