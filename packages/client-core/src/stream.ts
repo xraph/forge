@@ -65,6 +65,8 @@ export interface StreamConnection {
   send?(message: unknown): void;
   /** Close for good. The manager will not use this connection again. */
   close(): void;
+  /** The transport finished its handshake. Absent means: open as soon as `connect` returns. */
+  onOpen?(handler: () => void): void;
 }
 
 /**
@@ -283,7 +285,7 @@ export type StreamConnect = (context: StreamConnectContext) => StreamConnection;
 
 /** How far apart reconnect attempts are, and how many there are. */
 export interface BackoffPolicy {
-  /** Total attempts after a drop before the manager gives up. */
+  /** Total attempts after a drop before the manager gives up. `Number.POSITIVE_INFINITY` means never. */
   readonly attempts?: number;
   readonly baseDelay?: number;
   readonly maxDelay?: number;
@@ -380,11 +382,25 @@ export interface SubscriptionManagerOptions {
 /** What a subscriber is handed. `channel` is which of a socket's it came on. */
 export type FrameHandler = (message: unknown, channel: string) => void;
 
+/** Frames a subscription sends on its own behalf. */
+export interface SubscribeOptions {
+  /** Sent once the socket is open, and again after every reconnect. */
+  readonly hello?: unknown | (() => unknown);
+  /** Sent on release, only if the socket is connected at that moment. */
+  readonly goodbye?: unknown | (() => unknown);
+}
+
+function frame(value: unknown | (() => unknown)): unknown {
+  return typeof value === 'function' ? (value as () => unknown)() : value;
+}
+
 /** One multiplexed channel on a socket, and how many subscribers it has. */
 export interface ChannelSnapshot {
   readonly channel: string;
   /** Ref count for this channel alone. The socket's `refs` is their sum. */
   readonly handlers: number;
+  /** Whether any subscriber on this channel sends a hello frame. */
+  readonly hello: boolean;
 }
 
 /**
@@ -424,8 +440,12 @@ interface Socket {
   principal: unknown;
   /** The live connection, or undefined between a drop and a reopen. */
   connection: StreamConnection | undefined;
+  /** True between the transport's open event and its close. */
+  ready: boolean;
   /** Subscribers, by channel. A channel with no handlers is deleted. */
   readonly channels: Map<string, Set<FrameHandler>>;
+  /** Insertion-ordered, so hellos replay in subscription order. */
+  readonly frames: Map<FrameHandler, { readonly channel: string } & SubscribeOptions>;
   /** How many subscriptions are outstanding across every channel. */
   refs: number;
   /** Consecutive failed reconnects. Reset by any sign of life. */
@@ -544,7 +564,7 @@ export class SubscriptionManager {
    *
    * Idempotent in the direction that matters: releasing twice decrements once.
    */
-  subscribe(channel: string, handler: FrameHandler): () => void {
+  subscribe(channel: string, handler: FrameHandler, options: SubscribeOptions = {}): () => void {
     const endpoint = this.endpointOf(channel);
     const socket = this.socketFor(endpoint);
 
@@ -563,7 +583,22 @@ export class SubscriptionManager {
     handlers.add(handler);
     socket.refs++;
 
+    if (options.hello !== undefined || options.goodbye !== undefined) {
+      socket.frames.set(handler, { channel, ...options });
+    }
+
     if (socket.connection === undefined && !socket.reconnecting) this.open(socket);
+
+    if (options.hello !== undefined && socket.connection !== undefined) {
+      if (socket.connection.send === undefined) {
+        socket.frames.delete(handler);
+        handlers.delete(handler);
+        socket.refs--;
+        throw new Error(`[forge] ${endpoint} cannot send; the transport has no send()`);
+      }
+
+      if (socket.ready) this.say(socket, frame(options.hello));
+    }
 
     let released = false;
 
@@ -571,6 +606,12 @@ export class SubscriptionManager {
       if (released) return;
 
       released = true;
+
+      const held = socket.frames.get(handler);
+      socket.frames.delete(handler);
+
+      if (held?.goodbye !== undefined && socket.ready) this.say(socket, frame(held.goodbye));
+
       socket.refs--;
 
       const current = socket.channels.get(channel);
@@ -664,7 +705,9 @@ export class SubscriptionManager {
       endpoint,
       principal,
       connection: undefined,
+      ready: false,
       channels: new Map(),
+      frames: new Map(),
       refs: 0,
       attempt: 0,
       opens: 0,
@@ -705,6 +748,17 @@ export class SubscriptionManager {
 
     socket.connection = connection;
     socket.opens++;
+    socket.ready = false;
+
+    const ready = (): void => {
+      if (socket.disposed || socket.connection !== connection) return;
+
+      socket.ready = true;
+      this.greet(socket);
+    };
+
+    if (connection.onOpen === undefined) ready();
+    else connection.onOpen(ready);
 
     connection.onMessage((message) => {
       // A frame from a connection this socket has already replaced, or from one
@@ -724,6 +778,7 @@ export class SubscriptionManager {
     connection.onClose(() => {
       if (socket.disposed || socket.connection !== connection) return;
 
+      socket.ready = false;
       socket.connection = undefined;
 
       if (socket.refs === 0) return;
@@ -810,6 +865,26 @@ export class SubscriptionManager {
       // Reported, never rethrown, because this runs inside the transport's own
       // message callback.
       this.onError?.(error, 'stream keepalive');
+    }
+  }
+
+  /** Send one frame up the socket, reporting rather than throwing. */
+  private say(socket: Socket, message: unknown): void {
+    const connection = socket.connection;
+
+    if (connection?.send === undefined) return;
+
+    try {
+      connection.send(message);
+    } catch (error) {
+      this.onError?.(error, `stream send ${socket.endpoint}`);
+    }
+  }
+
+  /** Every hello, in subscription order. Called on each open, first or not. */
+  private greet(socket: Socket): void {
+    for (const held of socket.frames.values()) {
+      if (held.hello !== undefined) this.say(socket, frame(held.hello));
     }
   }
 
@@ -923,7 +998,13 @@ export function socketSnapshot(manager: SubscriptionManager): readonly SocketSna
     const channels: ChannelSnapshot[] = [];
 
     for (const [channel, handlers] of socket.channels) {
-      channels.push({ channel, handlers: handlers.size });
+      let hello = false;
+
+      for (const held of socket.frames.values()) {
+        if (held.channel === channel && held.hello !== undefined) hello = true;
+      }
+
+      channels.push({ channel, handlers: handlers.size, hello });
     }
 
     out.push({

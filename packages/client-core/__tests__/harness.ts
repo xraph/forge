@@ -85,6 +85,8 @@ export interface FakeConnection extends StreamConnection {
   drop(reason?: unknown): void;
   /** A transport-level error, which is not a close. */
   fail(error: unknown): void;
+  /** The transport finished its handshake. */
+  open(): void;
   /** Whether `close` has been called on it. */
   readonly closed: boolean;
   /** Everything the manager sent back up this connection, in order. */
@@ -110,6 +112,7 @@ export function fakeSockets(onConnect?: (context: StreamConnectContext) => void)
     let messages: ((message: unknown) => void) | undefined;
     let closes: ((reason?: unknown) => void) | undefined;
     let errors: ((error: unknown) => void) | undefined;
+    let opens: (() => void) | undefined;
     let closed = false;
     const sent: unknown[] = [];
 
@@ -133,6 +136,9 @@ export function fakeSockets(onConnect?: (context: StreamConnectContext) => void)
       onError(handler) {
         errors = handler;
       },
+      onOpen(handler) {
+        opens = handler;
+      },
       close() {
         closed = true;
       },
@@ -145,6 +151,9 @@ export function fakeSockets(onConnect?: (context: StreamConnectContext) => void)
       },
       fail(error) {
         errors?.(error);
+      },
+      open() {
+        opens?.();
       },
     };
 
