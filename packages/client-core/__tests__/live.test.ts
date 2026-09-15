@@ -4,8 +4,8 @@ import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { applyFrames, binderSnapshot, StreamBinder } from '../src/live';
 import type { StreamBinderOptions } from '../src/live';
-import { SubscriptionManager } from '../src/stream';
-import type { StreamBinding } from '../src/stream';
+import { isDuplex, SubscriptionManager } from '../src/stream';
+import type { EntityStreamBinding, StreamBinding } from '../src/stream';
 import { manualClock } from '../src/transport';
 import type { OperationMeta } from '../src/transport';
 import { fakeSockets, fakeTransport, settleMicrotasks } from './harness';
@@ -1099,7 +1099,11 @@ describe('binderSnapshot', () => {
     const snap = binderSnapshot(h.binder);
     const channel = snap.channels.find((entry) => entry.channel === '/ws/orders');
 
-    expect(channel?.bindings.map((binding) => binding.message)).toContain('order.updated');
+    expect(
+      channel?.bindings
+        .filter((binding): binding is EntityStreamBinding => !isDuplex(binding))
+        .map((binding) => binding.message),
+    ).toContain('order.updated');
     expect(snap.live.map((entry) => entry.channel)).toContain('/ws/orders');
     expect(snap.live[0]?.key).toBe(h.cache.key(orderList));
     expect(snap.queued).toBe(0);

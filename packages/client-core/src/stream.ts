@@ -18,7 +18,8 @@ export type StreamIntent = 'upsert' | 'patch' | 'evict';
  * hand-edited manifest is the case where a typo would otherwise apply the
  * wrong operation to a real entity.
  */
-export interface StreamBinding {
+export interface EntityStreamBinding {
+  readonly kind?: 'entity';
   /** The endpoint path the channel is served on, e.g. `/ws/orders`. */
   readonly channel: string;
   /** The message name, e.g. `order.created`. */
@@ -28,6 +29,25 @@ export interface StreamBinding {
   readonly intent: StreamIntent;
   /** Tag templates this message invalidates, unresolved. */
   readonly invalidates: readonly string[];
+}
+
+/**
+ * A channel the client speaks on as well as listens to, with no entity behind
+ * it. Its frames never reach the entity store; a subscriber takes them raw
+ * through `StreamBinder.raw`. `send` and `receive` are the AsyncAPI message
+ * names, kept for the reader and for typing later, not read at runtime.
+ */
+export interface DuplexStreamBinding {
+  readonly kind: 'duplex';
+  readonly channel: string;
+  readonly send: string;
+  readonly receive: string;
+}
+
+export type StreamBinding = EntityStreamBinding | DuplexStreamBinding;
+
+export function isDuplex(binding: StreamBinding): binding is DuplexStreamBinding {
+  return binding.kind === 'duplex';
 }
 
 /**

@@ -2,8 +2,13 @@ import { QueryCache } from './cache.js';
 import { microtaskScheduler } from './invalidate.js';
 import type { Scheduler } from './invalidate.js';
 import { entityKey, isIdentity } from './ref.js';
-import { SubscriptionManager } from './stream.js';
-import type { StreamBinding } from './stream.js';
+import { isDuplex, SubscriptionManager } from './stream.js';
+import type {
+  EntityStreamBinding,
+  FrameHandler,
+  StreamBinding,
+  SubscribeOptions,
+} from './stream.js';
 import { resolveTags } from './tags.js';
 import type { TagContext } from './tags.js';
 import { realSleep } from './transport.js';
@@ -12,7 +17,7 @@ import type { EntityKey } from './types.js';
 
 /** One stream frame, matched to its manifest binding. See `applyFrames`. */
 export interface StreamFrame {
-  readonly binding: StreamBinding;
+  readonly binding: EntityStreamBinding;
   /** The decoded message payload -- the entity, or its identity for an evict. */
   readonly payload: unknown;
 }
@@ -151,7 +156,7 @@ export function applyFrames(
  * list on every update -- destroying the property that makes live queries worth
  * having.
  */
-function evictionTags(binding: StreamBinding): readonly string[] {
+function evictionTags(binding: EntityStreamBinding): readonly string[] {
   return [`${binding.entity}[]`];
 }
 
@@ -386,7 +391,7 @@ export class StreamBinder {
   private readonly pendingRecovery = new Map<string, readonly string[]>();
 
   /** The `slot` key for a (channel, message) pair, to its binding. */
-  private readonly bindings = new Map<string, StreamBinding>();
+  private readonly bindings = new Map<string, EntityStreamBinding>();
   /** Every binding on a channel, for gap recovery. */
   private readonly byChannel = new Map<string, StreamBinding[]>();
   /** Which channels carry an entity, for `live`. */
@@ -414,6 +419,15 @@ export class StreamBinder {
     this.sleep = options.sleep ?? realSleep;
 
     for (const binding of options.streams) {
+      if (isDuplex(binding)) {
+        const channel = this.byChannel.get(binding.channel);
+
+        if (channel === undefined) this.byChannel.set(binding.channel, [binding]);
+        else channel.push(binding);
+
+        continue;
+      }
+
       if (!INTENTS.has(binding.intent)) {
         // A manifest this client cannot act on. Reported once, at wiring time,
         // rather than once per frame at three in the morning.
@@ -635,6 +649,24 @@ export class StreamBinder {
     });
   }
 
+  /**
+   * Subscribe to a duplex channel and take its frames raw.
+   *
+   * Only a channel the generated table declares as duplex is accepted: a
+   * hand-written channel name next to a generated table is the drift the
+   * generator exists to prevent. Frames on this channel never reach the entity
+   * store; `handler` is the whole consumer.
+   */
+  raw(channel: string, handler: FrameHandler, options: SubscribeOptions = {}): () => void {
+    const declared = this.byChannel.get(channel)?.some(isDuplex) ?? false;
+
+    if (!declared) {
+      throw new Error(`[forge] ${channel} is not a duplex channel in the generated stream bindings`);
+    }
+
+    return this.manager.subscribe(channel, handler, options);
+  }
+
   /** Commit the queued frames now, whatever the scheduler had planned. */
   flush(): void {
     this.scheduled = false;
@@ -699,7 +731,11 @@ export class StreamBinder {
     const tags = new Set<string>();
 
     for (const channel of channels) {
-      for (const binding of this.byChannel.get(channel) ?? []) {
+      const bindings = (this.byChannel.get(channel) ?? []).filter(
+        (b): b is EntityStreamBinding => !isDuplex(b),
+      );
+
+      for (const binding of bindings) {
         // The entity's list tag, which is what `provides` spells for any query
         // that loaded a collection of them. Declared invalidations are per
         // message and describe one event; a gap is every event that did not
