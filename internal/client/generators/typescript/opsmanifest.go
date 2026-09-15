@@ -680,12 +680,30 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 		bindings []client.StreamBinding
 	}
 
+	type duplex struct {
+		path    string
+		send    string
+		receive string
+	}
+
 	channels := make([]channel, 0, len(spec.WebSockets)+len(spec.SSEs))
+	duplexes := make([]duplex, 0)
 
 	for i := range spec.WebSockets {
-		if b := spec.WebSockets[i].StreamBindings; len(b) > 0 {
-			channels = append(channels, channel{spec.WebSockets[i].Path, b})
+		ws := &spec.WebSockets[i]
+
+		if b := ws.StreamBindings; len(b) > 0 {
+			channels = append(channels, channel{ws.Path, b})
+
+			continue
 		}
+
+		if ws.SendSchema == nil || ws.ReceiveSchema == nil {
+			continue
+		}
+
+		send, receive := duplexMessageNames(ws.Metadata)
+		duplexes = append(duplexes, duplex{ws.Path, send, receive})
 	}
 
 	for i := range spec.SSEs {
@@ -695,12 +713,14 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 	}
 
 	sort.Slice(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
+	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].path < duplexes[j].path })
 
 	buf.WriteString("export const streams = [\n")
 
 	for _, ch := range channels {
 		for _, b := range ch.bindings {
 			buf.WriteString("  {\n")
+			buf.WriteString("    kind: 'entity',\n")
 			buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(ch.path)))
 			buf.WriteString(fmt.Sprintf("    message: %s,\n", tsString(b.Message)))
 			buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(b.EntityType)))
@@ -710,7 +730,42 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 		}
 	}
 
+	// A duplex channel: the client speaks on it and no entity stands behind it.
+	// Derived from the declared operations alone, so the backend needs no
+	// extension key for a channel it already describes as send and receive.
+	for _, d := range duplexes {
+		buf.WriteString("  {\n")
+		buf.WriteString("    kind: 'duplex',\n")
+		buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(d.path)))
+		buf.WriteString(fmt.Sprintf("    send: %s,\n", tsString(d.send)))
+		buf.WriteString(fmt.Sprintf("    receive: %s,\n", tsString(d.receive)))
+		buf.WriteString("  },\n")
+	}
+
 	buf.WriteString("] as const;\n")
+}
+
+// duplexMessageNames picks the lowest-sorted message name for each direction,
+// the same tie-break convertSchemaFromChannel uses, so the output is stable
+// across runs.
+func duplexMessageNames(metadata map[string]any) (string, string) {
+	names, _ := metadata["messages"].(map[string]string)
+	send, receive := "", ""
+
+	for _, name := range sortedKeys(names) {
+		switch names[name] {
+		case "send":
+			if send == "" {
+				send = name
+			}
+		case "receive":
+			if receive == "" {
+				receive = name
+			}
+		}
+	}
+
+	return send, receive
 }
 
 // tsString renders a single-quoted TypeScript string literal.
