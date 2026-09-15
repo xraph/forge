@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.11.1](https://github.com/xraph/forge/compare/v1.11.0...v1.11.1) (2026-09-15)
+
+
+### Features
+
+* **client:** duplex stream channels with a send path (#107) ([d5c970e3](https://github.com/xraph/forge/commit/d5c970e3))
+* **client-devtools:** feat(client-devtools)!: make /overlay the full panel, move the lean view to /mini (#104) ([1c23a5c6](https://github.com/xraph/forge/commit/1c23a5c6))
+* **cli:** scaffold a Next.js dashboard with forge dashboard new --target=next (#103) ([9523267b](https://github.com/xraph/forge/commit/9523267b))
+* **client-devtools:** close the gap to the panel design (#102) ([a4c59755](https://github.com/xraph/forge/commit/a4c59755))
+* **client-devtools:** causal trace, network view and control rail (#101) ([a84dc2dc](https://github.com/xraph/forge/commit/a84dc2dc))
+
+
+### Bug Fixes
+
+* **client-devtools:** stop table columns collapsing, deprecate the lean view (#105) ([d96026cc](https://github.com/xraph/forge/commit/d96026cc))
+* **deps:** move the last three modules onto forge v1.11.0 ([4ee53c37](https://github.com/xraph/forge/commit/4ee53c37))
+
+
+### Refactoring
+
+* **dashboard:** refactor(dashboard)!: replace the server-rendered UI with React plugins (#99) ([4f29ed01](https://github.com/xraph/forge/commit/4f29ed01))
+
 ## [1.11.0](https://github.com/xraph/forge/compare/v1.10.0...v1.11.0) (2026-09-06)
 
 
