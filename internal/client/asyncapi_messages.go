@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/xraph/forge/internal/shared"
@@ -28,8 +29,9 @@ type spokenMessage struct {
 // whose references all point outside the channel, speaks the whole channel,
 // which is what every document generated before operations carried
 // `messages` relied on.
-func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) []spokenMessage {
+func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) (spoken []spokenMessage, unresolved bool) {
 	wanted := make(map[string]struct{})
+	listed := operation != nil && len(operation.Messages) > 0
 
 	if operation != nil && operation.Channel != nil {
 		prefix := operation.Channel.Ref + "/messages/"
@@ -39,6 +41,25 @@ func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncA
 				if _, declared := channel.Messages[key]; declared {
 					wanted[key] = struct{}{}
 				}
+			}
+		}
+	}
+
+	// Nothing resolved under this channel, so try the trailing segment of each
+	// reference as a channel message key. AsyncAPI 3 says an operation's
+	// `messages` point at the channel's own, and forge's router obeys that;
+	// other generators write `#/components/messages/send` and leave the
+	// channel to carry the definition. Under the strict read alone that
+	// document resolves nothing, both operations fall back to the whole
+	// channel, and the fold labels the two directions with whichever action
+	// came last -- the unnamed direction this whole path exists to prevent.
+	// The segment has to be a key the channel actually declares, so this can
+	// only ever narrow the fallback, never invent a message.
+	if listed && len(wanted) == 0 {
+		for _, ref := range operation.Messages {
+			key := ref.Ref[strings.LastIndex(ref.Ref, "/")+1:]
+			if _, declared := channel.Messages[key]; declared {
+				wanted[key] = struct{}{}
 			}
 		}
 	}
@@ -60,7 +81,7 @@ func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncA
 		out = append(out, spokenMessage{key: key, name: name, msg: msg})
 	}
 
-	return out
+	return out, listed && len(wanted) == 0
 }
 
 // applyOperationMessages records one operation's direction on the endpoint:
@@ -73,7 +94,7 @@ func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncA
 // operation on a channel creates the endpoint, and again for every later
 // operation folded into it. Keeping the fold in one place is the point; the
 // two readers used to disagree, and the URL one never folded at all.
-func applyOperationMessages(ws *WebSocketEndpoint, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation, convert func(*shared.Schema) *Schema) {
+func applyOperationMessages(spec *APISpec, opID string, ws *WebSocketEndpoint, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation, convert func(*shared.Schema) *Schema) {
 	if ws.MessageTypes == nil {
 		ws.MessageTypes = make(map[string]*Schema)
 	}
@@ -84,7 +105,21 @@ func applyOperationMessages(ws *WebSocketEndpoint, channel *shared.AsyncAPIChann
 		ws.Metadata["messages"] = names
 	}
 
-	for _, spoken := range operationMessages(channel, operation) {
+	spokenMessages, unresolved := operationMessages(channel, operation)
+
+	// The fallback is a guess, and a wrong guess here produces a client that
+	// compiles and speaks the wrong message on one direction. Nothing about
+	// the output looks wrong, so this is the only place a reader finds out.
+	if unresolved && spec != nil {
+		spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+			"operation %q lists messages, none of which resolve to a message of channel %q; "+
+				"it was folded as if it spoke the whole channel, so its direction may claim a message "+
+				"the other direction sends",
+			opID, channel.Address,
+		))
+	}
+
+	for _, spoken := range spokenMessages {
 		if spoken.msg.Payload == nil {
 			continue
 		}
@@ -101,6 +136,15 @@ func applyOperationMessages(ws *WebSocketEndpoint, channel *shared.AsyncAPIChann
 			if ws.ReceiveSchema == nil {
 				ws.ReceiveSchema = schema
 			}
+		}
+
+		// A name the opposite direction already claimed stands. Two operations
+		// that both speak the whole channel otherwise relabel each other, and
+		// whichever sorted last owned every name -- which is how a duplex
+		// binding ended up with one direction empty. First claim wins, so the
+		// result no longer depends on operation-id sort order.
+		if claimed, ok := names[spoken.name]; ok && claimed != operation.Action {
+			continue
 		}
 
 		names[spoken.name] = operation.Action

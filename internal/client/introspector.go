@@ -287,7 +287,7 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 			// left neither half carrying both schemas, so a duplex channel
 			// reached through a URL source never became a duplex binding.
 			if existing, ok := wsByChannel[channelName]; ok {
-				applyOperationMessages(&spec.WebSockets[existing], channel, operation, i.convertSchema)
+				applyOperationMessages(spec, opID, &spec.WebSockets[existing], channel, operation, i.convertSchema)
 
 				continue
 			}
@@ -728,7 +728,7 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 		Metadata:     make(map[string]any),
 	}
 
-	applyOperationMessages(&ws, channel, operation, i.convertSchema)
+	applyOperationMessages(spec, opID, &ws, channel, operation, i.convertSchema)
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)

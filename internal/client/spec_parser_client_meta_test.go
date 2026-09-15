@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -467,5 +468,99 @@ func assertDuplexDirections(t *testing.T, spec *APISpec) {
 	names, _ := ws.Metadata["messages"].(map[string]string)
 	if names["SendMessage"] != "send" || names["ReceiveMessage"] != "receive" || len(names) != 2 {
 		t.Errorf("Metadata[messages] = %v, want {SendMessage: send, ReceiveMessage: receive}", names)
+	}
+}
+
+// AsyncAPI 3 says an operation's `messages` must reference the channel's own
+// messages, and forge's router obeys that. Other generators do not: they point
+// at `#/components/messages/<key>` and leave the channel to carry the
+// definition. That document used to resolve no reference at all, fall back to
+// "this operation speaks the whole channel" for both operations, and stamp
+// every message name with each action in turn, which is the unnamed send
+// direction this fold exists to prevent. The trailing segment of the
+// reference is the channel's key here, so resolve it.
+func TestOperationMessagesResolveComponentRefsByTrailingSegment(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for id, action := range map[string]string{"query.live.wsReceive": "receive", "query.live.wsSend": "send"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/components/messages/" + action}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	assertDuplexDirections(t, spec)
+}
+
+// When the references resolve to nothing at all the fold still has to produce
+// something, and speaking the whole channel is the only answer available. It
+// is also the answer that silently mislabels both directions, so it says so:
+// a client generated from that document is wrong in a way nothing about it
+// looks wrong, and the warning is the only place a reader finds out.
+func TestOperationMessagesWarnWhenListedRefsResolveToNothing(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for _, id := range []string{"query.live.wsReceive", "query.live.wsSend"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/components/messages/nothingNamedThis"}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	var found string
+
+	for _, warning := range spec.Warnings {
+		if strings.Contains(warning, "query.live.wsSend") {
+			found = warning
+		}
+	}
+
+	if found == "" {
+		t.Fatalf("Warnings = %v, want one naming the operation whose message refs resolved to nothing", spec.Warnings)
+	}
+
+	if !strings.Contains(found, "/api/v1/query/live/ws") {
+		t.Errorf("warning = %q, want it to name the channel as well as the operation", found)
+	}
+}
+
+// An operation that lists no messages legitimately speaks the whole channel,
+// and that is how every document written before operations carried `messages`
+// reads. Two such operations both claim every message, and the fold used to
+// let the later one relabel what the earlier had already claimed: whichever
+// operation sorted last owned every name, so one direction ended up empty in
+// the generated binding. A claim by the opposite direction stands.
+func TestWholeChannelFallbackDoesNotRelabelAClaimedDirection(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for _, id := range []string{"query.live.wsReceive", "query.live.wsSend"} {
+		operation, _ := operations[id].(map[string]any)
+		delete(operation, "messages")
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want 1", len(spec.WebSockets))
+	}
+
+	names, _ := spec.WebSockets[0].Metadata["messages"].(map[string]string)
+
+	// query.live.wsReceive sorts first and claims both names; the send
+	// operation must not take them back.
+	if names["ReceiveMessage"] != "receive" {
+		t.Errorf("Metadata[messages] = %v, want ReceiveMessage still claimed by the receive operation", names)
 	}
 }

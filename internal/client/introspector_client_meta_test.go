@@ -826,3 +826,66 @@ func TestIntrospectorDuplexChannelNamesEachDirectionFromItsOperation(t *testing.
 
 	assertDuplexDirections(t, spec)
 }
+
+// The same hardening through the URL reader. Both readers share the fold, but
+// only this one passes its own spec and operation id into it, and a warning
+// that names the wrong operation (or lands on no spec at all) is worth
+// nothing. So the component-ref resolution and the warning are checked here
+// as well as through the file parser.
+func TestIntrospectorFoldResolvesComponentRefsAndWarnsWhenItCannot(t *testing.T) {
+	parse := func(t *testing.T, doc map[string]any) *APISpec {
+		t.Helper()
+
+		raw, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var asyncAPI shared.AsyncAPISpec
+		if err := json.Unmarshal(raw, &asyncAPI); err != nil {
+			t.Fatal(err)
+		}
+
+		spec := &APISpec{Schemas: map[string]*Schema{}}
+		if err := (&Introspector{}).extractFromAsyncAPI(spec, &asyncAPI); err != nil {
+			t.Fatalf("extractFromAsyncAPI: %v", err)
+		}
+
+		return spec
+	}
+
+	pointOperationsAt := func(doc map[string]any, ref func(action string) string) map[string]any {
+		operations, _ := doc["operations"].(map[string]any)
+		for id, action := range map[string]string{"query.live.wsReceive": "receive", "query.live.wsSend": "send"} {
+			operation, _ := operations[id].(map[string]any)
+			operation["messages"] = []any{map[string]any{"$ref": ref(action)}}
+		}
+
+		return doc
+	}
+
+	resolvable := parse(t, pointOperationsAt(duplexAsyncAPIDocument(), func(action string) string {
+		return "#/components/messages/" + action
+	}))
+	assertDuplexDirections(t, resolvable)
+
+	if len(resolvable.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for refs this fold could resolve", resolvable.Warnings)
+	}
+
+	unresolvable := parse(t, pointOperationsAt(duplexAsyncAPIDocument(), func(string) string {
+		return "#/components/messages/nothingNamedThis"
+	}))
+
+	var named bool
+
+	for _, warning := range unresolvable.Warnings {
+		if strings.Contains(warning, "query.live.wsSend") && strings.Contains(warning, "/api/v1/query/live/ws") {
+			named = true
+		}
+	}
+
+	if !named {
+		t.Errorf("Warnings = %v, want one naming the operation and the channel", unresolvable.Warnings)
+	}
+}

@@ -367,7 +367,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 				wsEndpoints[channelName] = &ws
 			} else {
 				// A later operation on the same channel folds its direction in.
-				applyOperationMessages(wsEndpoints[channelName], channel, operation, convertSchema)
+				applyOperationMessages(spec, opID, wsEndpoints[channelName], channel, operation, convertSchema)
 			}
 		} else {
 			// Use channel name as key to merge operations on same channel
@@ -804,7 +804,7 @@ func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAP
 		Metadata:    make(map[string]any),
 	}
 
-	applyOperationMessages(&ws, channel, operation, convertSchema)
+	applyOperationMessages(spec, opID, &ws, channel, operation, convertSchema)
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
