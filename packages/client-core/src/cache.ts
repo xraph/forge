@@ -6,6 +6,7 @@ import type { OptimisticSpec } from './overlay.js';
 import { QueryRegistry } from './registry.js';
 import type { QueryEntry, QuerySpec, Unmount } from './registry.js';
 import { EntityStore } from './store.js';
+import type { FrameHandler, SubscribeOptions } from './stream.js';
 import type { StagedWrite } from './store.js';
 import { queryKey, resolveTags } from './tags.js';
 import type { TagContext } from './tags.js';
@@ -153,6 +154,21 @@ export interface LiveBinding {
   subscribe(meta: OperationMeta, args?: TagContext): () => void;
   /** Which channels this operation's entities are pushed on. */
   channelsFor(meta: OperationMeta): readonly string[];
+  /**
+   * Subscribe to a declared duplex channel and take its frames raw. See
+   * `StreamBinder.raw`.
+   *
+   * Declared here so a caller holding only `cache.live` can speak on a
+   * socket without importing the binder class, which is the whole reason
+   * this interface exists.
+   *
+   * `FrameHandler` rather than a one-argument handler spelled out here, and
+   * the same type `StreamBinder.raw` takes. Method bivariance makes the
+   * narrower spelling compile either way, so nothing breaks at runtime: what
+   * breaks is the caller, who receives the channel a frame arrived on and
+   * cannot see it in the type.
+   */
+  raw(channel: string, handler: FrameHandler, options?: SubscribeOptions): () => void;
 }
 
 /**

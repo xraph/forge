@@ -366,13 +366,8 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 				ws := convertWebSocketChannel(spec, opID, channel, operation)
 				wsEndpoints[channelName] = &ws
 			} else {
-				// Merge with existing endpoint
-				existing := wsEndpoints[channelName]
-				if operation.Action == "send" && existing.SendSchema == nil {
-					existing.SendSchema = convertSchemaFromChannel(channel, operation)
-				} else if operation.Action == "receive" && existing.ReceiveSchema == nil {
-					existing.ReceiveSchema = convertSchemaFromChannel(channel, operation)
-				}
+				// A later operation on the same channel folds its direction in.
+				applyOperationMessages(spec, opID, wsEndpoints[channelName], channel, operation, convertSchema)
 			}
 		} else {
 			// Use channel name as key to merge operations on same channel
@@ -407,20 +402,6 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 }
 
 // Helper conversion functions
-
-func convertSchemaFromChannel(channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) *Schema {
-	// Lowest message name wins rather than whichever the map happened to hand
-	// over first. A channel carrying several messages otherwise contributed a
-	// different send/receive schema on each run, and that schema is emitted as
-	// a named type in the generated client.
-	for _, name := range sortedStringKeys(channel.Messages) {
-		if msg := channel.Messages[name]; msg.Payload != nil {
-			return convertSchema(msg.Payload)
-		}
-	}
-
-	return nil
-}
 
 func convertOperation(spec *APISpec, method, path string, op *shared.Operation) Endpoint {
 	endpoint := Endpoint{
@@ -823,27 +804,7 @@ func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAP
 		Metadata:    make(map[string]any),
 	}
 
-	// Sorted, because the assignments below are last-write-wins: a channel
-	// declaring several messages otherwise left SendSchema holding whichever
-	// payload the map surrendered last, which changed run to run.
-	for _, msgName := range sortedStringKeys(channel.Messages) {
-		if msg := channel.Messages[msgName]; msg.Payload != nil {
-			schema := convertSchema(msg.Payload)
-
-			switch operation.Action {
-			case "send":
-				ws.SendSchema = schema
-			case "receive":
-				ws.ReceiveSchema = schema
-			}
-
-			if ws.Metadata["messages"] == nil {
-				ws.Metadata["messages"] = make(map[string]string)
-			}
-
-			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
-		}
-	}
+	applyOperationMessages(spec, opID, &ws, channel, operation, convertSchema)
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)

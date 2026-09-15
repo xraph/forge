@@ -250,6 +250,8 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 	// Extract operations and map them to channels, in sorted operation-id
 	// order -- this appends to spec.WebSockets/spec.SSEs, and the streaming
 	// generators emit in that order.
+	wsByChannel := make(map[string]int)
+
 	for _, opID := range sortedStringKeys(asyncAPI.Operations) {
 		operation := asyncAPI.Operations[opID]
 		if operation == nil || operation.Channel == nil {
@@ -278,7 +280,20 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 		isWebSocket := i.isWebSocketChannel(asyncAPI, channel)
 
 		if isWebSocket {
+			// Operations on one channel fold into one endpoint, the first
+			// operation naming it: a duplex channel is one socket with a send
+			// and a receive operation, not two sockets. The file reader has
+			// always folded this way; appending one endpoint per operation
+			// left neither half carrying both schemas, so a duplex channel
+			// reached through a URL source never became a duplex binding.
+			if existing, ok := wsByChannel[channelName]; ok {
+				applyOperationMessages(spec, opID, &spec.WebSockets[existing], channel, operation, i.convertSchema)
+
+				continue
+			}
+
 			ws := i.channelToWebSocket(spec, opID, channel, operation)
+			wsByChannel[channelName] = len(spec.WebSockets)
 			spec.WebSockets = append(spec.WebSockets, ws)
 		} else {
 			// Treat as SSE
@@ -713,32 +728,7 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 		Metadata:     make(map[string]any),
 	}
 
-	// Extract send/receive schemas from messages, in sorted message-name order.
-	// SendSchema/ReceiveSchema below are last-write-wins, so a channel with
-	// several messages otherwise emitted a different type on each run.
-	for _, msgName := range sortedStringKeys(channel.Messages) {
-		if msg := channel.Messages[msgName]; msg.Payload != nil {
-			schema := i.convertSchema(msg.Payload)
-
-			// Store all message types
-			ws.MessageTypes[msgName] = schema
-
-			// Determine direction based on operation action
-			switch operation.Action {
-			case "send":
-				ws.SendSchema = schema
-			case "receive":
-				ws.ReceiveSchema = schema
-			}
-
-			// Store message name in metadata
-			if ws.Metadata["messages"] == nil {
-				ws.Metadata["messages"] = make(map[string]string)
-			}
-
-			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
-		}
-	}
+	applyOperationMessages(spec, opID, &ws, channel, operation, i.convertSchema)
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
