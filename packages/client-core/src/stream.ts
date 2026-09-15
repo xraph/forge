@@ -583,13 +583,21 @@ export class SubscriptionManager {
     handlers.add(handler);
     socket.refs++;
 
-    if (options.hello !== undefined || options.goodbye !== undefined) {
-      socket.frames.set(handler, { channel, ...options });
+    const speaks = options.hello !== undefined || options.goodbye !== undefined;
+
+    if (speaks) socket.frames.set(handler, { channel, ...options });
+
+    // Whether this call is the one that opened the socket. A transport with
+    // no `onOpen` is greeted synchronously inside `open()`, using the frame
+    // just registered above -- so the explicit send below must not repeat it.
+    let openedNow = false;
+
+    if (socket.connection === undefined && !socket.reconnecting) {
+      openedNow = true;
+      this.open(socket);
     }
 
-    if (socket.connection === undefined && !socket.reconnecting) this.open(socket);
-
-    if (options.hello !== undefined && socket.connection !== undefined) {
+    if (speaks && socket.connection !== undefined) {
       if (socket.connection.send === undefined) {
         socket.frames.delete(handler);
         handlers.delete(handler);
@@ -597,7 +605,9 @@ export class SubscriptionManager {
         throw new Error(`[forge] ${endpoint} cannot send; the transport has no send()`);
       }
 
-      if (socket.ready) this.say(socket, frame(options.hello));
+      if (options.hello !== undefined && socket.ready && !openedNow) {
+        this.say(socket, frame(options.hello));
+      }
     }
 
     let released = false;
@@ -721,7 +731,12 @@ export class SubscriptionManager {
     return socket;
   }
 
-  private open(socket: Socket): void {
+  /**
+   * Open one socket. `report`, when given, is the channel list to hand
+   * `onReconnect` -- but only once the socket is actually greeted, never
+   * before. See `ready` below.
+   */
+  private open(socket: Socket, report?: readonly string[]): void {
     if (socket.disposed) return;
 
     socket.principal = this.principal();
@@ -755,6 +770,11 @@ export class SubscriptionManager {
 
       socket.ready = true;
       this.greet(socket);
+
+      // A reconnect's gap report goes out only after the reintroduction does,
+      // so a consumer that refetches on `onReconnect` never asks the server
+      // about a channel it does not yet know this client wants again.
+      if (report !== undefined) this.onReconnect?.(socket.endpoint, report);
     };
 
     if (connection.onOpen === undefined) ready();
@@ -795,11 +815,11 @@ export class SubscriptionManager {
    * Wait, then reopen, then report the gap.
    *
    * The delay is taken through the injected `Sleep`, so a test drives it with
-   * `manualClock()` and no reconnect test ever sleeps. `onReconnect` fires
-   * after the reopen and only here, which is what makes "first connect" and
-   * "reconnect after a drop" distinguishable -- the first has no gap to recover
-   * from, and invalidating the channel's tags on it would refetch every live
-   * query a moment after it loaded.
+   * `manualClock()` and no reconnect test ever sleeps. `onReconnect` is
+   * reported only here -- never on a first connect, which has no gap to
+   * recover from, and invalidating the channel's tags on it would refetch
+   * every live query a moment after it loaded -- and only once the reopened
+   * socket is actually ready and greeted; see `open`'s `report` parameter.
    */
   private async reconnect(socket: Socket): Promise<void> {
     if (socket.disposed || socket.reconnecting) return;
@@ -832,11 +852,9 @@ export class SubscriptionManager {
 
       const channels = [...socket.channels.keys()];
 
-      this.open(socket);
+      this.open(socket, channels);
 
       if (socket.connection === undefined) continue;
-
-      this.onReconnect?.(socket.endpoint, channels);
 
       return;
     }

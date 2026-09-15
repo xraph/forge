@@ -116,4 +116,75 @@ describe('a subscription that speaks first', () => {
     const [socket] = socketSnapshot(subscriptions).filter((s) => s.endpoint === '/ws/live');
     expect(socket?.channels).toEqual([{ channel: '/ws/live', handlers: 1, hello: true }]);
   });
+
+  // Guards against the greet-then-say double send: a transport with no
+  // onOpen is ready the instant `connect` returns, so `open()` itself greets
+  // the brand-new subscriber synchronously. `subscribe` must not send the
+  // same hello a second time on top of that.
+  it('sends hello exactly once on a transport with no onOpen', () => {
+    const sockets = fakeSockets();
+    const subscriptions = new SubscriptionManager({
+      connect: (context) => {
+        const connection = sockets.connect(context);
+        return {
+          onMessage: connection.onMessage.bind(connection),
+          onClose: connection.onClose.bind(connection),
+          close: connection.close.bind(connection),
+          send: (message: unknown) => connection.send?.(message),
+        };
+      },
+    });
+
+    subscriptions.subscribe('/ws/live', () => {}, { hello: { id: 'once' } });
+
+    expect(sockets.last().sent).toEqual([{ id: 'once' }]);
+  });
+
+  // Guards the ordering StreamBinder's recovery depends on: a consumer that
+  // reacts to onReconnect by refetching must see the reintroduction go out
+  // first, never learn about the reconnect before the server does.
+  it('reports onReconnect only after the reconnected socket has been greeted', async () => {
+    const { subscriptions, sockets, clock } = build();
+    let sentAtReconnect: readonly unknown[] | undefined;
+    let reconnectCalls = 0;
+
+    subscriptions.onReconnect = () => {
+      reconnectCalls++;
+      sentAtReconnect = [...sockets.last().sent];
+    };
+
+    subscriptions.subscribe('/ws/live', () => {}, { hello: { id: 'again' } });
+    sockets.last().open();
+    sockets.last().drop('gone');
+    await clock.advance(1000);
+
+    // The new connection exists but has not reported open yet: no reconnect
+    // report and no hello, either.
+    expect(reconnectCalls).toBe(0);
+
+    sockets.last().open();
+
+    expect(reconnectCalls).toBe(1);
+    expect(sentAtReconnect).toEqual([{ id: 'again' }]);
+  });
+
+  // Guards the failure mode being fixed: a goodbye nobody can send must not
+  // vanish quietly either, exactly like hello above.
+  it('refuses goodbye on a transport that cannot send', () => {
+    const sockets = fakeSockets();
+    const subscriptions = new SubscriptionManager({
+      connect: (context) => {
+        const connection = sockets.connect(context);
+        return {
+          onMessage: connection.onMessage.bind(connection),
+          onClose: connection.onClose.bind(connection),
+          close: connection.close.bind(connection),
+        };
+      },
+    });
+
+    expect(() => subscriptions.subscribe('/ws/live', () => {}, { goodbye: { id: 'x' } })).toThrow(
+      /cannot send/,
+    );
+  });
 });

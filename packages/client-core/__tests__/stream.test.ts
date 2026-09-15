@@ -200,6 +200,11 @@ describe('reconnect', () => {
     await clock.advance(1);
     expect(sockets.opened).toHaveLength(2);
     expect(subscriptions.connected('/ws/orders')).toBe(true);
+
+    // The reopened socket is not ready until the transport says so, and the
+    // gap is not reported until then either.
+    expect(reconnects).toEqual([]);
+    sockets.last().open();
     expect(reconnects).toEqual([{ endpoint: '/ws/orders', channels: ['/ws/orders'] }]);
 
     // The new socket delivers to the original subscriber: reconnecting is not a
