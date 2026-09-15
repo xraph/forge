@@ -6,6 +6,7 @@ import type { OptimisticSpec } from './overlay.js';
 import { QueryRegistry } from './registry.js';
 import type { QueryEntry, QuerySpec, Unmount } from './registry.js';
 import { EntityStore } from './store.js';
+import type { SubscribeOptions } from './stream.js';
 import type { StagedWrite } from './store.js';
 import { queryKey, resolveTags } from './tags.js';
 import type { TagContext } from './tags.js';
@@ -153,6 +154,15 @@ export interface LiveBinding {
   subscribe(meta: OperationMeta, args?: TagContext): () => void;
   /** Which channels this operation's entities are pushed on. */
   channelsFor(meta: OperationMeta): readonly string[];
+  /**
+   * Subscribe to a declared duplex channel and take its frames raw. See
+   * `StreamBinder.raw`.
+   *
+   * Declared here so a caller holding only `cache.live` can speak on a
+   * socket without importing the binder class, which is the whole reason
+   * this interface exists.
+   */
+  raw(channel: string, handler: (message: unknown) => void, options?: SubscribeOptions): () => void;
 }
 
 /**
