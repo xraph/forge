@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { QueryCache } from '../src/cache';
 import { applyFrames } from '../src/live';
 import type { StreamFrame } from '../src/live';
-import type { StreamBinding } from '../src/stream';
+import type { EntityStreamBinding } from '../src/stream';
 import type { OperationMeta, Transport, TransportRequest } from '../src/transport';
 import { deferred, settleMicrotasks } from './harness';
 import { schema } from './schema';
@@ -40,7 +40,7 @@ const orderList: OperationMeta = {
   invalidates: [],
 };
 
-const created: StreamBinding = {
+const created: EntityStreamBinding = {
   channel: '/ws/orders',
   message: 'order.created',
   entity: 'Order',
@@ -48,7 +48,7 @@ const created: StreamBinding = {
   invalidates: ['Order[]'],
 };
 
-const updated: StreamBinding = {
+const updated: EntityStreamBinding = {
   channel: '/ws/orders',
   message: 'order.updated',
   entity: 'Order',
@@ -56,7 +56,7 @@ const updated: StreamBinding = {
   invalidates: [],
 };
 
-const deleted: StreamBinding = {
+const deleted: EntityStreamBinding = {
   channel: '/ws/orders',
   message: 'order.deleted',
   entity: 'Order',
@@ -64,7 +64,7 @@ const deleted: StreamBinding = {
   invalidates: ['Order[]'],
 };
 
-function frame(binding: StreamBinding, payload: unknown): StreamFrame {
+function frame(binding: EntityStreamBinding, payload: unknown): StreamFrame {
   return { binding, payload };
 }
 

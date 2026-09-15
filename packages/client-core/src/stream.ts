@@ -18,7 +18,8 @@ export type StreamIntent = 'upsert' | 'patch' | 'evict';
  * hand-edited manifest is the case where a typo would otherwise apply the
  * wrong operation to a real entity.
  */
-export interface StreamBinding {
+export interface EntityStreamBinding {
+  readonly kind?: 'entity';
   /** The endpoint path the channel is served on, e.g. `/ws/orders`. */
   readonly channel: string;
   /** The message name, e.g. `order.created`. */
@@ -28,6 +29,25 @@ export interface StreamBinding {
   readonly intent: StreamIntent;
   /** Tag templates this message invalidates, unresolved. */
   readonly invalidates: readonly string[];
+}
+
+/**
+ * A channel the client speaks on as well as listens to, with no entity behind
+ * it. Its frames never reach the entity store; a subscriber takes them raw
+ * through `StreamBinder.raw`. `send` and `receive` are the AsyncAPI message
+ * names, kept for the reader and for typing later, not read at runtime.
+ */
+export interface DuplexStreamBinding {
+  readonly kind: 'duplex';
+  readonly channel: string;
+  readonly send: string;
+  readonly receive: string;
+}
+
+export type StreamBinding = EntityStreamBinding | DuplexStreamBinding;
+
+export function isDuplex(binding: StreamBinding): binding is DuplexStreamBinding {
+  return binding.kind === 'duplex';
 }
 
 /**
@@ -65,6 +85,8 @@ export interface StreamConnection {
   send?(message: unknown): void;
   /** Close for good. The manager will not use this connection again. */
   close(): void;
+  /** The transport finished its handshake. Absent means: open as soon as `connect` returns. */
+  onOpen?(handler: () => void): void;
 }
 
 /**
@@ -283,7 +305,7 @@ export type StreamConnect = (context: StreamConnectContext) => StreamConnection;
 
 /** How far apart reconnect attempts are, and how many there are. */
 export interface BackoffPolicy {
-  /** Total attempts after a drop before the manager gives up. */
+  /** Total attempts after a drop before the manager gives up. `Number.POSITIVE_INFINITY` means never. */
   readonly attempts?: number;
   readonly baseDelay?: number;
   readonly maxDelay?: number;
@@ -380,11 +402,25 @@ export interface SubscriptionManagerOptions {
 /** What a subscriber is handed. `channel` is which of a socket's it came on. */
 export type FrameHandler = (message: unknown, channel: string) => void;
 
+/** Frames a subscription sends on its own behalf. */
+export interface SubscribeOptions {
+  /** Sent once the socket is open, and again after every reconnect. */
+  readonly hello?: unknown | (() => unknown);
+  /** Sent on release, only if the socket is connected at that moment. */
+  readonly goodbye?: unknown | (() => unknown);
+}
+
+function frame(value: unknown | (() => unknown)): unknown {
+  return typeof value === 'function' ? (value as () => unknown)() : value;
+}
+
 /** One multiplexed channel on a socket, and how many subscribers it has. */
 export interface ChannelSnapshot {
   readonly channel: string;
   /** Ref count for this channel alone. The socket's `refs` is their sum. */
   readonly handlers: number;
+  /** Whether any subscriber on this channel sends a hello frame. */
+  readonly hello: boolean;
 }
 
 /**
@@ -424,8 +460,12 @@ interface Socket {
   principal: unknown;
   /** The live connection, or undefined between a drop and a reopen. */
   connection: StreamConnection | undefined;
+  /** True between the transport's open event and its close. */
+  ready: boolean;
   /** Subscribers, by channel. A channel with no handlers is deleted. */
   readonly channels: Map<string, Set<FrameHandler>>;
+  /** Insertion-ordered, so hellos replay in subscription order. */
+  readonly frames: Map<FrameHandler, { readonly channel: string } & SubscribeOptions>;
   /** How many subscriptions are outstanding across every channel. */
   refs: number;
   /** Consecutive failed reconnects. Reset by any sign of life. */
@@ -544,7 +584,7 @@ export class SubscriptionManager {
    *
    * Idempotent in the direction that matters: releasing twice decrements once.
    */
-  subscribe(channel: string, handler: FrameHandler): () => void {
+  subscribe(channel: string, handler: FrameHandler, options: SubscribeOptions = {}): () => void {
     const endpoint = this.endpointOf(channel);
     const socket = this.socketFor(endpoint);
 
@@ -563,7 +603,32 @@ export class SubscriptionManager {
     handlers.add(handler);
     socket.refs++;
 
-    if (socket.connection === undefined && !socket.reconnecting) this.open(socket);
+    const speaks = options.hello !== undefined || options.goodbye !== undefined;
+
+    if (speaks) socket.frames.set(handler, { channel, ...options });
+
+    // Whether this call is the one that opened the socket. A transport with
+    // no `onOpen` is greeted synchronously inside `open()`, using the frame
+    // just registered above -- so the explicit send below must not repeat it.
+    let openedNow = false;
+
+    if (socket.connection === undefined && !socket.reconnecting) {
+      openedNow = true;
+      this.open(socket);
+    }
+
+    if (speaks && socket.connection !== undefined) {
+      if (socket.connection.send === undefined) {
+        socket.frames.delete(handler);
+        handlers.delete(handler);
+        socket.refs--;
+        throw new Error(`[forge] ${endpoint} cannot send; the transport has no send()`);
+      }
+
+      if (options.hello !== undefined && socket.ready && !openedNow) {
+        this.say(socket, frame(options.hello));
+      }
+    }
 
     let released = false;
 
@@ -571,6 +636,12 @@ export class SubscriptionManager {
       if (released) return;
 
       released = true;
+
+      const held = socket.frames.get(handler);
+      socket.frames.delete(handler);
+
+      if (held?.goodbye !== undefined && socket.ready) this.say(socket, frame(held.goodbye));
+
       socket.refs--;
 
       const current = socket.channels.get(channel);
@@ -596,8 +667,10 @@ export class SubscriptionManager {
    * Called after an identity change. Reopening rather than merely closing is
    * deliberate: a `live` query mounted across a login change is still mounted,
    * and dropping its socket would leave it looking connected and receiving
-   * nothing. The reopen goes through the same path as a reconnect, so gap
-   * recovery fires and the query refetches under the new identity.
+   * nothing. The reopen goes through the same path as a reconnect -- `hello`
+   * carried forward and resent, `onReconnect` reported only once the
+   * replacement is greeted -- so gap recovery fires and the query refetches
+   * under the new identity.
    */
   repartition(): void {
     const principal = this.principal();
@@ -609,6 +682,7 @@ export class SubscriptionManager {
       const handlers = new Map(
         [...socket.channels].map(([channel, set]) => [channel, new Set(set)] as const),
       );
+      const frames = new Map(socket.frames);
       const refs = socket.refs;
 
       this.dispose(socket);
@@ -620,8 +694,13 @@ export class SubscriptionManager {
 
       for (const [channel, set] of handlers) replacement.channels.set(channel, set);
 
-      this.open(replacement);
-      this.onReconnect?.(replacement.endpoint, channels);
+      // Carried across in the same insertion order, so a repartition reopen
+      // greets exactly like any other reconnect -- and a subscriber who
+      // never re-subscribes across the identity change still gets its hello
+      // resent on the new socket.
+      for (const [handler, held] of frames) replacement.frames.set(handler, held);
+
+      this.open(replacement, channels);
     }
   }
 
@@ -664,7 +743,9 @@ export class SubscriptionManager {
       endpoint,
       principal,
       connection: undefined,
+      ready: false,
       channels: new Map(),
+      frames: new Map(),
       refs: 0,
       attempt: 0,
       opens: 0,
@@ -678,7 +759,12 @@ export class SubscriptionManager {
     return socket;
   }
 
-  private open(socket: Socket): void {
+  /**
+   * Open one socket. `report`, when given, is the channel list to hand
+   * `onReconnect` -- but only once the socket is actually greeted, never
+   * before. See `ready` below.
+   */
+  private open(socket: Socket, report?: readonly string[]): void {
     if (socket.disposed) return;
 
     socket.principal = this.principal();
@@ -705,6 +791,22 @@ export class SubscriptionManager {
 
     socket.connection = connection;
     socket.opens++;
+    socket.ready = false;
+
+    const ready = (): void => {
+      if (socket.disposed || socket.connection !== connection) return;
+
+      socket.ready = true;
+      this.greet(socket);
+
+      // A reconnect's gap report goes out only after the reintroduction does,
+      // so a consumer that refetches on `onReconnect` never asks the server
+      // about a channel it does not yet know this client wants again.
+      if (report !== undefined) this.onReconnect?.(socket.endpoint, report);
+    };
+
+    if (connection.onOpen === undefined) ready();
+    else connection.onOpen(ready);
 
     connection.onMessage((message) => {
       // A frame from a connection this socket has already replaced, or from one
@@ -724,6 +826,7 @@ export class SubscriptionManager {
     connection.onClose(() => {
       if (socket.disposed || socket.connection !== connection) return;
 
+      socket.ready = false;
       socket.connection = undefined;
 
       if (socket.refs === 0) return;
@@ -740,11 +843,11 @@ export class SubscriptionManager {
    * Wait, then reopen, then report the gap.
    *
    * The delay is taken through the injected `Sleep`, so a test drives it with
-   * `manualClock()` and no reconnect test ever sleeps. `onReconnect` fires
-   * after the reopen and only here, which is what makes "first connect" and
-   * "reconnect after a drop" distinguishable -- the first has no gap to recover
-   * from, and invalidating the channel's tags on it would refetch every live
-   * query a moment after it loaded.
+   * `manualClock()` and no reconnect test ever sleeps. `onReconnect` is
+   * reported only here -- never on a first connect, which has no gap to
+   * recover from, and invalidating the channel's tags on it would refetch
+   * every live query a moment after it loaded -- and only once the reopened
+   * socket is actually ready and greeted; see `open`'s `report` parameter.
    */
   private async reconnect(socket: Socket): Promise<void> {
     if (socket.disposed || socket.reconnecting) return;
@@ -777,11 +880,9 @@ export class SubscriptionManager {
 
       const channels = [...socket.channels.keys()];
 
-      this.open(socket);
+      this.open(socket, channels);
 
       if (socket.connection === undefined) continue;
-
-      this.onReconnect?.(socket.endpoint, channels);
 
       return;
     }
@@ -810,6 +911,26 @@ export class SubscriptionManager {
       // Reported, never rethrown, because this runs inside the transport's own
       // message callback.
       this.onError?.(error, 'stream keepalive');
+    }
+  }
+
+  /** Send one frame up the socket, reporting rather than throwing. */
+  private say(socket: Socket, message: unknown): void {
+    const connection = socket.connection;
+
+    if (connection?.send === undefined) return;
+
+    try {
+      connection.send(message);
+    } catch (error) {
+      this.onError?.(error, `stream send ${socket.endpoint}`);
+    }
+  }
+
+  /** Every hello, in subscription order. Called on each open, first or not. */
+  private greet(socket: Socket): void {
+    for (const held of socket.frames.values()) {
+      if (held.hello !== undefined) this.say(socket, frame(held.hello));
     }
   }
 
@@ -923,7 +1044,13 @@ export function socketSnapshot(manager: SubscriptionManager): readonly SocketSna
     const channels: ChannelSnapshot[] = [];
 
     for (const [channel, handlers] of socket.channels) {
-      channels.push({ channel, handlers: handlers.size });
+      let hello = false;
+
+      for (const held of socket.frames.values()) {
+        if (held.channel === channel && held.hello !== undefined) hello = true;
+      }
+
+      channels.push({ channel, handlers: handlers.size, hello });
     }
 
     out.push({

@@ -163,7 +163,7 @@ describe('the connection panel', () => {
       opens: 1,
       reconnecting: false,
     });
-    expect(open[0]?.channels).toEqual([{ channel: '/ws/orders', handlers: 2 }]);
+    expect(open[0]?.channels).toEqual([{ channel: '/ws/orders', handlers: 2, hello: false }]);
 
     first();
     second();

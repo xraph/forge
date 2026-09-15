@@ -145,3 +145,68 @@ func TestSpecWithNoSurfaceGetsNoManifest(t *testing.T) {
 		t.Error("ops.ts was emitted for a spec with neither endpoints nor channels")
 	}
 }
+
+// A channel that declares a send and a receive operation and no entity is a
+// duplex channel: the client speaks on it and takes the frames raw. The
+// generator derives that from the AsyncAPI alone, so a backend that already
+// declares both operations needs no extension key to reach the client.
+func TestDuplexChannelGetsADuplexBinding(t *testing.T) {
+	spec := streamOnlySpec()
+	spec.WebSockets = append(spec.WebSockets, client.WebSocketEndpoint{
+		ID:            "liveQueryWS",
+		Path:          "/api/v1/query/live/ws",
+		SendSchema:    &client.Schema{Type: "object"},
+		ReceiveSchema: &client.Schema{Type: "object"},
+		Metadata: map[string]any{
+			"messages": map[string]string{"send": "send", "receive": "receive"},
+		},
+	})
+
+	config := baseConfig()
+	config.Hooks = true
+	config.IncludeStreaming = true
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	ops := ClientManifestText(out.Files)
+
+	for _, want := range []string{
+		"kind: 'duplex'",
+		"channel: '/api/v1/query/live/ws'",
+		"send: 'send'",
+		"receive: 'receive'",
+		"kind: 'entity'",
+	} {
+		if !strings.Contains(ops, want) {
+			t.Errorf("stream bindings are missing %q in:\n%s", want, ops)
+		}
+	}
+}
+
+// A receive-only channel without an entity is neither: it stays out of the
+// table exactly as before, so a listen-only endpoint does not become a
+// subscribable channel by accident.
+func TestReceiveOnlyChannelWithoutEntityStaysOut(t *testing.T) {
+	spec := streamOnlySpec()
+	spec.WebSockets = append(spec.WebSockets, client.WebSocketEndpoint{
+		ID:            "ticker",
+		Path:          "/api/v1/ticker",
+		ReceiveSchema: &client.Schema{Type: "object"},
+		Metadata:      map[string]any{"messages": map[string]string{"tick": "receive"}},
+	})
+
+	config := baseConfig()
+	config.IncludeStreaming = true
+
+	out, err := NewGenerator().Generate(context.Background(), spec, config)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	if strings.Contains(ClientManifestText(out.Files), "/api/v1/ticker") {
+		t.Errorf("a receive-only channel without an entity must not be emitted")
+	}
+}

@@ -200,6 +200,11 @@ describe('reconnect', () => {
     await clock.advance(1);
     expect(sockets.opened).toHaveLength(2);
     expect(subscriptions.connected('/ws/orders')).toBe(true);
+
+    // The reopened socket is not ready until the transport says so, and the
+    // gap is not reported until then either.
+    expect(reconnects).toEqual([]);
+    sockets.last().open();
     expect(reconnects).toEqual([{ endpoint: '/ws/orders', channels: ['/ws/orders'] }]);
 
     // The new socket delivers to the original subscriber: reconnecting is not a
@@ -354,6 +359,11 @@ describe('principal', () => {
     expect(before.closed).toBe(true);
     expect(sockets.opened).toHaveLength(2);
     expect(sockets.last().context.principal).toBe('user-b');
+
+    // Not yet: the replacement has not reported open, so there is nothing to
+    // recover from until the transport says it is ready.
+    expect(reconnects).toEqual([]);
+    sockets.last().open();
 
     // The gap is reported, because the new session missed everything the old
     // socket would have carried and its store was just emptied.

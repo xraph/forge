@@ -4,8 +4,8 @@ import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
 import { applyFrames, binderSnapshot, StreamBinder } from '../src/live';
 import type { StreamBinderOptions } from '../src/live';
-import { SubscriptionManager } from '../src/stream';
-import type { StreamBinding } from '../src/stream';
+import { isDuplex, SubscriptionManager } from '../src/stream';
+import type { EntityStreamBinding, StreamBinding } from '../src/stream';
 import { manualClock } from '../src/transport';
 import type { OperationMeta } from '../src/transport';
 import { fakeSockets, fakeTransport, settleMicrotasks } from './harness';
@@ -465,6 +465,7 @@ describe('gap recovery', () => {
     await clock.advance(1000);
 
     expect(sockets.opened).toHaveLength(2);
+    sockets.last().open();
 
     // Past the grace window: no `forge.resumed` arrived, so recovery runs.
     await clock.advance(1000);
@@ -497,6 +498,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // Past the grace window: no `forge.resumed` arrived, so recovery runs.
     await clock.advance(1000);
@@ -539,6 +541,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // Past the grace window: no `forge.resumed` arrived, so recovery runs.
     await clock.advance(1000);
@@ -562,6 +565,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // Past the grace window: no `forge.resumed` arrived, so recovery runs.
     await clock.advance(1000);
@@ -627,6 +631,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // The server replayed the gap and said so.
     sockets.last().deliver({ type: 'forge.resumed', payload: { from: 'e-1', count: 2 } });
@@ -659,6 +664,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     sockets.last().deliver({ event: 'forge.resumed', data: { from: 'e-1', count: 2 } });
 
@@ -689,6 +695,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     batches.flush();
     await settleMicrotasks();
@@ -707,6 +714,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     sockets.last().deliver({ type: 'forge.gap', payload: { reason: 'unresumable' } });
     batches.flush();
@@ -729,6 +737,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // Nothing yet: the grace window is still open.
     expect(transport.calls).toHaveLength(1);
@@ -754,6 +763,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     batches.flush();
     await settleMicrotasks();
@@ -772,6 +782,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // No payload at all: `decodeFrame` makes the bare envelope its own
     // payload, which has neither `from` nor `count`. Trusting `message` alone
@@ -796,6 +807,7 @@ describe('gap recovery', () => {
 
     sockets.last().drop();
     await clock.advance(1000);
+    sockets.last().open();
 
     // A frame arrives mid-window. A healthy-looking stream is not the claim
     // "the gap was filled" -- only `forge.resumed` is, and this is not that.
@@ -831,6 +843,8 @@ describe('gap recovery', () => {
     sockets.last('/ws/orders').drop();
     sockets.last('/ws/widgets').drop();
     await clock.advance(1000);
+    sockets.last('/ws/orders').open();
+    sockets.last('/ws/widgets').open();
 
     // Past the grace window for both: neither server said anything.
     await clock.advance(1000);
@@ -860,6 +874,8 @@ describe('gap recovery', () => {
     sockets.last('/ws/orders').drop();
     sockets.last('/ws/widgets').drop();
     await clock.advance(1000);
+    sockets.last('/ws/orders').open();
+    sockets.last('/ws/widgets').open();
 
     // Only the widgets server replays and says so. The orders server, on a
     // different socket, says nothing at all.
@@ -1083,7 +1099,11 @@ describe('binderSnapshot', () => {
     const snap = binderSnapshot(h.binder);
     const channel = snap.channels.find((entry) => entry.channel === '/ws/orders');
 
-    expect(channel?.bindings.map((binding) => binding.message)).toContain('order.updated');
+    expect(
+      channel?.bindings
+        .filter((binding): binding is EntityStreamBinding => !isDuplex(binding))
+        .map((binding) => binding.message),
+    ).toContain('order.updated');
     expect(snap.live.map((entry) => entry.channel)).toContain('/ws/orders');
     expect(snap.live[0]?.key).toBe(h.cache.key(orderList));
     expect(snap.queued).toBe(0);

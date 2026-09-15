@@ -8,7 +8,7 @@ import { OverlayStack, targetOf } from '../src/overlay';
 import type { EntityPatch } from '../src/overlay';
 import { makeRef } from '../src/ref';
 import { QueryRegistry } from '../src/registry';
-import type { StreamBinding } from '../src/stream';
+import type { EntityStreamBinding } from '../src/stream';
 import { EntityStore, OPTIMISTIC } from '../src/store';
 import type { EntityKey } from '../src/types';
 import type { OperationMeta } from '../src/transport';
@@ -369,7 +369,7 @@ const orderDelete: OperationMeta = {
 };
 
 /** A stream frame that patches an Order in place. See frame-ordering.test.ts. */
-const orderUpdated: StreamBinding = {
+const orderUpdated: EntityStreamBinding = {
   channel: '/ws/orders',
   message: 'order.updated',
   entity: 'Order',
@@ -377,7 +377,7 @@ const orderUpdated: StreamBinding = {
   invalidates: [],
 };
 
-function frame(binding: StreamBinding, payload: unknown): StreamFrame {
+function frame(binding: EntityStreamBinding, payload: unknown): StreamFrame {
   return { binding, payload };
 }
 
