@@ -65,10 +65,26 @@ describe('a duplex channel', () => {
       throw new Error('the binder did not attach itself to the cache');
     }
 
-    const release = live.raw('/api/v1/query/live/ws', () => {}, { hello: { action: 'subscribe' } });
+    const seen: [unknown, string][] = [];
+    const release = live.raw(
+      '/api/v1/query/live/ws',
+      // Typed by the interface, not annotated here: `channel` exists at
+      // runtime whichever way the handler is declared, so the only thing that
+      // can go wrong is the TYPE losing it and a caller through `cache.live`
+      // silently not knowing which of a socket's channels a frame came on.
+      // `npm run typecheck` is the other half of this assertion.
+      (message, channel) => {
+        seen.push([message, channel]);
+      },
+      { hello: { action: 'subscribe' } },
+    );
     sockets.last().open();
 
     expect(sockets.last().sent).toEqual([{ action: 'subscribe' }]);
+
+    sockets.last().deliver({ type: 'update', id: 'q1' });
+
+    expect(seen).toEqual([[{ type: 'update', id: 'q1' }, '/api/v1/query/live/ws']]);
     release();
   });
 
