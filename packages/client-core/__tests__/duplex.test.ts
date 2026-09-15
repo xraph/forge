@@ -187,4 +187,41 @@ describe('a subscription that speaks first', () => {
       /cannot send/,
     );
   });
+
+  // Guards the same ordering as the drop-and-reconnect case above, but for a
+  // repartition reopen: an identity change is a reconnect too, and the
+  // replacement socket must carry the hello registration forward and greet
+  // before onReconnect is reported on it.
+  it('resends hello and reports onReconnect only after a repartition reopens, in that order', () => {
+    let principal: unknown = 'user-a';
+    const sockets = fakeSockets();
+    const subscriptions = new SubscriptionManager({
+      connect: sockets.connect,
+      principal: () => principal,
+    });
+    let reconnectCalls = 0;
+    let sentAtReconnect: readonly unknown[] | undefined;
+
+    subscriptions.onReconnect = () => {
+      reconnectCalls++;
+      sentAtReconnect = [...sockets.last().sent];
+    };
+
+    subscriptions.subscribe('/ws/live', () => {}, { hello: { id: 'again' } });
+    sockets.last().open();
+
+    principal = 'user-b';
+    subscriptions.repartition();
+
+    // The replacement connection exists but has not reported open yet: no
+    // hello and no reconnect report.
+    expect(sockets.last().sent).toEqual([]);
+    expect(reconnectCalls).toBe(0);
+
+    sockets.last().open();
+
+    expect(sockets.last().sent).toEqual([{ id: 'again' }]);
+    expect(reconnectCalls).toBe(1);
+    expect(sentAtReconnect).toEqual([{ id: 'again' }]);
+  });
 });

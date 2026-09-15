@@ -647,8 +647,10 @@ export class SubscriptionManager {
    * Called after an identity change. Reopening rather than merely closing is
    * deliberate: a `live` query mounted across a login change is still mounted,
    * and dropping its socket would leave it looking connected and receiving
-   * nothing. The reopen goes through the same path as a reconnect, so gap
-   * recovery fires and the query refetches under the new identity.
+   * nothing. The reopen goes through the same path as a reconnect -- `hello`
+   * carried forward and resent, `onReconnect` reported only once the
+   * replacement is greeted -- so gap recovery fires and the query refetches
+   * under the new identity.
    */
   repartition(): void {
     const principal = this.principal();
@@ -660,6 +662,7 @@ export class SubscriptionManager {
       const handlers = new Map(
         [...socket.channels].map(([channel, set]) => [channel, new Set(set)] as const),
       );
+      const frames = new Map(socket.frames);
       const refs = socket.refs;
 
       this.dispose(socket);
@@ -671,8 +674,13 @@ export class SubscriptionManager {
 
       for (const [channel, set] of handlers) replacement.channels.set(channel, set);
 
-      this.open(replacement);
-      this.onReconnect?.(replacement.endpoint, channels);
+      // Carried across in the same insertion order, so a repartition reopen
+      // greets exactly like any other reconnect -- and a subscriber who
+      // never re-subscribes across the identity change still gets its hello
+      // resent on the new socket.
+      for (const [handler, held] of frames) replacement.frames.set(handler, held);
+
+      this.open(replacement, channels);
     }
   }
 

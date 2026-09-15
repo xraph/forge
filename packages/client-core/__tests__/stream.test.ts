@@ -360,6 +360,11 @@ describe('principal', () => {
     expect(sockets.opened).toHaveLength(2);
     expect(sockets.last().context.principal).toBe('user-b');
 
+    // Not yet: the replacement has not reported open, so there is nothing to
+    // recover from until the transport says it is ready.
+    expect(reconnects).toEqual([]);
+    sockets.last().open();
+
     // The gap is reported, because the new session missed everything the old
     // socket would have carried and its store was just emptied.
     expect(reconnects).toEqual([{ endpoint: '/ws/orders', channels: ['/ws/orders'] }]);
