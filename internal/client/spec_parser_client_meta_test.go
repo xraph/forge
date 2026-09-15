@@ -376,3 +376,96 @@ func TestSpecParserSSEStreamBindingsFromFile(t *testing.T) {
 		t.Fatalf("StreamBindings[0].Invalidates = %v, want [User[]]", b.Invalidates)
 	}
 }
+
+// A duplex channel names each direction from the operation that speaks it.
+// The document below is the shape forge's own router publishes: one message
+// per direction keyed `send` and `receive`, each carrying a `name`, and one
+// operation per direction referencing its message. Before this test the
+// parser stamped every message with the first operation's action, so the
+// send direction went unnamed, and it took the last-sorted payload for both
+// schemas, so the receive schema was the send payload.
+func TestSpecParserDuplexChannelNamesEachDirectionFromItsOperation(t *testing.T) {
+	path := writeSpec(t, duplexAsyncAPIDocument())
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	assertDuplexDirections(t, spec)
+}
+
+// duplexAsyncAPIDocument is the live-query channel as forge's router emits it:
+// operation ids sort the receive operation first, which is the order that
+// exposed the bug.
+func duplexAsyncAPIDocument() map[string]any {
+	return map[string]any{
+		"asyncapi": "3.0.0",
+		"info":     map[string]any{"title": "Live", "version": "1.0.0"},
+		"servers": map[string]any{
+			"main": map[string]any{"host": "ws.example.com", "protocol": "wss"},
+		},
+		"channels": map[string]any{
+			"liveQueryWS": map[string]any{
+				"address": "/api/v1/query/live/ws",
+				"servers": []any{map[string]any{"$ref": "#/servers/main"}},
+				"messages": map[string]any{
+					"receive": map[string]any{
+						"name": "ReceiveMessage",
+						"payload": map[string]any{
+							"type":       "object",
+							"properties": map[string]any{"type": map[string]any{"type": "string"}},
+						},
+					},
+					"send": map[string]any{
+						"name": "SendMessage",
+						"payload": map[string]any{
+							"type":       "object",
+							"properties": map[string]any{"action": map[string]any{"type": "string"}},
+						},
+					},
+				},
+			},
+		},
+		"operations": map[string]any{
+			"query.live.wsReceive": map[string]any{
+				"action":   "receive",
+				"channel":  map[string]any{"$ref": "#/channels/liveQueryWS"},
+				"messages": []any{map[string]any{"$ref": "#/channels/liveQueryWS/messages/receive"}},
+			},
+			"query.live.wsSend": map[string]any{
+				"action":   "send",
+				"channel":  map[string]any{"$ref": "#/channels/liveQueryWS"},
+				"messages": []any{map[string]any{"$ref": "#/channels/liveQueryWS/messages/send"}},
+			},
+		},
+	}
+}
+
+// assertDuplexDirections checks the one endpoint both parsers should produce
+// from duplexAsyncAPIDocument: one WebSocket, the send schema carrying the
+// send payload, the receive schema the receive payload, and the messages
+// metadata keyed by message NAME so the generated binding can say
+// `send: 'SendMessage'` rather than an empty string.
+func assertDuplexDirections(t *testing.T, spec *APISpec) {
+	t.Helper()
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want the two operations folded into 1", len(spec.WebSockets))
+	}
+
+	ws := spec.WebSockets[0]
+
+	if ws.SendSchema == nil || ws.SendSchema.Properties["action"] == nil {
+		t.Errorf("SendSchema = %+v, want the send message payload (has `action`)", ws.SendSchema)
+	}
+
+	if ws.ReceiveSchema == nil || ws.ReceiveSchema.Properties["type"] == nil {
+		t.Errorf("ReceiveSchema = %+v, want the receive message payload (has `type`)", ws.ReceiveSchema)
+	}
+
+	names, _ := ws.Metadata["messages"].(map[string]string)
+	if names["SendMessage"] != "send" || names["ReceiveMessage"] != "receive" || len(names) != 2 {
+		t.Errorf("Metadata[messages] = %v, want {SendMessage: send, ReceiveMessage: receive}", names)
+	}
+}

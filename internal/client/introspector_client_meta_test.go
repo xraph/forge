@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -801,4 +802,27 @@ func TestInvalidatesIsSilentForAValidList(t *testing.T) {
 	if len(spec.Warnings) != 0 {
 		t.Fatalf("Warnings = %v, want none for a valid list", spec.Warnings)
 	}
+}
+
+// The URL path reads the same document through the introspector, which used
+// to append one endpoint per operation: neither half carried both schemas, so
+// a duplex channel reached through a URL source never became a duplex binding
+// at all. Both readers must fold the operations the same way.
+func TestIntrospectorDuplexChannelNamesEachDirectionFromItsOperation(t *testing.T) {
+	raw, err := json.Marshal(duplexAsyncAPIDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var asyncAPI shared.AsyncAPISpec
+	if err := json.Unmarshal(raw, &asyncAPI); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := &APISpec{Schemas: map[string]*Schema{}}
+	if err := (&Introspector{}).extractFromAsyncAPI(spec, &asyncAPI); err != nil {
+		t.Fatalf("extractFromAsyncAPI: %v", err)
+	}
+
+	assertDuplexDirections(t, spec)
 }
