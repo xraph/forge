@@ -1285,17 +1285,24 @@ export function mountPanel(devtools: Devtools, options: PanelOptions = {}): () =
         body.append(el('h4', undefined, `bindings (${String(view.queued)} frame(s) queued)`));
         body.append(
           table(
-            ['channel', 'message', 'entity', 'intent', 'invalidates'],
+            ['channel', 'kind', 'message', 'entity', 'intent', 'invalidates'],
             view.channels.flatMap((channel) =>
               channel.bindings
-                .filter((binding) => matches(`${channel.channel} ${binding.message}`))
-                .map((binding) => [
-                  channel.channel,
-                  binding.message,
-                  binding.entity,
-                  binding.intent,
-                  binding.invalidates.join(' '),
-                ]),
+                .map((binding): string[] =>
+                  // A duplex channel carries no entity: its two message names
+                  // fill the message column and the entity columns stay empty.
+                  binding.kind === 'duplex'
+                    ? [channel.channel, 'duplex', `${binding.send} / ${binding.receive}`, '', '', '']
+                    : [
+                        channel.channel,
+                        'entity',
+                        binding.message,
+                        binding.entity,
+                        binding.intent,
+                        binding.invalidates.join(' '),
+                      ],
+                )
+                .filter((row) => matches(row.join(' '))),
             ),
           ),
         );

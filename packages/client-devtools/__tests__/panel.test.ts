@@ -1033,6 +1033,42 @@ describe('the streams and frames tabs, populated', () => {
     devtools.dispose();
   });
 
+  it('renders a duplex binding as its own row instead of an entity row', async () => {
+    // A duplex channel has no message, entity, or intent; before the panel
+    // narrowed on `kind` it read those entity fields off every binding and
+    // threw on the first duplex one, so the whole streams tab went blank.
+    const connect: StreamConnect = (): StreamConnection => ({
+      onMessage: () => undefined,
+      onClose: () => undefined,
+      close: () => undefined,
+    });
+    const duplex = {
+      kind: 'duplex' as const,
+      channel: '/api/v1/query/live/ws',
+      send: 'LiveQuerySend',
+      receive: 'LiveQueryReceive',
+    };
+
+    const h = harness();
+    const manager = new SubscriptionManager({ connect });
+    const binder = new StreamBinder({ cache: h.cache, streams: [binding, duplex], manager });
+    const devtools = attach(h.cache, { now: counter(), binder });
+    const unmount = mountPanel(devtools, { parent: document.body, open: true });
+
+    clickTab('streams');
+
+    const text = shadow().textContent ?? '';
+
+    // The entity row survives alongside the duplex one.
+    expect(text).toContain('order.updated');
+    expect(text).toContain('/api/v1/query/live/ws');
+    expect(text).toContain('LiveQuerySend');
+    expect(text).toContain('LiveQueryReceive');
+
+    unmount();
+    devtools.dispose();
+  });
+
   it('surfaces the recovering badge, and the reason, after a real drop and reconnect', async () => {
     // A connection the test can drop by hand: the same shape as the idle
     // `connect()` above, extended only with a way to invoke the close handler

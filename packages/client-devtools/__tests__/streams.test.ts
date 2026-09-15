@@ -41,7 +41,7 @@ describe('streams', () => {
     const view = devtools.streams();
 
     expect(view?.channels[0]?.channel).toBe('/ws/orders');
-    expect(view?.channels[0]?.bindings[0]?.message).toBe('order.updated');
+    expect(view?.channels[0]?.bindings[0]).toMatchObject({ message: 'order.updated' });
     expect(view?.live[0]?.key).toBe(h.cache.key(ops.orderList));
     expect(view?.recovering).toEqual([]);
 
