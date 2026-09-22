@@ -73,6 +73,42 @@ func TestPrintStartupBannerOmitsEmptySections(t *testing.T) {
 	}
 }
 
+func TestPrintStartupBannerKeepsColoredRowsAligned(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	output := captureColoredStartupBanner(t, BannerConfig{
+		AppName:     "Portal",
+		Version:     "0.1.0",
+		Environment: "development",
+		HTTPAddress: ":7901",
+		StartTime:   time.Now().Add(-18 * time.Millisecond),
+		OpenAPISpec: "/openapi.json",
+		OpenAPIUI:   "/swagger",
+		AsyncAPIUI:  "/asyncapi",
+		HealthPath:  "/_/health",
+		MetricsPath: "/_/metrics",
+	})
+
+	ansi := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	if !ansi.MatchString(output) {
+		t.Fatal("color-enabled banner did not contain ANSI styling")
+	}
+
+	wantWidth := 0
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		visible := ansi.ReplaceAllString(line, "")
+		if wantWidth == 0 {
+			wantWidth = len([]rune(visible))
+		}
+
+		if width := len([]rune(visible)); width != wantWidth {
+			t.Errorf("colored banner row width = %d, want %d: %q", width, wantWidth, visible)
+		}
+	}
+}
+
 func TestBannerEnvironmentColors(t *testing.T) {
 	tests := []struct {
 		environment string
@@ -98,9 +134,17 @@ func TestBannerEnvironmentColors(t *testing.T) {
 }
 
 func captureStartupBanner(t *testing.T, cfg BannerConfig) string {
+	return captureStartupBannerWithColor(t, cfg, true)
+}
+
+func captureColoredStartupBanner(t *testing.T, cfg BannerConfig) string {
+	return captureStartupBannerWithColor(t, cfg, false)
+}
+
+func captureStartupBannerWithColor(t *testing.T, cfg BannerConfig, noColor bool) string {
 	t.Helper()
 
-	color.NoColor = true
+	color.NoColor = noColor
 
 	defer func() { color.NoColor = false }()
 

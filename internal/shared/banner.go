@@ -169,7 +169,9 @@ func endpointRows(
 		}
 
 		plain := fmt.Sprintf("  %-10s %-13s %s", rowGroup, endpoint.name, endpoint.path)
-		rendered := fmt.Sprintf("  %-10s %-13s %s", muted(rowGroup), emphasis(endpoint.name), link(endpoint.path))
+		rendered := "  " + muted(fmt.Sprintf("%-10s", rowGroup)) +
+			" " + emphasis(fmt.Sprintf("%-13s", endpoint.name)) +
+			" " + link(endpoint.path)
 		rows = append(rows, bannerRow{plain: plain, rendered: rendered})
 	}
 
