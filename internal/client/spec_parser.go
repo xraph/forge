@@ -334,6 +334,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	// Extract operations and channels
 	wsEndpoints := make(map[string]*WebSocketEndpoint)
 	sseEndpoints := make(map[string]*SSEEndpoint)
+	wtEndpoints := make(map[string]*WebTransportEndpoint)
 
 	// Sorted operation ids, for the same reason paths are sorted above: this
 	// loop decides both the order streaming endpoints reach the IR and, where
@@ -354,6 +355,18 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 
 		channel := asyncAPISpec.Channels[channelName]
 		if channel == nil {
+			continue
+		}
+
+		// Marked, because AsyncAPI has no binding for it. Same rule as the
+		// live-router path: converted once per channel, whichever of its
+		// operations comes first.
+		if isWebTransportChannel(channel) {
+			if wtEndpoints[channelName] == nil {
+				wt := buildWebTransportEndpoint(spec, opID, channel, extractAsyncTagNames(channel.Tags), convertSchema)
+				wtEndpoints[channelName] = &wt
+			}
+
 			continue
 		}
 
@@ -396,6 +409,10 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 
 	for _, name := range sortedStringKeys(sseEndpoints) {
 		spec.SSEs = append(spec.SSEs, *sseEndpoints[name])
+	}
+
+	for _, name := range sortedStringKeys(wtEndpoints) {
+		spec.WebTransports = append(spec.WebTransports, *wtEndpoints[name])
 	}
 
 	return spec, nil

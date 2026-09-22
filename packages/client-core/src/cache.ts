@@ -587,7 +587,16 @@ export class QueryCache {
     const record = this.open(meta, args);
     const entry = this.registry.get(record.key);
 
-    if (record.settled && record.inflight === undefined && entry?.stale !== true) {
+    // The same three conditions `subscribe` applies before it declines to
+    // fetch, plus the same clock: a result that has aged past its staleTime
+    // is not "settled and current", and serving it here would make a route
+    // preload the one caller for whom the declared staleTime does not hold.
+    if (
+      record.settled &&
+      record.inflight === undefined &&
+      entry?.stale !== true &&
+      !this.expired(record)
+    ) {
       return Promise.resolve(this.value(record) as T);
     }
 
@@ -1386,7 +1395,7 @@ export class QueryCache {
     startedAt: number,
     skip?: ReadonlySet<EntityKey>,
   ): unknown {
-    const { skeleton, deps } = staged;
+    const { skeleton } = staged;
 
     this.store.commit(staged, skip === undefined ? {} : { skip });
 
@@ -1397,7 +1406,18 @@ export class QueryCache {
     record.error = undefined;
     record.fetching = false;
 
-    const value = this.value(record);
+    // Deps from the live store, not from the response walk. The store merges,
+    // so a record this response returned narrower than before still carries
+    // the nested entities an earlier response supplied, and the query still
+    // renders them; the response's own key set does not know that. Collected
+    // by the same read that produces the value, so the container identity
+    // that read keeps across an unchanged refetch is not spent on a walk.
+    const deps = new Set<EntityKey>();
+    const base = this.base(record, deps);
+    const entry = this.registry.get(record.key);
+    const value = this.overlays.empty
+      ? base
+      : this.overlays.project(record.key, base, entry);
 
     // NOT `value`: `entry.value` is what a placement callback is handed as
     // `current`, and that callback's return reaches `adopt` -> `store.commit`
@@ -1407,7 +1427,7 @@ export class QueryCache {
     // output must be held to. Passing the projection through here would let a
     // temp entity ride a callback's result straight into a query skeleton, with
     // nothing to remove it if the create it came from later fails.
-    this.registry.settle(record.key, { value: this.base(record), deps, response, startedAt });
+    this.registry.settle(record.key, { value: base, deps, response, startedAt });
     this.notify(record);
 
     return value;
@@ -1486,11 +1506,26 @@ export class QueryCache {
     record.settledTime = this.now();
     record.status = 'success';
     record.error = undefined;
+    // Placement is a terminal transition for whatever was in flight, exactly
+    // as a settle is: the request is discarded below, and nothing else resets
+    // this before its abandoned response finally lands. Left set, a subscriber
+    // read a settled, correct list with the loading indicator still on.
+    record.fetching = false;
 
     if (record.inflight !== undefined) {
       record.restart = false;
       record.discard = true;
     }
+
+    // The entities the placed list reaches, indexed as a fetched list's are.
+    // Without this the registry keeps the pre-placement deps, and a later
+    // invalidation of an entity that arrived only through placement -- the
+    // created order itself -- never finds this query. Collected by the same
+    // read a subscriber is about to make, for the reason `settle` gives.
+    const deps = new Set<EntityKey>();
+
+    this.base(record, deps);
+    this.registry.adopt(record.key, deps);
 
     this.notify(record);
   }
@@ -1516,7 +1551,7 @@ export class QueryCache {
    * skipping every currently overlaid key. It is not closed here: a read
    * cannot un-know what the store already resolved it to.
    */
-  private base(record: Record_): unknown {
+  private base(record: Record_, collect?: Set<EntityKey>): unknown {
     const entry = this.registry.get(record.key);
 
     // `entry.value` is still the previous read at this point, which is what
@@ -1524,7 +1559,9 @@ export class QueryCache {
     // survive a refetch on their own; the skeleton does not, because a refetch
     // builds a second one and the container memos are keyed by node identity.
     // See `EntityStore#read`.
-    const value = record.settled ? this.store.read(record.skeleton, entry?.value) : undefined;
+    const value = record.settled
+      ? this.store.read(record.skeleton, entry?.value, collect)
+      : undefined;
 
     if (entry !== undefined) entry.value = value;
 

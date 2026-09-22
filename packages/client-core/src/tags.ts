@@ -68,18 +68,47 @@ export function resolveTags(templates: readonly string[], ctx: TagContext): Reso
   const unresolved: string[] = [];
   const seen = new Set<string>();
 
+  const push = (tag: string): void => {
+    if (!seen.has(tag)) {
+      seen.add(tag);
+      tags.push(tag);
+    }
+  };
+
   for (const template of templates) {
     const tag = resolveTag(template, ctx);
 
-    if (tag === undefined) {
-      unresolved.push(template);
+    if (tag !== undefined) {
+      push(tag);
       continue;
     }
 
-    if (seen.has(tag)) continue;
+    // A collection answers a response template once per element. `GET /orders`
+    // declares `Order:{id}`, and what that promises is one tag per record
+    // returned, not a property the array itself carries. Resolving against the
+    // array as a whole finds nothing and would report the healthiest query in
+    // the application as a declaration that resolved to nothing. An empty
+    // array provides nothing, which is not the same as failing to resolve:
+    // the template was answered, with zero records. A template whose every
+    // placeholder is `req.`-scoped is left out, since no response answers it.
+    const response = ctx.response;
 
-    seen.add(tag);
-    tags.push(tag);
+    if (Array.isArray(response) && /\{(?!\s*req\.)/.test(template)) {
+      let answered = response.length === 0;
+
+      for (const item of response) {
+        const each = resolveTag(template, { ...ctx, response: item });
+
+        if (each !== undefined) {
+          answered = true;
+          push(each);
+        }
+      }
+
+      if (answered) continue;
+    }
+
+    unresolved.push(template);
   }
 
   return { tags, unresolved };
@@ -126,19 +155,41 @@ function fromRequest(expr: string, ctx: TagContext): unknown {
   return fromQuery !== undefined ? fromQuery : dig(ctx.body, expr);
 }
 
-/** Walk a dotted path. Numeric segments index arrays, which are objects too. */
+/**
+ * Walk a dotted path. Numeric segments index arrays, which are objects too.
+ *
+ * A segment that names no property is retried under its other spellings:
+ * `customer_id` finds `customerId`, and the reverse. A template is written
+ * against the wire, because that is what the server can see, while the body
+ * and the response it is resolved against carry the client-side names. The
+ * generator renames templates it can see the schema for; this is the
+ * fallback for a document it could not, or one generated before it did. An
+ * exact key always wins, so a payload carrying both spellings is read as
+ * written.
+ */
 function dig(root: unknown, path: string): unknown {
   let node: unknown = root;
 
   for (const segment of path.split('.')) {
     if (node === null || typeof node !== 'object') return undefined;
 
-    node = (node as Record<string, unknown>)[segment];
+    const record = node as Record<string, unknown>;
+
+    node = record[segment in record ? segment : (spelledAs(record, segment) ?? segment)];
 
     if (node === undefined) return undefined;
   }
 
   return node;
+}
+
+/** The key of `record` that is `name` under another casing, if there is one. */
+function spelledAs(record: Record<string, unknown>, name: string): string | undefined {
+  // `customer_id`, `customerId`, `CustomerID` and `customer-id` all fold alike.
+  const fold = (key: string): string => key.replace(/[_-]/g, '').toLowerCase();
+  const wanted = fold(name);
+
+  return Object.keys(record).find((key) => fold(key) === wanted);
 }
 
 /**

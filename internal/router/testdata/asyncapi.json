@@ -54,7 +54,8 @@
           "entityType": "goldenOrder",
           "intent": "patch",
           "invalidates": null,
-          "message": "order.progressed"
+          "message": "order.progressed",
+          "type": "github.com/xraph/forge/internal/router.goldenOrder"
         }
       ]
     },
@@ -126,7 +127,8 @@
           "invalidates": [
             "goldenOrder[]"
           ],
-          "message": "order.created"
+          "message": "order.created",
+          "type": "github.com/xraph/forge/internal/router.goldenOrder"
         },
         {
           "entityType": "goldenOrder",
@@ -134,7 +136,8 @@
           "invalidates": [
             "goldenOrder[]"
           ],
-          "message": "order.deleted"
+          "message": "order.deleted",
+          "type": "github.com/xraph/forge/internal/router.goldenOrder"
         }
       ]
     },

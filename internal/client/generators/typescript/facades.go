@@ -183,25 +183,84 @@ func hookFileStems(spec *client.APISpec) []string {
 // over an operation whose response nothing describes; it is wrong for a
 // generated one, where the response document's typename is already known.
 //
-// Only RootType is needed here, and that is the whole difference from
-// mutationTypeArgs. A mutation takes two parameters and refuses to emit either
-// unless it can emit both, because `mutation<Order>` leaves the ENTITY as
-// unknown and an optimistic patch checked against unknown accepts every
-// misspelling. A query binding has one parameter, so there is no partial
-// argument list to get wrong: RootType alone is the complete answer.
+// A query needs the complete response payload type. RootType supplies it for
+// normalized object responses. When normalization is explicitly disabled and
+// RootType is empty, the success response schema supplies it instead, including
+// the array wrapper for a top-level array.
 //
 // The declaredSchema guard is the same one mutationTypeArgs applies, for the
 // same reason -- a name types.ts does not export is not a subtly wrong type but
 // a client that does not compile -- and an endpoint whose response no component
 // describes still emits a bare `query(...)`, exactly as before.
 func queryTypeArg(ep *client.Endpoint, spec *client.APISpec, imports map[string]bool) string {
-	if !declaredSchema(spec, ep.RootType) {
+	responseType := ep.RootType
+	importType := ep.RootType
+
+	if responseType == "" {
+		responseType, importType = queryResponseType(ep)
+	}
+
+	if !declaredSchema(spec, importType) {
 		return ""
 	}
 
-	imports[ep.RootType] = true
+	imports[importType] = true
 
-	return fmt.Sprintf("<%s>", ep.RootType)
+	return fmt.Sprintf("<%s>", responseType)
+}
+
+// queryResponseType returns the named payload type of the lowest successful
+// JSON response. It is deliberately independent of endpoint cache metadata:
+// WithoutEntity clears RootType so the runtime will not normalize the response,
+// but the response schema still describes the value returned by the hook.
+func queryResponseType(ep *client.Endpoint) (payloadType, importType string) {
+	if ep == nil {
+		return "", ""
+	}
+
+	codes := make([]int, 0, len(ep.Responses))
+	for code := range ep.Responses {
+		if code >= 200 && code < 300 {
+			codes = append(codes, code)
+		}
+	}
+
+	if len(codes) == 0 {
+		return "", ""
+	}
+
+	sort.Ints(codes)
+
+	response := ep.Responses[codes[0]]
+	if response == nil {
+		return "", ""
+	}
+
+	media := response.Content["application/json"]
+	if media == nil || media.Schema == nil {
+		return "", ""
+	}
+
+	schema := media.Schema
+	isArray := false
+
+	if schema.Type == "array" && schema.Items != nil {
+		schema = schema.Items
+		isArray = true
+	}
+
+	if schema.Ref == "" {
+		return "", ""
+	}
+
+	parts := strings.Split(schema.Ref, "/")
+	name := parts[len(parts)-1]
+
+	if isArray {
+		return name + "[]", name
+	}
+
+	return name, name
 }
 
 // mutationTypeArgs renders the `<Response, Entity>` a mutation binding carries,

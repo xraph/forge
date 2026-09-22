@@ -95,7 +95,23 @@ export function applyFrames(
   const tags = new Set<string>();
 
   for (const frame of frames) {
-    const { binding, payload } = frame;
+    const { binding } = frame;
+
+    // Through the entity's codec, as a response is, so what reaches the store
+    // is the shape the entities table describes. A bare identity -- the
+    // ordinary evict payload -- is not a document and is passed through. A
+    // codec that throws costs the one frame, reported, not the batch.
+    let payload = frame.payload;
+
+    if (binding.decode !== undefined && payload !== null && typeof payload === 'object') {
+      try {
+        payload = binding.decode(payload);
+      } catch (error) {
+        (options.onError ?? ((e, where) => cache.report(e, where)))(error, 'decode');
+
+        continue;
+      }
+    }
 
     if (binding.intent === 'evict') {
       const key = identify(cache, binding.entity, payload);

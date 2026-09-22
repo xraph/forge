@@ -151,6 +151,40 @@ describe('QueryRegistry settle', () => {
     expect(onUnresolved).toHaveBeenCalledWith('Customer:{res.customerId}', expect.anything());
   });
 
+  // An enveloped collection -- `{items: [...], total}` -- cannot resolve its
+  // derived item template against the response either, and the array rule
+  // does not reach inside the envelope. What the template promised is that
+  // the query provides Order records, and the store has just confirmed that
+  // it does: the item keys arrived as deps. That is the template resolved,
+  // by a different route, and not something to warn about.
+  it('does not report an item template the settled deps already satisfy', () => {
+    const onUnresolved = vi.fn();
+    const registry = new QueryRegistry({ onUnresolved });
+
+    registry.mount({ operation: 'orderPage', provides: ['Order:{id}', 'Order[]'], key: 'p' });
+    registry.settle('p', {
+      response: { items: [{ id: 7 }], total: 1 },
+      deps: ['Order:7'],
+    });
+
+    expect(onUnresolved).not.toHaveBeenCalled();
+    expect(registry.queriesFor('Order:7')).toHaveLength(1);
+    expect(registry.queriesFor('Order[]')).toHaveLength(1);
+  });
+
+  it('still reports a template naming an entity the response never normalized', () => {
+    const onUnresolved = vi.fn();
+    const registry = new QueryRegistry({ onUnresolved });
+
+    registry.mount({ operation: 'orderPage', provides: ['Customer:{customerId}'], key: 'p' });
+    registry.settle('p', {
+      response: { items: [{ id: 7 }], total: 1 },
+      deps: ['Order:7'],
+    });
+
+    expect(onUnresolved).toHaveBeenCalledWith('Customer:{customerId}', expect.anything());
+  });
+
   it('re-indexes a query that settles while unmounted, without indexing it', () => {
     const registry = new QueryRegistry();
 

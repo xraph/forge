@@ -54,6 +54,12 @@ export interface OverlayHost {
   read<T = unknown>(skeleton: unknown): T;
   put(key: EntityKey, data: Readonly<Record<string, unknown>>, frameAt?: number): boolean;
   evict(key: EntityKey, frameAt?: number): boolean;
+  /**
+   * A fresh frame stamp, for a confirmed delete to be evicted under. Optional
+   * so a narrowed test host need not supply one; without it the eviction
+   * leaves no tombstone.
+   */
+  nextFrame?(): number;
 }
 
 /**
@@ -349,7 +355,13 @@ export class OverlayStack implements OverlayLayer {
       const raced = overtaken?.has(key) === true;
 
       if (patch.kind === 'delete') {
-        if (!raced) this.host.evict(key);
+        // Under a fresh stamp, as a frame's eviction is. The server has
+        // confirmed the delete, so a request dispatched before this moment
+        // is carrying an answer older than it, and the tombstone is what
+        // makes that response's answer for this key be withheld when it
+        // lands. Without one, a read of the record that was already in
+        // flight put the deleted row straight back.
+        if (!raced) this.host.evict(key, this.host.nextFrame?.() ?? 0);
 
         // Reported when base holds nothing for this key afterwards, whether
         // this patch removed the row or an evicting frame already had. What

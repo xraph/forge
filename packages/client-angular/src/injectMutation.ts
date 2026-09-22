@@ -155,7 +155,12 @@ function bind<T, E>(
 
     try {
       // The hook-level options are read *now*, not captured at construction.
-      const data = await op(args, { ...resolve(options), ...perCall, client });
+      // The per-call client wins when given; see the React binding for why.
+      const data = await op(args, {
+        ...resolve(options),
+        ...perCall,
+        client: perCall?.client ?? client,
+      });
 
       if (alive && seq === call) {
         state.set({ status: 'success', data, error: undefined, isPending: false });

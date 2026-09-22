@@ -98,9 +98,10 @@ func operationMessages(channel *shared.AsyncAPIChannel, operation *shared.AsyncA
 
 // applyOperationMessages records one operation's direction on the endpoint:
 // the payload of the first message it speaks becomes that direction's schema
-// if nothing claimed it yet, every payload lands in MessageTypes under its
-// key, and Metadata["messages"] maps each message NAME to the direction, which
-// is where the generated duplex binding reads `send` and `receive` from.
+// if nothing claimed it yet, every payload lands in MessageTypes and the
+// direction's message map under its key, and Metadata["messages"] maps each
+// message NAME to the direction, which is where the generated duplex binding
+// reads `send` and `receive` from.
 //
 // Both readers of an AsyncAPI document call this: once when the first
 // operation on a channel creates the endpoint, and again for every later
@@ -144,10 +145,22 @@ func applyOperationMessages(spec *APISpec, opID string, ws *WebSocketEndpoint, c
 			if ws.SendSchema == nil {
 				ws.SendSchema = schema
 			}
+
+			if ws.SendMessages == nil {
+				ws.SendMessages = make(map[string]*Schema)
+			}
+
+			ws.SendMessages[spoken.key] = schema
 		case "receive":
 			if ws.ReceiveSchema == nil {
 				ws.ReceiveSchema = schema
 			}
+
+			if ws.ReceiveMessages == nil {
+				ws.ReceiveMessages = make(map[string]*Schema)
+			}
+
+			ws.ReceiveMessages[spoken.key] = schema
 		}
 
 		// A name the opposite direction already claimed stands. Two operations

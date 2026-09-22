@@ -154,7 +154,16 @@ export function useMutation<T, E = unknown>(
       setState(PENDING);
 
       try {
-        const data = await op(args, { ...latest.current, ...perCall, client });
+        // The per-call client wins when given. `MutationOptions.client` is
+        // accepted here as it is on the raw binding, and spreading the
+        // hook's client last silently replaced it: the write ran against the
+        // cache resolved at mount, and the caller redirecting one mutation to
+        // a fixture or per-request cache saw it succeed in the wrong place.
+        const data = await op(args, {
+          ...latest.current,
+          ...perCall,
+          client: perCall?.client ?? client,
+        });
 
         if (alive.current && seq.current === call) {
           setState({ status: 'success', data, error: undefined, isPending: false });

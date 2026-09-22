@@ -277,8 +277,8 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	var buf strings.Builder
 
 	className := w.generateClassName(ws)
-	sendType := w.getSchemaTypeName(ws.SendSchema, spec)
-	receiveType := w.getSchemaTypeName(ws.ReceiveSchema, spec)
+	sendType := w.directionTypeName(ws.SendMessages, ws.SendSchema, spec)
+	receiveType := w.directionTypeName(ws.ReceiveMessages, ws.ReceiveSchema, spec)
 
 	// Codec ids for the send/receive message schemas, resolved only when
 	// codecsNeeded(config) -- under NamingPreserve with no FieldOverrides
@@ -294,12 +294,12 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	if needsCodecs {
 		var warning string
 
-		sendCodecID, warning = messageCodecRef(ws.SendSchema, ws, "send")
+		sendCodecID, warning = directionCodecRef(ws.SendMessages, ws.SendSchema, ws, "send")
 		if warning != "" {
 			w.warnings = append(w.warnings, warning)
 		}
 
-		receiveCodecID, warning = messageCodecRef(ws.ReceiveSchema, ws, "receive")
+		receiveCodecID, warning = directionCodecRef(ws.ReceiveMessages, ws.ReceiveSchema, ws, "receive")
 		if warning != "" {
 			w.warnings = append(w.warnings, warning)
 		}
@@ -807,6 +807,100 @@ func (w *WebSocketGenerator) generateClassName(ws client.WebSocketEndpoint) stri
 	}
 
 	return "WebSocketClient"
+}
+
+// directionTypeName types one direction of a channel.
+//
+// A multiplexed channel names several messages in one direction, and typing
+// it from a single schema types it from whichever message the parser settled
+// on: the caller's `send` accepts one of the shapes and rejects the others,
+// and `onMessage` promises one shape for frames that carry several. The
+// direction is a union of every distinct named type instead, in sorted order
+// so the file does not churn. With one message, or none named, the single
+// schema is what it always was.
+func (w *WebSocketGenerator) directionTypeName(
+	messages map[string]*client.Schema, single *client.Schema, spec *client.APISpec,
+) string {
+	seen := make(map[string]bool, len(messages))
+	names := make([]string, 0, len(messages))
+
+	for _, name := range sortedSchemaKeys(messages) {
+		typ := w.getSchemaTypeName(messages[name], spec)
+		if seen[typ] {
+			continue
+		}
+
+		seen[typ] = true
+		names = append(names, typ)
+	}
+
+	if len(names) == 0 {
+		return w.getSchemaTypeName(single, spec)
+	}
+
+	return strings.Join(names, " | ")
+}
+
+// directionCodecRef resolves the one codec a direction is encoded or decoded
+// with, following the policy responseCodecRef applies to a set of 2xx
+// responses: every message in the direction has to resolve to the same id,
+// because one call site renames every frame and cannot tell which message a
+// frame is. Messages that agree get that id. Messages that disagree get none,
+// with a warning naming them, rather than a codec that renames some frames
+// by the wrong table. A direction with no named messages falls back to the
+// single schema exactly as before.
+func directionCodecRef(
+	messages map[string]*client.Schema, single *client.Schema, ws client.WebSocketEndpoint, direction string,
+) (id string, warning string) {
+	if len(messages) == 0 {
+		return messageCodecRef(single, ws, direction)
+	}
+
+	ids := make(map[string]bool)
+
+	for _, name := range sortedSchemaKeys(messages) {
+		ref := schemaCodecRef(messages[name])
+		if ref == "" {
+			return "", fmt.Sprintf(
+				"websocket endpoint %q: %s message %q is not a direct $ref (or an array of one) to a named component schema -- frames in this direction are sent/received wire-cased, unrenamed, because one codec cannot be chosen for the direction",
+				wsLabel(ws), direction, name)
+		}
+
+		ids[ref] = true
+	}
+
+	if len(ids) == 1 {
+		for ref := range ids {
+			return ref, ""
+		}
+	}
+
+	return "", fmt.Sprintf(
+		"websocket endpoint %q: %s messages resolve to %d different codecs (%s) -- frames in this direction are sent/received wire-cased, unrenamed, because a single call site cannot tell which message a frame is; the live-query path decodes per binding and is unaffected",
+		wsLabel(ws), direction, len(ids), strings.Join(sortedStringSet(ids), ", "))
+}
+
+// sortedSchemaKeys is the message names of a direction, sorted.
+func sortedSchemaKeys(m map[string]*client.Schema) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
+func sortedStringSet(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 // getSchemaTypeName gets the type name for a schema.

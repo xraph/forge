@@ -261,3 +261,42 @@ func WithServerProtocol(serverNames ...string) RouteOption {
 func WithAsyncAPISecurity(requirements map[string][]string) RouteOption {
 	return WithMetadata("asyncapi.security", requirements)
 }
+
+// WebTransportMessages declares the payload types a WebTransport endpoint
+// carries, one per way a message can travel. Leave a field nil for a kind the
+// endpoint does not use.
+//
+// Datagrams are unreliable and unordered and go both ways, so one type covers
+// them. Streams are typed per direction: UniSend and UniReceive for
+// unidirectional streams the client opens and the server opens, BidiSend and
+// BidiReceive for the two halves of a bidirectional stream.
+type WebTransportMessages struct {
+	Datagram    any
+	UniSend     any
+	UniReceive  any
+	BidiSend    any
+	BidiReceive any
+}
+
+// WithWebTransportMessages defines the message schemas for a WebTransport
+// endpoint, which is what puts the endpoint in the AsyncAPI document and lets
+// the client generator type each stream kind.
+//
+// Without it the route is served but described nowhere: AsyncAPI has no
+// WebTransport binding, so the channel is written with an x-forge-protocol
+// marker and messages named for how each is carried.
+func WithWebTransportMessages(messages WebTransportMessages) RouteOption {
+	return &wtMessagesOpt{messages}
+}
+
+type wtMessagesOpt struct {
+	messages WebTransportMessages
+}
+
+func (o *wtMessagesOpt) Apply(cfg *RouteConfig) {
+	if cfg.Metadata == nil {
+		cfg.Metadata = make(map[string]any)
+	}
+
+	cfg.Metadata["asyncapi.wt.messages"] = o.messages
+}

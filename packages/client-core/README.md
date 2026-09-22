@@ -978,14 +978,14 @@ pulls:
 | | limit | actual |
 |---|---|---|
 | entity store | 2.4 kB | **2.27 kB** |
-| tag graph | 2.25 kB | **2.12 kB** |
-| query engine and REST transport | 9.6 kB | **9.3 kB** |
-| stream binding | 3.75 kB | **3.65 kB** |
-| optimistic overlays | 1.23 kB | **1.14 kB** |
-| ssr | 2 kB | **1.82 kB** |
+| tag graph | 2.4 kB | **2.34 kB** |
+| query engine and REST transport | 9.95 kB | **9.74 kB** |
+| stream binding | 4.3 kB | **4.24 kB** |
+| optimistic overlays | 1.23 kB | **1.16 kB** |
+| ssr | 2 kB | **1.85 kB** |
 | freshness | 0.5 kB | **0.38 kB** |
-| core, REST only | 9.7 kB | **9.34 kB** |
-| core with streams | 14.25 kB | **12.08 kB** |
+| core, REST only | 10 kB | **9.77 kB** |
+| core with streams | 14.25 kB | **12.92 kB** |
 
 Streams cost 2.74 kB on top of REST-only.
 
@@ -1057,6 +1057,28 @@ moved together. REST-only imports the query engine's set plus `EntityStore` and
 `manualScheduler`, worth 40 bytes on top today, so a REST-only line sitting
 below what the query engine's line permits would fail for growth its own budget
 had already approved.
+
+Tag resolution moved three of them again. A collection read now resolves its
+item template once per element of an array response instead of reporting
+`Order:{id}` as unresolved on every list, a settle no longer reports a template
+whose entity the deps already carry, and a placeholder that names no property
+is retried under its other spellings, so `{req.customer_id}` finds `customerId`
+in a document the generator never renamed. That is about 60 bytes in `tags.ts`
+and 50 in `registry.ts` (the second half is placement indexing the entities it placed), and it lands in every set that imports either: `tag
+graph` 2.25 kB to 2.4 kB, `query engine and REST transport` 9.6 kB to 9.95 kB,
+`stream binding` 3.75 kB to 3.9 kB, and `core, REST only` 9700 B to 10 kB. The
+last one had 13 bytes to spare after the change, which is the situation the
+paragraph above exists to prevent, so all four sit near 3 percent above what
+they measure rather than at the measured figure.
+
+The streaming pass moved one limit again. `applyFrames` now runs a binding's
+`decode` before it normalizes a frame, and the duplex path already on `main`
+shares that pull. The stream binding measures 4.24 kB, so its limit is 4.3 kB.
+A settled query also records the entities its read actually reached, and a
+confirmed optimistic delete is evicted under a frame stamp. That moved `query
+engine and REST transport` to 9.74 kB. The WebSocket and EventSource adapters
+and `channelMessages` are exports that no budget line imports, so an application
+that never calls them does not ship them.
 
 The two budgets the design actually sets are 9 kB REST-only and 14 kB with
 streams. With streams has been raised once, to 14.25 kB, for the inspector seam

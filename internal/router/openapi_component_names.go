@@ -521,8 +521,39 @@ func (g *schemaGenerator) finalizeComponentNames() []componentRename {
 
 	g.applyRenames(renames)
 	g.reportContests(contests)
+	g.markRenamedComponents()
 
 	return renames
+}
+
+// markRenamedComponents writes x-forge-type, the qualified Go type, onto every
+// component whose final name is not its type's bare name.
+//
+// A stream binding declared with Emits[T] knows only T's bare name, and the
+// client generator matches it to a component by that name. A component that
+// was qualified apart from a namesake, pinned with `schema:"..."`, or cleaned
+// of a generic instantiation's brackets is not findable that way, so it says
+// what it was generated from and the binding, carrying the same string, is
+// matched on that instead. Ordinary components are left unmarked: their bare
+// name already answers, and marking every one of them would put an import
+// path on every schema for the sake of the few that moved.
+func (g *schemaGenerator) markRenamedComponents() {
+	for name, reg := range g.registrations {
+		if reg == nil || reg.typ == nil || name == reg.typ.Name()+reg.suffix {
+			continue
+		}
+
+		schema := g.components[name]
+		if schema == nil {
+			continue
+		}
+
+		if schema.Extensions == nil {
+			schema.Extensions = make(map[string]any)
+		}
+
+		schema.Extensions["x-forge-type"] = getQualifiedTypeName(reg.typ)
+	}
 }
 
 // nameContest is one bare component name that more than one type wanted.

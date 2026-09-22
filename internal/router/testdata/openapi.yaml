@@ -363,6 +363,7 @@ components:
                     type: string
                 note:
                     $ref: '#/components/schemas/BillingNote'
+            x-forge-type: github.com/xraph/forge/internal/router/testtypes/billing.Invoice
         BillingNote:
             type: object
             required:
@@ -370,12 +371,14 @@ components:
             properties:
                 memo:
                     type: string
+            x-forge-type: github.com/xraph/forge/internal/router/testtypes/billing.Note
         GoldenOrderStatus:
             type: string
             enum:
                 - draft
                 - open
                 - closed
+            x-forge-type: github.com/xraph/forge/internal/router.goldenOrderStatus
         Receipt:
             type: object
             required:
@@ -396,6 +399,7 @@ components:
                     type: string
                 weight_kg:
                     type: number
+            x-forge-type: github.com/xraph/forge/internal/router/testtypes/shipping.Invoice
         ShippingNote:
             type: object
             required:
@@ -403,6 +407,7 @@ components:
             properties:
                 courier:
                     type: string
+            x-forge-type: github.com/xraph/forge/internal/router/testtypes/shipping.Note
         goldenAddress:
             type: object
             required:
@@ -495,6 +500,7 @@ components:
                         $ref: '#/components/schemas/goldenWorkspace'
                 total:
                     type: integer
+            x-forge-type: github.com/xraph/forge/internal/router.goldenPage[github.com/xraph/forge/internal/router.goldenWorkspace]
         goldenRecursiveRequestBody:
             type: object
             required:

@@ -460,6 +460,7 @@ func applyRenames(spec *APISpec, rename map[string]string, prefixes []string) {
 		wt := &spec.WebTransports[i]
 
 		wt.ID = trimAny(wt.ID, prefixes)
+		wt.StreamBindings = renameBindings(wt.StreamBindings, rename, prefixes)
 	}
 }
 

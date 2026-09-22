@@ -111,6 +111,16 @@ type StreamBinding struct {
 	EntityType  string
 	Intent      StreamIntent
 	Invalidates []string
+
+	// entity is the Go type T of Emits[T], kept so the AsyncAPI generator can
+	// name the entity by its FINAL component name once every type is known.
+	// EntityType above is T's bare name, which is also what the component is
+	// called until something contests it: a second type with the same name
+	// in another package, a `schema:"..."` pin, a generic instantiation. The
+	// generated client keys its entity table by the component name, so a
+	// binding still carrying the bare name would name a row that is not
+	// there and never normalize. Nil for a binding built without Emits.
+	entity reflect.Type
 }
 
 // EmitsBuilder accumulates one binding. Build resolves the defaults.
@@ -129,10 +139,13 @@ type EmitsBuilder struct {
 //	forge.Emits[Order]("order.updated")
 //	forge.Emits[Order]("order.deleted")
 func Emits[T any](message string) *EmitsBuilder {
+	typ := reflect.TypeFor[T]()
+
 	return &EmitsBuilder{
 		binding: StreamBinding{
 			Message:    message,
-			EntityType: reflect.TypeOf((*T)(nil)).Elem().Name(),
+			EntityType: typ.Name(),
+			entity:     typ,
 		},
 	}
 }

@@ -248,6 +248,46 @@ They also need a manifest whose `streams` table is populated, which today means 
 A channel served by `extensions/streaming` should also pass `decode: forgeStreamingDecoder()`. Its domain frames bind under the default decoder, but its transport frames — presence, typing, join — are reported as unknown messages without it. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
 </Callout>
 
+### Wiring a stream runtime
+
+The runtime opens nothing itself. You hand `SubscriptionManager` a `connect` function that returns an open connection for an endpoint, and one adapter per transport turns what the browser gives you into the connection the manager drives.
+
+```ts
+import {
+  channelMessages,
+  eventSourceConnection,
+  StreamBinder,
+  SubscriptionManager,
+  webSocketConnection,
+  webTransportConnection,
+} from '@forge-go/client-core';
+import { streams } from './generated';
+
+const manager = new SubscriptionManager({
+  connect: ({ endpoint }) => {
+    if (endpoint.startsWith('/sse/')) {
+      // An EventSource delivers a named event only to a listener that asked
+      // for it by name, so the channel's message names come from the table.
+      return eventSourceConnection(new EventSource(endpoint), {
+        events: channelMessages(streams, endpoint),
+      });
+    }
+
+    if (endpoint.startsWith('/wt/')) {
+      return webTransportConnection(new WebTransport(`https://api.example.com${endpoint}`));
+    }
+
+    return webSocketConnection(new WebSocket(`wss://api.example.com${endpoint}`));
+  },
+});
+
+const binder = new StreamBinder({ cache, manager, streams });
+```
+
+`streams` is the generated `streams` table. Its rows are what tell the binder which entity each message carries, what the message does to the cache, and, under a renaming configuration, how to decode the payload before it is normalized. A channel served by `extensions/streaming` passes `decode: forgeStreamingDecoder()` to the binder as well.
+
+The adapters take an already-open transport rather than a URL, so the same code runs wherever the application can construct one, including a server-side test with a fake. An error on an `EventSource` closes it and is reported as a drop, so the manager reconnects with its own backoff and the binder recovers the gap the way it does for a socket.
+
 ## Guarantees
 
 - **One request per query, not per component.** Two components calling `useQuery(useListOrders)` are one cache entry, one registry mount and one request. They settle together.

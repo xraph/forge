@@ -586,6 +586,7 @@ func TestOperationMessagesDoNotResolveAnotherChannelsMessageByName(t *testing.T)
 	}
 
 	warned := false
+
 	for _, w := range spec.Warnings {
 		if strings.Contains(w, "query.live.wsSend") {
 			warned = true

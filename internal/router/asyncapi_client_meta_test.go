@@ -2,8 +2,11 @@
 package router
 
 import (
+	"reflect"
 	"testing"
 
+	"github.com/xraph/forge/internal/router/testtypes/billing"
+	"github.com/xraph/forge/internal/router/testtypes/shipping"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -155,5 +158,126 @@ func TestWebSocketChannelWithoutStreamBindingsGetsNoExtension(t *testing.T) {
 
 	if channel.Extensions != nil {
 		t.Fatalf("Extensions = %#v, want nil for a route with no stream bindings", channel.Extensions)
+	}
+}
+
+// A binding carries the qualified Go type it was declared with, so the client
+// generator can find the component when finalization gave it a name other
+// than the bare one. Two channels emit two types that share the bare name
+// Invoice; each binding names its own.
+func TestStreamBindingCarriesTheQualifiedGoType(t *testing.T) {
+	router := NewRouter()
+
+	if err := router.WebSocket("/ws/billing", func(ctx Context, conn Connection) error { return nil },
+		WithWebSocketMessages(billing.Invoice{}, billing.Invoice{}),
+		WithStreamBinding(Emits[billing.Invoice]("invoice.created")),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := router.WebSocket("/ws/shipping", func(ctx Context, conn Connection) error { return nil },
+		WithWebSocketMessages(shipping.Invoice{}, shipping.Invoice{}),
+		WithStreamBinding(Emits[shipping.Invoice]("invoice.created")),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	spec, err := newAsyncAPIGenerator(shared.AsyncAPIConfig{Title: "T", Version: "1.0.0"}, router).Generate()
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+
+	for path, want := range map[string]reflect.Type{
+		"/ws/billing":  reflect.TypeFor[billing.Invoice](),
+		"/ws/shipping": reflect.TypeFor[shipping.Invoice](),
+	} {
+		channel := findChannelByAddress(spec, path)
+		if channel == nil {
+			t.Fatalf("%s: channel not found", path)
+		}
+
+		stream, _ := channel.Extensions["x-forge-stream"].([]map[string]any)
+		if len(stream) != 1 {
+			t.Fatalf("%s: x-forge-stream = %#v, want one entry", path, channel.Extensions)
+		}
+
+		if stream[0]["entityType"] != "Invoice" {
+			t.Errorf("%s: entityType = %v, want the bare name Invoice", path, stream[0]["entityType"])
+		}
+
+		if stream[0]["type"] != getQualifiedTypeName(want) {
+			t.Errorf("%s: type = %v, want %q", path, stream[0]["type"], getQualifiedTypeName(want))
+		}
+	}
+}
+
+// A WebTransport route reaches the AsyncAPI document as a channel marked with
+// its protocol, its messages named for how each travels, its operations split
+// by direction, and its stream bindings alongside -- which is what lets the
+// client generator build a WebTransport client that takes part in the cache.
+func TestWebTransportChannelIsDescribedWithItsBindings(t *testing.T) {
+	router := NewRouter()
+
+	var handler WebTransportHandler
+
+	if err := router.WebTransport("/wt/orders", handler,
+		WithWebTransportMessages(WebTransportMessages{
+			Datagram:    testOrder{},
+			BidiSend:    ChatMessage{},
+			BidiReceive: testOrder{},
+		}),
+		WithName("orders-wt"),
+		WithStreamBinding(Emits[testOrder]("order.created")),
+	); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	spec, err := newAsyncAPIGenerator(shared.AsyncAPIConfig{Title: "T", Version: "1.0.0"}, router).Generate()
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+
+	channel := findChannelByAddress(spec, "/wt/orders")
+	if channel == nil {
+		t.Fatal("webtransport channel not found")
+	}
+
+	if channel.Extensions["x-forge-protocol"] != "webtransport" {
+		t.Errorf("x-forge-protocol = %v, want webtransport", channel.Extensions["x-forge-protocol"])
+	}
+
+	for _, name := range []string{"datagram", "bidiSend", "bidiReceive"} {
+		if channel.Messages[name] == nil {
+			t.Errorf("message %q missing; have %v", name, channel.Messages)
+		}
+	}
+
+	if channel.Messages["uniSend"] != nil {
+		t.Errorf("an undeclared kind was written: %v", channel.Messages["uniSend"])
+	}
+
+	stream, _ := channel.Extensions["x-forge-stream"].([]map[string]any)
+	if len(stream) != 1 || stream[0]["entityType"] != "testOrder" {
+		t.Errorf("x-forge-stream = %#v, want one testOrder binding", channel.Extensions["x-forge-stream"])
+	}
+
+	var send, receive int
+
+	for _, op := range spec.Operations {
+		if op.Channel == nil || op.Channel.Ref != "#/channels/"+"wt_orders" && op.Channel.Ref != "#/channels/"+pathToChannelID("/wt/orders") {
+			continue
+		}
+
+		switch op.Action {
+		case "send":
+			send = len(op.Messages)
+		case "receive":
+			receive = len(op.Messages)
+		}
+	}
+
+	// datagram + bidiSend one way, datagram + bidiReceive the other.
+	if send != 2 || receive != 2 {
+		t.Errorf("send/receive message counts = %d/%d, want 2/2; operations: %v", send, receive, spec.Operations)
 	}
 }

@@ -506,10 +506,19 @@ follow, and they are one change because either alone is a regression:
   reason: the runtime resolves a `provides` template against the decoded
   response (`QueryRegistry#settle`), so `Order:{order_number}` would resolve
   to nothing, the query would be registered under no item tag, and a later
-  write to that order would invalidate nothing. Only the exact tag
-  `DeriveTags` builds is rewritten -- a hand-declared template
-  (`Shipment:{res.shipment.id}`) names properties of types the manifest
-  cannot resolve a namespace for, and is left alone rather than guessed at.
+  write to that order would invalidate nothing. The exact tag `DeriveTags`
+  builds is rewritten by `renameDerivedIDTags`.
+- A HAND-DECLARED template (`Customer:{req.customer_id}`,
+  `Shipment:{res.shipment.external_id}`) is renamed by `renameDeclaredTags`,
+  which walks each dotted segment through the schema graph from the
+  operation's body or response type, so every segment is renamed under the
+  type it belongs to (the same namespace a `FieldOverride` for it is keyed
+  under). Path and query parameters keep their wire names, because the
+  transport substitutes them by that name and that is the key the caller
+  supplies. A segment the schema cannot answer for stops the rewrite there.
+  Before this, a server declaring `WithInvalidates` against a snake_case wire
+  produced a manifest whose templates named nothing the runtime could see,
+  and the tag invalidated nothing.
 
 All of the above are identity under `preserve` with no `FieldOverrides`, so
 that configuration emits a byte-identical `ops.ts`.
@@ -526,10 +535,15 @@ that configuration emits a byte-identical `ops.ts`.
 - `additionalProperties` declared on an `allOf` composition is dropped by
   both the type renderer and the codec table (so it is silently untyped and
   unrenamed), though the collision guard still walks it.
-- WebSocket and SSE payload types do not go through the codec at all --
-  `types.User` renders camelCase, but a streamed payload is parsed/
-  stringified raw, so a streaming consumer reading a renamed field is
-  reading a value that was never actually renamed.
+- A stream payload the application handles itself, off the generated
+  `WebSocketClient`/`SSEClient` message handlers, is decoded through the
+  message's codec; the live-query path decodes through the ENTITY's codec,
+  emitted as `decode` on each `streams` row (see writeStreams). The two are
+  the same codec whenever the message payload is the entity. A message whose
+  payload is an envelope around the entity is decoded whole by the class and
+  by the binding's entity codec on the live path, which renames only the
+  entity's own fields; declare the envelope as the message type and bind the
+  entity if both need renaming.
 - A media type of `application/json; charset=utf-8` (or any other
   parameterized JSON content type) is not recognized by the generator's
   spec-side content-type lookups, which match `"application/json"`

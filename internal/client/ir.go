@@ -300,6 +300,15 @@ type WebSocketEndpoint struct {
 	// Metadata
 	Metadata map[string]any
 
+	// SendMessages and ReceiveMessages hold every message an operation in
+	// that direction names, keyed by message name. SendSchema and
+	// ReceiveSchema above are one schema per direction, which is right for
+	// the ordinary channel with one message each way and wrong for a
+	// multiplexed one: the generator types a direction from these when they
+	// disagree, and from the single schema when they do not.
+	SendMessages    map[string]*Schema
+	ReceiveMessages map[string]*Schema
+
 	// Cache metadata
 	StreamBindings []StreamBinding
 
@@ -399,6 +408,11 @@ type WebTransportEndpoint struct {
 	UniStreamSchema *StreamSchema // Unidirectional streams
 	BiStreamSchema  *StreamSchema // Bidirectional streams
 	DatagramSchema  *Schema       // Unreliable datagrams
+
+	// StreamBindings is what each message does to the cache, from the
+	// channel's x-forge-stream extension. A datagram or stream frame is a
+	// mutation the client did not initiate, exactly as a socket frame is.
+	StreamBindings []StreamBinding
 
 	// Security
 	Security []SecurityRequirement
@@ -828,4 +842,12 @@ type StreamBinding struct {
 	EntityType  string
 	Intent      StreamIntent
 	Invalidates []string
+
+	// Type is the fully qualified Go type the binding was declared with,
+	// `github.com/acme/billing.Invoice`, carried by the extension's `type`
+	// field. EntityType is that type's bare name, which is also the component
+	// name until something contests it. When it did, the component the
+	// document carries is marked with the same qualified type, and that is how
+	// the two are matched back up. Empty for a document that did not record it.
+	Type string
 }
