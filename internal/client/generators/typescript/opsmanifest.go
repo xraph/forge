@@ -822,8 +822,8 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 }
 
 // duplexMessageNames picks the lowest-sorted message name for each direction,
-// the same tie-break convertSchemaFromChannel uses, so the output is stable
-// across runs.
+// the same first-message tie-break applyOperationMessages uses for directional
+// schemas, so the output is stable across runs.
 func duplexMessageNames(metadata map[string]any) (string, string) {
 	names, _ := metadata["messages"].(map[string]string)
 	send, receive := "", ""

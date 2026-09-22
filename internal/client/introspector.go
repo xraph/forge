@@ -313,32 +313,21 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 		isWebSocket := i.isWebSocketChannel(asyncAPI, channel)
 
 		if isWebSocket {
-			if idx, seen := wsSeen[channelName]; seen {
-				// The other direction of a channel already converted: fill
-				// the half this operation describes, if the first left it.
-				existing := &spec.WebSockets[idx]
-				named := operationMessageSchemas(channel, operation, i.convertSchema)
-
-				switch operation.Action {
-				case "send":
-					if existing.SendSchema == nil {
-						existing.SendSchema = i.firstPayload(channel)
-					}
-
-					existing.SendMessages = mergeMessageSchemas(existing.SendMessages, named)
-				case "receive":
-					if existing.ReceiveSchema == nil {
-						existing.ReceiveSchema = i.firstPayload(channel)
-					}
-
-					existing.ReceiveMessages = mergeMessageSchemas(existing.ReceiveMessages, named)
-				}
+			// Operations on one channel fold into one endpoint, the first
+			// operation naming it: a duplex channel is one socket with a send
+			// and a receive operation, not two sockets. The file reader has
+			// always folded this way; appending one endpoint per operation
+			// left neither half carrying both schemas, so a duplex channel
+			// reached through a URL source never became a duplex binding.
+			if existing, ok := wsSeen[channelName]; ok {
+				applyOperationMessages(spec, opID, &spec.WebSockets[existing], channel, operation, i.convertSchema)
 
 				continue
 			}
 
+			ws := i.channelToWebSocket(spec, opID, channel, operation)
 			wsSeen[channelName] = len(spec.WebSockets)
-			spec.WebSockets = append(spec.WebSockets, i.channelToWebSocket(spec, opID, channel, operation))
+			spec.WebSockets = append(spec.WebSockets, ws)
 		} else {
 			// Treat as SSE. channelToSSE reads every message on the channel,
 			// so a second operation has nothing left to add.
@@ -350,76 +339,6 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 
 			sse := i.channelToSSE(spec, opID, channel, operation)
 			spec.SSEs = append(spec.SSEs, sse)
-		}
-	}
-
-	return nil
-}
-
-// operationMessageSchemas returns the schemas of the messages one operation
-// names on a channel, keyed by message name. An operation that lists none is
-// read as carrying every message on the channel, which is what the router's
-// generator means when it writes one; a reference to a message the channel
-// does not declare is skipped.
-func operationMessageSchemas(
-	channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation, convert func(*shared.Schema) *Schema,
-) map[string]*Schema {
-	names := make([]string, 0, len(operation.Messages))
-
-	for _, ref := range operation.Messages {
-		if i := strings.LastIndex(ref.Ref, "/"); i >= 0 && i < len(ref.Ref)-1 {
-			names = append(names, ref.Ref[i+1:])
-		}
-	}
-
-	if len(names) == 0 {
-		names = sortedStringKeys(channel.Messages)
-	}
-
-	var out map[string]*Schema
-
-	for _, name := range names {
-		msg := channel.Messages[name]
-		if msg == nil || msg.Payload == nil {
-			continue
-		}
-
-		if out == nil {
-			out = make(map[string]*Schema)
-		}
-
-		out[name] = convert(msg.Payload)
-	}
-
-	return out
-}
-
-// mergeMessageSchemas adds the messages of a second operation in the same
-// direction to those already recorded, keeping the first schema for a name.
-func mergeMessageSchemas(into, add map[string]*Schema) map[string]*Schema {
-	if len(add) == 0 {
-		return into
-	}
-
-	if into == nil {
-		into = make(map[string]*Schema, len(add))
-	}
-
-	for name, schema := range add {
-		if _, ok := into[name]; !ok {
-			into[name] = schema
-		}
-	}
-
-	return into
-}
-
-// firstPayload is the schema of a channel's lowest-named message, which is
-// the one channelToWebSocket's last-write-wins loop settles on as well.
-func (i *Introspector) firstPayload(channel *shared.AsyncAPIChannel) *Schema {
-	for _, name := range sortedStringKeys(channel.Messages) {
-		if msg := channel.Messages[name]; msg != nil && msg.Payload != nil {
-			return i.convertSchema(msg.Payload)
 		}
 	}
 
@@ -849,39 +768,7 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 		Metadata:     make(map[string]any),
 	}
 
-	// Extract send/receive schemas from messages, in sorted message-name order.
-	// SendSchema/ReceiveSchema below are last-write-wins, so a channel with
-	// several messages otherwise emitted a different type on each run.
-	for _, msgName := range sortedStringKeys(channel.Messages) {
-		if msg := channel.Messages[msgName]; msg.Payload != nil {
-			schema := i.convertSchema(msg.Payload)
-
-			// Store all message types
-			ws.MessageTypes[msgName] = schema
-
-			// Determine direction based on operation action
-			switch operation.Action {
-			case "send":
-				ws.SendSchema = schema
-			case "receive":
-				ws.ReceiveSchema = schema
-			}
-
-			// Store message name in metadata
-			if ws.Metadata["messages"] == nil {
-				ws.Metadata["messages"] = make(map[string]string)
-			}
-
-			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
-		}
-	}
-
-	switch operation.Action {
-	case "send":
-		ws.SendMessages = operationMessageSchemas(channel, operation, i.convertSchema)
-	case "receive":
-		ws.ReceiveMessages = operationMessageSchemas(channel, operation, i.convertSchema)
-	}
+	applyOperationMessages(spec, opID, &ws, channel, operation, i.convertSchema)
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)

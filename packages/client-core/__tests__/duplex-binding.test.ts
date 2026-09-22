@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { QueryCache } from '../src/cache';
 import { manualScheduler } from '../src/invalidate';
+import type { LiveBinding } from '../src/cache';
 import { binderSnapshot, StreamBinder } from '../src/live';
 import { SubscriptionManager } from '../src/stream';
 import type { StreamBinding } from '../src/stream';
@@ -25,7 +26,7 @@ function build() {
   });
   const binder = new StreamBinder({ cache, streams, manager, scheduler: (flush) => flush(), sleep: clock.sleep });
 
-  return { binder, sockets, manager };
+  return { binder, cache, sockets, manager };
 }
 
 describe('a duplex channel', () => {
@@ -50,6 +51,41 @@ describe('a duplex channel', () => {
       { action: 'subscribe', data: { id: 'q1' } },
       { action: 'unsubscribe', data: { id: 'q1' } },
     ]);
+  });
+
+  // Guards that a caller holding only what the cache exposes can speak.
+  // `cache.live` is typed as the structural `LiveBinding`, not the binder
+  // class, and an application's stream helper reaches the socket through it;
+  // a `raw` that lives on the class alone forces every such caller to cast.
+  it('is reachable through the LiveBinding the cache exposes', () => {
+    const { cache, sockets } = build();
+    const live: LiveBinding | undefined = cache.live;
+
+    if (live === undefined) {
+      throw new Error('the binder did not attach itself to the cache');
+    }
+
+    const seen: [unknown, string][] = [];
+    const release = live.raw(
+      '/api/v1/query/live/ws',
+      // Typed by the interface, not annotated here: `channel` exists at
+      // runtime whichever way the handler is declared, so the only thing that
+      // can go wrong is the TYPE losing it and a caller through `cache.live`
+      // silently not knowing which of a socket's channels a frame came on.
+      // `npm run typecheck` is the other half of this assertion.
+      (message, channel) => {
+        seen.push([message, channel]);
+      },
+      { hello: { action: 'subscribe' } },
+    );
+    sockets.last().open();
+
+    expect(sockets.last().sent).toEqual([{ action: 'subscribe' }]);
+
+    sockets.last().deliver({ type: 'update', id: 'q1' });
+
+    expect(seen).toEqual([[{ type: 'update', id: 'q1' }, '/api/v1/query/live/ws']]);
+    release();
   });
 
   // Guards the generated table as the single source of channel names.

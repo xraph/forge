@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -374,5 +375,225 @@ func TestSpecParserSSEStreamBindingsFromFile(t *testing.T) {
 
 	if len(b.Invalidates) != 1 || b.Invalidates[0] != "User[]" {
 		t.Fatalf("StreamBindings[0].Invalidates = %v, want [User[]]", b.Invalidates)
+	}
+}
+
+// A duplex channel names each direction from the operation that speaks it.
+// The document below is the shape forge's own router publishes: one message
+// per direction keyed `send` and `receive`, each carrying a `name`, and one
+// operation per direction referencing its message. Before this test the
+// parser stamped every message with the first operation's action, so the
+// send direction went unnamed, and it took the last-sorted payload for both
+// schemas, so the receive schema was the send payload.
+func TestSpecParserDuplexChannelNamesEachDirectionFromItsOperation(t *testing.T) {
+	path := writeSpec(t, duplexAsyncAPIDocument())
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	assertDuplexDirections(t, spec)
+}
+
+// duplexAsyncAPIDocument is the live-query channel as forge's router emits it:
+// operation ids sort the receive operation first, which is the order that
+// exposed the bug.
+func duplexAsyncAPIDocument() map[string]any {
+	return map[string]any{
+		"asyncapi": "3.0.0",
+		"info":     map[string]any{"title": "Live", "version": "1.0.0"},
+		"servers": map[string]any{
+			"main": map[string]any{"host": "ws.example.com", "protocol": "wss"},
+		},
+		"channels": map[string]any{
+			"liveQueryWS": map[string]any{
+				"address": "/api/v1/query/live/ws",
+				"servers": []any{map[string]any{"$ref": "#/servers/main"}},
+				"messages": map[string]any{
+					"receive": map[string]any{
+						"name": "ReceiveMessage",
+						"payload": map[string]any{
+							"type":       "object",
+							"properties": map[string]any{"type": map[string]any{"type": "string"}},
+						},
+					},
+					"send": map[string]any{
+						"name": "SendMessage",
+						"payload": map[string]any{
+							"type":       "object",
+							"properties": map[string]any{"action": map[string]any{"type": "string"}},
+						},
+					},
+				},
+			},
+		},
+		"operations": map[string]any{
+			"query.live.wsReceive": map[string]any{
+				"action":   "receive",
+				"channel":  map[string]any{"$ref": "#/channels/liveQueryWS"},
+				"messages": []any{map[string]any{"$ref": "#/channels/liveQueryWS/messages/receive"}},
+			},
+			"query.live.wsSend": map[string]any{
+				"action":   "send",
+				"channel":  map[string]any{"$ref": "#/channels/liveQueryWS"},
+				"messages": []any{map[string]any{"$ref": "#/channels/liveQueryWS/messages/send"}},
+			},
+		},
+	}
+}
+
+// assertDuplexDirections checks the one endpoint both parsers should produce
+// from duplexAsyncAPIDocument: one WebSocket, the send schema carrying the
+// send payload, the receive schema the receive payload, and the messages
+// metadata keyed by message NAME so the generated binding can say
+// `send: 'SendMessage'` rather than an empty string.
+func assertDuplexDirections(t *testing.T, spec *APISpec) {
+	t.Helper()
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want the two operations folded into 1", len(spec.WebSockets))
+	}
+
+	ws := spec.WebSockets[0]
+
+	if ws.SendSchema == nil || ws.SendSchema.Properties["action"] == nil {
+		t.Errorf("SendSchema = %+v, want the send message payload (has `action`)", ws.SendSchema)
+	}
+
+	if ws.ReceiveSchema == nil || ws.ReceiveSchema.Properties["type"] == nil {
+		t.Errorf("ReceiveSchema = %+v, want the receive message payload (has `type`)", ws.ReceiveSchema)
+	}
+
+	names, _ := ws.Metadata["messages"].(map[string]string)
+	if names["SendMessage"] != "send" || names["ReceiveMessage"] != "receive" || len(names) != 2 {
+		t.Errorf("Metadata[messages] = %v, want {SendMessage: send, ReceiveMessage: receive}", names)
+	}
+}
+
+// AsyncAPI 3 says an operation's `messages` must reference the channel's own
+// messages, and forge's router obeys that. Other generators do not: they point
+// at `#/components/messages/<key>` and leave the channel to carry the
+// definition. That document used to resolve no reference at all, fall back to
+// "this operation speaks the whole channel" for both operations, and stamp
+// every message name with each action in turn, which is the unnamed send
+// direction this fold exists to prevent. The trailing segment of the
+// reference is the channel's key here, so resolve it.
+func TestOperationMessagesResolveComponentRefsByTrailingSegment(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for id, action := range map[string]string{"query.live.wsReceive": "receive", "query.live.wsSend": "send"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/components/messages/" + action}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	assertDuplexDirections(t, spec)
+}
+
+// When the references resolve to nothing at all the fold still has to produce
+// something, and speaking the whole channel is the only answer available. It
+// is also the answer that silently mislabels both directions, so it says so:
+// a client generated from that document is wrong in a way nothing about it
+// looks wrong, and the warning is the only place a reader finds out.
+func TestOperationMessagesWarnWhenListedRefsResolveToNothing(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for _, id := range []string{"query.live.wsReceive", "query.live.wsSend"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/components/messages/nothingNamedThis"}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	var found string
+
+	for _, warning := range spec.Warnings {
+		if strings.Contains(warning, "query.live.wsSend") {
+			found = warning
+		}
+	}
+
+	if found == "" {
+		t.Fatalf("Warnings = %v, want one naming the operation whose message refs resolved to nothing", spec.Warnings)
+	}
+
+	if !strings.Contains(found, "/api/v1/query/live/ws") {
+		t.Errorf("warning = %q, want it to name the channel as well as the operation", found)
+	}
+}
+
+// An operation that lists no messages legitimately speaks the whole channel,
+// and that is how every document written before operations carried `messages`
+// reads. Two such operations both claim every message, and the fold used to
+// let the later one relabel what the earlier had already claimed: whichever
+// operation sorted last owned every name, so one direction ended up empty in
+// the generated binding. A claim by the opposite direction stands.
+func TestWholeChannelFallbackDoesNotRelabelAClaimedDirection(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for _, id := range []string{"query.live.wsReceive", "query.live.wsSend"} {
+		operation, _ := operations[id].(map[string]any)
+		delete(operation, "messages")
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want 1", len(spec.WebSockets))
+	}
+
+	names, _ := spec.WebSockets[0].Metadata["messages"].(map[string]string)
+
+	// query.live.wsReceive sorts first and claims both names; the send
+	// operation must not take them back.
+	if names["ReceiveMessage"] != "receive" {
+		t.Errorf("Metadata[messages] = %v, want ReceiveMessage still claimed by the receive operation", names)
+	}
+}
+
+// The trailing-segment pass is for `#/components/messages/<key>` and nothing
+// else. A reference into ANOTHER channel's messages shares the key vocabulary
+// (`send`, `receive`) with this one, and reading its last segment as this
+// channel's key would bind a direction to the wrong message with no warning.
+// Such a reference resolves nothing here, the whole-channel fallback engages,
+// and the warning says so.
+func TestOperationMessagesDoNotResolveAnotherChannelsMessageByName(t *testing.T) {
+	doc := duplexAsyncAPIDocument()
+	operations, _ := doc["operations"].(map[string]any)
+
+	for id, action := range map[string]string{"query.live.wsReceive": "receive", "query.live.wsSend": "send"} {
+		operation, _ := operations[id].(map[string]any)
+		operation["messages"] = []any{map[string]any{"$ref": "#/channels/otherChannel/messages/" + action}}
+	}
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, doc))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	warned := false
+
+	for _, w := range spec.Warnings {
+		if strings.Contains(w, "query.live.wsSend") {
+			warned = true
+		}
+	}
+
+	if !warned {
+		t.Fatalf("a reference into another channel resolved as this channel's message; warnings = %v", spec.Warnings)
 	}
 }
