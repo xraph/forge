@@ -128,6 +128,23 @@ describe('refetch on mount', () => {
     expect(transport.calls).toHaveLength(1);
   });
 
+  // `fetch` is what a route preload and a prefetch call. It used to serve any
+  // settled value regardless of age, so a declared staleTime held for every
+  // subscriber and for nobody who asked imperatively.
+  it('fetch runs the request again once the result has aged past staleTime', async () => {
+    const time = clock();
+    const { queries, transport } = cache({ staleTime: 1_000, now: time.now });
+
+    await queries.fetch(orderList);
+    await queries.fetch(orderList);
+    expect(transport.calls).toHaveLength(1);
+
+    time.advance(1_001);
+
+    await queries.fetch(orderList);
+    expect(transport.calls).toHaveLength(2);
+  });
+
   it('refetches on mount once the result has aged past staleTime', async () => {
     const time = clock();
     const { queries, transport } = cache({ staleTime: 1_000, now: time.now });

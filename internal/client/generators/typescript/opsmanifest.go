@@ -51,9 +51,18 @@ func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.Gene
 	// The type is erased and the table is not: ops.ts names every operation
 	// anyway, so reading their codecs out of CODECS costs it one import where
 	// naming each codec module would have cost it hundreds.
+	decodeStreams := needsCodecs && streamsWithCodecs(spec)
+
 	if needsCodecs {
 		buf.WriteString("import type { CodecRef } from './codec-runtime';\n")
-		buf.WriteString("import { CODECS } from './codecs';\n\n")
+
+		// `decode` only when a stream row will call it, so a client of REST
+		// operations alone emits the import it always has.
+		if decodeStreams {
+			buf.WriteString("import { CODECS, decode } from './codecs';\n\n")
+		} else {
+			buf.WriteString("import { CODECS } from './codecs';\n\n")
+		}
 	}
 
 	buf.WriteString(g.generateMeta(needsCodecs))
@@ -69,7 +78,7 @@ func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.Gene
 	g.writeSecuritySchemes(&buf, spec)
 	g.writeOps(&buf, spec, config, known, needsCodecs)
 	g.writeEntities(&buf, rows)
-	g.writeStreams(&buf, spec)
+	g.writeStreams(&buf, spec, decodeStreams)
 
 	return buf.String()
 }
@@ -130,7 +139,14 @@ func (g *OpsManifestGenerator) GenerateModules(
 
 	var streamBuf strings.Builder
 
-	g.writeStreams(&streamBuf, spec)
+	// Same gate as ops.ts: the table calls `decode` only when a binding's
+	// entity has a codec to decode through.
+	decodeStreams := needsCodecs && streamsWithCodecs(spec)
+	if decodeStreams {
+		streamBuf.WriteString("import { CODECS, decode } from './codecs';\n\n")
+	}
+
+	g.writeStreams(&streamBuf, spec, decodeStreams)
 	files["src/stream-bindings.ts"] = endWithNewline(streamBuf.String())
 
 	naming := newOpModuleNaming(operationKeys(spec.Endpoints))
@@ -154,7 +170,7 @@ func (g *OpsManifestGenerator) GenerateModules(
 
 		buf.WriteString("\n")
 		buf.WriteString(fmt.Sprintf("export const %s = {\n", naming.consts[i]))
-		writeOperationFields(&buf, &spec.Endpoints[i], config, known, needsCodecs, "  ", codecConstName)
+		writeOperationFields(&buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "  ", codecConstName)
 		buf.WriteString("} as const satisfies OperationMeta;\n")
 
 		files["src/ops/"+naming.files[i]+".ts"] = buf.String()
@@ -529,7 +545,7 @@ func (g *OpsManifestGenerator) writeOps(
 
 	for i := range spec.Endpoints {
 		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(keys[i])))
-		writeOperationFields(buf, &spec.Endpoints[i], config, known, needsCodecs, "    ", tableCodecRef)
+		writeOperationFields(buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "    ", tableCodecRef)
 		buf.WriteString("  },\n")
 	}
 
@@ -544,7 +560,7 @@ func (g *OpsManifestGenerator) writeOps(
 // differently. They no longer both render it -- only this does, and the table
 // now holds a reference -- but the extraction is what made that possible.
 func writeOperationFields(
-	buf *strings.Builder, ep *client.Endpoint, config client.GeneratorConfig,
+	buf *strings.Builder, ep *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig,
 	known map[string]bool, needsCodecs bool, indent string, codecRef func(string) string,
 ) {
 	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(ep.Method)))
@@ -568,12 +584,17 @@ func writeOperationFields(
 	}
 
 	// Renamed for the same reason the entities table is: these templates
-	// are resolved against a response the codec has already decoded. See
-	// renameDerivedIDTags.
-	buf.WriteString(fmt.Sprintf("%sprovides: %s,\n", indent,
-		tsStringArray(renameDerivedIDTags(ep.CacheTags.Provides, ep.Entity, config))))
-	buf.WriteString(fmt.Sprintf("%sinvalidates: %s,\n", indent,
-		tsStringArray(renameDerivedIDTags(ep.CacheTags.Invalidates, ep.Entity, config))))
+	// are resolved against a body the caller built in TypeScript and a
+	// response the codec has already decoded. Declared templates are renamed
+	// through the schema graph (renameDeclaredTags); the one template the
+	// generator derives itself is renamed by exact match (renameDerivedIDTags).
+	provides := renameDerivedIDTags(
+		renameDeclaredTags(ep.CacheTags.Provides, ep, spec, config), ep.Entity, config)
+	invalidates := renameDerivedIDTags(
+		renameDeclaredTags(ep.CacheTags.Invalidates, ep, spec, config), ep.Entity, config)
+
+	fmt.Fprintf(buf, "%sprovides: %s,\n", indent, tsStringArray(provides))
+	fmt.Fprintf(buf, "%sinvalidates: %s,\n", indent, tsStringArray(invalidates))
 
 	// Unlike provides/invalidates above, which always emit `[]` when
 	// empty, an unsecured operation drops the field entirely: bundle
@@ -673,8 +694,48 @@ func tsFieldMap(fields map[string]string) string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
-// writeStreams emits channel bindings from both WebSocket and SSE endpoints.
-func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.APISpec) {
+// streamsWithCodecs reports whether any stream binding names an entity the
+// codec table can decode: a component schema, whose codec id is its name.
+func streamsWithCodecs(spec *client.APISpec) bool {
+	for _, bindings := range streamBindingSets(spec) {
+		for _, b := range bindings {
+			if spec.Schemas[b.EntityType] != nil {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// streamBindingSets returns every endpoint's bindings, whichever transport
+// carries them.
+func streamBindingSets(spec *client.APISpec) [][]client.StreamBinding {
+	sets := make([][]client.StreamBinding, 0, len(spec.WebSockets)+len(spec.SSEs))
+
+	for i := range spec.WebSockets {
+		sets = append(sets, spec.WebSockets[i].StreamBindings)
+	}
+
+	for i := range spec.SSEs {
+		sets = append(sets, spec.SSEs[i].StreamBindings)
+	}
+
+	for i := range spec.WebTransports {
+		sets = append(sets, spec.WebTransports[i].StreamBindings)
+	}
+
+	return sets
+}
+
+// writeStreams emits channel bindings from WebSocket, SSE and WebTransport endpoints.
+//
+// With decode set, a row whose entity is a component schema carries the
+// entity's codec, so the runtime decodes a frame the way it decodes a
+// response before normalizing it. Without it -- `preserve` naming, or an
+// entity no component describes -- the row is what it always was, and the
+// runtime writes the frame as the wire spelled it.
+func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.APISpec, decode bool) {
 	type channel struct {
 		path     string
 		bindings []client.StreamBinding
@@ -712,6 +773,12 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 		}
 	}
 
+	for i := range spec.WebTransports {
+		if b := spec.WebTransports[i].StreamBindings; len(b) > 0 {
+			channels = append(channels, channel{spec.WebTransports[i].Path, b})
+		}
+	}
+
 	sort.Slice(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
 	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].path < duplexes[j].path })
 
@@ -726,6 +793,15 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 			buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(b.EntityType)))
 			buf.WriteString(fmt.Sprintf("    intent: %s,\n", tsString(string(b.Intent))))
 			buf.WriteString(fmt.Sprintf("    invalidates: %s,\n", tsStringArray(b.Invalidates)))
+
+			if decode && spec.Schemas[b.EntityType] != nil {
+				// Typed, because the table is `as const` with no contextual
+				// type to infer the parameter from, and an implicit `any`
+				// does not compile under the generated package's strictness.
+				fmt.Fprintf(buf, "    decode: (payload: unknown) => decode(payload, %s),\n",
+					tableCodecRef(b.EntityType))
+			}
+
 			buf.WriteString("  },\n")
 		}
 	}

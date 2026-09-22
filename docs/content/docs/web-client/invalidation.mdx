@@ -98,6 +98,10 @@ A tag naming a specific record needs a value from the request or the response. T
 
 Prefer the explicit forms. A bare `{customerId}` is readable until two of those four sources have one, and then it silently resolves to whichever comes first.
 
+Name the property as it appears on the wire. A snake_case API declares `Customer:{req.customer_id}`, and the generator renames the placeholder to whatever the client-side field is called under its naming configuration, so the emitted manifest reads `Customer:{req.customerId}` and resolves against the body the caller built and the response the codec decoded. Path and query parameters are the exception: they keep their wire names, because that is the key you pass them under. The runtime also accepts the wire spelling as a fallback, so a hand-written document, or a package generated before the rename existed, still resolves `{req.customer_id}` against a `customerId` field. An exact key always wins.
+
+A collection read resolves its item template once per record returned, so `GET /orders` declaring `Order:{id}` registers `Order:7`, `Order:8` and so on. An empty list resolves to no item tags, which is not a failure.
+
 <Callout type="warn">
 A template that resolves to nothing invalidates nothing and reports nothing — it is the one failure in this system with no symptom at all. `@forge-go/client-devtools` surfaces it as `cause.unresolved`; see [Devtools](/docs/web-client/devtools).
 </Callout>
@@ -161,12 +165,14 @@ That declaration produces this, in the AsyncAPI document:
 
 ```json
 "x-forge-stream": [
-  { "message": "order.created",   "entityType": "Order", "intent": "upsert", "invalidates": ["Order[]"] },
-  { "message": "order.updated",   "entityType": "Order", "intent": "patch",  "invalidates": null },
-  { "message": "order.deleted",   "entityType": "Order", "intent": "evict",  "invalidates": ["Order[]"] },
-  { "message": "order.fulfilled", "entityType": "Order", "intent": "patch",  "invalidates": ["Shipment[]"] }
+  { "message": "order.created",   "entityType": "Order", "intent": "upsert", "invalidates": ["Order[]"],    "type": "github.com/acme/shop.Order" },
+  { "message": "order.updated",   "entityType": "Order", "intent": "patch",  "invalidates": null,           "type": "github.com/acme/shop.Order" },
+  { "message": "order.deleted",   "entityType": "Order", "intent": "evict",  "invalidates": ["Order[]"],    "type": "github.com/acme/shop.Order" },
+  { "message": "order.fulfilled", "entityType": "Order", "intent": "patch",  "invalidates": ["Shipment[]"], "type": "github.com/acme/shop.Order" }
 ]
 ```
+
+`entityType` is the Go type's bare name, which is also its component name until something contests it: a second `Order` in another package, a `schema:"..."` pin, a generic instantiation. A component that ended up under another name carries `x-forge-type` naming the Go type it came from, and the generator matches the binding to it on `type`. Nothing in the generated package changes shape; the `streams` table simply names the component the `entities` table holds.
 
 `order.updated` costs no request: the payload is an `Order`, the normalizer patches `Order:7`, and every mounted view depending on it re-renders. Only `created` and `deleted` reach the network, and only for the collection.
 
@@ -181,6 +187,23 @@ Forge parses each one, merges them, and emits a single package where `ops.ts` ca
 </Callout>
 
 `WithWebSocketMessages` is what puts message schemas in the AsyncAPI document. Without it the channel is declared but carries no message types, and no WebSocket client is generated for it.
+
+A WebTransport route is described the same way, with `WithWebTransportMessages` naming a type per way a message travels: a datagram, and the send and receive halves of unidirectional and bidirectional streams. AsyncAPI has no WebTransport binding, so the channel is written with an `x-forge-protocol: webtransport` marker and messages named `datagram`, `uniSend`, `uniReceive`, `bidiSend` and `bidiReceive`. The generated `webtransport.ts` is typed from them, and `WithStreamBinding` on the route lands in the `streams` table exactly as it does for a socket, so a datagram carrying an `Order` takes part in the cache like any frame.
+
+```go
+_ = r.WebTransport("/wt/orders", ordersSession,
+    forge.WithWebTransportMessages(forge.WebTransportMessages{
+        Datagram:    &OrderTick{},
+        BidiSend:    &OrderCommand{},
+        BidiReceive: &Order{},
+    }),
+    forge.WithStreamBinding(forge.Emits[Order]("order.updated")),
+)
+```
+
+### Frames are decoded before they are normalized
+
+A REST response goes through the generated codec before it reaches the store, so under camelCase naming the store sees `customerId`. A frame now takes the same path: each row in the `streams` table whose entity is a component carries a `decode` built from that entity's codec, and the runtime runs it before normalizing the payload or reading its identity for an evict. Under `preserve` naming the wire shape is the client shape and no `decode` is emitted. A hand-written row without one is written to the store as the wire spelled it.
 
 ### Which field carries the name
 
@@ -212,5 +235,7 @@ It is a superset of the default decoder, not an alternative to it — it reads `
 | `WithInvalidates` | `x-forge-invalidates` on the operation | OpenAPI |
 | `WithoutInvalidation` | `x-forge-no-invalidation` on the operation | OpenAPI |
 | `WithStreamBinding` | `x-forge-stream` on the channel | AsyncAPI |
+| `WithWebTransportMessages` | `x-forge-protocol` on the channel, plus its messages | AsyncAPI |
+| a component renamed at generation | `x-forge-type` on the schema | OpenAPI and AsyncAPI |
 
 All of them round-trip through YAML as well as JSON.

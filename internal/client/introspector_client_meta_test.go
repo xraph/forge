@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 )
 
@@ -800,5 +801,269 @@ func TestInvalidatesIsSilentForAValidList(t *testing.T) {
 
 	if len(spec.Warnings) != 0 {
 		t.Fatalf("Warnings = %v, want none for a valid list", spec.Warnings)
+	}
+}
+
+// routeTableRouter has no OpenAPI document, so Introspect falls back to the raw
+// route table. The embedded nil router.Router satisfies the rest of the
+// interface; only the three methods Introspect calls are implemented.
+type routeTableRouter struct {
+	router.Router
+
+	routes []router.RouteInfo
+}
+
+func (r routeTableRouter) OpenAPISpec() *router.OpenAPISpec   { return nil }
+func (r routeTableRouter) AsyncAPISpec() *router.AsyncAPISpec { return nil }
+func (r routeTableRouter) Routes() []router.RouteInfo         { return r.routes }
+
+// A server without OpenAPI still declares its cache contract on its routes,
+// and the fallback path used to copy that metadata onto the endpoint and
+// resolve none of it: entity nil, tags empty, a generated client that never
+// invalidates. The route path has to read the same declarations the
+// document path does.
+func TestIntrospectResolvesCacheMetaFromRawRoutes(t *testing.T) {
+	r := routeTableRouter{routes: []router.RouteInfo{{
+		Method: "POST", Path: "/orders",
+		Metadata: map[string]any{
+			"forge.client.entity":      router.EntityDef{Type: "Order", IDField: "id"},
+			"forge.client.invalidates": []string{"Inventory[]"},
+		},
+	}, {
+		Method: "GET", Path: "/orders",
+		Metadata: map[string]any{
+			"forge.client.entity":    router.EntityDef{Type: "Order", IDField: "id"},
+			"forge.client.staleTime": int64(30000),
+		},
+	}}}
+
+	spec, err := NewIntrospector(r).Introspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spec.Endpoints) != 2 {
+		t.Fatalf("endpoints = %d, want 2", len(spec.Endpoints))
+	}
+
+	create := spec.Endpoints[0]
+	if create.Entity == nil || create.Entity.Type != "Order" {
+		t.Fatalf("POST entity = %+v, want Order", create.Entity)
+	}
+
+	if !slices.Equal(create.CacheTags.Invalidates, []string{"Inventory[]", "Order[]"}) {
+		t.Fatalf("POST invalidates = %v, want [Inventory[] Order[]]", create.CacheTags.Invalidates)
+	}
+
+	list := spec.Endpoints[1]
+	if list.StaleTime != 30000 {
+		t.Fatalf("GET staleTime = %d, want 30000", list.StaleTime)
+	}
+
+	if _, ok := spec.Entities["Order"]; !ok {
+		t.Fatalf("entities = %v, want Order registered", spec.Entities)
+	}
+}
+
+// A declared type that names no component leaves the response with no
+// entities-table row to start normalizing from. The tags stay live and the
+// cache stores nothing under them, so the only symptom is a warning here.
+func TestDeclaredEntityTypeNamingNoComponentWarns(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{"OrderResponse": orderSchema()}}
+	ep := &Endpoint{
+		Method: "GET", Path: "/orders/{id}",
+		Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+			"application/json": {Schema: &Schema{Ref: "#/components/schemas/OrderResponse"}},
+		}}},
+	}
+
+	resolveEndpointCacheMeta(spec, ep, map[string]any{
+		"x-forge-entity": map[string]any{"type": "Order", "idField": "id"},
+	})
+
+	if ep.Entity == nil || ep.Entity.Type != "Order" {
+		t.Fatalf("Entity = %+v, want the declaration honoured", ep.Entity)
+	}
+
+	if len(spec.Warnings) != 1 || !strings.Contains(spec.Warnings[0], `type "Order"`) ||
+		!strings.Contains(spec.Warnings[0], `component "OrderResponse"`) {
+		t.Fatalf("warnings = %v, want one naming both the declared type and the component", spec.Warnings)
+	}
+}
+
+// Naming the response's own component, or another component that exists, is
+// the ordinary use and says nothing.
+func TestDeclaredEntityTypeNamingAComponentIsSilent(t *testing.T) {
+	for _, typ := range []string{"Order", "OrderSummary"} {
+		spec := &APISpec{Schemas: map[string]*Schema{
+			"Order":        orderSchema(),
+			"OrderSummary": orderSchema(),
+		}}
+		ep := &Endpoint{
+			Method: "GET", Path: "/orders/{id}",
+			Responses: map[int]*Response{200: {Content: map[string]*MediaType{
+				"application/json": {Schema: &Schema{Ref: "#/components/schemas/Order"}},
+			}}},
+		}
+
+		resolveEndpointCacheMeta(spec, ep, map[string]any{
+			"x-forge-entity": map[string]any{"type": typ, "idField": "id"},
+		})
+
+		if len(spec.Warnings) != 0 {
+			t.Fatalf("type %q: warnings = %v, want none", typ, spec.Warnings)
+		}
+	}
+}
+
+// asyncOnlyRouter serves a prepared AsyncAPI document and nothing else.
+type asyncOnlyRouter struct {
+	router.Router
+
+	async *router.AsyncAPISpec
+}
+
+func (r asyncOnlyRouter) OpenAPISpec() *router.OpenAPISpec   { return nil }
+func (r asyncOnlyRouter) AsyncAPISpec() *router.AsyncAPISpec { return r.async }
+func (r asyncOnlyRouter) Routes() []router.RouteInfo         { return nil }
+
+// The live-router path reads a WebTransport channel exactly as the file path
+// does; both go through buildWebTransportEndpoint.
+func TestIntrospectReadsAWebTransportChannel(t *testing.T) {
+	order := &shared.Schema{Ref: "#/components/schemas/Order"}
+	doc := &shared.AsyncAPISpec{
+		AsyncAPI: "3.0.0",
+		Info:     shared.AsyncAPIInfo{Title: "Orders", Version: "1.0.0"},
+		Channels: map[string]*shared.AsyncAPIChannel{
+			"wt_orders": {
+				Address: "/wt/orders",
+				Messages: map[string]*shared.AsyncAPIMessage{
+					"datagram":    {Payload: order},
+					"bidiSend":    {Payload: order},
+					"bidiReceive": {Payload: order},
+				},
+				Extensions: map[string]any{
+					"x-forge-protocol": "webtransport",
+					"x-forge-stream": []map[string]any{{
+						"message": "order.created", "entityType": "Order", "intent": "upsert",
+						"invalidates": []string{"Order[]"},
+					}},
+				},
+			},
+		},
+		Operations: map[string]*shared.AsyncAPIOperation{
+			"ordersSend":    {Action: "send", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/wt_orders"}},
+			"ordersReceive": {Action: "receive", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/wt_orders"}},
+		},
+		Components: &shared.AsyncAPIComponents{Schemas: map[string]*shared.Schema{
+			"Order": {Type: "object", Properties: map[string]*shared.Schema{"id": {Type: "string"}}},
+		}},
+	}
+
+	spec, err := NewIntrospector(asyncOnlyRouter{async: doc}).Introspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertWebTransportEndpoint(t, spec)
+}
+
+// A socket channel carries a send and a receive operation. The file parser
+// merges the two into one endpoint; the live-router path has to as well, or
+// websocket.ts gets two clients for one path.
+func TestIntrospectConvertsAWebSocketChannelOnce(t *testing.T) {
+	order := &shared.Schema{Ref: "#/components/schemas/Order"}
+	doc := &shared.AsyncAPISpec{
+		AsyncAPI: "3.0.0",
+		Info:     shared.AsyncAPIInfo{Title: "Orders", Version: "1.0.0"},
+		Servers: map[string]*shared.AsyncAPIServer{
+			"ws": {Host: "localhost", Protocol: "ws"},
+		},
+		Channels: map[string]*shared.AsyncAPIChannel{
+			"ws_orders": {
+				Address: "/ws/orders",
+				Servers: []shared.AsyncAPIServerReference{{Ref: "#/servers/ws"}},
+				Messages: map[string]*shared.AsyncAPIMessage{
+					"send":    {Payload: order},
+					"receive": {Payload: order},
+				},
+			},
+		},
+		Operations: map[string]*shared.AsyncAPIOperation{
+			"ordersSend":    {Action: "send", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/ws_orders"}},
+			"ordersReceive": {Action: "receive", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/ws_orders"}},
+		},
+		Components: &shared.AsyncAPIComponents{Schemas: map[string]*shared.Schema{
+			"Order": {Type: "object", Properties: map[string]*shared.Schema{"id": {Type: "string"}}},
+		}},
+	}
+
+	spec, err := NewIntrospector(asyncOnlyRouter{async: doc}).Introspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want one endpoint for one channel", len(spec.WebSockets))
+	}
+
+	ws := spec.WebSockets[0]
+	if ws.SendSchema == nil || ws.ReceiveSchema == nil {
+		t.Fatalf("endpoint = %+v, want both directions typed from the two operations", ws)
+	}
+}
+
+// A multiplexed channel names several messages in one direction. The
+// endpoint records each by name, per direction, so the generator can type the
+// direction as what it carries rather than as whichever message sorts last.
+func TestIntrospectRecordsEachMessagePerDirection(t *testing.T) {
+	ref := func(name string) *shared.Schema { return &shared.Schema{Ref: "#/components/schemas/" + name} }
+	doc := &shared.AsyncAPISpec{
+		AsyncAPI: "3.0.0",
+		Info:     shared.AsyncAPIInfo{Title: "Chat", Version: "1.0.0"},
+		Servers:  map[string]*shared.AsyncAPIServer{"ws": {Host: "localhost", Protocol: "ws"}},
+		Channels: map[string]*shared.AsyncAPIChannel{
+			"ws_chat": {
+				Address: "/ws/chat",
+				Servers: []shared.AsyncAPIServerReference{{Ref: "#/servers/ws"}},
+				Messages: map[string]*shared.AsyncAPIMessage{
+					"say":   {Payload: ref("Say")},
+					"typed": {Payload: ref("Typing")},
+					"said":  {Payload: ref("Said")},
+				},
+			},
+		},
+		Operations: map[string]*shared.AsyncAPIOperation{
+			"chatSend": {Action: "send", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/ws_chat"},
+				Messages: []shared.AsyncAPIMessageReference{
+					{Ref: "#/channels/ws_chat/messages/say"}, {Ref: "#/channels/ws_chat/messages/typed"},
+				}},
+			"chatReceive": {Action: "receive", Channel: &shared.AsyncAPIChannelReference{Ref: "#/channels/ws_chat"},
+				Messages: []shared.AsyncAPIMessageReference{{Ref: "#/channels/ws_chat/messages/said"}}},
+		},
+		Components: &shared.AsyncAPIComponents{Schemas: map[string]*shared.Schema{
+			"Say":    {Type: "object", Properties: map[string]*shared.Schema{"text": {Type: "string"}}},
+			"Typing": {Type: "object", Properties: map[string]*shared.Schema{"on": {Type: "boolean"}}},
+			"Said":   {Type: "object", Properties: map[string]*shared.Schema{"id": {Type: "string"}}},
+		}},
+	}
+
+	spec, err := NewIntrospector(asyncOnlyRouter{async: doc}).Introspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want 1", len(spec.WebSockets))
+	}
+
+	ws := spec.WebSockets[0]
+
+	if got := sortedStringKeys(ws.SendMessages); !slices.Equal(got, []string{"say", "typed"}) {
+		t.Errorf("SendMessages = %v, want [say typed]", got)
+	}
+
+	if got := sortedStringKeys(ws.ReceiveMessages); !slices.Equal(got, []string{"said"}) {
+		t.Errorf("ReceiveMessages = %v, want [said]", got)
 	}
 }

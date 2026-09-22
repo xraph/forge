@@ -24,6 +24,15 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 	}
 }
 
-func TestRegister_BindsAllIntentsToTheDispatcher(t *testing.T) {
-	t.Skip("dispatcher.Dispatcher exercised via unit tests; full Register e2e is covered by the dashboard discovery loop integration test")
-}
+// Register is covered end to end by
+// TestDashboardDiscovery_PublishesStreamingContract in the parent package,
+// which boots a real Forge app with the real dashboard extension and asserts
+// streaming-contract reaches the capabilities endpoint. It lives there rather
+// than here because only a package outside contract/ can import the dashboard
+// extension without a cycle.
+//
+// The distinction matters: the test above stops at loader.Validate, and
+// contract.Registry.Register enforces rules the loader does not. A manifest
+// that loads and validates here can still be rejected at registration, and the
+// dashboard logs that rejection and carries on, so the only visible symptom
+// is streaming-contract missing from /capabilities.

@@ -1121,3 +1121,61 @@ describe('binderSnapshot', () => {
     expect(first.channels).not.toBe(second.channels);
   });
 });
+
+describe('frame decoding', () => {
+  // The manifest names client-side fields, the wire carries wire-cased ones.
+  // A frame has to go through the entity's codec before it is normalized, or
+  // a renamed field is never there to read and a renamed id never matches.
+  const rename = (payload: unknown): unknown => {
+    const { customer_id: customerId, ...rest } = payload as Record<string, unknown>;
+
+    return { ...rest, customerId };
+  };
+
+  it('decodes a frame through the binding before writing it', () => {
+    const cache = new QueryCache({ transport: fakeTransport(() => undefined), entities: schema });
+    const binding: StreamBinding = {
+      channel: '/ws/orders',
+      message: 'order.created',
+      entity: 'Order',
+      intent: 'upsert',
+      invalidates: [],
+      decode: rename,
+    };
+
+    applyFrames(cache, [{ binding, payload: { id: 7, customer_id: 'c-1' } }]);
+
+    expect(cache.store.getRecord('Order:7')?.data).toEqual({ id: 7, customerId: 'c-1' });
+  });
+
+  it('passes a bare identity through untouched and reports a codec that throws', () => {
+    const errors: string[] = [];
+    const cache = new QueryCache({
+      transport: fakeTransport(() => undefined),
+      entities: schema,
+      onError: (_error, context) => errors.push(context),
+    });
+
+    cache.store.put('Order:7', { id: 7 });
+
+    const evict: StreamBinding = {
+      channel: '/ws/orders',
+      message: 'order.deleted',
+      entity: 'Order',
+      intent: 'evict',
+      invalidates: [],
+      decode: () => {
+        throw new Error('not for identities');
+      },
+    };
+
+    applyFrames(cache, [{ binding: evict, payload: 7 }]);
+    expect(cache.store.getRecord('Order:7')).toBeUndefined();
+
+    const upsert: StreamBinding = { ...evict, message: 'order.created', intent: 'upsert' };
+
+    applyFrames(cache, [{ binding: upsert, payload: { id: 8 } }]);
+    expect(cache.store.getRecord('Order:8')).toBeUndefined();
+    expect(errors).toEqual(['decode']);
+  });
+});

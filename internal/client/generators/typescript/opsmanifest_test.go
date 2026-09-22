@@ -182,3 +182,211 @@ func TestOpsManifestEscapesHostileValues(t *testing.T) {
 		t.Fatalf("unescaped quote broke out of the string literal\n\n%s", out)
 	}
 }
+
+// declaredTagSpec is an API whose wire is snake_case and whose routes declare
+// cross-entity templates in that wire spelling, exactly as WithInvalidates
+// asks for them on the server: the JSON property name, not the Go field.
+//
+// It exercises every source a template can name. `customer_id` is a body
+// property on the create, a response property on the order, and a path
+// parameter on the fetch; `shop_id` is a query parameter; `external_id` sits
+// one $ref hop into the response.
+func declaredTagSpec() *client.APISpec {
+	order := &client.EntityRef{Type: "Order", IDField: "id"}
+
+	return &client.APISpec{
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{
+				"id":          {Type: "string"},
+				"customer_id": {Type: "string"},
+				"customer":    {Ref: "#/components/schemas/Customer"},
+			}},
+			"Customer": {Type: "object", Properties: map[string]*client.Schema{
+				"id":          {Type: "string"},
+				"external_id": {Type: "string"},
+			}},
+			"CreateOrderRequest": {Type: "object", Properties: map[string]*client.Schema{
+				"customer_id": {Type: "string"},
+			}},
+		},
+		Endpoints: []client.Endpoint{
+			{
+				ID: "orderCreate", Method: "POST", Path: "/orders",
+				Entity: order,
+				QueryParams: []client.Parameter{
+					{Name: "shop_id", In: "query", Schema: &client.Schema{Type: "string"}},
+				},
+				RequestBody: &client.RequestBody{Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/CreateOrderRequest"}},
+				}},
+				Responses: map[int]*client.Response{201: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+				}}},
+				CacheTags: client.TagSet{
+					Provides: []string{"Order:{id}"},
+					Invalidates: []string{
+						"Customer:{req.customer_id}",
+						"Customer:{res.customer_id}",
+						"Customer:{customer_id}",
+						"Ledger:{res.customer.external_id}",
+						"Shop:{req.shop_id}",
+						"Order[]",
+					},
+				},
+			},
+			{
+				ID: "orderFetch", Method: "GET", Path: "/customers/{customer_id}/orders/{id}",
+				Entity: order,
+				PathParams: []client.Parameter{
+					{Name: "customer_id", In: "path", Required: true, Schema: &client.Schema{Type: "string"}},
+					{Name: "id", In: "path", Required: true, Schema: &client.Schema{Type: "string"}},
+				},
+				Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{
+					"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/Order"}},
+				}}},
+				CacheTags: client.TagSet{Provides: []string{"Order:{id}", "Customer:{customer_id}"}},
+			},
+		},
+		Entities: map[string]*client.EntityRef{"Order": order},
+	}
+}
+
+// A template names a property of the wire document, because that is what the
+// server-side declaration can see. The runtime resolves it against a body the
+// caller built in TypeScript and a response the codec has already decoded, so
+// under camelCase naming the wire spelling names nothing and the tag
+// silently invalidates nothing. The manifest has to rename the placeholder
+// through the same schema-aware rename the entities table and the derived
+// item tag already go through.
+//
+// Path and query parameters are NOT renamed: the transport substitutes them by
+// their wire name, and that is the key the caller supplies them under.
+func TestOpsManifestRenamesDeclaredTemplatesThroughTheSchema(t *testing.T) {
+	out := manifestText(declaredTagSpec(), client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		// body property, explicit and bare
+		`'Customer:{req.customerId}'`,
+		`'Customer:{customerId}'`,
+		// response property, explicit
+		`'Customer:{res.customerId}'`,
+		// one $ref hop into the response
+		`'Ledger:{res.customer.externalId}'`,
+		// a query parameter keeps its wire name
+		`'Shop:{req.shop_id}'`,
+		// a path parameter keeps its wire name, even bare
+		`provides: ['Order:{id}', 'Customer:{customer_id}']`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ops.ts missing %q", want)
+		}
+	}
+
+	for _, stale := range []string{
+		`{req.customer_id}`,
+		`{res.customer_id}`,
+		`{res.customer.external_id}`,
+	} {
+		if strings.Contains(out, stale) {
+			t.Errorf("ops.ts still carries wire-cased template %q", stale)
+		}
+	}
+
+	if t.Failed() {
+		t.Logf("\n%s", out)
+	}
+}
+
+// Under preserve the rename is the identity, so the file the generator wrote
+// before this existed is the file it writes now.
+func TestOpsManifestLeavesDeclaredTemplatesAloneUnderPreserve(t *testing.T) {
+	out := manifestText(declaredTagSpec(), client.GeneratorConfig{
+		Language: "typescript", FieldNaming: client.NamingPreserve,
+	})
+
+	for _, want := range []string{
+		`'Customer:{req.customer_id}'`,
+		`'Customer:{res.customer_id}'`,
+		`'Ledger:{res.customer.external_id}'`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ops.ts missing %q\n\n%s", want, out)
+		}
+	}
+}
+
+// streamSpec is one channel emitting Orders, with the Order component present
+// so the entity has a codec to decode through.
+func streamSpec() *client.APISpec {
+	return &client.APISpec{
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{
+				"id":          {Type: "string"},
+				"customer_id": {Type: "string"},
+			}},
+		},
+		WebSockets: []client.WebSocketEndpoint{{
+			ID: "orders", Path: "/ws/orders",
+			StreamBindings: []client.StreamBinding{
+				{Message: "order.created", EntityType: "Order", Intent: client.StreamUpsert, Invalidates: []string{"Order[]"}},
+				{Message: "audit.logged", EntityType: "AuditEvent", Intent: client.StreamPatch},
+			},
+		}},
+		Entities: map[string]*client.EntityRef{"Order": {Type: "Order", IDField: "id"}},
+	}
+}
+
+// A frame is normalized against an entities table that names client-side
+// fields, so under a renaming configuration the row has to carry the entity's
+// codec. A binding whose entity no component describes has no codec to carry.
+func TestOpsManifestStreamsDecodeThroughTheEntityCodec(t *testing.T) {
+	out := manifestText(streamSpec(), client.GeneratorConfig{Language: "typescript"})
+
+	for _, want := range []string{
+		"import { CODECS, decode } from './codecs';",
+		"decode: (payload: unknown) => decode(payload, CODECS['Order']),",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ops.ts missing %q", want)
+		}
+	}
+
+	if strings.Contains(out, "CODECS['AuditEvent']") {
+		t.Errorf("ops.ts decodes an entity no component describes")
+	}
+
+	if t.Failed() {
+		t.Logf("\n%s", out)
+	}
+}
+
+// Under preserve the wire shape is the client shape, and the table is what it
+// was before decode existed.
+func TestOpsManifestStreamsCarryNoDecodeUnderPreserve(t *testing.T) {
+	out := manifestText(streamSpec(), client.GeneratorConfig{
+		Language: "typescript", FieldNaming: client.NamingPreserve,
+	})
+
+	if strings.Contains(out, "decode") {
+		t.Fatalf("ops.ts carries a decode under preserve:\n%s", out)
+	}
+}
+
+// A WebTransport endpoint's bindings reach the streams table like a socket's.
+func TestOpsManifestStreamsIncludeWebTransport(t *testing.T) {
+	spec := streamSpec()
+	spec.WebTransports = []client.WebTransportEndpoint{{
+		ID: "ticks", Path: "/wt/ticks",
+		StreamBindings: []client.StreamBinding{
+			{Message: "order.ticked", EntityType: "Order", Intent: client.StreamPatch},
+		},
+	}}
+
+	out := manifestText(spec, client.GeneratorConfig{})
+
+	for _, want := range []string{"channel: '/wt/ticks'", "message: 'order.ticked'"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ops.ts missing %q\n\n%s", want, out)
+		}
+	}
+}

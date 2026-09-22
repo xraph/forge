@@ -51,7 +51,9 @@ For balance, everything below is built, tested, and used by the examples in thes
 - Optimistic overlays: a rebasing overlay stack, derived targets, and pending state in all three adapters
 - React, Vue and Angular adapters
 - Server rendering: `dehydrate` and `hydrate`, a reachability-closed payload, principal assertions on both sides, a hydration boundary in all three adapters, and `streamingDehydrator` for flushing a payload part-way through a stream
-- A WebTransport binding, `webTransportConnection`
+- Stream adapters for all three transports: `webSocketConnection`, `eventSourceConnection` and `webTransportConnection` turn an open socket, an `EventSource` or a WebTransport session into the connection the subscription manager drives, and `channelMessages` reads a channel's event names out of the `streams` table
+- WebTransport routes described in the AsyncAPI document through `WithWebTransportMessages`, so `webtransport.ts` is typed per stream kind and the route's stream bindings reach the `streams` table
+- Frames decoded through the entity's codec before normalization, so a live query under camelCase naming sees the same shape a response produces
 - The devtools inspector
 
 What is left is a handful of runtime edges and a freshness model that is deliberately narrow, not the core of the thing.

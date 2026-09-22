@@ -257,6 +257,74 @@ func TestFacadeTypesMutationBindings(t *testing.T) {
 	}
 }
 
+func TestFacadeQueryKeepsResponseTypeWhenNormalizationIsDisabled(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			ID:     "accessResourcesList",
+			Method: "GET",
+			Path:   "/access/resources",
+			Responses: map[int]*client.Response{
+				200: {
+					Content: map[string]*client.MediaType{
+						"application/json": {Schema: &client.Schema{Ref: "#/components/schemas/ResourceListResponse"}},
+					},
+				},
+			},
+			// WithoutEntity intentionally leaves both cache fields empty. The
+			// response document is still described by the response schema and the
+			// hook must retain that payload type.
+			RootType: "",
+			Entity:   nil,
+		}},
+		Schemas: map[string]*client.Schema{
+			"ResourceListResponse": objectSchema(),
+		},
+	}
+
+	out := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
+	for _, want := range []string{
+		"import type { ResourceListResponse } from '../types';",
+		"export const useAccessResourcesList = /*#__PURE__*/ query<ResourceListResponse>(op_accessResourcesList);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no-entity query lost its response payload type; missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestFacadeQueryKeepsArrayResponseShapeWhenNormalizationIsDisabled(t *testing.T) {
+	spec := &client.APISpec{
+		Endpoints: []client.Endpoint{{
+			ID:     "accessResourcesList",
+			Method: "GET",
+			Path:   "/access/resources",
+			Responses: map[int]*client.Response{
+				200: {
+					Content: map[string]*client.MediaType{
+						"application/json": {
+							Schema: &client.Schema{
+								Type:  "array",
+								Items: &client.Schema{Ref: "#/components/schemas/Resource"},
+							},
+						},
+					},
+				},
+			},
+		}},
+		Schemas: map[string]*client.Schema{"Resource": objectSchema()},
+	}
+
+	out := hooksText(spec, client.GeneratorConfig{Language: "typescript"})
+	for _, want := range []string{
+		"import type { Resource } from '../types';",
+		"export const useAccessResourcesList = /*#__PURE__*/ query<Resource[]>(op_accessResourcesList);",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no-entity array query lost its response shape; missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestMutationImportMatchesGeneratedTypeName guards against reintroducing a
 // PascalCase renderer (toPascal, or anything else) on RootType/Entity.Type.
 //

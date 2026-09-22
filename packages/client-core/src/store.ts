@@ -442,9 +442,16 @@ export class EntityStore {
    *
    * Omit it and the old behaviour is what happens, which is what every caller
    * that has no previous read wants.
+   *
+   * `collect` receives every entity key the read reached, which is what
+   * `dependencies` reports, from the same walk. A caller that needs both the
+   * value and its deps takes them from one read: a second walk for the deps
+   * would memoize fresh containers before the read that carries `previous`
+   * gets to compare against it, and the identity that read exists to keep
+   * would be lost.
    */
-  read<T = unknown>(skeleton: unknown, previous?: unknown): T {
-    return this.materialize(skeleton, new Set<EntityKey>(), previous) as T;
+  read<T = unknown>(skeleton: unknown, previous?: unknown, collect?: Set<EntityKey>): T {
+    return this.materialize(skeleton, collect ?? new Set<EntityKey>(), previous) as T;
   }
 
   /**

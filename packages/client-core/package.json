@@ -40,21 +40,21 @@
       "name": "tag graph",
       "path": "dist/index.js",
       "import": "{ QueryRegistry, Invalidator, manualScheduler }",
-      "limit": "2.25 kB",
+      "limit": "2.4 kB",
       "gzip": true
     },
     {
       "name": "query engine and REST transport",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, query, mutation, configureClient }",
-      "limit": "9.6 kB",
+      "limit": "9.95 kB",
       "gzip": true
     },
     {
       "name": "stream binding",
       "path": "dist/index.js",
       "import": "{ StreamBinder, SubscriptionManager, applyFrames }",
-      "limit": "4.2 kB",
+      "limit": "4.3 kB",
       "gzip": true
     },
     {
@@ -82,7 +82,7 @@
       "name": "core, REST only",
       "path": "dist/index.js",
       "import": "{ QueryCache, RestTransport, EntityStore, query, mutation, configureClient, manualScheduler }",
-      "limit": "9700 B",
+      "limit": "10 kB",
       "gzip": true
     },
     {

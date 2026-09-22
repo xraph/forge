@@ -360,6 +360,14 @@ const orderPatch: OperationMeta = {
   invalidates: ['Order:{id}', 'Order[]'],
 };
 
+const orderGet: OperationMeta = {
+  method: 'GET',
+  path: '/orders/{id}',
+  entity: 'Order',
+  provides: ['Order:{id}'],
+  invalidates: [],
+};
+
 const orderDelete: OperationMeta = {
   method: 'DELETE',
   path: '/orders/{id}',
@@ -534,6 +542,48 @@ describe('optimistic mutations', () => {
     await queries.mutate(orderDelete, { path: { id: 7 } }, { optimistic: 'delete' });
 
     expect(queries.getState(orderList).data).toEqual([{ id: 8 }]);
+  });
+
+  // The item read was dispatched before the delete and lands after the server
+  // confirmed it. Its answer predates the delete, so it must not put the row
+  // back. The declared tags do not name the record -- an explicitly targeted
+  // patch is how that happens -- so nothing restarts the read; the tombstone
+  // the confirmed eviction leaves is what withholds its answer.
+  it('does not resurrect a confirmed delete from a read dispatched before it', async () => {
+    const gate = deferred<unknown>();
+    let reads = 0;
+    const listOnlyDelete: OperationMeta = { ...orderDelete, invalidates: ['Order[]'] };
+    // The first read returns the row, the second is the one caught in flight,
+    // and any read after that reaches a server that has already deleted it.
+    const { cache: queries, scheduler } = optimisticCache((request) => {
+      if (request.meta.method === 'DELETE') return undefined;
+
+      const read = reads++;
+
+      if (read === 0) return { id: 7, total: 1 };
+      if (read === 1) return gate.promise;
+
+      return null;
+    });
+    const args = { path: { id: 7 } };
+
+    queries.subscribe(orderGet, args, () => undefined);
+    await settleMicrotasks();
+
+    void queries.refetch(orderGet, args);
+
+    await queries.mutate(listOnlyDelete, args, {
+      optimistic: [{ key: 'Order:7', patch: 'delete' }],
+    });
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(queries.store.getRecord('Order:7')).toBeUndefined();
+
+    gate.resolve({ id: 7, total: 1 });
+    await settleMicrotasks();
+
+    expect(queries.store.getRecord('Order:7')).toBeUndefined();
   });
 
   it('reports an ambiguous target and runs the mutation without an overlay', async () => {

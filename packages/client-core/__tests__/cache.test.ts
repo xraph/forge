@@ -301,6 +301,33 @@ describe('mutations', () => {
     expect(transport.calls.slice(before + 1).map((call) => call.meta)).toEqual([orderList]);
   });
 
+  // The store merges, so a refetch that returns the order without its customer
+  // leaves the customer on the record and the query still renders it. The
+  // query's deps have to say so, or an invalidation of that customer never
+  // reaches a query that is showing its data.
+  it('keeps depending on a nested entity a narrower refetch left out', async () => {
+    let call = 0;
+    const { cache: queries, transport, scheduler } = cache(() =>
+      call++ === 0 ? { id: 7, customer: { id: 3, name: 'a' } } : { id: 7 },
+    );
+    const args = { path: { id: 7 } };
+
+    queries.subscribe(orderGet, args, () => undefined);
+    await settleMicrotasks();
+    await queries.refetch(orderGet, args);
+    await settleMicrotasks();
+
+    expect(queries.getState(orderGet, args).data).toEqual({ id: 7, customer: { id: 3, name: 'a' } });
+
+    const before = transport.calls.length;
+
+    queries.invalidate(['Customer:3']);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls.slice(before).map((c) => c.meta)).toEqual([orderGet]);
+  });
+
   it('lets a placement callback answer for a query instead of refetching it', async () => {
     const { cache: queries, transport, scheduler } = cache((request) =>
       request.meta === orderCreate ? { id: 9, total: 5 } : [{ id: 7, total: 99 }],
@@ -330,6 +357,69 @@ describe('mutations', () => {
     // order it placed reaches it.
     queries.store.put('Order:9', { total: 6 });
     expect((queries.getState(orderList).data as { total: number }[])[0]?.total).toBe(6);
+  });
+
+  // The created order reached the list only through placement. A later
+  // invalidation naming that order -- with no response body to normalize, so
+  // the entity store alone cannot carry it -- has to reach the list, which
+  // means the list must be indexed under `Order:9` as it would be after a
+  // fetch that returned it.
+  it('indexes a placed query under the entities it placed', async () => {
+    const { cache: queries, transport, scheduler } = cache((request) =>
+      request.meta === orderCreate ? { id: 9, total: 5 } : [{ id: 7, total: 99 }],
+    );
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    await queries.mutate(orderCreate, { body: { total: 5 } }, {
+      place: {
+        'Order[]': (created, current) => [created, ...(current as unknown[])],
+      },
+    });
+    scheduler.flush();
+    await settleMicrotasks();
+
+    const before = transport.calls.length;
+
+    queries.invalidate(['Order:9']);
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(transport.calls.slice(before).map((call) => call.meta)).toEqual([orderList]);
+  });
+
+  // Placement settles the query while its own request is still out. The
+  // request is discarded, so nothing else would clear the fetching flag until
+  // the abandoned response lands, which on a slow network is a spinner over a
+  // list that is already correct.
+  it('clears isFetching when placement answers a query with a request in flight', async () => {
+    const gate = deferred<unknown>();
+    const { cache: queries, scheduler } = cache((request) =>
+      request.meta === orderCreate ? { id: 9, total: 5 } : gate.promise,
+    );
+
+    queries.subscribe(orderList, undefined, () => undefined);
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).isFetching).toBe(true);
+
+    await queries.mutate(orderCreate, { body: { total: 5 } }, {
+      place: {
+        'Order[]': (created, current) => [created, ...((current as unknown[] | undefined) ?? [])],
+      },
+    });
+    scheduler.flush();
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).isFetching).toBe(false);
+    expect(queries.getState(orderList).data).toEqual([{ id: 9, total: 5 }]);
+
+    // The pre-write answer lands and is discarded: the placed list stands.
+    gate.resolve([{ id: 7, total: 1 }]);
+    await settleMicrotasks();
+
+    expect(queries.getState(orderList).data).toEqual([{ id: 9, total: 5 }]);
   });
 
   it('falls back to a refetch when placement declines', async () => {

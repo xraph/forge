@@ -49,6 +49,36 @@ describe('resolveTag', () => {
     expect(resolveTag('Order:{req.nested.id}', ctx)).toBe('Order:b-1');
   });
 
+  // A template names the wire property, because that is what the route can
+  // see. The body and response it resolves against carry the client-side
+  // names. The generator renames what it has a schema for; the runtime
+  // accepts the wire spelling for the document it did not.
+  it('accepts a wire-spelled placeholder against a client-cased payload', () => {
+    expect(resolveTag('Customer:{req.customer_id}', { body: { customerId: 'c-3' } })).toBe(
+      'Customer:c-3',
+    );
+    expect(
+      resolveTag('Ledger:{res.customer.external_id}', {
+        response: { customer: { externalId: 'x-9' } },
+      }),
+    ).toBe('Ledger:x-9');
+    expect(resolveTag('Customer:{customerId}', { body: { customer_id: 'c-4' } })).toBe(
+      'Customer:c-4',
+    );
+  });
+
+  it('reads an exact key as written when both spellings are present', () => {
+    expect(
+      resolveTag('Customer:{req.customer_id}', {
+        body: { customer_id: 'wire', customerId: 'client' },
+      }),
+    ).toBe('Customer:wire');
+  });
+
+  it('still resolves to nothing when no spelling matches', () => {
+    expect(resolveTag('Customer:{req.customer_id}', { body: { id: 1 } })).toBe(undefined);
+  });
+
   // Path, then query, then body, then response -- first match wins.
   it.each([
     ['Customer:from-path', ctx],
@@ -104,6 +134,53 @@ describe('resolveTags', () => {
     // One bad declaration does not cost the caller the tags that did resolve.
     expect(tags).toEqual(['Order[]', 'Order:7']);
     expect(unresolved).toEqual(['Customer:{missing}']);
+  });
+
+  // A collection read declares `Order:{id}`: it provides one tag per record it
+  // returns, not one tag for the array. Resolving against the array as a
+  // whole finds no `id` and would report the healthiest query in the
+  // application as a declaration that resolved to nothing.
+  it('resolves a response template once per element of an array response', () => {
+    const { tags, unresolved } = resolveTags(['Order:{id}', 'Order[]'], {
+      response: [{ id: 1 }, { id: 2 }, { id: 1 }],
+    });
+
+    expect(tags).toEqual(['Order:1', 'Order:2', 'Order[]']);
+    expect(unresolved).toEqual([]);
+  });
+
+  it('treats an empty array response as providing nothing, not as unresolved', () => {
+    const { tags, unresolved } = resolveTags(['Order:{res.id}'], {
+      response: [],
+    });
+
+    expect(tags).toEqual([]);
+    expect(unresolved).toEqual([]);
+  });
+
+  it('still reports a template no element of the array can answer', () => {
+    const { unresolved } = resolveTags(['Customer:{res.customerId}'], {
+      response: [{ id: 1 }],
+    });
+
+    expect(unresolved).toEqual(['Customer:{res.customerId}']);
+  });
+
+  it('does not let an array response answer a request-only template', () => {
+    const { unresolved } = resolveTags(['Customer:{req.customerId}'], {
+      response: [{ customerId: 'r' }],
+    });
+
+    expect(unresolved).toEqual(['Customer:{req.customerId}']);
+  });
+
+  it('prefers the request over the array response for a bare placeholder', () => {
+    const { tags } = resolveTags(['Customer:{customerId}'], {
+      query: { customerId: 'q' },
+      response: [{ customerId: 'r' }],
+    });
+
+    expect(tags).toEqual(['Customer:q']);
   });
 });
 
