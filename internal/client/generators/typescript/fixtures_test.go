@@ -10,7 +10,7 @@ import (
 )
 
 func TestGateFixturesCoverKnownDefects(t *testing.T) {
-	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse", "webtransport", "capabilities"}
+	want := []string{"default", "apiname", "odd-keys", "with-auth", "no-streaming", "no-auth-streaming", "ws-sse", "no-auth-ws-sse", "allof", "preserve", "preserve-ws-sse", "webtransport", "ws-multiplexed", "capabilities"}
 
 	fixtures := gateFixtures()
 
@@ -34,10 +34,11 @@ func TestGateFixturesCoverKnownDefects(t *testing.T) {
 	// grew it to 11 (the "preserve-ws-sse" fixture); task 5c fix round 1
 	// (coordinator's Important-2 finding) grows it to 12 (the "webtransport"
 	// fixture below); capability gating grows it to 13 (the "capabilities"
-	// fixture) -- this number must move in lockstep with `want` and with
+	// fixture); multiplexed WebSocket generation grows it to 14 (the
+	// "ws-multiplexed" fixture) -- this number must move in lockstep with `want` and with
 	// gateFixtures' own fixture literal.
-	if len(fixtures) != 13 {
-		t.Errorf("expected exactly 13 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
+	if len(fixtures) != 14 {
+		t.Errorf("expected exactly 14 gate fixtures, got %d: %v", len(fixtures), fixtureNames(fixtures))
 	}
 }
 
@@ -265,6 +266,9 @@ func gateFixtures() []gateFixture {
 		// with a BiStreamSchema, one with ONLY a DatagramSchema, coexisting in
 		// the same generated webtransport.ts.
 		{Name: "webtransport", Spec: wtMixedEndpointsSpec(), Config: baseConfig()},
+		// A multiplexed socket: two send message types and one receive type,
+		// so the generated `send` takes a union and tsc proves it compiles.
+		{Name: "ws-multiplexed", Spec: wsMultiplexedSpec(), Config: baseConfig()},
 		// Capability gating: the only fixture whose endpoints declare scopes, and
 		// therefore the only one for which src/capabilities.ts is emitted at all.
 		// It earns its place in the corpus twice over -- TestGeneratedClientsTypeCheck
@@ -434,4 +438,27 @@ func generateTo(t *testing.T, f gateFixture) string {
 	writeTree(t, dir, out.Files)
 
 	return dir
+}
+
+// wsMultiplexedSpec is baseSpec plus one channel that sends two message types
+// and receives one, each a component of its own.
+func wsMultiplexedSpec() *client.APISpec {
+	spec := baseSpec()
+	obj := func(field, typ string) *client.Schema {
+		return &client.Schema{Type: "object", Properties: map[string]*client.Schema{field: {Type: typ}}}
+	}
+	ref := func(name string) *client.Schema { return &client.Schema{Ref: "#/components/schemas/" + name} }
+
+	spec.Schemas["ChatSay"] = obj("text_body", "string")
+	spec.Schemas["ChatTyping"] = obj("is_on", "boolean")
+	spec.Schemas["ChatSaid"] = obj("id", "string")
+	spec.WebSockets = []client.WebSocketEndpoint{{
+		ID: "chat", Path: "/ws/chat", Summary: "Multiplexed chat socket",
+		SendSchema:      ref("ChatSay"),
+		ReceiveSchema:   ref("ChatSaid"),
+		SendMessages:    map[string]*client.Schema{"say": ref("ChatSay"), "typed": ref("ChatTyping")},
+		ReceiveMessages: map[string]*client.Schema{"said": ref("ChatSaid")},
+	}}
+
+	return spec
 }

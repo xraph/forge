@@ -53,6 +53,35 @@ describe('useMutation', () => {
     expect(handle.isPending).toBe(false);
   });
 
+  // `MutationOptions.client` is accepted per call, and the raw `mutation()`
+  // binding honours it. The hook resolved its own client at mount and used to
+  // spread it last, so a per-call cache was accepted by the types and then
+  // silently replaced: the write ran against the hook's cache, and the caller
+  // redirecting one mutation to a fixture or per-request cache saw it succeed
+  // in the wrong place.
+  it('runs the write against a client supplied per call', async () => {
+    const hook = harness(() => ({ id: 1, total: 1 }));
+    const perCall = harness(() => ({ id: 2, total: 2 }));
+
+    let handle!: UseMutationResult<Order>;
+
+    function Create() {
+      handle = useMutation<Order>(useOrderCreate);
+
+      return null;
+    }
+
+    render(wrap(hook, <Create />));
+
+    await act(async () => {
+      await handle.mutateAsync({ body: { total: 2 } }, { client: perCall.cache });
+    });
+
+    expect(perCall.transport.calls).toHaveLength(1);
+    expect(hook.transport.calls).toHaveLength(0);
+    expect(handle.data).toEqual({ id: 2, total: 2 });
+  });
+
   it('records an error, and reset returns it to idle', async () => {
     const h = harness(() => {
       throw new Error('conflict');

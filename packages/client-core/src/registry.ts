@@ -339,10 +339,17 @@ export class QueryRegistry {
         ? resolveTags(entry.provides, { ...entry.args, response: result.response })
         : { tags: new Set(supplied), unresolved: [] as readonly string[] };
 
-    for (const template of resolved.unresolved) this.onUnresolved?.(template, entry);
-
     if (result.deps !== undefined) entry.deps = new Set(result.deps);
     if ('value' in result) entry.value = result.value;
+
+    // An item template the response could not answer is still satisfied when
+    // the store just normalized records of that type out of the same response:
+    // an enveloped collection cannot resolve `Order:{id}` against `{items,
+    // total}`, but the `Order:7` in its deps is that template resolved by
+    // another route. Only a type the response never normalized is reported.
+    for (const template of resolved.unresolved) {
+      if (!providedByDeps(template, entry.deps)) this.onUnresolved?.(template, entry);
+    }
 
     this.retag(entry, new Set([...resolved.tags, ...entry.deps]));
 
@@ -422,6 +429,30 @@ export class QueryRegistry {
     entry.value = value;
     entry.stale = false;
     entry.settledAt = this.clock;
+  }
+
+  /**
+   * Swap the entity keys a placed query reaches, keeping its resolved
+   * `provides`.
+   *
+   * Placement's half of `settle`. A placed list is normalized like a fetched
+   * one, so the entities it now references have to be indexed the same way,
+   * or a later invalidation of an entity the query acquired only through
+   * placement -- `Order:9`, minted by the create that placed it -- finds no
+   * bucket for the query and never reaches it.
+   */
+  adopt(key: string, deps: Iterable<EntityKey>): void {
+    const entry = this.entries.get(key);
+
+    if (entry === undefined) return;
+
+    const next = new Set(deps);
+    const tags = new Set<string>(next);
+
+    for (const tag of entry.tags) if (!entry.deps.has(tag)) tags.add(tag);
+
+    entry.deps = next;
+    this.retag(entry, tags);
   }
 
   /**
@@ -557,4 +588,16 @@ export class QueryRegistry {
     // query nobody watches, arriving more slowly.
     if (bucket.size === 0) this.index.delete(tag);
   }
+}
+
+/** Whether `deps` holds a key of the entity type a tag template names. */
+function providedByDeps(template: string, deps: ReadonlySet<string>): boolean {
+  // `Order:{id}` -> `Order:`; a template with no colon names no entity.
+  const prefix = template.slice(0, template.indexOf(':') + 1);
+
+  if (prefix === '') return false;
+
+  for (const dep of deps) if (dep.startsWith(prefix)) return true;
+
+  return false;
 }

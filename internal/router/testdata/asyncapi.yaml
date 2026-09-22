@@ -40,6 +40,7 @@ channels:
               intent: patch
               invalidates: []
               message: order.progressed
+              type: github.com/xraph/forge/internal/router.goldenOrder
     ws-orders-roomid:
         address: /ws/orders/{roomId}
         messages:
@@ -89,11 +90,13 @@ channels:
               invalidates:
                 - goldenOrder[]
               message: order.created
+              type: github.com/xraph/forge/internal/router.goldenOrder
             - entityType: goldenOrder
               intent: evict
               invalidates:
                 - goldenOrder[]
               message: order.deleted
+              type: github.com/xraph/forge/internal/router.goldenOrder
     ws-trees-treeid:
         address: /ws/trees/{treeId}
         messages:

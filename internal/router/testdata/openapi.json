@@ -576,12 +576,6 @@
   "components": {
     "schemas": {
       "BillingInvoice": {
-        "type": "object",
-        "required": [
-          "invoice_number",
-          "amount_cents",
-          "note"
-        ],
         "properties": {
           "amount_cents": {
             "type": "integer"
@@ -592,26 +586,35 @@
           "note": {
             "$ref": "#/components/schemas/BillingNote"
           }
-        }
+        },
+        "required": [
+          "invoice_number",
+          "amount_cents",
+          "note"
+        ],
+        "type": "object",
+        "x-forge-type": "github.com/xraph/forge/internal/router/testtypes/billing.Invoice"
       },
       "BillingNote": {
-        "type": "object",
-        "required": [
-          "memo"
-        ],
         "properties": {
           "memo": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "memo"
+        ],
+        "type": "object",
+        "x-forge-type": "github.com/xraph/forge/internal/router/testtypes/billing.Note"
       },
       "GoldenOrderStatus": {
-        "type": "string",
         "enum": [
           "draft",
           "open",
           "closed"
-        ]
+        ],
+        "type": "string",
+        "x-forge-type": "github.com/xraph/forge/internal/router.goldenOrderStatus"
       },
       "Receipt": {
         "type": "object",
@@ -625,12 +628,6 @@
         }
       },
       "ShippingInvoice": {
-        "type": "object",
-        "required": [
-          "tracking_code",
-          "weight_kg",
-          "note"
-        ],
         "properties": {
           "note": {
             "$ref": "#/components/schemas/ShippingNote"
@@ -641,18 +638,26 @@
           "weight_kg": {
             "type": "number"
           }
-        }
+        },
+        "required": [
+          "tracking_code",
+          "weight_kg",
+          "note"
+        ],
+        "type": "object",
+        "x-forge-type": "github.com/xraph/forge/internal/router/testtypes/shipping.Invoice"
       },
       "ShippingNote": {
-        "type": "object",
-        "required": [
-          "courier"
-        ],
         "properties": {
           "courier": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "courier"
+        ],
+        "type": "object",
+        "x-forge-type": "github.com/xraph/forge/internal/router/testtypes/shipping.Note"
       },
       "goldenAddress": {
         "type": "object",
@@ -771,11 +776,6 @@
         }
       },
       "goldenPage_goldenWorkspace": {
-        "type": "object",
-        "required": [
-          "items",
-          "total"
-        ],
         "properties": {
           "items": {
             "type": "array",
@@ -786,7 +786,13 @@
           "total": {
             "type": "integer"
           }
-        }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "type": "object",
+        "x-forge-type": "github.com/xraph/forge/internal/router.goldenPage[github.com/xraph/forge/internal/router.goldenWorkspace]"
       },
       "goldenRecursiveRequestBody": {
         "type": "object",

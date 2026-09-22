@@ -1,6 +1,15 @@
 package router
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/xraph/forge/internal/router/testtypes/billing"
+	"github.com/xraph/forge/internal/router/testtypes/shipping"
+	"github.com/xraph/forge/internal/shared"
+)
 
 func TestOperationCarriesForgeExtensions(t *testing.T) {
 	route := RouteInfo{
@@ -97,3 +106,96 @@ func TestEmptyInvalidatesSliceEmitsNoKey(t *testing.T) {
 		t.Fatalf("x-forge-no-invalidation present for an empty slice, want absent")
 	}
 }
+
+// A component that finalization named something other than its type's bare
+// name says what it was generated from, so a stream binding declared with the
+// bare name can still be matched to it. An uncontested component is not
+// marked: its bare name already answers, and an import path on every schema
+// would be paid by all for the sake of the few that moved.
+func TestRenamedComponentCarriesItsGoType(t *testing.T) {
+	r := NewRouter(WithOpenAPI(OpenAPIConfig{Title: "T", Version: "1.0.0"}))
+
+	if err := r.GET("/billing/invoice", func(ctx shared.Context, req *collisionEmptyRequest) (*billing.Invoice, error) {
+		return &billing.Invoice{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.GET("/shipping/invoice", func(ctx shared.Context, req *collisionEmptyRequest) (*shipping.Invoice, error) {
+		return &shipping.Invoice{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := r.OpenAPISpec()
+	if spec == nil {
+		t.Fatal("no spec")
+	}
+
+	// Through JSON, so the assertion is about what a consumer of the document
+	// sees: the extension has to be hoisted onto the schema, not nested.
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var doc struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	marked := map[string]string{}
+
+	for name, schema := range doc.Components.Schemas {
+		if typ, ok := schema["x-forge-type"].(string); ok {
+			marked[name] = typ
+		}
+	}
+
+	if _, contested := doc.Components.Schemas["Invoice"]; contested {
+		t.Fatalf("a contested bare name reached the document: %v", doc.Components.Schemas)
+	}
+
+	// Both Invoice types moved, and both say where they came from. Their
+	// nested Note types collide too and are marked the same way.
+	want := map[string]bool{
+		getQualifiedTypeName(billingType()):  false,
+		getQualifiedTypeName(shippingType()): false,
+	}
+
+	for name, typ := range marked {
+		if _, ok := want[typ]; ok {
+			want[typ] = true
+		}
+
+		// A marked component is one that moved: its name is never the bare
+		// type name the qualified string ends in.
+		if bare := typ[strings.LastIndex(typ, ".")+1:]; name == bare {
+			t.Errorf("component %q kept its bare name yet is marked with %q", name, typ)
+		}
+	}
+
+	for typ, seen := range want {
+		if !seen {
+			t.Errorf("no component is marked with %q; marked = %v", typ, marked)
+		}
+	}
+
+	for name := range doc.Components.Schemas {
+		if _, ok := marked[name]; ok {
+			continue
+		}
+
+		if _, ok := doc.Components.Schemas[name]["x-forge-type"]; ok {
+			t.Errorf("component %q is unexpectedly marked", name)
+		}
+	}
+}
+
+func billingType() reflect.Type  { return reflect.TypeFor[billing.Invoice]() }
+func shippingType() reflect.Type { return reflect.TypeFor[shipping.Invoice]() }

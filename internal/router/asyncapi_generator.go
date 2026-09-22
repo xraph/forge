@@ -169,6 +169,10 @@ func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) er
 		if err := g.processSSERoute(spec, route); err != nil {
 			return err
 		}
+	case "webtransport":
+		if err := g.processWebTransportRoute(spec, route); err != nil {
+			return err
+		}
 	default:
 		// Not a streaming route, skip
 		return nil
@@ -190,6 +194,10 @@ func (g *asyncAPIGenerator) getRouteType(route RouteInfo) string {
 
 	if _, ok := route.Metadata["asyncapi.sse.messages"]; ok {
 		return "sse"
+	}
+
+	if _, ok := route.Metadata["asyncapi.wt.messages"]; ok {
+		return "webtransport"
 	}
 
 	// Kind is the typed replacement for the "route.type" metadata string.
@@ -416,6 +424,124 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	return nil
 }
 
+// webTransportMessageKinds is every way a WebTransport message can travel, in
+// the order the document lists them. The name is the message key in the
+// channel; the title decorates the component id.
+var webTransportMessageKinds = []struct {
+	name, title string
+	pick        func(WebTransportMessages) any
+	send        bool
+	receive     bool
+}{
+	{"datagram", "Datagram", func(m WebTransportMessages) any { return m.Datagram }, true, true},
+	{"uniSend", "UniSend", func(m WebTransportMessages) any { return m.UniSend }, true, false},
+	{"uniReceive", "UniReceive", func(m WebTransportMessages) any { return m.UniReceive }, false, true},
+	{"bidiSend", "BidiSend", func(m WebTransportMessages) any { return m.BidiSend }, true, false},
+	{"bidiReceive", "BidiReceive", func(m WebTransportMessages) any { return m.BidiReceive }, false, true},
+}
+
+// processWebTransportRoute writes a WebTransport route as a channel.
+//
+// AsyncAPI has no WebTransport binding, so the channel carries an
+// x-forge-protocol marker and its messages are named for the way each is
+// carried. The client generator reads the marker to build a WebTransport
+// client rather than a WebSocket one, and the names to type each stream kind.
+// Stream bindings ride on the channel exactly as they do for a socket.
+func (g *asyncAPIGenerator) processWebTransportRoute(spec *AsyncAPISpec, route RouteInfo) error {
+	channelID := g.getChannelID(route)
+
+	channel := &AsyncAPIChannel{
+		Address:     createChannelAddress(route.Path),
+		Title:       route.Summary,
+		Description: route.Description,
+		Parameters:  extractChannelParameters(route.Path),
+		Tags:        g.getAsyncAPITags(route),
+	}
+
+	if desc, ok := route.Metadata["asyncapi.channel.description"].(string); ok {
+		channel.Description = desc
+	}
+
+	if summary, ok := route.Metadata["asyncapi.channel.summary"].(string); ok {
+		channel.Summary = summary
+	}
+
+	applyForgeStreamExtension(channel, route.Metadata)
+
+	if channel.Extensions == nil {
+		channel.Extensions = make(map[string]any)
+	}
+
+	channel.Extensions["x-forge-protocol"] = "webtransport"
+
+	declared, _ := route.Metadata["asyncapi.wt.messages"].(WebTransportMessages)
+	messages := make(map[string]*AsyncAPIMessage)
+
+	var sendRefs, receiveRefs []AsyncAPIMessageReference
+
+	for _, kind := range webTransportMessageKinds {
+		schema := kind.pick(declared)
+		if schema == nil {
+			continue
+		}
+
+		msg, err := g.schemas.GenerateMessageSchema(schema, g.config.DefaultContentType)
+		if err != nil {
+			return err
+		}
+
+		if msg == nil {
+			continue
+		}
+
+		msg.Name = kind.name
+		msg.Title = kind.title + " message"
+		messages[kind.name] = msg
+		spec.Components.Messages[channelID+kind.title+"Message"] = msg
+
+		ref := AsyncAPIMessageReference{Ref: "#/channels/" + channelID + "/messages/" + kind.name}
+
+		if kind.send {
+			sendRefs = append(sendRefs, ref)
+		}
+
+		if kind.receive {
+			receiveRefs = append(receiveRefs, ref)
+		}
+	}
+
+	channel.Messages = messages
+	spec.Channels[channelID] = channel
+
+	prefix := g.getOperationID(route, channelID)
+
+	if len(sendRefs) > 0 {
+		spec.Operations[prefix+"Send"] = &AsyncAPIOperation{
+			Action:      "send",
+			Channel:     &AsyncAPIChannelReference{Ref: "#/channels/" + channelID},
+			Title:       "Send message",
+			Summary:     "Send messages to " + route.Path,
+			Description: route.Description,
+			Tags:        g.getAsyncAPITags(route),
+			Messages:    sendRefs,
+		}
+	}
+
+	if len(receiveRefs) > 0 {
+		spec.Operations[prefix+"Receive"] = &AsyncAPIOperation{
+			Action:      "receive",
+			Channel:     &AsyncAPIChannelReference{Ref: "#/channels/" + channelID},
+			Title:       "Receive message",
+			Summary:     "Receive messages from " + route.Path,
+			Description: route.Description,
+			Tags:        g.getAsyncAPITags(route),
+			Messages:    receiveRefs,
+		}
+	}
+
+	return nil
+}
+
 // applyForgeStreamExtension copies stream bindings onto an AsyncAPI channel as
 // the x-forge-stream extension.
 //
@@ -434,12 +560,22 @@ func applyForgeStreamExtension(channel *AsyncAPIChannel, metadata map[string]any
 
 	out := make([]map[string]any, 0, len(bindings))
 	for _, b := range bindings {
-		out = append(out, map[string]any{
+		entry := map[string]any{
 			"message":     b.Message,
 			"entityType":  b.EntityType,
 			"intent":      string(b.Intent),
 			"invalidates": b.Invalidates,
-		})
+		}
+
+		// The qualified Go type, so the client generator can find the
+		// component when finalization gave it a name other than the bare one.
+		// A component that was renamed carries the same string as x-forge-type;
+		// see schemaGenerator.markRenamedComponents.
+		if b.entity != nil {
+			entry["type"] = getQualifiedTypeName(b.entity)
+		}
+
+		out = append(out, entry)
 	}
 
 	if channel.Extensions == nil {

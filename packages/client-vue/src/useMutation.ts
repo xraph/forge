@@ -143,7 +143,12 @@ export function useMutation<T, E = unknown>(
     try {
       // The hook-level options are read *now*, not captured at setup, so a
       // getter that depends on reactive state contributes its current value.
-      const data = await op(args, { ...toValue(options), ...perCall, client });
+      // The per-call client wins when given; see the React binding for why.
+      const data = await op(args, {
+        ...toValue(options),
+        ...perCall,
+        client: perCall?.client ?? client,
+      });
 
       if (alive && seq === call) {
         state.value = { status: 'success', data, error: undefined, isPending: false };

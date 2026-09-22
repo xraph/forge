@@ -157,10 +157,13 @@ export type {
 } from './ssr.js';
 export type { CacheEvent, CacheObserver } from './observe.js';
 export {
+  channelMessages,
+  eventSourceConnection,
   forgeKeepalive,
   isDuplex,
   socketSnapshot,
   SubscriptionManager,
+  webSocketConnection,
   webTransportConnection,
 } from './stream.js';
 export type {
@@ -168,6 +171,8 @@ export type {
   ChannelSnapshot,
   DuplexStreamBinding,
   EntityStreamBinding,
+  EventSourceConnectionOptions,
+  EventSourceLike,
   EventTargetLike,
   FrameHandler,
   Keepalive,
@@ -179,6 +184,8 @@ export type {
   StreamIntent,
   SubscribeOptions,
   SubscriptionManagerOptions,
+  WebSocketConnectionOptions,
+  WebSocketLike,
   WebTransportConnectionOptions,
   WebTransportLike,
 } from './stream.js';

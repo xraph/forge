@@ -334,6 +334,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	// Extract operations and channels
 	wsEndpoints := make(map[string]*WebSocketEndpoint)
 	sseEndpoints := make(map[string]*SSEEndpoint)
+	wtEndpoints := make(map[string]*WebTransportEndpoint)
 
 	// Sorted operation ids, for the same reason paths are sorted above: this
 	// loop decides both the order streaming endpoints reach the IR and, where
@@ -357,6 +358,18 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 			continue
 		}
 
+		// Marked, because AsyncAPI has no binding for it. Same rule as the
+		// live-router path: converted once per channel, whichever of its
+		// operations comes first.
+		if isWebTransportChannel(channel) {
+			if wtEndpoints[channelName] == nil {
+				wt := buildWebTransportEndpoint(spec, opID, channel, extractAsyncTagNames(channel.Tags), convertSchema)
+				wtEndpoints[channelName] = &wt
+			}
+
+			continue
+		}
+
 		// Determine if WebSocket or SSE
 		isWebSocket := detectWebSocketChannel(&asyncAPISpec, channel)
 
@@ -368,10 +381,21 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 			} else {
 				// Merge with existing endpoint
 				existing := wsEndpoints[channelName]
-				if operation.Action == "send" && existing.SendSchema == nil {
-					existing.SendSchema = convertSchemaFromChannel(channel, operation)
-				} else if operation.Action == "receive" && existing.ReceiveSchema == nil {
-					existing.ReceiveSchema = convertSchemaFromChannel(channel, operation)
+				named := operationMessageSchemas(channel, operation, convertSchema)
+
+				switch operation.Action {
+				case "send":
+					if existing.SendSchema == nil {
+						existing.SendSchema = convertSchemaFromChannel(channel, operation)
+					}
+
+					existing.SendMessages = mergeMessageSchemas(existing.SendMessages, named)
+				case "receive":
+					if existing.ReceiveSchema == nil {
+						existing.ReceiveSchema = convertSchemaFromChannel(channel, operation)
+					}
+
+					existing.ReceiveMessages = mergeMessageSchemas(existing.ReceiveMessages, named)
 				}
 			}
 		} else {
@@ -401,6 +425,10 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 
 	for _, name := range sortedStringKeys(sseEndpoints) {
 		spec.SSEs = append(spec.SSEs, *sseEndpoints[name])
+	}
+
+	for _, name := range sortedStringKeys(wtEndpoints) {
+		spec.WebTransports = append(spec.WebTransports, *wtEndpoints[name])
 	}
 
 	return spec, nil
@@ -843,6 +871,13 @@ func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAP
 
 			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
 		}
+	}
+
+	switch operation.Action {
+	case "send":
+		ws.SendMessages = operationMessageSchemas(channel, operation, convertSchema)
+	case "receive":
+		ws.ReceiveMessages = operationMessageSchemas(channel, operation, convertSchema)
 	}
 
 	ws.StreamBindings = streamBindings(channel.Extensions)

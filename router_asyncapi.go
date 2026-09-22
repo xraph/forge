@@ -14,6 +14,28 @@ func WithWebSocketMessages(sendSchema, receiveSchema any) RouteOption {
 	return router.WithWebSocketMessages(sendSchema, receiveSchema)
 }
 
+// WebTransportMessages declares the payload types a WebTransport endpoint
+// carries. See router.WebTransportMessages.
+type WebTransportMessages = router.WebTransportMessages
+
+// WithWebTransportMessages defines the message schemas for a WebTransport
+// endpoint, which puts it in the AsyncAPI document and lets the client
+// generator type each stream kind.
+//
+// Example:
+//
+//	router.WebTransport("/wt/orders", handler,
+//	    forge.WithWebTransportMessages(forge.WebTransportMessages{
+//	        Datagram:    &OrderTick{},
+//	        BidiSend:    &OrderCommand{},
+//	        BidiReceive: &Order{},
+//	    }),
+//	    forge.WithStreamBinding(forge.Emits[Order]("order.updated")),
+//	)
+func WithWebTransportMessages(messages WebTransportMessages) RouteOption {
+	return router.WithWebTransportMessages(messages)
+}
+
 // WithSSEMessages defines message schemas for SSE endpoints
 // messageSchemas: map of event names to their schemas
 // SSE is receive-only (server -> client), so action is always "receive".

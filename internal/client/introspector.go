@@ -50,6 +50,16 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 		routes := i.router.Routes()
 		for _, route := range routes {
 			endpoint := i.routeToEndpoint(route)
+
+			// The same resolution the OpenAPI path runs, over the same
+			// declarations, translated by the same function the document
+			// generator uses. There is no schema here for inference to read,
+			// so only what the route declared -- WithEntity, WithInvalidates,
+			// WithoutInvalidation, WithStaleTime -- can take effect; before
+			// this call none of it did, and the metadata was copied onto the
+			// endpoint and never read.
+			resolveEndpointCacheMeta(spec, &endpoint, router.ClientExtensions(route.Metadata))
+
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
 	}
@@ -247,6 +257,14 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 	// Extract streaming features from known channel patterns
 	i.extractStreamingFeatures(spec, asyncAPI)
 
+	// One endpoint per channel, whichever of its operations comes first. A
+	// socket channel carries a send and a receive operation, and converting
+	// it once per operation gave websocket.ts two clients for one path. The
+	// file parser merges the same way; the two paths have to agree.
+	wsSeen := make(map[string]int)
+	sseSeen := make(map[string]bool)
+	wtSeen := make(map[string]bool)
+
 	// Extract operations and map them to channels, in sorted operation-id
 	// order -- this appends to spec.WebSockets/spec.SSEs, and the streaming
 	// generators emit in that order.
@@ -274,16 +292,134 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 			continue
 		}
 
+		// A WebTransport channel is marked as such, because AsyncAPI has no
+		// binding for it; the marker is what keeps it from being read as a
+		// socket. One channel carries a send and a receive operation, so it
+		// is converted on the first and skipped on the second.
+		if isWebTransportChannel(channel) {
+			if wtSeen[channelName] {
+				continue
+			}
+
+			wtSeen[channelName] = true
+
+			wt := buildWebTransportEndpoint(spec, opID, channel, i.extractTagNames(channel.Tags), i.convertSchema)
+			spec.WebTransports = append(spec.WebTransports, wt)
+
+			continue
+		}
+
 		// Determine if this is WebSocket or SSE based on protocol
 		isWebSocket := i.isWebSocketChannel(asyncAPI, channel)
 
 		if isWebSocket {
-			ws := i.channelToWebSocket(spec, opID, channel, operation)
-			spec.WebSockets = append(spec.WebSockets, ws)
+			if idx, seen := wsSeen[channelName]; seen {
+				// The other direction of a channel already converted: fill
+				// the half this operation describes, if the first left it.
+				existing := &spec.WebSockets[idx]
+				named := operationMessageSchemas(channel, operation, i.convertSchema)
+
+				switch operation.Action {
+				case "send":
+					if existing.SendSchema == nil {
+						existing.SendSchema = i.firstPayload(channel)
+					}
+
+					existing.SendMessages = mergeMessageSchemas(existing.SendMessages, named)
+				case "receive":
+					if existing.ReceiveSchema == nil {
+						existing.ReceiveSchema = i.firstPayload(channel)
+					}
+
+					existing.ReceiveMessages = mergeMessageSchemas(existing.ReceiveMessages, named)
+				}
+
+				continue
+			}
+
+			wsSeen[channelName] = len(spec.WebSockets)
+			spec.WebSockets = append(spec.WebSockets, i.channelToWebSocket(spec, opID, channel, operation))
 		} else {
-			// Treat as SSE
+			// Treat as SSE. channelToSSE reads every message on the channel,
+			// so a second operation has nothing left to add.
+			if sseSeen[channelName] {
+				continue
+			}
+
+			sseSeen[channelName] = true
+
 			sse := i.channelToSSE(spec, opID, channel, operation)
 			spec.SSEs = append(spec.SSEs, sse)
+		}
+	}
+
+	return nil
+}
+
+// operationMessageSchemas returns the schemas of the messages one operation
+// names on a channel, keyed by message name. An operation that lists none is
+// read as carrying every message on the channel, which is what the router's
+// generator means when it writes one; a reference to a message the channel
+// does not declare is skipped.
+func operationMessageSchemas(
+	channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation, convert func(*shared.Schema) *Schema,
+) map[string]*Schema {
+	names := make([]string, 0, len(operation.Messages))
+
+	for _, ref := range operation.Messages {
+		if i := strings.LastIndex(ref.Ref, "/"); i >= 0 && i < len(ref.Ref)-1 {
+			names = append(names, ref.Ref[i+1:])
+		}
+	}
+
+	if len(names) == 0 {
+		names = sortedStringKeys(channel.Messages)
+	}
+
+	var out map[string]*Schema
+
+	for _, name := range names {
+		msg := channel.Messages[name]
+		if msg == nil || msg.Payload == nil {
+			continue
+		}
+
+		if out == nil {
+			out = make(map[string]*Schema)
+		}
+
+		out[name] = convert(msg.Payload)
+	}
+
+	return out
+}
+
+// mergeMessageSchemas adds the messages of a second operation in the same
+// direction to those already recorded, keeping the first schema for a name.
+func mergeMessageSchemas(into, add map[string]*Schema) map[string]*Schema {
+	if len(add) == 0 {
+		return into
+	}
+
+	if into == nil {
+		into = make(map[string]*Schema, len(add))
+	}
+
+	for name, schema := range add {
+		if _, ok := into[name]; !ok {
+			into[name] = schema
+		}
+	}
+
+	return into
+}
+
+// firstPayload is the schema of a channel's lowest-named message, which is
+// the one channelToWebSocket's last-write-wins loop settles on as well.
+func (i *Introspector) firstPayload(channel *shared.AsyncAPIChannel) *Schema {
+	for _, name := range sortedStringKeys(channel.Messages) {
+		if msg := channel.Messages[name]; msg != nil && msg.Payload != nil {
+			return i.convertSchema(msg.Payload)
 		}
 	}
 
@@ -740,10 +876,81 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 		}
 	}
 
+	switch operation.Action {
+	case "send":
+		ws.SendMessages = operationMessageSchemas(channel, operation, i.convertSchema)
+	case "receive":
+		ws.ReceiveMessages = operationMessageSchemas(channel, operation, i.convertSchema)
+	}
+
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
 
 	return ws
+}
+
+// protocolExtension marks a channel with the protocol it is served over when
+// AsyncAPI has no binding to say so. Written by the router's AsyncAPI generator
+// for WebTransport routes.
+const protocolExtension = "x-forge-protocol"
+
+// isWebTransportChannel reports whether a channel was generated from a
+// WebTransport route.
+func isWebTransportChannel(channel *shared.AsyncAPIChannel) bool {
+	if channel == nil {
+		return false
+	}
+
+	protocol, _ := channel.Extensions[protocolExtension].(string)
+
+	return protocol == "webtransport"
+}
+
+// buildWebTransportEndpoint converts a marked channel into a WebTransport
+// endpoint. Shared by both intermediate-representation builders, with the
+// schema converter of whichever parser is calling, so a live router and a
+// spec file cannot describe the same channel differently.
+//
+// Messages are read by the names the router wrote: `datagram`, `uniSend`,
+// `uniReceive`, `bidiSend`, `bidiReceive`. A stream kind with neither half
+// declared is left nil, which is what the generator reads as "this endpoint
+// does not use that kind".
+func buildWebTransportEndpoint(
+	spec *APISpec, opID string, channel *shared.AsyncAPIChannel, tags []string,
+	convert func(*shared.Schema) *Schema,
+) WebTransportEndpoint {
+	wt := WebTransportEndpoint{
+		ID:          opID,
+		Path:        channel.Address,
+		Summary:     channel.Summary,
+		Description: channel.Description,
+		Tags:        tags,
+		Metadata:    make(map[string]any),
+	}
+
+	payload := func(name string) *Schema {
+		msg := channel.Messages[name]
+		if msg == nil || msg.Payload == nil {
+			return nil
+		}
+
+		return convert(msg.Payload)
+	}
+
+	wt.DatagramSchema = payload("datagram")
+
+	if send, receive := payload("uniSend"), payload("uniReceive"); send != nil || receive != nil {
+		wt.UniStreamSchema = &StreamSchema{SendSchema: send, ReceiveSchema: receive}
+	}
+
+	if send, receive := payload("bidiSend"), payload("bidiReceive"); send != nil || receive != nil {
+		wt.BiStreamSchema = &StreamSchema{SendSchema: send, ReceiveSchema: receive}
+	}
+
+	wt.StreamBindings = streamBindings(channel.Extensions)
+	registerStreamBindingEntities(spec, channel.Address, wt.StreamBindings)
+
+	return wt
 }
 
 // channelToSSE converts an AsyncAPI channel to an SSE endpoint.
@@ -1069,6 +1276,7 @@ func endpointEntity(
 
 		if typ != "" && idField != "" {
 			validateDeclaredIDField(spec, ep, typ, idField, schema)
+			validateDeclaredType(spec, ep, typ, schema)
 
 			return &EntityRef{Type: typ, IDField: idField}, isList
 		}
@@ -1102,6 +1310,39 @@ func endpointEntity(
 	// a response that IS an entity is an item read even when it carries an
 	// array of some other entity beside it.
 	return inferCollectionEnvelope(spec, ep.Method, name)
+}
+
+// validateDeclaredType warns when a declared entity names a type that is
+// neither the response's own component nor any component in the document.
+//
+// The declared name becomes the entities-table key, and the response's
+// component name becomes the operation's rootType. The runtime starts
+// normalizing at rootType and descends only through rows it can find, so a
+// declared type that matches no component leaves the response with no row to
+// start from: the cache tags are live, `provides` still resolves, but nothing
+// is ever stored under them, which presents as a cache that quietly does not
+// normalize rather than as an error. A declaration that names some OTHER
+// component is left alone: sharing one cache key between a record and a
+// projection of it is what the option exists for.
+func validateDeclaredType(spec *APISpec, ep *Endpoint, typ string, schema *Schema) {
+	if schema == nil || spec == nil {
+		return
+	}
+
+	response := schemaName(schema)
+	if response == "" || typ == response {
+		return
+	}
+
+	if _, ok := spec.Schemas[typ]; ok {
+		return
+	}
+
+	spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+		"client: %s declares x-forge-entity type %q, but the response is component %q and no"+
+			" component named %q exists; the response will not normalize. Declare Type %q, or"+
+			" implement ForgeEntity on the response type so identity travels with it.",
+		endpointOrigin(ep), typ, response, typ, response))
 }
 
 // validateDeclaredIDField warns when a declared entity names an id field the
@@ -1385,17 +1626,86 @@ func streamBindings(ext map[string]any) []StreamBinding {
 		message, _ := entry["message"].(string)
 		entityType, _ := entry["entityType"].(string)
 		intent, _ := entry["intent"].(string)
+		goType, _ := entry["type"].(string)
 
 		bindings = append(bindings, StreamBinding{
 			Message:     message,
 			EntityType:  entityType,
 			Intent:      StreamIntent(intent),
 			Invalidates: stringSlice(entry["invalidates"]),
+			Type:        goType,
 		})
 	}
 
 	return bindings
 }
+
+// resolveStreamEntityNames rewrites, in place, each binding whose entity the
+// document carries under a name other than the bare Go type name.
+//
+// Emits[T] records T's bare name, and that is the component name only until
+// finalization contests it: a second type with the same name in another
+// package, a `schema:"..."` pin, a generic instantiation. The document marks
+// such a component with the qualified Go type it was generated from, and the
+// binding carries the same qualified type, so the two are matched here on that
+// and the binding is renamed to the component the generated entity table will
+// actually hold. The derived collection tag `<bare>[]` follows; a tag the
+// author declared by hand names whatever the author meant and is left alone.
+//
+// A binding without a qualified type, or one naming a type no component is
+// marked with, is left as written and falls through to the bare-name lookup
+// below, which reports a miss.
+func resolveStreamEntityNames(spec *APISpec, bindings []StreamBinding) {
+	if spec == nil || len(bindings) == 0 {
+		return
+	}
+
+	var byType map[string]string
+
+	for name, schema := range spec.Schemas {
+		if schema == nil {
+			continue
+		}
+
+		typ, ok := schema.Extensions[goTypeExtension].(string)
+		if !ok || typ == "" {
+			continue
+		}
+
+		if byType == nil {
+			byType = make(map[string]string)
+		}
+
+		byType[typ] = name
+	}
+
+	if byType == nil {
+		return
+	}
+
+	for i := range bindings {
+		b := &bindings[i]
+
+		name, ok := byType[b.Type]
+		if !ok || b.Type == "" || name == b.EntityType {
+			continue
+		}
+
+		bare := b.EntityType
+		b.EntityType = name
+
+		for j, tag := range b.Invalidates {
+			if tag == bare+"[]" {
+				b.Invalidates[j] = name + "[]"
+			}
+		}
+	}
+}
+
+// goTypeExtension marks a component schema with the qualified Go type it was
+// generated from, written by the router's schema generator only for a
+// component whose name is not its type's bare name.
+const goTypeExtension = "x-forge-type"
 
 // registerStreamBindingEntities registers the entity type named by each
 // stream binding into spec.Entities, so the browser runtime knows which JSON
@@ -1439,6 +1749,8 @@ func streamBindings(ext map[string]any) []StreamBinding {
 // carries the channel address and is where its two sibling failure modes are
 // reported, so an unnamed type argument is reported the same way.
 func registerStreamBindingEntities(spec *APISpec, channelAddress string, bindings []StreamBinding) {
+	resolveStreamEntityNames(spec, bindings)
+
 	for _, b := range bindings {
 		if b.EntityType == "" {
 			spec.Warnings = append(spec.Warnings, fmt.Sprintf(

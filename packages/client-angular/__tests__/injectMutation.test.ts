@@ -49,6 +49,28 @@ describe('injectMutation', () => {
     expect(create.isPending()).toBe(false);
   });
 
+  // `MutationOptions.client` is accepted per call and the raw binding honours
+  // it; the hook used to spread its own client last and silently replace it.
+  it('runs the write against a client supplied per call', async () => {
+    const hook = harness(() => ({ id: 1, total: 1 }));
+    const perCall = harness(() => ({ id: 2, total: 2 }));
+
+    configure(hook);
+
+    let create!: InjectMutationResult<Order>;
+
+    TestBed.runInInjectionContext(() => {
+      create = injectMutation<Order>(useOrderCreate);
+    });
+
+    await create.mutateAsync({ body: { total: 2 } }, { client: perCall.cache });
+    await settle();
+
+    expect(perCall.transport.calls).toHaveLength(1);
+    expect(hook.transport.calls).toHaveLength(0);
+    expect(create.data()).toEqual({ id: 2, total: 2 });
+  });
+
   it('records an error, and reset returns it to idle', async () => {
     const fx = harness(() => {
       throw new Error('conflict');

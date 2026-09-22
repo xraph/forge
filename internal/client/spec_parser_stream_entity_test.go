@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -233,5 +234,226 @@ func TestRegisterStreamBindingEntitiesWarnsOnUnnamedEntityType(t *testing.T) {
 	joined := strings.Join(spec.Warnings, "\n")
 	if !strings.Contains(joined, "/live/updates") || !strings.Contains(joined, "tick") {
 		t.Fatalf("Warnings = %v, want one naming channel /live/updates and message tick", spec.Warnings)
+	}
+}
+
+// Two Go types named Invoice were qualified apart when the document was
+// generated, and the component carries the qualified type it came from. The
+// binding was declared with the bare name and carries the same qualified type,
+// so it is matched to the component the entity table will hold, and its
+// derived collection tag follows.
+func TestStreamBindingResolvesARenamedComponentByGoType(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{
+		"BillingInvoice": {Type: "object",
+			Properties: map[string]*Schema{"id": {Type: "string"}},
+			Extensions: map[string]any{"x-forge-type": "github.com/acme/billing.Invoice"},
+		},
+		"ShippingInvoice": {Type: "object",
+			Properties: map[string]*Schema{"id": {Type: "string"}},
+			Extensions: map[string]any{"x-forge-type": "github.com/acme/shipping.Invoice"},
+		},
+	}}
+
+	bindings := []StreamBinding{
+		{Message: "invoice.created", EntityType: "Invoice", Intent: StreamUpsert,
+			Invalidates: []string{"Invoice[]", "Ledger[]"}, Type: "github.com/acme/shipping.Invoice"},
+	}
+
+	registerStreamBindingEntities(spec, "/ws/shipping", bindings)
+
+	if bindings[0].EntityType != "ShippingInvoice" {
+		t.Fatalf("EntityType = %q, want ShippingInvoice", bindings[0].EntityType)
+	}
+
+	if !slices.Equal(bindings[0].Invalidates, []string{"ShippingInvoice[]", "Ledger[]"}) {
+		t.Fatalf("Invalidates = %v, want the derived tag renamed and the declared one kept", bindings[0].Invalidates)
+	}
+
+	if _, ok := spec.Entities["ShippingInvoice"]; !ok {
+		t.Fatalf("entities = %v, want ShippingInvoice registered", spec.Entities)
+	}
+
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", spec.Warnings)
+	}
+}
+
+// A binding whose qualified type marks no component keeps its bare name and
+// reports the miss exactly as before.
+func TestStreamBindingWithUnmatchedGoTypeKeepsTheBareName(t *testing.T) {
+	spec := &APISpec{Schemas: map[string]*Schema{
+		"BillingInvoice": {Type: "object",
+			Properties: map[string]*Schema{"id": {Type: "string"}},
+			Extensions: map[string]any{"x-forge-type": "github.com/acme/billing.Invoice"},
+		},
+	}}
+
+	bindings := []StreamBinding{
+		{Message: "invoice.created", EntityType: "Invoice", Intent: StreamUpsert,
+			Invalidates: []string{"Invoice[]"}, Type: "github.com/acme/shipping.Invoice"},
+	}
+
+	registerStreamBindingEntities(spec, "/ws/shipping", bindings)
+
+	if bindings[0].EntityType != "Invoice" {
+		t.Fatalf("EntityType = %q, want Invoice", bindings[0].EntityType)
+	}
+
+	if len(spec.Warnings) != 1 || !strings.Contains(spec.Warnings[0], "no matching schema component") {
+		t.Fatalf("warnings = %v, want the unmatched binding reported", spec.Warnings)
+	}
+}
+
+// The extension's `type` field survives a JSON round trip into the binding.
+func TestStreamBindingsReadTheQualifiedType(t *testing.T) {
+	bindings := streamBindings(map[string]any{"x-forge-stream": []any{map[string]any{
+		"message":     "invoice.created",
+		"entityType":  "Invoice",
+		"intent":      "upsert",
+		"invalidates": []any{"Invoice[]"},
+		"type":        "github.com/acme/billing.Invoice",
+	}}})
+
+	if len(bindings) != 1 || bindings[0].Type != "github.com/acme/billing.Invoice" {
+		t.Fatalf("bindings = %+v, want the qualified type carried", bindings)
+	}
+}
+
+// wtChannelDocument is an AsyncAPI document with one WebTransport channel, as
+// the router's generator writes it: marked with its protocol, messages named
+// for how they travel, one operation per direction, and a stream binding.
+func wtChannelDocument() map[string]any {
+	order := map[string]any{"$ref": "#/components/schemas/Order"}
+
+	return map[string]any{
+		"asyncapi": "3.0.0",
+		"info":     map[string]any{"title": "Orders", "version": "1.0.0"},
+		"components": map[string]any{
+			"schemas": map[string]any{"Order": orderComponent()},
+		},
+		"channels": map[string]any{
+			"wt_orders": map[string]any{
+				"address":          "/wt/orders",
+				"x-forge-protocol": "webtransport",
+				"messages": map[string]any{
+					"datagram":    map[string]any{"payload": order},
+					"bidiSend":    map[string]any{"payload": order},
+					"bidiReceive": map[string]any{"payload": order},
+				},
+				"x-forge-stream": []any{map[string]any{
+					"message": "order.created", "entityType": "Order", "intent": "upsert",
+					"invalidates": []any{"Order[]"},
+				}},
+			},
+		},
+		"operations": map[string]any{
+			"ordersSend": map[string]any{
+				"action": "send", "channel": map[string]any{"$ref": "#/channels/wt_orders"},
+			},
+			"ordersReceive": map[string]any{
+				"action": "receive", "channel": map[string]any{"$ref": "#/channels/wt_orders"},
+			},
+		},
+	}
+}
+
+// A marked channel is a WebTransport endpoint, converted once for its two
+// operations, typed per stream kind, and carrying its bindings, which is what
+// lets a datagram take part in the cache the way a socket frame does.
+func TestSpecParserReadsAWebTransportChannel(t *testing.T) {
+	spec, err := NewSpecParser().ParseFile(context.Background(), writeSpec(t, wtChannelDocument()))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	assertWebTransportEndpoint(t, spec)
+}
+
+func assertWebTransportEndpoint(t *testing.T, spec *APISpec) {
+	t.Helper()
+
+	if len(spec.WebSockets) != 0 || len(spec.SSEs) != 0 {
+		t.Fatalf("marked channel was read as a socket or SSE stream: ws=%d sse=%d", len(spec.WebSockets), len(spec.SSEs))
+	}
+
+	if len(spec.WebTransports) != 1 {
+		t.Fatalf("WebTransports = %d, want the one channel converted once", len(spec.WebTransports))
+	}
+
+	wt := spec.WebTransports[0]
+
+	if wt.Path != "/wt/orders" || wt.DatagramSchema == nil || wt.BiStreamSchema == nil ||
+		wt.BiStreamSchema.SendSchema == nil || wt.BiStreamSchema.ReceiveSchema == nil {
+		t.Fatalf("endpoint = %+v, want datagram and both bidi halves typed", wt)
+	}
+
+	if wt.UniStreamSchema != nil {
+		t.Fatalf("UniStreamSchema = %+v, want nil for an undeclared kind", wt.UniStreamSchema)
+	}
+
+	if len(wt.StreamBindings) != 1 || wt.StreamBindings[0].EntityType != "Order" {
+		t.Fatalf("StreamBindings = %+v, want the Order binding", wt.StreamBindings)
+	}
+
+	if _, ok := spec.Entities["Order"]; !ok {
+		t.Fatalf("entities = %v, want Order registered from the binding", spec.Entities)
+	}
+}
+
+// The file path records the same per-direction messages the live path does.
+func TestSpecParserRecordsEachMessagePerDirection(t *testing.T) {
+	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/components/schemas/" + name} }
+	path := writeSpec(t, map[string]any{
+		"asyncapi": "3.0.0",
+		"info":     map[string]any{"title": "Chat", "version": "1.0.0"},
+		"servers":  map[string]any{"ws": map[string]any{"host": "localhost", "protocol": "ws"}},
+		"components": map[string]any{"schemas": map[string]any{
+			"Say":    map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}},
+			"Typing": map[string]any{"type": "object", "properties": map[string]any{"on": map[string]any{"type": "boolean"}}},
+			"Said":   map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}},
+		}},
+		"channels": map[string]any{
+			"ws_chat": map[string]any{
+				"address": "/ws/chat",
+				"servers": []any{map[string]any{"$ref": "#/servers/ws"}},
+				"messages": map[string]any{
+					"say":   map[string]any{"payload": ref("Say")},
+					"typed": map[string]any{"payload": ref("Typing")},
+					"said":  map[string]any{"payload": ref("Said")},
+				},
+			},
+		},
+		"operations": map[string]any{
+			"chatSend": map[string]any{
+				"action": "send", "channel": map[string]any{"$ref": "#/channels/ws_chat"},
+				"messages": []any{
+					map[string]any{"$ref": "#/channels/ws_chat/messages/say"},
+					map[string]any{"$ref": "#/channels/ws_chat/messages/typed"},
+				},
+			},
+			"chatReceive": map[string]any{
+				"action": "receive", "channel": map[string]any{"$ref": "#/channels/ws_chat"},
+				"messages": []any{map[string]any{"$ref": "#/channels/ws_chat/messages/said"}},
+			},
+		},
+	})
+
+	spec, err := NewSpecParser().ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	if len(spec.WebSockets) != 1 {
+		t.Fatalf("WebSockets = %d, want 1", len(spec.WebSockets))
+	}
+
+	ws := spec.WebSockets[0]
+
+	if got := sortedStringKeys(ws.SendMessages); !slices.Equal(got, []string{"say", "typed"}) {
+		t.Errorf("SendMessages = %v, want [say typed]", got)
+	}
+
+	if got := sortedStringKeys(ws.ReceiveMessages); !slices.Equal(got, []string{"said"}) {
+		t.Errorf("ReceiveMessages = %v, want [said]", got)
 	}
 }

@@ -29,6 +29,19 @@ export interface EntityStreamBinding {
   readonly intent: StreamIntent;
   /** Tag templates this message invalidates, unresolved. */
   readonly invalidates: readonly string[];
+  /**
+   * Turns the wire payload into the client-side shape the entities table
+   * describes.
+   *
+   * A REST response is decoded through the generated codec before it is
+   * normalized, so under camelCase naming the store sees `customerId` and the
+   * entities table names `customerId`. A frame used to skip that step: the
+   * payload went into the store as the wire wrote it, so a renamed id field
+   * never matched and a renamed nested field was never there to read. The
+   * generated manifest supplies the entity's codec here; absent means the
+   * wire shape is the client shape, which is what `preserve` naming produces.
+   */
+  readonly decode?: (payload: unknown) => unknown;
 }
 
 /**
@@ -286,6 +299,187 @@ export function webTransportConnection(
       transport.close();
     },
   };
+}
+
+/**
+ * A WebSocket, narrowed to what the adapter below touches.
+ *
+ * Structural, so the DOM `WebSocket`, the `ws` package's, and a test fake all
+ * fit, and so importing this module on a server names no browser global.
+ */
+export interface WebSocketLike {
+  onmessage: ((event: { readonly data: unknown }) => void) | null;
+  onclose: ((event?: unknown) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  send(data: string): void;
+  close(): void;
+}
+
+export interface WebSocketConnectionOptions {
+  /**
+   * Turn one message's `data` into a frame. JSON text is parsed by default and
+   * anything else is passed through, which covers a socket the application
+   * already configured for binary frames. A throw is reported and the frame
+   * dropped.
+   */
+  readonly parse?: (data: unknown) => unknown;
+}
+
+/**
+ * Adapt an already-open WebSocket to a `StreamConnection`.
+ *
+ * The socket is passed in open, as every adapter here takes its transport:
+ * this package opens nothing. `send` is there for `forgeKeepalive`, which
+ * answers the streaming extension's ping; an object is JSON-encoded and a
+ * string is sent as is.
+ */
+export function webSocketConnection(
+  socket: WebSocketLike,
+  options: WebSocketConnectionOptions = {},
+): StreamConnection {
+  const parse = options.parse ?? parseText;
+
+  let failed: ((error: unknown) => void) | undefined;
+  let over = false;
+
+  return {
+    onMessage(handler) {
+      socket.onmessage = (event) => {
+        try {
+          handler(parse(event.data));
+        } catch (error) {
+          failed?.(error);
+        }
+      };
+    },
+    onClose(handler) {
+      socket.onclose = (reason) => {
+        if (over) return;
+
+        over = true;
+        handler(reason);
+      };
+    },
+    onError(handler) {
+      failed = handler;
+      socket.onerror = (event) => handler(event);
+    },
+    send(message) {
+      socket.send(typeof message === 'string' ? message : JSON.stringify(message));
+    },
+    close() {
+      // The manager asked; a close it asked for is not a drop to reconnect from.
+      over = true;
+      socket.close();
+    },
+  };
+}
+
+/**
+ * An `EventSource`, narrowed to what the adapter below touches.
+ *
+ * Named events reach an `EventSource` only through `addEventListener`, so
+ * that is the one method the contract needs beyond `close`. `readyState`
+ * distinguishes an error the source will retry from one it has given up on.
+ */
+export interface EventSourceLike {
+  addEventListener(
+    type: string,
+    listener: (event: { readonly data: string; readonly lastEventId?: string }) => void,
+  ): void;
+  onerror: ((event: unknown) => void) | null;
+  readonly readyState?: number;
+  close(): void;
+}
+
+export interface EventSourceConnectionOptions {
+  /**
+   * The event names to listen for: the channel's messages in the generated
+   * `streams` table, which `channelMessages` reads out for you. An
+   * `EventSource` delivers a named event to nothing unless something asked
+   * for it by name, so a name missing here is a frame that never arrives.
+   */
+  readonly events: readonly string[];
+  /** Turn an event's `data` into a payload. JSON by default. */
+  readonly parse?: (data: string) => unknown;
+}
+
+/** The two control events the streaming extension sends on a resumed stream. */
+const CONTROL_EVENTS = ['forge.resumed', 'forge.gap'] as const;
+
+/**
+ * Adapt an `EventSource` to a `StreamConnection`.
+ *
+ * Each event is delivered as `{event, data, id}`, which the default frame
+ * decoder reads as a message named by `event`. The source's own reconnect is
+ * not used: an error closes the source and reports a drop, so the manager
+ * reconnects with its backoff and `StreamBinder` recovers the gap, the same
+ * way it does for a socket. Letting the source retry on its own would leave
+ * the manager thinking a connection it could not see was still open.
+ */
+export function eventSourceConnection(
+  source: EventSourceLike,
+  options: EventSourceConnectionOptions,
+): StreamConnection {
+  const parse = options.parse ?? ((data: string): unknown => JSON.parse(data));
+
+  let closed: ((reason?: unknown) => void) | undefined;
+  let failed: ((error: unknown) => void) | undefined;
+  let over = false;
+
+  const finish = (reason?: unknown): void => {
+    if (over) return;
+
+    over = true;
+    closed?.(reason);
+  };
+
+  return {
+    onMessage(handler) {
+      for (const name of [...options.events, ...CONTROL_EVENTS]) {
+        source.addEventListener(name, (event) => {
+          try {
+            handler({ event: name, data: parse(event.data), id: event.lastEventId });
+          } catch (error) {
+            failed?.(error);
+          }
+        });
+      }
+    },
+    onClose(handler) {
+      closed = handler;
+    },
+    onError(handler) {
+      failed = handler;
+      source.onerror = (event) => {
+        // A source already closed has nothing further to say.
+        if (over) return;
+
+        handler(event);
+        source.close();
+        finish(event);
+      };
+    },
+    close() {
+      over = true;
+      source.close();
+    },
+  };
+}
+
+/** The message names the generated `streams` table binds on one channel. */
+export function channelMessages(bindings: readonly StreamBinding[], channel: string): string[] {
+  const names: string[] = [];
+
+  for (const b of bindings) {
+    if (!isDuplex(b) && b.channel === channel && !names.includes(b.message)) names.push(b.message);
+  }
+
+  return names;
+}
+
+function parseText(data: unknown): unknown {
+  return typeof data === 'string' ? JSON.parse(data) : data;
 }
 
 /** Everything the factory is told about the socket it is being asked for. */
