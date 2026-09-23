@@ -60,11 +60,25 @@ type SpanView struct {
 	Duration     time.Duration     `json:"duration"`
 	Attributes   map[string]string `json:"attributes"`
 	Events       []SpanEventView   `json:"events"`
+	HTTP         *HTTPExchange     `json:"http,omitempty"`
 
 	// Computed display fields (populated by TraceStore.buildTraceDetail)
 	Depth         int     `json:"depth"`
 	OffsetPercent float64 `json:"offset_percent"`
 	WidthPercent  float64 `json:"width_percent"`
+}
+
+// HTTPExchange contains request and response data retained with an HTTP span.
+// The dashboard middleware limits headers to an allowlist and captures only
+// opt-in JSON request bodies. Other instrumentation may supply either body.
+type HTTPExchange struct {
+	Request  HTTPMessage `json:"request"`
+	Response HTTPMessage `json:"response"`
+}
+
+type HTTPMessage struct {
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
 }
 
 // SpanEventView is a display-friendly span event.

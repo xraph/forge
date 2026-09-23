@@ -1,7 +1,11 @@
 package dashboard
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,6 +18,62 @@ import (
 // agents come straight from the caller and are retained for the whole
 // retention window, so they need a ceiling.
 const maxAttrValueLen = 256
+const maxTraceBodyBytes = 4096
+
+type replayBody struct {
+	io.Reader
+	io.Closer
+}
+
+func safeTraceHeaders(headers http.Header, names ...string) map[string]string {
+	out := make(map[string]string)
+	for _, name := range names {
+		if value := headers.Get(name); value != "" {
+			out[http.CanonicalHeaderKey(name)] = truncateAttr(value, maxAttrValueLen)
+		}
+	}
+	return out
+}
+
+func redactTraceJSON(value any) any {
+	switch data := value.(type) {
+	case map[string]any:
+		for key, child := range data {
+			lower := strings.ToLower(key)
+			if strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "credential") || strings.Contains(lower, "authorization") || strings.Contains(lower, "cookie") || strings.Contains(lower, "api_key") || strings.Contains(lower, "apikey") {
+				data[key] = "[redacted]"
+			} else {
+				data[key] = redactTraceJSON(child)
+			}
+		}
+	case []any:
+		for i, child := range data {
+			data[i] = redactTraceJSON(child)
+		}
+	}
+	return value
+}
+
+func captureRequestJSON(req *http.Request) string {
+	if req.Body == nil || req.ContentLength <= 0 || req.ContentLength > maxTraceBodyBytes || !strings.Contains(strings.ToLower(req.Header.Get("Content-Type")), "application/json") {
+		return ""
+	}
+	original := req.Body
+	raw, err := io.ReadAll(io.LimitReader(original, maxTraceBodyBytes+1))
+	req.Body = &replayBody{Reader: io.MultiReader(bytes.NewReader(raw), original), Closer: original}
+	if err != nil || len(raw) > maxTraceBodyBytes {
+		return ""
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	encoded, err := json.Marshal(redactTraceJSON(value))
+	if err != nil || len(encoded) > maxTraceBodyBytes {
+		return ""
+	}
+	return string(encoded)
+}
 
 // truncateAttr shortens s to at most max bytes, ending on a rune boundary and
 // marking the cut. Values already within the limit are returned unchanged.
@@ -53,7 +113,7 @@ func isDashboardPath(path, basePath string) bool {
 // and feeds them into the given TraceStore. Only dashboard internals (static
 // assets, SSE streams, and bridge calls) are excluded — page navigations and
 // API calls are traced so the tracing UI has data out of the box.
-func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middleware {
+func TracingMiddleware(store *collector.TraceStore, basePath string, captureRequestBody ...bool) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
 			req := ctx.Request()
@@ -98,9 +158,16 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 
 			// Determine protocol from request/path.
 			protocol := inferRequestProtocol(req.Header.Get("Upgrade"), path)
+			httpExchange := &collector.HTTPExchange{
+				Request: collector.HTTPMessage{Headers: safeTraceHeaders(req.Header, "Accept", "Content-Type", "Content-Length", "User-Agent", "X-Request-ID", "Traceparent")},
+			}
+			if len(captureRequestBody) > 0 && captureRequestBody[0] {
+				httpExchange.Request.Body = captureRequestJSON(req)
+			}
 
 			// Execute the handler.
 			err := next(ctx)
+			httpExchange.Response.Headers = safeTraceHeaders(ctx.Response().Header(), "Content-Type", "Content-Length", "Cache-Control", "X-Request-ID")
 
 			end := time.Now()
 
@@ -140,6 +207,7 @@ func TracingMiddleware(store *collector.TraceStore, basePath string) forge.Middl
 				Duration:   end.Sub(start),
 				Attributes: attrs,
 				Events:     []collector.SpanEventView{},
+				HTTP:       httpExchange,
 			}
 
 			store.AddSpan(span)

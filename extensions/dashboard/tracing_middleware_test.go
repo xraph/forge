@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,6 +13,67 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	forge_http "github.com/xraph/go-utils/http"
 )
+
+func TestTracingMiddleware_HTTPInspection(t *testing.T) {
+	for _, captureBody := range []bool{false, true} {
+		store := collector.NewTraceStore(10, time.Hour)
+		body := `{"name":"Ada","password":"private","nested":{"api_key":"private"}}`
+		req := httptest.NewRequest("POST", "/api/users", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer private")
+		req.Header.Set("X-Request-ID", "req_42")
+		ctx := forge_http.NewContext(httptest.NewRecorder(), req, nil)
+		handler := TracingMiddleware(store, "/dashboard", captureBody)(func(ctx forge.Context) error {
+			got, err := io.ReadAll(ctx.Request().Body)
+			if err != nil || string(got) != body {
+				t.Errorf("handler received body %q, error %v", got, err)
+			}
+			ctx.Response().Header().Set("Content-Type", "application/json")
+			ctx.Response().Header().Set("Set-Cookie", "session=private")
+			return nil
+		})
+		if err := handler(ctx); err != nil {
+			t.Fatal(err)
+		}
+		summaries, _ := store.ListTraces(collector.TraceFilter{})
+		if len(summaries) != 1 {
+			t.Fatalf("got %d traces, want 1", len(summaries))
+		}
+		span := store.GetTrace(summaries[0].TraceID).Spans[0]
+		if span.HTTP == nil {
+			t.Fatal("HTTP exchange missing")
+		}
+		if span.HTTP.Request.Headers["X-Request-Id"] != "req_42" || span.HTTP.Response.Headers["Content-Type"] != "application/json" {
+			t.Errorf("headers missing: %+v", span.HTTP)
+		}
+		if _, ok := span.HTTP.Request.Headers[http.CanonicalHeaderKey("Authorization")]; ok {
+			t.Error("authorization header was retained")
+		}
+		if _, ok := span.HTTP.Response.Headers[http.CanonicalHeaderKey("Set-Cookie")]; ok {
+			t.Error("cookie header was retained")
+		}
+		if captureBody {
+			if strings.Contains(span.HTTP.Request.Body, "private") || !strings.Contains(span.HTTP.Request.Body, "[redacted]") {
+				t.Errorf("body not redacted: %q", span.HTTP.Request.Body)
+			}
+		} else if span.HTTP.Request.Body != "" {
+			t.Errorf("body captured without opt-in: %q", span.HTTP.Request.Body)
+		}
+	}
+}
+
+func TestCaptureRequestJSON_SkipsExpandedBody(t *testing.T) {
+	body := `{"value":"` + strings.Repeat("<", 1000) + `"}`
+	req := httptest.NewRequest("POST", "/api/users", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if captured := captureRequestJSON(req); captured != "" {
+		t.Errorf("captured %d bytes after JSON encoding exceeded the limit", len(captured))
+	}
+	replayed, err := io.ReadAll(req.Body)
+	if err != nil || string(replayed) != body {
+		t.Errorf("request body was not replayed: %v", err)
+	}
+}
 
 func TestTruncateAttr_LeavesShortValuesAlone(t *testing.T) {
 	if got := truncateAttr("hello", 256); got != "hello" {

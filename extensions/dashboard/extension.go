@@ -428,7 +428,7 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	// Register tracing middleware to auto-capture request traces
 	if e.traceStore != nil {
-		e.app.Router().UseGlobal(TracingMiddleware(e.traceStore, e.config.BasePath))
+		e.app.Router().UseGlobal(TracingMiddleware(e.traceStore, e.config.BasePath, e.config.TraceCaptureRequestBody))
 		e.Logger().Debug("dashboard tracing middleware registered")
 	}
 

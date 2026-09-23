@@ -154,6 +154,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, asContractError(err))
 		return
 	}
+	if req.Kind == contract.KindCommand {
+		invalidates := make([]string, 0, len(in.Invalidates)+len(meta.Invalidates))
+		seen := make(map[string]bool)
+		for _, intent := range append(append([]string(nil), in.Invalidates...), meta.Invalidates...) {
+			if !seen[intent] {
+				invalidates = append(invalidates, intent)
+				seen[intent] = true
+			}
+		}
+		meta.Invalidates = invalidates
+	}
 	writeOK(w, contract.Response{
 		OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta,
 	})

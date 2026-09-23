@@ -83,6 +83,10 @@ type Config struct {
 	// field when the source value is non-zero, so an explicit 0 here is
 	// silently skipped and the default survives.
 	TraceIdleTTL time.Duration `json:"trace_idle_ttl" yaml:"trace_idle_ttl"`
+	// TraceCaptureRequestBody retains a bounded, redacted JSON request body in
+	// the in-memory trace store. It is opt-in because arbitrary fields may hold
+	// private data even after credential-shaped keys are removed.
+	TraceCaptureRequestBody bool `json:"trace_capture_request_body" yaml:"trace_capture_request_body"`
 
 	// Proxy/Remote
 	ProxyTimeout time.Duration `json:"proxy_timeout"  yaml:"proxy_timeout"`
@@ -338,6 +342,11 @@ func WithTraceMaxSpansPerTrace(n int) ConfigOption {
 // explicit zero here can be silently skipped in favor of the existing value.
 func WithTraceIdleTTL(duration time.Duration) ConfigOption {
 	return func(c *Config) { c.TraceIdleTTL = duration }
+}
+
+// WithTraceCaptureRequestBody enables bounded JSON request-body inspection.
+func WithTraceCaptureRequestBody(enabled bool) ConfigOption {
+	return func(c *Config) { c.TraceCaptureRequestBody = enabled }
 }
 
 // WithProxyTimeout sets the timeout for proxying requests to remote contributors.
