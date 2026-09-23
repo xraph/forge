@@ -17,5 +17,5 @@
   "extensions/search": "1.10.0",
   "extensions/security": "1.10.0",
   "extensions/streaming": "1.10.0",
-  "extensions/webrtc": "1.10.0"
+  "extensions/webrtc": "1.11.0"
 }
