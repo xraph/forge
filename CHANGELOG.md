@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.11.2](https://github.com/xraph/forge/compare/v1.11.1...v1.11.2) (2026-09-29)
+
+
+### Features
+
+* redesign startup banner (#110) ([7138b061](https://github.com/xraph/forge/commit/7138b061))
+* **client:** add generated cache and stream metadata (#109) ([745441d1](https://github.com/xraph/forge/commit/745441d1))
+
+
+### Bug Fixes
+
+* **client:** read a duplex channel's directions from the operations that speak them (#108) ([ce59927e](https://github.com/xraph/forge/commit/ce59927e))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.11.1 ([974ab534](https://github.com/xraph/forge/commit/974ab534))
+
 ## [1.11.1](https://github.com/xraph/forge/compare/v1.11.0...v1.11.1) (2026-09-15)
 
 
