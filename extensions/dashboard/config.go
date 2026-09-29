@@ -104,6 +104,9 @@ type Config struct {
 	// set to false during a rollout window where clients have not yet
 	// adopted CSRF tokens or the idempotency-key contract.
 	EnableContractSecurity bool `json:"enable_contract_security" yaml:"enable_contract_security"`
+	// ContractMaxBodyBytes caps the contract envelope a client may POST.
+	// Zero or less means transport.DefaultMaxBodyBytes (1 MiB).
+	ContractMaxBodyBytes int64 `json:"contract_max_body_bytes" yaml:"contract_max_body_bytes"`
 
 	// Authentication
 	EnableAuth    bool   `json:"enable_auth"    yaml:"enable_auth"`    // enable auth support
@@ -385,6 +388,13 @@ func WithCSRF(enabled bool) ConfigOption {
 // where clients have not yet adopted CSRF tokens or idempotency keys.
 func WithContractSecurity(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableContractSecurity = enabled }
+}
+
+// WithContractMaxBodyBytes caps the contract envelope a client may POST.
+// Larger bodies are refused with 413 before they are decoded. Zero or less
+// keeps the 1 MiB default.
+func WithContractMaxBodyBytes(n int64) ConfigOption {
+	return func(c *Config) { c.ContractMaxBodyBytes = n }
 }
 
 // WithTheme sets the UI theme (light, dark, auto).

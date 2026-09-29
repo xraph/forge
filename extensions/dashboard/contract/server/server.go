@@ -34,6 +34,7 @@ type Server struct {
 	reg      contract.Registry
 	dispatch http.Handler
 	prefix   string
+	handler  []transport.HandlerOption
 }
 
 // Option configures a Server.
@@ -50,6 +51,14 @@ func WithPrefix(p string) Option {
 	}
 }
 
+// WithMaxBodyBytes caps the dispatch request envelope at n bytes. The
+// default is transport.DefaultMaxBodyBytes; n <= 0 keeps it.
+func WithMaxBodyBytes(n int64) Option {
+	return func(s *Server) {
+		s.handler = append(s.handler, transport.WithMaxBodyBytes(n))
+	}
+}
+
 // New returns a Server configured to serve the registry + dispatcher
 // passed in. The supplied audit emitter is plumbed through to the
 // dispatch handler; pass contract.NoopAuditEmitter{} when not needed.
@@ -61,13 +70,14 @@ func New(
 	opts ...Option,
 ) *Server {
 	s := &Server{
-		reg:      reg,
-		dispatch: transport.NewHandler(reg, wreg, disp, audit),
-		prefix:   DefaultPrefix,
+		reg:    reg,
+		prefix: DefaultPrefix,
 	}
 	for _, o := range opts {
 		o(s)
 	}
+
+	s.dispatch = transport.NewHandler(reg, wreg, disp, audit, s.handler...)
 	return s
 }
 
