@@ -4,7 +4,9 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -31,23 +33,49 @@ func (NilDispatcher) Dispatch(_ context.Context, _ contract.Request, _ contract.
 // supportedEnvelopes is the set this slice's handler understands.
 var supportedEnvelopes = map[string]bool{"v1": true}
 
+// DefaultMaxBodyBytes caps the request envelope when no WithMaxBodyBytes
+// option is given. The whole envelope is decoded before the intent's
+// Requires predicate can run, so this cap is what bounds the work an
+// unauthorized caller can make the server do.
+const DefaultMaxBodyBytes int64 = 1 << 20
+
+// HandlerOption configures the handler returned by NewHandler.
+type HandlerOption func(*handler)
+
+// WithMaxBodyBytes sets the largest request envelope the handler will read.
+// A larger body is refused with 413 and CodeBadRequest. n <= 0 keeps
+// DefaultMaxBodyBytes; there is no way to switch the cap off.
+func WithMaxBodyBytes(n int64) HandlerOption {
+	return func(h *handler) {
+		if n > 0 {
+			h.maxBody = n
+		}
+	}
+}
+
 // NewHandler returns the POST /api/dashboard/{envelope} handler.
-func NewHandler(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter) http.Handler {
+func NewHandler(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter, opts ...HandlerOption) http.Handler {
 	if disp == nil {
 		disp = NilDispatcher{}
 	}
 	if audit == nil {
 		audit = contract.NoopAuditEmitter{}
 	}
-	return &handler{reg: reg, wreg: wreg, disp: disp, audit: audit}
+
+	h := &handler{reg: reg, wreg: wreg, disp: disp, audit: audit, maxBody: DefaultMaxBodyBytes}
+	for _, o := range opts {
+		o(h)
+	}
+
+	return h
 }
 
 // NewHandlerWithCSRF is NewHandler plus a CSRFManager for command validation.
 // When mgr is non-nil, command envelopes whose CSRF token does not validate
 // return CodeUnauthenticated. Pass nil to skip CSRF (preserves the slice-(a)
 // behaviour for tests and rollout opt-out).
-func NewHandlerWithCSRF(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter, mgr *security.CSRFManager) http.Handler {
-	h := NewHandler(reg, wreg, disp, audit).(*handler)
+func NewHandlerWithCSRF(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter, mgr *security.CSRFManager, opts ...HandlerOption) http.Handler {
+	h := NewHandler(reg, wreg, disp, audit, opts...).(*handler)
 	h.csrfMgr = mgr
 	return h
 }
@@ -58,6 +86,7 @@ type handler struct {
 	disp    Dispatcher
 	audit   contract.AuditEmitter
 	csrfMgr *security.CSRFManager // optional; nil disables CSRF validation
+	maxBody int64                 // envelope size cap; always > 0
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -66,8 +95,21 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+	// The intent name lives inside the envelope, so its Requires predicate
+	// cannot run until the body is decoded. Cap the body first: any caller,
+	// authorized or not, can otherwise make us read and decode without bound.
+	// A declared length over the cap is refused without reading a byte.
+	if r.ContentLength > h.maxBody {
+		writeBodyTooLarge(w, h.maxBody)
+		return
+	}
 	var req contract.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, h.maxBody)).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeBodyTooLarge(w, h.maxBody)
+			return
+		}
 		writeError(w, http.StatusBadRequest, &contract.Error{Code: contract.CodeBadRequest, Message: "invalid JSON: " + err.Error()})
 		return
 	}
@@ -232,6 +274,13 @@ func asContractError(err error) *contract.Error {
 func writeOK(w http.ResponseWriter, r contract.Response) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(r)
+}
+
+func writeBodyTooLarge(w http.ResponseWriter, limit int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, &contract.Error{
+		Code:    contract.CodeBadRequest,
+		Message: "request body exceeds " + strconv.FormatInt(limit, 10) + " bytes",
+	})
 }
 
 func writeError(w http.ResponseWriter, status int, e *contract.Error) {

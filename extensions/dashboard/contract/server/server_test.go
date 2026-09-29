@@ -168,3 +168,18 @@ func TestRoundTrip_HostToUpstream(t *testing.T) {
 		t.Errorf("round trip data = %+v", got)
 	}
 }
+
+func TestServer_WithMaxBodyBytesReachesDispatch(t *testing.T) {
+	s := New(contract.NewRegistry(), contract.NewWardenRegistry(), nil, contract.NoopAuditEmitter{}, WithMaxBodyBytes(64))
+	body, _ := json.Marshal(contract.Request{
+		Envelope: "v1", Kind: contract.KindQuery,
+		Contributor: "things", Intent: "things.list", IntentVersion: 1,
+		Payload: json.RawMessage(`"` + strings.Repeat("a", 64) + `"`),
+	})
+	req := httptest.NewRequest(http.MethodPost, s.DispatchPath(), bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body=%s", w.Code, w.Body)
+	}
+}

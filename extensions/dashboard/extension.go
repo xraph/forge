@@ -1856,7 +1856,9 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 	if e.config.EnableContractSecurity && e.csrfMgr != nil {
 		mgr = e.csrfMgr
 	}
-	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr)
+
+	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr,
+		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes))
 	return h.ServeHTTP
 }
 
