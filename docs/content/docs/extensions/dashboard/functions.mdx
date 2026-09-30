@@ -27,6 +27,7 @@ description: Public API reference for the Dashboard extension
 |---|---|---|
 | `RegisterRemoteContractContributor` | `(ctx context.Context, baseURL, apiKey string) error` | Fetch a remote service's contract manifest and forward that contributor's envelopes to it |
 | `UnregisterRemoteContractContributor` | `(name string)` | Remove a remote contributor. Safe for unknown names |
+| `SetDiscoveryService` | `(svc discovery.DiscoveryService)` | Find remote contributors through service discovery. Needs `WithDiscovery(true)` |
 
 ### Auth
 

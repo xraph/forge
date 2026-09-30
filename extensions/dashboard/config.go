@@ -70,6 +70,13 @@ type Config struct {
 	// an "access denied" screen is the client's job.
 	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
+	// Discovery. With EnableDiscovery on and a discovery service set through
+	// SetDiscoveryService, services registered under DiscoveryTag that serve
+	// a contract manifest are added as remote contributors automatically.
+	EnableDiscovery       bool          `json:"enable_discovery"        yaml:"enable_discovery"`
+	DiscoveryTag          string        `json:"discovery_tag"           yaml:"discovery_tag"`
+	DiscoveryPollInterval time.Duration `json:"discovery_poll_interval" yaml:"discovery_poll_interval"`
+
 	// Export
 	EnableExport  bool     `json:"enable_export"  yaml:"enable_export"`
 	ExportFormats []string `json:"export_formats" yaml:"export_formats"`
@@ -84,6 +91,10 @@ func DefaultConfig() Config {
 		BasePath: "/dashboard",
 
 		EnableExport: true,
+
+		EnableDiscovery:       false,
+		DiscoveryTag:          "forge-dashboard-contributor",
+		DiscoveryPollInterval: 60 * time.Second,
 
 		RefreshInterval: 30 * time.Second,
 		HistoryDuration: 30 * time.Minute,
@@ -134,6 +145,24 @@ func WithBasePath(path string) ConfigOption {
 // WithExport enables or disables export functionality.
 func WithExport(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableExport = enabled }
+}
+
+// WithDiscovery turns on automatic registration of remote contributors found
+// through the discovery service set with SetDiscoveryService.
+func WithDiscovery(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableDiscovery = enabled }
+}
+
+// WithDiscoveryTag sets the discovery tag a service registers under to be
+// picked up as a dashboard contributor.
+func WithDiscoveryTag(tag string) ConfigOption {
+	return func(c *Config) { c.DiscoveryTag = tag }
+}
+
+// WithDiscoveryPollInterval sets how often discovery is checked for new,
+// changed or departed contributors.
+func WithDiscoveryPollInterval(interval time.Duration) ConfigOption {
+	return func(c *Config) { c.DiscoveryPollInterval = interval }
 }
 
 // WithRefreshInterval sets the data collection refresh interval.

@@ -34,6 +34,11 @@ extensions:
     login_path: "/login"
     required_roles: []
 
+    # Discovery of remote contributors
+    enable_discovery: false
+    discovery_tag: "forge-dashboard-contributor"
+    discovery_poll_interval: "60s"
+
     # Export
     enable_export: true
     export_formats:
@@ -107,6 +112,14 @@ Setting `TraceIdleTTL` to zero doesn't reliably turn the gate off. Under a Confi
 | `RequiredRoles` | `[]string` | none | `WithRequiredRoles()` | When set, `/principal` answers 403 for users without at least one of these roles |
 
 Auth does nothing until something calls `SetAuthChecker`. An auth extension that implements `DashboardAuthAware` does that for you.
+
+### Discovery
+
+| Field | Type | Default | Option | Description |
+|---|---|---|---|---|
+| `EnableDiscovery` | `bool` | `false` | `WithDiscovery()` | Register remote contributors found through the discovery service set with `SetDiscoveryService` |
+| `DiscoveryTag` | `string` | `"forge-dashboard-contributor"` | `WithDiscoveryTag()` | The tag a service registers under to be picked up |
+| `DiscoveryPollInterval` | `time.Duration` | `60s` | `WithDiscoveryPollInterval()` | How often discovery is checked for new, changed or departed services |
 
 ### Export
 

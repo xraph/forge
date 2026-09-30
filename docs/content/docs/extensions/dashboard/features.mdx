@@ -97,6 +97,21 @@ err := dashExt.RegisterRemoteContractContributor(ctx, "https://reports.internal:
 
 The dashboard fetches the manifest from `/_forge/contract/manifest`, validates it, and forwards envelopes for that contributor to `/_forge/contract/dispatch`. The API key goes out as a bearer token. The end user's identity rides along in `X-Forwarded-Authorization` and `X-Forwarded-Cookie`.
 
+### Discovering Remote Contributors
+
+You don't have to register each service by hand. Turn discovery on and give the dashboard your discovery service:
+
+```go
+dashExt := dashboard.NewExtension(dashboard.WithDiscovery(true))
+
+// In a PhaseAfterRegister hook, once the discovery extension is up:
+dashExt.(*dashboard.Extension).SetDiscoveryService(myDiscoveryAdapter)
+```
+
+Every healthy instance registered under the `forge-dashboard-contributor` tag (change it with `WithDiscoveryTag`) is fetched and registered exactly as `RegisterRemoteContractContributor` would. If an instance carries `forge-api-key` metadata, that key is sent as its bearer token.
+
+The dashboard checks discovery every minute by default (`WithDiscoveryPollInterval`). A service that changes its manifest is re-registered, and a service that leaves discovery is removed. When you run several replicas of one service, one of them serves the contributor at a time, and another takes over in the same pass if it goes away. The dashboard skips its own instance.
+
 ## Authentication
 
 The dashboard doesn't sign anyone in. You give it an `AuthChecker`, and it attaches the result to every contract request:

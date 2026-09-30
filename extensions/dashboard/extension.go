@@ -23,6 +23,7 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
+	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
 	"github.com/xraph/forge/extensions/dashboard/handlers"
 	"github.com/xraph/forge/extensions/dashboard/security"
 )
@@ -45,6 +46,9 @@ type Extension struct {
 	traceStore     *collector.TraceStore
 	authChecker    dashauth.AuthChecker
 	tenantResolver dashauth.TenantResolver
+
+	discoverySvc   dashboarddiscovery.DiscoveryService
+	discoveryInteg *dashboarddiscovery.Integration
 
 	routesRegistered bool
 
@@ -299,6 +303,22 @@ func (e *Extension) Start(ctx context.Context) error {
 	// Start data collection
 	go e.collector.Start(ctx, e.config.RefreshInterval)
 
+	// Discovery must start after PhaseAfterRegister, where consumers wire
+	// SetDiscoveryService, and that phase fires only once every extension's
+	// Start has returned. A BeforeRun hook gives the wiring its turn first;
+	// starting here would find the service still nil and skip discovery.
+	if e.config.EnableDiscovery {
+		if err := forge.OnBeforeRun(e.app, "dashboard-discovery-startup", func(hookCtx context.Context, _ forge.App) error {
+			e.startDiscovery(hookCtx)
+
+			return nil
+		}); err != nil {
+			e.Logger().Warn("failed to register discovery startup hook",
+				forge.F("error", err.Error()),
+			)
+		}
+	}
+
 	e.MarkStarted()
 	e.Logger().Info("dashboard extension started",
 		forge.F("base_path", e.config.BasePath),
@@ -511,6 +531,10 @@ func (e *Extension) contributorStatusFor(name string) (transport.ContributorStat
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping dashboard extension")
 
+	if e.discoveryInteg != nil {
+		e.discoveryInteg.Stop()
+	}
+
 	// Stop data collector
 	if e.collector != nil {
 		e.collector.Stop()
@@ -578,13 +602,24 @@ func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseU
 	if err != nil {
 		return fmt.Errorf("dashboard: fetch remote manifest: %w", err)
 	}
-	if err := loader.Validate(m, e.wardenRegistry); err != nil {
-		return fmt.Errorf("dashboard: validate remote manifest from %s: %w", baseURL, err)
+
+	return e.registerRemoteManifest(m, contract.RemoteEndpoint{BaseURL: baseURL, APIKey: apiKey})
+}
+
+// registerRemoteManifest validates an already-fetched remote manifest,
+// registers it with its endpoint, and makes sure envelopes for it are
+// forwarded. Both RegisterRemoteContractContributor and discovery go through
+// here, so a discovered contributor is held to exactly the same checks.
+func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
+	if e.contractRegistry == nil {
+		return fmt.Errorf("dashboard: contract registry not initialised")
 	}
-	if err := e.contractRegistry.RegisterRemote(m, contract.RemoteEndpoint{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-	}); err != nil {
+
+	if err := loader.Validate(m, e.wardenRegistry); err != nil {
+		return fmt.Errorf("dashboard: validate remote manifest from %s: %w", endpoint.BaseURL, err)
+	}
+
+	if err := e.contractRegistry.RegisterRemote(m, endpoint); err != nil {
 		return fmt.Errorf("dashboard: register remote contributor: %w", err)
 	}
 	// Idempotently install the forwarding dispatcher on first remote
@@ -594,9 +629,40 @@ func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseU
 	e.installForwardingDispatcherOnce()
 	e.Logger().Info("dashboard: remote contract contributor registered",
 		forge.F("contributor", m.Contributor.Name),
-		forge.F("base_url", baseURL),
+		forge.F("base_url", endpoint.BaseURL),
 	)
 	return nil
+}
+
+// SetDiscoveryService sets the discovery service used to find remote
+// contributors. Call it before the app runs, typically from a
+// PhaseAfterRegister hook, and turn discovery on with WithDiscovery(true).
+//
+// A remote service takes part by serving its intents with contract/server
+// and registering itself in discovery under DiscoveryTag. An instance's
+// "forge-api-key" metadata, when set, is sent to it as a bearer token.
+func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService) {
+	e.discoverySvc = svc
+}
+
+// startDiscovery starts polling the discovery service, if one was set.
+func (e *Extension) startDiscovery(ctx context.Context) {
+	if e.discoverySvc == nil {
+		e.Logger().Warn("dashboard discovery: no discovery service configured, skipping",
+			forge.F("hint", "call SetDiscoveryService() in a PhaseAfterRegister or earlier hook"),
+		)
+
+		return
+	}
+
+	e.discoveryInteg = dashboarddiscovery.NewIntegration(e.discoverySvc, dashboarddiscovery.Config{
+		Tag:          e.config.DiscoveryTag,
+		PollInterval: e.config.DiscoveryPollInterval,
+		Register:     e.registerRemoteManifest,
+		Unregister:   e.UnregisterRemoteContractContributor,
+		Logger:       e.Logger(),
+	})
+	e.discoveryInteg.Start(ctx)
 }
 
 // UnregisterRemoteContractContributor removes a previously registered

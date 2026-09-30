@@ -43,7 +43,7 @@ func (e *ReportsExtension) RegisterContractContributor(
 
 If your extension can be installed before it's configured, implement `DashboardStatusAware` as well, and the dashboard will show your plugin's setup guide until you report `Configured: true`.
 
-A contributor can also live in another service. Serve it there with `contract/server` and register it with `RegisterRemoteContractContributor`.
+A contributor can also live in another service. Serve it there with `contract/server`, then either register it with `RegisterRemoteContractContributor`, or turn on `WithDiscovery(true)` and let the dashboard find every service tagged `forge-dashboard-contributor` through `SetDiscoveryService`.
 
 ## Authentication
 
