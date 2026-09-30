@@ -30,7 +30,7 @@ type capabilitiesResponse struct {
 // This covers a gap that unit-level manifest tests cannot: loader.Load and
 // loader.Validate both accept a manifest that contract.Registry.Register then
 // rejects, and the discovery loop logs that rejection and carries on. The
-// visible symptom is not an error anywhere. It is streaming-contract quietly
+// visible symptom is not an error anywhere. It is the streaming contributor quietly
 // missing from /capabilities, with none of its intents reachable through the
 // dispatcher. Asserting on the served capabilities is the only assertion that
 // catches it.
@@ -74,7 +74,7 @@ func TestDashboardDiscovery_PublishesStreamingContract(t *testing.T) {
 	for _, c := range resp.Contributors {
 		names = append(names, c.Name)
 
-		if c.Name != "streaming-contract" {
+		if c.Name != "streaming" {
 			continue
 		}
 
@@ -84,7 +84,7 @@ func TestDashboardDiscovery_PublishesStreamingContract(t *testing.T) {
 	}
 
 	if streamingIntents == nil {
-		t.Fatalf("streaming-contract absent from capabilities; contributors = %v.\n"+
+		t.Fatalf("streaming contributor absent from capabilities; contributors = %v.\n"+
 			"The dashboard swallows contributor registration errors, so this is what a "+
 			"rejected manifest looks like from the outside. Check the dashboard's startup "+
 			"log for \"failed to register contract contributor\".", names)
@@ -107,7 +107,7 @@ func TestDashboardDiscovery_PublishesStreamingContract(t *testing.T) {
 
 	for _, w := range want {
 		if !got[w] {
-			t.Errorf("intent %q missing from streaming-contract capabilities; got %v", w, streamingIntents)
+			t.Errorf("intent %q missing from the streaming contributor capabilities; got %v", w, streamingIntents)
 		}
 	}
 }

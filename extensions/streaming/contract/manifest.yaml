@@ -1,6 +1,6 @@
 schemaVersion: 1
 contributor:
-  name: streaming-contract
+  name: streaming
   envelope:
     supports: [v1]
     preferred: v1

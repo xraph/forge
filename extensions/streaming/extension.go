@@ -1127,9 +1127,9 @@ func createLoadBalancer(config Config) lb.LoadBalancer {
 }
 
 // RegisterContractContributor implements dashboard.ContractContributorAware.
-// Wires the streaming-contract handlers into the dashboard's contract
+// Wires the streaming contributor handlers into the dashboard's contract
 // dispatcher and registers the embedded YAML manifest, serving
-// /dashboard/contract/streaming-contract/*. This is the only dashboard surface
+// /dashboard/contract/streaming/*. This is the only dashboard surface
 // streaming exposes: the server-rendered contributor that used to sit beside it
 // on /dashboard/ext/streaming/* is gone, and the UI is now the
 // @forge-go/dashboard-plugin-streaming React package, which joins to this

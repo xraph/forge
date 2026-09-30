@@ -13,7 +13,7 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if m.Contributor.Name != "streaming-contract" {
+	if m.Contributor.Name != "streaming" {
 		t.Errorf("contributor name = %q", m.Contributor.Name)
 	}
 	if got := len(m.Intents); got < 14 {
@@ -27,7 +27,7 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 // Register is covered end to end by
 // TestDashboardDiscovery_PublishesStreamingContract in the parent package,
 // which boots a real Forge app with the real dashboard extension and asserts
-// streaming-contract reaches the capabilities endpoint. It lives there rather
+// the streaming contributor reaches the capabilities endpoint. It lives there rather
 // than here because only a package outside contract/ can import the dashboard
 // extension without a cycle.
 //
@@ -35,4 +35,4 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 // contract.Registry.Register enforces rules the loader does not. A manifest
 // that loads and validates here can still be rejected at registration, and the
 // dashboard logs that rejection and carries on, so the only visible symptom
-// is streaming-contract missing from /capabilities.
+// is the streaming contributor missing from /capabilities.

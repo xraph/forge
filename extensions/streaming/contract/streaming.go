@@ -50,7 +50,7 @@ func Register(disp *dispatcher.Dispatcher, contractReg dashcontract.Registry, wr
 		return fmt.Errorf("streaming/contract: register manifest: %w", err)
 	}
 
-	const c = "streaming-contract"
+	const c = "streaming"
 
 	// Reads
 	if err := dispatcher.RegisterQuery(disp, c, "stats", 1, statsHandler(deps.Manager)); err != nil {
