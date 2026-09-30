@@ -1,10 +1,8 @@
 // Package contract is the streaming extension's dashboard contract contributor.
-// It is the slice (f) migration target — a parallel implementation of the
-// streaming dashboard surface using the new declarative contract instead of
-// templ rendering. Both paths coexist during the migration window:
-//
-//	/dashboard/ext/streaming/...      (legacy templ contributor — slice f keeps unchanged)
-//	/dashboard/contract/streaming-contract/...  (this package — new contract path)
+// It registers the streaming intents (channels, rooms, connections, presence,
+// stats) with the dashboard's dispatcher. The UI that reads them is the
+// @forge-go/dashboard-plugin-streaming React plugin; the Go side serves data
+// only.
 //
 // See SLICE_F_DESIGN.md in extensions/dashboard/contract/ for the design spec.
 package contract

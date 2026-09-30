@@ -51,9 +51,8 @@ const dashboardPackageJSONTemplate = `{
 // dashboardViteConfigTemplate sets base: "./" for the same reason
 // apps/shell/vite.config.ts does, in the xraph/forge-dashboard repo: a
 // custom build faces the identical mount problem. The reasoning is carried
-// over, not paraphrased away; only the last paragraph differs, because the
-// path this build takes to the browser differs -- ShellExternal registers no
-// Go-side handler to rewrite anything for it.
+// over, not paraphrased away. The last paragraph is specific to this build:
+// Forge serves no pages, so nothing on the Go side rewrites anything for it.
 const dashboardViteConfigTemplate = `import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
@@ -68,17 +67,12 @@ export default defineConfig({
   // asset URLs in index.html and Vite's preload resolver for lazy chunks, and
   // a deployment on any other path then 404s every script it asks for.
   //
-  // Forge's own embedded shell carries this identical comment for the
-  // identical reason (extensions/dashboard/shellassets in the forge repo).
-  // There, a Go handler rewrites index.html's relative asset URLs to an
-  // absolute one on the way out, so deep links still resolve. Nothing does
-  // that for this build: WithShellSource(ShellExternal) means Forge mounts no
-  // handler at {BasePath}/ui at all, so nobody rewrites this build's
-  // index.html for you. If you add client-side routes with deep links, make
-  // sure whatever serves this build returns the same index.html (and
-  // resolves its relative asset paths against the same directory) for every
-  // route your app matches -- a bare static file server that 404s on unknown
-  // paths will break them.
+  // Nothing rewrites this build's index.html for you. Forge serves no pages,
+  // only the data under {BasePath}/api/dashboard/v1. If you add client-side
+  // routes with deep links, make sure whatever serves this build returns the
+  // same index.html (and resolves its relative asset paths against the same
+  // directory) for every route your app matches. A bare static file server
+  // that 404s on unknown paths will break them.
   base: "./",
   resolve: {
     alias: {
@@ -200,13 +194,11 @@ import { TooltipProvider } from "@forge-go/dashboard-kit/components/tooltip"
 // and cascade a re-render to every consumer on each render of App.
 const plugins: ForgePlugin[] = []
 
-// configFromWindow() reads window.__FORGE_DASHBOARD__ -- what Forge's own
-// embedded shell has injected for it before the bundle loads. Nothing injects
-// that for this build: WithShellSource(ShellExternal) means Forge mounts no
-// handler at {BasePath}/ui, so configFromWindow() falls through to its own
-// empty-object default and basePath below picks the same default Forge
-// itself uses. Wire up the same injection yourself if you serve this build
-// from a Go handler that knows a different BasePath.
+// configFromWindow() reads window.__FORGE_DASHBOARD__, which Forge does not
+// inject because it serves no pages. So it falls through to its own
+// empty-object default, and basePath below picks the same default Forge
+// itself uses. Set window.__FORGE_DASHBOARD__ yourself if whatever serves
+// this build knows a different BasePath.
 const injected = configFromWindow()
 const config = { basePath: injected.basePath ?? "/dashboard", ...injected }
 
@@ -409,17 +401,14 @@ export default App
 `
 
 // dashboardReadmeTemplate covers exactly the three things the scaffold's
-// consumer needs: adding a plugin, building, and pointing Forge at the
-// result. The ShellExternal section states what actually happens --
-// {BasePath}/ui 404s through ForgeUI's own catch-all -- rather than implying
-// Forge will serve this build for them, which it does not.
+// consumer needs: adding a plugin, building, and serving the result. The
+// last section says plainly that Forge will not serve the build, because it
+// serves no pages at all.
 const dashboardReadmeTemplate = `# {{.DisplayName}}
 
-A standalone Vite + React + TypeScript dashboard shell, scaffolded by
-` + "`forge dashboard new`" + `. Reach for this when you have private or
-third-party dashboard plugins and want to build and serve the shell
-yourself, instead of the prebuilt shell Forge embeds and serves at
-` + "`{BasePath}/ui`" + ` by default.
+A Vite + React + TypeScript dashboard, scaffolded by
+` + "`forge dashboard new`" + `. Forge serves the dashboard's data but no pages,
+so this app is your dashboard: you add your plugins, build it, and serve it.
 
 ## Add a plugin
 
@@ -457,22 +446,19 @@ not know at build time where you will mount it, and a deployment under any
 base path other than the default one 404s every asset it asks for unless the
 base stays relative.
 
-## Point Forge at it
+## Serve it
+
+Register the dashboard extension as usual. It needs no extra option:
 
 ` + "```go" + `
-dashboard.NewExtension(
-    dashboard.WithShellSource(dashboard.ShellExternal),
-)
+app.RegisterExtension(dashboard.NewExtension())
 ` + "```" + `
 
-` + "`ShellExternal`" + ` means Forge registers no shell at
-` + "`{BasePath}/ui`" + ` -- not that the path is left unrouted. A request
-there gets a real 404, produced by ForgeUI's own catch-all route, because
-nothing registers a page there. Forge does not serve ` + "`dist/`" + ` for
-you: you are responsible for that yourself, however you already serve static
-assets -- your own file server, a reverse proxy, a CDN. The rest of the
-dashboard extension is unaffected either way; this shell talks to the same
-data contract under ` + "`{BasePath}/api/dashboard/v1`" + `.
+Forge serves the data under ` + "`{BasePath}/api/dashboard/v1`" + ` and nothing
+else. It won't serve ` + "`dist/`" + ` for you, so that part is yours: your own
+file server, a reverse proxy, a CDN, whatever you already use for static
+assets. Keep it on the same origin as Forge, or proxy the API through it, so
+the dashboard's requests stay same-origin.
 `
 
 // dashboardNextPageTemplate is the App Router mount. "use client" is required

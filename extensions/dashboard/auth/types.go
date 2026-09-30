@@ -10,53 +10,6 @@ import (
 	"strings"
 )
 
-// AccessLevel defines the protection level for a dashboard page or route.
-type AccessLevel int
-
-const (
-	// AccessPublic means the page is always accessible without authentication.
-	AccessPublic AccessLevel = iota
-
-	// AccessProtected means authentication is required; unauthenticated users
-	// are redirected to the login page.
-	AccessProtected
-
-	// AccessPartial means the page is always accessible but may render
-	// differently depending on authentication state. The page handler should
-	// check UserFromContext to adapt its output.
-	AccessPartial
-)
-
-// String returns the string representation of the access level.
-func (a AccessLevel) String() string {
-	switch a {
-	case AccessPublic:
-		return "public"
-	case AccessProtected:
-		return "protected"
-	case AccessPartial:
-		return "partial"
-	default:
-		return "public"
-	}
-}
-
-// ParseAccessLevel parses a string into an AccessLevel.
-// Accepted values: "public", "protected", "partial".
-// Returns AccessPublic for unrecognized values.
-func ParseAccessLevel(s string) AccessLevel {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "protected":
-		return AccessProtected
-	case "partial":
-		return AccessPartial
-	case "public":
-		return AccessPublic
-	default:
-		return AccessPublic
-	}
-}
-
 // UserInfo represents an authenticated dashboard user. This type is decoupled
 // from any specific auth provider — adapters convert provider-specific auth
 // contexts into UserInfo.

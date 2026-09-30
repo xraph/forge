@@ -97,6 +97,16 @@ func (b *StreamBroker) ServeStream(w http.ResponseWriter, r *http.Request) {
 	<-r.Context().Done()
 }
 
+// ConnectionCount reports how many stream connections are open right now.
+// The dashboard reads it to tell whether somebody is watching: a client that
+// only streams issues no further requests after it connects.
+func (b *StreamBroker) ConnectionCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.streams)
+}
+
 // SnapshotIDs returns currently-active stream IDs (test helper / introspection).
 func (b *StreamBroker) SnapshotIDs() []string {
 	b.mu.Lock()

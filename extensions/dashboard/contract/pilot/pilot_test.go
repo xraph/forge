@@ -9,7 +9,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 )
 
 func TestPilotRegister_RegistersAllIntents(t *testing.T) {
@@ -18,10 +17,10 @@ func TestPilotRegister_RegistersAllIntents(t *testing.T) {
 	wreg := contract.NewWardenRegistry()
 
 	deps := Deps{
-		ExtensionsRegistry: newRegistryWith(t, &contributor.Manifest{Name: "auth"}),
-		Services:           &stubServices{},
-		Metrics:            &stubMetrics{data: &collector.MetricsData{}},
-		MetricsInterval:    time.Millisecond,
+		Extensions:      stubExtensions{{Name: "auth"}},
+		Services:        &stubServices{},
+		Metrics:         &stubMetrics{data: &collector.MetricsData{}},
+		MetricsInterval: time.Millisecond,
 	}
 	if err := Register(d, reg, wreg, deps); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -46,9 +45,9 @@ func TestPilotRegister_DefaultsMetricsInterval(t *testing.T) {
 	reg := contract.NewRegistry()
 	wreg := contract.NewWardenRegistry()
 	deps := Deps{
-		ExtensionsRegistry: newRegistryWith(t),
-		Services:           &stubServices{},
-		Metrics:            &stubMetrics{data: &collector.MetricsData{}},
+		Extensions: stubExtensions{},
+		Services:   &stubServices{},
+		Metrics:    &stubMetrics{data: &collector.MetricsData{}},
 		// MetricsInterval intentionally zero
 	}
 	if err := Register(d, reg, wreg, deps); err != nil {

@@ -2,22 +2,18 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
 	"go.opentelemetry.io/otel"
 
 	internalmetrics "github.com/xraph/forge/internal/metrics"
 
-	dashassets "github.com/xraph/forge/extensions/dashboard/assets"
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/collector"
 	"github.com/xraph/forge/extensions/dashboard/contract"
@@ -27,63 +23,32 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract/pilot"
 	contractremote "github.com/xraph/forge/extensions/dashboard/contract/remote"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
-	dashboarddiscovery "github.com/xraph/forge/extensions/dashboard/discovery"
 	"github.com/xraph/forge/extensions/dashboard/handlers"
-	"github.com/xraph/forge/extensions/dashboard/layouts"
-	dashpages "github.com/xraph/forge/extensions/dashboard/pages"
-	"github.com/xraph/forge/extensions/dashboard/proxy"
-	"github.com/xraph/forge/extensions/dashboard/recovery"
-	"github.com/xraph/forge/extensions/dashboard/search"
 	"github.com/xraph/forge/extensions/dashboard/security"
-	"github.com/xraph/forge/extensions/dashboard/settings"
-	"github.com/xraph/forge/extensions/dashboard/sse"
-	dashtheme "github.com/xraph/forge/extensions/dashboard/theme"
-	"github.com/xraph/forge/extensions/dashboard/ui/shell"
-
-	"github.com/xraph/forgeui"
-	"github.com/xraph/forgeui/bridge"
-	"github.com/xraph/forgeui/router"
-	"github.com/xraph/forgeui/theme"
-	"github.com/xraph/forgeui/utils"
 )
 
-// Extension implements the extensible dashboard micro-frontend shell.
-// Contributors (local or remote) register pages, widgets, and settings
-// that are merged into a unified admin dashboard.
+// Extension serves the dashboard's data plane: the contract API under
+// {BasePath}/api/dashboard/v1 that every dashboard client talks to, plus the
+// collector, trace store and export endpoints behind it. It serves no web
+// pages. The dashboard UI is a separate React app built from the
+// @forge-go/dashboard-* packages, and extensions contribute to it by
+// registering contract intents (ContractContributorAware) and shipping a
+// plugin.
 type Extension struct {
 	*forge.BaseExtension
 
-	config                 Config
-	app                    forge.App
-	fuiApp                 *forgeui.App
-	layoutMgr              *layouts.LayoutManager
-	pagesMgr               *dashpages.PagesManager
-	registry               *contributor.ContributorRegistry
-	collector              *collector.DataCollector
-	history                *collector.DataHistory
-	dashBridge             *DashboardBridge
-	sseBroker              *sse.Broker
-	fragmentProxy          *proxy.FragmentProxy
-	discoverySvc           dashboarddiscovery.DiscoveryService
-	discoveryInteg         *dashboarddiscovery.Integration
-	recoveryMgr            *recovery.Manager
-	searcher               *search.FederatedSearch
-	settingsAgg            *settings.Aggregator
-	sanitizer              *security.Sanitizer
-	csrfMgr                *security.CSRFManager
-	themeMgr               *dashtheme.Manager
-	traceStore             *collector.TraceStore
-	authChecker            dashauth.AuthChecker
-	authPageProv           dashauth.AuthPageProvider
-	tenantResolver         dashauth.TenantResolver
-	routesRegistered       bool
-	authPagesRegistered    bool
-	footerActions          []shell.UserDropdownAction
-	notifiableContributors []contributor.NotifiableContributor
+	config         Config
+	app            forge.App
+	collector      *collector.DataCollector
+	history        *collector.DataHistory
+	csrfMgr        *security.CSRFManager
+	traceStore     *collector.TraceStore
+	authChecker    dashauth.AuthChecker
+	tenantResolver dashauth.TenantResolver
 
-	// Contract-track state — published alongside the legacy contributor
-	// registry. The dashboard contract provides an envelope-based transport
+	routesRegistered bool
+
+	// Contract state. The dashboard contract provides an envelope-based transport
 	// (POST /api/dashboard/v1) and an audit/warden pipeline. All four fields
 	// (contractRegistry, wardenRegistry, streamBroker, auditEmitter) plus the
 	// dispatcher below are non-nil after construction; the dispatcher acts as
@@ -122,22 +87,6 @@ type Extension struct {
 	// snapshots, so no cross-registry window needs guarding.
 	contributorStatusMu sync.Mutex
 	contributorStatus   map[string]DashboardStatusAware
-
-	// remoteWatchers tracks long-running goroutines that maintain explicit
-	// remote-contributor registrations (set up via WatchRemoteContributor).
-	// Each entry's cancel func is invoked from Stop so watchers shut down
-	// with the host instead of leaking past process exit.
-	remoteWatchersMu sync.Mutex
-	remoteWatchers   map[string]*remoteWatcher
-}
-
-// remoteWatcher holds the cancel func + identifying data for a single
-// WatchRemoteContributor goroutine.
-type remoteWatcher struct {
-	baseURL    string
-	cancel     context.CancelFunc
-	registered bool
-	name       string // contributor name once registered (best-effort, used for logs)
 }
 
 // NewExtension creates a new dashboard extension.
@@ -150,7 +99,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	base := forge.NewBaseExtension(
 		"dashboard",
 		"3.0.0",
-		"Extensible dashboard micro-frontend shell",
+		"Dashboard contract API and data collection",
 	)
 
 	auditStore := contract.NewInMemoryAuditStore(0)
@@ -204,9 +153,6 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("dashboard config validation failed: %w", err)
 	}
 
-	// Initialize contributor registry
-	e.registry = contributor.NewContributorRegistry(e.config.BasePath)
-
 	// Initialize data history. If the metrics provider supports time-series
 	// queries, pass it to DataHistory so metric charts query the provider
 	// directly instead of maintaining a parallel copy.
@@ -229,108 +175,28 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize trace store for dashboard tracing UI
 	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention, collector.WithMaxSpansPerTrace(e.config.TraceMaxSpansPerTrace))
 
-	// Initialize SSE broker (if real-time is enabled)
-	if e.config.EnableRealtime {
-		e.sseBroker = sse.NewBroker(e.config.SSEKeepAlive, e.Logger())
-		e.Logger().Debug("SSE broker initialized",
-			forge.F("keep_alive", e.config.SSEKeepAlive.String()),
-		)
-	}
-
 	// Retain spans only while somebody is actually using the dashboard. The
 	// marker is stamped by TracingMiddleware on any request under BasePath, and
-	// a live SSE subscriber counts too: a dashboard client consumes SSE directly
-	// rather than polling, so a viewer who only streams would otherwise fall
-	// outside the TTL window and starve. The gate stays open for as long as someone is
-	// looking (streaming or requesting) and shuts a few minutes after they
-	// stop. A service nobody ever visits pays nothing. Installed after the SSE
-	// broker so the closure can capture it (it is nil when realtime is
-	// disabled, which the closure handles).
+	// an open contract stream counts too: a client that only streams issues no
+	// further requests after it connects, so without this the gate would shut
+	// under an active viewer. A service nobody ever visits pays nothing.
+	//
+	// The closure reads e.streamBroker when it runs rather than capturing it
+	// here, because the broker is rebuilt against the upgraded dispatcher
+	// further down this method.
 	if ttl := e.config.TraceIdleTTL; ttl > 0 {
 		ts := e.traceStore
-		broker := e.sseBroker
 		ts.SetIngestGate(func() bool {
-			// Somebody has a live stream open: they are watching right now, even
-			// if the client issues no further requests. A dashboard client
-			// consumes SSE directly rather than polling, so without this the gate
-			// would shut under an active viewer.
-			if broker != nil && broker.ClientCount() > 0 {
+			if b := e.streamBroker; b != nil && b.ConnectionCount() > 0 {
 				return true
 			}
 			return time.Since(ts.LastAccessed()) < ttl
 		})
 	}
 
-	// Initialize fragment proxy for remote contributors
-	e.fragmentProxy = proxy.NewFragmentProxy(
-		e.registry,
-		e.config.CacheMaxSize,
-		e.config.CacheTTL,
-		e.config.ProxyTimeout,
-		e.Logger(),
-	)
-
-	// Initialize settings aggregator (if enabled) — must be before initializeForgeUI
-	// because PagesManager registers settings pages when the aggregator is available.
-	if e.config.EnableSettings {
-		e.settingsAgg = settings.NewAggregator(e.registry)
-	}
-
-	// Initialize ForgeUI app (creates bridge internally).
-	// Must be called after fragmentProxy and settingsAgg are initialized since
-	// PagesManager needs the proxy for remote contributor pages and the
-	// settings aggregator for settings pages.
-	e.initializeForgeUI()
-
-	// Use the forgeui-managed bridge for dashboard functions
-	if e.config.EnableBridge {
-		e.dashBridge = NewDashboardBridgeWithBridge(e.fuiApp.Bridge(), e.collector, e.history)
-		e.Logger().Debug("bridge function system initialized",
-			forge.F("functions", e.dashBridge.Bridge().FunctionCount()),
-		)
-	}
-
-	// Initialize recovery manager for remote contributors
-	e.recoveryMgr = recovery.NewManager(e.Logger())
-
-	// Wire recovery state changes to SSE broker for real-time UI updates
-	if e.sseBroker != nil {
-		e.recoveryMgr.SetOnStateChange(func(name string, oldState, newState recovery.HealthState) {
-			e.sseBroker.BroadcastJSON("contributor-health", map[string]any{
-				"contributor": name,
-				"old_state":   string(oldState),
-				"new_state":   string(newState),
-			})
-		})
-	}
-
-	// Initialize federated search (if enabled)
-	if e.config.EnableSearch {
-		e.searcher = search.NewFederatedSearch(e.registry, e.config.BasePath, e.Logger())
-	}
-
-	// Initialize security components
-	e.sanitizer = security.NewSanitizer()
-
 	if e.config.EnableCSRF {
 		e.csrfMgr = security.NewCSRFManager()
 		e.Logger().Debug("CSRF protection initialized")
-	}
-
-	// Initialize theme manager
-	e.themeMgr = dashtheme.NewManager(dashtheme.ThemeConfig{
-		Mode:      e.config.Theme,
-		CustomCSS: e.config.CustomCSS,
-	})
-
-	// e.registry was constructed fresh just above and nothing has registered
-	// into it yet, so this rebuild indexes zero contributors. It is kept
-	// anyway: RebuildIndex is a cheap, idempotent scan, and the call it
-	// mirrors 1:1 with the meaningful rebuild in discoverExtensionContributors
-	// below, which runs after contributors are actually registered and is
-	// the one that populates the index for real.
-	if e.searcher != nil {
-		e.searcher.RebuildIndex()
 	}
 
 	// Slice (b) Phase 6: replace the safe defaults wired in NewExtension with
@@ -368,14 +234,13 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register the contract-track pilot contributor (core-contract). This
 	// loads the embedded manifest, validates it against the warden registry,
-	// and binds the four pilot handlers (extensions.list / services.list /
-	// services.detail / metrics.summary) against the dispatcher. Must run
-	// after e.collector and e.registry are initialised — both feed the
-	// pilot Deps directly.
+	// and binds the pilot handlers against the dispatcher. Must run after
+	// e.collector and e.traceStore are initialised, since both feed the pilot
+	// Deps directly.
 	if err := pilot.Register(e.dispatcher, e.contractRegistry, e.wardenRegistry, pilot.Deps{
-		ExtensionsRegistry: e.registry,
-		Services:           e.collector,
-		Metrics:            e.collector,
+		Extensions: appExtensions{app: app},
+		Services:   e.collector,
+		Metrics:    e.collector,
 		// Slice (h): wire the remaining data sources (the same ones the old
 		// core pages rendered) so the pilot covers Overview / Health /
 		// Metrics report / Traces.
@@ -397,12 +262,8 @@ func (e *Extension) Register(app forge.App) error {
 
 	e.Logger().Info("dashboard extension registered",
 		forge.F("base_path", e.config.BasePath),
-		forge.F("realtime", e.config.EnableRealtime),
 		forge.F("export", e.config.EnableExport),
-		forge.F("search", e.config.EnableSearch),
-		forge.F("settings", e.config.EnableSettings),
-		forge.F("discovery", e.config.EnableDiscovery),
-		forge.F("bridge", e.config.EnableBridge),
+		forge.F("auth", e.config.EnableAuth),
 	)
 
 	return nil
@@ -418,13 +279,10 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	e.Logger().Info("starting dashboard extension")
 
-	// Auto-discover DashboardAware and BridgeAware extensions
-	e.discoverExtensionContributors(ctx)
-
-	// Pass discovered footer actions to layout manager
-	if e.layoutMgr != nil && len(e.footerActions) > 0 {
-		e.layoutMgr.SetFooterActions(e.footerActions)
-	}
+	// Auto-discover contract contributors and auth providers. Must run before
+	// registerRoutes: an auth provider sets the AuthChecker here, and the
+	// routes read it when they attach the auth middleware.
+	e.discoverExtensionContributors()
 
 	// Register tracing middleware to auto-capture request traces
 	if e.traceStore != nil {
@@ -438,75 +296,22 @@ func (e *Extension) Start(ctx context.Context) error {
 		e.routesRegistered = true
 	}
 
-	// Wire real-time SSE broadcasts for metrics, health, and traces.
-	if e.sseBroker != nil {
-		e.collector.SetOnCollect(func(overview *collector.OverviewData, health *collector.HealthData, metrics *collector.MetricsData) {
-			e.sseBroker.BroadcastJSON(sse.EventHealthUpdate, map[string]any{
-				"overall_status": overview.OverallHealth,
-				"healthy_count":  overview.HealthyServices,
-				"total_services": overview.TotalServices,
-				"total_metrics":  overview.TotalMetrics,
-				"timestamp":      overview.Timestamp,
-			})
-			e.sseBroker.BroadcastJSON(sse.EventMetricsUpdate, map[string]any{
-				"total_metrics": metrics.Stats.TotalMetrics,
-				"counters":      metrics.Stats.Counters,
-				"gauges":        metrics.Stats.Gauges,
-				"histograms":    metrics.Stats.Histograms,
-				"timestamp":     metrics.Timestamp,
-			})
-		})
-
-		if e.traceStore != nil {
-			e.traceStore.SetOnTraceAdded(func(traceID string, spanCount int) {
-				e.sseBroker.BroadcastJSON(sse.EventTraceUpdate, map[string]any{
-					"trace_id":   traceID,
-					"span_count": spanCount,
-				})
-			})
-		}
-	}
-
 	// Start data collection
 	go e.collector.Start(ctx, e.config.RefreshInterval)
-
-	// Start notification forwarding from NotifiableContributors → SSE broker
-	if e.sseBroker != nil && len(e.notifiableContributors) > 0 {
-		e.startNotificationForwarding(ctx)
-	}
-
-	// Discovery integration must run AFTER PhaseAfterRegister, where consumers
-	// (e.g. Portal) wire SetDiscoveryService — that phase fires after every
-	// extension's Start has returned. Defer to a BeforeRun hook so the wiring
-	// has had its turn first; otherwise discovery is silently skipped because
-	// the service was nil at this point.
-	if e.config.EnableDiscovery {
-		if err := forge.OnBeforeRun(e.app, "dashboard-discovery-startup", func(hookCtx context.Context, _ forge.App) error {
-			e.startDiscoveryIntegration(hookCtx)
-
-			return nil
-		}); err != nil {
-			e.Logger().Warn("failed to register discovery startup hook",
-				forge.F("error", err.Error()),
-			)
-		}
-	}
 
 	e.MarkStarted()
 	e.Logger().Info("dashboard extension started",
 		forge.F("base_path", e.config.BasePath),
-		forge.F("contributors", e.registry.ContributorCount()),
-		forge.F("realtime", e.sseBroker != nil),
-		forge.F("discovery_pending", e.config.EnableDiscovery),
+		forge.F("contract_contributors", len(e.contractRegistry.All())),
 	)
 
 	return nil
 }
 
-// discoverExtensionContributors scans all registered extensions for DashboardAware,
-// BridgeAware, and DashboardAuthAware interfaces, registering their contributors,
-// bridge functions, and auth providers.
-func (e *Extension) discoverExtensionContributors(ctx context.Context) {
+// discoverExtensionContributors scans all registered extensions for
+// ContractContributorAware and DashboardAuthAware, registering their contract
+// contributors and auth providers.
+func (e *Extension) discoverExtensionContributors() {
 	extensions := e.app.Extensions()
 	for _, ext := range extensions {
 		// Skip ourselves
@@ -524,96 +329,6 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			statusRec = &contributorStatusRecorder{ext: sa, host: e}
 		}
 
-		// Auto-register DashboardAware contributors. Wrapped in a closure so
-		// early returns skip only the contributor block — later interface
-		// checks (BridgeAware, DashboardAuthAware, DashboardFooterContributor)
-		// must still run for this extension even if it has no contributor.
-		if aware, ok := ext.(DashboardAware); ok {
-			func() {
-				c := aware.DashboardContributor()
-				if c == nil {
-					// Returning nil is a valid opt-out (e.g. an extension running in
-					// client mode that defers to a remote contributor via discovery).
-					e.Logger().Debug("extension opted out of DashboardContributor",
-						forge.F("extension", ext.Name()),
-					)
-					return
-				}
-
-				// Check if it's an SSR contributor that needs lifecycle management
-				if ssrC, ok := c.(*contributor.SSRContributor); ok {
-					if err := e.registry.RegisterSSR(ssrC); err != nil {
-						e.Logger().Error("failed to register SSR contributor",
-							forge.F("extension", ext.Name()),
-							forge.F("error", err.Error()),
-						)
-						return
-					}
-					// Start the SSR sidecar
-					if err := ssrC.Start(ctx); err != nil {
-						e.Logger().Error("failed to start SSR contributor",
-							forge.F("extension", ext.Name()),
-							forge.F("error", err.Error()),
-						)
-					}
-				} else {
-					// Standard LocalContributor (including EmbeddedContributor)
-					if err := e.registry.RegisterLocal(c); err != nil {
-						e.Logger().Error("failed to register contributor",
-							forge.F("extension", ext.Name()),
-							forge.F("error", err.Error()),
-						)
-						return
-					}
-				}
-
-				// Mirror any contract manifest published alongside the legacy
-				// manifest into the contract registry. Auto-discovery is a
-				// best-effort path, so a failure here is logged rather than
-				// rolled back — the legacy registration stays useful even if
-				// the contract handshake is malformed.
-				if mn := c.Manifest(); mn != nil && mn.Contract != nil {
-					if err := e.registerContractManifest(mn.Contract); err != nil {
-						e.Logger().Error("failed to register contract manifest",
-							forge.F("extension", ext.Name()),
-							forge.F("error", err.Error()),
-						)
-					} else {
-						// The manifest names its contributor, so this path
-						// attributes directly without a recorder.
-						statusRec.record(mn.Contract.Contributor.Name)
-					}
-				}
-
-				e.Logger().Info("auto-discovered dashboard contributor",
-					forge.F("extension", ext.Name()),
-					forge.F("contributor", c.Manifest().Name),
-				)
-
-				// Auto-discover NotifiableContributor for real-time notifications
-				if nc, ok := c.(contributor.NotifiableContributor); ok {
-					e.notifiableContributors = append(e.notifiableContributors, nc)
-					e.Logger().Info("auto-discovered notifiable contributor",
-						forge.F("extension", ext.Name()),
-					)
-				}
-			}()
-		}
-
-		// Auto-register BridgeAware bridge functions
-		if bridgeAware, ok := ext.(BridgeAware); ok && e.dashBridge != nil {
-			if err := bridgeAware.RegisterDashboardBridge(e.dashBridge.Bridge()); err != nil {
-				e.Logger().Error("failed to register bridge functions",
-					forge.F("extension", ext.Name()),
-					forge.F("error", err.Error()),
-				)
-			} else {
-				e.Logger().Info("auto-discovered bridge functions",
-					forge.F("extension", ext.Name()),
-				)
-			}
-		}
-
 		// Auto-register DashboardAuthAware auth providers
 		if authAware, ok := ext.(DashboardAuthAware); ok {
 			authAware.RegisterDashboardAuth(e)
@@ -622,23 +337,10 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 			)
 		}
 
-		// Auto-discover DashboardFooterContributor actions
-		if fc, ok := ext.(DashboardFooterContributor); ok {
-			actions := fc.DashboardUserDropdownActions(e.config.BasePath)
-			if len(actions) > 0 {
-				e.footerActions = append(e.footerActions, actions...)
-				e.Logger().Info("auto-discovered dashboard footer contributor",
-					forge.F("extension", ext.Name()),
-					forge.F("actions", len(actions)),
-				)
-			}
-		}
-
 		// Auto-discover ContractContributorAware (slice f+). Extensions that
 		// publish a contract-based contributor get their handlers wired into
 		// the dispatcher and their manifest registered with the contract
-		// registry. Failure is logged but doesn't abort the dashboard — the
-		// legacy templ contributor (if any) keeps working in parallel.
+		// registry. Failure is logged but doesn't abort the dashboard.
 		if cca, ok := ext.(ContractContributorAware); ok &&
 			e.dispatcher != nil && e.contractRegistry != nil && e.wardenRegistry != nil {
 			// The extension registers its own manifest, so the contributor
@@ -666,18 +368,12 @@ func (e *Extension) discoverExtensionContributors(ctx context.Context) {
 		// capabilities endpoint will report its contributors with the
 		// permissive default. Silently rendering an unconfigured extension
 		// as ready is the failure the four-state design exists to prevent,
-		// so say so at startup. The usual cause is a registration path
-		// attribution does not cover — see RegisterContributor.
+		// so say so at startup.
 		if statusRec != nil && statusRec.attributed() == 0 {
 			e.Logger().Warn("extension reports a dashboard status but registered no contract contributor to attach it to; its plugins will render as configured",
 				forge.F("extension", ext.Name()),
 			)
 		}
-	}
-
-	// Rebuild search index after auto-discovery
-	if e.searcher != nil {
-		e.searcher.RebuildIndex()
 	}
 }
 
@@ -811,80 +507,9 @@ func (e *Extension) contributorStatusFor(name string) (transport.ContributorStat
 	}, true
 }
 
-// startNotificationForwarding subscribes to all NotifiableContributor channels
-// and forwards their notifications to the SSE broker for real-time delivery.
-func (e *Extension) startNotificationForwarding(ctx context.Context) {
-	for _, nc := range e.notifiableContributors {
-		ch, err := nc.Notifications(ctx)
-		if err != nil {
-			e.Logger().Error("failed to subscribe to notifications",
-				forge.F("contributor", nc.Manifest().Name),
-				forge.F("error", err.Error()),
-			)
-
-			continue
-		}
-
-		name := nc.Manifest().Name
-
-		go func(contributorName string, notifCh <-chan contributor.Notification) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case n, ok := <-notifCh:
-					if !ok {
-						e.Logger().Debug("notification channel closed",
-							forge.F("contributor", contributorName),
-						)
-
-						return
-					}
-
-					if n.Source == "" {
-						n.Source = contributorName
-					}
-
-					e.sseBroker.BroadcastJSON(sse.EventNotification, n)
-				}
-			}
-		}(name, ch)
-
-		e.Logger().Debug("notification forwarding started",
-			forge.F("contributor", name),
-		)
-	}
-}
-
 // Stop stops the dashboard extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping dashboard extension")
-
-	// Stop SSR contributors
-	for _, name := range e.registry.SSRContributorNames() {
-		if ssrC, ok := e.registry.FindSSRContributor(name); ok {
-			if err := ssrC.Stop(); err != nil {
-				e.Logger().Error("failed to stop SSR contributor",
-					forge.F("contributor", name),
-					forge.F("error", err.Error()),
-				)
-			}
-		}
-	}
-
-	// Stop discovery integration
-	if e.discoveryInteg != nil {
-		e.discoveryInteg.Stop()
-	}
-
-	// Cancel any active remote-contributor watchers (registered via
-	// WatchRemoteContributor) so their goroutines exit before the host.
-	e.stopRemoteWatchers()
-
-	// Close SSE broker (disconnects all clients)
-	if e.sseBroker != nil {
-		e.sseBroker.Close()
-	}
 
 	// Stop data collector
 	if e.collector != nil {
@@ -915,11 +540,6 @@ func (e *Extension) Dependencies() []string {
 	return []string{} // No hard dependencies
 }
 
-// Registry returns the contributor registry.
-func (e *Extension) Registry() *contributor.ContributorRegistry {
-	return e.registry
-}
-
 // Collector returns the data collector instance.
 func (e *Extension) Collector() *collector.DataCollector {
 	return e.collector
@@ -942,8 +562,7 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // intents are proxied to the upstream over HTTP.
 //
 // Slice (m) added this so a single dashboard can aggregate contributors
-// from multiple microservices, mirroring the legacy templ-path
-// WatchRemoteContributor capability.
+// from multiple microservices.
 //
 // baseURL is the upstream service root (e.g. https://svc.internal:8443);
 // the manifest endpoint is fetched at <baseURL>/_forge/contract/manifest
@@ -1007,443 +626,9 @@ func (e *Extension) installForwardingDispatcherOnce() {
 	e.forwardingInstalled = true
 }
 
-// RegisterContributor registers a local contributor with the dashboard.
-// This is the primary API for extensions to contribute UI to the dashboard.
-//
-// Dashboard-status attribution does not cover this path. It takes a
-// LocalContributor, not an extension, so there is no DashboardStatusAware
-// value to attach: a contract contributor registered here reports the
-// permissive default (empty version, configured) no matter what its extension
-// would say. discoverExtensionContributors logs a warning naming any
-// DashboardStatusAware extension that ends up with nothing attributed, which
-// is how this shows up. Any new registration path has the same gap unless it
-// routes through a recordingRegistry or calls attributeContributorStatus.
-func (e *Extension) RegisterContributor(c contributor.LocalContributor) error {
-	if err := e.registry.RegisterLocal(c); err != nil {
-		return err
-	}
-
-	// If the legacy manifest also publishes a contract manifest, register it
-	// with the contract registry. Validation runs first against the warden
-	// registry so unknown predicates surface here rather than at dispatch
-	// time. Failures are reported back to the caller — registration is
-	// transactional from the caller's perspective.
-	if mn := c.Manifest(); mn != nil && mn.Contract != nil {
-		if err := e.registerContractManifest(mn.Contract); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// registerContractManifest validates and registers a contract manifest with
-// the contract registry. Shared between the local-contributor add path and
-// the remote-contributor upsert path so both legacy entry points keep the
-// contract registry in sync.
-func (e *Extension) registerContractManifest(cm *contract.ContractManifest) error {
-	if cm == nil || e.contractRegistry == nil {
-		return nil
-	}
-	if err := loader.Validate(cm, e.wardenRegistry); err != nil {
-		return fmt.Errorf("contract validation: %w", err)
-	}
-	if err := e.contractRegistry.Register(cm); err != nil {
-		return fmt.Errorf("contract register: %w", err)
-	}
-	return nil
-}
-
-// AddRemoteContributor fetches a remote contributor's manifest from the given
-// base URL and registers it as a remote dashboard contributor. One-shot —
-// returns an error on any failure. Use WatchRemoteContributor instead when
-// the upstream may not be reachable yet at registration time (typical for
-// dev where Portal and identity start in parallel).
-//
-// baseURL must be the same prefix the upstream's contributor protocol routes
-// are mounted under (e.g. "http://identity:7902/authsome"). apiKey is
-// optional — pass "" when the upstream allows unauthenticated dashboard
-// fetches.
-//
-// The fetch is bounded by ProxyTimeout from the dashboard config. Subsequent
-// calls with the same manifest name fail with ErrContributorExists; callers
-// should treat that as idempotent.
-func (e *Extension) AddRemoteContributor(ctx context.Context, baseURL, apiKey string) error {
-	if e.registry == nil {
-		return errors.New("dashboard: registry not initialised — register the dashboard extension before adding contributors")
-	}
-
-	manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
-	if err != nil {
-		return err
-	}
-
-	if err := e.upsertRemoteContributor(baseURL, apiKey, manifest); err != nil {
-		return err
-	}
-
-	e.Logger().Info("dashboard: registered explicit remote contributor",
-		forge.F("contributor", manifest.Name),
-		forge.F("base_url", baseURL),
-		forge.F("nav_items", len(manifest.Nav)),
-	)
-
-	return nil
-}
-
-// WatchRemoteOption tunes a WatchRemoteContributor watcher's behaviour.
-type WatchRemoteOption func(*watchRemoteConfig)
-
-type watchRemoteConfig struct {
-	initialBackoff  time.Duration
-	maxBackoff      time.Duration
-	refreshInterval time.Duration
-	dedupKey        string // override key for the watchers map (defaults to baseURL)
-}
-
-// WithInitialBackoff sets the first retry delay when the upstream isn't
-// reachable. Defaults to 2 seconds.
-func WithInitialBackoff(d time.Duration) WatchRemoteOption {
-	return func(c *watchRemoteConfig) {
-		if d > 0 {
-			c.initialBackoff = d
-		}
-	}
-}
-
-// WithMaxBackoff caps exponential backoff between retries. Defaults to 30s.
-func WithMaxBackoff(d time.Duration) WatchRemoteOption {
-	return func(c *watchRemoteConfig) {
-		if d > 0 {
-			c.maxBackoff = d
-		}
-	}
-}
-
-// WithWatcherRefreshInterval sets how often the watcher re-fetches the
-// manifest after a successful initial registration to pick up changes (e.g.
-// a plugin loaded on the upstream). Defaults to 60s.
-func WithWatcherRefreshInterval(d time.Duration) WatchRemoteOption {
-	return func(c *watchRemoteConfig) {
-		if d > 0 {
-			c.refreshInterval = d
-		}
-	}
-}
-
-// WithWatcherKey overrides the dedup key. Two WatchRemoteContributor calls
-// with the same key collapse to a single watcher (the second is a no-op).
-// Defaults to baseURL when not set.
-func WithWatcherKey(key string) WatchRemoteOption {
-	return func(c *watchRemoteConfig) {
-		c.dedupKey = key
-	}
-}
-
-// WatchRemoteContributor registers a remote dashboard contributor with retry
-// + refresh semantics. Returns immediately after spawning a watcher
-// goroutine; the goroutine retries with exponential backoff until the
-// upstream becomes reachable, then re-fetches periodically to surface
-// manifest changes (e.g. a plugin freshly loaded on the upstream).
-//
-// Use this from a forge.OnBeforeRun hook when the upstream may not be ready
-// at lifecycle-hook time. ctx should be tied to the host's lifecycle so the
-// watcher exits cleanly on shutdown — the dashboard extension also cancels
-// every active watcher in Stop() as a safety net.
-//
-// The call is idempotent: a second WatchRemoteContributor with the same
-// dedup key (baseURL by default) is a no-op.
-func (e *Extension) WatchRemoteContributor(ctx context.Context, baseURL, apiKey string, opts ...WatchRemoteOption) error {
-	if e.registry == nil {
-		return errors.New("dashboard: registry not initialised — register the dashboard extension before watching contributors")
-	}
-
-	if baseURL == "" {
-		return errors.New("dashboard: watch remote contributor: baseURL is empty")
-	}
-
-	cfg := watchRemoteConfig{
-		initialBackoff:  2 * time.Second,
-		maxBackoff:      30 * time.Second,
-		refreshInterval: 60 * time.Second,
-	}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
-	key := cfg.dedupKey
-	if key == "" {
-		key = baseURL
-	}
-
-	e.remoteWatchersMu.Lock()
-	if e.remoteWatchers == nil {
-		e.remoteWatchers = make(map[string]*remoteWatcher)
-	}
-
-	if _, exists := e.remoteWatchers[key]; exists {
-		e.remoteWatchersMu.Unlock()
-
-		return nil
-	}
-
-	watchCtx, cancel := context.WithCancel(ctx)
-	w := &remoteWatcher{baseURL: baseURL, cancel: cancel}
-	e.remoteWatchers[key] = w
-	e.remoteWatchersMu.Unlock()
-
-	go e.runRemoteWatcher(watchCtx, w, baseURL, apiKey, cfg)
-
-	return nil
-}
-
-// runRemoteWatcher is the long-running goroutine that maintains a remote
-// contributor registration. It retries on connection refused/decode failure,
-// then transitions into a refresh ticker once registered.
-func (e *Extension) runRemoteWatcher(ctx context.Context, w *remoteWatcher, baseURL, apiKey string, cfg watchRemoteConfig) {
-	backoff := cfg.initialBackoff
-
-	// Phase 1: keep retrying until the upstream serves a manifest we can
-	// register. Most of the time this loop runs once; in the
-	// "Portal up before identity" case it may run for several seconds.
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-
-		manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
-		if err == nil {
-			if regErr := e.upsertRemoteContributor(baseURL, apiKey, manifest); regErr == nil {
-				e.Logger().Info("dashboard: registered explicit remote contributor",
-					forge.F("contributor", manifest.Name),
-					forge.F("base_url", baseURL),
-					forge.F("nav_items", len(manifest.Nav)),
-				)
-
-				e.remoteWatchersMu.Lock()
-				w.registered = true
-				w.name = manifest.Name
-				e.remoteWatchersMu.Unlock()
-
-				break
-			} else {
-				e.Logger().Debug("dashboard: remote contributor register failed, will retry",
-					forge.F("base_url", baseURL),
-					forge.F("error", regErr.Error()),
-				)
-			}
-		} else {
-			e.Logger().Debug("dashboard: remote contributor fetch failed, will retry",
-				forge.F("base_url", baseURL),
-				forge.F("error", err.Error()),
-				forge.F("retry_in", backoff.String()),
-			)
-		}
-
-		if !sleepCtx(ctx, backoff) {
-			return
-		}
-
-		backoff *= 2
-		if backoff > cfg.maxBackoff {
-			backoff = cfg.maxBackoff
-		}
-	}
-
-	// Phase 2: refresh ticker. Re-fetches the manifest at the configured
-	// interval; re-registers when it diverges from what's currently in the
-	// registry so plugin changes on the upstream surface without needing a
-	// host restart.
-	ticker := time.NewTicker(cfg.refreshInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			manifest, err := e.fetchRemoteManifest(ctx, baseURL, apiKey)
-			if err != nil {
-				e.Logger().Debug("dashboard: remote manifest refresh failed",
-					forge.F("base_url", baseURL),
-					forge.F("error", err.Error()),
-				)
-
-				continue
-			}
-
-			current, ok := e.registry.GetManifest(manifest.Name)
-			if ok && contributor.ManifestsEqual(current, manifest) {
-				continue
-			}
-
-			if err := e.upsertRemoteContributor(baseURL, apiKey, manifest); err != nil {
-				e.Logger().Debug("dashboard: remote manifest refresh re-register failed",
-					forge.F("contributor", manifest.Name),
-					forge.F("error", err.Error()),
-				)
-
-				continue
-			}
-
-			e.Logger().Info("dashboard: refreshed remote contributor manifest",
-				forge.F("contributor", manifest.Name),
-				forge.F("base_url", baseURL),
-				forge.F("nav_items", len(manifest.Nav)),
-			)
-		}
-	}
-}
-
-// fetchRemoteManifest pulls the manifest from baseURL with the dashboard's
-// configured timeout, returning a wrapped error on any failure.
-func (e *Extension) fetchRemoteManifest(ctx context.Context, baseURL, apiKey string) (*contributor.Manifest, error) {
-	timeout := e.config.ProxyTimeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-
-	manifest, err := contributor.FetchManifest(ctx, baseURL, timeout, apiKey)
-	if err != nil {
-		return nil, fmt.Errorf("dashboard: fetch manifest from %s: %w", baseURL, err)
-	}
-
-	return manifest, nil
-}
-
-// upsertRemoteContributor registers (or re-registers) a remote contributor.
-// When a contributor with the same name already exists, it's unregistered
-// first so the manifest update takes effect.
-func (e *Extension) upsertRemoteContributor(baseURL, apiKey string, manifest *contributor.Manifest) error {
-	opts := []contributor.RemoteContributorOption{}
-	if apiKey != "" {
-		opts = append(opts, contributor.WithAPIKey(apiKey))
-	}
-
-	rc := contributor.NewRemoteContributor(baseURL, manifest, opts...)
-
-	if _, ok := e.registry.GetManifest(manifest.Name); ok {
-		// Existing registration — drop and re-register to absorb manifest
-		// changes. Unregister failure (concurrent removal) is fine; carry on.
-		_ = e.registry.Unregister(manifest.Name) //nolint:errcheck // best-effort
-	}
-
-	if err := e.registry.RegisterRemote(rc); err != nil {
-		return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
-	}
-
-	// Mirror the contract manifest into the contract registry when the remote
-	// publishes one. Same validate-then-register path as local contributors so
-	// remote-published contracts get the same warden checks.
-	//
-	// Like RegisterContributor, this path carries no dashboard-status
-	// attribution: a remote contributor is not a local extension, so there is
-	// no DashboardStatusAware value here. Remotes report the permissive
-	// default.
-	if manifest != nil && manifest.Contract != nil {
-		if err := e.registerContractManifest(manifest.Contract); err != nil {
-			// Best-effort: log and unwind the legacy registration so we don't
-			// leave a partial state. The remote watcher will retry on the
-			// next refresh tick.
-			_ = e.registry.Unregister(manifest.Name) //nolint:errcheck // best-effort cleanup
-			return fmt.Errorf("dashboard: register remote contributor %q: %w", manifest.Name, err)
-		}
-	}
-
-	return nil
-}
-
-// sleepCtx waits for d or until ctx is cancelled. Returns false if ctx
-// cancelled before d elapsed.
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return ctx.Err() == nil
-	}
-
-	t := time.NewTimer(d)
-	defer t.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
-}
-
-// stopRemoteWatchers cancels every active remote contributor watcher. Called
-// from Stop so background goroutines exit before the host process does.
-func (e *Extension) stopRemoteWatchers() {
-	e.remoteWatchersMu.Lock()
-	watchers := e.remoteWatchers
-	e.remoteWatchers = nil
-	e.remoteWatchersMu.Unlock()
-
-	for _, w := range watchers {
-		w.cancel()
-	}
-}
-
-// DashboardBridge returns the dashboard bridge instance for registering custom functions.
-// Returns nil if the bridge is not enabled.
-func (e *Extension) DashboardBridge() *DashboardBridge {
-	return e.dashBridge
-}
-
-// RegisterBridgeFunction registers a custom bridge function callable from the dashboard UI.
-// This is a convenience method — callers can also use DashboardBridge().Register() directly.
-// Returns an error if the bridge is not enabled.
-func (e *Extension) RegisterBridgeFunction(name string, handler any, opts ...bridge.FunctionOption) error {
-	if e.dashBridge == nil {
-		return errors.New("dashboard bridge is not enabled")
-	}
-
-	return e.dashBridge.Register(name, handler, opts...)
-}
-
-// SSEBroker returns the SSE event broker. Returns nil if real-time is disabled.
-func (e *Extension) SSEBroker() *sse.Broker {
-	return e.sseBroker
-}
-
-// FragmentProxy returns the fragment proxy for remote contributors.
-func (e *Extension) FragmentProxy() *proxy.FragmentProxy {
-	return e.fragmentProxy
-}
-
-// RecoveryManager returns the recovery manager for remote contributors.
-func (e *Extension) RecoveryManager() *recovery.Manager {
-	return e.recoveryMgr
-}
-
-// Searcher returns the federated search engine. Returns nil if search is disabled.
-func (e *Extension) Searcher() *search.FederatedSearch {
-	return e.searcher
-}
-
-// SettingsAggregator returns the settings aggregator. Returns nil if settings is disabled.
-func (e *Extension) SettingsAggregator() *settings.Aggregator {
-	return e.settingsAgg
-}
-
-// Sanitizer returns the HTML sanitizer for remote fragments.
-func (e *Extension) Sanitizer() *security.Sanitizer {
-	return e.sanitizer
-}
-
 // CSRFManager returns the CSRF token manager. Returns nil if CSRF is disabled.
 func (e *Extension) CSRFManager() *security.CSRFManager {
 	return e.csrfMgr
-}
-
-// ThemeManager returns the theme manager.
-func (e *Extension) ThemeManager() *dashtheme.Manager {
-	return e.themeMgr
-}
-
-// ForgeUIApp returns the forgeui application instance.
-func (e *Extension) ForgeUIApp() *forgeui.App {
-	return e.fuiApp
 }
 
 // SetAuthChecker configures the authentication checker used to validate
@@ -1463,41 +648,11 @@ func (e *Extension) AuthChecker() dashauth.AuthChecker {
 	return e.authChecker
 }
 
-// SetAuthPageProvider configures the provider that contributes authentication
-// pages (login, logout, register, etc.) to the dashboard. If called after
-// routes have already been registered and auth is enabled, auth pages are
-// registered immediately (late registration).
-func (e *Extension) SetAuthPageProvider(provider dashauth.AuthPageProvider) {
-	e.authPageProv = provider
-	if e.routesRegistered && e.config.EnableAuth {
-		e.registerAuthPages()
-	}
-}
-
-// EnableAuth enables authentication support on the dashboard. This is called
-// automatically when an auth provider (e.g. authsome) registers itself.
-// If called after routes have already been registered (late registration),
-// it triggers auth page registration and updates the layout/pages managers.
+// EnableAuth turns on authentication support. Auth extensions such as authsome
+// call this from RegisterDashboardAuth. With auth on, the principal endpoint
+// answers 401 for a signed-out caller instead of an anonymous 200.
 func (e *Extension) EnableAuth() {
 	e.config.EnableAuth = true
-
-	// If routes are already registered, do late auth setup.
-	if e.routesRegistered {
-		if e.authPageProv != nil {
-			e.registerAuthPages()
-		}
-		if e.layoutMgr != nil {
-			e.layoutMgr.SetAuthEnabled(true, e.config.LoginPath, e.config.LogoutPath)
-		}
-		if e.pagesMgr != nil {
-			e.pagesMgr.SetAuthEnabled(true, e.config.DefaultAccess, e.config.LoginPath)
-		}
-	}
-}
-
-// AuthPageProvider returns the configured auth page provider. Returns nil if none is set.
-func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
-	return e.authPageProv
 }
 
 // SetRequiredRoles restricts dashboard access to authenticated users that
@@ -1505,16 +660,15 @@ func (e *Extension) AuthPageProvider() dashauth.AuthPageProvider {
 // Auth extensions like authsome call this from RegisterDashboardAuth when
 // their own configuration declares a role list. The principal endpoint
 // returns 403 PERMISSION_DENIED for users who don't qualify. Rendering that
-// as an "access denied" screen is the client's job, and no client does it
-// today; the 403 itself is served regardless.
+// as an "access denied" screen is the client's job.
 func (e *Extension) SetRequiredRoles(roles []string) {
 	e.config.RequiredRoles = append([]string(nil), roles...)
 }
 
 // SetTenantResolver configures the tenant resolver used to populate tenant
 // context on every request. Call this after Register() and before Start().
-// When configured, all dashboard pages (both standard and extension layout)
-// can access tenant info via dashauth.TenantFromContext(ctx).
+// When configured, the contract handlers can read tenant info via
+// dashauth.TenantFromContext(ctx).
 //
 // A default ScopeTenantResolver is available that reads forge.Scope from
 // the request context:
@@ -1529,137 +683,16 @@ func (e *Extension) TenantResolver() dashauth.TenantResolver {
 	return e.tenantResolver
 }
 
-// initializeForgeUI creates the forgeui.App instance and initializes the
-// layout manager and pages manager. It must be called in Register() after
-// the registry, collector, and history are initialized but before bridge setup.
-func (e *Extension) initializeForgeUI() {
-	lightTheme := theme.DefaultLight()
-	darkTheme := theme.DefaultDark()
-
-	// Configure Geist variable fonts with preload links.
-	fontConfig := theme.GeistFontConfig(e.config.BasePath + "/static/fonts")
-
-	fuiApp := forgeui.New(
-		forgeui.WithBasePath(e.config.BasePath),
-		forgeui.WithBridge(
-			bridge.WithTimeout(15*time.Second),
-			bridge.WithCSRF(false),
-		),
-		forgeui.WithThemes(&lightTheme, &darkTheme),
-		forgeui.WithFonts(&fontConfig),
-		forgeui.WithDefaultLayout(layouts.LayoutDashboard),
-		// Asset configuration for compiled CSS
-		forgeui.WithEmbedFS(dashassets.Assets),
-		forgeui.WithAssetOutputDir("extensions/dashboard/assets"),
-		forgeui.WithInputCSS("extensions/dashboard/assets/css/input.css"),
-	)
-
-	// Initialize ForgeUI — builds CSS from themes if Tailwind CLI is available.
-	// Non-fatal: falls back to CDN mode if CLI not found.
-	if err := fuiApp.Initialize(context.Background()); err != nil {
-		e.Logger().Warn("forgeui initialization warning", forge.F("error", err.Error()))
-	}
-
-	// Add panic recovery middleware so dashboard page panics don't crash the server
-	fuiApp.Use(router.Recovery())
-
-	e.fuiApp = fuiApp
-
-	// Override ScriptURL so component Script() tags resolve to the dashboard's
-	// static asset path. Components emit "/assets/js/X.min.js"; remap to
-	// "{basePath}/static/js/X.min.js" which the forgeui asset handler serves.
-	staticPrefix := e.config.BasePath + "/static"
-	utils.ScriptURL = func(path string) string {
-		p := strings.TrimPrefix(path, "/assets")
-		return staticPrefix + p + "?v=" + utils.ScriptVersion
-	}
-
-	// Layout manager — registers all layouts with forgeui in its constructor.
-	bridgeEndpoint := ""
-	if e.config.EnableBridge {
-		bridgeEndpoint = e.config.BasePath + "/bridge/call"
-	}
-
-	e.layoutMgr = layouts.NewLayoutManager(fuiApp, e.config.BasePath, e.registry, layouts.LayoutConfig{
-		Title:          e.config.Title,
-		CustomCSS:      e.config.CustomCSS,
-		BridgeEndpoint: bridgeEndpoint,
-		EnableBridge:   e.config.EnableBridge,
-		EnableSearch:   e.config.EnableSearch,
-		EnableRealtime: e.config.EnableRealtime,
-		EnableAuth:     e.config.EnableAuth,
-		LoginPath:      e.config.LoginPath,
-		LogoutPath:     e.config.LogoutPath,
-	})
-
-	// Pages manager — pages are registered later in registerRoutes().
-	// Note: fragmentProxy may be nil at this point; it's set before Register() returns.
-	e.pagesMgr = dashpages.NewPagesManager(fuiApp, e.config.BasePath, e.registry, e.collector, e.history, e.fragmentProxy, e.settingsAgg, dashpages.PagesConfig{
-		EnableSettings:  e.config.EnableSettings,
-		EnableSearch:    e.config.EnableSearch,
-		BasePath:        e.config.BasePath,
-		EnableAuth:      e.config.EnableAuth,
-		DefaultAccess:   e.config.DefaultAccess,
-		LoginPath:       e.config.LoginPath,
-		RootContributor: e.config.RootContributor,
-	})
+// BasePath returns the prefix every dashboard route is mounted under.
+func (e *Extension) BasePath() string {
+	return e.config.BasePath
 }
 
-// SetDiscoveryService configures the discovery service used to auto-discover
-// remote dashboard contributors. Call this before Start() if discovery is enabled.
-//
-// The discovery service must implement dashboarddiscovery.DiscoveryService
-// (ListServices + DiscoverWithTags). The forge extensions/discovery.Service
-// type satisfies this interface.
-//
-// Example:
-//
-//	dashExt.SetDiscoveryService(discoveryExtension.Service())
-func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService) {
-	e.discoverySvc = svc
-}
-
-// startDiscoveryIntegration starts polling for dashboard contributors if a
-// discovery service has been configured via SetDiscoveryService().
-func (e *Extension) startDiscoveryIntegration(ctx context.Context) {
-	if e.discoverySvc == nil {
-		e.Logger().Warn("discovery integration: no discovery service configured, skipping",
-			forge.F("hint", "call SetDiscoveryService() in a PhaseAfterRegister or earlier hook"),
-		)
-
-		return
-	}
-
-	e.discoveryInteg = dashboarddiscovery.NewIntegration(
-		e.discoverySvc,
-		e.registry,
-		e.config.DiscoveryTag,
-		e.config.DiscoveryPollInterval,
-		e.config.ProxyTimeout,
-		e.Logger(),
-	)
-	e.discoveryInteg.Start(ctx)
-
-	e.Logger().Info("discovery integration started",
-		forge.F("tag", e.config.DiscoveryTag),
-		forge.F("poll_interval", e.config.DiscoveryPollInterval.String()),
-	)
-}
-
-// registerRoutes registers dashboard routes with the app's router.
-// ForgeUI handles HTML page routes (overview, health, metrics, services,
-// contributor pages, widget fragments) via e.fuiApp.Handler().
-// API, SSE, export, proxy, search, and settings routes remain on forge.Router.
+// registerRoutes registers the dashboard's routes with the app's router: the
+// contract endpoints and, when enabled, the export endpoints.
 func (e *Extension) registerRoutes() {
 	router := e.app.Router()
 	base := e.config.BasePath
-
-	// 1. Layouts are registered by LayoutManager's constructor (NewLayoutManager).
-
-	// 2. Register forgeui pages
-	if err := e.pagesMgr.RegisterPages(); err != nil {
-		panic(fmt.Sprintf("dashboard: failed to register pages: %v", err))
-	}
 
 	must := func(err error) {
 		if err != nil {
@@ -1667,19 +700,12 @@ func (e *Extension) registerRoutes() {
 		}
 	}
 
-	// Register auth pages if a provider is configured
-	if e.config.EnableAuth && e.authPageProv != nil {
-		e.registerAuthPages()
-	}
-
-	// Build route options up front so the auth+tenant middleware can attach
-	// to the contract API routes too — not just the ForgeUI catch-all. The
-	// principal endpoint and the contract dispatch endpoint both call
+	// The principal endpoint and the contract dispatch endpoint both call
 	// dashauth.UserFromContext at request time; without ForgeMiddleware on
-	// those specific routes the user is always nil and /principal 401s
-	// even with a valid auth_token cookie. The middleware is non-blocking
-	// (populates context on success, falls through silently on failure),
-	// so attaching it broadly is safe.
+	// those routes the user is always nil and /principal 401s even with a
+	// valid auth_token cookie. The middleware is non-blocking (populates
+	// context on success, falls through silently on failure), so attaching
+	// it broadly is safe.
 	var routeOpts []forge.RouteOption
 	if e.config.EnableAuth && e.authChecker != nil {
 		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
@@ -1688,41 +714,7 @@ func (e *Extension) registerRoutes() {
 		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
 	}
 
-	// Build handler deps for API routes that remain on forge.Router
-	deps := &handlers.Deps{
-		Registry:   e.registry,
-		Collector:  e.collector,
-		History:    e.history,
-		TraceStore: e.traceStore,
-		Config: handlers.Config{
-			BasePath:       e.config.BasePath,
-			Title:          e.config.Title,
-			Theme:          e.config.Theme,
-			CustomCSS:      e.config.CustomCSS,
-			EnableExport:   e.config.EnableExport,
-			EnableRealtime: e.config.EnableRealtime,
-			EnableSearch:   e.config.EnableSearch,
-			EnableSettings: e.config.EnableSettings,
-			EnableBridge:   e.config.EnableBridge,
-			EnableAuth:     e.config.EnableAuth,
-			ExportFormats:  e.config.ExportFormats,
-		},
-	}
-
-	// 3. JSON API routes (stay on forge.Router)
-	must(router.GET(base+"/api/overview", handlers.HandleAPIOverview(deps)))
-	must(router.GET(base+"/api/health", handlers.HandleAPIHealth(deps)))
-	must(router.GET(base+"/api/metrics", handlers.HandleAPIMetrics(deps)))
-	must(router.GET(base+"/api/services", handlers.HandleAPIServices(deps)))
-	must(router.GET(base+"/api/history", handlers.HandleAPIHistory(deps)))
-	must(router.GET(base+"/api/service-detail", handlers.HandleAPIServiceDetail(deps)))
-	must(router.GET(base+"/api/metrics-report", handlers.HandleAPIMetricsReport(deps)))
-	must(router.GET(base+"/api/traces", handlers.HandleAPITraces(deps)))
-	must(router.GET(base+"/api/trace-detail", handlers.HandleAPITraceDetail(deps)))
-	must(router.GET(base+"/api/extensions", handlers.HandleAPIExtensions(deps)))
-
-	// 3b. Dashboard contract envelope endpoints. These run alongside the
-	// legacy JSON API and are gated on the contract registry being
+	// Contract envelope endpoints, gated on the contract registry being
 	// initialised. The stream + control routes only register when a
 	// StreamBroker is wired (slice (c) supplies the SubscriptionSource).
 	//
@@ -1753,9 +745,7 @@ func (e *Extension) registerRoutes() {
 		// skip its login gate; auth-enabled deployments get a 401 carrying the
 		// loginPath to send the user to. RequiredRoles, if set, gets a 403 for
 		// authenticated users without a matching role.
-		//
-		// The endpoint is live and correct. Its consumer is not: the shell that
-		// read it was deleted, so nothing calls this today.
+
 		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
 			AuthEnabled:   e.config.EnableAuth,
@@ -1764,78 +754,18 @@ func (e *Extension) registerRoutes() {
 		}), routeOpts...))
 	}
 
-	// 3c. The dashboard shell at {base}/ui, served from the prebuilt artifact
-	// embedded in this binary. ShellExternal mounts nothing here, for
-	// deployments that build and serve their own shell. See mountShellRoutes
-	// for the route ordering and why it is written the way it is.
-	e.mountShell(router, base, must)
-
-	// 4. Export endpoints (stay on forge.Router)
+	// Export endpoints
 	if e.config.EnableExport {
+		deps := &handlers.Deps{Collector: e.collector}
 		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps)))
 		must(router.GET(base+"/export/csv", handlers.HandleExportCSV(deps)))
 		must(router.GET(base+"/export/prometheus", handlers.HandleExportPrometheus(deps)))
 	}
 
-	// 5. SSE real-time event stream (stays on forge.Router)
-	if e.config.EnableRealtime && e.sseBroker != nil {
-		must(router.EventStream(base+"/sse", handlers.HandleSSEEndpoint(e.sseBroker)))
-		must(router.GET(base+"/api/sse/status", handlers.HandleSSEStatus(e.sseBroker)))
-	}
-
-	// 6. Remote contributor proxy routes are now handled by forgeui via PagesManager.
-
-	// 6b. Mount embedded contributor static assets.
-	// EmbeddedContributors are registered as local contributors. We type-assert
-	// to find them and mount their asset handlers.
-	e.mountEmbeddedAssets(router, base, must)
-
-	// 7. Search API endpoint (stays on forge.Router)
-	if e.config.EnableSearch && e.searcher != nil {
-		must(router.GET(base+"/api/search", search.HandleSearchAPI(e.searcher)))
-	}
-
-	// 8. Settings routes are now registered as ForgeUI pages in PagesManager.RegisterPages().
-
-	// 9. Mount forgeui handler (AFTER specific routes so they take precedence).
-	// This catches all remaining HTML page requests and delegates to forgeui,
-	// which also serves static assets, bridge endpoints at {basePath}/bridge/call
-	// and {basePath}/bridge/stream/, and routed pages.
-	// Note: No StripPrefix — forgeui's internal mux registers routes with the
-	// basePath prefix, so full request paths must reach it unmodified.
-	fuiHTTPHandler := e.fuiApp.Handler() // cache once — page routes register on the ForgeUI router, not the mux
-	fuiHandler := func(ctx forge.Context) error {
-		r := ctx.Request()
-		if r.URL.Path == base {
-			// Base path exactly (e.g. "/dashboard") — route directly to the
-			// ForgeUI router with path "/" to serve the root page. This bypasses
-			// http.ServeMux which would otherwise issue a 301 trailing-slash redirect.
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/"
-			e.fuiApp.Router().ServeHTTP(ctx.Response(), r2)
-			return nil
-		}
-		fuiHTTPHandler.ServeHTTP(ctx.Response(), r)
-		return nil
-	}
-
-	// routeOpts (auth + tenant middleware) was built up-front so the contract
-	// API routes can share it; here it just attaches to the ForgeUI catch-all.
-	must(router.GET(base, fuiHandler, routeOpts...))
-	must(router.GET(base+"/*", fuiHandler, routeOpts...))
-	must(router.POST(base, fuiHandler, routeOpts...))
-	must(router.POST(base+"/*", fuiHandler, routeOpts...))
-
 	e.Logger().Debug("dashboard routes registered",
 		forge.F("base_path", base),
-		forge.F("realtime", e.config.EnableRealtime),
 		forge.F("export", e.config.EnableExport),
-		forge.F("search", e.config.EnableSearch),
-		forge.F("settings", e.config.EnableSettings),
-		forge.F("bridge", e.config.EnableBridge),
-		forge.F("discovery", e.config.EnableDiscovery),
 		forge.F("auth", e.config.EnableAuth),
-		forge.F("core_pages", 4),
 	)
 }
 
@@ -1869,132 +799,6 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 // must stay in sync with transport.NewHandler's supported set.
 func (e *Extension) handleContractCapabilities() http.HandlerFunc {
 	return transport.NewCapabilitiesHandler(e.contractRegistry, []string{"v1"}, e.contributorStatusFor).ServeHTTP
-}
-
-// mountEmbeddedAssets iterates local contributors and mounts static asset handlers
-// for any EmbeddedContributor instances. This allows embedded dashboard UIs to serve
-// their CSS, JS, and image files.
-func (e *Extension) mountEmbeddedAssets(router forge.Router, base string, must func(error)) {
-	for _, name := range e.registry.ContributorNames() {
-		lc, ok := e.registry.FindLocalContributor(name)
-		if !ok {
-			continue
-		}
-
-		ec, ok := lc.(*contributor.EmbeddedContributor)
-		if !ok {
-			continue
-		}
-
-		assetsPrefix := base + "/ext/" + name + "/assets/"
-		handler := ec.AssetsHandler()
-		assetHandler := func(ctx forge.Context) error {
-			http.StripPrefix(assetsPrefix, handler).ServeHTTP(ctx.Response(), ctx.Request())
-
-			return nil
-		}
-		must(router.GET(assetsPrefix+"*", assetHandler))
-
-		e.Logger().Debug("mounted embedded contributor assets",
-			forge.F("contributor", name),
-			forge.F("path", assetsPrefix),
-		)
-	}
-}
-
-// registerAuthPages registers auth page routes (login, logout, register, etc.)
-// with ForgeUI using the LayoutAuth layout. Auth pages are always AccessPublic
-// so unauthenticated users can reach the login page.
-func (e *Extension) registerAuthPages() {
-	if e.authPagesRegistered || e.authPageProv == nil {
-		return
-	}
-	e.authPagesRegistered = true
-
-	pages := e.authPageProv.AuthPages()
-	if len(pages) == 0 {
-		return
-	}
-
-	provider := e.authPageProv
-
-	for _, page := range pages {
-		pageType := page.Type
-		pagePath := page.Path
-
-		// Logout is a GET-only action (clicking a link), not a form.
-		if pageType == dashauth.PageLogout {
-			logoutHandler := func(ctx *router.PageContext) (templ.Component, error) {
-				redirectURL, _, err := provider.HandleAuthAction(ctx, pageType)
-				if err != nil {
-					return nil, err
-				}
-
-				if redirectURL != "" {
-					http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
-
-					return templ.Raw(""), nil
-				}
-
-				return templ.Raw(""), nil
-			}
-
-			e.fuiApp.Page(pagePath).
-				Handler(logoutHandler).
-				Layout(layouts.LayoutAuth).
-				Register()
-
-			continue
-		}
-
-		// GET handler — render the auth page form
-		getHandler := func(ctx *router.PageContext) (templ.Component, error) {
-			return provider.RenderAuthPage(ctx, pageType)
-		}
-
-		// POST handler — handle form submission
-		postHandler := func(ctx *router.PageContext) (templ.Component, error) {
-			redirectURL, errComponent, err := provider.HandleAuthAction(ctx, pageType)
-			if err != nil {
-				return nil, err
-			}
-
-			if redirectURL != "" {
-				// If the auth middleware set a ?redirect= param, use it instead
-				// so the user lands on the page they originally requested.
-				if redirect := ctx.Query("redirect"); redirect != "" {
-					redirectURL = e.config.BasePath + redirect
-				}
-
-				http.Redirect(ctx.ResponseWriter, ctx.Request, redirectURL, http.StatusFound)
-
-				return templ.Raw(""), nil
-			}
-
-			if errComponent != nil {
-				return errComponent, nil
-			}
-
-			// Fallback: re-render the page
-			return provider.RenderAuthPage(ctx, pageType)
-		}
-
-		// Register GET and POST with LayoutAuth layout
-		e.fuiApp.Page(pagePath).
-			Handler(getHandler).
-			Layout(layouts.LayoutAuth).
-			Register()
-
-		e.fuiApp.Page(pagePath).
-			Handler(postHandler).
-			Method("POST").
-			Layout(layouts.LayoutAuth).
-			Register()
-	}
-
-	e.Logger().Debug("auth pages registered",
-		forge.F("count", len(pages)),
-	)
 }
 
 // idempotencyAdapter bridges idempotency.Store (the production interface) to
@@ -2036,4 +840,24 @@ func (a *idempotencyAdapter) Store(ctx context.Context, key, identity string, c 
 		StoredAt: c.StoredAt,
 		TTL:      c.TTL,
 	})
+}
+
+// appExtensions serves the extensions.list intent from the extensions
+// registered with the app.
+type appExtensions struct{ app forge.App }
+
+// ListExtensions implements pilot.ExtensionsProvider.
+func (a appExtensions) ListExtensions() []pilot.ExtensionInfo {
+	exts := a.app.Extensions()
+	out := make([]pilot.ExtensionInfo, 0, len(exts))
+
+	for _, ext := range exts {
+		out = append(out, pilot.ExtensionInfo{
+			Name:        ext.Name(),
+			Version:     ext.Version(),
+			Description: ext.Description(),
+		})
+	}
+
+	return out
 }

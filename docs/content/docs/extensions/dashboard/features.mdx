@@ -1,219 +1,105 @@
 ---
 title: Features
-description: Dashboard capabilities including micro-frontend shell, contributor system, authentication, bridge, SSE, search, and security
+description: The dashboard contract, its core intents, contributing from an extension, auth, and tracing
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-## ForgeUI Dashboard Shell
+## The Contract
 
-The dashboard is a ForgeUI-powered micro-frontend shell served from the Forge HTTP router. It uses a **layout hierarchy** for page structure:
+Every dashboard request goes through one endpoint, `POST {BasePath}/api/dashboard/v1`. The body is an envelope naming a contributor, an intent and its version, and the intent's kind:
 
-| Layout | Purpose |
-|---|---|
-| `root` | HTML shell with head, scripts, sidebar, topbar. Detects HTMX partial requests and skips the outer shell. |
-| `dashboard` | Default layout. Inherits root, adds breadcrumbs, page title, and content area. |
-| `base` | Minimal layout with sidebar and topbar but no breadcrumbs. |
-| `full` | Full-width layout without sidebar (e.g., for standalone pages). |
-| `settings` | Settings layout with sidebar navigation for settings pages. |
-| `auth` | Centered card layout for login/register pages. No sidebar or topbar. |
-
-Navigation between pages uses **HTMX partial requests** -- clicking a sidebar link fetches only the page content (not the full HTML shell), swaps the `#content` div, and updates the browser URL. This gives a SPA-like experience without client-side JavaScript routing.
-
-**Alpine.js** manages client-side state (sidebar collapse, theme toggle, SSE connection status, notification count) and is available in all layouts.
-
-## Contributor System
-
-The dashboard uses a **contributor-based architecture**. Extensions register pages, widgets, and settings via a manifest, and the shell merges everything into a unified UI.
-
-### Local Contributors
-
-Local contributors run in-process and render `gomponents.Node` values directly:
-
-```go
-type LocalContributor interface {
-    Manifest() *contributor.Manifest
-    RenderPage(ctx context.Context, route string, params Params) (g.Node, error)
-    RenderWidget(ctx context.Context, widgetID string) (g.Node, error)
-    RenderSettings(ctx context.Context, settingID string) (g.Node, error)
+```json
+{
+  "envelope": "v1",
+  "kind": "query",
+  "contributor": "core-contract",
+  "intent": "services.list",
+  "intentVersion": 1
 }
 ```
 
-Register a local contributor:
+A query reads, a command writes. The kind has to match the capability the intent declares, so you can't run a write intent as a query. Commands also need an `idempotencyKey` and a `csrf` token, and a retried command with the same key gets the first answer back without running twice.
+
+Subscriptions don't go through the POST endpoint. A client opens `GET /api/dashboard/v1/stream`, reads its stream ID from the first `hello` event, and then subscribes to intents on it through `/stream/control`.
+
+Each intent can declare a `Requires` predicate: `all`, `any` and `not` lists of `role:X`, `scope:X` or `claim:K=V` tokens, plus an optional named warden for anything a token can't express. The transport checks it before the handler runs.
+
+## Core Intents
+
+The dashboard registers its own contributor, `core-contract`, with the app's data:
+
+| Intent | Kind | What it returns |
+|---|---|---|
+| `overview` | query | Health status, service and metric counts, uptime |
+| `health` | query | Per-service health with check results |
+| `services.list` | query | Registered services and their status |
+| `services.detail` | query | One service in detail |
+| `metrics-report` | query | Aggregated metrics report |
+| `metrics.summary` | subscription | Metric totals, pushed every few seconds |
+| `traces.list` | query | Recent request traces |
+| `traces.detail` | query | One trace and its spans |
+| `extensions.list` | query | Every extension registered with the app |
+| `apps.list` | query | Contributors that declared an app for the switcher |
+| `audit.list` | query | Recorded command runs |
+| `audit.tail` | subscription | Command runs as they happen |
+
+## Contributing from an Extension
+
+An extension adds to the dashboard in two halves. The Go half registers intents. The UI half is a React plugin, built with `definePlugin` from `@forge-go/dashboard-plugin`, that calls them.
+
+For the Go half, implement `ContractContributorAware`. The dashboard finds it during `Start()` and hands you its dispatcher and registries:
 
 ```go
-dashExt.RegisterContributor(&MyContributor{})
+func (e *ReportsExtension) RegisterContractContributor(
+    disp *dispatcher.Dispatcher,
+    reg contract.Registry,
+    wreg contract.WardenRegistry,
+) error {
+    return reportscontract.Register(disp, reg, wreg, reportscontract.Deps{
+        Store: e.store,
+    })
+}
 ```
+
+Inside `Register` you load your YAML manifest, validate it, register it, and bind a handler to each intent with `dispatcher.RegisterQuery`, `RegisterCommand` or `RegisterSubscription`. Handlers are typed: you get the decoded params and the caller's `contract.Principal`, and you return a value that becomes the response's `data`.
+
+### Reporting Status
+
+If your extension can be installed but not configured yet, implement `DashboardStatusAware` too:
+
+```go
+func (e *ReportsExtension) DashboardStatus() dashboard.DashboardStatus {
+    return dashboard.DashboardStatus{
+        Version:    "1.4.0",
+        Configured: e.warehouse != nil,
+        Message:    "Pick a warehouse in reports.yaml",
+    }
+}
+```
+
+The capabilities endpoint reports it per contributor, and the plugin host uses it to choose between rendering your plugin, a setup guide, or a version mismatch notice. Set `Configured` on every value you return. Its zero value is `false`, which asks for the setup screen.
 
 ### Remote Contributors
 
-Remote contributors are separate HTTP services that expose fragment endpoints:
-
-- `GET <baseURL>/_forge/dashboard/manifest` -- JSON manifest
-- `GET <baseURL>/_forge/dashboard/pages/*` -- HTML page fragments
-- `GET <baseURL>/_forge/dashboard/widgets/:id` -- HTML widget fragments
-
-The dashboard proxies requests via the **fragment proxy**, which includes an LRU cache with TTL and stale-while-revalidate fallback.
-
-### Manifest
-
-Each contributor provides a manifest describing its capabilities:
+A contributor can live in another service. Serve its intents there with `contract/server`, which is an `http.Handler` for everything under `/_forge/contract`:
 
 ```go
-&contributor.Manifest{
-    Name:        "users",
-    DisplayName: "User Management",
-    Icon:        "users",
-    Version:     "1.0.0",
-    Nav: []contributor.NavItem{
-        {Label: "Users", Path: "/", Icon: "users", Group: "Identity", Priority: 0},
-        {Label: "Roles", Path: "/roles", Icon: "shield", Group: "Identity", Priority: 1},
-    },
-    Widgets: []contributor.WidgetDescriptor{
-        {ID: "active-users", Title: "Active Users", Size: "sm", RefreshSec: 60},
-    },
-    Settings: []contributor.SettingsDescriptor{
-        {ID: "user-defaults", Title: "User Defaults", Description: "Default settings for new users"},
-    },
-}
+srv := server.New(reg, wreg, disp, contract.NoopAuditEmitter{})
+mux.Handle(srv.Prefix()+"/", srv)
 ```
 
-`NavItem` entries become sidebar links grouped by `Group` and sorted by `Priority`. The sidebar is constructed automatically from all contributor manifests.
-
-See the [Contributors guide](/docs/extensions/dashboard/contributors) for full details.
-
-## The Dashboard UI
-
-The dashboard itself is a prebuilt React shell, served at `{BasePath}/ui` and mounted directly by the extension (the router registers `{BasePath}/ui` plus a wildcard beneath it, both handled by the same SPA handler). The shell covers the overview, health, metrics, and services views that used to be separate server-rendered pages, and it reads its data over the contract envelope rather than rendering server-side.
-
-A JSON API also still serves the same data directly, at `{BasePath}/api/overview`, `{BasePath}/api/health`, `{BasePath}/api/metrics`, and `{BasePath}/api/services`, for scripted or direct access outside the shell.
-
-The templ **contributor system** described above is separate from the shell and still fully supported: extensions can contribute their own pages, widget fragments, and settings panels, which render through the fragment proxy.
-
-## Widgets
-
-Contributors register widgets via `WidgetDescriptor`. Widgets are rendered as HTMX fragments that **auto-refresh** at the interval specified by `RefreshSec`:
+Then register it with the dashboard:
 
 ```go
-Widgets: []contributor.WidgetDescriptor{
-    {ID: "active-users", Title: "Active Users", Size: "sm", RefreshSec: 60, Group: "Identity"},
-}
+err := dashExt.RegisterRemoteContractContributor(ctx, "https://reports.internal:8443", apiKey)
 ```
 
-Widget sizes: `sm`, `md`, `lg`, `xl`. The overview page displays widgets from all contributors.
+The dashboard fetches the manifest from `/_forge/contract/manifest`, validates it, and forwards envelopes for that contributor to `/_forge/contract/dispatch`. The API key goes out as a bearer token. The end user's identity rides along in `X-Forwarded-Authorization` and `X-Forwarded-Cookie`.
 
-## Real-Time Updates
+## Authentication
 
-The dashboard uses **Server-Sent Events (SSE)** for live updates. When `EnableRealtime` is true, the SSE broker broadcasts events to all connected browsers:
-
-```go
-broker := ext.SSEBroker()
-
-// Broadcast a custom event
-broker.BroadcastJSON("deployment", map[string]any{
-    "service": "api",
-    "version": "2.1.0",
-})
-```
-
-The SSE endpoint is at `{basePath}/sse`. The broker sends keep-alive pings at the configured interval (default 15s).
-
-Event types include metric updates, health state changes, and contributor health transitions (e.g., when a remote contributor becomes unreachable).
-
-<Callout type="info">
-The dashboard uses SSE (Server-Sent Events), not WebSocket. SSE is simpler, works over standard HTTP, and is sufficient for server-to-client push.
-</Callout>
-
-## Go-JS Bridge
-
-The **Go-JS bridge** lets the dashboard UI call Go functions directly from the browser via Alpine.js magic helpers:
-
-```javascript
-// From Alpine.js in the browser
-const overview = await $go('dashboard.getOverview')
-const detail = await $go('dashboard.getServiceDetail', { name: 'api' })
-```
-
-8 built-in functions are registered automatically. Extensions can register custom functions:
-
-```go
-dashExt.RegisterBridgeFunction("myapp.getData", handler,
-    bridge.WithDescription("Get application data"),
-    bridge.WithFunctionCache(10 * time.Second),
-)
-```
-
-Bridge endpoints: `POST {basePath}/bridge/call` for single calls, `GET {basePath}/bridge/stream/` for streaming responses.
-
-See the [Bridge guide](/docs/extensions/dashboard/bridge) for full details.
-
-## Federated Search
-
-When `EnableSearch` is true, the dashboard provides a cross-contributor search API. Contributors implementing the `SearchableContributor` interface are searched in parallel:
-
-```go
-type SearchableContributor interface {
-    DashboardContributor
-    Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
-}
-```
-
-The search API is at `GET {basePath}/api/search?q=query`. Results include the contributor name, matched item, and a link to the relevant page.
-
-## Settings Aggregation
-
-When `EnableSettings` is true, contributor settings are merged into a unified settings page at `{basePath}/settings`. Each contributor's `SettingsDescriptor` entries appear as form sections that can be edited and submitted.
-
-## Data Export
-
-Export dashboard data in three formats when `EnableExport` is true:
-
-| Endpoint | Format | Description |
-|---|---|---|
-| `GET /export/json` | JSON | Full snapshot of overview, health, metrics, and services |
-| `GET /export/csv` | CSV | Metrics as rows with name, type, value, and timestamp |
-| `GET /export/prometheus` | Prometheus | Text exposition format for external scraping |
-
-Configurable export formats:
-
-```go
-dashboard.WithExportFormats([]string{"json", "csv", "prometheus"})
-```
-
-## Service Discovery
-
-When `EnableDiscovery` is true and a discovery service is configured, the dashboard automatically discovers remote contributors tagged with `forge-dashboard-contributor`:
-
-```go
-dashExt.SetDiscoveryService(discoveryExt.Service())
-```
-
-Discovered services have their manifests fetched and are registered as remote contributors. The discovery integration polls at the configured interval (default 60s).
-
-## Authentication & Authorization
-
-The dashboard supports optional authentication with three page access levels:
-
-| Level | Behavior |
-|---|---|
-| `public` | Always accessible, no login required |
-| `protected` | Requires authentication; unauthenticated users are redirected to the login page |
-| `partial` | Always accessible but can render differently based on auth state |
-
-### Enabling Auth
-
-```go
-dashExt := dashboard.NewExtension(
-    dashboard.WithEnableAuth(true),
-    dashboard.WithDefaultAccess("protected"),
-    dashboard.WithLoginPath("/auth/login"),
-    dashboard.WithLogoutPath("/auth/logout"),
-)
-```
-
-### AuthChecker
-
-The `AuthChecker` interface is the primary abstraction for validating requests. Implement it to integrate with your auth system (JWT, sessions, OAuth, etc.):
+The dashboard doesn't sign anyone in. You give it an `AuthChecker`, and it attaches the result to every contract request:
 
 ```go
 import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -221,127 +107,47 @@ import dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 type MyChecker struct{ /* your auth service */ }
 
 func (c *MyChecker) CheckAuth(ctx context.Context, r *http.Request) (*dashauth.UserInfo, error) {
-    // Return nil (not an error) when unauthenticated.
-    // Return *UserInfo when authenticated.
+    // Return nil (not an error) when nobody is signed in.
     // Return an error only for infrastructure failures.
 }
 ```
 
-Wire it after registration:
+Auth extensions do this for you by implementing `DashboardAuthAware`, which the dashboard calls during `Start()`:
 
 ```go
-typedDash := dashExt.(*dashboard.Extension)
-typedDash.SetAuthChecker(&MyChecker{})
-```
-
-### UserInfo
-
-`UserInfo` represents an authenticated user. It is decoupled from any auth provider:
-
-```go
-type UserInfo struct {
-    Subject      string            // unique user ID
-    DisplayName  string            // display name
-    Email        string            // email address
-    AvatarURL    string            // avatar image URL
-    Roles        []string          // user roles
-    Scopes       []string          // OAuth2 scopes
-    ProviderName string            // which auth provider
-    Claims       map[string]any    // additional claims
-    Metadata     map[string]any    // provider metadata
+func (a *AuthExtension) RegisterDashboardAuth(ext *dashboard.Extension) {
+    ext.SetAuthChecker(a.checker)
+    ext.SetRequiredRoles(a.config.DashboardRoles)
+    ext.EnableAuth()
 }
 ```
 
-Helper methods: `Authenticated()`, `HasRole(role)`, `HasScope(scope)`, `HasAnyRole(roles...)`, `Initials()`.
+With auth on, `/principal` answers 401 for a signed-out caller and includes the login path, so the client knows where to send them. With `RequiredRoles` set, a signed-in user without one of the roles gets a 403. The login page itself belongs to your auth extension's plugin.
 
-### Auth Page Provider
-
-Auth extensions provide login/register/logout pages by implementing `AuthPageProvider`:
-
-```go
-type AuthPageProvider interface {
-    AuthPages() []AuthPageDescriptor
-    RenderAuthPage(ctx *router.PageContext, pageType AuthPageType) (g.Node, error)
-    HandleAuthAction(ctx *router.PageContext, pageType AuthPageType) (redirectURL string, errNode g.Node, err error)
-}
-```
-
-Supported page types: `login`, `logout`, `register`, `forgot-password`, `reset-password`, `callback`, `profile`.
-
-Auth pages use the `auth` layout (centered card, no sidebar) and are always publicly accessible so unauthenticated users can reach the login form.
-
-### Per-Page Access Levels
-
-Contributors can set access levels on individual `NavItem` entries:
-
-```go
-Nav: []contributor.NavItem{
-    {Label: "Public Stats", Path: "/stats", Access: "public"},
-    {Label: "Admin Panel", Path: "/admin", Access: "protected"},
-    {Label: "Dashboard", Path: "/", Access: "partial"},
-}
-```
-
-Empty `Access` falls back to the dashboard `DefaultAccess` config.
-
-### Reading User Info
-
-Page handlers and contributors can read the authenticated user from the request context:
-
-```go
-user := dashauth.UserFromContext(ctx)
-if user.Authenticated() {
-    // Personalize content for the user
-}
-```
-
-### HTMX-Aware Redirects
-
-When an HTMX partial request hits a protected page without authentication, the middleware returns a 401 status with an `HX-Redirect` header. The `AuthRedirectScript` (automatically injected when auth is enabled) reads this header and performs a full-page redirect to the login page.
-
-### Middleware Stack
-
-The auth system uses two middleware layers:
-
-1. **`ForgeMiddleware`** -- runs on the forge.Router catch-all, calls `AuthChecker.CheckAuth()`, and stores the `UserInfo` in the request context. Never blocks requests.
-2. **`PageMiddleware`** -- runs per ForgeUI page, enforces the access level. Redirects to the login page for `protected` pages when the user is unauthenticated.
-
-Additional middleware helpers: `RequireRole(role)` and `RequireScope(scope)` for fine-grained authorization.
-
-<Callout type="info">
-The dashboard auth system is intentionally decoupled from the `extensions/auth` package. The `dashauth` package defines its own `AuthChecker` interface and `UserInfo` type so the dashboard has no hard dependency on any specific auth provider.
-</Callout>
+Handlers read the caller from the context with `dashauth.UserFromContext(ctx)`, or from the `contract.Principal` they're given.
 
 ## Security
 
-### Content-Security-Policy
+When `EnableCSRF` and `EnableContractSecurity` are both on (the default), commands need a token from `GET /api/dashboard/v1/csrf`, and a bad token gets a 403. Contract security also turns on idempotency dedup and OpenTelemetry tracing on the dispatcher.
 
-When `EnableCSP` is true (default), the dashboard adds CSP headers to prevent XSS and other injection attacks.
+Every envelope is capped at `ContractMaxBodyBytes`, 1 MiB unless you change it. The cap applies before the body is decoded and before any `Requires` predicate runs, so a caller with no access at all can't make the server read an unbounded body.
 
-### CSRF Protection
+## Request Tracing
 
-When `EnableCSRF` is true (default), form submissions and bridge calls are protected with CSRF tokens.
+The dashboard records request traces from the whole app, not just its own routes, and serves them through `traces.list` and `traces.detail`. To keep that cheap, spans are kept only while somebody is using the dashboard: a dashboard request or an open stream holds the gate open, and it shuts `TraceIdleTTL` after the last one (five minutes by default). A negative `TraceIdleTTL` keeps tracing on all the time.
 
-### HTML Sanitization
+Request bodies aren't captured unless you turn on `TraceCaptureRequestBody`. Even then, the body is size-limited and credential-shaped keys are redacted.
 
-Remote contributor HTML fragments are sanitized before embedding to prevent XSS from untrusted remote services.
+## Data Export
 
-## Theming
+With `EnableExport` on, three routes serve a snapshot outside the contract:
 
-Three theme modes are supported:
+| Endpoint | Format |
+|---|---|
+| `GET /export/json` | Overview, health, metrics and services as JSON |
+| `GET /export/csv` | Metrics as CSV rows |
+| `GET /export/prometheus` | Prometheus text exposition |
 
-```go
-dashboard.WithTheme("auto")  // Follows system preference (prefers-color-scheme)
-dashboard.WithTheme("light") // Always light mode
-dashboard.WithTheme("dark")  // Always dark mode
-```
-
-Custom CSS can be injected:
-
-```go
-dashboard.WithCustomCSS(".my-class { color: red; }")
-```
-
-## Error Recovery
-
-The **recovery manager** implements a circuit-breaker pattern for remote contributors. If a remote service becomes unreachable, the recovery manager tracks its health state transitions (healthy -> degraded -> unhealthy) and broadcasts state changes via SSE for real-time UI updates.
+<Callout type="info">
+If you only need Prometheus scraping, forge already serves the app's metrics at `/_/metrics`. The export route is there for a one-off snapshot.
+</Callout>

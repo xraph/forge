@@ -1,4 +1,4 @@
 {
-  "pages": ["index", "features", "configuration", "functions", "contributors", "bridge"],
+  "pages": ["index", "features", "configuration", "functions"],
   "title": "Dashboard"
 }

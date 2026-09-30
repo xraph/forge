@@ -1,6 +1,6 @@
 ---
 title: Dashboard
-description: Extensible micro-frontend shell for admin dashboards with contributor system, real-time updates, and Go-JS bridge
+description: The dashboard's data plane, a contract API that React dashboard plugins read from, plus metrics, health and trace collection
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
@@ -8,17 +8,13 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/dashboard` provides an extensible micro-frontend dashboard shell for Forge applications. It is powered by ForgeUI and uses a **contributor-based architecture** where extensions register pages, widgets, and settings that are merged into a unified admin dashboard.
+`github.com/xraph/forge/extensions/dashboard` serves your dashboard's data. It collects health, metrics, services and request traces from the running app, and exposes them, along with anything your own extensions contribute, through one RPC endpoint: the dashboard contract at `{BasePath}/api/dashboard/v1`.
 
-The dashboard supports both **local contributors** (in-process, rendering gomponents nodes) and **remote contributors** (separate HTTP services whose HTML fragments are proxied and embedded). Navigation, layout, and theming are handled automatically by the shell.
+It serves no web pages. The UI is a separate React app built from the `@forge-go/dashboard-*` packages, and you build and serve it yourself. `forge dashboard new` scaffolds one for you, either a standalone Vite app or a mount inside an existing Next.js app.
 
-## What It Registers
-
-| Service | DI Key | Type |
-|---|---|---|
-| Dashboard extension | `dashboard` | `*Extension` |
-
-Routes are mounted on the Forge HTTP router during `Start()` at the configured base path (default `/dashboard`).
+<Callout type="info">
+Extensions contribute to the dashboard in two halves: a contract contributor in Go that registers intents, and a React plugin that renders them. See [Features](/docs/extensions/dashboard/features#contributing-from-an-extension).
+</Callout>
 
 ## Quick Start
 
@@ -40,102 +36,50 @@ func main() {
     )
 
     if err := app.RegisterExtension(dashboard.NewExtension(
-        dashboard.WithTitle("My Dashboard"),
         dashboard.WithBasePath("/dashboard"),
-        dashboard.WithRealtime(true),
         dashboard.WithRefreshInterval(30 * time.Second),
         dashboard.WithExport(true),
-        dashboard.WithTheme("auto"),
     )); err != nil {
         log.Fatalf("failed to register dashboard: %v", err)
     }
 
-    // Dashboard available at http://localhost:8080/dashboard/ui
+    // The contract is now at http://localhost:8080/dashboard/api/dashboard/v1
     if err := app.Run(); err != nil {
         log.Fatalf("application error: %v", err)
     }
 }
 ```
 
-## Programmatic Access
+Then scaffold the UI and point it at that endpoint:
 
-Retrieve the dashboard extension from the DI container to access its subsystems:
-
-```go
-ext, _ := forge.InjectType[*dashboard.Extension](app.Container())
-
-// Data collection
-collector := ext.Collector()
-overview := collector.CollectOverview(ctx)
-health := collector.CollectHealth(ctx)
-metrics := collector.CollectMetrics(ctx)
-
-// Historical data
-history := ext.History()
-all := history.GetAll()
-
-// Contributor registry
-registry := ext.Registry()
-
-// Bridge (Go-JS function calls)
-bridge := ext.DashboardBridge()
-
-// SSE real-time broker
-broker := ext.SSEBroker()
-
-// Auth checker (when auth is enabled)
-checker := ext.AuthChecker()
+```sh
+forge dashboard new my-dashboard
 ```
+
+## What It Registers
+
+| Service | DI Key | Type |
+|---|---|---|
+| Dashboard extension | `dashboard` | `*Extension` |
+
+Routes are mounted on the Forge router during `Start()`, under the configured base path (default `/dashboard`).
 
 ## HTTP Endpoints
 
-All routes are under the configured base path (default `/dashboard`):
+All paths are relative to the base path.
 
-### Dashboard UI
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/ui` | Prebuilt React shell (overview, health, metrics, services) |
-| GET | `/ui/*` | Shell static assets and client-side routes |
-
-The shell reads its data over the contract envelope (see below), not through the ForgeUI pages listed next. `/`, `/health`, `/metrics`, and `/services` are not served: nothing renders those paths and nothing redirects them to the shell.
-
-### Contributor Pages (ForgeUI)
+### Contract
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/ext/:name/pages/*` | Contributor extension pages |
-| GET | `/ext/:name/widgets/:id` | Widget HTMX fragments |
-| GET | `/remote/:name/pages/*` | Remote contributor pages |
-| GET | `/remote/:name/widgets/:id` | Remote contributor widgets |
+| POST | `/api/dashboard/v1` | The contract envelope: queries and commands |
+| GET | `/api/dashboard/v1/capabilities` | Supported envelope versions and every registered contributor, with its status |
+| GET | `/api/dashboard/v1/principal` | The signed-in user, or 401 with the login path when auth is on |
+| GET | `/api/dashboard/v1/csrf` | A CSRF token for commands (when CSRF and contract security are on) |
+| GET | `/api/dashboard/v1/stream` | Server-sent events carrying subscription updates |
+| POST | `/api/dashboard/v1/stream/control` | Subscribe and unsubscribe on an open stream |
 
-These are still served by the templ contributor system: extensions can register their own pages, widget fragments, and settings panels, and the shell embeds them through the fragment proxy. Only forge's own built-in core pages were removed.
-
-### Authentication (when `EnableAuth` is true)
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/auth/login` | Login page |
-| POST | `/auth/login` | Login form submission |
-| GET | `/auth/logout` | Logout page |
-| GET | `/auth/register` | Register page (if provider supplies it) |
-| POST | `/auth/register` | Register form submission |
-
-Auth page paths are configurable. The table above shows defaults.
-
-### JSON API
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/overview` | Application overview |
-| GET | `/api/health` | Health status |
-| GET | `/api/metrics` | Current metrics |
-| GET | `/api/services` | Service list |
-| GET | `/api/service-detail?name=X` | Service detail |
-| GET | `/api/history` | Metric history |
-| GET | `/api/metrics-report` | Aggregated metrics report |
-| GET | `/api/search?q=X` | Federated search (if enabled) |
-| GET | `/api/sse/status` | SSE connection status |
+The envelope is capped at 1 MiB by default. A bigger body gets a 413 before it's decoded. You can change the cap with `WithContractMaxBodyBytes`.
 
 ### Export
 
@@ -145,48 +89,31 @@ Auth page paths are configurable. The table above shows defaults.
 | GET | `/export/csv` | Metrics as CSV |
 | GET | `/export/prometheus` | Prometheus text format |
 
-### Real-Time and Bridge
+Export routes register only when `EnableExport` is true, which is the default.
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/sse` | SSE event stream |
-| POST | `/bridge/call` | Bridge function call |
-| GET | `/bridge/stream/` | Bridge streaming (SSE) |
+## Programmatic Access
 
-### Settings
+You can pull the extension out of the DI container and read its data directly:
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/settings` | Aggregated settings index |
-| GET | `/ext/:name/settings/:id` | Contributor settings form |
-| POST | `/ext/:name/settings/:id` | Submit settings form |
+```go
+ext, _ := forge.InjectType[*dashboard.Extension](app.Container())
 
-## Key Concepts
-
-- **Contributor System** -- extensions register pages, widgets, and settings via a manifest. Local contributors render gomponents; remote contributors serve HTML fragments over HTTP.
-- **ForgeUI Shell** -- layouts (root, dashboard, base, full, settings, auth), HTMX partial navigation, Alpine.js state management, and automatic sidebar construction from contributor manifests.
-- **Authentication** -- optional page access levels (public, protected, partial), auth page provider for login/register flows, auth-aware user menu in topbar, HTMX-aware redirects. Decoupled from any specific auth provider.
-- **Go-JS Bridge** -- call Go functions from the browser via Alpine.js `$go()` magic helpers. 8 built-in dashboard functions plus custom function registration.
-- **SSE Real-Time** -- server-sent events push metric, health, and contributor state updates to connected browsers.
-- **Federated Search** -- contributors implementing `SearchableContributor` are searched in parallel across the entire dashboard.
-- **Data Export** -- export metrics and health data in JSON, CSV, or Prometheus format.
+overview := ext.Collector().CollectOverview(ctx)
+health := ext.Collector().CollectHealth(ctx)
+history := ext.History().GetAll()
+traces := ext.TraceStore()
+```
 
 ## Detailed Pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/dashboard/features">
-Dashboard capabilities: shell, contributors, authentication, bridge, SSE, search, export, security.
+The contract, the core intents, contributing from an extension, auth, and tracing.
 </Card>
 <Card title="Configuration" href="/docs/extensions/dashboard/configuration">
-Full config reference with all options, YAML example, and validation rules.
+Full config reference with every option, a YAML example, and validation rules.
 </Card>
 <Card title="Functions" href="/docs/extensions/dashboard/functions">
-Complete public API: 15+ methods, error sentinels, and REST endpoints.
-</Card>
-<Card title="Contributors" href="/docs/extensions/dashboard/contributors">
-Contributor system: interfaces, manifests, local and remote contributors.
-</Card>
-<Card title="Bridge" href="/docs/extensions/dashboard/bridge">
-Go-JS bridge: built-in functions, custom registration, and JS client usage.
+The public Go API and the interfaces an extension can implement.
 </Card>
 </Cards>

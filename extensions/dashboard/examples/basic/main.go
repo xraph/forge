@@ -1,10 +1,11 @@
 // Package main demonstrates a basic dashboard setup with default configuration
 // and no contributors registered.
 //
-// This example creates a Forge application with the dashboard extension.
-// The dashboard is the prebuilt React shell, mounted at {BasePath}/ui, which
-// covers overview, health checks, metrics, and services. The same data is
-// also available directly as JSON under {BasePath}/api.
+// This example creates a Forge application with the dashboard extension. The
+// extension serves the dashboard's data, not its pages: overview, health,
+// metrics, services and traces come back as contract intents from
+// {BasePath}/api/dashboard/v1. Build the UI with `forge dashboard new` and
+// point it at that endpoint.
 //
 // NOTE: This is an illustrative stub. It requires a full Forge application
 // environment to run.
@@ -25,14 +26,10 @@ func main() {
 		forge.WithAppVersion("1.0.0"),
 	)
 
-	// Register the dashboard extension with custom configuration.
-	// The React shell (overview, health, metrics, services) and its JSON API
-	// are mounted automatically; no contributor registration is required.
+	// Register the dashboard extension with custom configuration. The core
+	// intents are registered automatically; nothing else is required.
 	if err := app.RegisterExtension(dashboard.NewExtension(
-		dashboard.WithTitle("My Dashboard"),
 		dashboard.WithBasePath("/dashboard"),
-		dashboard.WithTheme("auto"),
-		dashboard.WithRealtime(true),
 		dashboard.WithRefreshInterval(30*time.Second),
 		dashboard.WithExport(true),
 		dashboard.WithHistoryDuration(1*time.Hour),
@@ -41,23 +38,15 @@ func main() {
 		log.Fatalf("failed to register dashboard extension: %v", err)
 	}
 
-	// Start the application. The dashboard will be available at:
-	//   http://localhost:8080/dashboard/ui
-	//
-	// JSON API endpoints (same data as the shell):
-	//   GET /dashboard/api/overview
-	//   GET /dashboard/api/health
-	//   GET /dashboard/api/metrics
-	//   GET /dashboard/api/services
-	//   GET /dashboard/api/history
+	// Start the application. The dashboard's data is served at:
+	//   POST /dashboard/api/dashboard/v1               contract envelope
+	//   GET  /dashboard/api/dashboard/v1/capabilities  registered contributors
+	//   GET  /dashboard/api/dashboard/v1/stream        subscriptions (SSE)
 	//
 	// Export endpoints (when enabled):
 	//   GET /dashboard/export/json
 	//   GET /dashboard/export/csv
 	//   GET /dashboard/export/prometheus
-	//
-	// Real-time events (when enabled):
-	//   SSE /dashboard/sse
 	if err := app.Run(); err != nil {
 		log.Fatalf("application error: %v", err)
 	}

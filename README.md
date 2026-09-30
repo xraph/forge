@@ -79,7 +79,7 @@ are still being built.
 | [auth](extensions/auth/README.md) | Multi-provider authentication (OAuth, JWT, SAML) |
 | cache | Multi-backend caching (Redis, Memcached, in-memory) |
 | [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
-| [dashboard](extensions/dashboard/README.md) | Micro-frontend shell for admin dashboards |
+| [dashboard](extensions/dashboard/README.md) | Data API for admin dashboards built with the React dashboard plugins |
 | [discovery](extensions/discovery/README.md) | Service discovery and registry |
 | events | Event bus and event sourcing |
 | [features](extensions/features/README.md) | Feature flags and A/B testing |

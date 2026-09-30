@@ -2,15 +2,17 @@ package pilot
 
 import "github.com/xraph/forge/extensions/dashboard/collector"
 
-// ExtensionInfo is a flattened summary of one registered contributor manifest.
+// ExtensionInfo summarises one extension registered with the app.
 type ExtensionInfo struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
 	Version     string `json:"version"`
-	Icon        string `json:"icon,omitempty"`
-	Layout      string `json:"layout,omitempty"`
-	PageCount   int    `json:"pageCount"`
-	WidgetCount int    `json:"widgetCount"`
+	Description string `json:"description,omitempty"`
+	// PageCount and WidgetCount counted server-rendered dashboard pages and
+	// widgets, which no longer exist. Both are always zero. They stay in the
+	// payload only so clients that still read them keep working.
+	PageCount   int `json:"pageCount"`
+	WidgetCount int `json:"widgetCount"`
 }
 
 // ExtensionsList is the response payload for the extensions.list query.

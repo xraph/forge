@@ -10,50 +10,32 @@ import { Callout } from 'fumadocs-ui/components/callout';
 ```yaml title="config.yaml"
 extensions:
   dashboard:
-    # Server
     base_path: "/dashboard"
-    title: "Forge Dashboard"
-
-    # Features
-    enable_realtime: true
-    enable_export: true
-    enable_search: true
-    enable_settings: true
-    enable_discovery: false
-    enable_bridge: true
-
-    # Authentication
-    enable_auth: false
-    login_path: "/auth/login"
-    logout_path: "/auth/logout"
-    default_access: "public"     # "public", "protected", "partial"
 
     # Data collection
     refresh_interval: "30s"
-    history_duration: "1h"
-    max_data_points: 1000
+    history_duration: "30m"
+    max_data_points: 120
 
-    # Proxy / Remote contributors
-    proxy_timeout: "10s"
-    cache_max_size: 1000
-    cache_ttl: "30s"
-
-    # SSE
-    sse_keep_alive: "15s"
+    # Tracing
+    trace_max_count: 200
+    trace_retention: "30m"
+    trace_max_spans_per_trace: 200
+    trace_idle_ttl: "5m"
+    trace_capture_request_body: false
 
     # Security
-    enable_csp: true
     enable_csrf: true
+    enable_contract_security: true
+    contract_max_body_bytes: 1048576
 
-    # Theming
-    theme: "auto"            # "auto", "light", "dark"
-    custom_css: ""
-
-    # Discovery
-    discovery_tag: "forge-dashboard-contributor"
-    discovery_poll_interval: "60s"
+    # Authentication
+    enable_auth: false
+    login_path: "/login"
+    required_roles: []
 
     # Export
+    enable_export: true
     export_formats:
       - "json"
       - "csv"
@@ -64,28 +46,19 @@ The extension loads config from `extensions.dashboard` first, falling back to `d
 
 ## Programmatic Configuration
 
-All options use the functional options pattern:
-
 ```go
 ext := dashboard.NewExtension(
     dashboard.WithBasePath("/admin/dashboard"),
-    dashboard.WithTitle("Admin Panel"),
-    dashboard.WithRealtime(true),
-    dashboard.WithExport(true),
-    dashboard.WithSearch(true),
-    dashboard.WithSettings(true),
-    dashboard.WithBridge(true),
-    dashboard.WithEnableAuth(true),
-    dashboard.WithDefaultAccess("protected"),
-    dashboard.WithLoginPath("/auth/login"),
     dashboard.WithRefreshInterval(30 * time.Second),
     dashboard.WithHistoryDuration(2 * time.Hour),
-    dashboard.WithMaxDataPoints(2000),
-    dashboard.WithTheme("auto"),
-    dashboard.WithCSP(true),
-    dashboard.WithCSRF(true),
+    dashboard.WithEnableAuth(true),
+    dashboard.WithLoginPath("/auth/login"),
+    dashboard.WithRequiredRoles([]string{"admin"}),
+    dashboard.WithContractMaxBodyBytes(4 << 20),
 )
 ```
+
+If you'd rather tune for the memory you have than set each value, `WithMemoryProfile(dashboard.MemoryProfileLow)` (or `Medium`, `High`) sets the history and trace limits together. Options after it still override it.
 
 ## Config Reference
 
@@ -93,158 +66,71 @@ ext := dashboard.NewExtension(
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `BasePath` | `string` | `"/dashboard"` | `WithBasePath()` | HTTP base path for all dashboard routes |
-| `Title` | `string` | `"Forge Dashboard"` | `WithTitle()` | Page title shown in browser tab and header |
-
-### Features
-
-| Field | Type | Default | Option | Description |
-|---|---|---|---|---|
-| `EnableRealtime` | `bool` | `true` | `WithRealtime()` | SSE real-time event stream |
-| `EnableExport` | `bool` | `true` | `WithExport()` | Data export endpoints (JSON, CSV, Prometheus) |
-| `EnableSearch` | `bool` | `true` | `WithSearch()` | Federated cross-contributor search |
-| `EnableSettings` | `bool` | `true` | `WithSettings()` | Aggregated settings page |
-| `EnableDiscovery` | `bool` | `false` | `WithDiscovery()` | Auto-discover remote contributors via service discovery |
-| `EnableBridge` | `bool` | `true` | `WithBridge()` | Go-JS bridge function system |
-
-### Authentication
-
-| Field | Type | Default | Option | Description |
-|---|---|---|---|---|
-| `EnableAuth` | `bool` | `false` | `WithEnableAuth()` | Enable authentication and page access control |
-| `LoginPath` | `string` | `"/auth/login"` | `WithLoginPath()` | Relative path to the login page |
-| `LogoutPath` | `string` | `"/auth/logout"` | `WithLogoutPath()` | Relative path to the logout page |
-| `DefaultAccess` | `string` | `"public"` | `WithDefaultAccess()` | Default access level for pages: `public`, `protected`, or `partial` |
-
-When `EnableAuth` is `true`, every page route is wrapped with authentication middleware. Pages default to the `DefaultAccess` level unless overridden per-page via the contributor manifest `NavItem.Access` field.
-
-An `AuthChecker` must be set on the extension at runtime (`SetAuthChecker(checker)`) to perform actual authentication validation. Without a checker, auth is effectively a no-op.
+| `BasePath` | `string` | `"/dashboard"` | `WithBasePath()` | Prefix for every route the extension mounts |
 
 ### Data Collection
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `RefreshInterval` | `time.Duration` | `30s` | `WithRefreshInterval()` | How often to collect metrics and health data |
-| `HistoryDuration` | `time.Duration` | `1h` | `WithHistoryDuration()` | How long to retain historical data points |
-| `MaxDataPoints` | `int` | `1000` | `WithMaxDataPoints()` | Maximum number of data points in history |
+| `RefreshInterval` | `time.Duration` | `30s` | `WithRefreshInterval()` | How often metrics and health are collected |
+| `HistoryDuration` | `time.Duration` | `30m` | `WithHistoryDuration()` | How long historical data points are kept |
+| `MaxDataPoints` | `int` | `120` | `WithMaxDataPoints()` | Most data points kept per series |
 
-### Proxy / Remote Contributors
-
-| Field | Type | Default | Option | Description |
-|---|---|---|---|---|
-| `ProxyTimeout` | `time.Duration` | `10s` | `WithProxyTimeout()` | Timeout for requests to remote contributors |
-| `CacheMaxSize` | `int` | `1000` | `WithCacheMaxSize()` | Max entries in the fragment proxy LRU cache |
-| `CacheTTL` | `time.Duration` | `30s` | `WithCacheTTL()` | Time-to-live for cached remote fragments |
-
-### SSE
+### Tracing
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `SSEKeepAlive` | `time.Duration` | `15s` | `WithSSEKeepAlive()` | Interval for SSE keep-alive pings |
+| `TraceMaxCount` | `int` | `200` | `WithTraceMaxCount()` | Most traces kept in memory |
+| `TraceRetention` | `time.Duration` | `30m` | `WithTraceRetention()` | How long a trace is kept |
+| `TraceMaxSpansPerTrace` | `int` | `200` | `WithTraceMaxSpansPerTrace()` | Most spans one trace keeps, so a long-lived trace can't grow without bound |
+| `TraceIdleTTL` | `time.Duration` | `5m` | `WithTraceIdleTTL()` | How long after the last dashboard request or open stream spans are still recorded. Negative records always |
+| `TraceCaptureRequestBody` | `bool` | `false` | `WithTraceCaptureRequestBody()` | Keep a size-limited, redacted JSON request body on each trace |
+
+<Callout type="warn">
+Setting `TraceIdleTTL` to zero doesn't reliably turn the gate off. Under a ConfigManager a zero value is treated as unset and the default wins. Use a negative duration.
+</Callout>
 
 ### Security
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `EnableCSP` | `bool` | `true` | `WithCSP()` | Add Content-Security-Policy headers |
-| `EnableCSRF` | `bool` | `true` | `WithCSRF()` | CSRF token protection for forms and bridge calls |
+| `EnableCSRF` | `bool` | `true` | `WithCSRF()` | Create the CSRF manager and serve `/api/dashboard/v1/csrf` |
+| `EnableContractSecurity` | `bool` | `true` | `WithContractSecurity()` | Check CSRF tokens on commands, dedupe by idempotency key, and trace dispatches |
+| `ContractMaxBodyBytes` | `int64` | `0` (1 MiB) | `WithContractMaxBodyBytes()` | Largest envelope a client may POST. Zero or less means 1 MiB, and there's no way to turn the cap off |
 
-### Theming
-
-| Field | Type | Default | Option | Description |
-|---|---|---|---|---|
-| `Theme` | `string` | `"auto"` | `WithTheme()` | Theme mode: `auto`, `light`, or `dark` |
-| `CustomCSS` | `string` | `""` | `WithCustomCSS()` | Custom CSS injected into the dashboard |
-
-### Discovery
+### Authentication
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `DiscoveryTag` | `string` | `"forge-dashboard-contributor"` | `WithDiscoveryTag()` | Service discovery tag to filter contributors |
-| `DiscoveryPollInterval` | `time.Duration` | `60s` | `WithDiscoveryPollInterval()` | How often to poll for new remote contributors |
+| `EnableAuth` | `bool` | `false` | `WithEnableAuth()` | Attach the `AuthChecker` to the contract routes and make `/principal` answer 401 when nobody is signed in |
+| `LoginPath` | `string` | `"/login"` | `WithLoginPath()` | Where signed-out users are sent, relative to `BasePath`. Reported by `/principal`; the dashboard serves no login page |
+| `RequiredRoles` | `[]string` | none | `WithRequiredRoles()` | When set, `/principal` answers 403 for users without at least one of these roles |
+
+Auth does nothing until something calls `SetAuthChecker`. An auth extension that implements `DashboardAuthAware` does that for you.
 
 ### Export
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
+| `EnableExport` | `bool` | `true` | `WithExport()` | Serve the `/export/*` routes |
 | `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | `WithExportFormats()` | Supported export formats |
 
 ### Internal
 
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
-| `RequireConfig` | `bool` | `false` | `WithRequireConfig()` | Require config from ConfigManager (fail if missing) |
-
-## Functional Options
-
-All options are available as `ConfigOption` functions:
-
-```go
-// Server
-dashboard.WithBasePath(path string)
-dashboard.WithTitle(title string)
-
-// Features
-dashboard.WithRealtime(enabled bool)
-dashboard.WithExport(enabled bool)
-dashboard.WithSearch(enabled bool)
-dashboard.WithSettings(enabled bool)
-dashboard.WithDiscovery(enabled bool)
-dashboard.WithBridge(enabled bool)
-
-// Authentication
-dashboard.WithEnableAuth(enabled bool)
-dashboard.WithLoginPath(path string)
-dashboard.WithLogoutPath(path string)
-dashboard.WithDefaultAccess(access string)
-
-// Data collection
-dashboard.WithRefreshInterval(interval time.Duration)
-dashboard.WithHistoryDuration(duration time.Duration)
-dashboard.WithMaxDataPoints(maxPoints int)
-
-// Proxy
-dashboard.WithProxyTimeout(timeout time.Duration)
-dashboard.WithCacheMaxSize(size int)
-dashboard.WithCacheTTL(ttl time.Duration)
-
-// SSE
-dashboard.WithSSEKeepAlive(interval time.Duration)
-
-// Security
-dashboard.WithCSP(enabled bool)
-dashboard.WithCSRF(enabled bool)
-
-// Theming
-dashboard.WithTheme(theme string)
-dashboard.WithCustomCSS(css string)
-
-// Discovery
-dashboard.WithDiscoveryTag(tag string)
-dashboard.WithDiscoveryPollInterval(interval time.Duration)
-
-// Export
-dashboard.WithExportFormats(formats []string)
-
-// Advanced
-dashboard.WithConfig(config Config)       // Set complete config
-dashboard.WithRequireConfig(required bool) // Require config from ConfigManager
-```
+| `RequireConfig` | `bool` | `false` | `WithRequireConfig()` | Fail `Register()` if the ConfigManager has no dashboard config |
 
 ## Validation Rules
 
-The config is validated during `Register()`. The following constraints apply:
+The config is validated during `Register()`:
 
 | Field | Rule |
 |---|---|
 | `BasePath` | Must not be empty |
-| `RefreshInterval` | Minimum 1 second |
-| `MaxDataPoints` | Minimum 10 |
-| `Theme` | Must be `light`, `dark`, or `auto` |
-| `ProxyTimeout` | Minimum 1 second |
-| `CacheMaxSize` | Must not be negative |
-| `DefaultAccess` | Must be `public`, `protected`, or `partial` (when `EnableAuth` is true) |
+| `RefreshInterval` | At least 1 second |
+| `MaxDataPoints` | At least 10 |
 
 <Callout type="warn">
-If validation fails, `Register()` returns an error and the dashboard will not start.
+If validation fails, `Register()` returns an error and the dashboard won't start.
 </Callout>

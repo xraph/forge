@@ -13,11 +13,8 @@ import (
 
 	"github.com/xraph/forge"
 
-	"github.com/a-h/templ"
-
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 )
 
 // statusExt is a Forge extension that both registers a contract contributor
@@ -29,11 +26,6 @@ type statusExt struct {
 	*forge.BaseExtension
 
 	contributor string
-	// legacy, when set, makes this extension a DashboardAware one whose
-	// legacy manifest carries a contract manifest — the mirror registration
-	// path, which is a second way a contributor reaches the contract
-	// registry.
-	legacy *legacyContributor
 
 	mu     sync.Mutex
 	status DashboardStatus
@@ -45,60 +37,6 @@ func newStatusExt(name, contributorName string, st DashboardStatus) *statusExt {
 		contributor:   contributorName,
 		status:        st,
 	}
-}
-
-// DashboardContributor makes this extension DashboardAware. Returning nil is
-// an explicit opt-out the discovery loop handles, which is what extensions
-// without a legacy contributor do here.
-func (s *statusExt) DashboardContributor() contributor.LocalContributor {
-	if s.legacy == nil {
-		return nil
-	}
-
-	return s.legacy
-}
-
-// legacyContributor is a LocalContributor whose legacy manifest publishes a
-// contract manifest alongside it.
-type legacyContributor struct {
-	m *contributor.Manifest
-}
-
-func newLegacyContributor(t *testing.T, name string) *legacyContributor {
-	t.Helper()
-
-	src := `
-schemaVersion: 1
-contributor: { name: ` + name + `, envelope: { supports: [v1], preferred: v1 } }
-intents:
-  - { name: ` + name + `.list, kind: query, version: 1, capability: read }
-`
-
-	var cm contract.ContractManifest
-	if err := contract.UnmarshalManifestForTest([]byte(src), &cm); err != nil {
-		t.Fatal(err)
-	}
-
-	return &legacyContributor{m: &contributor.Manifest{
-		Name:        name,
-		DisplayName: name,
-		Version:     "1.0.0",
-		Contract:    &cm,
-	}}
-}
-
-func (l *legacyContributor) Manifest() *contributor.Manifest { return l.m }
-
-func (l *legacyContributor) RenderPage(context.Context, string, contributor.Params) (templ.Component, error) {
-	return nil, nil
-}
-
-func (l *legacyContributor) RenderWidget(context.Context, string) (templ.Component, error) {
-	return nil, nil
-}
-
-func (l *legacyContributor) RenderSettings(context.Context, string) (templ.Component, error) {
-	return nil, nil
 }
 
 func (s *statusExt) DashboardStatus() DashboardStatus {
@@ -212,6 +150,20 @@ func (a *statusTestApp) RegisterHookFn(forge.LifecyclePhase, string, forge.Lifec
 	return nil
 }
 
+// newTestDashboardExt builds a bare *Extension with a no-op logger. The
+// discovery tests add the contract state they need on top.
+func newTestDashboardExt(t *testing.T) *Extension {
+	t.Helper()
+
+	base := forge.NewBaseExtension("dashboard", "test", "test")
+	base.SetLogger(forge.NewNoopLogger())
+
+	return &Extension{
+		BaseExtension: base,
+		config:        DefaultConfig(),
+	}
+}
+
 // newDiscoveryTestExt builds a dashboard Extension with the contract track
 // wired and the given extensions visible to discovery.
 func newDiscoveryTestExt(t *testing.T, log forge.Logger, exts ...forge.Extension) *Extension {
@@ -289,7 +241,7 @@ func TestDiscovery_AttributesStatusPerExtension(t *testing.T) {
 	})
 
 	e := newDiscoveryTestExt(t, nil, billing, analytics)
-	e.discoverExtensionContributors(context.Background())
+	e.discoverExtensionContributors()
 
 	got := capabilityStatus(t, e)
 	if len(got) != 2 {
@@ -330,18 +282,18 @@ func TestDiscovery_AttributesStatusPerExtension(t *testing.T) {
 	}
 }
 
-// TestDiscovery_WarnsWhenStatusCannotBeAttributed covers the diagnostic for the
-// registration paths attribution cannot reach — RegisterContributor takes a
-// LocalContributor, so there is no extension to attribute to. Such an
-// extension's contributors report the permissive default, which renders a
-// broken setup as ready. The warning is the only thing that makes that visible.
+// TestDiscovery_WarnsWhenStatusCannotBeAttributed covers the diagnostic for an
+// extension that reports a status but registers no contract contributor
+// through the registry it was handed, so there is nothing to attach the status
+// to. Its contributors report the permissive default, which renders a broken
+// setup as ready. The warning is the only thing that makes that visible.
 func TestDiscovery_WarnsWhenStatusCannotBeAttributed(t *testing.T) {
 	log := &warnLogger{Logger: forge.NewNoopLogger()}
 
 	// Reports a status, registers nothing through the recorded path.
 	orphan := newStatusExt("orphan", "", DashboardStatus{Version: "1.0.0", Configured: false})
 	e := newDiscoveryTestExt(t, log, orphan)
-	e.discoverExtensionContributors(context.Background())
+	e.discoverExtensionContributors()
 
 	if !log.warned("registered no contract contributor") {
 		t.Errorf("no warning for an extension whose status could not be attributed; warns = %v", log.warns)
@@ -356,7 +308,7 @@ func TestDiscovery_NoWarningWhenAttributionSucceeds(t *testing.T) {
 
 	billing := newStatusExt("billing", "billing", DashboardStatus{Version: "1.0.0", Configured: true})
 	e := newDiscoveryTestExt(t, log, billing)
-	e.discoverExtensionContributors(context.Background())
+	e.discoverExtensionContributors()
 
 	if log.warned("registered no contract contributor") {
 		t.Errorf("warned about an extension whose contributor was attributed fine; warns = %v", log.warns)
@@ -369,7 +321,7 @@ func TestDiscovery_NoWarningWhenAttributionSucceeds(t *testing.T) {
 func TestUnregisterRemoteContractContributor_ForgetsStatus(t *testing.T) {
 	billing := newStatusExt("billing", "billing", DashboardStatus{Version: "1.0.0", Configured: false})
 	e := newDiscoveryTestExt(t, nil, billing)
-	e.discoverExtensionContributors(context.Background())
+	e.discoverExtensionContributors()
 
 	if _, ok := e.contributorStatusFor("billing"); !ok {
 		t.Fatalf("billing has no status after discovery")
@@ -410,37 +362,6 @@ func TestRecordingRegistry_UnregisterForgetsStatus(t *testing.T) {
 		t.Errorf("billing still has status %+v after unregistering through the "+
 			"recording registry; the next owner of the name would serve the "+
 			"previous owner's status", st)
-	}
-}
-
-// TestDiscovery_AttributesStatusFromMirroredContractManifest covers the second
-// way a contract contributor reaches the registry during discovery: a legacy
-// DashboardAware contributor whose manifest publishes a contract manifest
-// alongside it. That path never calls RegisterContractContributor, so the
-// recording registry never sees it and it has to be attributed on its own.
-func TestDiscovery_AttributesStatusFromMirroredContractManifest(t *testing.T) {
-	ext := newStatusExt("reports", "", DashboardStatus{
-		Version: "9.9.9", Configured: false, Message: "pick a warehouse",
-	})
-	ext.legacy = newLegacyContributor(t, "reports")
-
-	e := newDiscoveryTestExt(t, nil, ext)
-	e.discoverExtensionContributors(context.Background())
-
-	got := capabilityStatus(t, e)
-
-	reports, ok := got["reports"]
-	if !ok {
-		t.Fatalf("no reports contributor in %v", got)
-	}
-
-	if v := field(t, reports, "version"); v != `"9.9.9"` {
-		t.Errorf("reports version = %s, want \"9.9.9\" — a contract manifest "+
-			"mirrored from a legacy contributor is not being attributed", v)
-	}
-
-	if v := field(t, reports, "configured"); v != "false" {
-		t.Errorf("reports configured = %q, want false", v)
 	}
 }
 

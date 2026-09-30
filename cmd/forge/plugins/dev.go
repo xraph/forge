@@ -19,7 +19,6 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/errors"
-	contribConfig "github.com/xraph/forge/extensions/dashboard/contributor/config"
 )
 
 // DevPlugin handles development commands.
@@ -49,8 +48,6 @@ func (p *DevPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewIntFlag("port", "p", "Port number", 0)),
 		cli.WithFlag(cli.NewBoolFlag("docker", "d", "Run inside Docker container", false)),
 		cli.WithFlag(cli.NewStringFlag("network", "", "Docker network (with --docker)", "")),
-		cli.WithFlag(cli.NewBoolFlag("no-contributors", "", "Disable contributor dev servers", false)),
-		cli.WithFlag(cli.NewStringSliceFlag("contributors", "", "Specific contributors to start (default: all)", []string{})),
 	)
 
 	// Add subcommands
@@ -365,16 +362,8 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	var wg sync.WaitGroup
 
-	// Start contributor dev servers (unless --no-contributors)
-	var contribProcesses []*contributorDevProcess
-	if !ctx.Bool("no-contributors") {
-		contribProcesses = p.startContributorDevServers(ctx)
-	}
-
 	// Start the app initially
 	if err := watcher.Start(ctx); err != nil {
-		// Stop contributor processes if app fails to start
-		stopContributorDevServers(contribProcesses)
 		return fmt.Errorf("failed to start app: %w", err)
 	}
 
@@ -390,7 +379,6 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 	cancel()
 	watcher.Stop()
-	stopContributorDevServers(contribProcesses)
 	wg.Wait()
 
 	// Wait for the process to fully terminate before exiting
@@ -981,115 +969,4 @@ func resolveDebugPort(appPort string) string {
 		return strconv.Itoa(n + 1000)
 	}
 	return "9080"
-}
-
-// contributorDevProcess tracks a running contributor dev server.
-type contributorDevProcess struct {
-	Name string
-	Cmd  *exec.Cmd
-}
-
-// startContributorDevServers discovers and starts dev servers for all contributors.
-func (p *DevPlugin) startContributorDevServers(ctx cli.CommandContext) []*contributorDevProcess {
-	if p.config == nil {
-		return nil
-	}
-
-	// Find contributor directories
-	extDir := filepath.Join(p.config.RootDir, "extensions")
-	if info, err := os.Stat(extDir); err != nil || !info.IsDir() {
-		return nil
-	}
-
-	entries, err := os.ReadDir(extDir)
-	if err != nil {
-		return nil
-	}
-
-	// Filter by --contributors flag if specified
-	filterNames := ctx.StringSlice("contributors")
-	filterMap := make(map[string]bool)
-	for _, n := range filterNames {
-		filterMap[n] = true
-	}
-
-	var processes []*contributorDevProcess
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		dir := filepath.Join(extDir, entry.Name())
-		yamlPath, err := contribConfig.FindConfig(dir)
-		if err != nil {
-			continue
-		}
-
-		cfg, err := contribConfig.LoadConfig(yamlPath)
-		if err != nil {
-			continue
-		}
-
-		// Apply filter if specified
-		if len(filterMap) > 0 && !filterMap[cfg.Name] {
-			continue
-		}
-
-		uiDir := cfg.UIPath(filepath.Dir(yamlPath))
-
-		// Check if node_modules exists
-		if _, err := os.Stat(filepath.Join(uiDir, "node_modules")); os.IsNotExist(err) {
-			ctx.Warning(fmt.Sprintf("Skipping contributor %s: run 'npm install' in %s first", cfg.Name, uiDir))
-			continue
-		}
-
-		// Determine dev command
-		adapter, err := GetFrameworkAdapter(cfg.Type)
-		if err != nil {
-			continue
-		}
-
-		devCmd := cfg.Build.DevCmd
-		if devCmd == "" {
-			devCmd = adapter.DefaultDevCmd()
-		}
-
-		// Start the dev server. Put the shell in its own process group so
-		// killProcessGroup can take down the whole tree (npm/node/vite/...)
-		// instead of just the sh wrapper, which would otherwise leave the
-		// real dev server orphaned on rebuild.
-		cmd := exec.Command("sh", "-c", devCmd)
-		cmd.Dir = uiDir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		setupProcessGroup(cmd)
-
-		if err := cmd.Start(); err != nil {
-			ctx.Warning(fmt.Sprintf("Failed to start contributor dev server %s: %v", cfg.Name, err))
-			continue
-		}
-
-		ctx.Info(fmt.Sprintf("Started %s contributor dev server (pid %d)", cfg.Name, cmd.Process.Pid))
-		processes = append(processes, &contributorDevProcess{
-			Name: cfg.Name,
-			Cmd:  cmd,
-		})
-	}
-
-	return processes
-}
-
-// stopContributorDevServers stops all running contributor dev server processes.
-func stopContributorDevServers(processes []*contributorDevProcess) {
-	for _, proc := range processes {
-		if proc.Cmd == nil || proc.Cmd.Process == nil {
-			continue
-		}
-		// killProcessGroup tears down the whole sh→npm→node tree. A bare
-		// Process.Kill would only stop the sh wrapper, leaving npm/node
-		// running and holding the dev port.
-		killProcessGroup(proc.Cmd)
-		_, _ = proc.Cmd.Process.Wait()
-	}
 }

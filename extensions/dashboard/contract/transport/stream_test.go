@@ -170,3 +170,37 @@ func TestStream_ModeMismatch_DeliversAndLogs(t *testing.T) {
 		t.Errorf("expected mode-mismatch warning in log output, got: %q", logged)
 	}
 }
+
+// TestStream_ConnectionCountTracksOpenStreams pins what the dashboard's trace
+// gate relies on: an open stream counts while it is open and stops counting
+// once it closes, with no further requests in between.
+func TestStream_ConnectionCountTracksOpenStreams(t *testing.T) {
+	reg, wreg := setupRegistry(t)
+	broker := NewStreamBroker(reg, wreg, &stubSource{events: make(chan contract.StreamEvent)})
+	if n := broker.ConnectionCount(); n != 0 {
+		t.Fatalf("ConnectionCount() = %d before any stream opened, want 0", n)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/stream", nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		broker.ServeStream(httptest.NewRecorder(), req)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for broker.ConnectionCount() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("ConnectionCount() = %d with one stream open, want 1", broker.ConnectionCount())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	<-done
+	if n := broker.ConnectionCount(); n != 0 {
+		t.Errorf("ConnectionCount() = %d after the stream closed, want 0", n)
+	}
+}

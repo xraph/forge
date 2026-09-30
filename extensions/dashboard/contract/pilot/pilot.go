@@ -9,7 +9,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contract/loader"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 )
 
 //go:embed manifest.yaml
@@ -21,19 +20,19 @@ const DefaultMetricsInterval = 5 * time.Second
 // Deps bundles the data sources the pilot handlers need. The dashboard
 // extension constructs this when it wires the pilot at startup.
 //
-// Slice (c) introduced ExtensionsRegistry / Services / Metrics. Slice (h)
+// Slice (c) introduced Extensions / Services / Metrics. Slice (h)
 // adds Overview / Health / MetricsReport / Traces so the pilot's intents
 // cover the same data every one of the old core pages rendered; nil
 // providers are tolerated and the corresponding handlers return
 // CodeUnavailable.
 type Deps struct {
-	ExtensionsRegistry *contributor.ContributorRegistry
-	Services           ServicesProvider
-	Metrics            MetricsProvider
-	Overview           OverviewProvider
-	Health             HealthProvider
-	MetricsReport      MetricsReportProvider
-	Traces             TracesProvider
+	Extensions    ExtensionsProvider
+	Services      ServicesProvider
+	Metrics       MetricsProvider
+	Overview      OverviewProvider
+	Health        HealthProvider
+	MetricsReport MetricsReportProvider
+	Traces        TracesProvider
 	// Audit is the slice (k) audit store. nil yields CodeUnavailable on
 	// audit.list / audit.tail; the rest of the pilot stays functional.
 	Audit AuditProvider
@@ -47,8 +46,8 @@ type Deps struct {
 // Idempotent: calling twice on the same registries returns the duplicate-
 // registration error from the second call.
 func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg contract.WardenRegistry, deps Deps) error {
-	if deps.ExtensionsRegistry == nil {
-		return fmt.Errorf("pilot: ExtensionsRegistry is required")
+	if deps.Extensions == nil {
+		return fmt.Errorf("pilot: Extensions is required")
 	}
 	if deps.Services == nil {
 		return fmt.Errorf("pilot: Services is required")
@@ -73,7 +72,7 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	}
 
 	const c = "core-contract"
-	if err := dispatcher.RegisterQuery(d, c, "extensions.list", 1, extensionsListHandler(deps.ExtensionsRegistry)); err != nil {
+	if err := dispatcher.RegisterQuery(d, c, "extensions.list", 1, extensionsListHandler(deps.Extensions)); err != nil {
 		return err
 	}
 	if err := dispatcher.RegisterQuery(d, c, "services.list", 1, servicesListHandler(deps.Services)); err != nil {

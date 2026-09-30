@@ -166,10 +166,10 @@ func TestScaffoldDashboardViteConfigSetsRelativeBase(t *testing.T) {
 	assert.Contains(t, string(raw), `base: "./"`)
 }
 
-// TestScaffoldDashboardReadmeCoversShellExternal guards against a README that
-// implies Forge serves the build for the user -- it does not, once
-// WithShellSource(ShellExternal) is set.
-func TestScaffoldDashboardReadmeCoversShellExternal(t *testing.T) {
+// TestScaffoldDashboardReadmeSaysForgeServesNoPages guards against a README
+// that implies Forge serves the build, or that sends the user looking for a
+// shell option that no longer exists.
+func TestScaffoldDashboardReadmeSaysForgeServesNoPages(t *testing.T) {
 	dir := t.TempDir()
 	p := &DashboardPlugin{}
 	_, err := p.scaffoldDashboard(dir, "my-dashboard", "vite")
@@ -179,10 +179,12 @@ func TestScaffoldDashboardReadmeCoversShellExternal(t *testing.T) {
 	require.NoError(t, err)
 	readme := string(raw)
 
-	assert.Contains(t, readme, "ShellExternal")
+	assert.Contains(t, readme, "no pages")
 	assert.Contains(t, readme, "pnpm add")
 	assert.Contains(t, readme, "pnpm build")
-	assert.Contains(t, readme, "404")
+	assert.NotContains(t, readme, "ShellExternal")
+	assert.NotContains(t, readme, "WithShellSource")
+	assert.NotContains(t, readme, "{BasePath}/ui")
 }
 
 // TestScaffoldDashboardNextTarget covers --target=next: the App Router mount

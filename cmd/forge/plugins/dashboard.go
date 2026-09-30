@@ -13,15 +13,9 @@ import (
 	"github.com/xraph/forge/errors"
 )
 
-// DashboardPlugin scaffolds a standalone dashboard shell for deployments that
-// build their own UI and serve it themselves, as an alternative to the
-// prebuilt shell Forge embeds and serves at {BasePath}/ui by default.
-//
-// This is a separate namespace from `forge contributor`, which scaffolds a
-// Go-side dashboard *contributor* (a backend extension that reports pages,
-// widgets and settings into the embedded shell). `forge dashboard` scaffolds
-// the shell itself, for the WithShellSource(ShellExternal) case where nobody
-// on the Forge side is building it for you.
+// DashboardPlugin scaffolds the dashboard UI. Forge serves the dashboard's
+// data but no pages, so every deployment that wants a dashboard builds and
+// serves this app itself, pointed at {BasePath}/api/dashboard/v1.
 type DashboardPlugin struct {
 	config *config.ForgeConfig
 }
@@ -34,7 +28,7 @@ func NewDashboardPlugin(cfg *config.ForgeConfig) cli.Plugin {
 func (p *DashboardPlugin) Name() string    { return "dashboard" }
 func (p *DashboardPlugin) Version() string { return "1.0.0" }
 func (p *DashboardPlugin) Description() string {
-	return "Standalone dashboard shell scaffolding (for WithShellSource(ShellExternal))"
+	return "Dashboard UI scaffolding"
 }
 func (p *DashboardPlugin) Dependencies() []string { return nil }
 func (p *DashboardPlugin) Initialize() error      { return nil }
@@ -42,7 +36,7 @@ func (p *DashboardPlugin) Initialize() error      { return nil }
 func (p *DashboardPlugin) Commands() []cli.Command {
 	dashboardCmd := cli.NewCommand(
 		"dashboard",
-		"Standalone dashboard shell tools (for WithShellSource(ShellExternal))",
+		"Dashboard UI tools",
 		nil, // No handler, requires subcommand
 	)
 
@@ -126,7 +120,7 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 		ctx.Println("  2. pnpm install")
 		ctx.Println("  3. pnpm add <your plugin package>, then list it in the `plugins` array in src/App.tsx")
 		ctx.Println("  4. pnpm build")
-		ctx.Println("  5. Serve dist/ yourself and pass WithShellSource(dashboard.ShellExternal) to dashboard.NewExtension")
+		ctx.Println("  5. Serve dist/ yourself. Forge serves the data at {BasePath}/api/dashboard/v1 and no pages")
 	}
 	ctx.Println("")
 	// Said here and not only in the source comments, because the person who

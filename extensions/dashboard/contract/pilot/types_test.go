@@ -11,11 +11,18 @@ import (
 
 func TestExtensionsList_RoundTrip(t *testing.T) {
 	in := ExtensionsList{Extensions: []ExtensionInfo{
-		{Name: "auth", DisplayName: "Authentication", Version: "1.0", Layout: "extension", PageCount: 2, WidgetCount: 0},
+		{Name: "auth", DisplayName: "Authentication", Version: "1.0", Description: "Sign-in"},
 	}}
 	b, err := json.Marshal(in)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
+	}
+	// plugin-core still reads pageCount and widgetCount, so both stay on the
+	// wire at zero rather than dropping out as omitempty would make them.
+	for _, key := range []string{`"pageCount":0`, `"widgetCount":0`} {
+		if !strings.Contains(string(b), key) {
+			t.Errorf("payload %s is missing %s", b, key)
+		}
 	}
 	var got ExtensionsList
 	if err := json.Unmarshal(b, &got); err != nil {

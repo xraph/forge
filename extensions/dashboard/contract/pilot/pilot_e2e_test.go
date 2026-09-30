@@ -14,7 +14,6 @@ import (
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 )
 
 func setupPilotEnv(t *testing.T) (http.Handler, *transport.StreamBroker, *dispatcher.Dispatcher) {
@@ -23,14 +22,11 @@ func setupPilotEnv(t *testing.T) (http.Handler, *transport.StreamBroker, *dispat
 	reg := contract.NewRegistry()
 	wreg := contract.NewWardenRegistry()
 
-	extReg := newRegistryWith(t,
-		&contributor.Manifest{Name: "auth", DisplayName: "Authentication", Version: "1.0"},
-	)
 	deps := Deps{
-		ExtensionsRegistry: extReg,
-		Services:           &stubServices{list: []collector.ServiceInfo{{Name: "db", Status: "healthy"}}},
-		Metrics:            &stubMetrics{data: &collector.MetricsData{Stats: collector.MetricsStats{TotalMetrics: 5}}},
-		MetricsInterval:    20 * time.Millisecond,
+		Extensions:      stubExtensions{{Name: "auth", DisplayName: "Authentication", Version: "1.0"}},
+		Services:        &stubServices{list: []collector.ServiceInfo{{Name: "db", Status: "healthy"}}},
+		Metrics:         &stubMetrics{data: &collector.MetricsData{Stats: collector.MetricsStats{TotalMetrics: 5}}},
+		MetricsInterval: 20 * time.Millisecond,
 	}
 	if err := Register(d, reg, wreg, deps); err != nil {
 		t.Fatalf("pilot register: %v", err)
