@@ -13,6 +13,7 @@ func TestEmbeddedManifest_LoadsAndValidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+
 	if m.Contributor.Name != "streaming" {
 		t.Errorf("contributor name = %q", m.Contributor.Name)
 	}
