@@ -14,8 +14,8 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus"
 	"github.com/xraph/forge/extensions/hls"
-	_ "github.com/xraph/trove/drivers/localdriver" // registers the "local" DSN scheme
-	troveext "github.com/xraph/trove/extension"
+	"github.com/xraph/trove"
+	"github.com/xraph/trove/drivers/localdriver"
 )
 
 var (
@@ -43,11 +43,9 @@ func main() {
 		forge.WithAppVersion("1.0.0"),
 	)
 
-	// Configure storage extension (shared storage required for distributed mode)
-	storageExt := troveext.New(
-		troveext.WithFileStoreDSN("default", fmt.Sprintf("local://./data/node-%s", *nodeID)),
-		troveext.WithDefaultFileStore("default"),
-	)
+	// Open the object store (shared storage required for distributed mode)
+	store := provideStore(app, fmt.Sprintf("local://./data/node-%s", *nodeID))
+	defer store.Close(context.Background())
 
 	// Configure consensus extension
 	consensusExt := consensus.NewExtension(
@@ -80,7 +78,6 @@ func main() {
 	)
 
 	// Register extensions
-	app.RegisterExtension(storageExt)
 	app.RegisterExtension(consensusExt) // Consensus must be registered before HLS
 	app.RegisterExtension(hlsExt)
 
@@ -194,4 +191,25 @@ func demonstrateCluster(app forge.App, nodeID string) {
 			}
 		}
 	}
+}
+
+// provideStore opens a local object store at dsn and adds it to the
+// container, where the HLS extension resolves it as its default backend.
+// Registering trove's own extension provides the same *trove.Trove.
+func provideStore(app forge.App, dsn string) *trove.Trove {
+	drv := localdriver.New()
+	if err := drv.Open(context.Background(), dsn); err != nil {
+		log.Fatalf("Failed to open storage driver: %v", err)
+	}
+
+	store, err := trove.Open(drv)
+	if err != nil {
+		log.Fatalf("Failed to open storage: %v", err)
+	}
+
+	if err := forge.ProvideValue(app.Container(), store); err != nil {
+		log.Fatalf("Failed to provide storage: %v", err)
+	}
+
+	return store
 }

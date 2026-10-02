@@ -11,7 +11,6 @@ import (
 	"github.com/xraph/forge/extensions/hls/internal/distributed"
 	"github.com/xraph/forge/extensions/hls/storage"
 	"github.com/xraph/trove"
-	troveext "github.com/xraph/trove/extension"
 	"github.com/xraph/vessel"
 )
 
@@ -73,22 +72,18 @@ func (e *Extension) Register(app forge.App) error {
 		e.config.NodeID = uuid.New().String()
 	}
 
-	// Resolve the object store. A named backend comes from the TroveManager;
-	// the default one is provided unnamed by the trove extension, so resolving
-	// it does not require the manager to exist.
-	var tr *trove.Trove
+	// Resolve the object store. The trove extension provides the default
+	// store unnamed and every other store under its backend name, so a plain
+	// named inject finds it without importing the extension package.
+	var (
+		tr  *trove.Trove
+		err error
+	)
 	if e.config.StorageBackend != "" && e.config.StorageBackend != "default" {
-		mgr, err := forge.Inject[*troveext.TroveManager](app.Container())
-		if err != nil {
-			return fmt.Errorf("failed to resolve trove manager (ensure the trove extension is registered): %w", err)
-		}
-
-		tr, err = mgr.Get(e.config.StorageBackend)
-		if err != nil {
-			return fmt.Errorf("storage backend %s not found: %w", e.config.StorageBackend, err)
+		if tr, err = forge.InjectNamed[*trove.Trove](app.Container(), e.config.StorageBackend); err != nil {
+			return fmt.Errorf("storage backend %s not found (ensure the trove extension is registered): %w", e.config.StorageBackend, err)
 		}
 	} else {
-		var err error
 		if tr, err = forge.Inject[*trove.Trove](app.Container()); err != nil {
 			return fmt.Errorf("failed to resolve trove (ensure the trove extension is registered): %w", err)
 		}
