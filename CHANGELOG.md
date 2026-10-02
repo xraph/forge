@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.0.0](https://github.com/xraph/forge/compare/v1.11.0...v2.0.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dashboard:** serve data only and remove templ
+* **client-devtools:** `mountOverlay` from `@forge-go/client-devtools/overlay` now renders the full panel rather than the lean six-table view, and the bundle it pulls in grows accordingly. If you wanted the small one, import `mountMini` from `@forge-go/client-devtools/mini`. `/panel` is unchanged.
+* **dashboard:** replace the server-rendered UI with React plugins ([#99](https://github.com/xraph/forge/issues/99))
+
+### Features
+
+* **client-devtools:** causal trace, network view and control rail ([#101](https://github.com/xraph/forge/issues/101)) ([a84dc2d](https://github.com/xraph/forge/commit/a84dc2dc61b64463a21eca7532f580e59a645bf1))
+* **client-devtools:** close the gap to the panel design ([#102](https://github.com/xraph/forge/issues/102)) ([a4c5975](https://github.com/xraph/forge/commit/a4c59755fa8d1c292ad5bfeb8dd918a18a617194))
+* **client-devtools:** make /overlay the full panel, move the lean view to /mini ([#104](https://github.com/xraph/forge/issues/104)) ([1c23a5c](https://github.com/xraph/forge/commit/1c23a5c6927eac031f908f06a051ee034e0bdd11))
+* **client:** add generated cache and stream metadata ([#109](https://github.com/xraph/forge/issues/109)) ([745441d](https://github.com/xraph/forge/commit/745441d174198232dc2b0cd6255589a2a8ef884e))
+* **client:** duplex stream channels with a send path ([#107](https://github.com/xraph/forge/issues/107)) ([d5c970e](https://github.com/xraph/forge/commit/d5c970e36bb2d0e6085d6fa284f9574e5a4ae38c))
+* **cli:** scaffold a Next.js dashboard with forge dashboard new --target=next ([#103](https://github.com/xraph/forge/issues/103)) ([9523267](https://github.com/xraph/forge/commit/9523267bba65912c93c0da903224efd7795e435e))
+* redesign startup banner ([#110](https://github.com/xraph/forge/issues/110)) ([7138b06](https://github.com/xraph/forge/commit/7138b0612fdd020172226f83bc943750d0f3972f))
+
+
+### Bug Fixes
+
+* **client-devtools:** stop table columns collapsing, deprecate the lean view ([#105](https://github.com/xraph/forge/issues/105)) ([d96026c](https://github.com/xraph/forge/commit/d96026ccddebc4d05f685497e7981cbf8910a9cc))
+* **client:** read a duplex channel's directions from the operations that speak them ([#108](https://github.com/xraph/forge/issues/108)) ([ce59927](https://github.com/xraph/forge/commit/ce59927ec70ab49113d376737a07df180cc01a81))
+* **dashboard:** cap the contract envelope before decoding it ([4cee987](https://github.com/xraph/forge/commit/4cee987c0884cca10f5b24304e5ca4a2fb222bb1))
+* **dashboard:** discover remote contract contributors ([0b6d6c2](https://github.com/xraph/forge/commit/0b6d6c20349eba2ffa439c0d93436face181be81))
+* **dashboard:** fixed the tracing middleware in dashboard ([90d900f](https://github.com/xraph/forge/commit/90d900f702b1aa47cd981c30bb5f2b798b0bc7ed))
+* **deps:** move the last three modules onto forge v1.11.0 ([4ee53c3](https://github.com/xraph/forge/commit/4ee53c37c2f411421c1c02f1907233697ccd46e4))
+* **hls:** stop importing trove's forge extension ([bd2ebdd](https://github.com/xraph/forge/commit/bd2ebddca2e9f2ef95247611e681c33596c1ec48))
+
+
+### Documentation
+
+* **changelog:** update CHANGELOG.md for v1.11.1 ([974ab53](https://github.com/xraph/forge/commit/974ab5349e41b6845167fcc1cd409c49386691e4))
+* **changelog:** update CHANGELOG.md for v1.11.2 ([7a28ecf](https://github.com/xraph/forge/commit/7a28ecfa857bdb7b2ee38b0c5d02d5a7615e7cdb))
+
+
+### Code Refactoring
+
+* **dashboard:** replace the server-rendered UI with React plugins ([#99](https://github.com/xraph/forge/issues/99)) ([4f29ed0](https://github.com/xraph/forge/commit/4f29ed012aaa27df396a1a9728314d74f330e507))
+* **dashboard:** serve data only and remove templ ([b550666](https://github.com/xraph/forge/commit/b55066603d499bd8921e2708c85ce45dc5c9e310))
+
 ## [1.11.2](https://github.com/xraph/forge/compare/v1.11.1...v1.11.2) (2026-09-29)
 
 
