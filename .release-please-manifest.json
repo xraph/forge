@@ -2,7 +2,7 @@
   ".": "1.11.0",
   "extensions/auth": "1.10.0",
   "extensions/cache": "1.10.0",
-  "extensions/consensus": "1.10.0",
+  "extensions/consensus": "1.11.0",
   "extensions/discovery": "1.10.0",
   "extensions/events": "1.10.0",
   "extensions/features": "1.10.0",
