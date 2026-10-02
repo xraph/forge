@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/xraph/forge/compare/v1.11.2...v1.12.0) (2026-10-02)
+
+
+### Refactoring
+
+* **dashboard:** refactor(dashboard)!: serve data only and remove templ ([b5506660](https://github.com/xraph/forge/commit/b5506660))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.11.2 ([7a28ecfa](https://github.com/xraph/forge/commit/7a28ecfa))
+
 ## [1.11.2](https://github.com/xraph/forge/compare/v1.11.1...v1.11.2) (2026-09-29)
 
 
