@@ -670,6 +670,8 @@ interface Socket {
   closing: boolean;
   /** Closed for good. Frames and close events from it are ignored. */
   disposed: boolean;
+  /** The socket `repartition` moved this one's subscribers to. */
+  successor: Socket | undefined;
   /** A reconnect is waiting on the clock. */
   reconnecting: boolean;
 }
@@ -825,11 +827,18 @@ export class SubscriptionManager {
     }
 
     let released = false;
+    const opened = socket;
 
     return () => {
       if (released) return;
 
       released = true;
+
+      // Follow `repartition`: the socket this subscription was made on may
+      // have been disposed, with its ref carried to a replacement.
+      let socket = opened;
+
+      while (socket.successor !== undefined) socket = socket.successor;
 
       const held = socket.frames.get(handler);
       socket.frames.delete(handler);
@@ -885,6 +894,7 @@ export class SubscriptionManager {
 
       const replacement = this.socketFor(socket.endpoint);
       replacement.refs = refs;
+      socket.successor = replacement;
 
       for (const [channel, set] of handlers) replacement.channels.set(channel, set);
 
@@ -945,6 +955,7 @@ export class SubscriptionManager {
       opens: 0,
       closing: false,
       disposed: false,
+      successor: undefined,
       reconnecting: false,
     };
 

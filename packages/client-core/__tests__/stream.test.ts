@@ -378,6 +378,27 @@ describe('principal', () => {
     expect(seen).toHaveLength(1);
   });
 
+  it('closes the replacement socket when a subscriber from before a repartition releases', () => {
+    let principal: unknown = 'user-a';
+    const { subscriptions, sockets, release } = manager({ principal: () => principal });
+
+    const unsubscribe = subscriptions.subscribe('/ws/orders', () => undefined);
+
+    principal = 'user-b';
+    subscriptions.repartition();
+
+    const replacement = sockets.last();
+    replacement.open();
+
+    // The release was handed out for the socket repartition disposed. It has
+    // to land on the replacement, or the replacement keeps a ref nobody holds.
+    unsubscribe();
+    release.flush();
+
+    expect(replacement.closed).toBe(true);
+    expect(subscriptions.size).toBe(0);
+  });
+
   it('leaves sockets alone when the identity did not move', () => {
     const { subscriptions, sockets, reconnects } = manager({ principal: () => 'user-a' });
 
