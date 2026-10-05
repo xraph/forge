@@ -83,7 +83,14 @@
             "status": "pending",
             "lines": []
           },
-          "roundTrip": true
+          "roundTrip": true,
+          "model": "Order",
+          "modelWire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": []
+          }
         },
         {
           "name": "an order carrying keys no schema declares, at the top and nested",
@@ -640,6 +647,27 @@
           "wire": "metre",
           "client": "metre",
           "roundTrip": true
+        },
+        {
+          "name": "a book's int64 fields reach the wire as their schemas say: the integer as a number, the string as a string",
+          "codec": "Book",
+          "wire": {
+            "book_title": "T",
+            "pages": 123,
+            "isbn_code": "456"
+          },
+          "client": {
+            "bookTitle": "T",
+            "pages": 123,
+            "isbnCode": "456"
+          },
+          "roundTrip": true,
+          "model": "Book",
+          "modelWire": {
+            "book_title": "T",
+            "pages": 123,
+            "isbn_code": "456"
+          }
         }
       ]
     },
@@ -714,6 +742,57 @@
             "pet_type": "fish"
           },
           "roundTrip": true
+        }
+      ]
+    },
+    "int64-int": {
+      "fieldOverrides": {},
+      "int64": "int",
+      "cases": [
+        {
+          "name": "a book's int64 fields reach the wire as their schemas say: the integer as a number, the string as a string, with --int64=int",
+          "codec": "Book",
+          "wire": {
+            "book_title": "T",
+            "pages": 123,
+            "isbn_code": "456"
+          },
+          "client": {
+            "bookTitle": "T",
+            "pages": 123,
+            "isbnCode": "456"
+          },
+          "roundTrip": true,
+          "model": "Book",
+          "modelWire": {
+            "book_title": "T",
+            "pages": 123,
+            "isbn_code": "456"
+          }
+        },
+        {
+          "name": "an order with optional fields absent and an int64 sent as a number, with --int64=int",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": []
+          },
+          "client": {
+            "id": 7,
+            "orderNumber": "A-2",
+            "status": "pending",
+            "lines": []
+          },
+          "roundTrip": true,
+          "model": "Order",
+          "modelWire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": []
+          }
         }
       ]
     }

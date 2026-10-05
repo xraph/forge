@@ -35,7 +35,11 @@ trailing newline, so regenerating without a change leaves no diff.
 in `internal/client/generators/dart` reads it, generates a TypeScript client and
 a Dart client from one spec, and runs every payload through both codecs under
 node and fvm. Add a case there when a rename, union or int64 shape needs
-pinning. The test skips when node, esbuild or fvm is missing.
+pinning. A case that names a `model` also builds that Dart model from the
+decoded value and encodes it back, against TypeScript's encode of its decode,
+and `modelWire` states the wire both must reach: that is where Dart converts
+an int64. A variant's `int64` sets the Dart `--int64` mode. The test skips
+when node, esbuild or fvm is missing.
 
 The `ops/` files are the tables each generator emits for one spec, so a Dart
 client and a TypeScript client cache, invalidate and authorize the same way.

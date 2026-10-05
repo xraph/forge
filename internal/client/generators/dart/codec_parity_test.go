@@ -32,11 +32,24 @@ type codecParityCase struct {
 
 	// RoundTrip says encoding the decoded value returns the wire payload.
 	RoundTrip bool `json:"roundTrip"`
+
+	// Model names the generated model the case also runs through: decode,
+	// build the model, encode the model's client shape. TypeScript has no
+	// model class, so its side is encode(decode(wire)). This is where int64
+	// conversion happens in Dart, and it must reach the wire TypeScript does.
+	Model string `json:"model"`
+
+	// ModelWire, when present, is the wire both model encodes must produce.
+	ModelWire    any  `json:"modelWire"`
+	HasModelWire bool `json:"-"`
 }
 
 type codecParityVariant struct {
 	FieldOverrides map[string]string `json:"fieldOverrides"`
-	Cases          []codecParityCase `json:"cases"`
+	// Int64 is the Dart --int64 mode the variant generates with ("" or
+	// "string", or "int"). TypeScript has one representation.
+	Int64 string            `json:"int64"`
+	Cases []codecParityCase `json:"cases"`
 }
 
 type codecParityDoc struct {
@@ -61,6 +74,7 @@ func (c *codecParityCase) UnmarshalJSON(data []byte) error {
 
 	*c = codecParityCase(p)
 	_, c.HasClient = keys["client"]
+	_, c.HasModelWire = keys["modelWire"]
 
 	return nil
 }
@@ -138,6 +152,8 @@ func codecParitySpec() *client.APISpec {
 		Properties: map[string]*client.Schema{
 			"book_title": {Type: "string"},
 			"pages":      {Type: "integer", Format: "int64"},
+			// The other int64 shape: a decimal string on the wire, both ways.
+			"isbn_code":  {Type: "string", Format: "int64"},
 			"written_by": ref("Author"),
 		},
 	}
@@ -265,7 +281,7 @@ func runTypeScriptCodecs(t *testing.T, spec *client.APISpec, overrides map[strin
 
 	driver := "import { decode, encode } from './codecs';\n\n" +
 		"const requests = JSON.parse(" + string(quoted) + ") as Array<{ codec: string; direction: string; input: unknown }>;\n" +
-		"const results = requests.map((r) => (r.direction === 'decode' ? decode(r.input, r.codec) : encode(r.input, r.codec)));\n" +
+		"const results = requests.map((r) => (r.direction === 'decode' ? decode(r.input, r.codec) : r.direction === 'model' ? encode(decode(r.input, r.codec), r.codec) : encode(r.input, r.codec)));\n" +
 		"console.log(JSON.stringify(results));\n"
 
 	dir := t.TempDir()
@@ -340,6 +356,7 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 			dartConfig := baseConfig()
 			dartConfig.PackageName = "codec_parity_client"
 			dartConfig.FieldOverrides = variant.FieldOverrides
+			dartConfig.Int64 = client.Int64Mode(variant.Int64)
 
 			dartFixture := gateFixture{Name: "codec-parity-" + name, Spec: codecParitySpec(), Config: dartConfig}
 
@@ -363,8 +380,32 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 				dartEncodeRequests[i] = map[string]any{"codec": dartCodecConst(c.Codec), "direction": "encode", "input": dartDecoded[i]}
 			}
 
+			// Each model case appends one request after the encodes.
+			var modelCases []int
+
+			for i, c := range variant.Cases {
+				if c.Model == "" {
+					continue
+				}
+
+				modelCases = append(modelCases, i)
+				tsEncodeRequests = append(tsEncodeRequests, map[string]any{"codec": c.Codec, "direction": "model", "input": c.Wire})
+				dartEncodeRequests = append(dartEncodeRequests, map[string]any{
+					"codec": dartCodecConst(c.Codec), "direction": "model", "model": c.Model, "input": c.Wire,
+				})
+			}
+
 			tsEncoded := runTypeScriptCodecs(t, codecParitySpec(), variant.FieldOverrides, tsEncodeRequests)
 			dartEncoded := decodeResults(t, runCodecsRaw(t, dartFixture, dartEncodeRequests))
+
+			if len(tsEncoded) != len(tsEncodeRequests) || len(dartEncoded) != len(dartEncodeRequests) {
+				t.Fatalf("%d encode requests, typescript answered %d, dart %d", len(tsEncodeRequests), len(tsEncoded), len(dartEncoded))
+			}
+
+			modelOf := map[int]int{}
+			for n, i := range modelCases {
+				modelOf[i] = len(variant.Cases) + n
+			}
 
 			for i, c := range variant.Cases {
 				t.Run(c.Name, func(t *testing.T) {
@@ -382,6 +423,16 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 
 					if c.RoundTrip && canonical(t, tsEncoded[i]) != canonical(t, c.Wire) {
 						t.Errorf("encode(decode(wire)) is not the wire payload\n wire %s\n got  %s", canonical(t, c.Wire), canonical(t, tsEncoded[i]))
+					}
+
+					if m, ok := modelOf[i]; ok {
+						if got, want := canonical(t, dartEncoded[m]), canonical(t, tsEncoded[m]); got != want {
+							t.Errorf("encode(%s model of decode(wire)) differs\n wire       %s\n typescript %s\n dart       %s", c.Model, canonical(t, c.Wire), want, got)
+						}
+
+						if c.HasModelWire && canonical(t, tsEncoded[m]) != canonical(t, c.ModelWire) {
+							t.Errorf("both runtimes agree, but not on the model wire the fixture states\n got  %s\n want %s", canonical(t, tsEncoded[m]), canonical(t, c.ModelWire))
+						}
 					}
 				})
 			}

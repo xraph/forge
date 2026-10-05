@@ -217,9 +217,9 @@ func renderArgs(op *operation, forge map[string]bool) string {
 		case section == "header":
 			value = fmt.Sprintf("if (%s case final v?) %s: %s", p.member, key, stringExpr(p.typ, "v"))
 		case p.required:
-			value = fmt.Sprintf("%s: %s", key, p.typ.encode(p.member, 0))
+			value = fmt.Sprintf("%s: %s", key, p.typ.paramEncode(p.member, 0))
 		default:
-			value = fmt.Sprintf("if (%s case final v?) %s: %s", p.member, key, p.typ.encode("v", 0))
+			value = fmt.Sprintf("if (%s case final v?) %s: %s", p.member, key, p.typ.paramEncode("v", 0))
 		}
 
 		sections[section] = append(sections[section], value)

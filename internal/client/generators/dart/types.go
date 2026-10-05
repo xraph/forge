@@ -31,6 +31,10 @@ type dartType struct {
 	decodeFn func(expr string, depth int) string
 	encodeFn func(expr string, depth int) string
 
+	// paramFn renders a path, query or header value when it differs from the
+	// body encoding. Nil means the two agree.
+	paramFn func(expr string, depth int) string
+
 	// promotedDecodeFn decodes expr when a type test has already promoted it
 	// to the JSON type the decode would cast to, so repeating the cast would
 	// be an unnecessary_cast. Nil means the type has no such shortcut.
@@ -45,6 +49,27 @@ func (t dartType) encode(expr string, depth int) string {
 	}
 
 	return t.encodeFn(expr, depth)
+}
+
+// paramEncode renders expr as a path, query or header value: the body
+// encoding, unless the type keeps a representation of its own there.
+func (t dartType) paramEncode(expr string, depth int) string {
+	if t.paramFn != nil {
+		return t.paramFn(expr, depth)
+	}
+
+	return t.encode(expr, depth)
+}
+
+// paramEncodeNullable is paramEncode for a value that may be null.
+func (t dartType) paramEncodeNullable(expr string, depth int) string {
+	if t.paramFn == nil {
+		return t.encodeNullable(expr, depth)
+	}
+
+	v := fmt.Sprintf("v%d", depth)
+
+	return fmt.Sprintf("encodeNullable(%s, (%s) => %s)", expr, v, t.paramFn(v, depth+1))
 }
 
 // nullableName is the type a nullable field of this type declares.
@@ -263,14 +288,14 @@ func (r *registry) primitive(s *client.Schema) (dartType, bool) {
 
 			return t, true
 		case "int64", "uint64":
-			return r.int64Type(), true
+			return r.int64Type(false), true
 		}
 
 		return castType("String"), true
 
 	case "integer":
 		if s.Format == "int64" || s.Format == "uint64" {
-			return r.int64Type(), true
+			return r.int64Type(true), true
 		}
 
 		return helperType("int", "decodeInt", nil), true
@@ -287,12 +312,36 @@ func (r *registry) primitive(s *client.Schema) (dartType, bool) {
 
 // int64Type is the extension type over String by default, so a web build
 // keeps every digit, or a plain int under --int64=int.
-func (r *registry) int64Type() dartType {
+//
+// The wire follows the schema, as TypeScript's does: an integer schema goes
+// out as a JSON number and a string schema as a JSON string, whichever the
+// Dart type. TypeScript's codecs pass every value through unconverted, so a
+// value decoded from the wire leaves in the form it arrived in; for an
+// Int64 that is int.parse, exact on native and as lossy as JavaScript above
+// 2^53 on the web. Parameters keep the representation they always had, so a
+// cache key does not change with the schema shape.
+func (r *registry) int64Type(integer bool) dartType {
 	if r.config.Int64 == client.Int64Int {
-		return helperType("int", "decodeInt", nil)
+		if integer {
+			return helperType("int", "decodeInt", nil)
+		}
+
+		t := helperType("int", "decodeIntOrString", func(expr string, _ int) string { return expr + ".toString()" })
+		t.paramFn = func(expr string, _ int) string { return expr }
+
+		return t
 	}
 
-	return helperType("Int64", "decodeInt64", func(expr string, _ int) string { return expr + ".value" })
+	value := func(expr string, _ int) string { return expr + ".value" }
+
+	if !integer {
+		return helperType("Int64", "decodeInt64", value)
+	}
+
+	t := helperType("Int64", "decodeInt64", func(expr string, _ int) string { return expr + ".toInt()" })
+	t.paramFn = value
+
+	return t
 }
 
 // rctx is where a schema is being resolved: which model file owns any type
@@ -571,6 +620,7 @@ func usesTypedData(names ...string) bool {
 // call. Files import them with `show`, listing only the ones they use.
 var supportSymbols = []string{
 	"Int64", "decodeBytes", "decodeCached", "decodeDateTime", "decodeDouble", "decodeInt", "decodeInt64",
+	"decodeIntOrString",
 	"decodeList", "decodeMap", "decodeNullable", "decodeObject", "deepEquals", "deepHash",
 	"encodeBytes", "encodeDate", "encodeNullable", "valueEquals", "valueHash",
 }

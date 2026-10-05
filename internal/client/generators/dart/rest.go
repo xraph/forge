@@ -300,9 +300,9 @@ func renderRestMethod(op *operation, name, receiver string, codecConst func(stri
 		switch p.in {
 		case "query":
 			if p.required {
-				query = append(query, key+": "+p.typ.encode(p.member, 0))
+				query = append(query, key+": "+p.typ.paramEncode(p.member, 0))
 			} else {
-				query = append(query, key+": "+p.typ.encodeNullable(p.member, 0))
+				query = append(query, key+": "+p.typ.paramEncodeNullable(p.member, 0))
 			}
 		case "header":
 			if p.required {

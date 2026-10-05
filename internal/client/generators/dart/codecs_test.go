@@ -354,17 +354,43 @@ func runCodecsRaw(t *testing.T, f gateFixture, requests []map[string]any) []byte
 	sort.Strings(imports)
 	sort.Strings(consts)
 
-	script := "import 'dart:convert';\nimport 'dart:io';\n\n" +
+	// A "model" request decodes the wire, builds the model from the client
+	// shape, and encodes the model's client shape back: the whole path a
+	// value an app holds takes to the wire.
+	models := map[string]bool{}
+
+	for _, r := range requests {
+		if name, ok := r["model"].(string); ok {
+			models[name] = true
+		}
+	}
+
+	var modelEntries []string
+	for _, name := range sortedKeys(models) {
+		modelEntries = append(modelEntries, fmt.Sprintf("    '%s': (Object? c) => %s.fromClient(c).toClient(),", name, name))
+	}
+
+	barrel := ""
+	if len(modelEntries) > 0 {
+		barrel = fmt.Sprintf("import 'package:%s/%s.dart';\n", f.Config.PackageName, f.Config.PackageName)
+	}
+
+	script := "import 'dart:convert';\nimport 'dart:io';\n\n" + barrel +
 		fmt.Sprintf("import 'package:%s/src/support.dart' show WireCodec;\n", f.Config.PackageName) +
 		strings.Join(imports, "\n") + "\n\n" +
 		"void main(List<String> args) {\n" +
 		"  final codecs = <String, WireCodec>{\n" + strings.Join(consts, "\n") + "\n  };\n" +
+		"  final models = <String, Object? Function(Object?)>{\n" + strings.Join(modelEntries, "\n") + "\n  };\n" +
 		"  final requests = jsonDecode(File(args[0]).readAsStringSync()) as List<Object?>;\n" +
 		"  final results = <Object?>[];\n" +
 		"  for (final request in requests) {\n" +
 		"    final r = request! as Map<String, Object?>;\n" +
 		"    final codec = codecs[r['codec']]!;\n" +
-		"    results.add(r['direction'] == 'decode' ? codec.decode(r['input']) : codec.encode(r['input']));\n" +
+		"    results.add(switch (r['direction']) {\n" +
+		"      'decode' => codec.decode(r['input']),\n" +
+		"      'model' => codec.encode(models[r['model']]!(codec.decode(r['input']))),\n" +
+		"      _ => codec.encode(r['input']),\n" +
+		"    });\n" +
 		"  }\n" +
 		"  stdout.write(jsonEncode(results));\n" +
 		"}\n"

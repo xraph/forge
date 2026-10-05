@@ -174,8 +174,10 @@ Map<String, Object?> orderJson({String status = 'pending', int qty = 2}) => <Str
 
 void main() {
   test('an order decodes from the wire and encodes back, int64 beyond 2^53 intact', () {
+    // id is {type: integer, format: int64}: a JSON number on the wire, and a
+    // JSON number again on the way out, exactly as it arrived.
     final wire = <String, Object?>{
-      'id': '9007199254740993',
+      'id': 9007199254740993,
       'order_number': 'A-1',
       'status': 'shipped',
       'lines': [
@@ -191,8 +193,9 @@ void main() {
     expect(order.status, OrderStatus.shipped);
     expect(order.lines.single.qty, 2);
     expect(order.shipping?.streetName, 'Main');
+    expect(order.toClient()['id'], isA<int>());
     expect(orderCodec.encode(order.toClient()), <String, Object?>{
-      'id': '9007199254740993',
+      'id': 9007199254740993,
       'lines': [
         {'qty': 2, 'sku': 'x'},
       ],

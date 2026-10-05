@@ -223,3 +223,28 @@ func TestListElementsUseTheIdentityMemoOnlyWithHooks(t *testing.T) {
 	standalone := file(t, generate(t, fixture(t, "no-hooks")), "lib/src/models/order.dart")
 	assertContains(t, "order.dart (no hooks)", standalone, "lines: decodeList(json['lines'], (v0) => LineItem.fromClient(v0)),")
 }
+
+// An int64 goes back to the wire in its schema's shape: an integer schema as
+// a JSON number, a string schema as a JSON string, in both --int64 modes. A
+// path or query value keeps the decimal string either way, so cache keys do
+// not move with the schema shape.
+func TestInt64EncodesByItsSchemaShape(t *testing.T) {
+	spec := codecParitySpec()
+
+	str := baseConfig()
+	str.PackageName = "int64_string"
+	out := generate(t, gateFixture{Name: "int64-string", Spec: spec, Config: str})
+
+	assertContains(t, "order.dart", file(t, out, "lib/src/models/order.dart"), "'id': id.toInt(),")
+	assertContains(t, "book.dart", file(t, out, "lib/src/models/book.dart"), "'pages': v.toInt(),", "'isbnCode': v.value,")
+	assertContains(t, "pets_get.dart", file(t, out, "lib/src/bindings/pets_get.dart"), "path: {'petId': petId.value},")
+
+	asInt := baseConfig()
+	asInt.PackageName = "int64_int"
+	asInt.Int64 = client.Int64Int
+	out = generate(t, gateFixture{Name: "int64-int", Spec: codecParitySpec(), Config: asInt})
+
+	book := file(t, out, "lib/src/models/book.dart")
+	assertContains(t, "book.dart", book, "decodeIntOrString(", "'isbnCode': v.toString(),", "'pages': v,")
+	assertContains(t, "pets_get.dart", file(t, out, "lib/src/bindings/pets_get.dart"), "path: {'petId': petId},")
+}

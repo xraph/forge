@@ -128,6 +128,13 @@ Int64 decodeInt64(Object? value) => switch (value) {
   _ => throw FormatException('not an int64: $value'),
 };
 
+/// Reads an int64 carried as a decimal string or a number, as a native ` + "`int`" + `.
+int decodeIntOrString(Object? value) => switch (value) {
+  final String text => int.parse(text),
+  final num number => number.toInt(),
+  _ => throw FormatException('not an int64: $value'),
+};
+
 /// Reads an ISO-8601 timestamp.
 DateTime decodeDateTime(Object? value) => DateTime.parse(value as String);
 
