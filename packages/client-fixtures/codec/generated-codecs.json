@@ -599,6 +599,47 @@
           "wire": "x",
           "client": "x",
           "roundTrip": true
+        },
+        {
+          "name": "a structural union matches a member by its snake_case required field: tape",
+          "codec": "Measure",
+          "wire": {
+            "tape_length": 3.5,
+            "unit_name": "cm"
+          },
+          "client": {
+            "tapeLength": 3.5,
+            "unitName": "cm"
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union matches a member by its snake_case required fields: gauge",
+          "codec": "Measure",
+          "wire": {
+            "gauge_level": 2,
+            "gauge_unit": "bar"
+          },
+          "client": {
+            "gaugeLevel": 2,
+            "gaugeUnit": "bar"
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union with only some of a member's required fields passes through",
+          "codec": "Measure",
+          "wire": {
+            "gauge_level": 2
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union takes its inline string member after a rename-bearing sibling",
+          "codec": "Measure",
+          "wire": "metre",
+          "client": "metre",
+          "roundTrip": true
         }
       ]
     },

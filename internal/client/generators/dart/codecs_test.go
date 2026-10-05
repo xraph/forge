@@ -315,6 +315,19 @@ var codecConstDecl = regexp.MustCompile(`(?m)^const (\w+Codec) = _`)
 func runCodecs(t *testing.T, f gateFixture, requests []map[string]any) []any {
 	t.Helper()
 
+	var results []any
+	if err := json.Unmarshal(runCodecsRaw(t, f, requests), &results); err != nil {
+		t.Fatal(err)
+	}
+
+	return results
+}
+
+// runCodecsRaw is runCodecs without decoding the output, for a caller that
+// needs the number literals the Dart walker wrote.
+func runCodecsRaw(t *testing.T, f gateFixture, requests []map[string]any) []byte {
+	t.Helper()
+
 	fvm := requireDart(t)
 	dir := writePackage(t, f)
 
@@ -373,12 +386,7 @@ func runCodecs(t *testing.T, f gateFixture, requests []map[string]any) []any {
 
 	runFvm(t, fvm, dir, "pub", "get")
 
-	var results []any
-	if err := json.Unmarshal([]byte(runFvm(t, fvm, dir, "run", "tool/run_codecs.dart", "tool/requests.json")), &results); err != nil {
-		t.Fatal(err)
-	}
-
-	return results
+	return []byte(runFvm(t, fvm, dir, "run", "tool/run_codecs.dart", "tool/requests.json"))
 }
 
 // TestGeneratedCodecsWalkLikeTheTypeScriptRuntime runs every case in both

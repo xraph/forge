@@ -1,12 +1,12 @@
 package dart
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -50,7 +50,7 @@ func (c *codecParityCase) UnmarshalJSON(data []byte) error {
 	type plain codecParityCase
 
 	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := decodeKeepingNumbers(data, &p); err != nil {
 		return err
 	}
 
@@ -63,6 +63,28 @@ func (c *codecParityCase) UnmarshalJSON(data []byte) error {
 	_, c.HasClient = keys["client"]
 
 	return nil
+}
+
+// decodeKeepingNumbers decodes JSON with every number kept as its literal
+// text, so 2 and 2.0 stay different and nothing passes through a float64.
+func decodeKeepingNumbers(data []byte, into any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+
+	return dec.Decode(into)
+}
+
+// decodeResults decodes the JSON array a runtime printed, keeping numbers as
+// literals.
+func decodeResults(t *testing.T, raw []byte) []any {
+	t.Helper()
+
+	var results []any
+	if err := decodeKeepingNumbers(raw, &results); err != nil {
+		t.Fatalf("decode runtime output: %v\n%s", err, raw)
+	}
+
+	return results
 }
 
 func readCodecParity(t *testing.T) codecParityDoc {
@@ -79,12 +101,19 @@ func readCodecParity(t *testing.T) codecParityDoc {
 	}
 
 	var doc codecParityDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := decodeKeepingNumbers(raw, &doc); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
 	}
 
 	if doc.Kind != "generated-codec-parity" || len(doc.Variants) == 0 {
 		t.Fatalf("%s is not a generated-codec-parity file", path)
+	}
+
+	// A variant with no case would pass without comparing anything.
+	for name, variant := range doc.Variants {
+		if len(variant.Cases) == 0 {
+			t.Fatalf("%s: variant %q has no cases, so it would pass without comparing anything", path, name)
+		}
 	}
 
 	return doc
@@ -122,7 +151,25 @@ func codecParitySpec() *client.APISpec {
 		},
 	}
 
+	// A structural union whose members each require a field that is snake_case
+	// on the wire, so matching a member after a rename has to look for the
+	// client name.
+	spec.Schemas["Tape"] = &client.Schema{
+		Type: "object", Required: []string{"tape_length"},
+		Properties: map[string]*client.Schema{"tape_length": {Type: "number"}, "unit_name": {Type: "string"}},
+	}
+	spec.Schemas["Gauge"] = &client.Schema{
+		Type: "object", Required: []string{"gauge_level", "gauge_unit"},
+		Properties: map[string]*client.Schema{"gauge_level": {Type: "number"}, "gauge_unit": {Type: "string"}},
+	}
+	spec.Schemas["Measure"] = &client.Schema{OneOf: []*client.Schema{ref("Tape"), ref("Gauge"), {Type: "string"}}}
+
 	spec.Endpoints = append(spec.Endpoints,
+		client.Endpoint{
+			Method: "GET", Path: "/measures/{id}", OperationID: "measures.get",
+			PathParams: []client.Parameter{{Name: "id", In: "path", Required: true, Schema: &client.Schema{Type: "string"}}},
+			Responses:  map[int]*client.Response{200: {Content: jsonContent(ref("Measure"))}},
+		},
 		client.Endpoint{
 			Method: "GET", Path: "/authors/{id}", OperationID: "authors.get",
 			PathParams: []client.Parameter{{Name: "id", In: "path", Required: true, Schema: &client.Schema{Type: "string"}}},
@@ -243,16 +290,13 @@ func runTypeScriptCodecs(t *testing.T, spec *client.APISpec, overrides map[strin
 		t.Fatalf("node failed: %v\n%s", err, stdout)
 	}
 
-	var results []any
-	if err := json.Unmarshal(stdout, &results); err != nil {
-		t.Fatalf("decode node output: %v\n%s", err, stdout)
-	}
-
-	return results
+	return decodeResults(t, stdout)
 }
 
 // canonical renders v as the JSON Go writes for it: object keys sorted, so two
-// runtimes that order keys differently still compare equal.
+// runtimes that order keys differently still compare equal. Numbers arrive as
+// json.Number, so each keeps the literal its runtime wrote and an int and a
+// double stay different.
 func canonical(t *testing.T, v any) string {
 	t.Helper()
 
@@ -304,7 +348,7 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 				dartDecodeRequests[i] = map[string]any{"codec": dartCodecConst(variant.Cases[i].Codec), "direction": "decode", "input": r["input"]}
 			}
 
-			dartDecoded := runCodecs(t, dartFixture, dartDecodeRequests)
+			dartDecoded := decodeResults(t, runCodecsRaw(t, dartFixture, dartDecodeRequests))
 
 			if len(tsDecoded) != len(variant.Cases) || len(dartDecoded) != len(variant.Cases) {
 				t.Fatalf("%d cases, typescript decoded %d, dart decoded %d", len(variant.Cases), len(tsDecoded), len(dartDecoded))
@@ -320,7 +364,7 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 			}
 
 			tsEncoded := runTypeScriptCodecs(t, codecParitySpec(), variant.FieldOverrides, tsEncodeRequests)
-			dartEncoded := runCodecs(t, dartFixture, dartEncodeRequests)
+			dartEncoded := decodeResults(t, runCodecsRaw(t, dartFixture, dartEncodeRequests))
 
 			for i, c := range variant.Cases {
 				t.Run(c.Name, func(t *testing.T) {
@@ -332,7 +376,7 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 						t.Errorf("encode(decode(%s)) differs\n typescript %s\n dart       %s", c.Codec, want, got)
 					}
 
-					if c.HasClient && !reflect.DeepEqual(roundTrip(t, tsDecoded[i]), roundTrip(t, c.Client)) {
+					if c.HasClient && canonical(t, tsDecoded[i]) != canonical(t, c.Client) {
 						t.Errorf("both runtimes agree, but not on the client shape the fixture states\n got  %s\n want %s", canonical(t, tsDecoded[i]), canonical(t, c.Client))
 					}
 

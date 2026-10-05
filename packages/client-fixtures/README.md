@@ -9,9 +9,10 @@ cannot drift apart without a test failing on one side.
 | `snapshot/` | the responses a cache fetched, the dehydrated payload it produced, and what each query read | `fixtures-export.test.ts` (TS), and `from-dart.json` by `fixtures_test.dart` (Dart) |
 | `codec/` | a client-shaped value, the schema it was normalized against, and its `__ref` wire encoding | `fixtures-export.test.ts` |
 | `frames/` | an initial store, batches of stream frames, and the store they produce | `fixtures-export.test.ts` |
-| `ops/` | generator parity tables | plan 02's generators |
+| `codec/generated-codecs.json` | wire payloads for generated clients, which the TypeScript and Dart codecs must decode and encode the same way | you, by hand. It is the one file here that is not generated. |
+| `ops/` | generator parity tables | `FORGE_WRITE_FIXTURES=1 go test ./internal/client/generators/dart/ -run TestTablesAgreeWithTypeScript` |
 
-Never edit a file by hand. Regenerate the TS-written ones with:
+Never edit a file by hand, with one exception (below). Regenerate the TS-written ones with:
 
     cd packages/client-core
     FORGE_WRITE_FIXTURES=1 npx vitest run __tests__/fixtures-export.test.ts
@@ -27,6 +28,19 @@ regenerating in the same commit.
 
 The TS files are written with object keys sorted at every level and a
 trailing newline, so regenerating without a change leaves no diff.
+
+`codec/generated-codecs.json` is the exception. It has the kind
+`generated-codec-parity` and no runtime library reads it: both loaders skip any
+`codec/` file of another kind. The Go test `TestGeneratedCodecsAgreeAcrossRuntimes`
+in `internal/client/generators/dart` reads it, generates a TypeScript client and
+a Dart client from one spec, and runs every payload through both codecs under
+node and fvm. Add a case there when a rename, union or int64 shape needs
+pinning. The test skips when node, esbuild or fvm is missing.
+
+The `ops/` files are the tables each generator emits for one spec, so a Dart
+client and a TypeScript client cache, invalidate and authorize the same way.
+`TestTablesAgreeWithTypeScript` compares the two generators' output, then
+checks it against these files. A missing, stale or unlisted file fails it.
 
 ## Where the runtimes differ on purpose
 

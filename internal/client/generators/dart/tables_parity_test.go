@@ -67,8 +67,8 @@ func restFixtureSpec() *client.APISpec       { return restFixture().Spec }
 // that caches, invalidates or authorizes differently by language.
 //
 // With FORGE_WRITE_FIXTURES=1 it also writes each table set to
-// packages/client-fixtures/ops/<name>.json; otherwise, where that file
-// exists, it asserts the tables still match it.
+// packages/client-fixtures/ops/<name>.json; otherwise it asserts the tables
+// still match that file, and a missing file fails.
 func TestTablesAgreeWithTypeScript(t *testing.T) {
 	fixtureDir, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "packages", "client-fixtures", "ops"))
 	if err != nil {
@@ -125,7 +125,7 @@ func TestTablesAgreeWithTypeScript(t *testing.T) {
 
 			committed, err := os.ReadFile(path)
 			if os.IsNotExist(err) {
-				return
+				t.Fatalf("%s is missing, so nothing pins this corpus entry; write it with FORGE_WRITE_FIXTURES=1 go test ./internal/client/generators/dart/ -run TestTablesAgreeWithTypeScript", path)
 			}
 
 			if err != nil {
@@ -136,5 +136,39 @@ func TestTablesAgreeWithTypeScript(t *testing.T) {
 				t.Errorf("%s is stale; regenerate with FORGE_WRITE_FIXTURES=1 go test ./internal/client/generators/dart/ -run TestTablesAgreeWithTypeScript", path)
 			}
 		})
+	}
+}
+
+// TestOpsFixtureDirectoryHoldsExactlyTheCorpus fails on a file in ops/ that no
+// corpus entry writes: an entry renamed or dropped leaves its old file behind,
+// still read by anyone who trusts the directory.
+func TestOpsFixtureDirectoryHoldsExactlyTheCorpus(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "..", "packages", "client-fixtures", "ops")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]bool{}
+	for name := range parityCorpus() {
+		want[name+".json"] = true
+	}
+
+	for _, entry := range entries {
+		if !want[entry.Name()] {
+			t.Errorf("%s is in ops/ but no corpus entry writes it; delete it", entry.Name())
+		}
+
+		delete(want, entry.Name())
+	}
+
+	// A missing file is reported by the subtest that owns it, with the
+	// command that writes it. With FORGE_WRITE_FIXTURES set the directory is
+	// being filled and may be short.
+	if os.Getenv("FORGE_WRITE_FIXTURES") != "1" {
+		for name := range want {
+			t.Errorf("%s is in the corpus but not in ops/", name)
+		}
 	}
 }
