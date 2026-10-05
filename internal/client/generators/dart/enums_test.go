@@ -9,8 +9,8 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// enumsFixture holds an enum in every position a model decodes one: a direct
-// required field, a nullable field, a list element and a map value (nullable
+// enumsFixture holds an enum in every position a model decodes one: a union
+// branch, a direct required field, a nullable field, a list element and a map value (nullable
 // and not), a numeric enum, a mixed-type enum and a declared `unknown` member.
 func enumsFixture() gateFixture {
 	color := ref("Color")
@@ -26,6 +26,10 @@ func enumsFixture() gateFixture {
 			Info: client.APIInfo{Title: "Enums API", Version: "1"},
 			Schemas: map[string]*client.Schema{
 				"Color": {Type: "string", Enum: []any{"red", "green"}},
+				"Level": {Type: "integer", Enum: []any{float64(1), float64(2)}},
+				// A union with an enum ref, an integer enum ref and an inline
+				// enum among its branches.
+				"Either": {OneOf: []*client.Schema{color, ref("Level"), {Type: "string", Enum: []any{"on", "off"}}}},
 				"Holder": {
 					Type:     "object",
 					Required: []string{"status", "level"},
@@ -81,6 +85,20 @@ func TestEnumIsAnExtensionTypeOverItsWireValue(t *testing.T) {
 		if strings.Contains(holder, gone) {
 			t.Errorf("holder.dart still has %q:\n%s", gone, holder)
 		}
+	}
+}
+
+func TestUnionEnumBranchesDecodeWithoutARedundantCast(t *testing.T) {
+	either := file(t, generate(t, enumsFixture()), "lib/src/models/either.dart")
+
+	assertContains(t, "either.dart", either,
+		"if (client is String) return EitherColor(Color(client));",
+		"if (client is int) return EitherLevel(Level(client));",
+		"final class EitherOption2 extends Either {",
+	)
+
+	if strings.Contains(either, "client as ") {
+		t.Errorf("a branch promoted by its type test must not cast again:\n%s", either)
 	}
 }
 
@@ -141,6 +159,22 @@ void main() {
   check(known.level == HolderLevel.v2 && known.level.known == HolderLevelKnown.v2, 'numeric enum');
   check(known.toClient()['status'] == 'unknown', 'declared unknown encodes as itself');
   check(known.copyWith(note: const Assign(Color.green)).note == Color.green, 'copyWith');
+
+  final green = Either.fromClient('green');
+  check(green is EitherColor && green.value == Color.green, 'enum ref branch');
+  check(jsonEncode(green.toClient()) == '"green"', 'enum ref branch encodes');
+
+  // The structural match is by JSON type, so an unknown string lands in the
+  // first string branch and goes back out as it came.
+  final teal = Either.fromClient('teal');
+  check(teal is EitherColor && !teal.value.isKnown, 'unknown string stays in the enum branch');
+  check(jsonEncode(teal.toClient()) == '"teal"', 'unknown string round trips');
+
+  final two = Either.fromClient(2);
+  check(two is EitherLevel && two.value == Level.v2, 'integer enum branch');
+
+  final nine = Either.fromClient(9);
+  check(nine is EitherLevel && !nine.value.isKnown && nine.toClient() == 9, 'unknown integer round trips');
 }
 `
 

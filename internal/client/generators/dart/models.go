@@ -579,10 +579,15 @@ func (d *unionDecl) render() string {
 			}
 
 			value := v.typ.decode("client", 0)
-			if v.typ.cast && strings.HasPrefix(v.match, "client is ") {
+			if strings.HasPrefix(v.match, "client is ") {
 				// The type test already promoted client; a cast would be
 				// flagged as unnecessary.
-				value = "client"
+				switch {
+				case v.typ.cast:
+					value = "client"
+				case v.typ.promotedDecodeFn != nil:
+					value = v.typ.promotedDecodeFn("client")
+				}
 			}
 
 			fmt.Fprintf(&b, "    if (%s) return %s(%s);\n", v.match, v.name, value)

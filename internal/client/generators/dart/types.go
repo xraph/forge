@@ -30,6 +30,11 @@ type dartType struct {
 
 	decodeFn func(expr string, depth int) string
 	encodeFn func(expr string, depth int) string
+
+	// promotedDecodeFn decodes expr when a type test has already promoted it
+	// to the JSON type the decode would cast to, so repeating the cast would
+	// be an unnecessary_cast. Nil means the type has no such shortcut.
+	promotedDecodeFn func(expr string) string
 }
 
 func (t dartType) decode(expr string, depth int) string { return t.decodeFn(expr, depth) }
@@ -230,6 +235,8 @@ func enumType(name, rep string, imports ...string) dartType {
 		imports:  imports,
 		decodeFn: func(expr string, _ int) string { return name + "(" + expr + " as " + rep + ")" },
 		encodeFn: func(expr string, _ int) string { return expr + ".wire" },
+
+		promotedDecodeFn: func(expr string) string { return name + "(" + expr + ")" },
 	}
 }
 
