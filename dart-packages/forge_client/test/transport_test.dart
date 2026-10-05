@@ -999,18 +999,28 @@ void main() {
           final cancel = Completer<void>();
           final pending = transport.execute(
             TransportRequest(
-              meta: create,
+              meta: list, // GET: retryable, so "not retried" is the cancel's doing
               args: TagContext.empty,
               cancel: cancel.future,
             ),
           );
           await pumpEventQueue(); // request sent, headers delivered, body stalled
           expect(client.recordedRequests, hasLength(1));
+          final clock = Stopwatch()..start();
           cancel.complete();
-          await expectLater(pending, throwsA(anything));
+          // The lib's own abort, not the timeout's TimeoutException.
+          await expectLater(
+            pending,
+            throwsA(isA<http.RequestAbortedException>()),
+          );
+          clock.stop();
+          expect(clock.elapsed, lessThan(const Duration(seconds: 1)));
           await pumpEventQueue(); // let the abortTrigger listener run
           expect(client.recordedAborts.single, isTrue);
-          expect(client.recordedRequests, hasLength(1)); // not retried
+          expect(
+            client.recordedRequests,
+            hasLength(1),
+          ); // GET, still not retried
         });
       }
     });
