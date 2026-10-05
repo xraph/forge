@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart';
 
+/// Riverpod 3 already skips retrying an `Error` (a `StateError` from
+/// `getClient`, say). This stops it retrying an `Exception` too, which would
+/// resubscribe and refetch behind the cache's back.
 Duration? _noRetry(int retryCount, Object error) => null;
 
 /// The cache every Forge provider reads from. Override it in `ProviderScope`:
