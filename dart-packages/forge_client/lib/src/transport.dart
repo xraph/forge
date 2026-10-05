@@ -621,72 +621,113 @@ final class RestTransport implements Transport {
     TransportRequest request,
     Map<String, String>? credentials,
   ) async {
-    final outgoing =
-        http.AbortableRequest(method, url, abortTrigger: request.cancel)
-          ..headers.addAll(_headers)
-          ..headers.addAll(request.args.headers)
-          ..headers.addAll(request.headers);
+    Completer<void>? timeoutAbort;
 
-    if (credentials != null) outgoing.headers.addAll(credentials);
-
-    final body = request.args.body;
-
-    if (body != null) {
-      final codec = request.meta.bodyCodec;
-      final wire = codec == null ? body : codec.encode(body);
-
-      if (wire is Uint8List) {
-        outgoing.headers.putIfAbsent(
-          'content-type',
-          () => 'application/octet-stream',
-        );
-        outgoing.bodyBytes = wire;
-      } else {
-        outgoing.headers.putIfAbsent('content-type', () => 'application/json');
-        outgoing.body = jsonEncode(wire);
+    try {
+      if (_timeout != null) {
+        timeoutAbort = Completer<void>();
       }
-    }
 
-    var sending = _client.send(outgoing);
-    final timeout = _timeout;
-    if (timeout != null) sending = sending.timeout(timeout);
+      final outgoing =
+          http.AbortableRequest(method, url, abortTrigger: timeoutAbort?.future)
+            ..headers.addAll(_headers)
+            ..headers.addAll(request.args.headers)
+            ..headers.addAll(request.headers);
 
-    final cancel = request.cancel;
-    final streamed = cancel == null
-        ? await sending
-        : await Future.any<http.StreamedResponse>([
-            sending,
+      if (credentials != null) outgoing.headers.addAll(credentials);
+
+      final body = request.args.body;
+
+      if (body != null) {
+        final codec = request.meta.bodyCodec;
+        final wire = codec == null ? body : codec.encode(body);
+
+        if (wire is Uint8List) {
+          outgoing.headers.putIfAbsent(
+            'content-type',
+            () => 'application/octet-stream',
+          );
+          outgoing.bodyBytes = wire;
+        } else {
+          outgoing.headers.putIfAbsent(
+            'content-type',
+            () => 'application/json',
+          );
+          outgoing.body = jsonEncode(wire);
+        }
+      }
+
+      Future<http.Response> sendAndRead() async {
+        final sending = _client.send(outgoing);
+
+        final cancel = request.cancel;
+        final abortFutures = <Future<http.StreamedResponse>>[];
+
+        if (cancel != null) {
+          abortFutures.add(
             cancel.then<http.StreamedResponse>(
               (_) => throw http.RequestAbortedException(url),
             ),
-          ]);
-    final response = await http.Response.fromStream(streamed);
+          );
+        }
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpStatusError(
-        response.statusCode,
-        _decode(response),
-        headers: response.headers,
-      );
+        if (timeoutAbort != null) {
+          abortFutures.add(
+            timeoutAbort.future.then<http.StreamedResponse>(
+              (_) => throw http.RequestAbortedException(url),
+            ),
+          );
+        }
+
+        final streamed = abortFutures.isEmpty
+            ? await sending
+            : await Future.any<http.StreamedResponse>([
+                sending,
+                ...abortFutures,
+              ]);
+        return await http.Response.fromStream(streamed);
+      }
+
+      final timeout = _timeout;
+      final response = timeout == null
+          ? await sendAndRead()
+          : await sendAndRead().timeout(timeout);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpStatusError(
+          response.statusCode,
+          _decode(response),
+          headers: response.headers,
+        );
+      }
+
+      if (response.bodyBytes.isEmpty) return null;
+
+      final decoded = _decode(response);
+      final codec = request.meta.responseCodec;
+
+      return codec == null ? decoded : codec.decode(decoded);
+    } on TimeoutException {
+      timeoutAbort?.complete();
+      rethrow;
     }
-
-    if (response.bodyBytes.isEmpty) return null;
-
-    final decoded = _decode(response);
-    final codec = request.meta.responseCodec;
-
-    return codec == null ? decoded : codec.decode(decoded);
   }
 
   /// JSON when the content type says so (or says nothing and the body
-  /// parses), text otherwise.
+  /// parses), text otherwise. Falls back to text if JSON parsing fails.
   Object? _decode(http.Response response) {
     if (response.bodyBytes.isEmpty) return null;
 
     final type = response.headers['content-type'] ?? '';
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
 
-    if (type.contains('json')) return jsonDecode(text);
+    if (type.contains('json')) {
+      try {
+        return jsonDecode(text);
+      } on FormatException {
+        return text;
+      }
+    }
 
     if (type.isEmpty) {
       try {

@@ -778,5 +778,137 @@ void main() {
         ),
       );
     });
+
+    test('preserves status when JSON body is malformed and triggers refresh on 401', () async {
+      var attempts = 0;
+      final fake = FakeHttp((_, _) {
+        attempts++;
+        if (attempts == 1) {
+          return http.Response(
+            '<html>not json</html>',
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return {'ok': true};
+      });
+
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake.client,
+        auth: AuthProvider.callbacks(
+          credentials: (_) => {'authorization': 'Bearer t'},
+          refresh: () {},
+        ),
+      );
+
+      final result = await rest.execute(
+        const TransportRequest(meta: list, args: TagContext.empty),
+      );
+
+      expect(attempts, 2);
+      expect(result, {'ok': true});
+    });
+
+    test('retries a GET with malformed JSON 502 as a 502', () async {
+      var attempts = 0;
+      final fake = FakeHttp((_, _) {
+        attempts++;
+        if (attempts == 1) {
+          return http.Response(
+            'not json at all',
+            502,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return {'ok': true};
+      });
+
+      final (:clock, :transport) = rig(fake);
+
+      final running = transport.execute(
+        const TransportRequest(meta: list, args: TagContext.empty),
+      );
+
+      await advance(clock, 100);
+
+      expect(await running, {'ok': true});
+      expect(fake.calls, hasLength(2));
+    });
+  });
+
+  group('timeout handling', () {
+    test(
+      'bounds the entire attempt and aborts the request on timeout',
+      () async {
+        final gate = Completer<Object?>();
+        final fake = FakeHttp((_, _) => gate.future);
+        final rest = RestTransport(
+          baseUrl: base,
+          client: fake.client,
+          timeout: const Duration(milliseconds: 100),
+        );
+
+        final running = rest.execute(
+          const TransportRequest(meta: list, args: TagContext.empty),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        await expectLater(running, throwsA(isA<TimeoutException>()));
+
+        gate.complete(<Object?>[]);
+      },
+    );
+
+    test('completes the abort trigger on timeout so retries do not open new connections', () async {
+      var requestCount = 0;
+      final fake = FakeHttp((_, _) {
+        requestCount++;
+        return Future.delayed(const Duration(seconds: 10), () => {'ok': true});
+      });
+
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake.client,
+        timeout: const Duration(milliseconds: 50),
+        retry: const RetryPolicy(attempts: 2),
+      );
+
+      await expectLater(
+        rest.execute(
+          const TransportRequest(meta: list, args: TagContext.empty),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+
+      expect(requestCount, 2);
+    });
+
+    test('retries a GET that times out and succeeds on retry', () async {
+      final gate = Completer<Object?>();
+      final fake = FakeHttp((_, attempt) {
+        if (attempt == 0) return gate.future;
+        return {'ok': true};
+      });
+
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake.client,
+        timeout: const Duration(milliseconds: 100),
+        sleep: (_) => Future<void>.value(),
+      );
+
+      final running = rest.execute(
+        const TransportRequest(meta: list, args: TagContext.empty),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      gate.complete(<Object?>[]);
+
+      expect(await running, {'ok': true});
+      expect(fake.calls, hasLength(2));
+    });
   });
 }
