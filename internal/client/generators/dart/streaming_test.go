@@ -18,7 +18,7 @@ func TestTypedStreamingClients(t *testing.T) {
 		"endpoint: '/ws/chat/{roomId}',",
 		"keepalive: true,",
 		"Stream<LineItem> get messages =>",
-		"_socket.frames.map((m) => LineItem.fromClient(lineItemCodec.decode(m)));",
+		"_socket.until(_socket.frames).map((m) => LineItem.fromClient(lineItemCodec.decode(m)));",
 		"Future<void> send(LineItem message) => _socket.deliver(() => lineItemCodec.encode(message.toClient()));",
 	)
 
@@ -258,7 +258,7 @@ func TestAnonymousEndpointsAreNamedFromTheirPathWords(t *testing.T) {
 	assertContains(t, "ws_anonymous_socket.dart", file(t, out, "lib/src/streaming/ws_anonymous_socket.dart"),
 		"final class WsAnonymousSocket {")
 	assertContains(t, "sse_ticks_events.dart", file(t, out, "lib/src/streaming/sse_ticks_events.dart"),
-		"final class SseTicksEvents {", "Stream<Object?> get messages => _socket.frames;")
+		"final class SseTicksEvents {", "Stream<Object?> get messages => _socket.until(_socket.frames);")
 }
 
 func TestStreamingTypeNamesAreReserved(t *testing.T) {
@@ -275,6 +275,60 @@ func TestStreamingTypeNamesAreReserved(t *testing.T) {
 			if !strings.HasPrefix(declaredName, "_") && !reserved[declaredName] {
 				t.Errorf("%s declares %s, which a schema could take: add it to generatedTypeNames", name, declaredName)
 			}
+		}
+	}
+}
+
+// TestStreamingTopLevelFunctionsAreReserved holds every public top-level
+// function the streaming files declare to the names a binding may not take, so
+// an operation with the same id is renamed instead of clashing in the barrel.
+func TestStreamingTopLevelFunctionsAreReserved(t *testing.T) {
+	out := generate(t, streamingFixture())
+	function := regexp.MustCompile(`(?m)^(?:[A-Za-z][\w<>?,.\[\] ]*? )?(\w+)\((?:\{|[^)]*\)\s*(?:=>|\{|async))`)
+	keyword := regexp.MustCompile(`^(?:class|final|sealed|enum|typedef|import|export|const|library|part|var|abstract|base|extension|mixin|if|for|while|switch|return)\b`)
+
+	found := 0
+
+	for name, code := range out.Files {
+		if !strings.HasPrefix(name, "lib/src/streaming/") {
+			continue
+		}
+
+		for line := range strings.SplitSeq(code, "\n") {
+			if line == "" || line[0] == ' ' || line[0] == '/' || line[0] == '}' || keyword.MatchString(line) {
+				continue
+			}
+
+			m := function.FindStringSubmatch(line)
+			if m == nil || strings.HasPrefix(m[1], "_") {
+				continue
+			}
+
+			found++
+
+			if !topLevelReserved[m[1]] {
+				t.Errorf("%s declares the function %s, which an operation could take: add it to topLevelReserved", name, m[1])
+			}
+		}
+	}
+
+	if found < 3 {
+		t.Errorf("the scan found %d public top-level functions, expected streamUri, bearerToken and liveOpen at least", found)
+	}
+}
+
+func TestOperationNamedLikeAStreamingFunctionIsRenamed(t *testing.T) {
+	f := streamingFixture()
+	f.Spec.Endpoints = append(f.Spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/token", OperationID: "bearerToken",
+		Responses: map[int]*client.Response{200: {Content: jsonContent(&client.Schema{Type: "string"})}},
+	})
+
+	out := generate(t, f)
+
+	for name, code := range out.Files {
+		if strings.HasPrefix(name, "lib/src/bindings/") && strings.Contains(code, "final bearerToken =") {
+			t.Errorf("%s declares bearerToken, which live_socket.dart already exports", name)
 		}
 	}
 }

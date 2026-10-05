@@ -28,6 +28,7 @@ var topLevelReserved = map[string]bool{
 	"missingCapabilities": true, "canCall": true, "paginateAll": true, "collectAll": true,
 	"apiErrorOf": true, "decodeCached": true, "makeRef": true, "isOptimistic": true,
 	"operationQueryKey": true, "operationName": true,
+	"streamUri": true, "bearerToken": true, "liveOpen": true,
 }
 
 // param is one path, query or header parameter of an operation.

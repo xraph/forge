@@ -220,6 +220,14 @@ func renderStreamingClient(enabled []featureFile) string {
 	b.WriteString("  final _watching = <StreamSubscription<Object?>>[];\n")
 	b.WriteString("  var _state = LiveConnectionState.disconnected;\n")
 
+	var initial []string
+
+	for _, f := range enabled {
+		initial = append(initial, "'"+f.file+"'")
+	}
+
+	b.WriteString("  var _selected = <String>{" + strings.Join(initial, ", ") + "};\n")
+
 	b.WriteString("\n  /// The state of the features together: connected when all are, connecting or\n")
 	b.WriteString("  /// reconnecting or failed when any is, closed when all are.\n")
 	b.WriteString("  LiveConnectionState get state => _state;\n")
@@ -235,7 +243,7 @@ func renderStreamingClient(enabled []featureFile) string {
 	for _, f := range enabled {
 		fields = append(fields, "LiveConnectionState "+f.file)
 		values = append(values, f.file+": "+f.file+".state")
-		all = append(all, f.file+".state")
+		all = append(all, fmt.Sprintf("if (_selected.contains('%s')) %s.state", f.file, f.file))
 	}
 
 	b.WriteString("\n  /// The state of each feature.\n")
@@ -253,6 +261,14 @@ func renderStreamingClient(enabled []featureFile) string {
 	b.WriteString("  /// A feature that fails to connect fails the call; the others stay\n")
 	b.WriteString("  /// connected, so [close] after a failure.\n")
 	fmt.Fprintf(&b, "  Future<void> connect({%s}) async {\n", strings.Join(params, ", "))
+
+	var chosen []string
+
+	for _, f := range enabled {
+		chosen = append(chosen, fmt.Sprintf("if (%s) '%s'", f.file, f.file))
+	}
+
+	fmt.Fprintf(&b, "    _selected = {%s};\n", strings.Join(chosen, ", "))
 	b.WriteString("    _set(LiveConnectionState.connecting);\n")
 	b.WriteString("    try {\n")
 	fmt.Fprintf(&b, "      await Future.wait([%s]);\n", strings.Join(calls, ", "))
@@ -304,6 +320,7 @@ func renderStreamingClient(enabled []featureFile) string {
 
 	b.WriteString("\n  void _update() {\n")
 	fmt.Fprintf(&b, "    final all = [%s];\n", strings.Join(all, ", "))
+	b.WriteString("    if (all.isEmpty) return _set(LiveConnectionState.disconnected);\n")
 	b.WriteString("    _set(\n")
 	b.WriteString("      all.every((s) => s == LiveConnectionState.connected)\n")
 	b.WriteString("          ? LiveConnectionState.connected\n")

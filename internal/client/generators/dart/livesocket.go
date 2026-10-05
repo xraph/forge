@@ -197,13 +197,20 @@ final class _Timeout implements Exception {
   const _Timeout();
 }
 
+final class _Cancelled implements Exception {
+  const _Cancelled();
+}
+
 final class _Queued {
-  _Queued(this.frame, this.check) : queued = DateTime.now();
+  _Queued(this.frame, this.check) : queued = DateTime.now() {
+    done.future.ignore();
+  }
 
   final Object? Function() frame;
   final String? Function()? check;
   final DateTime queued;
   final done = Completer<void>();
+
 }
 
 /// A connection that opens itself, reopens after a drop, and holds on to what
@@ -265,13 +272,17 @@ final class LiveSocket {
   final _states = StreamController<LiveConnectionState>.broadcast();
   final _errors = StreamController<Object>.broadcast();
   final _queue = <_Queued>[];
-  final _closed = Completer<void>();
+  var _closed = Completer<void>();
   var _state = LiveConnectionState.disconnected;
   StreamConnection? _connection;
   StreamSubscription<Object?>? _subscription;
   Future<void>? _connecting;
   Timer? _beat;
   Timer? _retry;
+  Timer? _openTimer;
+  void Function()? _abandon;
+  var _generation = 0;
+  var _ready = false;
   var _wanted = true;
   var _disposed = false;
   var _everOpened = false;
@@ -284,8 +295,31 @@ final class LiveSocket {
   /// Changes of [state].
   Stream<LiveConnectionState> get states => _states.stream;
 
-  /// What the server sends.
+  /// What the server sends. It carries on across reconnects.
   Stream<Object?> get frames => _frames.stream;
+
+  /// [frames], or any other stream of this socket, until [closed] completes.
+  ///
+  /// The stream may be listened to more than once. It ends when the current
+  /// connection ends and nothing will reopen it, so an await-for over it
+  /// finishes.
+  Stream<T> until<T>(Stream<T> source) {
+    late final StreamController<T> out;
+    StreamSubscription<T>? subscription;
+    out = StreamController<T>.broadcast(
+      onListen: () {
+        subscription = source.listen(out.add, onError: out.addError);
+        unawaited(
+          closed.then((_) {
+            unawaited(subscription?.cancel());
+            unawaited(out.close());
+          }),
+        );
+      },
+      onCancel: () => subscription?.cancel(),
+    );
+    return out.stream;
+  }
 
   /// Failures that have no caller to take them: a frame that could not be
   /// read, a heartbeat that could not be sent, an [onOpen] that threw.
@@ -294,43 +328,90 @@ final class LiveSocket {
   /// The open connection, or null.
   StreamConnection? get connection => _connection;
 
-  /// Completes when the socket is closed for good.
+  /// Completes when the current connection has ended and nothing will reopen
+  /// it by itself: after a drop with reconnecting off, after giving up on
+  /// reconnecting, and after [disconnect] or [dispose]. A later [connect]
+  /// starts a new future.
   Future<void> get closed => _closed.future;
 
   /// How many sends are waiting.
   int get queueSize => _queue.length;
 
   /// Opens the connection. Calling it while open does nothing, and while
-  /// opening waits for the same attempt.
+  /// opening waits for the same attempt. After [disconnect] it opens afresh,
+  /// whatever attempt was under way.
   Future<void> connect() {
     if (_disposed) return Future.error(StateError('the client is closed'));
     if (_connection != null) return Future.value();
-    return _connecting ??= _run();
+    final existing = _connecting;
+    if (existing != null) return existing;
+    final run = _connecting = _run();
+    // Forget the attempt once it ends, however it ends. An attempt that fails
+    // before its first await has ended before it is stored, so this cannot be
+    // left to the attempt itself.
+    unawaited(
+      run.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+        if (identical(_connecting, run)) _connecting = null;
+      }),
+    );
+    return run;
   }
 
+  bool _current(int generation) => generation == _generation;
+
   Future<void> _run() async {
+    final generation = _generation;
     _wanted = true;
     _retry?.cancel();
     _retry = null;
+    if (_closed.isCompleted) _closed = Completer<void>();
     _setState(LiveConnectionState.connecting);
-    final pending = _open(_opens++);
+    final result = Completer<StreamConnection>();
+    void abandon() {
+      if (!result.isCompleted) result.completeError(const _Cancelled());
+    }
+
+    final timer = Timer(options.connectionTimeout, () {
+      if (!result.isCompleted) result.completeError(const _Timeout());
+    });
+    _openTimer = timer;
+    _abandon = abandon;
     final StreamConnection connection;
     try {
-      connection = await pending.timeout(options.connectionTimeout, onTimeout: () => throw const _Timeout());
+      final pending = _open(_opens++);
+      unawaited(
+        pending.then(
+          (opened) {
+            if (result.isCompleted) {
+              unawaited(opened.close());
+            } else {
+              result.complete(opened);
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!result.isCompleted) result.completeError(error, stack);
+          },
+        ),
+      );
+      connection = await result.future;
+    } on _Cancelled {
+      return;
     } on _Timeout {
-      unawaited(pending.then((stale) => stale.close(), onError: (Object _) {}));
-      _connecting = null;
+      if (!_current(generation)) return;
       _failed(terminal: false);
       throw TimeoutException('Connection timeout', options.connectionTimeout);
     } on Object catch (error) {
-      _connecting = null;
+      if (!_current(generation)) return;
       _failed(terminal: error is TransportUnavailable);
       rethrow;
+    } finally {
+      timer.cancel();
+      if (identical(_openTimer, timer)) _openTimer = null;
+      if (identical(_abandon, abandon)) _abandon = null;
     }
-    if (!_wanted || _disposed) {
-      _connecting = null;
+    if (!_current(generation) || _disposed) {
       await connection.close();
-      throw StateError('the connection was cancelled');
+      return;
     }
     _connection = connection;
     _subscription = connection.messages.listen(
@@ -345,6 +426,7 @@ final class LiveSocket {
     final reconnected = _everOpened;
     _everOpened = true;
     _attempts = 0;
+    _ready = false;
     _setState(LiveConnectionState.connected);
     _startBeat(connection);
     try {
@@ -352,18 +434,28 @@ final class LiveSocket {
     } on Object catch (error) {
       _report(error);
     }
+    if (!_current(generation)) return;
     _flush();
-    _connecting = null;
+    _ready = true;
   }
 
   void _failed({required bool terminal}) {
     _setState(LiveConnectionState.error);
-    if (!terminal) _scheduleReconnect();
+    if (terminal) {
+      _end();
+    } else {
+      _scheduleReconnect();
+    }
+  }
+
+  void _end() {
+    if (!_closed.isCompleted) _closed.complete();
   }
 
   void _lost(StreamConnection lost) {
     if (!identical(_connection, lost)) return;
     _connection = null;
+    _ready = false;
     _stopBeat();
     unawaited(_subscription?.cancel());
     _subscription = null;
@@ -377,7 +469,10 @@ final class LiveSocket {
   }
 
   void _scheduleReconnect() {
-    if (!options.reconnect || !_wanted || _disposed) return;
+    if (!options.reconnect || !_wanted || _disposed) {
+      _end();
+      return;
+    }
     if (_attempts >= options.maxReconnectAttempts) {
       _wanted = false;
       _rejectQueue(StateError('Max reconnection attempts reached'));
@@ -447,7 +542,7 @@ final class LiveSocket {
     if (_state == next) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
-    if (next == LiveConnectionState.closed && !_closed.isCompleted) _closed.complete();
+    if (next == LiveConnectionState.closed) _end();
   }
 
   /// Sends the frame [frame] builds, now if connected. Otherwise it waits in
@@ -455,11 +550,14 @@ final class LiveSocket {
   /// full, if it waits past its time, or if [check] names a reason it should
   /// not be sent after all.
   ///
+  /// A send made while the connection is still being set up, or while earlier
+  /// sends wait, joins the queue so it goes out after them.
+  ///
   /// The frame is built when it is sent, so a timestamp or an encoding reflects
   /// that moment. The future completes once it is sent.
   Future<void> deliver(Object? Function() frame, {String? Function()? check}) {
     final open = _connection;
-    if (open != null) {
+    if (open != null && ((_ready && _queue.isEmpty) || !options.enableOfflineQueue)) {
       try {
         open.send(frame());
         return Future.value();
@@ -526,13 +624,21 @@ final class LiveSocket {
     }
   }
 
-  /// Closes the connection and stops reconnecting. What is waiting to be sent
-  /// fails unless [rejectQueued] is false, in which case it stays for the next
-  /// [connect]. The socket can be connected again.
+  /// Closes the connection and stops reconnecting, abandoning any attempt under
+  /// way. What is waiting to be sent fails unless [rejectQueued] is false, in
+  /// which case it stays for the next [connect]. The socket can be connected
+  /// again.
   Future<void> disconnect({bool rejectQueued = true}) async {
+    _generation++;
+    _connecting = null;
     _wanted = false;
+    _ready = false;
     _retry?.cancel();
     _retry = null;
+    _openTimer?.cancel();
+    _openTimer = null;
+    _abandon?.call();
+    _abandon = null;
     _stopBeat();
     if (rejectQueued) _rejectQueue(StateError('Connection closed'));
     final connection = _connection;
@@ -541,6 +647,7 @@ final class LiveSocket {
     _subscription = null;
     if (connection != null) onLost?.call();
     _setState(LiveConnectionState.closed);
+    _end();
     await subscription?.cancel();
     await connection?.close();
   }

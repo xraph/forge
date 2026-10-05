@@ -407,10 +407,11 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 
 	b.WriteString("  ///\n")
 	b.WriteString("  /// Any number of listeners may listen, and the stream carries on across a\n")
-	b.WriteString("  /// reconnect. A message that cannot be decoded is an error event on it.\n")
+	b.WriteString("  /// reconnect, and ends when the connection ends and nothing will reopen it.\n")
+	b.WriteString("  /// A message that cannot be decoded is an error event on it.\n")
 
 	if sc.receive.raw {
-		b.WriteString("  Stream<Object?> get messages => _socket.frames;\n\n")
+		b.WriteString("  Stream<Object?> get messages => _socket.until(_socket.frames);\n\n")
 	} else {
 		// An SSE connection delivers {'event', 'data', 'id'}; the payload is
 		// the data. Every other connection delivers the payload itself.
@@ -423,7 +424,7 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 		code = append(code, expr)
 
 		fmt.Fprintf(&b, "  Stream<%s> get messages =>\n", sc.receive.typ.name)
-		fmt.Fprintf(&b, "      _socket.frames.map((m) => %s);\n\n", expr)
+		fmt.Fprintf(&b, "      _socket.until(_socket.frames).map((m) => %s);\n\n", expr)
 	}
 
 	if sc.send != nil {
@@ -455,7 +456,8 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 		b.WriteString("  void clearQueue({bool rejectPending = true}) => _socket.clearQueue(rejectPending: rejectPending);\n\n")
 	}
 
-	b.WriteString("  /// Completes when the connection is closed for good.\n")
+	b.WriteString("  /// Completes when the connection has ended and nothing will reopen it by itself.\n")
+	b.WriteString("  /// A later [connect] starts a new future.\n")
 	b.WriteString("  Future<void> get closed => _socket.closed;\n\n")
 	b.WriteString("  /// Opens the connection again after [disconnect].\n")
 	b.WriteString("  Future<void> connect() => _socket.connect();\n\n")

@@ -1051,6 +1051,194 @@ void main() {
     });
   });
 
+  group('lifecycle', () {
+    test('with reconnecting off a drop completes closed and ends the message stream', () async {
+      final h = Harness();
+      final session = await ChatSocket(
+        baseUrl: Uri.parse('http://api.test'),
+        connect: h.connect,
+        options: const LiveOptions(reconnect: false),
+        heartbeat: null,
+      ).connect(roomId: 'r');
+      final all = session.messages.toList();
+      h.only.deliver({'sku': 'a', 'qty': 1});
+      await settle();
+      await h.only.close();
+      await session.closed.timeout(const Duration(seconds: 2));
+      expect((await all.timeout(const Duration(seconds: 2))).map((m) => m.sku), ['a']);
+
+      var done = false;
+      await session.connect();
+      unawaited(session.closed.then((_) => done = true));
+      await settle();
+      expect(done, isFalse, reason: 'a new connect starts a new closed future');
+      await session.close();
+      await settle();
+      expect(done, isTrue);
+    });
+
+    test('giving up completes closed', () async {
+      final socket = LiveSocket(
+        open: (_) async => throw StateError('refused'),
+        options: const LiveOptions(
+          maxReconnectAttempts: 1,
+          reconnectDelay: Duration(milliseconds: 5),
+          maxReconnectDelay: Duration(milliseconds: 5),
+        ),
+      );
+      await expectLater(socket.connect(), throwsStateError);
+      await socket.closed.timeout(const Duration(seconds: 2));
+      expect(socket.state, LiveConnectionState.closed);
+      await socket.dispose();
+    });
+
+    test('a disconnect while an open is pending lets the next connect open, and the late connection is closed', () async {
+      final gate = Completer<StreamConnection>();
+      final late = FakeConnection();
+      final fresh = FakeConnection();
+      var opens = 0;
+      final socket = LiveSocket(
+        open: (_) {
+          opens++;
+          return opens == 1 ? gate.future : Future.value(fresh);
+        },
+        options: const LiveOptions(reconnect: false),
+      );
+      final first = socket.connect();
+      await settle();
+      await socket.disconnect();
+      await socket.connect();
+      expect(socket.state, LiveConnectionState.connected);
+      gate.complete(late);
+      await first;
+      await late.closed.timeout(const Duration(seconds: 2));
+      expect(socket.state, LiveConnectionState.connected);
+      expect(socket.connection, same(fresh));
+      await socket.dispose();
+    });
+
+    test('a disconnect during a slow re-join lets the next connect end with an open socket', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await rooms.connect();
+      final join = rooms.join('r1');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      expect(h.connections.last.sent, hasLength(1));
+      await rooms.disconnect();
+      await rooms.connect();
+      expect(h.connections, hasLength(3));
+      expect(rooms.state, LiveConnectionState.connected);
+      await rooms.close();
+    });
+
+    test('a stale attempt that finishes late does not mark the new connection ready or flush its queue', () async {
+      final gates = [Completer<void>(), Completer<void>()];
+      var opened = 0;
+      final connections = <FakeConnection>[];
+      final socket = LiveSocket(
+        open: (_) async {
+          final connection = FakeConnection();
+          connections.add(connection);
+          return connection;
+        },
+        options: const LiveOptions(reconnect: false),
+        onOpen: (_) => gates[opened++].future,
+      );
+      final first = socket.connect();
+      await until(() => opened == 1);
+      await socket.disconnect();
+      final second = socket.connect();
+      await until(() => opened == 2);
+      final waiting = socket.deliver(() => 'queued');
+      gates[0].complete();
+      await first;
+      await settle();
+      expect(connections.last.sent, isEmpty, reason: 'the new attempt has not finished its own setup');
+      gates[1].complete();
+      await second;
+      await waiting;
+      expect(connections.last.sent, ['queued']);
+      await socket.dispose();
+    });
+
+    test('a timeout that comes after close leaves the state closed', () async {
+      final socket = LiveSocket(
+        open: (_) => Completer<StreamConnection>().future,
+        options: const LiveOptions(connectionTimeout: Duration(milliseconds: 40), reconnect: false),
+      );
+      final pending = socket.connect();
+      await settle();
+      await socket.dispose();
+      await pending;
+      await wait(120);
+      expect(socket.state, LiveConnectionState.closed);
+    });
+
+    test('a send made during a slow re-join goes out after the re-join and after what already waited', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await rooms.connect();
+      final join = rooms.join('r1');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      await h.only.close();
+      await settle();
+      final first = rooms.send('r1', 'while down');
+      await until(() => h.connections.length == 2);
+      await settle();
+      final second = h.connections.last;
+      expect(second.sent, hasLength(1));
+      final during = rooms.send('r1', 'during rejoin');
+      expect(second.sent, hasLength(1), reason: 'it must not overtake the queue');
+      second.deliver({'request_id': second.frame(0)['request_id']});
+      await Future.wait([first, during]);
+      expect(second.sent.map((f) => (f! as Map<Object?, Object?>)['type']), ['join', 'message', 'message']);
+      expect(second.frame(1)['data'], 'while down');
+      expect(second.frame(2)['data'], 'during rejoin');
+      await rooms.close();
+    });
+
+    test('an open that throws at once fails the connect and leaves the socket usable', () async {
+      var broken = true;
+      final good = FakeConnection();
+      final socket = LiveSocket(
+        open: (_) {
+          if (broken) throw StateError('sync failure');
+          return Future.value(good);
+        },
+        options: const LiveOptions(reconnect: false),
+      );
+      await expectLater(socket.connect(), throwsStateError);
+      expect(socket.state, LiveConnectionState.error);
+      broken = false;
+      await socket.connect();
+      expect(socket.state, LiveConnectionState.connected);
+      await socket.dispose();
+    });
+
+    test('closing with a send nobody awaits raises no uncaught error, and an awaiting caller still sees it', () async {
+      final errors = <Object>[];
+      Object? seen;
+      await runZonedGuarded(() async {
+        final h = Harness();
+        final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+        channels.publish('c', 'ignored');
+        final awaited = channels.publish('c', 'awaited');
+        unawaited(awaited.then((_) {}, onError: (Object e) => seen = e));
+        await channels.close();
+        await settle();
+      }, (error, stack) => errors.add(error));
+      expect(errors, isEmpty);
+      expect(seen, isA<StateError>());
+    });
+  });
+
   group('timers', () {
     test('a heartbeat that cannot be sent is reported and does not throw', () async {
       final h = Harness();
@@ -1162,7 +1350,8 @@ void main() {
       expect(h.contexts[1].headers['Authorization'], 'Bearer typing');
       expect(hub.clientStates.rooms, LiveConnectionState.connected);
       expect(hub.clientStates.presence, LiveConnectionState.disconnected);
-      expect(hub.state, LiveConnectionState.disconnected);
+      // Presence and channels were not chosen, so they are not part of the whole.
+      expect(hub.state, LiveConnectionState.connected);
       await hub.close();
     });
 
