@@ -18,7 +18,7 @@ ForgeScope(
 
 ## Framework features used
 
-Checked against the Flutter 3.38 to 3.47 release notes and breaking-changes pages. None of the breaking changes in those releases touches an API listed here.
+Every API listed here is exercised by this package's tests on Flutter 3.47.5. The release notes for earlier versions were not re-read, so a version older than 3.47 is untested.
 
 - `AppLifecycleListener` (Flutter 3.13) for focus revalidation, never `WidgetsBindingObserver`. Flutter 3.38 moved iOS apps to the UIScene lifecycle; scene events still arrive as `AppLifecycleState`, so the listener needs no change, but an iOS app built against the Xcode 27 SDK must adopt UIScene.
 - `SchedulerBinding.scheduleFrameCallback` and `SchedulerBinding.framesEnabled` for per-frame commits.
