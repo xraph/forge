@@ -810,6 +810,12 @@ final class QueryCache {
   /// Who the cached data belongs to.
   String? get principal => _principal;
 
+  /// Which life of the cache this is. [clear], and so every [setPrincipal]
+  /// that changes the principal, starts a new one. A writer that captured it
+  /// before an await or a batching delay and sees it differ afterwards holds
+  /// data that belonged to what was dropped, and must not commit it.
+  int get generation => _generation;
+
   /// Every identity change, after the cache has been emptied. Synchronous.
   Stream<String?> get principalChanges => _principalChanges.stream;
 

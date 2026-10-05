@@ -8,6 +8,7 @@ export 'src/codec.dart';
 export 'src/connections.dart';
 export 'src/freshness.dart';
 export 'src/invalidate.dart';
+export 'src/live.dart';
 export 'src/normalize.dart';
 export 'src/observe.dart';
 export 'src/operation.dart';
