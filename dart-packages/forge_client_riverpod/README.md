@@ -26,11 +26,15 @@ dependencies:
     git:
       url: https://github.com/xraph/forge
       path: dart-packages/forge_client
+      ref: <commit sha>
   forge_client_riverpod:
     git:
       url: https://github.com/xraph/forge
       path: dart-packages/forge_client_riverpod
+      ref: <commit sha>
 ```
+
+Put the same full commit sha in both `ref:` lines. Pub turns this package's own `path: ../forge_client` into a git dependency pinned to the commit it resolved, so your direct `forge_client` entry has to name that exact commit too, and a branch name or a missing `ref` fails to resolve.
 
 You'll also need Flutter 3.47 or later and the package your API generated with `forge client generate --language dart --hooks`. The examples call it `orders_forge_client`, and use its names: `entities`, `streams`, `getOrder`, `listOrders`, `updateOrder` and the `...Args` classes.
 
@@ -215,7 +219,9 @@ A mounted match refetches in the next batch, while an unmounted one is only mark
 
 The cache notifies its listeners synchronously, so a provider's `build` must not start cache work: no `mutate`, `refetch`, `invalidate` or `setPrincipal` in there, and no listening to a raw `QueryRef.watch` or `cache.watch` stream (a `StreamProvider` over one included). Watch queries through `queryProvider`. Its providers, and the mutation providers, hold back a state that arrives in the middle of a build and apply it once the build has returned. Those other calls can't, and Riverpod asserts in debug builds when they modify a provider mid-build.
 
-Calling `mutate` from an event handler or from a widget's `build` method is fine. A state change made while the widget tree is building is applied straight after that build.
+Call `mutate` from an event handler. A call from a widget's `build` method won't assert (a state change made while the tree is building is applied straight after that build), but it writes on every rebuild, which is rarely what you meant.
+
+A `watchPrincipalChanging` listener your app registers itself must not read this package's providers. It can run before they have moved to the new principal, and then it reads the previous one's state. Use `watchPrincipal`, which runs after the switch, when you need to read them.
 
 ## Testing
 

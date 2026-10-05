@@ -393,8 +393,12 @@ void main() {
       await settle();
       expect(container.read(createOrderProvider), isA<MutationSuccess<Order>>());
       states.clear();
+      // The README sends an app's own principal listener to watchPrincipal.
+      final seen = <MutationState<Order>>[];
+      h.cache.watchPrincipal((_) => seen.add(container.read(createOrderProvider)));
 
       h.cache.setPrincipal('bob');
+      expect(seen.single, isA<MutationIdle<Order>>());
       expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
 
       await settle();
@@ -457,6 +461,31 @@ void main() {
       expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
     });
 
+    test('drops a failure in flight across setPrincipal', () async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => gate.future);
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final states = <MutationState<Order>>[];
+      container.listen(createOrderProvider, (_, next) => states.add(next));
+
+      final settled = container.read(createOrderProvider.notifier).mutateAsync(const CreateOrderArgs(5));
+      await settle();
+      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      states.clear();
+
+      h.cache.setPrincipal('bob');
+      gate.completeError(const Boom('alice conflict'));
+      // The caller still hears of its own failure.
+      await expectLater(settled, throwsA(isA<Boom>()));
+      expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
+      expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
+
+      await settle();
+      expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
+      expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
+    });
+
     test('records a call made straight after setPrincipal for the new principal', () async {
       final h = harness((_, _) => order(9, 5));
       h.cache.setPrincipal('alice');
@@ -499,6 +528,36 @@ void main() {
       container.updateOverrides(overridesFor(b.cache, focus, connectivity));
       gate.complete(order(9, 5));
       expect(await settled, const Order(id: 9, total: 5));
+      expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
+      expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
+
+      await settle();
+      expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
+      expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
+    });
+
+    test('drops a failure in flight across a client swap', () async {
+      final gate = Completer<Object?>();
+      final a = harness((_, _) => gate.future);
+      final b = harness((_, _) => order(1, 1));
+      final focus = FakeFocusSignal();
+      final connectivity = FakeConnectivitySignal();
+      final container = ProviderContainer(
+        overrides: overridesFor(a.cache, focus, connectivity),
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      final states = <MutationState<Order>>[];
+      container.listen(createOrderProvider, (_, next) => states.add(next));
+
+      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      await settle();
+      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      states.clear();
+
+      container.updateOverrides(overridesFor(b.cache, focus, connectivity));
+      gate.completeError(const Boom('a conflict'));
+      expect(await settled, isNull);
       expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
       expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
 
