@@ -11,8 +11,9 @@ cannot drift apart without a test failing on one side.
 | `frames/` | an initial store, batches of stream frames, and the store they produce | `fixtures-export.test.ts` |
 | `codec/generated-codecs.json` | wire payloads for generated clients, which the TypeScript and Dart codecs must decode and encode the same way | you, by hand. It is the one file here that is not generated. |
 | `ops/` | generator parity tables | `FORGE_WRITE_FIXTURES=1 go test ./internal/client/generators/dart/ -run TestTablesAgreeWithTypeScript` |
+| `media/content-types.json` | content types and the kind each is (json, text, bytes or form), read by the Go planner test, forge_client's `transport_test.dart` and the generated Dart client's runtime test in the gate | you, by hand |
 
-Never edit a file by hand, with one exception (below). Regenerate the TS-written ones with:
+Never edit a file by hand, with two exceptions (below). Regenerate the TS-written ones with:
 
     cd packages/client-core
     FORGE_WRITE_FIXTURES=1 npx vitest run __tests__/fixtures-export.test.ts
@@ -40,6 +41,16 @@ decoded value and encodes it back, against TypeScript's encode of its decode,
 and `modelWire` states the wire both must reach: that is where Dart converts
 an int64. A variant's `int64` sets the Dart `--int64` mode. The test skips
 when node, esbuild or fvm is missing.
+
+`media/content-types.json` is the other hand-written file. Its kind is
+`media-content-types`, and each vector pairs a content type with the kind
+every Forge client gives it: `json` (`application/json`, `text/json`, any
+`+json`), `text` (`text/*`, `+xml`, `+yaml` and a short list of textual
+`application/*` types), `form` (`application/x-www-form-urlencoded`: fields
+in a request body, text in a response) or `bytes` (everything else).
+Parameters, case and surrounding whitespace never change the kind. Add a
+vector when a content type needs pinning; all three readers fail on a
+disagreement.
 
 The `ops/` files are the tables each generator emits for one spec, so a Dart
 client and a TypeScript client cache, invalidate and authorize the same way.

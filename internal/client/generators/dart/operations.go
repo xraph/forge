@@ -247,10 +247,10 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 		return uniqueNames([]string{name}, func(s string) string { return memberIdent(s, argsReserved) }, members, false)[0]
 	}
 
-	essence := mediaEssence(contentType)
+	kind := bodyKind(contentType)
 
 	switch {
-	case isJSONMediaType(contentType):
+	case kind == "json":
 		var schema *client.Schema
 		if media := ep.RequestBody.Content[contentType]; media != nil {
 			schema = media.Schema
@@ -292,13 +292,13 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 
 		return body
 
-	case essence == "multipart/form-data":
+	case mediaEssence(contentType) == "multipart/form-data":
 		return &bodyParam{kind: "multipart", member: claim("body"), typ: formFieldsType(), required: required}
 
-	case essence == formContentType:
+	case kind == "form":
 		return &bodyParam{kind: "form", member: claim("body"), typ: formFieldsType(), required: required}
 
-	case isTextMediaType(contentType):
+	case kind == "text":
 		return &bodyParam{kind: "text", member: claim("body"), typ: castType("String"), required: required, contentType: contentType}
 	}
 

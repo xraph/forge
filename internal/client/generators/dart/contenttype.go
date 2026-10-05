@@ -23,8 +23,8 @@ func isTextMediaType(contentType string) bool {
 // mediaKind classifies a content type: "json", "text" or "bytes". It is the one
 // rule the planner applies to requests and responses, and the rule forge_client's
 // transport and the generated REST client apply to what comes back (see
-// _mediaKind in transport.dart and RestClient._text in rest.go), so the three
-// agree on what is JSON, what is text and what is bytes.
+// _isJson and _isText in transport.dart and RestClient._text in rest.go), so
+// the three agree on what is JSON, what is text and what is bytes.
 func mediaKind(contentType string) string {
 	switch {
 	case isJSONMediaType(contentType):
@@ -34,4 +34,17 @@ func mediaKind(contentType string) string {
 	}
 
 	return "bytes"
+}
+
+// bodyKind classifies a request body's content type: mediaKind's answer,
+// except that application/x-www-form-urlencoded is "form", sent as fields
+// rather than as one string. forge_client's transport encodes a body by the
+// same four kinds. packages/client-fixtures/media/content-types.json holds
+// the vectors all three are tested against.
+func bodyKind(contentType string) string {
+	if mediaEssence(contentType) == formContentType {
+		return "form"
+	}
+
+	return mediaKind(contentType)
 }

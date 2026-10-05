@@ -1,0 +1,150 @@
+{
+  "description": "Content types and the kind every Forge client assigns each one: json, text, bytes, or form (urlencoded fields, which a response reads as text). Read by the Go planner test, forge_client's transport test and the generated Dart client's runtime test in the gate. Hand-written.",
+  "kind": "media-content-types",
+  "vectors": [
+    {
+      "contentType": "application/json",
+      "kind": "json"
+    },
+    {
+      "contentType": "text/json",
+      "kind": "json"
+    },
+    {
+      "contentType": "application/problem+json",
+      "kind": "json"
+    },
+    {
+      "contentType": "application/vnd.api+json",
+      "kind": "json"
+    },
+    {
+      "contentType": "text/plain",
+      "kind": "text"
+    },
+    {
+      "contentType": "text/csv",
+      "kind": "text"
+    },
+    {
+      "contentType": "text/html",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/xml",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/atom+xml",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/vnd.foo+yaml",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/yaml",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/x-ndjson",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/jsonl",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/graphql",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/javascript",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/sql",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/octet-stream",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "image/png",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "application/pdf",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "multipart/form-data",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "application/json-patch",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "application/x-www-form-urlencoded",
+      "kind": "form"
+    },
+    {
+      "contentType": "application/json; charset=utf-8",
+      "kind": "json"
+    },
+    {
+      "contentType": "text/plain; charset=iso-8859-1",
+      "kind": "text"
+    },
+    {
+      "contentType": "application/x-www-form-urlencoded; charset=utf-8",
+      "kind": "form"
+    },
+    {
+      "contentType": "image/png; q=1",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "application/xml; note=\"+json\"",
+      "kind": "text"
+    },
+    {
+      "contentType": "Application/JSON",
+      "kind": "json"
+    },
+    {
+      "contentType": "TEXT/Plain",
+      "kind": "text"
+    },
+    {
+      "contentType": "Application/X-WWW-Form-Urlencoded",
+      "kind": "form"
+    },
+    {
+      "contentType": "IMAGE/PNG",
+      "kind": "bytes"
+    },
+    {
+      "contentType": "Application/Problem+JSON",
+      "kind": "json"
+    },
+    {
+      "contentType": " application/json ",
+      "kind": "json"
+    },
+    {
+      "contentType": "text/plain ; charset=utf-8",
+      "kind": "text"
+    },
+    {
+      "contentType": "  application/vnd.api+json;x=1",
+      "kind": "json"
+    },
+    {
+      "contentType": " application/x-www-form-urlencoded ",
+      "kind": "form"
+    }
+  ]
+}

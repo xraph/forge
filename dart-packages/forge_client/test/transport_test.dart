@@ -5,6 +5,7 @@
 // http.Request instead of a request config.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:forge_client/forge_client.dart';
@@ -1403,6 +1404,78 @@ void main() {
         expect(fake.calls, isEmpty);
       },
     );
+  });
+
+  // packages/client-fixtures/media/content-types.json is the one table of
+  // content types the Go planner, this transport and the generated client
+  // are all tested against.
+  group('the shared media vectors', () {
+    final doc = jsonDecode(
+      File('../../packages/client-fixtures/media/content-types.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    final vectors = [
+      for (final v
+          in (doc['vectors']! as List<Object?>).cast<Map<String, Object?>>())
+        (contentType: v['contentType']! as String, kind: v['kind']! as String),
+    ];
+
+    test('the file holds vectors', () {
+      expect(doc['kind'], 'media-content-types');
+      expect(vectors, isNotEmpty);
+    });
+
+    for (final v in vectors) {
+      test('a "${v.contentType}" response reads as ${v.kind}', () async {
+        final rest = RestTransport(
+          baseUrl: base,
+          client: FakeHttp(
+            (_, _) => http.Response.bytes(
+              utf8.encode('{"a":1}'),
+              200,
+              headers: {'content-type': v.contentType},
+            ),
+          ).client,
+        );
+        final result = await rest.execute(
+          const TransportRequest(meta: list, args: TagContext.empty),
+        );
+
+        switch (v.kind) {
+          case 'json':
+            expect(result, {'a': 1});
+          case 'text' || 'form':
+            expect(result, '{"a":1}');
+          default:
+            expect(result, isA<Uint8List>());
+            expect(result, orderedEquals(utf8.encode('{"a":1}')));
+        }
+      });
+
+      test('a "${v.contentType}" request body is sent as ${v.kind}', () async {
+        final fake = FakeHttp((_, _) => http.Response('', 204));
+        final (Object body, List<int> wire) = switch (v.kind) {
+          'json' => (const {'a': 1}, utf8.encode('{"a":1}')),
+          'form' => (const {'a': 'b c'}, utf8.encode('a=b+c')),
+          'text' => ('x "y"', utf8.encode('x "y"')),
+          _ => (Uint8List.fromList([0, 255, 1]), [0, 255, 1]),
+        };
+
+        await RestTransport(baseUrl: base, client: fake.client).execute(
+          TransportRequest(
+            meta: OperationMeta(
+              id: 'op_put',
+              method: 'PUT',
+              path: '/things',
+              requestContentType: v.contentType,
+            ),
+            args: TagContext(body: body),
+          ),
+        );
+
+        expect(fake.calls.single.bodyBytes, orderedEquals(wire));
+      });
+    }
   });
 
   // Dart-only: TypeScript's fetch has no client to release.

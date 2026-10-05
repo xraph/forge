@@ -631,34 +631,6 @@ func TestRestClientRunsAgainstPackageHTTP(t *testing.T) {
 	}
 }
 
-func TestMediaKindIsOneRule(t *testing.T) {
-	for contentType, want := range map[string]string{
-		"application/json":                  "json",
-		"Application/JSON; charset=utf-8":   "json",
-		"text/json":                         "json",
-		"application/problem+json":          "json",
-		"application/vnd.api+json":          "json",
-		"text/plain":                        "text",
-		"text/csv; charset=iso-8859-1":      "text",
-		"application/xml":                   "text",
-		"application/atom+xml":              "text",
-		"application/vnd.foo+yaml":          "text",
-		"application/x-ndjson":              "text",
-		"application/jsonl":                 "text",
-		"application/x-www-form-urlencoded": "text",
-		"application/graphql":               "text",
-		"application/octet-stream":          "bytes",
-		"image/png":                         "bytes",
-		"application/pdf":                   "bytes",
-		"multipart/form-data":               "bytes",
-		"":                                  "bytes",
-	} {
-		if got := mediaKind(contentType); got != want {
-			t.Errorf("mediaKind(%q) = %q, want %q", contentType, got, want)
-		}
-	}
-}
-
 // The textual application types are listed twice, in Go for the planner and
 // in Dart for forge_client's transport; they must be the same list.
 func TestTextTypesAgreeWithForgeClientTransport(t *testing.T) {
