@@ -1,0 +1,24 @@
+{
+  "ops": {
+    "holder.get": {
+      "method": "GET",
+      "path": "/holder",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Holder"
+    }
+  },
+  "entities": {},
+  "streams": [],
+  "securitySchemes": {},
+  "capabilities": {
+    "scopes": [],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "holder.get"
+    ],
+    "requiredCapabilities": {},
+    "requiredAuthorization": {}
+  }
+}

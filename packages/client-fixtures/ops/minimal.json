@@ -1,0 +1,23 @@
+{
+  "ops": {
+    "ping": {
+      "method": "GET",
+      "path": "/ping",
+      "provides": [],
+      "invalidates": []
+    }
+  },
+  "entities": {},
+  "streams": [],
+  "securitySchemes": {},
+  "capabilities": {
+    "scopes": [],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "ping"
+    ],
+    "requiredCapabilities": {},
+    "requiredAuthorization": {}
+  }
+}

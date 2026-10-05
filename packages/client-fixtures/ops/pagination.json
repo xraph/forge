@@ -1,0 +1,112 @@
+{
+  "ops": {
+    "actions.run": {
+      "method": "POST",
+      "path": "/actions",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "mandatory.list": {
+      "method": "GET",
+      "path": "/mandatory",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "offsets.list": {
+      "method": "GET",
+      "path": "/offsets/{offsets}",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "OffsetPage"
+    },
+    "p.list": {
+      "method": "GET",
+      "path": "/p",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "page.list": {
+      "method": "GET",
+      "path": "/page",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "pages.list": {
+      "method": "GET",
+      "path": "/pages",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "NumberedPage"
+    },
+    "pages.revisions.list": {
+      "method": "GET",
+      "path": "/pages/{page}/revisions",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "params.list": {
+      "method": "GET",
+      "path": "/params",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "search.list": {
+      "method": "GET",
+      "path": "/search",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "sized.list": {
+      "method": "GET",
+      "path": "/sized",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    },
+    "summary.get": {
+      "method": "GET",
+      "path": "/summary",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Summary"
+    },
+    "teams.items.list": {
+      "method": "GET",
+      "path": "/teams/{teamId}/items",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "CursorPage"
+    }
+  },
+  "entities": {},
+  "streams": [],
+  "securitySchemes": {},
+  "capabilities": {
+    "scopes": [],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "teams.items.list",
+      "pages.list",
+      "offsets.list",
+      "pages.revisions.list",
+      "page.list",
+      "p.list",
+      "params.list",
+      "search.list",
+      "mandatory.list",
+      "sized.list",
+      "summary.get",
+      "actions.run"
+    ],
+    "requiredCapabilities": {},
+    "requiredAuthorization": {}
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "ops": {
+    "docs.get": {
+      "method": "GET",
+      "path": "/docs/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "files.download": {
+      "method": "GET",
+      "path": "/files/{id}/content",
+      "provides": [],
+      "invalidates": []
+    },
+    "files.thumbnail": {
+      "method": "GET",
+      "path": "/files/{id}/thumb",
+      "provides": [],
+      "invalidates": []
+    },
+    "files.upload": {
+      "method": "PUT",
+      "path": "/files/{id}/content",
+      "provides": [],
+      "invalidates": []
+    },
+    "forms.submit": {
+      "method": "POST",
+      "path": "/forms",
+      "provides": [],
+      "invalidates": []
+    },
+    "images.put": {
+      "method": "PUT",
+      "path": "/images/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "items.create": {
+      "method": "POST",
+      "path": "/items",
+      "provides": [],
+      "invalidates": [],
+      "bodyCodec": "Item",
+      "responseCodec": "Item"
+    },
+    "items.delete": {
+      "method": "DELETE",
+      "path": "/items/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "items.get": {
+      "method": "GET",
+      "path": "/items/{id}",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Item"
+    },
+    "items.getApi": {
+      "method": "GET",
+      "path": "/items/{id}/api",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Item"
+    },
+    "logs.tail": {
+      "method": "GET",
+      "path": "/logs",
+      "provides": [],
+      "invalidates": []
+    },
+    "misc.ping": {
+      "method": "GET",
+      "path": "/ping",
+      "provides": [],
+      "invalidates": []
+    },
+    "names.set": {
+      "method": "PUT",
+      "path": "/names/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "notes.get": {
+      "method": "GET",
+      "path": "/notes/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "notes.put": {
+      "method": "PUT",
+      "path": "/notes/{id}",
+      "provides": [],
+      "invalidates": []
+    },
+    "reports.put": {
+      "method": "PUT",
+      "path": "/reports/{id}",
+      "provides": [],
+      "invalidates": []
+    }
+  },
+  "entities": {},
+  "streams": [],
+  "securitySchemes": {},
+  "capabilities": {
+    "scopes": [],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "files.download",
+      "files.thumbnail",
+      "files.upload",
+      "notes.get",
+      "notes.put",
+      "forms.submit",
+      "names.set",
+      "items.get",
+      "misc.ping",
+      "logs.tail",
+      "docs.get",
+      "items.getApi",
+      "items.create",
+      "images.put",
+      "reports.put",
+      "items.delete"
+    ],
+    "requiredCapabilities": {},
+    "requiredAuthorization": {}
+  }
+}

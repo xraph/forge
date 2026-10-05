@@ -1,0 +1,24 @@
+{
+  "ops": {
+    "query": {
+      "method": "GET",
+      "path": "/query",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "NotFound"
+    }
+  },
+  "entities": {},
+  "streams": [],
+  "securitySchemes": {},
+  "capabilities": {
+    "scopes": [],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "query"
+    ],
+    "requiredCapabilities": {},
+    "requiredAuthorization": {}
+  }
+}

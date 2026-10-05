@@ -1,0 +1,680 @@
+{
+  "description": "Wire payloads run through the TypeScript and the Dart generated codecs, which must agree on the client shape each decodes to and on the wire shape each encodes back to. Read by the Go generator tests in internal/client/generators/dart, not by either runtime. Hand-written.",
+  "kind": "generated-codec-parity",
+  "variants": {
+    "default": {
+      "fieldOverrides": {},
+      "cases": [
+        {
+          "name": "an order with every field kind: renames, int64 string beyond 2^53, explicit null, nested objects, a record keeping its keys",
+          "codec": "Order",
+          "wire": {
+            "id": "9007199254740993",
+            "order_number": "A-1",
+            "status": "shipped",
+            "note": null,
+            "lines": [
+              {
+                "sku": "x",
+                "qty": 2
+              },
+              {
+                "sku": "y",
+                "qty": 1
+              }
+            ],
+            "created_at": "2026-10-04T10:00:00Z",
+            "metadata": {
+              "billing_region": "north",
+              "expressZone": "zone-3"
+            },
+            "customer": {
+              "id": "c-1",
+              "name": "Ada"
+            },
+            "shipping": {
+              "street_name": "Main"
+            },
+            "attachment": "aGk="
+          },
+          "client": {
+            "id": "9007199254740993",
+            "orderNumber": "A-1",
+            "status": "shipped",
+            "note": null,
+            "lines": [
+              {
+                "sku": "x",
+                "qty": 2
+              },
+              {
+                "sku": "y",
+                "qty": 1
+              }
+            ],
+            "createdAt": "2026-10-04T10:00:00Z",
+            "metadata": {
+              "billing_region": "north",
+              "expressZone": "zone-3"
+            },
+            "customer": {
+              "id": "c-1",
+              "name": "Ada"
+            },
+            "shipping": {
+              "streetName": "Main"
+            },
+            "attachment": "aGk="
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "an order with optional fields absent and an int64 sent as a number",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": []
+          },
+          "client": {
+            "id": 7,
+            "orderNumber": "A-2",
+            "status": "pending",
+            "lines": []
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "an order carrying keys no schema declares, at the top and nested",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": [],
+            "server_note": "extra",
+            "customer": {
+              "id": "c",
+              "internal_note": "n"
+            }
+          },
+          "client": {
+            "id": 7,
+            "orderNumber": "A-2",
+            "status": "pending",
+            "lines": [],
+            "server_note": "extra",
+            "customer": {
+              "id": "c",
+              "internal_note": "n"
+            }
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "an order whose nested objects are null",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": [],
+            "customer": null,
+            "shipping": null
+          },
+          "client": {
+            "id": 7,
+            "orderNumber": "A-2",
+            "status": "pending",
+            "lines": [],
+            "customer": null,
+            "shipping": null
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "an order whose list field has the wrong shape passes through",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": "not-a-list"
+          },
+          "client": {
+            "id": 7,
+            "orderNumber": "A-2",
+            "status": "pending",
+            "lines": "not-a-list"
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a record whose keys are data, including __proto__",
+          "codec": "Order",
+          "wire": {
+            "id": 7,
+            "order_number": "A-2",
+            "status": "pending",
+            "lines": [],
+            "metadata": {
+              "__proto__": "p",
+              "constructor": "c",
+              "snake_key": "s",
+              "camelKey": "k"
+            }
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "an order page with a null cursor and a list of orders",
+          "codec": "OrderPage",
+          "wire": {
+            "items": [
+              {
+                "id": 7,
+                "order_number": "A-2",
+                "status": "pending",
+                "lines": []
+              },
+              {
+                "id": "9007199254740993",
+                "order_number": "A-1",
+                "status": "shipped",
+                "note": null,
+                "lines": [
+                  {
+                    "sku": "x",
+                    "qty": 2
+                  },
+                  {
+                    "sku": "y",
+                    "qty": 1
+                  }
+                ],
+                "created_at": "2026-10-04T10:00:00Z",
+                "metadata": {
+                  "billing_region": "north",
+                  "expressZone": "zone-3"
+                },
+                "customer": {
+                  "id": "c-1",
+                  "name": "Ada"
+                },
+                "shipping": {
+                  "street_name": "Main"
+                },
+                "attachment": "aGk="
+              }
+            ],
+            "next_cursor": null,
+            "has_more": true
+          },
+          "client": {
+            "items": [
+              {
+                "id": 7,
+                "orderNumber": "A-2",
+                "status": "pending",
+                "lines": []
+              },
+              {
+                "id": "9007199254740993",
+                "orderNumber": "A-1",
+                "status": "shipped",
+                "note": null,
+                "lines": [
+                  {
+                    "sku": "x",
+                    "qty": 2
+                  },
+                  {
+                    "sku": "y",
+                    "qty": 1
+                  }
+                ],
+                "createdAt": "2026-10-04T10:00:00Z",
+                "metadata": {
+                  "billing_region": "north",
+                  "expressZone": "zone-3"
+                },
+                "customer": {
+                  "id": "c-1",
+                  "name": "Ada"
+                },
+                "shipping": {
+                  "streetName": "Main"
+                },
+                "attachment": "aGk="
+              }
+            ],
+            "nextCursor": null,
+            "hasMore": true
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a bare list of orders",
+          "codec": "Orders",
+          "wire": [
+            {
+              "id": 7,
+              "order_number": "A-2",
+              "status": "pending",
+              "lines": []
+            },
+            {
+              "id": "9007199254740993",
+              "order_number": "A-1",
+              "status": "shipped",
+              "note": null,
+              "lines": [
+                {
+                  "sku": "x",
+                  "qty": 2
+                },
+                {
+                  "sku": "y",
+                  "qty": 1
+                }
+              ],
+              "created_at": "2026-10-04T10:00:00Z",
+              "metadata": {
+                "billing_region": "north",
+                "expressZone": "zone-3"
+              },
+              "customer": {
+                "id": "c-1",
+                "name": "Ada"
+              },
+              "shipping": {
+                "street_name": "Main"
+              },
+              "attachment": "aGk="
+            }
+          ],
+          "client": [
+            {
+              "id": 7,
+              "orderNumber": "A-2",
+              "status": "pending",
+              "lines": []
+            },
+            {
+              "id": "9007199254740993",
+              "orderNumber": "A-1",
+              "status": "shipped",
+              "note": null,
+              "lines": [
+                {
+                  "sku": "x",
+                  "qty": 2
+                },
+                {
+                  "sku": "y",
+                  "qty": 1
+                }
+              ],
+              "createdAt": "2026-10-04T10:00:00Z",
+              "metadata": {
+                "billing_region": "north",
+                "expressZone": "zone-3"
+              },
+              "customer": {
+                "id": "c-1",
+                "name": "Ada"
+              },
+              "shipping": {
+                "streetName": "Main"
+              },
+              "attachment": "aGk="
+            }
+          ],
+          "roundTrip": true
+        },
+        {
+          "name": "a patch body with an explicit null and an enum value this client has never seen",
+          "codec": "UpdateOrderRequest",
+          "wire": {
+            "note": null,
+            "state": "archived",
+            "total": 1.5,
+            "other": "x"
+          },
+          "client": {
+            "note": null,
+            "state": "archived",
+            "total": 1.5,
+            "other": "x"
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a record of int64 values, one beyond 2^53",
+          "codec": "Labels",
+          "wire": {
+            "a": "9007199254740993",
+            "b": 2
+          },
+          "client": {
+            "a": "9007199254740993",
+            "b": 2
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a recursive schema three levels deep",
+          "codec": "Node",
+          "wire": {
+            "label": "root",
+            "children": [
+              {
+                "label": "mid",
+                "children": [
+                  {
+                    "label": "leaf",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "label": "side"
+              }
+            ]
+          },
+          "client": {
+            "label": "root",
+            "children": [
+              {
+                "label": "mid",
+                "children": [
+                  {
+                    "label": "leaf",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "label": "side"
+              }
+            ]
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "two schemas that refer to each other",
+          "codec": "Author",
+          "wire": {
+            "name": "Ada",
+            "books": [
+              {
+                "book_title": "Notes",
+                "pages": "9007199254740993",
+                "written_by": {
+                  "name": "Ada",
+                  "books": []
+                }
+              }
+            ],
+            "favorite_book": null
+          },
+          "client": {
+            "name": "Ada",
+            "books": [
+              {
+                "bookTitle": "Notes",
+                "pages": "9007199254740993",
+                "writtenBy": {
+                  "name": "Ada",
+                  "books": []
+                }
+              }
+            ],
+            "favoriteBook": null
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a discriminated union picks its variant by the wire tag: cat",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "cat",
+            "meows": true
+          },
+          "client": {
+            "petType": "cat",
+            "meows": true
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a discriminated union picks its variant by the wire tag: dog",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "dog",
+            "barks": false
+          },
+          "client": {
+            "petType": "dog",
+            "barks": false
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a discriminated union with a tag no variant claims passes through",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "fish",
+            "fins": 2
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a discriminated union with no tag passes through",
+          "codec": "Pet",
+          "wire": {
+            "barks": true
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a discriminated union with a tag that is not a string passes through",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": 3
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union matches the circle",
+          "codec": "Shape",
+          "wire": {
+            "radius": 1.5
+          },
+          "client": {
+            "radius": 1.5
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union matches the square",
+          "codec": "Shape",
+          "wire": {
+            "side": 2
+          },
+          "client": {
+            "side": 2
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union takes its inline string member",
+          "codec": "Shape",
+          "wire": "round",
+          "client": "round",
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union that fits two variants",
+          "codec": "Shape",
+          "wire": {
+            "radius": 1,
+            "side": 2
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a structural union that fits none",
+          "codec": "Shape",
+          "wire": {
+            "other": 1
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "unions nested in objects, lists and records",
+          "codec": "Owner",
+          "wire": {
+            "owner_name": "Grace",
+            "pet_info": {
+              "pet_type": "dog",
+              "barks": true
+            },
+            "shapes": [
+              {
+                "radius": 1
+              },
+              "round",
+              {
+                "side": 2
+              }
+            ],
+            "pets_by_name": {
+              "Rex_the_dog": {
+                "pet_type": "dog"
+              },
+              "Tom": {
+                "pet_type": "cat",
+                "meows": false
+              }
+            }
+          },
+          "client": {
+            "ownerName": "Grace",
+            "petInfo": {
+              "petType": "dog",
+              "barks": true
+            },
+            "shapes": [
+              {
+                "radius": 1
+              },
+              "round",
+              {
+                "side": 2
+              }
+            ],
+            "petsByName": {
+              "Rex_the_dog": {
+                "petType": "dog"
+              },
+              "Tom": {
+                "petType": "cat",
+                "meows": false
+              }
+            }
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a null where an order should be",
+          "codec": "Order",
+          "wire": null,
+          "roundTrip": true
+        },
+        {
+          "name": "a string where an order should be",
+          "codec": "Order",
+          "wire": "x",
+          "client": "x",
+          "roundTrip": true
+        }
+      ]
+    },
+    "tag-override": {
+      "fieldOverrides": {
+        "Cat.pet_type": "kind"
+      },
+      "cases": [
+        {
+          "name": "a union whose variants name the tag differently: cat",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "cat",
+            "meows": true
+          },
+          "client": {
+            "kind": "cat",
+            "meows": true
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a union whose variants name the tag differently: dog",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "dog",
+            "barks": true
+          },
+          "client": {
+            "petType": "dog",
+            "barks": true
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a union whose variants name the tag differently, nested in a record",
+          "codec": "Owner",
+          "wire": {
+            "owner_name": "G",
+            "pet_info": {
+              "pet_type": "cat"
+            },
+            "pets_by_name": {
+              "a": {
+                "pet_type": "dog"
+              },
+              "b": {
+                "pet_type": "cat"
+              }
+            }
+          },
+          "client": {
+            "ownerName": "G",
+            "petInfo": {
+              "kind": "cat"
+            },
+            "petsByName": {
+              "a": {
+                "petType": "dog"
+              },
+              "b": {
+                "kind": "cat"
+              }
+            }
+          },
+          "roundTrip": true
+        },
+        {
+          "name": "a union whose variants name the tag differently, with an unknown tag",
+          "codec": "Pet",
+          "wire": {
+            "pet_type": "fish"
+          },
+          "roundTrip": true
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "ops": {
+    "get.health": {
+      "method": "GET",
+      "path": "/health",
+      "provides": [],
+      "invalidates": []
+    },
+    "orders.bulk": {
+      "method": "POST",
+      "path": "/orders/bulk",
+      "provides": [],
+      "invalidates": [],
+      "bodyCodec": "[]Order",
+      "responseCodec": "Orders"
+    },
+    "orders.delete": {
+      "method": "DELETE",
+      "path": "/orders/{id}",
+      "entity": "Order",
+      "provides": [],
+      "invalidates": [
+        "Order[]"
+      ],
+      "idempotent": true
+    },
+    "orders.get": {
+      "method": "GET",
+      "path": "/orders/{id}",
+      "entity": "Order",
+      "rootType": "Order",
+      "staleTime": 30000,
+      "provides": [
+        "Order:{id}"
+      ],
+      "invalidates": [],
+      "security": [
+        "bearerAuth"
+      ],
+      "responseCodec": "Order"
+    },
+    "orders.list": {
+      "method": "GET",
+      "path": "/orders",
+      "entity": "Order",
+      "rootType": "OrderPage",
+      "provides": [
+        "Order:{id}",
+        "Order[]"
+      ],
+      "invalidates": [],
+      "responseCodec": "OrderPage"
+    },
+    "orders.update": {
+      "method": "PATCH",
+      "path": "/orders/{id}",
+      "entity": "Order",
+      "rootType": "Order",
+      "provides": [
+        "Order:{id}"
+      ],
+      "invalidates": [
+        "Order[]"
+      ],
+      "bodyCodec": "UpdateOrderRequest",
+      "responseCodec": "Order"
+    },
+    "pets.get": {
+      "method": "GET",
+      "path": "/pets/{petId}",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Pet"
+    },
+    "raw.create": {
+      "method": "POST",
+      "path": "/raw",
+      "provides": [],
+      "invalidates": []
+    },
+    "texts.get": {
+      "method": "GET",
+      "path": "/text",
+      "provides": [],
+      "invalidates": []
+    },
+    "uploads.create": {
+      "method": "POST",
+      "path": "/uploads",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Customer"
+    }
+  },
+  "entities": {
+    "Customer": {
+      "idField": "id"
+    },
+    "Order": {
+      "idField": "id"
+    },
+    "OrderPage": {
+      "fields": {
+        "items": "Order"
+      }
+    }
+  },
+  "streams": [
+    {
+      "kind": "entity",
+      "channel": "/ws/orders",
+      "message": "order.updated",
+      "entity": "Order",
+      "intent": "upsert",
+      "invalidates": [
+        "Order[]"
+      ],
+      "decode": "Order"
+    },
+    {
+      "kind": "duplex",
+      "channel": "/ws/batch"
+    },
+    {
+      "kind": "duplex",
+      "channel": "/ws/chat/{roomId}",
+      "send": "say",
+      "receive": "said"
+    },
+    {
+      "kind": "duplex",
+      "channel": "/ws/raw/$weird"
+    },
+    {
+      "kind": "duplex",
+      "channel": "/ws/{base}/{url}/{headers}/{heartbeat}/{connection}/{scheme}/{socket}/{options}"
+    }
+  ],
+  "securitySchemes": {
+    "bearerAuth": {
+      "type": "http",
+      "scheme": "bearer"
+    }
+  },
+  "capabilities": {
+    "scopes": [
+      "orders.read"
+    ],
+    "roles": [],
+    "permissions": [],
+    "operations": [
+      "orders.get",
+      "orders.list",
+      "orders.update",
+      "orders.delete",
+      "orders.bulk",
+      "pets.get",
+      "uploads.create",
+      "raw.create",
+      "texts.get",
+      "get.health"
+    ],
+    "requiredCapabilities": {
+      "orders.get": [
+        [
+          "orders.read"
+        ]
+      ]
+    },
+    "requiredAuthorization": {}
+  }
+}
