@@ -33,8 +33,9 @@ sealed class QueryState<T> {
   /// Some of this value is a local change the server has not confirmed.
   final bool isOptimistic;
 
-  /// The sync sources' status, folded across the entities the query touches.
-  /// Always [Synced] until plan 01b wires sync sources in.
+  /// The sync sources' status, folded across the owned entities the query
+  /// touches: its operation's entity and every entity its value reaches.
+  /// [Synced] when no sync source owns any of them.
   final SyncStatus syncStatus;
 
   /// The data this state carries: the value on success, the last good value on

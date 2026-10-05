@@ -8,6 +8,7 @@ import 'dart:developer' as developer;
 import 'cache.dart' show CommitScheduler, LiveBinding, QueryCache;
 import 'observe.dart' show FramesCommitted;
 import 'operation.dart' show OperationMeta, TagContext;
+import 'owned.dart' show withOwned;
 import 'ref.dart' show entityKey, isIdentity;
 import 'store.dart' show CommitOptions;
 import 'stream.dart' show SubscriptionManager, streamControlEvents;
@@ -87,7 +88,10 @@ void applyFrames(
       // it.
       cache.store.commit(
         staged,
-        CommitOptions(frameAt: stamp, skip: _owned(cache, staged.records.keys)),
+        CommitOptions(
+          frameAt: stamp,
+          skip: withOwned(cache.owns, null, staged.records.keys),
+        ),
       );
     }
 
@@ -124,21 +128,6 @@ void applyFrames(
   if (cache.generation != committing) return;
 
   if (tags.isNotEmpty) cache.invalidate(tags.toList());
-}
-
-/// The keys among [keys] whose entity a sync source owns, or null for none.
-Set<EntityKey>? _owned(QueryCache cache, Iterable<EntityKey> keys) {
-  Set<EntityKey>? owned;
-
-  for (final key in keys) {
-    final colon = key.indexOf(':');
-
-    if (cache.owns(colon == -1 ? key : key.substring(0, colon))) {
-      (owned ??= <EntityKey>{}).add(key);
-    }
-  }
-
-  return owned;
 }
 
 /// The key an evict payload names: a bare identity, or a record carrying the

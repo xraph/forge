@@ -65,8 +65,13 @@ const _folderFrame = EntityStreamBinding(
 /// A sync source the test drives: it logs its lifecycle into a shared log,
 /// records what it is asked to apply, and emits whatever status it is told to.
 final class _FakeSource implements SyncSource {
-  _FakeSource(this.entities, {List<String>? log, this.onStart, this.onStop})
-    : log = log ?? [];
+  _FakeSource(
+    this.entities, {
+    List<String>? log,
+    this.onStart,
+    this.onStop,
+    this.name,
+  }) : log = log ?? [];
 
   @override
   final Set<String> entities;
@@ -74,6 +79,12 @@ final class _FakeSource implements SyncSource {
   final List<String> log;
   final void Function(SyncContext context)? onStart;
   final void Function()? onStop;
+
+  /// Prefixes this source's log lines, for a test with two sources.
+  final String? name;
+
+  /// Runs once [start] has passed its gate, as a late projection would.
+  void Function(SyncContext context)? afterStart;
 
   /// While set, [start] waits for it before it returns.
   Future<void>? startGate;
@@ -87,13 +98,17 @@ final class _FakeSource implements SyncSource {
   @override
   Future<void> start(SyncContext context) async {
     this.context = context;
-    log.add('start ${context.principal}');
+    log.add(_line('start ${context.principal}'));
     onStart?.call(context);
 
     final gate = startGate;
 
     if (gate != null) await gate;
+
+    afterStart?.call(context);
   }
+
+  String _line(String text) => name == null ? text : '$name $text';
 
   @override
   Future<MutationOutcome> apply(PendingMutation mutation) async {
@@ -110,7 +125,7 @@ final class _FakeSource implements SyncSource {
 
   @override
   Future<void> stop() async {
-    log.add('stop ${context?.principal}');
+    log.add(_line('stop ${context?.principal}'));
     onStop?.call();
   }
 }
@@ -422,11 +437,21 @@ void main() {
       );
     });
 
-    test('keeps the session and the sources across a clear', () {
+    test('keeps the session, the sources and their records across a clear', () {
       fakeAsync((async) {
-        final kit = _build((_, _) => null);
+        final kit = _build(
+          (_, _) => {
+            'id': 'f1',
+            'name': 'Inbox',
+            'documents': [
+              {'id': 'd1', 'title': 'from REST'},
+            ],
+          },
+          onStart: _putReplica,
+        );
 
         kit.cache.setPrincipal('alice');
+        kit.cache.watch(_folderGet, _f1).listen((_) {});
         async.flushMicrotasks();
 
         final session = kit.cache.session;
@@ -437,6 +462,92 @@ void main() {
 
         expect(kit.log, ['open alice', 'start alice']);
         expect(kit.cache.session, same(session));
+
+        // The source will not project its rows again and the refetch skips
+        // them, so the clear must have kept them.
+        expect(kit.transport.calls, hasLength(2));
+        expect(
+          kit.cache.store.getRecord('Document:d1')?.data['title'],
+          'from the replica',
+        );
+        expect(kit.cache.getState(_folderGet, _f1).dataOrNull, {
+          'id': 'f1',
+          'name': 'Inbox',
+          'documents': [
+            {'id': 'd1', 'title': 'from the replica'},
+          ],
+        });
+
+        // A principal change is not that clear: alice's rows go at once, not
+        // later in the transition, where bob's first answers could read them.
+        kit.cache.setPrincipal('bob');
+
+        expect(kit.cache.store.has('Document:d1'), isFalse);
+      });
+    });
+
+    test('drops what the old principal’s source wrote after the switch before the next one starts', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null);
+        final gate = Completer<void>();
+        bool? heldAtBobsStart;
+
+        kit.source.startGate = gate.future;
+        kit.source.afterStart = (context) {
+          if (context.principal == 'alice') {
+            // Alice's late projection lands after the cache moved to bob.
+            context.cache.store.put('Document:d1', {
+              'id': 'd1',
+              'title': 'alice’s',
+              'secret': 'alice only',
+            });
+          } else {
+            heldAtBobsStart = context.cache.store.has('Document:d1');
+            context.cache.store.put('Document:d1', {
+              'id': 'd1',
+              'title': 'bob’s',
+            });
+          }
+        };
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        kit.cache.setPrincipal('bob');
+
+        kit.source.startGate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(kit.log, [
+          'open alice',
+          'start alice',
+          'stop alice',
+          'close alice',
+          'open bob',
+          'start bob',
+        ]);
+        expect(heldAtBobsStart, isFalse);
+        expect(kit.cache.store.getRecord('Document:d1')?.data, {
+          'id': 'd1',
+          'title': 'bob’s',
+        });
+      });
+    });
+
+    test('never collects an owned record no query reaches', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null, onStart: _putReplica);
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        kit.cache.store.put('Folder:f9', {'id': 'f9', 'name': 'Orphan'});
+
+        expect(kit.cache.collect(), 1);
+        expect(kit.cache.store.has('Folder:f9'), isFalse);
+        expect(
+          kit.cache.store.getRecord('Document:d1')?.data['title'],
+          'from the replica',
+        );
       });
     });
 
@@ -535,8 +646,75 @@ void main() {
         kit.cache.setPrincipal(null);
         async.flushMicrotasks();
 
-        expect(kit.log, ['open alice', 'start alice', 'close alice']);
+        expect(kit.log, [
+          'open alice',
+          'start alice',
+          'stop alice',
+          'close alice',
+        ]);
         expect(kit.cache.session, isNull);
+      });
+    });
+
+    test('stops a source that fails to start and runs the others cleanly', () {
+      fakeAsync((async) {
+        final log = <String>[];
+        final errors = <(Object, String)>[];
+        final broken = _FakeSource(
+          {'Document'},
+          log: log,
+          name: 'documents',
+          onStart: (_) => throw StateError('cannot start'),
+        );
+        final folders = _FakeSource({'Folder'}, log: log, name: 'folders');
+        final cache = QueryCache(
+          transport: FakeTransport(
+            (_, _) => [
+              {'id': 'd1', 'title': 'a'},
+            ],
+          ),
+          entities: _schema,
+          syncSources: [broken, folders],
+          storage: _LoggingStorage(log),
+          onError: (error, context) => errors.add((error, context)),
+        );
+
+        cache.setPrincipal('alice');
+        cache.watch(_documentList, TagContext.empty).listen((_) {});
+        async.flushMicrotasks();
+
+        expect(log, [
+          'open alice',
+          'documents start alice',
+          'documents stop alice',
+          'folders start alice',
+        ]);
+        expect(errors.single.$2, 'sync');
+
+        // Nobody listens to the failed source's status.
+        broken.emit('Document', const Offline());
+        async.flushMicrotasks();
+        expect(
+          cache.getState(_documentList, TagContext.empty).syncStatus,
+          const Synced(),
+        );
+
+        Object? caught;
+        unawaited(
+          cache
+              .mutate(_documentUpdate, _d1)
+              .catchError((Object error) => caught = error),
+        );
+        unawaited(cache.mutate(_folderUpdate, _f1));
+        async.flushMicrotasks();
+        expect(caught, isA<StateError>());
+        expect(broken.applied, isEmpty);
+        expect(folders.applied, hasLength(1));
+
+        cache.setPrincipal(null);
+        async.flushMicrotasks();
+
+        expect(log.skip(4), ['folders stop alice', 'close alice']);
       });
     });
 
@@ -595,7 +773,12 @@ void main() {
         kit.cache.setPrincipal(null);
         async.flushMicrotasks();
 
-        expect(kit.log, ['open alice', 'start alice', 'close alice']);
+        expect(kit.log, [
+          'open alice',
+          'start alice',
+          'stop alice',
+          'close alice',
+        ]);
       });
     });
   });
@@ -665,6 +848,43 @@ void main() {
         });
       },
     );
+
+    test('tells the observer an applied mutation committed', () {
+      fakeAsync((async) {
+        final kit = _build(
+          (_, _) => [
+            {'id': 'd1', 'title': 'x'},
+          ],
+        );
+        final events = <CacheEvent>[];
+        kit.cache.observer = events.add;
+        kit.source.outcome = (_) => const Applied({'id': 'd1', 'title': 'y'});
+
+        kit.cache.setPrincipal('alice');
+        kit.cache.watch(_documentList, TagContext.empty).listen((_) {});
+        async.flushMicrotasks();
+        events.clear();
+
+        unawaited(kit.cache.mutate(_documentUpdate, _d1));
+        async.flushMicrotasks();
+
+        final committed = events.whereType<MutationCommitted>().single;
+        expect(committed.meta, same(_documentUpdate));
+        expect(committed.args, same(_d1));
+        expect(committed.response, {'id': 'd1', 'title': 'y'});
+
+        // In the REST order: the commit, then the invalidation it caused.
+        final invalidated = events.indexWhere((e) => e is QueryInvalidated);
+        expect(invalidated, greaterThan(events.indexOf(committed)));
+
+        // A queued write has committed nothing yet.
+        events.clear();
+        kit.source.outcome = (mutation) => Queued(mutation.id);
+        unawaited(kit.cache.mutate(_documentUpdate, _d1));
+        async.flushMicrotasks();
+        expect(events.whereType<MutationCommitted>(), isEmpty);
+      });
+    });
 
     test('throws the error of a rejected mutation', () {
       fakeAsync((async) {
@@ -1059,6 +1279,91 @@ void main() {
         kit.cache.store.getRecord('Document:d1')?.data['title'],
         'from the replica',
       );
+    });
+  });
+
+  group('snapshots', () {
+    const operations = {'op_folder_get': _folderGet};
+
+    test('leaves owned records out of a dehydrated snapshot', () {
+      fakeAsync((async) {
+        final kit = _build(
+          (_, _) => {
+            'id': 'f1',
+            'name': 'Inbox',
+            'documents': [
+              {'id': 'd1', 'title': 'from REST'},
+            ],
+          },
+          onStart: _putReplica,
+        );
+
+        kit.cache.setPrincipal('alice');
+        kit.cache.watch(_folderGet, _f1).listen((_) {});
+        async.flushMicrotasks();
+
+        final records =
+            dehydrate(kit.cache, principal: 'alice').json['records']!
+                as Map<String, Object?>;
+
+        expect(records.keys, ['Folder:f1']);
+      });
+    });
+
+    test('never restores an owned record from a normalized snapshot', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null, onStart: _putReplica);
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        hydrate(
+          kit.cache,
+          Snapshot.decode(
+            '{"v":1,"mode":"normalized","principal":"alice",'
+            '"records":{'
+            '"Folder:f1":{"id":"f1","name":"Inbox","documents":[{"__ref":"Document:d1"}]},'
+            '"Document:d1":{"id":"d1","title":"stale","stale":true}},'
+            '"queries":[{"operation":"GET /folders/{id}","args":{"path":{"id":"f1"}},'
+            '"skeleton":{"__ref":"Folder:f1"},"tags":["Folder:f1"],"settledTime":1}]}',
+          ),
+          principal: 'alice',
+          operations: operations,
+        );
+
+        expect(kit.cache.store.getRecord('Folder:f1')?.data['name'], 'Inbox');
+        expect(kit.cache.store.getRecord('Document:d1')?.data, {
+          'id': 'd1',
+          'title': 'from the replica',
+        });
+      });
+    });
+
+    test('never restores an owned record from a denormalized snapshot', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null, onStart: _putReplica);
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        hydrate(
+          kit.cache,
+          Snapshot.decode(
+            '{"v":1,"mode":"denormalized","principal":"alice",'
+            '"queries":[{"operation":"GET /folders/{id}","args":{"path":{"id":"f1"}},'
+            '"value":{"id":"f1","name":"Inbox","documents":'
+            '[{"id":"d1","title":"stale","stale":true}]},"settledTime":1}]}',
+          ),
+          principal: 'alice',
+          operations: operations,
+        );
+
+        expect(kit.cache.store.getRecord('Folder:f1')?.data['name'], 'Inbox');
+        expect(kit.cache.store.getRecord('Document:d1')?.data, {
+          'id': 'd1',
+          'title': 'from the replica',
+        });
+      });
     });
   });
 

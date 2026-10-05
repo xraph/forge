@@ -111,21 +111,36 @@ SyncStatus foldSyncStatus(Iterable<SyncStatus> statuses) {
 }
 
 /// Owns [entities]: their records come from the source, never from a REST
-/// response, and their mutations go to the source.
+/// response, a stream frame or a snapshot, and their mutations go to the
+/// source.
+///
+/// The cache runs one principal's sources at a time. Between principals it
+/// stops them, closes the old session and drops every owned record before the
+/// next principal's sources start. A source writes records through
+/// `context.cache.store` and must not write through it after [stop] was
+/// called, or after a [start] the cache superseded has returned (the cache
+/// still calls [stop] on it).
 abstract interface class SyncSource {
   /// The typenames this source owns.
   Set<String> get entities;
 
   /// Begin syncing for `context.principal`.
+  ///
+  /// Return promptly: project what is local, then do network work (pull,
+  /// connect) in the background rather than awaiting it here. The cache's
+  /// next principal change, and every owned mutation, waits for this to
+  /// return. When it throws, the cache reports the error and calls [stop].
   Future<void> start(SyncContext context);
 
   /// Apply one mutation locally; it may complete offline.
   Future<MutationOutcome> apply(PendingMutation mutation);
 
-  /// The status of one owned entity type.
+  /// The status of one owned entity type. Emits the current status to each
+  /// new listener first, then every change.
   Stream<SyncStatus> status(String entity);
 
-  /// Stop syncing. The cache closes the session after every source stopped.
+  /// Stop syncing. Idempotent: the cache may call it on a source whose
+  /// [start] threw. The cache closes the session after every source stopped.
   Future<void> stop();
 }
 

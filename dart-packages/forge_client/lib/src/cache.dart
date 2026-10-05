@@ -6,6 +6,7 @@ import 'invalidate.dart';
 import 'observe.dart';
 import 'operation.dart';
 import 'overlay.dart';
+import 'owned.dart';
 import 'ref.dart';
 import 'registry.dart';
 import 'state.dart';
@@ -31,7 +32,9 @@ final class RequestOptions {
   final Future<void>? cancel;
 }
 
-/// What a mutation call may add.
+/// What a mutation call may add. For an entity a sync source owns, only
+/// [optimistic] reaches the source; [place], [headers] and [cancel] have no
+/// effect there (see [QueryCache.mutate]).
 final class MutateOptions extends RequestOptions {
   /// Creates the options.
   const MutateOptions({
@@ -603,6 +606,15 @@ final class QueryCache {
   /// response rather than throwing: the server applied the write, and a
   /// failure here could lead an outbox to send it again under the new
   /// principal.
+  ///
+  /// A mutation on an entity a sync source owns never reaches the transport:
+  /// it goes to the source's `apply`. An `Applied` outcome returns its
+  /// response and invalidates `meta.invalidates`, `Queued` returns null, and
+  /// `Rejected` throws its error. With no source running for the principal it
+  /// throws [StateError]. On that path [MutateOptions.place],
+  /// [RequestOptions.cancel] and [RequestOptions.headers] have no effect and
+  /// are ignored rather than refused: the source decides how, and when, the
+  /// write is sent.
   Future<Object?> mutate(
     OperationMeta meta,
     TagContext args, {
@@ -867,7 +879,7 @@ final class QueryCache {
     // Before the clear, whose notifications would otherwise carry the old
     // principal's sync status to the new principal's watchers.
     _detachStatuses();
-    clear();
+    _clear(keepOwned: false);
     _scheduleSync(principal);
 
     for (final listener in _principals.toList()) {
@@ -932,25 +944,32 @@ final class QueryCache {
   /// Whether a registered sync source owns [typename].
   bool owns(String typename) => _owners.containsKey(typename);
 
-  static String _typenameOf(EntityKey key) {
-    final colon = key.indexOf(':');
-
-    return colon == -1 ? key : key.substring(0, colon);
-  }
-
   /// [skip] plus every owned key among [keys], or [skip] itself when no
   /// source owns any of them.
-  Set<EntityKey>? _withOwned(Set<EntityKey>? skip, Iterable<EntityKey> keys) {
-    if (_owners.isEmpty) return skip;
+  Set<EntityKey>? _withOwned(Set<EntityKey>? skip, Iterable<EntityKey> keys) =>
+      _owners.isEmpty ? skip : withOwned(owns, skip, keys);
 
-    final owned = {
-      for (final key in keys)
-        if (_owners.containsKey(_typenameOf(key))) key,
-    };
+  /// Every owned key the store holds.
+  List<EntityKey> _ownedKeys() => _owners.isEmpty
+      ? const []
+      : [
+          for (final key in store.keys)
+            if (owns(typenameOf(key))) key,
+        ];
 
-    if (owned.isEmpty) return skip;
+  /// Drops every owned record. Run between principals, once the old sources
+  /// stopped: whatever an owned row holds then, the old principal's source
+  /// wrote it, perhaps after the clear that emptied the cache for the next.
+  void _evictOwned() {
+    final owned = _ownedKeys();
 
-    return {...?skip, ...owned};
+    if (owned.isEmpty) return;
+
+    for (final key in owned) {
+      store.evict(key);
+    }
+
+    if (!_disposed) notifyChanged();
   }
 
   /// The fold across the owned entities among [meta]'s entity and [deps].
@@ -959,7 +978,7 @@ final class QueryCache {
 
     final touched = <String>{
       ?meta.entity,
-      for (final key in deps) _typenameOf(key),
+      for (final key in deps) typenameOf(key),
     };
 
     return foldSyncStatus([
@@ -1056,6 +1075,10 @@ final class QueryCache {
       }
     }
 
+    // Every transition changes the principal, and the old sources are stopped
+    // now: an owned row still here is theirs, written after the clear.
+    _evictOwned();
+
     // A later principal change superseded this one, or nobody is signed in.
     if (generation != _syncGeneration || principal == null || _disposed) {
       return;
@@ -1103,6 +1126,13 @@ final class QueryCache {
         await source.start(context);
       } on Object catch (error) {
         _safeReport(error, 'sync');
+
+        // It may have got part of the way. Stop is idempotent by contract.
+        try {
+          await source.stop();
+        } on Object catch (error) {
+          _safeReport(error, 'sync');
+        }
 
         continue;
       }
@@ -1159,6 +1189,9 @@ final class QueryCache {
         // The same rule as a REST response that lands after a clear: the
         // caller gets the answer, the emptied cache gets nothing.
         if (generation == _generation) {
+          observer?.call(
+            MutationCommitted(meta: meta, args: args, response: response),
+          );
           invalidator.settled(
             MutationSettled(
               invalidates: meta.invalidates,
@@ -1178,7 +1211,14 @@ final class QueryCache {
 
   /// Drops every entity, every skeleton and every registry entry. Watched
   /// queries are reset in place and refetched.
-  void clear() {
+  ///
+  /// A sync source's records survive: the principal has not changed, the
+  /// source is still running and will not project them again, and a REST
+  /// refetch never writes them. [setPrincipal] drops them with everything
+  /// else.
+  void clear() => _clear(keepOwned: true);
+
+  void _clear({required bool keepOwned}) {
     _generation++;
 
     final tracked = _records.values.toList();
@@ -1194,8 +1234,17 @@ final class QueryCache {
         .where((record) => record.listeners.isNotEmpty)
         .toList();
 
+    final kept = keepOwned
+        ? {for (final key in _ownedKeys()) key: store.getRecord(key)!.data}
+        : const <EntityKey, Json>{};
+
     overlays.clear();
     store.clear();
+
+    for (final MapEntry(:key, value: data) in kept.entries) {
+      store.put(key, data);
+    }
+
     registry.clear();
     _records.clear();
 
@@ -1657,9 +1706,13 @@ final class QueryCache {
       reachable.addAll(store.dependencies(record.skeleton));
     }
 
+    // An owned record lives as long as its source keeps it, reachable or
+    // not: nothing else would ever write it back.
     final garbage = [
       for (final entityKey in store.keys)
-        if (!reachable.contains(entityKey)) entityKey,
+        if (!reachable.contains(entityKey) &&
+            !(_owners.isNotEmpty && owns(typenameOf(entityKey))))
+          entityKey,
     ];
 
     // No frame stamp, so no tombstone: the record is merely unreferenced.

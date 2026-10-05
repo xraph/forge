@@ -4,7 +4,10 @@
 ///
 /// The record set is built by a reachability walk from the exported queries,
 /// so an entity no exported query references cannot appear in a snapshot.
-/// Both directions assert the principal. Optimistic overlays are never
+/// An entity a sync source owns is never written to a snapshot's records and
+/// never restored from one: its source holds it, and a snapshot read after
+/// the source projected would merge stale fields over fresh ones. Both
+/// directions assert the principal. Optimistic overlays are never
 /// written: both reads go through the entity plane.
 ///
 /// The text is the text TS writes. Both modes copy through the wire encoder,
@@ -17,6 +20,7 @@ import 'dart:convert';
 
 import 'cache.dart' show CachedQuery, QueryCache, RestoreInput;
 import 'operation.dart' show OperationMeta, TagContext;
+import 'owned.dart' show typenameOf, withOwned;
 import 'store.dart' show CommitOptions;
 import 'tags.dart' show operationName;
 import 'types.dart' show EntityKey, Json;
@@ -192,11 +196,14 @@ void hydrate(
   bool buried(EntityKey key) =>
       !cache.store.has(key) && cache.store.frameStamp(key) > 0;
 
+  // Its source projects it; a snapshot's copy may be older than the replica.
+  bool owned(EntityKey key) => cache.owns(typenameOf(key));
+
   if (records != null) {
     // Records before skeletons: a skeleton restored before the entity it
     // references would settle with a hole.
     for (final MapEntry(:key, value: data) in records.entries) {
-      if (!buried(key)) cache.store.put(key, data);
+      if (!buried(key) && !owned(key)) cache.store.put(key, data);
     }
 
     for (final query in planned) {
@@ -226,7 +233,11 @@ void hydrate(
       cache.entities,
       meta.rootType ?? meta.entity,
     );
-    final skip = staged.records.keys.where(buried).toSet();
+    final skip = withOwned(
+      cache.owns,
+      staged.records.keys.where(buried).toSet(),
+      staged.records.keys,
+    )!;
 
     cache.store.commit(staged, CommitOptions(skip: skip.isEmpty ? null : skip));
     cache.restore(
@@ -300,7 +311,10 @@ Snapshot _normalized(
       EncodeContext(query: from, entity: key),
     );
 
-    records[key] = encoded.value;
+    // Walked for what it references, which a plain query may also reach,
+    // but never written: its source restores it, not the snapshot.
+    if (!cache.owns(typenameOf(key))) records[key] = encoded.value;
+
     enqueue(encoded.refs, from);
   }
 
