@@ -1014,3 +1014,60 @@ func TestIdempotencyReplayDoesNotAliasTheStoredResponse(t *testing.T) {
 		t.Fatalf("third Link = %q, calls = %d; want the stored value and one call", got, calls.Load())
 	}
 }
+
+// Two layers over one store (a group and a route that both opted in) must act
+// as one: the inner layer sees the outer one is already running the request.
+func TestIdempotencyStacksWithoutDeadlockingOnItsOwnClaim(t *testing.T) {
+	var calls atomic.Int32
+
+	store := NewMemoryIdempotencyStore()
+	outer := Idempotency(store, IdempotencyWaitTimeout(200*time.Millisecond))
+	inner := Idempotency(store, IdempotencyWaitTimeout(200*time.Millisecond))
+	mw := func(next forge.Handler) forge.Handler { return outer(inner(next)) }
+
+	first, err := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first = %d %q, want 201", first.Code, first.Body.String())
+	}
+
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times, want 1", calls.Load())
+	}
+
+	if second.Code != http.StatusCreated || second.Body.String() != first.Body.String() ||
+		second.Header().Get(IdempotentReplayedHeader) != "true" {
+		t.Fatalf("replay = %d %q %v, want the stored 201", second.Code, second.Body.String(), second.Header())
+	}
+}
+
+// The marker that lets a stacked layer step aside describes one handler call.
+// If it stayed set on the outer context, later middleware that runs after this
+// one would be skipped.
+func TestIdempotencyDoesNotLeaveItsMarkerOnTheOuterContext(t *testing.T) {
+	var calls atomic.Int32
+
+	var outer forge.Context
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+
+	_, err := runIdem(t, mw, countingHandler(&calls), idemCall{
+		key: "k1", body: "{}",
+		setup: func(ctx forge.Context) { outer = ctx },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if active, _ := outer.Get("idempotency.active").(bool); active {
+		t.Fatal("the idempotency marker is still set on the outer context after the handler returned")
+	}
+}

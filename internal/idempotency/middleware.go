@@ -27,6 +27,13 @@ const ReplayedHeader = "Idempotent-Replayed"
 
 const maxKeyLength = 255
 
+// activeKey is the context value the middleware sets on the context it hands
+// its handler. A second layer of this middleware (a group that opted in and a
+// route inside it that did too) reads it and steps aside: the outer layer
+// already holds the claim, so the inner one would wait on it, time out and
+// answer 409 without running the handler.
+const activeKey = "idempotency.active"
+
 // pollInterval is how often a waiter asks the store again when the store
 // cannot signal completion (Begun.Done is nil).
 const pollInterval = 25 * time.Millisecond
@@ -177,6 +184,9 @@ func Clock(now func() time.Time) Option {
 // wait gets 409 with Retry-After: 1, so a client can tell the conflict is
 // temporary.
 //
+// A second layer inside the first (a group and a route that both opted in)
+// steps aside, because the outer layer already holds the claim.
+//
 // The handler runs on a fresh context that shares the outer context's values
 // and session. Anything else a forge_http.Ctx keeps privately, such as a DI
 // scope opened by outer middleware, is not carried across.
@@ -251,6 +261,10 @@ var errBodyTooLarge = errors.New("idempotency: request body too large")
 
 func (h *handler) wrap(next router.Handler) router.Handler {
 	return func(ctx router.Context) error {
+		if active, _ := ctx.Get(activeKey).(bool); active {
+			return next(ctx)
+		}
+
 		r := ctx.Request()
 		if !mutating(r.Method) {
 			return next(ctx)
@@ -383,6 +397,11 @@ func (h *handler) run(ctx router.Context, next router.Handler, key Key, token To
 	inner := forge_http.NewContext(rec, ctx.Request(), ctx.Container())
 	release := shareValues(ctx, inner)
 
+	// The values map is shared with the outer context, so the marker has to be
+	// cleared before release() hands the map back: it describes this handler
+	// call, not the request.
+	inner.Set(activeKey, true)
+
 	// NewContext starts with no session. Hand the outer one in, and hand back
 	// whatever the handler left (a rotated or destroyed session) so outer
 	// middleware that saves the session sees the handler's change.
@@ -396,6 +415,7 @@ func (h *handler) run(ctx router.Context, next router.Handler, key Key, token To
 			ctx.SetSession(innerSession)
 		}
 
+		inner.Set(activeKey, false)
 		release()
 
 		if c, ok := inner.(forge_http.ContextWithClean); ok {

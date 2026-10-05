@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xraph/forge/internal/idempotency"
 )
@@ -202,5 +203,168 @@ func TestWithGroupIdempotencyPassesTheAnonymousOptInThrough(t *testing.T) {
 
 	if calls.Load() != 1 {
 		t.Fatalf("handler ran %d times with AllowAnonymous on the group, want 1", calls.Load())
+	}
+}
+
+// A group that opted in and a route inside it that opted in again are two
+// layers of the same middleware over one store. The inner layer must see that
+// the outer one is already handling the request and step aside. Before it did,
+// the inner layer found the key claimed by the outer layer, waited out the
+// timeout, answered 409 without running the handler, and the outer layer then
+// stored that 409 for the whole TTL.
+func TestGroupAndRouteIdempotencyShareOneClaim(t *testing.T) {
+	var calls atomic.Int32
+
+	store := idempotency.NewMemoryStore()
+	opts := []IdempotencyOption{IdempotencyBackend(store), idempotency.WaitTimeout(200 * time.Millisecond)}
+
+	r := NewRouter()
+	g := r.Group("/v1", WithGroupMiddleware(signedInAs("alice")), WithGroupIdempotency(opts...))
+
+	if err := g.POST("/orders", func(ctx Context) error {
+		return ctx.JSON(http.StatusCreated, map[string]int32{"n": calls.Add(1)})
+	}, WithIdempotency(opts...)); err != nil {
+		t.Fatal(err)
+	}
+
+	first := postWithKey(t, r, "/v1/orders", "k1")
+	if first.Code != http.StatusCreated || strings.TrimSpace(first.Body.String()) != `{"n":1}` {
+		t.Fatalf("first = %d %q, want 201 {\"n\":1}", first.Code, first.Body.String())
+	}
+
+	second := postWithKey(t, r, "/v1/orders", "k1")
+
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times, want 1", calls.Load())
+	}
+
+	if second.Code != http.StatusCreated || second.Body.String() != first.Body.String() {
+		t.Fatalf("replay = %d %q, want %d %q", second.Code, second.Body.String(), first.Code, first.Body.String())
+	}
+
+	if second.Header().Get(idempotency.ReplayedHeader) != "true" {
+		t.Fatalf("the repeat was not a replay: %d %q", second.Code, second.Body.String())
+	}
+}
+
+// authContext has the shape of the auth extension's AuthContext, which that
+// extension stores under "auth_context". The extension is its own module, so
+// the root package cannot import the real type; the middleware reads only the
+// Subject field, by name.
+type authContext struct {
+	Subject     string
+	Claims      map[string]any
+	Scopes      []string
+	Roles       []string
+	Permissions []string
+	Metadata    map[string]any
+}
+
+func TestWithIdempotencyReadsThePrincipalFromTheAuthContext(t *testing.T) {
+	var calls atomic.Int32
+
+	signIn := func(subject string) Middleware {
+		return func(next Handler) Handler {
+			return func(ctx Context) error {
+				ctx.Set("auth_context", &authContext{Subject: subject, Roles: []string{"admin"}})
+
+				return next(ctx)
+			}
+		}
+	}
+
+	store := idempotency.NewMemoryStore()
+	r := NewRouter()
+
+	for _, who := range []string{"alice", "bob"} {
+		if err := r.POST("/as-"+who, func(ctx Context) error {
+			return ctx.JSON(http.StatusCreated, map[string]int32{"n": calls.Add(1)})
+		}, WithMiddleware(signIn(who)), WithIdempotency(IdempotencyBackend(store))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	postWithKey(t, r, "/as-alice", "k1")
+	postWithKey(t, r, "/as-alice", "k1")
+
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times for one principal, want 1", calls.Load())
+	}
+
+	// The same key from another principal is a different operation.
+	postWithKey(t, r, "/as-bob", "k1")
+
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times across two principals, want 2", calls.Load())
+	}
+}
+
+// Middleware runs in this order: router Use, group middleware, then route
+// middleware in option order. The principal is read when the idempotency
+// middleware runs, so auth registered after it has not run yet, every request
+// looks anonymous, and nothing is deduplicated. These pin that order so a
+// change to it is deliberate.
+func TestIdempotencyNeedsAuthToRunBeforeIt(t *testing.T) {
+	handler := func(calls *atomic.Int32) Handler {
+		return func(ctx Context) error {
+			return ctx.JSON(http.StatusCreated, map[string]int32{"n": calls.Add(1)})
+		}
+	}
+
+	cases := []struct {
+		name  string
+		setup func(r Router, calls *atomic.Int32) error
+		want  int32
+	}{
+		{"route: auth before idempotency", func(r Router, calls *atomic.Int32) error {
+			return r.POST("/orders", handler(calls), WithMiddleware(signedInAs("alice")), WithIdempotency())
+		}, 1},
+		{"router: auth in Use before route idempotency", func(r Router, calls *atomic.Int32) error {
+			r.Use(signedInAs("alice"))
+
+			return r.POST("/orders", handler(calls), WithIdempotency())
+		}, 1},
+		{"route: auth after idempotency", func(r Router, calls *atomic.Int32) error {
+			return r.POST("/orders", handler(calls), WithIdempotency(), WithMiddleware(signedInAs("alice")))
+		}, 2},
+		{"group: auth in the group before idempotency", func(r Router, calls *atomic.Int32) error {
+			g := r.Group("/v1", WithGroupMiddleware(signedInAs("alice")), WithGroupIdempotency())
+
+			return g.POST("/orders", handler(calls))
+		}, 1},
+		{"group: auth in the group after idempotency", func(r Router, calls *atomic.Int32) error {
+			g := r.Group("/v1", WithGroupIdempotency(), WithGroupMiddleware(signedInAs("alice")))
+
+			return g.POST("/orders", handler(calls))
+		}, 2},
+		{"group idempotency, auth on the route", func(r Router, calls *atomic.Int32) error {
+			g := r.Group("/v1", WithGroupIdempotency())
+
+			return g.POST("/orders", handler(calls), WithMiddleware(signedInAs("alice")))
+		}, 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+
+			r := NewRouter()
+			if err := tc.setup(r, &calls); err != nil {
+				t.Fatal(err)
+			}
+
+			// The default store is shared by every case, so the key is unique to this one.
+			path := "/orders"
+			if strings.Contains(tc.name, "group") {
+				path = "/v1/orders"
+			}
+
+			postWithKey(t, r, path, tc.name)
+			postWithKey(t, r, path, tc.name)
+
+			if calls.Load() != tc.want {
+				t.Fatalf("handler ran %d times, want %d", calls.Load(), tc.want)
+			}
+		})
 	}
 }

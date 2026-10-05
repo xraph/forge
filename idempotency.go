@@ -46,10 +46,15 @@ func IdempotencyBackend(store IdempotencyStore) IdempotencyOption {
 //     auth.
 //   - GET, HEAD, OPTIONS and writes without the header pass straight through.
 //
-// The principal comes from the request context, so put any route option that
-// authenticates before this one. Options apply in the order given.
+// The principal is read when this middleware runs, so authentication has to
+// have run already: register it at router scope (Use) or group scope, or
+// earlier in the same option list. Auth added after this option, or at route
+// level under a WithGroupIdempotency group, has not run yet, every request
+// looks anonymous, and nothing is deduplicated.
 //
 // Example:
+//
+//	import "github.com/xraph/forge/middleware"
 //
 //	router.POST("/orders", createOrder, forge.WithIdempotency())
 //	router.POST("/payments", pay, forge.WithIdempotency(
@@ -62,7 +67,13 @@ func WithIdempotency(opts ...IdempotencyOption) RouteOption {
 
 // WithGroupIdempotency is WithIdempotency for every route in a group. The
 // OpenAPI document marks only the group's writes (POST, PUT, PATCH, DELETE),
-// because the middleware leaves reads alone.
+// because the middleware leaves reads alone. A route in the group that also
+// sets WithIdempotency shares the group's claim; the inner layer steps aside.
+//
+// Authentication must run before it: put WithGroupMiddleware(auth) ahead of
+// this option, or register auth at router scope. Auth registered after it, or
+// on a route inside the group, has not run yet, every request looks anonymous,
+// and nothing is deduplicated.
 func WithGroupIdempotency(opts ...IdempotencyOption) GroupOption {
 	return router.WithGroupIdempotent(idempotency.Middleware(nil, opts...))
 }
