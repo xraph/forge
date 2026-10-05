@@ -4,6 +4,7 @@ library;
 
 export 'src/cache.dart';
 export 'src/codec.dart';
+export 'src/freshness.dart';
 export 'src/invalidate.dart';
 export 'src/normalize.dart';
 export 'src/observe.dart';
