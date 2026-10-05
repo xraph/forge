@@ -61,6 +61,9 @@ type emission struct {
 	table  *codecTable
 	reg    *registry
 	naming codecNaming
+	ops    []*operation
+	root   *restNode
+	paths  map[*operation]string
 	out    *generators.GeneratedClient
 }
 
@@ -73,6 +76,9 @@ var emitters = []func(*emission) error{
 	emitSupport,
 	emitModels,
 	emitCodecs,
+	emitPlan,
+	emitErrors,
+	emitRest,
 }
 
 // Generate produces the package.
@@ -176,4 +182,28 @@ func dependencies(hooks bool) []generators.Dependency {
 	}
 
 	return deps
+}
+
+// emitPlan resolves every operation and the REST namespace tree.
+func emitPlan(e *emission) error {
+	ops, warnings := planOperations(e.spec, e.config, e.reg)
+	e.ops = ops
+	e.root, e.paths = restTree(ops, e.reg)
+	e.warn(warnings...)
+
+	return nil
+}
+
+// emitErrors writes lib/src/errors.dart.
+func emitErrors(e *emission) error {
+	e.out.Files["lib/src/errors.dart"] = renderErrors(e.hooks)
+
+	return nil
+}
+
+// emitRest writes lib/src/rest.dart.
+func emitRest(e *emission) error {
+	e.out.Files["lib/src/rest.dart"] = renderRest(e.ops, e.root, e.paths, e.naming, e.reg, e.config.IncludeAuth)
+
+	return nil
 }
