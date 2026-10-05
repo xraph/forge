@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:uuid/uuid.dart';
+
 import 'invalidate.dart';
 import 'observe.dart';
 import 'operation.dart';
@@ -7,8 +9,10 @@ import 'overlay.dart';
 import 'ref.dart';
 import 'registry.dart';
 import 'state.dart';
+import 'storage.dart';
 import 'store.dart';
 import 'stream_types.dart';
+import 'sync.dart';
 import 'tags.dart';
 import 'transport.dart';
 import 'types.dart';
@@ -253,6 +257,10 @@ final class QueryCache {
   /// is the default freshness window; null means results never go stale by
   /// time. [frameRestarts] bounds how often a request a stream frame overtook
   /// is re-run before it commits around the frames.
+  ///
+  /// Each of [syncSources] owns the entity types it names; two sources owning
+  /// one type throw [ArgumentError]. With `storage` set, the cache opens the
+  /// principal's [session] on every [setPrincipal] and closes it on the next.
   QueryCache({
     required this._transport,
     required this.entities,
@@ -263,7 +271,10 @@ final class QueryCache {
     this._frameRestarts = 3,
     this.clock = realClock,
     this._staleTime,
-  }) : commitScheduler = commitScheduler ?? microtaskCommitScheduler() {
+    List<SyncSource> syncSources = const [],
+    this._storage,
+  }) : commitScheduler = commitScheduler ?? microtaskCommitScheduler(),
+       _syncSources = List.unmodifiable(syncSources) {
     overlays = OverlayStack(store, report);
     store.overlays = overlays;
 
@@ -281,6 +292,8 @@ final class QueryCache {
         _stale(entry);
       },
     );
+
+    _indexOwners();
   }
 
   /// The normalized entity store.
@@ -597,6 +610,10 @@ final class QueryCache {
   }) async {
     _ensureOpen();
 
+    final owner = _owners[meta.entity];
+
+    if (owner != null) return _mutateThroughSource(owner, meta, args, options);
+
     final overlay = _push(meta, args, options);
     final dispatchedAt = store.frameVersion;
     final token = _dispatched(dispatchedAt);
@@ -650,11 +667,23 @@ final class QueryCache {
             .racedSince(entry.patches.keys, dispatchedAt)
             .toSet();
 
-        skip.addAll(overlays.promote(entry, overtaken));
+        // An owned record's patch is discarded like an overtaken one: the
+        // source, not this response, decides what the record holds.
+        skip.addAll(
+          overlays.promote(
+            entry,
+            _withOwned(overtaken, entry.patches.keys) ?? overtaken,
+          ),
+        );
       }
     }
 
-    store.commit(staged, CommitOptions(skip: skip.isEmpty ? null : skip));
+    store.commit(
+      staged,
+      CommitOptions(
+        skip: _withOwned(skip.isEmpty ? null : skip, staged.records.keys),
+      ),
+    );
     _committed();
 
     // A raced key the store no longer holds is a delete: hand back what the
@@ -834,7 +863,12 @@ final class QueryCache {
     if (principal == _principal) return;
 
     _principal = principal;
+
+    // Before the clear, whose notifications would otherwise carry the old
+    // principal's sync status to the new principal's watchers.
+    _detachStatuses();
     clear();
+    _scheduleSync(principal);
 
     for (final listener in _principals.toList()) {
       try {
@@ -845,6 +879,301 @@ final class QueryCache {
     }
 
     if (!_principalChanges.isClosed) _principalChanges.add(principal);
+  }
+
+  // Storage and sync, owned per principal. With storage set, the cache opens
+  // the principal's session, and nothing else ever does. Records of an owned
+  // entity come from its source, never from a REST response or a stream
+  // frame, and its mutations go to the source.
+  final List<SyncSource> _syncSources;
+  final StorageAdapter? _storage;
+  final Map<String, SyncSource> _owners = <String, SyncSource>{};
+  final Map<String, SyncStatus> _entityStatus = <String, SyncStatus>{};
+  final List<StreamSubscription<SyncStatus>> _statusSubscriptions =
+      <StreamSubscription<SyncStatus>>[];
+
+  /// Sources whose start returned, in start order. The next transition stops
+  /// exactly these; a source whose start threw is not running.
+  final Set<SyncSource> _running = Set<SyncSource>.identity();
+  final StreamController<StorageSession?> _sessionChanges =
+      StreamController<StorageSession?>.broadcast(sync: true);
+  StorageSession? _session;
+  Future<void> _syncTransition = Future<void>.value();
+
+  /// Bumped by every queued transition, so a transition, or a mutation waiting
+  /// on one, can tell that a later principal change superseded it.
+  int _syncGeneration = 0;
+
+  static const Uuid _uuid = Uuid();
+
+  /// The open storage session for the current principal. Null without
+  /// storage, without a principal, or while a switch is in progress.
+  StorageSession? get session => _session;
+
+  /// A session each time one opens, and null each time one closes.
+  Stream<StorageSession?> get sessionChanges => _sessionChanges.stream;
+
+  void _indexOwners() {
+    for (final source in _syncSources) {
+      for (final entity in source.entities) {
+        if (_owners.containsKey(entity)) {
+          throw ArgumentError.value(
+            entity,
+            'syncSources',
+            'is owned by more than one sync source',
+          );
+        }
+
+        _owners[entity] = source;
+      }
+    }
+  }
+
+  /// Whether a registered sync source owns [typename].
+  bool owns(String typename) => _owners.containsKey(typename);
+
+  static String _typenameOf(EntityKey key) {
+    final colon = key.indexOf(':');
+
+    return colon == -1 ? key : key.substring(0, colon);
+  }
+
+  /// [skip] plus every owned key among [keys], or [skip] itself when no
+  /// source owns any of them.
+  Set<EntityKey>? _withOwned(Set<EntityKey>? skip, Iterable<EntityKey> keys) {
+    if (_owners.isEmpty) return skip;
+
+    final owned = {
+      for (final key in keys)
+        if (_owners.containsKey(_typenameOf(key))) key,
+    };
+
+    if (owned.isEmpty) return skip;
+
+    return {...?skip, ...owned};
+  }
+
+  /// The fold across the owned entities among [meta]'s entity and [deps].
+  SyncStatus _syncStatusFor(OperationMeta meta, Iterable<EntityKey> deps) {
+    if (_owners.isEmpty) return const Synced();
+
+    final touched = <String>{
+      ?meta.entity,
+      for (final key in deps) _typenameOf(key),
+    };
+
+    return foldSyncStatus([
+      for (final entity in touched)
+        if (_owners.containsKey(entity))
+          _entityStatus[entity] ?? const Synced(),
+    ]);
+  }
+
+  /// Stops listening to the running sources' statuses at once. What a source
+  /// says after this is about a principal the cache no longer serves.
+  void _detachStatuses() {
+    if (_statusSubscriptions.isEmpty && _entityStatus.isEmpty) return;
+
+    for (final subscription in _statusSubscriptions) {
+      unawaited(
+        subscription.cancel().catchError(
+          (Object error) => _safeReport(error, 'sync'),
+        ),
+      );
+    }
+
+    _statusSubscriptions.clear();
+    _entityStatus.clear();
+  }
+
+  void _listenTo(SyncSource source) {
+    for (final entity in source.entities) {
+      try {
+        _statusSubscriptions.add(
+          source.status(entity).listen((status) {
+            if (_entityStatus[entity] == status) return;
+
+            _entityStatus[entity] = status;
+
+            if (!_disposed) _refresh(notify: true);
+          }, onError: (Object error) => _safeReport(error, 'sync')),
+        );
+      } on Object catch (error) {
+        _safeReport(error, 'sync');
+      }
+    }
+  }
+
+  /// Queues a lifecycle change. The current session is detached at once, so
+  /// nothing told about the new principal can reach the old principal's
+  /// storage; the transition closes it after the sources stopped.
+  /// Transitions run one at a time.
+  void _scheduleSync(String? principal) {
+    if (_syncSources.isEmpty && _storage == null) return;
+
+    _detachStatuses();
+
+    final previous = _session;
+
+    if (previous != null) {
+      _session = null;
+
+      if (!_sessionChanges.isClosed) _sessionChanges.add(null);
+    }
+
+    final generation = ++_syncGeneration;
+
+    _syncTransition = _syncTransition.then(
+      (_) => _switchSources(generation, principal, previous),
+    );
+  }
+
+  /// One transition. Never throws: a failure is reported (context `sync` for a
+  /// source, `storage` for the session) and the transition carries on, since
+  /// a broken chain would leave every later session open.
+  Future<void> _switchSources(
+    int generation,
+    String? principal,
+    StorageSession? previous,
+  ) async {
+    final running = _running.toList();
+
+    _running.clear();
+
+    for (final source in running) {
+      try {
+        await source.stop();
+      } on Object catch (error) {
+        _safeReport(error, 'sync');
+      }
+    }
+
+    if (previous != null) {
+      try {
+        await previous.close();
+      } on Object catch (error) {
+        _safeReport(error, 'storage');
+      }
+    }
+
+    // A later principal change superseded this one, or nobody is signed in.
+    if (generation != _syncGeneration || principal == null || _disposed) {
+      return;
+    }
+
+    final storage = _storage;
+    StorageSession? opened;
+
+    if (storage != null) {
+      try {
+        opened = await storage.open(principal);
+      } on Object catch (error) {
+        // Without the principal's storage nothing may run for them.
+        _safeReport(error, 'storage');
+
+        return;
+      }
+
+      if (generation != _syncGeneration || _disposed) {
+        try {
+          await opened.close();
+        } on Object catch (error) {
+          _safeReport(error, 'storage');
+        }
+
+        return;
+      }
+
+      // Recorded before any source starts, so a source that fails to start
+      // leaves the session where the next transition closes it.
+      _session = opened;
+
+      if (!_sessionChanges.isClosed) _sessionChanges.add(opened);
+    }
+
+    final context = SyncContext(
+      cache: this,
+      principal: principal,
+      transport: _transport,
+      storage: opened,
+    );
+
+    for (final source in _syncSources) {
+      try {
+        await source.start(context);
+      } on Object catch (error) {
+        _safeReport(error, 'sync');
+
+        continue;
+      }
+
+      // Running even when superseded below: the next transition stops it.
+      _running.add(source);
+
+      if (generation != _syncGeneration || _disposed) return;
+
+      _listenTo(source);
+    }
+  }
+
+  Future<Object?> _mutateThroughSource(
+    SyncSource source,
+    OperationMeta meta,
+    TagContext args,
+    MutateOptions options,
+  ) async {
+    final lifecycle = _syncGeneration;
+    final generation = _generation;
+
+    await _syncTransition;
+
+    // The principal it was made under is gone; its source may be someone
+    // else's by now. Nothing was applied, so nothing is owed.
+    if (lifecycle != _syncGeneration) {
+      throw StateError(
+        '[forge] the principal changed before this ${meta.entity} mutation '
+        'reached its sync source; it was not applied',
+      );
+    }
+
+    if (!_running.contains(source)) {
+      throw StateError(
+        '[forge] ${meta.entity} is owned by a sync source that is not running; '
+        'set a principal first',
+      );
+    }
+
+    final outcome = await source.apply(
+      PendingMutation(
+        id: _uuid.v4(),
+        meta: meta,
+        args: args,
+        optimistic: options.optimistic,
+        idempotencyKey: _uuid.v4(),
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    switch (outcome) {
+      case Applied(:final response):
+        // The same rule as a REST response that lands after a clear: the
+        // caller gets the answer, the emptied cache gets nothing.
+        if (generation == _generation) {
+          invalidator.settled(
+            MutationSettled(
+              invalidates: meta.invalidates,
+              args: args,
+              response: response,
+            ),
+          );
+        }
+
+        return response;
+      case Queued():
+        return null;
+      case Rejected(:final error):
+        throw error;
+    }
   }
 
   /// Drops every entity, every skeleton and every registry entry. Watched
@@ -1031,7 +1360,12 @@ final class QueryCache {
             record.frameRestarts++;
 
             // Keep the siblings: only the raced keys are stale.
-            store.commit(staged, CommitOptions(skip: raced.toSet()));
+            store.commit(
+              staged,
+              CommitOptions(
+                skip: _withOwned(raced.toSet(), staged.records.keys),
+              ),
+            );
             _committed();
             _refresh(notify: true);
 
@@ -1089,6 +1423,11 @@ final class QueryCache {
 
   void _refetchAll(List<QueryEntry> batch) {
     for (final entry in batch) {
+      // Queued before a clear, which dropped the registry entry it names: the
+      // invalidation was about data that is gone, and the record now under
+      // this key belongs to the cache's next life, perhaps the next principal.
+      if (!identical(registry.get(entry.key), entry)) continue;
+
       final record = _records[entry.key];
 
       if (record != null && record.inflight == null) _detach(_start(record));
@@ -1102,7 +1441,10 @@ final class QueryCache {
     int startedAt,
     Set<EntityKey>? skip,
   ) {
-    store.commit(staged, CommitOptions(skip: skip));
+    store.commit(
+      staged,
+      CommitOptions(skip: _withOwned(skip, staged.records.keys)),
+    );
     _committed();
 
     record.skeleton = staged.skeleton;
@@ -1158,9 +1500,12 @@ final class QueryCache {
     // ride a callback's result into base.
     store.commit(
       staged,
-      overlays.empty
-          ? const CommitOptions()
-          : CommitOptions(skip: overlays.keys()),
+      CommitOptions(
+        skip: _withOwned(
+          overlays.empty ? null : overlays.keys(),
+          staged.records.keys,
+        ),
+      ),
     );
     _committed();
 
@@ -1207,34 +1552,46 @@ final class QueryCache {
 
   QueryState<Object?> _snapshot(_Record record) {
     final data = _value(record);
-    final optimistic = overlays.affects(registry.get(record.key));
+    final entry = registry.get(record.key);
+    final optimistic = overlays.affects(entry);
+    final sync = _syncStatusFor(record.meta, entry?.deps ?? const {});
     final previous = record.state;
 
+    // `==` for the sync status: the fold builds a fresh Pending on every read,
+    // and an equal status must not cost the state its identity.
     if (previous != null &&
         sameValue(record.stateData, data) &&
         record.stateStatus == record.status &&
         identical(record.stateError, record.error) &&
         previous.isFetching == record.fetching &&
-        previous.isOptimistic == optimistic) {
+        previous.isOptimistic == optimistic &&
+        previous.syncStatus == sync) {
       return previous;
     }
 
     final QueryState<Object?> next = switch (record.status) {
-      .idle => QueryIdle(isFetching: record.fetching, isOptimistic: optimistic),
+      .idle => QueryIdle(
+        isFetching: record.fetching,
+        isOptimistic: optimistic,
+        syncStatus: sync,
+      ),
       .pending => QueryLoading(
         isFetching: record.fetching,
         isOptimistic: optimistic,
+        syncStatus: sync,
       ),
       .success => QuerySuccess(
         data,
         isFetching: record.fetching,
         isOptimistic: optimistic,
+        syncStatus: sync,
       ),
       .error => QueryFailure(
         record.error!,
         previous: data,
         isFetching: record.fetching,
         isOptimistic: optimistic,
+        syncStatus: sync,
       ),
     };
 
@@ -1342,8 +1699,10 @@ final class QueryCache {
     if (_commits.hasListener && !_commits.isClosed) _commits.add(null);
   }
 
-  /// Abandons every request in flight, closes every [watch] stream and the
-  /// [principalChanges] and [commits] streams. The cache is unusable after.
+  /// Abandons every request in flight, closes every [watch] stream, stops
+  /// every sync source, closes the [session], and closes the
+  /// [principalChanges], [commits] and [sessionChanges] streams. The cache is
+  /// unusable after.
   Future<void> dispose() async {
     if (_disposed) return;
 
@@ -1360,8 +1719,16 @@ final class QueryCache {
       controller.closeSync();
     }
 
+    // After the synchronous teardown above, which a caller that does not
+    // await dispose still relies on.
+    if (_syncSources.isNotEmpty || _storage != null) {
+      _scheduleSync(null);
+      await _syncTransition;
+    }
+
     await _principalChanges.close();
     await _commits.close();
+    await _sessionChanges.close();
   }
 
   void _ensureOpen() {

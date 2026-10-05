@@ -52,6 +52,10 @@ void applyFrames(
 
   for (final frame in frames) {
     final binding = frame.binding;
+
+    // A sync source owns this entity's records; a frame must not write them.
+    if (cache.owns(binding.entity)) continue;
+
     var payload = frame.payload;
     final codec = binding.decode;
 
@@ -77,11 +81,13 @@ void applyFrames(
       // whether or not the manifest says so.
       tags.add('${binding.entity}[]');
     } else {
-      cache.store.write(
-        payload,
-        cache.entities,
-        binding.entity,
-        CommitOptions(frameAt: stamp),
+      final staged = cache.store.stage(payload, cache.entities, binding.entity);
+
+      // Nor may a frame for a plain entity write the owned records nested in
+      // it.
+      cache.store.commit(
+        staged,
+        CommitOptions(frameAt: stamp, skip: _owned(cache, staged.records.keys)),
       );
     }
 
@@ -118,6 +124,21 @@ void applyFrames(
   if (cache.generation != committing) return;
 
   if (tags.isNotEmpty) cache.invalidate(tags.toList());
+}
+
+/// The keys among [keys] whose entity a sync source owns, or null for none.
+Set<EntityKey>? _owned(QueryCache cache, Iterable<EntityKey> keys) {
+  Set<EntityKey>? owned;
+
+  for (final key in keys) {
+    final colon = key.indexOf(':');
+
+    if (cache.owns(colon == -1 ? key : key.substring(0, colon))) {
+      (owned ??= <EntityKey>{}).add(key);
+    }
+  }
+
+  return owned;
 }
 
 /// The key an evict payload names: a bare identity, or a record carrying the

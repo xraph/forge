@@ -1,5 +1,7 @@
 import 'cache.dart';
 import 'invalidate.dart';
+import 'storage.dart';
+import 'sync.dart';
 import 'transport.dart';
 import 'types.dart';
 
@@ -18,6 +20,8 @@ QueryCache configureClient({
   int frameRestarts = 3,
   Clock clock = realClock,
   Duration? staleTime,
+  List<SyncSource> syncSources = const [],
+  StorageAdapter? storage,
 }) => _active = QueryCache(
   transport: transport,
   entities: entities,
@@ -28,6 +32,8 @@ QueryCache configureClient({
   frameRestarts: frameRestarts,
   clock: clock,
   staleTime: staleTime,
+  syncSources: syncSources,
+  storage: storage,
 );
 
 /// Installs an already-built cache as the default, or clears it with null.
