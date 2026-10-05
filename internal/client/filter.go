@@ -564,6 +564,14 @@ func (s *APISpec) reachableNames() map[string]struct{} {
 
 	s.walkStreamingFeatures(walk, walkParams)
 
+	// A sync row survives Apply only while one of its routes does (filterSync
+	// has already run), and its entity may be named by no REST operation at
+	// all. Without this root the pruner deletes the schema and the entities
+	// row from under a row that still names them.
+	for _, decl := range s.Sync {
+		push(decl.Entity)
+	}
+
 	return reachable
 }
 

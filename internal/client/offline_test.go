@@ -411,3 +411,87 @@ func TestOfflineSyncChannelParityBetweenIRBuilders(t *testing.T) {
 		t.Errorf("spec parser Sync = %+v, want %+v", file.Sync, want)
 	}
 }
+
+func syncOnlySpec() *APISpec {
+	obj := func() *Schema {
+		return &Schema{Type: "object", Properties: map[string]*Schema{"id": {Type: "string"}, "title": {Type: "string"}}}
+	}
+
+	spec := &APISpec{
+		Endpoints: []Endpoint{{Method: "GET", Path: "/keep/ping"}, {Method: "GET", Path: "/drop/ping"}},
+		Schemas:   map[string]*Schema{"Studio_Document": obj(), "Studio_Gone": obj()},
+		Sync: []SyncDecl{
+			{Protocol: "grove-crdt", Entity: "Studio_Document", Table: "documents", Pull: "/sync/pull", Push: "/sync/push"},
+			{Protocol: "grove-crdt", Entity: "Studio_Gone", Table: "gone", Pull: "/drop/pull"},
+		},
+	}
+
+	resolveEntityFields(spec)
+
+	return spec
+}
+
+// A sync-only entity is named by no REST operation, so the path filter's
+// reachability walk used to prune its schema and entities row while the Sync
+// row stayed behind naming both.
+func TestApplyKeepsASyncOnlyEntityWhoseRoutesSurvive(t *testing.T) {
+	spec := syncOnlySpec()
+
+	if spec.Entities["Studio_Document"] == nil || spec.Entities["Studio_Gone"] == nil {
+		t.Fatalf("precondition: Entities = %+v, want both sync entities", spec.Entities)
+	}
+
+	spec.Apply(PathFilter{Include: []string{"/keep/**", "/sync/**"}})
+
+	if spec.Schemas["Studio_Document"] == nil || spec.Entities["Studio_Document"] == nil {
+		t.Errorf("Schemas/Entities = %v / %+v, want the kept sync entity to survive the filter",
+			spec.Schemas, spec.Entities)
+	}
+
+	if spec.Schemas["Studio_Gone"] != nil || spec.Entities["Studio_Gone"] != nil {
+		t.Errorf("Schemas/Entities = %v / %+v, want the entity whose sync routes were all dropped pruned",
+			spec.Schemas, spec.Entities)
+	}
+
+	if len(spec.Sync) != 1 || spec.Sync[0].Entity != "Studio_Document" {
+		t.Fatalf("Sync = %+v, want only the Studio_Document row", spec.Sync)
+	}
+
+	if err := StripPrefix(spec, []string{"Studio_"}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if spec.Sync[0].Entity != "Document" || spec.Entities["Document"] == nil || spec.Schemas["Document"] == nil {
+		t.Errorf("Sync = %+v, Entities = %+v, Schemas = %v, want the row and the entity renamed together",
+			spec.Sync, spec.Entities, spec.Schemas)
+	}
+}
+
+// The role a stream or socket channel serves comes from the channel's kind. A
+// declared role that disagrees is recorded as the kind's role, and said so.
+func TestCollectSyncRouteLetsTheChannelKindOverrideADeclaredRole(t *testing.T) {
+	spec := &APISpec{}
+
+	collectSyncRoute(spec, "channel /d/sync/ws", "/d/sync/ws", "socket", map[string]any{"x-forge-sync": map[string]any{
+		"protocol": "grove-crdt", "entity": "Document", "role": "pull",
+	}})
+
+	if len(spec.Sync) != 1 || spec.Sync[0].Socket != "/d/sync/ws" || spec.Sync[0].Pull != "" {
+		t.Fatalf("Sync = %+v, want the path recorded as the socket, not the declared pull", spec.Sync)
+	}
+
+	if len(spec.Warnings) != 1 || !strings.Contains(spec.Warnings[0], `"pull"`) ||
+		!strings.Contains(spec.Warnings[0], "socket") {
+		t.Errorf("warnings = %v, want one naming the declared and the recorded role", spec.Warnings)
+	}
+
+	agreeing := &APISpec{}
+
+	collectSyncRoute(agreeing, "channel /d/sync/ws", "/d/sync/ws", "socket", map[string]any{"x-forge-sync": map[string]any{
+		"protocol": "grove-crdt", "entity": "Document", "role": "socket",
+	}})
+
+	if len(agreeing.Warnings) != 0 || len(agreeing.Sync) != 1 || agreeing.Sync[0].Socket != "/d/sync/ws" {
+		t.Errorf("Sync = %+v, warnings = %v, want an agreeing role accepted silently", agreeing.Sync, agreeing.Warnings)
+	}
+}

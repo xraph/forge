@@ -76,7 +76,17 @@ func collectSyncRoute(spec *APISpec, origin, routePath, kindRole string, ext map
 		dataset, _ := entry["dataset"].(string)
 
 		role, _ := entry["role"].(string)
-		if role == "" {
+		switch {
+		case role == "":
+			role = kindRole
+		case kindRole != "" && role != kindRole:
+			// The route's kind decides: a channel is a stream or a socket
+			// whatever the declaration says, and recording the declared
+			// role would file the path under an endpoint it does not serve.
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"client: %s declares %s role %q, but the route is a %s channel; recording it as %s.",
+				origin, syncExtension, role, kindRole, kindRole))
+
 			role = kindRole
 		}
 
