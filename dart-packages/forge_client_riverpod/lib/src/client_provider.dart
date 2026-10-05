@@ -2,10 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart';
 
-/// Riverpod 3 already skips retrying an `Error` (a `StateError` from
-/// `getClient`, say). This stops it retrying an `Exception` too, which would
-/// resubscribe and refetch behind the cache's back.
-Duration? _noRetry(int retryCount, Object error) => null;
+import 'internal.dart';
 
 /// The cache every Forge provider reads from. Override it in `ProviderScope`:
 ///
@@ -23,7 +20,7 @@ Duration? _noRetry(int retryCount, Object error) => null;
 final Provider<QueryCache> forgeClientProvider = Provider<QueryCache>(
   (ref) => getClient(),
   name: 'forgeClientProvider',
-  retry: _noRetry,
+  retry: noRetry,
 );
 
 /// The focus signal [forgeInstalledClientProvider] installs. Defaults to
@@ -31,7 +28,7 @@ final Provider<QueryCache> forgeClientProvider = Provider<QueryCache>(
 final Provider<FocusSignal> forgeFocusSignalProvider = Provider<FocusSignal>(
   (ref) => AppLifecycleFocusSignal(),
   name: 'forgeFocusSignalProvider',
-  retry: _noRetry,
+  retry: noRetry,
 );
 
 /// The connectivity signal [forgeInstalledClientProvider] installs. Defaults
@@ -40,7 +37,7 @@ final Provider<ConnectivitySignal> forgeConnectivitySignalProvider =
     Provider<ConnectivitySignal>(
   (ref) => ConnectivityPlusSignal(),
   name: 'forgeConnectivitySignalProvider',
-  retry: _noRetry,
+  retry: noRetry,
 );
 
 /// [forgeClientProvider]'s cache with focus and reconnect revalidation
@@ -62,5 +59,5 @@ final Provider<QueryCache> forgeInstalledClientProvider = Provider<QueryCache>(
     return client;
   },
   name: 'forgeInstalledClientProvider',
-  retry: _noRetry,
+  retry: noRetry,
 );

@@ -46,9 +46,11 @@ void main() {
       );
     });
 
-    test('does not retry a provider that throws', () async {
+    testWidgets('does not retry a provider that throws', (tester) async {
       // An Exception, not an Error: Riverpod's default retry skips Errors, so a
       // StateError from getClient would prove nothing. No container-level retry.
+      // Under testWidgets the clock is fake, so the wait below is long enough
+      // for several of Riverpod's retries (200ms, doubling) and costs nothing.
       var calls = 0;
       final container = ProviderContainer(
         overrides: [
@@ -62,7 +64,7 @@ void main() {
       final sub = container.listen(forgeClientProvider, (_, _) {}, onError: (_, _) {});
       addTearDown(sub.close);
 
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(seconds: 10));
 
       expect(calls, 1);
     });

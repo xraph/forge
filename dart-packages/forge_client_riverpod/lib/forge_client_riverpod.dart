@@ -16,4 +16,4 @@ export 'src/client_provider.dart'
         forgeInstalledClientProvider;
 export 'src/mutation_provider.dart' show ForgeMutationNotifier, mutationProvider;
 export 'src/query_provider.dart'
-    show ForgeQueryFamily, ForgeQueryParams, ForgeQueryStateNotifier, ForgeQueryValueNotifier, queryProvider;
+    show ForgeQueryFamily, ForgeQueryParams, ForgeQueryStateNotifier, queryProvider;

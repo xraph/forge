@@ -6,8 +6,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
 
-/// Riverpod 3 already skips retrying an `Error`. This stops it retrying an
-/// `Exception` too, which would resubscribe behind the cache's back.
+/// The retry policy of every Forge provider. Riverpod 3 already skips
+/// retrying an `Error` (a `StateError` from `getClient`, say). This stops it
+/// retrying an `Exception` too, which would resubscribe and refetch behind
+/// the cache's back.
 Duration? noRetry(int retryCount, Object error) => null;
 
 /// A client's current principal, following `setPrincipal`.
