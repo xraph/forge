@@ -4,8 +4,12 @@ The runtime a generated Forge Dart client runs on. You don't usually import it
 on its own: a package generated with `forge client generate --language dart
 --hooks` depends on it, and you talk to that package's bindings. What you get
 underneath is the same engine the TypeScript client uses, ported module for
-module, so a query keyed in Dart and a query keyed in TypeScript land on the
-same cache key and the same entity records.
+module. For a typical call, a query keyed in Dart and one keyed in TypeScript
+land on the same cache key and the same entity records. The keys aren't
+byte-identical in every case, mind you: Dart's `operationQueryKey` drops an
+empty path, query or header map and any null path or query value, so a call
+that passes those can key differently from TypeScript. Hydration doesn't care,
+because it re-derives every key from the operation and its arguments.
 
 It's pure Dart. No Flutter, no state library. The Flutter and Riverpod
 adapters live in their own packages.
@@ -60,7 +64,7 @@ package. These are the features it adopts, and where:
 | Records and patterns, exhaustive `switch` expressions | 3.0 | spec translation in the overlay, typed state mapping, the key and tag renderers |
 | Null-aware elements (`'body': ?value`) | 3.8 | building cache keys and request maps without `if` noise |
 | Dot shorthands (`.pending`) | 3.10 | `QueryStatus` transitions inside the cache |
-| Private named parameters (`this._onError`) | 3.12 | constructors of `QueryCache`, `RestTransport` and `Invalidator` keep their fields private and their parameters readable |
+| Private named parameters (`this._onError`) | 3.12 | constructors of `QueryCache` and `RestTransport` keep their fields private and their parameters readable (`Invalidator` assigns its private fields in an initializer list) |
 | Primary constructors | 3.13 | small private value classes |
 
 Two things from the spec's baseline are not here, on purpose. Extension types
