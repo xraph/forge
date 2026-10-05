@@ -2,7 +2,7 @@
 
 Flutter widgets over `forge_client`. You don't need a state library to use Forge well. Queries, mutations, invalidation, combined queries, side effects and a little local state are all here, built on Flutter's own `Listenable` machinery.
 
-A Riverpod 3 adapter, `forge_client_riverpod`, is planned for this repository and isn't built yet. When it lands it will reuse this package's seams, so both revalidate the same way.
+If your app is already on Riverpod 3, `forge_client_riverpod` (in `dart-packages/forge_client_riverpod`) is the adapter for it. It reuses this package's seams, so both revalidate the same way.
 
 ## Install
 
@@ -84,7 +84,7 @@ Without `select`, a builder rebuilds only when something it can render changed. 
 `live: true` does nothing until the app has built the stream runtime, and nothing in this package builds it for you. Without it, the builder reports a `StateError` through the cache's `onError` (context `live`) and carries on with plain queries. You need three pieces: the cache, a `SubscriptionManager` that owns the sockets, and a `StreamBinder` that decodes frames and writes them into the cache.
 
 ```dart
-QueryCache buildLiveClient() {
+({QueryCache cache, StreamBinder binder}) buildLiveClient() {
   void onError(Object error, String context) => debugPrint('forge $context: $error');
 
   final cache = configureClient(
@@ -100,8 +100,8 @@ QueryCache buildLiveClient() {
     revive: ConnectivityPlusSignal(),
     onError: onError,
   );
-  StreamBinder(cache: cache, streams: streams, manager: manager, onError: onError);
-  return cache;
+  final binder = StreamBinder(cache: cache, streams: streams, manager: manager, onError: onError);
+  return (cache: cache, binder: binder);
 }
 
 Widget liveOrder(String id) => ForgeQueryBuilder(
@@ -111,7 +111,7 @@ Widget liveOrder(String id) => ForgeQueryBuilder(
 );
 ```
 
-The binder attaches itself to the cache, so you don't hold on to it. With `live: true` on, a builder takes a reference on each channel its entities are pushed on, and the manager shares one socket per endpoint between every builder that asked. Toggling `live` opens or releases the channel and never refetches. Frames land through the cache's commit scheduler, so a burst of them costs one rebuild per frame.
+The binder attaches itself to the cache, which is how `live: true` finds it. Keep the reference if you will ever tear the runtime down. With `live: true` on, a builder takes a reference on each channel its entities are pushed on, and the manager shares one socket per endpoint between every builder that asked. Toggling `live` opens or releases the channel and never refetches. Frames land through the cache's commit scheduler, so a burst of them costs one rebuild per frame.
 
 The `principal:` line is the one to get right. The manager opens each socket for a principal, and the binder checks that the manager's principal equals the cache's. When they differ, the binder reports it and fails closed: every frame is dropped, because those sockets carry another identity's data. Passing `() => cache.principal` keeps the two equal, including across a sign-in or sign-out. `revive:` retries abandoned sockets when the network comes back, with the same `ConnectivityPlusSignal` the scope uses for reconnect revalidation. Call `binder.dispose()` if you tear the runtime down.
 
@@ -122,11 +122,13 @@ Widget saveButton(String id, String note) => ForgeMutationBuilder(
   mutation: updateOrder,
   optimistic: (args) => OptimisticUpdate((order) => order.copyWith(note: args.note)),
   builder: (context, m) => FilledButton(
-    onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: note)),
+    onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: Assign(note))),
     child: const Text('Save'),
   ),
 );
 ```
+
+An optional field of a PATCH body is a `Value`. It defaults to `const Unchanged()`, which leaves the field out of the request, and `Assign(x)` sets it (`Assign(null)` clears it on the server). A model's `copyWith` takes the same `Value<T>?` for each nullable field, which is why `args.note` goes straight into it above and `order.copyWith(note: Assign('gift'))` works anywhere else. An operation with no parameters takes `NoArgs`.
 
 `m.mutate` never throws. A failure is recorded in `m.state` and the future resolves with null, so the spelling an `onPressed` uses can't raise an unhandled error. `m.mutateAsync` records the same state and rethrows, for code that must not continue after a failed write. Two overlapping calls settle in favour of the later one.
 
@@ -151,7 +153,7 @@ This is a port of the TypeScript `useInvalidate`. It matches every query the cac
 
 ```dart
 Widget dashboard() => ForgeQueriesBuilder(
-  queries: [listOrders(const ListOrdersArgs()), getOrder(const GetOrderArgs(id: '7'))],
+  queries: [listOrders(const NoArgs()), getOrder(const GetOrderArgs(id: '7'))],
   builder: (context, s) => switch (s.status) {
     ForgeCombinedStatus.idle || ForgeCombinedStatus.loading => const CircularProgressIndicator(),
     ForgeCombinedStatus.failure => ErrorView(s.error!, null),
@@ -208,7 +210,7 @@ A few details worth knowing:
 
 ## Offline
 
-`forge_client_offline` isn't built yet. It will persist the outbox and the cache snapshot per principal, and its `OfflineClient` will implement `forge_client`'s `OutboxFailureSource`, so you pass it straight to `ForgeOutboxListener(source: offline, ...)`. This package depends on neither. What you can use today is the two widgets, with your own `restore` and any `OutboxFailureSource`:
+`forge_client_offline` arrives with plan 04 of the Dart client work, and this section will be updated then. It will persist the outbox and the cache snapshot per principal, and its `OfflineClient` will implement `forge_client`'s `OutboxFailureSource`, so you pass it straight to `ForgeOutboxListener(source: offline, ...)`. This package depends on neither. What you can use today is the two widgets, with your own `restore` and any `OutboxFailureSource`:
 
 ```dart
 Future<void> restoreCache() async {

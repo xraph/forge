@@ -34,7 +34,7 @@ Widget orderView(String id) => ForgeQueryBuilder(
 );
 
 //README-BLOCK live
-QueryCache buildLiveClient() {
+({QueryCache cache, StreamBinder binder}) buildLiveClient() {
   void onError(Object error, String context) => debugPrint('forge $context: $error');
 
   final cache = configureClient(
@@ -50,8 +50,8 @@ QueryCache buildLiveClient() {
     revive: ConnectivityPlusSignal(),
     onError: onError,
   );
-  StreamBinder(cache: cache, streams: streams, manager: manager, onError: onError);
-  return cache;
+  final binder = StreamBinder(cache: cache, streams: streams, manager: manager, onError: onError);
+  return (cache: cache, binder: binder);
 }
 
 Widget liveOrder(String id) => ForgeQueryBuilder(
@@ -65,7 +65,7 @@ Widget saveButton(String id, String note) => ForgeMutationBuilder(
   mutation: updateOrder,
   optimistic: (args) => OptimisticUpdate((order) => order.copyWith(note: args.note)),
   builder: (context, m) => FilledButton(
-    onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: note)),
+    onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: Assign(note))),
     child: const Text('Save'),
   ),
 );
@@ -80,7 +80,7 @@ Future<void> refresh(BuildContext context, String id) async {
 
 //README-BLOCK combined
 Widget dashboard() => ForgeQueriesBuilder(
-  queries: [listOrders(const ListOrdersArgs()), getOrder(const GetOrderArgs(id: '7'))],
+  queries: [listOrders(const NoArgs()), getOrder(const GetOrderArgs(id: '7'))],
   builder: (context, s) => switch (s.status) {
     ForgeCombinedStatus.idle || ForgeCombinedStatus.loading => const CircularProgressIndicator(),
     ForgeCombinedStatus.failure => ErrorView(s.error!, null),

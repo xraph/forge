@@ -21,9 +21,10 @@ import 'package:forge_client/forge_client.dart' show OutboxFailureSource;
 /// it. A failure that arrives then is held and delivered after that frame,
 /// in order, and every failure is delivered: unlike a state, one failure does
 /// not replace another. A failure still held when the listener is removed is
-/// dropped, since there is no context left to hand it. If [onFailure] throws
-/// for one held failure, the error is reported through
-/// `FlutterError.reportError` and the rest are still delivered.
+/// dropped, since there is no context left to hand it. If [onFailure] throws,
+/// held or not, the error is reported through `FlutterError.reportError` and
+/// later failures are still delivered. A failure emitted from inside
+/// [onFailure] queues behind the ones still held.
 final class ForgeOutboxListener extends StatefulWidget {
   /// Creates a listener on [source].
   const ForgeOutboxListener({
@@ -78,7 +79,7 @@ final class _ForgeOutboxListenerState extends State<ForgeOutboxListener> {
     final building =
         SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks;
     if (_held.isEmpty && !building) {
-      widget.onFailure(context, failure);
+      _deliver(failure);
       return;
     }
 
@@ -93,20 +94,28 @@ final class _ForgeOutboxListenerState extends State<ForgeOutboxListener> {
   }
 
   void _deliverHeld() {
-    final batch = List<Object>.of(_held);
-    _held.clear();
-    for (final failure in batch) {
-      if (!mounted) return;
-      try {
-        widget.onFailure(context, failure);
-      } catch (error, stackTrace) {
-        FlutterError.reportError(FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'forge_client_flutter',
-          context: ErrorDescription('while handling an outbox failure'),
-        ));
+    // Drained from the front rather than copied and cleared, so a failure
+    // that onFailure itself emits lands behind the ones still waiting.
+    while (_held.isNotEmpty) {
+      final failure = _held.removeAt(0);
+      if (!mounted) {
+        _held.clear();
+        return;
       }
+      _deliver(failure);
+    }
+  }
+
+  void _deliver(Object failure) {
+    try {
+      widget.onFailure(context, failure);
+    } catch (error, stackTrace) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'forge_client_flutter',
+        context: ErrorDescription('while handling an outbox failure'),
+      ));
     }
   }
 

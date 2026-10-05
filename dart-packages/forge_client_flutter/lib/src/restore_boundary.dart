@@ -15,7 +15,9 @@ import 'package:flutter/widgets.dart';
 /// A failed restore still renders [child], on whatever the cache holds: the
 /// app works on a cold cache, it just fetches. The failure goes to [onError]
 /// when given, otherwise to `FlutterError.reportError`. A callback that
-/// throws before it returns a future counts as a failed restore too.
+/// throws before it returns a future counts as a failed restore too, and so
+/// does an [onError] that throws: that error is reported through
+/// `FlutterError.reportError`, and [child] still mounts.
 ///
 /// `forge_client_offline` supplies the callback, so this package does not
 /// depend on it. It reads the snapshot from the `QueryCache.session` the
@@ -26,7 +28,7 @@ import 'package:flutter/widgets.dart';
 /// ```dart
 /// restore: () async {
 ///   await cache.idle;
-///   final stored = await readSnapshot(cache.session);
+///   final stored = await cache.session?.readSnapshot();
 ///   if (stored != null) {
 ///     hydrate(cache, stored, principal: cache.principal, operations: operations, stale: true);
 ///   }
@@ -76,14 +78,28 @@ final class _ForgeRestoreBoundaryState extends State<ForgeRestoreBoundary> {
       await Future<void>.microtask(restore);
     } catch (error, stackTrace) {
       _report(error, stackTrace);
+    } finally {
+      // Whatever happened above, the app works on a cold cache.
+      if (mounted) setState(() => _ready = true);
     }
-    if (mounted) setState(() => _ready = true);
   }
 
   void _report(Object error, StackTrace stackTrace) {
     final onError = widget.onError;
     if (onError != null) {
-      onError(error, stackTrace);
+      try {
+        onError(error, stackTrace);
+      } catch (handlerError, handlerStack) {
+        FlutterError.reportError(FlutterErrorDetails(
+          exception: handlerError,
+          stack: handlerStack,
+          library: 'forge_client_flutter',
+          context: ErrorDescription('while reporting a failed restore'),
+          informationCollector: () => [
+            ErrorDescription('The restore itself failed with: $error'),
+          ],
+        ));
+      }
       return;
     }
     FlutterError.reportError(FlutterErrorDetails(

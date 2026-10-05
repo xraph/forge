@@ -109,6 +109,33 @@ void main() {
     });
   });
 
+  group('when onFailure throws', () {
+    testWidgets('reports the error and still delivers the next failure, on the direct path', (tester) async {
+      final h = harness((_, _) => null);
+      final outbox = _FakeOutbox();
+      final seen = <String>[];
+
+      await tester.pumpWidget(scope(
+        h,
+        ForgeOutboxListener(
+          source: outbox,
+          onFailure: (context, failure) {
+            if (failure == 'bad') throw const Boom('handler failed');
+            seen.add('$failure');
+          },
+          child: const SizedBox(),
+        ),
+      ));
+
+      outbox.controller
+        ..add('bad')
+        ..add('good');
+
+      expect(seen, ['good']);
+      expect(tester.takeException(), isA<Boom>());
+    });
+  });
+
   group('while the tree is being built', () {
     // A source can emit from inside a build: the cache notifies synchronously,
     // and an outbox that rolls back an optimistic write on a failure does so
@@ -192,6 +219,22 @@ void main() {
 
       expect(seen, ['good']);
       expect(tester.takeException(), isA<Boom>());
+    });
+
+    testWidgets('queues a failure emitted from onFailure behind the ones still held', (tester) async {
+      final h = harness((_, _) => null);
+      final outbox = _FakeOutbox();
+      final seen = <String>[];
+
+      await tester.pumpWidget(scope(
+        h,
+        emitting(outbox, ['a', 'b'], (context, failure) {
+          seen.add('$failure');
+          if (failure == 'a') outbox.controller.add('c');
+        }),
+      ));
+
+      expect(seen, ['a', 'b', 'c']);
     });
 
     testWidgets('drops a held failure when the listener is removed in the same frame', (tester) async {

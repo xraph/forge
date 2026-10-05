@@ -264,6 +264,25 @@ void main() {
       expect(find.text('ready'), findsOneWidget);
     });
 
+    testWidgets('mounts the child and reports through FlutterError when onError itself throws', (tester) async {
+      final h = harness((_, _) => order(1, 5));
+
+      await tester.pumpWidget(scope(
+        h,
+        ForgeRestoreBoundary(
+          restore: () async => throw const Boom('restore failed'),
+          onError: (error, _) => throw const Boom('handler failed'),
+          child: const Text('ready'),
+        ),
+      ));
+      await settle(tester);
+
+      final reported = tester.takeException();
+      expect(reported, isA<Boom>());
+      expect('$reported', 'handler failed');
+      expect(find.text('ready'), findsOneWidget);
+    });
+
     testWidgets('does nothing when it was removed before restore completed', (tester) async {
       final h = harness((_, _) => order(1, 5));
       final gate = Completer<void>();
