@@ -524,6 +524,17 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		genClient.Files[".npmignore"] = npmIgnoreGen.Generate(spec, config)
 	}
 
+	// The parity tables, for the cross-generator test. Written at the output
+	// root, so the client-only rename below leaves the path alone.
+	if config.EmitTablesJSON {
+		tables, err := buildTables(spec, config).MarshalCanonical()
+		if err != nil {
+			return nil, fmt.Errorf("render %s: %w", client.TablesFile, err)
+		}
+
+		genClient.Files[client.TablesFile] = string(tables)
+	}
+
 	// Generate instructions
 	genClient.Instructions = g.generateInstructions(spec, config)
 

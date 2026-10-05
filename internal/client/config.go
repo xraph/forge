@@ -9,7 +9,7 @@ import (
 
 // GeneratorConfig configures client generation.
 type GeneratorConfig struct {
-	// Language specifies the target language (go, typescript, rust)
+	// Language specifies the target language (go, typescript, dart)
 	Language string
 
 	// OutputDir is the directory where generated files will be written
@@ -84,10 +84,10 @@ type GeneratorConfig struct {
 	ClientOnly bool // Generate only client source files (no package.json, tsconfig, etc.)
 
 	// FieldNaming selects the client-side identifier style for schema properties.
-	// The wire name always comes from the spec. Only the TypeScript generator reads
-	// this field in this change; other language generators ignore it and are
-	// unaffected. Defaults to NamingCamel when Language is "typescript", and to
-	// NamingPreserve otherwise, so no existing generator changes behaviour.
+	// The wire name always comes from the spec. The TypeScript and Dart
+	// generators read this field; the Go generator ignores it. Defaults to
+	// NamingCamel when Language is "typescript" or "dart", and to
+	// NamingPreserve otherwise.
 	FieldNaming NamingStrategy
 
 	// FieldOverrides maps a wire name to an explicit client-side name. A key of
@@ -115,7 +115,31 @@ type GeneratorConfig struct {
 	// Empty disables it, which is the default and the behaviour every existing
 	// configuration keeps.
 	StripPrefixes []string
+
+	// Int64 selects how the Dart generator types an int64 schema: Int64String
+	// (the default, an extension type over String that keeps every digit on
+	// the web) or Int64Int (a raw int, for apps that never target the web).
+	// Other generators ignore it.
+	Int64 Int64Mode
+
+	// EmitTablesJSON makes the TypeScript and Dart generators also write
+	// forge-tables.json, their ops, entities, streams and capability tables
+	// as canonical JSON. Not exposed on the command line: it exists for the
+	// cross-generator parity test, which compares the two files.
+	EmitTablesJSON bool
 }
+
+// Int64Mode selects the Dart representation of an int64 schema.
+type Int64Mode string
+
+const (
+	// Int64String carries int64 values as decimal strings. The zero value
+	// means the same thing.
+	Int64String Int64Mode = "string"
+	// Int64Int carries int64 values as Dart ints, which lose precision above
+	// 2^53 on the web.
+	Int64Int Int64Mode = "int"
+)
 
 // HooksEnabled reports whether the operation manifest and hook facade layer
 // should be emitted, honouring the deprecated ReactQuery alias for Hooks.
@@ -319,9 +343,15 @@ func (c *GeneratorConfig) Validate() error {
 	c.Language = strings.ToLower(c.Language)
 
 	// Validate supported languages
-	supportedLanguages := []string{"go", "typescript", "ts"}
+	supportedLanguages := []string{"go", "typescript", "ts", "dart"}
 	if !contains(supportedLanguages, c.Language) {
-		return fmt.Errorf("unsupported language: %s (supported: go, typescript)", c.Language)
+		return fmt.Errorf("unsupported language: %s (supported: go, typescript, dart)", c.Language)
+	}
+
+	switch c.Int64 {
+	case "", Int64String, Int64Int:
+	default:
+		return fmt.Errorf("invalid int64 mode %q (supported: string, int)", c.Int64)
 	}
 
 	// Normalize typescript alias
@@ -362,6 +392,10 @@ func (c *GeneratorConfig) validatePackageName() error {
 		if !isValidTypeScriptPackageName(c.PackageName) {
 			return fmt.Errorf("invalid TypeScript package name: %s", c.PackageName)
 		}
+	case "dart":
+		if !isValidDartPackageName(c.PackageName) {
+			return fmt.Errorf("invalid Dart package name: %s (must be lowercase_with_underscores, start with a letter or underscore, and not be a Dart reserved word)", c.PackageName)
+		}
 	}
 
 	return nil
@@ -379,6 +413,41 @@ func isValidGoPackageName(name string) bool {
 		}
 
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// dartReservedPackageNames are the words pub refuses as package names, because
+// a package name is also the identifier its library is imported as.
+var dartReservedPackageNames = map[string]bool{
+	"abstract": true, "as": true, "assert": true, "async": true, "await": true, "base": true,
+	"break": true, "case": true, "catch": true, "class": true, "const": true, "continue": true,
+	"covariant": true, "default": true, "deferred": true, "do": true, "dynamic": true, "else": true,
+	"enum": true, "export": true, "extends": true, "extension": true, "external": true, "factory": true,
+	"false": true, "final": true, "finally": true, "for": true, "function": true, "get": true,
+	"hide": true, "if": true, "implements": true, "import": true, "in": true, "interface": true,
+	"is": true, "late": true, "library": true, "mixin": true, "new": true, "null": true, "of": true,
+	"on": true, "operator": true, "part": true, "required": true, "rethrow": true, "return": true,
+	"sealed": true, "set": true, "show": true, "static": true, "super": true, "switch": true,
+	"sync": true, "this": true, "throw": true, "true": true, "try": true, "type": true,
+	"typedef": true, "var": true, "void": true, "when": true, "while": true, "with": true, "yield": true,
+}
+
+// isValidDartPackageName checks a pub package name: lowercase letters, digits
+// and underscores, not starting with a digit, and not a reserved word.
+func isValidDartPackageName(name string) bool {
+	if name == "" || dartReservedPackageNames[name] {
+		return false
+	}
+
+	for i, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z', c == '_':
+		case c >= '0' && c <= '9' && i > 0:
+		default:
 			return false
 		}
 	}

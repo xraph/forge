@@ -65,7 +65,7 @@ func (g *OpsManifestGenerator) Generate(spec *client.APISpec, config client.Gene
 		}
 	}
 
-	buf.WriteString(g.generateMeta(needsCodecs))
+	buf.WriteString(g.generateMeta(needsCodecs, anyIdempotent(spec)))
 	buf.WriteString("\n")
 
 	rows := entityRows(spec, config)
@@ -185,7 +185,7 @@ func (g *OpsManifestGenerator) GenerateModules(
 // per-operation modules do not get a copy: they import the type from './ops'
 // with `import type`, which every bundler erases, so naming it costs them
 // nothing and there is one declaration rather than two that could drift.
-func (g *OpsManifestGenerator) generateMeta(needsCodecs bool) string {
+func (g *OpsManifestGenerator) generateMeta(needsCodecs, idempotent bool) string {
 	var buf strings.Builder
 
 	buf.WriteString(`/**
@@ -250,6 +250,17 @@ export interface OperationMeta {
   readonly bodyCodec?: CodecRef;
   /** The same, for decoding a JSON response back into its TypeScript shape. */
   readonly responseCodec?: CodecRef;
+`)
+	}
+
+	// Declared only when an operation carries it, so a client with no
+	// idempotent route emits the interface it always did.
+	if idempotent {
+		buf.WriteString(`  /**
+   * The route is served behind Forge's idempotency middleware, so an offline
+   * outbox may replay this write after an uncertain outcome.
+   */
+  readonly idempotent?: boolean;
 `)
 	}
 
@@ -563,79 +574,109 @@ func writeOperationFields(
 	buf *strings.Builder, ep *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig,
 	known map[string]bool, needsCodecs bool, indent string, codecRef func(string) string,
 ) {
-	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(ep.Method)))
-	buf.WriteString(fmt.Sprintf("%spath: %s,\n", indent, tsString(ep.Path)))
+	row := operationRow(ep, spec, config, known, needsCodecs)
 
-	if ep.Entity != nil {
-		buf.WriteString(fmt.Sprintf("%sentity: %s,\n", indent, tsString(ep.Entity.Type)))
+	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(row.Method)))
+	buf.WriteString(fmt.Sprintf("%spath: %s,\n", indent, tsString(row.Path)))
+
+	if row.Entity != "" {
+		buf.WriteString(fmt.Sprintf("%sentity: %s,\n", indent, tsString(row.Entity)))
 	}
 
-	// Emitted whenever the table can answer it, INCLUDING when it repeats
-	// the entity name. Omitting the repetition and letting the runtime fall
-	// back to `entity` would be correct only while the two happen to agree,
-	// and the case this whole field exists for is the one where they do
-	// not; a reader of the manifest should not have to know which.
-	//
-	// A root type with no row is dropped instead: the runtime's only use
-	// for it is to index this table, and a lookup that misses descends with
-	// no typename, exactly as an absent field does.
-	if known[ep.RootType] {
-		buf.WriteString(fmt.Sprintf("%srootType: %s,\n", indent, tsString(ep.RootType)))
+	if row.RootType != "" {
+		buf.WriteString(fmt.Sprintf("%srootType: %s,\n", indent, tsString(row.RootType)))
 	}
 
-	// Renamed for the same reason the entities table is: these templates
-	// are resolved against a body the caller built in TypeScript and a
-	// response the codec has already decoded. Declared templates are renamed
-	// through the schema graph (renameDeclaredTags); the one template the
-	// generator derives itself is renamed by exact match (renameDerivedIDTags).
-	provides := renameDerivedIDTags(
-		renameDeclaredTags(ep.CacheTags.Provides, ep, spec, config), ep.Entity, config)
-	invalidates := renameDerivedIDTags(
-		renameDeclaredTags(ep.CacheTags.Invalidates, ep, spec, config), ep.Entity, config)
-
-	fmt.Fprintf(buf, "%sprovides: %s,\n", indent, tsStringArray(provides))
-	fmt.Fprintf(buf, "%sinvalidates: %s,\n", indent, tsStringArray(invalidates))
+	fmt.Fprintf(buf, "%sprovides: %s,\n", indent, tsStringArray(row.Provides))
+	fmt.Fprintf(buf, "%sinvalidates: %s,\n", indent, tsStringArray(row.Invalidates))
 
 	// Unlike provides/invalidates above, which always emit `[]` when
 	// empty, an unsecured operation drops the field entirely: bundle
 	// weight for a lookup an AuthProvider would run and find empty on
 	// every one of the (usually many) unauthenticated operations.
-	if keys := operationSecurityKeys(ep.Security); len(keys) > 0 {
-		buf.WriteString(fmt.Sprintf("%ssecurity: %s,\n", indent, tsStringArray(keys)))
+	if len(row.Security) > 0 {
+		buf.WriteString(fmt.Sprintf("%ssecurity: %s,\n", indent, tsStringArray(row.Security)))
 	}
 
 	// Dropped when undeclared, following `security` rather than
 	// `provides`/`invalidates`, which always emit `[]`. An operation that
 	// declares nothing must produce the bytes it produced before this field
 	// existed, because CI byte-diffs ops.ts.
-	if ep.StaleTime > 0 {
-		buf.WriteString(fmt.Sprintf("%sstaleTime: %d,\n", indent, ep.StaleTime))
+	if row.StaleTime > 0 {
+		buf.WriteString(fmt.Sprintf("%sstaleTime: %d,\n", indent, row.StaleTime))
 	}
 
-	// The codec ids the runtime's generic caller needs, resolved by the
-	// SAME functions rest.go resolves the typed methods' RequestConfig
-	// with -- so the two call paths cannot disagree about which codec
-	// encodes a body or decodes a response.
-	//
-	// The warning half of each resolver's return is deliberately dropped
-	// here: rest.go already appends it to RESTGenerator.warnings for the
-	// identical endpoint, and reporting it twice would say a spec has two
-	// problems where it has one. An unresolvable ref yields "" on both
-	// sides, so the manifest stays silent exactly where the typed method
-	// does.
+	// Dropped when false for the same reason as staleTime: an operation that
+	// is not behind the idempotency middleware emits the bytes it always did.
+	if row.Idempotent {
+		buf.WriteString(fmt.Sprintf("%sidempotent: true,\n", indent))
+	}
+
+	// The codec itself, not its id. fetch.ts reads this straight off the
+	// request config now, because the runtime it imports has no table to
+	// resolve an id against.
+	if row.BodyCodec != "" {
+		buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, codecRef(row.BodyCodec)))
+	}
+
+	if row.ResponseCodec != "" {
+		buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, codecRef(row.ResponseCodec)))
+	}
+}
+
+// operationRow resolves every value one OperationMeta carries. The renderer
+// above and the parity tables (tables.go) both read it, so what ops.ts says
+// and what forge-tables.json says about an operation are the same values.
+//
+// rootType is kept only when the entities table has a row for it: the
+// runtime's only use for it is to index that table, and a lookup that misses
+// descends with no typename, exactly as an absent field does. Tags are
+// renamed for the same reason the entities table is: declared templates
+// through the schema graph (renameDeclaredTags), the derived item tag by
+// exact match (renameDerivedIDTags). The codec ids come from the same
+// resolvers rest.go uses; their warnings are reported there, once.
+func operationRow(
+	ep *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig,
+	known map[string]bool, needsCodecs bool,
+) client.TableOp {
+	row := client.TableOp{
+		Method:     ep.Method,
+		Path:       ep.Path,
+		StaleTime:  ep.StaleTime,
+		Idempotent: ep.Idempotent,
+		Security:   operationSecurityKeys(ep.Security),
+		Provides: renameDerivedIDTags(
+			renameDeclaredTags(ep.CacheTags.Provides, ep, spec, config), ep.Entity, config),
+		Invalidates: renameDerivedIDTags(
+			renameDeclaredTags(ep.CacheTags.Invalidates, ep, spec, config), ep.Entity, config),
+	}
+
+	if ep.Entity != nil {
+		row.Entity = ep.Entity.Type
+	}
+
+	if known[ep.RootType] {
+		row.RootType = ep.RootType
+	}
+
 	if needsCodecs {
-		// The codec itself, not its id. fetch.ts reads this straight off the
-		// request config now, because the runtime it imports has no table to
-		// resolve an id against -- that table is exactly what a request used
-		// to drag in behind decode().
-		if codecID, _ := requestBodyCodecRef(ep); codecID != "" {
-			buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, codecRef(codecID)))
-		}
+		row.BodyCodec, _ = requestBodyCodecRef(ep)
+		row.ResponseCodec, _ = responseCodecRef(ep)
+	}
 
-		if codecID, _ := responseCodecRef(ep); codecID != "" {
-			buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, codecRef(codecID)))
+	return row
+}
+
+// anyIdempotent reports whether any operation is behind the idempotency
+// middleware, which is the only case OperationMeta declares the field.
+func anyIdempotent(spec *client.APISpec) bool {
+	for i := range spec.Endpoints {
+		if spec.Endpoints[i].Idempotent {
+			return true
 		}
 	}
+
+	return false
 }
 
 // writeEntities emits the typename-to-metadata table, sorted by typename.
@@ -736,19 +777,58 @@ func streamBindingSets(spec *client.APISpec) [][]client.StreamBinding {
 // entity no component describes -- the row is what it always was, and the
 // runtime writes the frame as the wire spelled it.
 func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.APISpec, decode bool) {
+	buf.WriteString("export const streams = [\n")
+
+	for _, row := range streamRows(spec, decode) {
+		buf.WriteString("  {\n")
+		buf.WriteString(fmt.Sprintf("    kind: %s,\n", tsString(row.Kind)))
+		buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(row.Channel)))
+
+		if row.Kind == "duplex" {
+			// A duplex channel: the client speaks on it and no entity stands
+			// behind it.
+			buf.WriteString(fmt.Sprintf("    send: %s,\n", tsString(row.Send)))
+			buf.WriteString(fmt.Sprintf("    receive: %s,\n", tsString(row.Receive)))
+			buf.WriteString("  },\n")
+
+			continue
+		}
+
+		buf.WriteString(fmt.Sprintf("    message: %s,\n", tsString(row.Message)))
+		buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(row.Entity)))
+		buf.WriteString(fmt.Sprintf("    intent: %s,\n", tsString(row.Intent)))
+		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n", tsStringArray(row.Invalidates)))
+
+		if row.Decode != "" {
+			// Typed, because the table is `as const` with no contextual
+			// type to infer the parameter from, and an implicit `any`
+			// does not compile under the generated package's strictness.
+			fmt.Fprintf(buf, "    decode: (payload: unknown) => decode(payload, %s),\n",
+				tableCodecRef(row.Decode))
+		}
+
+		buf.WriteString("  },\n")
+	}
+
+	buf.WriteString("] as const;\n")
+}
+
+// streamRows lists the stream table's rows in emitted order: entity bindings
+// sorted by channel path, then duplex channels sorted by path. With decode
+// set, a row whose entity is a component schema names that schema's codec,
+// so the runtime decodes a frame the way it decodes a response.
+//
+// A duplex row is derived from the declared operations alone, so the backend
+// needs no extension key for a channel it already describes as send and
+// receive.
+func streamRows(spec *client.APISpec, decode bool) []client.TableStream {
 	type channel struct {
 		path     string
 		bindings []client.StreamBinding
 	}
 
-	type duplex struct {
-		path    string
-		send    string
-		receive string
-	}
-
 	channels := make([]channel, 0, len(spec.WebSockets)+len(spec.SSEs))
-	duplexes := make([]duplex, 0)
+	duplexes := make([]client.TableStream, 0)
 
 	for i := range spec.WebSockets {
 		ws := &spec.WebSockets[i]
@@ -764,7 +844,7 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 		}
 
 		send, receive := duplexMessageNames(ws.Metadata)
-		duplexes = append(duplexes, duplex{ws.Path, send, receive})
+		duplexes = append(duplexes, client.TableStream{Kind: "duplex", Channel: ws.Path, Send: send, Receive: receive})
 	}
 
 	for i := range spec.SSEs {
@@ -780,45 +860,30 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 	}
 
 	sort.Slice(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
-	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].path < duplexes[j].path })
+	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].Channel < duplexes[j].Channel })
 
-	buf.WriteString("export const streams = [\n")
+	rows := make([]client.TableStream, 0, len(channels)+len(duplexes))
 
 	for _, ch := range channels {
 		for _, b := range ch.bindings {
-			buf.WriteString("  {\n")
-			buf.WriteString("    kind: 'entity',\n")
-			buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(ch.path)))
-			buf.WriteString(fmt.Sprintf("    message: %s,\n", tsString(b.Message)))
-			buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(b.EntityType)))
-			buf.WriteString(fmt.Sprintf("    intent: %s,\n", tsString(string(b.Intent))))
-			buf.WriteString(fmt.Sprintf("    invalidates: %s,\n", tsStringArray(b.Invalidates)))
-
-			if decode && spec.Schemas[b.EntityType] != nil {
-				// Typed, because the table is `as const` with no contextual
-				// type to infer the parameter from, and an implicit `any`
-				// does not compile under the generated package's strictness.
-				fmt.Fprintf(buf, "    decode: (payload: unknown) => decode(payload, %s),\n",
-					tableCodecRef(b.EntityType))
+			row := client.TableStream{
+				Kind:        "entity",
+				Channel:     ch.path,
+				Message:     b.Message,
+				Entity:      b.EntityType,
+				Intent:      string(b.Intent),
+				Invalidates: b.Invalidates,
 			}
 
-			buf.WriteString("  },\n")
+			if decode && spec.Schemas[b.EntityType] != nil {
+				row.Decode = b.EntityType
+			}
+
+			rows = append(rows, row)
 		}
 	}
 
-	// A duplex channel: the client speaks on it and no entity stands behind it.
-	// Derived from the declared operations alone, so the backend needs no
-	// extension key for a channel it already describes as send and receive.
-	for _, d := range duplexes {
-		buf.WriteString("  {\n")
-		buf.WriteString("    kind: 'duplex',\n")
-		buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(d.path)))
-		buf.WriteString(fmt.Sprintf("    send: %s,\n", tsString(d.send)))
-		buf.WriteString(fmt.Sprintf("    receive: %s,\n", tsString(d.receive)))
-		buf.WriteString("  },\n")
-	}
-
-	buf.WriteString("] as const;\n")
+	return append(rows, duplexes...)
 }
 
 // duplexMessageNames picks the lowest-sorted message name for each direction,
