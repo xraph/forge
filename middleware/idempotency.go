@@ -79,9 +79,13 @@ type MemoryIdempotencyOption = idempotency.MemoryOption
 //
 // A repeat with a different body gets 422. A repeat that arrives while the
 // first is still running waits for it (or gets 409 with
-// IdempotencyOnConflict(IdempotencyReject)). A handler that returns an error,
-// panics or answers 5xx stores nothing, so the client's retry runs it again.
-// GET, HEAD and OPTIONS, and writes without the header, pass straight through.
+// IdempotencyOnConflict(IdempotencyReject)); that 409 carries Retry-After: 1.
+// A handler that returns an error, panics or answers 408, 429 or 5xx stores
+// nothing, so the client's retry runs it again. A 4xx the handler writes
+// itself is stored, while a 4xx returned as an error is not, because the
+// error handler writes it outside this middleware. GET, HEAD and OPTIONS,
+// writes without the header, and requests without a principal (unless
+// IdempotencyAllowAnonymous is set) pass straight through.
 //
 // The handler runs on a fresh context that shares the outer context's values
 // and session, so ctx.Get and ctx.Session work behind this middleware. Other
@@ -129,6 +133,11 @@ func IdempotencyPrincipal(fn IdempotencyPrincipalFunc) IdempotencyOption {
 
 // IdempotencyRequireKey answers 400 to a write without an Idempotency-Key.
 func IdempotencyRequireKey() IdempotencyOption { return idempotency.RequireKey() }
+
+// IdempotencyAllowAnonymous deduplicates requests without a principal too. By
+// default such a request runs as if it carried no Idempotency-Key, because
+// every anonymous caller shares the empty principal.
+func IdempotencyAllowAnonymous() IdempotencyOption { return idempotency.AllowAnonymous() }
 
 // IdempotencyMaxBody caps the request body hashed for the fingerprint. Default 1 MiB.
 func IdempotencyMaxBody(n int64) IdempotencyOption { return idempotency.MaxBody(n) }

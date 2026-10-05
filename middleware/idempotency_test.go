@@ -19,9 +19,13 @@ import (
 
 type idemAuth struct{ Subject string }
 
+// idemCall describes one request. It runs as the "tester" principal unless
+// anonymous is set; a setup that stores its own auth_context replaces it.
 type idemCall struct {
 	method, path, key, body string
 	setup                   func(forge.Context)
+	anonymous               bool
+	wrap                    func(http.ResponseWriter) http.ResponseWriter
 }
 
 func runIdem(t *testing.T, mw forge.Middleware, h forge.Handler, c idemCall) (*httptest.ResponseRecorder, error) {
@@ -49,7 +53,17 @@ func runIdemCtx(t *testing.T, reqCtx context.Context, mw forge.Middleware, h for
 	}
 
 	rec := httptest.NewRecorder()
-	ctx := forge_http.NewContext(rec, req, nil)
+
+	var w http.ResponseWriter = rec
+	if c.wrap != nil {
+		w = c.wrap(rec)
+	}
+
+	ctx := forge_http.NewContext(w, req, nil)
+
+	if !c.anonymous {
+		ctx.Set("auth_context", &idemAuth{Subject: "tester"})
+	}
 
 	if c.setup != nil {
 		c.setup(ctx)
@@ -482,21 +496,202 @@ func TestIdempotencyReleasesTheKeyOnA5xx(t *testing.T) {
 	}
 }
 
-func TestIdempotencyStoresA4xx(t *testing.T) {
+func TestIdempotencyStoresADeterministic4xx(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusConflict, http.StatusUnprocessableEntity} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int32
+
+			mw := Idempotency(NewMemoryIdempotencyStore())
+			refuse := func(ctx forge.Context) error {
+				calls.Add(1)
+
+				return ctx.JSON(status, map[string]string{"error": "refused"})
+			}
+
+			_, _ = runIdem(t, mw, refuse, idemCall{key: "k1", body: "{}"})
+			second, _ := runIdem(t, mw, refuse, idemCall{key: "k1", body: "{}"})
+
+			if calls.Load() != 1 || second.Code != status || second.Header().Get(IdempotentReplayedHeader) != "true" {
+				t.Fatalf("calls = %d, second = %d; want the %d replayed", calls.Load(), second.Code, status)
+			}
+		})
+	}
+}
+
+func TestIdempotencyReleasesTheKeyOnARetryable4xx(t *testing.T) {
+	for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int32
+
+			mw := Idempotency(NewMemoryIdempotencyStore())
+			busy := func(ctx forge.Context) error {
+				calls.Add(1)
+
+				return ctx.JSON(status, map[string]string{"error": "try later"})
+			}
+
+			first, _ := runIdem(t, mw, busy, idemCall{key: "k1", body: "{}"})
+			second, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
+
+			if first.Code != status || calls.Load() != 2 || second.Code != http.StatusCreated || second.Header().Get(IdempotentReplayedHeader) != "" {
+				t.Fatalf("first = %d, calls = %d, second = %d; want the retry to run the handler and get 201", first.Code, calls.Load(), second.Code)
+			}
+		})
+	}
+}
+
+// A 4xx returned as an error is written by the error handler outside the
+// middleware, so nothing is stored and the retry runs again. Only a 4xx the
+// handler writes itself is replayed.
+func TestIdempotencyReleasesA4xxReturnedAsAnError(t *testing.T) {
 	var calls atomic.Int32
 
 	mw := Idempotency(NewMemoryIdempotencyStore())
-	invalid := func(ctx forge.Context) error {
+	refuse := func(ctx forge.Context) error {
 		calls.Add(1)
 
-		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "total is required"})
+		return forge.BadRequest("total is required")
 	}
 
-	_, _ = runIdem(t, mw, invalid, idemCall{key: "k1", body: "{}"})
-	second, _ := runIdem(t, mw, invalid, idemCall{key: "k1", body: "{}"})
+	if _, err := runIdem(t, mw, refuse, idemCall{key: "k1", body: "{}"}); err == nil {
+		t.Fatal("the handler's error was swallowed")
+	}
 
-	if calls.Load() != 1 || second.Code != http.StatusBadRequest || second.Header().Get(IdempotentReplayedHeader) != "true" {
-		t.Fatalf("calls = %d, second = %d; want the 400 replayed", calls.Load(), second.Code)
+	_, _ = runIdem(t, mw, refuse, idemCall{key: "k1", body: "{}"})
+
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2", calls.Load())
+	}
+}
+
+func TestIdempotencyBusyConflictCarriesRetryAfter(t *testing.T) {
+	cases := map[string]IdempotencyOption{
+		"reject":       IdempotencyOnConflict(IdempotencyReject),
+		"wait timeout": IdempotencyWaitTimeout(30 * time.Millisecond),
+	}
+
+	for name, opt := range cases {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+
+			mw := Idempotency(NewMemoryIdempotencyStore(), opt)
+			entered, release := make(chan struct{}, 1), make(chan struct{})
+			h := blockingHandler(&calls, entered, release)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+
+				_, _ = runIdem(t, mw, h, idemCall{key: "k1", body: "{}"})
+			}()
+
+			<-entered
+
+			rec, _ := runIdem(t, mw, h, idemCall{key: "k1", body: "{}"})
+
+			close(release)
+			<-done
+
+			if rec.Code != http.StatusConflict || rec.Header().Get("Retry-After") != "1" {
+				t.Fatalf("status = %d, Retry-After = %q; want 409 with Retry-After: 1", rec.Code, rec.Header().Get("Retry-After"))
+			}
+		})
+	}
+}
+
+func TestIdempotencySkipsAnonymousRequests(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+	second, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+
+	if calls.Load() != 2 || second.Header().Get(IdempotentReplayedHeader) != "" {
+		t.Fatalf("calls = %d, replayed = %q; want two runs and no replay", calls.Load(), second.Header().Get(IdempotentReplayedHeader))
+	}
+}
+
+func TestIdempotencyCanDeduplicateAnonymousRequests(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyAllowAnonymous())
+
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+	second, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+
+	if calls.Load() != 1 || second.Header().Get(IdempotentReplayedHeader) != "true" {
+		t.Fatalf("calls = %d, replayed = %q; want one run and a replay", calls.Load(), second.Header().Get(IdempotentReplayedHeader))
+	}
+}
+
+func TestIdempotencyStoresTheImplicit200OfASilentHandler(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+	silent := func(ctx forge.Context) error {
+		calls.Add(1)
+		ctx.Response().Header().Set("X-Order", "7")
+
+		return nil
+	}
+
+	_, _ = runIdem(t, mw, silent, idemCall{key: "k1", body: "{}"})
+	second, _ := runIdem(t, mw, silent, idemCall{key: "k1", body: "{}"})
+
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times, want 1 (its side effect already happened)", calls.Load())
+	}
+
+	if second.Code != http.StatusOK || second.Body.Len() != 0 || second.Header().Get("X-Order") != "7" || second.Header().Get(IdempotentReplayedHeader) != "true" {
+		t.Fatalf("replay = %d %q %v, want an empty 200 with the handler's headers", second.Code, second.Body.String(), second.Header())
+	}
+}
+
+// hintsWriter records informational statuses, which httptest.ResponseRecorder
+// would otherwise take as the final one.
+type hintsWriter struct {
+	*httptest.ResponseRecorder
+
+	informational []int
+}
+
+func (w *hintsWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 {
+		w.informational = append(w.informational, code)
+
+		return
+	}
+
+	w.ResponseRecorder.WriteHeader(code)
+}
+
+func TestIdempotencyPassesEarlyHintsThrough(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+	hinting := func(ctx forge.Context) error {
+		ctx.Response().Header().Set("Link", "</app.css>; rel=preload")
+		ctx.Response().WriteHeader(http.StatusEarlyHints)
+
+		return countingHandler(&calls)(ctx)
+	}
+
+	var hints *hintsWriter
+
+	first, _ := runIdem(t, mw, hinting, idemCall{key: "k1", body: "{}", wrap: func(rec http.ResponseWriter) http.ResponseWriter {
+		hints = &hintsWriter{ResponseRecorder: rec.(*httptest.ResponseRecorder)}
+
+		return hints
+	}})
+
+	if len(hints.informational) != 1 || hints.informational[0] != http.StatusEarlyHints || first.Code != http.StatusCreated {
+		t.Fatalf("informational = %v, final = %d; want [103] then 201", hints.informational, first.Code)
+	}
+
+	second, _ := runIdem(t, mw, hinting, idemCall{key: "k1", body: "{}"})
+	if calls.Load() != 1 || second.Code != http.StatusCreated || second.Body.String() != first.Body.String() {
+		t.Fatalf("replay = %d %q after %d calls, want the stored 201", second.Code, second.Body.String(), calls.Load())
 	}
 }
 

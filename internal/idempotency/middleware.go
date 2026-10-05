@@ -53,6 +53,7 @@ type config struct {
 	conflict    ConflictMode
 	principal   PrincipalFunc
 	requireKey  bool
+	anonymous   bool
 	maxBody     int64
 	maxResponse int
 	now         func() time.Time
@@ -119,6 +120,15 @@ func RequireKey() Option {
 	return func(c *config) { c.requireKey = true }
 }
 
+// AllowAnonymous deduplicates requests that have no principal too. By default
+// a request whose PrincipalFunc returns "" runs as if it carried no key: every
+// anonymous caller would share the "" principal, so one could be handed
+// another's stored response by sending the same key. Skipping also fails safe
+// when auth middleware is registered after this one and has not yet run.
+func AllowAnonymous() Option {
+	return func(c *config) { c.anonymous = true }
+}
+
 // MaxBody caps the request body read for fingerprinting. Larger bodies get
 // 413. Default 1 MiB.
 func MaxBody(n int64) Option {
@@ -152,10 +162,20 @@ func Clock(now func() time.Time) Option {
 // (principal, METHOD /path, Idempotency-Key) and replays the stored response
 // to every repeat. A nil store means Default().
 //
-// Only a response the handler finished with a status below 500 is stored. A
-// handler that returns an error, panics, answers 5xx, writes nothing or writes
-// more than MaxResponse gives its key back, so the client's retry runs the
-// handler again rather than replaying a failure for the whole TTL.
+// A response is stored unless it is one a client is expected to retry: 408,
+// 429 and every 5xx give the key back, so the retry runs the handler again
+// rather than replaying a transient failure for the whole TTL. Every other
+// status, 409 and 422 included, is deterministic and is stored. A handler that
+// returns nil without writing is stored as the empty 200 net/http sends for
+// it. A handler that returns an error or panics also gives the key back, even
+// when the error maps to a 4xx: the error handler writes that response outside
+// this middleware, so only a 4xx the handler writes itself (ctx.JSON and the
+// like) is stored. A response larger than MaxResponse is sent but not stored.
+//
+// A request whose principal is "" runs as if it carried no key unless
+// AllowAnonymous is set. While a request holds a key, a duplicate that cannot
+// wait gets 409 with Retry-After: 1, so a client can tell the conflict is
+// temporary.
 //
 // The handler runs on a fresh context that shares the outer context's values
 // and session. Anything else a forge_http.Ctx keeps privately, such as a DI
@@ -245,6 +265,11 @@ func (h *handler) wrap(next router.Handler) router.Handler {
 			return next(ctx)
 		}
 
+		principal := h.cfg.principal(ctx)
+		if principal == "" && !h.cfg.anonymous {
+			return next(ctx)
+		}
+
 		if len(raw) > maxKeyLength {
 			return writeError(ctx, http.StatusBadRequest, "the Idempotency-Key header is longer than 255 characters")
 		}
@@ -259,7 +284,7 @@ func (h *handler) wrap(next router.Handler) router.Handler {
 		}
 
 		fp := fingerprint(r.Method, r.URL.Path, r.URL.RawQuery, body)
-		key := Key{Principal: h.cfg.principal(ctx), Scope: r.Method + " " + r.URL.Path, Value: raw}
+		key := Key{Principal: principal, Scope: r.Method + " " + r.URL.Path, Value: raw}
 
 		return h.serve(ctx, next, key, fp)
 	}
@@ -294,12 +319,12 @@ func (h *handler) serve(ctx router.Context, next router.Handler, key Key, fp str
 			}
 
 			if h.cfg.conflict == ConflictReject {
-				return writeError(ctx, http.StatusConflict, "a request with this Idempotency-Key is still being processed")
+				return writeBusy(ctx)
 			}
 
 			if err := h.await(ctx.Context(), begun.Done, deadline.C); err != nil {
 				if errors.Is(err, errWaitTimeout) {
-					return writeError(ctx, http.StatusConflict, "a request with this Idempotency-Key is still being processed")
+					return writeBusy(ctx)
 				}
 
 				return err
@@ -382,7 +407,13 @@ func (h *handler) run(ctx router.Context, next router.Handler, key Key, token To
 		return err
 	}
 
-	if !rec.wrote || rec.overflow || rec.status >= http.StatusInternalServerError {
+	if !rec.wrote {
+		// net/http answers a handler that wrote nothing with an empty 200,
+		// and the handler's side effect has happened, so that is the outcome.
+		rec.status = http.StatusOK
+	}
+
+	if rec.overflow || retryable(rec.status) {
 		return nil
 	}
 
@@ -421,6 +452,21 @@ func replay(ctx router.Context, resp *Response) error {
 	_, err := ctx.Response().Write(resp.Body)
 
 	return err
+}
+
+// retryable reports a status a client retries with the same key, which must
+// therefore run the handler again rather than replay.
+func retryable(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+// writeBusy answers a duplicate of a request that is still running. The
+// Retry-After header marks the 409 as temporary, unlike a 409 the handler
+// itself returns.
+func writeBusy(ctx router.Context) error {
+	ctx.Response().Header().Set("Retry-After", "1")
+
+	return writeError(ctx, http.StatusConflict, "a request with this Idempotency-Key is still being processed")
 }
 
 func writeError(ctx router.Context, status int, message string) error {
@@ -530,6 +576,15 @@ type recorder struct {
 
 func (w *recorder) WriteHeader(code int) {
 	if w.wrote {
+		return
+	}
+
+	// An informational status such as 103 Early Hints is not the response;
+	// pass it on and keep waiting for the final status. 101 Switching
+	// Protocols is final.
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(code)
+
 		return
 	}
 
