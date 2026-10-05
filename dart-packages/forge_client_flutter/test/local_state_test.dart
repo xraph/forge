@@ -198,6 +198,19 @@ final movedDoubled = ForgeComputedKey<int?>((read) {
   return total == null ? null : total * 2;
 }, debugLabel: 'movedDoubled');
 
+/// Order 2's total: the fallback [fallbackX] reads.
+final fallbackW = ForgeComputedKey<int?>(
+  (read) => read.query(getOrder(const OrderArgs(2))).dataOrNull?.total,
+  debugLabel: 'fallbackW',
+);
+
+/// Order 1's total, falling back to [fallbackW] while order 1 has no data.
+/// On the old client it never reads W, so last time's reads cannot order it.
+final fallbackX = ForgeComputedKey<int?>((read) {
+  final total = read.query(getOrder(const OrderArgs(1))).dataOrNull?.total;
+  return total ?? read.computed(fallbackW);
+}, debugLabel: 'fallbackX');
+
 void main() {
   group('ForgeState', () {
     testWidgets('creates a state once per scope and keeps it across rebuilds', (tester) async {
@@ -933,6 +946,50 @@ void main() {
       gate.complete(order(1, 30));
       await settle(tester);
       expect(total.value, 30);
+    });
+  });
+
+  group('ForgeComputed fix round 3', () {
+    testWidgets('never shows an old-client value through a computed it first reads during a move', (tester) async {
+      final a = byId();
+      final gate = Completer<void>();
+      final b = harness((request, _) => gate.future.then((_) => order(idOf(request), (idOf(request)! as int) * 70)));
+      final focus = FakeFocusSignal();
+      final connectivity = FakeConnectivitySignal();
+      late ForgeComputed<int?> x;
+      late ForgeComputed<int?> w;
+
+      Widget tree(Harness h) => ForgeScope(
+        client: h.cache,
+        focus: focus,
+        connectivity: connectivity,
+        child: ltr(Builder(builder: (context) {
+          // X first, so it is ahead of W in the move's batch.
+          x = context.forgeComputed(fallbackX);
+          w = context.forgeComputed(fallbackW);
+          return const SizedBox();
+        })),
+      );
+
+      await tester.pumpWidget(tree(a));
+      await settle(tester);
+      expect(x.value, 10);
+      expect(w.value, 20);
+
+      final seen = <int?>[];
+      x.addListener(() => seen.add(x.value));
+
+      // On the gated client order 1 has no data, so X falls back to W, which
+      // still holds the old client's 20 until it recomputes.
+      await tester.pumpWidget(tree(b));
+      expect(seen, [null]);
+      expect(w.value, isNull);
+
+      gate.complete();
+      await settle(tester);
+      expect(seen, [null, 70]);
+      expect(seen, isNot(contains(20)));
+      expect(w.value, 140);
     });
   });
 }

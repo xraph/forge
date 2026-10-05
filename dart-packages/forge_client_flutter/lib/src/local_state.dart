@@ -92,12 +92,15 @@ abstract interface class ForgeReader {
 ///
 /// Recomputing is batched per scope: a change that arrives while any of the
 /// scope's computed values is computing only marks the affected values
-/// dirty, and they recompute once the outermost computation returns, each
-/// after the dirty values it reads. That order holds only within one batch:
-/// when a single change made outside any computation notifies two values
-/// directly and one of them reads the other, the reader can recompute once
-/// against the other's previous value before the other's notification
-/// recomputes it again.
+/// dirty, and they recompute once the outermost computation returns. A
+/// value that is read while it is dirty, by a computation or by a listener
+/// in the same batch, recomputes on the spot before the read returns, so
+/// nothing in a batch reads a value that is waiting to be recomputed, even
+/// one it never read before. This holds only within one batch: when a
+/// single change made outside any computation notifies two values directly
+/// and one of them reads the other, the reader can recompute once against
+/// the other's previous value before the other's notification recomputes it
+/// again.
 ///
 /// Errors: the first read rethrows what the compute function throws, so a
 /// widget reading it shows an error widget. A later recomputation that
@@ -139,6 +142,9 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
         'on itself, directly or through another computed value.',
       );
     }
+    // Waiting to be recomputed in this batch: recompute now, so the reader
+    // never sees the value from before the change, such as the old client's.
+    if (_owner._dirty.remove(this)) _refresh();
     final failure = _failure;
     if (failure != null) Error.throwWithStackTrace(failure, _failureStack!);
     return _value;
@@ -457,8 +463,9 @@ final class ForgeScopeOwner {
     }
   }
 
-  /// A dirty value that reads no other dirty value, directly or through
-  /// clean ones, so it recomputes against fresh inputs.
+  /// A dirty value that read no other dirty value last time, directly or
+  /// through clean ones. Only saves work: a dirty value that a computation
+  /// reads, even for the first time, recomputes on read anyway.
   ForgeComputed<Object?> _nextDirty() {
     for (final candidate in _dirty) {
       if (!_readsDirty(candidate, {})) return candidate;
