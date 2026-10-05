@@ -341,4 +341,53 @@ void main() {
       expect(events.map((event) => event.at).toSet(), {5000});
     });
   });
+
+  // Dart-only: the observer is a debug seam and must never decide a request.
+  group('a throwing observer', () {
+    test('cannot fail or retry a GET that succeeded', () async {
+      final events = <RequestEvent>[];
+      final fake = FakeHttp((_, _) => {'ok': true});
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake.client,
+        sleep: noSleep,
+        observer: (event) {
+          events.add(event);
+          throw StateError('observer broke');
+        },
+      );
+
+      final result = await rest.execute(
+        const TransportRequest(meta: list, args: TagContext.empty),
+      );
+
+      expect(result, {'ok': true});
+      expect(fake.calls, hasLength(1));
+      expect(events.map(kind), ['start', 'attempt', 'settled']);
+    });
+
+    test('cannot report a POST that succeeded as failed', () async {
+      final events = <RequestEvent>[];
+      final fake = FakeHttp((_, _) => {'id': 1});
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake.client,
+        sleep: noSleep,
+        observer: (event) {
+          events.add(event);
+          throw StateError('observer broke');
+        },
+      );
+
+      final result = await rest.execute(
+        const TransportRequest(meta: create, args: TagContext.empty),
+      );
+
+      expect(result, {'id': 1});
+      expect(fake.calls, hasLength(1));
+      expect(events.whereType<RequestSettled>().map((event) => event.ok), [
+        true,
+      ]);
+    });
+  });
 }

@@ -1050,4 +1050,40 @@ void main() {
       expect(client.recordedAborts.single, isTrue);
     });
   });
+
+  // Dart-only: TypeScript's fetch has no client to release.
+  group('close', () {
+    test('closes the http client the transport created', () {
+      final made = ClosingClient();
+      final rest = http.runWithClient(
+        () => RestTransport(baseUrl: base),
+        () => made,
+      );
+
+      rest.close();
+
+      expect(made.closed, 1);
+    });
+
+    test('leaves a client that was passed in open', () {
+      final passed = ClosingClient();
+      final rest = RestTransport(baseUrl: base, client: passed);
+
+      rest.close();
+
+      expect(passed.closed, 0);
+    });
+  });
+}
+
+/// An http client that counts how often it was closed.
+final class ClosingClient extends http.BaseClient {
+  int closed = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(const Stream.empty(), 200);
+
+  @override
+  void close() => closed++;
 }

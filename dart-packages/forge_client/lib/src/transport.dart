@@ -452,10 +452,12 @@ final class RestTransport implements Transport {
            ? baseUrl.toString().substring(0, baseUrl.toString().length - 1)
            : baseUrl.toString(),
        _client = client ?? http.Client(),
+       _ownsClient = client == null,
        _random = random ?? math.Random().nextDouble;
 
   final String _base;
   final http.Client _client;
+  final bool _ownsClient;
   final AuthProvider? _auth;
   final RetryPolicy _retry;
   final Clock _clock;
@@ -468,6 +470,12 @@ final class RestTransport implements Transport {
   Future<void>? _refreshing;
   int _generation = 0;
   int _requests = 0;
+
+  /// Releases the HTTP client this transport created. A client passed in is
+  /// left open: whoever made it closes it.
+  void close() {
+    if (_ownsClient) _client.close();
+  }
 
   bool get _canRefresh => switch (_auth) {
     null => false,
@@ -539,7 +547,13 @@ final class RestTransport implements Transport {
 
     if (observer == null || report == null) return;
 
-    observer(build(_clock.now()));
+    try {
+      observer(build(_clock.now()));
+    } on Object {
+      // The observer is a debug seam: it must never fail a request, turn a
+      // success into a retry, or replace a request's own error. The transport
+      // has no error channel of its own to send this to, so it is dropped.
+    }
   }
 
   /// One attempt, including the 401 path. The refresh retry applies to every
