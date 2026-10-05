@@ -78,6 +78,29 @@ Object? dataOf(
 /// The mark is load-bearing: an unmarked container reads as itself.
 Object skeletonOf(String key) => markRewritten(<Object?>[makeRef(key)]);
 
+/// A [LiveBinding] that counts how often a query was made live and released.
+final class CountingLive implements LiveBinding {
+  int subscribes = 0;
+  int releases = 0;
+
+  @override
+  void Function() subscribe(OperationMeta meta, TagContext args) {
+    subscribes++;
+
+    return () => releases++;
+  }
+
+  @override
+  List<String> channelsFor(OperationMeta meta) => const [];
+
+  @override
+  void Function() raw(
+    String channel,
+    FrameHandler handler, [
+    SubscribeOptions options = const SubscribeOptions(),
+  ]) => () {};
+}
+
 void main() {
   group('running a query', () {
     test(
@@ -1514,6 +1537,107 @@ void main() {
 
       expect(after, isNot(same(before)));
       expect(after.dataOrNull, 'b');
+    });
+  });
+
+  // Review focus: a query that failed before it ever settled keeps its error
+  // while the retry is in flight, as TS does. The state must stay one object.
+  group('a failed, never-settled query retrying', () {
+    test('keeps one state object while the retry is in flight', () async {
+      final gate = Completer<Object?>();
+      final (:cache, transport: _, scheduler: _) = rig((_, call) {
+        if (call == 0) throw const HttpStatusError(500, null);
+
+        return gate.future;
+      });
+      var notified = 0;
+      final seen = <QueryState<Object?>>[];
+
+      await expectLater(cache.fetch(orderList, none), throwsA(httpError(500)));
+      expect(cache.getState(orderList, none), isA<QueryFailure<Object?>>());
+
+      cache.subscribe(orderList, none, () => notified++);
+
+      final subscription = cache.watch(orderList, none).listen(seen.add);
+      await settle();
+
+      final loading = cache.getState(orderList, none);
+
+      expect(loading, isA<QueryLoading<Object?>>());
+      expect(loading.isFetching, isTrue);
+      expect(cache.getState(orderList, none), same(loading));
+      expect(seen.last, same(loading));
+
+      final listenerCalls = notified;
+      final events = seen.length;
+
+      cache.notifyChanged();
+      cache.notifyChanged();
+      await settle();
+
+      expect(notified, listenerCalls);
+      expect(seen, hasLength(events));
+      expect(cache.getState(orderList, none), same(loading));
+
+      gate.complete([
+        {'id': 7},
+      ]);
+      await settle();
+
+      expect(cache.getState(orderList, none), isA<QuerySuccess<Object?>>());
+
+      await subscription.cancel();
+    });
+  });
+
+  // Review focus: a live watch is made live once and released once, whichever
+  // of dispose and cancel reaches it first.
+  group('releasing a live watch', () {
+    ({QueryCache cache, CountingLive live}) liveRig() {
+      final live = CountingLive();
+      final cache = QueryCache(
+        transport: FakeTransport(
+          (_, _) => [
+            {'id': 7},
+          ],
+        ),
+        entities: schema,
+      )..live = live;
+
+      return (cache: cache, live: live);
+    }
+
+    test('releases once when dispose closes the stream', () async {
+      final (:cache, :live) = liveRig();
+
+      cache.watch(orderList, none, live: true).listen((_) {});
+      await settle();
+
+      expect(live.subscribes, 1);
+
+      await cache.dispose();
+      await settle();
+
+      expect(live.subscribes, 1);
+      expect(live.releases, 1);
+    });
+
+    test('releases once when the listener cancels before dispose', () async {
+      final (:cache, :live) = liveRig();
+
+      final subscription = cache
+          .watch(orderList, none, live: true)
+          .listen((_) {});
+      await settle();
+      await subscription.cancel();
+
+      expect(live.releases, 1);
+
+      await cache.dispose();
+      await settle();
+
+      expect(live.subscribes, 1);
+      expect(live.releases, 1);
     });
   });
 

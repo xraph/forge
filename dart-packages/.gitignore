@@ -2,3 +2,8 @@
 .fvm/
 build/
 pubspec.lock
+
+# The repo root .gitignore ignores every directory named `test`. These packages
+# keep their tests in tracked `test/` directories, so un-ignore them.
+!test/
+!test/**

@@ -233,6 +233,7 @@ final class _Record implements TrackedRecord {
   QueryState<Object?>? state;
   QueryStatus? stateStatus;
   Object? stateData;
+  Object? stateError;
 }
 
 /// The query cache: the entity store, the tag graph and a transport, wired.
@@ -415,7 +416,14 @@ final class QueryCache {
       subscribing = false;
       emit();
 
+      var cancelled = false;
+
       void cancel() {
+        // Dispose cancels, then closes the controller, and closing delivers
+        // done, which cancels the subscription and runs this a second time.
+        if (cancelled) return;
+
+        cancelled = true;
         release();
         stopLive?.call();
         _watchers.remove(controller);
@@ -1170,7 +1178,7 @@ final class QueryCache {
     if (previous != null &&
         sameValue(record.stateData, data) &&
         record.stateStatus == record.status &&
-        identical(_errorOf(previous), record.error) &&
+        identical(record.stateError, record.error) &&
         previous.isFetching == record.fetching &&
         previous.isOptimistic == optimistic) {
       return previous;
@@ -1198,6 +1206,7 @@ final class QueryCache {
     record.state = next;
     record.stateStatus = record.status;
     record.stateData = data;
+    record.stateError = record.error;
 
     return next;
   }
@@ -1330,9 +1339,6 @@ final class QueryCache {
     unawaited(future.then<void>((_) {}, onError: (Object _, StackTrace _) {}));
   }
 }
-
-Object? _errorOf(QueryState<Object?> state) =>
-    state is QueryFailure<Object?> ? state.error : null;
 
 /// The typename to normalize an operation's response against: `rootType`,
 /// falling back to `entity` for a manifest generated before it existed.

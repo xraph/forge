@@ -245,6 +245,14 @@ void main() {
 
       write.complete({'id': 7, 'total': 100});
       await mutating;
+
+      // Before the post-write refetch can repair the store: this is the PATCH's
+      // own value winning, not the refetch's.
+      expect(cache.store.getRecord('Order:7')?.data['total'], 100);
+      expect(cache.getState(orderList, none).dataOrNull, [
+        {'id': 7, 'total': 100},
+      ]);
+
       await settle();
 
       expect(cache.store.getRecord('Order:7')?.data['total'], 100);
