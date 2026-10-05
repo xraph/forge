@@ -313,32 +313,32 @@ func TestIdempotencyNeedsAuthToRunBeforeIt(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		setup func(r Router, calls *atomic.Int32) error
+		setup func(r Router, calls *atomic.Int32, opt IdempotencyOption) error
 		want  int32
 	}{
-		{"route: auth before idempotency", func(r Router, calls *atomic.Int32) error {
-			return r.POST("/orders", handler(calls), WithMiddleware(signedInAs("alice")), WithIdempotency())
+		{"route: auth before idempotency", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
+			return r.POST("/orders", handler(calls), WithMiddleware(signedInAs("alice")), WithIdempotency(opt))
 		}, 1},
-		{"router: auth in Use before route idempotency", func(r Router, calls *atomic.Int32) error {
+		{"router: auth in Use before route idempotency", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
 			r.Use(signedInAs("alice"))
 
-			return r.POST("/orders", handler(calls), WithIdempotency())
+			return r.POST("/orders", handler(calls), WithIdempotency(opt))
 		}, 1},
-		{"route: auth after idempotency", func(r Router, calls *atomic.Int32) error {
-			return r.POST("/orders", handler(calls), WithIdempotency(), WithMiddleware(signedInAs("alice")))
+		{"route: auth after idempotency", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
+			return r.POST("/orders", handler(calls), WithIdempotency(opt), WithMiddleware(signedInAs("alice")))
 		}, 2},
-		{"group: auth in the group before idempotency", func(r Router, calls *atomic.Int32) error {
-			g := r.Group("/v1", WithGroupMiddleware(signedInAs("alice")), WithGroupIdempotency())
+		{"group: auth in the group before idempotency", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
+			g := r.Group("/v1", WithGroupMiddleware(signedInAs("alice")), WithGroupIdempotency(opt))
 
 			return g.POST("/orders", handler(calls))
 		}, 1},
-		{"group: auth in the group after idempotency", func(r Router, calls *atomic.Int32) error {
-			g := r.Group("/v1", WithGroupIdempotency(), WithGroupMiddleware(signedInAs("alice")))
+		{"group: auth in the group after idempotency", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
+			g := r.Group("/v1", WithGroupIdempotency(opt), WithGroupMiddleware(signedInAs("alice")))
 
 			return g.POST("/orders", handler(calls))
 		}, 2},
-		{"group idempotency, auth on the route", func(r Router, calls *atomic.Int32) error {
-			g := r.Group("/v1", WithGroupIdempotency())
+		{"group idempotency, auth on the route", func(r Router, calls *atomic.Int32, opt IdempotencyOption) error {
+			g := r.Group("/v1", WithGroupIdempotency(opt))
 
 			return g.POST("/orders", handler(calls), WithMiddleware(signedInAs("alice")))
 		}, 2},
@@ -349,11 +349,11 @@ func TestIdempotencyNeedsAuthToRunBeforeIt(t *testing.T) {
 			var calls atomic.Int32
 
 			r := NewRouter()
-			if err := tc.setup(r, &calls); err != nil {
+			// Its own store, so a repeated run (go test -count=2) starts clean.
+			if err := tc.setup(r, &calls, IdempotencyBackend(idempotency.NewMemoryStore())); err != nil {
 				t.Fatal(err)
 			}
 
-			// The default store is shared by every case, so the key is unique to this one.
 			path := "/orders"
 			if strings.Contains(tc.name, "group") {
 				path = "/v1/orders"
