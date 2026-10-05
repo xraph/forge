@@ -2,6 +2,7 @@
 /// store, a tag graph, a query cache and a REST transport.
 library;
 
+export 'src/cache.dart';
 export 'src/codec.dart';
 export 'src/invalidate.dart';
 export 'src/normalize.dart';
