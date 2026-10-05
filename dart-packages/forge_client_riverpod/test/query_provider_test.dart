@@ -337,6 +337,54 @@ void main() {
       expect(container.read(listOrdersProvider.state(const ListOrdersArgs())).dataOrNull, isNull);
     });
 
+    // R17. setPrincipal clears the cache, and so notifies watchers, before
+    // it calls watchPrincipal listeners. A synchronous read made in either
+    // place must already miss the previous principal's data.
+    test('never shows the previous principal\'s data to a read from a .state listener during setPrincipal', () async {
+      final h = harness((_, call) => [order(1, 10 + call)]);
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final provider = listOrdersProvider(const ListOrdersArgs());
+      final seen = <int?>[];
+
+      container.listen(provider, (_, _) {});
+      container.listen(listOrdersProvider.state(const ListOrdersArgs()), (_, _) {
+        seen.add(container.read(provider).value?.single.total);
+      });
+      await settle();
+      expect(container.read(provider).value?.single.total, 10);
+      seen.clear();
+
+      h.cache.setPrincipal('bob');
+      await settle();
+
+      expect(seen, isNotEmpty);
+      expect(seen, isNot(contains(10)));
+      expect(container.read(provider).value?.single.total, 11);
+    });
+
+    test('never shows the previous principal\'s data to a read from an earlier watchPrincipal listener', () async {
+      final h = harness((_, call) => [order(1, 10 + call)]);
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final provider = listOrdersProvider(const ListOrdersArgs());
+      final seen = <int?>[];
+
+      // Registered before any provider exists, so before the adapter's own
+      // principal listener.
+      h.cache.watchPrincipal((_) => seen.add(container.read(provider).value?.single.total));
+      container.listen(provider, (_, _) {});
+      await settle();
+      expect(container.read(provider).value?.single.total, 10);
+
+      h.cache.setPrincipal('bob');
+      await settle();
+
+      expect(seen, hasLength(1));
+      expect(seen.single, isNot(10));
+      expect(container.read(provider).value?.single.total, 11);
+    });
+
     test('never shows the previous client\'s data after a client swap, and moves the mount', () async {
       final a = harness((_, _) => [order(1, 10)]);
       final b = harness((_, _) => throw const Boom('b failed'));

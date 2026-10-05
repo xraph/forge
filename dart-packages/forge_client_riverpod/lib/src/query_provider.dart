@@ -108,6 +108,13 @@ final class _ValueKey<T, A extends OperationArgs> {
 }
 
 /// A client's current principal, following `setPrincipal`.
+///
+/// It follows `watchPrincipalChanging`, which fires before the cache is
+/// cleared, rather than `watchPrincipal`, which fires after. The clear
+/// notifies watchers, and a read made from one of those notifications (a
+/// `.state` listener, say), or from a `watchPrincipal` listener registered
+/// earlier, must already find the value provider dirty, so that it builds a
+/// fresh notifier instead of returning the previous principal's data.
 final class _PrincipalNotifier extends Notifier<String?> {
   _PrincipalNotifier(this.client);
 
@@ -115,7 +122,7 @@ final class _PrincipalNotifier extends Notifier<String?> {
 
   @override
   String? build() {
-    ref.onDispose(client.watchPrincipal((principal) => state = principal));
+    ref.onDispose(client.watchPrincipalChanging((next) => state = next));
     return client.principal;
   }
 }
@@ -138,11 +145,12 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
   /// The name given to the providers, for Riverpod's devtools and errors.
   final String? name;
 
-  // What `call` returns: the notifier for the current client and principal.
-  // Riverpod carries an AsyncNotifier's previous value into every later
-  // state, an error included, so the data of the previous principal or
-  // client cannot be cleared by a write. A new key gets a fresh notifier,
-  // and the old one is disposed, which releases its mount.
+  // What `call` returns: a derived provider that exposes the value notifier
+  // for the current client and principal. Riverpod carries an AsyncNotifier's
+  // previous value into every later state, an error included, so the data of
+  // the previous principal or client cannot be cleared by a write. A new key
+  // gets a fresh notifier, and the old one is disposed, which releases its
+  // mount.
   late final _values = Provider.autoDispose.family<AsyncValue<T>, ForgeQueryParams<T, A>>(
     (ref, params) {
       final client = ref.watch(forgeInstalledClientProvider);
