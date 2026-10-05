@@ -442,6 +442,20 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
 
   /// The entity, or null to derive it.
   final EntityKey? key;
+
+  /// Runs [update] over a client-shaped [previous]: decoded with [decode],
+  /// checked against [E], and encoded back with [encode].
+  ///
+  /// For `MutationBinding`. Reading [update] through a wider view (an
+  /// `OptimisticUpdate<Json>` held as `Optimistic<Object?>`) fails Dart's
+  /// covariance check, so the function is only ever called from in here,
+  /// where its type is exact. The codecs take `Object?` for the same reason:
+  /// a parameter typed with [E] would be checked against the runtime [E].
+  Object? applyClient(
+    Object? previous,
+    Object? Function(Object? client) decode,
+    Object? Function(Object? model) encode,
+  ) => encode(update(decode(previous) as E));
 }
 
 /// Removes the target. [key] null derives it with [targetOf].
@@ -462,6 +476,10 @@ final class OptimisticCreate<E> extends Optimistic<E> {
 
   /// The record to show. Its identity field is overwritten with the minted id.
   final E value;
+
+  /// [value] in client shape, encoded with [encode]. For `MutationBinding`,
+  /// alongside [OptimisticUpdate.applyClient].
+  Object? encodeClient(Object? Function(Object? model) encode) => encode(value);
 }
 
 /// Several explicitly keyed patches: the escape hatch for a multi-entity

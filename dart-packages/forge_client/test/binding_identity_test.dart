@@ -269,6 +269,23 @@ void main() {
       await subscription.cancel();
     });
 
+    test('getState returns idle without opening a record', () async {
+      final (:cache, :transport, scheduler: _) = rig(
+        (_, _) => {'id': 7, 'total': 99},
+      );
+      final ref = getOrder(const GetOrderArgs(id: 7));
+
+      final state = ref.getState(cache, enabled: false);
+
+      expect(state, isA<QueryIdle<Order>>());
+      expect(ref.getState(cache, enabled: false), same(state));
+      expect(cache.size, 0);
+      expect(cache.registry.get(ref.key), isNull);
+
+      await settle();
+      expect(transport.calls, isEmpty);
+    });
+
     test('starts fetching once a dependent query flips enabled on', () async {
       final (:cache, :transport, scheduler: _) = rig(
         (_, _) => {'id': 7, 'total': 99},

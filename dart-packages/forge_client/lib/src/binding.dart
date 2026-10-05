@@ -3,6 +3,7 @@ import 'codec.dart';
 import 'invalidate.dart';
 import 'operation.dart';
 import 'overlay.dart';
+import 'registry.dart';
 import 'state.dart';
 import 'tags.dart';
 
@@ -17,6 +18,18 @@ final Expando<Map<Function, Object?>> _models = Expando<Map<Function, Object?>>(
 /// `fromClient`. The cache reuses a state object while nothing in it moved.
 final Expando<Map<Function, QueryState<Object?>>> _states =
     Expando<Map<Function, QueryState<Object?>>>('forge.states');
+
+/// The last typed value each query decoded, per registry entry and per
+/// `fromClient`. Keyed on the entry so it goes when the cache forgets the
+/// query or is cleared, and never crosses to another principal.
+final Expando<Map<Function, Object?>> _lastGood =
+    Expando<Map<Function, Object?>>('forge.lastGood');
+
+/// The idle state a disabled query reports, per binding, so a disabled
+/// query reads as one identical state however often it is asked.
+final Expando<QueryState<Object?>> _idles = Expando<QueryState<Object?>>(
+  'forge.idles',
+);
 
 /// Whether [value] can key an [Expando]: strings, numbers, booleans, records
 /// and null cannot.
@@ -77,7 +90,7 @@ final class QueryRef<T, A extends OperationArgs> {
   final TagContext context;
 
   /// This query's cache key. Two refs sharing it are the same query.
-  String get key => queryKey(binding.meta, context);
+  late final String key = queryKey(binding.meta, context);
 
   /// Watches the query as typed states.
   ///
@@ -90,37 +103,50 @@ final class QueryRef<T, A extends OperationArgs> {
     bool enabled = true,
   }) {
     if (!enabled) {
-      return Stream<QueryState<T>>.multi(
-        (controller) => controller.add(QueryIdle<T>()),
-      );
+      return Stream<QueryState<T>>.multi((controller) => controller.add(_idle));
     }
 
     return client
         .watch(binding.meta, context, live: live, staleTime: staleTime)
-        .map(_typed);
+        .map((raw) => _typed(client, raw));
   }
 
   /// The current typed state, opening the query's record if it is new.
-  QueryState<T> getState(QueryCache client) =>
-      _typed(client.getState(binding.meta, context));
+  ///
+  /// [enabled] false returns a [QueryIdle] without touching [client]: no
+  /// record is opened, as [watch] opens none.
+  QueryState<T> getState(QueryCache client, {bool enabled = true}) {
+    if (!enabled) return _idle;
+
+    return _typed(client, client.getState(binding.meta, context));
+  }
+
+  QueryState<T> get _idle =>
+      (_idles[binding] ??= QueryIdle<T>()) as QueryState<T>;
 
   /// Resolves with the value, fetching only when the cache holds nothing
   /// fresh.
   Future<T> fetch(QueryCache client) async =>
-      _model(await client.fetch(binding.meta, context));
+      _settled(client, await client.fetch(binding.meta, context));
 
   /// Fetches regardless of what the cache holds.
   Future<T> refetch(QueryCache client) async =>
-      _model(await client.refetch(binding.meta, context));
+      _settled(client, await client.refetch(binding.meta, context));
+
+  /// Decodes a fetched value and remembers it. The entry is read after the
+  /// fetch, which is what opened it.
+  T _settled(QueryCache client, Object? value) =>
+      _remember(client.registry.get(key), _model(value));
 
   T _model(Object? value) => decodeCached(binding.fromClient, value);
 
-  QueryState<T> _typed(QueryState<Object?> raw) {
+  QueryState<T> _typed(QueryCache client, QueryState<Object?> raw) {
     final memo = _states[raw] ??= <Function, QueryState<Object?>>{};
     final cached = memo[binding.fromClient];
 
     if (cached != null) return cached as QueryState<T>;
 
+    final entry = client.registry.get(key);
     QueryState<T> typed;
 
     try {
@@ -136,33 +162,82 @@ final class QueryRef<T, A extends OperationArgs> {
           syncStatus: raw.syncStatus,
         ),
         QuerySuccess(:final data) => QuerySuccess<T>(
-          _model(data),
+          _remember(entry, _model(data)),
           isFetching: raw.isFetching,
           isOptimistic: raw.isOptimistic,
           syncStatus: raw.syncStatus,
         ),
         QueryFailure(:final error, :final previous) => QueryFailure<T>(
           error,
-          previous: previous == null ? null : _model(previous),
+          previous: previous == null
+              ? null
+              : _remember(entry, _model(previous)),
           isFetching: raw.isFetching,
           isOptimistic: raw.isOptimistic,
           syncStatus: raw.syncStatus,
         ),
       };
     } on Object catch (error) {
-      // A value the model codec cannot read is a failure of this query, not a
-      // crash in whoever is rendering it.
-      typed = QueryFailure<T>(
-        error,
+      typed = raw.isOptimistic
+          ? _optimisticFallback(entry, raw)
+          // A value the model codec cannot read is a failure of this query,
+          // not a crash in whoever is rendering it.
+          : QueryFailure<T>(
+              error,
+              isFetching: raw.isFetching,
+              isOptimistic: raw.isOptimistic,
+              syncStatus: raw.syncStatus,
+            );
+    }
+
+    memo[binding.fromClient] = typed;
+
+    return typed;
+  }
+
+  T _remember(QueryEntry? entry, T model) {
+    if (entry != null) {
+      (_lastGood[entry] ??= <Function, Object?>{})[binding.fromClient] = model;
+    }
+
+    return model;
+  }
+
+  /// What to show while a pending optimistic change makes the value
+  /// undecodable, typically a minted `~opt` id in a list of int ids: the last
+  /// value this query decoded, or loading when it never decoded one. A raw
+  /// failure stays a failure, carrying that value as its previous.
+  QueryState<T> _optimisticFallback(
+    QueryEntry? entry,
+    QueryState<Object?> raw,
+  ) {
+    final memo = entry == null ? null : _lastGood[entry];
+
+    if (memo == null || !memo.containsKey(binding.fromClient)) {
+      return QueryLoading<T>(
         isFetching: raw.isFetching,
         isOptimistic: raw.isOptimistic,
         syncStatus: raw.syncStatus,
       );
     }
 
-    memo[binding.fromClient] = typed;
+    final last = memo[binding.fromClient] as T;
 
-    return typed;
+    return switch (raw) {
+      QueryFailure(:final error) => QueryFailure<T>(
+        error,
+        previous: last,
+        isFetching: raw.isFetching,
+        isOptimistic: raw.isOptimistic,
+        syncStatus: raw.syncStatus,
+      ),
+      _ => QuerySuccess<T>(
+        last,
+        isFetching: raw.isFetching,
+        isOptimistic: raw.isOptimistic,
+        syncStatus: raw.syncStatus,
+      ),
+    };
   }
 }
 
@@ -193,6 +268,10 @@ final class MutationBinding<R, A extends OperationArgs, E> {
   /// client shape with the entity codecs; without them the value is taken to
   /// be client-shaped already. An [OptimisticMany] is already client-shaped,
   /// so it is accepted only by a binding whose [E] is `Object?`.
+  ///
+  /// A conversion that throws is reported through the cache's `onError` with
+  /// the context `optimistic`, and the write is sent without optimism: not
+  /// being optimistic is a far smaller failure than not writing.
   Future<R> call(
     QueryCache client,
     A args, {
@@ -207,25 +286,54 @@ final class MutationBinding<R, A extends OperationArgs, E> {
         headers: options.headers,
         cancel: options.cancel,
         place: place,
-        optimistic: optimistic == null ? null : _clientShaped(optimistic),
+        optimistic: optimistic == null
+            ? null
+            : _clientShapedOrNull(client, optimistic),
       ),
     );
 
     return fromClient(response);
   }
 
+  Optimistic<Object?>? _clientShapedOrNull(
+    QueryCache client,
+    Optimistic<E> spec,
+  ) {
+    try {
+      return _clientShaped(spec);
+    } on Object catch (error) {
+      try {
+        client.report(error, 'optimistic');
+      } on Object {
+        // Nowhere further to send it that would not risk the same failure.
+      }
+
+      return null;
+    }
+  }
+
+  /// Converts [spec] to client shape. The spec's functions are applied inside
+  /// the spec classes and never read off them here: [spec] may be a narrower
+  /// spec than `Optimistic<E>` (an `OptimisticUpdate<Json>` passed where [E]
+  /// is `Object?`), and reading a function-typed field through the wider view
+  /// throws.
   Optimistic<Object?> _clientShaped(Optimistic<E> spec) {
-    final decode = entityFromClient ?? (Object? value) => value as E;
-    final encode = entityToClient ?? (E value) => value;
+    final fromEntity = entityFromClient;
+    final toEntity = entityToClient;
+
+    Object? decode(Object? client) =>
+        fromEntity == null ? client : fromEntity(client);
+    Object? encode(Object? model) =>
+        toEntity == null ? model : toEntity(model as E);
 
     return switch (spec) {
-      OptimisticUpdate(:final update, :final key) => OptimisticUpdate<Object?>(
-        (previous) => encode(update(decode(previous))),
+      OptimisticUpdate(:final key) => OptimisticUpdate<Object?>(
+        (previous) => spec.applyClient(previous, decode, encode),
         key: key,
       ),
       OptimisticDelete(:final key) => OptimisticDelete<Object?>(key: key),
-      OptimisticCreate(:final value) => OptimisticCreate<Object?>(
-        encode(value),
+      OptimisticCreate() => OptimisticCreate<Object?>(
+        spec.encodeClient(encode),
       ),
       OptimisticMany() => spec,
     };
