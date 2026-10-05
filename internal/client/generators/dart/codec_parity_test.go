@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -380,8 +381,12 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 				dartEncodeRequests[i] = map[string]any{"codec": dartCodecConst(c.Codec), "direction": "encode", "input": dartDecoded[i]}
 			}
 
-			// Each model case appends one request after the encodes.
-			var modelCases []int
+			// Each model case adds one request after the encodes.
+			var (
+				modelCases        []int
+				tsModelRequests   []map[string]any
+				dartModelRequests []map[string]any
+			)
 
 			for i, c := range variant.Cases {
 				if c.Model == "" {
@@ -389,11 +394,14 @@ func TestGeneratedCodecsAgreeAcrossRuntimes(t *testing.T) {
 				}
 
 				modelCases = append(modelCases, i)
-				tsEncodeRequests = append(tsEncodeRequests, map[string]any{"codec": c.Codec, "direction": "model", "input": c.Wire})
-				dartEncodeRequests = append(dartEncodeRequests, map[string]any{
+				tsModelRequests = append(tsModelRequests, map[string]any{"codec": c.Codec, "direction": "model", "input": c.Wire})
+				dartModelRequests = append(dartModelRequests, map[string]any{
 					"codec": dartCodecConst(c.Codec), "direction": "model", "model": c.Model, "input": c.Wire,
 				})
 			}
+
+			tsEncodeRequests = slices.Concat(tsEncodeRequests, tsModelRequests)
+			dartEncodeRequests = slices.Concat(dartEncodeRequests, dartModelRequests)
 
 			tsEncoded := runTypeScriptCodecs(t, codecParitySpec(), variant.FieldOverrides, tsEncodeRequests)
 			dartEncoded := decodeResults(t, runCodecsRaw(t, dartFixture, dartEncodeRequests))

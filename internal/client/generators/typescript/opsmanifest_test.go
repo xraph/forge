@@ -3,6 +3,7 @@ package typescript
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -427,7 +428,7 @@ func TestOperationRowUpperCasesTheMethod(t *testing.T) {
 	}}}
 
 	row := operationRow(&spec.Endpoints[0], spec, client.GeneratorConfig{Language: "typescript"}, map[string]bool{}, false)
-	if row.Method != "POST" {
+	if row.Method != http.MethodPost {
 		t.Errorf("operationRow method = %q, want POST", row.Method)
 	}
 }
