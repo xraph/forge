@@ -117,7 +117,7 @@ var targets = []target{
 				"entityRow", "entityRows", "renameEntityField", "renameEntityFields", "renameDerivedIDTags",
 				"operationSecurityKeys", "duplexMessageNames",
 			}},
-			{"rest.go", []string{"requestBodyContentType", "endpointLabel", "schemaCodecRef", "requestBodyCodecRef", "responseCodecRef"}},
+			{"rest.go", []string{"mediaEssence", "isJSONMediaType", "jsonMediaKey", "requestBodyContentType", "endpointLabel", "schemaCodecRef", "requestBodyCodecRef", "responseCodecRef"}},
 			{"facades.go", []string{"isReadMethod"}},
 			{"capabilities.go", []string{"sortedUniqueStrings"}},
 		},

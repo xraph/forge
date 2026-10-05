@@ -466,6 +466,49 @@ func (r *RESTGenerator) hasBodyParam(endpoint *client.Endpoint) bool {
 	return requestBodyContentType(endpoint) != ""
 }
 
+// mediaEssence is a content type without its parameters, trimmed and
+// lower-cased: "application/problem+json; charset=utf-8" -> "application/problem+json".
+func mediaEssence(contentType string) string {
+	essence, _, _ := strings.Cut(contentType, ";")
+
+	return strings.ToLower(strings.TrimSpace(essence))
+}
+
+// isJSONMediaType reports whether a content type carries JSON: application/json,
+// text/json, or any structured-syntax +json type (application/problem+json,
+// application/vnd.api+json). One rule for every generator, because a +json body
+// is JSON on the wire whatever its media type is called.
+func isJSONMediaType(contentType string) bool {
+	essence := mediaEssence(contentType)
+
+	return essence == "application/json" || essence == "text/json" || strings.HasSuffix(essence, "+json")
+}
+
+// jsonMediaKey picks the JSON entry of a body's content map, deterministically:
+// application/json when declared, otherwise the first JSON-like key in sorted
+// order. With withSchema set an entry that has no schema is skipped, as
+// requestBodyContentType does for a schemaless application/json. Returns "" when
+// no entry qualifies.
+func jsonMediaKey(content map[string]*client.MediaType, withSchema bool) string {
+	usable := func(key string) bool {
+		media, ok := content[key]
+
+		return ok && media != nil && (!withSchema || media.Schema != nil)
+	}
+
+	if usable("application/json") {
+		return "application/json"
+	}
+
+	for _, key := range sortedKeys(content) {
+		if isJSONMediaType(key) && usable(key) {
+			return key
+		}
+	}
+
+	return ""
+}
+
 // requestBodyContentType selects the single content type an endpoint's
 // request body is generated for, following the precedence responseBodyType
 // established for responses — application/json, then text/*, then anything
@@ -487,8 +530,8 @@ func requestBodyContentType(endpoint *client.Endpoint) string {
 		return ""
 	}
 
-	if media, ok := endpoint.RequestBody.Content["application/json"]; ok && media.Schema != nil {
-		return "application/json"
+	if key := jsonMediaKey(endpoint.RequestBody.Content, true); key != "" {
+		return key
 	}
 
 	for _, contentType := range sortedKeys(endpoint.RequestBody.Content) {
@@ -507,7 +550,7 @@ func requestBodyContentType(endpoint *client.Endpoint) string {
 	// mixed-content body.
 	keys := sortedKeys(endpoint.RequestBody.Content)
 	for _, contentType := range keys {
-		if contentType != "application/json" {
+		if !isJSONMediaType(contentType) {
 			return contentType
 		}
 	}
@@ -539,7 +582,7 @@ func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *cl
 	switch {
 	case contentType == "":
 		return ""
-	case contentType == "application/json":
+	case isJSONMediaType(contentType):
 		media := endpoint.RequestBody.Content[contentType]
 		return r.getSchemaTypeName(media.Schema, spec)
 	case contentType == "multipart/form-data":
@@ -641,11 +684,12 @@ func schemaCodecRef(schema *client.Schema) string {
 // return is the caller's to surface: only rest.go appends it to
 // RESTGenerator.warnings, so the manifest reusing this cannot double-report.
 func requestBodyCodecRef(endpoint *client.Endpoint) (id string, warning string) {
-	if requestBodyContentType(endpoint) != "application/json" {
+	contentType := requestBodyContentType(endpoint)
+	if !isJSONMediaType(contentType) {
 		return "", ""
 	}
 
-	media := endpoint.RequestBody.Content["application/json"]
+	media := endpoint.RequestBody.Content[contentType]
 	if media == nil || media.Schema == nil {
 		return "", ""
 	}
@@ -724,8 +768,8 @@ func responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
 			continue
 		}
 
-		media, ok := resp.Content["application/json"]
-		if !ok || media.Schema == nil {
+		media, ok := resp.Content[jsonMediaKey(resp.Content, false)]
+		if !ok || media == nil || media.Schema == nil {
 			continue
 		}
 
