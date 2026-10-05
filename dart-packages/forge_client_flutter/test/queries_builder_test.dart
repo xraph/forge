@@ -421,5 +421,29 @@ void main() {
       await settle(tester);
       expect(find.text('both success:false'), findsOneWidget);
     });
+
+    testWidgets('never builds with the previous principal\'s data after setPrincipal', (tester) async {
+      final h = principalHarness();
+      final seen = <String>[];
+
+      await tester.pumpWidget(scope(h, ForgeQueriesBuilder(
+        queries: [getOrder(const OrderArgs(1)), getOrder(const OrderArgs(2))],
+        builder: (context, state) {
+          final totals = [for (final s in state.states) s.dataOrNull is Order ? (s.dataOrNull! as Order).total : '-'];
+          seen.add('${h.cache.principal}: ${state.status.name} $totals');
+          return const SizedBox();
+        },
+      )));
+      await settle(tester);
+      expect(seen.last, 'alice: success [101, 102]');
+      seen.clear();
+
+      h.cache.setPrincipal('bob');
+      await settle(tester);
+
+      expect(seen, isNotEmpty);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+      expect(seen.last, 'bob: success [201, 202]');
+    });
   });
 }

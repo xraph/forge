@@ -458,6 +458,56 @@ void main() {
       await settle(tester);
       expect(find.text('detail success:11'), findsOneWidget);
     });
+
+    testWidgets('never builds with the previous principal\'s data after setPrincipal or a client swap', (tester) async {
+      final h = principalHarness();
+      final other = harness((request, _) => order(idOf(request), 999));
+      final seen = <String>[];
+      Widget tree(Harness x) => scope(x, ForgeQueryBuilder<Order>(
+        query: getOrder(const OrderArgs(1)),
+        builder: (context, state) {
+          seen.add('${x.cache.principal}: ${orderText(state)}');
+          return Text(orderText(state));
+        },
+      ));
+
+      await tester.pumpWidget(tree(h));
+      await settle(tester);
+      expect(seen.last, 'alice: success:101');
+      seen.clear();
+
+      h.cache.setPrincipal('bob');
+      await settle(tester);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+      expect(seen.last, 'bob: success:201');
+
+      seen.clear();
+      await tester.pumpWidget(tree(other));
+      await settle(tester);
+      expect(seen.where((s) => s.contains('201')), isEmpty, reason: '$seen');
+      expect(seen.last, 'null: success:999');
+    });
+
+    testWidgets('stops showing the previous principal\'s data on the first frame after setPrincipal', (tester) async {
+      final bob = Completer<Object?>();
+      late final Harness h;
+      h = harness((request, _) => h.cache.principal == 'bob' ? bob.future : order(idOf(request), 101));
+      h.cache.setPrincipal('alice');
+
+      await tester.pumpWidget(scope(h, orderBuilder(1)));
+      await settle(tester);
+      expect(find.text('success:101'), findsOneWidget);
+
+      h.cache.setPrincipal('bob');
+      await tester.pump();
+
+      expect(find.text('success:101'), findsNothing);
+      expect(find.text('loading:-'), findsOneWidget);
+
+      bob.complete(order(1, 201));
+      await settle(tester);
+      expect(find.text('success:201'), findsOneWidget);
+    });
   });
 
   group('firstState', () {
@@ -666,6 +716,52 @@ void main() {
       expect(changes.single.$2.dataOrNull?.total, 50);
       expect(subscription.state.dataOrNull?.total, 50);
       expect(subscription.state.isFetching, isFalse);
+    });
+
+    testWidgets('never returns the previous principal\'s state once the principal changed, even before its own clear notification', (tester) async {
+      final h = principalHarness();
+      final seen = <String>[];
+      final second = QuerySubscription<Order>((_, _) {});
+      final first = QuerySubscription<Order>((previous, next) {
+        // Order 1's clear notification can arrive before order 2's.
+        seen.add('${orderText(previous)} > ${orderText(next)}, 2: ${orderText(second.state)}');
+      });
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+
+      first.bind(h.cache, getOrder(const OrderArgs(1)), live: false, enabled: true);
+      second.bind(h.cache, getOrder(const OrderArgs(2)), live: false, enabled: true);
+      await settle(tester);
+      expect(orderText(second.state), 'success:102');
+      seen.clear();
+
+      final changing = <String>[];
+      h.cache.watchPrincipalChanging((_) => changing.add(orderText(second.state)));
+      h.cache.setPrincipal('bob');
+
+      expect(changing, ['loading:-']);
+      expect(seen, isNotEmpty);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+
+      await settle(tester);
+      expect(orderText(first.state), 'success:201');
+      expect(orderText(second.state), 'success:202');
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+    });
+
+    testWidgets('keeps a disabled subscription idle across setPrincipal', (tester) async {
+      final h = principalHarness();
+      final changes = <QueryState<Order>>[];
+      final subscription = QuerySubscription<Order>((_, next) => changes.add(next));
+      addTearDown(subscription.dispose);
+
+      subscription.bind(h.cache, getOrder(const OrderArgs(1)), live: false, enabled: false);
+      await settle(tester);
+      h.cache.setPrincipal('bob');
+      await settle(tester);
+
+      expect(subscription.state, isA<QueryIdle<Order>>());
+      expect(changes, isEmpty);
     });
   });
 }

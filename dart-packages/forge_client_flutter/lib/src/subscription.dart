@@ -47,6 +47,17 @@ String watchSignature(
 /// resubscribed, the change callback is never called again, even for an
 /// update held for the end of the frame. Callers rely on that rather than
 /// checking `mounted` themselves.
+///
+/// Nothing crosses principals. A state belongs to the principal the client
+/// had when it arrived. The core switches [QueryCache.principal] before its
+/// clear notifies anyone, and notifies the watched records one at a time, so
+/// while a setPrincipal is running some records have not been told yet. Until
+/// this subscription's own notification arrives, [state] returns a fresh
+/// [QueryLoading] instead of the previous principal's state, so a synchronous
+/// listener reading several queries never mixes the two principals. When the
+/// notification arrives the callback is always called, with that loading
+/// state as `previous`, even when the new state renders the same: what is on
+/// screen may still be the previous principal's.
 final class QuerySubscription<T> {
   /// Creates a subscription that reports every renderable change to its
   /// callback, with the state before and after it.
@@ -58,6 +69,12 @@ final class QuerySubscription<T> {
   String? _signature;
   StreamSubscription<QueryState<T>>? _subscription;
   QueryState<T>? _state;
+
+  /// The principal [_state] belongs to.
+  String? _principal;
+
+  /// What [state] returns while the principal differs from [_principal].
+  final QueryLoading<T> _masked = QueryLoading<T>();
 
   /// The latest update held for the end of the frame, if any.
   QueryState<T>? _pending;
@@ -71,7 +88,14 @@ final class QuerySubscription<T> {
 
   /// The latest state. Valid as soon as the first [bind] returns, so the
   /// first frame never waits for the stream.
-  QueryState<T> get state => _state!;
+  ///
+  /// A loading state while the client's principal differs from the one the
+  /// latest state belongs to (see the class doc). An idle state is kept: it
+  /// holds nothing, and a disabled query is never notified again.
+  QueryState<T> get state => _stale ? _masked : _state!;
+
+  bool get _stale =>
+      _client!.principal != _principal && _state is! QueryIdle<T>;
 
   /// Subscribes to [query] on [client], or keeps the current subscription
   /// when nothing that identifies it changed. Returns true when it
@@ -106,6 +130,7 @@ final class QuerySubscription<T> {
     // 9), so the starting state comes from getState, read after listening so
     // it already reflects the fetch the listen started.
     _state = firstState(client, query, enabled: enabled);
+    _principal = client.principal;
 
     if (previous != null) unawaited(previous.cancel());
     return true;
@@ -134,10 +159,14 @@ final class QuerySubscription<T> {
   }
 
   void _deliver(QueryState<T> next) {
-    final before = _state!;
+    final stale = _stale;
+    final before = state;
+    _principal = _client!.principal;
     // The first event repeats the seed read in bind, and the cache may emit
-    // a state that renders the same; neither is a change.
-    if (sameQueryState(before, next)) return;
+    // a state that renders the same; neither is a change. Across a principal
+    // change it always is, since the screen may still show the previous
+    // principal's state.
+    if (!stale && sameQueryState(before, next)) return;
     _state = next;
     _onChange(before, next);
   }

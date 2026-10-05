@@ -210,5 +210,30 @@ void main() {
       expect(phases, isNot(contains(SchedulerPhase.persistentCallbacks)));
       expect(find.text('detail success:20'), findsOneWidget);
     });
+
+    testWidgets('follows setPrincipal, and its previous state never carries the previous principal\'s data', (tester) async {
+      final h = principalHarness();
+      final seen = <String>[];
+
+      await tester.pumpWidget(scope(
+        h,
+        ForgeListener<Order>(
+          query: getOrder(const OrderArgs(1)),
+          listener: (context, previous, next) =>
+              seen.add('${h.cache.principal}: ${orderText(previous)} > ${orderText(next)}'),
+          child: const SizedBox(),
+        ),
+      ));
+      await settle(tester);
+      expect(seen.last, 'alice: loading:- > success:101');
+      seen.clear();
+
+      h.cache.setPrincipal('bob');
+      await settle(tester);
+
+      expect(seen, isNotEmpty);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+      expect(seen.last, 'bob: loading:- > success:201');
+    });
   });
 }

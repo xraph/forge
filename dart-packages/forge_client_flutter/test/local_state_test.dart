@@ -992,4 +992,36 @@ void main() {
       expect(w.value, 140);
     });
   });
+
+  group('ForgeComputed across setPrincipal', () {
+    testWidgets('never hands a synchronous listener a value mixing in the previous principal\'s data', (tester) async {
+      final h = principalHarness();
+      final key = ForgeComputedKey<String>((read) {
+        final a = read.query(getOrder(const OrderArgs(1))).dataOrNull?.total;
+        final b = read.query(getOrder(const OrderArgs(2))).dataOrNull?.total;
+        return 'a=$a b=$b';
+      }, debugLabel: 'two orders');
+      late ForgeComputed<String> computed;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (context) {
+        computed = context.forgeComputed(key);
+        return const SizedBox();
+      })));
+      await settle(tester);
+      expect(computed.value, 'a=101 b=102');
+
+      final seen = <String>[];
+      computed.addListener(() => seen.add('${h.cache.principal}: ${computed.value}'));
+
+      // Order 1's clear notification recomputes the value while order 2's
+      // has not arrived yet.
+      h.cache.setPrincipal('bob');
+      expect(seen, isNotEmpty);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+
+      await settle(tester);
+      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+      expect(seen.last, 'bob: a=201 b=202');
+    });
+  });
 }

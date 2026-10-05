@@ -233,3 +233,21 @@ Widget scope(
       connectivity: connectivity ?? FakeConnectivitySignal(),
       child: ltr(child),
     );
+
+/// A harness signed in as alice whose server answers by who is signed in:
+/// an order's total is 100 + id for alice and 200 + id for bob, and a patch
+/// answers 150 for alice and 250 for bob. A test that switches to bob can
+/// then tell any of alice's data apart by its hundreds digit.
+Harness principalHarness() {
+  late final Harness h;
+  h = harness((request, _) {
+    final base = h.cache.principal == 'bob' ? 200 : 100;
+    final id = idOf(request)! as int;
+    return order(id, request.meta.method == 'PATCH' ? base + 50 : base + id);
+  });
+  h.cache.setPrincipal('alice');
+  return h;
+}
+
+/// Whether [text] shows any of alice's data from [principalHarness].
+bool showsAlice(String text) => RegExp(r'\b1\d\d\b').hasMatch(text);
