@@ -13,6 +13,8 @@ export 'src/seams.dart'
 export 'src/invalidate.dart'
     show ForgeInvalidation, invalidateBinding, refetchBinding;
 export 'src/listener.dart' show ForgeListener;
+export 'src/local_state.dart'
+    show ForgeComputed, ForgeComputedKey, ForgeReader, ForgeState, ForgeStateKey;
 export 'src/mutation_builder.dart' show ForgeMutation, ForgeMutationBuilder;
 export 'src/queries_builder.dart' show ForgeCombinedStatus, ForgeQueriesBuilder, ForgeQueriesState;
 export 'src/query_builder.dart' show ForgeQueryBuilder;

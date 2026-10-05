@@ -280,5 +280,78 @@ void main() {
 
       unawaited(subscription.cancel());
     });
+
+    // Installation is ref-counted per cache and never keyed on the signals:
+    // keying it on them would install two revalidators on one cache, so one
+    // focus would refetch twice, and the Riverpod adapter shares one
+    // installation per cache too.
+    testWidgets('keeps the first install\'s signals while any scope sharing the client holds it', (tester) async {
+      final clock = ManualClock();
+      final h = harness((request, call) => order(idOf(request), 10 + call), clock: clock);
+      final firstFocus = FakeFocusSignal();
+      final secondFocus = FakeFocusSignal();
+      final swappedFocus = FakeFocusSignal();
+      final firstConnectivity = FakeConnectivitySignal();
+      final secondConnectivity = FakeConnectivitySignal();
+
+      Widget second(FakeFocusSignal focus) => KeyedSubtree(
+            key: const ValueKey('second'),
+            child: scope(h, const SizedBox(), focus: focus, connectivity: secondConnectivity),
+          );
+
+      Widget tree({required bool withFirst, required FakeFocusSignal secondSignal}) => Column(
+            textDirection: .ltr,
+            children: [
+              if (withFirst)
+                KeyedSubtree(
+                  key: const ValueKey('first'),
+                  child: scope(h, const SizedBox(), focus: firstFocus, connectivity: firstConnectivity),
+                ),
+              second(secondSignal),
+            ],
+          );
+
+      await tester.pumpWidget(tree(withFirst: true, secondSignal: secondFocus));
+      final subscription = getOrder(const OrderArgs(1))
+          .watch(h.cache, staleTime: const Duration(minutes: 1))
+          .listen((_) {});
+      await settle(tester);
+      expect(h.transport.countOf(opGetOrder), 1);
+
+      // The second scope joined the first one's installation.
+      expect(firstFocus.hasListener, isTrue);
+      expect(firstConnectivity.hasListener, isTrue);
+      expect(secondFocus.hasListener, isFalse);
+      expect(secondConnectivity.hasListener, isFalse);
+
+      // A swap by the scope that did not install rejoins the same installation.
+      await tester.pumpWidget(tree(withFirst: true, secondSignal: swappedFocus));
+      expect(swappedFocus.hasListener, isFalse);
+      expect(firstFocus.hasListener, isTrue);
+
+      // The installing scope goes away, but the second still holds the cache,
+      // so the first scope's signals stay in effect.
+      await tester.pumpWidget(tree(withFirst: false, secondSignal: swappedFocus));
+      expect(flutterSeamsInstalled(h.cache), isTrue);
+      expect(firstFocus.hasListener, isTrue);
+      expect(swappedFocus.hasListener, isFalse);
+
+      clock.advance(const Duration(minutes: 5));
+      swappedFocus.focus();
+      await settle(tester);
+      expect(h.transport.countOf(opGetOrder), 1);
+
+      firstFocus.focus();
+      await settle(tester);
+      expect(h.transport.countOf(opGetOrder), 2);
+
+      // The last holder releases, and the first scope's signals with it.
+      await tester.pumpWidget(const SizedBox());
+      expect(flutterSeamsInstalled(h.cache), isFalse);
+      expect(firstFocus.hasListener, isFalse);
+      expect(firstConnectivity.hasListener, isFalse);
+
+      unawaited(subscription.cancel());
+    });
   });
 }

@@ -5,7 +5,19 @@ import 'package:forge_client/forge_client.dart';
 
 import 'state_equality.dart';
 
-/// One widget's subscription to one query: listen, swap and cancel.
+/// What identifies one watch of [query]: its key and the options that change
+/// what the watch does, never the args object. On one client, two watches
+/// with the same signature are the same subscription.
+String watchSignature(
+  QueryRef<Object?, OperationArgs> query, {
+  required bool live,
+  Duration? staleTime,
+  required bool enabled,
+}) =>
+    '${query.key}\u0000$live\u0000${staleTime?.inMicroseconds}\u0000$enabled';
+
+/// One subscription to one query, for a widget or a computed value: listen,
+/// swap and cancel.
 ///
 /// Its identity is the client, [QueryRef.key] and the watch options, never
 /// the args object, so a new args object with the same key keeps the same
@@ -72,7 +84,7 @@ final class QuerySubscription<T> {
     required bool enabled,
   }) {
     final signature =
-        '${query.key}\u0000$live\u0000${staleTime?.inMicroseconds}\u0000$enabled';
+        watchSignature(query, live: live, staleTime: staleTime, enabled: enabled);
     if (identical(client, _client) && signature == _signature) return false;
 
     final previous = _subscription;
