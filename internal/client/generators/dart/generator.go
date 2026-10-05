@@ -3,6 +3,7 @@ package dart
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"sort"
 
@@ -64,7 +65,13 @@ type emission struct {
 	ops    []*operation
 	root   *restNode
 	paths  map[*operation]string
-	out    *generators.GeneratedClient
+
+	// paged and streams are what the pagination and streaming emitters
+	// planned, kept for the README to describe.
+	paged   []paginated
+	streams []streamClient
+
+	out *generators.GeneratedClient
 }
 
 func (e *emission) warn(w ...string) { e.out.Warnings = append(e.out.Warnings, w...) }
@@ -84,6 +91,7 @@ var emitters = []func(*emission) error{
 	emitCapabilities,
 	emitPagination,
 	emitStreaming,
+	emitTables,
 }
 
 // Generate produces the package.
@@ -131,15 +139,20 @@ func (g *Generator) Generate(_ context.Context, specIface generators.APISpec, co
 	return e.out, nil
 }
 
-// finish writes the files that describe the whole package: the barrel and
-// the pubspec.
+// finish writes the files that describe the whole package: the barrel, the
+// pubspec and the README.
 func finish(e *emission) {
 	files := e.out.Files
 	files["lib/"+e.config.PackageName+".dart"] = renderBarrel(e.spec, files)
 
 	// A Dart package without a pubspec cannot be resolved, imported or
-	// analyzed, so client-only never drops it.
+	// analyzed, so client-only never drops it. It drops the README, the one
+	// file a consuming repository plausibly writes for itself.
 	files["pubspec.yaml"] = renderPubspec(e.spec, e.config)
+
+	if !e.config.ClientOnly {
+		e.out.Instructions = renderReadme(e)
+	}
 
 	e.out.Dependencies = dependencies(e.hooks)
 	sort.Strings(e.out.ExclusiveDirs)
@@ -260,7 +273,8 @@ func emitCapabilities(e *emission) error {
 // emitPagination writes pagination.dart when pagination is on.
 func emitPagination(e *emission) error {
 	if e.config.Pagination && len(e.ops) > 0 {
-		e.out.Files["lib/src/pagination.dart"] = renderPagination(planPagination(e.ops, e.paths, e.reg), e.reg)
+		e.paged = planPagination(e.ops, e.paths, e.reg)
+		e.out.Files["lib/src/pagination.dart"] = renderPagination(e.paged, e.reg)
 	}
 
 	return nil
@@ -286,6 +300,7 @@ func emitStreaming(e *emission) error {
 	}
 
 	clients, warnings := planStreams(e.spec, e.config, e.reg, e.naming)
+	e.streams = clients
 	e.warn(warnings...)
 
 	for _, sc := range clients {
@@ -301,4 +316,54 @@ func emitStreaming(e *emission) error {
 	}
 
 	return nil
+}
+
+// emitTables writes forge-tables.json when EmitTablesJSON is set.
+func emitTables(e *emission) error {
+	if !e.config.EmitTablesJSON {
+		return nil
+	}
+
+	data, err := buildTables(e.spec, e.config, e.ops).MarshalCanonical()
+	if err != nil {
+		return fmt.Errorf("render %s: %w", client.TablesFile, err)
+	}
+
+	e.out.Files[client.TablesFile] = string(data)
+
+	return nil
+}
+
+// buildTables collects the tables this package renders in the
+// language-neutral form the parity test compares with TypeScript's. Every row
+// comes from the function the Dart renderers read, so the file cannot say
+// something the source does not.
+func buildTables(spec *client.APISpec, config client.GeneratorConfig, ops []*operation) client.GeneratedTables {
+	rows := entityRows(spec, config)
+	entities := make(map[string]client.TableEntity, len(rows))
+
+	for _, row := range rows {
+		entities[row.name] = client.TableEntity{IDField: row.idField, Fields: row.fields}
+	}
+
+	opRows := make(map[string]client.TableOp, len(ops))
+	keys := make([]string, len(ops))
+
+	for i, op := range ops {
+		opRows[op.key] = op.row
+		keys[i] = op.key
+	}
+
+	security := make(map[string]client.TableSecurity, len(spec.Security))
+	for _, s := range spec.Security {
+		security[s.Key] = client.TableSecurity{Type: s.Type, In: s.In, Name: s.ParamName, Scheme: s.Scheme}
+	}
+
+	return client.GeneratedTables{
+		Ops:             opRows,
+		Entities:        entities,
+		Streams:         streamRows(spec),
+		SecuritySchemes: security,
+		Capabilities:    capabilityTables(spec, keys),
+	}
 }
