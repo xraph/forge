@@ -79,6 +79,8 @@ var emitters = []func(*emission) error{
 	emitPlan,
 	emitErrors,
 	emitRest,
+	emitOps,
+	emitBindings,
 }
 
 // Generate produces the package.
@@ -204,6 +206,40 @@ func emitErrors(e *emission) error {
 // emitRest writes lib/src/rest.dart.
 func emitRest(e *emission) error {
 	e.out.Files["lib/src/rest.dart"] = renderRest(e.ops, e.root, e.paths, e.naming, e.reg, e.config.IncludeAuth)
+
+	return nil
+}
+
+// emitOps writes ops.dart and sync.dart, with hooks only. The streams table
+// is part of ops.dart and follows hooks, not the streaming flag, as the
+// TypeScript manifest does.
+func emitOps(e *emission) error {
+	if !e.hooks {
+		return nil
+	}
+
+	opsFile, warnings := renderOps(e.spec, e.config, e.ops, e.naming)
+	e.out.Files["lib/src/ops.dart"] = opsFile
+	e.warn(warnings...)
+
+	syncFile, warnings := renderSync(e.spec)
+	e.out.Files["lib/src/sync.dart"] = syncFile
+	e.warn(warnings...)
+
+	return nil
+}
+
+// emitBindings writes one binding file per operation, with hooks only.
+func emitBindings(e *emission) error {
+	if !e.hooks || len(e.ops) == 0 {
+		return nil
+	}
+
+	for _, op := range e.ops {
+		e.out.Files["lib/src/bindings/"+op.file+".dart"] = renderBinding(op, e.reg)
+	}
+
+	e.own("lib/src/bindings")
 
 	return nil
 }

@@ -145,3 +145,194 @@ func TestGeneratedPackagesAnalyzeClean(t *testing.T) {
 		})
 	}
 }
+
+// roundTripTest exercises the default fixture's generated code at runtime:
+// codecs, models, unions, enums, int64, copyWith, PATCH arguments, Args
+// equality and the tag context an Args hands the cache.
+const roundTripTest = `import 'dart:typed_data';
+
+import 'package:forge_client/forge_client.dart' show TagContext, queryKey;
+import 'package:orders_forge_client/orders_forge_client.dart';
+import 'package:orders_forge_client/src/codecs/node_codec.dart';
+import 'package:orders_forge_client/src/codecs/order_codec.dart';
+import 'package:orders_forge_client/src/codecs/pet_codec.dart';
+import 'package:orders_forge_client/src/codecs/shape_codec.dart';
+import 'package:test/test.dart';
+
+Map<String, Object?> orderJson({String status = 'pending', int qty = 2}) => <String, Object?>{
+  'id': '1',
+  'orderNumber': 'n',
+  'status': status,
+  'lines': <Object?>[
+    <String, Object?>{'sku': 'x', 'qty': qty},
+  ],
+  'metadata': <String, Object?>{'k': 'v'},
+};
+
+void main() {
+  test('an order decodes from the wire and encodes back, int64 beyond 2^53 intact', () {
+    final wire = <String, Object?>{
+      'id': '9007199254740993',
+      'order_number': 'A-1',
+      'status': 'shipped',
+      'lines': [
+        {'sku': 'x', 'qty': 2},
+      ],
+      'shipping': {'street_name': 'Main'},
+    };
+    final order = Order.fromClient(orderCodec.decode(wire));
+    expect(order.id.value, '9007199254740993');
+    expect(order.id.toBigInt(), BigInt.parse('9007199254740993'));
+    expect(order.id.toBigInt() > BigInt.two.pow(53), isTrue);
+    expect(order.orderNumber, 'A-1');
+    expect(order.status, OrderStatus.shipped);
+    expect(order.lines.single.qty, 2);
+    expect(order.shipping?.streetName, 'Main');
+    expect(orderCodec.encode(order.toClient()), <String, Object?>{
+      'id': '9007199254740993',
+      'lines': [
+        {'qty': 2, 'sku': 'x'},
+      ],
+      'order_number': 'A-1',
+      'shipping': {'street_name': 'Main'},
+      'status': 'shipped',
+    });
+  });
+
+  test('an unknown enum value is kept and re-encoded as it arrived', () {
+    final order = Order.fromClient(orderJson(status: 'lost'));
+    expect(order.status.wire, 'lost');
+    expect(order.status.isKnown, isFalse);
+    expect(order.status.known, isNull);
+    expect(order.toClient()['status'], 'lost');
+    expect((orderCodec.encode(order.toClient())! as Map<Object?, Object?>)['status'], 'lost');
+    expect(const OrderState('archived').isKnown, isFalse);
+    expect(OrderState.unknown.isKnown, isTrue);
+  });
+
+  test('copyWith tells clearing from leaving unchanged', () {
+    final order = Order.fromClient(<String, Object?>{
+      'id': '1', 'orderNumber': 'n', 'status': 'pending', 'lines': <Object?>[], 'note': 'keep',
+    });
+    expect(order.copyWith().note, 'keep');
+    expect(order.copyWith(note: const Assign(null)).note, isNull);
+    expect(order.copyWith(), order);
+    expect(order.copyWith().hashCode, order.hashCode);
+  });
+
+  test('list and map fields compare and hash deeply', () {
+    final a = Order.fromClient(orderJson());
+    final b = Order.fromClient(orderJson());
+    expect(identical(a.lines, b.lines), isFalse);
+    expect(a, b);
+    expect(a.hashCode, b.hashCode);
+    expect(Order.fromClient(orderJson(qty: 3)), isNot(a));
+    expect(a.copyWith(metadata: const Assign({'k': 'w'})), isNot(a));
+  });
+
+  test('a recursive schema decodes and encodes', () {
+    final wire = <String, Object?>{
+      'label': 'root',
+      'children': [
+        {
+          'label': 'leaf',
+          'children': <Object?>[],
+        },
+      ],
+    };
+    final node = Node.fromClient(nodeCodec.decode(wire));
+    expect(node.children!.single.label, 'leaf');
+    expect(node.children!.single.children, isEmpty);
+    expect(nodeCodec.encode(node.toClient()), wire);
+  });
+
+  test('a discriminated union picks its variant by tag', () {
+    final pet = Pet.fromClient(petCodec.decode(<String, Object?>{'pet_type': 'dog', 'barks': true}));
+    expect(pet, isA<PetDog>());
+    expect(petCodec.encode(pet.toClient()), <String, Object?>{'barks': true, 'pet_type': 'dog'});
+    final fish = Pet.fromClient(<String, Object?>{'petType': 'fish'});
+    expect(fish, isA<PetUnknown>());
+    expect(fish.toClient(), <String, Object?>{'petType': 'fish'});
+  });
+
+  test('an undiscriminated union matches structurally and never throws', () {
+    expect(Shape.fromClient(shapeCodec.decode(<String, Object?>{'side': 2})), isA<ShapeSquare>());
+    expect(Shape.fromClient('round'), isA<ShapeOption2>());
+    expect(Shape.fromClient(<String, Object?>{'other': 1}), isA<ShapeUnknown>());
+  });
+
+  test('PATCH args omit unchanged fields and send null for Assign(null)', () {
+    const args = OrdersUpdateArgs(id: '7', note: null, total: Assign(null));
+    expect(args.toTagContext().body, <String, Object?>{'note': null, 'total': null});
+    const state = OrdersUpdateArgs(id: '7', note: 'n', state: Assign(OrderState.closed));
+    expect(state.toTagContext().body, <String, Object?>{'note': 'n', 'state': 'closed'});
+  });
+
+  test('a null optional parameter is left out of the tag context', () {
+    final context = const OrdersGetArgs(id: '7').toTagContext();
+    expect(queryKey(opOrdersGet, context), queryKey(opOrdersGet, const TagContext(path: {'id': '7'})));
+    expect(context.path, <String, Object?>{'id': '7'});
+    expect(context.query, isEmpty);
+    expect(const OrdersGetArgs(id: '7', includeLines: true).toTagContext().query, <String, Object?>{'include_lines': true});
+  });
+
+  test('args built from equal values are equal', () {
+    expect(const OrdersGetArgs(id: '7', includeLines: true), const OrdersGetArgs(id: '7', includeLines: true));
+    expect(
+      const OrdersGetArgs(id: '7', includeLines: true).hashCode,
+      const OrdersGetArgs(id: '7', includeLines: true).hashCode,
+    );
+    const assigned = OrdersUpdateArgs(id: '7', note: 'n', total: Assign(null));
+    expect(assigned, const OrdersUpdateArgs(id: '7', note: 'n', total: Assign(null)));
+    expect(assigned.hashCode, const OrdersUpdateArgs(id: '7', note: 'n', total: Assign(null)).hashCode);
+    expect(const OrdersUpdateArgs(id: '7', note: 'n'), isNot(assigned));
+    final line = Order.fromClient(orderJson());
+    expect(OrdersBulkArgs(body: [line]), OrdersBulkArgs(body: [Order.fromClient(orderJson())]));
+    expect(OrdersBulkArgs(body: [line]).hashCode, OrdersBulkArgs(body: [Order.fromClient(orderJson())]).hashCode);
+    expect(UploadsCreateArgs(body: {'a': 'b'}), UploadsCreateArgs(body: {'a': 'b'}));
+    expect(UploadsCreateArgs(body: {'a': 'b'}).hashCode, UploadsCreateArgs(body: {'a': 'b'}).hashCode);
+    expect(RawCreateArgs(body: Uint8List.fromList([1, 2])), RawCreateArgs(body: Uint8List.fromList([1, 2])));
+    expect(RawCreateArgs(body: Uint8List.fromList([1, 2])), isNot(RawCreateArgs(body: Uint8List.fromList([1, 3]))));
+  });
+
+  test('bindings decode through stable tear-offs and cache list rows', () {
+    expect(identical(ordersGet.fromClient, Order.fromClient), isTrue);
+    final row = orderJson();
+    final first = ordersBulk.fromClient(<Object?>[row]);
+    final second = ordersBulk.fromClient(<Object?>[row, orderJson(qty: 9)]);
+    expect(identical(first.single, second.first), isTrue);
+  });
+}
+`
+
+// TestGeneratedPackageRunsItsRoundTrip runs roundTripTest against the
+// default fixture with `dart test`, proving the generated code behaves, not
+// only that it compiles.
+func TestGeneratedPackageRunsItsRoundTrip(t *testing.T) {
+	fvm := requireDart(t)
+
+	f := gateFixtures()[0]
+	dir := writePackage(t, f)
+
+	pubspec := filepath.Join(dir, "pubspec.yaml")
+
+	data, err := os.ReadFile(pubspec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(pubspec, append(data, []byte("\ndev_dependencies:\n  test: ^1.32.0\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "test", "roundtrip_test.dart"), []byte(roundTripTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runFvm(t, fvm, dir, "pub", "get")
+	t.Log(runFvm(t, fvm, dir, "test"))
+}

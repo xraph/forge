@@ -245,19 +245,29 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 		return body
 
 	case essence == "multipart/form-data":
-		return &bodyParam{kind: "multipart", member: claim("body"), typ: castType("Map<String, String>"), required: required}
+		return &bodyParam{kind: "multipart", member: claim("body"), typ: formFieldsType(), required: required}
 
 	case essence == "application/x-www-form-urlencoded":
-		return &bodyParam{kind: "form", member: claim("body"), typ: castType("Map<String, String>"), required: required}
+		return &bodyParam{kind: "form", member: claim("body"), typ: formFieldsType(), required: required}
 
 	case isTextMediaType(contentType):
 		return &bodyParam{kind: "text", member: claim("body"), typ: castType("String"), required: required, contentType: contentType}
 	}
 
+	// Bytes compare by content, like every other list an Args class holds.
 	t := castType("Uint8List")
-	t.typedData = true
+	t.typedData, t.deep = true, true
 
 	return &bodyParam{kind: "bytes", member: claim("body"), typ: t, required: required, contentType: contentType}
+}
+
+// formFieldsType is a form or multipart body: string fields by name, compared
+// by content so two Args built from equal fields are equal.
+func formFieldsType() dartType {
+	t := castType("Map<String, String>")
+	t.deep = true
+
+	return t
 }
 
 func schemaRef(s *client.Schema) string {
