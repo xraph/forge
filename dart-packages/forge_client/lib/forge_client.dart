@@ -2,5 +2,7 @@
 /// store, a tag graph, a query cache and a REST transport.
 library;
 
+export 'src/normalize.dart';
 export 'src/ref.dart';
+export 'src/store.dart';
 export 'src/types.dart';
