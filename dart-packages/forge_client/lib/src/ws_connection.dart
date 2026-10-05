@@ -55,13 +55,18 @@ final class WebSocketStreamConnection implements StreamConnection {
   void send(Object? message) =>
       _sink.add(message is String ? message : jsonEncode(message));
 
+  /// Closes the sink, waiting at most five seconds. [closed] completes even
+  /// when the sink's close throws; the error is rethrown.
   @override
   Future<void> close() async {
-    await _sink.close().timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => null,
-    );
-    _finish();
+    try {
+      await _sink.close().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+    } finally {
+      _finish();
+    }
   }
 
   void _finish() {

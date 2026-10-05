@@ -25,8 +25,15 @@ final class _Sink implements StreamSink<Object?> {
   @override
   Future<void> addStream(Stream<Object?> stream) => stream.forEach(add);
 
+  /// What [close] throws, when set.
+  Object? closeError;
+
   @override
-  Future<void> close() async => closes++;
+  Future<void> close() async {
+    closes++;
+
+    if (closeError case final error?) throw error;
+  }
 
   @override
   Future<void> get done => Future<void>.value();
@@ -131,6 +138,24 @@ void main() {
       await settle();
 
       expect(sink.closes, 1);
+    });
+  });
+
+  group('WebSocketStreamConnection', () {
+    test('still reports closed when the sink fails to close', () async {
+      final incoming = StreamController<Object?>();
+      final sink = _Sink()..closeError = StateError('socket gone');
+      final connection = WebSocketStreamConnection.over(incoming.stream, sink);
+      var closed = false;
+
+      connection.messages.listen((_) {});
+      unawaited(connection.closed.then((_) => closed = true));
+
+      await expectLater(connection.close(), throwsStateError);
+      await settle();
+
+      expect(closed, isTrue);
+      expect(incoming.hasListener, isFalse);
     });
   });
 

@@ -26,7 +26,7 @@ void main() {
     );
     final cache = QueryCache(transport: transport, entities: schema);
     final manager = SubscriptionManager(
-      connect: eventSourceConnection(),
+      connect: eventSourceConnection(events: ['order.updated']),
       baseUrl: server.url,
       backoff: const BackoffPolicy(
         initial: Duration(milliseconds: 20),

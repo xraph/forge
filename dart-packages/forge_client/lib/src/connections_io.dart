@@ -32,13 +32,15 @@ StreamConnect webSocketConnection({Duration? pingInterval}) => (context) async {
 /// Opens SSE streams over [client], or a client of its own per connection.
 ///
 /// Each event is delivered as `{'event': name, 'data': json, 'id': lastId}`,
-/// the shape TS `eventSourceConnection` produces. With [events] non-empty only
-/// those names, the control events and `message` are delivered, matching what
-/// a browser `EventSource` with those listeners would see. The last dispatched
-/// id is remembered per url and principal, and sent as `Last-Event-ID` on the
-/// next connect for the same pair. As in a browser, an id-only event still
-/// updates it, an empty `id:` clears it, and a frame sent before any id carries
-/// `''`.
+/// the shape TS `eventSourceConnection` produces. Only the names in [events],
+/// the control events and `message` are delivered, matching what a browser
+/// `EventSource` with those listeners would see; an empty [events] delivers
+/// the control events and `message` alone, as it does on the web.
+///
+/// The last dispatched id is remembered per url and principal, and sent as
+/// `Last-Event-ID` on the next connect for the same pair. As in a browser, an
+/// id-only event still updates it, an empty `id:` clears it, and a frame sent
+/// before any id carries `''`.
 StreamConnect eventSourceConnection({
   http.Client? client,
   Iterable<String> events = const [],
@@ -116,8 +118,7 @@ final class _SseConnection implements ReceiveOnlyConnection {
         .transform(SseParser(onLastEventId: onId))
         .listen(
           (event) {
-            if (wanted.isNotEmpty &&
-                !wanted.contains(event.event) &&
+            if (!wanted.contains(event.event) &&
                 !streamControlEvents.contains(event.event) &&
                 event.event != 'message') {
               return;

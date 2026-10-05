@@ -28,16 +28,20 @@ StreamConnect webSocketConnection({Duration? pingInterval}) => (context) async {
 /// and `message`, delivering `{'event': name, 'data': json, 'id': lastId}`.
 ///
 /// The frame is the one the native factory produces. A browser keeps the last
-/// event id itself, sets it on every dispatched event (so an id-only event
+/// event id itself and sets it on every dispatched event (so an id-only event
 /// updates it, an empty `id:` clears it and nothing has set it yet reads as
-/// `''`), and sends `Last-Event-ID` on its own, so `lastEventId` is used as is.
+/// `''`), so `lastEventId` is used as is.
 ///
-/// A browser can only hear named events it has a listener for, so unlike the
-/// native factory an empty [events] does not mean every event: only the
-/// control events and `message` arrive. [client] and the context's headers are
-/// ignored. The source's own retry is not used: an error closes it and reports
-/// a drop, so the manager reconnects on its backoff and the binder recovers the
-/// gap, as TS does.
+/// A browser can only hear named events it has a listener for, so an empty
+/// [events] does not mean every event: only the control events and `message`
+/// arrive, as on native. [client] and the context's headers are ignored.
+///
+/// The source's own retry is not used: an error closes it and reports a drop,
+/// so the manager reconnects on its backoff and the binder recovers the gap,
+/// as TS does. Each attempt builds a new `EventSource`, which starts with no
+/// last event id, so the browser does not send `Last-Event-ID` on a manager
+/// reconnect and the server cannot replay: resume falls back to the binder's
+/// refetch once its grace window passes.
 StreamConnect eventSourceConnection({
   http.Client? client,
   Iterable<String> events = const [],

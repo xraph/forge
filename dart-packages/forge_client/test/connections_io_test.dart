@@ -24,9 +24,9 @@ void main() {
     tearDown(() => server.stop());
 
     test('delivers named events as event, data and id frames', () async {
-      final connection = await eventSourceConnection()(
-        _context(server.url, '/sse/orders'),
-      );
+      final connection = await eventSourceConnection(
+        events: ['order.created', 'order.updated'],
+      )(_context(server.url, '/sse/orders'));
       addTearDown(connection.close);
 
       expect(connection, isA<ReceiveOnlyConnection>());
@@ -83,8 +83,32 @@ void main() {
       },
     );
 
+    // As in a browser, which hears only the names it has listeners for.
+    test(
+      'delivers only the control events and message when no events are listed',
+      () async {
+        final connection = await eventSourceConnection()(
+          _context(server.url, '/sse/orders'),
+        );
+        addTearDown(connection.close);
+
+        final seen = <Object?>[];
+        connection.messages.listen(seen.add);
+
+        server.send(0, 'event: order.created\ndata: 1\n\n');
+        server.send(0, 'event: forge.gap\ndata: {}\n\n');
+        server.send(0, 'data: 3\n\n');
+        await until(() => seen.length == 2);
+
+        expect(
+          seen.map((frame) => (frame! as Map<Object?, Object?>)['event']),
+          ['forge.gap', 'message'],
+        );
+      },
+    );
+
     test('reports a payload that is not JSON and keeps reading', () async {
-      final connection = await eventSourceConnection()(
+      final connection = await eventSourceConnection(events: ['order.created'])(
         _context(server.url, '/sse/orders'),
       );
       addTearDown(connection.close);
@@ -209,7 +233,7 @@ void main() {
     // last dispatched id so a replaying server can resume.
     test('reconnects after a drop mid-event and resumes from the last dispatched id', () async {
       final manager = SubscriptionManager(
-        connect: eventSourceConnection(),
+        connect: eventSourceConnection(events: ['order.updated']),
         baseUrl: server.url,
         backoff: const BackoffPolicy(
           initial: Duration(milliseconds: 20),
