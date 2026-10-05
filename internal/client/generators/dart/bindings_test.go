@@ -78,6 +78,14 @@ func TestSyncTableNeedsPullAndPush(t *testing.T) {
 	assertContains(t, "warnings", strings.Join(out.Warnings, "\n"), `entity "Draft" has no push endpoint`)
 }
 
+func TestSyncWarningNamesEveryMissingEndpoint(t *testing.T) {
+	spec := minimalSpec()
+	spec.Sync = []client.SyncDecl{{Protocol: "grove-crdt", Entity: "Orphan", Table: "orphans"}}
+
+	_, warnings := renderSync(spec)
+	assertContains(t, "warnings", strings.Join(warnings, "\n"), `entity "Orphan" has no pull or push endpoint`)
+}
+
 // A sync-only entity, named only by x-forge-sync and a schema, gets an
 // entities row from the IR, and a row with no table omits it.
 func TestSyncOnlyEntityIsKeyedAndMayOmitItsTable(t *testing.T) {
@@ -202,6 +210,17 @@ func TestArgsHaveValueEquality(t *testing.T) {
 		assertContains(t, name+".dart", file(t, out, "lib/src/bindings/"+name+".dart"),
 			"deepEquals(body, other.body)", "deepHash(body)")
 	}
+}
+
+// A member named like the parameter of a generated == is read through this,
+// in Args and models alike; the runtime half is in the round trip.
+func TestEqualityQualifiesAMemberNamedOther(t *testing.T) {
+	out := generate(t, fixture(t, "default"))
+
+	assertContains(t, "pets_get.dart", file(t, out, "lib/src/bindings/pets_get.dart"), "this.other == other.other")
+	assertContains(t, "orders_update.dart", file(t, out, "lib/src/bindings/orders_update.dart"), "valueEquals(this.other, other.other)")
+	assertContains(t, "update_order_request.dart", file(t, out, "lib/src/models/update_order_request.dart"),
+		"this.other == other.other", "note == other.note")
 }
 
 func TestNoHooksMeansNoOpsNoBindingsAndNoForgeClient(t *testing.T) {

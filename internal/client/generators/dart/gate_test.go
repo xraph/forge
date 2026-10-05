@@ -292,7 +292,21 @@ void main() {
     expect(UploadsCreateArgs(body: {'a': 'b'}), UploadsCreateArgs(body: {'a': 'b'}));
     expect(UploadsCreateArgs(body: {'a': 'b'}).hashCode, UploadsCreateArgs(body: {'a': 'b'}).hashCode);
     expect(RawCreateArgs(body: Uint8List.fromList([1, 2])), RawCreateArgs(body: Uint8List.fromList([1, 2])));
+    expect(RawCreateArgs(body: Uint8List.fromList([1, 2])).hashCode, RawCreateArgs(body: Uint8List.fromList([1, 2])).hashCode);
     expect(RawCreateArgs(body: Uint8List.fromList([1, 2])), isNot(RawCreateArgs(body: Uint8List.fromList([1, 3]))));
+  });
+
+  // Instances are built without const: equal const instances are identical,
+  // and a model's == short-circuits on identical before reading any member.
+  test('a member named other takes part in equality', () {
+    expect(PetsGetArgs(petId: Int64('1'), other: 'a'), PetsGetArgs(petId: Int64('1'), other: 'a'));
+    expect(PetsGetArgs(petId: Int64('1'), other: 'a').hashCode, PetsGetArgs(petId: Int64('1'), other: 'a').hashCode);
+    expect(PetsGetArgs(petId: Int64('1'), other: 'a'), isNot(PetsGetArgs(petId: Int64('1'), other: 'b')));
+    expect(OrdersUpdateArgs(id: '7', note: 'n', other: Assign('a')), OrdersUpdateArgs(id: '7', note: 'n', other: Assign('a')));
+    expect(OrdersUpdateArgs(id: '7', note: 'n', other: Assign('a')), isNot(OrdersUpdateArgs(id: '7', note: 'n', other: Assign('b'))));
+    expect(UpdateOrderRequest(note: 'n', other: 'a'), UpdateOrderRequest(note: 'n', other: 'a'));
+    expect(UpdateOrderRequest(note: 'n', other: 'a').hashCode, UpdateOrderRequest(note: 'n', other: 'a').hashCode);
+    expect(UpdateOrderRequest(note: 'n', other: 'a'), isNot(UpdateOrderRequest(note: 'n', other: 'b')));
   });
 
   test('bindings decode through stable tear-offs and cache list rows', () {

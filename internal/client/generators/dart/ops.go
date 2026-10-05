@@ -34,7 +34,7 @@ func renderOps(spec *client.APISpec, config client.GeneratorConfig, ops []*opera
 	sortOps(sorted)
 
 	for _, op := range sorted {
-		fmt.Fprintf(&body, "\n/// `%s %s`\n", op.row.Method, strings.ReplaceAll(op.row.Path, "`", "'"))
+		fmt.Fprintf(&body, "\n/// `%s %s`\n", strings.ToUpper(op.row.Method), strings.ReplaceAll(op.row.Path, "`", "'"))
 		fmt.Fprintf(&body, "const %s = OperationMeta(\n", op.constant)
 		fmt.Fprintf(&body, "  id: %s,\n", dartString(op.id))
 		fmt.Fprintf(&body, "  method: %s,\n", dartString(strings.ToUpper(op.row.Method)))
@@ -239,8 +239,8 @@ func renderSync(spec *client.APISpec) (string, []string) {
 	for _, decl := range spec.Sync {
 		if decl.Pull == "" || decl.Push == "" {
 			warnings = append(warnings, fmt.Sprintf(
-				"x-forge-sync: entity %q has no %s endpoint, so it is left out of the sync table and stays a plain REST entity",
-				decl.Entity, missingSyncRole(decl)))
+				"x-forge-sync: entity %q has no %s, so it is left out of the sync table and stays a plain REST entity",
+				decl.Entity, missingSyncRoles(decl)))
 
 			continue
 		}
@@ -290,12 +290,17 @@ func renderSync(spec *client.APISpec) (string, []string) {
 	return b.String(), warnings
 }
 
-func missingSyncRole(d client.SyncDecl) string {
-	if d.Pull == "" {
-		return "pull"
+// missingSyncRoles names the endpoints a sync row lacks, both when it has
+// neither.
+func missingSyncRoles(d client.SyncDecl) string {
+	switch {
+	case d.Pull == "" && d.Push == "":
+		return "pull or push endpoint"
+	case d.Pull == "":
+		return "pull endpoint"
 	}
 
-	return "push"
+	return "push endpoint"
 }
 
 // sortOps orders operations by their table id, which is how ops.dart lists

@@ -234,9 +234,9 @@ func (d *classDecl) render() string {
 
 	for _, f := range d.fields {
 		if f.typ.deep {
-			fmt.Fprintf(&b, " &&\n          deepEquals(%s, other.%s)", f.member, f.member)
+			fmt.Fprintf(&b, " &&\n          deepEquals(%s, other.%s)", selfMember(f.member), f.member)
 		} else {
-			fmt.Fprintf(&b, " &&\n          %s == other.%s", f.member, f.member)
+			fmt.Fprintf(&b, " &&\n          %s == other.%s", selfMember(f.member), f.member)
 		}
 	}
 
@@ -256,6 +256,21 @@ func (d *classDecl) render() string {
 	b.WriteString("  ]);\n}\n")
 
 	return b.String()
+}
+
+// equalsParam is the parameter name every generated operator == takes.
+const equalsParam = "other"
+
+// selfMember renders a member on the receiver's side of a generated ==. A
+// member named like the parameter would otherwise read the parameter, so it
+// is qualified with this; every other member stays bare, which the
+// unnecessary_this lint the gate enforces requires.
+func selfMember(member string) string {
+	if member == equalsParam {
+		return "this." + member
+	}
+
+	return member
 }
 
 // valueArg is the type argument of a nullable field's Value: the type with

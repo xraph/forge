@@ -95,6 +95,8 @@ func ordersSpec() *client.APISpec {
 					"note":  {Type: "string", Nullable: true},
 					"state": ref("OrderState"),
 					"total": {Type: "number"},
+					// Named like the parameter of a generated ==.
+					"other": {Type: "string"},
 				},
 			},
 			"Orders": {Type: "array", Items: ref("Order")},
@@ -155,7 +157,9 @@ func ordersSpec() *client.APISpec {
 			{
 				Method: "GET", Path: "/pets/{petId}", OperationID: "pets.get",
 				PathParams: []client.Parameter{{Name: "petId", In: "path", Required: true, Schema: &client.Schema{Type: "integer", Format: "int64"}}},
-				Responses:  map[int]*client.Response{200: {Content: jsonContent(ref("Pet"))}},
+				// Named like the parameter of a generated ==.
+				QueryParams: []client.Parameter{{Name: "other", In: "query", Schema: &client.Schema{Type: "string"}}},
+				Responses:   map[int]*client.Response{200: {Content: jsonContent(ref("Pet"))}},
 			},
 			{
 				Method: "POST", Path: "/uploads", OperationID: "uploads.create",

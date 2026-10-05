@@ -29,7 +29,7 @@ func TestRestClientNestsOperationsByNamespace(t *testing.T) {
 		"responseCodec: orderCodec,",
 		"Future<void> delete({required String id}) async {",
 		"response: _Body.none,",
-		"Future<Pet> get({required Int64 petId}) async {",
+		"Future<Pet> get({required Int64 petId, String? other}) async {",
 		"'/pets/${Uri.encodeComponent(petId.value)}',",
 		"Future<String> get() async {",
 		"form: true,",

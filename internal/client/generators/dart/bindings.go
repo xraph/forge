@@ -172,7 +172,7 @@ func renderArgs(op *operation, forge map[string]bool) string {
 					name:  f.member,
 					decl:  fmt.Sprintf("Value<%s>", valueArg(f.typ)),
 					doc:   doc,
-					equal: fmt.Sprintf("valueEquals(%s, other.%s)", f.member, f.member),
+					equal: fmt.Sprintf("valueEquals(%s, other.%s)", selfMember(f.member), f.member),
 					hash:  fmt.Sprintf("valueHash(%s)", f.member),
 				})
 			}
@@ -307,12 +307,12 @@ func plainMember(name, decl, doc string, deep bool) argsMember {
 	if deep {
 		return argsMember{
 			name, decl, doc,
-			fmt.Sprintf("deepEquals(%s, other.%s)", name, name),
+			fmt.Sprintf("deepEquals(%s, other.%s)", selfMember(name), name),
 			fmt.Sprintf("deepHash(%s)", name),
 		}
 	}
 
-	return argsMember{name, decl, doc, fmt.Sprintf("%s == other.%s", name, name), name}
+	return argsMember{name, decl, doc, fmt.Sprintf("%s == other.%s", selfMember(name), name), name}
 }
 
 func docOr(doc, fallback string) string {
