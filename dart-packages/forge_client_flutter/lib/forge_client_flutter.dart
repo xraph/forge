@@ -12,7 +12,9 @@ export 'src/seams.dart'
         installFlutterSeams;
 export 'src/invalidate.dart'
     show ForgeInvalidation, invalidateBinding, refetchBinding;
+export 'src/listener.dart' show ForgeListener;
 export 'src/mutation_builder.dart' show ForgeMutation, ForgeMutationBuilder;
+export 'src/queries_builder.dart' show ForgeCombinedStatus, ForgeQueriesBuilder, ForgeQueriesState;
 export 'src/query_builder.dart' show ForgeQueryBuilder;
 export 'src/scope.dart' show ForgeContext, ForgeScope;
 export 'src/state_equality.dart' show firstState, sameQueryState;
