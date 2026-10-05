@@ -75,6 +75,30 @@ func paginationFixture() gateFixture {
 					QueryParams: []client.Parameter{queryParam("offset", "integer", false), queryParam("limit", "integer", false), str("p"), str("params")},
 					Responses:   json("OffsetPage"),
 				},
+				// Names the walker's locals would otherwise take: a path
+				// parameter called page, and call paths rooted at page, p and
+				// params.
+				{
+					Method: "GET", Path: "/pages/{page}/revisions", OperationID: "pages.revisions.list",
+					PathParams:  []client.Parameter{{Name: "page", In: "path", Required: true, Schema: &client.Schema{Type: "string"}}},
+					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
+					Responses:   json("CursorPage"),
+				},
+				{
+					Method: "GET", Path: "/page", OperationID: "page.list",
+					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
+					Responses:   json("CursorPage"),
+				},
+				{
+					Method: "GET", Path: "/p", OperationID: "p.list",
+					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
+					Responses:   json("CursorPage"),
+				},
+				{
+					Method: "GET", Path: "/params", OperationID: "params.list",
+					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
+					Responses:   json("CursorPage"),
+				},
 				// Left out: a required query parameter the walker cannot fill.
 				{
 					Method: "GET", Path: "/search", OperationID: "search.list",
@@ -119,7 +143,8 @@ func TestPaginationWalksEachStyleAndLeavesTheRestAlone(t *testing.T) {
 		"return Page(page.data, nextCursor: page.next, hasMore: page.hasMore);",
 		"Stream<Item> pagesListPaginated({PageParams params = const PageParams()}) =>",
 		"final page = await pages.list(page: p.page, perPage: p.limit);",
-		"return Page(page.results, hasMore: page.hasMore ?? false);",
+		// An absent flag stays null, which the walker reads differently from false.
+		"return Page(page.results, hasMore: page.hasMore);",
 		// A path parameter named like the namespace needs `this`, and two
 		// headers named like the walker's locals move it aside.
 		"Stream<Item> offsetsListPaginated({required String offsets, required String p, required String params, PageParams params2 = const PageParams()}) =>",
@@ -128,11 +153,40 @@ func TestPaginationWalksEachStyleAndLeavesTheRestAlone(t *testing.T) {
 		"}, initial: params2);",
 	)
 
+	assertContains(t, "pagination.dart", pages,
+		// A path parameter named page moves the response local aside.
+		"Stream<Item> pagesRevisionsListPaginated({required String page, PageParams params = const PageParams()}) =>",
+		"final page2 = await pages.revisions.list(page: page, cursor: p.cursor);",
+		"return Page(page2.data, nextCursor: page2.next, hasMore: page2.hasMore);",
+		// A call path rooted at page, p or params moves the local that would
+		// shadow it, and needs no `this`.
+		"final page2 = await page.list(cursor: p.cursor);",
+		"Stream<Item> pListPaginated({PageParams params = const PageParams()}) =>",
+		"paginateAll((p2) async {\n        final page = await p.list(cursor: p2.cursor);",
+		"Stream<Item> paramsListPaginated({PageParams params2 = const PageParams()}) =>",
+		"final page = await params.list(cursor: p.cursor);",
+		"}, initial: params2);",
+	)
+
+	if strings.Contains(pages, "this.page.") || strings.Contains(pages, "this.p.") || strings.Contains(pages, "this.params.") {
+		t.Error("a call path that no argument shadows is prefixed with this")
+	}
+
 	for _, left := range []string{"searchList", "mandatoryList", "sizedList", "summaryGet", "actionsRun"} {
 		if strings.Contains(pages, left) {
 			t.Errorf("pagination.dart streams %q, which the walker cannot page", left)
 		}
 	}
+}
+
+// TestPaginationDocumentsThatNumberedWalksNeedASeed pins the doc comment that
+// tells a caller why a page or offset walk stops after the first page.
+func TestPaginationDocumentsThatNumberedWalksNeedASeed(t *testing.T) {
+	pages := file(t, generate(t, paginationFixture()), "lib/src/pagination.dart")
+
+	assertContains(t, "pagination.dart", pages,
+		"/// offset walk goes past the first page only when [initial] carries a page or\n/// an offset (and a limit, for an offset), because servers disagree on whether\n/// pages start at 0 or 1 and no default is right for all of them.",
+	)
 }
 
 func TestPaginationIsOmittedWhenSwitchedOff(t *testing.T) {
@@ -329,6 +383,61 @@ void main() {
       maxItems: 3,
     );
     expect(firstThree, hasLength(3));
+  });
+
+  test('has_more false ends the walk even when a next cursor comes with it', () async {
+    var requests = 0;
+    final client = RestClient(
+      baseUrl: Uri.parse('https://api.test'),
+      httpClient: MockClient((request) async {
+        requests++;
+        return json({'data': [item('a')], 'next': 'c2', 'has_more': false});
+      }),
+    );
+    final ids = await client.teamsItemsListPaginated(teamId: 't').map((i) => i.id).toList();
+    expect(ids, ['a']);
+    expect(requests, 1);
+  });
+
+  test('a server that echoes the cursor it was sent ends the walk', () async {
+    final cursors = <String?>[];
+    final client = RestClient(
+      baseUrl: Uri.parse('https://api.test'),
+      httpClient: MockClient((request) async {
+        cursors.add(request.url.queryParameters['cursor']);
+        if (cursors.length > 5) throw StateError('the cursor was echoed without end');
+        return json({'data': [item('a')], 'next': 'c1', 'has_more': true});
+      }),
+    );
+    final ids = await client.teamsItemsListPaginated(teamId: 't').map((i) => i.id).toList();
+    expect(ids, ['a', 'a']);
+    expect(cursors, [null, 'c1']);
+  });
+
+  test('an empty page with has_more true goes on to the next one', () async {
+    final client = RestClient(
+      baseUrl: Uri.parse('https://api.test'),
+      httpClient: MockClient((request) async {
+        return request.url.queryParameters['cursor'] == null
+            ? json({'data': <Object?>[], 'next': 'c2', 'has_more': true})
+            : json({'data': [item('x')], 'has_more': false});
+      }),
+    );
+    final ids = await client.teamsItemsListPaginated(teamId: 't').map((i) => i.id).toList();
+    expect(ids, ['x']);
+  });
+
+  test('an empty page with no has_more ends the walk', () async {
+    var requests = 0;
+    final client = RestClient(
+      baseUrl: Uri.parse('https://api.test'),
+      httpClient: MockClient((request) async {
+        requests++;
+        return json({'results': <Object?>[]});
+      }),
+    );
+    expect(await client.pagesListPaginated(params: const PageParams(page: 1)).toList(), isEmpty);
+    expect(requests, 1);
   });
 
   test('a server that reports more but gives no way to advance ends the stream', () async {

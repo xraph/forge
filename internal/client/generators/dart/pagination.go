@@ -137,28 +137,39 @@ func renderPagination(pages []paginated, reg *registry) string {
 
 			var sig, args []string
 
-			// Names a required parameter may already hold: the walker's own
-			// two locals and the first segment of the accessor path.
-			taken := map[string]bool{}
+			// Every name the method body can see besides the walker's own
+			// locals: the required arguments, and the first segment of the
+			// accessor path, which the call reads off the client.
+			required := map[string]bool{}
 			root, _, _ := strings.Cut(p.call, ".")
 
 			for _, prm := range p.op.params {
 				if _, isPaging := p.paging[prm.member]; !isPaging && prm.required {
-					taken[prm.member] = true
+					required[prm.member] = true
 				}
 			}
 
-			paramsName := freeName("params", taken)
-			pageName := freeName("p", taken)
+			taken := copySet(required)
+			taken[root] = true
 
+			// The three locals are chosen in turn, each avoiding the names
+			// before it, so none shadows an argument or the call path.
+			paramsName := freeName("params", taken)
+			taken[paramsName] = true
+			closureName := freeName("p", taken)
+			taken[closureName] = true
+			pageVar := freeName("page", taken)
+
+			// An argument named like the first path segment shadows it, and
+			// `this` reaches the accessor again.
 			call := p.call
-			if taken[root] {
+			if required[root] {
 				call = "this." + call
 			}
 
 			for _, prm := range p.op.params {
 				if field, isPaging := p.paging[prm.member]; isPaging {
-					args = append(args, fmt.Sprintf("%s: %s.%s", prm.member, pageName, field))
+					args = append(args, fmt.Sprintf("%s: %s.%s", prm.member, closureName, field))
 
 					continue
 				}
@@ -173,23 +184,22 @@ func renderPagination(pages []paginated, reg *registry) string {
 
 			fmt.Fprintf(&ext, "  /// Every item of `%s %s`, across pages.\n", strings.ToUpper(p.op.ep.Method), strings.ReplaceAll(p.op.ep.Path, "`", "'"))
 			fmt.Fprintf(&ext, "  Stream<%s> %s({%s}) =>\n", p.item, p.method, strings.Join(sig, ", "))
-			fmt.Fprintf(&ext, "      paginateAll((%s) async {\n", pageName)
-			fmt.Fprintf(&ext, "        final page = await %s(%s);\n", call, strings.Join(args, ", "))
+			fmt.Fprintf(&ext, "      paginateAll((%s) async {\n", closureName)
+			fmt.Fprintf(&ext, "        final %s = await %s(%s);\n", pageVar, call, strings.Join(args, ", "))
 
 			extra := ""
 			if p.cursor != "" {
-				extra += ", nextCursor: page." + p.cursor
+				extra += ", nextCursor: " + pageVar + "." + p.cursor
 			}
 
 			if p.hasMore != "" {
-				if p.moreNull {
-					extra += ", hasMore: page." + p.hasMore + " ?? false"
-				} else {
-					extra += ", hasMore: page." + p.hasMore
-				}
+				// A nullable flag stays null: an absent has_more means the
+				// server did not say, which the walker treats differently
+				// from false.
+				extra += ", hasMore: " + pageVar + "." + p.hasMore
 			}
 
-			fmt.Fprintf(&ext, "        return Page(page.%s%s);\n", p.items, extra)
+			fmt.Fprintf(&ext, "        return Page(%s.%s%s);\n", pageVar, p.items, extra)
 			fmt.Fprintf(&ext, "      }, initial: %s);\n", paramsName)
 		}
 
@@ -265,7 +275,7 @@ final class PageParams {
 /// One page of results.
 final class Page<T> {
   /// Creates a page.
-  const Page(this.items, {this.nextCursor, this.hasMore = false});
+  const Page(this.items, {this.nextCursor, this.hasMore});
 
   /// The items on this page.
   final List<T> items;
@@ -273,11 +283,18 @@ final class Page<T> {
   /// The cursor for the next page, when the server returned one.
   final String? nextCursor;
 
-  /// Whether the server reported more pages.
-  final bool hasMore;
+  /// Whether the server reported more pages, or null when it did not say.
+  final bool? hasMore;
 }
 
 /// Streams every item across pages, fetching lazily as the stream is read.
+///
+/// The walk stops when the server reports no more pages, when the next cursor
+/// is the one just sent, or when a page is empty and the server did not say
+/// whether more follow. A cursor walk needs nothing seeded. A numbered or
+/// offset walk goes past the first page only when [initial] carries a page or
+/// an offset (and a limit, for an offset), because servers disagree on whether
+/// pages start at 0 or 1 and no default is right for all of them.
 Stream<T> paginateAll<T>(
   Future<Page<T>> Function(PageParams params) fetchPage, {
   PageParams initial = const PageParams(),
@@ -286,12 +303,19 @@ Stream<T> paginateAll<T>(
   while (true) {
     final page = await fetchPage(params);
     yield* Stream.fromIterable(page.items);
+    final more = page.hasMore;
+    if (more == false || (more == null && page.items.isEmpty)) return;
     if (page.nextCursor case final cursor? when cursor.isNotEmpty) {
+      if (cursor == params.cursor) return;
       params = PageParams(cursor: cursor, limit: params.limit);
-    } else if (page.hasMore && params.page != null) {
-      params = PageParams(page: params.page! + 1, limit: params.limit);
-    } else if (page.hasMore && params.offset != null && params.limit != null) {
-      params = PageParams(offset: params.offset! + params.limit!, limit: params.limit);
+    } else if (more ?? false) {
+      if (params.page case final number?) {
+        params = PageParams(page: number + 1, limit: params.limit);
+      } else if (params.offset case final skipped? when params.limit != null) {
+        params = PageParams(offset: skipped + params.limit!, limit: params.limit);
+      } else {
+        return;
+      }
     } else {
       return;
     }

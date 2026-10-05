@@ -46,7 +46,7 @@ func TestPaginationStreamsEveryItemOfAListOperation(t *testing.T) {
 		"extension RestClientPagination on RestClient {",
 		"Stream<Order> ordersListPaginated({required String xTenant, PageParams params = const PageParams()}) =>",
 		"final page = await orders.list(cursor: p.cursor, limit: p.limit, xTenant: xTenant);",
-		"return Page(page.items, nextCursor: page.nextCursor, hasMore: page.hasMore ?? false);",
+		"return Page(page.items, nextCursor: page.nextCursor, hasMore: page.hasMore);",
 		"import 'models/order.dart';",
 	)
 }
