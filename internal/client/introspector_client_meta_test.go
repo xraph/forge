@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -863,6 +864,40 @@ func TestIntrospectResolvesCacheMetaFromRawRoutes(t *testing.T) {
 
 	if _, ok := spec.Entities["Order"]; !ok {
 		t.Fatalf("entities = %v, want Order registered", spec.Entities)
+	}
+}
+
+// The raw-route path has no OpenAPI document to read x-forge-idempotent from,
+// so it translates the route's metadata with the same function the document
+// generator uses. A write that opted in comes out Idempotent; a write that did
+// not stays false; and a read in a group that opted in is not marked, because
+// the middleware never deduplicates it.
+func TestIntrospectResolvesIdempotentFromRawRoutes(t *testing.T) {
+	declared := map[string]any{"forge.client.idempotent": true}
+
+	r := routeTableRouter{routes: []router.RouteInfo{
+		{Method: "POST", Path: "/orders", Metadata: declared},
+		{Method: "POST", Path: "/notes"},
+		{Method: "GET", Path: "/orders", Metadata: declared},
+	}}
+
+	spec, err := NewIntrospector(r).Introspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]bool{}
+	for _, ep := range spec.Endpoints {
+		got[ep.Method+" "+ep.Path] = ep.Idempotent
+	}
+
+	want := map[string]bool{"POST /orders": true, "POST /notes": false, "GET /orders": false}
+	if !maps.Equal(got, want) {
+		t.Fatalf("Idempotent by route = %v, want %v", got, want)
+	}
+
+	if len(spec.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", spec.Warnings)
 	}
 }
 

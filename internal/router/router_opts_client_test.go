@@ -111,3 +111,44 @@ func TestWithStaleTime(t *testing.T) {
 		})
 	}
 }
+
+func TestWithIdempotentMarksTheRouteAndInstallsTheMiddleware(t *testing.T) {
+	var ran bool
+
+	mw := func(next Handler) Handler {
+		return func(ctx Context) error {
+			ran = true
+
+			return next(ctx)
+		}
+	}
+
+	cfg := applyOpts(WithIdempotent(mw))
+
+	if v, _ := cfg.Metadata["forge.client.idempotent"].(bool); !v {
+		t.Fatalf("idempotent = %#v, want true", cfg.Metadata["forge.client.idempotent"])
+	}
+
+	if len(cfg.Middleware) != 1 {
+		t.Fatalf("middleware = %d, want 1", len(cfg.Middleware))
+	}
+
+	_ = cfg.Middleware[0](func(Context) error { return nil })(nil)
+
+	if !ran {
+		t.Fatal("the installed middleware is not the one passed in")
+	}
+}
+
+func TestWithGroupIdempotentMarksTheGroup(t *testing.T) {
+	cfg := &GroupConfig{}
+	WithGroupIdempotent(func(next Handler) Handler { return next }).Apply(cfg)
+
+	if v, _ := cfg.Metadata["forge.client.idempotent"].(bool); !v {
+		t.Fatalf("group idempotent = %#v, want true", cfg.Metadata["forge.client.idempotent"])
+	}
+
+	if len(cfg.Middleware) != 1 {
+		t.Fatalf("group middleware = %d, want 1", len(cfg.Middleware))
+	}
+}

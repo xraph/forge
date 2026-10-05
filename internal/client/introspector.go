@@ -58,7 +58,7 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 			// WithoutInvalidation, WithStaleTime -- can take effect; before
 			// this call none of it did, and the metadata was copied onto the
 			// endpoint and never read.
-			ext := router.ClientExtensions(route.Metadata)
+			ext := router.ClientExtensions(route.Method, route.Metadata)
 			resolveEndpointCacheMeta(spec, &endpoint, ext)
 			resolveEndpointIdempotent(spec, &endpoint, ext)
 			collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", ext)

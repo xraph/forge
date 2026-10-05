@@ -23,7 +23,7 @@ func TestOperationCarriesForgeExtensions(t *testing.T) {
 	}
 
 	op := &Operation{}
-	applyForgeExtensions(op, route.Metadata)
+	applyForgeExtensions(op, route.Method, route.Metadata)
 
 	ent, ok := op.Extensions["x-forge-entity"].(map[string]any)
 	if !ok {
@@ -47,7 +47,7 @@ func TestOperationCarriesForgeExtensions(t *testing.T) {
 
 func TestOperationWithoutForgeMetadataGetsNoExtensions(t *testing.T) {
 	op := &Operation{}
-	applyForgeExtensions(op, map[string]any{"unrelated": true})
+	applyForgeExtensions(op, "POST", map[string]any{"unrelated": true})
 
 	for key := range op.Extensions {
 		if len(key) > 8 && key[:8] == "x-forge-" {
@@ -58,7 +58,7 @@ func TestOperationWithoutForgeMetadataGetsNoExtensions(t *testing.T) {
 
 func TestNoEntityFlagIsEmitted(t *testing.T) {
 	op := &Operation{}
-	applyForgeExtensions(op, map[string]any{"forge.client.noEntity": true})
+	applyForgeExtensions(op, "POST", map[string]any{"forge.client.noEntity": true})
 
 	if v, _ := op.Extensions["x-forge-no-entity"].(bool); !v {
 		t.Fatalf("x-forge-no-entity = %#v, want true", op.Extensions["x-forge-no-entity"])
@@ -67,7 +67,7 @@ func TestNoEntityFlagIsEmitted(t *testing.T) {
 
 func TestStaleTimeExtensionIsEmitted(t *testing.T) {
 	op := &Operation{}
-	applyForgeExtensions(op, map[string]any{"forge.client.staleTime": int64(30000)})
+	applyForgeExtensions(op, "POST", map[string]any{"forge.client.staleTime": int64(30000)})
 
 	if got, _ := op.Extensions["x-forge-stale-time"].(int64); got != 30000 {
 		t.Fatalf("x-forge-stale-time = %#v, want 30000", op.Extensions["x-forge-stale-time"])
@@ -76,10 +76,76 @@ func TestStaleTimeExtensionIsEmitted(t *testing.T) {
 
 func TestStaleTimeExtensionIsAbsentWhenUndeclared(t *testing.T) {
 	op := &Operation{}
-	applyForgeExtensions(op, map[string]any{})
+	applyForgeExtensions(op, "POST", map[string]any{})
 
 	if _, ok := op.Extensions["x-forge-stale-time"]; ok {
 		t.Fatalf("x-forge-stale-time = %#v, want absent when undeclared", op.Extensions["x-forge-stale-time"])
+	}
+}
+
+func TestIdempotentExtensionIsEmitted(t *testing.T) {
+	op := &Operation{}
+	applyForgeExtensions(op, "POST", map[string]any{"forge.client.idempotent": true})
+
+	if v, _ := op.Extensions["x-forge-idempotent"].(bool); !v {
+		t.Fatalf("x-forge-idempotent = %#v, want true", op.Extensions["x-forge-idempotent"])
+	}
+}
+
+func TestIdempotentExtensionIsAbsentWhenUndeclared(t *testing.T) {
+	op := &Operation{}
+	applyForgeExtensions(op, "POST", map[string]any{"forge.client.idempotent": false})
+
+	if _, ok := op.Extensions["x-forge-idempotent"]; ok {
+		t.Fatalf("x-forge-idempotent present for a route that did not opt in: %#v", op.Extensions)
+	}
+}
+
+// A group option cannot know which of its routes are writes, so the mark
+// arrives on every route in the group. The document must still not call a
+// read idempotent in the replay sense: the outbox only queues writes, and a
+// flag on a GET would read as a promise the middleware does not keep (it
+// passes GET, HEAD and OPTIONS straight through).
+func TestIdempotentExtensionOnlyMarksMutatingMethods(t *testing.T) {
+	for method, want := range map[string]bool{
+		"POST": true, "PUT": true, "PATCH": true, "DELETE": true,
+		"post": true, "GET": false, "HEAD": false, "OPTIONS": false,
+	} {
+		op := &Operation{}
+		applyForgeExtensions(op, method, map[string]any{"forge.client.idempotent": true})
+
+		_, got := op.Extensions["x-forge-idempotent"]
+		if got != want {
+			t.Errorf("%s: x-forge-idempotent present = %v, want %v", method, got, want)
+		}
+	}
+}
+
+func TestGroupIdempotentMarksWritesAndNotReadsInTheDocument(t *testing.T) {
+	r := NewRouter(WithOpenAPI(OpenAPIConfig{Title: "T", Version: "1.0.0"}))
+	g := r.Group("/v1", WithGroupIdempotent(func(next Handler) Handler { return next }))
+
+	noop := func(ctx Context) error { return nil }
+
+	if err := g.POST("/orders", noop); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.GET("/orders", noop); err != nil {
+		t.Fatal(err)
+	}
+
+	item := r.OpenAPISpec().Paths["/v1/orders"]
+	if item == nil || item.Post == nil || item.Get == nil {
+		t.Fatalf("operations missing: %#v", item)
+	}
+
+	if v, _ := item.Post.Extensions["x-forge-idempotent"].(bool); !v {
+		t.Errorf("POST x-forge-idempotent = %#v, want true", item.Post.Extensions["x-forge-idempotent"])
+	}
+
+	if _, ok := item.Get.Extensions["x-forge-idempotent"]; ok {
+		t.Errorf("GET carries x-forge-idempotent: %#v", item.Get.Extensions)
 	}
 }
 
@@ -89,7 +155,7 @@ func TestStaleTimeExtensionIsAbsentWhenUndeclared(t *testing.T) {
 // have to be distinguished from absence by every consumer.
 func TestEmptyInvalidatesSliceEmitsNoKey(t *testing.T) {
 	op := &Operation{}
-	applyForgeExtensions(op, map[string]any{
+	applyForgeExtensions(op, "POST", map[string]any{
 		"forge.client.invalidates":    []string{},
 		"forge.client.noInvalidation": []string{},
 	})

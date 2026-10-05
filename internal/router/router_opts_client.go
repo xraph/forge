@@ -110,3 +110,40 @@ func (o *staleTimeOpt) Apply(cfg *RouteConfig) {
 // something invalidates it". Declaring a duration here is what makes a query
 // also go stale because time passed.
 func WithStaleTime(d time.Duration) RouteOption { return &staleTimeOpt{d} }
+
+type idempotentOpt struct{ mw Middleware }
+
+func (o *idempotentOpt) Apply(cfg *RouteConfig) {
+	setMeta(cfg, "forge.client.idempotent", true)
+
+	if o.mw != nil {
+		cfg.Middleware = append(cfg.Middleware, o.mw)
+	}
+}
+
+// WithIdempotent marks the route as safe to replay with an Idempotency-Key and
+// installs mw, the middleware that makes it so. The two travel together on
+// purpose: a route that advertised x-forge-idempotent without enforcing it
+// would tell an offline client to resend writes the server applies twice.
+//
+// forge.WithIdempotency is the public entry point; it builds mw.
+func WithIdempotent(mw Middleware) RouteOption { return &idempotentOpt{mw} }
+
+type groupIdempotentOpt struct{ mw Middleware }
+
+func (o *groupIdempotentOpt) Apply(cfg *GroupConfig) {
+	if cfg.Metadata == nil {
+		cfg.Metadata = make(map[string]any)
+	}
+
+	cfg.Metadata["forge.client.idempotent"] = true
+
+	if o.mw != nil {
+		cfg.Middleware = append(cfg.Middleware, o.mw)
+	}
+}
+
+// WithGroupIdempotent is WithIdempotent for every route in a group. The mark
+// reaches reads in the group too, so the OpenAPI generator keeps it off GET and
+// HEAD routes, where the middleware does nothing.
+func WithGroupIdempotent(mw Middleware) GroupOption { return &groupIdempotentOpt{mw} }
