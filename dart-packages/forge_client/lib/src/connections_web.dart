@@ -68,6 +68,11 @@ StreamConnect webTransportConnection() => (context) async {
   try {
     await transport.ready.toDart;
   } on Object {
+    // A session that never became ready rejects `closed` as well; nothing
+    // listens to it, so absorb it rather than leave an unhandled rejection.
+    unawaited(
+      transport.closed.toDart.then<void>((_) {}, onError: (Object _) {}),
+    );
     transport.close();
 
     rethrow;
@@ -240,10 +245,12 @@ final class _WebTransportConnection implements ReceiveOnlyConnection {
     final reader = _transport.datagrams.readable.getReader();
 
     try {
-      while (true) {
+      while (!_closed.isCompleted) {
         final next = await reader.read().toDart;
 
-        if (next.done) break;
+        // A datagram still queued when the session ended is dropped: the
+        // controller is closed and the manager has been told.
+        if (next.done || _closed.isCompleted) break;
 
         final bytes = next.value;
 
@@ -257,7 +264,7 @@ final class _WebTransportConnection implements ReceiveOnlyConnection {
         }
       }
     } on Object catch (error) {
-      if (!_over) _messages.addError(error);
+      if (!_over && !_messages.isClosed) _messages.addError(error);
     } finally {
       reader.releaseLock();
       _finish();

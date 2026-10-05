@@ -87,6 +87,9 @@ const _fakeWebTransport = r'''
       globalThis.__forgeFakeWebTransport = {
         send: (text) => push(new TextEncoder().encode(text)),
         drop: () => { end(); shut(); },
+        // The session ends while datagrams are still queued: `closed`
+        // resolves but the readable is left holding what was sent.
+        shutOnly: () => shut(),
         closes: () => self.closeCount,
       };
     }
@@ -103,6 +106,36 @@ const _fakeWebTransport = r'''
   globalThis.WebTransport = FakeWebTransport;
 })();
 ''';
+
+// Counts what the EventSource connection does to the source it opens.
+const _countingEventSource = r'''
+(() => {
+  const Real = globalThis.__forgeRealEventSource || globalThis.EventSource;
+  globalThis.__forgeRealEventSource = Real;
+  const counts = { closes: 0, added: [], removed: [] };
+  globalThis.__forgeEventSourceCounts = counts;
+
+  globalThis.EventSource = class extends Real {
+    close() {
+      counts.closes += 1;
+      super.close();
+    }
+
+    addEventListener(type, listener, options) {
+      counts.added.push(type);
+      super.addEventListener(type, listener, options);
+    }
+
+    removeEventListener(type, listener, options) {
+      counts.removed.push(type);
+      super.removeEventListener(type, listener, options);
+    }
+  };
+})();
+''';
+
+const _restoreEventSource =
+    'globalThis.EventSource = globalThis.__forgeRealEventSource;';
 
 const _restoreWebTransport =
     'globalThis.WebTransport = globalThis.__forgeRealWebTransport;';
@@ -247,8 +280,13 @@ void main() {
         {'event': 'a', 'data': 3, 'id': ''},
       ]);
     });
+  });
 
-    test('closes the source and ends the stream on close', () async {
+  group('the browser EventSource cleanup', () {
+    setUp(() => _eval(_countingEventSource));
+    tearDown(() => _eval(_restoreEventSource));
+
+    test('closes the source once, removes every listener it added and ends the stream', () async {
       final base = await _startServer();
       final connection = await eventSourceConnection(events: ['a'])(
         StreamConnectContext(
@@ -261,10 +299,25 @@ void main() {
       connection.messages.listen((_) {}, onDone: () => ended = true);
 
       await connection.close();
+      await connection.close();
       await connection.closed;
       await _settle();
 
+      final counts = globalContext.getProperty<JSObject>(
+        '__forgeEventSourceCounts'.toJS,
+      );
+      List<String> names(String key) =>
+          (counts
+                .getProperty<JSArray<JSString>>(key.toJS)
+                .toDart
+                .map((n) => n.toDart)
+                .toList())
+            ..sort();
+
       expect(ended, isTrue);
+      expect(counts.getProperty<JSNumber>('closes'.toJS).toDartInt, 1);
+      expect(names('added'), ['a', 'forge.gap', 'forge.resumed', 'message']);
+      expect(names('removed'), names('added'));
     });
   });
 
@@ -355,6 +408,35 @@ void main() {
         expect(kit.subscriptions.connected('/wt/orders'), isFalse);
       },
     );
+
+    test('drops datagrams still queued when the session ends, with no uncaught error', () async {
+      final uncaught = <Object>[];
+      final seen = <Object?>[];
+
+      // The read loop is started inside the factory call, so its zone sees
+      // anything the loop lets escape.
+      await runZonedGuarded(() async {
+        final connection = await webTransportConnection()(
+          StreamConnectContext(
+            url: Uri.parse('https://127.0.0.1:1/wt/orders'),
+            endpoint: '/wt/orders',
+          ),
+        );
+        connection.messages.listen(seen.add);
+
+        _send(jsonEncode({'n': 1}));
+        _send(jsonEncode({'n': 2}));
+        _send(jsonEncode({'n': 3}));
+        _fake.callMethod<JSAny?>('shutOnly'.toJS);
+
+        await connection.closed;
+        await _settle();
+      }, (error, _) => uncaught.add(error));
+
+      expect(uncaught, isEmpty);
+      // The session ended with datagrams still queued; the rest are dropped.
+      expect(seen.length, lessThan(3));
+    });
 
     test(
       'closes the transport when the manager releases the last subscriber',
