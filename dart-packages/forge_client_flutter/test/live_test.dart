@@ -182,6 +182,14 @@ void main() {
       expect(h.transport.calls, hasLength(1));
       expect(find.text('success:100'), findsOneWidget);
 
+      // Deaf because nothing is subscribed, not merely because the socket
+      // ignores a push: the manager holds no subscription and no connection,
+      // and the one socket it opened was closed.
+      expect(h.manager.size, 0);
+      expect(h.manager.connected('/ws/orders'), isFalse);
+      expect(h.opened, hasLength(1));
+      expect(h.opened.single.isClosed, isTrue);
+
       // And it really is deaf now.
       await emit(tester, h, const {
         'type': 'order.updated',
@@ -225,12 +233,83 @@ void main() {
       expect(h.opened, hasLength(2));
       expect(h.live(), 1);
 
+      // The new principal's store was refetched, not the old one's 99 kept.
+      expect(find.text('success:5'), findsOneWidget);
+      expect(h.transport.calls, hasLength(2));
+
       await emit(tester, h, const {
         'type': 'order.updated',
         'payload': {'id': 7, 'total': 6},
       });
 
       expect(find.text('success:6'), findsOneWidget);
+    });
+
+    testWidgets('drops frames off a manager that disagrees with the cache about the principal', (
+      tester,
+    ) async {
+      // Miswired on purpose: the manager opens sockets for 'other' while the
+      // cache belongs to nobody. The binder reports it once, when it is built,
+      // and then fails closed.
+      final h = liveHarness((_, _) => [order(7, 99)], managerPrincipal: () => 'other');
+
+      await tester.pumpWidget(scope(h.harness, list(live: true)));
+      await settle(tester);
+
+      expect(find.text('success:99'), findsOneWidget);
+      expect(h.live(), 1);
+
+      await emit(tester, h, updated100);
+
+      // The frame reached an open socket and was dropped on the floor.
+      expect(h.live(), 1);
+      expect(find.text('success:99'), findsOneWidget);
+      expect(listOrders(const ListOrdersArgs()).getState(h.cache).dataOrNull?.first.total, 99);
+      expect(h.transport.calls, hasLength(1));
+
+      h.expectErrors(
+        equals([
+          allOf(startsWith('principal: '), contains('opens sockets for other but the cache belongs to null')),
+        ]),
+      );
+    });
+
+    testWidgets('reconnects after the server drops the socket, and recovers the value', (
+      tester,
+    ) async {
+      var total = 99;
+      final h = liveHarness((_, _) => [order(7, total)]);
+
+      await tester.pumpWidget(scope(h.harness, list(live: true)));
+      await settle(tester);
+      expect(find.text('success:99'), findsOneWidget);
+
+      // A change the client never heard about, because the socket was down.
+      total = 5;
+      h.opened.first.dropFromServer();
+      await settle(tester);
+
+      // Backoff has not elapsed: the first rung is 500ms less all of its 20%
+      // jitter, which the harness pins at its floor.
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(h.opened, hasLength(1));
+      expect(h.live(), 0);
+
+      await tester.pump(const Duration(milliseconds: 1));
+      await settle(tester);
+
+      expect(h.opened, hasLength(2));
+      expect(h.live(), 1);
+      expect(h.manager.connected('/ws/orders'), isTrue);
+
+      // The reconnect waits one second for a `forge.resumed` before it
+      // refetches what the gap may have hidden. Nothing says it was filled.
+      expect(find.text('success:99'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await settle(tester);
+
+      expect(find.text('success:5'), findsOneWidget);
+      expect(h.transport.calls, hasLength(2));
     });
   });
 }

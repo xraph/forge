@@ -50,6 +50,9 @@ final class FakeConnection implements StreamConnection {
     if (!_closed.isCompleted) _closed.complete();
   }
 
+  /// The server hangs up: [closed] completes and the manager reconnects.
+  void dropFromServer() => unawaited(close());
+
   /// Pushes one message to whoever is listening, if the socket is open.
   void deliver(Object? message) {
     if (!isClosed) _messages.add(message);
@@ -87,6 +90,14 @@ final class LiveHarness {
   /// swallowed error cannot pass.
   final List<String> errors;
 
+  /// Asserts the errors the runtime reported are exactly [expected], then
+  /// forgets them so the teardown check does not fail on them. The only way
+  /// to consume an error: a test that does not call this fails on any.
+  void expectErrors(Matcher expected) {
+    expect(errors, expected);
+    errors.clear();
+  }
+
   /// The same cache as a [Harness], for `scope()`.
   Harness get harness => Harness(cache, transport, scheduler);
 
@@ -106,6 +117,12 @@ final class LiveHarness {
 LiveHarness liveHarness(
   FutureOr<Object?> Function(TransportRequest request, int call) handler, {
   List<StreamBinding> bindings = orderStreams,
+
+  /// Where the manager says its sockets belong. Defaults to the cache's own
+  /// principal, which is what a correctly wired app passes. A test that
+  /// passes anything else is building the miswired case on purpose, and must
+  /// consume the error the binder reports with [LiveHarness.expectErrors].
+  String? Function()? managerPrincipal,
 }) {
   final transport = FakeTransport(handler);
   final scheduler = ManualScheduler();
@@ -130,7 +147,9 @@ LiveHarness liveHarness(
       return connection;
     },
     release: closes,
-    principal: () => cache.principal,
+    principal: managerPrincipal ?? () => cache.principal,
+    // The first backoff is then exactly 400ms: 500ms less the whole 20% jitter.
+    random: () => 0,
     onError: onError,
   );
   // The binder attaches itself to the cache, which is how `live: true`
