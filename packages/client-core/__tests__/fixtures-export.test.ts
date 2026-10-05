@@ -9,10 +9,12 @@ import { manualScheduler } from '../src/invalidate';
 import { applyFrames } from '../src/live';
 import type { StreamFrame } from '../src/live';
 import { normalize } from '../src/normalize';
-import { dehydrate } from '../src/ssr';
+import { dehydrate, hydrate } from '../src/ssr';
+import type { DehydratedState } from '../src/ssr';
 import type { EntityStreamBinding } from '../src/stream';
 import type { TagContext } from '../src/tags';
 import type { OperationMeta } from '../src/transport';
+import type { EntitySchema } from '../src/types';
 import { encode } from '../src/wire';
 import { fakeTransport } from './harness';
 import { schema } from './schema';
@@ -341,5 +343,121 @@ describe('cross-runtime fixtures', () => {
         ],
       ),
     );
+  });
+});
+
+interface DartSnapshotFixture {
+  readonly principal: string | null;
+  readonly schema: EntitySchema;
+  readonly queries: readonly {
+    readonly operation: OperationMeta;
+    readonly args: TagContext | null;
+  }[];
+  readonly state: DehydratedState;
+  readonly reads: readonly {
+    readonly operation: string;
+    readonly args: TagContext | null;
+    readonly value: unknown;
+  }[];
+}
+
+describe('a snapshot written by the Dart runtime', () => {
+  it('hydrates into the TypeScript cache and reads the same values', () => {
+    const fixture = JSON.parse(
+      readFileSync(join(root, 'snapshot', 'from-dart.json'), 'utf8'),
+    ) as DartSnapshotFixture;
+    const client = new QueryCache({
+      transport: fakeTransport(() => {
+        throw new Error('a hydrated query must not fetch');
+      }),
+      entities: fixture.schema,
+      scheduler: manualScheduler().schedule,
+    });
+
+    client.setPrincipal(fixture.principal ?? undefined);
+
+    const ops = Object.fromEntries(
+      fixture.queries.map((query, index) => [`q${String(index)}`, query.operation]),
+    );
+
+    hydrate(client, fixture.state, { ops });
+
+    expect(fixture.reads.length).toBeGreaterThan(0);
+
+    for (const read of fixture.reads) {
+      const meta = fixture.queries.find(
+        (query) => `${query.operation.method} ${query.operation.path}` === read.operation,
+      )?.operation;
+
+      expect(meta).toBeDefined();
+      expect(client.getState(meta as OperationMeta, read.args ?? undefined).data).toEqual(read.value);
+    }
+  });
+});
+
+describe('the order of a dehydrated payload', () => {
+  // The fixture files sort their keys, so the order TS writes, which the Dart
+  // runtime copies, is pinned here against the live output instead.
+  const definedKeys = (value: object): string[] =>
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key]) => key);
+
+  async function stateOf(
+    principal: string | undefined,
+    mode: 'normalized' | 'denormalized',
+  ): Promise<DehydratedState> {
+    const fixture = (await snapshotFixture('order', principal, orderSpecs, mode)) as {
+      readonly state: DehydratedState;
+    };
+
+    return fixture.state;
+  }
+
+  it('writes v, mode, principal, records, queries for a normalized payload', async () => {
+    const state = await stateOf('u-1', 'normalized');
+
+    expect(Object.keys(state)).toEqual(['v', 'mode', 'principal', 'records', 'queries']);
+
+    // The first query takes no arguments, so it has no `args`; the second does.
+    expect(definedKeys(state.queries[0] as object)).toEqual([
+      'operation',
+      'skeleton',
+      'tags',
+      'settledTime',
+    ]);
+    expect(definedKeys(state.queries[1] as object)).toEqual([
+      'operation',
+      'args',
+      'skeleton',
+      'tags',
+      'settledTime',
+    ]);
+  });
+
+  it('omits the principal and an absent args, and keeps the rest in order', async () => {
+    const state = await stateOf(undefined, 'normalized');
+
+    expect(Object.keys(state)).toEqual(['v', 'mode', 'records', 'queries']);
+    expect(definedKeys(state.queries[0] as object)).toEqual([
+      'operation',
+      'skeleton',
+      'tags',
+      'settledTime',
+    ]);
+  });
+
+  it('writes v, mode, principal, queries for a denormalized payload', async () => {
+    const state = await stateOf('u-1', 'denormalized');
+
+    expect(Object.keys(state)).toEqual(['v', 'mode', 'principal', 'queries']);
+
+    for (const query of state.queries) {
+      expect(definedKeys(query)).toEqual(
+        query === state.queries[0]
+          ? ['operation', 'value', 'settledTime']
+          : ['operation', 'args', 'value', 'settledTime'],
+      );
+    }
   });
 });
