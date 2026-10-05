@@ -197,6 +197,21 @@ func listType(item dartType, itemNullable bool) dartType {
 		return fmt.Sprintf("[for (final %s in %s) %s]", e, expr, inner)
 	}
 
+	// A list parameter keeps each item in the item's parameter form, so a
+	// List<Int64> in a query stays decimal strings in the URL and the key.
+	if item.paramFn != nil {
+		t.paramFn = func(expr string, depth int) string {
+			e := fmt.Sprintf("e%d", depth)
+
+			inner := item.paramEncode(e, depth+1)
+			if itemNullable {
+				inner = item.paramEncodeNullable(e, depth+1)
+			}
+
+			return fmt.Sprintf("[for (final %s in %s) %s]", e, expr, inner)
+		}
+	}
+
 	return t
 }
 
@@ -234,6 +249,20 @@ func mapType(value dartType, valueNullable bool) dartType {
 		}
 
 		return fmt.Sprintf("{for (final %s in %s.entries) %s.key: %s}", e, expr, e, inner)
+	}
+
+	// As listType: a map parameter keeps each value in its parameter form.
+	if value.paramFn != nil {
+		t.paramFn = func(expr string, depth int) string {
+			e := fmt.Sprintf("e%d", depth)
+
+			inner := value.paramEncode(e+".value", depth+1)
+			if valueNullable {
+				inner = value.paramEncodeNullable(e+".value", depth+1)
+			}
+
+			return fmt.Sprintf("{for (final %s in %s.entries) %s.key: %s}", e, expr, e, inner)
+		}
 	}
 
 	return t

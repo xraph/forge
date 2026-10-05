@@ -347,7 +347,7 @@ func TestTablesFileOnlyOnRequest(t *testing.T) {
 }
 
 func TestGenerationIsDeterministic(t *testing.T) {
-	fixtures := append(gateFixtures(), streamingFixture(), paginationFixture(), enumsFixture(), restFixture())
+	fixtures := append(gateFixtures(), streamingFixture(), paginationFixture(), enumsFixture(), restFixture(), restHooksFixture())
 	fixtures = append(fixtures, capabilitiesFixtures()...)
 
 	for _, f := range fixtures {

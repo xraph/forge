@@ -248,3 +248,136 @@ func TestInt64EncodesByItsSchemaShape(t *testing.T) {
 	assertContains(t, "book.dart", book, "decodeIntOrString(", "'isbnCode': v.toString(),", "'pages': v,")
 	assertContains(t, "pets_get.dart", file(t, out, "lib/src/bindings/pets_get.dart"), "path: {'petId': petId},")
 }
+
+// int64ListParamSpec is the codec parity spec plus one operation whose query
+// parameters are lists of int64: integer items, string items, nullable items
+// and a list of lists.
+func int64ListParamSpec() *client.APISpec {
+	spec := codecParitySpec()
+
+	i64 := func(typ string, nullable bool) *client.Schema {
+		return &client.Schema{Type: typ, Format: "int64", Nullable: nullable}
+	}
+
+	list := func(item *client.Schema) *client.Schema { return &client.Schema{Type: "array", Items: item} }
+
+	spec.Endpoints = append(spec.Endpoints, client.Endpoint{
+		Method: "GET", Path: "/books", OperationID: "books.find",
+		QueryParams: []client.Parameter{
+			{Name: "ids", In: "query", Schema: list(i64("integer", false))},
+			{Name: "codes", In: "query", Required: true, Schema: list(i64("string", false))},
+			{Name: "maybe", In: "query", Schema: list(i64("integer", true))},
+			{Name: "grid", In: "query", Schema: list(list(i64("integer", false)))},
+		},
+		Responses: map[int]*client.Response{200: {Content: jsonContent(ref("Book"))}},
+	})
+
+	return spec
+}
+
+// int64ListParamFixtures runs int64ListParamSpec through the analyzer gate
+// in both int64 modes.
+func int64ListParamFixtures() []gateFixture {
+	str := baseConfig()
+	str.PackageName = "int64_list_string"
+
+	asInt := baseConfig()
+	asInt.PackageName = "int64_list_int"
+	asInt.Int64 = client.Int64Int
+
+	return []gateFixture{
+		{Name: "int64-list-string", Spec: int64ListParamSpec(), Config: str},
+		{Name: "int64-list-int", Spec: int64ListParamSpec(), Config: asInt},
+	}
+}
+
+// A list of int64 in a query keeps each value in its parameter form, as a
+// single int64 parameter does: the decimal string by default, so the URL
+// keeps every digit on the web and the cache key does not flip from ["1"]
+// to [1]; the plain int under --int64=int, whatever the item schema.
+func TestInt64ListParamsKeepTheirParameterForm(t *testing.T) {
+	str := baseConfig()
+	str.PackageName = "int64_list_string"
+	out := generate(t, gateFixture{Name: "int64-list-string", Spec: int64ListParamSpec(), Config: str})
+
+	assertContains(t, "books_find.dart", file(t, out, "lib/src/bindings/books_find.dart"),
+		"if (ids case final v?) 'ids': [for (final e0 in v) e0.value]",
+		"'codes': [for (final e0 in codes) e0.value]",
+		"if (maybe case final v?) 'maybe': [for (final e0 in v) encodeNullable(e0, (v1) => v1.value)]",
+		"if (grid case final v?) 'grid': [for (final e0 in v) [for (final e1 in e0) e1.value]]",
+	)
+	assertContains(t, "rest.dart", file(t, out, "lib/src/rest.dart"),
+		"'ids': encodeNullable(ids, (v0) => [for (final e1 in v0) e1.value])",
+		"'codes': [for (final e0 in codes) e0.value]",
+	)
+
+	asInt := baseConfig()
+	asInt.PackageName = "int64_list_int"
+	asInt.Int64 = client.Int64Int
+	out = generate(t, gateFixture{Name: "int64-list-int", Spec: int64ListParamSpec(), Config: asInt})
+
+	binding := file(t, out, "lib/src/bindings/books_find.dart")
+	assertContains(t, "books_find.dart", binding, "if (ids case final v?) 'ids': v", "'codes': [for (final e0 in codes) e0]")
+
+	if strings.Contains(binding, "toString()") {
+		t.Errorf("an int64 string-schema list parameter must keep its int in the tag context under --int64=int:\n%s", binding)
+	}
+
+	assertContains(t, "rest.dart", file(t, out, "lib/src/rest.dart"), "'codes': [for (final e0 in codes) e0]")
+
+	// A map value carries its value's parameter form too.
+	r := &registry{config: str}
+	m := mapType(r.int64Type(true), false)
+
+	if got := m.paramEncode("x", 0); got != "{for (final e0 in x.entries) e0.key: e0.value.value}" {
+		t.Errorf("map of int64 param = %s", got)
+	}
+
+	if got := m.encode("x", 0); got != "{for (final e0 in x.entries) e0.key: e0.value.toInt()}" {
+		t.Errorf("map of int64 body = %s", got)
+	}
+}
+
+// The cache key a list of int64 query values produces holds strings, at
+// runtime, in the default mode.
+func TestInt64ListParamsKeyTheCacheAsStrings(t *testing.T) {
+	cfg := baseConfig()
+	cfg.PackageName = "int64_list_key"
+
+	runGeneratedTest(t, gateFixture{Name: "int64-list-key", Spec: int64ListParamSpec(), Config: cfg}, "key", `import 'package:forge_client/forge_client.dart' show TagContext, queryKey;
+import 'package:int64_list_key/int64_list_key.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('int64 list query values stay decimal strings in the tag context and the key', () {
+    final context = BooksFindArgs(
+      codes: [Int64('1')],
+      ids: [Int64('9007199254740993')],
+      grid: [
+        [Int64('2')],
+      ],
+    ).toTagContext();
+    expect(context.query, {
+      'ids': ['9007199254740993'],
+      'codes': ['1'],
+      'grid': [
+        ['2'],
+      ],
+    });
+    expect(
+      queryKey(opBooksFind, context),
+      queryKey(
+        opBooksFind,
+        const TagContext(query: {
+          'ids': ['9007199254740993'],
+          'codes': ['1'],
+          'grid': [
+            ['2'],
+          ],
+        }),
+      ),
+    );
+  });
+}
+`)
+}

@@ -139,6 +139,7 @@ func TestGeneratedPackagesAnalyzeClean(t *testing.T) {
 
 	fixtures := append(gateFixtures(), enumsFixture(), restFixture(), restHooksFixture(), paginationFixture(), streamingFixture())
 	fixtures = append(fixtures, capabilitiesFixtures()...)
+	fixtures = append(fixtures, int64ListParamFixtures()...)
 
 	for _, f := range fixtures {
 		t.Run(f.Name, func(t *testing.T) {
