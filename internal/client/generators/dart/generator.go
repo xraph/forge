@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
@@ -76,7 +76,30 @@ type emission struct {
 
 func (e *emission) warn(w ...string) { e.out.Warnings = append(e.out.Warnings, w...) }
 
-func (e *emission) own(dir string) { e.out.ExclusiveDirs = append(e.out.ExclusiveDirs, dir) }
+// exclusiveDirs are the directories this generator owns outright: the output
+// writer deletes any regular file in one of them that a run did not write.
+//
+// They are declared whether or not a run puts anything in them. The writer
+// skips a directory that does not exist, so naming an empty one costs nothing,
+// and not naming it is how a regenerate with fewer features (hooks off, a
+// withdrawn schema or stream) would leave the last run's files behind. Those
+// files import package:forge_client, which a package without hooks no longer
+// depends on, so they would break analysis, not merely sit there.
+//
+// lib/src is fully generated: a hand-written file in it is deleted by the next
+// run. Hand-written code belongs beside lib/, or in the consuming package.
+// The writer prunes only the regular files directly in each directory and
+// never a subdirectory, so lib/src does not reach lib/src/models and the
+// others, which are governed by their own entries, and the pub artefacts at
+// the package root (.dart_tool, pubspec.lock, pubspec_overrides.yaml) are in
+// none of them.
+var exclusiveDirs = []string{
+	"lib/src",
+	"lib/src/bindings",
+	"lib/src/codecs",
+	"lib/src/models",
+	"lib/src/streaming",
+}
 
 // emitters run in order; each writes its files into e.out.
 var emitters = []func(*emission) error{
@@ -155,7 +178,7 @@ func finish(e *emission) {
 	}
 
 	e.out.Dependencies = dependencies(e.hooks)
-	sort.Strings(e.out.ExclusiveDirs)
+	e.out.ExclusiveDirs = slices.Clone(exclusiveDirs)
 	e.out.Warnings = dedupeMessages(e.out.Warnings)
 }
 
@@ -173,10 +196,6 @@ func emitModels(e *emission) error {
 		e.out.Files["lib/src/models/"+m.file+".dart"] = e.reg.renderModelFile(m)
 	}
 
-	if len(e.reg.models) > 0 {
-		e.own("lib/src/models")
-	}
-
 	return nil
 }
 
@@ -185,8 +204,6 @@ func emitCodecs(e *emission) error {
 	e.naming = newCodecNaming(e.table, e.reg)
 
 	maps.Copy(e.out.Files, renderCodecFiles(e.table, e.naming))
-
-	e.own("lib/src/codecs")
 
 	return nil
 }
@@ -255,8 +272,6 @@ func emitBindings(e *emission) error {
 		e.out.Files["lib/src/bindings/"+op.file+".dart"] = renderBinding(op, e.reg)
 	}
 
-	e.own("lib/src/bindings")
-
 	return nil
 }
 
@@ -312,7 +327,6 @@ func emitStreaming(e *emission) error {
 
 	if len(clients) > 0 || len(features) > 0 {
 		e.out.Files["lib/src/streaming/live_socket.dart"] = renderLiveSocket(e.config)
-		e.own("lib/src/streaming")
 	}
 
 	return nil

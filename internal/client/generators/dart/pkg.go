@@ -194,7 +194,12 @@ func writeStreamingSection(b *strings.Builder, e *emission) {
 				continue
 			}
 
-			fmt.Fprintf(b, "\n```dart\nfinal session = await %s(baseUrl: Uri.parse('https://api.example.com')).connect();\nsession.messages.listen(print);\n```\n", sc.class)
+			args := make([]string, len(sc.params))
+			for i, member := range streamParamMembers(sc) {
+				args[i] = member + ": '...'"
+			}
+
+			fmt.Fprintf(b, "\n```dart\nfinal session = await %s(baseUrl: Uri.parse('https://api.example.com')).connect(%s);\nsession.messages.listen(print);\n```\n", sc.class, strings.Join(args, ", "))
 
 			break
 		}

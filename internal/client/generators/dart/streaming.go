@@ -63,6 +63,21 @@ var streamParamReserved = map[string]bool{
 	"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
 }
 
+// streamParamMembers names the connect parameter of each path placeholder, in
+// order. A parameter takes its placeholder's name unless that would shadow
+// something the body reads. The README example renders the same names, so a
+// change here changes both.
+func streamParamMembers(sc streamClient) []string {
+	members := copySet(streamParamReserved)
+	out := make([]string, len(sc.params))
+
+	for i, p := range sc.params {
+		out[i] = uniqueNames([]string{p}, func(s string) string { return memberIdent(s, streamParamReserved) }, members, false)[0]
+	}
+
+	return out
+}
+
 // streamStems name the files of the streaming directory that are not typed
 // clients, so a typed client never takes one of their names.
 var streamStems = []string{"live_socket", "rooms", "presence", "typing", "channels", "streaming_client"}
@@ -296,16 +311,15 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 
 	label := docText(sc.path)
 
-	// A parameter takes its path placeholder's name unless that would shadow
-	// something the body reads.
-	members := copySet(streamParamReserved)
 	path := dartString(sc.path)
 	path = path[1 : len(path)-1]
 
 	var sig []string
 
-	for _, p := range sc.params {
-		member := uniqueNames([]string{p}, func(s string) string { return memberIdent(s, streamParamReserved) }, members, false)[0]
+	members := streamParamMembers(sc)
+
+	for i, p := range sc.params {
+		member := members[i]
 		sig = append(sig, "required String "+member)
 		path = strings.Replace(path, escapeInString("{"+p+"}"), "${Uri.encodeComponent("+member+")}", 1)
 	}

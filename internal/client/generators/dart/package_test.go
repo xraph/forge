@@ -47,17 +47,16 @@ func TestPubspecPinsTheContractVersions(t *testing.T) {
 	)
 }
 
+// The generator owns these five directories whether or not a run writes
+// anything into them, so a regenerate with fewer features prunes what the last
+// run left. Nothing else is owned: not lib/, not the package root.
 func TestExclusiveDirsCoverEveryGeneratedDirectoryAndNothingElse(t *testing.T) {
-	out := generate(t, fixture(t, "default"))
+	want := []string{"lib/src", "lib/src/bindings", "lib/src/codecs", "lib/src/models", "lib/src/streaming"}
 
-	want := []string{"lib/src/bindings", "lib/src/codecs", "lib/src/models", "lib/src/streaming"}
-	if !slices.Equal(out.ExclusiveDirs, want) {
-		t.Errorf("ExclusiveDirs = %v, want %v", out.ExclusiveDirs, want)
-	}
-
-	noHooks := generate(t, fixture(t, "no-hooks"))
-	if !slices.Equal(noHooks.ExclusiveDirs, []string{"lib/src/codecs", "lib/src/models"}) {
-		t.Errorf("ExclusiveDirs without hooks = %v", noHooks.ExclusiveDirs)
+	for _, name := range []string{"default", "no-hooks", "minimal", "client-only"} {
+		if got := generate(t, fixture(t, name)).ExclusiveDirs; !slices.Equal(got, want) {
+			t.Errorf("%s: ExclusiveDirs = %v, want %v", name, got, want)
+		}
 	}
 }
 
@@ -70,7 +69,7 @@ func TestEveryGeneratedDirectoryIsDeclaredExclusive(t *testing.T) {
 
 			for name := range out.Files {
 				dir := filepath.ToSlash(filepath.Dir(name))
-				if dir == "lib/src" || dir == "lib" || dir == "." {
+				if dir == "lib" || dir == "." {
 					continue
 				}
 
@@ -123,6 +122,80 @@ func TestWithdrawnOperationLosesItsBindingFile(t *testing.T) {
 	for _, artefact := range []string{".dart_tool/package_config.json", "pubspec.lock", "pubspec_overrides.yaml"} {
 		if _, err := os.Stat(filepath.Join(dir, artefact)); err != nil {
 			t.Errorf("pruning removed %s: %v", artefact, err)
+		}
+	}
+}
+
+// Regenerating with hooks off must leave no file that needs package:forge_client
+// behind: not a binding, not a streaming client, not ops.dart or sync.dart.
+// The pub artefacts beside the package survive, and a file a person wrote into
+// lib/src is deleted, because lib/src is fully generated.
+func TestRegeneratingWithoutHooksPrunesEverythingTheHooksWrote(t *testing.T) {
+	dir := t.TempDir()
+	writer := client.NewOutputManager()
+
+	f := fixture(t, "default")
+	if err := writer.WriteClient(generate(t, f), dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, artefact := range []string{".dart_tool/package_config.json", "pubspec.lock", "pubspec_overrides.yaml"} {
+		path := filepath.Join(dir, artefact)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte("kept"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bindings := filepath.Join(dir, "lib", "src", "bindings")
+	streaming := filepath.Join(dir, "lib", "src", "streaming")
+
+	for _, d := range []string{bindings, streaming} {
+		if entries, err := os.ReadDir(d); err != nil || len(entries) == 0 {
+			t.Fatalf("first run wrote nothing into %s: %v", d, err)
+		}
+	}
+
+	stray := filepath.Join(dir, "lib", "src", "hand_written.dart")
+	if err := os.WriteFile(stray, []byte("// stray\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f.Config.Hooks = false
+	if err := writer.WriteClient(generate(t, f), dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, d := range []string{bindings, streaming} {
+		entries, err := os.ReadDir(d)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+
+		for _, entry := range entries {
+			t.Errorf("%s survived regeneration without hooks", filepath.Join(d, entry.Name()))
+		}
+	}
+
+	for _, name := range []string{"ops.dart", "sync.dart", "hand_written.dart"} {
+		if _, err := os.Stat(filepath.Join(dir, "lib", "src", name)); !os.IsNotExist(err) {
+			t.Errorf("lib/src/%s survived regeneration without hooks", name)
+		}
+	}
+
+	for _, artefact := range []string{".dart_tool/package_config.json", "pubspec.lock", "pubspec_overrides.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, artefact)); err != nil {
+			t.Errorf("pruning removed %s: %v", artefact, err)
+		}
+	}
+
+	// What a hooks-off package still needs is still there.
+	for _, name := range []string{"lib/src/rest.dart", "lib/src/models/order.dart", "pubspec.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
+			t.Errorf("regeneration lost %s: %v", name, err)
 		}
 	}
 }
@@ -216,6 +289,8 @@ func TestReadmeSectionsFollowTheGeneratedFiles(t *testing.T) {
 		"lib/src/capabilities.dart",
 		"## Streaming",
 		"StreamingClient",
+		// ChatSocket's path is /ws/chat/{roomId}, so its connect takes roomId.
+		"final session = await ChatSocket(baseUrl: Uri.parse('https://api.example.com')).connect(roomId: '...');",
 	)
 
 	// Without hooks the package depends on package:http alone, so the README
