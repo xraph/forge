@@ -69,6 +69,8 @@ func resolveEntityFields(spec *APISpec) {
 		return
 	}
 
+	registerSyncEntities(spec)
+
 	edges := namedEdges(spec)
 	useful := usefulTypes(spec, edges)
 	kept := keptTypes(spec, edges, useful)

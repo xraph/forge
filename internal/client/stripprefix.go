@@ -411,6 +411,7 @@ func applyRenames(spec *APISpec, rename map[string]string, prefixes []string) {
 
 	spec.Entities = renameEntityTable(spec.Entities, rename)
 	spec.RoutingTypes = renameEntityTable(spec.RoutingTypes, rename)
+	renameSyncEntities(spec, rename)
 
 	for i := range spec.Endpoints {
 		ep := &spec.Endpoints[i]

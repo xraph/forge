@@ -45,6 +45,8 @@ var extensionDecisions = map[string]struct {
 	"x-forge-entity":          {warnsOnUnusable, "mapExtension, plus an incomplete-declaration warning"},
 	"x-forge-invalidates":     {warnsOnUnusable, "stringSliceExtension, whole value and per element"},
 	"x-forge-no-invalidation": {warnsOnUnusable, "stringSliceExtension"},
+	"x-forge-idempotent":      {warnsOnUnusable, "boolExtension, offline.go"},
+	"x-forge-sync":            {warnsOnUnusable, "collectSyncRoute warns on a non-object, a missing field or an unusable role, offline.go"},
 
 	"x-forge-authz":    {emitOnly, "read by authz.go into an optional struct; a malformed value degrades to unguarded, which authz.go documents as its deliberate posture"},
 	"x-forge-stream":   {emitOnly, "read into stream bindings; a malformed value yields no channels, and the AsyncAPI document that carries it is generated rather than hand-written"},

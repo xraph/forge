@@ -578,6 +578,8 @@ func convertOperation(spec *APISpec, method, path string, op *shared.Operation) 
 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
 	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
+	resolveEndpointIdempotent(spec, &endpoint, op.Extensions)
+	collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", op.Extensions)
 
 	return endpoint
 }
@@ -825,6 +827,7 @@ func convertWebSocketChannel(spec *APISpec, opID string, channel *shared.AsyncAP
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
+	collectSyncRoute(spec, "channel "+channel.Address, channel.Address, "socket", channel.Extensions)
 
 	return ws
 }
@@ -848,6 +851,7 @@ func convertSSEChannel(spec *APISpec, opID string, channel *shared.AsyncAPIChann
 
 	sse.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, sse.StreamBindings)
+	collectSyncRoute(spec, "channel "+channel.Address, channel.Address, "stream", channel.Extensions)
 
 	return sse
 }

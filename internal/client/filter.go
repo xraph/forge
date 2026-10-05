@@ -106,6 +106,7 @@ func (s *APISpec) Apply(f PathFilter) FilterResult {
 	result.KeptEndpoints = len(kept)
 
 	s.filterStreams(f, &result, dropped)
+	s.filterSync(f)
 
 	tagsBefore := len(s.Tags)
 	s.filterTags()

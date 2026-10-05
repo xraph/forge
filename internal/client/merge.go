@@ -152,6 +152,10 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 		if out.Streaming == nil {
 			out.Streaming = s.Streaming
 		}
+
+		for _, decl := range s.Sync {
+			addSyncDecl(out, decl, "a merged source")
+		}
 	}
 
 	// Duplicates are dropped, not merely reported. Every generator emits one

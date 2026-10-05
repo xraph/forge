@@ -58,7 +58,10 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 			// WithoutInvalidation, WithStaleTime -- can take effect; before
 			// this call none of it did, and the metadata was copied onto the
 			// endpoint and never read.
-			resolveEndpointCacheMeta(spec, &endpoint, router.ClientExtensions(route.Metadata))
+			ext := router.ClientExtensions(route.Metadata)
+			resolveEndpointCacheMeta(spec, &endpoint, ext)
+			resolveEndpointIdempotent(spec, &endpoint, ext)
+			collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", ext)
 
 			spec.Endpoints = append(spec.Endpoints, endpoint)
 		}
@@ -751,6 +754,8 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
 	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
+	resolveEndpointIdempotent(spec, &endpoint, op.Extensions)
+	collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", op.Extensions)
 
 	return endpoint
 }
@@ -772,6 +777,7 @@ func (i *Introspector) channelToWebSocket(spec *APISpec, opID string, channel *s
 
 	ws.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, ws.StreamBindings)
+	collectSyncRoute(spec, "channel "+channel.Address, channel.Address, "socket", channel.Extensions)
 
 	return ws
 }
@@ -861,6 +867,7 @@ func (i *Introspector) channelToSSE(spec *APISpec, opID string, channel *shared.
 
 	sse.StreamBindings = streamBindings(channel.Extensions)
 	registerStreamBindingEntities(spec, channel.Address, sse.StreamBindings)
+	collectSyncRoute(spec, "channel "+channel.Address, channel.Address, "stream", channel.Extensions)
 
 	return sse
 }

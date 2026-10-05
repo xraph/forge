@@ -70,6 +70,13 @@ type APISpec struct {
 	// Streaming extension features
 	Streaming *StreamingSpec
 
+	// Sync lists the entities whose records a sync source owns, one row per
+	// entity, sorted by entity name. Read from the x-forge-sync extension on
+	// the routes that serve each entity's pull, push, stream and socket
+	// endpoints, and grouped here so a generator emits one row per entity
+	// rather than one per route.
+	Sync []SyncDecl
+
 	// Kind records which document family this spec was parsed from. MergeSpecs
 	// orders sources by this rather than by argument order, so that
 	// `--from-spec a.json --from-spec b.json` and the reverse produce identical
@@ -248,6 +255,12 @@ type Endpoint struct {
 	// Cache metadata
 	Entity    *EntityRef
 	CacheTags TagSet
+
+	// Idempotent reports that the route is served behind Forge's idempotency
+	// middleware, read from x-forge-idempotent. An offline outbox may replay
+	// such a write after an uncertain outcome; any other non-PUT, non-DELETE
+	// write it must report instead.
+	Idempotent bool
 
 	// StaleTime is how long the client should consider this endpoint's result
 	// fresh, in milliseconds. Zero means undeclared, and the client falls
@@ -825,6 +838,23 @@ type EntityRef struct {
 type TagSet struct {
 	Provides    []string
 	Invalidates []string
+}
+
+// SyncDecl is one sync-backed entity: the protocol that syncs it, the table
+// it lives in on the server, and the paths of its sync endpoints.
+//
+// Pull and Push are required for a usable row; Stream and Socket are
+// optional transports. Dataset names the path parameter that selects the
+// dataset, such as "{id}", and is empty when the endpoints take none.
+type SyncDecl struct {
+	Protocol string
+	Entity   string
+	Table    string
+	Dataset  string
+	Pull     string
+	Push     string
+	Stream   string
+	Socket   string
 }
 
 // StreamIntent is what a stream message does to the cache.
