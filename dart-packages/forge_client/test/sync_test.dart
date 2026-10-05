@@ -80,7 +80,7 @@ void main() {
         second,
       ]);
 
-      expect(folded, first);
+      expect(folded, same(first));
       expect(folded, isNot(second));
     });
 
@@ -143,6 +143,12 @@ void main() {
       expect(Rejected(error), Rejected(error));
       expect(Rejected(error).hashCode, Rejected(error).hashCode);
       expect(Rejected(error), isNot(Rejected(StateError('no'))));
+
+      // Shallow: a response map equal in content is another object.
+      final response = <String, Object?>{'id': 1};
+
+      expect(Applied(response), Applied(response));
+      expect(Applied(response), isNot(Applied({...response})));
 
       // The same payload under a different outcome is a different outcome.
       expect(const Applied('m-1'), isNot(const Queued('m-1')));

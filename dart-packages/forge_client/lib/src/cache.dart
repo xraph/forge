@@ -870,11 +870,18 @@ final class QueryCache {
 
   /// Declares who the cached data belongs to, dropping everything on a
   /// change. Watched queries are re-mounted and refetched; their in-flight
-  /// requests are abandoned.
+  /// requests are abandoned. Every running sync source's context is fenced
+  /// before anything is dropped; the sources themselves stop in the
+  /// background, and [idle] completes once they have.
   void setPrincipal(String? principal) {
     if (principal == _principal) return;
 
     _principal = principal;
+
+    // Before the clear, synchronously: from here on the store is the next
+    // principal's, and a write the old sources make while they stop must not
+    // land in it.
+    _deactivateContexts();
 
     // Before the clear, whose notifications would otherwise carry the old
     // principal's sync status to the new principal's watchers.
@@ -907,6 +914,9 @@ final class QueryCache {
   /// Sources whose start returned, in start order. The next transition stops
   /// exactly these; a source whose start threw is not running.
   final Set<SyncSource> _running = Set<SyncSource>.identity();
+
+  /// The contexts handed to the current principal's sources, still active.
+  final List<SyncContext> _contexts = <SyncContext>[];
   final StreamController<StorageSession?> _sessionChanges =
       StreamController<StorageSession?>.broadcast(sync: true);
   StorageSession? _session;
@@ -924,6 +934,39 @@ final class QueryCache {
 
   /// A session each time one opens, and null each time one closes.
   Stream<StorageSession?> get sessionChanges => _sessionChanges.stream;
+
+  /// Completes once every queued principal transition has finished: the old
+  /// sources stopped, the old session closed and, for a principal, the next
+  /// session opened and its sources started. A transition queued while
+  /// waiting is waited for too. Never fails.
+  ///
+  /// Sign-out with erase awaits it before destroying the old partition, so
+  /// nothing still holds or writes it:
+  ///
+  /// ```dart
+  /// cache.setPrincipal(null);
+  /// await cache.idle;
+  /// await storage.destroy(previous);
+  /// ```
+  Future<void> get idle async {
+    while (true) {
+      final transition = _syncTransition;
+
+      await transition;
+
+      if (identical(transition, _syncTransition)) return;
+    }
+  }
+
+  /// Fences every context the current principal's sources hold. Synchronous,
+  /// so it takes effect before the caller empties the store.
+  void _deactivateContexts() {
+    for (final context in _contexts) {
+      deactivateSyncContext(context);
+    }
+
+    _contexts.clear();
+  }
 
   void _indexOwners() {
     for (final source in _syncSources) {
@@ -959,9 +1002,28 @@ final class QueryCache {
 
   /// Drops every owned record. Run between principals, once the old sources
   /// stopped: whatever an owned row holds then, the old principal's source
-  /// wrote it, perhaps after the clear that emptied the cache for the next.
+  /// wrote it around the [SyncContext.write] fence, after the clear that
+  /// emptied the cache for the next. The backstop, not the guard: the fence
+  /// already dropped every write made through the seam.
   void _evictOwned() {
     final owned = _ownedKeys();
+
+    if (owned.isEmpty) return;
+
+    for (final key in owned) {
+      store.evict(key);
+    }
+
+    if (!_disposed) notifyChanged();
+  }
+
+  /// Drops the records of [source]'s entities, after its start threw: what it
+  /// projected before failing belongs to a source that is not running.
+  void _evictOwnedBy(SyncSource source) {
+    final owned = [
+      for (final key in store.keys)
+        if (source.entities.contains(typenameOf(key))) key,
+    ];
 
     if (owned.isEmpty) return;
 
@@ -1114,25 +1176,39 @@ final class QueryCache {
       if (!_sessionChanges.isClosed) _sessionChanges.add(opened);
     }
 
-    final context = SyncContext(
-      cache: this,
-      principal: principal,
-      transport: _transport,
-      storage: opened,
-    );
-
     for (final source in _syncSources) {
+      // A source that failed below leaves the loop here when a principal
+      // change arrived while it was being stopped.
+      if (generation != _syncGeneration || _disposed) return;
+
+      // One per source, so a source that fails to start is fenced alone.
+      final context = SyncContext(
+        cache: this,
+        principal: principal,
+        transport: _transport,
+        storage: opened,
+      );
+
+      _contexts.add(context);
+
       try {
         await source.start(context);
       } on Object catch (error) {
         _safeReport(error, 'sync');
 
-        // It may have got part of the way. Stop is idempotent by contract.
+        // It may have got part of the way. Nothing it writes from now on
+        // lands, stop is idempotent by contract, and what it projected before
+        // it threw goes.
+        deactivateSyncContext(context);
+        _contexts.remove(context);
+
         try {
           await source.stop();
         } on Object catch (error) {
           _safeReport(error, 'sync');
         }
+
+        _evictOwnedBy(source);
 
         continue;
       }
@@ -1760,6 +1836,10 @@ final class QueryCache {
     if (_disposed) return;
 
     _disposed = true;
+
+    // Synchronously, like the rest of this teardown: no source writes into a
+    // disposed cache, however long its stop takes.
+    _deactivateContexts();
 
     for (final record in _records.values) {
       record.inflight = null;

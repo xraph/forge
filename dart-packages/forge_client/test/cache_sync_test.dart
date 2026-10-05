@@ -88,6 +88,9 @@ final class _FakeSource implements SyncSource {
 
   /// While set, [start] waits for it before it returns.
   Future<void>? startGate;
+
+  /// While set, [stop] waits for it before it returns.
+  Future<void>? stopGate;
   final List<PendingMutation> applied = [];
   FutureOr<MutationOutcome> Function(PendingMutation mutation) outcome = (
     mutation,
@@ -127,6 +130,10 @@ final class _FakeSource implements SyncSource {
   Future<void> stop() async {
     log.add(_line('stop ${context?.principal}'));
     onStop?.call();
+
+    final gate = stopGate;
+
+    if (gate != null) await gate;
   }
 }
 
@@ -152,7 +159,11 @@ final class _LoggingStorage implements StorageAdapter {
   }
 
   @override
-  Future<void> destroy(String principal) => _inner.destroy(principal);
+  Future<void> destroy(String principal) {
+    log.add('destroy $principal');
+
+    return _inner.destroy(principal);
+  }
 }
 
 final class _LoggingSession implements StorageSession {
@@ -252,9 +263,9 @@ PendingMutationRecord _record(String id) => PendingMutationRecord(
   createdAt: DateTime.utc(2026, 10, 4),
 );
 
-void _putReplica(SyncContext context) => context.cache.store.put(
-  'Document:d1',
-  {'id': 'd1', 'title': 'from the replica'},
+void _putReplica(SyncContext context) => context.write(
+  (store) =>
+      store.put('Document:d1', {'id': 'd1', 'title': 'from the replica'}),
 );
 
 void main() {
@@ -495,7 +506,9 @@ void main() {
         kit.source.startGate = gate.future;
         kit.source.afterStart = (context) {
           if (context.principal == 'alice') {
-            // Alice's late projection lands after the cache moved to bob.
+            // Alice's late projection lands after the cache moved to bob. It
+            // goes around the fence, which a source must not do; the eviction
+            // after her sources stopped is the backstop that still drops it.
             context.cache.store.put('Document:d1', {
               'id': 'd1',
               'title': 'alice’s',
@@ -503,10 +516,10 @@ void main() {
             });
           } else {
             heldAtBobsStart = context.cache.store.has('Document:d1');
-            context.cache.store.put('Document:d1', {
-              'id': 'd1',
-              'title': 'bob’s',
-            });
+            context.write(
+              (store) =>
+                  store.put('Document:d1', {'id': 'd1', 'title': 'bob’s'}),
+            );
           }
         };
 
@@ -532,6 +545,141 @@ void main() {
           'title': 'bob’s',
         });
       });
+    });
+
+    test('never shows the next principal a row the old source writes while it stops', () {
+      fakeAsync((async) {
+        final kit = _build(
+          (_, _) => {
+            'id': 'f1',
+            'name': 'Inbox',
+            'documents': [
+              {'id': 'd1'},
+            ],
+          },
+        );
+        final gate = Completer<void>();
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        final alice = kit.source.context!;
+
+        kit.source.stopGate = gate.future;
+        kit.cache.setPrincipal('bob');
+        kit.cache.watch(_folderGet, _f1).listen((_) {});
+        async.flushMicrotasks();
+        expect(kit.log.last, 'stop alice');
+
+        // Alice's source is still stopping, so the cache moved on without it.
+        // Its context was fenced inside setPrincipal, before the clear.
+        expect(alice.active, isFalse);
+        alice.write(
+          (store) =>
+              store.put('Document:d1', {'id': 'd1', 'secret': 'alice only'}),
+        );
+
+        final denormalized = dehydrate(
+          kit.cache,
+          principal: 'bob',
+          mode: SnapshotMode.denormalized,
+        ).encode();
+
+        expect(denormalized, isNot(contains('alice only')));
+        expect(
+          '${kit.cache.getState(_folderGet, _f1).dataOrNull}',
+          isNot(contains('alice only')),
+        );
+        expect(kit.cache.store.has('Document:d1'), isFalse);
+
+        kit.source.stopGate = null;
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(kit.log.skip(2), [
+          'stop alice',
+          'close alice',
+          'open bob',
+          'start bob',
+        ]);
+        expect(kit.cache.store.has('Document:d1'), isFalse);
+      });
+    });
+
+    test('fences the running sources when the cache is disposed', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null);
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        final context = kit.source.context!;
+        unawaited(kit.cache.dispose());
+
+        expect(context.active, isFalse);
+        _putReplica(context);
+        expect(kit.cache.store.has('Document:d1'), isFalse);
+      });
+    });
+
+    test(
+      'lets sign-out await the old principal’s teardown before erasing it',
+      () async {
+        final log = <String>[];
+        final storage = _LoggingStorage(log);
+        final source = _FakeSource({'Document'}, log: log);
+        final cache = QueryCache(
+          transport: FakeTransport((_, _) => null),
+          entities: _schema,
+          syncSources: [source],
+          storage: storage,
+        );
+
+        cache.setPrincipal('alice');
+        await cache.idle;
+        expect(log, ['open alice', 'start alice']);
+
+        // A stop that takes real time: destroy must still come after it.
+        source.stopGate = Future<void>.delayed(
+          const Duration(milliseconds: 20),
+          () => log.add('stopped alice'),
+        );
+
+        cache.setPrincipal(null);
+        await cache.idle;
+        await storage.destroy('alice');
+
+        expect(log, [
+          'open alice',
+          'start alice',
+          'stop alice',
+          'stopped alice',
+          'close alice',
+          'destroy alice',
+        ]);
+        expect(cache.session, isNull);
+      },
+    );
+
+    test('waits for a transition queued while it waits', () async {
+      final log = <String>[];
+      final source = _FakeSource({'Document'}, log: log);
+      final cache = QueryCache(
+        transport: FakeTransport((_, _) => null),
+        entities: _schema,
+        syncSources: [source],
+        storage: _LoggingStorage(log),
+      );
+
+      cache.setPrincipal('alice');
+
+      final idle = cache.idle;
+
+      cache.setPrincipal('bob');
+      await idle;
+
+      expect(log, ['open bob', 'start bob']);
+      expect(cache.session?.principal, 'bob');
     });
 
     test('never collects an owned record no query reaches', () {
@@ -715,6 +863,33 @@ void main() {
         async.flushMicrotasks();
 
         expect(log.skip(4), ['folders stop alice', 'close alice']);
+      });
+    });
+
+    test('drops what a source projected before its start threw', () {
+      fakeAsync((async) {
+        final kit = _build(
+          (_, _) => null,
+          onStart: (context) {
+            _putReplica(context);
+            throw StateError('cannot start');
+          },
+        );
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        expect(kit.errors.single.$2, 'sync');
+        expect(kit.log, ['open alice', 'start alice', 'stop alice']);
+        expect(kit.cache.store.has('Document:d1'), isFalse);
+
+        // A write after the failure, from a background task the start left
+        // behind, is fenced too.
+        final context = kit.source.context!;
+
+        expect(context.active, isFalse);
+        _putReplica(context);
+        expect(kit.cache.store.has('Document:d1'), isFalse);
       });
     });
 
@@ -1307,6 +1482,33 @@ void main() {
                 as Map<String, Object?>;
 
         expect(records.keys, ['Folder:f1']);
+      });
+    });
+
+    test('embeds owned data in a denormalized value, as its doc says', () {
+      fakeAsync((async) {
+        final kit = _build(
+          (_, _) => {
+            'id': 'f1',
+            'name': 'Inbox',
+            'documents': [
+              {'id': 'd1'},
+            ],
+          },
+          onStart: _putReplica,
+        );
+
+        kit.cache.setPrincipal('alice');
+        kit.cache.watch(_folderGet, _f1).listen((_) {});
+        async.flushMicrotasks();
+
+        final snapshot = dehydrate(
+          kit.cache,
+          principal: 'alice',
+          mode: SnapshotMode.denormalized,
+        );
+
+        expect(snapshot.encode(), contains('from the replica'));
       });
     });
 

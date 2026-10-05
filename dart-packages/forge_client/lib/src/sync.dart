@@ -8,6 +8,7 @@ import 'cache.dart' show QueryCache;
 import 'operation.dart' show OperationMeta, TagContext;
 import 'overlay.dart' show Optimistic;
 import 'storage.dart';
+import 'store.dart' show EntityStore;
 import 'transport.dart' show Transport;
 
 /// Where a sync source stands for one entity. Surfaced on every `QueryState`
@@ -116,10 +117,17 @@ SyncStatus foldSyncStatus(Iterable<SyncStatus> statuses) {
 ///
 /// The cache runs one principal's sources at a time. Between principals it
 /// stops them, closes the old session and drops every owned record before the
-/// next principal's sources start. A source writes records through
-/// `context.cache.store` and must not write through it after [stop] was
-/// called, or after a [start] the cache superseded has returned (the cache
-/// still calls [stop] on it).
+/// next principal's sources start.
+///
+/// A source writes records only through [SyncContext.write], and only while
+/// its context is [SyncContext.active]. The cache deactivates the context
+/// synchronously, inside the `setPrincipal` call that moves to the next
+/// principal and before that call empties the store, and on `dispose`. From
+/// then on a write is dropped, even while [stop] is still running: the store
+/// already belongs to the next principal. A source must never write through
+/// `context.cache.store` directly. The cache also drops every owned record
+/// once the old sources stopped, but that only catches what a source wrote
+/// outside the seam; by then the next principal may have read it.
 abstract interface class SyncSource {
   /// The typenames this source owns.
   Set<String> get entities;
@@ -129,7 +137,9 @@ abstract interface class SyncSource {
   /// Return promptly: project what is local, then do network work (pull,
   /// connect) in the background rather than awaiting it here. The cache's
   /// next principal change, and every owned mutation, waits for this to
-  /// return. When it throws, the cache reports the error and calls [stop].
+  /// return. When it throws, the cache reports the error, deactivates
+  /// [context], calls [stop] and drops whatever records of [entities] the
+  /// store holds: a partial projection must not survive a failed start.
   Future<void> start(SyncContext context);
 
   /// Apply one mutation locally; it may complete offline.
@@ -144,17 +154,21 @@ abstract interface class SyncSource {
   Future<void> stop();
 }
 
-/// What a source is started with.
+/// What a source is started with, and the fence it writes through.
+///
+/// One context per source per principal. It is active from the moment the
+/// cache builds it until the cache moves to another principal or is disposed;
+/// it never becomes active again.
 final class SyncContext {
   /// The cache, its principal, its transport and the principal's session.
-  const SyncContext({
+  SyncContext({
     required this.cache,
     required this.principal,
     required this.transport,
     required this.storage,
   });
 
-  /// The cache whose store the source projects records into.
+  /// The cache whose store the source projects records into, through [write].
   final QueryCache cache;
 
   /// Whose data this is. Never null: nothing starts without a principal.
@@ -167,7 +181,34 @@ final class SyncContext {
   /// replica (in a [StorageSession.namespace]). Null when the cache has no
   /// storage. The cache opened it and closes it; a source never does either.
   final StorageSession? storage;
+
+  bool _active = true;
+
+  /// Whether [cache] still serves [principal] through this context. False
+  /// from the moment the cache began moving to someone else, synchronously,
+  /// before it emptied the store; [write] then does nothing.
+  bool get active => _active;
+
+  /// Apply [edit] to the cache's store and notify the cache's watchers, or do
+  /// nothing at all when the context is no longer [active].
+  ///
+  /// The only way a source writes records. [edit] must be synchronous: the
+  /// fence is checked once, before it runs. The watchers are notified even
+  /// when [edit] throws part way, and the error is rethrown.
+  void write(void Function(EntityStore store) edit) {
+    if (!_active) return;
+
+    try {
+      edit(cache.store);
+    } finally {
+      cache.notifyChanged();
+    }
+  }
 }
+
+/// Fences [context] for good: every later [SyncContext.write] is dropped. The
+/// cache calls this; the package barrel does not export it.
+void deactivateSyncContext(SyncContext context) => context._active = false;
 
 /// One mutation handed to a source.
 final class PendingMutation {
@@ -207,6 +248,10 @@ sealed class MutationOutcome {
 }
 
 /// Applied now; [response] is what the caller receives.
+///
+/// Two outcomes are equal when their responses are `==`. That is shallow: a
+/// Map or List response compares by identity, so two equal-looking decoded
+/// responses are different outcomes.
 final class Applied extends MutationOutcome {
   /// An applied mutation answering [response].
   const Applied(this.response);
@@ -245,6 +290,9 @@ final class Queued extends MutationOutcome {
 }
 
 /// Refused; [error] is thrown to the caller.
+///
+/// Two outcomes are equal when their errors are `==`, which for most error
+/// types, and for a Map or List, means the same object.
 final class Rejected extends MutationOutcome {
   /// Refused because of [error].
   const Rejected(this.error);
