@@ -19,15 +19,14 @@ var pagingParams = map[string][2]string{
 
 // paginated is one list operation the generator can walk page by page.
 type paginated struct {
-	op       *operation
-	method   string
-	call     string
-	item     string
-	items    string
-	cursor   string
-	hasMore  string
-	moreNull bool
-	paging   map[string]string
+	op      *operation
+	method  string
+	call    string
+	item    string
+	items   string
+	cursor  string
+	hasMore string
+	paging  map[string]string
 }
 
 // planPagination finds the operations whose response is a class with an
@@ -78,7 +77,7 @@ func planPagination(ops []*operation, paths map[*operation]string, reg *registry
 				}
 			case "has_more", "hasmore":
 				if f.typ.name == "bool" {
-					p.hasMore, p.moreNull = f.member, f.nullable
+					p.hasMore = f.member
 				}
 			}
 		}

@@ -7,6 +7,13 @@
       "invalidates": [],
       "responseCodec": "CursorPage"
     },
+    "feeds.list": {
+      "method": "GET",
+      "path": "/feeds",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "FeedPage"
+    },
     "mandatory.list": {
       "method": "GET",
       "path": "/mandatory",
@@ -100,6 +107,7 @@
       "page.list",
       "p.list",
       "params.list",
+      "feeds.list",
       "search.list",
       "mandatory.list",
       "sized.list",

@@ -293,6 +293,18 @@ func TestReadmeSectionsFollowTheGeneratedFiles(t *testing.T) {
 		"final session = await ChatSocket(baseUrl: Uri.parse('https://api.example.com')).connect(roomId: '...');",
 	)
 
+	// A stream with no path parameters connects with no arguments at all.
+	ticker := minimalSpec()
+	ticker.WebSockets = []client.WebSocketEndpoint{{
+		ID: "ticker", Path: "/ws/ticker", SendSchema: &client.Schema{Type: "string"}, ReceiveSchema: &client.Schema{Type: "string"},
+	}}
+
+	tickerConfig := allStreaming(baseConfig())
+	tickerConfig.PackageName = "ticker_client"
+
+	assertContains(t, "README", generate(t, gateFixture{Name: "ticker", Spec: ticker, Config: tickerConfig}).Instructions,
+		"final session = await TickerSocket(baseUrl: Uri.parse('https://api.example.com')).connect();")
+
 	// Without hooks the package depends on package:http alone, so the README
 	// cannot mention the runtime or anything built on it.
 	noHooks := generate(t, fixture(t, "no-hooks")).Instructions

@@ -1067,6 +1067,18 @@ void main() {
       await channels.close();
     });
 
+    test('a live send whose frame cannot be built fails alone and keeps the connection', () async {
+      final h = Harness();
+      final session = await OrderFeedSocket(baseUrl: Uri.parse('http://api.test'), connect: h.connect, heartbeat: null)
+          .connect();
+      Order order(String id) => Order(id: Int64(id), orderNumber: 'n', status: OrderStatus.pending, lines: const []);
+      await expectLater(session.send(order('not a number')), throwsFormatException);
+      await session.send(order('7'));
+      expect(h.connections, hasLength(1), reason: 'building the frame failed, not the transport');
+      expect(h.only.sent.single, containsPair('id', 7));
+      await session.close();
+    });
+
     test('closing rejects what waits unless told to keep it', () async {
       final h = Harness();
       final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);

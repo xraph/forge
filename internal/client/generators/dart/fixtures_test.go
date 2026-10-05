@@ -372,6 +372,9 @@ func streamingFixture() gateFixture {
 			ReceiveMessages: map[string]*client.Schema{"a": ref("LineItem"), "b": ref("Customer")},
 		},
 		client.WebSocketEndpoint{Path: "/ws/anonymous"},
+		// Order's int64 id encodes through Int64.toInt(), so a send can fail
+		// while its frame is built, before the transport sees it.
+		client.WebSocketEndpoint{ID: "orderFeed", Path: "/ws/order-feed", SendSchema: ref("Order"), ReceiveSchema: ref("Order")},
 	)
 
 	spec.SSEs = append(spec.SSEs,

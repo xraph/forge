@@ -563,8 +563,16 @@ final class LiveSocket {
   Future<void> deliver(Object? Function() frame, {String? Function()? check}) {
     final open = _connection;
     if (open != null && ((_ready && _queue.isEmpty) || !options.enableOfflineQueue)) {
+      // Built on its own, as _flush builds a queued frame: a frame that cannot
+      // be built is this message's failure, not the connection's.
+      final Object? built;
       try {
-        open.send(frame());
+        built = frame();
+      } on Object catch (error) {
+        return Future.error(error);
+      }
+      try {
+        open.send(built);
         return Future.value();
       } on JsonUnsupportedObjectError catch (error) {
         // This message cannot be encoded; the connection is fine.

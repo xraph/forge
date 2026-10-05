@@ -129,6 +129,10 @@
     },
     {
       "kind": "duplex",
+      "channel": "/ws/order-feed"
+    },
+    {
+      "kind": "duplex",
       "channel": "/ws/raw/$weird"
     },
     {

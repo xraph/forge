@@ -52,6 +52,11 @@ func paginationFixture() gateFixture {
 					Type: "object", Required: []string{"items", "hasMore"},
 					Properties: map[string]*client.Schema{"items": listOf(ref("Item")), "hasMore": {Type: "boolean"}},
 				},
+				// A cursor page whose flag is optional: absent is not false.
+				"FeedPage": {
+					Type: "object", Required: []string{"data"},
+					Properties: map[string]*client.Schema{"data": listOf(ref("Item")), "next": {Type: "string"}, "has_more": {Type: "boolean"}},
+				},
 				// No items list at all.
 				"Summary": {Type: "object", Properties: map[string]*client.Schema{"total": {Type: "integer"}}},
 			},
@@ -98,6 +103,11 @@ func paginationFixture() gateFixture {
 					Method: "GET", Path: "/params", OperationID: "params.list",
 					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
 					Responses:   json("CursorPage"),
+				},
+				{
+					Method: "GET", Path: "/feeds", OperationID: "feeds.list",
+					QueryParams: []client.Parameter{queryParam("cursor", "string", false)},
+					Responses:   json("FeedPage"),
 				},
 				// Left out: a required query parameter the walker cannot fill.
 				{
@@ -438,6 +448,23 @@ void main() {
     );
     expect(await client.pagesListPaginated(params: const PageParams(page: 1)).toList(), isEmpty);
     expect(requests, 1);
+  });
+
+  test('a non-empty page with no has_more and a new cursor goes on', () async {
+    final cursors = <String?>[];
+    final client = RestClient(
+      baseUrl: Uri.parse('https://api.test'),
+      httpClient: MockClient((request) async {
+        final cursor = request.url.queryParameters['cursor'];
+        cursors.add(cursor);
+        return cursor == null
+            ? json({'data': [item('a')], 'next': 'c2'})
+            : json({'data': [item('b')]});
+      }),
+    );
+    final ids = await client.feedsListPaginated().map((i) => i.id).toList();
+    expect(ids, ['a', 'b']);
+    expect(cursors, [null, 'c2']);
   });
 
   test('a server that reports more but gives no way to advance ends the stream', () async {
