@@ -4,6 +4,18 @@ import 'package:test/test.dart';
 Future<List<SseEvent>> _parse(List<String> chunks) =>
     Stream.fromIterable(chunks).transform(const SseParser()).toList();
 
+/// Parse [chunks] and collect the ids the parser committed, with the events.
+Future<({List<SseEvent> events, List<String> ids})> _parseWithIds(
+  List<String> chunks,
+) async {
+  final ids = <String>[];
+  final events = await Stream.fromIterable(chunks)
+      .transform(SseParser(onLastEventId: ids.add))
+      .toList();
+
+  return (events: events, ids: ids);
+}
+
 void main() {
   test('dispatches an event on a blank line', () async {
     expect(await _parse(['event: order.created\ndata: {"id":9}\n\n']), [
@@ -120,5 +132,56 @@ void main() {
     expect(await _parse(['﻿data: x\n\n']), [
       const SseEvent(event: 'message', data: 'x'),
     ]);
+  });
+
+  group('committing the last event id', () {
+    test('an id-only event commits its id and dispatches nothing', () async {
+      final parsed = await _parseWithIds(['id: 5\n\n']);
+
+      expect(parsed.events, isEmpty);
+      expect(parsed.ids, ['5']);
+    });
+
+    test(
+      'an event with data commits its id before the stream moves on',
+      () async {
+        final parsed = await _parseWithIds([
+          'id: 1\ndata: a\n\nid: 2\ndata: b\n\n',
+        ]);
+
+        expect(parsed.events.map((e) => e.lastEventId), ['1', '2']);
+        expect(parsed.ids, ['1', '2']);
+      },
+    );
+
+    test('an empty id commits as the empty string, which clears it', () async {
+      final parsed = await _parseWithIds(['id: 1\ndata: a\n\nid\ndata: b\n\n']);
+
+      expect(parsed.ids, ['1', '']);
+    });
+
+    test(
+      'an id in an event the stream ended in the middle of is never committed',
+      () async {
+        final parsed = await _parseWithIds([
+          'id: 1\ndata: a\n\n',
+          'id: 2\ndata: half',
+        ]);
+
+        expect(parsed.ids, ['1']);
+      },
+    );
+
+    test('an id with no terminating blank line is never committed', () async {
+      final parsed = await _parseWithIds(['id: 7\n']);
+
+      expect(parsed.ids, isEmpty);
+    });
+
+    test('an id that did not change is not committed again', () async {
+      final parsed = await _parseWithIds(['id: 3\n\n\n', 'data: x\n\n']);
+
+      expect(parsed.ids, ['3']);
+    });
   });
 }

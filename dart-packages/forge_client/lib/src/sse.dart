@@ -39,17 +39,26 @@ final class SseEvent {
 /// as the spec requires, so a connection that dies mid-event never delivers
 /// half a payload. `retry` is ignored: the subscription manager owns backoff.
 ///
+/// The last event id is committed at a blank line, whether or not the event
+/// carried data, as the spec's dispatch step does. [onLastEventId] hears each
+/// change, an empty string meaning the stream cleared it. An id inside an
+/// event the stream ended in the middle of is never committed.
+///
 /// Built on a controller rather than `async*` so that cancelling the output
 /// cancels the source at once. A cancelled `async*` generator waits for its
 /// next input event before it finishes, which would leave a quiet SSE
 /// connection open until the server happened to write again.
 final class SseParser extends StreamTransformerBase<String, SseEvent> {
-  /// The parser holds no state between streams.
-  const SseParser();
+  /// The parser holds no state between streams. [onLastEventId] is told each
+  /// time a blank line commits a different last event id.
+  const SseParser({this.onLastEventId});
+
+  /// Called with the committed last event id, or `''` when it was cleared.
+  final void Function(String id)? onLastEventId;
 
   @override
   Stream<SseEvent> bind(Stream<String> stream) {
-    final machine = _Machine();
+    final machine = _Machine(onLastEventId);
     late final StreamController<SseEvent> controller;
     StreamSubscription<String>? source;
 
@@ -72,6 +81,10 @@ final class SseParser extends StreamTransformerBase<String, SseEvent> {
 
 /// The parser's state between chunks of one stream.
 final class _Machine {
+  _Machine(this._onLastEventId);
+
+  final void Function(String id)? _onLastEventId;
+  String? _committedId;
   final StringBuffer _line = StringBuffer();
   final StringBuffer _data = StringBuffer();
   String _type = '';
@@ -111,6 +124,11 @@ final class _Machine {
       _line.clear();
 
       if (text.isEmpty) {
+        if (_lastEventId case final id? when id != _committedId) {
+          _committedId = id;
+          _onLastEventId?.call(id);
+        }
+
         if (_hasData) {
           events.add(
             SseEvent(

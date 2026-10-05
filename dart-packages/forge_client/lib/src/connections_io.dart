@@ -35,24 +35,29 @@ StreamConnect webSocketConnection({Duration? pingInterval}) => (context) async {
 /// the shape TS `eventSourceConnection` produces. With [events] non-empty only
 /// those names, the control events and `message` are delivered, matching what
 /// a browser `EventSource` with those listeners would see. The last dispatched
-/// id is remembered per url and sent as `Last-Event-ID` on the next connect.
+/// id is remembered per url and principal, and sent as `Last-Event-ID` on the
+/// next connect for the same pair. As in a browser, an id-only event still
+/// updates it, an empty `id:` clears it, and a frame sent before any id carries
+/// `''`.
 StreamConnect eventSourceConnection({
   http.Client? client,
   Iterable<String> events = const [],
 }) {
   final wanted = {...events};
-  final lastIds = <String, String>{};
+  final lastIds = <(String, String?), String>{};
 
   return (context) async {
     final owned = client == null;
     final http.Client sender = client ?? http.Client();
-    final key = context.url.toString();
+    final key = (context.url.toString(), context.principal);
     final request = http.Request('GET', context.url)
       ..headers.addAll(context.headers)
       ..headers['accept'] = 'text/event-stream'
       ..headers['cache-control'] = 'no-cache';
 
-    if (lastIds[key] case final id?) request.headers['last-event-id'] = id;
+    if (lastIds[key] case final id? when id.isNotEmpty) {
+      request.headers['last-event-id'] = id;
+    }
 
     final http.StreamedResponse response;
 
@@ -82,7 +87,13 @@ StreamConnect eventSourceConnection({
       response.stream,
       owned ? sender.close : null,
       wanted: wanted,
-      onId: (id) => lastIds[key] = id,
+      onId: (id) {
+        if (id.isEmpty) {
+          lastIds.remove(key);
+        } else {
+          lastIds[key] = id;
+        }
+      },
     );
   };
 }
@@ -102,13 +113,9 @@ final class _SseConnection implements ReceiveOnlyConnection {
   }) {
     _subscription = body
         .transform(utf8.decoder)
-        .transform(const SseParser())
+        .transform(SseParser(onLastEventId: onId))
         .listen(
           (event) {
-            final id = event.lastEventId;
-
-            if (id != null) onId(id);
-
             if (wanted.isNotEmpty &&
                 !wanted.contains(event.event) &&
                 !streamControlEvents.contains(event.event) &&
@@ -126,7 +133,11 @@ final class _SseConnection implements ReceiveOnlyConnection {
               return;
             }
 
-            _messages.add({'event': event.event, 'data': data, 'id': id});
+            _messages.add({
+              'event': event.event,
+              'data': data,
+              'id': event.lastEventId ?? '',
+            });
           },
           onError: (Object error) {
             // One report per drop: the first error ends the stream.

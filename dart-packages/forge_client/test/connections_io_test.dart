@@ -123,6 +123,79 @@ void main() {
       });
     });
 
+    test('carries an empty id on a frame sent before any id', () async {
+      final connection = await eventSourceConnection()(
+        _context(server.url, '/sse/orders'),
+      );
+      addTearDown(connection.close);
+
+      final seen = <Object?>[];
+      connection.messages.listen(seen.add);
+
+      server.send(0, 'data: 1\n\n');
+      await until(() => seen.length == 1);
+
+      expect(seen.single, {'event': 'message', 'data': 1, 'id': ''});
+    });
+
+    group('Last-Event-ID on the next connect', () {
+      /// Connect, let [script] write to the server, end the stream and wait
+      /// for the connection to report closed, so every frame was parsed.
+      Future<void> session(
+        StreamConnect connect,
+        StreamConnectContext context,
+        String script,
+      ) async {
+        final connection = await connect(context);
+        connection.messages.listen((_) {});
+
+        final index = server.bodies.length - 1;
+        server.send(index, script);
+        await server.end(index);
+        await connection.closed;
+      }
+
+      test('an id-only event updates it', () async {
+        final connect = eventSourceConnection();
+        final context = _context(server.url, '/sse/orders');
+
+        await session(connect, context, 'id: 5\n\n');
+        await (await connect(context)).close();
+
+        expect(server.requests[1]['last-event-id'], '5');
+      });
+
+      test('an empty id clears it, so no header is sent', () async {
+        final connect = eventSourceConnection();
+        final context = _context(server.url, '/sse/orders');
+
+        await session(connect, context, 'id: e-1\ndata: 1\n\nid\ndata: 2\n\n');
+        await (await connect(context)).close();
+
+        expect(server.requests[1].containsKey('last-event-id'), isFalse);
+      });
+
+      test(
+        'a connect with the id from a different principal does not send it',
+        () async {
+          final connect = eventSourceConnection();
+          final url = server.url.replace(path: '/sse/orders');
+          StreamConnectContext as(String principal) => StreamConnectContext(
+            url: url,
+            endpoint: '/sse/orders',
+            principal: principal,
+          );
+
+          await session(connect, as('alice'), 'id: a-1\ndata: 1\n\n');
+          await (await connect(as('bob'))).close();
+          await (await connect(as('alice'))).close();
+
+          expect(server.requests[1].containsKey('last-event-id'), isFalse);
+          expect(server.requests[2]['last-event-id'], 'a-1');
+        },
+      );
+    });
+
     test('fails the connect on a non-2xx response', () async {
       server.status = 503;
 
