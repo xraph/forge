@@ -253,3 +253,191 @@ func TestSharedStoreMissedLookupDoesNotReleaseSomeoneElsesClaim(t *testing.T) {
 		t.Fatalf("the holder's Complete = %v, a Lookup must not disturb a claim it does not own", err)
 	}
 }
+
+// countingStore counts Begin and Complete calls on the store it wraps.
+type countingStore struct {
+	middleware.IdempotencyStore
+
+	mu        sync.Mutex
+	begins    int
+	completes int
+}
+
+func (c *countingStore) Begin(ctx context.Context, k middleware.IdempotencyKey, fp string, lease time.Duration) (middleware.IdempotencyBegun, error) {
+	c.mu.Lock()
+	c.begins++
+	c.mu.Unlock()
+
+	return c.IdempotencyStore.Begin(ctx, k, fp, lease)
+}
+
+func (c *countingStore) Complete(ctx context.Context, k middleware.IdempotencyKey, tok middleware.IdempotencyToken, r middleware.IdempotentResponse) error {
+	c.mu.Lock()
+	c.completes++
+	c.mu.Unlock()
+
+	return c.IdempotencyStore.Complete(ctx, k, tok, r)
+}
+
+func (c *countingStore) calls() (begins, completes int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.begins, c.completes
+}
+
+// A store that signals Done must be waited on, not polled: against a long
+// foreign claim Store makes a handful of round trips, not one per millisecond.
+func TestSharedStoreWaitsOnDoneInsteadOfPolling(t *testing.T) {
+	counting := &countingStore{IdempotencyStore: middleware.NewMemoryIdempotencyStore()}
+	s := NewSharedStore(counting)
+	s.wait = 150 * time.Millisecond
+
+	held, _ := counting.Begin(context.Background(), sharedKey("k", "u"), "", time.Hour)
+	if held.State != middleware.IdempotencyAcquired {
+		t.Fatalf("setup Begin = %+v", held)
+	}
+
+	err := s.Store(context.Background(), "k", "u", Cached{Status: 200, WireBody: json.RawMessage(`1`), StoredAt: time.Now(), TTL: time.Hour})
+	if !errors.Is(err, middleware.ErrIdempotencyNotHolder) {
+		t.Fatalf("Store = %v, want ErrIdempotencyNotHolder", err)
+	}
+
+	begins, completes := counting.calls()
+	// One setup Begin plus a few from Store. Polling at 1ms would make ~150.
+	if begins > 4 || completes > 4 {
+		t.Fatalf("Store made %d Begin and %d Complete calls against a held claim, want a handful", begins, completes)
+	}
+}
+
+// pollingStore is a store that cannot signal: it never sets Done.
+type pollingStore struct {
+	middleware.IdempotencyStore
+}
+
+func (p pollingStore) Begin(ctx context.Context, k middleware.IdempotencyKey, fp string, lease time.Duration) (middleware.IdempotencyBegun, error) {
+	b, err := p.IdempotencyStore.Begin(ctx, k, fp, lease)
+	b.Done = nil
+
+	return b, err
+}
+
+func TestSharedStorePollsWhenTheStoreCannotSignal(t *testing.T) {
+	inner := middleware.NewMemoryIdempotencyStore()
+	s := NewSharedStore(pollingStore{inner})
+	ctx := context.Background()
+
+	held, _ := inner.Begin(ctx, sharedKey("k", "u"), "", time.Hour)
+	if held.State != middleware.IdempotencyAcquired {
+		t.Fatalf("setup Begin = %+v", held)
+	}
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+
+		_ = inner.Release(ctx, sharedKey("k", "u"), held.Token)
+	}()
+
+	if err := s.Store(ctx, "k", "u", Cached{Status: 200, WireBody: json.RawMessage(`7`), StoredAt: time.Now(), TTL: time.Hour}); err != nil {
+		t.Fatalf("Store = %v, want it to land once the claim is released", err)
+	}
+
+	got, ok := s.Lookup(ctx, "k", "u")
+	if !ok || string(got.WireBody) != `7` {
+		t.Fatalf("Lookup = %+v, %v", got, ok)
+	}
+}
+
+// stuckReplay refuses every zero-token Complete and answers every Begin with
+// Replay, so only the loop's own ctx and deadline checks can end Store.
+type stuckReplay struct{ middleware.IdempotencyStore }
+
+func (stuckReplay) Begin(context.Context, middleware.IdempotencyKey, string, time.Duration) (middleware.IdempotencyBegun, error) {
+	return middleware.IdempotencyBegun{State: middleware.IdempotencyReplay, Response: &middleware.IdempotentResponse{}}, nil
+}
+
+func (stuckReplay) Complete(context.Context, middleware.IdempotencyKey, middleware.IdempotencyToken, middleware.IdempotentResponse) error {
+	return middleware.ErrIdempotencyNotHolder
+}
+
+func TestSharedStoreReplayLoopHonoursContextAndDeadline(t *testing.T) {
+	c := Cached{Status: 200, WireBody: json.RawMessage(`1`), StoredAt: time.Now(), TTL: time.Hour}
+
+	t.Run("context", func(t *testing.T) {
+		s := NewSharedStore(stuckReplay{})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		done := make(chan error, 1)
+
+		go func() { done <- s.Store(ctx, "k", "u", c) }()
+
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Store = %v, want the context's deadline", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Store spun on Replay past its context")
+		}
+	})
+
+	t.Run("deadline", func(t *testing.T) {
+		s := NewSharedStore(stuckReplay{})
+		s.wait = 50 * time.Millisecond
+
+		done := make(chan error, 1)
+
+		go func() { done <- s.Store(context.Background(), "k", "u", c) }()
+
+		select {
+		case err := <-done:
+			if !errors.Is(err, middleware.ErrIdempotencyNotHolder) {
+				t.Fatalf("Store = %v, want ErrIdempotencyNotHolder", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Store spun on Replay past its wait")
+		}
+	})
+}
+
+// cancelAfterBegin cancels the caller's context once Begin has acquired, and
+// refuses a Release whose context is cancelled, like a networked backend.
+type cancelAfterBegin struct {
+	middleware.IdempotencyStore
+
+	cancel   context.CancelFunc
+	released bool
+}
+
+func (c *cancelAfterBegin) Begin(ctx context.Context, k middleware.IdempotencyKey, fp string, lease time.Duration) (middleware.IdempotencyBegun, error) {
+	b, err := c.IdempotencyStore.Begin(ctx, k, fp, lease)
+	c.cancel()
+
+	return b, err
+}
+
+func (c *cancelAfterBegin) Release(ctx context.Context, k middleware.IdempotencyKey, tok middleware.IdempotencyToken) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.released = true
+
+	return c.IdempotencyStore.Release(ctx, k, tok)
+}
+
+func TestSharedStoreLookupReleasesEvenWhenTheRequestIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	backend := &cancelAfterBegin{IdempotencyStore: middleware.NewMemoryIdempotencyStore(), cancel: cancel}
+	s := NewSharedStore(backend)
+
+	if _, ok := s.Lookup(ctx, "k", "u"); ok {
+		t.Fatal("expected a miss")
+	}
+
+	if !backend.released {
+		t.Fatal("a cancelled request leaked Lookup's claim: Release was refused")
+	}
+}

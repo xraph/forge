@@ -27,6 +27,8 @@ const storeWait = 2 * lookupLease
 // when it ends.
 const pollInterval = time.Millisecond
 
+var errClaimHeld = fmt.Errorf("idempotency: key is held by a live claim: %w", middleware.ErrIdempotencyNotHolder)
+
 // Option configures NewInMemoryStore.
 type Option func(*options)
 
@@ -91,7 +93,7 @@ func (s *InMemoryStore) Lookup(ctx context.Context, key, identity string) (*Cach
 
 		return &c, true
 	case middleware.IdempotencyAcquired:
-		_ = s.shared.Release(ctx, k, begun.Token)
+		_ = s.shared.Release(context.WithoutCancel(ctx), k, begun.Token)
 	}
 
 	return nil, false
@@ -125,6 +127,16 @@ func (s *InMemoryStore) complete(ctx context.Context, k middleware.IdempotencyKe
 	defer deadline.Stop()
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		select {
+		case <-deadline.C:
+			return errClaimHeld
+		default:
+		}
+
 		err := s.shared.Complete(ctx, k, 0, resp)
 		if !errors.Is(err, middleware.ErrIdempotencyNotHolder) {
 			return err
@@ -140,7 +152,7 @@ func (s *InMemoryStore) complete(ctx context.Context, k middleware.IdempotencyKe
 			// The claim ended between the two calls. Finish under our own.
 			err := s.shared.Complete(ctx, k, begun.Token, resp)
 			if err != nil {
-				_ = s.shared.Release(ctx, k, begun.Token)
+				_ = s.shared.Release(context.WithoutCancel(ctx), k, begun.Token)
 			}
 
 			return err
@@ -148,22 +160,28 @@ func (s *InMemoryStore) complete(ctx context.Context, k middleware.IdempotencyKe
 			continue // a response landed; the next Complete overwrites it
 		}
 
-		// InFlight: wait for the holder to finish, or poll when the store
-		// cannot signal.
-		poll := time.NewTimer(pollInterval)
+		// InFlight. A store that signals Done is waited on, with the lease as
+		// the bound because Done may lag a lapsed lease until the store's next
+		// sweep. A store that cannot signal is polled.
+		wait := pollInterval
+		if begun.Done != nil {
+			wait = lookupLease
+		}
+
+		timer := time.NewTimer(wait)
 
 		select {
-		case <-begun.Done:
-			poll.Stop()
-		case <-poll.C:
+		case <-begun.Done: // nil blocks forever, so a poll-only store uses the timer
+			timer.Stop()
+		case <-timer.C:
 		case <-ctx.Done():
-			poll.Stop()
+			timer.Stop()
 
 			return ctx.Err()
 		case <-deadline.C:
-			poll.Stop()
+			timer.Stop()
 
-			return fmt.Errorf("idempotency: key is held by a live claim: %w", middleware.ErrIdempotencyNotHolder)
+			return errClaimHeld
 		}
 	}
 }
