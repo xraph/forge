@@ -41,7 +41,7 @@ var generatedTypeNames = []string{
 // imports that package and the generated one together, so a model with one of
 // these names would make every use of it ambiguous.
 var forgeClientTypeNames = []string{
-	"EntityMeta", "Ref", "EntityRef", "EntityRecord", "NormalizeResult", "OperationMeta", "TagContext",
+	"EntityMeta", "EntityRef", "EntityRecord", "NormalizeResult", "OperationMeta", "TagContext",
 	"OperationArgs", "NoArgs", "ResolvedTags", "Scheduler", "ManualScheduler", "Transport",
 	"TransportRequest", "AuthProvider", "Clock", "ManualClock", "RetryPolicy", "HttpStatusError",
 	"MissingPathParamsError", "RequestEvent", "RestTransport", "QueryState", "QueryIdle",

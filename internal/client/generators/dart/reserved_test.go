@@ -105,7 +105,7 @@ func forgeClientExports(t *testing.T) map[string]bool {
 // TestReservedIdentifiersCoverEveryForgeClientExport keeps the reserved list
 // in step with the real runtime. A schema named after an export would make
 // that name ambiguous in any file importing both packages, so each export is
-// reserved by name and none is only reserved by accident.
+// reserved by name, and every name reserved for it is a real export.
 func TestReservedIdentifiersCoverEveryForgeClientExport(t *testing.T) {
 	exports := forgeClientExports(t)
 	if len(exports) < 100 {
@@ -126,6 +126,22 @@ func TestReservedIdentifiersCoverEveryForgeClientExport(t *testing.T) {
 
 	if len(missing) > 0 {
 		t.Errorf("forge_client exports %d types ReservedIdentifiers does not reserve: %s", len(missing), strings.Join(missing, ", "))
+	}
+
+	// The reverse: a name the list reserves for forge_client that the runtime
+	// does not export is stale, and renames a schema for nothing.
+	var stale []string
+
+	for _, name := range forgeClientTypeNames {
+		if !exports[name] {
+			stale = append(stale, name)
+		}
+	}
+
+	sort.Strings(stale)
+
+	if len(stale) > 0 {
+		t.Errorf("forgeClientTypeNames lists %d names forge_client does not export: %s", len(stale), strings.Join(stale, ", "))
 	}
 }
 

@@ -50,6 +50,7 @@ var (
 	enumReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
 		"toClient": true, "fromClient": true, "index": true, "name": true, "values": true, "wire": true,
+		"isKnown": true, "known": true,
 	}
 	argsReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true, "toTagContext": true,

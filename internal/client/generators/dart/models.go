@@ -275,21 +275,26 @@ type enumValue struct {
 	wire    string
 }
 
-// enumDecl is a Dart enum with a wire value per member and a fallback for a
-// value this client does not know.
+// enumDecl is an extension type over an enum's wire value, with a static
+// constant per value the schema declares. A value the schema does not declare
+// is still a value of the type, so it survives a decode and an encode.
 type enumDecl struct {
-	name     string
-	doc      string
-	values   []enumValue
-	fallback string
+	name   string
+	doc    string
+	rep    string
+	values []enumValue
+	// known names the plain Dart enum of the declared values, which gives a
+	// caller an exhaustive switch.
+	known string
 }
 
 // buildEnum names one member per declared value. A null entry is dropped:
-// it means the schema is nullable, not that null is a member. A member that
-// would be called unknown doubles as the fallback rather than gaining a twin.
+// it means the schema is nullable, not that null is a member. A value named
+// unknown is an ordinary member.
 func (r *registry) buildEnum(name string, s *client.Schema) decl {
-	d := &enumDecl{name: name, doc: s.Description}
+	d := &enumDecl{name: name, doc: s.Description, rep: enumRep(s), known: r.claim(name + "Known")}
 	members := map[string]bool{}
+	literals := map[string]bool{}
 
 	for _, v := range s.Enum {
 		if v == nil {
@@ -297,17 +302,14 @@ func (r *registry) buildEnum(name string, s *client.Schema) decl {
 		}
 
 		wire, literal := enumLiteral(v)
-		member := uniqueNames([]string{wire}, func(s string) string { return memberIdent(s, enumReserved) }, members, false)[0]
-
-		d.values = append(d.values, enumValue{member: member, literal: literal, wire: wire})
-
-		if member == "unknown" {
-			d.fallback = member
+		if literals[literal] {
+			continue
 		}
-	}
 
-	if d.fallback == "" {
-		d.fallback = uniqueNames([]string{"unknown"}, func(s string) string { return s }, members, false)[0]
+		literals[literal] = true
+
+		member := uniqueNames([]string{wire}, func(s string) string { return memberIdent(s, enumReserved) }, members, false)[0]
+		d.values = append(d.values, enumValue{member: member, literal: literal, wire: wire})
 	}
 
 	return d
@@ -349,44 +351,44 @@ func (d *enumDecl) render() string {
 	var b strings.Builder
 
 	b.WriteString(docComment(d.doc, fmt.Sprintf("The `%s` enum.", d.name), ""))
-	fmt.Fprintf(&b, "enum %s {\n", d.name)
+	fmt.Fprintf(&b, "extension type const %s(%s wire) implements Object {\n", d.name, d.rep)
 
 	for _, v := range d.values {
 		fmt.Fprintf(&b, "  /// Wire value `%s`.\n", strings.ReplaceAll(v.wire, "`", "'"))
-		fmt.Fprintf(&b, "  %s(%s),\n\n", v.member, v.literal)
+		fmt.Fprintf(&b, "  static const %s = %s(%s);\n\n", v.member, d.name, v.literal)
 	}
 
-	if d.hasMember(d.fallback) {
-		// The fallback is a declared value, so the last value ends the list.
-		out := strings.TrimSuffix(b.String(), ",\n\n") + ";\n\n"
-		b.Reset()
-		b.WriteString(out)
-	} else {
-		b.WriteString("  /// A value this client does not know, sent by a newer server.\n")
-		fmt.Fprintf(&b, "  %s(null);\n\n", d.fallback)
+	members := make([]string, len(d.values))
+	for i, v := range d.values {
+		members[i] = v.member
 	}
 
-	fmt.Fprintf(&b, "  const %s(this.wire);\n\n", d.name)
-	b.WriteString("  /// The value on the wire.\n")
-	b.WriteString("  final Object? wire;\n\n")
-	fmt.Fprintf(&b, "  /// Decodes a client-shaped value, falling back to [%s].\n", d.fallback)
-	fmt.Fprintf(&b, "  static %s fromClient(Object? client) =>\n", d.name)
-	fmt.Fprintf(&b, "      values.firstWhere((e) => e.wire == client, orElse: () => %s);\n\n", d.fallback)
-	b.WriteString("  /// Encodes this value.\n")
-	b.WriteString("  Object? toClient() => wire;\n")
-	b.WriteString("}\n")
+	b.WriteString("  /// Every value this client knows.\n")
+	fmt.Fprintf(&b, "  static const values = <%s>[%s];\n\n", d.name, strings.Join(members, ", "))
+	b.WriteString("  /// Whether this is a value the schema declares. A newer server may send\n")
+	b.WriteString("  /// others, which are kept as they arrived.\n")
+	b.WriteString("  bool get isKnown => values.contains(this);\n\n")
+	b.WriteString("  /// The declared value as a plain enum for an exhaustive `switch`, or null\n")
+	b.WriteString("  /// for a value this client does not know.\n")
+	fmt.Fprintf(&b, "  %s? get known => switch (wire) {\n", d.known)
 
-	return b.String()
-}
-
-func (d *enumDecl) hasMember(name string) bool {
 	for _, v := range d.values {
-		if v.member == name {
-			return true
-		}
+		fmt.Fprintf(&b, "    %s => %s.%s,\n", v.literal, d.known, v.member)
 	}
 
-	return false
+	b.WriteString("    _ => null,\n  };\n}\n\n")
+
+	fmt.Fprintf(&b, "/// The values of [%s] this client knows, for an exhaustive `switch`.\n", d.name)
+	fmt.Fprintf(&b, "enum %s {\n", d.known)
+
+	for _, v := range d.values {
+		fmt.Fprintf(&b, "  /// Wire value `%s`.\n", strings.ReplaceAll(v.wire, "`", "'"))
+		fmt.Fprintf(&b, "  %s,\n\n", v.member)
+	}
+
+	out := strings.TrimSuffix(b.String(), ",\n\n") + ";\n}\n"
+
+	return out
 }
 
 // variant is one branch of a generated union.

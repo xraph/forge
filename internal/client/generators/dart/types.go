@@ -170,9 +170,14 @@ func listType(item dartType, itemNullable bool) dartType {
 	return t
 }
 
-func mapType(value dartType) dartType {
+func mapType(value dartType, valueNullable bool) dartType {
+	elem := value.name
+	if valueNullable {
+		elem = value.nullableName()
+	}
+
 	t := dartType{
-		name:      "Map<String, " + value.name + ">",
+		name:      "Map<String, " + elem + ">",
 		deep:      true,
 		identity:  value.identity,
 		typedData: value.typedData,
@@ -182,16 +187,50 @@ func mapType(value dartType) dartType {
 	t.decodeFn = func(expr string, depth int) string {
 		v := fmt.Sprintf("v%d", depth)
 
-		return fmt.Sprintf("decodeMap(%s, (%s) => %s)", expr, v, value.decode(v, depth+1))
+		inner := value.decode(v, depth+1)
+		if valueNullable {
+			inner = value.decodeNullable(v, depth+1)
+		}
+
+		return fmt.Sprintf("decodeMap(%s, (%s) => %s)", expr, v, inner)
 	}
 
 	t.encodeFn = func(expr string, depth int) string {
 		e := fmt.Sprintf("e%d", depth)
 
-		return fmt.Sprintf("{for (final %s in %s.entries) %s.key: %s}", e, expr, e, value.encode(e+".value", depth+1))
+		inner := value.encode(e+".value", depth+1)
+		if valueNullable {
+			inner = value.encodeNullable(e+".value", depth+1)
+		}
+
+		return fmt.Sprintf("{for (final %s in %s.entries) %s.key: %s}", e, expr, e, inner)
 	}
 
 	return t
+}
+
+// enumRep is the representation type of a generated enum: String when every
+// declared value is a string, Object when any is a number or a boolean.
+func enumRep(s *client.Schema) string {
+	for _, v := range s.Enum {
+		if _, ok := v.(string); !ok && v != nil {
+			return "Object"
+		}
+	}
+
+	return "String"
+}
+
+// enumType is an enum's extension type over its wire value. An unknown value
+// a newer server sends is still a value of the type, so it decodes by
+// wrapping and encodes by unwrapping, and nothing is lost on a round trip.
+func enumType(name, rep string, imports ...string) dartType {
+	return dartType{
+		name:     name,
+		imports:  imports,
+		decodeFn: func(expr string, _ int) string { return name + "(" + expr + " as " + rep + ")" },
+		encodeFn: func(expr string, _ int) string { return expr + ".wire" },
+	}
 }
 
 // primitive maps a scalar schema to its Dart type, per the type-mapping table
@@ -341,10 +380,12 @@ func (r *registry) resolveType(s *client.Schema, c rctx) dartType {
 
 		if values, ok := additionalPropsSchema(s.AdditionalProperties); ok {
 			if values == nil {
-				return mapType(dynamicType())
+				return mapType(dynamicType(), false)
 			}
 
-			return mapType(r.resolveType(values, c.child("."+additionalPropertiesSegment, "Value")))
+			value := r.resolveType(values, c.child("."+additionalPropertiesSegment, "Value"))
+
+			return mapType(value, values.Nullable && !value.dynamic)
 		}
 
 		if s.Type == "object" {
@@ -364,7 +405,10 @@ func (r *registry) refType(name string) dartType {
 		return dynamicType()
 	}
 
-	if m.kind != kindAlias {
+	switch m.kind {
+	case kindEnum:
+		return enumType(m.dartName, enumRep(m.schema), m.schemaName)
+	case kindClass, kindUnion:
 		return modelType(m.dartName, m.schemaName)
 	}
 
@@ -400,6 +444,10 @@ func (r *registry) declare(c rctx, build func(name string) decl) dartType {
 	name := r.claim(c.hint)
 	d := build(name)
 	c.owner.decls = append(c.owner.decls, d)
+
+	if e, ok := d.(*enumDecl); ok {
+		return enumType(name, e.rep)
+	}
 
 	return modelType(name)
 }
@@ -486,7 +534,7 @@ func declNames(d decl) []string {
 	case *classDecl:
 		return []string{d.name}
 	case *enumDecl:
-		return []string{d.name}
+		return []string{d.name, d.known}
 	case *aliasDecl:
 		return []string{d.name}
 	case *unionDecl:

@@ -86,18 +86,28 @@ func TestInlineTypesAreDeclaredInTheOwnersFile(t *testing.T) {
 	assertContains(t, "order.dart", order,
 		"final class OrderShipping {",
 		"final String? streetName;",
-		"enum OrderStatus {",
-		"  unknown(null);",
+		"extension type const OrderStatus(String wire) implements Object {",
+		"static const pending = OrderStatus('pending');",
+		"enum OrderStatusKnown {",
 	)
 }
 
-func TestEnumReusesADeclaredUnknownAsItsFallback(t *testing.T) {
+// A schema member named unknown has no special role: it is one more declared
+// value, and a server value the schema does not declare is kept as it came.
+func TestEnumMemberNamedUnknownIsAnOrdinaryValue(t *testing.T) {
 	state := file(t, generate(t, fixture(t, "default")), "lib/src/models/order_state.dart")
 
-	assertContains(t, "order_state.dart", state, "unknown('unknown');", "orElse: () => unknown")
+	assertContains(t, "order_state.dart", state,
+		"extension type const OrderState(String wire) implements Object {",
+		"static const unknown = OrderState('unknown');",
+		"static const values = <OrderState>[open, closed, unknown];",
+		"'unknown' => OrderStateKnown.unknown,",
+	)
 
-	if strings.Contains(state, "unknown(null)") {
-		t.Errorf("a declared unknown value must double as the fallback:\n%s", state)
+	for _, gone := range []string{"unknown(null)", "orElse", "firstWhere"} {
+		if strings.Contains(state, gone) {
+			t.Errorf("order_state.dart still has %q:\n%s", gone, state)
+		}
 	}
 
 	if strings.Contains(state, "support.dart") {
@@ -145,7 +155,7 @@ func TestReservedSchemaNamesAreRenamedAndReported(t *testing.T) {
 		"lib/src/models/string_model.dart":      "final class StringModel {",
 		"lib/src/models/not_found_model.dart":   "final class NotFoundModel {",
 		"lib/src/models/assign_model.dart":      "final class AssignModel {",
-		"lib/src/models/query_state_model.dart": "enum QueryStateModel {",
+		"lib/src/models/query_state_model.dart": "extension type const QueryStateModel(String wire) implements Object {",
 		"lib/src/models/class.dart":             "final class Class {",
 	} {
 		assertContains(t, path, file(t, out, path), decl)
@@ -165,7 +175,8 @@ func TestKeywordAndObjectMemberNamesAreEscaped(t *testing.T) {
 	)
 
 	assertContains(t, "query_state_model.dart", file(t, out, "lib/src/models/query_state_model.dart"),
-		"index$('index'),", "name$('name'),", "values$('values'),", "v1st('1st'),")
+		"static const index$ = QueryStateModel('index');", "static const name$ = QueryStateModel('name');",
+		"static const values$ = QueryStateModel('values');", "static const v1st = QueryStateModel('1st');")
 }
 
 func TestSelfReferencingSchemaDecodesRecursively(t *testing.T) {

@@ -60,8 +60,9 @@ func forgeClientDir(t *testing.T) string {
 // requireDart skips the test only when fvm is not on PATH. The runtime ships
 // in this repository, so a missing dart-packages/forge_client is a broken
 // checkout and fails the test instead of skipping it: a gate that quietly
-// stops compiling generated code against the real core is no gate. CI
-// installs fvm.
+// stops compiling generated code against the real core is no gate. CI does
+// not run this gate until plan 08 adds it, so until then it runs wherever a
+// developer has fvm.
 func requireDart(t *testing.T) string {
 	t.Helper()
 
