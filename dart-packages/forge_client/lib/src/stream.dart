@@ -211,7 +211,10 @@ final class _Socket {
   _Socket(this.endpoint, this.principal);
 
   final String endpoint;
-  String? principal;
+
+  /// Who it was opened for. Fixed for its life: a different identity gets a
+  /// different socket, through `repartition`.
+  final String? principal;
 
   /// The live connection, or null between a drop and a reopen.
   StreamConnection? connection;
@@ -456,6 +459,7 @@ final class SubscriptionManager {
   ///
   /// A socket that is connected, connecting, counting down, unavailable or
   /// unwatched is left alone, so calling this on every network event is free.
+  /// One opened for another principal still waits for [repartition].
   void retry() {
     for (final socket in [..._sockets.values]) {
       if (socket.disposed || socket.reconnecting || socket.unavailable) {
@@ -488,7 +492,6 @@ final class SubscriptionManager {
   bool _open(_Socket socket, {List<String>? report, bool retry = true}) {
     if (socket.disposed) return false;
 
-    socket.principal = _principal();
     socket.reconnecting = false;
     socket.ready = false;
 
@@ -654,6 +657,23 @@ final class SubscriptionManager {
         }
 
         if (socket.disposed || socket.refs == 0) return;
+
+        // A reconnect is not an identity handoff. Reopening as whoever is
+        // current would send the new principal's headers for the old
+        // principal's subscribers and hand them its traffic. The socket stays
+        // where it is, unconnected, until `repartition` moves its subscribers
+        // onto a socket of the new principal's own.
+        if (socket.principal != _principal()) {
+          _report(
+            StateError(
+              '[forge] ${socket.endpoint} was opened for another principal; '
+              'it reconnects only after repartition()',
+            ),
+            'stream ${socket.endpoint}',
+          );
+
+          return;
+        }
 
         if (_open(socket, report: [...socket.channels.keys], retry: false)) {
           return;

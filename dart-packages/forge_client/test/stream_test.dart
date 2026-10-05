@@ -577,6 +577,91 @@ void main() {
         ]);
       });
     });
+
+    // A reconnect is not an identity handoff. Without this, a socket that
+    // drops after the identity moved reopens as the new principal, with its
+    // headers, and the old principal's subscribers receive its traffic.
+    test('never reopens a dropped socket as a different identity', () {
+      fakeAsync((async) {
+        var principal = 'user-a';
+        final kit = _build(principal: () => principal);
+        final seen = <Object?>[];
+
+        kit.subscriptions.subscribe(
+          '/ws/orders',
+          (message, _) => seen.add(message),
+        );
+        async.flushMicrotasks();
+
+        // The identity moved, nobody repartitioned, and then the socket went.
+        principal = 'user-b';
+        kit.sockets.last().drop();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 60));
+
+        for (final connection in kit.sockets.opened.skip(1)) {
+          connection.deliver({'type': 'order.created', 'payload': 'b'});
+        }
+        async.flushMicrotasks();
+
+        expect(kit.sockets.opened, hasLength(1));
+        expect(
+          kit.sockets.opened.where(
+            (connection) => connection.context.principal == 'user-b',
+          ),
+          isEmpty,
+        );
+        expect(seen, isEmpty);
+        expect(kit.reconnects, isEmpty);
+        expect(
+          kit.errors.map((error) => error.$2),
+          contains('stream /ws/orders'),
+        );
+
+        // Nor does a revival.
+        kit.subscriptions.retry();
+        async.elapse(const Duration(seconds: 60));
+        expect(kit.sockets.opened, hasLength(1));
+      });
+    });
+
+    test(
+      'hands a socket stranded by an identity change over through repartition',
+      () {
+        fakeAsync((async) {
+          var principal = 'user-a';
+          final kit = _build(principal: () => principal);
+          final seen = <Object?>[];
+
+          kit.subscriptions.subscribe(
+            '/ws/orders',
+            (message, _) => seen.add(message),
+          );
+          async.flushMicrotasks();
+
+          principal = 'user-b';
+          kit.sockets.last().drop();
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 60));
+          expect(kit.sockets.opened, hasLength(1));
+
+          // The handoff the caller owes: the subscriber was waiting for it, not
+          // dropped.
+          kit.subscriptions.repartition();
+          async.flushMicrotasks();
+
+          expect(kit.sockets.opened, hasLength(2));
+          expect(kit.sockets.last().context.principal, 'user-b');
+          expect(kit.reconnects, [('/ws/orders', '/ws/orders')]);
+
+          kit.sockets.last().deliver({'type': 'order.created', 'payload': 'b'});
+          async.flushMicrotasks();
+          expect(seen, [
+            {'type': 'order.created', 'payload': 'b'},
+          ]);
+        });
+      },
+    );
   });
 
   group('failures', () {
