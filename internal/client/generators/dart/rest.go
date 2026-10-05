@@ -8,10 +8,21 @@ import (
 
 // restReserved are RestClient's own members, which an operation method or
 // namespace must not shadow.
-var restReserved = map[string]bool{
-	"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
-	"baseUrl": true, "headers": true, "credentials": true, "timeout": true, "close": true,
-}
+//
+// The support helpers are reserved too: a method body calls them
+// unqualified, so a method named decodeList would shadow the helper.
+var restReserved = func() map[string]bool {
+	out := map[string]bool{
+		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
+		"baseUrl": true, "headers": true, "credentials": true, "timeout": true, "close": true,
+	}
+
+	for _, s := range supportSymbols {
+		out[s] = true
+	}
+
+	return out
+}()
 
 // restNode is one namespace of the REST client: its methods and the
 // namespaces nested under it, built from dotted operation ids as the
@@ -154,7 +165,7 @@ func renderRest(ops []*operation, root *restNode, paths map[*operation]string, n
 
 	b.WriteString(generatedHeader)
 
-	dartImports := []string{"import 'dart:async';", "import 'dart:convert';", "import 'dart:typed_data';"}
+	dartImports := []string{"import 'dart:async';", "import 'dart:convert';", "import 'dart:math' as math;", "import 'dart:typed_data';"}
 
 	local := []string{"import 'errors.dart';"}
 	local = append(local, sortedKeys(codecImports)...)
@@ -274,10 +285,10 @@ func renderRestMethod(op *operation, name, receiver string, codecConst func(stri
 		returnType = "Uint8List"
 	}
 
-	params := ""
-	if len(sig) > 0 {
-		params = "{" + strings.Join(sig, ", ") + "}"
-	}
+	// Every method takes cancel and maxAttempts, the Dart form of the
+	// TypeScript client's per-call signal and retry options.
+	sig = append(sig, "Future<void>? cancel", "int? maxAttempts")
+	params := "{" + strings.Join(sig, ", ") + "}"
 
 	fmt.Fprintf(&b, "  Future<%s> %s(%s) async {\n", returnType, name, params)
 
@@ -346,6 +357,9 @@ func renderRestMethod(op *operation, name, receiver string, codecConst func(stri
 			fmt.Fprintf(&b, "      contentType: %s,\n", dartString(declared))
 		}
 	}
+
+	b.WriteString("      cancel: cancel,\n")
+	b.WriteString("      maxAttempts: maxAttempts,\n")
 
 	switch op.response {
 	case "json":
@@ -498,6 +512,11 @@ final class RestClient {
 const restClientTail = `  /// Closes the underlying HTTP client.
   void close() => _http.close();
 
+  /// Sends one operation. Completing [cancel] aborts it, before it is sent,
+  /// in flight or while it waits to retry. [maxAttempts] retries a network
+  /// failure or a 408, 429, 500, 502, 503 or 504 response, with exponential
+  /// backoff from one second up to thirty, as the TypeScript client's
+  /// per-call retry does; left null the request is sent once.
   Future<Object?> _send(
     String method,
     String path, {
@@ -510,6 +529,8 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     WireCodec? bodyCodec,
     WireCodec? responseCodec,
     _Body response = _Body.json,
+    Future<void>? cancel,
+    int? maxAttempts,
   }) async {
     final params = <String, List<String>>{
       for (final MapEntry(:key, :value) in query.entries)
@@ -519,8 +540,52 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     final base = baseUrl.toString().replaceAll(RegExp(r'/+$'), '');
     var uri = Uri.parse('$base$path');
     if (params.isNotEmpty) uri = uri.replace(queryParameters: params);
+    var cancelled = false;
+    final aborted = cancel?.then<Never>((_) {
+      cancelled = true;
+      throw http.RequestAbortedException(uri);
+    });
+    aborted?.ignore();
+    final attempts = maxAttempts ?? 1;
+    for (var attempt = 0; ; attempt++) {
+      if (cancelled) throw http.RequestAbortedException(uri);
+      try {
+        return await _attempt(method, uri, headers, body, form, plain, contentType, bodyCodec, responseCodec, response, cancel, aborted);
+      } on Object catch (error) {
+        if (cancelled || attempt + 1 >= attempts || !_retryable(error)) rethrow;
+      }
+      final delay = Duration(milliseconds: math.min(1000 * math.pow(2, attempt).toInt(), 30000));
+      final wait = Future<void>.delayed(delay);
+      await (aborted == null ? wait : Future.any([wait, aborted]));
+    }
+  }
+
+  static bool _retryable(Object error) => switch (error) {
+    ApiError(:final status) => const {408, 429, 500, 502, 503, 504}.contains(status),
+    http.RequestAbortedException() => false,
+    http.ClientException() => true,
+    _ => false,
+  };
+
+  Future<Object?> _attempt(
+    String method,
+    Uri uri,
+    Map<String, String> headers,
+    Object? body,
+    bool form,
+    bool plain,
+    String? contentType,
+    WireCodec? bodyCodec,
+    WireCodec? responseCodec,
+    _Body response,
+    Future<void>? cancel,
+    Future<Never>? aborted,
+  ) async {
     final abort = Completer<void>();
-    final request = http.AbortableRequest(method, uri, abortTrigger: timeout == null ? null : abort.future)
+    final trigger = cancel == null
+        ? (timeout == null ? null : abort.future)
+        : (timeout == null ? cancel : Future.any([abort.future, cancel]));
+    final request = http.AbortableRequest(method, uri, abortTrigger: trigger)
       ..headers.addAll(this.headers);
 @@credentials@@    request.headers.addAll(headers);
     switch (body) {
@@ -541,7 +606,8 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     Future<http.Response> exchange() async => http.Response.fromStream(await _http.send(request));
     final http.Response reply;
     try {
-      reply = await (timeout == null ? exchange() : exchange().timeout(timeout!));
+      final sent = timeout == null ? exchange() : exchange().timeout(timeout!);
+      reply = await (aborted == null ? sent : Future.any([sent, aborted]));
     } on TimeoutException {
       if (!abort.isCompleted) abort.complete();
       rethrow;

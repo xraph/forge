@@ -77,7 +77,12 @@ func expandClients(base *generationPlan) ([]*generationPlan, error) {
 
 		seenOutput[out] = name
 
-		plans = append(plans, base.derive(name, entry))
+		plan, err := base.derive(name, entry)
+		if err != nil {
+			return nil, err
+		}
+
+		plans = append(plans, plan)
 	}
 
 	return plans, nil
@@ -90,7 +95,10 @@ func expandClients(base *generationPlan) ([]*generationPlan, error) {
 // short: everything a client does not mention -- field naming, streaming
 // features, the whole feature-flag set, and the sources themselves -- it
 // inherits, so a per-service split is a name, an output and a filter.
-func (p *generationPlan) derive(name string, entry ClientGenConfig) *generationPlan {
+//
+// A value it cannot use is refused with the error its flag gives, naming the
+// client, so a typo in a clients: block never reaches the generator.
+func (p *generationPlan) derive(name string, entry ClientGenConfig) (*generationPlan, error) {
 	cfg := p.config
 
 	cfg.OutputDir = entry.Output
@@ -130,7 +138,12 @@ func (p *generationPlan) derive(name string, entry ClientGenConfig) *generationP
 	}
 
 	if entry.Int64 != "" {
-		cfg.Int64 = client.Int64Mode(entry.Int64)
+		mode, err := parseInt64Mode(entry.Int64)
+		if err != nil {
+			return nil, cli.NewError(fmt.Sprintf("client %q: %v", name, err), cli.ExitUsageError)
+		}
+
+		cfg.Int64 = mode
 	}
 
 	// Replace rather than append: see ClientGenConfig.Include. A client that
@@ -153,7 +166,7 @@ func (p *generationPlan) derive(name string, entry ClientGenConfig) *generationP
 	// base's own deferred cleanup remains the only one.
 	derived.cleanup = func() {}
 
-	return &derived
+	return &derived, nil
 }
 
 // selectClients narrows an expanded plan list to the names given, which is what

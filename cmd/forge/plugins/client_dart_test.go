@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/internal/client"
 )
 
@@ -103,4 +104,35 @@ clients:
 	require.NotNil(t, cfg.Clients[0].ClientOnly)
 	assert.False(t, *cfg.Clients[0].ClientOnly)
 	assert.Nil(t, cfg.Clients[1].ClientOnly, "an absent client_only must stay nil so it inherits")
+}
+
+// A per-client int64 value goes through the same check as --int64, so a typo
+// in a clients: block gets the flag's specific error instead of reaching the
+// generator as a mode it does not know.
+func TestPerClientInt64IsValidatedLikeTheFlag(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeSpecFile(t, filepath.Join(dir, "openapi.json"), ordersSpec())
+
+	config := `defaults:
+  language: dart
+  output: ./client
+  package: flutter_client
+clients:
+  - name: flutter
+    language: dart
+    output: ./flutter/client
+    int64: bigint
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".forge-client.yml"), []byte(config), 0o600))
+
+	out, err := runClientCLI(t, "client", "generate")
+	require.Error(t, err, "a bad per-client int64 must fail generate\n%s", out)
+	assert.Contains(t, err.Error(), `invalid --int64 value "bigint": must be string or int`)
+	assert.Contains(t, err.Error(), `client "flutter"`)
+	assert.Equal(t, cli.ExitUsageError, cli.GetExitCode(err))
+
+	_, statErr := os.Stat(filepath.Join(dir, "flutter", "client"))
+	assert.True(t, os.IsNotExist(statErr), "nothing may be generated for a refused client")
 }

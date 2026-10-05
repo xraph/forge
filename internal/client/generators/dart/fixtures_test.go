@@ -245,11 +245,47 @@ func reservedSpec() *client.APISpec {
 			"NotFound":   {Type: "object", Properties: map[string]*client.Schema{"reason": {Type: "string"}}},
 			"QueryState": {Type: "string", Enum: []any{"index", "name", "values", "1st"}},
 			"Assign":     {Type: "object", Properties: map[string]*client.Schema{"to": {Type: "string"}}},
+			// Fields named after Dart's lowercase built-in types.
+			"Tally": {
+				Type: "object", Required: []string{"int"},
+				Properties: map[string]*client.Schema{
+					"int": {Type: "integer"}, "double": {Type: "number"}, "bool": {Type: "boolean"}, "num": {Type: "number"},
+				},
+			},
 		},
-		Endpoints: []client.Endpoint{{
-			Method: "GET", Path: "/query", OperationID: "query",
-			Responses: map[int]*client.Response{200: {Content: jsonContent(ref("NotFound"))}},
-		}},
+		Endpoints: []client.Endpoint{
+			{
+				Method: "GET", Path: "/query", OperationID: "query",
+				Responses: map[int]*client.Response{200: {Content: jsonContent(ref("NotFound"))}},
+			},
+			// widgets' op constant is opWidgets, which is also the binding
+			// opWidgets would take.
+			{
+				Method: "GET", Path: "/widgets", OperationID: "widgets",
+				QueryParams: []client.Parameter{
+					{Name: "int", In: "query", Schema: &client.Schema{Type: "integer"}},
+					{Name: "bool", In: "query", Schema: &client.Schema{Type: "boolean"}},
+				},
+				Responses: map[int]*client.Response{200: {Content: jsonContent(ref("Tally"))}},
+			},
+			{
+				Method: "GET", Path: "/op-widgets", OperationID: "opWidgets",
+				Responses: map[int]*client.Response{200: {Content: jsonContent(ref("NotFound"))}},
+			},
+			// A binding named deepEquals would shadow the helper its own
+			// Args == calls.
+			{
+				Method: "POST", Path: "/deep", OperationID: "deepEquals",
+				RequestBody: &client.RequestBody{Required: true, Content: jsonContent(&client.Schema{Type: "array", Items: &client.Schema{Type: "string"}})},
+				Responses:   map[int]*client.Response{204: {Description: "ok"}},
+			},
+			// A binding named decodeList would make its file show a support
+			// helper it never calls.
+			{
+				Method: "GET", Path: "/decode", OperationID: "decodeList",
+				Responses: map[int]*client.Response{200: {Content: jsonContent(ref("NotFound"))}},
+			},
+		},
 	}
 }
 

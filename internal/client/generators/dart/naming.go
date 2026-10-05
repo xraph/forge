@@ -41,11 +41,14 @@ var dartBuiltIns = map[string]bool{
 // Members a generated identifier must not take, per kind of declaration.
 // Every Dart object already has the first four; models add their codec
 // members, enums the members Dart gives every enum value, and argument
-// classes their tag-context method.
+// classes their tag-context method. Models and argument classes also keep
+// clear of Dart's lowercase built-in type names: a field declared
+// `final int int;` hides the type from every later declaration in the class.
 var (
 	modelReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
 		"copyWith": true, "toClient": true, "fromClient": true,
+		"int": true, "double": true, "bool": true, "num": true,
 	}
 	enumReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
@@ -54,6 +57,10 @@ var (
 	}
 	argsReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true, "toTagContext": true,
+		"int": true, "double": true, "bool": true, "num": true,
+		// The REST method's own named parameters; a parameter is named
+		// the same in its Args class and its RestClient method.
+		"cancel": true, "maxAttempts": true,
 	}
 )
 

@@ -20,18 +20,18 @@ func TestRestClientNestsOperationsByNamespace(t *testing.T) {
 		"final class RestClient {",
 		"late final RestOrdersApi orders = RestOrdersApi._(this);",
 		"final class RestOrdersApi {",
-		"Future<Order> get({required String id, bool? includeLines}) async {",
+		"Future<Order> get({required String id, bool? includeLines, Future<void>? cancel, int? maxAttempts}) async {",
 		"'/orders/${Uri.encodeComponent(id)}',",
 		"query: {'include_lines': includeLines},",
 		"headers: {'X-Tenant': xTenant},",
-		"Future<Order> update({required String id, required UpdateOrderRequest body}) async {",
+		"Future<Order> update({required String id, required UpdateOrderRequest body, Future<void>? cancel, int? maxAttempts}) async {",
 		"bodyCodec: updateOrderRequestCodec,",
 		"responseCodec: orderCodec,",
-		"Future<void> delete({required String id}) async {",
+		"Future<void> delete({required String id, Future<void>? cancel, int? maxAttempts}) async {",
 		"response: _Body.none,",
-		"Future<Pet> get({required Int64 petId, String? other}) async {",
+		"Future<Pet> get({required Int64 petId, String? other, Future<void>? cancel, int? maxAttempts}) async {",
 		"'/pets/${Uri.encodeComponent(petId.value)}',",
-		"Future<String> get() async {",
+		"Future<String> get({Future<void>? cancel, int? maxAttempts}) async {",
 		"form: true,",
 		"throw ApiError.fromResponse(",
 		"import 'package:http/http.dart' as http;",
@@ -391,9 +391,74 @@ Future<void> main() async {
   ]);
   watchdog.cancel();
 
+  // Completing cancel aborts a request that would otherwise never answer.
+  final pending = RestClient(
+    baseUrl: Uri.parse('https://api.test'),
+    httpClient: MockClient.streaming((request, _) async {
+      final never = StreamController<List<int>>();
+      return http.StreamedResponse(never.stream, 200, headers: {'content-type': 'application/json'});
+    }),
+  );
+  final cancel = Completer<void>();
+  final stuck = Completer<String>();
+  final guard = Timer(const Duration(seconds: 5), () => stuck.complete('hung'));
+  final cancelled = pending.items.get(id: '1', xTenant: 't', cancel: cancel.future).then(
+    (_) => 'returned',
+    onError: (Object e) => e is http.RequestAbortedException ? 'aborted' : 'error: $e',
+  );
+  Timer(const Duration(milliseconds: 20), cancel.complete);
+  out['cancelled'] = await Future.any([cancelled, stuck.future]);
+  guard.cancel();
+
+  // A cancel that already completed stops the request before it is sent.
+  var sentAfterCancel = 0;
+  final eager = RestClient(
+    baseUrl: Uri.parse('https://api.test'),
+    httpClient: MockClient((request) async {
+      sentAfterCancel++;
+      return http.Response('{"id":"1"}', 200, headers: {'content-type': 'application/json'});
+    }),
+  );
+  out['cancelledFirst'] = await eager.items.get(id: '1', xTenant: 't', cancel: Future<void>.value()).then(
+    (_) => 'returned',
+    onError: (Object e) => e is http.RequestAbortedException ? 'aborted' : 'error: $e',
+  );
+  out['sentAfterCancel'] = sentAfterCancel;
+
+  // maxAttempts retries a retryable status, as TypeScript's per-call retry
+  // does; without it a request is sent once.
+  var calls = 0;
+  final flaky = RestClient(
+    baseUrl: Uri.parse('https://api.test'),
+    httpClient: MockClient((request) async {
+      calls++;
+      return calls.isOdd
+          ? http.Response('', 503)
+          : http.Response('{"id":"1","label":"ok"}', 200, headers: {'content-type': 'application/json'});
+    }),
+  );
+  final retried = await flaky.items.get(id: '1', xTenant: 't', maxAttempts: 2);
+  out['retried'] = {'label': retried.label, 'calls': calls};
+  calls = 0;
+  out['notRetried'] = {...await failure(flaky.items.get(id: '1', xTenant: 't')), 'calls': calls};
+  calls = 1;
+  final notFound = RestClient(
+    baseUrl: Uri.parse('https://api.test'),
+    httpClient: MockClient((request) async {
+      calls++;
+      return http.Response('{"message":"no"}', 404, headers: {'content-type': 'application/json'});
+    }),
+  );
+  calls = 0;
+  out['notRetryable'] = {...await failure(notFound.items.get(id: '1', xTenant: 't', maxAttempts: 3)), 'calls': calls};
+
   stdout.write(jsonEncode(out));
   rest.close();
   stalled.close();
+  pending.close();
+  eager.close();
+  flaky.close();
+  notFound.close();
 }
 `
 
@@ -543,6 +608,21 @@ func TestRestClientRunsAgainstPackageHTTP(t *testing.T) {
 	}
 
 	check("stalled", "timeout")
+	check("cancelled", "aborted")
+	check("cancelledFirst", "aborted")
+	check("sentAfterCancel", 0.0)
+
+	if retried := got["retried"].(map[string]any); retried["label"] != "ok" || retried["calls"] != 2.0 {
+		t.Errorf("maxAttempts: 2 retries a 503 once: %v", retried)
+	}
+
+	if notRetried := got["notRetried"].(map[string]any); notRetried["type"] != "ServiceUnavailable" || notRetried["calls"] != 1.0 {
+		t.Errorf("without maxAttempts a request is sent once: %v", notRetried)
+	}
+
+	if notRetryable := got["notRetryable"].(map[string]any); notRetryable["type"] != "NotFound" || notRetryable["calls"] != 1.0 {
+		t.Errorf("a 404 is not retried, whatever maxAttempts says: %v", notRetryable)
+	}
 
 	badJSON := got["badJsonError"].(map[string]any)
 
@@ -620,12 +700,12 @@ func TestRestPlansBodiesAndResponsesByMediaKind(t *testing.T) {
 
 	assertContains(t, "rest.dart", rest,
 		// A schemaless JSON response is Object?, with no codec.
-		"Future<Object?> ping() async {",
+		"Future<Object?> ping({Future<void>? cancel, int? maxAttempts}) async {",
 		// Textual application types are text, not bytes.
-		"Future<String> tail() async {",
-		"Future<String> get({required String id}) async {",
+		"Future<String> tail({Future<void>? cancel, int? maxAttempts}) async {",
+		"Future<String> get({required String id, Future<void>? cancel, int? maxAttempts}) async {",
 		// +json responses and bodies are JSON with their codec.
-		"Future<Item> getApi({required String id}) async {",
+		"Future<Item> getApi({required String id, Future<void>? cancel, int? maxAttempts}) async {",
 		"bodyCodec: itemCodec,",
 		"contentType: 'application/vnd.api+json',",
 		// A declared request content type replaces the default.
@@ -633,7 +713,7 @@ func TestRestPlansBodiesAndResponsesByMediaKind(t *testing.T) {
 		"contentType: 'text/csv',",
 		"plain: true,",
 		// Binary stays bytes.
-		"Future<Uint8List> download({required String id}) async {",
+		"Future<Uint8List> download({required String id, Future<void>? cancel, int? maxAttempts}) async {",
 	)
 
 	// The default type is not repeated, so the common case stays terse.

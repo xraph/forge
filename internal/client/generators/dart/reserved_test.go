@@ -200,3 +200,57 @@ func TestNonCollidingSchemasKeepTheirNames(t *testing.T) {
 		}
 	}
 }
+
+// A binding never takes an op constant's name or a support helper's: both
+// are top-level names its own file, or the barrel, already holds. Nor does a
+// RestClient method, whose body calls those helpers unqualified.
+func TestBindingsAvoidOpConstantsAndSupportHelpers(t *testing.T) {
+	f := fixture(t, "reserved")
+	out := generate(t, f)
+
+	assertContains(t, "widgets.dart", file(t, out, "lib/src/bindings/widgets.dart"), "final widgets = query<")
+
+	for name, binding := range map[string]string{
+		"op_widgets":  "opWidgets",
+		"deep_equals": "deepEquals",
+		"decode_list": "decodeList",
+	} {
+		content := file(t, out, "lib/src/bindings/"+name+".dart")
+		if strings.Contains(content, "final "+binding+" = ") {
+			t.Errorf("%s.dart declares a binding named %s, which collides with a generated top-level name:\n%s", name, binding, content)
+		}
+	}
+
+	if decode := file(t, out, "lib/src/bindings/decode_list.dart"); strings.Contains(decode, "support.dart") {
+		t.Errorf("decode_list.dart imports support.dart for a name only its binding spells:\n%s", decode)
+	}
+
+	rest := file(t, out, "lib/src/rest.dart")
+	for _, method := range []string{"deepEquals", "decodeList"} {
+		if strings.Contains(rest, " "+method+"(") && !strings.Contains(rest, " "+method+"$(") {
+			t.Errorf("rest.dart declares a method named %s, which shadows the support helper", method)
+		}
+	}
+
+	for _, name := range supportSymbols {
+		if !restReserved[name] {
+			t.Errorf("restReserved lacks support helper %s", name)
+		}
+	}
+}
+
+// Fields and parameters named after Dart's lowercase built-in types are
+// renamed, since `final int int;` hides the type from everything after it.
+func TestLowercaseBuiltInTypeNamesAreReserved(t *testing.T) {
+	out := generate(t, fixture(t, "reserved"))
+
+	assertContains(t, "tally.dart", file(t, out, "lib/src/models/tally.dart"),
+		"final int int$;", "final double? double$;", "final bool? bool$;", "final double? num$;")
+	assertContains(t, "widgets.dart", file(t, out, "lib/src/bindings/widgets.dart"), "final int? int$;", "final bool? bool$;")
+
+	for _, name := range []string{"int", "double", "bool", "num"} {
+		if !modelReserved[name] || !argsReserved[name] {
+			t.Errorf("%s must be reserved in modelReserved and argsReserved", name)
+		}
+	}
+}

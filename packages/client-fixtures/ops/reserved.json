@@ -1,11 +1,38 @@
 {
   "ops": {
+    "decodeList": {
+      "method": "GET",
+      "path": "/decode",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "NotFound"
+    },
+    "deepEquals": {
+      "method": "POST",
+      "path": "/deep",
+      "provides": [],
+      "invalidates": []
+    },
+    "opWidgets": {
+      "method": "GET",
+      "path": "/op-widgets",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "NotFound"
+    },
     "query": {
       "method": "GET",
       "path": "/query",
       "provides": [],
       "invalidates": [],
       "responseCodec": "NotFound"
+    },
+    "widgets": {
+      "method": "GET",
+      "path": "/widgets",
+      "provides": [],
+      "invalidates": [],
+      "responseCodec": "Tally"
     }
   },
   "entities": {},
@@ -16,7 +43,11 @@
     "roles": [],
     "permissions": [],
     "operations": [
-      "query"
+      "query",
+      "widgets",
+      "opWidgets",
+      "deepEquals",
+      "decodeList"
     ],
     "requiredCapabilities": {},
     "requiredAuthorization": {}

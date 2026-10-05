@@ -31,6 +31,26 @@ var topLevelReserved = map[string]bool{
 	"streamUri": true, "bearerToken": true, "liveOpen": true,
 }
 
+// bindingReserved is every top-level name a binding must not take:
+// topLevelReserved, the op constants ops.dart declares (the barrel exports
+// both, so a binding named opWidgets is an ambiguous export), and the support
+// helpers a binding file calls (a binding named deepEquals would shadow the
+// one its Args == calls, and one named decodeList would make its file show a
+// helper it never uses).
+func bindingReserved(constants []string) map[string]bool {
+	out := copySet(topLevelReserved)
+
+	for _, c := range constants {
+		out[c] = true
+	}
+
+	for _, s := range supportSymbols {
+		out[s] = true
+	}
+
+	return out
+}
+
 // param is one path, query or header parameter of an operation.
 type param struct {
 	wire     string
@@ -130,7 +150,8 @@ func planOperations(spec *client.APISpec, config client.GeneratorConfig, reg *re
 	keys := operationKeys(spec.Endpoints)
 	ids := uniqueNames(keys, func(k string) string { return "op_" + fileStem(k) }, map[string]bool{}, false)
 	constants := uniqueNames(keys, func(k string) string { return "op" + typeIdent(k) }, map[string]bool{}, false)
-	bindings := uniqueNames(keys, func(k string) string { return memberIdent(k, topLevelReserved) }, copySet(topLevelReserved), false)
+	bindingTaken := bindingReserved(constants)
+	bindings := uniqueNames(keys, func(k string) string { return memberIdent(k, bindingTaken) }, copySet(bindingTaken), false)
 	argNames := uniqueNames(keys, func(k string) string { return typeIdent(k) + "Args" }, reg.taken, false)
 	files := uniqueNames(keys, fileStem, map[string]bool{}, true)
 
