@@ -31,7 +31,8 @@ import 'types.dart' show EntityKey;
 /// received under. A batch held back by a coalescing delay may outlive a
 /// `clear` or a principal change; when [generation] no longer matches, the
 /// frames belong to data that was dropped and nothing is written, observed,
-/// notified or invalidated. Omit it to commit unconditionally. Either way, a
+/// notified or invalidated. Omit it to commit unconditionally. A disposed
+/// cache is never written, with or without [generation]. Either way, a
 /// listener that empties the cache while this commit notifies it stops the
 /// invalidation: the batch's tags describe the data that listener dropped.
 void applyFrames(
@@ -41,6 +42,9 @@ void applyFrames(
   int? generation,
 }) {
   if (frames.isEmpty) return;
+
+  // A disposed cache takes no more writes, whoever still holds frames for it.
+  if (cache.isDisposed) return;
 
   // One user's data must never reach the next: a batch captured before the
   // cache was emptied is refused whole.
@@ -242,7 +246,9 @@ final class _Held {
 /// Build the manager with `principal: () => cache.principal`. The binder
 /// repartitions it inside the cache's synchronous [QueryCache.principalChanges]
 /// listener, so a principal change has moved every socket before
-/// `setPrincipal` returns.
+/// `setPrincipal` returns. A manager whose principal differs from the cache's,
+/// compared by value, is reported, and every frame is dropped while the two
+/// disagree: its sockets carry another identity's data.
 final class StreamBinder implements LiveBinding {
   /// [streams] is the generated table. [scheduler] defaults to the cache's
   /// commit scheduler. [resumeGrace] is how long to wait after a reconnect for
@@ -286,6 +292,14 @@ final class StreamBinder implements LiveBinding {
     // just been emptied; the sockets belong to the previous identity too.
     _unwatch = _cache.principalChanges.listen((_) {
       _queue = [];
+
+      // A gap the previous identity's socket left is not the next identity's
+      // to recover: the clear refetches every watched query anyway.
+      for (final recovery in _pendingRecovery.values) {
+        recovery.timer?.cancel();
+      }
+
+      _pendingRecovery.clear();
       manager.repartition();
       _checkPrincipal();
     });
@@ -440,6 +454,9 @@ final class StreamBinder implements LiveBinding {
 
     if (queued.isEmpty) return;
 
+    // Fail closed: frames off a socket opened for someone else never commit.
+    if (!_samePrincipal) return;
+
     // The generation the frames were decoded under, not the current one: a
     // clear or a principal change since then means the store they were
     // destined for is gone, and applyFrames refuses the batch whole.
@@ -534,6 +551,9 @@ final class StreamBinder implements LiveBinding {
       }
     }
   }
+
+  /// Whether the manager opens sockets for the cache's principal, by value.
+  bool get _samePrincipal => manager.principal == _cache.principal;
 
   /// Report a manager whose principal source disagrees with the cache: its
   /// sockets would be opened, and repartitioned, for the wrong identity.
@@ -674,6 +694,10 @@ final class StreamBinder implements LiveBinding {
 
   void _accept(Object? message, String arrived) {
     if (_disposed) return;
+
+    // Fail closed: a socket opened for another identity carries its data. The
+    // mismatch itself was reported when it arose.
+    if (!_samePrincipal) return;
 
     final DecodedFrame? decoded;
 

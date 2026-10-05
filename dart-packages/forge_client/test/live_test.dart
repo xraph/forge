@@ -53,6 +53,7 @@ _Harness _harness(
   Sleep? sleep,
   Duration resumeGrace = const Duration(seconds: 1),
   String Function(String channel)? endpointOf,
+  String? Function(QueryCache cache)? principalOf,
 }) {
   final transport = FakeTransport(handler);
   final batches = ManualScheduler();
@@ -71,7 +72,9 @@ _Harness _harness(
     random: () => 0,
     backoff: const BackoffPolicy(initial: Duration(seconds: 1), jitter: 0.5),
     release: release,
-    principal: () => cache.principal,
+    principal: principalOf == null
+        ? () => cache.principal
+        : () => principalOf(cache),
     endpointOf: endpointOf,
   );
   final binder = StreamBinder(
@@ -1393,6 +1396,129 @@ void main() {
         expect(h.transport.calls, hasLength(2));
       });
     });
+
+    test(
+      'drops every frame while the manager opens sockets for someone else',
+      () {
+        fakeAsync((async) {
+          // Built without `principal:`, so its sockets are always anonymous.
+          final h = _harness(
+            (_, _) => [
+              {'id': 7, 'total': 99},
+            ],
+            principalOf: (_) => null,
+          );
+
+          h.cache.setPrincipal('bob');
+          _watch(h);
+          h.binder.subscribe(orderList);
+          async.flushMicrotasks();
+
+          _deliver(h, async, {
+            'type': 'order.created',
+            'payload': {'id': 9, 'total': 5, 'owner': 'alice secret'},
+          });
+          h.frames.flush();
+
+          expect(h.binder.pending, 0);
+          expect(h.cache.store.has('Order:9'), isFalse);
+          expect('${_data(h)}', isNot(contains('alice secret')));
+        });
+      },
+    );
+
+    test('drops a queued batch when the manager moved to someone else before it commits', () {
+      fakeAsync((async) {
+        String? opensFor;
+        final h = _harness(
+          (_, _) => [
+            {'id': 7, 'total': 99},
+          ],
+          principalOf: (_) => opensFor,
+        );
+
+        _watch(h);
+        h.binder.subscribe(orderList);
+        async.flushMicrotasks();
+
+        _deliver(h, async, {
+          'type': 'order.created',
+          'payload': {'id': 9, 'total': 5},
+        });
+        expect(h.binder.pending, 1);
+
+        // The manager's source flips without the cache changing hands.
+        opensFor = 'mallory';
+        h.frames.flush();
+
+        expect(h.binder.pending, 0);
+        expect(h.cache.store.has('Order:9'), isFalse);
+      });
+    });
+
+    test('forgets a pending recovery when the principal changes', () {
+      fakeAsync((async) {
+        final h = _harness(
+          (_, _) => [
+            {'id': 7, 'total': 99},
+          ],
+        );
+
+        h.cache.setPrincipal('user-a');
+        _watch(h);
+        h.binder.subscribe(orderList);
+        async.flushMicrotasks();
+
+        _reconnect(h, async);
+        expect(binderSnapshot(h.binder).recovering, ['/ws/orders']);
+
+        h.cache.setPrincipal('user-b');
+
+        // Gone with the identity, timer and all, before anything else runs.
+        expect(binderSnapshot(h.binder).recovering, isEmpty);
+
+        // The repartition reopens the socket for user-b through the reconnect
+        // path, so user-b's own gap is recovered, once, and user-a's never.
+        async.flushMicrotasks();
+        expect(binderSnapshot(h.binder).recovering, ['/ws/orders']);
+
+        final calls = h.transport.calls.length;
+
+        async.elapse(const Duration(seconds: 2));
+        h.batches.flush();
+        async.flushMicrotasks();
+
+        expect(h.transport.calls, hasLength(calls + 1));
+      });
+    });
+
+    test(
+      'writes nothing from a batch that commits after the cache was disposed',
+      () {
+        fakeAsync((async) {
+          final h = _harness(
+            (_, _) => [
+              {'id': 7, 'total': 99},
+            ],
+          );
+
+          _watch(h);
+          h.binder.subscribe(orderList);
+          async.flushMicrotasks();
+
+          _deliver(h, async, {
+            'type': 'order.created',
+            'payload': {'id': 9, 'total': 5},
+          });
+          expect(h.binder.pending, 1);
+
+          unawaited(h.cache.dispose());
+          h.frames.flush();
+
+          expect(h.cache.store.has('Order:9'), isFalse);
+        });
+      },
+    );
 
     // One user's data must never reach the next. clear() raises no principal
     // change, so the queue survives it and only the generation captured when
