@@ -586,6 +586,10 @@ final class SubscriptionManager {
       (message) {
         if (socket.disposed || socket.connection != connection) return;
 
+        // Nothing from a previous principal may reach the next, even when the
+        // caller has not repartitioned yet.
+        if (socket.principal != _principal()) return;
+
         // Any traffic proves the endpoint healthy, so the next drop starts
         // its backoff from the first rung.
         socket.attempt = 0;

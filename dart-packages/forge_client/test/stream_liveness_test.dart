@@ -268,12 +268,39 @@ void main() {
       });
     });
 
-    test('registers nothing when revive is off', () {
-      final target = FakeConnectivity();
+    test(
+      'registers nothing when revive is off',
+      () {},
+      skip:
+          'Dart has no global revive target; revive is opt-in, so there is '
+          'nothing to leave unregistered',
+    );
 
-      _build();
+    test(
+      'does not reopen an abandoned socket without retry when revive is off',
+      () {
+        fakeAsync((async) {
+          final kit = _build(attempts: 1);
 
-      expect(target.hooked, isFalse);
-    });
+          kit.subscriptions.subscribe('/ws/orders', (_, _) {});
+          async.flushMicrotasks();
+
+          kit.sockets.last().drop();
+          async.elapse(const Duration(seconds: 10));
+          kit.sockets.last().drop();
+          async.elapse(const Duration(minutes: 5));
+
+          final abandoned = kit.sockets.opened.length;
+
+          // Nothing is listening for the network, so nothing reopens it.
+          async.elapse(const Duration(minutes: 5));
+          expect(kit.sockets.opened, hasLength(abandoned));
+
+          kit.subscriptions.retry();
+          async.elapse(const Duration(seconds: 10));
+          expect(kit.sockets.opened.length, greaterThan(abandoned));
+        });
+      },
+    );
   });
 }

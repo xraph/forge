@@ -515,6 +515,68 @@ void main() {
         expect(kit.reconnects, isEmpty);
       });
     });
+
+    test('closes the replacement socket when a subscriber from before a repartition releases', () {
+      fakeAsync((async) {
+        var principal = 'user-a';
+        final kit = _build(principal: () => principal, autoOpen: false);
+
+        final stop = kit.subscriptions.subscribe('/ws/orders', (_, _) {});
+        kit.sockets.last().open();
+        async.flushMicrotasks();
+
+        principal = 'user-b';
+        kit.subscriptions.repartition();
+
+        final replacement = kit.sockets.last();
+        replacement.open();
+        async.flushMicrotasks();
+
+        // The release was handed out for the socket repartition disposed. It
+        // has to land on the replacement, or the replacement keeps a ref
+        // nobody holds.
+        stop();
+        kit.release.flush();
+        async.flushMicrotasks();
+
+        expect(replacement.isClosed, isTrue);
+        expect(kit.subscriptions.size, 0);
+      });
+    });
+
+    test('drops a frame from a socket opened for a previous principal', () {
+      fakeAsync((async) {
+        // Defence in depth: the rule is that nothing from the previous
+        // principal reaches the next, even when the caller repartitions late.
+        var principal = 'user-a';
+        final kit = _build(principal: () => principal);
+        final seen = <Object?>[];
+
+        kit.subscriptions.subscribe(
+          '/ws/orders',
+          (message, _) => seen.add(message),
+        );
+        async.flushMicrotasks();
+
+        final before = kit.sockets.last();
+
+        // The identity moved and nobody has repartitioned yet.
+        principal = 'user-b';
+        before.deliver({'type': 'order.created', 'payload': 'a'});
+        async.flushMicrotasks();
+        expect(seen, isEmpty);
+
+        kit.subscriptions.repartition();
+        async.flushMicrotasks();
+
+        expect(kit.sockets.opened, hasLength(2));
+        kit.sockets.last().deliver({'type': 'order.created', 'payload': 'b'});
+        async.flushMicrotasks();
+        expect(seen, [
+          {'type': 'order.created', 'payload': 'b'},
+        ]);
+      });
+    });
   });
 
   group('failures', () {
@@ -602,29 +664,6 @@ void main() {
 
         expect(kit.sockets.last().isClosed, isTrue);
         expect(kit.subscriptions.size, 0);
-      });
-    });
-
-    test('releases a subscription carried across a repartition', () {
-      fakeAsync((async) {
-        // TS releases against the socket the subscription was made on, so
-        // after a repartition it decrements the disposed socket and the
-        // replacement keeps a ref forever.
-        var principal = 'user-a';
-        final kit = _build(principal: () => principal);
-
-        final stop = kit.subscriptions.subscribe('/ws/orders', (_, _) {});
-        async.flushMicrotasks();
-
-        principal = 'user-b';
-        kit.subscriptions.repartition();
-        async.flushMicrotasks();
-
-        stop();
-        kit.release.flush();
-
-        expect(kit.subscriptions.size, 0);
-        expect(kit.sockets.last().isClosed, isTrue);
       });
     });
 
