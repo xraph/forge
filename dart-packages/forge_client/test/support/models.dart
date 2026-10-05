@@ -23,7 +23,7 @@ final class Order {
     );
   }
 
-  Json toClient() => {'id': id, 'total': total, 'status': status};
+  Json toClient() => {'id': id, 'total': total, 'status': ?status};
 
   Order copyWith({int? total, String? status}) =>
       Order(id: id, total: total ?? this.total, status: status ?? this.status);
@@ -39,9 +39,11 @@ final class Order {
   int get hashCode => Object.hash(id, total, status);
 }
 
-/// A list decoder. Task 11 routes each element through `decodeCached`.
+/// A list decoder written the way plan 02 generates one: per element through
+/// [decodeCached], so an untouched row keeps its model.
 List<Order> ordersFromClient(Object? client) => [
-  for (final row in client! as List<Object?>) Order.fromClient(row),
+  for (final row in client! as List<Object?>)
+    decodeCached(Order.fromClient, row),
 ];
 
 final class ListOrdersArgs implements OperationArgs {

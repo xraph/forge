@@ -6,6 +6,40 @@ import 'overlay.dart';
 import 'state.dart';
 import 'tags.dart';
 
+/// Typed models decoded from client-shaped values, per value and per
+/// `fromClient`. The store hands back an identical value when nothing changed,
+/// so a memo keyed on that value hands back an identical model.
+final Expando<Map<Function, Object?>> _models = Expando<Map<Function, Object?>>(
+  'forge.models',
+);
+
+/// Typed states built from the cache's states, per state object and per
+/// `fromClient`. The cache reuses a state object while nothing in it moved.
+final Expando<Map<Function, QueryState<Object?>>> _states =
+    Expando<Map<Function, QueryState<Object?>>>('forge.states');
+
+/// Whether [value] can key an [Expando]: strings, numbers, booleans, records
+/// and null cannot.
+bool _expandable(Object? value) => value is Map || value is List;
+
+/// Decodes [value] with [fromClient], memoized on the value.
+///
+/// The same memo the identity rule uses. A generated decoder for a list of
+/// entities calls this per element, so a row the store kept decodes to an
+/// identical model even when the list around it changed.
+T decodeCached<T>(FromClient<T> fromClient, Object? value) {
+  if (!_expandable(value)) return fromClient(value);
+
+  final memo = _models[value!] ??= <Function, Object?>{};
+
+  if (memo.containsKey(fromClient)) return memo[fromClient] as T;
+
+  final model = fromClient(value);
+  memo[fromClient] = model;
+
+  return model;
+}
+
 /// One read operation, bound to its model codec. What a generated
 /// `bindings/*.dart` file declares: `final getOrder = query<Order,
 /// GetOrderArgs>(opGetOrder, Order.fromClient);`.
@@ -25,6 +59,11 @@ final class QueryBinding<T, A extends OperationArgs> {
 
 /// One query: a binding plus its arguments. Runtime-agnostic: the Flutter
 /// adapter, the Riverpod adapter and plain Dart all consume the same object.
+///
+/// **Identity rule.** [watch] and [getState] decode the cache's value with
+/// `fromClient` and memoize the model on that value, so an unchanged read
+/// yields an `identical` model and an unchanged state yields an `identical`
+/// typed state. Every adapter relies on this to skip rebuilds.
 final class QueryRef<T, A extends OperationArgs> {
   QueryRef._(this.binding, this.args) : context = args.toTagContext();
 
@@ -41,11 +80,21 @@ final class QueryRef<T, A extends OperationArgs> {
   String get key => queryKey(binding.meta, context);
 
   /// Watches the query as typed states.
+  ///
+  /// [enabled] false yields a single [QueryIdle] and neither fetches nor
+  /// ref-counts the query: the gate for dependent queries.
   Stream<QueryState<T>> watch(
     QueryCache client, {
     bool live = false,
     Duration? staleTime,
+    bool enabled = true,
   }) {
+    if (!enabled) {
+      return Stream<QueryState<T>>.multi(
+        (controller) => controller.add(QueryIdle<T>()),
+      );
+    }
+
     return client
         .watch(binding.meta, context, live: live, staleTime: staleTime)
         .map(_typed);
@@ -64,9 +113,14 @@ final class QueryRef<T, A extends OperationArgs> {
   Future<T> refetch(QueryCache client) async =>
       _model(await client.refetch(binding.meta, context));
 
-  T _model(Object? value) => binding.fromClient(value);
+  T _model(Object? value) => decodeCached(binding.fromClient, value);
 
   QueryState<T> _typed(QueryState<Object?> raw) {
+    final memo = _states[raw] ??= <Function, QueryState<Object?>>{};
+    final cached = memo[binding.fromClient];
+
+    if (cached != null) return cached as QueryState<T>;
+
     QueryState<T> typed;
 
     try {
@@ -105,6 +159,8 @@ final class QueryRef<T, A extends OperationArgs> {
         syncStatus: raw.syncStatus,
       );
     }
+
+    memo[binding.fromClient] = typed;
 
     return typed;
   }
