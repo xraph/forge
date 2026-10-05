@@ -29,6 +29,16 @@ import 'scope.dart';
 ///
 /// A call that finishes after the widget left the tree still runs to its end
 /// and still resolves for its caller, but records nothing and builds nothing.
+///
+/// A mutation's state belongs to the client and principal it ran for. On a
+/// [QueryCache.setPrincipal] or when the client the builder resolves changes
+/// (a new [ForgeScope] client or [client]), the state goes back to idle, and
+/// a call still in flight is not recorded when it lands: nothing of the
+/// previous principal's or client's result or error stays readable. The
+/// caller of `mutate` or `mutateAsync` still gets its own result. The same
+/// holds for a per-call `client:` whose principal changes while the call is
+/// in flight.
+///
 /// A state change that happens while the tree is being built, such as a
 /// `mutate` called from a `build` method, is applied after that frame rather
 /// than during it.
@@ -155,10 +165,69 @@ final class _ForgeMutationBuilderState<R, A extends OperationArgs, E>
   // Whether a post-frame rebuild is already scheduled.
   bool _rebuildScheduled = false;
 
+  // The client the builder resolves, and the removal of its principal
+  // listener. Null while no client is configured.
+  QueryCache? _client;
+  void Function()? _unwatch;
+
+  // Whether _follow has resolved a client once, so a later change is one.
+  bool _following = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scoped = ForgeScope.maybeOf(context);
+    _follow();
+  }
+
+  @override
+  void didUpdateWidget(ForgeMutationBuilder<R, A, E> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _follow();
+  }
+
+  /// The client a call without a per-call `client:` writes to, or null when
+  /// none is configured (the call then records getClient's error).
+  QueryCache? _resolve() {
+    final own = widget.client ?? _scoped;
+    if (own != null) return own;
+    try {
+      return getClient();
+    } on StateError {
+      return null;
+    }
+  }
+
+  /// Watches the resolved client's principal, and goes back to idle when the
+  /// resolved client changes. A build always follows the two lifecycle calls
+  /// that run this, so the state is set without asking for one.
+  void _follow() {
+    final next = _resolve();
+    if (_following && identical(next, _client)) return;
+    _unwatch?.call();
+    _client = next;
+    _unwatch = next?.watchPrincipalChanging((_) => _identityChanged());
+    if (_following) {
+      _seq++;
+      _state = MutationIdle<R>();
+    }
+    _following = true;
+  }
+
+  /// The resolved client's principal changed: supersede any call in flight
+  /// and forget the previous principal's state. Runs synchronously inside
+  /// setPrincipal, before the cache is cleared.
+  void _identityChanged() {
+    _seq++;
+    if (!mounted || _state is MutationIdle<R>) return;
+    _apply(MutationIdle<R>());
+  }
+
+  @override
+  void dispose() {
+    _unwatch?.call();
+    _unwatch = null;
+    super.dispose();
   }
 
   Future<R> _run(
@@ -170,11 +239,18 @@ final class _ForgeMutationBuilderState<R, A extends OperationArgs, E>
   }) async {
     final call = ++_seq;
     _record(call, MutationPending<R>());
+    // What the call ran for. A result is recorded only while both still hold.
+    final resolved = _resolve();
+    QueryCache? target;
+    String? principal;
+    bool current() =>
+        identical(_resolve(), resolved) && (target == null || target.principal == principal);
     try {
       // Everything that can throw is inside the try, so a missing client or a
       // throwing `optimistic` callback is recorded as the call's failure
       // rather than escaping `mutate`, which promises not to throw.
-      final target = client ?? widget.client ?? _scoped ?? getClient();
+      target = client ?? resolved ?? getClient();
+      principal = target.principal;
       final data = await widget.mutation(
         target,
         args,
@@ -182,14 +258,17 @@ final class _ForgeMutationBuilderState<R, A extends OperationArgs, E>
         place: place ?? widget.place,
         options: options,
       );
-      _record(call, MutationSuccess<R>(data));
+      _record(call, current() ? MutationSuccess<R>(data) : MutationIdle<R>());
       return data;
     } on Object catch (error) {
-      _record(call, MutationFailure<R>(error));
+      _record(call, current() ? MutationFailure<R>(error) : MutationIdle<R>());
       rethrow;
     }
   }
 
+  /// Records [next] for [call] unless a later call, a reset or an identity
+  /// change superseded it. A call whose client or principal changed while it
+  /// was in flight records idle instead of its result.
   void _record(int call, MutationState<R> next) {
     if (!mounted || call != _seq) return;
     _apply(next);

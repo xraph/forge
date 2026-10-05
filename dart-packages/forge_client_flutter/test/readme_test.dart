@@ -67,6 +67,16 @@ void main() {
     expect(readme, isNot(contains(String.fromCharCode(0x2014))));
   });
 
+  test('the README pins a ref on every git dependency', () {
+    // Pub pins this package's own path dependency to the commit it resolved,
+    // so a git entry without the matching ref fails to resolve.
+    final entries = RegExp(r'git:\n((?: {6}.*\n)+)').allMatches(readme).toList();
+    expect(entries, hasLength(2));
+    for (final entry in entries) {
+      expect(entry.group(1), contains('ref: <commit sha>'));
+    }
+  });
+
   test('the README depends on the packages by path or git, never a version', () {
     // A 1.0.0-dev, publish_to: none package cannot resolve a caret range.
     expect(readme, isNot(contains('^1.0.0')));

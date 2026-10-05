@@ -24,11 +24,15 @@ dependencies:
     git:
       url: https://github.com/xraph/forge
       path: dart-packages/forge_client
+      ref: <commit sha>
   forge_client_flutter:
     git:
       url: https://github.com/xraph/forge
       path: dart-packages/forge_client_flutter
+      ref: <commit sha>
 ```
+
+Put the same full commit sha in both `ref:` lines. Pub turns this package's own `path: ../forge_client` into a git dependency pinned to the commit it resolved, so your direct `forge_client` entry has to name that exact commit too, and a branch name or a missing `ref` fails to resolve.
 
 You'll need Flutter 3.47 or later and the package your own API generated with `forge client generate --language dart --hooks`. The examples below call it `orders_forge_client`. Its names (`entities`, `operations`, `streams`, `getOrder`, `listOrders`, `updateOrder` and the `...Args` classes) are the ones the examples use.
 
@@ -131,6 +135,8 @@ Widget saveButton(String id, String note) => ForgeMutationBuilder(
 An optional field of a PATCH body is a `Value`. It defaults to `const Unchanged()`, which leaves the field out of the request, and `Assign(x)` sets it (`Assign(null)` clears it on the server). A model's `copyWith` takes the same `Value<T>?` for each nullable field, which is why `args.note` goes straight into it above and `order.copyWith(note: Assign('gift'))` works anywhere else. An operation with no parameters takes `NoArgs`.
 
 `m.mutate` never throws. A failure is recorded in `m.state` and the future resolves with null, so the spelling an `onPressed` uses can't raise an unhandled error. `m.mutateAsync` records the same state and rethrows, for code that must not continue after a failed write. Two overlapping calls settle in favour of the later one.
+
+The status belongs to the client and principal the call ran for. A `setPrincipal` or a new client for the builder (a different `ForgeScope` client or `client:` argument) puts it back to idle, and a call that was in flight across the change isn't recorded when it lands. The write itself still happens, and the caller of `mutate` still gets its result.
 
 ## Invalidation
 

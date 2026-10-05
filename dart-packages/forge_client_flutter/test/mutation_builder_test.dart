@@ -778,4 +778,206 @@ void main() {
       expect(find.text('idle'), findsOneWidget);
     });
   });
+
+  // Ported from forge_client_riverpod's "mutationProvider identity changes".
+  // A mutation's status belongs to the client and principal it ran for.
+  // After setPrincipal or a scope client swap, nothing of the previous one's
+  // result, error or data can be read.
+  group('ForgeMutationBuilder identity changes', () {
+    late CreateHandle handle;
+    late List<String> built;
+
+    Widget tree(Harness h) => scope(
+      h,
+      ForgeMutationBuilder(
+        mutation: createOrder,
+        builder: (context, m) {
+          handle = m;
+          built.add(mutationStatus(m.state));
+          return Text(mutationStatus(m.state));
+        },
+      ),
+    );
+
+    setUp(() => built = []);
+
+    /// What the builder built since the last [built] clear, other than idle.
+    Iterable<String> notIdle() => built.where((status) => status != 'idle');
+
+    testWidgets('resets a completed result on setPrincipal', (tester) async {
+      final h = harness((_, _) => order(9, 5));
+      h.cache.setPrincipal('alice');
+      await tester.pumpWidget(tree(h));
+
+      await handle.mutate(const CreateOrderArgs(5));
+      await settle(tester);
+      expect(handle.dataOrNull, const Order(id: 9, total: 5));
+      built.clear();
+
+      h.cache.setPrincipal('bob');
+      await settle(tester);
+
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(handle.dataOrNull, isNull);
+      expect(find.text('idle'), findsOneWidget);
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('resets a completed result on a scope client swap, and writes to the new client', (tester) async {
+      final a = harness((_, _) => order(9, 5));
+      final b = harness((_, _) => order(9, 6));
+      await tester.pumpWidget(tree(a));
+
+      await handle.mutate(const CreateOrderArgs(5));
+      await settle(tester);
+      expect(handle.dataOrNull, const Order(id: 9, total: 5));
+      built.clear();
+
+      await tester.pumpWidget(tree(b));
+      await settle(tester);
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(notIdle(), isEmpty);
+
+      expect(await handle.mutate(const CreateOrderArgs(6)), const Order(id: 9, total: 6));
+      await settle(tester);
+      expect(handle.dataOrNull, const Order(id: 9, total: 6));
+      expect(a.transport.calls, hasLength(1));
+      expect(b.transport.calls, hasLength(1));
+    });
+
+    testWidgets('resets a recorded failure on a scope client swap', (tester) async {
+      final a = harness((_, _) => throw const Boom('a failed'));
+      final b = harness((_, _) => order(9, 5));
+      await tester.pumpWidget(tree(a));
+
+      await handle.mutate(const CreateOrderArgs(5));
+      await settle(tester);
+      expect(handle.errorOrNull, isA<Boom>());
+      built.clear();
+
+      await tester.pumpWidget(tree(b));
+      await settle(tester);
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(handle.errorOrNull, isNull);
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('drops a call in flight across setPrincipal', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => gate.future);
+      h.cache.setPrincipal('alice');
+      await tester.pumpWidget(tree(h));
+
+      final settled = handle.mutate(const CreateOrderArgs(5));
+      await tester.pump();
+      expect(handle.isPending, isTrue);
+      built.clear();
+
+      h.cache.setPrincipal('bob');
+      gate.complete(order(9, 5));
+      // The caller still gets its own result.
+      expect(await settled, const Order(id: 9, total: 5));
+      await settle(tester);
+
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('drops a failure in flight across setPrincipal', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => gate.future);
+      h.cache.setPrincipal('alice');
+      await tester.pumpWidget(tree(h));
+
+      final settled = handle.mutateAsync(const CreateOrderArgs(5));
+      await tester.pump();
+      expect(handle.isPending, isTrue);
+      built.clear();
+
+      h.cache.setPrincipal('bob');
+      gate.completeError(const Boom('alice conflict'));
+      // The caller still hears of its own failure.
+      await expectLater(settled, throwsA(isA<Boom>()));
+      await settle(tester);
+
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('records a call made straight after setPrincipal for the new principal', (tester) async {
+      final h = harness((_, _) => order(9, 5));
+      h.cache.setPrincipal('alice');
+      await tester.pumpWidget(tree(h));
+      // Held from before the change, as a callback captures it.
+      final held = handle;
+
+      // Before any frame for the new principal.
+      h.cache.setPrincipal('bob');
+      expect(await held.mutate(const CreateOrderArgs(5)), const Order(id: 9, total: 5));
+      await settle(tester);
+
+      expect(handle.dataOrNull, const Order(id: 9, total: 5));
+      expect(find.text('success'), findsOneWidget);
+    });
+
+    testWidgets('drops a call in flight across a scope client swap', (tester) async {
+      final gate = Completer<Object?>();
+      final a = harness((_, _) => gate.future);
+      final b = harness((_, _) => order(1, 1));
+      await tester.pumpWidget(tree(a));
+
+      final settled = handle.mutate(const CreateOrderArgs(5));
+      await tester.pump();
+      expect(handle.isPending, isTrue);
+      built.clear();
+
+      await tester.pumpWidget(tree(b));
+      gate.complete(order(9, 5));
+      expect(await settled, const Order(id: 9, total: 5));
+      await settle(tester);
+
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('drops a failure in flight across a scope client swap', (tester) async {
+      final gate = Completer<Object?>();
+      final a = harness((_, _) => gate.future);
+      final b = harness((_, _) => order(1, 1));
+      await tester.pumpWidget(tree(a));
+
+      final settled = handle.mutate(const CreateOrderArgs(5));
+      await tester.pump();
+      expect(handle.isPending, isTrue);
+      built.clear();
+
+      await tester.pumpWidget(tree(b));
+      gate.completeError(const Boom('a conflict'));
+      expect(await settled, isNull);
+      await settle(tester);
+
+      expect(handle.state, isA<MutationIdle<Order>>());
+      expect(notIdle(), isEmpty);
+    });
+
+    testWidgets('drops a result whose per-call client changed principal while it was in flight', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => order(1, 1));
+      final perCall = harness((_, _) => gate.future);
+      perCall.cache.setPrincipal('alice');
+      await tester.pumpWidget(tree(h));
+
+      final settled = handle.mutate(const CreateOrderArgs(5), client: perCall.cache);
+      await tester.pump();
+      expect(handle.isPending, isTrue);
+
+      perCall.cache.setPrincipal('bob');
+      gate.complete(order(9, 5));
+      expect(await settled, const Order(id: 9, total: 5));
+      await settle(tester);
+
+      // Neither bob's nor still pending: the call no longer belongs here.
+      expect(handle.state, isA<MutationIdle<Order>>());
+    });
+  });
 }
