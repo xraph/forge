@@ -262,6 +262,8 @@ void main() {
         h,
         StatefulBuilder(builder: (context, setState) {
           setOuter = setState;
+          // Read here, so each build's closure carries its own value.
+          final built = reversed;
           return Column(children: [
             ForgeQueryBuilder(
               query: listOrders(const ListOrdersArgs()),
@@ -274,7 +276,7 @@ void main() {
               place: {
                 'Order[]': (created, current, args) {
                   final rows = (current as List<Object?>?) ?? const <Object?>[];
-                  return reversed ? [...rows, created] : [created, ...rows];
+                  return built ? [...rows, created] : [created, ...rows];
                 },
               },
               builder: (context, m) {
@@ -404,8 +406,10 @@ void main() {
       // The write still happened and still resolves for its caller.
       expect(await settled, const Order(id: 9, total: 5));
       await settle(tester);
+      expect(h.transport.calls, hasLength(1));
       expect(tester.takeException(), isNull);
     });
+
     // The two builders below share one binding, as two buttons for one write
     // do. React's useMutation is local to its component the same way.
     testWidgets('keeps the status of two builders on one binding independent', (tester) async {
@@ -631,6 +635,114 @@ void main() {
       await settle(tester);
 
       expect(find.text('success'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Two changes in one build, with the rebuild held to the end of the frame.
+    // Setting state twice before a frame is one rebuild either way, so this
+    // pins the count of rebuilds, not the number of post-frame callbacks.
+    testWidgets('rebuilds once for two state changes made during one build', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => gate.future);
+      late CreateHandle handle;
+      late StateSetter setOuter;
+      var fire = false;
+      var fired = false;
+      var builds = 0;
+
+      await tester.pumpWidget(scope(
+        h,
+        StatefulBuilder(builder: (context, setState) {
+          setOuter = setState;
+          return Column(children: [
+            Builder(builder: (context) {
+              if (fire && !fired) {
+                fired = true;
+                unawaited(handle.mutate(const CreateOrderArgs(1)));
+                unawaited(handle.mutate(const CreateOrderArgs(2)));
+              }
+              return const SizedBox();
+            }),
+            ForgeMutationBuilder(
+              mutation: createOrder,
+              builder: (context, m) {
+                builds++;
+                handle = m;
+                return Text(mutationStatus(m.state));
+              },
+            ),
+          ]);
+        }),
+      ));
+      expect(builds, 1);
+
+      setOuter(() => fire = true);
+      await tester.pump();
+      // The outer rebuild reaches this builder once.
+      expect(builds, 2);
+      expect(tester.takeException(), isNull);
+
+      await tester.pump();
+      // Held to the end of that frame, then applied once for both changes.
+      expect(builds, 3);
+      expect(find.text('pending'), findsOneWidget);
+
+      await tester.pump();
+      expect(builds, 3);
+
+      gate.complete(order(9, 5));
+      await settle(tester);
+    });
+
+    // The rebuild held for the end of a frame is dropped when the widget is
+    // gone by then: unmounting happens at the end of the same frame, before
+    // its post-frame callbacks run.
+    testWidgets('drops a held rebuild when the widget leaves the tree in the same frame', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((_, _) => gate.future);
+      late CreateHandle handle;
+      late StateSetter setOuter;
+      var show = true;
+      var fired = false;
+
+      await tester.pumpWidget(scope(
+        h,
+        StatefulBuilder(builder: (context, setState) {
+          setOuter = setState;
+          return Column(children: [
+            Builder(builder: (context) {
+              if (!show && !fired) {
+                fired = true;
+                // Two changes while the mutation builder is still mounted,
+                // in the build that removes it.
+                unawaited(handle.mutate(const CreateOrderArgs(1)));
+                unawaited(handle.mutate(const CreateOrderArgs(2)));
+              }
+              return const SizedBox();
+            }),
+            if (show)
+              ForgeMutationBuilder(
+                mutation: createOrder,
+                builder: (context, m) {
+                  handle = m;
+                  return Text(mutationStatus(m.state));
+                },
+              ),
+          ]);
+        }),
+      ));
+
+      setOuter(() => show = false);
+      await tester.pump();
+      await tester.pump();
+
+      expect(fired, isTrue);
+      expect(find.text('idle'), findsNothing);
+      expect(find.text('pending'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      gate.complete(order(9, 5));
+      await settle(tester);
       expect(tester.takeException(), isNull);
     });
 

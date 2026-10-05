@@ -54,6 +54,12 @@ final class ForgeMutationBuilder<R, A extends OperationArgs, E> extends Stateful
 
   /// The optimistic patch for a call, from its args. Read at call time from
   /// the latest widget. A per-call `optimistic:` wins.
+  ///
+  /// A callback that throws fails the mutation without sending it: the error
+  /// is recorded in the state, and `mutate` still does not throw. That differs
+  /// from the core's fallback for a failing codec conversion, which sends the
+  /// write without optimism, because this callback is caller code and its
+  /// failure is a bug the caller should see.
   final Optimistic<E>? Function(A args)? optimistic;
 
   /// Placement callbacks by tag, applied instead of refetching those queries.
