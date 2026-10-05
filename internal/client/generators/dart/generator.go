@@ -3,6 +3,7 @@ package dart
 import (
 	"context"
 	"errors"
+	"maps"
 	"sort"
 
 	"github.com/xraph/forge/internal/client"
@@ -59,6 +60,7 @@ type emission struct {
 	hooks  bool
 	table  *codecTable
 	reg    *registry
+	naming codecNaming
 	out    *generators.GeneratedClient
 }
 
@@ -70,6 +72,7 @@ func (e *emission) own(dir string) { e.out.ExclusiveDirs = append(e.out.Exclusiv
 var emitters = []func(*emission) error{
 	emitSupport,
 	emitModels,
+	emitCodecs,
 }
 
 // Generate produces the package.
@@ -149,6 +152,17 @@ func emitModels(e *emission) error {
 	if len(e.reg.models) > 0 {
 		e.own("lib/src/models")
 	}
+
+	return nil
+}
+
+// emitCodecs writes the codec runtime and one codec file per component.
+func emitCodecs(e *emission) error {
+	e.naming = newCodecNaming(e.table, e.reg)
+
+	maps.Copy(e.out.Files, renderCodecFiles(e.table, e.naming))
+
+	e.own("lib/src/codecs")
 
 	return nil
 }
