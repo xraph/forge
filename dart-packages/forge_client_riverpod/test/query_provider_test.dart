@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/testing.dart';
@@ -150,17 +151,23 @@ void main() {
       expect(listOrdersProvider.state(argsWithStatus('open')), listOrdersProvider.state(argsWithStatus('open')));
     });
 
-    test('shares one notifier between args objects with the same query key', () async {
+    test('shares one provider element between args objects with the same query key', () async {
       final h = harness((_, _) => [order(1, 99)]);
       final container = containerFor(h);
 
       container.listen(listOrdersProvider(argsWithStatus('open')), (_, _) {});
+      container.listen(listOrdersProvider.state(argsWithStatus('open')), (_, _) {});
       await settle();
 
-      // One provider element, so one notifier, found through a second object.
+      // One element each, found through a second object: the very same value.
+      // Two elements would each wrap the data in their own AsyncData.
       expect(
-        container.read(listOrdersProvider(argsWithStatus('open')).notifier),
-        same(container.read(listOrdersProvider(argsWithStatus('open')).notifier)),
+        container.read(listOrdersProvider(argsWithStatus('open'))),
+        same(container.read(listOrdersProvider(argsWithStatus('open')))),
+      );
+      expect(
+        container.read(listOrdersProvider.state(argsWithStatus('open')).notifier),
+        same(container.read(listOrdersProvider.state(argsWithStatus('open')).notifier)),
       );
       expect(
         listOrdersProvider(argsWithStatus('open')).hashCode,
@@ -292,6 +299,95 @@ void main() {
     });
   });
 
+  // Ruling R16. Riverpod carries an AsyncNotifier's previous value into every
+  // later state, so the value provider must start a new element, not write a
+  // new state, when the data starts belonging to someone else.
+  group('queryProvider identity changes', () {
+    test('never shows the previous principal\'s data, even when the next fetch fails', () async {
+      final h = harness((_, call) {
+        if (call > 0) throw const Boom('bob failed');
+        return [order(1, 10)];
+      });
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final provider = listOrdersProvider(const ListOrdersArgs());
+      final values = <AsyncValue<List<Order>>>[];
+      final totals = <int?>[];
+
+      container.listen(provider, (_, next) => values.add(next));
+      container.listen(provider.select((value) => value.value?.single.total), (_, next) => totals.add(next));
+      await settle();
+      expect(container.read(provider).value?.single.total, 10);
+      values.clear();
+      totals.clear();
+
+      h.cache.setPrincipal('bob');
+      expect(container.read(provider).hasValue, isFalse);
+      expect(container.read(provider.select((value) => value.value?.single.total)), isNull);
+
+      await settle();
+      final now = container.read(provider);
+      expect(now.hasError, isTrue);
+      expect('${now.error}', 'bob failed');
+      expect(now.hasValue, isFalse);
+      // No AsyncLoading or AsyncError on the way carried alice's list.
+      expect(values, isNotEmpty);
+      expect(values.where((value) => value.hasValue), isEmpty);
+      expect(totals.whereType<int>(), isEmpty);
+      expect(container.read(listOrdersProvider.state(const ListOrdersArgs())).dataOrNull, isNull);
+    });
+
+    test('never shows the previous client\'s data after a client swap, and moves the mount', () async {
+      final a = harness((_, _) => [order(1, 10)]);
+      final b = harness((_, _) => throw const Boom('b failed'));
+      final focus = FakeFocusSignal();
+      final connectivity = FakeConnectivitySignal();
+      List<Override> overrides(QueryCache cache) => [
+        forgeClientProvider.overrideWithValue(cache),
+        forgeFocusSignalProvider.overrideWithValue(focus),
+        forgeConnectivitySignalProvider.overrideWithValue(connectivity),
+      ];
+      final container = ProviderContainer(overrides: overrides(a.cache), retry: (_, _) => null);
+      addTearDown(container.dispose);
+      final query = listOrders(const ListOrdersArgs());
+      final provider = listOrdersProvider(const ListOrdersArgs());
+      final stateProvider = listOrdersProvider.state(const ListOrdersArgs());
+      final values = <AsyncValue<List<Order>>>[];
+      final totals = <int?>[];
+      final states = <QueryState<List<Order>>>[];
+
+      container.listen(provider, (_, next) => values.add(next));
+      container.listen(provider.select((value) => value.value?.single.total), (_, next) => totals.add(next));
+      container.listen(stateProvider, (_, next) => states.add(next));
+      await settle();
+      expect(container.read(provider).value?.single.total, 10);
+      expect(container.read(stateProvider).dataOrNull?.single.total, 10);
+      expect(a.cache.registry.get(query.key)?.mounts, 1);
+      values.clear();
+      totals.clear();
+      states.clear();
+
+      container.updateOverrides(overrides(b.cache));
+      expect(container.read(provider).hasValue, isFalse);
+      expect(container.read(stateProvider).dataOrNull, isNull);
+
+      await settle();
+      final now = container.read(provider);
+      expect(now.hasError, isTrue);
+      expect('${now.error}', 'b failed');
+      expect(now.hasValue, isFalse);
+      expect(values, isNotEmpty);
+      expect(values.where((value) => value.hasValue), isEmpty);
+      expect(totals.whereType<int>(), isEmpty);
+      expect(states, isNotEmpty);
+      expect(states.where((state) => state.dataOrNull != null), isEmpty);
+
+      // Both providers moved their mounts to the new cache.
+      expect(a.cache.registry.get(query.key)?.mounts ?? 0, 0);
+      expect(b.cache.registry.get(query.key)?.mounts, 1);
+    });
+  });
+
   // Ruling R7. The cache notifies its listeners synchronously, so a provider
   // initialized during another provider's build, or during a widget build,
   // onto a stale query already watched elsewhere starts a fetch whose
@@ -314,6 +410,32 @@ void main() {
 
       await settle();
       expect(container.read(list).dataOrNull?.single.total, 11);
+    });
+
+    test('counts no build after a build that throws', () async {
+      // No client configured and none overridden, so the state notifier's
+      // build throws getClient's StateError from inside the counted section.
+      setClient(null);
+      final broken = ProviderContainer(
+        overrides: [
+          forgeFocusSignalProvider.overrideWithValue(FakeFocusSignal()),
+          forgeConnectivitySignalProvider.overrideWithValue(FakeConnectivitySignal()),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(broken.dispose);
+      expect(() => broken.read(listOrdersProvider.state(const ListOrdersArgs())), throwsA(anything));
+
+      // Were that build still counted, this update would be held.
+      final h = harness((_, call) => [order(1, 10 + call)]);
+      final container = containerFor(h);
+      final list = listOrdersProvider.state(const ListOrdersArgs());
+      container.listen(list, (_, _) {});
+      await settle();
+
+      h.cache.invalidate(['Order[]']);
+      h.scheduler.flush();
+      expect(container.read(list).isFetching, isTrue);
     });
 
     test('initializes a provider inside another provider\'s build onto a stale, watched query', () async {

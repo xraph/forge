@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show BindingBase, kDebugMode;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
@@ -17,9 +18,29 @@ Duration? _noRetry(int retryCount, Object error) => null;
 /// ```dart
 /// final getOrderProvider = queryProvider(getOrder);
 ///
-/// final order = ref.watch(getOrderProvider(GetOrderArgs(id: '7'))); // AsyncValue<Order>
-/// final state = ref.watch(getOrderProvider.state(GetOrderArgs(id: '7'))); // QueryState<Order>
+/// // An AsyncValue<Order>.
+/// final order = ref.watch(getOrderProvider(GetOrderArgs(id: '7')));
+///
+/// // The full QueryState<Order>, isFetching and syncStatus included.
+/// final label = switch (ref.watch(getOrderProvider.state(GetOrderArgs(id: '7')))) {
+///   QueryIdle() => 'Not requested',
+///   QueryLoading() => 'Loading',
+///   QuerySuccess(:final data) => 'Order ${data.id}',
+///   QueryFailure(:final error) => 'Failed: $error',
+/// };
 /// ```
+///
+/// The value provider's data always belongs to the current client and
+/// principal. A `setPrincipal` or a new `forgeClientProvider` starts it over
+/// from loading, without the previous value, so `.value` never shows
+/// another user's data.
+///
+/// The cache notifies synchronously, so a provider's `build` must not start
+/// cache work: no `mutate`, `refetch`, `invalidate` or `setPrincipal`, and no
+/// listening to a raw `QueryRef.watch` or `cache.watch` stream (a
+/// `StreamProvider` over one included). Watch a query through
+/// `queryProvider` instead; its providers hold back updates that arrive in
+/// the middle of a build, and those calls would not.
 ForgeQueryFamily<T, A> queryProvider<T, A extends OperationArgs>(
   QueryBinding<T, A> binding, {
   String? name,
@@ -65,6 +86,47 @@ final class ForgeQueryParams<T, A extends OperationArgs> {
   int get hashCode => Object.hash(query.key, enabled, live, staleTime);
 }
 
+/// The key of one value notifier: the query and its options, and whose data
+/// it holds. A new client or principal is a new key, so a new notifier with
+/// no previous value.
+final class _ValueKey<T, A extends OperationArgs> {
+  const _ValueKey(this.params, this.client, this.principal);
+
+  final ForgeQueryParams<T, A> params;
+  final QueryCache client;
+  final String? principal;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ValueKey<T, A> &&
+      other.params == params &&
+      identical(other.client, client) &&
+      other.principal == principal;
+
+  @override
+  int get hashCode => Object.hash(params, identityHashCode(client), principal);
+}
+
+/// A client's current principal, following `setPrincipal`.
+final class _PrincipalNotifier extends Notifier<String?> {
+  _PrincipalNotifier(this.client);
+
+  final QueryCache client;
+
+  @override
+  String? build() {
+    ref.onDispose(client.watchPrincipal((principal) => state = principal));
+    return client.principal;
+  }
+}
+
+final _principalProvider =
+    NotifierProvider.autoDispose.family<_PrincipalNotifier, String?, QueryCache>(
+  _PrincipalNotifier.new,
+  name: 'forgePrincipalProvider',
+  retry: _noRetry,
+);
+
 /// What [queryProvider] returns: call it for the `AsyncValue`, or use
 /// [state] for the full [QueryState].
 final class ForgeQueryFamily<T, A extends OperationArgs> {
@@ -76,10 +138,25 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
   /// The name given to the providers, for Riverpod's devtools and errors.
   final String? name;
 
-  late final _values = AsyncNotifierProvider.autoDispose
-      .family<ForgeQueryValueNotifier<T, A>, T, ForgeQueryParams<T, A>>(
-    ForgeQueryValueNotifier<T, A>.new,
+  // What `call` returns: the notifier for the current client and principal.
+  // Riverpod carries an AsyncNotifier's previous value into every later
+  // state, an error included, so the data of the previous principal or
+  // client cannot be cleared by a write. A new key gets a fresh notifier,
+  // and the old one is disposed, which releases its mount.
+  late final _values = Provider.autoDispose.family<AsyncValue<T>, ForgeQueryParams<T, A>>(
+    (ref, params) {
+      final client = ref.watch(forgeInstalledClientProvider);
+      final principal = ref.watch(_principalProvider(client));
+      return ref.watch(_notifiers(_ValueKey<T, A>(params, client, principal)));
+    },
     name: name,
+    retry: _noRetry,
+  );
+
+  late final _notifiers = AsyncNotifierProvider.autoDispose
+      .family<ForgeQueryValueNotifier<T, A>, T, _ValueKey<T, A>>(
+    (key) => ForgeQueryValueNotifier<T, A>(key.params, key.client),
+    name: name == null ? null : '$name.value',
     retry: _noRetry,
   );
 
@@ -90,9 +167,10 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
     retry: _noRetry,
   );
 
-  /// The query for [args], as an `AsyncValue<T>` when watched. It holds the
-  /// query's mount while watched and releases it when disposed.
-  AsyncNotifierProvider<ForgeQueryValueNotifier<T, A>, T> call(
+  /// The query for [args], as an `AsyncValue<T>`. It holds the query's mount
+  /// while watched and releases it when disposed. Its value only ever holds
+  /// the current client's and principal's data.
+  Provider<AsyncValue<T>> call(
     A args, {
     bool enabled = true,
     bool live = false,
@@ -142,6 +220,9 @@ SchedulerBinding? _scheduler;
 
 SchedulerBinding? _schedulerBinding() {
   if (_scheduler case final scheduler?) return scheduler;
+  // In debug the binding says whether it exists; the catch below is the
+  // release fallback, where it cannot.
+  if (kDebugMode && BindingBase.debugBindingType() == null) return null;
   try {
     return _scheduler = SchedulerBinding.instance;
   } on Object {
@@ -207,13 +288,17 @@ final class _Inbox<T> {
   }
 }
 
-/// Holds one query as an `AsyncValue<T>` for `ForgeQueryFamily.call`.
+/// Holds one query on one client, for one principal, as an `AsyncValue<T>`
+/// behind `ForgeQueryFamily.call`.
 final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNotifier<T> {
-  /// Creates the notifier for [params].
-  ForgeQueryValueNotifier(this.params);
+  /// Creates the notifier for [params] on [client].
+  ForgeQueryValueNotifier(this.params, this.client);
 
   /// The query and options this notifier watches.
   final ForgeQueryParams<T, A> params;
+
+  /// The cache it watches. A new client gets a new notifier, never this one.
+  final QueryCache client;
 
   // Completed by the first data or error when the seed had none yet.
   Completer<T>? _first;
@@ -225,7 +310,6 @@ final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNot
 
   @override
   FutureOr<T> build() => _building(() {
-        final client = ref.watch(forgeInstalledClientProvider);
         _first = null;
         _shown = null;
         final inbox = _Inbox<T>(ref, _apply);
