@@ -621,15 +621,20 @@ final class RestTransport implements Transport {
     TransportRequest request,
     Map<String, String>? credentials,
   ) async {
+    final abortSources = <Future<void>>[];
     Completer<void>? timeoutAbort;
+    if (_timeout != null) {
+      timeoutAbort = Completer<void>();
+      abortSources.add(timeoutAbort.future);
+    }
+    if (request.cancel != null) {
+      abortSources.add(request.cancel!);
+    }
+    final abortTrigger = abortSources.isEmpty ? null : Future.any(abortSources);
 
     try {
-      if (_timeout != null) {
-        timeoutAbort = Completer<void>();
-      }
-
       final outgoing =
-          http.AbortableRequest(method, url, abortTrigger: timeoutAbort?.future)
+          http.AbortableRequest(method, url, abortTrigger: abortTrigger)
             ..headers.addAll(_headers)
             ..headers.addAll(request.args.headers)
             ..headers.addAll(request.headers);
@@ -659,32 +664,7 @@ final class RestTransport implements Transport {
 
       Future<http.Response> sendAndRead() async {
         final sending = _client.send(outgoing);
-
-        final cancel = request.cancel;
-        final abortFutures = <Future<http.StreamedResponse>>[];
-
-        if (cancel != null) {
-          abortFutures.add(
-            cancel.then<http.StreamedResponse>(
-              (_) => throw http.RequestAbortedException(url),
-            ),
-          );
-        }
-
-        if (timeoutAbort != null) {
-          abortFutures.add(
-            timeoutAbort.future.then<http.StreamedResponse>(
-              (_) => throw http.RequestAbortedException(url),
-            ),
-          );
-        }
-
-        final streamed = abortFutures.isEmpty
-            ? await sending
-            : await Future.any<http.StreamedResponse>([
-                sending,
-                ...abortFutures,
-              ]);
+        final streamed = await sending;
         return await http.Response.fromStream(streamed);
       }
 
@@ -696,7 +676,7 @@ final class RestTransport implements Transport {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpStatusError(
           response.statusCode,
-          _decode(response),
+          _decodeErrorBody(response),
           headers: response.headers,
         );
       }
@@ -708,26 +688,22 @@ final class RestTransport implements Transport {
 
       return codec == null ? decoded : codec.decode(decoded);
     } on TimeoutException {
-      timeoutAbort?.complete();
+      if (timeoutAbort != null && !timeoutAbort.isCompleted) {
+        timeoutAbort.complete();
+      }
       rethrow;
     }
   }
 
   /// JSON when the content type says so (or says nothing and the body
-  /// parses), text otherwise. Falls back to text if JSON parsing fails.
+  /// parses), text otherwise. Throws FormatException if JSON parsing fails.
   Object? _decode(http.Response response) {
     if (response.bodyBytes.isEmpty) return null;
 
     final type = response.headers['content-type'] ?? '';
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
 
-    if (type.contains('json')) {
-      try {
-        return jsonDecode(text);
-      } on FormatException {
-        return text;
-      }
-    }
+    if (type.contains('json')) return jsonDecode(text);
 
     if (type.isEmpty) {
       try {
@@ -738,6 +714,16 @@ final class RestTransport implements Transport {
     }
 
     return text;
+  }
+
+  /// Decodes a response body, falling back to text if JSON parsing fails.
+  /// Used only for error responses.
+  Object? _decodeErrorBody(http.Response response) {
+    try {
+      return _decode(response);
+    } on FormatException {
+      return utf8.decode(response.bodyBytes, allowMalformed: true);
+    }
   }
 
   /// Exponential backoff with jitter: half the window fixed, half random, so

@@ -88,3 +88,38 @@ final class FakeTransport implements Transport {
 
 /// Lets every already-queued microtask and zero-delay timer run.
 Future<void> settle() => pumpEventQueue();
+
+/// A fake http.Client for testing timeout and abort behavior.
+/// Records requests and when their abort triggers fire.
+final class TimeoutTestClient extends http.BaseClient {
+  TimeoutTestClient({this.handleRequest});
+
+  /// Called with the request. Return a StreamedResponse or throw.
+  /// If response is a StreamedResponse, the test controls when the body stream closes.
+  final FutureOr<http.StreamedResponse> Function(http.BaseRequest request)?
+  handleRequest;
+
+  final recordedRequests = <http.BaseRequest>[];
+  final recordedAborts = <bool>[];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    recordedRequests.add(request);
+    recordedAborts.add(false);
+    final index = recordedAborts.length - 1;
+
+    if (request is http.Abortable && request.abortTrigger != null) {
+      unawaited(
+        request.abortTrigger!.then((_) {
+          recordedAborts[index] = true;
+        }),
+      );
+    }
+
+    if (handleRequest != null) {
+      return await handleRequest!(request);
+    }
+
+    return http.StreamedResponse(const Stream.empty(), 200);
+  }
+}
