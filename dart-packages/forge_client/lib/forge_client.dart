@@ -3,9 +3,11 @@
 library;
 
 export 'src/codec.dart';
+export 'src/invalidate.dart';
 export 'src/normalize.dart';
 export 'src/operation.dart';
 export 'src/ref.dart';
+export 'src/registry.dart';
 export 'src/security.dart';
 export 'src/store.dart';
 export 'src/tags.dart';
