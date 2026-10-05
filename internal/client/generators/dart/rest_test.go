@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -78,6 +80,8 @@ func TestErrorsAreASealedHierarchy(t *testing.T) {
 		"final class GatewayTimeout extends ApiError {",
 		"ApiError? apiErrorOf(Object error) => switch (error) {",
 		"HttpStatusError(:final status, :final body, :final headers) =>",
+		"{'detail': final String text} => text,",
+		"{'title': final String text} => text,",
 	)
 
 	standalone := file(t, generate(t, fixture(t, "no-hooks")), "lib/src/errors.dart")
@@ -163,6 +167,37 @@ func restFixture() gateFixture {
 					Responses:    map[int]*client.Response{200: {Content: jsonContent(ref("Item"))}},
 				},
 				{
+					Method: "GET", Path: "/ping", OperationID: "misc.ping",
+					Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{"application/json": {}}}},
+				},
+				{
+					Method: "GET", Path: "/logs", OperationID: "logs.tail",
+					Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{"application/x-ndjson": {Schema: &client.Schema{Type: "string"}}}}},
+				},
+				{
+					Method: "GET", Path: "/docs/{id}", OperationID: "docs.get", PathParams: id,
+					Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{"application/xml": {Schema: &client.Schema{Type: "string"}}}}},
+				},
+				{
+					Method: "GET", Path: "/items/{id}/api", OperationID: "items.getApi", PathParams: id,
+					Responses: map[int]*client.Response{200: {Content: map[string]*client.MediaType{"application/vnd.api+json": {Schema: ref("Item")}}}},
+				},
+				{
+					Method: "POST", Path: "/items", OperationID: "items.create",
+					RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{"application/vnd.api+json": {Schema: ref("Item")}}},
+					Responses:   map[int]*client.Response{201: {Content: map[string]*client.MediaType{"application/problem+json": {Schema: ref("Item")}}}},
+				},
+				{
+					Method: "PUT", Path: "/images/{id}", OperationID: "images.put", PathParams: id,
+					RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{"image/png": {Schema: binary}}},
+					Responses:   map[int]*client.Response{204: {Description: "stored"}},
+				},
+				{
+					Method: "PUT", Path: "/reports/{id}", OperationID: "reports.put", PathParams: id,
+					RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{"text/csv": {Schema: &client.Schema{Type: "string"}}}},
+					Responses:   map[int]*client.Response{204: {Description: "stored"}},
+				},
+				{
 					Method: "DELETE", Path: "/items/{id}", OperationID: "items.delete", PathParams: id,
 					CookieParams: []client.Parameter{{Name: "session", In: "cookie", Schema: &client.Schema{Type: "string"}}},
 					Responses:    map[int]*client.Response{204: {Description: "gone"}},
@@ -176,6 +211,7 @@ func restFixture() gateFixture {
 // MockClient and prints what it did as JSON. Every value in the output was
 // produced by the generated Dart.
 const restScript = `
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -275,8 +311,79 @@ Future<void> main() async {
   reply = (_) => http.Response('<html>down</html>', 502, headers: {'content-type': 'application/json'});
   out['badJsonError'] = await failure(rest.items.get(id: '1', xTenant: 't'));
 
+  reply = (_) => http.Response('', 200, headers: {'content-type': 'application/json'});
+  out['pingEmpty'] = await rest.misc.ping();
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"a":1,"é":"x"}'), 200, headers: {'content-type': 'application/json'});
+  out['ping'] = await rest.misc.ping();
+
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"é":1}'), 200, headers: {'content-type': 'text/json; charset=iso-8859-1'});
+  out['textJson'] = await rest.misc.ping();
+
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"a":1}\n{"b":2}\n'), 200, headers: {'content-type': 'application/x-ndjson'});
+  out['ndjson'] = await rest.logs.tail();
+
+  reply = (_) => http.Response.bytes(
+    latin1.encode('<a>café</a>'), 200, headers: {'content-type': 'application/xml; charset=iso-8859-1'});
+  out['xml'] = await rest.docs.get(id: '1');
+
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"id":"5","label":"vnd é"}'), 200, headers: {'content-type': 'application/vnd.api+json'});
+  final vnd = await rest.items.getApi(id: '5');
+  out['vnd'] = {'id': vnd.id, 'label': vnd.label};
+
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"id":"9","label":"made"}'), 201, headers: {'content-type': 'application/problem+json'});
+  final made = await rest.items.create(body: Item(id: '9', label: 'x'));
+  out['created'] = {'label': made.label, 'sent': sentOf(sent.last)};
+
+  reply = (_) => http.Response('', 204);
+  await rest.images.put(id: '1', body: blob);
+  out['png'] = sentOf(sent.last);
+  await rest.reports.put(id: '1', body: 'a,b\n1,2');
+  out['csv'] = sentOf(sent.last);
+
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"message":"é"}'), 409, headers: {'content-type': 'text/json; charset=iso-8859-1'});
+  out['textJsonError'] = await failure(rest.items.get(id: '1', xTenant: 't'));
+  reply = (_) => http.Response('', 500);
+  out['emptyError'] = await failure(rest.items.get(id: '1', xTenant: 't'));
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"title":"Gone","detail":"order 7 missing"}'), 404,
+    headers: {'content-type': 'application/problem+json'});
+  out['detail'] = await failure(rest.items.get(id: '1', xTenant: 't'));
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"title":"Gone"}'), 404, headers: {'content-type': 'application/problem+json'});
+  out['title'] = await failure(rest.items.get(id: '1', xTenant: 't'));
+  reply = (_) => http.Response.bytes(
+    utf8.encode('{"a":1}'), 502, headers: {'content-type': 'text/html'});
+  out['htmlError'] = await failure(rest.items.get(id: '1', xTenant: 't'));
+
+  // A body that starts and never ends must still hit the timeout.
+  final stalled = RestClient(
+    baseUrl: Uri.parse('https://api.test'),
+    timeout: const Duration(milliseconds: 100),
+    httpClient: MockClient.streaming((request, _) async {
+      final never = StreamController<List<int>>()..add([123]);
+      return http.StreamedResponse(never.stream, 200, headers: {'content-type': 'application/json'});
+    }),
+  );
+  final hung = Completer<String>();
+  final watchdog = Timer(const Duration(seconds: 5), () => hung.complete('hung'));
+  out['stalled'] = await Future.any([
+    stalled.items.get(id: '1', xTenant: 't').then(
+      (_) => 'returned',
+      onError: (Object e) => e is TimeoutException ? 'timeout' : 'error',
+    ),
+    hung.future,
+  ]);
+  watchdog.cancel();
+
   stdout.write(jsonEncode(out));
   rest.close();
+  stalled.close();
 }
 `
 
@@ -383,9 +490,144 @@ func TestRestClientRunsAgainstPackageHTTP(t *testing.T) {
 		t.Errorf("a binary error body must not hide its status: %v", binaryError)
 	}
 
+	check("pingEmpty", nil)
+	check("ping", map[string]any{"a": 1.0, "é": "x"})
+	check("textJson", map[string]any{"é": 1.0})
+
+	if e := got["textJsonError"].(map[string]any); e["type"] != "Conflict" || e["message"] != "é" {
+		t.Errorf("JSON is always UTF-8, whatever charset a text/json type declares: %v", e)
+	}
+
+	check("ndjson", "{\"a\":1}\n{\"b\":2}\n")
+	check("xml", "<a>café</a>")
+	check("vnd", map[string]any{"id": "5", "label": "vnd é"})
+
+	created := got["created"].(map[string]any)
+	createdSent := created["sent"].(map[string]any)
+
+	if created["label"] != "made" || createdSent["headers"].(map[string]any)["content-type"] != "application/vnd.api+json" ||
+		createdSent["body"] != `{"id":"9","label":"x"}` {
+		t.Errorf("a body declared only as +json is JSON-encoded with its declared type: %v", created)
+	}
+
+	if png := got["png"].(map[string]any); png["headers"].(map[string]any)["content-type"] != "image/png" || !reflect.DeepEqual(png["bytes"], blob) {
+		t.Errorf("a binary body keeps its declared content type: %v", png)
+	}
+
+	if csv := got["csv"].(map[string]any); !strings.HasPrefix(csv["headers"].(map[string]any)["content-type"].(string), "text/csv") || csv["body"] != "a,b\n1,2" {
+		t.Errorf("a text body keeps its declared content type: %v", csv)
+	}
+
+	check("emptyError", map[string]any{"type": "InternalServerError", "status": 500.0, "message": nil, "bodyType": "Null", "body": nil})
+
+	if detail := got["detail"].(map[string]any); detail["message"] != "order 7 missing" {
+		t.Errorf("ApiError.message reads an RFC 7807 detail: %v", detail)
+	}
+
+	if title := got["title"].(map[string]any); title["message"] != "Gone" {
+		t.Errorf("ApiError.message falls back to an RFC 7807 title: %v", title)
+	}
+
+	if html := got["htmlError"].(map[string]any); html["bodyType"] != "String" || html["body"] != `{"a":1}` {
+		t.Errorf("a text error body is not parsed as JSON: %v", html)
+	}
+
+	check("stalled", "timeout")
+
 	badJSON := got["badJsonError"].(map[string]any)
 
 	if badJSON["type"] != "UnexpectedStatus" || badJSON["status"] != 502.0 || badJSON["body"] != "<html>down</html>" {
 		t.Errorf("an unparseable error body keeps its status and its text: %v", badJSON)
+	}
+}
+
+func TestMediaKindIsOneRule(t *testing.T) {
+	for contentType, want := range map[string]string{
+		"application/json":                  "json",
+		"Application/JSON; charset=utf-8":   "json",
+		"text/json":                         "json",
+		"application/problem+json":          "json",
+		"application/vnd.api+json":          "json",
+		"text/plain":                        "text",
+		"text/csv; charset=iso-8859-1":      "text",
+		"application/xml":                   "text",
+		"application/atom+xml":              "text",
+		"application/vnd.foo+yaml":          "text",
+		"application/x-ndjson":              "text",
+		"application/jsonl":                 "text",
+		"application/x-www-form-urlencoded": "text",
+		"application/graphql":               "text",
+		"application/octet-stream":          "bytes",
+		"image/png":                         "bytes",
+		"application/pdf":                   "bytes",
+		"multipart/form-data":               "bytes",
+		"":                                  "bytes",
+	} {
+		if got := mediaKind(contentType); got != want {
+			t.Errorf("mediaKind(%q) = %q, want %q", contentType, got, want)
+		}
+	}
+}
+
+// The textual application types are listed twice, in Go for the planner and
+// in Dart for forge_client's transport; they must be the same list.
+func TestTextTypesAgreeWithForgeClientTransport(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join(forgeClientDir(t), "lib", "src", "transport.dart"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := regexp.MustCompile(`(?s)_textApplicationTypes = \{(.*?)\};`).FindStringSubmatch(string(source))
+	if block == nil {
+		t.Fatal("transport.dart declares no _textApplicationTypes")
+	}
+
+	var dart []string
+	for _, m := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(block[1], -1) {
+		dart = append(dart, m[1])
+	}
+
+	var goTypes []string
+	for name := range textApplicationTypes {
+		goTypes = append(goTypes, name)
+	}
+
+	sort.Strings(dart)
+	sort.Strings(goTypes)
+
+	if !reflect.DeepEqual(dart, goTypes) {
+		t.Errorf("transport.dart text types %v\ngenerator text types %v", dart, goTypes)
+	}
+
+	generated := file(t, generate(t, restFixture()), "lib/src/rest.dart")
+	for _, name := range goTypes {
+		assertContains(t, "rest.dart", generated, "'"+name+"'")
+	}
+}
+
+func TestRestPlansBodiesAndResponsesByMediaKind(t *testing.T) {
+	rest := file(t, generate(t, restFixture()), "lib/src/rest.dart")
+
+	assertContains(t, "rest.dart", rest,
+		// A schemaless JSON response is Object?, with no codec.
+		"Future<Object?> ping() async {",
+		// Textual application types are text, not bytes.
+		"Future<String> tail() async {",
+		"Future<String> get({required String id}) async {",
+		// +json responses and bodies are JSON with their codec.
+		"Future<Item> getApi({required String id}) async {",
+		"bodyCodec: itemCodec,",
+		"contentType: 'application/vnd.api+json',",
+		// A declared request content type replaces the default.
+		"contentType: 'image/png',",
+		"contentType: 'text/csv',",
+		"plain: true,",
+		// Binary stays bytes.
+		"Future<Uint8List> download({required String id}) async {",
+	)
+
+	// The default type is not repeated, so the common case stays terse.
+	if strings.Contains(rest, "contentType: 'application/octet-stream'") || strings.Contains(rest, "contentType: 'application/json'") {
+		t.Errorf("a default content type must not be emitted:\n%s", rest)
 	}
 }

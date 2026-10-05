@@ -131,6 +131,13 @@ func renderRest(ops []*operation, root *restNode, paths map[*operation]string, n
 
 	text := strings.Replace(body.String(), "@@credentials@@", credentials, 1)
 
+	var textTypes []string
+	for _, t := range sortedKeys(textApplicationTypes) {
+		textTypes = append(textTypes, dartString(t))
+	}
+
+	text = strings.Replace(text, "@@textTypes@@", strings.Join(textTypes, ", "), 1)
+
 	// Method bodies reference the client through `_client` inside a
 	// namespace and directly on the root; render them now that the
 	// namespaces are placed.
@@ -323,6 +330,10 @@ func renderRestMethod(op *operation, name, receiver string, codecConst func(stri
 				fmt.Fprintf(&b, "      bodyCodec: %s,\n", c)
 			}
 		}
+
+		if declared := op.body.contentType; declared != "" && declared != defaultBodyType[op.body.kind] {
+			fmt.Fprintf(&b, "      contentType: %s,\n", dartString(declared))
+		}
 	}
 
 	switch op.response {
@@ -356,6 +367,12 @@ func renderRestMethod(op *operation, name, receiver string, codecConst func(stri
 	b.WriteString("  }\n\n")
 
 	return b.String()
+}
+
+// defaultBodyType is the content type _send gives each body kind when the
+// operation declares none other.
+var defaultBodyType = map[string]string{
+	"json": "application/json", "text": "text/plain", "bytes": "application/octet-stream",
 }
 
 // restPathExpr renders the request path as a Dart string literal with each
@@ -478,6 +495,7 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     Object? body,
     bool form = false,
     bool plain = false,
+    String? contentType,
     WireCodec? bodyCodec,
     WireCodec? responseCodec,
     _Body response = _Body.json,
@@ -490,7 +508,9 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     final base = baseUrl.toString().replaceAll(RegExp(r'/+$'), '');
     var uri = Uri.parse('$base$path');
     if (params.isNotEmpty) uri = uri.replace(queryParameters: params);
-    final request = http.Request(method, uri)..headers.addAll(this.headers);
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(method, uri, abortTrigger: timeout == null ? null : abort.future)
+      ..headers.addAll(this.headers);
 @@credentials@@    request.headers.addAll(headers);
     switch (body) {
       case null:
@@ -499,17 +519,22 @@ const restClientTail = `  /// Closes the underlying HTTP client.
         request.bodyFields = fields;
       case final Uint8List bytes:
         request.bodyBytes = bytes;
-        request.headers.putIfAbsent('content-type', () => 'application/octet-stream');
+        request.headers.putIfAbsent('content-type', () => contentType ?? 'application/octet-stream');
       case final String text when plain:
+        request.headers.putIfAbsent('content-type', () => contentType ?? 'text/plain');
         request.body = text;
-        request.headers.putIfAbsent('content-type', () => 'text/plain');
       default:
         request.body = jsonEncode(bodyCodec == null ? body : bodyCodec.encode(body));
-        request.headers['content-type'] = 'application/json';
+        request.headers['content-type'] = contentType ?? 'application/json';
     }
-    final sent = _http.send(request);
-    final streamed = await (timeout == null ? sent : sent.timeout(timeout!));
-    final reply = await http.Response.fromStream(streamed);
+    Future<http.Response> exchange() async => http.Response.fromStream(await _http.send(request));
+    final http.Response reply;
+    try {
+      reply = await (timeout == null ? exchange() : exchange().timeout(timeout!));
+    } on TimeoutException {
+      if (!abort.isCompleted) abort.complete();
+      rethrow;
+    }
     if (reply.statusCode < 200 || reply.statusCode >= 300) {
       throw ApiError.fromResponse(
         reply.statusCode,
@@ -533,7 +558,9 @@ const restClientTail = `  /// Closes the underlying HTTP client.
 
   static Object? _decodeBody(http.Response reply) {
     if (reply.bodyBytes.isEmpty) return null;
+    final type = _essence(reply);
     final text = _text(reply);
+    if (type.isNotEmpty && !_isJson(type)) return text;
     try {
       return jsonDecode(text);
     } on FormatException {
@@ -541,15 +568,31 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     }
   }
 
+  static String _essence(http.Response reply) =>
+      (reply.headers['content-type'] ?? '').split(';').first.trim().toLowerCase();
+
+  // The one content-type rule every Forge Dart client applies: JSON is
+  // application/json, text/json or any +json type; text is text/*, +xml, +yaml
+  // or one of the listed application types; everything else is bytes.
+  static bool _isJson(String essence) =>
+      essence == 'application/json' || essence == 'text/json' || essence.endsWith('+json');
+
+  static bool _isText(String essence) =>
+      essence.startsWith('text/') ||
+      essence.endsWith('+xml') ||
+      essence.endsWith('+yaml') ||
+      _textTypes.contains(essence);
+
   static final _charset = RegExp(r'charset\s*=\s*"?([^";\s]+)', caseSensitive: false);
 
-  /// A body read as text: a ` + "`text/*`" + ` body in the charset it declares, anything else
-  /// as UTF-8, which is also the fallback for a charset this platform cannot
-  /// decode. ` + "`package:http`" + ` would read an undeclared charset as Latin-1.
+  /// A body read as text: a text body in the charset it declares, anything else
+  /// (JSON included) as UTF-8, which is also the fallback for a charset this
+  /// platform cannot decode. ` + "`package:http`" + ` would read an undeclared charset as
+  /// Latin-1.
   static String _text(http.Response reply) {
-    final type = reply.headers['content-type'] ?? '';
-    final name = type.trimLeft().toLowerCase().startsWith('text/')
-        ? _charset.firstMatch(type)?.group(1)
+    final essence = _essence(reply);
+    final name = _isText(essence) && !_isJson(essence)
+        ? _charset.firstMatch(reply.headers['content-type'] ?? '')?.group(1)
         : null;
     final encoding = name == null ? null : Encoding.getByName(name);
     if (encoding != null && encoding != utf8) {
@@ -562,6 +605,8 @@ const restClientTail = `  /// Closes the underlying HTTP client.
     return utf8.decode(reply.bodyBytes, allowMalformed: true);
   }
 }
+
+const _textTypes = {@@textTypes@@};
 
 enum _Body { none, json, text, bytes }
 `

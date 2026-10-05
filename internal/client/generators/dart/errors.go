@@ -143,10 +143,13 @@ sealed class ApiError implements Exception {
   /// The response headers, lower-cased.
   final Map<String, String> headers;
 
-  /// The server's ` + "`message`" + ` or ` + "`error`" + ` field, when the body carries one.
+  /// The server's ` + "`message`" + ` or ` + "`error`" + ` field, else the ` + "`detail`" + ` or
+  /// ` + "`title`" + ` of an RFC 7807 problem, when the body carries one.
   String? get message => switch (body) {
     {'message': final String text} => text,
     {'error': final String text} => text,
+    {'detail': final String text} => text,
+    {'title': final String text} => text,
     final String text when text.isNotEmpty => text,
     _ => null,
   };

@@ -3,6 +3,7 @@ package dart
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -55,6 +56,9 @@ type bodyParam struct {
 	typ      dartType
 	required bool
 	codec    string
+	// contentType is the declared request content type, sent instead of the
+	// default for the kind.
+	contentType string
 	// flatten holds a PATCH body's properties when they become argument
 	// fields of their own, so an optional one can be Unchanged or Assign.
 	flatten []flatField
@@ -195,11 +199,17 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 		return uniqueNames([]string{name}, func(s string) string { return memberIdent(s, argsReserved) }, members, false)[0]
 	}
 
+	essence := mediaEssence(contentType)
+
 	switch {
-	case contentType == "application/json":
-		schema := ep.RequestBody.Content[contentType].Schema
+	case isJSONMediaType(contentType):
+		var schema *client.Schema
+		if media := ep.RequestBody.Content[contentType]; media != nil {
+			schema = media.Schema
+		}
+
 		codec, _ := requestBodyCodecRef(ep)
-		body := &bodyParam{kind: "json", required: required, codec: codec}
+		body := &bodyParam{kind: "json", required: required, codec: codec, contentType: contentType}
 
 		if m := reg.models[client.ComponentRefName(schemaRef(schema))]; strings.EqualFold(ep.Method, "PATCH") && m != nil && m.kind == kindClass {
 			if cls, ok := m.decls[0].(*classDecl); ok && len(cls.fields) > 0 {
@@ -225,24 +235,29 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 		}
 
 		body.member = claim("body")
-		body.typ = reg.resolve(schema, c)
+
+		if schema == nil {
+			body.typ = dynamicType()
+		} else {
+			body.typ = reg.resolve(schema, c)
+		}
 
 		return body
 
-	case contentType == "multipart/form-data":
+	case essence == "multipart/form-data":
 		return &bodyParam{kind: "multipart", member: claim("body"), typ: castType("Map<String, String>"), required: required}
 
-	case contentType == "application/x-www-form-urlencoded":
+	case essence == "application/x-www-form-urlencoded":
 		return &bodyParam{kind: "form", member: claim("body"), typ: castType("Map<String, String>"), required: required}
 
-	case strings.HasPrefix(contentType, "text/"):
-		return &bodyParam{kind: "text", member: claim("body"), typ: castType("String"), required: required}
+	case isTextMediaType(contentType):
+		return &bodyParam{kind: "text", member: claim("body"), typ: castType("String"), required: required, contentType: contentType}
 	}
 
 	t := castType("Uint8List")
 	t.typedData = true
 
-	return &bodyParam{kind: "bytes", member: claim("body"), typ: t, required: required}
+	return &bodyParam{kind: "bytes", member: claim("body"), typ: t, required: required, contentType: contentType}
 }
 
 func schemaRef(s *client.Schema) string {
@@ -253,9 +268,11 @@ func schemaRef(s *client.Schema) string {
 	return s.Ref
 }
 
-// planResponse resolves the response the lowest 2xx with a body declares:
-// JSON to its Dart type, text to String, anything else to bytes, and no body
-// at all to none.
+// planResponse resolves the response the lowest 2xx with a body declares.
+// JSON wins whenever any content type is JSON-like (application/json first,
+// then the +json types in sorted order): to its schema's Dart type, or to
+// Object? when the entry has no schema. Otherwise text types give String and
+// anything else bytes. No body at all is none.
 func planResponse(ep *client.Endpoint, reg *registry, c rctx) (string, dartType) {
 	codes := make([]int, 0, len(ep.Responses))
 	for code := range ep.Responses {
@@ -272,14 +289,16 @@ func planResponse(ep *client.Endpoint, reg *registry, c rctx) (string, dartType)
 			continue
 		}
 
-		if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
-			return "json", reg.resolve(media.Schema, c)
+		if key := jsonMediaKey(resp.Content, false); key != "" {
+			if schema := resp.Content[key].Schema; schema != nil {
+				return "json", reg.resolve(schema, c)
+			}
+
+			return "json", dynamicType()
 		}
 
-		for _, ct := range sortedKeys(resp.Content) {
-			if strings.HasPrefix(ct, "text/") {
-				return "text", castType("String")
-			}
+		if slices.ContainsFunc(sortedKeys(resp.Content), isTextMediaType) {
+			return "text", castType("String")
 		}
 
 		t := castType("Uint8List")
