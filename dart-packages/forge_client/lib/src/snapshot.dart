@@ -377,11 +377,14 @@ TagContext _tagContext(Object? json) {
   return TagContext(
     path: _stringKeyed(json['path']),
     query: _stringKeyed(json['query']),
+    // A header map holds strings. TS carries a null header into the payload
+    // and the key; here it is dropped, as `operationQueryKey` drops a null
+    // path or query value, rather than becoming the text "null".
     headers: {
       for (final MapEntry(:key, :value) in _stringKeyed(
         json['headers'],
       ).entries)
-        key: '$value',
+        if (value != null) key: '$value',
     },
     body: json['body'],
   );
