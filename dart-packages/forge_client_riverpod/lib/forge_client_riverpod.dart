@@ -9,3 +9,5 @@ export 'src/client_provider.dart'
         forgeConnectivitySignalProvider,
         forgeFocusSignalProvider,
         forgeInstalledClientProvider;
+export 'src/query_provider.dart'
+    show ForgeQueryFamily, ForgeQueryParams, ForgeQueryStateNotifier, ForgeQueryValueNotifier, queryProvider;
