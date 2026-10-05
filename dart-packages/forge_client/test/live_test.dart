@@ -1900,52 +1900,16 @@ void main() {
       );
     });
 
-    // The two cases of streaming.test.ts' "the default decoder's name
-    // resolution", which Task 7 ports under their TS strings.
-    test('falls through an unusable event or type to the next name', () {
-      expectFrame(
-        {
-          'type': 'order.created',
-          'event': '',
-          'payload': {'id': 9},
-        },
-        name: 'order.created',
-        payload: {'id': 9},
-      );
-      expectFrame(
-        {
-          'type': 'order.created',
-          'event': 7,
-          'payload': {'id': 9},
-        },
-        name: 'order.created',
-        payload: {'id': 9},
-      );
-      expectFrame(
-        {
-          'type': '',
-          'name': 'order.created',
-          'payload': {'id': 9},
-        },
-        name: 'order.created',
-        payload: {'id': 9},
-      );
-    });
-
-    test('has nothing to decode when no name is usable or the message is not a map', () {
-      expect(
-        decodeFrame({
-          'event': '',
-          'type': '',
-          'name': 42,
-          'payload': <String, Object?>{},
-        }),
-        isNull,
-      );
-      expect(decodeFrame({'ping': 1}), isNull);
-      expect(decodeFrame('order.created'), isNull);
-      expect(decodeFrame(null), isNull);
-      expect(decodeFrame(['order.created']), isNull);
-    });
+    // The unusable-event/type fall-through and the no-usable-name case live in
+    // streaming_test.dart under their streaming.test.ts names.
+    test(
+      'has nothing to decode when the message is not a map or carries no name',
+      () {
+        expect(decodeFrame({'ping': 1}), isNull);
+        expect(decodeFrame('order.created'), isNull);
+        expect(decodeFrame(null), isNull);
+        expect(decodeFrame(['order.created']), isNull);
+      },
+    );
   });
 }
