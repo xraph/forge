@@ -625,6 +625,50 @@ void main() {
       });
     });
 
+    // Moving them would route the new principal's data to the old
+    // principal's handlers, so they are dropped, and said to be.
+    test('reports the subscribers it drops when a new identity subscribes over a stranded socket', () {
+      fakeAsync((async) {
+        var principal = 'user-a';
+        final kit = _build(principal: () => principal);
+        final before = <Object?>[];
+        final after = <Object?>[];
+
+        kit.subscriptions.subscribe(
+          '/ws/orders',
+          (message, _) => before.add(message),
+        );
+        async.flushMicrotasks();
+
+        principal = 'user-b';
+        kit.sockets.last().drop();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 60));
+        kit.errors.clear();
+
+        kit.subscriptions.subscribe(
+          '/ws/orders',
+          (message, _) => after.add(message),
+        );
+        async.flushMicrotasks();
+
+        final reports = kit.errors.where((error) => error.$2 == 'principal');
+        expect(reports, hasLength(1));
+        expect('${reports.single.$1}', contains('1 subscriber'));
+        expect('${reports.single.$1}', contains('/ws/orders'));
+
+        expect(kit.sockets.opened, hasLength(2));
+        expect(kit.sockets.last().context.principal, 'user-b');
+        kit.sockets.last().deliver({'type': 'order.created', 'payload': 'b'});
+        async.flushMicrotasks();
+
+        expect(after, [
+          {'type': 'order.created', 'payload': 'b'},
+        ]);
+        expect(before, isEmpty);
+      });
+    });
+
     test(
       'hands a socket stranded by an identity change over through repartition',
       () {

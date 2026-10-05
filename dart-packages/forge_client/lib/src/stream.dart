@@ -327,6 +327,10 @@ final class SubscriptionManager {
   /// Which endpoint a channel resolves to under this manager's `endpointOf`.
   String endpointFor(String channel) => _endpointOf(channel);
 
+  /// Who this manager opens sockets for now: its principal source's current
+  /// answer. Read-only, so a binder can check it is wired to the cache.
+  String? get principal => _principal();
+
   /// Subscribe to a channel. The returned function is the release, and
   /// releasing twice decrements once.
   void Function() subscribe(
@@ -480,6 +484,18 @@ final class SubscriptionManager {
     if (existing != null) {
       // A socket opened for somebody else is not this subscriber's socket.
       if (existing.principal == principal) return existing;
+
+      // Its subscribers belong to the other principal. Moving them here would
+      // hand them this principal's data, so they are dropped, and said to be.
+      if (existing.refs > 0) {
+        _report(
+          StateError(
+            '[forge] dropped ${existing.refs} subscriber(s) on $endpoint, '
+            'opened for another principal and never repartitioned',
+          ),
+          'principal',
+        );
+      }
 
       _dispose(existing);
     }

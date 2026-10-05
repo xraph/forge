@@ -237,6 +237,8 @@ final class StreamBinder implements LiveBinding {
   /// [streams] is the generated table. [scheduler] defaults to the cache's
   /// commit scheduler. [resumeGrace] is how long to wait after a reconnect for
   /// a `forge.resumed` before recovering anyway; zero recovers at once.
+  /// A custom `sleep` gives up cancelling the grace timer, so widget tests
+  /// should keep the default.
   StreamBinder({
     required QueryCache cache,
     required List<StreamBinding> streams,
@@ -275,7 +277,10 @@ final class StreamBinder implements LiveBinding {
     _unwatch = _cache.principalChanges.listen((_) {
       _queue = [];
       manager.repartition();
+      _checkPrincipal();
     });
+
+    _checkPrincipal();
   }
 
   /// The manager this binder claimed.
@@ -520,6 +525,24 @@ final class StreamBinder implements LiveBinding {
     }
   }
 
+  /// Report a manager whose principal source disagrees with the cache: its
+  /// sockets would be opened, and repartitioned, for the wrong identity.
+  void _checkPrincipal() {
+    final opens = manager.principal;
+    final owns = _cache.principal;
+
+    if (opens == owns) return;
+
+    (_onError ?? _cache.report)(
+      StateError(
+        '[forge] the subscription manager opens sockets for $opens but the '
+        'cache belongs to $owns; build it with principal: () => '
+        'cache.principal',
+      ),
+      'principal',
+    );
+  }
+
   void _ensureOpen() {
     if (_disposed) throw StateError('[forge] this StreamBinder was disposed');
   }
@@ -543,8 +566,10 @@ final class StreamBinder implements LiveBinding {
     };
   }
 
-  /// Cancel the pending recovery of an endpoint this binder no longer holds
-  /// anything on, and its timer with it.
+  /// Settle, now and as unfilled, the pending recovery of an endpoint this
+  /// binder no longer holds anything on. Its timer goes with it, but the
+  /// recovery itself still runs: nothing confirmed the gap was filled, and
+  /// cancelling is allowed only on a well-formed `forge.resumed`.
   void _forgetIdle(String endpoint) {
     if (!_pendingRecovery.containsKey(endpoint)) return;
 
@@ -552,7 +577,7 @@ final class StreamBinder implements LiveBinding {
       if (manager.endpointFor(held.channel) == endpoint) return;
     }
 
-    _pendingRecovery.remove(endpoint)?.timer?.cancel();
+    _settleRecovery(endpoint, filled: false);
   }
 
   void Function() _hold(

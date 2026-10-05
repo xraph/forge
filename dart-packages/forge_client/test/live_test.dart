@@ -1639,17 +1639,27 @@ void main() {
       });
     });
 
-    test('cancels the grace timer when the last live query on the endpoint is released', () {
+    // Cancelling a recovery is the one irreversible move, allowed only on a
+    // well-formed forge.resumed. A release inside the grace window settles it
+    // as unfilled instead, so a query the channel's tags reach still learns
+    // of the gap, and no timer is left behind.
+    test('settles a recovery as unfilled, without its timer, when the last live query on the endpoint is released', () {
       fakeAsync((async) {
+        const filtered = TagContext(query: {'status': 'open'});
         final h = _harness(
           (_, _) => [
             {'id': 7, 'total': 99},
           ],
         );
+        int filteredCalls() => h.transport.calls
+            .where((call) => call.args.query.isNotEmpty)
+            .length;
 
         _watch(h);
+        _watch(h, orderList, filtered);
         final stop = h.binder.subscribe(orderList);
         async.flushMicrotasks();
+        expect(filteredCalls(), 1);
 
         _reconnect(h, async);
 
@@ -1660,6 +1670,11 @@ void main() {
 
         expect(binderSnapshot(h.binder).recovering, isEmpty);
         expect(async.pendingTimers, isEmpty);
+
+        h.batches.flush();
+        async.flushMicrotasks();
+
+        expect(filteredCalls(), 2);
       });
     });
 
@@ -1746,6 +1761,59 @@ void main() {
 
         expect(after.isClosed, isFalse);
       });
+    });
+  });
+
+  group('principal wiring', () {
+    // The binder repartitions on the cache's identity, and the manager opens
+    // sockets for its own principal source. When the two disagree, every
+    // socket belongs to the wrong identity, so it is reported, not thrown.
+    ({QueryCache cache, List<(Object, String)> reports}) wire(
+      String? Function(QueryCache cache) source,
+    ) {
+      final reports = <(Object, String)>[];
+      final cache = QueryCache(
+        transport: FakeTransport((_, _) => <Object?>[]),
+        entities: schema,
+      );
+      final manager = SubscriptionManager(
+        connect: FakeSockets().connect,
+        release: ManualScheduler(),
+        principal: () => source(cache),
+      );
+
+      StreamBinder(
+        cache: cache,
+        streams: _streams,
+        manager: manager,
+        onError: (error, context) => reports.add((error, context)),
+      );
+
+      return (cache: cache, reports: reports);
+    }
+
+    test('reports a manager whose principal source is not the cache, on construction and on each flip', () {
+      final kit = wire((_) => 'someone-else');
+
+      expect(kit.reports.map((report) => report.$2), ['principal']);
+
+      kit.cache.setPrincipal('user-a');
+      expect(kit.reports, hasLength(2));
+
+      kit.cache.setPrincipal('user-b');
+      expect(kit.reports, hasLength(3));
+      expect(kit.reports.every((report) => report.$2 == 'principal'), isTrue);
+      expect('${kit.reports.last.$1}', contains('user-b'));
+    });
+
+    test('reports nothing when the manager reads the cache principal', () {
+      final kit = wire((cache) => cache.principal);
+
+      kit.cache.setPrincipal('user-a');
+      kit.cache.setPrincipal('user-b');
+      kit.cache.setPrincipal(null);
+
+      expect(kit.reports, isEmpty);
     });
   });
 
