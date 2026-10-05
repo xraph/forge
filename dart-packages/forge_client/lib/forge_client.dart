@@ -11,4 +11,5 @@ export 'src/registry.dart';
 export 'src/security.dart';
 export 'src/store.dart';
 export 'src/tags.dart';
+export 'src/transport.dart';
 export 'src/types.dart';
