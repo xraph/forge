@@ -18,12 +18,18 @@ import 'state_equality.dart';
 /// query starts a fetch, and that fetch's isFetching transition reaches every
 /// other widget watching the query at once. Calling `setState` there throws
 /// "setState() or markNeedsBuild() called during build". So an update that
-/// arrives while the scheduler is building or laying out
-/// ([SchedulerPhase.persistentCallbacks]) is held and delivered in a
+/// arrives during [SchedulerPhase.persistentCallbacks], the phase that runs
+/// build, layout, paint and finalizeTree, is held and delivered in a
 /// post-frame callback of the same frame, one callback per frame, with the
 /// latest state winning. That frame is already running, so the callback is
 /// sure to run, and the `setState` it leads to schedules the next frame.
 /// Every other update is delivered synchronously.
+///
+/// The bootstrap build `runApp` runs outside any frame needs no deferral:
+/// every subscription alive during it was opened in that same synchronous
+/// build, so its first event is still waiting on a microtask, and the cache's
+/// synchronous notifications queue behind that event rather than reaching
+/// the listener during the build.
 ///
 /// After [dispose], and for the previous query after a [bind] that
 /// resubscribed, the change callback is never called again, even for an
@@ -44,8 +50,8 @@ final class QuerySubscription<T> {
   /// The latest update held for the end of the frame, if any.
   QueryState<T>? _pending;
 
-  /// Bumped by every resubscribe and by [dispose], so a post-frame callback
-  /// scheduled for an earlier subscription knows it is stale.
+  /// Bumped by every resubscribe and by [dispose], so a stream listener or a
+  /// post-frame callback from an earlier subscription knows it is stale.
   int _generation = 0;
 
   /// Whether a post-frame callback is scheduled for this generation.
@@ -74,9 +80,16 @@ final class QuerySubscription<T> {
     _signature = signature;
     _forgetPending();
 
+    // The old stream stays live until it is cancelled below, and listening to
+    // the new one can notify it synchronously (a same-key resubscribe that
+    // starts a fetch). Each listener carries its generation, so an event from
+    // a superseded stream reaches neither the callback nor `_pending`.
+    final generation = _generation;
     _subscription = query
         .watch(client, live: live, staleTime: staleTime, enabled: enabled)
-        .listen(_receive);
+        .listen((next) {
+          if (generation == _generation) _receive(next);
+        });
     // `watch` delivers its first event on a microtask (forge_client decision
     // 9), so the starting state comes from getState, read after listening so
     // it already reflects the fetch the listen started.

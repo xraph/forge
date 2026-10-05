@@ -530,6 +530,67 @@ void main() {
       await tester.pump();
     });
 
+    /// A list whose first fetch settles at total 10 under a 1h staleTime,
+    /// then aged past [_stale], so a resubscribe with [_stale] refetches
+    /// synchronously inside its own listen. Later fetches never answer.
+    Future<(Harness, QuerySubscription<List<Order>>, List<(QueryState<List<Order>>, QueryState<List<Order>>)>)>
+    aged(WidgetTester tester) async {
+      final clock = ManualClock();
+      final gate = Completer<Object?>();
+      final h = harness((_, call) => call == 0 ? [order(1, 10)] : gate.future, clock: clock);
+      final changes = <(QueryState<List<Order>>, QueryState<List<Order>>)>[];
+      final subscription = QuerySubscription<List<Order>>((previous, next) => changes.add((previous, next)));
+      addTearDown(subscription.dispose);
+
+      subscription.bind(h.cache, listOrders(const ListOrdersArgs()), live: false, staleTime: const Duration(hours: 1), enabled: true);
+      await settle(tester);
+      expect(subscription.state.dataOrNull?.single.total, 10);
+      changes.clear();
+      clock.advance(const Duration(milliseconds: 100));
+      return (h, subscription, changes);
+    }
+
+    testWidgets('never reports an event from the stream a resubscribe superseded', (tester) async {
+      final (h, subscription, changes) = await aged(tester);
+
+      // Same key, new staleTime: the new listen starts a refetch, whose
+      // isFetching transition reaches the old stream before it is cancelled.
+      expect(
+        subscription.bind(h.cache, listOrders(const ListOrdersArgs()), live: false, staleTime: _stale, enabled: true),
+        isTrue,
+      );
+
+      expect(changes, isEmpty);
+      expect(subscription.state.isFetching, isTrue);
+
+      // The new stream's first event repeats the seed. The request itself
+      // goes out on a microtask.
+      await tester.pump();
+      expect(changes, isEmpty);
+      expect(h.transport.countOf(opListOrders), 2);
+    });
+
+    testWidgets('never holds an event from a superseded stream for the end of the frame', (tester) async {
+      final (h, subscription, changes) = await aged(tester);
+      // The same operation and key, decoded differently, so the old stream's
+      // state is told apart from the new one's.
+      final scaled = query<List<Order>, ListOrdersArgs>(
+        opListOrders,
+        (client) => [for (final o in ordersFromClient(client)) Order(id: o.id, total: o.total * 1000)],
+      );
+
+      await inBuild(tester, () {
+        expect(
+          subscription.bind(h.cache, scaled(const ListOrdersArgs()), live: false, staleTime: _stale, enabled: true),
+          isTrue,
+        );
+      });
+
+      expect(changes, isEmpty);
+      expect(subscription.state.dataOrNull?.single.total, 10000);
+      expect(subscription.state.isFetching, isTrue);
+    });
+
     testWidgets('coalesces the updates of one build into one change, and the latest wins', (tester) async {
       final gate = Completer<Object?>();
       final (h, snapshot) = await fixture(gate);
