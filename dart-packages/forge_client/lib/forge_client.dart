@@ -6,6 +6,7 @@ export 'src/codec.dart';
 export 'src/invalidate.dart';
 export 'src/normalize.dart';
 export 'src/operation.dart';
+export 'src/overlay.dart';
 export 'src/ref.dart';
 export 'src/registry.dart';
 export 'src/security.dart';
