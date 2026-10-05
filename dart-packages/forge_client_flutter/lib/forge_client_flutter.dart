@@ -10,6 +10,8 @@ export 'src/seams.dart'
         flutterSeamsInstalled,
         frameCommitScheduler,
         installFlutterSeams;
+export 'src/invalidate.dart'
+    show ForgeInvalidation, invalidateBinding, refetchBinding;
 export 'src/mutation_builder.dart' show ForgeMutation, ForgeMutationBuilder;
 export 'src/query_builder.dart' show ForgeQueryBuilder;
 export 'src/scope.dart' show ForgeContext, ForgeScope;
