@@ -207,6 +207,16 @@ func restFixture() gateFixture {
 	}
 }
 
+// restHooksFixture is restFixture with hooks on: the same bodies, sent through
+// the bindings and forge_client's RestTransport instead of the RestClient.
+func restHooksFixture() gateFixture {
+	f := restFixture()
+	f.Name = "rest-hooks"
+	f.Config.Hooks = true
+
+	return f
+}
+
 // restScript drives the generated RestClient against package:http's
 // MockClient and prints what it did as JSON. Every value in the output was
 // produced by the generated Dart.
@@ -656,5 +666,116 @@ func TestRestClientWithoutOperationsSaysItsSenderIsUnused(t *testing.T) {
 	with := file(t, generate(t, fixture(t, "default")), "lib/src/rest.dart")
 	if strings.Contains(with, "ignore: unused_element") {
 		t.Error("a client with operations silences unused_element on _send")
+	}
+}
+
+// hooksBodyScript sends each non-JSON body twice, once through its binding
+// and forge_client's RestTransport and once through the generated RestClient,
+// and prints both wires. The bindings path is the one an app with hooks uses.
+const hooksBodyScript = `
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:forge_client/forge_client.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:rest_client/rest_client.dart';
+
+final blob = Uint8List.fromList([0, 255, 254, 128, 0xc3, 0x28, 0x89, 0x50]);
+
+Future<void> main() async {
+  final sent = <http.Request>[];
+  final mock = MockClient((request) async {
+    sent.add(request);
+    return http.Response('', 204);
+  });
+  final transport = RestTransport(baseUrl: Uri.parse('https://api.test'), client: mock);
+  final rest = RestClient(baseUrl: Uri.parse('https://api.test'), httpClient: mock);
+
+  Map<String, Object?> wire(http.Request r) => {
+    'url': r.url.toString(),
+    'contentType': r.headers['content-type'],
+    'bytes': r.bodyBytes.toList(),
+  };
+
+  Future<Map<String, Object?>> both(
+    OperationMeta meta,
+    OperationArgs args,
+    Future<void> Function() viaRest,
+  ) async {
+    await transport.execute(TransportRequest(meta: meta, args: args.toTagContext()));
+    final binding = wire(sent.last);
+    await viaRest();
+    return {'binding': binding, 'rest': wire(sent.last)};
+  }
+
+  final out = <String, Object?>{
+    'form': await both(formsSubmit.meta, const FormsSubmitArgs(body: {'a': 'b c', 'd': 'é'}),
+        () => rest.forms.submit(body: {'a': 'b c', 'd': 'é'})),
+    'text': await both(notesPut.meta, const NotesPutArgs(id: '7', body: 'abc "q"'),
+        () => rest.notes.put(id: '7', body: 'abc "q"')),
+    'csv': await both(reportsPut.meta, const ReportsPutArgs(id: '1', body: 'a,b\n1,2'),
+        () => rest.reports.put(id: '1', body: 'a,b\n1,2')),
+    'png': await both(imagesPut.meta, ImagesPutArgs(id: '1', body: blob),
+        () => rest.images.put(id: '1', body: blob)),
+    'octet': await both(filesUpload.meta, FilesUploadArgs(id: '9', body: blob),
+        () => rest.files.upload(id: '9', body: blob)),
+  };
+
+  stdout.write(jsonEncode(out));
+  transport.close();
+  rest.close();
+}
+`
+
+// TestBindingsSendNonJSONBodiesAsTheirDeclaredType drives every non-JSON
+// binding of the rest fixture through forge_client's RestTransport and pins
+// the exact wire: content-type header and body bytes. The RestClient's wire
+// for the same call must be identical.
+func TestBindingsSendNonJSONBodiesAsTheirDeclaredType(t *testing.T) {
+	fvm := requireDart(t)
+	dir := writePackage(t, restHooksFixture())
+
+	if err := os.MkdirAll(filepath.Join(dir, "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "tool", "run_bodies.dart"), []byte(hooksBodyScript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runFvm(t, fvm, dir, "pub", "get")
+
+	var got map[string]map[string]map[string]any
+	if err := json.Unmarshal([]byte(runFvm(t, fvm, dir, "run", "tool/run_bodies.dart")), &got); err != nil {
+		t.Fatal(err)
+	}
+
+	bytesOf := func(s string) []any {
+		out := make([]any, len(s))
+		for i := range len(s) {
+			out[i] = float64(s[i])
+		}
+
+		return out
+	}
+
+	blob := []any{0.0, 255.0, 254.0, 128.0, 195.0, 40.0, 137.0, 80.0}
+
+	for name, want := range map[string]map[string]any{
+		"form":  {"url": "https://api.test/forms", "contentType": "application/x-www-form-urlencoded", "bytes": bytesOf("a=b+c&d=%C3%A9")},
+		"text":  {"url": "https://api.test/notes/7", "contentType": "text/plain; charset=utf-8", "bytes": bytesOf(`abc "q"`)},
+		"csv":   {"url": "https://api.test/reports/1", "contentType": "text/csv; charset=utf-8", "bytes": bytesOf("a,b\n1,2")},
+		"png":   {"url": "https://api.test/images/1", "contentType": "image/png", "bytes": blob},
+		"octet": {"url": "https://api.test/files/9/content", "contentType": "application/octet-stream", "bytes": blob},
+	} {
+		if !reflect.DeepEqual(got[name]["binding"], want) {
+			t.Errorf("%s through the binding:\n got  %v\n want %v", name, got[name]["binding"], want)
+		}
+
+		if !reflect.DeepEqual(got[name]["rest"], got[name]["binding"]) {
+			t.Errorf("%s: the RestClient and the binding disagree on the wire:\n rest    %v\n binding %v", name, got[name]["rest"], got[name]["binding"])
+		}
 	}
 }

@@ -16,6 +16,7 @@ final class OperationMeta {
     this.bodyCodec,
     this.responseCodec,
     this.idempotent = false,
+    this.requestContentType,
   });
 
   /// The generated table key, e.g. `op_get_order`. Used by the outbox to turn
@@ -61,6 +62,17 @@ final class OperationMeta {
   /// (`x-forge-idempotent`). Read by the outbox; the transport does not retry
   /// on it.
   final bool idempotent;
+
+  /// The content type the request body is sent as. Null means JSON, which is
+  /// what every row without a body, or with a plain `application/json` body,
+  /// leaves it as.
+  ///
+  /// The transport encodes the body by the one content-type rule every Forge
+  /// Dart client applies: a JSON type (`application/json`, `text/json`, any
+  /// `+json`) is JSON-encoded; `application/x-www-form-urlencoded` sends a
+  /// map's fields urlencoded; a text type sends the string as it is; anything
+  /// else sends the `Uint8List` untouched. Each goes out under this type.
+  final String? requestContentType;
 }
 
 /// The arguments of one call, in the vocabulary the tag resolver, the URL

@@ -93,6 +93,32 @@ type operation struct {
 	imports       map[string]bool
 }
 
+// formContentType is the type a form body goes out as, from the RestClient
+// and the transport alike. A multipart body is sent as these fields too.
+const formContentType = "application/x-www-form-urlencoded"
+
+// requestContentType is the row's OperationMeta.requestContentType: the type
+// forge_client's transport sends the body as. It is empty, which the runtime
+// reads as JSON, for no body and for a body sent as plain application/json.
+// It is a Dart runtime field only: TypeScript dispatches on the body's
+// runtime type instead, so it is not a column of the shared tables.
+func (op *operation) requestContentType() string {
+	if op.body == nil {
+		return ""
+	}
+
+	switch op.body.kind {
+	case "form", "multipart":
+		return formContentType
+	case "json":
+		if op.body.contentType == defaultBodyType["json"] {
+			return ""
+		}
+	}
+
+	return op.body.contentType
+}
+
 // hasArgs reports whether the operation needs an Args class rather than
 // NoArgs.
 func (op *operation) hasArgs() bool { return len(op.params) > 0 || op.body != nil }
@@ -248,7 +274,7 @@ func planBody(ep *client.Endpoint, reg *registry, c rctx, members map[string]boo
 	case essence == "multipart/form-data":
 		return &bodyParam{kind: "multipart", member: claim("body"), typ: formFieldsType(), required: required}
 
-	case essence == "application/x-www-form-urlencoded":
+	case essence == formContentType:
 		return &bodyParam{kind: "form", member: claim("body"), typ: formFieldsType(), required: required}
 
 	case isTextMediaType(contentType):

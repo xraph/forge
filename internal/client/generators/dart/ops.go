@@ -76,6 +76,10 @@ func renderOps(spec *client.APISpec, config client.GeneratorConfig, ops []*opera
 			body.WriteString("  idempotent: true,\n")
 		}
 
+		if t := op.requestContentType(); t != "" {
+			fmt.Fprintf(&body, "  requestContentType: %s,\n", dartString(t))
+		}
+
 		body.WriteString(");\n")
 	}
 

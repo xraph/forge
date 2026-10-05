@@ -1268,6 +1268,143 @@ void main() {
     });
   });
 
+  // TypeScript's generated client dispatches a body on its runtime type
+  // (URLSearchParams, string, Blob, else JSON). Dart has no such types to
+  // dispatch on, so the operation row names its request content type and the
+  // transport encodes by the shared rule: JSON, form, text, bytes.
+  group('request bodies by declared content type', () {
+    OperationMeta put(String? type) => OperationMeta(
+      id: 'op_put',
+      method: 'PUT',
+      path: '/things',
+      requestContentType: type,
+    );
+
+    Future<http.Request> send(OperationMeta meta, Object? body) async {
+      final fake = FakeHttp((_, _) => http.Response('', 204));
+
+      await RestTransport(baseUrl: base, client: fake.client).execute(
+        TransportRequest(
+          meta: meta,
+          args: TagContext(body: body),
+        ),
+      );
+
+      return fake.calls.single;
+    }
+
+    final blob = Uint8List.fromList([0x00, 0xff, 0xfe, 0x80, 0xc3, 0x28]);
+
+    test('a row with no request content type sends JSON, as before', () async {
+      final sent = await send(put(null), 'abc');
+
+      expect(sent.body, '"abc"');
+      expect(sent.headers['content-type'], 'application/json');
+    });
+
+    test('form fields are urlencoded under the form type', () async {
+      final sent = await send(put('application/x-www-form-urlencoded'), {
+        'a': 'b c',
+        'd': 'é',
+      });
+
+      expect(sent.body, 'a=b+c&d=%C3%A9');
+      expect(sent.headers['content-type'], 'application/x-www-form-urlencoded');
+    });
+
+    test(
+      'a form map of other values sends each as text and drops nulls',
+      () async {
+        final sent = await send(put('application/x-www-form-urlencoded'), {
+          'n': 1,
+          'b': true,
+          'gone': null,
+        });
+
+        expect(sent.body, 'n=1&b=true');
+      },
+    );
+
+    test('a text body goes out raw under its declared type', () async {
+      final plain = await send(put('text/plain'), 'abc "q"');
+
+      expect(plain.body, 'abc "q"');
+      expect(plain.headers['content-type'], 'text/plain; charset=utf-8');
+
+      final csv = await send(put('text/csv'), 'a,b\n1,2');
+
+      expect(csv.body, 'a,b\n1,2');
+      expect(csv.headers['content-type'], 'text/csv; charset=utf-8');
+    });
+
+    test('a text body honours the charset its type declares', () async {
+      final sent = await send(put('text/plain; charset=iso-8859-1'), 'café');
+
+      expect(sent.bodyBytes, latin1.encode('café'));
+      expect(sent.headers['content-type'], 'text/plain; charset=iso-8859-1');
+    });
+
+    test('bytes go out untouched under their declared type', () async {
+      final sent = await send(put('image/png'), blob);
+
+      expect(sent.bodyBytes, orderedEquals(blob));
+      expect(sent.headers['content-type'], 'image/png');
+    });
+
+    test('a declared JSON type keeps JSON encoding and its own type', () async {
+      final sent = await send(put('application/vnd.api+json'), {'a': 1});
+
+      expect(jsonDecode(sent.body), {'a': 1});
+      expect(sent.headers['content-type'], 'application/vnd.api+json');
+    });
+
+    test('a per-call content-type header still wins', () async {
+      final fake = FakeHttp((_, _) => http.Response('', 204));
+
+      await RestTransport(baseUrl: base, client: fake.client).execute(
+        TransportRequest(
+          meta: put('text/plain'),
+          args: const TagContext(body: 'x'),
+          headers: const {'content-type': 'text/markdown'},
+        ),
+      );
+
+      expect(
+        fake.calls.single.headers['content-type'],
+        startsWith('text/markdown'),
+      );
+      expect(fake.calls.single.body, 'x');
+    });
+
+    test(
+      'a body that does not fit its declared kind fails before sending',
+      () async {
+        final fake = FakeHttp((_, _) => http.Response('', 204));
+        final rest = RestTransport(baseUrl: base, client: fake.client);
+
+        await expectLater(
+          rest.execute(
+            TransportRequest(
+              meta: put('image/png'),
+              args: const TagContext(body: {'a': 1}),
+            ),
+          ),
+          throwsArgumentError,
+        );
+        await expectLater(
+          rest.execute(
+            TransportRequest(
+              meta: put('application/x-www-form-urlencoded'),
+              args: const TagContext(body: 7),
+            ),
+          ),
+          throwsArgumentError,
+        );
+        expect(fake.calls, isEmpty);
+      },
+    );
+  });
+
   // Dart-only: TypeScript's fetch has no client to release.
   group('close', () {
     test('closes the http client the transport created', () {

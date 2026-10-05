@@ -230,6 +230,8 @@ final RegExp _placeholder = RegExp(r'\{([^{}]*)\}');
 String _essence(String? contentType) =>
     (contentType ?? '').split(';').first.trim().toLowerCase();
 
+const String _formType = 'application/x-www-form-urlencoded';
+
 bool _isJson(String essence) =>
     essence == 'application/json' ||
     essence == 'text/json' ||
@@ -691,24 +693,7 @@ final class RestTransport implements Transport {
 
       final body = request.args.body;
 
-      if (body != null) {
-        final codec = request.meta.bodyCodec;
-        final wire = codec == null ? body : codec.encode(body);
-
-        if (wire is Uint8List) {
-          outgoing.headers.putIfAbsent(
-            'content-type',
-            () => 'application/octet-stream',
-          );
-          outgoing.bodyBytes = wire;
-        } else {
-          outgoing.headers.putIfAbsent(
-            'content-type',
-            () => 'application/json',
-          );
-          outgoing.body = jsonEncode(wire);
-        }
-      }
+      if (body != null) _writeBody(outgoing, request.meta, body);
 
       Future<http.Response> sendAndRead() async {
         final sending = _client.send(outgoing);
@@ -748,6 +733,70 @@ final class RestTransport implements Transport {
         timeoutAbort.complete();
       }
       rethrow;
+    }
+  }
+
+  /// Encodes [body] onto [outgoing] by the row's request content type, under
+  /// the shared rule (see [OperationMeta.requestContentType]). A content-type
+  /// header the caller already set wins over the declared one. Throws
+  /// [ArgumentError] before anything is sent when the body cannot be sent as
+  /// its declared kind.
+  static void _writeBody(
+    http.Request outgoing,
+    OperationMeta meta,
+    Object body,
+  ) {
+    final declared = meta.requestContentType;
+
+    if (declared == null || _isJson(_essence(declared))) {
+      final codec = meta.bodyCodec;
+      final wire = codec == null ? body : codec.encode(body);
+
+      if (wire is Uint8List && declared == null) {
+        outgoing.headers.putIfAbsent(
+          'content-type',
+          () => 'application/octet-stream',
+        );
+        outgoing.bodyBytes = wire;
+
+        return;
+      }
+
+      outgoing.headers.putIfAbsent(
+        'content-type',
+        () => declared ?? 'application/json',
+      );
+      outgoing.body = jsonEncode(wire);
+
+      return;
+    }
+
+    outgoing.headers.putIfAbsent('content-type', () => declared);
+
+    switch (body) {
+      case final Uint8List bytes:
+        outgoing.bodyBytes = bytes;
+      case final String text when _isText(_essence(declared)):
+        outgoing.body = text;
+      case final Map<Object?, Object?> fields
+          when _essence(declared) == _formType:
+        outgoing.body = Uri(
+          queryParameters: {
+            for (final MapEntry(:key, :value) in fields.entries)
+              if (value != null) '$key': '$value',
+          },
+        ).query;
+      default:
+        throw ArgumentError.value(
+          body,
+          'body',
+          '${meta.id} sends $declared, which takes '
+              '${_essence(declared) == _formType
+                  ? 'a Map of fields'
+                  : _isText(_essence(declared))
+                  ? 'a String'
+                  : 'a Uint8List'}, not a ${body.runtimeType}',
+        );
     }
   }
 

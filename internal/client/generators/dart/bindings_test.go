@@ -243,3 +243,50 @@ func TestNoHooksMeansNoOpsNoBindingsAndNoForgeClient(t *testing.T) {
 
 	assertContains(t, "pubspec.yaml", pubspec, "  http: ^1.6.0")
 }
+
+// A row whose body is not plain JSON names the type its body goes out as, so
+// forge_client's transport encodes it as the RestClient would. A plain JSON
+// row leaves the field out: null means JSON.
+func TestOpsRowsNameTheirRequestContentType(t *testing.T) {
+	ops := file(t, generate(t, restHooksFixture()), "lib/src/ops.dart")
+
+	row := func(constant string) string {
+		start := strings.Index(ops, "const "+constant+" = OperationMeta(")
+		if start < 0 {
+			t.Fatalf("ops.dart has no %s", constant)
+		}
+
+		return ops[start : start+strings.Index(ops[start:], ");\n")]
+	}
+
+	for constant, want := range map[string]string{
+		"opFormsSubmit": "application/x-www-form-urlencoded",
+		"opNotesPut":    "text/plain",
+		"opReportsPut":  "text/csv",
+		"opImagesPut":   "image/png",
+		"opFilesUpload": "application/octet-stream",
+		"opItemsCreate": "application/vnd.api+json",
+	} {
+		assertContains(t, constant, row(constant), "  requestContentType: "+dartString(want)+",")
+	}
+
+	for _, constant := range []string{"opNamesSet", "opItemsGet", "opItemsDelete"} {
+		if strings.Contains(row(constant), "requestContentType") {
+			t.Errorf("%s has a JSON body or none, so it must not name a request content type:\n%s", constant, row(constant))
+		}
+	}
+}
+
+// The bindings hand the transport the body in the shape its kind takes: form
+// fields as a map, text as a String, bytes as a Uint8List.
+func TestBindingsPassEachBodyKindInItsOwnShape(t *testing.T) {
+	out := generate(t, restHooksFixture())
+
+	for name, decl := range map[string]string{
+		"forms_submit": "final Map<String, String> body;",
+		"notes_put":    "final String body;",
+		"images_put":   "final Uint8List body;",
+	} {
+		assertContains(t, name+".dart", file(t, out, "lib/src/bindings/"+name+".dart"), decl, "    body: body,\n")
+	}
+}
