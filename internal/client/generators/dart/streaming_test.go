@@ -14,19 +14,19 @@ func TestTypedStreamingClients(t *testing.T) {
 	assertContains(t, "chat_socket.dart", file(t, out, "lib/src/streaming/chat_socket.dart"),
 		"final class ChatSocket {",
 		"Future<ChatSocketSession> connect({required String roomId}) async {",
-		"'$base/ws/chat/${Uri.encodeComponent(roomId)}'",
-		"'https' => 'wss', 'http' => 'ws'",
-		"StreamConnectContext(url: url.replace(scheme: scheme), endpoint: '/ws/chat/{roomId}', headers: headers),",
+		"path: '/ws/chat/${Uri.encodeComponent(roomId)}',",
+		"endpoint: '/ws/chat/{roomId}',",
+		"keepalive: true,",
 		"Stream<LineItem> get messages =>",
-		"_connection.messages.map((m) => LineItem.fromClient(lineItemCodec.decode(m)));",
-		"void send(LineItem message) => _connection.send(lineItemCodec.encode(message.toClient()));",
+		"_socket.frames.map((m) => LineItem.fromClient(lineItemCodec.decode(m)));",
+		"Future<void> send(LineItem message) => _socket.deliver(() => lineItemCodec.encode(message.toClient()));",
 	)
 
 	// The runtime delivers only the events it is told to listen for, so the
 	// generated factory names every event the endpoint declares.
 	assertContains(t, "notifications_events.dart", file(t, out, "lib/src/streaming/notifications_events.dart"),
 		"connect ?? eventSourceConnection(events: ['created'])", "Stream<Customer> get messages =>",
-		"StreamConnectContext(url: url, endpoint: '/sse/notifications', headers: headers),",
+		"endpoint: '/sse/notifications',", "events: const {'created'},", "socket: false,",
 		"Customer.fromClient(customerCodec.decode((m! as Map<Object?, Object?>)['data']))")
 
 	assertContains(t, "telemetry_transport.dart", file(t, out, "lib/src/streaming/telemetry_transport.dart"),
@@ -60,7 +60,7 @@ func TestMultiplexedDirectionIsUntypedAndReported(t *testing.T) {
 	out := generate(t, f)
 
 	assertContains(t, "mux_socket.dart", file(t, out, "lib/src/streaming/mux_socket.dart"),
-		"void send(Object? message) => _connection.send(message);")
+		"Future<void> send(Object? message) => _socket.deliver(() => message);")
 	assertContains(t, "warnings", strings.Join(out.Warnings, "\n"), "stream /ws/mux: the send direction carries 2 message types")
 }
 
@@ -75,7 +75,7 @@ func TestMessagesNamingOneTypeStayTyped(t *testing.T) {
 	out := generate(t, f)
 	pair := file(t, out, "lib/src/streaming/pair_socket.dart")
 
-	assertContains(t, "pair_socket.dart", pair, "void send(LineItem message)", "Stream<Customer> get messages")
+	assertContains(t, "pair_socket.dart", pair, "Future<void> send(LineItem message)", "Stream<Customer> get messages")
 
 	if strings.Contains(strings.Join(out.Warnings, "\n"), "stream /ws/pair") {
 		t.Errorf("two messages of one type are one type, got warnings:\n%s", strings.Join(out.Warnings, "\n"))
@@ -100,7 +100,7 @@ func TestFeatureClientsFollowTheStreamingConfig(t *testing.T) {
 	out := generate(t, fixture(t, "default"))
 
 	assertContains(t, "rooms.dart", file(t, out, "lib/src/streaming/rooms.dart"),
-		"final class RoomClient {", "Future<List<RoomMessage>> history(", "this.maxRooms = 50,", "'$base/ws'", "endpoint: '/ws',")
+		"final class RoomClient {", "Future<List<RoomMessage>> history(", "this.maxRooms = 50,", "path: '/ws',", "endpoint: '/ws',")
 	assertContains(t, "presence.dart", file(t, out, "lib/src/streaming/presence.dart"),
 		"static const List<String> statuses = ['online', 'away', 'busy', 'offline'];")
 	assertContains(t, "typing.dart", file(t, out, "lib/src/streaming/typing.dart"),
@@ -108,7 +108,7 @@ func TestFeatureClientsFollowTheStreamingConfig(t *testing.T) {
 	assertContains(t, "channels.dart", file(t, out, "lib/src/streaming/channels.dart"),
 		"'action': 'publish',")
 	assertContains(t, "streaming_client.dart", file(t, out, "lib/src/streaming/streaming_client.dart"),
-		"final class StreamingClient {", "rooms = RoomClient(baseUrl: baseUrl, connect: connect, headers: headers),")
+		"final class StreamingClient {", "rooms = RoomClient(baseUrl: baseUrl, connect: connect, headers: headers, options: roomOptions ?? options),")
 
 	f := fixture(t, "default")
 	f.Config.Streaming.EnableHistory = false
@@ -232,7 +232,8 @@ func TestPathParametersDoNotShadowGeneratedLocals(t *testing.T) {
 	// body would then read the parameter's String where it means the field.
 	assertContains(t, "clash_socket.dart", socket,
 		"required String base$", "required String url$", "required String headers$",
-		"required String heartbeat$", "required String connection$", "required String scheme$")
+		"required String heartbeat$", "required String connection$", "required String scheme$",
+		"required String socket$", "required String options$")
 	assertContains(t, "clash_socket.dart", socket,
 		"${Uri.encodeComponent(base$)}", "${Uri.encodeComponent(headers$)}")
 }
@@ -257,21 +258,22 @@ func TestAnonymousEndpointsAreNamedFromTheirPathWords(t *testing.T) {
 	assertContains(t, "ws_anonymous_socket.dart", file(t, out, "lib/src/streaming/ws_anonymous_socket.dart"),
 		"final class WsAnonymousSocket {")
 	assertContains(t, "sse_ticks_events.dart", file(t, out, "lib/src/streaming/sse_ticks_events.dart"),
-		"final class SseTicksEvents {", "Stream<Object?> get messages => _connection.messages;")
+		"final class SseTicksEvents {", "Stream<Object?> get messages => _socket.frames;")
 }
 
 func TestStreamingTypeNamesAreReserved(t *testing.T) {
 	out := generate(t, streamingFixture())
 	reserved := ReservedIdentifiers()
-	declared := regexp.MustCompile(`(?m)^(?:final|sealed) class (\w+)`)
+	declared := regexp.MustCompile(`(?m)^(?:(?:final|sealed) class|enum) (\w+)|^typedef (\w+) =`)
 
 	for _, name := range []string{
 		"lib/src/streaming/rooms.dart", "lib/src/streaming/presence.dart", "lib/src/streaming/typing.dart",
-		"lib/src/streaming/channels.dart", "lib/src/streaming/streaming_client.dart", "lib/src/streaming/live_connection.dart",
+		"lib/src/streaming/channels.dart", "lib/src/streaming/streaming_client.dart", "lib/src/streaming/live_socket.dart",
 	} {
 		for _, m := range declared.FindAllStringSubmatch(file(t, out, name), -1) {
-			if !reserved[m[1]] {
-				t.Errorf("%s declares %s, which a schema could take: add it to generatedTypeNames", name, m[1])
+			declaredName := m[1] + m[2]
+			if !strings.HasPrefix(declaredName, "_") && !reserved[declaredName] {
+				t.Errorf("%s declares %s, which a schema could take: add it to generatedTypeNames", name, declaredName)
 			}
 		}
 	}
@@ -279,11 +281,49 @@ func TestStreamingTypeNamesAreReserved(t *testing.T) {
 
 func TestSchemaNamedLikeAStreamingTypeIsRenamed(t *testing.T) {
 	f := streamingFixture()
-	f.Spec.Schemas["LiveConnection"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"a": {Type: "string"}}}
+	f.Spec.Schemas["LiveSocket"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"a": {Type: "string"}}}
 	f.Spec.Schemas["UserPresence"] = &client.Schema{Type: "object", Properties: map[string]*client.Schema{"a": {Type: "string"}}}
 
 	out := generate(t, f)
 
 	assertContains(t, "warnings", strings.Join(out.Warnings, "\n"),
-		`schema "LiveConnection" is generated as LiveConnectionModel`, `schema "UserPresence" is generated as UserPresenceModel`)
+		`schema "LiveSocket" is generated as LiveSocketModel`, `schema "UserPresence" is generated as UserPresenceModel`)
+}
+
+func TestLiveSocketFollowsTheReconnectionAndAuthConfig(t *testing.T) {
+	f := streamingFixture()
+	on := file(t, generate(t, f), "lib/src/streaming/live_socket.dart")
+	assertContains(t, "live_socket.dart", on,
+		"this.reconnect = true,", "this.credentials,", "final FutureOr<Map<String, String>> Function()? credentials;",
+		"...?await options.credentials?.call()", "token: token,")
+
+	f.Config.Features.Reconnection = false
+	f.Config.IncludeAuth = false
+	off := file(t, generate(t, f), "lib/src/streaming/live_socket.dart")
+	assertContains(t, "live_socket.dart", off, "this.reconnect = false,")
+
+	for _, gone := range []string{"this.credentials", "options.credentials", "Function()? credentials", "token: token", "bearerToken(sent)"} {
+		if strings.Contains(off, gone) {
+			t.Errorf("live_socket.dart names %q with auth off:\n%s", gone, off)
+		}
+	}
+}
+
+func TestLiveSocketIsEmittedForAnyStreamingOutput(t *testing.T) {
+	f := fixture(t, "default")
+	f.Spec.WebSockets, f.Spec.SSEs, f.Spec.WebTransports = nil, nil, nil
+	f.Spec.Endpoints = f.Spec.Endpoints[:1]
+
+	if _, ok := generate(t, f).Files["lib/src/streaming/live_socket.dart"]; !ok {
+		t.Error("the feature clients need live_socket.dart even with no typed endpoints")
+	}
+
+	f.Config.Streaming.GenerateModularClients = false
+	f.Config.Streaming.GenerateUnifiedClient = false
+
+	for name := range generate(t, f).Files {
+		if strings.HasPrefix(name, "lib/src/streaming/") {
+			t.Errorf("%s emitted with nothing to stream", name)
+		}
+	}
 }

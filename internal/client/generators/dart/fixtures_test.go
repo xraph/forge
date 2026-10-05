@@ -309,7 +309,7 @@ func streamingFixture() gateFixture {
 
 	spec.WebSockets = append(spec.WebSockets,
 		client.WebSocketEndpoint{
-			ID: "clash", Path: "/ws/{base}/{url}/{headers}/{heartbeat}/{connection}/{scheme}",
+			ID: "clash", Path: "/ws/{base}/{url}/{headers}/{heartbeat}/{connection}/{scheme}/{socket}/{options}",
 			SendSchema: ref("LineItem"), ReceiveSchema: ref("LineItem"),
 		},
 		client.WebSocketEndpoint{

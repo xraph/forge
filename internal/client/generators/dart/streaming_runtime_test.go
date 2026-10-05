@@ -8,19 +8,29 @@ import "testing"
 // typing.ts and channels.ts), so one server serves both.
 const streamingRuntimeTest = `import 'dart:async';
 
-import 'package:forge_client/forge_client.dart' show StreamConnect, StreamConnectContext, StreamConnection;
+import 'package:forge_client/forge_client.dart' show StreamConnect, StreamConnectContext, StreamConnection, TransportUnavailable;
 import 'package:streaming_forge_client/streaming_forge_client.dart';
 import 'package:test/test.dart';
 
 final class FakeConnection implements StreamConnection {
+  FakeConnection({this.sendLimit});
+
   final _incoming = StreamController<Object?>();
   final _closed = Completer<void>();
   final sent = <Object?>[];
+
+  /// Sends allowed before every send throws, without the connection closing.
+  final int? sendLimit;
+
+  /// Makes every send throw while the connection still looks open.
+  var broken = false;
 
   /// Every send, including the ones refused because the connection closed.
   var attempts = 0;
 
   void deliver(Object? message) => _incoming.add(message);
+
+  void failClosed(Object error) => _closed.completeError(error);
 
   @override
   Stream<Object?> get messages => _incoming.stream;
@@ -32,6 +42,7 @@ final class FakeConnection implements StreamConnection {
   void send(Object? message) {
     attempts++;
     if (_closed.isCompleted) throw StateError('closed');
+    if (broken || (sendLimit != null && sent.length >= sendLimit!)) throw StateError('send failed');
     sent.add(message);
   }
 
@@ -50,14 +61,40 @@ final class Harness {
   final contexts = <StreamConnectContext>[];
   final connections = <FakeConnection>[];
 
+  /// How long the first connect takes.
+  Duration? firstDelay;
+
+  /// Makes every connect fail.
+  var refuse = false;
+
+  /// Makes a connect fail with the error a platform without WebTransport gives.
+  var unavailable = false;
+
+  /// The sends each new connection allows.
+  int? sendLimit;
+
   StreamConnect get connect => (context) async {
     contexts.add(context);
-    final connection = FakeConnection();
+    if (firstDelay != null && contexts.length == 1) await Future<void>.delayed(firstDelay!);
+    if (unavailable) throw TransportUnavailable(context.endpoint, 'webtransport');
+    if (refuse) throw StateError('refused');
+    final connection = FakeConnection(sendLimit: sendLimit);
     connections.add(connection);
     return connection;
   };
 
   FakeConnection get only => connections.single;
+}
+
+/// Options that reconnect after a few milliseconds, for tests that wait for it.
+const quick = LiveOptions(reconnectDelay: Duration(milliseconds: 10), maxReconnectDelay: Duration(milliseconds: 20));
+
+Future<void> until(bool Function() done, {int milliseconds = 1500}) async {
+  final end = DateTime.now().add(Duration(milliseconds: milliseconds));
+  while (!done()) {
+    if (DateTime.now().isAfter(end)) fail('timed out waiting');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }
 
 Future<void> settle() async {
@@ -500,6 +537,676 @@ void main() {
     });
   });
 
+  group('typed session', () {
+    test('any number of listeners hear the messages, and a ping is answered with none listening', () async {
+      final h = Harness();
+      final session = await ChatSocket(baseUrl: Uri.parse('http://api.test'), connect: h.connect, heartbeat: null)
+          .connect(roomId: 'r');
+      h.only.deliver({'type': 'system', 'event': 'ping'});
+      await settle();
+      expect(h.only.sent, [
+        {'type': 'system', 'event': 'pong'},
+      ]);
+      final first = <LineItem>[];
+      final second = <LineItem>[];
+      session.messages.listen(first.add);
+      session.messages.listen(second.add);
+      h.only.deliver({'sku': 'a', 'qty': 1});
+      await settle();
+      expect(first, [const LineItem(sku: 'a', qty: 1)]);
+      expect(second, first);
+    });
+
+    test('a user frame whose type is system is delivered, and only the keepalive shapes are held back', () async {
+      final h = Harness();
+      final session = await ChatSocket(baseUrl: Uri.parse('http://api.test'), connect: h.connect, heartbeat: null)
+          .connect(roomId: 'r');
+      final raw = <Object?>[];
+      final decoded = <LineItem>[];
+      final errors = <Object>[];
+      final tap = session.messages.listen(decoded.add, onError: errors.add);
+      h.only.deliver({'type': 'system', 'sku': 's', 'qty': 4});
+      h.only.deliver({'type': 'system', 'event': 'welcome', 'sku': 'w', 'qty': 5});
+      await settle();
+      expect(decoded.map((m) => m.sku), ['s', 'w']);
+      expect(errors, isEmpty);
+      await tap.cancel();
+      expect(raw, isEmpty);
+    });
+
+    test('a message that cannot be decoded is an error on the stream, and the next one still arrives', () async {
+      final h = Harness();
+      final session = await ChatSocket(baseUrl: Uri.parse('http://api.test'), connect: h.connect, heartbeat: null)
+          .connect(roomId: 'r');
+      final seen = <LineItem>[];
+      final errors = <Object>[];
+      session.messages.listen(seen.add, onError: errors.add);
+      h.only.deliver({'sku': 'a', 'qty': 'many'});
+      h.only.deliver({'sku': 'b', 'qty': 2});
+      await settle();
+      expect(errors, hasLength(1));
+      expect(seen, [const LineItem(sku: 'b', qty: 2)]);
+    });
+
+    test('a base url keeps its path and its query', () async {
+      final h = Harness();
+      await ChatSocket(baseUrl: Uri.parse('https://api.test/v1/?tenant=a#top'), connect: h.connect, heartbeat: null)
+          .connect(roomId: 'r');
+      expect(h.contexts.single.url.toString(), 'wss://api.test/v1/ws/chat/r?tenant=a');
+    });
+
+    test('a first connect that fails leaves nothing trying again', () async {
+      final h = Harness()..refuse = true;
+      await expectLater(
+        ChatSocket(baseUrl: Uri.parse('http://api.test'), connect: h.connect, options: quick, heartbeat: null)
+            .connect(roomId: 'r'),
+        throwsStateError,
+      );
+      await wait(120);
+      expect(h.contexts, hasLength(1));
+    });
+
+    test('a platform with no WebTransport is not retried', () async {
+      final h = Harness()..unavailable = true;
+      await expectLater(
+        TelemetryTransport(baseUrl: Uri.parse('https://api.test'), connect: h.connect, options: quick).connect(),
+        throwsA(isA<TransportUnavailable>()),
+      );
+      await wait(100);
+      expect(h.contexts, hasLength(1));
+    });
+
+    test('a typed socket survives a drop, and its sends wait for the new connection', () async {
+      final h = Harness();
+      final session = await ChatSocket(
+        baseUrl: Uri.parse('http://api.test'),
+        connect: h.connect,
+        options: quick,
+        heartbeat: null,
+      ).connect(roomId: 'r');
+      final seen = <LineItem>[];
+      session.messages.listen(seen.add);
+      await h.only.close();
+      await settle();
+      expect(session.state, LiveConnectionState.reconnecting);
+      final waiting = session.send(const LineItem(sku: 'w', qty: 1));
+      expect(session.queueSize, 1);
+      await until(() => h.connections.length == 2);
+      await waiting;
+      expect(h.connections.last.sent, [
+        {'qty': 1, 'sku': 'w'},
+      ]);
+      h.connections.last.deliver({'sku': 'after', 'qty': 2});
+      await settle();
+      expect(seen.single.sku, 'after');
+      expect(session.state, LiveConnectionState.connected);
+    });
+
+    test('closing a typed socket stops its heartbeat and reports closed', () async {
+      final h = Harness();
+      final session = await ChatSocket(
+        baseUrl: Uri.parse('http://api.test'),
+        connect: h.connect,
+        heartbeat: const Duration(milliseconds: 15),
+      ).connect(roomId: 'r');
+      await wait(50);
+      await session.disconnect();
+      final count = h.only.attempts;
+      await wait(60);
+      expect(h.only.attempts, count);
+      expect(session.state, LiveConnectionState.closed);
+      await session.closed;
+    });
+  });
+
+  group('connection', () {
+    test('the url builder merges the token into the base query and keeps the path', () {
+      expect(
+        streamUri(Uri.parse('https://h.test/base/?a=1&token=old'), '/ws/x%20y', token: 't+1').toString(),
+        'wss://h.test/base/ws/x%20y?a=1&token=t%2B1',
+      );
+      expect(streamUri(Uri.parse('http://h.test:8080'), '/ws').toString(), 'ws://h.test:8080/ws');
+      expect(streamUri(Uri.parse('https://h.test/v1'), '/sse', socket: false).toString(), 'https://h.test/v1/sse');
+      expect(bearerToken({'authorization': 'bearer abc '}), 'abc');
+      expect(bearerToken({'X-API-Key': 'k'}), isNull);
+    });
+
+    test('native sends the credentials as headers and web sends the bearer token as a query parameter', () async {
+      final h = Harness();
+      final options = LiveOptions(
+        credentials: () => {'Authorization': 'Bearer secret', 'X-API-Key': 'key'},
+      );
+      await liveOpen(
+        connect: h.connect,
+        baseUrl: Uri.parse('https://api.test/v1?tenant=a'),
+        path: '/ws/x',
+        endpoint: '/ws/x',
+        headers: {'x-extra': 'e'},
+        options: options,
+        web: false,
+      )(0);
+      expect(h.contexts.last.headers, {'x-extra': 'e', 'Authorization': 'Bearer secret', 'X-API-Key': 'key'});
+      expect(h.contexts.last.url.toString(), 'wss://api.test/v1/ws/x?tenant=a');
+
+      await liveOpen(
+        connect: h.connect,
+        baseUrl: Uri.parse('https://api.test/v1?tenant=a'),
+        path: '/ws/x',
+        endpoint: '/ws/x',
+        options: options,
+        web: true,
+      )(1);
+      expect(h.contexts.last.url.toString(), 'wss://api.test/v1/ws/x?tenant=a&token=secret');
+      expect(h.contexts.last.attempt, 1);
+    });
+
+    test('credentials given to a client reach its connect', () async {
+      final h = Harness();
+      final rooms = RoomClient(
+        baseUrl: Uri.parse('https://api.test'),
+        connect: h.connect,
+        options: LiveOptions(credentials: () async => {'Authorization': 'Bearer t'}),
+      );
+      await rooms.connect();
+      expect(h.contexts.single.headers['Authorization'], 'Bearer t');
+      await rooms.close();
+    });
+
+    test('a connect that takes too long is an error, then a reconnect, and the late connection is closed', () async {
+      final h = Harness()..firstDelay = const Duration(milliseconds: 150);
+      final rooms = RoomClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(
+          connectionTimeout: Duration(milliseconds: 40),
+          reconnectDelay: Duration(milliseconds: 10),
+          maxReconnectDelay: Duration(milliseconds: 20),
+        ),
+      );
+      final states = <LiveConnectionState>[];
+      rooms.states.listen(states.add);
+      await expectLater(
+        rooms.connect(),
+        throwsA(isA<TimeoutException>().having((e) => e.message, 'message', 'Connection timeout')),
+      );
+      await until(() => rooms.state == LiveConnectionState.connected);
+      expect(states.take(4), [
+        LiveConnectionState.connecting,
+        LiveConnectionState.error,
+        LiveConnectionState.reconnecting,
+        LiveConnectionState.connecting,
+      ]);
+      await until(() => h.connections.length == 2);
+      // The attempt that timed out connects late, after the retry did, and is closed unused.
+      await h.connections[1].closed.timeout(const Duration(seconds: 2));
+      expect(rooms.state, LiveConnectionState.connected);
+      await rooms.close();
+    });
+
+    test('the state follows a drop and a close, and an errored closed future counts as a drop', () async {
+      final h = Harness();
+      final rooms = RoomClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(reconnect: false),
+      );
+      final states = <LiveConnectionState>[];
+      rooms.states.listen(states.add);
+      await rooms.connect();
+      h.only.failClosed(StateError('socket died'));
+      await settle();
+      expect(rooms.state, LiveConnectionState.disconnected);
+      await rooms.connect();
+      expect(rooms.state, LiveConnectionState.connected);
+      await rooms.disconnect();
+      expect(states, [
+        LiveConnectionState.connecting,
+        LiveConnectionState.connected,
+        LiveConnectionState.disconnected,
+        LiveConnectionState.connecting,
+        LiveConnectionState.connected,
+        LiveConnectionState.closed,
+      ]);
+    });
+  });
+
+  group('reconnect', () {
+    test('rooms join again with their metadata and role, and only then send what waited', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await rooms.connect();
+      final join = rooms.join('r1', metadata: {'k': 'v'}, role: 'admin');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id'], 'room_name': 'Lobby'});
+      await join;
+
+      await h.only.close();
+      await settle();
+      expect(rooms.state, LiveConnectionState.reconnecting);
+      expect(rooms.joined, {'r1'});
+      expect(rooms.roomConnected('r1'), isFalse);
+      final waiting = rooms.send('r1', 'while down');
+      await until(() => h.connections.length == 2);
+      await settle();
+      final second = h.connections.last;
+      expect(second.sent, hasLength(1));
+      final rejoin = second.frame(0);
+      expect(rejoin.keys.toList(), ['type', 'request_id', 'room_id', 'metadata', 'role']);
+      expect(rejoin['type'], 'join');
+      expect(rejoin['metadata'], {'k': 'v'});
+      expect(rejoin['role'], 'admin');
+      second.deliver({'request_id': rejoin['request_id'], 'room_name': 'Lobby'});
+      await waiting;
+      expect(second.sent, hasLength(2));
+      expect(second.frame(1)['type'], 'message');
+      expect(second.frame(1)['data'], 'while down');
+      expect(rooms.roomConnected('r1'), isTrue);
+      expect(rooms.roomName('r1'), 'Lobby');
+      await rooms.close();
+    });
+
+    test('a room that cannot be joined again is marked not connected and held', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick, maxRooms: 1);
+      await rooms.connect();
+      final join = rooms.join('r1');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      final errors = <String>[];
+      rooms.errors.listen(errors.add);
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      h.connections.last.deliver({'request_id': h.connections.last.frame(0)['request_id'], 'error': 'gone'});
+      await settle();
+      expect(rooms.roomConnected('r1'), isFalse);
+      expect(rooms.joined, {'r1'});
+      expect(errors.single, contains('r1'));
+      await rooms.close();
+    });
+
+    test('a queued message for a room left meanwhile fails', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await rooms.connect();
+      final join = rooms.join('r1');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      await h.only.close();
+      await settle();
+      final waiting = rooms.send('r1', 'x');
+      final failure = expectLater(
+        waiting,
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'No longer joined to room')),
+      );
+      rooms.leave('r1');
+      await until(() => h.connections.length == 2);
+      await failure;
+      await rooms.close();
+    });
+
+    test('presence follows the same users again, and sends no status when none was ever set', () async {
+      final h = Harness();
+      final presence = PresenceClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await presence.connect();
+      presence.subscribe(['u1', 'u2']);
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      expect(h.connections.last.sent, [
+        {'type': 'subscribe_presence', 'user_ids': ['u1', 'u2']},
+      ]);
+      await presence.close();
+    });
+
+    test('presence sets the status again first, when one was set', () async {
+      final h = Harness();
+      final presence = PresenceClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await presence.connect();
+      presence.setStatus('busy', customMessage: 'deep work');
+      presence.subscribe(['u1']);
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      final second = h.connections.last;
+      expect(second.sent, hasLength(2));
+      expect(second.frame(0)['type'], 'presence');
+      expect(second.frame(0)['status'], 'busy');
+      expect(second.frame(0)['custom_status'], 'deep work');
+      expect(second.frame(1)['type'], 'subscribe_presence');
+      await presence.close();
+    });
+
+    test('channels subscribe again with the options they subscribed with', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick, maxChannels: 2);
+      await channels.connect();
+      channels
+        ..subscribe('news', filter: {'t': 1}, fromMessageId: 'm1')
+        ..subscribe('plain');
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      final second = h.connections.last;
+      expect(second.sent, hasLength(2));
+      expect(second.frame(0), {
+        'action': 'subscribe',
+        'channel_id': 'news',
+        'filter': {'t': 1},
+        'fromMessageId': 'm1',
+      });
+      expect(second.frame(1), {'action': 'subscribe', 'channel_id': 'plain'});
+      expect(channels.subscribed, {'news', 'plain'});
+      await channels.close();
+    });
+
+    test('giving up closes the socket and fails every queued send', () async {
+      final h = Harness();
+      final channels = ChannelClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(
+          maxReconnectAttempts: 2,
+          reconnectDelay: Duration(milliseconds: 5),
+          maxReconnectDelay: Duration(milliseconds: 5),
+        ),
+      );
+      await channels.connect();
+      h.refuse = true;
+      await h.only.close();
+      await settle();
+      final waiting = channels.publish('a', 1);
+      await expectLater(
+        waiting,
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'Max reconnection attempts reached')),
+      );
+      expect(channels.state, LiveConnectionState.closed);
+      expect(h.contexts, hasLength(3));
+    });
+
+    test('with reconnecting off a drop is just a drop', () async {
+      final h = Harness();
+      final typing = TypingClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(reconnect: false),
+      );
+      await typing.connect();
+      await h.only.close();
+      await wait(60);
+      expect(typing.state, LiveConnectionState.disconnected);
+      expect(h.contexts, hasLength(1));
+    });
+  });
+
+  group('offline queue', () {
+    test('a send while not connected waits, then goes out in order with its timestamp taken then', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      final a = channels.publish('c', 'a');
+      final b = channels.publish('c', 'b');
+      final c = channels.publish('c', 'c');
+      expect(channels.queueSize, 3);
+      await wait(30);
+      await channels.connect();
+      await Future.wait([a, b, c]);
+      expect(h.only.sent.map((f) => (f! as Map<Object?, Object?>)['data']), ['a', 'b', 'c']);
+      expect(channels.queueSize, 0);
+      final stamped = DateTime.parse(h.only.frame(0)['timestamp']! as String);
+      expect(DateTime.now().toUtc().difference(stamped).inMilliseconds, lessThan(25));
+      await channels.close();
+    });
+
+    test('a full queue refuses the next send, and a switched-off queue refuses all of them', () async {
+      final h = Harness();
+      final channels = ChannelClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(maxQueueSize: 2),
+      );
+      final first = channels.publish('c', 1);
+      final second = channels.publish('c', 2);
+      await expectLater(
+        channels.publish('c', 3),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'Message queue full')),
+      );
+      expect(channels.queueSize, 2);
+      final cleared = Future.wait([
+        expectLater(first, throwsA(isA<StateError>().having((e) => e.message, 'message', 'Queue cleared'))),
+        expectLater(second, throwsA(isA<StateError>().having((e) => e.message, 'message', 'Queue cleared'))),
+      ]);
+      channels.clearQueue();
+      await cleared;
+      expect(channels.queueSize, 0);
+
+      final off = ChannelClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(enableOfflineQueue: false),
+      );
+      await expectLater(
+        off.publish('c', 1),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'WebSocket is not connected')),
+      );
+    });
+
+    test('a send that waited past its time fails when the connection opens', () async {
+      final h = Harness();
+      final channels = ChannelClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(queueMessageTtl: Duration(milliseconds: 30)),
+      );
+      final stale = channels.publish('c', 'old');
+      final failure = expectLater(
+        stale,
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'Message expired in queue')),
+      );
+      await wait(80);
+      final fresh = channels.publish('c', 'new');
+      await channels.connect();
+      await failure;
+      await fresh;
+      expect(h.only.sent.map((f) => (f! as Map<Object?, Object?>)['data']), ['new']);
+      await channels.close();
+    });
+
+    test('flushing stops at the first send that fails and keeps the rest', () async {
+      final h = Harness()..sendLimit = 1;
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      final a = channels.publish('c', 'a');
+      final b = channels.publish('c', 'b');
+      final c = channels.publish('c', 'c');
+      var settled = 0;
+      unawaited(b.then((_) => settled++, onError: (Object _) => settled++));
+      unawaited(c.then((_) => settled++, onError: (Object _) => settled++));
+      await channels.connect();
+      await a;
+      await settle();
+      expect(h.only.sent, hasLength(1));
+      expect(channels.queueSize, 2);
+      expect(settled, 0);
+      channels.clearQueue(rejectPending: false);
+    });
+
+    test('closing rejects what waits unless told to keep it', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      final rejected = expectLater(
+        channels.publish('c', 1),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', 'Connection closed')),
+      );
+      await channels.disconnect();
+      await rejected;
+
+      final kept = channels.publish('c', 2);
+      await channels.disconnect(rejectQueued: false);
+      expect(channels.queueSize, 1);
+      await channels.connect();
+      await kept;
+      expect(h.only.sent.map((f) => (f! as Map<Object?, Object?>)['data']), [2]);
+      await channels.close();
+    });
+  });
+
+  group('timers', () {
+    test('a heartbeat that cannot be sent is reported and does not throw', () async {
+      final h = Harness();
+      final presence = PresenceClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(reconnect: false),
+        heartbeat: const Duration(milliseconds: 15),
+      );
+      final errors = <String>[];
+      presence.errors.listen(errors.add);
+      await presence.connect();
+      h.only.broken = true;
+      await wait(80);
+      expect(errors, isNotEmpty);
+      await presence.close();
+    });
+
+    test('a typing frame that cannot be sent is reported and does not throw', () async {
+      final h = Harness();
+      final typing = TypingClient(
+        baseUrl: Uri.parse('http://x.test'),
+        connect: h.connect,
+        options: const LiveOptions(reconnect: false),
+        debounce: const Duration(milliseconds: 10),
+        timeout: const Duration(milliseconds: 40),
+      );
+      final errors = <String>[];
+      typing.errors.listen(errors.add);
+      await typing.connect();
+      typing.start('r1');
+      h.only.broken = true;
+      await wait(120);
+      expect(errors, isNotEmpty);
+      await typing.close();
+    });
+  });
+
+  group('rooms extras', () {
+    test('broadcast sends, per-room streams filter, and the room name is read from frames', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      await rooms.connect();
+      final join = rooms.join('a');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      final inA = <RoomMessage>[];
+      rooms.messagesIn('a').listen(inA.add);
+      final joins = <Map<String, Object?>>[];
+      rooms.memberJoins('a').listen(joins.add);
+      h.only.deliver({'type': 'message', 'room_id': 'a', 'data': 1, 'room_name': 'Alpha'});
+      h.only.deliver({'type': 'message', 'room_id': 'b', 'data': 2});
+      h.only.deliver({'type': 'member_join', 'room_id': 'a', 'member': {'user_id': 'u'}});
+      h.only.deliver({'type': 'member_join', 'room_id': 'b', 'member': {'user_id': 'v'}});
+      await settle();
+      expect(inA.map((m) => m.data), [1]);
+      expect(joins, [
+        {'user_id': 'u'},
+      ]);
+      expect(rooms.roomName('a'), 'Alpha');
+      await rooms.broadcast('a', 'hi');
+      expect(h.only.last['type'], 'message');
+      expect(h.only.last['data'], 'hi');
+      await rooms.close();
+    });
+
+    test('a disconnect forgets the rooms, and a join again starts fresh', () async {
+      final h = Harness();
+      final rooms = RoomClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      await rooms.connect();
+      final join = rooms.join('a');
+      await settle();
+      h.only.deliver({'request_id': h.only.last['request_id']});
+      await join;
+      await rooms.disconnect();
+      expect(rooms.joined, isEmpty);
+      expect(rooms.state, LiveConnectionState.closed);
+    });
+  });
+
+  group('channels extras', () {
+    test('subscribed and unsubscribed answers arrive as acknowledgements', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      await channels.connect();
+      final acks = <ChannelAck>[];
+      channels.acks.listen(acks.add);
+      h.only.deliver({'type': 'subscribed', 'channel_id': 'a'});
+      h.only.deliver({'type': 'unsubscribed', 'channel_id': 'a'});
+      await settle();
+      expect(acks.map((a) => (a.channelId, a.subscribed)), [('a', true), ('a', false)]);
+      await channels.close();
+    });
+  });
+
+  group('unified client', () {
+    test('it passes its options down, lets a feature override them and connects the features chosen', () async {
+      final h = Harness();
+      final hub = StreamingClient(
+        baseUrl: Uri.parse('https://api.test'),
+        connect: h.connect,
+        options: LiveOptions(credentials: () => {'Authorization': 'Bearer all'}),
+        typingOptions: LiveOptions(credentials: () => {'Authorization': 'Bearer typing'}),
+      );
+      await hub.connect(presence: false, channels: false);
+      expect(h.contexts.map((c) => c.url.path), ['/realtime/rooms', '/realtime/typing']);
+      expect(h.contexts[0].headers['Authorization'], 'Bearer all');
+      expect(h.contexts[1].headers['Authorization'], 'Bearer typing');
+      expect(hub.clientStates.rooms, LiveConnectionState.connected);
+      expect(hub.clientStates.presence, LiveConnectionState.disconnected);
+      expect(hub.state, LiveConnectionState.disconnected);
+      await hub.close();
+    });
+
+    test('its state gathers the features, and it forwards their changes and errors', () async {
+      final h = Harness();
+      final hub = StreamingClient(baseUrl: Uri.parse('https://api.test'), connect: h.connect, options: const LiveOptions(reconnect: false));
+      final overall = <LiveConnectionState>[];
+      hub.states.listen(overall.add);
+      final changes = <String>[];
+      hub.clientStateChanges.listen((c) => changes.add('${c.client}:${c.state.name}'));
+      final errors = <String>[];
+      hub.errors.listen(errors.add);
+
+      await hub.connect();
+      await settle();
+      expect(hub.state, LiveConnectionState.connected);
+      expect(overall, contains(LiveConnectionState.connecting));
+      expect(overall.last, LiveConnectionState.connected);
+      expect(changes, containsAll(['rooms:connected', 'presence:connected', 'typing:connected', 'channels:connected']));
+
+      await h.connections[1].close();
+      await settle();
+      expect(hub.clientStates.presence, LiveConnectionState.disconnected);
+      expect(hub.state, LiveConnectionState.disconnected);
+
+      h.connections[0].deliver({'type': 'error', 'message': 'boom'});
+      h.connections[3].deliver({'type': 'error', 'message': 'bang'});
+      await settle();
+      expect(errors, containsAll(['boom', 'bang']));
+
+      await hub.disconnect();
+      expect(hub.state, LiveConnectionState.closed);
+      await hub.close();
+    });
+
+    test('a feature that fails to connect fails the call and puts the state in error', () async {
+      final h = Harness()..refuse = true;
+      final hub = StreamingClient(baseUrl: Uri.parse('https://api.test'), connect: h.connect, options: const LiveOptions(reconnect: false));
+      await expectLater(hub.connect(), throwsStateError);
+      expect(hub.state, LiveConnectionState.error);
+      await hub.close();
+    });
+  });
+
   test('the unified client opens every feature on its own path and closes them', () async {
     final h = Harness();
     final hub = StreamingClient(baseUrl: Uri.parse('https://api.test'), connect: h.connect, headers: {'x': 'y'});
@@ -513,7 +1220,7 @@ void main() {
     expect(h.contexts.every((c) => c.headers['x'] == 'y'), isTrue);
     await hub.close();
     expect(await Future.wait(h.connections.map((c) => c.closed.then((_) => true))), everyElement(isTrue));
-    expect(() => hub.rooms.send('r', 1), throwsStateError);
+    await expectLater(hub.rooms.send('r', 1), throwsStateError);
   });
 }
 `

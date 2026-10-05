@@ -34,7 +34,7 @@ var generatedTypeNames = []string{
 	"Int64", "Json", "Value", "Unchanged", "Assign", "WireCodec",
 	"RoomClient", "RoomMessage", "RoomEvent", "RoomMessageReceived", "RoomMemberJoined",
 	"RoomMemberLeft", "RoomFailure", "PresenceClient", "UserPresence", "TypingClient",
-	"TypingEvent", "ChannelClient", "ChannelMessage", "StreamingClient", "LiveConnection",
+	"TypingEvent", "ChannelClient", "ChannelMessage", "StreamingClient", "LiveSocket", "LiveOptions", "LiveConnectionState", "LiveOpen", "ChannelAck",
 }
 
 // forgeClientTypeNames are the types package:forge_client exports. An app

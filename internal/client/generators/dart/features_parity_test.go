@@ -22,7 +22,7 @@ type frame struct {
 var (
 	tsFrameBlock      = regexp.MustCompile(`(?s)JSON\.stringify\(\{(.*?)\}\)`)
 	tsRequestBlock    = regexp.MustCompile(`(?s)sendRequest\('(\w+)', \{(.*?)\}\)`)
-	dartFrameBlock    = regexp.MustCompile(`(?s)\??\.send\((?:const )?\{(.*?)\}\)`)
+	dartFrameBlock    = regexp.MustCompile(`(?s)(?:\.send\(|_send\(|=>\s*)(?:const )?\{(.*?)\}(?:\)|,|;)`)
 	dartRequestBlock  = regexp.MustCompile(`(?s)_request\('(\w+)', \{(.*?)\}\)`)
 	tsToken           = regexp.MustCompile(`^(\.\.\.)?(\w+)(?::\s*(.*))?$`)
 	dartToken         = regexp.MustCompile(`^'(\w+)':\s*(\?)?(.*)$`)

@@ -288,21 +288,15 @@ func emitStreaming(e *emission) error {
 	clients, warnings := planStreams(e.spec, e.config, e.reg, e.naming)
 	e.warn(warnings...)
 
-	live := false
-
 	for _, sc := range clients {
 		e.out.Files["lib/src/streaming/"+sc.file+".dart"] = renderStream(sc, e.reg, e.naming)
-		live = live || sc.ws || sc.sse
-	}
-
-	if live {
-		e.out.Files["lib/src/streaming/live_connection.dart"] = liveConnection
 	}
 
 	features := renderFeatures(e.spec, e.config)
 	maps.Copy(e.out.Files, features)
 
 	if len(clients) > 0 || len(features) > 0 {
+		e.out.Files["lib/src/streaming/live_socket.dart"] = renderLiveSocket(e.config)
 		e.own("lib/src/streaming")
 	}
 

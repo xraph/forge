@@ -59,13 +59,13 @@ var pathParamPattern = regexp.MustCompile(`\{([^{}]+)\}`)
 // means the field or the local.
 var streamParamReserved = map[string]bool{
 	"base": true, "url": true, "scheme": true, "connection": true, "headers": true,
-	"baseUrl": true, "heartbeat": true, "connect": true,
+	"baseUrl": true, "heartbeat": true, "connect": true, "socket": true, "options": true,
 	"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
 }
 
 // streamStems name the files of the streaming directory that are not typed
 // clients, so a typed client never takes one of their names.
-var streamStems = []string{"live_connection", "rooms", "presence", "typing", "channels", "streaming_client"}
+var streamStems = []string{"live_socket", "rooms", "presence", "typing", "channels", "streaming_client"}
 
 // planStreams resolves every streaming endpoint into a typed client. The
 // warnings name each direction left untyped.
@@ -324,22 +324,24 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 		factory = sc.connect + "(events: " + dartStringList(sc.events) + ")"
 	}
 
-	if sc.ws {
-		heartbeat := "this.heartbeat"
-		if sc.heartbeat > 0 {
-			heartbeat = fmt.Sprintf("this.heartbeat = const Duration(milliseconds: %d)", sc.heartbeat)
-		}
+	b.WriteString("  " + sc.class + "({\n    required this.baseUrl,\n    StreamConnect? connect,\n    this.headers = const {},\n    this.options = const LiveOptions(),\n")
 
-		fmt.Fprintf(&b, "  %s({\n    required this.baseUrl,\n    StreamConnect? connect,\n    this.headers = const {},\n    %s,\n  }) : _connect = connect ?? %s;\n\n", sc.class, heartbeat, factory)
-	} else {
-		fmt.Fprintf(&b, "  %s({required this.baseUrl, StreamConnect? connect, this.headers = const {}})\n", sc.class)
-		fmt.Fprintf(&b, "      : _connect = connect ?? %s;\n\n", factory)
+	if sc.ws {
+		if sc.heartbeat > 0 {
+			fmt.Fprintf(&b, "    this.heartbeat = const Duration(milliseconds: %d),\n", sc.heartbeat)
+		} else {
+			b.WriteString("    this.heartbeat,\n")
+		}
 	}
+
+	fmt.Fprintf(&b, "  }) : _connect = connect ?? %s;\n\n", factory)
 
 	b.WriteString("  /// The server root.\n")
 	b.WriteString("  final Uri baseUrl;\n\n")
 	b.WriteString("  /// Headers sent when connecting, where the platform can send them.\n")
 	b.WriteString("  final Map<String, String> headers;\n\n")
+	b.WriteString("  /// How the connection opens, reopens and queues what it cannot send.\n")
+	b.WriteString("  final LiveOptions options;\n\n")
 
 	if sc.ws {
 		b.WriteString("  /// How often to tell the server this client is still here, or null for never.\n")
@@ -351,41 +353,46 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 
 	b.WriteString("  final StreamConnect _connect;\n\n")
 
-	b.WriteString("  /// Opens the connection.\n")
+	b.WriteString("  /// Opens the connection. If the first attempt fails, nothing is left open.\n")
 	fmt.Fprintf(&b, "  Future<%s> connect(%s) async {\n", sc.session, params)
-	b.WriteString("    final base = baseUrl.toString().replaceAll(RegExp(r'/+$'), '');\n")
-	fmt.Fprintf(&b, "    final url = Uri.parse('$base%s');\n", path)
+	b.WriteString("    final socket = LiveSocket(\n")
+	b.WriteString("      open: liveOpen(\n")
+	b.WriteString("        connect: _connect,\n")
+	b.WriteString("        baseUrl: baseUrl,\n")
+	fmt.Fprintf(&b, "        path: '%s',\n", path)
+	fmt.Fprintf(&b, "        endpoint: %s,\n", dartString(sc.path))
+	b.WriteString("        headers: headers,\n")
+	b.WriteString("        options: options,\n")
 
-	endpoint := dartString(sc.path)
-
-	if sc.ws {
-		b.WriteString("    final scheme = switch (url.scheme) { 'https' => 'wss', 'http' => 'ws', final s => s };\n")
-		b.WriteString("    final connection = await _connect(\n")
-		fmt.Fprintf(&b, "      StreamConnectContext(url: url.replace(scheme: scheme), endpoint: %s, headers: headers),\n", endpoint)
-		b.WriteString("    );\n")
-		fmt.Fprintf(&b, "    return %s._(LiveConnection.socket(connection, heartbeat: heartbeat));\n", sc.session)
-	} else {
-		b.WriteString("    final connection = await _connect(\n")
-		fmt.Fprintf(&b, "      StreamConnectContext(url: url, endpoint: %s, headers: headers),\n", endpoint)
-		b.WriteString("    );\n")
-
-		switch {
-		case sc.sse && len(sc.events) > 0:
-			fmt.Fprintf(&b, "    return %s._(LiveConnection.events(connection, names: const {%s}));\n",
-				sc.session, strings.Trim(dartStringList(sc.events), "[]"))
-		case sc.sse:
-			fmt.Fprintf(&b, "    return %s._(LiveConnection.events(connection));\n", sc.session)
-		default:
-			fmt.Fprintf(&b, "    return %s._(connection);\n", sc.session)
-		}
+	if !sc.ws {
+		b.WriteString("        socket: false,\n")
 	}
 
+	b.WriteString("      ),\n")
+	b.WriteString("      options: options,\n")
+
+	switch {
+	case sc.ws:
+		b.WriteString("      heartbeat: heartbeat,\n")
+		b.WriteString("      keepalive: true,\n")
+	case sc.sse:
+		fmt.Fprintf(&b, "      events: const {%s},\n", strings.Trim(dartStringList(sc.events), "[]"))
+	}
+
+	b.WriteString("    );\n")
+	b.WriteString("    try {\n")
+	b.WriteString("      await socket.connect();\n")
+	b.WriteString("    } on Object {\n")
+	b.WriteString("      await socket.dispose();\n")
+	b.WriteString("      rethrow;\n")
+	b.WriteString("    }\n")
+	fmt.Fprintf(&b, "    return %s._(socket);\n", sc.session)
 	b.WriteString("  }\n}\n")
 
 	fmt.Fprintf(&b, "\n/// An open `%s` connection.\n", label)
 	fmt.Fprintf(&b, "final class %s {\n", sc.session)
-	fmt.Fprintf(&b, "  %s._(this._connection);\n\n", sc.session)
-	b.WriteString("  final StreamConnection _connection;\n\n")
+	fmt.Fprintf(&b, "  %s._(this._socket);\n\n", sc.session)
+	b.WriteString("  final LiveSocket _socket;\n\n")
 
 	var code []string
 
@@ -398,8 +405,12 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 		b.WriteString("  /// Messages from the server.\n")
 	}
 
+	b.WriteString("  ///\n")
+	b.WriteString("  /// Any number of listeners may listen, and the stream carries on across a\n")
+	b.WriteString("  /// reconnect. A message that cannot be decoded is an error event on it.\n")
+
 	if sc.receive.raw {
-		b.WriteString("  Stream<Object?> get messages => _connection.messages;\n\n")
+		b.WriteString("  Stream<Object?> get messages => _socket.frames;\n\n")
 	} else {
 		// An SSE connection delivers {'event', 'data', 'id'}; the payload is
 		// the data. Every other connection delivers the payload itself.
@@ -412,26 +423,47 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 		code = append(code, expr)
 
 		fmt.Fprintf(&b, "  Stream<%s> get messages =>\n", sc.receive.typ.name)
-		fmt.Fprintf(&b, "      _connection.messages.map((m) => %s);\n\n", expr)
+		fmt.Fprintf(&b, "      _socket.frames.map((m) => %s);\n\n", expr)
 	}
 
 	if sc.send != nil {
-		b.WriteString("  /// Sends [message] to the server.\n")
+		b.WriteString("  /// Sends [message] to the server, or queues it while the socket is down.\n")
+		b.WriteString("  ///\n")
+		b.WriteString("  /// The future completes once it is sent, and fails if it cannot be.\n")
 
 		if sc.send.raw {
-			b.WriteString("  void send(Object? message) => _connection.send(message);\n\n")
+			b.WriteString("  Future<void> send(Object? message) => _socket.deliver(() => message);\n\n")
 		} else {
 			expr := sc.send.encodeExpr("message")
 			code = append(code, expr)
 
-			fmt.Fprintf(&b, "  void send(%s message) => _connection.send(%s);\n\n", sc.send.typ.name, expr)
+			fmt.Fprintf(&b, "  Future<void> send(%s message) => _socket.deliver(() => %s);\n\n", sc.send.typ.name, expr)
 		}
 	}
 
-	b.WriteString("  /// Completes when the connection closes.\n")
-	b.WriteString("  Future<void> get closed => _connection.closed;\n\n")
-	b.WriteString("  /// Closes the connection.\n")
-	b.WriteString("  Future<void> close() => _connection.close();\n}\n")
+	b.WriteString("  /// The connection state.\n")
+	b.WriteString("  LiveConnectionState get state => _socket.state;\n\n")
+	b.WriteString("  /// Changes of [state].\n")
+	b.WriteString("  Stream<LiveConnectionState> get states => _socket.states;\n\n")
+	b.WriteString("  /// Failures with no caller to take them, such as a heartbeat that could not be sent.\n")
+	b.WriteString("  Stream<Object> get errors => _socket.errors;\n\n")
+
+	if sc.send != nil {
+		b.WriteString("  /// How many sends are waiting for a connection.\n")
+		b.WriteString("  int get queueSize => _socket.queueSize;\n\n")
+		b.WriteString("  /// Drops what is waiting to be sent, failing it when [rejectPending] is true.\n")
+		b.WriteString("  void clearQueue({bool rejectPending = true}) => _socket.clearQueue(rejectPending: rejectPending);\n\n")
+	}
+
+	b.WriteString("  /// Completes when the connection is closed for good.\n")
+	b.WriteString("  Future<void> get closed => _socket.closed;\n\n")
+	b.WriteString("  /// Opens the connection again after [disconnect].\n")
+	b.WriteString("  Future<void> connect() => _socket.connect();\n\n")
+	b.WriteString("  /// Closes the connection and stops reconnecting; [connect] opens it again.\n")
+	b.WriteString("  /// What is waiting to be sent fails unless [rejectQueued] is false.\n")
+	b.WriteString("  Future<void> disconnect({bool rejectQueued = true}) => _socket.disconnect(rejectQueued: rejectQueued);\n\n")
+	b.WriteString("  /// Closes the connection for good.\n")
+	b.WriteString("  Future<void> close({bool rejectQueued = true}) => _socket.dispose(rejectQueued: rejectQueued);\n}\n")
 
 	text := b.String()
 
@@ -463,10 +495,7 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 	}
 
 	local = append(local, reg.typeImports(names, "../models/")...)
-
-	if sc.ws || sc.sse {
-		local = append(local, "import 'live_connection.dart';")
-	}
+	local = append(local, "import 'live_socket.dart';")
 
 	if shown := usedSymbols(strings.Join(code, "\n"), supportSymbols); len(shown) > 0 {
 		local = append(local, "import '../support.dart' show "+strings.Join(shown, ", ")+";")
@@ -475,7 +504,7 @@ func renderStream(sc streamClient, reg *registry, naming codecNaming) string {
 	sortStrings(local)
 
 	out.WriteString(importBlock(dartImports,
-		[]string{"import 'package:forge_client/forge_client.dart'\n    show StreamConnect, StreamConnectContext, StreamConnection, " + sc.connect + ";"},
+		[]string{"import 'package:forge_client/forge_client.dart' show StreamConnect, " + sc.connect + ";"},
 		local))
 	out.WriteString(text)
 
@@ -497,92 +526,3 @@ func appendUnique(list []string, item string) []string {
 
 	return append(list, item)
 }
-
-// liveConnection is lib/src/streaming/live_connection.dart: the wrapper the
-// typed WebSocket and SSE clients put around a connection.
-const liveConnection = `// Generated by forge. Do not edit.
-
-import 'dart:async';
-
-import 'package:forge_client/forge_client.dart'
-    show StreamConnection, forgeKeepalive, streamControlEvents;
-
-/// A connection with the server's own traffic taken out, for the typed clients.
-///
-/// A socket answers the server's liveness ping, sends one of its own on an
-/// interval so a client that only listens is not closed as idle, and keeps
-/// system frames out of [messages]. An event stream keeps out the control
-/// events the server sends on a resumed stream, and any event the endpoint did
-/// not declare. Without this, a typed client would try to decode each of those
-/// as its own message type.
-final class LiveConnection implements StreamConnection {
-  /// Wraps a socket. [heartbeat] is how often to ping the server, or null for
-  /// never.
-  LiveConnection.socket(this._inner, {Duration? heartbeat}) : _names = null {
-    if (heartbeat != null) {
-      _timer = Timer.periodic(heartbeat, (_) => _ping());
-      unawaited(_inner.closed.whenComplete(_stop));
-    }
-  }
-
-  /// Wraps an event stream that declares [names]. An empty set accepts any
-  /// event but the control events.
-  LiveConnection.events(this._inner, {Set<String> names = const {}}) : _names = names;
-
-  final StreamConnection _inner;
-  final Set<String>? _names;
-  Timer? _timer;
-
-  late final Stream<Object?> _messages = _names == null
-      ? _inner.messages.where(_socketFrame)
-      : _inner.messages.where(_eventFrame);
-
-  @override
-  Stream<Object?> get messages => _messages;
-
-  @override
-  Future<void> get closed => _inner.closed;
-
-  @override
-  void send(Object? message) => _inner.send(message);
-
-  @override
-  Future<void> close() {
-    _stop();
-    return _inner.close();
-  }
-
-  bool _socketFrame(Object? message) {
-    if (message is! Map<Object?, Object?> || message['type'] != 'system') return true;
-    if (forgeKeepalive(message) case final reply?) {
-      try {
-        _inner.send(reply);
-      } on Object {
-        // The socket is closing; the closed future reports it.
-      }
-    }
-    return false;
-  }
-
-  bool _eventFrame(Object? message) {
-    if (message is! Map<Object?, Object?>) return false;
-    final name = message['event'];
-    if (streamControlEvents.contains(name)) return false;
-    final names = _names!;
-    return names.isEmpty || names.contains(name);
-  }
-
-  void _ping() {
-    try {
-      _inner.send(const {'type': 'system', 'event': 'ping'});
-    } on Object {
-      _stop();
-    }
-  }
-
-  void _stop() {
-    _timer?.cancel();
-    _timer = null;
-  }
-}
-`
