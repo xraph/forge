@@ -366,6 +366,59 @@ void main() {
       expect(after['meta'], same(before['meta']));
     });
 
+    test('preserves container identity when string and double scalars are identical by value', () {
+      final store = EntityStore();
+
+      // Test that separately decoded strings and doubles compare by value,
+      // not identity, so a refetch returns the same root container.
+      Object? pagination() => jsonDecode(
+        jsonEncode({
+          'items': [
+            {'id': 7, 'total': 99},
+          ],
+          'cursor': 'next-page-token',
+          'score': 1.5,
+        }),
+      );
+
+      final first = store.write(pagination(), schema, 'Envelope').skeleton;
+      final before = readMap(store, first);
+
+      final second = store.write(pagination(), schema, 'Envelope').skeleton;
+      final after = readMap(store, second, before);
+
+      expect(after, same(before));
+      expect(after['cursor'], 'next-page-token');
+      expect(after['score'], 1.5);
+    });
+
+    test('detects a changed string scalar and creates a new container', () {
+      final store = EntityStore();
+
+      Object? pagination(String cursor) => jsonDecode(
+        jsonEncode({
+          'items': [
+            {'id': 7, 'total': 99},
+          ],
+          'cursor': cursor,
+          'score': 1.5,
+        }),
+      );
+
+      final first = store
+          .write(pagination('first'), schema, 'Envelope')
+          .skeleton;
+      final before = readMap(store, first);
+
+      final second = store
+          .write(pagination('second'), schema, 'Envelope')
+          .skeleton;
+      final after = readMap(store, second, before);
+
+      expect(after, isNot(same(before)));
+      expect(after['cursor'], 'second');
+    });
+
     test('returns a fresh container when no previous read is offered', () {
       final store = EntityStore();
       final first = store.write(list, schema, 'Order').skeleton;

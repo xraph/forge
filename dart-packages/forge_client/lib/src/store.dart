@@ -559,6 +559,21 @@ final class EntityStore implements OverlayHost {
 Object? denormalize(Object? skeleton, EntityStore store) =>
     store.read(skeleton);
 
+/// Compares two scalar values for sameness, matching JS `!==` semantics.
+///
+/// JavaScript compares strings and numbers by value in `!==`, but Dart's
+/// `identical` does not guarantee identity for strings from separate
+/// `jsonDecode` calls or for doubles. This function compares strings and
+/// doubles by value while still using identity for containers and other
+/// objects, so a refetch returning the same bytes yields the same child
+/// identity for scalar fields.
+bool _sameScalar(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is String && b is String) return a == b;
+  if (a is double && b is double) return a == b;
+  return false;
+}
+
 /// Whether a freshly built container has the same children, by identity, as
 /// the one the previous read returned. Key order is not compared.
 bool _sameChildren(Object built, Object? previous) {
@@ -568,7 +583,7 @@ bool _sameChildren(Object built, Object? previous) {
     }
 
     for (var i = 0; i < built.length; i++) {
-      if (!identical(built[i], previous[i])) return false;
+      if (!_sameScalar(built[i], previous[i])) return false;
     }
 
     return true;
@@ -582,7 +597,7 @@ bool _sameChildren(Object built, Object? previous) {
 
   for (final MapEntry(:key, :value) in left.entries) {
     if (!previous.containsKey(key)) return false;
-    if (!identical(value, previous[key])) return false;
+    if (!_sameScalar(value, previous[key])) return false;
   }
 
   return true;
