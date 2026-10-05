@@ -298,3 +298,67 @@ func gateFixtures() []gateFixture {
 		{Name: "minimal", Spec: minimalSpec(), Config: minimal},
 	}
 }
+
+// streamingFixture exercises what the typed streaming clients distinguish:
+// path parameters named like the generated locals and fields, a list, an inline
+// object and a bare string as messages, a multiplexed direction, an SSE
+// endpoint with no named events and one with several, every WebTransport
+// shape, and feature clients on paths the document declares.
+func streamingFixture() gateFixture {
+	spec := ordersSpec()
+
+	spec.WebSockets = append(spec.WebSockets,
+		client.WebSocketEndpoint{
+			ID: "clash", Path: "/ws/{base}/{url}/{headers}/{heartbeat}/{connection}/{scheme}",
+			SendSchema: ref("LineItem"), ReceiveSchema: ref("LineItem"),
+		},
+		client.WebSocketEndpoint{
+			ID: "batch", Path: "/ws/batch",
+			SendSchema:    &client.Schema{Type: "array", Items: ref("LineItem")},
+			ReceiveSchema: &client.Schema{Type: "array", Items: ref("Customer")},
+		},
+		client.WebSocketEndpoint{
+			ID: "raw", Path: "/ws/raw/$weird",
+			SendSchema:    &client.Schema{Type: "string"},
+			ReceiveSchema: &client.Schema{Type: "object", Properties: map[string]*client.Schema{"seq": {Type: "integer"}}},
+		},
+		client.WebSocketEndpoint{
+			ID: "mux", Path: "/ws/mux",
+			SendSchema:      ref("LineItem"),
+			SendMessages:    map[string]*client.Schema{"a": ref("LineItem"), "b": ref("Customer")},
+			ReceiveMessages: map[string]*client.Schema{"a": ref("LineItem"), "b": ref("Customer")},
+		},
+		client.WebSocketEndpoint{Path: "/ws/anonymous"},
+	)
+
+	spec.SSEs = append(spec.SSEs,
+		client.SSEEndpoint{Path: "/sse/ticks"},
+		client.SSEEndpoint{
+			ID: "mixed", Path: "/sse/mixed/{topic}",
+			EventSchemas: map[string]*client.Schema{"line": ref("LineItem"), "who": ref("Customer")},
+		},
+	)
+
+	spec.WebTransports = append(spec.WebTransports,
+		client.WebTransportEndpoint{
+			ID: "duplex", Path: "/wt/duplex",
+			BiStreamSchema: &client.StreamSchema{SendSchema: ref("LineItem"), ReceiveSchema: ref("Customer")},
+		},
+		client.WebTransportEndpoint{
+			ID: "feed", Path: "/wt/feed",
+			UniStreamSchema: &client.StreamSchema{ReceiveSchema: ref("Customer")},
+		},
+	)
+
+	spec.Streaming = &client.StreamingSpec{
+		Rooms:    &client.RoomOperations{Path: "/realtime/rooms"},
+		Presence: &client.PresenceOperations{Path: "/realtime/presence", Statuses: []string{"here", "gone"}},
+		Typing:   &client.TypingOperations{Path: "/realtime/typing"},
+		Channels: &client.ChannelOperations{Path: "/realtime/channels"},
+	}
+
+	cfg := allStreaming(baseConfig())
+	cfg.PackageName = "streaming_forge_client"
+
+	return gateFixture{Name: "streaming", Spec: spec, Config: cfg}
+}

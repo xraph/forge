@@ -83,6 +83,7 @@ var emitters = []func(*emission) error{
 	emitBindings,
 	emitCapabilities,
 	emitPagination,
+	emitStreaming,
 }
 
 // Generate produces the package.
@@ -260,6 +261,49 @@ func emitCapabilities(e *emission) error {
 func emitPagination(e *emission) error {
 	if e.config.Pagination && len(e.ops) > 0 {
 		e.out.Files["lib/src/pagination.dart"] = renderPagination(planPagination(e.ops, e.paths, e.reg), e.reg)
+	}
+
+	return nil
+}
+
+// emitStreaming writes the typed streaming clients and the feature clients.
+// They are built on forge_client's connections, so they need hooks. The
+// streams table in ops.dart is not part of this: it follows hooks alone, and
+// the clients below follow the streaming flag as well.
+func emitStreaming(e *emission) error {
+	if !e.config.IncludeStreaming {
+		return nil
+	}
+
+	endpoints := len(e.spec.WebSockets) + len(e.spec.SSEs) + len(e.spec.WebTransports)
+
+	if !e.hooks {
+		if endpoints > 0 || e.config.HasAnyStreamingFeature() {
+			e.warn("streaming clients are generated only with --hooks: they are built on forge_client's connections, and a package without hooks depends on package:http alone")
+		}
+
+		return nil
+	}
+
+	clients, warnings := planStreams(e.spec, e.config, e.reg, e.naming)
+	e.warn(warnings...)
+
+	live := false
+
+	for _, sc := range clients {
+		e.out.Files["lib/src/streaming/"+sc.file+".dart"] = renderStream(sc, e.reg, e.naming)
+		live = live || sc.ws || sc.sse
+	}
+
+	if live {
+		e.out.Files["lib/src/streaming/live_connection.dart"] = liveConnection
+	}
+
+	features := renderFeatures(e.spec, e.config)
+	maps.Copy(e.out.Files, features)
+
+	if len(clients) > 0 || len(features) > 0 {
+		e.own("lib/src/streaming")
 	}
 
 	return nil
