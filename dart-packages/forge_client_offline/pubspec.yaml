@@ -1,0 +1,38 @@
+name: forge_client_offline
+description: Encrypted on-device storage and a durable outbox for forge_client.
+version: 1.0.0-dev
+publish_to: none
+repository: https://github.com/xraph/forge/tree/main/dart-packages/forge_client_offline
+homepage: https://github.com/xraph/forge
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.0"
+
+dependencies:
+  cryptography: ^2.9.0
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^11.2.0
+  forge_client:
+    path: ../forge_client
+  http: ^1.6.0
+  meta: ^1.19.0
+  sqlite3: ^3.7.0
+  uuid: ^4.6.0
+  web: ^1.1.1
+
+dev_dependencies:
+  fake_async: ^1.3.3
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+# Builds SQLite3MultipleCiphers instead of plain SQLite on native platforms.
+# User defines are read from the root package only: this block applies to
+# this package's own tests, and every app that depends on forge_client_offline
+# must repeat it in its own pubspec.yaml.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc

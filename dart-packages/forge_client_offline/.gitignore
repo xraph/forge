@@ -1,0 +1,7 @@
+.dart_tool/
+build/
+pubspec.lock
+test/sqlite3mc.wasm
+example/build/
+example/.dart_tool/
+example/pubspec.lock

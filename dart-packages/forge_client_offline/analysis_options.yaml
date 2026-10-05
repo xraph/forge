@@ -1,0 +1,18 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  exclude:
+    - build/**
+    - example/build/**
+
+linter:
+  rules:
+    - prefer_final_locals
+    - prefer_const_constructors
+    - unawaited_futures
+    - avoid_dynamic_calls
+    - public_member_api_docs
