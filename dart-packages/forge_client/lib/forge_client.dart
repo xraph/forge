@@ -2,6 +2,7 @@
 /// store, a tag graph, a query cache and a REST transport.
 library;
 
+export 'src/binding.dart';
 export 'src/cache.dart';
 export 'src/codec.dart';
 export 'src/freshness.dart';
@@ -20,3 +21,4 @@ export 'src/sync.dart';
 export 'src/tags.dart';
 export 'src/transport.dart';
 export 'src/types.dart';
+export 'src/client.dart';
