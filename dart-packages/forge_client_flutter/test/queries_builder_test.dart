@@ -4,10 +4,46 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:forge_client_flutter/testing.dart';
 
 import 'support/harness.dart';
 
 const _stale = Duration(milliseconds: 50);
+
+/// A read of an entity no sync source owns, so its sync status stays Synced.
+const _opGetCustomer = OperationMeta(
+  id: 'op_get_customer',
+  method: 'GET',
+  path: '/customers/{id}',
+  entity: 'Customer',
+  rootType: 'Customer',
+  provides: ['Customer:{id}'],
+);
+
+final _getCustomer = query<Object?, OrderArgs>(_opGetCustomer, (client) => client);
+
+/// A sync source the test drives: it owns Order and says whatever status it
+/// is told to. Modelled on forge_client's own test source.
+final class _FakeSource implements SyncSource {
+  final _status = StreamController<SyncStatus>.broadcast();
+
+  @override
+  Set<String> get entities => const {'Order'};
+
+  @override
+  Future<void> start(SyncContext context) async {}
+
+  @override
+  Future<MutationOutcome> apply(PendingMutation mutation) async => Queued(mutation.id);
+
+  @override
+  Stream<SyncStatus> status(String entity) => _status.stream;
+
+  void emit(SyncStatus status) => _status.add(status);
+
+  @override
+  Future<void> stop() async {}
+}
 
 Widget _staleList(String label) => ForgeQueryBuilder(
   query: listOrders(const ListOrdersArgs()),
@@ -29,6 +65,33 @@ void main() {
       expect(state.data, isEmpty);
       expect(state.error, isNull);
       expect(state.isFetching, isFalse);
+    });
+
+    test('reports the first failure, not the last', () {
+      final state = ForgeQueriesState([
+        const QuerySuccess<Object?>(1),
+        const QueryFailure<Object?>(Boom('first')),
+        const QueryFailure<Object?>(Boom('second')),
+      ]);
+      expect(state.status, ForgeCombinedStatus.failure);
+      expect(state.error.toString(), 'first');
+    });
+
+    test('is optimistic when any query is, and only then', () {
+      expect(
+        ForgeQueriesState([
+          const QuerySuccess<Object?>(1),
+          const QuerySuccess<Object?>(2, isOptimistic: true),
+        ]).isOptimistic,
+        isTrue,
+      );
+      expect(
+        ForgeQueriesState([
+          const QuerySuccess<Object?>(1),
+          const QuerySuccess<Object?>(2),
+        ]).isOptimistic,
+        isFalse,
+      );
     });
 
     test('puts idle ahead of success, with no data', () {
@@ -115,7 +178,7 @@ void main() {
       expect(h.transport.countOf(opGetOrder), 2);
     });
 
-    testWidgets('folds isFetching and syncStatus across its queries', (tester) async {
+    testWidgets('folds isFetching across its queries', (tester) async {
       // The fake transport answers before the next frame, so the refetch of
       // order 2 is held on a gate to let a build see it in flight.
       final gate = Completer<Object?>();
@@ -151,7 +214,6 @@ void main() {
 
       expect(seen.last.isFetching, isFalse);
       expect(seen.last.dataAt<Order>(1).total, 9);
-      expect(seen.last.syncStatus, isA<Synced>());
     });
 
     testWidgets('resubscribes only the query whose arguments changed', (tester) async {
@@ -193,6 +255,81 @@ void main() {
       await settle(tester);
 
       expect(h.transport.calls.map(idOf), [1, 2, 3]);
+    });
+
+    testWidgets('keeps each subscription when the queries are reordered', (tester) async {
+      final h = harness((request, _) => order(idOf(request), 5));
+
+      // Matching is by position, so [1, 2] -> [2, 1] rebinds both slots to
+      // each other's key. The cache already holds both fresh results, so at
+      // the default staleTime that is two resubscribes and no request.
+      Widget pair(List<int> ids) => scope(
+        h,
+        ForgeQueriesBuilder(
+          queries: [for (final id in ids) getOrder(OrderArgs(id))],
+          builder: (context, state) => Text(state.status.name),
+        ),
+      );
+
+      await tester.pumpWidget(pair([1, 2]));
+      await settle(tester);
+      await tester.pumpWidget(pair([2, 1]));
+      await settle(tester);
+
+      expect(find.text('success'), findsOneWidget);
+      expect(h.transport.calls.map(idOf), [1, 2]);
+    });
+
+    testWidgets('folds syncStatus across its queries, summing pending counts', (tester) async {
+      final source = _FakeSource();
+      final transport = FakeTransport((request, _) => order(idOf(request), 5));
+      final scheduler = ManualScheduler();
+      final cache = QueryCache(
+        transport: transport,
+        entities: {...schema, 'Customer': const EntityMeta(idField: 'id')},
+        scheduler: scheduler,
+        syncSources: [source],
+      );
+      final seen = <ForgeQueriesState>[];
+
+      cache.setPrincipal('alice');
+      await tester.pump();
+      await tester.pumpWidget(ForgeScope(
+        client: cache,
+        focus: FakeFocusSignal(),
+        connectivity: FakeConnectivitySignal(),
+        child: ltr(ForgeQueriesBuilder(
+          queries: [
+            getOrder(const OrderArgs(1)),
+            getOrder(const OrderArgs(2)),
+            _getCustomer(const OrderArgs(3)),
+          ],
+          builder: (context, state) {
+            seen.add(state);
+            return const SizedBox();
+          },
+        )),
+      ));
+      await settle(tester);
+      expect(seen.last.syncStatus, const Synced());
+
+      // The status is per entity, so each Order read carries Pending(2) and
+      // the Customer read stays Synced. Only a sum of both Order reads is 4.
+      source.emit(const Pending(2));
+      await settle(tester);
+      expect(seen.last.states[0].syncStatus, const Pending(2));
+      expect(seen.last.states[2].syncStatus, const Synced());
+      expect(seen.last.syncStatus, const Pending(4));
+
+      source.emit(const Offline());
+      await settle(tester);
+      expect(seen.last.syncStatus, const Offline());
+
+      source.emit(const SyncFailed('rejected'));
+      await settle(tester);
+      expect(seen.last.syncStatus, const SyncFailed('rejected'));
+
+      unawaited(cache.dispose());
     });
 
     testWidgets('follows the list as queries are added and removed', (tester) async {

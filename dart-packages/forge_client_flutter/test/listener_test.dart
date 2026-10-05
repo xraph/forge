@@ -25,7 +25,7 @@ void main() {
   tearDown(() => setClient(null));
 
   group('ForgeListener', () {
-    testWidgets('calls the listener on each transition and never rebuilds its child', (tester) async {
+    testWidgets('calls the listener on each transition and never rebuilds its child (a contract pin: the child widget is identical, so Flutter skips it either way)', (tester) async {
       var served = 0;
       final h = harness((request, _) => order(idOf(request), ++served));
       final transitions = <String>[];
@@ -196,10 +196,12 @@ void main() {
       clock.advance(const Duration(milliseconds: 100));
       await tester.pumpWidget(screen(detail: true));
 
-      // No "setState() or markNeedsBuild() called during build", and the
-      // listener has not run yet: its transition waits for the frame's end.
+      // No "setState() or markNeedsBuild() called during build". The
+      // listener's isFetching transition arrived mid-build, was held, and ran
+      // in the post-frame callbacks of that same frame.
       expect(tester.takeException(), isNull);
       expect(h.transport.countOf(opListOrders), 2);
+      expect(phases.skip(before), [SchedulerPhase.postFrameCallbacks]);
 
       gate.complete([order(1, 20)]);
       await settle(tester);

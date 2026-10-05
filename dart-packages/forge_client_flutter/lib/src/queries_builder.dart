@@ -59,8 +59,10 @@ final class ForgeQueriesState {
 
 /// Rebuilds with the combined state of several queries.
 ///
-/// Each query keeps its own subscription, keyed on its [QueryRef.key], so
-/// changing one entry's args resubscribes only that entry. The options apply
+/// Each query keeps its own subscription, matched by position and identified
+/// by its [QueryRef.key], so changing one entry's args resubscribes only that
+/// entry. Reordering the list rebinds the slots that moved, which costs a
+/// resubscribe and no request while the results are fresh. The options apply
 /// to every query. A change that reaches the builder while the tree is being
 /// built is applied after that frame rather than during it, as
 /// [ForgeQueryBuilder] does.
