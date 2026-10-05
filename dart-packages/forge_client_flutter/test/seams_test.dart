@@ -94,6 +94,41 @@ void main() {
       final error = tester.takeException();
       expect(error, isA<StateError>().having((e) => e.message, 'message', 'first'));
     });
+
+    testWidgets('runs every commit of a microtask batch when one throws, then rethrows the first error', (tester) async {
+      final scheduler = frameCommitScheduler();
+      final log = <String>[];
+
+      // Hidden, so frames are disabled and the batch runs on a microtask.
+      await setLifecycle(tester, AppLifecycleState.paused);
+      expect(tester.binding.framesEnabled, isFalse);
+
+      // The microtask runs in the zone of the schedule call that queued it,
+      // so this zone catches what the flush rethrows.
+      final errors = <Object>[];
+      runZonedGuarded(() {
+        scheduler.schedule(() => log.add('a'));
+        scheduler.schedule(() {
+          log.add('b');
+          throw StateError('first');
+        });
+        scheduler.schedule(() => log.add('c'));
+        scheduler.schedule(() {
+          log.add('d');
+          throw StateError('second');
+        });
+        scheduler.schedule(() => log.add('e'));
+      }, (error, _) => errors.add(error));
+      expect(log, isEmpty);
+
+      // Microtasks only, no frame is pumped.
+      await tester.idle();
+
+      expect(log, ['a', 'b', 'c', 'd', 'e']);
+      expect(errors, [isA<StateError>().having((e) => e.message, 'message', 'first')]);
+
+      await setLifecycle(tester, AppLifecycleState.resumed);
+    });
   });
 
   group('AppLifecycleFocusSignal', () {

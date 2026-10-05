@@ -290,6 +290,10 @@ void main() {
       expect(global.transport.countOf(opListOrders), 1);
     });
 
+    // The cases below have no counterpart in the React suite. The Dart port
+    // matches over the registry, as TS does, so it also reaches queries that
+    // have not settled successfully.
+
     testWidgets('marks every variant stale through the plain function, for code with no context', (tester) async {
       var served = 0;
       final h = harness((_, _) => [order(1, ++served)]);
@@ -303,9 +307,14 @@ void main() {
       expect(find.text('total:2'), findsOneWidget);
     });
 
-    // The cases below have no counterpart in the React suite. The Dart port
-    // matches over the registry, as TS does, so it also reaches queries that
-    // have not settled successfully.
+    testWidgets('rejects the forgeRefetch future, rather than throwing, when no client is configured', (tester) async {
+      late BuildContext context;
+      await tester.pumpWidget(ltr(_Grab((c) => context = c)));
+
+      late Future<void> refetch;
+      expect(() => refetch = context.forgeRefetch(listOrders), returnsNormally);
+      await expectLater(refetch, throwsA(isA<StateError>()));
+    });
 
     testWidgets('retries a query whose last fetch failed', (tester) async {
       var served = 0;

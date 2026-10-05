@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart';
 import 'package:forge_client_flutter/src/subscription.dart';
+import 'package:forge_client_flutter/testing.dart';
 
 import 'support/harness.dart';
+import 'support/live_harness.dart';
 
 Widget orderBuilder(int id) => ForgeQueryBuilder(
   query: getOrder(OrderArgs(id)),
@@ -747,6 +749,58 @@ void main() {
       expect(orderText(first.state), 'success:201');
       expect(orderText(second.state), 'success:202');
       expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+    });
+
+    // bind listens to the new query before it cancels the old one. These two
+    // fail if it cancels first.
+    testWidgets('never drops a same-key query to zero mounts while it resubscribes', (tester) async {
+      // A cache that remembers no unwatched query: one moment at zero mounts
+      // and the record is evicted, so the new listen fetches again.
+      final transport = FakeTransport((_, _) => [order(1, 10)]);
+      final cache = QueryCache(transport: transport, entities: schema, scheduler: ManualScheduler(), limit: 0);
+      final changes = <QueryState<List<Order>>>[];
+      final subscription = QuerySubscription<List<Order>>((_, next) => changes.add(next));
+      addTearDown(subscription.dispose);
+      final list = listOrders(const ListOrdersArgs());
+
+      subscription.bind(cache, list, live: false, staleTime: const Duration(hours: 1), enabled: true);
+      await settle(tester);
+      expect(transport.countOf(opListOrders), 1);
+      changes.clear();
+
+      expect(
+        subscription.bind(cache, list, live: false, staleTime: const Duration(hours: 2), enabled: true),
+        isTrue,
+      );
+      await settle(tester);
+
+      expect(transport.countOf(opListOrders), 1);
+      expect(changes, isEmpty);
+      expect(subscription.state.dataOrNull?.single.total, 10);
+      expect(cache.registry.get(cache.key(opListOrders, TagContext.empty))?.mounts, 1);
+    });
+
+    testWidgets('keeps a live query on its socket across a staleTime swap', (tester) async {
+      final h = liveHarness((_, _) => [order(7, 99)]);
+      final subscription = QuerySubscription<List<Order>>((_, _) {});
+      addTearDown(subscription.dispose);
+      final list = listOrders(const ListOrdersArgs());
+
+      subscription.bind(h.cache, list, live: true, staleTime: const Duration(hours: 1), enabled: true);
+      await settle(tester);
+      expect(h.live(), 1);
+      expect(h.manager.size, 1);
+
+      subscription.bind(h.cache, list, live: true, staleTime: const Duration(hours: 2), enabled: true);
+      await settle(tester);
+
+      // Nothing ever let go of the channel, so no close was even queued.
+      expect(h.closes.pending, isFalse);
+      h.closes.flush();
+      await settle(tester);
+      expect(h.manager.size, 1);
+      expect(h.opened, hasLength(1));
+      expect(h.live(), 1);
     });
 
     testWidgets('keeps a disabled subscription idle across setPrincipal', (tester) async {

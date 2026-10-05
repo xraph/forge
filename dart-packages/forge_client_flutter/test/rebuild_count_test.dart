@@ -181,6 +181,9 @@ void main() {
 
     // Not a React case. The write reaches the list through `Order:1`, but it
     // stores what is already there, so the list's state is the state it had.
+    // This guards the core store's equal-write path (store.dart `_equal`):
+    // the store keeps the same record object, and that identity is what lets
+    // sameQueryState see no change.
     testWidgets('does not rebuild when a write to a referenced entity changes nothing', (tester) async {
       final h = harness((request, _) {
         if (request.meta.id == opPatchOrder.id) return order(1, 10);

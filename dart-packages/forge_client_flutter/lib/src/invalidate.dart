@@ -105,10 +105,13 @@ extension ForgeInvalidation on BuildContext {
   /// Refetches every mounted variant of [binding], or only the one for
   /// [args], and completes when they settle. Unmounted variants are marked
   /// stale and refetch when next mounted. Throws when a refetch fails.
+  ///
+  /// Every failure arrives through the returned future, a missing client
+  /// included, so a caller that only awaits it sees them all.
   Future<void> forgeRefetch<T, A extends OperationArgs>(
     QueryBinding<T, A> binding, [
     A? args,
-  ]) => refetchBinding(ForgeScope.of(this, listen: false), binding, args);
+  ]) async => refetchBinding(ForgeScope.of(this, listen: false), binding, args);
 
   /// Invalidates already-resolved tags, as a settled mutation or a stream
   /// frame would.
