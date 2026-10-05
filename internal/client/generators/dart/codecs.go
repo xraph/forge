@@ -418,11 +418,14 @@ CodecRef? _taggedClient(
   }
   candidates.add(wire);
   CodecRef? found;
+  WireCodec? foundCodec;
   for (final key in candidates) {
     final next = _tagged(value, key, mapping);
     if (next == null) continue;
-    if (found != null && !identical(found, next)) return null;
+    final codec = next();
+    if (foundCodec != null && !identical(foundCodec, codec)) return null;
     found = next;
+    foundCodec = codec;
   }
   return found;
 }

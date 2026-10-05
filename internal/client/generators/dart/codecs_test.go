@@ -92,12 +92,14 @@ func walkSpec() *client.APISpec {
 				Properties: map[string]*client.Schema{
 					"order_number": str,
 					"status":       {Type: "string", Enum: []any{"pending", "shipped"}},
+					"color":        ref("Color"),
 					"customer":     ref("Customer"),
 					"lines":        {Type: "array", Items: ref("LineItem")},
 					"by_sku":       {Type: "object", AdditionalProperties: ref("LineItem")},
 					"shipping":     {Type: "object", Properties: map[string]*client.Schema{"street_name": str}},
 				},
 			},
+			"Color": {Type: "string", Enum: []any{"red", "green"}},
 			"Customer": {
 				Type: "object",
 				Properties: map[string]*client.Schema{
@@ -226,6 +228,11 @@ func walkCases() []walkCase {
 			Client: map[string]any{"orderNumber": "1", "status": "refunded"},
 		},
 		{
+			Name: "passes the value of a field that references a named enum through, known or not", Codec: "orderCodec",
+			Wire:   map[string]any{"order_number": "1", "color": "ultraviolet"},
+			Client: map[string]any{"orderNumber": "1", "color": "ultraviolet"},
+		},
+		{
 			Name: "passes null through", Codec: "orderCodec",
 			Wire:   map[string]any{"order_number": nil, "customer": nil},
 			Client: map[string]any{"orderNumber": nil, "customer": nil},
@@ -254,6 +261,11 @@ func walkCases() []walkCase {
 			Name: "passes an encoded discriminated value through when two names carry different tags", Codec: "petCodec", Only: "encode",
 			Client: map[string]any{"kind": "cat", "petType": "dog", "meowVolume": 1},
 			Wire:   map[string]any{"kind": "cat", "petType": "dog", "meowVolume": 1},
+		},
+		{
+			Name: "does not call an encoded tag ambiguous when two names resolve to the same member", Codec: "petCodec", Only: "encode",
+			Client: map[string]any{"kind": "cat", "petType": "cat", "meowVolume": 1},
+			Wire:   map[string]any{"pet_type": "cat", "petType": "cat", "meow_volume": 1},
 		},
 		{
 			Name: "falls back to the wire name of the tag when encoding", Codec: "petCodec", Only: "encode",
