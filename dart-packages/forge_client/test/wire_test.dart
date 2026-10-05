@@ -351,4 +351,36 @@ void main() {
       },
     );
   });
+
+  // No TS counterpart: TS writes the denormalized mode with JSON.stringify,
+  // which Dart has no equivalent of, so the snapshot routes it through this.
+  group('encodePlain', () {
+    test(
+      'writes JSON.stringify text and leaves reference-shaped keys alone',
+      () {
+        final value = {
+          'zeta': 7.0,
+          '10': -0.0,
+          '2': double.nan,
+          'meta': {'__ref': 'not a reference', '___ref': 'nor this'},
+        };
+
+        expect(
+          jsonEncode(encodePlain(value, _where)),
+          '{"2":null,"10":0,"zeta":7,"meta":{"__ref":"not a reference","___ref":"nor this"}}',
+        );
+      },
+    );
+
+    test('throws on a cycle and accepts a DAG', () {
+      final shared = <String, Object?>{'id': 1};
+      final node = <String, Object?>{'a': shared, 'b': shared};
+
+      expect(() => encodePlain(node, _where), returnsNormally);
+
+      node['self'] = node;
+
+      expect(() => encodePlain(node, _where), _throwsMessage('cyclic value'));
+    });
+  });
 }

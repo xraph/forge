@@ -16,6 +16,7 @@ export 'src/overlay.dart';
 export 'src/ref.dart';
 export 'src/registry.dart';
 export 'src/security.dart';
+export 'src/snapshot.dart';
 export 'src/state.dart';
 export 'src/store.dart';
 export 'src/stream.dart';

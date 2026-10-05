@@ -46,7 +46,21 @@ typedef EncodeResult = ({Object? value, List<EntityKey> refs});
 ///
 /// A route rather than a set of everything seen detects cycles, so an object
 /// reached twice through different fields (a DAG) is accepted.
-EncodeResult encode(Object? node, EncodeContext context) {
+EncodeResult encode(Object? node, EncodeContext context) =>
+    _copy(node, context, escape: true);
+
+/// Copy [node] as `JSON.stringify` would write it: the [encode] walk, with
+/// its key order, number rules and cycle check, but no key escaping. The
+/// denormalized snapshot mode writes response data through this, because
+/// that mode carries no references and so has nothing to escape.
+Object? encodePlain(Object? node, EncodeContext context) =>
+    _copy(node, context, escape: false).value;
+
+EncodeResult _copy(
+  Object? node,
+  EncodeContext context, {
+  required bool escape,
+}) {
   final refs = <EntityKey>[];
   final route = HashSet<Object>.identity();
 
@@ -65,7 +79,7 @@ EncodeResult encode(Object? node, EncodeContext context) {
       for (final MapEntry(:key, value: child) in _inJsKeyOrder(value).entries) {
         final name = '$key';
 
-        out[_collides.hasMatch(name) ? '_$name' : name] = walk(
+        out[escape && _collides.hasMatch(name) ? '_$name' : name] = walk(
           child,
           '$path.$name',
         );
@@ -149,8 +163,7 @@ Object? _jsonNumber(double number) {
   return number;
 }
 
-/// Throw if [node] is cyclic, without copying it. The denormalized mode needs
-/// the check and none of the escaping.
+/// Throw if [node] is cyclic, without copying it.
 void assertAcyclic(Object? node, EncodeContext context) {
   final route = HashSet<Object>.identity();
 
