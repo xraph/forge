@@ -385,6 +385,44 @@ void main() {
       expect(container.read(provider).value?.single.total, 11);
     });
 
+    // R18. The read below rebuilds the list's value provider from inside the
+    // clear's notification for the order, so it watches the list query while
+    // the cache is still reinstating records. It must join the list's
+    // reinstated record: one fetch, and later invalidations reach it.
+    test('joins the reinstated record when a .state listener reads another query during setPrincipal', () async {
+      var lists = 0;
+      final h = harness((request, _) {
+        if (identical(request.meta, opListOrders)) return [order(1, 100 + lists++)];
+        return order(idOf(request), 5);
+      });
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final list = listOrdersProvider(const ListOrdersArgs());
+      final seen = <int?>[];
+
+      // The order first, so its record comes before the list's.
+      container.listen(getOrderProvider.state(const OrderArgs(1)), (_, _) {
+        seen.add(container.read(list).value?.single.total);
+      });
+      container.listen(list, (_, _) {});
+      await settle();
+      expect(h.transport.countOf(opListOrders), 1);
+      expect(container.read(list).value?.single.total, 100);
+
+      h.cache.setPrincipal('bob');
+      await settle();
+
+      expect(seen, isNot(contains(100)));
+      // One fetch of the list on the switch.
+      expect(h.transport.countOf(opListOrders), 2);
+      expect(container.read(list).value?.single.total, 101);
+
+      // The provider follows the record the cache keeps.
+      await invalidate(h, ['Order[]']);
+      expect(h.transport.countOf(opListOrders), 3);
+      expect(container.read(list).value?.single.total, 102);
+    });
+
     test('never shows the previous client\'s data after a client swap, and moves the mount', () async {
       final a = harness((_, _) => [order(1, 10)]);
       final b = harness((_, _) => throw const Boom('b failed'));
