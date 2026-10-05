@@ -16,6 +16,7 @@ export 'src/registry.dart';
 export 'src/security.dart';
 export 'src/state.dart';
 export 'src/store.dart';
+export 'src/stream.dart';
 export 'src/stream_types.dart';
 export 'src/sync.dart';
 export 'src/tags.dart';
