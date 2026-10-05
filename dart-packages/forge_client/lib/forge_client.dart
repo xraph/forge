@@ -5,6 +5,7 @@ library;
 export 'src/binding.dart';
 export 'src/cache.dart';
 export 'src/codec.dart';
+export 'src/connections.dart';
 export 'src/freshness.dart';
 export 'src/invalidate.dart';
 export 'src/normalize.dart';

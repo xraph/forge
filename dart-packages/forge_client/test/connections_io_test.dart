@@ -2,7 +2,6 @@
 library;
 
 import 'package:forge_client/forge_client.dart';
-import 'package:forge_client/src/connections_io.dart';
 import 'package:test/test.dart';
 
 import 'support/test_servers.dart';

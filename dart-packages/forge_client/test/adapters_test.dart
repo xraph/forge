@@ -5,7 +5,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:forge_client/forge_client.dart';
-import 'package:forge_client/src/connections_io.dart';
 import 'package:forge_client/src/ws_connection.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
