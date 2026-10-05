@@ -26,9 +26,12 @@ import 'internal.dart';
 /// ```
 ///
 /// The value provider's data always belongs to the current client and
-/// principal. A `setPrincipal` or a new `forgeClientProvider` starts it over
-/// from loading, without the previous value, so `.value` never shows
-/// another user's data.
+/// principal, and so does `.state`. A `setPrincipal` or a new
+/// `forgeClientProvider` starts the value provider over from loading, without
+/// the previous value, and rebuilds `.state` for the new principal, so
+/// neither `.value` nor `.state` shows another user's data. The `previous`
+/// a `ref.listen` callback receives across the change is Riverpod's, and can
+/// still hold the previous principal's value.
 ///
 /// The cache notifies synchronously, so a provider's `build` must not start
 /// cache work: no `mutate`, `refetch`, `invalidate` or `setPrincipal`, and no
@@ -259,6 +262,10 @@ final class ForgeQueryStateNotifier<T, A extends OperationArgs> extends Notifier
   @override
   QueryState<T> build() => building(() {
         final client = ref.watch(forgeInstalledClientProvider);
+        // Dirty before setPrincipal's clear notifies anyone, so a read made
+        // during that clear builds afresh rather than returning the previous
+        // principal's state.
+        ref.watch(principalProvider(client));
         final inbox = StateInbox<QueryState<T>>(ref, _apply);
         final subscription = params.query
             .watch(client, live: params.live, staleTime: params.staleTime, enabled: params.enabled)

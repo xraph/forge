@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:flutter_riverpod/misc.dart' show Override, ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/testing.dart';
@@ -118,6 +118,42 @@ void main() {
       await invalidate(h, const []);
       expect(h.transport.countOf(opListOrders), 2);
     });
+
+    // Review Focus 1, as forge_client_flutter's query_builder_test pins it
+    // for ForgeQueryBuilder.
+    for (final full in [false, true]) {
+      test('drops a response that lands after the ${full ? '.state' : 'value'} provider is disposed, and keeps it in the cache', () async {
+        final gate = Completer<Object?>();
+        final h = harness((_, _) => gate.future);
+        final container = containerFor(h);
+        final query = getOrder(const OrderArgs(1));
+        ProviderListenable<Object?> provider() =>
+            full ? getOrderProvider.state(const OrderArgs(1)) : getOrderProvider(const OrderArgs(1));
+
+        final subscription = container.listen(provider(), (_, _) {});
+        await settle();
+        expect(h.transport.countOf(opGetOrder), 1);
+
+        subscription.close();
+        await settle();
+        expect(h.cache.registry.get(query.key)?.mounts ?? 0, 0);
+
+        // Lands on nothing: an error here would fail the test's zone.
+        gate.complete(order(1, 42));
+        await settle();
+        expect(query.getState(h.cache).dataOrNull?.total, 42);
+
+        // Served from the cache on the very first read, with no request.
+        container.listen(provider(), (_, _) {});
+        final first = container.read(provider());
+        expect(
+          first is AsyncValue<Order> ? first.value?.total : (first! as QueryState<Order>).dataOrNull?.total,
+          42,
+        );
+        await settle();
+        expect(h.transport.countOf(opGetOrder), 1);
+      });
+    }
 
     // Review Focus 2.
     test('keys the family on the query key, so a new args object is the same provider', () async {
@@ -421,6 +457,52 @@ void main() {
       await invalidate(h, ['Order[]']);
       expect(h.transport.countOf(opListOrders), 3);
       expect(container.read(list).value?.single.total, 102);
+    });
+
+    // The final review's R1. The .state providers watch the principal too, so
+    // a read made during setPrincipal's clear, before that query's own clear
+    // notification, builds afresh instead of returning alice's state.
+    test('never shows the previous principal\'s data to a .state read from a .state listener during setPrincipal', () async {
+      late QueryCache cache;
+      final h = harness((request, _) {
+        final id = idOf(request)! as int;
+        return order(id, (cache.principal == 'bob' ? 200 : 100) + id);
+      });
+      cache = h.cache;
+      h.cache.setPrincipal('alice');
+      final container = containerFor(h);
+      final seen = <String>[];
+
+      // A plain watcher of order 1, opened first so its record is notified
+      // first, reads order 2's .state from inside the clear.
+      final cleared = <int?>[];
+      final watcher = getOrder(const OrderArgs(1)).watch(h.cache).listen((state) {
+        if (cache.principal == 'bob' && state is QueryLoading<Order>) {
+          cleared.add(container.read(getOrderProvider.state(const OrderArgs(2))).dataOrNull?.total);
+        }
+      });
+      addTearDown(() => unawaited(watcher.cancel()));
+      container.listen(getOrderProvider.state(const OrderArgs(1)), (_, next) {
+        final other = container.read(getOrderProvider.state(const OrderArgs(2)));
+        seen.add('${cache.principal}: 1=${next.dataOrNull?.total} 2=${other.dataOrNull?.total}');
+      });
+      container.listen(getOrderProvider.state(const OrderArgs(2)), (_, _) {});
+      await settle();
+      expect(container.read(getOrderProvider.state(const OrderArgs(2))).dataOrNull?.total, 102);
+      seen.clear();
+
+      h.cache.setPrincipal('bob');
+      expect(cleared, isNotEmpty);
+      expect(cleared.whereType<int>(), isEmpty);
+      expect(seen.where(RegExp('=1').hasMatch), isEmpty, reason: '$seen');
+
+      await settle();
+      expect(seen, isNotEmpty);
+      expect(seen.where(RegExp('=1').hasMatch), isEmpty, reason: '$seen');
+      expect(container.read(getOrderProvider.state(const OrderArgs(1))).dataOrNull?.total, 201);
+      expect(container.read(getOrderProvider.state(const OrderArgs(2))).dataOrNull?.total, 202);
+      // One fetch of each order per principal.
+      expect(h.transport.countOf(opGetOrder), 4);
     });
 
     test('never shows the previous client\'s data after a client swap, and moves the mount', () async {

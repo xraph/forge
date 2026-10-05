@@ -114,7 +114,9 @@ class OrderStatus extends ConsumerWidget {
 
 `getOrderProvider(args)` is a plain `Provider<AsyncValue<Order>>`. It has no `.notifier` and no `.future`. To refetch, use `refetchBinding` or `invalidateBinding` (see Invalidation). A failed refetch is an `AsyncError` that keeps the previous value. Automatic retry is off for these providers, because a query's failure is data and a retried provider would refetch behind the cache's back.
 
-The value always belongs to the current client and principal. A `setPrincipal` or a new `forgeClientProvider` starts the provider over from `AsyncLoading` with no previous value, so `.value` and `select` never show the last user's data.
+The value always belongs to the current client and principal, and so does `.state`. A `setPrincipal` or a new `forgeClientProvider` starts the value provider over from `AsyncLoading` with no previous value, and rebuilds `.state` from the new principal's query, so `.value`, `select` and a read of `.state` never show the last user's data. That holds even for a read made while `setPrincipal` is still running, from a `.state` listener say.
+
+One thing stays out of this package's hands. The `previous` argument Riverpod passes to a `ref.listen` or `container.listen` callback across the change can still be the last user's value, for the value provider and for `.state` alike. Act on `next`, and don't show `previous`.
 
 ## Live updates
 
