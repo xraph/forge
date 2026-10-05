@@ -125,6 +125,14 @@ func (p *generationPlan) derive(name string, entry ClientGenConfig) *generationP
 		cfg.IncludeStreaming = *entry.Streaming
 	}
 
+	if entry.ClientOnly != nil {
+		cfg.ClientOnly = *entry.ClientOnly
+	}
+
+	if entry.Int64 != "" {
+		cfg.Int64 = client.Int64Mode(entry.Int64)
+	}
+
 	// Replace rather than append: see ClientGenConfig.Include. A client that
 	// names neither keeps the base filter, which is the inherited default.
 	if len(entry.Include) > 0 || len(entry.Exclude) > 0 {

@@ -148,7 +148,7 @@ type GenerationDefaults struct {
 	// FieldNaming selects the client-side identifier style for schema
 	// properties: "camel", "pascal", "snake", or "preserve". Empty means
 	// unset -- the generator's own per-language default applies (camel for
-	// typescript, preserve otherwise; see client.GeneratorConfig.FieldNaming's
+	// typescript and dart, preserve otherwise; see client.GeneratorConfig.FieldNaming's
 	// doc comment). Mirrors --field-naming; the CLI flag, when passed, wins
 	// over this.
 	FieldNaming string `yaml:"field_naming,omitempty"`
@@ -174,6 +174,10 @@ type GenerationDefaults struct {
 	// client.GeneratorConfig.FieldOverrides. Mirrors --field-overrides; the
 	// CLI flag, when passed, wins over this.
 	FieldOverrides map[string]string `yaml:"field_overrides,omitempty"`
+
+	// Int64 is the Dart int64 representation: "string" (the default) or
+	// "int". Other languages ignore it.
+	Int64 string `yaml:"int64,omitempty"`
 }
 
 // ClientGenConfig defines configuration for generating a specific client.
@@ -230,6 +234,15 @@ type ClientGenConfig struct {
 	// Override feature flags
 	Auth      *bool `yaml:"auth,omitempty"`
 	Streaming *bool `yaml:"streaming,omitempty"`
+
+	// ClientOnly overrides defaults.client_only for this client. A pointer so
+	// an absent key inherits. A TypeScript client that is client-only skips
+	// package.json and tsconfig; a Dart one keeps pubspec.yaml and skips only
+	// the README, because a Dart package without a pubspec cannot be used.
+	ClientOnly *bool `yaml:"client_only,omitempty"`
+
+	// Int64 overrides defaults.int64 for this client.
+	Int64 string `yaml:"int64,omitempty"`
 }
 
 // LoadClientConfig loads .forge-client.yml from the current directory or parent.

@@ -12,6 +12,7 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/internal/client"
+	"github.com/xraph/forge/internal/client/generators/dart"
 	"github.com/xraph/forge/internal/client/generators/golang"
 	"github.com/xraph/forge/internal/client/generators/typescript"
 )
@@ -114,7 +115,7 @@ func clientGenerationFlags() []cli.CommandOption {
 	return []cli.CommandOption{
 		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
-		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript)", "")),
+		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript, dart)", "")),
 		cli.WithFlag(cli.NewStringFlag("output", "o", "Output directory", "")),
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
 		cli.WithFlag(cli.NewStringFlag("base-url", "b", "API base URL", "")),
@@ -126,9 +127,11 @@ func clientGenerationFlags() []cli.CommandOption {
 		cli.WithFlag(cli.NewStringSliceFlag("client", "", "Generate only the named client from a clients: block (repeatable; default: all)", nil)),
 
 		// Field naming (TypeScript). Empty ("") means "unset": the generator's
-		// own per-language default applies (camel for typescript, preserve
-		// otherwise) so omitting this flag changes nothing for existing users.
-		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript, preserve otherwise)", "")),
+		// own per-language default applies (camel for typescript and dart,
+		// preserve otherwise) so omitting this flag changes nothing for existing users.
+		cli.WithFlag(cli.NewStringFlag("field-naming", "", "Client-side field naming strategy: camel, pascal, snake, or preserve (default: camel for typescript and dart, preserve otherwise)", "")),
+		// Dart only. Empty means unset, which is the string representation.
+		cli.WithFlag(cli.NewStringFlag("int64", "", "Dart int64 representation: string (default, keeps every digit on the web) or int", "")),
 		cli.WithFlag(cli.NewBoolFlag("hooks", "", "Generate the operation manifest (ops.ts) and typed hook facades (hooks.ts) over @forge-go/client-core", false)),
 
 		// Retained so existing scripts keep working. Enables exactly what
@@ -284,6 +287,10 @@ func applySpecTransforms(spec *client.APISpec, cfg client.GeneratorConfig) (clie
 func reservedIdentifiers(language string) map[string]bool {
 	if strings.EqualFold(language, "typescript") {
 		return typescript.ReservedIdentifiers()
+	}
+
+	if strings.EqualFold(language, "dart") {
+		return dart.ReservedIdentifiers()
 	}
 
 	return nil
@@ -462,6 +469,11 @@ func (p *ClientPlugin) generateOne(ctx cli.CommandContext, gen *client.Generator
 		ctx.Println("  cd " + outputDir)
 		ctx.Println("  npm install")
 		ctx.Println("  npm run build")
+
+	case "dart":
+		ctx.Println("  cd " + outputDir)
+		ctx.Println("  dart pub get")
+		ctx.Println("  dart analyze")
 	}
 
 	return nil
@@ -479,6 +491,10 @@ func newClientGenerator() (*client.Generator, error) {
 
 	if err := gen.Register(typescript.NewGenerator()); err != nil {
 		return nil, fmt.Errorf("register TypeScript generator: %w", err)
+	}
+
+	if err := gen.Register(dart.NewGenerator()); err != nil {
+		return nil, fmt.Errorf("register Dart generator: %w", err)
 	}
 
 	return gen, nil
@@ -582,7 +598,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	// Field naming: CLI flag wins over .forge-client.yml, which wins over
 	// leaving it unset entirely. Unset ("") is passed straight through to
 	// client.GeneratorConfig.FieldNaming and resolved by the library's own
-	// effectiveFieldNaming (camel for typescript, preserve otherwise) --
+	// effectiveFieldNaming (camel for typescript and dart, preserve otherwise) --
 	// nothing changes for a caller who never touches this. Unlike that
 	// library-level resolution (which silently falls back to preserve for
 	// an unrecognised NamingStrategy value -- see fieldname.go's
@@ -597,6 +613,16 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	fieldNaming, err := parseFieldNaming(fieldNamingFlag)
+	if err != nil {
+		return nil, cli.NewError(err.Error(), cli.ExitUsageError)
+	}
+
+	int64Flag := ctx.String("int64")
+	if int64Flag == "" {
+		int64Flag = clientConfig.Defaults.Int64
+	}
+
+	int64Mode, err := parseInt64Mode(int64Flag)
 	if err != nil {
 		return nil, cli.NewError(err.Error(), cli.ExitUsageError)
 	}
@@ -827,6 +853,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		Version:          "1.0.0",
 		FieldNaming:      fieldNaming,
 		FieldOverrides:   fieldOverrides,
+		Int64:            int64Mode,
 		StripPrefixes:    stripPrefixes,
 		PathFilter:       pathFilter,
 		Hooks:            hooks,
@@ -1241,7 +1268,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	ctx.Println("")
 
 	// Prompt for language
-	language, err := ctx.Select("Select target language:", []string{"go", "typescript"})
+	language, err := ctx.Select("Select target language:", []string{"go", "typescript", "dart"})
 	if err != nil {
 		return err
 	}
@@ -1345,7 +1372,7 @@ func truncate(s string, maxLen int) string {
 //
 // An empty string means "unset" and passes straight through as
 // client.NamingStrategy(""), letting the library's own
-// effectiveFieldNaming resolve it (camel for typescript, preserve
+// effectiveFieldNaming resolve it (camel for typescript and dart, preserve
 // otherwise) exactly as if the flag had never been introduced.
 //
 // Any non-empty value that is not one of the four recognised strategies is
@@ -1371,6 +1398,21 @@ func parseFieldNaming(value string) (client.NamingStrategy, error) {
 		return client.NamingPreserve, nil
 	default:
 		return "", fmt.Errorf("invalid --field-naming value %q: must be one of camel, pascal, snake, preserve", value)
+	}
+}
+
+// parseInt64Mode validates a --int64 (or int64: config) value. Empty means
+// unset and becomes the string representation inside the generator.
+func parseInt64Mode(value string) (client.Int64Mode, error) {
+	switch value {
+	case "":
+		return "", nil
+	case "string":
+		return client.Int64String, nil
+	case "int":
+		return client.Int64Int, nil
+	default:
+		return "", fmt.Errorf("invalid --int64 value %q: must be string or int", value)
 	}
 }
 
