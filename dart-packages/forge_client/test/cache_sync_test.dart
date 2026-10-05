@@ -298,6 +298,88 @@ void main() {
       });
     });
 
+    // A listener must not call setPrincipal (the docs say so), but when one
+    // does, the later principal is the one left in charge: the outer call
+    // stops once it sees it was superseded, so bob's sources, session and
+    // announcements never follow carol's.
+    for (final from in [
+      'a changing listener',
+      'a clear notification',
+      'a principal listener',
+    ]) {
+      test(
+        'leaves the later principal in charge when $from calls setPrincipal',
+        () {
+          fakeAsync((async) {
+            final kit = _build((_, _) => {'id': 'f1'});
+            var armed = false;
+
+            void reenter() {
+              if (!armed) return;
+              armed = false;
+              kit.cache.setPrincipal('carol');
+            }
+
+            kit.cache.setPrincipal('alice');
+            final subscription = kit.cache.watch(_folderGet, _f1).listen((
+              state,
+            ) {
+              if (from == 'a clear notification' && state is QueryLoading) {
+                reenter();
+              }
+            });
+            if (from == 'a changing listener') {
+              kit.cache.watchPrincipalChanging((_) => reenter());
+            }
+            if (from == 'a principal listener') {
+              kit.cache.watchPrincipal((_) => reenter());
+            }
+            async.flushMicrotasks();
+            expect(kit.log, ['open alice', 'start alice']);
+
+            final changing = <String?>[];
+            final told = <String?>[];
+            final announced = <String?>[];
+            kit.cache.watchPrincipalChanging(changing.add);
+            kit.cache.watchPrincipal(told.add);
+            kit.cache.principalChanges.listen(announced.add);
+            kit.log.clear();
+            final fetches = kit.transport.calls.length;
+
+            armed = true;
+            kit.cache.setPrincipal('bob');
+            async.flushMicrotasks();
+
+            expect(armed, isFalse);
+            expect(kit.cache.principal, 'carol');
+            expect(changing.last, 'carol');
+            expect(told, ['carol']);
+            expect(announced, ['carol']);
+            expect(kit.log, [
+              'stop alice',
+              'close alice',
+              'open carol',
+              'start carol',
+            ]);
+            expect(kit.cache.session?.principal, 'carol');
+            expect(kit.source.context?.principal, 'carol');
+            // Fetched for carol, and for bob too when bob's clear had finished.
+            expect(
+              kit.transport.calls.length,
+              fetches + (from == 'a principal listener' ? 2 : 1),
+            );
+            expect(
+              kit.cache.registry.get(kit.cache.key(_folderGet, _f1))?.mounts,
+              1,
+            );
+
+            unawaited(subscription.cancel());
+            async.flushMicrotasks();
+          });
+        },
+      );
+    }
+
     test('opens the principal’s session, then starts sources with it', () {
       fakeAsync((async) {
         final kit = _build((_, _) => null);

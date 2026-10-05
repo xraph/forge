@@ -411,6 +411,11 @@ final class QueryCache {
   /// [getState] for the synchronous value. Later events are delivered
   /// synchronously, and an unchanged state is never re-emitted. [live]
   /// subscribes the query to its stream channels for as long as it is watched.
+  ///
+  /// A listener told of a [clear] or a [setPrincipal] (the state goes back to
+  /// loading) must not call [setPrincipal] or [clear] from inside that
+  /// notification. The cache stays consistent if one does, with the later
+  /// principal in charge, but the clear in progress is cut short.
   Stream<QueryState<Object?>> watch(
     OperationMeta meta,
     TagContext args, {
@@ -878,12 +883,13 @@ final class QueryCache {
   ///
   /// The cache still holds the previous principal's records while listeners
   /// run, so a listener must not read or write the store, nor call back into
-  /// the cache. A throwing listener is reported with the context `principal`.
+  /// the cache, [setPrincipal] included. Nor may it read an adapter's
+  /// providers or widgets: an adapter's own changing listener may not have
+  /// run yet, so they can still show the previous principal's data. A
+  /// throwing listener is reported with the context `principal`.
   /// Returns a function that removes [listener]. [dispose] forgets every
   /// listener.
-  void Function() watchPrincipalChanging(
-    void Function(String? next) listener,
-  ) {
+  void Function() watchPrincipalChanging(void Function(String? next) listener) {
     _principalsChanging.add(listener);
 
     return () => _principalsChanging.remove(listener);
@@ -894,6 +900,12 @@ final class QueryCache {
   /// requests are abandoned. Every running sync source's context is fenced
   /// before anything is dropped; the sources themselves stop in the
   /// background, and [idle] completes once they have.
+  ///
+  /// Listeners told of the change (a changing listener, a watcher told of the
+  /// clear, a [watchPrincipal] listener) must not call [setPrincipal] or
+  /// [clear]. If one does, that call runs to completion and this one stops
+  /// where it is: the later principal is the one left in charge, and the
+  /// superseded one is neither started nor announced.
   void setPrincipal(String? principal) {
     if (principal == _principal) return;
 
@@ -911,6 +923,9 @@ final class QueryCache {
     // Before the clear, whose notifications are the first thing a watcher
     // sees of the new principal; see watchPrincipalChanging.
     for (final listener in _principalsChanging.toList()) {
+      // A listener called setPrincipal itself (see below).
+      if (_principal != principal) return;
+
       try {
         listener(principal);
       } on Object catch (error) {
@@ -918,16 +933,31 @@ final class QueryCache {
       }
     }
 
+    if (_principal != principal) return;
+
     _clear(keepOwned: false);
+
+    // A listener told of the clear called setPrincipal, or one did after it.
+    // That call ran its own transition to completion, so this one stops:
+    // starting this principal's sources and session, or announcing it, would
+    // put a superseded principal in charge after the current one. Listeners
+    // must not call setPrincipal or clear, but the cache stays consistent if
+    // one does.
+    if (_principal != principal) return;
+
     _scheduleSync(principal);
 
     for (final listener in _principals.toList()) {
+      if (_principal != principal) return;
+
       try {
         listener(principal);
       } on Object catch (error) {
         _onError?.call(error, 'principal');
       }
     }
+
+    if (_principal != principal) return;
 
     if (!_principalChanges.isClosed) _principalChanges.add(principal);
   }
@@ -1324,6 +1354,9 @@ final class QueryCache {
   /// source is still running and will not project them again, and a REST
   /// refetch never writes them. [setPrincipal] drops them with everything
   /// else.
+  ///
+  /// A watcher told of the clear must not call [clear] or [setPrincipal] from
+  /// inside that notification.
   void clear() => _clear(keepOwned: true);
 
   void _clear({required bool keepOwned}) {
