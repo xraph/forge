@@ -1,0 +1,101 @@
+{
+  "description": "Response data shaped like a reference, which must be escaped, with no principal",
+  "principal": null,
+  "queries": [
+    {
+      "args": null,
+      "operation": {
+        "entity": "Order",
+        "invalidates": [],
+        "method": "GET",
+        "path": "/orders",
+        "provides": [
+          "Order[]"
+        ]
+      },
+      "response": [
+        {
+          "id": 7,
+          "meta": {
+            "___ref": "x",
+            "__ref": "not a reference"
+          }
+        }
+      ]
+    }
+  ],
+  "reads": [
+    {
+      "args": null,
+      "operation": "GET /orders",
+      "value": [
+        {
+          "id": 7,
+          "meta": {
+            "___ref": "x",
+            "__ref": "not a reference"
+          }
+        }
+      ]
+    }
+  ],
+  "schema": {
+    "Customer": {
+      "fields": {
+        "orders": "Order"
+      },
+      "idField": "id"
+    },
+    "Envelope": {
+      "fields": {
+        "data": "Order",
+        "invoice": "Invoice",
+        "items": "Order",
+        "wrapper": "Envelope"
+      }
+    },
+    "Invoice": {
+      "idField": "invoiceNumber"
+    },
+    "LineItem": {
+      "idField": "sku"
+    },
+    "Order": {
+      "fields": {
+        "customer": "Customer",
+        "invoice": "Invoice",
+        "items": "LineItem",
+        "related": "Order"
+      },
+      "idField": "id"
+    }
+  },
+  "state": {
+    "mode": "normalized",
+    "queries": [
+      {
+        "operation": "GET /orders",
+        "settledTime": 1000,
+        "skeleton": [
+          {
+            "__ref": "Order:7"
+          }
+        ],
+        "tags": [
+          "Order[]",
+          "Order:7"
+        ]
+      }
+    ],
+    "records": {
+      "Order:7": {
+        "id": 7,
+        "meta": {
+          "____ref": "x",
+          "___ref": "not a reference"
+        }
+      }
+    },
+    "v": 1
+  }
+}

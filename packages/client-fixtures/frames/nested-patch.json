@@ -1,0 +1,93 @@
+{
+  "description": "A patch on a nested entity and on its parent in one batch",
+  "entities": {
+    "Customer": {
+      "fields": {
+        "orders": "Order"
+      },
+      "idField": "id"
+    },
+    "Envelope": {
+      "fields": {
+        "data": "Order",
+        "invoice": "Invoice",
+        "items": "Order",
+        "wrapper": "Envelope"
+      }
+    },
+    "Invoice": {
+      "idField": "invoiceNumber"
+    },
+    "LineItem": {
+      "idField": "sku"
+    },
+    "Order": {
+      "fields": {
+        "customer": "Customer",
+        "invoice": "Invoice",
+        "items": "LineItem",
+        "related": "Order"
+      },
+      "idField": "id"
+    }
+  },
+  "expected": {
+    "records": {
+      "Customer:c-3": {
+        "id": "c-3",
+        "name": "Grace"
+      },
+      "Order:7": {
+        "customer": {
+          "__ref": "Customer:c-3"
+        },
+        "id": 7,
+        "note": "rush",
+        "total": 1
+      }
+    }
+  },
+  "frames": [
+    [
+      {
+        "binding": {
+          "channel": "/ws/customers",
+          "entity": "Customer",
+          "intent": "patch",
+          "invalidates": [],
+          "message": "customer.updated"
+        },
+        "payload": {
+          "id": "c-3",
+          "name": "Grace"
+        }
+      },
+      {
+        "binding": {
+          "channel": "/ws/orders",
+          "entity": "Order",
+          "intent": "patch",
+          "invalidates": [],
+          "message": "order.updated"
+        },
+        "payload": {
+          "id": 7,
+          "note": "rush"
+        }
+      }
+    ]
+  ],
+  "initial": {
+    "rootType": "Order",
+    "value": [
+      {
+        "customer": {
+          "id": "c-3",
+          "name": "Ada"
+        },
+        "id": 7,
+        "total": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,219 @@
+{
+  "description": "Two queries sharing Order:7, nested Customer, LineItem and Invoice, owned by u-1",
+  "principal": "u-1",
+  "queries": [
+    {
+      "args": null,
+      "operation": {
+        "entity": "Order",
+        "invalidates": [],
+        "method": "GET",
+        "path": "/orders",
+        "provides": [
+          "Order[]"
+        ]
+      },
+      "response": [
+        {
+          "customer": {
+            "id": "c-3",
+            "name": "Ada"
+          },
+          "id": 7,
+          "total": 99
+        },
+        {
+          "id": 8,
+          "items": [
+            {
+              "qty": 2,
+              "sku": "A-1"
+            }
+          ],
+          "total": 1
+        }
+      ]
+    },
+    {
+      "args": {
+        "path": {
+          "id": 7
+        }
+      },
+      "operation": {
+        "entity": "Order",
+        "invalidates": [],
+        "method": "GET",
+        "path": "/orders/{id}",
+        "provides": [
+          "Order:{path.id}"
+        ]
+      },
+      "response": {
+        "id": 7,
+        "invoice": {
+          "amount": 99,
+          "invoiceNumber": "INV-1"
+        },
+        "total": 99
+      }
+    }
+  ],
+  "reads": [
+    {
+      "args": null,
+      "operation": "GET /orders",
+      "value": [
+        {
+          "customer": {
+            "id": "c-3",
+            "name": "Ada"
+          },
+          "id": 7,
+          "invoice": {
+            "amount": 99,
+            "invoiceNumber": "INV-1"
+          },
+          "total": 99
+        },
+        {
+          "id": 8,
+          "items": [
+            {
+              "qty": 2,
+              "sku": "A-1"
+            }
+          ],
+          "total": 1
+        }
+      ]
+    },
+    {
+      "args": {
+        "path": {
+          "id": 7
+        }
+      },
+      "operation": "GET /orders/{id}",
+      "value": {
+        "customer": {
+          "id": "c-3",
+          "name": "Ada"
+        },
+        "id": 7,
+        "invoice": {
+          "amount": 99,
+          "invoiceNumber": "INV-1"
+        },
+        "total": 99
+      }
+    }
+  ],
+  "schema": {
+    "Customer": {
+      "fields": {
+        "orders": "Order"
+      },
+      "idField": "id"
+    },
+    "Envelope": {
+      "fields": {
+        "data": "Order",
+        "invoice": "Invoice",
+        "items": "Order",
+        "wrapper": "Envelope"
+      }
+    },
+    "Invoice": {
+      "idField": "invoiceNumber"
+    },
+    "LineItem": {
+      "idField": "sku"
+    },
+    "Order": {
+      "fields": {
+        "customer": "Customer",
+        "invoice": "Invoice",
+        "items": "LineItem",
+        "related": "Order"
+      },
+      "idField": "id"
+    }
+  },
+  "state": {
+    "mode": "normalized",
+    "principal": "u-1",
+    "queries": [
+      {
+        "operation": "GET /orders",
+        "settledTime": 1000,
+        "skeleton": [
+          {
+            "__ref": "Order:7"
+          },
+          {
+            "__ref": "Order:8"
+          }
+        ],
+        "tags": [
+          "Order[]",
+          "Order:7",
+          "Customer:c-3",
+          "Order:8",
+          "LineItem:A-1"
+        ]
+      },
+      {
+        "args": {
+          "path": {
+            "id": 7
+          }
+        },
+        "operation": "GET /orders/{id}",
+        "settledTime": 1000,
+        "skeleton": {
+          "__ref": "Order:7"
+        },
+        "tags": [
+          "Order:7",
+          "Customer:c-3",
+          "Invoice:INV-1"
+        ]
+      }
+    ],
+    "records": {
+      "Customer:c-3": {
+        "id": "c-3",
+        "name": "Ada"
+      },
+      "Invoice:INV-1": {
+        "amount": 99,
+        "invoiceNumber": "INV-1"
+      },
+      "LineItem:A-1": {
+        "qty": 2,
+        "sku": "A-1"
+      },
+      "Order:7": {
+        "customer": {
+          "__ref": "Customer:c-3"
+        },
+        "id": 7,
+        "invoice": {
+          "__ref": "Invoice:INV-1"
+        },
+        "total": 99
+      },
+      "Order:8": {
+        "id": 8,
+        "items": [
+          {
+            "__ref": "LineItem:A-1"
+          }
+        ],
+        "total": 1
+      }
+    },
+    "v": 1
+  }
+}
