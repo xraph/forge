@@ -1356,14 +1356,29 @@ final class QueryCache {
     registry.clear();
     _records.clear();
 
+    // Two passes. Every watched record is back in place and mounted before
+    // any listener hears of the clear, so a listener that watches another
+    // query from inside its notification joins that query's reinstated
+    // record instead of opening a second one that the loop would then
+    // overwrite. That watch belongs to the new principal.
     for (final record in watched) {
       _reset(record);
       record.discard = false;
 
       _records[record.key] = record;
       record.unmount = registry.mount(record.spec);
+    }
+
+    for (final record in watched) {
+      // Its last listener left from inside an earlier notification, which
+      // released the mount taken above: nothing to tell, nothing to fetch.
+      if (record.listeners.isEmpty) continue;
 
       _notify(record);
+
+      // Or left during its own notification.
+      if (record.listeners.isEmpty) continue;
+
       _detach(_start(record));
     }
 

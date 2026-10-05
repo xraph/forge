@@ -68,6 +68,9 @@ Rig rig(
   );
 }
 
+int fetchesOf(FakeTransport transport, OperationMeta meta) =>
+    transport.calls.where((request) => identical(request.meta, meta)).length;
+
 Object? dataOf(
   QueryCache cache,
   OperationMeta meta, [
@@ -913,6 +916,127 @@ void main() {
         unawaited(subscription.cancel());
       },
     );
+
+    // R18. The clear reinstates every watched record before it notifies any,
+    // so a watch made from inside its notifications joins the reinstated
+    // record whatever order the records are in.
+    for (final bLater in [true, false]) {
+      test(
+        'joins the reinstated record when a watch is made from inside the clear (B ${bLater ? 'after' : 'before'} A)',
+        () async {
+          var orderCalls = 0;
+          final (:cache, :transport, :scheduler) = rig(
+            (request, _) => identical(request.meta, customerList)
+                ? [
+                    {'id': 1},
+                  ]
+                : {'id': 7, 'total': ++orderCalls},
+          );
+          const b = TagContext(path: {'id': 7});
+          final subscriptions = <StreamSubscription<Object?>>[];
+          final joined = <QueryState<Object?>>[];
+          var armed = false;
+
+          void watchA() => subscriptions.add(
+            cache.watch(customerList, none).listen((state) {
+              if (!armed || state is! QueryLoading) return;
+              armed = false;
+              subscriptions.add(cache.watch(orderGet, b).listen(joined.add));
+            }),
+          );
+          void watchB() =>
+              subscriptions.add(cache.watch(orderGet, b).listen((_) {}));
+
+          // The record order follows the order the queries were opened.
+          if (bLater) {
+            watchA();
+            watchB();
+          } else {
+            watchB();
+            watchA();
+          }
+          await settle();
+          expect(fetchesOf(transport, orderGet), 1);
+
+          armed = true;
+          cache.setPrincipal('bob');
+          await settle();
+
+          expect(armed, isFalse);
+          // One fetch of B on the switch.
+          expect(fetchesOf(transport, orderGet), 2);
+          expect(joined.last.dataOrNull, {'id': 7, 'total': 2});
+
+          // The joined watcher follows the record the cache keeps.
+          cache.invalidate(['Order:7']);
+          scheduler.flush();
+          await settle();
+
+          expect(fetchesOf(transport, orderGet), 3);
+          expect(joined.last.dataOrNull, {'id': 7, 'total': 3});
+          expect(cache.peek(orderGet, b)?.dataOrNull, joined.last.dataOrNull);
+          expect(cache.registry.get(cache.key(orderGet, b))?.mounts, 1);
+
+          for (final subscription in subscriptions) {
+            unawaited(subscription.cancel());
+          }
+        },
+      );
+    }
+
+    for (final fromItself in [false, true]) {
+      test(
+        'neither mounts nor fetches a record whose last watcher left during the clear (${fromItself ? 'its own' : 'an earlier'} notification)',
+        () async {
+          final (:cache, :transport, scheduler: _) = rig(
+            (request, _) => identical(request.meta, customerList)
+                ? [
+                    {'id': 1},
+                  ]
+                : {'id': 7, 'total': 1},
+          );
+          const b = TagContext(path: {'id': 7});
+          StreamSubscription<Object?>? watcherOfB;
+          var armed = false;
+
+          void leave(QueryState<Object?> state) {
+            if (!armed || state is! QueryLoading) return;
+            armed = false;
+            unawaited(watcherOfB!.cancel());
+          }
+
+          // A first, so B is notified after A.
+          final watcherOfA = cache.watch(customerList, none).listen((state) {
+            if (!fromItself) leave(state);
+          });
+          watcherOfB = cache.watch(orderGet, b).listen((state) {
+            if (fromItself) leave(state);
+          });
+          await settle();
+          expect(fetchesOf(transport, orderGet), 1);
+
+          final transitions = <String>[];
+          cache.observer = (event) {
+            if (event is QueryTransition) transitions.add(event.key);
+          };
+
+          armed = true;
+          cache.setPrincipal('bob');
+          await settle();
+
+          expect(armed, isFalse);
+          expect(fetchesOf(transport, orderGet), 1);
+          // Gone before its turn, so not even an observer hears of it.
+          if (!fromItself) {
+            expect(transitions, isNot(contains(cache.key(orderGet, b))));
+          }
+          expect(cache.registry.get(cache.key(orderGet, b))?.mounts ?? 0, 0);
+          expect(cache.registry.mounted, 1);
+
+          unawaited(watcherOfA.cancel());
+        },
+      );
+    }
 
     test(
       'reports a throwing changing listener, stops telling a removed one, and forgets them on dispose',

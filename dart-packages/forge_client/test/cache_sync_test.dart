@@ -126,6 +126,9 @@ final class _FakeSource implements SyncSource {
 
   void emit(String entity, SyncStatus status) => _status[entity]?.add(status);
 
+  /// Whether anything listens to [entity]'s status.
+  bool listening(String entity) => _status[entity]?.hasListener ?? false;
+
   @override
   Future<void> stop() async {
     log.add(_line('stop ${context?.principal}'));
@@ -270,6 +273,31 @@ void _putReplica(SyncContext context) => context.write(
 
 void main() {
   group('principal scoping', () {
+    // R18 (c): watchPrincipalChanging fires once the old principal is fenced
+    // off: its sources' contexts inactive, their statuses detached.
+    test('tells changing listeners after fencing the old contexts and detaching their statuses', () {
+      fakeAsync((async) {
+        final kit = _build((_, _) => null);
+
+        kit.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+
+        final context = kit.source.context!;
+        expect(context.active, isTrue);
+        expect(kit.source.listening('Document'), isTrue);
+
+        final seen = <(bool, bool)>[];
+        kit.cache.watchPrincipalChanging(
+          (_) => seen.add((context.active, kit.source.listening('Document'))),
+        );
+
+        kit.cache.setPrincipal('bob');
+
+        expect(seen, [(false, false)]);
+        async.flushMicrotasks();
+      });
+    });
+
     test('opens the principal’s session, then starts sources with it', () {
       fakeAsync((async) {
         final kit = _build((_, _) => null);
