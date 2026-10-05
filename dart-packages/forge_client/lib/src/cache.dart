@@ -344,6 +344,8 @@ final class QueryCache {
   int _generation = 0;
   final Set<void Function(String? principal)> _principals =
       <void Function(String? principal)>{};
+  final Set<void Function(String? next)> _principalsChanging =
+      <void Function(String? next)>{};
   final StreamController<String?> _principalChanges =
       StreamController<String?>.broadcast(sync: true);
   final StreamController<void> _commits = StreamController<void>.broadcast();
@@ -868,6 +870,25 @@ final class QueryCache {
     return () => _principals.remove(listener);
   }
 
+  /// Calls [listener] on every identity change, synchronously, before the
+  /// cache is emptied: after [principal] already returns the next principal,
+  /// and before the clear notifies any watcher and before any [watchPrincipal]
+  /// listener or [principalChanges] event. An adapter uses it to stop showing
+  /// the previous principal's data before anything can observe the change.
+  ///
+  /// The cache still holds the previous principal's records while listeners
+  /// run, so a listener must not read or write the store, nor call back into
+  /// the cache. A throwing listener is reported with the context `principal`.
+  /// Returns a function that removes [listener]. [dispose] forgets every
+  /// listener.
+  void Function() watchPrincipalChanging(
+    void Function(String? next) listener,
+  ) {
+    _principalsChanging.add(listener);
+
+    return () => _principalsChanging.remove(listener);
+  }
+
   /// Declares who the cached data belongs to, dropping everything on a
   /// change. Watched queries are re-mounted and refetched; their in-flight
   /// requests are abandoned. Every running sync source's context is fenced
@@ -886,6 +907,17 @@ final class QueryCache {
     // Before the clear, whose notifications would otherwise carry the old
     // principal's sync status to the new principal's watchers.
     _detachStatuses();
+
+    // Before the clear, whose notifications are the first thing a watcher
+    // sees of the new principal; see watchPrincipalChanging.
+    for (final listener in _principalsChanging.toList()) {
+      try {
+        listener(principal);
+      } on Object catch (error) {
+        _onError?.call(error, 'principal');
+      }
+    }
+
     _clear(keepOwned: false);
     _scheduleSync(principal);
 
@@ -1836,6 +1868,7 @@ final class QueryCache {
     if (_disposed) return;
 
     _disposed = true;
+    _principalsChanging.clear();
 
     // Synchronously, like the rest of this teardown: no source writes into a
     // disposed cache, however long its stop takes.
