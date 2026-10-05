@@ -10,4 +10,6 @@ export 'src/seams.dart'
         flutterSeamsInstalled,
         frameCommitScheduler,
         installFlutterSeams;
+export 'src/query_builder.dart' show ForgeQueryBuilder;
 export 'src/scope.dart' show ForgeContext, ForgeScope;
+export 'src/state_equality.dart' show firstState, sameQueryState;
