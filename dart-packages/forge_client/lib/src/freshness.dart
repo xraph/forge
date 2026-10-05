@@ -56,7 +56,8 @@ void Function() revalidateOnReconnect(
   return _once(subscription);
 }
 
-/// Refetches one query every [every] until the returned stop is called.
+/// Refetches one query every [every] until the returned stop is called or
+/// the cache is disposed.
 ///
 /// A loop over a [Sleep] rather than a periodic timer: the next delay begins
 /// after the previous request settled, so a slow endpoint spreads its polls
@@ -74,10 +75,12 @@ void Function() poll(
   var stopped = false;
 
   Future<void> loop() async {
-    while (!stopped) {
+    while (!stopped && !cache.isDisposed) {
       await sleep(every);
 
-      if (stopped) break;
+      // A disposed cache refuses every refetch; looping on would only keep
+      // reporting that.
+      if (stopped || cache.isDisposed) break;
 
       try {
         await cache.refetch(meta, args);

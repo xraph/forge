@@ -322,6 +322,10 @@ final class QueryCache {
   final Map<int, int> _dispatches = <int, int>{};
   int _dispatchToken = 0;
   String? _principal;
+
+  /// Bumped by every [clear], so a mutation can tell that the cache it was
+  /// dispatched against is gone.
+  int _generation = 0;
   final Set<void Function(String? principal)> _principals =
       <void Function(String? principal)>{};
   final StreamController<String?> _principalChanges =
@@ -333,6 +337,9 @@ final class QueryCache {
 
   /// How many queries are tracked, watched or merely remembered.
   int get size => _records.length;
+
+  /// Whether [dispose] has run. A disposed cache refuses new work.
+  bool get isDisposed => _disposed;
 
   /// The cache key this operation and these arguments resolve to.
   String key(OperationMeta meta, TagContext args) => queryKey(meta, args);
@@ -576,6 +583,13 @@ final class QueryCache {
   /// A response a stream frame overtook is never re-issued: it commits around
   /// the raced entities instead, because re-sending a write is how duplicate
   /// orders happen.
+  ///
+  /// A response that lands after [clear] or [setPrincipal] emptied the cache
+  /// belongs to the data that was dropped. It is not committed, promoted,
+  /// placed or invalidated, and the call still completes with the decoded
+  /// response rather than throwing: the server applied the write, and a
+  /// failure here could lead an outbox to send it again under the new
+  /// principal.
   Future<Object?> mutate(
     OperationMeta meta,
     TagContext args, {
@@ -586,6 +600,7 @@ final class QueryCache {
     final overlay = _push(meta, args, options);
     final dispatchedAt = store.frameVersion;
     final token = _dispatched(dispatchedAt);
+    final generation = _generation;
 
     Object? response;
 
@@ -608,6 +623,18 @@ final class QueryCache {
       }
 
       Error.throwWithStackTrace(error, stack);
+    }
+
+    if (generation != _generation) {
+      _landed(token);
+
+      // The clear already dropped every overlay; this only guards the rule
+      // that this mutation's optimism never comes back.
+      if (overlay != null && overlays.take(overlay) != null) {
+        _refresh(notify: true);
+      }
+
+      return response;
     }
 
     final staged = store.stage(response, entities, _rootTypeOf(meta));
@@ -817,6 +844,8 @@ final class QueryCache {
   /// Drops every entity, every skeleton and every registry entry. Watched
   /// queries are reset in place and refetched.
   void clear() {
+    _generation++;
+
     final tracked = _records.values.toList();
 
     // Every request out is abandoned first: a sequence drops a response whose

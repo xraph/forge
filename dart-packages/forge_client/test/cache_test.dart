@@ -753,6 +753,110 @@ void main() {
       expect(transport.calls, hasLength(1));
     });
 
+    // Dart-only: a write that lands after the cache changed hands belongs to
+    // nobody here. The server applied it, so the call still succeeds, but
+    // nothing of it reaches the new principal's store.
+    test('completes a write that lands after a principal change without committing it', () async {
+      final gate = Completer<Object?>();
+      final (:cache, :transport, :scheduler) = rig(
+        (request, _) => request.meta.method == 'PATCH'
+            ? gate.future
+            : {'id': 7, 'total': 1},
+      );
+      const args = TagContext(path: {'id': 7});
+
+      cache.setPrincipal('alice');
+      await cache.fetch(orderGet, args);
+
+      final pending = cache.mutate(
+        orderPatch,
+        args,
+        options: MutateOptions(
+          optimistic: OptimisticUpdate<Object?>(
+            (previous) => {...previous! as Json, 'note': 'alice-only'},
+          ),
+        ),
+      );
+
+      expect((dataOf(cache, orderGet, args)! as Json)['note'], 'alice-only');
+
+      cache.setPrincipal('bob');
+      cache.subscribe(orderGet, args, () {});
+      await settle();
+
+      final calls = transport.calls.length;
+
+      gate.complete({'id': 7, 'total': 1, 'note': 'alice-only'});
+
+      expect(await pending, {'id': 7, 'total': 1, 'note': 'alice-only'});
+
+      scheduler.flush();
+      await settle();
+
+      expect(cache.store.getRecord('Order:7')?.data, {'id': 7, 'total': 1});
+      expect(dataOf(cache, orderGet, args), {'id': 7, 'total': 1});
+      expect(cache.getState(orderGet, args).isOptimistic, isFalse);
+      expect(cache.overlays.empty, isTrue);
+      expect(transport.calls, hasLength(calls));
+    });
+
+    test(
+      'completes a write that lands after a clear without committing it',
+      () async {
+        final gate = Completer<Object?>();
+        final (:cache, :transport, :scheduler) = rig(
+          (request, _) => request.meta.method == 'PATCH'
+              ? gate.future
+              : {'id': 7, 'total': 1},
+        );
+        const args = TagContext(path: {'id': 7});
+
+        await cache.fetch(orderGet, args);
+
+        final pending = cache.mutate(orderPatch, args);
+
+        cache.clear();
+        await cache.fetch(orderGet, args);
+
+        final calls = transport.calls.length;
+
+        gate.complete({'id': 7, 'total': 1, 'note': 'stale'});
+
+        expect(await pending, {'id': 7, 'total': 1, 'note': 'stale'});
+
+        scheduler.flush();
+        await settle();
+
+        expect(cache.store.getRecord('Order:7')?.data, {'id': 7, 'total': 1});
+        expect(dataOf(cache, orderGet, args), {'id': 7, 'total': 1});
+        expect(transport.calls, hasLength(calls));
+      },
+    );
+
+    test('still commits a write that lands for the same principal', () async {
+      final gate = Completer<Object?>();
+      final (:cache, transport: _, scheduler: _) = rig(
+        (request, _) => request.meta.method == 'PATCH'
+            ? gate.future
+            : {'id': 7, 'total': 1},
+      );
+      const args = TagContext(path: {'id': 7});
+
+      cache.setPrincipal('alice');
+      await cache.fetch(orderGet, args);
+
+      final pending = cache.mutate(orderPatch, args);
+
+      gate.complete({'id': 7, 'total': 1, 'note': 'kept'});
+
+      expect(await pending, {'id': 7, 'total': 1, 'note': 'kept'});
+      expect(cache.store.getRecord('Order:7')?.data, {
+        'id': 7,
+        'total': 1,
+        'note': 'kept',
+      });
+    });
+
     // Dart-only: the stream face of watchPrincipal.
     test('announces the new principal after the cache was emptied', () async {
       final (:cache, transport: _, scheduler: _) = rig(
@@ -1665,6 +1769,36 @@ void main() {
       await subscription.cancel();
 
       expect(cache.registry.get(cache.key(orderList, none))?.mounts, 0);
+    });
+
+    // Dart-only: decision 9. A stream cannot deliver inside listen, so the
+    // first event is the listen-time state, queued ahead of anything that
+    // changes after listen returns.
+    test('delivers the listen-time state first, after listen returns and before a later change', () async {
+      final (:cache, transport: _, scheduler: _) = rig(
+        (_, _) => Completer<Object?>().future,
+      );
+      final seen = <QueryState<Object?>>[];
+
+      final subscription = cache.watch(orderList, none).listen(seen.add);
+
+      expect(seen, isEmpty);
+
+      final atListen = cache.getState(orderList, none);
+      expect(atListen, isA<QueryLoading<Object?>>());
+
+      // Synchronously, before any microtask has run.
+      cache.restore(const RestoreInput(meta: orderList, skeleton: <Object?>[]));
+
+      expect(seen, isEmpty);
+
+      await settle();
+
+      expect(seen.first, same(atListen));
+      expect(seen.last, isA<QuerySuccess<Object?>>());
+      expect(seen.last, same(cache.getState(orderList, none)));
+
+      await subscription.cancel();
     });
 
     test('never re-emits a state that did not change', () async {

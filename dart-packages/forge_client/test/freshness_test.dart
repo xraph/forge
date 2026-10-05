@@ -530,6 +530,32 @@ void main() {
       expect(transport.calls, hasLength(3));
     });
 
+    test('ends the loop once the cache is disposed', () async {
+      final (:queries, :transport, scheduler: _) = rig();
+      final timers = ManualClock();
+
+      final stop = poll(
+        queries,
+        orderList,
+        none,
+        const Duration(seconds: 1),
+        sleep: timers.sleep,
+      );
+
+      await advance(timers, 1000);
+      expect(transport.calls, hasLength(1));
+
+      await queries.dispose();
+
+      await advance(timers, 1000);
+      await advance(timers, 1000);
+
+      expect(timers.pending, 0);
+      expect(transport.calls, hasLength(1));
+
+      stop();
+    });
+
     test('keeps polling after a request fails', () async {
       var call = 0;
       final transport = FakeTransport((_, _) {
