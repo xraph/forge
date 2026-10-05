@@ -1,16 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show BindingBase, kDebugMode;
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart' show firstState, sameQueryState;
 
 import 'client_provider.dart';
-
-/// Riverpod 3 already skips retrying an `Error`. This stops it retrying an
-/// `Exception` too, which would resubscribe behind the cache's back.
-Duration? _noRetry(int retryCount, Object error) => null;
+import 'internal.dart';
 
 /// Turns a query binding into a Riverpod family. Declare it once, at the top
 /// level:
@@ -107,33 +102,6 @@ final class _ValueKey<T, A extends OperationArgs> {
   int get hashCode => Object.hash(params, identityHashCode(client), principal);
 }
 
-/// A client's current principal, following `setPrincipal`.
-///
-/// It follows `watchPrincipalChanging`, which fires before the cache is
-/// cleared, rather than `watchPrincipal`, which fires after. The clear
-/// notifies watchers, and a read made from one of those notifications (a
-/// `.state` listener, say), or from a `watchPrincipal` listener registered
-/// earlier, must already find the value provider dirty, so that it builds a
-/// fresh notifier instead of returning the previous principal's data.
-final class _PrincipalNotifier extends Notifier<String?> {
-  _PrincipalNotifier(this.client);
-
-  final QueryCache client;
-
-  @override
-  String? build() {
-    ref.onDispose(client.watchPrincipalChanging((next) => state = next));
-    return client.principal;
-  }
-}
-
-final _principalProvider =
-    NotifierProvider.autoDispose.family<_PrincipalNotifier, String?, QueryCache>(
-  _PrincipalNotifier.new,
-  name: 'forgePrincipalProvider',
-  retry: _noRetry,
-);
-
 /// What [queryProvider] returns: call it for the `AsyncValue`, or use
 /// [state] for the full [QueryState].
 final class ForgeQueryFamily<T, A extends OperationArgs> {
@@ -154,25 +122,25 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
   late final _values = Provider.autoDispose.family<AsyncValue<T>, ForgeQueryParams<T, A>>(
     (ref, params) {
       final client = ref.watch(forgeInstalledClientProvider);
-      final principal = ref.watch(_principalProvider(client));
+      final principal = ref.watch(principalProvider(client));
       return ref.watch(_notifiers(_ValueKey<T, A>(params, client, principal)));
     },
     name: name,
-    retry: _noRetry,
+    retry: noRetry,
   );
 
   late final _notifiers = AsyncNotifierProvider.autoDispose
       .family<ForgeQueryValueNotifier<T, A>, T, _ValueKey<T, A>>(
     (key) => ForgeQueryValueNotifier<T, A>(key.params, key.client),
     name: name == null ? null : '$name.value',
-    retry: _noRetry,
+    retry: noRetry,
   );
 
   late final _states = NotifierProvider.autoDispose
       .family<ForgeQueryStateNotifier<T, A>, QueryState<T>, ForgeQueryParams<T, A>>(
     ForgeQueryStateNotifier<T, A>.new,
     name: name == null ? null : '$name.state',
-    retry: _noRetry,
+    retry: noRetry,
   );
 
   /// The query for [args], as an `AsyncValue<T>`. It holds the query's mount
@@ -200,102 +168,6 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
       ForgeQueryParams<T, A>(binding(args), enabled: enabled, live: live, staleTime: staleTime);
 }
 
-/// How many query notifiers are inside their `build` right now, across every
-/// container.
-var _builds = 0;
-
-R _building<R>(R Function() build) {
-  _builds++;
-  try {
-    return build();
-  } finally {
-    _builds--;
-  }
-}
-
-/// Whether a state written now would land in the middle of a build: a query
-/// notifier's (so in the middle of whatever provider or widget initialized
-/// it), or a widget build that mounted the query some other way.
-bool _midBuild() => _builds > 0 || _inWidgetBuild();
-
-bool _inWidgetBuild() {
-  final scheduler = _schedulerBinding();
-  return scheduler != null &&
-      scheduler.schedulerPhase == SchedulerPhase.persistentCallbacks;
-}
-
-SchedulerBinding? _scheduler;
-
-SchedulerBinding? _schedulerBinding() {
-  if (_scheduler case final scheduler?) return scheduler;
-  // In debug the binding says whether it exists; the catch below is the
-  // release fallback, where it cannot.
-  if (kDebugMode && BindingBase.debugBindingType() == null) return null;
-  try {
-    return _scheduler = SchedulerBinding.instance;
-  } on Object {
-    // No binding yet, so no widget tree and no widget build: a plain
-    // ProviderContainer in a Dart test or an isolate without Flutter. Not
-    // remembered, as a binding can still be initialized later.
-    return null;
-  }
-}
-
-/// Hands one build's query states to its notifier.
-///
-/// The cache notifies its listeners synchronously, so a state can arrive in
-/// the middle of a build: a provider initialized during another provider's
-/// build, or during a widget build, onto a stale query that this notifier
-/// already watches starts a fetch, and that fetch's isFetching transition
-/// reaches this notifier at once. Writing `state` there fails Riverpod's
-/// assertion "Providers are not allowed to modify other providers during
-/// their initialization" (and, under a widget build, flutter_riverpod's
-/// "Tried to modify a provider while the widget tree was building"). So a
-/// state that arrives mid-build is held and applied from a microtask, which
-/// runs once the build has returned, with the latest state winning. Every
-/// other state, the normal case, is applied at once.
-///
-/// After [close], or once the build's [Ref] is unmounted by a rebuild or a
-/// dispose, nothing is applied, held or not.
-final class _Inbox<T> {
-  _Inbox(this._ref, this._apply);
-
-  final Ref _ref;
-  final void Function(QueryState<T> next) _apply;
-
-  /// The latest state held for the microtask, if any.
-  QueryState<T>? _pending;
-  bool _scheduled = false;
-  bool _closed = false;
-
-  void receive(QueryState<T> next) {
-    if (_closed) return;
-    if (!_midBuild()) {
-      // A held state is older than this one, so it must not land after it.
-      _pending = null;
-      _apply(next);
-      return;
-    }
-    _pending = next;
-    if (_scheduled) return;
-    _scheduled = true;
-    scheduleMicrotask(_flush);
-  }
-
-  void _flush() {
-    _scheduled = false;
-    final pending = _pending;
-    _pending = null;
-    if (pending == null || _closed || !_ref.mounted) return;
-    _apply(pending);
-  }
-
-  void close() {
-    _closed = true;
-    _pending = null;
-  }
-}
-
 /// Holds one query on one client, for one principal, as an `AsyncValue<T>`
 /// behind `ForgeQueryFamily.call`.
 final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNotifier<T> {
@@ -317,10 +189,10 @@ final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNot
   QueryState<T>? _shown;
 
   @override
-  FutureOr<T> build() => _building(() {
+  FutureOr<T> build() => building(() {
         _first = null;
         _shown = null;
-        final inbox = _Inbox<T>(ref, _apply);
+        final inbox = StateInbox<QueryState<T>>(ref, _apply);
         final subscription = params.query
             .watch(client, live: params.live, staleTime: params.staleTime, enabled: params.enabled)
             .listen(inbox.receive);
@@ -385,9 +257,9 @@ final class ForgeQueryStateNotifier<T, A extends OperationArgs> extends Notifier
   late QueryState<T> _shown;
 
   @override
-  QueryState<T> build() => _building(() {
+  QueryState<T> build() => building(() {
         final client = ref.watch(forgeInstalledClientProvider);
-        final inbox = _Inbox<T>(ref, _apply);
+        final inbox = StateInbox<QueryState<T>>(ref, _apply);
         final subscription = params.query
             .watch(client, live: params.live, staleTime: params.staleTime, enabled: params.enabled)
             .listen(inbox.receive);
