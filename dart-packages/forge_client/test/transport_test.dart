@@ -1016,6 +1016,66 @@ void main() {
       );
     });
 
+    for (final type in [
+      'application/vnd.api+json',
+      'application/problem+json; charset=utf-8',
+      'text/json',
+      'text/json; charset=iso-8859-1',
+      'APPLICATION/JSON',
+    ]) {
+      test('reads $type as JSON', () async {
+        expect(
+          await run(
+            http.Response.bytes(
+              utf8.encode('{"é":1}'),
+              200,
+              headers: {'content-type': type},
+            ),
+          ),
+          {'é': 1},
+        );
+      });
+    }
+
+    for (final type in [
+      'application/x-ndjson',
+      'application/jsonl',
+      'application/xml',
+      'application/atom+xml',
+      'application/x-www-form-urlencoded',
+      'application/yaml',
+      'application/vnd.foo+yaml',
+      'application/javascript',
+    ]) {
+      test('reads $type as text, never as JSON or bytes', () async {
+        const body = '{"a":1}\n{"b":2}\n';
+
+        expect(
+          await run(
+            http.Response.bytes(
+              utf8.encode(body),
+              200,
+              headers: {'content-type': type},
+            ),
+          ),
+          body,
+        );
+      });
+    }
+
+    test('honours the charset of a textual application type', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            latin1.encode('<a>café</a>'),
+            200,
+            headers: {'content-type': 'application/xml; charset=iso-8859-1'},
+          ),
+        ),
+        '<a>café</a>',
+      );
+    });
+
     test('keeps JSON as JSON whatever the media type suffix', () async {
       expect(
         await run(

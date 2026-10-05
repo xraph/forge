@@ -226,6 +226,35 @@ final class MissingPathParamsError implements Exception {
 
 final RegExp _placeholder = RegExp(r'\{([^{}]*)\}');
 
+/// A content type without its parameters, trimmed and lower-cased.
+String _essence(String? contentType) =>
+    (contentType ?? '').split(';').first.trim().toLowerCase();
+
+bool _isJson(String essence) =>
+    essence == 'application/json' ||
+    essence == 'text/json' ||
+    essence.endsWith('+json');
+
+const Set<String> _textApplicationTypes = {
+  'application/ecmascript',
+  'application/graphql',
+  'application/javascript',
+  'application/jsonl',
+  'application/sql',
+  'application/x-javascript',
+  'application/x-ndjson',
+  'application/x-www-form-urlencoded',
+  'application/x-yaml',
+  'application/xml',
+  'application/yaml',
+};
+
+bool _isText(String essence) =>
+    essence.startsWith('text/') ||
+    essence.endsWith('+xml') ||
+    essence.endsWith('+yaml') ||
+    _textApplicationTypes.contains(essence);
+
 final RegExp _charset = RegExp(
   r'charset\s*=\s*"?([^";\s]+)',
   caseSensitive: false,
@@ -722,19 +751,23 @@ final class RestTransport implements Transport {
     }
   }
 
-  /// JSON when the content type says so (or says nothing and the body
-  /// parses), text for `text/*`, and the raw bytes for anything else: an
-  /// image, a PDF or an octet stream is binary, and decoding it as text would
-  /// corrupt it. Throws FormatException if JSON parsing fails.
+  /// Decodes by the one content-type rule every Forge Dart client applies:
+  /// JSON is `application/json`, `text/json` or any `+json` type (always read
+  /// as UTF-8); text is `text/*`, `+xml`, `+yaml` or one of a short list of
+  /// textual `application/*` types (read in the charset it declares, else
+  /// UTF-8); everything else is binary and comes back as the raw bytes,
+  /// because decoding an image or a PDF as text would corrupt it. A response
+  /// with no content type is JSON when it parses, else text. Throws
+  /// FormatException if JSON parsing fails.
   Object? _decode(http.Response response) {
     if (response.bodyBytes.isEmpty) return null;
 
-    final type = response.headers['content-type'] ?? '';
+    final type = _essence(response.headers['content-type']);
 
-    if (type.contains('json')) return jsonDecode(_text(response, type));
+    if (_isJson(type)) return jsonDecode(_text(response));
 
     if (type.isEmpty) {
-      final text = _text(response, type);
+      final text = _text(response);
 
       try {
         return jsonDecode(text);
@@ -743,7 +776,7 @@ final class RestTransport implements Transport {
       }
     }
 
-    if (_isText(type)) return _text(response, type);
+    if (_isText(type)) return _text(response);
 
     return response.bodyBytes;
   }
@@ -753,28 +786,25 @@ final class RestTransport implements Transport {
   /// error body is read as text rather than handed over as bytes, so the
   /// status and a printable message survive.
   Object? _decodeErrorBody(http.Response response) {
-    final type = response.headers['content-type'] ?? '';
-
     try {
       final decoded = _decode(response);
 
-      return decoded is Uint8List ? _text(response, type) : decoded;
+      return decoded is Uint8List ? _text(response) : decoded;
     } on FormatException {
-      return _text(response, type);
+      return _text(response);
     }
   }
 
-  bool _isText(String contentType) =>
-      contentType.trimLeft().toLowerCase().startsWith('text/');
-
-  /// The body as text. A `text/*` body is read in the charset its content
-  /// type declares; everything else, and a `text/*` body that declares none,
-  /// one this platform has no codec for or one the bytes do not fit, is read
-  /// as UTF-8. Malformed UTF-8 is replaced rather than thrown on.
-  String _text(http.Response response, String contentType) {
+  /// The body as text. A text body is read in the charset its content type
+  /// declares; JSON, binary and a text body that declares none, one this
+  /// platform has no codec for or one the bytes do not fit, is read as UTF-8.
+  /// Malformed UTF-8 is replaced rather than thrown on.
+  String _text(http.Response response) {
+    final type = response.headers['content-type'];
+    final essence = _essence(type);
     final bytes = response.bodyBytes;
-    final charset = _isText(contentType)
-        ? _charset.firstMatch(contentType)?.group(1)
+    final charset = _isText(essence) && !_isJson(essence)
+        ? _charset.firstMatch(type ?? '')?.group(1)
         : null;
     final encoding = charset == null ? null : Encoding.getByName(charset);
 
