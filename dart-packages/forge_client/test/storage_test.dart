@@ -487,6 +487,62 @@ void main() {
       expect(await store.scan('c'), isEmpty);
     });
 
+    test('scans a literal prefix, not a pattern', () async {
+      final store = (await memoryStorage().open('u-1')).namespace('replica');
+
+      await store.put('docX1', 'x');
+      await store.put('doc_1', 'a');
+
+      expect(await store.scan('doc_'), {'doc_1': 'a'});
+    });
+
+    test('scans in ascending UTF-16 code unit order', () async {
+      final store = (await memoryStorage().open('u-1')).namespace('replica');
+
+      // 'Z' (0x5A) before 'a' (0x61) before 'é' (0xE9) before an astral
+      // character's high surrogate (0xD83D) before U+FFFD.
+      for (final key in ['k\uFFFD', 'ka', 'k\u{1F600}', 'kZ', 'k\u00E9']) {
+        await store.put(key, key);
+      }
+
+      expect((await store.scan('k')).keys, [
+        'kZ',
+        'ka',
+        'k\u00E9',
+        'k\u{1F600}',
+        'k\uFFFD',
+      ]);
+    });
+
+    test('refuses a write to a batch after its builder returned', () async {
+      final store = (await memoryStorage().open('u-1')).namespace('replica');
+      late KeyValueBatch kept;
+
+      await store.batch((batch) {
+        kept = batch;
+        batch.put('a', '1');
+      });
+
+      expect(() => kept.put('b', '2'), throwsStateError);
+      expect(() => kept.delete('a'), throwsStateError);
+      expect(await store.scan(''), {'a': '1'});
+    });
+
+    test('refuses a write to a batch whose builder threw', () async {
+      final store = (await memoryStorage().open('u-1')).namespace('replica');
+      late KeyValueBatch kept;
+
+      await expectLater(
+        store.batch((batch) {
+          kept = batch;
+          throw StateError('half way');
+        }),
+        throwsStateError,
+      );
+
+      expect(() => kept.put('b', '2'), throwsStateError);
+    });
+
     test(
       'applies a batch whole, or not at all when the builder throws',
       () async {

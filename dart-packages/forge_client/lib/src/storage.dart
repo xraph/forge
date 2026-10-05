@@ -79,6 +79,11 @@ final class PendingMutationRecord {
   final String idempotencyKey;
 
   /// When the mutation was first queued.
+  ///
+  /// An adapter must round-trip it losslessly: the same instant to the
+  /// microsecond, read back as a UTC [DateTime]. Equality compares it, and
+  /// [DateTime] equality compares `isUtc` too, so a record read back with a
+  /// coarser time, or as local time, is a different record.
   final DateTime createdAt;
 
   /// The outbox state, JSON-encoded: queued, sending or failed. Written and
@@ -119,14 +124,20 @@ abstract interface class KeyValueStore {
   /// Remove [key].
   Future<void> delete(String key);
 
-  /// Every entry whose key starts with [prefix], in ascending key order.
+  /// Every entry whose key starts with [prefix], read as a literal string
+  /// (no `_`, `%` or other pattern character means anything), in ascending
+  /// UTF-16 code unit order, the order [String.compareTo] gives.
   Future<Map<String, String>> scan(String prefix);
 
   /// Apply every write [build] records, all together, or none if it throws.
+  ///
+  /// [build] runs synchronously and must not await: the batch closes when it
+  /// returns, and a write recorded after that throws [StateError].
   Future<void> batch(void Function(KeyValueBatch batch) build);
 }
 
-/// The writes of one [KeyValueStore.batch].
+/// The writes of one [KeyValueStore.batch]. Usable only while its builder
+/// runs.
 abstract interface class KeyValueBatch {
   /// Set [key] to [value].
   void put(String key, String value);
@@ -317,7 +328,11 @@ final class _MemoryKeyValueStore implements KeyValueStore {
     final staged = _Batch();
 
     // A throw here leaves the store untouched: nothing has been applied yet.
-    build(staged);
+    try {
+      build(staged);
+    } finally {
+      staged.closed = true;
+    }
 
     for (final (key, value) in staged.writes) {
       if (value == null) {
@@ -332,9 +347,27 @@ final class _MemoryKeyValueStore implements KeyValueStore {
 final class _Batch implements KeyValueBatch {
   final List<(String, String?)> writes = [];
 
-  @override
-  void put(String key, String value) => writes.add((key, value));
+  /// Set once the builder returned or threw.
+  bool closed = false;
+
+  void _check() {
+    if (closed) {
+      throw StateError(
+        '[forge] this batch was already applied; record every write before '
+        'the builder returns, without awaiting',
+      );
+    }
+  }
 
   @override
-  void delete(String key) => writes.add((key, null));
+  void put(String key, String value) {
+    _check();
+    writes.add((key, value));
+  }
+
+  @override
+  void delete(String key) {
+    _check();
+    writes.add((key, null));
+  }
 }
