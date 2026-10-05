@@ -129,8 +129,9 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 		buf.WriteString("  // the branch that already decided the body is JSON-serialisable.\n")
 		buf.WriteString("  bodyCodec?: CodecRef;\n")
 		buf.WriteString("  // Same idea, for decoding a JSON response back into its TypeScript\n")
-		buf.WriteString("  // shape. Only applied inside the application/json content-type branch\n")
-		buf.WriteString("  // below -- a void/Blob/text response is never walked by decode().\n")
+		buf.WriteString("  // shape. Only applied inside the JSON content-type branch below\n")
+		buf.WriteString("  // (isJSONMediaType) -- a void/Blob/text response is never walked by\n")
+		buf.WriteString("  // decode().\n")
 		buf.WriteString("  responseCodec?: CodecRef;\n")
 	}
 
@@ -201,6 +202,40 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("  maxDelay: 30000,\n")
 	buf.WriteString("  retryableStatusCodes: [408, 429, 500, 502, 503, 504],\n")
 	buf.WriteString("};\n\n")
+
+	// The content-type rule every Forge client decodes by. rest.go types each
+	// response with the same rule (isJSONMediaType, isTextMediaType), so the
+	// value executeRequest resolves with is the type the method declares, and
+	// the Dart runtime (dart-packages/forge_client/lib/src/transport.dart)
+	// applies it too.
+	buf.WriteString("// The content-type rule every Forge client decodes by, and the one the\n")
+	buf.WriteString("// generated methods are typed with. The essence is the type before any\n")
+	buf.WriteString("// parameters, trimmed and lower-cased. JSON is application/json, text/json or\n")
+	buf.WriteString("// any +json type (application/problem+json, application/vnd.api+json), and\n")
+	buf.WriteString("// never a substring match: application/jsonl is text, not one JSON value.\n")
+	buf.WriteString("// Text is text/*, any +xml or +yaml type, or one of TEXT_APPLICATION_TYPES.\n")
+	buf.WriteString("// Everything else is bytes.\n")
+	buf.WriteString("function mediaEssence(contentType: string | null): string {\n")
+	buf.WriteString("  const value = contentType ?? '';\n")
+	buf.WriteString("  const semicolon = value.indexOf(';');\n")
+	buf.WriteString("  return (semicolon === -1 ? value : value.slice(0, semicolon)).trim().toLowerCase();\n")
+	buf.WriteString("}\n\n")
+	buf.WriteString("function isJSONMediaType(essence: string): boolean {\n")
+	buf.WriteString("  return essence === 'application/json' || essence === 'text/json' || essence.endsWith('+json');\n")
+	buf.WriteString("}\n\n")
+	buf.WriteString("const TEXT_APPLICATION_TYPES: ReadonlySet<string> = new Set([\n")
+
+	for _, essence := range sortedKeys(textApplicationTypes) {
+		buf.WriteString("  '" + essence + "',\n")
+	}
+
+	buf.WriteString("]);\n\n")
+	buf.WriteString("function isTextMediaType(essence: string): boolean {\n")
+	buf.WriteString("  return essence.startsWith('text/') ||\n")
+	buf.WriteString("    essence.endsWith('+xml') ||\n")
+	buf.WriteString("    essence.endsWith('+yaml') ||\n")
+	buf.WriteString("    TEXT_APPLICATION_TYPES.has(essence);\n")
+	buf.WriteString("}\n\n")
 
 	// HTTPClient class
 	buf.WriteString("export class HTTPClient {\n")
@@ -556,8 +591,8 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("        return undefined as T;\n")
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      const contentType = response.headers.get('content-type');\n")
-	buf.WriteString("      if (contentType && contentType.includes('application/json')) {\n")
+	buf.WriteString("      const essence = mediaEssence(response.headers.get('content-type'));\n")
+	buf.WriteString("      if (isJSONMediaType(essence)) {\n")
 	buf.WriteString("        // An empty body under a declared JSON type is a genuine error, not a\n")
 	buf.WriteString("        // legitimate value (unless allowEmptyBody already returned above) —\n")
 	buf.WriteString("        // JSON.parse('') throws, matching what response.json() would have\n")
@@ -591,7 +626,7 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 	buf.WriteString("      // declared `Blob` return type for a file download) is returned as the\n")
 	buf.WriteString("      // Blob already read above, zero-byte or not — otherwise the declared\n")
 	buf.WriteString("      // type would be a lie tsc cannot catch.\n")
-	buf.WriteString("      if (contentType && contentType.startsWith('text/')) {\n")
+	buf.WriteString("      if (isTextMediaType(essence)) {\n")
 	buf.WriteString("        return await blob.text() as any;\n")
 	buf.WriteString("      }\n\n")
 
@@ -631,10 +666,11 @@ func (g *FetchClientGenerator) GenerateBaseClient(spec *client.APISpec, config c
 
 	// Handle error response method
 	buf.WriteString("  private async handleErrorResponse(response: Response): Promise<never> {\n")
-	buf.WriteString("    const contentType = response.headers.get('content-type');\n")
 	buf.WriteString("    let errorData: any = {};\n\n")
 
-	buf.WriteString("    if (contentType && contentType.includes('application/json')) {\n")
+	buf.WriteString("    // An RFC 9457 error arrives as application/problem+json, so the JSON\n")
+	buf.WriteString("    // test is the same one a success response gets.\n")
+	buf.WriteString("    if (isJSONMediaType(mediaEssence(response.headers.get('content-type')))) {\n")
 	buf.WriteString("      try {\n")
 	buf.WriteString("        errorData = await response.json();\n")
 	buf.WriteString("      } catch (e) {\n")

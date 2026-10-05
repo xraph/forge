@@ -236,7 +236,7 @@ func queryResponseType(ep *client.Endpoint) (payloadType, importType string) {
 		return "", ""
 	}
 
-	media := response.Content["application/json"]
+	media := response.Content[jsonMediaKey(response.Content, true)]
 	if media == nil || media.Schema == nil {
 		return "", ""
 	}

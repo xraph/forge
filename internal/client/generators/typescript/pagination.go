@@ -230,7 +230,7 @@ func (p *PaginationGenerator) generateMethodName(endpoint client.Endpoint) strin
 func (p *PaginationGenerator) getArrayItemType(endpoint client.Endpoint, spec *client.APISpec) string {
 	// Look for 200 response
 	if resp, ok := endpoint.Responses[200]; ok {
-		if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
+		if media, ok := resp.Content[jsonMediaKey(resp.Content, true)]; ok && media.Schema != nil {
 			if media.Schema.Properties != nil {
 				// Look for data/items/results array. Iterate keys in a fixed
 				// order so the chosen property (and thus the generated

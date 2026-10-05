@@ -484,6 +484,36 @@ func isJSONMediaType(contentType string) bool {
 	return essence == "application/json" || essence == "text/json" || strings.HasSuffix(essence, "+json")
 }
 
+// textApplicationTypes are the application/* types that carry text, not bytes.
+// The list matches the Dart runtime's (dart-packages/forge_client/lib/src/
+// transport.dart) and fetch.ts's TEXT_APPLICATION_TYPES, so every client reads
+// the same response as the same thing.
+var textApplicationTypes = map[string]bool{
+	"application/ecmascript":            true,
+	"application/graphql":               true,
+	"application/javascript":            true,
+	"application/jsonl":                 true,
+	"application/sql":                   true,
+	"application/x-javascript":          true,
+	"application/x-ndjson":              true,
+	"application/x-www-form-urlencoded": true,
+	"application/x-yaml":                true,
+	"application/xml":                   true,
+	"application/yaml":                  true,
+}
+
+// isTextMediaType reports whether a non-JSON content type carries text:
+// text/*, any +xml or +yaml type, or one of textApplicationTypes. Callers test
+// isJSONMediaType first, since text/json is both.
+func isTextMediaType(contentType string) bool {
+	essence := mediaEssence(contentType)
+
+	return strings.HasPrefix(essence, "text/") ||
+		strings.HasSuffix(essence, "+xml") ||
+		strings.HasSuffix(essence, "+yaml") ||
+		textApplicationTypes[essence]
+}
+
 // jsonMediaKey picks the JSON entry of a body's content map, deterministically:
 // application/json when declared, otherwise the first JSON-like key in sorted
 // order. With withSchema set an entry that has no schema is skipped, as
@@ -961,24 +991,32 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 }
 
 // responseBodyType maps a single response's declared content to a TypeScript
-// type, honouring content-type precedence: application/json first (a schema
-// resolves to a concrete type, or falls back through schemaToTSType — which
-// is also where a "binary" format wins over a JSON content-type on a
+// type, by the content-type rule fetch.ts decodes with: JSON first
+// (application/json, text/json or any +json type, picked by jsonMediaKey; a
+// schema resolves to a concrete type, or falls back through schemaToTSType —
+// which is also where a "binary" format wins over a JSON content-type on a
 // contradictory schema, matching the precedence formatTSType already
-// establishes for object properties), then any text/* media type -> string,
-// then any other media type -> Blob (the DOM type for an opaque body such as
-// a file download). A response with no Content at all contributes "void".
+// establishes for object properties; a schemaless one is `any`), then any text
+// type (isTextMediaType) -> string, then any other media type -> Blob (the DOM
+// type for an opaque body such as a file download). A response with no Content
+// at all contributes "void".
 func (r *RESTGenerator) responseBodyType(resp *client.Response, spec *client.APISpec) string {
 	if resp == nil || len(resp.Content) == 0 {
 		return "void"
 	}
 
-	if media, ok := resp.Content["application/json"]; ok && media.Schema != nil {
-		return r.getSchemaTypeName(media.Schema, spec)
+	if key := jsonMediaKey(resp.Content, true); key != "" {
+		return r.getSchemaTypeName(resp.Content[key].Schema, spec)
+	}
+
+	// A schemaless JSON entry is still parsed as JSON by fetch.ts, so Blob
+	// would be a type the runtime never returns.
+	if jsonMediaKey(resp.Content, false) != "" {
+		return "any"
 	}
 
 	for _, contentType := range sortedKeys(resp.Content) {
-		if strings.HasPrefix(contentType, "text/") {
+		if isTextMediaType(contentType) {
 			return "string"
 		}
 	}
