@@ -178,6 +178,26 @@ final refetcher = ForgeComputedKey<int>((read) {
   return 0;
 }, debugLabel: 'refetcher');
 
+/// Set by the fix round 2 tests: the next computation of [movedTotal] throws.
+var failNextMove = false;
+
+final movedTotal = ForgeComputedKey<int?>((read) {
+  if (failNextMove) {
+    failNextMove = false;
+    throw StateError('failed on the new client');
+  }
+  return read.query(getOrder(const OrderArgs(1))).dataOrNull?.total;
+}, debugLabel: 'movedTotal');
+
+/// How many times [movedDoubled] has computed.
+var movedDoubledComputes = 0;
+
+final movedDoubled = ForgeComputedKey<int?>((read) {
+  movedDoubledComputes++;
+  final total = read.computed(movedTotal);
+  return total == null ? null : total * 2;
+}, debugLabel: 'movedDoubled');
+
 void main() {
   group('ForgeState', () {
     testWidgets('creates a state once per scope and keeps it across rebuilds', (tester) async {
@@ -572,14 +592,23 @@ void main() {
       expect(find.text('10/20'), findsOneWidget);
       expect(a.cache.registry.mounted, 2);
 
-      failNextSwapCompute = true;
-      await tester.pumpWidget(tree(b));
+      final errors = <FlutterErrorDetails>[];
+      final onError = FlutterError.onError;
+      FlutterError.onError = errors.add;
+      try {
+        failNextSwapCompute = true;
+        await tester.pumpWidget(tree(b));
+        await settle(tester);
+      } finally {
+        FlutterError.onError = onError;
+      }
 
-      // Reported, not thrown out of didUpdateWidget.
-      expect(tester.takeException(), isA<StateError>());
+      // Reported, not thrown out of didUpdateWidget. The build that read the
+      // failed value raised it again before the new client's data arrived.
       expect(failNextSwapCompute, isFalse);
-
-      await settle(tester);
+      expect(errors, isNotEmpty);
+      expect(errors.map((details) => details.exception), everyElement(isA<StateError>()));
+      expect(errors.first.context.toString(), contains('moving'));
       expect(find.text('70/140'), findsOneWidget);
       expect(b.transport.calls.map(idOf), unorderedEquals([1, 2]));
 
@@ -797,6 +826,113 @@ void main() {
       })));
 
       expect(tester.takeException(), isA<StateError>());
+    });
+  });
+
+  group('ForgeComputed fix round 2', () {
+    testWidgets('exposes no old-client value after failing on a new client, then recovers', (tester) async {
+      final a = byId();
+      final gate = Completer<Object?>();
+      final b = harness((_, _) => gate.future);
+      final focus = FakeFocusSignal();
+      final connectivity = FakeConnectivitySignal();
+      late ForgeComputed<int?> total;
+      late ForgeComputed<int?> doubled;
+
+      Widget tree(Harness h) => ForgeScope(
+        client: h.cache,
+        focus: focus,
+        connectivity: connectivity,
+        child: ltr(Builder(builder: (context) {
+          // The dependent is created first, so a move that went in creation
+          // order would recompute it against the old total.
+          doubled = context.forgeComputed(movedDoubled);
+          total = context.forgeComputed(movedTotal);
+          return ListenableBuilder(
+            listenable: total,
+            builder: (context, _) => Text('total:${total.value}'),
+          );
+        })),
+      );
+
+      await tester.pumpWidget(tree(a));
+      await settle(tester);
+      expect(find.text('total:10'), findsOneWidget);
+      expect(doubled.value, 20);
+
+      var totalNotified = 0;
+      var doubledNotified = 0;
+      total.addListener(() => totalNotified++);
+      doubled.addListener(() => doubledNotified++);
+
+      final errors = <FlutterErrorDetails>[];
+      final onError = FlutterError.onError;
+      FlutterError.onError = errors.add;
+      try {
+        failNextMove = true;
+        movedDoubledComputes = 0;
+        await tester.pumpWidget(tree(b));
+
+        // The move recomputed the total before the value that reads it, so
+        // the dependent ran once, against the failure, never against the old
+        // client's total.
+        expect(movedDoubledComputes, 1);
+
+        // (a) Nothing derived from the old client is readable: not the value,
+        // not a value that reads it, not the widget.
+        expect(() => total.value, throwsStateError);
+        expect(() => doubled.value, throwsStateError);
+        expect(totalNotified, 1);
+        expect(doubledNotified, 1);
+        expect(find.text('total:10'), findsNothing);
+        expect(find.byType(ErrorWidget), findsOneWidget);
+        expect(errors, isNotEmpty);
+        expect(errors.map((details) => details.exception), everyElement(isA<StateError>()));
+        expect(errors.first.context.toString(), contains('moving'));
+        expect(a.cache.registry.mounted, 0);
+
+        // (b) The new client's answer recovers it and wakes its listeners,
+        // even though the total happens to equal the old one.
+        errors.clear();
+        gate.complete(order(1, 10));
+        await settle(tester);
+      } finally {
+        FlutterError.onError = onError;
+      }
+
+      expect(errors, isEmpty);
+      expect(total.value, 10);
+      expect(doubled.value, 20);
+      expect(totalNotified, 2);
+      expect(doubledNotified, 2);
+      expect(find.text('total:10'), findsOneWidget);
+      expect(b.transport.countOf(opGetOrder), 1);
+    });
+
+    testWidgets('keeps the old value on an error within the same client', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((request, call) => call == 0 ? order(idOf(request), 10) : gate.future);
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final total = context.forgeComputed(movedTotal);
+      await settle(tester);
+      expect(total.value, 10);
+
+      // No client change, so round 1's rule: the refetch's isFetching pass
+      // throws, which is reported, and the value stays readable while the
+      // refetch is held.
+      failNextMove = true;
+      await invalidateAndSettle(tester, h, ['Order:1']);
+      expect(tester.takeException(), isA<StateError>());
+      expect(total.value, 10);
+
+      gate.complete(order(1, 30));
+      await settle(tester);
+      expect(total.value, 30);
     });
   });
 }

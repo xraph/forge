@@ -93,7 +93,11 @@ abstract interface class ForgeReader {
 /// Recomputing is batched per scope: a change that arrives while any of the
 /// scope's computed values is computing only marks the affected values
 /// dirty, and they recompute once the outermost computation returns, each
-/// after the dirty values it reads.
+/// after the dirty values it reads. That order holds only within one batch:
+/// when a single change made outside any computation notifies two values
+/// directly and one of them reads the other, the reader can recompute once
+/// against the other's previous value before the other's notification
+/// recomputes it again.
 ///
 /// Errors: the first read rethrows what the compute function throws, so a
 /// widget reading it shows an error widget. A later recomputation that
@@ -101,6 +105,16 @@ abstract interface class ForgeReader {
 /// [FlutterError.reportError]; the value keeps every dependency it had, so it
 /// recovers as soon as one of them changes and the compute function stops
 /// throwing.
+///
+/// A recomputation that throws while the scope's client is being swapped is
+/// different, because the previous value came from the old client: on an
+/// account switch it was derived from the previous user's data. The error is
+/// reported, listeners are notified, and from then on reading [value]
+/// rethrows that error, exactly like a failing first read, until a
+/// recomputation succeeds. Values that read a failed one fail with it.
+/// Read [value] in the builder of a `ListenableBuilder` when this matters: a
+/// `ValueListenableBuilder` keeps the last value it read, so it would go on
+/// showing the old client's value.
 final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T> {
   ForgeComputed._(this._key, this._owner);
 
@@ -112,6 +126,11 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
   bool _computing = false;
   bool _disposed = false;
 
+  /// The error a recomputation threw during a client swap, while no value
+  /// from the new client has replaced the old one. Null when healthy.
+  Object? _failure;
+  StackTrace? _failureStack;
+
   @override
   T get value {
     if (_computing) {
@@ -120,6 +139,8 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
         'on itself, directly or through another computed value.',
       );
     }
+    final failure = _failure;
+    if (failure != null) Error.throwWithStackTrace(failure, _failureStack!);
     return _value;
   }
 
@@ -206,11 +227,14 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
     _owner._invalidate(this);
   }
 
-  /// Recomputes and notifies when the value changed. An error keeps the
-  /// previous value and is reported, never thrown, so one failing value
-  /// cannot stop the others in its batch.
-  void _refresh(String doing) {
+  /// Recomputes and notifies when the value changed. An error is reported,
+  /// never thrown, so one failing value cannot stop the others in its batch.
+  /// It keeps the previous value, unless the scope is moving to a new client
+  /// or the value has already failed: then the value fails, so nothing from
+  /// the old client stays readable.
+  void _refresh() {
     if (_disposed) return;
+    final moving = _owner._movingClient;
     final T next;
     try {
       next = _run();
@@ -219,8 +243,24 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
         exception: error,
         stack: stack,
         library: 'forge_client_flutter',
-        context: ErrorDescription('while $doing $_key'),
+        context: ErrorDescription(
+          moving ? 'while moving $_key to a new client' : 'while recomputing $_key',
+        ),
       ));
+      if (moving || _failure != null) {
+        final entering = _failure == null;
+        _failure = error;
+        _failureStack = stack;
+        if (entering) notifyListeners();
+      }
+      return;
+    }
+    if (_failure != null) {
+      // Leaving the failed state is a change whatever the new value is.
+      _failure = null;
+      _failureStack = null;
+      _value = next;
+      notifyListeners();
       return;
     }
     if (sameSelection(next, _value)) return;
@@ -307,22 +347,34 @@ final class ForgeScopeOwner {
 
   /// Whether a computation or a flush is running in this scope.
   bool _busy = false;
+
+  /// Whether the current batch is moving every value to a new client.
+  bool _movingClient = false;
   bool _disposed = false;
 
   /// The client computed values read queries from.
   QueryCache get client => _client;
 
   /// Moves every computed value's queries to [next]. Never throws: a value
-  /// whose compute function throws is reported and still moved, and the
-  /// rest move too, so no query is left mounted on the old client.
+  /// whose compute function throws is reported, fails rather than keeping
+  /// its old-client value, and is still moved; the rest move too, so no query
+  /// is left mounted on the old client.
+  ///
+  /// Every value is marked dirty and the batch recomputes them in dependency
+  /// order, so a value never recomputes against an input that still holds
+  /// the old client's value.
   set client(QueryCache next) {
     if (identical(next, _client)) return;
     _client = next;
-    _batch(() {
-      for (final computed in _computeds.values.toList()) {
-        computed._refresh('moving to a new client');
-      }
-    });
+    // Called from didUpdateWidget, never from inside a computation, so this
+    // batch is the outermost one and flushes before the flag drops.
+    assert(!_busy, 'The client changed during a computation.');
+    _movingClient = true;
+    try {
+      _batch(() => _dirty.addAll(_computeds.values));
+    } finally {
+      _movingClient = false;
+    }
   }
 
   /// This scope's state for [key], created on first read.
@@ -401,7 +453,7 @@ final class ForgeScopeOwner {
         }
         continue;
       }
-      next._refresh('recomputing');
+      next._refresh();
     }
   }
 
