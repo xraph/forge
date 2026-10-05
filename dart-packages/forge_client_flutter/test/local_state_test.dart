@@ -92,6 +92,92 @@ final heldIsFetching = ForgeComputedKey<bool>((read) {
   return held.isFetching;
 }, debugLabel: 'heldIsFetching');
 
+/// Set by the client-swap test: the next computation of [swapFirst] throws
+/// before reading anything.
+var failNextSwapCompute = false;
+
+final swapFirst = ForgeComputedKey<int?>((read) {
+  if (failNextSwapCompute) {
+    failNextSwapCompute = false;
+    throw StateError('swap failure');
+  }
+  return read.query(getOrder(const OrderArgs(1))).dataOrNull?.total;
+}, debugLabel: 'swapFirst');
+
+final swapSecond = ForgeComputedKey<int?>(
+  (read) => read.query(getOrder(const OrderArgs(2))).dataOrNull?.total,
+  debugLabel: 'swapSecond',
+);
+
+final staleFlag = ForgeStateKey<bool>(() => false, debugLabel: 'staleFlag');
+
+/// The reviewer's shape: Y reads order 1 with a short staleTime once the flag
+/// is set, and X reads order 1 with a long one and then Y.
+final cycleFreeY = ForgeComputedKey<bool>((read) {
+  final flag = read.state(staleFlag);
+  if (flag) read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(milliseconds: 1));
+  return flag;
+}, debugLabel: 'cycleFreeY');
+
+final cycleFreeX = ForgeComputedKey<String>((read) {
+  final state = read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(minutes: 1));
+  return '${state.isFetching} ${read.computed(cycleFreeY)}';
+}, debugLabel: 'cycleFreeX');
+
+/// Whether order 1 is fetching, read with a long staleTime.
+final order1Fetching = ForgeComputedKey<bool>(
+  (read) => read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(minutes: 1)).isFetching,
+  debugLabel: 'order1Fetching',
+);
+
+/// Reads [order1Fetching] first, then order 1 with a short staleTime, which
+/// refetches and flips the value it read first.
+final readsComputedThenStale = ForgeComputedKey<bool>((read) {
+  final fetching = read.computed(order1Fetching);
+  read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(milliseconds: 1));
+  return fetching;
+}, debugLabel: 'readsComputedThenStale');
+
+final mirrorOn = ForgeStateKey<bool>(() => false, debugLabel: 'mirrorOn');
+
+/// Set by the throw-before-reading test.
+var throwBeforeReading = false;
+
+final input = ForgeStateKey<int>(() => 1, debugLabel: 'input');
+
+final guardedDouble = ForgeComputedKey<int>((read) {
+  if (throwBeforeReading) throw StateError('threw before reading');
+  return read.state(input) * 2;
+}, debugLabel: 'guardedDouble');
+
+final boundedTotal = ForgeComputedKey<int?>((read) {
+  final total = read.query(getOrder(const OrderArgs(1))).dataOrNull?.total;
+  if (total != null && total > 100) throw StateError('total $total is out of range');
+  return total;
+}, debugLabel: 'boundedTotal');
+
+/// Order 1's isFetching, for the flush-order test.
+final orderedY = ForgeComputedKey<bool>(
+  (read) => read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(minutes: 1)).isFetching,
+  debugLabel: 'orderedY',
+);
+
+/// Reads order 1 before [orderedY], so its subscription is notified first.
+final orderedX = ForgeComputedKey<String>((read) {
+  final state = read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(minutes: 1));
+  return '${state.isFetching} ${read.computed(orderedY)}';
+}, debugLabel: 'orderedX');
+
+final refetchNow = ForgeStateKey<bool>(() => false, debugLabel: 'refetchNow');
+
+/// Refetches order 1 from inside a computation once [refetchNow] is set.
+final refetcher = ForgeComputedKey<int>((read) {
+  if (read.state(refetchNow)) {
+    read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(milliseconds: 1));
+  }
+  return 0;
+}, debugLabel: 'refetcher');
+
 void main() {
   group('ForgeState', () {
     testWidgets('creates a state once per scope and keeps it across rebuilds', (tester) async {
@@ -449,10 +535,266 @@ void main() {
       })));
       tickState = context.forgeState(tick);
       final computed = context.forgeComputed(selfWriter);
-      expect(computed.value, 0);
 
-      // Now listened to, so each write restarts the computation.
-      tickState.value = 5;
+      // Listened to from the moment it is read, so the first pass's own write
+      // already restarts it. The loop is reported and stopped, not run forever.
+      expect(tester.takeException(), isA<StateError>());
+      expect(computed.value, lessThan(200));
+
+      tickState.value = 1000;
+      expect(tester.takeException(), isA<StateError>());
+    });
+  });
+
+  group('ForgeComputed fix round 1', () {
+    testWidgets('moves every computed to a new client even when one throws there', (tester) async {
+      final a = byId();
+      final b = byId(factor: 70);
+      final focus = FakeFocusSignal();
+      final connectivity = FakeConnectivitySignal();
+
+      Widget tree(Harness h) => ForgeScope(
+        client: h.cache,
+        focus: focus,
+        connectivity: connectivity,
+        child: ltr(Builder(builder: (context) {
+          final first = context.forgeComputed(swapFirst);
+          final second = context.forgeComputed(swapSecond);
+          return ListenableBuilder(
+            listenable: Listenable.merge([first, second]),
+            builder: (context, _) => Text('${first.value ?? '-'}/${second.value ?? '-'}'),
+          );
+        })),
+      );
+
+      await tester.pumpWidget(tree(a));
+      await settle(tester);
+      expect(find.text('10/20'), findsOneWidget);
+      expect(a.cache.registry.mounted, 2);
+
+      failNextSwapCompute = true;
+      await tester.pumpWidget(tree(b));
+
+      // Reported, not thrown out of didUpdateWidget.
+      expect(tester.takeException(), isA<StateError>());
+      expect(failNextSwapCompute, isFalse);
+
+      await settle(tester);
+      expect(find.text('70/140'), findsOneWidget);
+      expect(b.transport.calls.map(idOf), unorderedEquals([1, 2]));
+
+      // Nothing is left mounted on the old client, and invalidating there
+      // refetches nothing.
+      expect(a.cache.registry.mounted, 0);
+      await invalidateAndSettle(tester, a, ['Order:1', 'Order:2']);
+      expect(a.transport.countOf(opGetOrder), 2);
+    });
+
+    testWidgets('reports no cycle when a dependency changes while another computed is computing', (tester) async {
+      final clock = ManualClock();
+      final gate = Completer<Object?>();
+      final h = harness(
+        (request, call) => call == 0 ? order(idOf(request), 10) : gate.future,
+        clock: clock,
+      );
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final x = context.forgeComputed(cycleFreeX);
+      await settle(tester);
+      expect(x.value, 'false false');
+
+      // Y's new stale read refetches, which reaches X's subscription while Y
+      // is still computing. X must wait for Y rather than read it mid-compute.
+      clock.advance(const Duration(seconds: 1));
+      context.forgeState(staleFlag).value = true;
+
+      expect(tester.takeException(), isNull);
+      expect(x.value, 'true true');
+
+      gate.complete(order(1, 10));
+      await settle(tester);
+      expect(x.value, 'false true');
+    });
+
+    testWidgets('sees a computed it first read flip while the same computation runs', (tester) async {
+      final clock = ManualClock();
+      final gate = Completer<Object?>();
+      final h = harness(
+        (request, call) => call == 0 ? order(idOf(request), 10) : gate.future,
+        clock: clock,
+      );
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      // B is already live, so the refetch reaches it synchronously.
+      final b = context.forgeComputed(order1Fetching);
+      await settle(tester);
+      expect(b.value, isFalse);
+      clock.advance(const Duration(seconds: 1));
+
+      // A reads B first, then refetches through its own stale read, which
+      // flips B before A's first computation returns.
+      final a = context.forgeComputed(readsComputedThenStale);
+
+      expect(b.value, isTrue);
+      expect(a.value, isTrue);
+
+      gate.complete(order(1, 10));
+      await settle(tester);
+      expect(a.value, isFalse);
+    });
+
+    testWidgets('sees a listenable it first read change while the same computation runs', (tester) async {
+      final clock = ManualClock();
+      final gate = Completer<Object?>();
+      final h = harness(
+        (request, call) => call == 0 ? order(idOf(request), 10) : gate.future,
+        clock: clock,
+      );
+      // App code mirroring the query's isFetching into a plain notifier.
+      final mirror = ValueNotifier<bool>(false);
+      final subscription = getOrder(const OrderArgs(1))
+          .watch(h.cache, staleTime: const Duration(minutes: 1))
+          .listen((state) => mirror.value = state.isFetching);
+      final mirrored = ForgeComputedKey<bool>((read) {
+        if (!read.state(mirrorOn)) return false;
+        final fetching = read.listen(mirror);
+        read.query(getOrder(const OrderArgs(1)), staleTime: const Duration(milliseconds: 1));
+        return fetching;
+      });
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final computed = context.forgeComputed(mirrored);
+      await settle(tester);
+      expect(computed.value, isFalse);
+
+      // The pass reads the mirror for the first time, then refetches, which
+      // flips the mirror before the pass returns.
+      clock.advance(const Duration(seconds: 1));
+      context.forgeState(mirrorOn).value = true;
+
+      expect(mirror.value, isTrue);
+      expect(computed.value, isTrue);
+
+      gate.complete(order(1, 10));
+      await settle(tester);
+      expect(computed.value, isFalse);
+
+      unawaited(subscription.cancel());
+      mirror.dispose();
+    });
+
+    testWidgets('keeps its dependencies through a pass that threw before reading them', (tester) async {
+      final h = harness((_, _) => null);
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final computed = context.forgeComputed(guardedDouble);
+      expect(computed.value, 2);
+
+      throwBeforeReading = true;
+      context.forgeState(input).value = 2;
+      expect(tester.takeException(), isA<StateError>());
+      expect(computed.value, 2);
+
+      // Still listening to the input the throwing pass never reached.
+      throwBeforeReading = false;
+      context.forgeState(input).value = 3;
+      expect(computed.value, 6);
+    });
+
+    testWidgets('keeps the old value, reports a recompute error from a query, and recovers', (tester) async {
+      final gate = Completer<Object?>();
+      final h = harness((request, call) => switch (call) {
+        0 => order(idOf(request), 10),
+        1 => order(idOf(request), 1000),
+        _ => gate.future,
+      });
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final computed = context.forgeComputed(boundedTotal);
+      await settle(tester);
+      expect(computed.value, 10);
+
+      // Delivered by the query's subscription, reported rather than escaping
+      // to the zone, and the old value stays.
+      await invalidateAndSettle(tester, h, ['Order:1']);
+      expect(tester.takeException(), isA<StateError>());
+      expect(computed.value, 10);
+
+      // The refetch's in-flight state still carries 1000, so that pass throws
+      // too; the answer clears it.
+      await invalidateAndSettle(tester, h, ['Order:1']);
+      expect(tester.takeException(), isA<StateError>());
+      expect(computed.value, 10);
+
+      gate.complete(order(1, 20));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(computed.value, 20);
+    });
+
+    testWidgets('recomputes dirty values after the dirty values they read', (tester) async {
+      final clock = ManualClock();
+      final gate = Completer<Object?>();
+      final h = harness(
+        (request, call) => call == 0 ? order(idOf(request), 10) : gate.future,
+        clock: clock,
+      );
+      late BuildContext context;
+
+      await tester.pumpWidget(scope(h, Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      })));
+      final x = context.forgeComputed(orderedX);
+      context.forgeComputed(refetcher);
+      await settle(tester);
+      expect(x.value, 'false false');
+
+      final seen = <String>[];
+      x.addListener(() => seen.add(x.value));
+
+      // The refetch starts inside the refetcher's computation, so X and then
+      // Y are marked dirty in one batch. Y goes first, so X never computes
+      // against a stale Y.
+      clock.advance(const Duration(seconds: 1));
+      context.forgeState(refetchNow).value = true;
+
+      expect(seen, ['true true']);
+
+      gate.complete(order(1, 10));
+      await settle(tester);
+      expect(x.value, 'false false');
+    });
+
+    testWidgets('rethrows an error from the first read', (tester) async {
+      throwBeforeReading = true;
+      addTearDown(() => throwBeforeReading = false);
+      final h = harness((_, _) => null);
+
+      await tester.pumpWidget(scope(h, Builder(builder: (context) {
+        context.forgeComputed(guardedDouble);
+        return const SizedBox();
+      })));
 
       expect(tester.takeException(), isA<StateError>());
     });
