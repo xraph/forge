@@ -696,28 +696,6 @@ void main() {
     );
   });
 
-  // Dart-only: the contract's cancel future.
-  group('cancellation', () {
-    test('cancel future is wired into abort trigger', () async {
-      // Cancel is wired as part of the abortSources list passed to AbortableRequest.
-      // Full abort testing is done via timeout handling tests with controlled streams.
-      final fake = FakeHttp((_, _) => {'ok': true});
-      final cancel = Completer<void>();
-
-      final rest = RestTransport(baseUrl: base, client: fake.client);
-
-      final result = await rest.execute(
-        TransportRequest(
-          meta: list,
-          args: TagContext.empty,
-          cancel: cancel.future,
-        ),
-      );
-
-      expect(result, {'ok': true});
-    });
-  });
-
   // Dart-only: decoding.
   group('response bodies', () {
     test(
@@ -926,7 +904,7 @@ void main() {
       );
     });
 
-    test('does not retry after timeout', () async {
+    test('does not retry a timed-out POST', () async {
       final bodyStream = StreamController<List<int>>();
       var requestCount = 0;
       final client = TimeoutTestClient(
@@ -946,7 +924,6 @@ void main() {
         baseUrl: base,
         client: client,
         timeout: const Duration(milliseconds: 50),
-        retry: const RetryPolicy(attempts: 1),
       );
 
       await expectLater(
@@ -1000,6 +977,67 @@ void main() {
       expect(result, {'ok': true});
       expect(client.recordedRequests, hasLength(2));
       expect(client.recordedAborts[0], isTrue);
+    });
+
+    group('caller cancel aborts the in-flight request', () {
+      for (final timeout in <Duration?>[const Duration(seconds: 5), null]) {
+        test('with timeout: $timeout', () async {
+          final body = StreamController<List<int>>();
+          addTearDown(body.close);
+          final client = TimeoutTestClient(
+            handleRequest: (_) => http.StreamedResponse(
+              body.stream,
+              200,
+              headers: {'content-type': 'application/json'},
+            ),
+          );
+          final transport = RestTransport(
+            baseUrl: Uri.parse('https://api.test'),
+            client: client,
+            timeout: timeout,
+          );
+          final cancel = Completer<void>();
+          final pending = transport.execute(
+            TransportRequest(
+              meta: create,
+              args: TagContext.empty,
+              cancel: cancel.future,
+            ),
+          );
+          await pumpEventQueue(); // request sent, headers delivered, body stalled
+          expect(client.recordedRequests, hasLength(1));
+          cancel.complete();
+          await expectLater(pending, throwsA(anything));
+          await pumpEventQueue(); // let the abortTrigger listener run
+          expect(client.recordedAborts.single, isTrue);
+          expect(client.recordedRequests, hasLength(1)); // not retried
+        });
+      }
+    });
+
+    test('aborts the timed-out attempt', () async {
+      final body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final client = TimeoutTestClient(
+        handleRequest: (_) => http.StreamedResponse(
+          body.stream,
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      final transport = RestTransport(
+        baseUrl: Uri.parse('https://api.test'),
+        client: client,
+        timeout: const Duration(milliseconds: 50),
+      );
+      await expectLater(
+        transport.execute(
+          const TransportRequest(meta: create, args: TagContext.empty),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      await pumpEventQueue();
+      expect(client.recordedAborts.single, isTrue);
     });
   });
 }

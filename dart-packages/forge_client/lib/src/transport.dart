@@ -669,9 +669,17 @@ final class RestTransport implements Transport {
       }
 
       final timeout = _timeout;
-      final response = timeout == null
-          ? await sendAndRead()
-          : await sendAndRead().timeout(timeout);
+      final Future<http.Response> baseResponseFuture = timeout == null
+          ? sendAndRead()
+          : sendAndRead().timeout(timeout);
+
+      // Race against abort trigger to throw immediately if cancelled
+      final response = abortTrigger == null
+          ? await baseResponseFuture
+          : await Future.any<http.Response>([
+              baseResponseFuture,
+              abortTrigger.then((_) => throw http.RequestAbortedException(url)),
+            ]);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpStatusError(
