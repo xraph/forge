@@ -381,3 +381,17 @@ func TestLiveSocketIsEmittedForAnyStreamingOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectDocsSayACancelledAttemptCompletesWithoutAConnection(t *testing.T) {
+	out := generate(t, streamingFixture())
+	want := "completes without an open connection."
+
+	for _, name := range []string{
+		"lib/src/streaming/live_socket.dart", "lib/src/streaming/chat_socket.dart", "lib/src/streaming/rooms.dart",
+		"lib/src/streaming/presence.dart", "lib/src/streaming/typing.dart", "lib/src/streaming/channels.dart",
+	} {
+		if !strings.Contains(file(t, out, name), want) {
+			t.Errorf("%s does not document that a cancelled connect completes without an open connection", name)
+		}
+	}
+}

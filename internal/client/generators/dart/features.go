@@ -565,7 +565,8 @@ final class RoomClient {
   void clearQueue({bool rejectPending = true}) => _socket.clearQueue(rejectPending: rejectPending);
 
   /// Opens the connection. Calling it while open, or while opening, waits for
-  /// the same connection.
+  /// the same connection. If [disconnect] or [close] cancels the attempt, this
+  /// completes without an open connection.
   Future<void> connect() => _socket.connect();
 
   /// Closes the connection, forgets the rooms and stops reconnecting. What is
@@ -891,7 +892,8 @@ final class PresenceClient {
       (status: _status ?? 'offline', customMessage: _customMessage);
 
   /// Opens the connection and starts the heartbeat. Calling it while open, or
-  /// while opening, waits for the same connection.
+  /// while opening, waits for the same connection. If [disconnect] or [close]
+  /// cancels the attempt, this completes without an open connection.
   Future<void> connect() => _socket.connect();
 
   /// Sets this user's status.
@@ -1087,7 +1089,8 @@ final class TypingClient {
   List<String> typingIn(String roomId) => [...?_typing[roomId]];
 
   /// Opens the connection. Calling it while open, or while opening, waits for
-  /// the same connection.
+  /// the same connection. If [disconnect] or [close] cancels the attempt, this
+  /// completes without an open connection.
   Future<void> connect() => _socket.connect();
 
   /// Marks this user as typing in [roomId]. Does nothing while not connected.
@@ -1322,7 +1325,8 @@ final class ChannelClient {
   void clearQueue({bool rejectPending = true}) => _socket.clearQueue(rejectPending: rejectPending);
 
   /// Opens the connection. Calling it while open, or while opening, waits for
-  /// the same connection.
+  /// the same connection. If [disconnect] or [close] cancels the attempt, this
+  /// completes without an open connection.
   Future<void> connect() => _socket.connect();
 
   /// Subscribes to [channelId], optionally filtering what the server sends or

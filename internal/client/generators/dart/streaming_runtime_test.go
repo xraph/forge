@@ -7,6 +7,7 @@ import "testing"
 // are the ones the TypeScript feature clients send (rooms.ts, presence.ts,
 // typing.ts and channels.ts), so one server serves both.
 const streamingRuntimeTest = `import 'dart:async';
+import 'dart:convert';
 
 import 'package:forge_client/forge_client.dart' show StreamConnect, StreamConnectContext, StreamConnection, TransportUnavailable;
 import 'package:streaming_forge_client/streaming_forge_client.dart';
@@ -43,6 +44,8 @@ final class FakeConnection implements StreamConnection {
     attempts++;
     if (_closed.isCompleted) throw StateError('closed');
     if (broken || (sendLimit != null && sent.length >= sendLimit!)) throw StateError('send failed');
+    // The transport encodes what it sends, so a value that is not JSON fails here.
+    jsonEncode(message);
     sent.add(message);
   }
 
@@ -1013,22 +1016,55 @@ void main() {
       await channels.close();
     });
 
-    test('flushing stops at the first send that fails and keeps the rest', () async {
+    test('a send the transport refuses closes the connection, and the kept entries go out in order after the reopen', () async {
       final h = Harness()..sendLimit = 1;
-      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
       final a = channels.publish('c', 'a');
       final b = channels.publish('c', 'b');
       final c = channels.publish('c', 'c');
-      var settled = 0;
-      unawaited(b.then((_) => settled++, onError: (Object _) => settled++));
-      unawaited(c.then((_) => settled++, onError: (Object _) => settled++));
       await channels.connect();
+      h.sendLimit = null;
       await a;
-      await settle();
+      expect(h.connections.first.sent, hasLength(1));
+      await until(() => h.connections.length == 2);
+      await Future.wait([b, c]);
+      expect(h.connections.first.sent.map((f) => (f! as Map<Object?, Object?>)['data']), ['a']);
+      expect(h.connections.last.sent.map((f) => (f! as Map<Object?, Object?>)['data']), ['b', 'c']);
+      await channels.close();
+    });
+
+    test('a message that is not JSON fails alone: the rest of the queue goes out and live sends go straight out', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect);
+      final a = channels.publish('c', 'a');
+      final poison = channels.publish('c', Object());
+      final poisonFailure = expectLater(poison, throwsA(isA<JsonUnsupportedObjectError>()));
+      final b = channels.publish('c', 'b');
+      await channels.connect();
+      await Future.wait([a, b, poisonFailure]);
+      expect(h.only.sent.map((f) => (f! as Map<Object?, Object?>)['data']), ['a', 'b']);
+      expect(channels.queueSize, 0);
+      final live = channels.publish('c', 'live');
+      expect(h.only.sent, hasLength(3), reason: 'a live send goes out at once');
+      await live;
+      expect(channels.state, LiveConnectionState.connected);
+      await channels.close();
+    });
+
+    test('a live send the transport cannot encode fails alone, and one it cannot send closes the connection', () async {
+      final h = Harness();
+      final channels = ChannelClient(baseUrl: Uri.parse('http://x.test'), connect: h.connect, options: quick);
+      await channels.connect();
+      await expectLater(channels.publish('c', Object()), throwsA(isA<JsonUnsupportedObjectError>()));
+      expect(channels.state, LiveConnectionState.connected);
+      await channels.publish('c', 'fine');
       expect(h.only.sent, hasLength(1));
-      expect(channels.queueSize, 2);
-      expect(settled, 0);
-      channels.clearQueue(rejectPending: false);
+
+      h.only.broken = true;
+      await expectLater(channels.publish('c', 'lost'), throwsStateError);
+      await h.only.closed.timeout(const Duration(seconds: 2));
+      await until(() => h.connections.length == 2);
+      await channels.close();
     });
 
     test('closing rejects what waits unless told to keep it', () async {
@@ -1163,6 +1199,55 @@ void main() {
       await second;
       await waiting;
       expect(connections.last.sent, ['queued']);
+      await socket.dispose();
+    });
+
+    test('a drop while a re-open is still setting up is retried and ends connected', () async {
+      final gate = Completer<void>();
+      final h = Harness();
+      var setups = 0;
+      final socket = LiveSocket(
+        open: liveOpen(connect: h.connect, baseUrl: Uri.parse('http://x.test'), path: '/p', endpoint: '/p', options: quick),
+        options: quick,
+        onOpen: (_) => setups++ == 1 ? gate.future : Future.value(),
+      );
+      await socket.connect();
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await settle();
+      await h.connections.last.close();
+      await until(() => h.connections.length == 3);
+      gate.complete();
+      await until(() => socket.state == LiveConnectionState.connected && socket.connection == h.connections.last);
+      await settle();
+      expect(h.connections, hasLength(3));
+      expect(socket.state, LiveConnectionState.connected);
+      await socket.deliver(() => 'live');
+      expect(h.connections.last.sent, ['live']);
+      await socket.dispose();
+    });
+
+    test('a re-open that was dropped does not flush the queue of the connection that replaced it', () async {
+      final gates = [Completer<void>(), Completer<void>()];
+      final h = Harness();
+      var setups = 0;
+      final socket = LiveSocket(
+        open: liveOpen(connect: h.connect, baseUrl: Uri.parse('http://x.test'), path: '/p', endpoint: '/p', options: quick),
+        options: quick,
+        onOpen: (_) => setups == 0 ? Future.value(setups++) : gates[setups++ - 1].future,
+      );
+      await socket.connect();
+      await h.only.close();
+      await until(() => h.connections.length == 2);
+      await h.connections.last.close();
+      await until(() => h.connections.length == 3);
+      final waiting = socket.deliver(() => 'queued');
+      gates[0].complete();
+      await settle();
+      expect(h.connections.last.sent, isEmpty, reason: 'the new connection has not finished its own setup');
+      gates[1].complete();
+      await waiting;
+      expect(h.connections.last.sent, ['queued']);
       await socket.dispose();
     });
 
