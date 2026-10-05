@@ -226,6 +226,11 @@ final class MissingPathParamsError implements Exception {
 
 final RegExp _placeholder = RegExp(r'\{([^{}]*)\}');
 
+final RegExp _charset = RegExp(
+  r'charset\s*=\s*"?([^";\s]+)',
+  caseSensitive: false,
+);
+
 /// Builds one operation's URL from its path template and arguments.
 ///
 /// Query parameters are emitted in sorted key order and encoded exactly as the
@@ -718,16 +723,19 @@ final class RestTransport implements Transport {
   }
 
   /// JSON when the content type says so (or says nothing and the body
-  /// parses), text otherwise. Throws FormatException if JSON parsing fails.
+  /// parses), text for `text/*`, and the raw bytes for anything else: an
+  /// image, a PDF or an octet stream is binary, and decoding it as text would
+  /// corrupt it. Throws FormatException if JSON parsing fails.
   Object? _decode(http.Response response) {
     if (response.bodyBytes.isEmpty) return null;
 
     final type = response.headers['content-type'] ?? '';
-    final text = utf8.decode(response.bodyBytes, allowMalformed: true);
 
-    if (type.contains('json')) return jsonDecode(text);
+    if (type.contains('json')) return jsonDecode(_text(response, type));
 
     if (type.isEmpty) {
+      final text = _text(response, type);
+
       try {
         return jsonDecode(text);
       } on FormatException {
@@ -735,17 +743,50 @@ final class RestTransport implements Transport {
       }
     }
 
-    return text;
+    if (_isText(type)) return _text(response, type);
+
+    return response.bodyBytes;
   }
 
   /// Decodes a response body, falling back to text if JSON parsing fails.
-  /// Used only for error responses.
+  /// Used only for error responses, whose body is JSON or text: a binary
+  /// error body is read as text rather than handed over as bytes, so the
+  /// status and a printable message survive.
   Object? _decodeErrorBody(http.Response response) {
+    final type = response.headers['content-type'] ?? '';
+
     try {
-      return _decode(response);
+      final decoded = _decode(response);
+
+      return decoded is Uint8List ? _text(response, type) : decoded;
     } on FormatException {
-      return utf8.decode(response.bodyBytes, allowMalformed: true);
+      return _text(response, type);
     }
+  }
+
+  bool _isText(String contentType) =>
+      contentType.trimLeft().toLowerCase().startsWith('text/');
+
+  /// The body as text. A `text/*` body is read in the charset its content
+  /// type declares; everything else, and a `text/*` body that declares none,
+  /// one this platform has no codec for or one the bytes do not fit, is read
+  /// as UTF-8. Malformed UTF-8 is replaced rather than thrown on.
+  String _text(http.Response response, String contentType) {
+    final bytes = response.bodyBytes;
+    final charset = _isText(contentType)
+        ? _charset.firstMatch(contentType)?.group(1)
+        : null;
+    final encoding = charset == null ? null : Encoding.getByName(charset);
+
+    if (encoding != null && encoding != utf8) {
+      try {
+        return encoding.decode(bytes);
+      } on FormatException {
+        // Fall through to UTF-8.
+      }
+    }
+
+    return utf8.decode(bytes, allowMalformed: true);
   }
 
   /// Exponential backoff with jitter: half the window fixed, half random, so

@@ -5,6 +5,7 @@
 // http.Request instead of a request config.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:forge_client/forge_client.dart';
 import 'package:http/http.dart' as http;
@@ -870,6 +871,162 @@ void main() {
       );
 
       expect(fake.calls, hasLength(1));
+    });
+  });
+
+  // Dart-only: a body that is neither JSON nor text is bytes, never text.
+  group('binary and text response bodies', () {
+    // Invalid as UTF-8 on purpose: a text decode would replace these bytes.
+    final blob = Uint8List.fromList([
+      0x00,
+      0xff,
+      0xfe,
+      0x80,
+      0xc3,
+      0x28,
+      0x89,
+      0x50,
+    ]);
+
+    Future<Object?> run(http.Response response, {OperationMeta meta = list}) {
+      final rest = RestTransport(
+        baseUrl: base,
+        client: FakeHttp((_, _) => response).client,
+      );
+
+      return rest.execute(TransportRequest(meta: meta, args: TagContext.empty));
+    }
+
+    for (final type in [
+      'application/octet-stream',
+      'image/png',
+      'application/pdf',
+      'application/zip',
+    ]) {
+      test('returns the bytes of a $type response untouched', () async {
+        final result = await run(
+          http.Response.bytes(blob, 200, headers: {'content-type': type}),
+        );
+
+        expect(result, isA<Uint8List>());
+        expect(result, orderedEquals(blob));
+      });
+    }
+
+    test('still reads an untyped response as JSON, else as text', () async {
+      expect(await run(http.Response.bytes(utf8.encode('{"a":1}'), 200)), {
+        'a': 1,
+      });
+      expect(
+        await run(http.Response.bytes(utf8.encode('hello'), 200)),
+        'hello',
+      );
+    });
+
+    test(
+      'keeps the status of a binary error body and a text body for it',
+      () async {
+        await expectLater(
+          run(
+            http.Response.bytes(
+              blob,
+              503,
+              headers: {'content-type': 'application/octet-stream'},
+            ),
+          ),
+          throwsA(
+            isA<HttpStatusError>()
+                .having((e) => e.status, 'status', 503)
+                .having((e) => e.body, 'body', isA<String>()),
+          ),
+        );
+      },
+    );
+
+    test('decodes text/* as UTF-8 when no charset is declared', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            utf8.encode('café'),
+            200,
+            headers: {'content-type': 'text/plain'},
+          ),
+        ),
+        'café',
+      );
+    });
+
+    test('decodes text/* in the charset it declares', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            latin1.encode('café'),
+            200,
+            headers: {'content-type': 'text/plain; charset=iso-8859-1'},
+          ),
+        ),
+        'café',
+      );
+      expect(
+        await run(
+          http.Response.bytes(
+            latin1.encode('café'),
+            200,
+            headers: {'content-type': 'TEXT/HTML; Charset="ISO-8859-1"'},
+          ),
+        ),
+        'café',
+      );
+    });
+
+    test('falls back to UTF-8 for a charset it cannot decode with', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            utf8.encode('café'),
+            200,
+            headers: {'content-type': 'text/plain; charset=x-unknown'},
+          ),
+        ),
+        'café',
+      );
+      // Declared ASCII but carrying a high byte: lenient, never a throw.
+      expect(
+        await run(
+          http.Response.bytes(
+            utf8.encode('café'),
+            200,
+            headers: {'content-type': 'text/plain; charset=us-ascii'},
+          ),
+        ),
+        'café',
+      );
+    });
+
+    test('reads JSON as UTF-8 even when a charset is declared', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            utf8.encode('{"é":1}'),
+            200,
+            headers: {'content-type': 'application/json; charset=iso-8859-1'},
+          ),
+        ),
+        {'é': 1},
+      );
+    });
+
+    test('keeps JSON as JSON whatever the media type suffix', () async {
+      expect(
+        await run(
+          http.Response.bytes(
+            utf8.encode('{"é":1}'),
+            200,
+            headers: {'content-type': 'application/problem+json'},
+          ),
+        ),
+        {'é': 1},
+      );
     });
   });
 
