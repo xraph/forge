@@ -1175,45 +1175,53 @@ void main() {
       expect(() => dehydrate(anonymous, principal: 'u-1'), mismatch);
     });
 
-    test(
-      'stops writing when the principal changes while it hydrates',
-      () async {
-        final server = _cache(
-          (request, _) => request.meta.path == '/orders'
-              ? [
-                  {'id': 7, 'total': 99},
-                ]
-              : [
-                  {'id': 'c-9', 'name': 'Grace'},
-                ],
-        );
+    for (final mode in SnapshotMode.values) {
+      test(
+        'stops writing when the principal changes while it hydrates, ${mode.name}',
+        () async {
+          final server = _cache(
+            (request, _) => request.meta.path == '/orders'
+                ? [
+                    {'id': 7, 'total': 99},
+                  ]
+                : [
+                    {'id': 'c-9', 'name': 'Grace'},
+                  ],
+          );
 
-        await server.fetch(orderList, TagContext.empty);
-        await server.fetch(customerList, TagContext.empty);
+          await server.fetch(orderList, TagContext.empty);
+          await server.fetch(customerList, TagContext.empty);
 
-        final state = _transfer(dehydrate(server, principal: 'u-1'));
-        final client = _cacheOwnedBy('u-1', (_, _) => <Object?>[]);
-        var flipped = false;
+          final state = _transfer(
+            dehydrate(server, principal: 'u-1', mode: mode),
+          );
+          final client = _cacheOwnedBy('u-1', (_, _) => <Object?>[]);
+          var flipped = false;
 
-        // The first restored query notifies, and a listener signs someone else
-        // in. The second query belongs to u-1 and must not land in u-2's cache.
-        client.observer = (event) {
-          if (!flipped && event is QueryTransition) {
-            flipped = true;
-            client.setPrincipal('u-2');
-          }
-        };
+          // The first restored query notifies, and a listener signs someone
+          // else in. The second query belongs to u-1 and must not land in
+          // u-2's cache.
+          client.observer = (event) {
+            if (!flipped && event is QueryTransition) {
+              flipped = true;
+              client.setPrincipal('u-2');
+            }
+          };
 
-        expect(
-          () => hydrate(client, state, principal: 'u-1', operations: _ops),
-          _refused('principal', 'the principal changed while hydrating'),
-        );
-        expect(flipped, isTrue);
-        expect(client.principal, 'u-2');
-        expect(client.store.size, 0);
-        expect(client.queries, isEmpty);
-      },
-    );
+          expect(
+            () => hydrate(client, state, principal: 'u-1', operations: _ops),
+            _refused(
+              'principal',
+              'the cache was cleared or its principal changed while hydrating',
+            ),
+          );
+          expect(flipped, isTrue);
+          expect(client.principal, 'u-2');
+          expect(client.store.size, 0);
+          expect(client.queries, isEmpty);
+        },
+      );
+    }
 
     test('refuses an unknown operation before writing anything', () async {
       final server = _cacheOwnedBy(

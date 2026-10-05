@@ -6,9 +6,12 @@
 /// so an entity no exported query references cannot appear in a snapshot.
 /// An entity a sync source owns is never written to a snapshot's records and
 /// never restored from one: its source holds it, and a snapshot read after
-/// the source projected would merge stale fields over fresh ones. Both
-/// directions assert the principal. Optimistic overlays are never
-/// written: both reads go through the entity plane.
+/// the source projected would merge stale fields over fresh ones. A
+/// [SnapshotMode.denormalized] value is the exception on the way out: it is
+/// the query's value as read, so it embeds whatever owned data the query
+/// reaches, and a snapshot written that way holds owned data at rest. Hydrate
+/// still never restores it. Both directions assert the principal. Optimistic
+/// overlays are never written: both reads go through the entity plane.
 ///
 /// The text is the text TS writes. Both modes copy through the wire encoder,
 /// so key order, integral doubles, `-0` (written as `0`) and non-finite
@@ -33,6 +36,11 @@ enum SnapshotMode {
   normalized,
 
   /// Each query's rehydrated value, duplicating shared entities.
+  ///
+  /// The value embeds every entity the query reaches, owned ones included, so
+  /// owned data a sync source holds is written into the snapshot. [hydrate]
+  /// never restores it from there; persist a denormalized snapshot only where
+  /// the source's own replica may live.
   denormalized,
 }
 
@@ -62,9 +70,10 @@ final class Snapshot {
 }
 
 /// Why [hydrate] refused a payload: `principal` (it belongs to someone else,
-/// or the principal changed while it was being read), `version` (written by
-/// code this client does not know, or malformed), or `operation` (it names an
-/// operation absent from `operations`).
+/// or the cache was cleared or its principal changed while it was being
+/// read), `version` (written by code this client does not know, or
+/// malformed), or `operation` (it names an operation absent from
+/// `operations`).
 final class HydrationFailure implements Exception {
   /// A refusal for [reason], explained by [message].
   const HydrationFailure(this.reason, this.message);
@@ -112,10 +121,10 @@ Snapshot dehydrate(
 /// settles behind the server, so a mount refetches.
 ///
 /// Every refusal the payload itself can cause (version, principal, shape,
-/// operation) happens before anything is written. A principal change while
-/// hydrating stops the writes at once and throws, so nothing read for one
-/// principal lands in another's cache. An entity a stream frame deleted is
-/// not put back: a reference to it reads as a hole.
+/// operation) happens before anything is written. A clear or a principal
+/// change while hydrating stops the writes at once and throws, so nothing
+/// read for one principal lands in another's cache. An entity a stream frame
+/// deleted is not put back: a reference to it reads as a hole.
 void hydrate(
   QueryCache cache,
   Snapshot snapshot, {
@@ -182,13 +191,14 @@ void hydrate(
   final generation = cache.generation;
 
   // Checked before every write that follows a notification: a listener that
-  // signs someone else in mid-hydrate clears the cache, and the rest of this
-  // payload belongs to the principal that was dropped.
+  // clears the cache, or signs someone else in, mid-hydrate starts a new life,
+  // and the rest of this payload belongs to the one that was dropped.
   void ensureSameLife() {
     if (cache.generation != generation) {
       throw const HydrationFailure(
         'principal',
-        'the principal changed while hydrating; nothing further was written',
+        'the cache was cleared or its principal changed while hydrating; '
+            'nothing further was written',
       );
     }
   }
