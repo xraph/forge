@@ -81,6 +81,8 @@ var emitters = []func(*emission) error{
 	emitRest,
 	emitOps,
 	emitBindings,
+	emitCapabilities,
+	emitPagination,
 }
 
 // Generate produces the package.
@@ -240,6 +242,25 @@ func emitBindings(e *emission) error {
 	}
 
 	e.own("lib/src/bindings")
+
+	return nil
+}
+
+// emitCapabilities writes capabilities.dart when the document declares any
+// scope, role or permission.
+func emitCapabilities(e *emission) error {
+	if capabilitiesNeeded(e.spec) {
+		e.out.Files["lib/src/capabilities.dart"] = renderCapabilities(e.spec, operationKeys(e.spec.Endpoints))
+	}
+
+	return nil
+}
+
+// emitPagination writes pagination.dart when pagination is on.
+func emitPagination(e *emission) error {
+	if e.config.Pagination && len(e.ops) > 0 {
+		e.out.Files["lib/src/pagination.dart"] = renderPagination(planPagination(e.ops, e.paths, e.reg), e.reg)
+	}
 
 	return nil
 }

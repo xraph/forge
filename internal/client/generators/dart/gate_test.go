@@ -137,7 +137,10 @@ func runFvm(t *testing.T, fvm, dir string, args ...string) string {
 func TestGeneratedPackagesAnalyzeClean(t *testing.T) {
 	fvm := requireDart(t)
 
-	for _, f := range append(gateFixtures(), enumsFixture(), restFixture()) {
+	fixtures := append(gateFixtures(), enumsFixture(), restFixture(), paginationFixture())
+	fixtures = append(fixtures, capabilitiesFixtures()...)
+
+	for _, f := range fixtures {
 		t.Run(f.Name, func(t *testing.T) {
 			dir := writePackage(t, f)
 			runFvm(t, fvm, dir, "pub", "get")

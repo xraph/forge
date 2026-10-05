@@ -103,7 +103,7 @@ func renderRest(ops []*operation, root *restNode, paths map[*operation]string, n
 	}
 
 	body.WriteString(restClientHead(includeAuth))
-	writeRestMembers(&body, root, paths, "  ")
+	writeRestMembers(&body, root, paths, "this", "  ")
 	body.WriteString(restClientTail)
 
 	var nodes []*restNode
@@ -120,7 +120,7 @@ func renderRest(ops []*operation, root *restNode, paths map[*operation]string, n
 			body.WriteString("\n")
 		}
 
-		writeRestMembers(&body, node, paths, "  ")
+		writeRestMembers(&body, node, paths, "_client", "  ")
 		body.WriteString("}\n")
 	}
 
@@ -137,6 +137,13 @@ func renderRest(ops []*operation, root *restNode, paths map[*operation]string, n
 	}
 
 	text = strings.Replace(text, "@@textTypes@@", strings.Join(textTypes, ", "), 1)
+
+	// A document with no REST endpoint, only streaming routes, still gets a
+	// RestClient, and nothing in it calls _send. The analyzer would report the
+	// unused private member, so say it is deliberate.
+	if len(ops) == 0 {
+		text = strings.Replace(text, "  Future<Object?> _send(", "  // ignore: unused_element\n  Future<Object?> _send(", 1)
+	}
 
 	// Method bodies reference the client through `_client` inside a
 	// namespace and directly on the root; render them now that the
@@ -174,14 +181,18 @@ func collectNodes(node *restNode, out *[]*restNode) {
 
 // writeRestMembers writes a node's namespace accessors and method
 // placeholders, which expandMethods replaces with the methods themselves.
-func writeRestMembers(b *strings.Builder, node *restNode, paths map[*operation]string, indent string) {
+//
+// owner is the RestClient a child namespace is built over: the client itself
+// at the root, and the namespace's own `_client` below it. Passing `this` from
+// a namespace would hand a child the parent namespace, which is not a client.
+func writeRestMembers(b *strings.Builder, node *restNode, paths map[*operation]string, owner, indent string) {
 	members := copySet(restReserved)
 
 	for _, seg := range sortedKeys(node.children) {
 		member := uniqueNames([]string{seg}, func(s string) string { return memberIdent(s, restReserved) }, members, false)[0]
 		child := node.children[seg]
 		fmt.Fprintf(b, "%s/// Operations under `%s`.\n", indent, seg)
-		fmt.Fprintf(b, "%slate final %s %s = %s._(this);\n\n", indent, child.class, member, child.class)
+		fmt.Fprintf(b, "%slate final %s %s = %s._(%s);\n\n", indent, child.class, member, child.class, owner)
 	}
 
 	for _, seg := range sortedKeys(node.methods) {

@@ -631,3 +631,30 @@ func TestRestPlansBodiesAndResponsesByMediaKind(t *testing.T) {
 		t.Errorf("a default content type must not be emitted:\n%s", rest)
 	}
 }
+
+// TestNestedNamespacesAreBuiltOverTheClient pins what a namespace two levels
+// down is constructed with: the RestClient, never its parent namespace, which
+// is not a client and does not compile.
+func TestNestedNamespacesAreBuiltOverTheClient(t *testing.T) {
+	rest := file(t, generate(t, paginationFixture()), "lib/src/rest.dart")
+
+	assertContains(t, "rest.dart", rest,
+		"late final RestTeamsApi teams = RestTeamsApi._(this);",
+		"late final RestTeamsItemsApi items = RestTeamsItemsApi._(_client);",
+	)
+}
+
+// TestRestClientWithoutOperationsSaysItsSenderIsUnused covers a document of
+// streaming routes only: nothing calls _send, and the analyzer gate would
+// report it as an unreferenced private member.
+func TestRestClientWithoutOperationsSaysItsSenderIsUnused(t *testing.T) {
+	f := capabilitiesFixtures()[0]
+	rest := file(t, generate(t, f), "lib/src/rest.dart")
+
+	assertContains(t, "rest.dart", rest, "  // ignore: unused_element\n  Future<Object?> _send(")
+
+	with := file(t, generate(t, fixture(t, "default")), "lib/src/rest.dart")
+	if strings.Contains(with, "ignore: unused_element") {
+		t.Error("a client with operations silences unused_element on _send")
+	}
+}
