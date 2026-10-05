@@ -12,6 +12,12 @@ sealed class SyncStatus {
 final class Synced extends SyncStatus {
   /// Creates the status.
   const Synced();
+
+  @override
+  bool operator ==(Object other) => other is Synced;
+
+  @override
+  int get hashCode => (Synced).hashCode;
 }
 
 /// [count] local changes have not reached the server yet.
@@ -21,12 +27,24 @@ final class Pending extends SyncStatus {
 
   /// How many changes are waiting.
   final int count;
+
+  @override
+  bool operator ==(Object other) => other is Pending && other.count == count;
+
+  @override
+  int get hashCode => Object.hash(Pending, count);
 }
 
 /// The source cannot reach the server.
 final class Offline extends SyncStatus {
   /// Creates the status.
   const Offline();
+
+  @override
+  bool operator ==(Object other) => other is Offline;
+
+  @override
+  int get hashCode => (Offline).hashCode;
 }
 
 /// The source failed with [error], for example a server sync hook rejection.
@@ -36,6 +54,12 @@ final class SyncFailed extends SyncStatus {
 
   /// What went wrong.
   final Object error;
+
+  @override
+  bool operator ==(Object other) => other is SyncFailed && other.error == error;
+
+  @override
+  int get hashCode => Object.hash(SyncFailed, error);
 }
 
 /// Folds several statuses into one: [SyncFailed] beats [Offline], which beats
