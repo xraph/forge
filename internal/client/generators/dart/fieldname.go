@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// Ported from typescript/fieldname.go with clientFieldName renamed
+// Ported from typescript/fieldname.go with tsFieldName renamed
 // clientFieldName and Dart added to the camel default.
 
 // clientFieldName resolves the TypeScript-side identifier for a schema property.
@@ -136,21 +136,6 @@ func effectiveFieldNaming(config client.GeneratorConfig) client.NamingStrategy {
 // Order.shipping.street_name and Order.billing.street_name. A schema name
 // colliding with a reserved streaming type name is a distinct namespace
 // already covered by checkSchemaNameCollisions.
-//
-// Under NamingPreserve with NO FieldOverrides, clientFieldName returns wireName
-// unchanged for every property, so two distinct wire names can never derive
-// to the same name -- the walk is skipped entirely rather than running a
-// pass that can only ever come back empty. But an override renames a field
-// EVEN UNDER preserve (clientFieldName consults FieldOverrides before the naming
-// strategy at all), so preserve alone is not sufficient to skip the check:
-// two different wire names given the SAME override value still collide, and
-// must be caught exactly like a camel/pascal/snake-derived collision would
-// be. The skip condition below is therefore keyed on codecsNeeded, not on
-// effectiveFieldNaming directly -- the same "preserve AND no overrides"
-// test codecsNeeded already uses to decide whether the codec table itself
-// is dead weight. If codecs.ts would be emitted (because a rename can
-// happen), this check must run; if codecs.ts would be skipped (because
-// nothing can rename), no walk can ever find a collision.
 //
 // All collisions found across the whole spec are reported at once, not just
 // the first, so a caller does not have to fix them one regeneration at a

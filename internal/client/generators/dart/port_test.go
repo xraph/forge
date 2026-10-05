@@ -83,3 +83,31 @@ func TestPortedCodecTableNamesClientFields(t *testing.T) {
 		t.Errorf("the list body codec must be registered: %+v", table.entries["[]Order"])
 	}
 }
+
+// The array codec a request body looks up is the one the table registered,
+// as in the TypeScript original: a schemaless application/json entry beside
+// a +json array body must not take the registration.
+func TestPortedRequestBodyArrayCodecIsRegisteredUnderItsLookupKey(t *testing.T) {
+	spec := &client.APISpec{
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{"order_id": {Type: "string"}}},
+		},
+		Endpoints: []client.Endpoint{{
+			Method: "POST", Path: "/orders/bulk", OperationID: "orders.bulk",
+			RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+				"application/json":         {},
+				"application/vnd.api+json": {Schema: &client.Schema{Type: "array", Items: ref("Order")}},
+			}},
+			Responses: map[int]*client.Response{204: {Description: "ok"}},
+		}},
+	}
+
+	id, _ := requestBodyCodecRef(&spec.Endpoints[0])
+	if id == "" {
+		t.Fatal("the +json array body resolves to no codec")
+	}
+
+	if _, ok := buildCodecTable(spec, baseConfig()).entries[id]; !ok {
+		t.Errorf("requestBodyCodecRef looks up %q, which the codec table never registered", id)
+	}
+}

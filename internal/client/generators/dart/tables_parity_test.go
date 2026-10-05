@@ -2,8 +2,10 @@ package dart
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge/internal/client"
@@ -107,6 +109,19 @@ func TestTablesAgreeWithTypeScript(t *testing.T) {
 
 			if tsTables != dartTables {
 				t.Fatalf("tables differ\n--- typescript\n%s\n--- dart\n%s", tsTables, dartTables)
+			}
+
+			// Both generators upper-case the method, whatever case the
+			// document spells it in; the minimal entry spells one "post".
+			var tables client.GeneratedTables
+			if err := json.Unmarshal([]byte(dartTables), &tables); err != nil {
+				t.Fatal(err)
+			}
+
+			for key, op := range tables.Ops {
+				if op.Method != strings.ToUpper(op.Method) {
+					t.Errorf("op %s carries method %q; the tables carry it upper case", key, op.Method)
+				}
 			}
 
 			path := filepath.Join(fixtureDir, name+".json")

@@ -9,7 +9,7 @@ import (
 )
 
 // Ported from typescript/codecs.go (the table builder only, not the
-// TypeScript renderer) with clientFieldName renamed clientFieldName and the
+// TypeScript renderer) with tsFieldName renamed clientFieldName and the
 // codecField.TS field renamed Client. The Dart renderer is codecs.go.
 
 // codecEntry is the Go-side model of one emitted CODECS entry. It is
@@ -176,7 +176,7 @@ func registerEndpointArrayBodyCodecs(table *codecTable, spec *client.APISpec) {
 		endpoint := &spec.Endpoints[i]
 
 		if endpoint.RequestBody != nil {
-			if media, ok := endpoint.RequestBody.Content[jsonMediaKey(endpoint.RequestBody.Content, false)]; ok && media != nil {
+			if media, ok := endpoint.RequestBody.Content[jsonMediaKey(endpoint.RequestBody.Content, true)]; ok && media != nil {
 				register(media.Schema)
 			}
 		}

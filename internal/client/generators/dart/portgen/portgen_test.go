@@ -73,3 +73,42 @@ func TestDeclarationsKeepDocCommentsAndRejectDuplicates(t *testing.T) {
 		t.Error("a name declared twice must be an error")
 	}
 }
+
+// The renames apply to the ported declarations, never to the note that says
+// what was renamed: "tsFieldName renamed clientFieldName" must survive.
+func TestRenamesLeaveTheHeaderNoteAlone(t *testing.T) {
+	files, err := Generate(filepath.Join("..", "..", "typescript"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"fieldname.go", "codectable.go", "tagrename.go"} {
+		if !strings.Contains(files[name], "tsFieldName renamed\n// clientFieldName") &&
+			!strings.Contains(files[name], "tsFieldName renamed clientFieldName") {
+			t.Errorf("%s: the header note no longer names tsFieldName as the original:\n%s", name, files[name][:600])
+		}
+
+		if strings.Contains(files[name], "clientFieldName renamed") {
+			t.Errorf("%s: a rename ran over the header note", name)
+		}
+	}
+}
+
+// The Dart port always runs the collision check, so the original's paragraph
+// explaining when it skips must not be carried over to contradict it.
+func TestFieldNamePortDropsTheSkipParagraph(t *testing.T) {
+	files, err := Generate(filepath.Join("..", "..", "typescript"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc := files["fieldname.go"]
+
+	if strings.Contains(doc, "the walk is skipped entirely") || strings.Contains(doc, "The skip condition below") {
+		t.Error("fieldname.go keeps the TypeScript paragraph about skipping the walk, which the Dart port does not do")
+	}
+
+	if !strings.Contains(doc, "Unlike the TypeScript original this always runs") {
+		t.Error("fieldname.go lost the note that the Dart port always runs the check")
+	}
+}

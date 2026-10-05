@@ -189,7 +189,7 @@ func registerEndpointArrayBodyCodecs(table *codecTable, spec *client.APISpec) {
 		endpoint := &spec.Endpoints[i]
 
 		if endpoint.RequestBody != nil {
-			if media, ok := endpoint.RequestBody.Content[jsonMediaKey(endpoint.RequestBody.Content, false)]; ok && media != nil {
+			if media, ok := endpoint.RequestBody.Content[jsonMediaKey(endpoint.RequestBody.Content, true)]; ok && media != nil {
 				register(media.Schema)
 			}
 		}

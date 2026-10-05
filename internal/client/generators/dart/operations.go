@@ -370,10 +370,11 @@ func planResponse(ep *client.Endpoint, reg *registry, c rctx) (string, dartType)
 
 // operationRow resolves every value one OperationMeta carries. Ported from
 // the TypeScript generator's operationRow, with codec ids always resolved
-// because a Dart client always carries its codecs.
+// because a Dart client always carries its codecs. The method is upper case
+// in both.
 func operationRow(ep *client.Endpoint, spec *client.APISpec, config client.GeneratorConfig, known map[string]bool) client.TableOp {
 	row := client.TableOp{
-		Method:     ep.Method,
+		Method:     strings.ToUpper(ep.Method),
 		Path:       ep.Path,
 		StaleTime:  ep.StaleTime,
 		Idempotent: ep.Idempotent,
@@ -441,8 +442,8 @@ func streamRows(spec *client.APISpec) []client.TableStream {
 		}
 	}
 
-	sort.Slice(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
-	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].Channel < duplexes[j].Channel })
+	sort.SliceStable(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
+	sort.SliceStable(duplexes, func(i, j int) bool { return duplexes[i].Channel < duplexes[j].Channel })
 
 	var rows []client.TableStream
 

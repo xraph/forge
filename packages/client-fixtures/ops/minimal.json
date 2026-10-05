@@ -5,6 +5,12 @@
       "path": "/ping",
       "provides": [],
       "invalidates": []
+    },
+    "pingPost": {
+      "method": "POST",
+      "path": "/ping",
+      "provides": [],
+      "invalidates": []
     }
   },
   "entities": {},
@@ -15,7 +21,8 @@
     "roles": [],
     "permissions": [],
     "operations": [
-      "ping"
+      "ping",
+      "pingPost"
     ],
     "requiredCapabilities": {},
     "requiredAuthorization": {}

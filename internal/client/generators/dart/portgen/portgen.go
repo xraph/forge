@@ -146,6 +146,15 @@ var edits = map[string][]edit{
 			new:   "\tif config.Language == \"typescript\" || config.Language == \"dart\" {",
 			count: 1,
 		},
+		// The original explains why it skips the walk under preserve with no
+		// overrides; the port never skips, so the paragraph would contradict
+		// the note the next edit adds.
+		{
+			old:   `(?s)// Under NamingPreserve with NO FieldOverrides,.*?no walk can ever find a collision\.\n//\n`,
+			new:   "",
+			regex: true,
+			count: 1,
+		},
 		{
 			old: "func checkFieldNameCollisions(spec *client.APISpec, config client.GeneratorConfig) error {\n" +
 				"\tif !codecsNeeded(config) {\n\t\treturn nil\n\t}\n\n",
@@ -206,12 +215,17 @@ func Generate(tsDir string) (map[string]string, error) {
 			b.WriteString("\t" + imp + "\n")
 		}
 
-		b.WriteString(")\n\n" + t.note + "\n" + strings.Join(body, "\n"))
+		// The renames apply to the ported declarations only. The note names
+		// the originals ("tsFieldName renamed clientFieldName"), and a rename
+		// run over it would make it say nothing.
+		ported := strings.Join(body, "\n")
+		for _, r := range renames {
+			ported = strings.ReplaceAll(ported, r[0], r[1])
+		}
+
+		b.WriteString(")\n\n" + t.note + "\n" + ported)
 
 		text := b.String()
-		for _, r := range renames {
-			text = strings.ReplaceAll(text, r[0], r[1])
-		}
 
 		var err error
 

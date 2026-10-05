@@ -290,14 +290,21 @@ func reservedSpec() *client.APISpec {
 }
 
 // minimalSpec has no components at all: one operation returning an inline
-// object.
+// object, and one whose method the document spells in lower case, which every
+// table must still carry upper-cased.
 func minimalSpec() *client.APISpec {
 	return &client.APISpec{
 		Info: client.APIInfo{Title: "Minimal API", Version: "1"},
-		Endpoints: []client.Endpoint{{
-			Method: "GET", Path: "/ping", OperationID: "ping",
-			Responses: map[int]*client.Response{200: {Content: jsonContent(&client.Schema{Type: "object", Properties: map[string]*client.Schema{"pong": {Type: "boolean"}}})}},
-		}},
+		Endpoints: []client.Endpoint{
+			{
+				Method: "GET", Path: "/ping", OperationID: "ping",
+				Responses: map[int]*client.Response{200: {Content: jsonContent(&client.Schema{Type: "object", Properties: map[string]*client.Schema{"pong": {Type: "boolean"}}})}},
+			},
+			{
+				Method: "post", Path: "/ping", OperationID: "pingPost",
+				Responses: map[int]*client.Response{204: {Description: "ok"}},
+			},
+		},
 	}
 }
 

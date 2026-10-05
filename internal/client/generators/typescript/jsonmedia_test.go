@@ -102,3 +102,33 @@ func TestJSONSuffixArrayResponseRegistersItsCodec(t *testing.T) {
 	assert.Equal(t, arrayRefCodecID("Order"), id)
 	assert.Contains(t, table.entries, id, "the array codec the response names must be in the table")
 }
+
+// The array codec a request body looks up must be the one the table
+// registered. A schemaless application/json entry beside a +json body with an
+// array-of-$ref schema used to register under one key (the schemaless entry,
+// so nothing) and be looked up under the other.
+func TestRequestBodyArrayCodecIsRegisteredUnderItsLookupKey(t *testing.T) {
+	spec := &client.APISpec{
+		Schemas: map[string]*client.Schema{
+			"Order": {Type: "object", Properties: map[string]*client.Schema{"order_id": {Type: "string"}}},
+		},
+		Endpoints: []client.Endpoint{{
+			Method: "POST", Path: "/orders/bulk", OperationID: "orders.bulk",
+			RequestBody: &client.RequestBody{Required: true, Content: map[string]*client.MediaType{
+				"application/json":         {},
+				"application/vnd.api+json": {Schema: &client.Schema{Type: "array", Items: &client.Schema{Ref: "#/components/schemas/Order"}}},
+			}},
+			Responses: map[int]*client.Response{204: {Description: "ok"}},
+		}},
+	}
+
+	id, _ := requestBodyCodecRef(&spec.Endpoints[0])
+	if !assert.NotEmpty(t, id, "the +json array body resolves to a codec") {
+		return
+	}
+
+	table := buildCodecTable(spec, client.GeneratorConfig{Language: "typescript", FieldNaming: client.NamingCamel})
+
+	_, registered := table.entries[id]
+	assert.True(t, registered, "requestBodyCodecRef looks up %q, which the codec table never registered", id)
+}

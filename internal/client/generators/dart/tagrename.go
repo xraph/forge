@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// Ported verbatim from typescript/tagrename.go with clientFieldName renamed
+// Ported verbatim from typescript/tagrename.go with tsFieldName renamed
 // clientFieldName.
 
 // placeholderPattern matches one `{...}` placeholder of a cache tag template.

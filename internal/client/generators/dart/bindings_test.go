@@ -290,3 +290,26 @@ func TestBindingsPassEachBodyKindInItsOwnShape(t *testing.T) {
 		assertContains(t, name+".dart", file(t, out, "lib/src/bindings/"+name+".dart"), decl, "    body: body,\n")
 	}
 }
+
+// Channels sharing a path keep declaration order, as TypeScript's do; the
+// canonical tables expose the order.
+func TestStreamRowsKeepDeclarationOrderWithinAPath(t *testing.T) {
+	spec := &client.APISpec{}
+
+	for i := range 40 {
+		spec.WebSockets = append(spec.WebSockets, client.WebSocketEndpoint{
+			Path:           "/c/" + string(rune('a'+i%3)),
+			StreamBindings: []client.StreamBinding{{Message: "m" + string(rune('A'+i)), EntityType: "X", Intent: "upsert"}},
+		})
+	}
+
+	last := map[string]string{}
+
+	for _, row := range streamRows(spec) {
+		if prev, ok := last[row.Channel]; ok && row.Message < prev {
+			t.Fatalf("channel %s lists %s after %s: rows on one path must keep declaration order", row.Channel, row.Message, prev)
+		}
+
+		last[row.Channel] = row.Message
+	}
+}

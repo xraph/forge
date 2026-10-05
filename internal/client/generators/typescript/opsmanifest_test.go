@@ -2,6 +2,7 @@
 package typescript
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -388,5 +389,45 @@ func TestOpsManifestStreamsIncludeWebTransport(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("ops.ts missing %q\n\n%s", want, out)
 		}
+	}
+}
+
+// Channels that share a path keep the order the document declares them in
+// (WebSocket, then SSE, then WebTransport, each in declaration order). The
+// canonical tables expose this order, so an unstable sort would reorder rows
+// between runs once there are enough channels for it to stop being an
+// insertion sort.
+func TestStreamRowsKeepDeclarationOrderWithinAPath(t *testing.T) {
+	spec := &client.APISpec{}
+
+	for i := range 40 {
+		spec.WebSockets = append(spec.WebSockets, client.WebSocketEndpoint{
+			Path:           fmt.Sprintf("/c/%d", i%3),
+			StreamBindings: []client.StreamBinding{{Message: fmt.Sprintf("m%02d", i), EntityType: "X", Intent: "upsert"}},
+		})
+	}
+
+	last := map[string]string{}
+
+	for _, row := range streamRows(spec, false) {
+		if prev, ok := last[row.Channel]; ok && row.Message < prev {
+			t.Fatalf("channel %s lists %s after %s: rows on one path must keep declaration order", row.Channel, row.Message, prev)
+		}
+
+		last[row.Channel] = row.Message
+	}
+}
+
+// A method the document spells in lower case reaches the table, and ops.ts,
+// upper-cased.
+func TestOperationRowUpperCasesTheMethod(t *testing.T) {
+	spec := &client.APISpec{Endpoints: []client.Endpoint{{
+		Method: "post", Path: "/ping", OperationID: "ping",
+		Responses: map[int]*client.Response{204: {Description: "ok"}},
+	}}}
+
+	row := operationRow(&spec.Endpoints[0], spec, client.GeneratorConfig{Language: "typescript"}, map[string]bool{}, false)
+	if row.Method != "POST" {
+		t.Errorf("operationRow method = %q, want POST", row.Method)
 	}
 }

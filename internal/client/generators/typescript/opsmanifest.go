@@ -628,6 +628,9 @@ func writeOperationFields(
 // above and the parity tables (tables.go) both read it, so what ops.ts says
 // and what forge-tables.json says about an operation are the same values.
 //
+// The method is upper-cased, whatever case the document spells it in: the
+// runtimes key the cache by it and compare it against GET and HEAD.
+//
 // rootType is kept only when the entities table has a row for it: the
 // runtime's only use for it is to index that table, and a lookup that misses
 // descends with no typename, exactly as an absent field does. Tags are
@@ -640,7 +643,7 @@ func operationRow(
 	known map[string]bool, needsCodecs bool,
 ) client.TableOp {
 	row := client.TableOp{
-		Method:     ep.Method,
+		Method:     strings.ToUpper(ep.Method),
 		Path:       ep.Path,
 		StaleTime:  ep.StaleTime,
 		Idempotent: ep.Idempotent,
@@ -859,8 +862,8 @@ func streamRows(spec *client.APISpec, decode bool) []client.TableStream {
 		}
 	}
 
-	sort.Slice(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
-	sort.Slice(duplexes, func(i, j int) bool { return duplexes[i].Channel < duplexes[j].Channel })
+	sort.SliceStable(channels, func(i, j int) bool { return channels[i].path < channels[j].path })
+	sort.SliceStable(duplexes, func(i, j int) bool { return duplexes[i].Channel < duplexes[j].Channel })
 
 	rows := make([]client.TableStream, 0, len(channels)+len(duplexes))
 
