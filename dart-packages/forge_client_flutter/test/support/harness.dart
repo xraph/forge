@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
 import 'package:forge_client_flutter/testing.dart';
 
 /// The two entities every test renders. Ported from client-react's harness.
@@ -217,3 +218,18 @@ String listText(QueryState<List<Order>> state) =>
     '${stateStatusOf(state)}:${state.dataOrNull?.map((o) => o.total).join(',') ?? '-'}';
 
 Widget ltr(Widget child) => Directionality(textDirection: .ltr, child: child);
+
+/// A scope over [h]'s cache with fake signals, so no test touches the
+/// connectivity platform channel, and with text direction set.
+Widget scope(
+  Harness h,
+  Widget child, {
+  FakeFocusSignal? focus,
+  FakeConnectivitySignal? connectivity,
+}) =>
+    ForgeScope(
+      client: h.cache,
+      focus: focus ?? FakeFocusSignal(),
+      connectivity: connectivity ?? FakeConnectivitySignal(),
+      child: ltr(child),
+    );

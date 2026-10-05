@@ -10,3 +10,4 @@ export 'src/seams.dart'
         flutterSeamsInstalled,
         frameCommitScheduler,
         installFlutterSeams;
+export 'src/scope.dart' show ForgeContext, ForgeScope;
