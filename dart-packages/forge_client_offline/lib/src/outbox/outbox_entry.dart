@@ -92,16 +92,20 @@ final class OutboxEntry {
   String get stateJson {
     final failure = failureJson;
     if (failure != null) {
-      final Object? decoded;
+      Object? decoded;
       try {
         decoded = jsonDecode(failure);
       } on FormatException {
-        return jsonEncode({
-          'kind': 'failed',
-          'failure': {'kind': 'unreadable', 'raw': failure},
-        });
+        decoded = null;
       }
-      return jsonEncode({'kind': 'failed', 'failure': decoded});
+      // A failed state always carries a failure object. Anything else is
+      // kept as raw text, never written as `failure: null`.
+      return jsonEncode({
+        'kind': 'failed',
+        'failure': decoded is Map<String, Object?>
+            ? decoded
+            : {'kind': 'unreadable', 'raw': failure},
+      });
     }
     final at = sentAt;
     return at == null
@@ -221,7 +225,13 @@ const String _queuedState = '{"kind":"queued"}';
           null,
         );
       case 'failed':
-        return (null, jsonEncode(decoded['failure']));
+        final failure = decoded['failure'];
+        // A failed state with no failure object is unreadable: surface the
+        // raw state as the failure rather than a failure of "null".
+        return (
+          null,
+          failure is Map<String, Object?> ? jsonEncode(failure) : stored,
+        );
     }
   }
   return (null, stored);

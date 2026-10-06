@@ -24,12 +24,15 @@ sealed class OverlayIntent {
       throw FormatException('overlay intent is not an object', source);
     }
 
+    final key = json['key'];
+    final patch = json['patch'];
+
     return switch (json['kind']) {
-      'merge' => MergeOverlay(
-        json['key']! as String,
-        Map<String, Object?>.of(json['patch']! as Map<String, Object?>),
-      ),
-      'delete' => DeleteOverlay(json['key']! as String),
+      'merge' when key is String && patch is Map<String, Object?> =>
+        MergeOverlay(key, Map<String, Object?>.of(patch)),
+      'delete' when key is String => DeleteOverlay(key),
+      final kind when kind == 'merge' || kind == 'delete' =>
+        throw FormatException('malformed $kind overlay intent', source),
       final kind => throw FormatException('unknown overlay intent', kind),
     };
   }

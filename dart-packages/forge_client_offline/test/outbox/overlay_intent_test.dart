@@ -131,4 +131,19 @@ void main() {
     );
     expect(const NoOverlay().toOptimistic(), isNull);
   });
+
+  test('a malformed merge or delete is a FormatException, not a TypeError', () {
+    for (final source in [
+      '{"kind":"merge","patch":{"a":1}}',
+      '{"kind":"merge","key":"Order:7","patch":[1]}',
+      '{"kind":"delete","key":7}',
+      '[]',
+    ]) {
+      expect(
+        () => OverlayIntent.decode(source),
+        throwsFormatException,
+        reason: source,
+      );
+    }
+  });
 }

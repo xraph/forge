@@ -1,13 +1,11 @@
 import 'package:http/http.dart' as http;
-import 'package:web/web.dart' as web;
 
 import 'network_failure.dart';
 
-/// A fetch failure while the browser reports itself offline never left the
-/// device; any other is uncertain.
-NetworkFailure? classifyPlatformError(Object error) {
-  if (error is! http.ClientException) return null;
-  return web.window.navigator.onLine
-      ? NetworkFailure.uncertain
-      : NetworkFailure.notSent;
-}
+/// Every fetch failure is uncertain, including one while the browser reports
+/// itself offline: `navigator.onLine` says what the browser knew when the
+/// error surfaced, not whether the connection dropped after the request had
+/// left, and a browser cannot tell a refused connection from a lost response.
+/// Replay sends the same Idempotency-Key, so treating it as uncertain is safe.
+NetworkFailure? classifyPlatformError(Object error) =>
+    error is http.ClientException ? NetworkFailure.uncertain : null;

@@ -88,6 +88,83 @@ void main() {
     expect(classifyNetworkError(error!), NetworkFailure.notSent);
   });
 
+  test('a TLS failure happened before any request byte was written', () {
+    expect(
+      classifyNetworkError(const HandshakeException('Connection terminated')),
+      NetworkFailure.notSent,
+    );
+    expect(
+      classifyNetworkError(const CertificateException('bad certificate')),
+      NetworkFailure.notSent,
+    );
+  });
+
+  test('a real handshake that fails through package:http is notSent', () async {
+    // A server that answers the TLS hello with plain text: the handshake
+    // fails before the request is sent.
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final accepted = <Socket>[];
+    addTearDown(() {
+      for (final socket in accepted) {
+        socket.destroy();
+      }
+    });
+    server.listen((socket) {
+      accepted.add(socket);
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    });
+
+    final client = IOClient();
+    addTearDown(client.close);
+
+    Object? error;
+    try {
+      await client.get(Uri.parse('https://127.0.0.1:${server.port}/'));
+    } on Object catch (e) {
+      error = e;
+    }
+
+    expect(error, isA<HandshakeException>());
+    expect(classifyNetworkError(error!), NetworkFailure.notSent);
+  });
+
+  test('a refusal is recognised by its OS code, in any language', () async {
+    // The ground truth for this platform: the code a real refusal carries.
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = server.port;
+    await server.close();
+
+    SocketException? refused;
+    try {
+      await Socket.connect(InternetAddress.loopbackIPv4, port);
+    } on SocketException catch (e) {
+      refused = e;
+    }
+    final code = refused?.osError?.errorCode;
+    expect(code, isNotNull);
+
+    expect(
+      classifyNetworkError(
+        SocketException(
+          'Verbindung abgelehnt',
+          osError: OSError('Verbindung abgelehnt', code!),
+        ),
+      ),
+      NetworkFailure.notSent,
+    );
+    expect(
+      classifyNetworkError(
+        const SocketException(
+          'Verbindung zurückgesetzt',
+          osError: OSError('Verbindung zurückgesetzt', 104),
+        ),
+      ),
+      NetworkFailure.uncertain,
+      reason: 'a reset code is not on the not-sent list',
+    );
+  });
+
   group('a request the caller cancelled', () {
     test('is cancelled, never a network failure of either kind', () {
       expect(

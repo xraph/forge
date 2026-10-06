@@ -149,6 +149,39 @@ void main() {
     );
   });
 
+  test('a failed state without a failure object is kept as raw text', () {
+    final record = entry().toRecord();
+    PendingMutationRecord withState(String state) => PendingMutationRecord(
+      id: record.id,
+      operationId: record.operationId,
+      argsJson: record.argsJson,
+      idempotencyKey: record.idempotencyKey,
+      createdAt: record.createdAt,
+      stateJson: state,
+    );
+
+    for (final state in [
+      '{"kind":"failed"}',
+      '{"kind":"failed","failure":null}',
+      '{"kind":"failed","failure":"text"}',
+    ]) {
+      final back = OutboxEntry.fromRecord(withState(state));
+
+      expect(back.failureJson, state, reason: state);
+      expect(back.sentAt, isNull);
+    }
+
+    // And writing one never stores `failure: null`.
+    for (final failure in ['null', '5', 'not json']) {
+      final written = jsonDecode(entry(failureJson: failure).stateJson);
+
+      expect(written, {
+        'kind': 'failed',
+        'failure': {'kind': 'unreadable', 'raw': failure},
+      });
+    }
+  });
+
   test('an unknown envelope or broken JSON is a FormatException', () {
     expect(
       () => OutboxEntry.fromRecord(withArgs('{"v":2,"seq":1,"args":{}}')),
