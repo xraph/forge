@@ -54,5 +54,6 @@ void main() {
 
   test('the README marks web support as pending and makes no web claim', () {
     expect(readme, contains('Web support is pending'));
+    expect(readme, isNot(contains(RegExp('web[^.]*shred', caseSensitive: false))));
   });
 }

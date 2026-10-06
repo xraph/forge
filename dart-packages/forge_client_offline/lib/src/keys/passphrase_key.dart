@@ -82,8 +82,8 @@ final class MemoryPassphraseSaltStore implements PassphraseSaltStore {
 /// passphrase, which is the case a passphrase is chosen to survive. The salt
 /// travels with the database instead.
 ///
-/// Defaults follow RFC 9106's second recommended Argon2id option (64 MiB, 3
-/// passes, 1 lane). Parameters below the floor, 19 MiB and 2 passes (OWASP's
+/// Defaults are 64 MiB, 3 passes, 1 lane, adapted from RFC 9106's second
+/// recommendation (which uses 4 lanes). Parameters below the floor, 19 MiB and 2 passes (OWASP's
 /// minimum), are refused with an [ArgumentError]. Tests that need a cheap
 /// derivation use [PassphraseKey.weakForTesting].
 ///
@@ -149,13 +149,13 @@ final class PassphraseKey implements KeyProvider {
          allowWeak: true,
        );
 
-  /// RFC 9106 second recommended option: 64 MiB.
+  /// 64 MiB, as in RFC 9106's second recommendation.
   static const defaultMemoryKiB = 65536;
 
-  /// RFC 9106 second recommended option: 3 passes.
+  /// 3 passes, as in RFC 9106's second recommendation.
   static const defaultIterations = 3;
 
-  /// RFC 9106 second recommended option: 1 lane.
+  /// 1 lane. RFC 9106's second recommendation uses 4, this default is adapted.
   static const defaultParallelism = 1;
 
   /// The least memory accepted outside tests: OWASP's Argon2id minimum.

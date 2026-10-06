@@ -288,13 +288,13 @@ The passphrase is a weaker crypto-shred than a keystore key. The salt is a plain
 
 A power loss right after the first open can lose the salt while keeping the database. That fails closed: the database can't be opened until you `destroy` the principal or call `resetOfflineData`.
 
-The Argon2id defaults are 64 MiB, 3 passes and 1 lane (RFC 9106's second recommended option). On an Apple M3 Max the derivation takes about 450 ms, measured in pure Dart both under the VM and as an AOT executable. That is a laptop, and a phone will be slower. Nobody has timed it on one yet, and the iOS simulator would only repeat the host's number. Parameters below 19 MiB or 2 passes are refused. The derivation runs whenever a principal's database is opened fresh, so every cold start pays it.
+The Argon2id defaults are 64 MiB, 3 passes and 1 lane, adapted from RFC 9106's second recommendation. On an Apple M3 Max the derivation takes about 450 ms, measured in pure Dart both under the VM and as an AOT executable. That is a laptop, and a phone will be slower. Nobody has timed it on one yet, and the iOS simulator would only repeat the host's number. Parameters below 19 MiB or 2 passes are refused. The derivation runs whenever a principal's database is opened fresh, so every cold start pays it.
 
 ### Android Auto Backup
 
 Exclude two things from Auto Backup: the secure-storage preferences, and the package's database directory, `forge_client_offline/` under the app support directory. A restore that brings the preferences back without the Keystore key that decrypts them leaves the install salt and every key unreadable, and `open` throws `KeyUnavailable` for good. `resetOfflineData()` is the fix, run on the user's say-so.
 
-That reset path, clearing a namespace whose Keystore key is gone, is unverified. It needs an Android emulator image that isn't installed on the machine this was written on, and nobody has run it. Treat it as untested until a run says otherwise.
+That reset path, clearing a namespace whose Keystore key is gone, is unverified. It has not been tested on Android yet. Treat it as untested until a run says otherwise.
 
 ## Testing in this package
 
