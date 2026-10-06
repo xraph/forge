@@ -6,8 +6,12 @@
 // Paste each README block below its marker. The only difference allowed is
 // the generated package's import, which the README spells
 // `package:orders_forge_client/orders_forge_client.dart` and this file
-// spells `support/readme_stubs.dart`.
+// spells `support/readme_stubs.dart`, and the import of
+// `forge_client_offline`, which the README's Offline section tells the reader
+// to add and which this file keeps with the other imports.
 // ignore_for_file: unused_import
+
+import 'package:forge_client_offline/forge_client_offline.dart';
 
 //README-BLOCK set-up
 import 'package:flutter/material.dart';
@@ -118,21 +122,30 @@ Widget selectedNote(BuildContext context) => ListenableBuilder(
 void select(BuildContext context, String id) => context.forgeState(selectedId).value = id;
 
 //README-BLOCK offline
-Future<void> restoreCache() async {
-  await client.idle;
-  final stored = await client.session?.readSnapshot();
-  if (stored == null) return;
-  hydrate(client, stored, principal: client.principal, operations: operations, stale: true);
+Future<void> runOffline(EncryptedSqliteStorage storage, String userId) async {
+  final offline = await OfflineClient.open(
+    transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    connectivity: ConnectivityPlusSignal(),
+    commitScheduler: frameCommitScheduler(),
+  );
+  runApp(ForgeScope(client: offline.cache, child: offlineApp(offline)));
 }
 
-Widget offlineApp(OutboxFailureSource outbox) => ForgeRestoreBoundary(
-  key: ValueKey(client.principal),
-  restore: restoreCache,
+Widget offlineApp(OfflineClient offline) => ForgeRestoreBoundary(
+  key: ValueKey(offline.cache.principal),
+  restore: offline.restore,
   placeholder: const SplashScreen(),
   child: ForgeOutboxListener(
-    source: outbox,
-    onFailure: (context, failure) => ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('A saved change was rejected: $failure'))),
+    source: offline,
+    onFailure: (context, failure) {
+      if (failure is! OutboxFailure) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('A saved change was rejected: $failure')));
+    },
     child: const App(),
   ),
 );

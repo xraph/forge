@@ -216,40 +216,49 @@ A few details worth knowing:
 
 ## Offline
 
-`forge_client_offline` arrives with plan 04 of the Dart client work, and this section will be updated then. It will persist the outbox and the cache snapshot per principal, and its `OfflineClient` will implement `forge_client`'s `OutboxFailureSource`, so you pass it straight to `ForgeOutboxListener(source: offline, ...)`. This package depends on neither. What you can use today is the two widgets, with your own `restore` and any `OutboxFailureSource`:
+`forge_client_offline` (in `dart-packages/forge_client_offline`) keeps the cache's snapshot and a queue of unsent writes in an encrypted database per principal. This package depends on neither it nor its storage, but its `OfflineClient` is built for the two widgets here: it is the `OutboxFailureSource` for `ForgeOutboxListener`, and its `restore` is the callback `ForgeRestoreBoundary` wants. Add `import 'package:forge_client_offline/forge_client_offline.dart';` next to the imports above.
+
+Open the client before `runApp`, hand its cache to the scope, and pass the client to the widgets:
 
 ```dart
-Future<void> restoreCache() async {
-  await client.idle;
-  final stored = await client.session?.readSnapshot();
-  if (stored == null) return;
-  hydrate(client, stored, principal: client.principal, operations: operations, stale: true);
+Future<void> runOffline(EncryptedSqliteStorage storage, String userId) async {
+  final offline = await OfflineClient.open(
+    transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    connectivity: ConnectivityPlusSignal(),
+    commitScheduler: frameCommitScheduler(),
+  );
+  runApp(ForgeScope(client: offline.cache, child: offlineApp(offline)));
 }
 
-Widget offlineApp(OutboxFailureSource outbox) => ForgeRestoreBoundary(
-  key: ValueKey(client.principal),
-  restore: restoreCache,
+Widget offlineApp(OfflineClient offline) => ForgeRestoreBoundary(
+  key: ValueKey(offline.cache.principal),
+  restore: offline.restore,
   placeholder: const SplashScreen(),
   child: ForgeOutboxListener(
-    source: outbox,
-    onFailure: (context, failure) => ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('A saved change was rejected: $failure'))),
+    source: offline,
+    onFailure: (context, failure) {
+      if (failure is! OutboxFailure) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('A saved change was rejected: $failure')));
+    },
     child: const App(),
   ),
 );
 ```
 
-`ForgeRestoreBoundary` shows the placeholder until `restore` completes, then the child. It runs `restore` once per mount, after the frame that mounts it, whatever closure later rebuilds pass. To restore again, give it a new key. Keying on the principal, as above, does that when someone signs in or out, so rebuild the widget when your auth state changes.
+`OfflineClient.open` already restores the snapshot and the outbox before it returns, so on the first launch the boundary has nothing left to do. It earns its place when the principal changes: call `offline.cache.setPrincipal(next)`, rebuild the widget, and the new key shows the placeholder and runs `offline.restore`, which waits for the principal switch and restores the new principal's session once. `ForgeRestoreBoundary` shows the placeholder until `restore` completes, then the child. It runs `restore` once per mount, after the frame that mounts it, whatever closure later rebuilds pass.
 
-Three things about `restore`:
+A restored query comes back marked stale, so the child mounts, sees it stale and refetches. A restore that throws still shows the child, on whatever the cache holds. The error goes to `onError` when you pass one and to `FlutterError.reportError` otherwise.
 
-- `hydrate` needs the generated `operations` table. With an empty one it throws `HydrationFailure` for the first query it meets.
-- `client.session` is null while a principal switch is in progress, so await `client.idle` before you read it.
-- `stale: true` makes the restored queries settle behind the server. The child mounts after the restore, sees them stale, and refetches. Leave it out and fresh-looking restored data issues no request.
+`ForgeOutboxListener` calls `onFailure` for each failure, with a live context, and never rebuilds its child. The stream is typed `Object` here so this package needn't know the offline package, which is why the example checks `failure is OutboxFailure` before it uses it. Switch over the sealed type to pick a screen per case. The listener calls the latest `onFailure`, moves to a new `source` when you pass one, and cancels its subscription when it leaves the tree. A source can emit from inside a build, so a failure that arrives then is held until the frame is done and delivered in order. None are dropped, unless the listener itself was removed in the meantime.
 
-A restore that throws, a payload for another principal or from a newer client for example, still shows the child, on whatever the cache holds. The error goes to `onError` when you pass one and to `FlutterError.reportError` otherwise.
+Two things to get right when accounts change. Call `setPrincipal` before you swap the credentials your transport sends, and drop any `OutboxFailure` your screens hold. Each one carries the previous account's server response, and calling `retry()` on it afterwards would reach the wrong outbox. The offline package's README has the details, and what gets retried, how keys are held and what its limits are.
 
-`ForgeOutboxListener` calls `onFailure` for each failure, with a live context, and never rebuilds its child. It calls the latest `onFailure`, moves to a new `source` when you pass one, and cancels its subscription when it leaves the tree. A source can emit from inside a build, so a failure that arrives then is held until the frame is done and delivered in order. None are dropped, unless the listener itself was removed in the meantime.
+Without the offline package you can still use both widgets with your own `restore` (read `client.session?.readSnapshot()` after `await client.idle`, then `hydrate(client, stored, principal: client.principal, operations: operations, stale: true)`) and any `OutboxFailureSource`.
 
 ## Plain Dart access
 

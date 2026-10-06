@@ -19,3 +19,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Only the README's Offline example uses it, to compile against the real client.
+  forge_client_offline:
+    path: ../forge_client_offline
