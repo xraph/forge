@@ -1639,6 +1639,17 @@ void main() {
           containsPair('stale', true),
         );
 
+        // The four reads a panel pages through say so too, so an empty answer
+        // is not mistaken for an evicted entity or an empty store.
+        for (final method in [
+          ForgeDevtoolsProtocol.queries,
+          ForgeDevtoolsProtocol.query,
+          ForgeDevtoolsProtocol.entities,
+          ForgeDevtoolsProtocol.entity,
+        ]) {
+          expect(decoded[method], containsPair('stale', true), reason: method);
+        }
+
         // The snapshot keeps its shape: zero-filled counters, marked stale.
         final snapshot = decoded[ForgeDevtoolsProtocol.snapshot]!;
 
@@ -1658,6 +1669,20 @@ void main() {
           await call(ForgeDevtoolsProtocol.snapshot),
           isNot(contains('stale')),
         );
+        for (final MapEntry(:key, :value) in reads.entries) {
+          if (const [
+            ForgeDevtoolsProtocol.queries,
+            ForgeDevtoolsProtocol.query,
+            ForgeDevtoolsProtocol.entities,
+            ForgeDevtoolsProtocol.entity,
+          ].contains(key)) {
+            expect(
+              await call(key, value),
+              isNot(contains('stale')),
+              reason: key,
+            );
+          }
+        }
       });
     }
   });

@@ -467,6 +467,9 @@ final class ForgeDevtoolsHost {
         return {
           'entity': _entity(devtools.entity(key)),
           'folded': bounded(devtools.foldedRecord(key), _payloadWidth),
+          // An empty answer while the cache changes principal says so, rather
+          // than reading as an entity that was evicted.
+          if (!devtools.answering) 'stale': true,
         };
       case ForgeDevtoolsProtocol.tags:
         return _tags(devtools, params);
@@ -667,6 +670,7 @@ final class ForgeDevtoolsHost {
       'total': matching.length,
       'offset': offset,
       'truncated': offset + page.length < matching.length,
+      if (!devtools.answering) 'stale': true,
       'items': _guarded(page),
     };
   }
@@ -676,7 +680,9 @@ final class ForgeDevtoolsHost {
     Map<String, String> params,
   ) {
     final detail = devtools.detail(_required(params, 'key'));
-    if (detail == null) return {'detail': null};
+    if (detail == null) {
+      return {'detail': null, if (!devtools.answering) 'stale': true};
+    }
 
     const cap = ForgeDevtoolsProtocol.maxListInDetail;
     return {
@@ -750,6 +756,7 @@ final class ForgeDevtoolsHost {
       'total': total,
       'offset': offset,
       'truncated': offset + page.length < total,
+      if (!devtools.answering) 'stale': true,
       'items': _guarded(page),
     };
   }
