@@ -108,4 +108,14 @@ final class VmForgeBackend implements ForgeBackend {
     await _subscription?.cancel();
     _subscription = null;
   }
+
+  /// Stops listening: the connection listener, the extension stream, the
+  /// isolate watch and its notifiers. The extension root calls this when it
+  /// goes away.
+  Future<void> dispose() async {
+    serviceManager.connectedState.removeListener(_onConnection);
+    _watch.dispose();
+    await _stop();
+    await _events.close();
+  }
 }

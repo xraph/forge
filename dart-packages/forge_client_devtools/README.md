@@ -66,8 +66,10 @@ unmounted, records) and, when the app wired a simulator, the network rail.
 
 The rail switches the app's network between Online, Slow and Offline, adds
 extra latency (250 ms, 1 s or 3 s), and has a Fail next button that makes the
-next request fail once with a 500. Disarm it if you change your mind. The
-revalidation toggles the app registered show up here too.
+next request fail once. Pick the status beside it first: 408, 429, 500, 503 or
+409, so you can walk the retry, backoff and conflict paths by hand. It's 500
+until you change it. Disarm it if you change your mind. The revalidation
+toggles the app registered show up here too.
 
 The rail only has network controls if `configureClient` wrapped a
 `RestTransport` for you, or you passed `controls:` to
@@ -86,12 +88,18 @@ and every panel's cache when the marker arrives, so what you see afterwards is
 the new account only.
 
 During the switch itself, the app answers with empty lists on purpose. The
-Queries, Entities, Outbox and Sync panels and the status bar show "switching
-account" for that window instead of a cache that looks empty.
+Queries, Entities, Tags, Outbox and Sync panels and the status bar show
+"switching account" for that window, so you don't mistake it for an empty cache.
 
 Nothing is kept across isolates either. After a hot restart or a new isolate,
 the extension forgets everything it held, reads again from the app that is
 there now, and reconnects by itself.
+
+The same goes for a cache that is replaced inside one isolate. Close an
+`OfflineClient` and open the next user's, and the app tells the extension that
+cache 1 went and cache 2 arrived. The extension drops every panel and moves to
+cache 2. If it misses that news, the first call the app refuses because cache 1
+is gone does the same job.
 
 The request log keeps no headers and no request or response bodies. It does
 show the operation, the path and the query values (each cut short).
@@ -105,8 +113,9 @@ Every action the extension sends (refetch, invalidate, mark stale, drop,
 evict, replay, discard, capture, and every change on the rail) carries the
 session of the cache as the extension last saw it. If the app has changed
 account since, it refuses the action and the panel shows the refusal, so a
-click made against the previous account never lands on the new one. Evicting an
-entity that sync owns is refused as well.
+click made against the previous account never lands on the new one. A change
+that names no session at all is refused too. Evicting an entity that sync owns
+is refused as well.
 
 ## When the tab says forge_client is not running
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:devtools_extensions/devtools_extensions.dart';
 import 'package:flutter/material.dart';
 
@@ -17,6 +19,14 @@ class ForgeDevtoolsExtension extends StatefulWidget {
 
 class _ForgeDevtoolsExtensionState extends State<ForgeDevtoolsExtension> {
   VmForgeBackend? _backend;
+
+  @override
+  void dispose() {
+    final backend = _backend;
+    _backend = null;
+    if (backend != null) unawaited(backend.dispose());
+    super.dispose();
+  }
 
   // The backend is built inside DevToolsExtension's subtree, after it has set
   // up `serviceManager`.

@@ -409,10 +409,10 @@ void main() {
             'cause': {
               'label': 'mutation POST /orders',
               'seq': 4,
-              'tags': ['Order[]'],
-              'unresolved': <String>[],
+              'tags': capped(['Order[]']),
+              'unresolved': capped(<String>[]),
             },
-            'matched': ['Order[]'],
+            'matched': capped(['Order[]']),
             'summary': 'It refetched because POST /orders raised Order[].',
           },
         };
@@ -522,16 +522,16 @@ void main() {
             'preview': {
               'operation': 'POST /orders',
               'templates': ['Order:{res.id}', 'Order[]'],
-              'tags': ['Order:9', 'Order[]'],
-              'unresolved': <String>[],
-              'hits': [
-                {'tag': 'Order:9', 'queries': <String>[]},
+              'tags': capped(['Order:9', 'Order[]']),
+              'unresolved': capped(<String>[]),
+              'hits': capped([
+                {'tag': 'Order:9', 'queries': capped(<String>[])},
                 {
                   'tag': 'Order[]',
-                  'queries': ['GET /orders'],
+                  'queries': capped(['GET /orders']),
                 },
-              ],
-              'missed': ['Order:9'],
+              ]),
+              'missed': capped(['Order:9']),
             },
           };
         await pumpPanel(tester, fake);
@@ -574,5 +574,173 @@ void main() {
       expect(find.textContaining('args must be a JSON object'), findsOneWidget);
       expect(find.text('missed: Order:9'), findsNothing);
     });
+  });
+
+  // Final fix M2: the lists arrive capped, and the panel says how many of how
+  // many it shows.
+  group('capped lists', () {
+    testWidgets('a report says how many of each list it is showing', (
+      tester,
+    ) async {
+      final fake = FakeForgeBackend()
+        ..overrides[ForgeDevtoolsProtocol.explain] = (params) => {
+          'report': {
+            'kind': 'miss',
+            'query': params['key'],
+            'outcome': 'missed',
+            'reason': 'disjoint',
+            'cause': {
+              'label': 'what if',
+              'seq': null,
+              'tags': capped(['Order:0'], total: 1500),
+              'unresolved': capped(<String>[]),
+            },
+            'mounts': 1,
+            'settled': true,
+            'invalidated': capped(['Order:0', 'Order:1'], total: 1500),
+            'carried': capped(['Order[]']),
+            'matched': capped(<String>[]),
+            'nearest': capped(<Object?>[]),
+            'suggestions': capped(<String>[]),
+          },
+        };
+      await pumpPanel(tester, fake);
+      await openTab(tester, 'Tags');
+
+      await tester.enterText(
+        find.byKey(const ValueKey('explain-key')),
+        'GET /orders',
+      );
+      await tester.tap(find.byKey(const ValueKey('explain-run')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'invalidated: Order:0, Order:1 (showing the first 2 of 1500)',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('carried: Order[]'), findsOneWidget);
+    });
+
+    testWidgets('a preview says how many queries of how many a tag reaches', (
+      tester,
+    ) async {
+      final fake = FakeForgeBackend()
+        ..overrides[ForgeDevtoolsProtocol.wouldInvalidate] = (params) => {
+          'preview': {
+            'operation': 'PATCH /orders/{id}',
+            'templates': ['Order[]'],
+            'tags': capped(['Order[]']),
+            'unresolved': capped(<String>[]),
+            'hits': capped([
+              {
+                'tag': 'Order[]',
+                'queries': capped(['GET /orders?p=0'], total: 1005),
+              },
+            ]),
+            'missed': capped(<String>[]),
+          },
+        };
+      await pumpPanel(tester, fake);
+      await openTab(tester, 'Tags');
+
+      await tester.tap(find.byKey(const ValueKey('would-run')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Order[] reaches GET /orders?p=0 (showing the first 1 of 1005)',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('missed: none'), findsOneWidget);
+    });
+  });
+
+  // Final fix P1: what the app sends while it changes account is marked
+  // stale, and each part of the panel says so instead of showing it.
+  group('while the app changes account', () {
+    testWidgets(
+      'the list, the report, the preview and the operations say "switching account"',
+      (tester) async {
+        final fake = FakeForgeBackend();
+        fake.overrides[ForgeDevtoolsProtocol.tags] = (_) => {
+          'total': 0,
+          'offset': 0,
+          'truncated': false,
+          'stale': true,
+          'items': <Object?>[],
+        };
+        fake.overrides[ForgeDevtoolsProtocol.explain] = (params) => {
+          'report': {
+            'kind': 'miss',
+            'query': params['key'],
+            'outcome': 'not-tracked',
+            'reason': 'nothing to say',
+            'cause': {'label': 'nothing'},
+          },
+          'stale': true,
+        };
+        fake.overrides[ForgeDevtoolsProtocol.operations] = (_) => {
+          'operations': [
+            {
+              'id': 'op_order_create',
+              'method': 'POST',
+              'path': '/orders',
+              'provides': <String>[],
+              'invalidates': ['Order:{res.id}'],
+            },
+          ],
+          'total': 1,
+          'truncated': false,
+          'stale': true,
+        };
+        fake.overrides[ForgeDevtoolsProtocol.wouldInvalidate] = (_) => {
+          'preview': {
+            'operation': 'POST /orders',
+            'templates': ['Order:{res.id}'],
+            'tags': capped(['Order:9']),
+            'unresolved': capped(<String>[]),
+            'hits': capped([
+              {'tag': 'Order:9', 'queries': capped(<String>[])},
+            ]),
+            'missed': capped(['Order:9']),
+          },
+          'stale': true,
+        };
+        await pumpPanel(tester, fake);
+        await openTab(tester, 'Tags');
+
+        expect(find.byKey(const ValueKey('tags-switching')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('operations-switching')),
+          findsOneWidget,
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey('explain-key')),
+          'GET /orders',
+        );
+        await tester.tap(find.byKey(const ValueKey('explain-run')));
+        await tester.tap(find.byKey(const ValueKey('would-run')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('explain-switching')), findsOneWidget);
+        expect(find.byKey(const ValueKey('would-switching')), findsOneWidget);
+        expect(find.byKey(const ValueKey('report-outcome')), findsNothing);
+        expect(find.textContaining('reaches'), findsNothing);
+
+        // Settled, the same panel shows the answers again.
+        fake.overrides.clear();
+        await tester.tap(find.byKey(const ValueKey('explain-run')));
+        await tester.tap(find.byKey(const ValueKey('would-run')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('explain-switching')), findsNothing);
+        expect(find.byKey(const ValueKey('would-switching')), findsNothing);
+        expect(find.byKey(const ValueKey('report-outcome')), findsOneWidget);
+      },
+    );
   });
 }

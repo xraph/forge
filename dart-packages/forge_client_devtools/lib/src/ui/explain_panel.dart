@@ -15,11 +15,15 @@ import 'widgets.dart';
 /// scroll position survives. Tags, query keys and operation ids are sent back
 /// to the app exactly as it gave them.
 ///
-/// The runtime's explain answers are empty, not marked `stale`, while the
-/// app changes account: the list shows no tags and a report says the query is
-/// not tracked. The workspace rebuilds this panel as soon as the connection
-/// sees the principal move, so nothing read for the previous account stays
-/// on screen.
+/// While the app changes account the runtime answers the tag graph, the
+/// explain questions, the operations table and the preview empty and marked
+/// `stale`, and each part of the panel says "switching account" rather than
+/// showing an empty graph or a query that is not tracked. The workspace
+/// rebuilds this panel as soon as the connection sees the principal move, so
+/// nothing read for the previous account stays on screen.
+///
+/// The lists in a report or a preview arrive capped, as
+/// `{items, truncated, total}`, and the panel says how many it is showing.
 class ExplainPanel extends StatefulWidget {
   /// Creates the panel.
   const ExplainPanel({super.key, required this.connection});
@@ -36,6 +40,7 @@ class _ExplainPanelState extends State<ExplainPanel>
   int _refresh = 0;
   String _filter = '';
   String? _selected;
+  bool _switching = false;
 
   @override
   ForgeConnection get connection => widget.connection;
@@ -51,6 +56,12 @@ class _ExplainPanelState extends State<ExplainPanel>
       'limit': '$limit',
       if (_filter.isNotEmpty) 'filter': _filter,
     });
+    // An empty graph the app sent while it changes account is not an empty
+    // graph.
+    final switching = page.flag('stale');
+    if (mounted && switching != _switching) {
+      setState(() => _switching = switching);
+    }
     return (total: page.integer('total'), items: page.objs('items'));
   }
 
@@ -76,6 +87,14 @@ class _ExplainPanelState extends State<ExplainPanel>
                       setState(() => _filter = value.trim()),
                 ),
               ),
+              if (_switching)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Chip(
+                    key: ValueKey('tags-switching'),
+                    label: Text('switching account'),
+                  ),
+                ),
               Expanded(
                 child: PagedList(
                   key: const ValueKey('tags-list'),
@@ -137,6 +156,45 @@ class _ExplainPanelState extends State<ExplainPanel>
 int _count(Json row, String name) {
   final total = row.integer('${name}Total');
   return total > 0 ? total : row.strings(name).length;
+}
+
+/// A list the app capped, sent as `{items, truncated, total}`. A plain list is
+/// read as one that was not cut.
+typedef _Capped = ({List<Object?> items, int total});
+
+/// Reads the capped list under [key] in [json].
+_Capped _capped(Json json, String key) => switch (json[key]) {
+  final Map<String, Object?> wrapped => (
+    items: switch (wrapped['items']) {
+      final List<Object?> items => items,
+      _ => const <Object?>[],
+    },
+    total: wrapped.integer('total'),
+  ),
+  final List<Object?> items => (items: items, total: items.length),
+  _ => (items: const <Object?>[], total: 0),
+};
+
+/// The strings of the capped list under [key].
+List<String> _cappedStrings(Json json, String key) => [
+  for (final item in _capped(json, key).items) '$item',
+];
+
+/// The objects of the capped list under [key].
+List<Json> _cappedObjects(Json json, String key) => [
+  for (final item in _capped(json, key).items)
+    if (item is Map<String, Object?>) item,
+];
+
+/// `label: a, b, c`, and how many of how many when the app cut the list.
+Widget _cappedLine(Json json, String key) {
+  final list = _capped(json, key);
+  final shown = list.items.length;
+  return KeyValue(
+    key,
+    '${list.items.join(', ')}'
+    '${list.total > shown ? ' (showing the first $shown of ${list.total})' : ''}',
+  );
 }
 
 /// The selected tag, with who carries it and who an invalidation would
@@ -345,7 +403,9 @@ class _ExplainState extends State<_Explain> {
         ],
       ),
       if (_error != null) Text(_error!),
-      if (_result case final result?)
+      if (_result case final result? when result.flag('stale'))
+        const Text('switching account', key: ValueKey('explain-switching'))
+      else if (_result case final result?)
         _Report(report: result.objOrNull('report')),
     ],
   );
@@ -375,10 +435,13 @@ class _Report extends StatelessWidget {
           ),
           Text(report.str('summary')),
           if (cause.isNotEmpty) KeyValue('cause', cause.str('label')),
-          KeyValue('matched', report.strings('matched').join(', ')),
+          _cappedLine(report, 'matched'),
         ],
       );
     }
+
+    final nearest = _cappedObjects(report, 'nearest');
+    final suggestions = _cappedStrings(report, 'suggestions');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -389,26 +452,39 @@ class _Report extends StatelessWidget {
         ),
         Text(report.str('reason')),
         KeyValue('cause', cause.str('label')),
-        KeyValue('invalidated', report.strings('invalidated').join(', ')),
-        KeyValue('carried', report.strings('carried').join(', ')),
-        KeyValue('matched', report.strings('matched').join(', ')),
-        if (cause.strings('unresolved').isNotEmpty)
-          KeyValue('unresolved', cause.strings('unresolved').join(', ')),
-        if (report.objs('nearest').isNotEmpty)
-          const SectionTitle('nearest misses'),
-        for (final miss in report.objs('nearest'))
+        _cappedLine(report, 'invalidated'),
+        _cappedLine(report, 'carried'),
+        _cappedLine(report, 'matched'),
+        if (_cappedStrings(cause, 'unresolved').isNotEmpty)
+          _cappedLine(cause, 'unresolved'),
+        if (nearest.isNotEmpty) const SectionTitle('nearest misses'),
+        for (final miss in nearest)
           ListTile(
             dense: true,
             title: Text('${miss.str('invalidated')} vs ${miss.str('carried')}'),
             subtitle: Text('${miss.str('relation')}: ${miss.str('hint')}'),
           ),
-        if (report.strings('suggestions').isNotEmpty)
-          const SectionTitle('what to change'),
-        for (final suggestion in report.strings('suggestions'))
-          Text(suggestion),
+        if (_capped(report, 'nearest').total > nearest.length)
+          Text(
+            'showing the first ${nearest.length} of '
+            '${_capped(report, 'nearest').total} near misses',
+          ),
+        if (suggestions.isNotEmpty) const SectionTitle('what to change'),
+        for (final suggestion in suggestions) Text(suggestion),
       ],
     );
   }
+}
+
+/// What one tag of a preview reaches, and how many of how many when the app
+/// cut the list.
+String _reaches(Json hit) {
+  final queries = _capped(hit, 'queries');
+  if (queries.total == 0) return '${hit.str('tag')} reaches nothing mounted';
+  final more = queries.total > queries.items.length
+      ? ' (showing the first ${queries.items.length} of ${queries.total})'
+      : '';
+  return '${hit.str('tag')} reaches ${queries.items.join(', ')}$more';
 }
 
 class _WouldInvalidate extends StatefulWidget {
@@ -425,8 +501,10 @@ class _WouldInvalidateState extends State<_WouldInvalidate> {
   final _response = TextEditingController();
   List<Json> _operations = const [];
   int _operationsTotal = 0;
+  bool _operationsSwitching = false;
   String? _operation;
   Json? _preview;
+  bool _previewSwitching = false;
   String? _error;
 
   @override
@@ -451,6 +529,7 @@ class _WouldInvalidateState extends State<_WouldInvalidate> {
       setState(() {
         _operations = result.objs('operations');
         _operationsTotal = result.integer('total');
+        _operationsSwitching = result.flag('stale');
         _operation = _operations.isEmpty ? null : _operations.first.str('id');
       });
     } on BackendError catch (failure) {
@@ -493,6 +572,7 @@ class _WouldInvalidateState extends State<_WouldInvalidate> {
       if (mounted) {
         setState(() {
           _preview = result.objOrNull('preview');
+          _previewSwitching = result.flag('stale');
           _error = null;
         });
       }
@@ -517,6 +597,11 @@ class _WouldInvalidateState extends State<_WouldInvalidate> {
           'What would this operation invalidate?',
           style: Theme.of(context).textTheme.titleMedium,
         ),
+        if (_operationsSwitching)
+          const Text(
+            'switching account: only the generated operations are listed',
+            key: ValueKey('operations-switching'),
+          ),
         if (_operations.isEmpty)
           const Text(
             'No operations known yet. Pass the generated operations table to registerForgeServiceExtensions.',
@@ -564,15 +649,22 @@ class _WouldInvalidateState extends State<_WouldInvalidate> {
           child: const Text('Preview'),
         ),
         if (_error != null) Text(_error!),
-        if (preview != null) ...[
-          KeyValue('tags', preview.strings('tags').join(', ')),
-          KeyValue('unresolved', preview.strings('unresolved').join(', ')),
-          Text(
-            'missed: ${preview.strings('missed').isEmpty ? 'none' : preview.strings('missed').join(', ')}',
-          ),
-          for (final hit in preview.objs('hits'))
+        if (preview != null && _previewSwitching)
+          const Text('switching account', key: ValueKey('would-switching'))
+        else if (preview != null) ...[
+          _cappedLine(preview, 'tags'),
+          _cappedLine(preview, 'unresolved'),
+          if (_cappedStrings(preview, 'missed').isEmpty)
+            const KeyValue('missed', 'none')
+          else
+            _cappedLine(preview, 'missed'),
+          for (final hit in _cappedObjects(preview, 'hits'))
+            Text(_reaches(hit), key: ValueKey('would-hit-${hit.str('tag')}')),
+          if (_capped(preview, 'hits').total >
+              _cappedObjects(preview, 'hits').length)
             Text(
-              '${hit.str('tag')} reaches ${hit.strings('queries').isEmpty ? 'nothing mounted' : hit.strings('queries').join(', ')}',
+              'showing the first ${_cappedObjects(preview, 'hits').length} of '
+              '${_capped(preview, 'hits').total} tags',
             ),
         ],
       ],

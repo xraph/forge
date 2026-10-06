@@ -7,6 +7,14 @@ import 'package:forge_client_devtools/src/backend/isolate_watch.dart';
 
 typedef Call = ({String method, Map<String, String> params});
 
+/// [items] in the `{items, truncated, total}` shape the host caps an explain
+/// or wouldInvalidate list to. [total] is how many there really were.
+Json capped(List<Object?> items, {int? total}) => {
+  'items': items,
+  'truncated': (total ?? items.length) > items.length,
+  'total': total ?? items.length,
+};
+
 /// A backend that answers every ext.forge method from in-memory state, the
 /// way the service host in forge_client does, without a VM.
 final class FakeForgeBackend implements ForgeBackend {
@@ -33,14 +41,11 @@ final class FakeForgeBackend implements ForgeBackend {
   /// refused, the way the real host refuses them.
   int session = 0;
 
-  /// The cache's principal.
-  String? principal;
-
   /// Whether the snapshot answers as it does while the cache changes account:
   /// zero counters and `stale: true`.
   bool switching = false;
   List<Json> caches = [
-    {'id': '1', 'principal': null, 'label': 'cache 1'},
+    {'id': '1', 'label': 'cache 1'},
   ];
   String mode = 'online';
   int latencyMs = 0;
@@ -143,11 +148,18 @@ final class FakeForgeBackend implements ForgeBackend {
   int _int(Map<String, String> params, String name, int fallback) =>
       int.tryParse(params[name] ?? '') ?? fallback;
 
-  /// Refuses a change aimed at a session the cache has left, with the real
-  /// host's wording.
+  /// Refuses a change aimed at a session the cache has left, or at none, with
+  /// the real host's wording.
   void _checkSession(String method, Map<String, String> params) {
     final raw = params['session'];
-    if (raw == null || raw.isEmpty) return;
+    if (raw == null || raw.isEmpty) {
+      throw BackendError(
+        method,
+        'session is required: pass the session the panel last read, from '
+        'ext.forge.snapshot or ext.forge.log',
+        code: -32602,
+      );
+    }
     final aimed = int.parse(raw);
     if (aimed != session) {
       throw BackendError(
@@ -272,7 +284,6 @@ final class FakeForgeBackend implements ForgeBackend {
       ForgeDevtoolsProtocol.hello => {'protocol': protocol, 'caches': caches},
       ForgeDevtoolsProtocol.snapshot => {
         'cache': params['cache'] ?? '1',
-        'principal': principal,
         if (switching) 'stale': true,
         'store': switching
             ? {
@@ -379,26 +390,29 @@ final class FakeForgeBackend implements ForgeBackend {
           'query': params['key'],
           'outcome': 'missed',
           'reason': '`GET /orders` did not refetch because none of the 1 tag(s) mutation POST /orders raised are tags it carries. The two sets are disjoint.',
+          // Every list capped, as the real host sends it.
           'cause': {
             'label': 'mutation POST /orders',
             'seq': 4,
-            'tags': ['Order:9'],
-            'unresolved': <String>[],
+            'tags': capped(['Order:9']),
+            'unresolved': capped(<String>[]),
           },
           'mounts': 1,
           'settled': true,
-          'invalidated': ['Order:9'],
-          'carried': ['Order:1', 'Order[]'],
-          'matched': <String>[],
-          'nearest': [
+          'invalidated': capped(['Order:9']),
+          'carried': capped(['Order:1', 'Order[]']),
+          'matched': capped(<String>[]),
+          'nearest': capped([
             {
               'invalidated': 'Order:9',
               'carried': 'Order[]',
               'relation': 'instance-vs-collection',
               'hint': "Add `Order[]` to the operation's Invalidates.",
             },
-          ],
-          'suggestions': ["Add `Order[]` to the operation's Invalidates."],
+          ]),
+          'suggestions': capped([
+            "Add `Order[]` to the operation's Invalidates.",
+          ]),
         },
       },
       ForgeDevtoolsProtocol.operations => {
@@ -418,12 +432,12 @@ final class FakeForgeBackend implements ForgeBackend {
         'preview': {
           'operation': 'POST /orders',
           'templates': ['Order:{res.id}'],
-          'tags': ['Order:9'],
-          'unresolved': <String>[],
-          'hits': [
-            {'tag': 'Order:9', 'queries': <String>[]},
-          ],
-          'missed': ['Order:9'],
+          'tags': capped(['Order:9']),
+          'unresolved': capped(<String>[]),
+          'hits': capped([
+            {'tag': 'Order:9', 'queries': capped(<String>[])},
+          ]),
+          'missed': capped(['Order:9']),
         },
       },
       ForgeDevtoolsProtocol.log => {

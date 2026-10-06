@@ -64,6 +64,30 @@ void main() {
     expect(find.text('armed 500'), findsNothing);
   });
 
+  // Final fix P3: fail next arms the status picked beside it.
+  testWidgets(
+    'arms fail next with the status picked: 408, 429, 500, 503 or 409',
+    (tester) async {
+      final fake = await pumpPanel(tester);
+
+      await tester.tap(find.byKey(const ValueKey('control-fail-status')));
+      await tester.pumpAndSettle();
+      for (final status in ['408', '429', '500', '503', '409']) {
+        expect(find.text(status), findsWidgets, reason: status);
+      }
+      await tester.tap(find.text('429').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('control-fail-next')));
+      await tester.pumpAndSettle();
+
+      final sent = fake.callsTo(ForgeDevtoolsProtocol.control).last;
+      expect(sent['failNext'], '429');
+      expect(sent['session'], '0');
+      expect(fake.armedStatus, 429);
+      expect(find.text('armed 429'), findsOneWidget);
+    },
+  );
+
   testWidgets('is absent when the app wired no simulator', (tester) async {
     await pumpPanel(tester, FakeForgeBackend()..controlsWired = false);
 

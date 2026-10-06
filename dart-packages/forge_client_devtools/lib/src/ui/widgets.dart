@@ -123,9 +123,12 @@ typedef PageFetcher = Future<({int total, List<Json> items})> Function(
 /// that has not arrived shows a placeholder row. When more than [maxPages]
 /// are held, the ones least recently on screen are let go and read again if
 /// the reader scrolls back, so memory follows the window and not the store. A
-/// page that was on screen in this frame or the one before is never let go,
-/// so a viewport that shows more than [maxPages] pages holds them all and
-/// does not read them over and over.
+/// page with a row in the list's viewport (or its cache extent) is never let
+/// go, so a viewport that shows more than [maxPages] pages holds them all and
+/// scrolling it reads only the pages that come into view, never the ones
+/// already on screen. Rows say whether they are in the list by being mounted,
+/// not by being built: a list builds only the rows that scroll in, so the
+/// rows already on screen are built in no recent frame.
 ///
 /// A new [reloadToken] (other inputs, such as a filter) starts again from the
 /// first page. A new [refreshToken] (the app reported activity, or the
@@ -189,10 +192,8 @@ class _PagedListState extends State<PagedList> {
   final Set<int> _inflight = {};
   final Map<int, String> _failed = {};
 
-  /// Pages built in this frame and in the one before: the ones on screen.
-  Set<int> _touched = {};
-  Set<int> _previouslyTouched = {};
-  bool _rotating = false;
+  /// How many mounted rows each page has: the pages in the viewport.
+  final Map<int, int> _visible = {};
   int _total = 0;
   bool _loaded = false;
   String? _error;
@@ -281,10 +282,7 @@ class _PagedListState extends State<PagedList> {
       // The oldest page that is not on screen. When every page is, the
       // window is as wide as the viewport and nothing goes.
       final victim = _pages.keys.cast<int?>().firstWhere(
-        (held) =>
-            held != page &&
-            !_touched.contains(held) &&
-            !_previouslyTouched.contains(held),
+        (held) => held != page && (_visible[held] ?? 0) == 0,
         orElse: () => null,
       );
       if (victim == null) break;
@@ -292,16 +290,17 @@ class _PagedListState extends State<PagedList> {
     }
   }
 
-  /// Remembers that [page] was built, and ages the set once the frame ends.
-  void _touch(int page) {
-    _touched.add(page);
-    if (_rotating) return;
-    _rotating = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _rotating = false;
-      _previouslyTouched = _touched;
-      _touched = {};
-    });
+  /// A row of [page] was mounted in the list.
+  void _shown(int page) => _visible[page] = (_visible[page] ?? 0) + 1;
+
+  /// A row of [page] left the list.
+  void _hidden(int page) {
+    final left = (_visible[page] ?? 0) - 1;
+    if (left > 0) {
+      _visible[page] = left;
+    } else {
+      _visible.remove(page);
+    }
   }
 
   /// Lets go of pages past the total.
@@ -399,10 +398,19 @@ class _PagedListState extends State<PagedList> {
 
   Widget _row(BuildContext context, int index) {
     final page = index ~/ widget.pageSize;
-    final rows = _pages[page];
 
-    // On screen, held or not yet: the last to be let go.
-    _touch(page);
+    // Mounted while the row is in the list, so the page is the last to be
+    // let go however long ago the row was built.
+    return _PageMark(
+      page: page,
+      onShown: _shown,
+      onHidden: _hidden,
+      child: _rowContent(context, index, page),
+    );
+  }
+
+  Widget _rowContent(BuildContext context, int index, int page) {
+    final rows = _pages[page];
 
     if (rows == null) {
       _request(page);
@@ -477,6 +485,50 @@ class _PagedListState extends State<PagedList> {
       ],
     );
   }
+}
+
+/// Counts one row of [page] as in the list for as long as it is mounted.
+class _PageMark extends StatefulWidget {
+  const _PageMark({
+    required this.page,
+    required this.onShown,
+    required this.onHidden,
+    required this.child,
+  });
+
+  final int page;
+  final void Function(int page) onShown;
+  final void Function(int page) onHidden;
+  final Widget child;
+
+  @override
+  State<_PageMark> createState() => _PageMarkState();
+}
+
+class _PageMarkState extends State<_PageMark> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onShown(widget.page);
+  }
+
+  @override
+  void didUpdateWidget(_PageMark oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.page != widget.page) {
+      oldWidget.onHidden(oldWidget.page);
+      widget.onShown(widget.page);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.onHidden(widget.page);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Stands in for a row the app would not send because one of its

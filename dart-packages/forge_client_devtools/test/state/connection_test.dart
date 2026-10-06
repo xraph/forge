@@ -47,6 +47,7 @@ void main() {
       });
       await connection.call(ForgeDevtoolsProtocol.control, {'failNext': '503'});
       await connection.call(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
+      await connection.call(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
 
       // The session was read once, before the first change.
       expect(fake.callsTo(ForgeDevtoolsProtocol.snapshot), hasLength(1));
@@ -55,12 +56,89 @@ void main() {
         ForgeDevtoolsProtocol.action,
         ForgeDevtoolsProtocol.outboxAction,
         ForgeDevtoolsProtocol.control,
+        ForgeDevtoolsProtocol.capture,
       ]) {
         for (final params in fake.callsTo(method)) {
           expect(params['session'], '0', reason: '$method $params');
           expect(params['cache'], '1');
         }
       }
+    });
+
+    // Final fix P6: the app refuses a change that names no session, so the
+    // panel must never send one without it. The fake refuses it as the app
+    // does.
+    test('a change the panel sends always names a session, and the app refuses one that does not', () async {
+      final (fake, connection) = await _ready();
+
+      await expectLater(
+        fake.call(ForgeDevtoolsProtocol.action, {
+          'cache': '1',
+          'action': 'clear',
+        }),
+        throwsA(
+          isA<BackendError>().having(
+            (e) => e.message,
+            'message',
+            contains('session is required'),
+          ),
+        ),
+      );
+
+      await connection.call(ForgeDevtoolsProtocol.action, {'action': 'clear'});
+
+      expect(fake.actions, ['clear']);
+    });
+
+    // Final fix M1: the first session the panel learns is adopted only after
+    // dropping what it already read, which no session fenced.
+    test('the first session seen after something was read drops what was read', () async {
+      final (fake, connection) = await _ready();
+      expect(connection.session, isNull);
+
+      // A page of the previous principal's, read before any session was known.
+      await connection.call(ForgeDevtoolsProtocol.queries);
+      final generation = connection.generation;
+
+      // The switch happened; the first snapshot already says session 1.
+      fake.session = 1;
+      await connection.call(ForgeDevtoolsProtocol.snapshot);
+
+      expect(connection.session, 1);
+      expect(connection.generation, greaterThan(generation));
+    });
+
+    test(
+      'the first session seen before anything was read is taken as it is',
+      () async {
+        final (fake, connection) = await _ready();
+        final generation = connection.generation;
+
+        await connection.call(ForgeDevtoolsProtocol.snapshot);
+
+        expect(connection.session, 0);
+        expect(connection.generation, generation);
+      },
+    );
+
+    test('an aimed change whose first session read follows a read is refused as moved, and sends nothing', () async {
+      final (fake, connection) = await _ready();
+      await connection.call(ForgeDevtoolsProtocol.queries);
+      fake.session = 1;
+
+      await expectLater(
+        connection.call(ForgeDevtoolsProtocol.action, {'action': 'clear'}),
+        throwsA(
+          isA<BackendError>().having(
+            (e) => e.message,
+            'message',
+            ForgeConnection.movedMessage,
+          ),
+        ),
+      );
+
+      expect(fake.actions, isEmpty);
+      expect(connection.session, 1);
     });
 
     test('a read sends no session', () async {
@@ -438,7 +516,7 @@ void main() {
       final (fake, connection) = await _ready(
         FakeForgeBackend()
           ..caches = [
-            {'id': '4', 'principal': 'alice', 'label': 'cache 4'},
+            {'id': '4', 'label': 'cache 4'},
           ]
           ..session = 3,
       );
@@ -457,7 +535,7 @@ void main() {
       // A hot restart: the new isolate attaches its cache fresh.
       fake
         ..caches = [
-          {'id': '1', 'principal': null, 'label': 'cache 1'},
+          {'id': '1', 'label': 'cache 1'},
         ]
         ..session = 0;
       final before = fake.calls.length;
@@ -517,7 +595,7 @@ void main() {
       slow.complete({
         'protocol': ForgeDevtoolsProtocol.version,
         'caches': [
-          {'id': '9', 'principal': 'alice', 'label': 'cache 9'},
+          {'id': '9', 'label': 'cache 9'},
         ],
       });
       await pumpEventQueue();
@@ -541,7 +619,7 @@ void main() {
       first.complete({
         'protocol': ForgeDevtoolsProtocol.version,
         'caches': [
-          {'id': '9', 'principal': 'alice', 'label': 'cache 9'},
+          {'id': '9', 'label': 'cache 9'},
         ],
       });
       await pumpEventQueue();
@@ -556,8 +634,8 @@ void main() {
         final (fake, connection) = await _ready(
           FakeForgeBackend()
             ..caches = [
-              {'id': '1', 'principal': null, 'label': 'cache 1'},
-              {'id': '2', 'principal': null, 'label': 'cache 2'},
+              {'id': '1', 'label': 'cache 1'},
+              {'id': '2', 'label': 'cache 2'},
             ]
             ..session = 5,
         );

@@ -616,6 +616,48 @@ void main() {
       },
     );
 
+    // Final fix P4: only the rows that scroll in are built, so a page on
+    // screen whose rows were built frames ago was let go and read again on
+    // every page arrival. Pages are now held while any of their rows is in
+    // the list.
+    testWidgets(
+      'scrolling a viewport taller than the window reads only the pages that come into view',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final asked = <int>[];
+        await tester.pumpWidget(
+          host(
+            PagedList(
+              pageSize: 10,
+              maxPages: 2,
+              itemExtent: 20,
+              fetch: (offset, limit) {
+                asked.add(offset);
+                return rows(offset, limit, 5000);
+              },
+              itemBuilder: (context, row) => Text('row ${row['id']}'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final scroll = tester.state<ScrollableState>(find.byType(Scrollable));
+
+        // A page at a time, sixty times: each step brings one new page into
+        // view and takes one out.
+        for (var step = 1; step <= 60; step++) {
+          scroll.position.jumpTo(step * 10 * 20.0);
+          await tester.pumpAndSettle();
+        }
+
+        // Every page was read once, never again while it stayed in view.
+        expect(asked.toSet().length, asked.length, reason: '$asked');
+        expect(find.text('row 600'), findsOneWidget);
+        expect(find.text('row 799'), findsOneWidget);
+        expect(find.text('Loading...'), findsNothing);
+      },
+    );
+
     testWidgets('shrinks with the total on a refresh', (tester) async {
       var total = 45;
       Widget build(Object token) => host(

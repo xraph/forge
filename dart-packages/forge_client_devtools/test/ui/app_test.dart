@@ -97,8 +97,8 @@ void main() {
     (tester) async {
       final fake = FakeForgeBackend()
         ..caches = [
-          {'id': '1', 'principal': null, 'label': 'cache 1'},
-          {'id': '2', 'principal': 'user-2', 'label': 'cache 2'},
+          {'id': '1', 'label': 'cache 1'},
+          {'id': '2', 'label': 'cache 2'},
         ];
       await pumpPanel(tester, fake);
 
@@ -290,7 +290,7 @@ void main() {
       addTearDown(watch.dispose);
       final fake = FakeForgeBackend(watch: watch)
         ..caches = [
-          {'id': '4', 'principal': 'alice', 'label': 'cache 4'},
+          {'id': '4', 'label': 'cache 4'},
         ]
         ..session = 3;
       return (hooks, fake);
@@ -305,7 +305,7 @@ void main() {
     void becomeAnotherApp(FakeForgeBackend fake) {
       fake
         ..caches = [
-          {'id': '1', 'principal': null, 'label': 'cache 1'},
+          {'id': '1', 'label': 'cache 1'},
         ]
         ..session = 0;
     }

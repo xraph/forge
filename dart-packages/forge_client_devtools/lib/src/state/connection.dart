@@ -117,6 +117,11 @@ final class ForgeConnection extends ChangeNotifier {
   /// Entries the app or this list had to drop.
   int eventsSkipped = 0;
 
+  /// Whether a call has handed a panel anything since the panel last dropped
+  /// what it held. The first session the panel learns is adopted with a
+  /// clear when it has: what was read before it is fenced by no session.
+  bool _shown = false;
+
   /// Calls [method] scoped to the picked cache.
   ///
   /// An `ext.forge.action`, an `ext.forge.outboxAction`, an
@@ -174,6 +179,7 @@ final class ForgeConnection extends ChangeNotifier {
       _note(result);
     }
 
+    _shown = true;
     return result;
   }
 
@@ -254,7 +260,12 @@ final class ForgeConnection extends ChangeNotifier {
 
   void _saw(int value) {
     final known = session;
-    if (known == null) {
+    if (known == null && (_shown || events.isNotEmpty)) {
+      // M1: the first session seen, after something was already read. That
+      // read is fenced by no session (a page from before a switch whose first
+      // snapshot already says the new session), so it is dropped first.
+      _principalChanged(value);
+    } else if (known == null) {
       session = value;
     } else if (known != value) {
       _principalChanged(value);
@@ -272,6 +283,7 @@ final class ForgeConnection extends ChangeNotifier {
   void _forget() {
     events.clear();
     eventsSkipped = 0;
+    _shown = false;
     generation++;
   }
 

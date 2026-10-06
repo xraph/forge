@@ -17,6 +17,10 @@ import 'widgets.dart';
 /// changes and reads again. Each change is aimed at the session the panel last
 /// saw, so a click made against an account the app has left is refused.
 ///
+/// Fail next fails the next request once with the status picked beside it:
+/// 408, 429, 500, 503 or 409, so a retry policy, a backoff or a conflict path
+/// can each be tried by hand.
+///
 /// The network switches are absent when the app wired no simulator: a row of
 /// switches that do nothing would be worse than no row. The revalidation
 /// toggles belong to the app and work without one.
@@ -35,7 +39,14 @@ class _ControlRailState extends State<ControlRail>
     with ActivityRefresh<ControlRail>, GenerationFence<ControlRail> {
   static const _latencies = [0, 250, 1000, 3000];
 
+  /// The statuses Fail next can arm, in the order the picker lists them.
+  static const _failStatuses = [408, 429, 500, 503, 409];
+
   Json? _state;
+
+  /// The status the next Fail next arms. A choice in the rail, not the app's
+  /// state, so it is kept across a refresh.
+  int _failStatus = 500;
 
   /// Bumped by [forget], so an answer that was on its way is not kept.
   int _epoch = 0;
@@ -135,12 +146,24 @@ class _ControlRailState extends State<ControlRail>
                 onPressed: () => unawaited(_send({'disarm': 'true'})),
                 child: const Text('Disarm'),
               ),
-            ] else
+            ] else ...[
+              DropdownButton<int>(
+                key: const ValueKey('control-fail-status'),
+                value: _failStatus,
+                items: [
+                  for (final status in _failStatuses)
+                    DropdownMenuItem(value: status, child: Text('$status')),
+                ],
+                onChanged: (status) =>
+                    setState(() => _failStatus = status ?? 500),
+              ),
+              const SizedBox(width: 4),
               OutlinedButton(
                 key: const ValueKey('control-fail-next'),
-                onPressed: () => unawaited(_send({'failNext': '500'})),
+                onPressed: () => unawaited(_send({'failNext': '$_failStatus'})),
                 child: const Text('Fail next'),
               ),
+            ],
           ],
           for (final (:source, :enabled) in toggles)
             Padding(
