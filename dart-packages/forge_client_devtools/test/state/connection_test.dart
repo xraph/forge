@@ -329,6 +329,30 @@ void main() {
       },
     );
 
+    test('a hello answered after the app went away is ignored', () async {
+      final fake = FakeForgeBackend();
+      final slow = Completer<Json>();
+      fake.overrides[ForgeDevtoolsProtocol.hello] = (_) => slow.future;
+      final connection = ForgeConnection(fake);
+      addTearDown(connection.dispose);
+      await pumpEventQueue();
+      expect(connection.phase, ConnectionPhase.connecting);
+
+      fake.isAvailable = false;
+      await pumpEventQueue();
+      slow.complete({
+        'protocol': ForgeDevtoolsProtocol.version,
+        'caches': [
+          {'id': '9', 'principal': 'alice', 'label': 'cache 9'},
+        ],
+      });
+      await pumpEventQueue();
+
+      expect(connection.phase, ConnectionPhase.unavailable);
+      expect(connection.cacheId, isNull);
+      expect(connection.caches, isEmpty);
+    });
+
     test('a hello answered by the previous isolate is ignored', () async {
       final fake = FakeForgeBackend();
       final first = Completer<Json>();

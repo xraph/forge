@@ -65,8 +65,8 @@ final class ForgeConnection extends ChangeNotifier {
   late final StreamSubscription<Json> _subscription;
   bool _disposed = false;
 
-  /// Bumped on every isolate change, so a hello answered by the previous
-  /// isolate is ignored.
+  /// Bumped on every isolate change and every time the app goes away, so a
+  /// hello answered after either is ignored.
   int _isolateEpoch = 0;
 
   /// The current phase.
@@ -241,7 +241,9 @@ final class ForgeConnection extends ChangeNotifier {
       unawaited(_hello());
     } else {
       // The app went away. Whoever it is when it comes back, what this panel
-      // read before is not theirs.
+      // read before is not theirs, and a hello still on its way belongs to
+      // the app that left.
+      _isolateEpoch++;
       session = null;
       _forget();
       _set(ConnectionPhase.unavailable);

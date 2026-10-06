@@ -78,14 +78,23 @@ typedef PageFetcher = Future<({int total, List<Json> items})> Function(
   int limit,
 );
 
-/// A lazily paged list: loads [pageSize] rows, then the next page when the
-/// last row scrolls into view. Never holds more than it has been asked to show.
+/// A windowed list over a store of any size: it knows the total, builds only
+/// the rows in view, and holds at most [maxPages] pages of [pageSize] rows.
+///
+/// A page is read when a row of it is first built, so a scroll to row 9,000
+/// reads the pages around row 9,000 and none of those in between. A page
+/// that has not arrived shows a placeholder row. When more than [maxPages]
+/// are held, the ones least recently on screen are let go and read again if
+/// the reader scrolls back, so memory follows the window and not the store.
 ///
 /// A new [reloadToken] (other inputs, such as a filter) starts again from the
-/// first page. A new [refreshToken] (the app reported activity) re-reads the
-/// rows already shown in place, so the list neither flickers nor loses its
-/// scroll position. A row the app replaced with an `oversized` marker shows
-/// as [OversizedRow] rather than through [itemBuilder].
+/// first page. A new [refreshToken] (the app reported activity, or the
+/// reader asked) re-reads the pages held, in place: the rows neither flicker
+/// nor lose their scroll position, and the cost is at most [maxPages]
+/// requests however large the store is. A failed refresh is shown above the
+/// rows and does not stop other pages from loading. A row the app replaced
+/// with an `oversized` marker shows as [OversizedRow] rather than through
+/// [itemBuilder].
 class PagedList extends StatefulWidget {
   /// Creates the list.
   const PagedList({
@@ -93,11 +102,13 @@ class PagedList extends StatefulWidget {
     required this.fetch,
     required this.itemBuilder,
     this.pageSize = 100,
+    this.maxPages = 6,
+    this.itemExtent,
     this.reloadToken,
     this.refreshToken,
     this.totalLabel,
     this.emptyText = 'Nothing here yet.',
-  });
+  }) : assert(maxPages >= 2, 'a window needs room for the pages in view');
 
   /// Loads a page.
   final PageFetcher fetch;
@@ -108,10 +119,18 @@ class PagedList extends StatefulWidget {
   /// Rows per request.
   final int pageSize;
 
+  /// Most pages held at once. Must cover the pages on screen.
+  final int maxPages;
+
+  /// A fixed row height. A list that sets it scrolls to any row without
+  /// laying out the rows before it; one that does not has a scrollbar that
+  /// follows an estimate.
+  final double? itemExtent;
+
   /// Reloads from the first page whenever this changes.
   final Object? reloadToken;
 
-  /// Re-reads the loaded rows in place whenever this changes.
+  /// Re-reads the pages held, in place, whenever this changes.
   final Object? refreshToken;
 
   /// The header text for a total, or no header.
@@ -125,112 +144,234 @@ class PagedList extends StatefulWidget {
 }
 
 class _PagedListState extends State<PagedList> {
-  final List<Json> _items = [];
+  /// The pages held, by page number, least recently on screen first.
+  final Map<int, List<Json>> _pages = {};
+  final Set<int> _inflight = {};
+  final Map<int, String> _failed = {};
   int _total = 0;
-  bool _loading = false;
   bool _loaded = false;
   String? _error;
-  int _generation = 0;
+  String? _refreshError;
+  int _epoch = 0;
+  bool _refreshing = false;
   bool _refreshAgain = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_next());
+    _request(0);
   }
 
   @override
   void didUpdateWidget(PagedList oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.reloadToken != widget.reloadToken) {
-      _generation++;
-      _items.clear();
+      // Whatever is still on its way was asked for the old inputs.
+      _epoch++;
+      _pages.clear();
+      _inflight.clear();
+      _failed.clear();
       _total = 0;
-      _loading = false;
       _loaded = false;
+      _error = null;
+      _refreshError = null;
+      _refreshing = false;
       _refreshAgain = false;
-      unawaited(_next());
+      _request(0);
     } else if (oldWidget.refreshToken != widget.refreshToken) {
       unawaited(_refresh());
     }
   }
 
-  /// Re-reads as many rows as are shown, page by page, then swaps them in.
+  /// Asks for [page] unless it is held, on its way, or failed (a failed page
+  /// is asked for again by the reader, not by the next frame).
+  void _request(int page) {
+    if (_pages.containsKey(page) ||
+        _inflight.contains(page) ||
+        _failed.containsKey(page)) {
+      return;
+    }
+    _inflight.add(page);
+    final epoch = _epoch;
+    // Not inline: a row is requested while the list lays out.
+    scheduleMicrotask(() => unawaited(_read(page, epoch)));
+  }
+
+  Future<void> _read(int page, int epoch) async {
+    if (!mounted || epoch != _epoch) return;
+
+    try {
+      final result = await widget.fetch(
+        page * widget.pageSize,
+        widget.pageSize,
+      );
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        _total = result.total;
+        _loaded = true;
+        _error = null;
+        _failed.remove(page);
+        _hold(page, result.items);
+        _dropBeyondTotal();
+      });
+    } on Object catch (error) {
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        if (_loaded) {
+          _failed[page] = '$error';
+        } else {
+          _error = '$error';
+        }
+      });
+    } finally {
+      if (epoch == _epoch) _inflight.remove(page);
+    }
+  }
+
+  /// Keeps [rows] as the most recent page and lets the oldest ones go.
+  void _hold(int page, List<Json> rows) {
+    _pages.remove(page);
+    _pages[page] = rows;
+    while (_pages.length > widget.maxPages) {
+      _pages.remove(_pages.keys.first);
+    }
+  }
+
+  void _dropBeyondTotal() {
+    _pages.removeWhere((page, _) => page * widget.pageSize >= _total);
+    _failed.removeWhere((page, _) => page * widget.pageSize >= _total);
+  }
+
+  /// Re-reads the pages held, one request each, then swaps them in together.
   Future<void> _refresh() async {
-    // A first load in flight reads fresh rows anyway.
-    if (!_loaded) return;
-    if (_loading) {
+    if (!_loaded) {
+      // The first read never arrived (it failed, or is still on its way):
+      // reading again is the refresh.
+      _request(0);
+      return;
+    }
+    if (_refreshing) {
       _refreshAgain = true;
       return;
     }
-    _loading = true;
-    final generation = _generation;
-    final want = _items.length < widget.pageSize
-        ? widget.pageSize
-        : _items.length;
-    final rows = <Json>[];
+    _refreshing = true;
+    final epoch = _epoch;
+    final fresh = <int, List<Json>>{};
     var total = _total;
 
     try {
-      while (rows.length < want) {
-        final page = await widget.fetch(rows.length, widget.pageSize);
-        if (!mounted || generation != _generation) return;
-        rows.addAll(page.items);
-        total = page.total;
-        if (page.items.length < widget.pageSize) break;
+      for (final page in _pages.keys.toList()..sort()) {
+        final result = await widget.fetch(
+          page * widget.pageSize,
+          widget.pageSize,
+        );
+        if (!mounted || epoch != _epoch) return;
+        fresh[page] = result.items;
+        total = result.total;
       }
       setState(() {
-        _items
-          ..clear()
-          ..addAll(rows);
         _total = total;
-        _error = null;
+        for (final MapEntry(:key, :value) in fresh.entries) {
+          // A page that scrolled away while this ran stays away.
+          if (_pages.containsKey(key)) _pages[key] = value;
+        }
+        _dropBeyondTotal();
+        _failed.clear();
+        _refreshError = null;
       });
     } on Object catch (error) {
-      if (!mounted || generation != _generation) return;
-      setState(() => _error = '$error');
+      if (!mounted || epoch != _epoch) return;
+      setState(() => _refreshError = '$error');
     } finally {
-      if (generation == _generation) _settle();
+      if (epoch == _epoch) {
+        _refreshing = false;
+        if (_refreshAgain && mounted) {
+          _refreshAgain = false;
+          unawaited(_refresh());
+        }
+      }
     }
   }
 
-  /// Ends a load, running a refresh that was asked for meanwhile.
-  void _settle() {
-    _loading = false;
-    if (_refreshAgain && mounted) {
-      _refreshAgain = false;
-      unawaited(_refresh());
-    }
+  void _retry(int page) {
+    setState(() => _failed.remove(page));
+    _request(page);
   }
 
-  Future<void> _next() async {
-    if (_loading) return;
-    _loading = true;
-    final generation = _generation;
-
-    try {
-      final page = await widget.fetch(_items.length, widget.pageSize);
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _items.addAll(page.items);
-        _total = page.total;
-        _loaded = true;
-        _error = null;
-      });
-    } on Object catch (error) {
-      if (!mounted || generation != _generation) return;
-      setState(() => _error = '$error');
-    } finally {
-      if (generation == _generation) _settle();
+  /// The stand-in for row [index] of a page that is not held. A page that
+  /// failed says so once, on its first row, and keeps the others quiet.
+  Widget _placeholder(int index, int page) {
+    final failed = _failed[page];
+    if (failed == null) {
+      return const ListTile(
+        dense: true,
+        enabled: false,
+        title: Text('Loading...'),
+      );
     }
+    if (index % widget.pageSize != 0) {
+      return const ListTile(dense: true, enabled: false);
+    }
+    final first = page * widget.pageSize + 1;
+    return ListTile(
+      key: ValueKey('paged-failed-$page'),
+      dense: true,
+      title: Text(
+        'Could not load rows from $first: $failed',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: const Text('Tap to retry', maxLines: 1),
+      onTap: () => _retry(page),
+    );
+  }
+
+  Widget _row(BuildContext context, int index) {
+    final page = index ~/ widget.pageSize;
+    final rows = _pages[page];
+
+    if (rows == null) {
+      _request(page);
+      return _placeholder(index, page);
+    }
+
+    // On screen: the last to be let go.
+    if (page != _pages.keys.last) {
+      _pages
+        ..remove(page)
+        ..[page] = rows;
+    }
+
+    final at = index - page * widget.pageSize;
+    if (at >= rows.length) return const SizedBox.shrink();
+
+    final item = rows[at];
+    if (item.flag('oversized')) return OversizedRow(item);
+    return widget.itemBuilder(context, item);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null && _items.isEmpty) return Center(child: Text(_error!));
-    if (!_loaded) return const Center(child: Text('Loading...'));
-
-    final more = _items.length < _total;
+    if (!_loaded) {
+      final error = _error;
+      if (error == null) return const Center(child: Text('Loading...'));
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(error, key: const ValueKey('paged-error')),
+            ),
+            TextButton(
+              key: const ValueKey('paged-retry'),
+              onPressed: () => _retry(0),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -243,23 +384,21 @@ class _PagedListState extends State<PagedList> {
               key: const ValueKey('paged-total'),
             ),
           ),
+        if (_refreshError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Text(
+              'Could not refresh: $_refreshError',
+              key: const ValueKey('paged-refresh-error'),
+            ),
+          ),
         Expanded(
-          child: _items.isEmpty
+          child: _total == 0
               ? Center(child: Text(widget.emptyText))
               : ListView.builder(
-                  itemCount: _items.length + (more ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index >= _items.length) {
-                      if (!_loading && _error == null) unawaited(_next());
-                      return const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Text('Loading more...'),
-                      );
-                    }
-                    final item = _items[index];
-                    if (item.flag('oversized')) return OversizedRow(item);
-                    return widget.itemBuilder(context, item);
-                  },
+                  itemCount: _total,
+                  itemExtent: widget.itemExtent,
+                  itemBuilder: _row,
                 ),
         ),
       ],
