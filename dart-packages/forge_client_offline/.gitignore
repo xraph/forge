@@ -5,3 +5,5 @@ test/sqlite3mc.wasm
 example/build/
 example/.dart_tool/
 example/pubspec.lock
+# The repository ignores any directory named *_test, which catches this one.
+!example/integration_test/

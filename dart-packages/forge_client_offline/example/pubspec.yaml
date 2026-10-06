@@ -1,0 +1,32 @@
+name: forge_client_offline_example
+description: Exercises forge_client_offline against the real macOS Keychain.
+version: 1.0.0-dev
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  forge_client:
+    path: ../../forge_client
+  forge_client_offline:
+    path: ../
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
+# The app is the root package, so it must select sqlite3mc itself.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
