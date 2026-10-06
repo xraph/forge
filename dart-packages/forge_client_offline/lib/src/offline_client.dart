@@ -44,10 +44,34 @@ typedef OverlayIntentFor = OverlayIntent Function(
 /// to) and the outbox also refuses to send a write while the two disagree,
 /// which covers an app that swaps credentials first. Without it, an app that
 /// swaps credentials before calling `setPrincipal` can have a write that was
-/// already due go out under the next principal's credentials. A write made
+/// already due go out under the next principal's credentials. Every attempt
+/// carries a cancel that the principal change completes, so an attempt still
+/// waiting on its credentials, or on a credential refresh after a 401, is
+/// never sent under the next principal's (an attempt already on the wire is
+/// aborted; its record stays, marked sent, in its own principal's storage,
+/// and its caller gets [OutboxSuspended]). A write made
 /// while a principal's session or outbox is still opening, and overtaken by
 /// a principal change before it could be queued, fails with [OutboxStale]:
 /// nothing is sent or kept.
+///
+/// Persisting: every tracked write is stored before its first request goes
+/// out, marked sent, and removed when the server accepts it. A process
+/// killed while the request is out therefore finds the write on the next
+/// launch: one safe to repeat (PUT, DELETE, or `idempotent`) replays with its
+/// key, any other surfaces as [OutboxUncertain]. The cost is one encrypted
+/// write and one delete per online mutation.
+///
+/// Idempotency: a POST or PATCH is safe to replay after a lost reply only
+/// because the server remembers its `Idempotency-Key`, which it does for its
+/// TTL (24 hours by default, `IdempotencyTTL` on the server) and only as long
+/// as its store survives. Such a write whose first unanswered attempt is
+/// older than `idempotencyWindow` is not replayed automatically; it surfaces
+/// as [OutboxUncertain]. A response carrying `Idempotency-Skipped` (the server
+/// did not deduplicate the write, usually because auth runs after its
+/// idempotency middleware) is reported through `onError` with the context
+/// `outbox.idempotency-skipped`. A replay carrying `Idempotent-Truncated`
+/// (the stored response was too large to keep) succeeds with no body, and
+/// the write's entity is invalidated so the next read refetches.
 ///
 /// Lanes: writes to one entity type replay one at a time, in order. Lanes are
 /// independent, so a backoff armed by one lane does not hold a new write to
@@ -113,6 +137,14 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// Snapshots are written [snapshotDebounce] after the last commit, and at
   /// most five debounce periods after the first.
   ///
+  /// [idempotencyWindow] is how long after its first unanswered attempt a
+  /// write that is safe only because of its `Idempotency-Key` (a POST or
+  /// PATCH on an `idempotent` route) is still replayed automatically. Match
+  /// it to the server's `IdempotencyTTL` (24 hours by default). Past it the
+  /// server may have forgotten the key, so the write surfaces as
+  /// [OutboxUncertain] for the app to retry or discard. PUT and DELETE are
+  /// safe by method and replay at any age.
+  ///
   /// [storageResets] is the storage's `resets` stream
   /// (`EncryptedSqliteStorage.resets`). A reset deletes a database whose key
   /// no longer fits, and any writes queued in it, so pass it whenever the
@@ -138,6 +170,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     this._maxRetryableFailures = 8,
     this._snapshotDebounce = const Duration(seconds: 1),
     Stream<StorageReset>? storageResets,
+    this._idempotencyWindow = const Duration(hours: 24),
   }) : assert(_maxRetryableFailures >= 1),
        _random = random ?? math.Random().nextDouble,
        _cache = cache,
@@ -159,6 +192,15 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     // see this principal's queue. Only in-memory state moves here.
     _unwatchChanging = cache.watchPrincipalChanging((_) {
       _principalChanges++;
+      // Every attempt on the wire belongs to the leaving principal. Their
+      // cancels complete here, and the transport checks a cancel after each
+      // credential read and before a refresh retry, so none of them goes out
+      // under the next principal's credentials.
+      final leaving = List.of(_attemptCancels);
+      _attemptCancels.clear();
+      for (final cancel in leaving) {
+        cancel.complete();
+      }
       _currentResets.clear();
       _suspend();
     });
@@ -183,6 +225,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   final double Function() _random;
   final int _maxRetryableFailures;
   final Duration _snapshotDebounce;
+  final Duration _idempotencyWindow;
 
   late final _Control _control;
   late final void Function() _unwatchChanging;
@@ -231,6 +274,11 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// finish against that principal's own storage, but it never touches the
   /// in-memory queue, the failures or the counts again.
   int _epoch = 0;
+
+  /// The cancel of every attempt on the wire, completed when the principal
+  /// starts changing. One per attempt, dropped when the attempt ends, so no
+  /// listener outlives its request.
+  final Set<Completer<void>> _attemptCancels = {};
 
   /// Counts real principal changes (the cache calls a changing listener
   /// only when the principal differs). A write captures it when it arrives;
@@ -317,8 +365,8 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   ///
   /// [connectivity] null means "assume online": a write is still queued when
   /// its request fails before reaching the server. Entities owned by
-  /// [syncSources] bypass the outbox. [authPrincipal] is passed to the
-  /// client; see the constructor.
+  /// [syncSources] bypass the outbox. [authPrincipal] and
+  /// [idempotencyWindow] are passed to the client; see the constructor.
   ///
   /// When [storage] cannot open the principal (`KeyUnavailable`, `WrongKey`,
   /// `UnsupportedSchemaVersion`, `EncryptionUnavailable` and so on) this
@@ -353,6 +401,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     Duration snapshotDebounce = const Duration(seconds: 1),
     String? Function()? authPrincipal,
     void Function(Object error, String context)? onError,
+    Duration idempotencyWindow = const Duration(hours: 24),
   }) async {
     // The cache reports a session that failed to open to onError and never
     // emits it, so the wait below listens there too.
@@ -389,6 +438,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
             authPrincipal: authPrincipal,
             onError: onError,
             snapshotDebounce: snapshotDebounce,
+            idempotencyWindow: idempotencyWindow,
             storageResets: storage is EncryptedSqliteStorage
                 ? storage.resets
                 : null,
@@ -536,8 +586,9 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
       );
     }
 
-    if (p.failure != null) {
-      final queued = p.entry.copyWith(clearFailure: true, clearSentAt: true);
+    final failure = p.failure;
+    if (failure != null) {
+      final queued = _requeued(p.entry, failure);
       final error = await _mark(session, queued);
       if (error != null) throw OutboxUnavailable(error);
       if (p.epoch != _epoch) throw const OutboxSuspended();
@@ -757,8 +808,10 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// Forgets everything in memory about the current principal. Synchronous
   /// and storage-free, so it is safe inside `watchPrincipalChanging`: the
   /// records stay in that principal's storage. Parked callers get
-  /// [OutboxSuspended]; a request already on the wire finishes, and its
-  /// caller gets the server's answer.
+  /// [OutboxSuspended]. A request already on the wire is left to finish
+  /// here; on a principal change the changing listener has cancelled it
+  /// first, and otherwise (dispose, a closed session) its caller gets the
+  /// server's answer.
   void _suspend() {
     _epoch++;
     _retryTimer?.cancel();
@@ -891,6 +944,11 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
               'response arrived',
         ),
       );
+      return;
+    }
+
+    if (_pastWindow(entry, meta)) {
+      await _fail(session, p, _expired(p));
       return;
     }
 
@@ -1048,7 +1106,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     // broken record never reaches the queue.
     final OutboxEntry entry;
     try {
-      entry = OutboxEntry(
+      final made = OutboxEntry(
         id: _uuid.v4(),
         operationId: meta.id,
         args: request.args,
@@ -1059,7 +1117,10 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
         createdAt: _now(),
         seq: _nextSeq,
       );
-      entry.toRecord();
+      // Every attempt, the first included, sends the arguments as they read
+      // back from storage: the same bytes a replay after a restart sends, and
+      // never the caller's live objects, which the app may go on changing.
+      entry = made.copyWith(args: OutboxEntry.fromRecord(made.toRecord()).args);
     } on Object catch (error, stack) {
       _report(error, 'outbox.encode');
       return Future<Object?>.error(OutboxUnavailable(error), stack);
@@ -1115,12 +1176,45 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     return null;
   }
 
+  /// Sends [p] at once. The record is stored first, marked sent, so a
+  /// process killed while the request is out finds it on the next launch:
+  /// a write safe to repeat replays with its key, any other surfaces as
+  /// [OutboxUncertain]. It is removed when the server accepts the write.
   Future<void> _attemptDirect(
     StorageSession session,
     _Pending p,
     Future<void>? cancel,
   ) async {
     if (!_credentialsMatch(session)) {
+      await _park(session, p, drain: false);
+      if (p.epoch == _epoch) _scheduleRetry();
+      return;
+    }
+
+    final queued = p.entry;
+    final sending = queued.copyWith(sentAt: _now());
+    final storeError = await _insert(session, sending);
+    if (storeError != null) {
+      // Nothing was sent: a write that could not be stored is not sent
+      // unprotected, exactly as a queued one is not.
+      if (p.epoch == _epoch) {
+        _queue.remove(p);
+        _scheduleDrain();
+      }
+      _reject(p, OutboxUnavailable(storeError));
+      return;
+    }
+    p
+      ..entry = sending
+      ..recorded = true;
+
+    // The principal, or the credentials, may have changed while the record
+    // was written. It was not sent: put it back as queued, where it waits in
+    // its own principal's storage.
+    if (p.epoch != _epoch ||
+        !identical(_cache.session, session) ||
+        !_credentialsMatch(session)) {
+      p.entry = queued;
       await _park(session, p, drain: false);
       if (p.epoch == _epoch) _scheduleRetry();
       return;
@@ -1134,19 +1228,36 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
       );
     } on Object catch (error, stack) {
       p.inFlight = false;
+      _attemptEnded(p);
       await _directFailed(session, p, error, stack);
       return;
     }
+    _attemptEnded(p);
     p
       ..inFlight = false
       ..sent = true;
+    await _forget(session, p);
+    final result = _accepted(p, response);
     if (p.epoch != _epoch) {
-      _complete(p, response);
+      _complete(p, result);
       return;
     }
     _queue.remove(p);
-    _complete(p, response);
+    _complete(p, result);
     _scheduleDrain();
+  }
+
+  /// Removes [p]'s record once the server has accepted or refused it for
+  /// good. A failure leaves it to replay on the next launch with the same
+  /// key, which the server's idempotency store answers.
+  Future<void> _forget(StorageSession session, _Pending p) async {
+    if (!p.recorded) return;
+    try {
+      await session.remove(p.entry.id);
+      p.recorded = false;
+    } on Object catch (error) {
+      _report(error, 'outbox.remove');
+    }
   }
 
   Future<void> _directFailed(
@@ -1161,18 +1272,30 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     // The caller cancelled, or the server answered with a status no retry
     // can change, or this is not a network failure at all: the caller gets
     // the error as it is and nothing is stored.
+    // Cancelled because the principal changed (the client completes every
+    // attempt's cancel then): the request may have left, so the record
+    // stays, marked sent, in that principal's storage.
+    if (kind == NetworkFailure.cancelled && p.epoch != _epoch) {
+      _reject(p, const OutboxSuspended());
+      return;
+    }
+
     final retryableStatus = status != null && _retryableStatus(error);
     if ((status != null && !retryableStatus) ||
         (status == null &&
             (kind == null || kind == NetworkFailure.cancelled))) {
+      await _forget(session, p);
       if (p.epoch == _epoch) _queue.remove(p);
       _reject(p, error, stack);
       if (p.epoch == _epoch) _scheduleDrain();
       return;
     }
 
-    if (kind == NetworkFailure.uncertain) {
-      p.entry = p.entry.copyWith(sentAt: _now());
+    if (kind != NetworkFailure.uncertain) {
+      // Never reached the server, or the server gave the key back (408, 429,
+      // 5xx): no attempt is outstanding.
+      p.entry = p.entry.copyWith(clearSentAt: true);
+    } else {
       if (!isSafeToRepeat(p.meta!)) {
         await _fail(
           session,
@@ -1202,7 +1325,10 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     _Pending p, {
     bool drain = true,
   }) async {
-    final error = await _insert(session, p.entry);
+    final error = p.recorded
+        ? await _mark(session, p.entry)
+        : await _insert(session, p.entry);
+    if (error == null) p.recorded = true;
     if (p.epoch != _epoch) {
       // The principal changed while the record was written. It stays in
       // that principal's storage and replays when they return.
@@ -1344,8 +1470,15 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
       return false;
     }
 
+    if (_pastWindow(p.entry, meta)) {
+      await _fail(session, p, _expired(p));
+      return true;
+    }
+
     final queued = p.entry;
-    final sending = queued.copyWith(sentAt: _now());
+    // An outstanding attempt keeps its first send time: the server's memory
+    // of the key dates from that one.
+    final sending = queued.copyWith(sentAt: queued.sentAt ?? _now());
     final markError = await _mark(session, sending);
     if (markError != null) {
       p.storageError = markError;
@@ -1378,11 +1511,13 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
         response = await _transport.inner.execute(_requestFor(p));
       } on Object catch (error) {
         p.inFlight = false;
+        _attemptEnded(p);
         return await _replayFailed(session, p, meta, error);
       }
       p.inFlight = false;
+      _attemptEnded(p);
 
-      await _succeed(session, p, response);
+      await _succeed(session, p, _accepted(p, response));
       return true;
     } finally {
       if (identical(p.sending, attempt)) p.sending = null;
@@ -1430,13 +1565,21 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
           ),
         );
         return true;
-      // A replay carries no cancel signal, so an abort here came from below
-      // and the request never got its answer: treated like one never sent.
+      // The principal changed while it was out: the client cancelled it.
+      // It may have left, so it stays marked sent in that principal's
+      // storage.
+      case NetworkFailure.cancelled when p.epoch != _epoch:
+        _reject(p, const OutboxSuspended());
+        return false;
+      // The only cancel a replay carries is the principal change above, so
+      // any other abort came from below and the request never got its
+      // answer: treated like one never sent.
       case NetworkFailure.notSent || NetworkFailure.cancelled:
         p.held = _held(p, OutboxOfflineCause.offline);
         await _unsend(session, p);
         return _backOff(session, p, error);
-      case NetworkFailure.uncertain when isSafeToRepeat(meta):
+      case NetworkFailure.uncertain
+          when isSafeToRepeat(meta) && !_pastWindow(p.entry, meta):
         p.held = _held(p, OutboxOfflineCause.offline);
         return _backOff(session, p, error);
       case NetworkFailure.uncertain:
@@ -1492,14 +1635,17 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
 
   /// 408, 429 and 5xx: the idempotency middleware released the key, so the
   /// same key runs the handler again. A 409 that carries `Retry-After` is
-  /// the middleware saying the same key is still in flight.
+  /// the middleware saying the same key is still in flight, unless it is a
+  /// replay (`Idempotent-Replayed`): then it is the handler's own 409, stored
+  /// with whatever headers the handler set, and final.
   static bool _retryableStatus(Object error) {
     final status = statusOf(error);
     if (status == null) return false;
     if (status == 408 || status == 429 || status >= 500) return true;
     return status == 409 &&
         error is HttpStatusError &&
-        headerValue(error.headers, 'retry-after') != null;
+        headerValue(error.headers, 'retry-after') != null &&
+        headerValue(error.headers, idempotentReplayedHeader) == null;
   }
 
   /// The `Retry-After` delay, in seconds, when the error carries one. An
@@ -1589,9 +1735,10 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
         toEncodable: (Object? o) => o.toString(),
       ),
     );
-    final error = p.persisted
+    final error = p.persisted || p.recorded
         ? await _mark(session, failed)
         : await _insert(session, failed);
+    if (error == null) p.recorded = true;
 
     if (p.epoch != _epoch) {
       // Stored in the previous principal's outbox, where they will find it.
@@ -1632,7 +1779,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     }
     if (_refuseOwned(meta, 'retry')) return;
 
-    final queued = p.entry.copyWith(clearFailure: true, clearSentAt: true);
+    final queued = _requeued(p.entry, p.failure!);
     if (await _mark(session, queued) != null || p.epoch != _epoch) return;
 
     p
@@ -1755,6 +1902,93 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     p.failure = null;
   }
 
+  /// [entry], cleared of [failure] and ready to send again. When the server
+  /// answered with a final status (a conflict, a validation error, an auth
+  /// refusal, a gone resource), it stored that answer under the key and
+  /// would replay it for the whole TTL, so the retry goes out under a new
+  /// key. An uncertain failure, or one with status 0 that the server never
+  /// gave, keeps the key: the server may hold the write's real outcome.
+  OutboxEntry _requeued(OutboxEntry entry, OutboxFailure failure) {
+    final queued = entry.copyWith(clearFailure: true, clearSentAt: true);
+    final answered = switch (failure) {
+      OutboxConflict(:final status) ||
+      OutboxValidation(:final status) ||
+      OutboxUnauthorized(:final status) ||
+      OutboxGone(:final status) => status != 0,
+      OutboxUncertain() => false,
+    };
+    return answered ? queued.withRotatedKey(_uuid.v4()) : queued;
+  }
+
+  /// Whether [entry] was sent longer ago than the idempotency window and is
+  /// safe to repeat only because the server remembers its key: that memory
+  /// may be gone (the TTL passed, or an in-memory store restarted), so a
+  /// replay could apply it twice.
+  bool _pastWindow(OutboxEntry entry, OperationMeta meta) {
+    final sentAt = entry.sentAt;
+    return sentAt != null &&
+        isSafeOnlyByKey(meta) &&
+        _now().difference(sentAt) > _idempotencyWindow;
+  }
+
+  OutboxUncertain _expired(_Pending p) => OutboxUncertain(
+    mutationId: p.entry.id,
+    operationId: p.entry.operationId,
+    control: _control,
+    reason:
+        'this write was sent more than ${_idempotencyWindow.inHours} hours '
+        'ago and its response never arrived; the server may no longer '
+        'remember its Idempotency-Key, so it is not replayed automatically',
+  );
+
+  /// Drops [p]'s attempt cancel once its request has ended.
+  void _attemptEnded(_Pending p) {
+    final cancel = p.attemptCancel;
+    p.attemptCancel = null;
+    if (cancel != null) _attemptCancels.remove(cancel);
+  }
+
+  /// Reads the idempotency middleware's headers on every response to [p].
+  void _onResponse(_Pending p, Map<String, String> headers) {
+    final skipped = headerValue(headers, idempotencySkippedHeader);
+    if (skipped != null) {
+      // No principal names here: this text may reach logs.
+      _report(
+        StateError(
+          '${p.entry.operationId}: the server did not deduplicate this write '
+          '($idempotencySkippedHeader: $skipped). The route is marked idempotent, but '
+          'the request reached the idempotency middleware without a '
+          'principal; register auth before it. A replay may run twice.',
+        ),
+        'outbox.idempotency-skipped',
+      );
+    }
+    p.truncated = headerValue(headers, idempotentTruncatedHeader) == 'true';
+  }
+
+  /// What a successful attempt of [p] completes with. A truncated replay
+  /// (the stored response was over the server's size limit) has no body:
+  /// it is not decoded, and the entity is invalidated so the next read
+  /// refetches what the write did.
+  Object? _accepted(_Pending p, Object? response) {
+    if (!p.truncated) return response;
+    p.truncated = false;
+    final meta = p.meta;
+    final entity = meta?.entity;
+    if (entity != null && p.epoch == _epoch) {
+      final tags = <String>[
+        '$entity[]',
+        ?resolveTag('$entity:{id}', p.entry.args),
+      ];
+      // After the cache has committed the (empty) response, so the refetch
+      // replaces whatever the optimistic overlay left behind.
+      Timer.run(() {
+        if (!_disposed && p.epoch == _epoch) _cache.invalidate(tags);
+      });
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------- helpers
 
   /// Whether the credentials the transport holds belong to [session]'s
@@ -1828,12 +2062,21 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// The request for one attempt. Every attempt carries the entry's stable
   /// `Idempotency-Key`: stored headers never hold it (see
   /// [persistableHeaders]), so it is added here each time.
+  ///
+  /// Its cancel completes when the principal changes (and when [cancel], the
+  /// caller's own, does). Its responses are read for the idempotency
+  /// headers.
   TransportRequest _requestFor(
     _Pending p, {
     Future<void>? cancel,
     bool live = false,
   }) {
     final base = live ? p.liveHeaders : p.entry.requestHeaders;
+    final leaving = Completer<void>();
+    _attemptCancels.add(leaving);
+    p
+      ..attemptCancel = leaving
+      ..truncated = false;
     return TransportRequest(
       meta: p.meta!,
       args: p.entry.args,
@@ -1844,7 +2087,10 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
             key: value,
         idempotencyKeyHeader: p.entry.idempotencyKey,
       },
-      cancel: cancel,
+      cancel: cancel == null
+          ? leaving.future
+          : Future.any([cancel, leaving.future]),
+      onResponse: (_, headers) => _onResponse(p, headers),
     );
   }
 
@@ -1925,7 +2171,19 @@ final class _Pending {
   /// The client's epoch when this write was admitted.
   final int epoch;
   Completer<Object?>? completer;
+
+  /// Whether the write is shown as queued ([OfflineClient.pending]).
   bool persisted;
+
+  /// Whether a record for the write exists in storage. A direct send stores
+  /// one before it goes out, without showing it as queued.
+  bool recorded = false;
+
+  /// Whether the latest response was a truncated idempotent replay.
+  bool truncated = false;
+
+  /// The cancel of the attempt on the wire, completed by a principal change.
+  Completer<void>? attemptCancel;
   bool inFlight = false;
   bool awaitingReissue = false;
 

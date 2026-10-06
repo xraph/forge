@@ -60,6 +60,23 @@ const opUpdateCustomer = OperationMeta(
   rootType: 'Customer',
   invalidates: ['Customer:{id}'],
 );
+
+/// A write that declares no tags: nothing refetches after it unless the
+/// outbox invalidates its entity itself.
+const opTouchOrder = OperationMeta(
+  id: 'op_touch_order',
+  method: 'PATCH',
+  path: '/orders/{id}/touch',
+  entity: 'Order',
+  rootType: 'Order',
+);
+const opTagOrderForm = OperationMeta(
+  id: 'op_tag_order_form',
+  method: 'POST',
+  path: '/orders/{id}/tags',
+  entity: 'Tag',
+  requestContentType: 'application/x-www-form-urlencoded',
+);
 const opUploadScan = OperationMeta(
   id: 'op_upload_scan',
   method: 'PUT',
@@ -77,6 +94,8 @@ const Map<String, OperationMeta> operations = {
   'op_create_order_idempotent': opCreateOrderIdempotent,
   'op_update_customer': opUpdateCustomer,
   'op_upload_scan': opUploadScan,
+  'op_touch_order': opTouchOrder,
+  'op_tag_order_form': opTagOrderForm,
 };
 
 const EntitySchema entities = {
@@ -363,10 +382,12 @@ final class Harness {
     OverlayIntentFor overlayIntent = deriveOverlayIntent,
     List<SyncSource> syncSources = const [],
     double Function() random = _midpoint,
+    ManualClock? clock,
+    Duration idempotencyWindow = const Duration(hours: 24),
   }) async {
     final network = FakeTransport()..credentials = principal;
     final outbox = OutboxTransport(network);
-    final clock = ManualClock();
+    clock ??= ManualClock();
     final store = storage ?? memoryStorage();
     final cache = QueryCache(
       transport: outbox,
@@ -396,6 +417,7 @@ final class Harness {
             authPrincipal: wireAuthPrincipal ? authPrincipal : null,
             onError: onError,
             random: random,
+            idempotencyWindow: idempotencyWindow,
           )
         : OfflineClient(
             cache: cache,
@@ -410,6 +432,7 @@ final class Harness {
             authPrincipal: wireAuthPrincipal ? authPrincipal : null,
             onError: onError,
             random: random,
+            idempotencyWindow: idempotencyWindow,
           );
 
     await switchTo(cache, principal);

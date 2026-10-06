@@ -610,7 +610,9 @@ void main() {
       },
     );
 
-    test('retry resends with the same key', () async {
+    // The server stored the 409 under the first key and would replay it, so
+    // the retry is a new operation (see offline_client_seams_test I1).
+    test('retry after a 409 resends under a new key', () async {
       final h = await Harness.create();
       await h.seed('7');
       unawaited(
@@ -630,7 +632,7 @@ void main() {
       expect(h.writes, hasLength(2));
       expect(
         h.writes[1].headers['Idempotency-Key'],
-        h.writes[0].headers['Idempotency-Key'],
+        isNot(h.writes[0].headers['Idempotency-Key']),
       );
       expect(h.offline.currentFailures, isEmpty);
       expect(await h.stored(), isEmpty);

@@ -3,7 +3,9 @@ import 'package:forge_client/forge_client.dart';
 /// What an app can do with a failed outbox write. [OfflineClient] implements
 /// it; an [OutboxFailure] forwards its actions here.
 abstract interface class OutboxControl {
-  /// Sends the write again with the same Idempotency-Key.
+  /// Sends the write again: under a new Idempotency-Key when the server
+  /// answered with a final status, else with the same one (see
+  /// [OutboxFailure.retry]).
   Future<void> retry(String mutationId);
 
   /// Drops the write and unblocks the writes queued behind it.
@@ -41,7 +43,16 @@ sealed class OutboxFailure implements Exception {
 
   final OutboxControl _control;
 
-  /// Sends the write again with the same Idempotency-Key.
+  /// Sends the write again.
+  ///
+  /// When the server answered with a final status ([OutboxConflict],
+  /// [OutboxValidation], [OutboxUnauthorized] or [OutboxGone] with a nonzero
+  /// status), it stored that answer under the write's Idempotency-Key and
+  /// would replay it for the key's whole lifetime, even after the cause is
+  /// fixed. The retry therefore goes out under a new key, persisted before it
+  /// is sent: it is a new operation. An [OutboxUncertain] failure, or one with
+  /// status 0 (the server never answered), keeps the key, because the server
+  /// may hold the write's real outcome under it.
   ///
   /// It does not wait out the outbox's backoff: retrying cancels the backoff
   /// timer, which all lanes share, so writes in other lanes that were backing

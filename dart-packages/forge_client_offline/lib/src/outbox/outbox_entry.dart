@@ -9,7 +9,15 @@ import 'overlay_intent.dart';
 /// it: PUT and DELETE by HTTP semantics, or any operation whose route uses
 /// Forge's idempotency middleware (`idempotent: true`).
 bool isSafeToRepeat(OperationMeta meta) =>
-    meta.idempotent ||
+    meta.idempotent || _safeByMethod(meta);
+
+/// Whether [meta] is safe to resend only because the server remembers its
+/// `Idempotency-Key` (a POST or PATCH on an idempotent route), which it does
+/// for a limited time. PUT and DELETE are safe by method and never expire.
+bool isSafeOnlyByKey(OperationMeta meta) =>
+    meta.idempotent && !_safeByMethod(meta);
+
+bool _safeByMethod(OperationMeta meta) =>
     const {'PUT', 'DELETE'}.contains(meta.method.toUpperCase());
 
 const Set<String> _unpersisted = {
@@ -69,6 +77,7 @@ final class OutboxEntry {
     required this.seq,
     this.sentAt,
     this.failureJson,
+    this.storedKey,
   });
 
   /// The record id, a uuid v4.
@@ -87,8 +96,14 @@ final class OutboxEntry {
   /// How the write is drawn after a restart.
   final OverlayIntent intent;
 
-  /// Sent as `Idempotency-Key` on every attempt.
+  /// Sent as `Idempotency-Key` on every attempt. A retry after the server
+  /// answered with a final status replaces it (see [withRotatedKey]).
   final String idempotencyKey;
+
+  /// The key the record was first stored with, when [idempotencyKey] has
+  /// since been rotated; null when the two are the same. The record's key
+  /// column cannot be rewritten, so a rotated key lives in [stateJson].
+  final String? storedKey;
 
   /// Wall-clock time the write was made. Informational only: order is [seq].
   final DateTime createdAt;
@@ -96,9 +111,11 @@ final class OutboxEntry {
   /// Monotonic position in this principal's outbox. Replay follows it.
   final int seq;
 
-  /// When the latest attempt was sent, or null when no attempt is
-  /// outstanding. A record found with this set after a restart was in flight
-  /// when the app stopped.
+  /// When the first attempt whose outcome is still unknown was sent, or null
+  /// when no attempt is outstanding. A record found with this set after a
+  /// restart was in flight when the app stopped. It is not moved by later
+  /// attempts, so it dates the earliest moment the server may have stored
+  /// this key.
   final DateTime? sentAt;
 
   /// The stored [OutboxFailure] (its `toJson()`, encoded), or null while
@@ -107,8 +124,13 @@ final class OutboxEntry {
 
   /// The record's state as stored in `PendingMutationRecord.stateJson`:
   /// `failed` with the failure when there is one, else `sending` with
-  /// [sentAt], else `queued`. Rewritten with `StorageSession.updateState`.
+  /// [sentAt], else `queued`. A rotated key rides along as `key`. Rewritten
+  /// with `StorageSession.updateState`.
   String get stateJson {
+    final stored = storedKey;
+    final rotated = stored != null && stored != idempotencyKey
+        ? <String, Object?>{'key': idempotencyKey}
+        : const <String, Object?>{};
     final failure = failureJson;
     if (failure != null) {
       Object? decoded;
@@ -124,16 +146,44 @@ final class OutboxEntry {
         'failure': decoded is Map<String, Object?>
             ? decoded
             : {'kind': 'unreadable', 'raw': failure},
+        ...rotated,
       });
     }
     final at = sentAt;
-    return at == null
-        ? _queuedState
-        : jsonEncode({'kind': 'sending', 'at': at.millisecondsSinceEpoch});
+    if (at == null) {
+      return rotated.isEmpty
+          ? _queuedState
+          : jsonEncode({'kind': 'queued', ...rotated});
+    }
+    return jsonEncode({
+      'kind': 'sending',
+      'at': at.millisecondsSinceEpoch,
+      ...rotated,
+    });
   }
 
+  /// A copy whose `Idempotency-Key` is [key], for the same record: the
+  /// record keeps its original key column and the new key is persisted in
+  /// [stateJson]. A retry after a final status (a stored 4xx the server
+  /// would replay for the key) sends the write as a new operation this way.
+  OutboxEntry withRotatedKey(String key) => OutboxEntry(
+    id: id,
+    operationId: operationId,
+    args: args,
+    requestHeaders: requestHeaders,
+    intent: intent,
+    idempotencyKey: key,
+    createdAt: createdAt,
+    seq: seq,
+    sentAt: sentAt,
+    failureJson: failureJson,
+    storedKey: storedKey ?? idempotencyKey,
+  );
+
   /// A copy with the given fields replaced. [clearSentAt] and [clearFailure]
-  /// set those fields to null.
+  /// set those fields to null. A new [idempotencyKey] makes a new record's
+  /// key (the stored and current key agree); [withRotatedKey] changes the key
+  /// of this record.
   OutboxEntry copyWith({
     String? id,
     TagContext? args,
@@ -154,6 +204,7 @@ final class OutboxEntry {
     seq: seq,
     sentAt: clearSentAt ? null : (sentAt ?? this.sentAt),
     failureJson: clearFailure ? null : (failureJson ?? this.failureJson),
+    storedKey: idempotencyKey != null ? null : storedKey,
   );
 
   /// The arguments as canonical JSON, for spotting a duplicate write.
@@ -170,7 +221,7 @@ final class OutboxEntry {
       'args': _argsJson(args),
     }),
     optimisticJson: intent.encode(),
-    idempotencyKey: idempotencyKey,
+    idempotencyKey: storedKey ?? idempotencyKey,
     createdAt: createdAt,
     stateJson: stateJson,
   );
@@ -195,7 +246,7 @@ final class OutboxEntry {
       );
     }
 
-    final (sentAt, failureJson) = _readState(record.stateJson);
+    final (sentAt, failureJson, rotatedKey) = _readState(record.stateJson);
     return OutboxEntry(
       id: record.id,
       operationId: record.operationId,
@@ -207,34 +258,38 @@ final class OutboxEntry {
       ),
       requestHeaders: _stringMap(decoded['requestHeaders']),
       intent: OverlayIntent.decode(record.optimisticJson),
-      idempotencyKey: record.idempotencyKey,
+      idempotencyKey: rotatedKey ?? record.idempotencyKey,
       createdAt: record.createdAt.toUtc(),
       seq: seq,
       sentAt: sentAt,
       failureJson: failureJson,
+      storedKey: rotatedKey == null ? null : record.idempotencyKey,
     );
   }
 }
 
 const String _queuedState = '{"kind":"queued"}';
 
-/// Splits a stored state into the in-flight time and the failure. A state
-/// this version cannot read comes back as a failure (the raw text), so the
-/// engine reports it rather than resending a write it does not understand.
-(DateTime?, String?) _readState(String? stored) {
-  if (stored == null) return (null, null);
+/// Splits a stored state into the in-flight time, the failure and a rotated
+/// key. A state this version cannot read comes back as a failure (the raw
+/// text), so the engine reports it rather than resending a write it does not
+/// understand.
+(DateTime?, String?, String?) _readState(String? stored) {
+  if (stored == null) return (null, null, null);
 
   final Object? decoded;
   try {
     decoded = jsonDecode(stored);
   } on FormatException {
-    return (null, stored);
+    return (null, stored, null);
   }
 
   if (decoded is Map<String, Object?>) {
+    final key = decoded['key'];
+    final rotated = key is String && key.isNotEmpty ? key : null;
     switch (decoded['kind']) {
       case 'queued':
-        return (null, null);
+        return (null, null, rotated);
       case 'sending':
         final at = decoded['at'];
         return (
@@ -242,6 +297,7 @@ const String _queuedState = '{"kind":"queued"}';
               ? DateTime.fromMillisecondsSinceEpoch(at, isUtc: true)
               : DateTime.utc(1970),
           null,
+          rotated,
         );
       case 'failed':
         final failure = decoded['failure'];
@@ -250,10 +306,11 @@ const String _queuedState = '{"kind":"queued"}';
         return (
           null,
           failure is Map<String, Object?> ? jsonEncode(failure) : stored,
+          rotated,
         );
     }
   }
-  return (null, stored);
+  return (null, stored, null);
 }
 
 /// The arguments as stored. A [Uint8List] body cannot go through `jsonEncode`
@@ -262,16 +319,35 @@ const String _queuedState = '{"kind":"queued"}';
 /// under its own key, `bodyBase64`, beside `body`. A JSON body only ever
 /// lives under `body`, so no JSON value, however it is shaped, can be read as
 /// bytes: the two cannot collide.
+///
+/// An [Iterable] that is not a [List] (a `Set`, say, as a form field's
+/// repeated values) is stored as a list, since JSON has no other collection:
+/// the transport sends both the same way.
 Map<String, Object?> _argsJson(TagContext args) {
   final body = args.body;
 
   return {
-    'path': args.path,
-    'query': args.query,
+    'path': _jsonable(args.path),
+    'query': _jsonable(args.query),
     'headers': args.headers,
-    if (body is Uint8List) 'bodyBase64': base64Encode(body) else 'body': body,
+    if (body is Uint8List)
+      'bodyBase64': base64Encode(body)
+    else
+      'body': _jsonable(body),
   };
 }
+
+/// [value] with every non-List [Iterable] inside it turned into a [List].
+/// Anything else is left for `jsonEncode` to accept or refuse.
+Object? _jsonable(Object? value) => switch (value) {
+  Map<Object?, Object?>() => {
+    for (final MapEntry(:key, value: item) in value.entries)
+      key: _jsonable(item),
+  },
+  List<Object?>() => [for (final item in value) _jsonable(item)],
+  Iterable<Object?>() => [for (final item in value) _jsonable(item)],
+  _ => value,
+};
 
 /// The body stored in [args]: the bytes under `bodyBase64`, else `body`.
 /// A record that has both, or bytes that are not base64, is unreadable.

@@ -4,6 +4,18 @@ import 'package:meta/meta.dart';
 /// The request header every outbox write carries.
 const String idempotencyKeyHeader = 'Idempotency-Key';
 
+/// The response header the idempotency middleware sets on a replay.
+const String idempotentReplayedHeader = 'Idempotent-Replayed';
+
+/// The response header the idempotency middleware sets when it did not act
+/// on the request's key (`anonymous`: the request had no principal). The
+/// outbox reports it through `onError`.
+const String idempotencySkippedHeader = 'Idempotency-Skipped';
+
+/// The response header the idempotency middleware sets, to `true`, on a
+/// replay whose stored response was too large to keep: the body is empty.
+const String idempotentTruncatedHeader = 'Idempotent-Truncated';
+
 /// Marks a mutation the outbox re-issued through the cache; never sent.
 const String outboxReplayHeader = 'x-forge-outbox-replay';
 
@@ -56,5 +68,6 @@ TransportRequest withoutReplayMarker(TransportRequest request) {
     args: request.args,
     headers: {...request.headers}..remove(outboxReplayHeader),
     cancel: request.cancel,
+    onResponse: request.onResponse,
   );
 }

@@ -25,7 +25,12 @@ export 'src/offline_client.dart' show OfflineClient, OverlayIntentFor;
 export 'src/outbox/network_error.dart' show classifyNetworkError;
 export 'src/outbox/network_failure.dart' show NetworkFailure;
 export 'src/outbox/outbox_entry.dart'
-    show OutboxEntry, headerValue, isSafeToRepeat, persistableHeaders;
+    show
+        OutboxEntry,
+        headerValue,
+        isSafeOnlyByKey,
+        isSafeToRepeat,
+        persistableHeaders;
 export 'src/outbox/outbox_failure.dart'
     show
         OutboxConflict,
@@ -46,6 +51,9 @@ export 'src/outbox/outbox_transport.dart'
         OutboxHandler,
         OutboxTransport,
         idempotencyKeyHeader,
+        idempotencySkippedHeader,
+        idempotentReplayedHeader,
+        idempotentTruncatedHeader,
         outboxReplayHeader,
         withoutReplayMarker;
 export 'src/outbox/overlay_intent.dart'
