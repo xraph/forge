@@ -466,19 +466,34 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
       throw StateError('join requires a signed-in principal');
     }
 
-    // A rejoin while that principal's erase of the dataset is in flight waits
-    // for it, then starts over: a fresh replica over the erased namespace.
-    final erasing = _erasing[_erasingKey(current, dataset.id)];
+    return _joinAs(current, dataset);
+  }
 
-    if (erasing != null) {
+  /// Joins [dataset] for [principal], the principal captured when [join] was
+  /// called. Never re-reads the cache's principal after an await.
+  ///
+  /// A rejoin while that principal's erase of the dataset is in flight waits
+  /// for it. Then, while [principal]'s run is active, the dataset starts fresh
+  /// over the erased replica; otherwise the join waits in [principal]'s queue
+  /// for its next start, whoever the cache serves by then.
+  Future<void> _joinAs(String principal, GroveDataset dataset) async {
+    final key = _erasingKey(principal, dataset.id);
+
+    for (
+      var erasing = _erasing[key];
+      erasing != null;
+      erasing = _erasing[key]
+    ) {
       await erasing;
-
-      return join(dataset);
     }
 
-    if (run != null) return _joinInto(run, dataset);
+    final run = _active;
 
-    final joins = _pendingJoins[current] ??= {};
+    if (run != null && run.context.principal == principal) {
+      return _joinInto(run, dataset);
+    }
+
+    final joins = _pendingJoins[principal] ??= {};
 
     joins[dataset.id] = _merge(joins[dataset.id], dataset);
   }

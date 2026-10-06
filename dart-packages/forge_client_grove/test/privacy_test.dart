@@ -1004,6 +1004,123 @@ void main() {
       });
     });
 
+    for (final (name, viaSignOut) in [
+      ('to bob', false),
+      ('to nobody, then bob', true),
+    ]) {
+      test('a rejoin waiting on an erase stays with its caller when the cache '
+          'switches $name', () {
+        fakeAsync((async) {
+          final gate = Completer<void>();
+          final tokens = _Tokens();
+          final h = Harness(
+            declarations: const [rowsSync],
+            auth: tokens.auth,
+            storage: _MappedStorage(
+              memoryStorage(),
+              (principal, namespace, store) =>
+                  principal == 'alice' && namespace == 'grove'
+                  ? _Gated(store, gate.future)
+                  : store,
+            ),
+          );
+
+          h.cache.setPrincipal('alice');
+          async.flushMicrotasks();
+
+          Object? eraseError;
+          Object? joinError;
+
+          h.source
+              .leave('z', erase: true)
+              .then<void>((_) {}, onError: (Object e) => eraseError = e);
+          h.source
+              .join(const GroveDataset('z', table: 'ds_z'))
+              .then<void>((_) {}, onError: (Object e) => joinError = e);
+          async.flushMicrotasks();
+
+          // Alice's stop waits for her gated load, which holds the window.
+          if (viaSignOut) h.cache.setPrincipal(null);
+          tokens.token = 'bob-token';
+          h.cache.setPrincipal('bob');
+          gate.complete();
+          async.elapse(const Duration(seconds: 1));
+          expect(eraseError, isA<StateError>(), reason: 'it could not erase');
+          expect(joinError, isNull);
+          expect(h.source.joined, isEmpty, reason: 'bob never joins z');
+          expect(
+            h.server.requests.where((r) => r.path.startsWith('/d/z/')),
+            isEmpty,
+            reason: 'nobody syncs z for bob',
+          );
+
+          tokens.token = 'alice-token';
+          h.cache.setPrincipal('alice');
+          async.elapse(const Duration(seconds: 1));
+          expect(h.source.joined, {'z'}, reason: "alice's join waited for her");
+
+          final z = [
+            for (final r in h.server.requests)
+              if (r.path.startsWith('/d/z/')) r,
+          ];
+
+          expect(z, isNotEmpty);
+
+          for (final r in z) {
+            expect(r.authorization, _alice);
+          }
+        });
+      });
+    }
+
+    test('a rejoin waiting on a window erase is never taken by the run that '
+        'started meanwhile', () {
+      fakeAsync((async) {
+        final tokens = _Tokens()..token = 'carol-token';
+        final slow = SlowStop();
+        final h = Harness(
+          declarations: const [rowsSync],
+          auth: tokens.auth,
+          before: [slow],
+        );
+
+        h.cache.setPrincipal('carol');
+        async.elapse(const Duration(milliseconds: 10));
+
+        // Carol's run is stopping and alice is the cache's principal: her
+        // erase waits for her run, and her rejoin waits for the erase.
+        slow.hold = Completer<void>();
+        h.cache.setPrincipal('alice');
+
+        Object? eraseError;
+
+        h.source
+            .leave('z', erase: true)
+            .then<void>((_) {}, onError: (Object e) => eraseError = e);
+        unawaited(h.source.join(const GroveDataset('z', table: 'ds_z')));
+        async.flushMicrotasks();
+
+        // The cache moves to bob before alice ever runs; bob's run is active
+        // by the time the erase gives up and the join resumes.
+        tokens.token = 'bob-token';
+        h.cache.setPrincipal('bob');
+        slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(eraseError, isA<StateError>());
+        expect(h.source.joined, isEmpty, reason: "bob's run never takes z");
+        expect(h.server.paths.where((p) => p.startsWith('/d/z/')), isEmpty);
+
+        tokens.token = 'alice-token';
+        h.cache.setPrincipal('alice');
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, {'z'});
+
+        for (final r in h.server.requests) {
+          if (r.path.startsWith('/d/z/')) expect(r.authorization, _alice);
+        }
+      });
+    });
+
     test('a leave of a dataset already in the load snapshot is skipped by '
         'the load', () async {
       final gate = Completer<void>();
