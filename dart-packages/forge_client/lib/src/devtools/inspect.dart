@@ -278,8 +278,11 @@ Map<String, Object?>? baseRecord(DevCache cache, String key) {
 
 /// The same record with every pending overlay folded over it. A bounded copy.
 ///
-/// Reads the overlay stack's fold of one key, which memoizes by key inside the
-/// stack and moves nothing else: no store write, no LRU touch, no frame stamp.
+/// The overlay stack's fold of one key: a plain read of the store record when
+/// no layer touches it, and a memoized fold for a key a layer does hold. It
+/// writes no store row and touches no LRU order or frame stamp. Folding a held
+/// key can run that layer's `compute` patch, and a throwing one is reported to
+/// the app's error callback, once per key until the stack changes.
 Map<String, Object?>? foldedRecord(DevCache cache, String key) {
   final found = cache.folded(key);
 

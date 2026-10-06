@@ -539,10 +539,15 @@ void main() {
 
         // stale, rollback and the two log-only actions touch no record.
         expect(devtools.actions.forceStale(key), isTrue);
-        expect(
-          devtools.actions.rollback(h.dev.pushMerge('Order:1', {'total': 1})),
-          isTrue,
-        );
+        // A layer on an owned key (only the raw seam can put one there), and
+        // taking it off writes no row.
+        final layer = h.dev.pushMerge('Note:1', {'body': 'edited'});
+
+        expect(devtools.foldedRecord('Note:1')!['body'], 'edited');
+        expect(devtools.actions.rollback(layer), isTrue);
+        expect(devtools.overlays(), isEmpty);
+        expect(devtools.foldedRecord('Note:1')!['body'], body);
+        expect(devtools.baseRecord('Note:1')!['body'], body);
         devtools.actions
           ..hold(key, 'error')
           ..release(key);

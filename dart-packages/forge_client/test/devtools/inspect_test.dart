@@ -448,6 +448,53 @@ void main() {
       devtools.dispose();
     });
 
+    // The fold of a key no layer touches used to be memoized by the overlay
+    // stack and survived the clear. No layer is pushed here, so nothing
+    // settles the memo on the way out.
+    for (final (name, away) in <(String, void Function(QueryCache))>[
+      ('a principal switch', (cache) => cache.setPrincipal('bob')),
+      ('a plain clear()', (cache) => cache.clear()),
+    ]) {
+      test(
+        'a folded read of a record no layer touches does not survive $name',
+        () async {
+          const secret = 'alice-ssn';
+          final h = Harness()
+            ..reply('GET /orders', [
+              {
+                'id': 1,
+                'total': 10,
+                'secret': secret,
+                'customer': {'id': 'c1', 'name': secret},
+              },
+            ]);
+          h.cache.setPrincipal('alice');
+          final devtools = attach(h.cache, clock: CounterClock());
+          final sub = h.mount(Ops.orderList);
+          await h.settle();
+          await sub.cancel();
+
+          // The probe: fold keys nothing overlays.
+          expect(
+            jsonEncode(devtools.foldedRecord('Order:1')),
+            contains(secret),
+          );
+          expect(devtools.foldedRecord('Customer:c1'), isNotNull);
+          expect(devtools.overlays(), isEmpty);
+
+          away(h.cache);
+          await h.settle();
+
+          expect(devtools.foldedRecord('Order:1'), isNull);
+          expect(devtools.foldedRecord('Customer:c1'), isNull);
+          expect(devtools.baseRecord('Order:1'), isNull);
+          expect(everything(devtools, h), isNot(contains(secret)));
+
+          devtools.dispose();
+        },
+      );
+    }
+
     test('answers empty once the inspector is disposed', () async {
       final h = Harness();
       final devtools = attach(h.cache, clock: CounterClock());

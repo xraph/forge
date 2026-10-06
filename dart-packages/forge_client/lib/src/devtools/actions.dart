@@ -76,6 +76,12 @@ final class DevtoolsActions {
 
   /// Runs this query again whatever the cache holds. Fails when nothing
   /// tracks [key], and while the cache is changing principal.
+  ///
+  /// The value it completes with is the cache's own: live and unbounded, the
+  /// same as the app's `refetch`. A caller that hands it to a panel passes it
+  /// through `bounded()` first. A refetch started before a principal change
+  /// can still complete, for the caller that started it, with the previous
+  /// principal's value.
   Future<Object?> refetch(String key) async {
     _ready();
 
@@ -224,13 +230,14 @@ final class DevtoolsActions {
     return id;
   }
 
-  /// Records that the panel is holding a query in a state. Nothing moves.
+  /// Records that the panel is holding a query in a state. Nothing moves, and
+  /// [key] is only a label: it is not resolved against the cache.
   void hold(String key, String state) {
     _ready();
     _record(ActionKind.hold, '$key in $state');
   }
 
-  /// Records the release of a held query.
+  /// Records the release of a held query. [key] is only a label.
   void release(String key) {
     _ready();
     _record(ActionKind.release, key);
