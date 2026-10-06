@@ -3,6 +3,8 @@ package client
 import (
 	"fmt"
 	"sort"
+
+	"github.com/xraph/forge/internal/router"
 )
 
 // idempotentExtension marks an operation served behind Forge's idempotency
@@ -39,11 +41,19 @@ func resolveEndpointIdempotent(spec *APISpec, ep *Endpoint, ext map[string]any) 
 // recorded for each declared role. kindRole is the role the route's kind
 // implies: "stream" for an SSE channel, "socket" for a WebSocket channel, ""
 // for an HTTP operation, where a pull or push route must say which it is.
+//
+// routePath is recorded in OpenAPI form (`{id}`, not `:id`). A document gives
+// that already; the introspector's raw-route path hands over the path as it
+// was registered, while the declaration's dataset placeholder is always
+// written `{id}`. Normalizing here keeps the two in one style, so a client
+// that substitutes the dataset into the path finds the placeholder.
 func collectSyncRoute(spec *APISpec, origin, routePath, kindRole string, ext map[string]any) {
 	raw, present := ext[syncExtension]
 	if !present {
 		return
 	}
+
+	routePath = router.ConvertPathToOpenAPIFormat(routePath)
 
 	var entries []map[string]any
 
