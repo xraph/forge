@@ -193,41 +193,66 @@ void main() {
   // `operations` and `revalidation`. Task 9 (B5/B6) replaced the assert with
   // filling: a slot that is empty is filled, one that is filled is never
   // overwritten, and nothing registers again.
-  test('a second register fills the slots configureClient left empty and never overwrites a filled one', () async {
+  //
+  // The setup is the README's: the app builds the simulator itself and puts it
+  // in the cache's transport path (here under a stand-in for an
+  // `OutboxTransport`), so `configureClient` cannot wrap it and attaches with
+  // empty slots. The second register then hands the same pieces over.
+  test('a second register fills the slots configureClient left empty, and what it filled works', () async {
     final inner = wiredRest();
-    final forwarding = _Forwarding(inner.rest);
+    final controls = ControlledTransport(inner.rest);
+    final forwarding = _Forwarding(controls);
     final cache = configureClient(transport: forwarding, entities: schema);
     final attached = forgeDevtoolsFor(cache)!;
 
+    Future<List<Object?>> operationIds() async => [
+      for (final op
+          in (await call(ForgeDevtoolsProtocol.operations))['operations']!
+              as List<Object?>)
+        (op! as Map<String, Object?>)['id'],
+    ];
+
     // A transport that is not a RestTransport: attached, but with no request
-    // log and no simulator.
+    // log, no simulator and no operation table.
     expect(attached.controls, isNull);
     expect(attached.requestLog, isNull);
+    expect(attached.revalidation, isNull);
     expect(inner.rest.debugObserver, isNull);
+    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isFalse);
+    expect(await operationIds(), isNot(contains(Ops.orderCreate.id)));
 
-    final controls = ControlledTransport(inner.rest);
     final revalidation = Revalidation({});
     final returned = registerForgeServiceExtensions(
       cache,
       transport: inner.rest,
       controls: controls,
       revalidation: revalidation,
-      operations: {Ops.orderList.id: Ops.orderList},
+      operations: {Ops.orderCreate.id: Ops.orderCreate},
     );
 
     expect(returned, same(attached));
     expect(attached.controls, same(controls));
     expect(attached.requestLog, isNotNull);
     expect(attached.revalidation, same(revalidation));
-    expect(inner.rest.debugObserver, isNotNull);
     expect(registrations, ForgeDevtoolsProtocol.methods.length);
+    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isTrue);
+    expect(await operationIds(), contains(Ops.orderCreate.id));
 
-    // The request log now records what goes through the REST transport.
+    // The request log records what goes through the REST transport.
     await cache.fetch(Ops.orderList, TagContext.empty);
     expect(
       (await call(ForgeDevtoolsProtocol.requests))['entries'],
       hasLength(1),
     );
+
+    // The simulator is in the cache's path, so the panel's offline switch
+    // reaches it: the next request fails before the wire.
+    await call(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
+    await expectLater(
+      cache.fetch(Ops.orderList, const TagContext(query: {'again': '1'})),
+      throwsA(isA<SimulatedOffline>()),
+    );
+    expect(inner.sent, hasLength(1));
 
     // The first registration wins.
     final log = attached.requestLog;

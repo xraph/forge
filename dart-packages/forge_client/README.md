@@ -135,17 +135,22 @@ simulator never let it out.
 
 ### Registering a cache yourself
 
-A cache built with the `QueryCache` constructor, or handed an `OutboxTransport`
-to `configureClient`, is attached without a simulator or a request log. Fill in
-what is missing with `registerForgeServiceExtensions`. On a cache that is
+You can also let `configureClient` build the cache over your outbox. It can't
+wrap an `OutboxTransport`, so it attaches without a simulator or a request log:
+
+```dart
+final cache = configureClient(transport: outbox, entities: entities, storage: storage);
+```
+
+Then fill in what is missing with `registerForgeServiceExtensions`, from
+`package:forge_client/devtools.dart`, passing the same `rest`, `controls`,
+`operations` and `offline` as in the by-hand recipe above. On a cache that is
 already attached it registers nothing again: it fills the slots that are still
 empty (`transport`, `controls`, `revalidation`, `operations`) and sets
 `outbox`. A slot that is already filled is never overwritten, so the first
-registration wins.
+registration wins. If all you have to add is the outbox, that is one line:
 
 ```dart
-import 'package:forge_client/devtools.dart';
-
 registerForgeServiceExtensions(cache, outbox: offlineClient);
 ```
 
