@@ -179,7 +179,9 @@ Future<void> switchAccount(OfflineClient offline, String userId) async {
 
 Your failure listeners hold `OutboxFailure` objects that carry the previous account's server responses, and acting on one after a switch would reach the wrong outbox. Drop every one on a principal change, as `heldFailures.clear()` does in the first example.
 
-Anonymous requests are not deduplicated by the server's idempotency middleware unless you opt in with `middleware.IdempotencyAllowAnonymous()` on the route's `forge.WithIdempotency(...)`. Without a principal there is nobody to scope the key to, so by default those requests pass straight through.
+Anonymous requests are not deduplicated by the server's idempotency middleware unless you opt in with `middleware.IdempotencyAllowAnonymous()` on the route's `forge.WithIdempotency(...)`. Without a principal there is nobody to scope the key to, so by default those requests pass straight through. The server says so: the response carries `Idempotency-Skipped: anonymous`, and the first one on each route is logged as a warning. The outbox reports that header through `onError` with the context `outbox.idempotency-skipped` and the operation's id. If you see it for a signed-in user, your auth middleware runs after the idempotency middleware, and every replay of that route can run twice.
+
+Each attempt also carries a cancel that a principal change completes. An attempt still waiting on an async credentials callback, or on a token refresh after a 401, is never sent with the next account's token. One already on the wire is aborted. Its record stays in the old principal's storage, marked sent, and its caller gets `OutboxSuspended`.
 
 ## Flush, close and sign out
 
@@ -242,15 +244,23 @@ A failed `open` has already disposed its client, so the reset goes to the storag
 
 ## What gets retried
 
-The outbox owns retries for every write it tracks. Each attempt carries the same `Idempotency-Key`, so the server's middleware can answer a repeat instead of running it twice.
+The outbox owns retries for every write it tracks. Each automatic attempt carries the same `Idempotency-Key`, so the server's middleware can answer a repeat instead of running it twice.
 
 - 408, 429 and 5xx are retried with a doubling backoff and jitter, up to five minutes.
-- A 409 with `Retry-After` is the middleware saying the same key is still in flight, so it is retried too.
+- A 409 with `Retry-After` is the middleware saying the same key is still in flight, so it is retried too. A 409 that also carries `Idempotent-Replayed` is the handler's own 409, replayed with whatever headers it set, so it's a conflict like any other.
 - Any other 4xx surfaces as an `OutboxFailure`.
 - After 8 consecutive retryable failures the write stops retrying and surfaces as `OutboxUncertain`. The record and its key are kept, and `retry()` resends with the same key.
 - A request that never left the device is queued and replayed.
 
+When you call `retry()` on a conflict, a validation error, an auth refusal or a gone resource, the write goes out under a new key. The server stored its answer under the old one and would hand you the same 403 or 409 for the next 24 hours, even after you fixed the cause. The new key is written to storage before the request leaves. `OutboxUncertain`, and any failure with status 0, keeps its key, because the server may be holding the write's real result under it. A forced replay from the devtools panel follows the same rule.
+
 A write that was sent and got no answer is resent on its own only when that's safe: PUT and DELETE, or a route that uses `forge.WithIdempotency()` on the server (generated as `idempotent: true`). Anything else surfaces as `OutboxUncertain` and waits for you, because resending it could apply it twice.
+
+For a POST or PATCH, "safe" lasts only as long as the server remembers the key. That is its `IdempotencyTTL`, 24 hours by default, and only while its store survives: the default store is in memory, so a deploy forgets every key. The client's `idempotencyWindow` (on `open` and the constructor, 24 hours by default) should match the TTL. Once the first unanswered attempt is older than that, the write surfaces as `OutboxUncertain` instead of being resent. In production, give the route `forge.IdempotencyBackend(...)` with a durable store shared by every instance, so a replay still finds its answer after a restart or on another node.
+
+Every tracked write is stored before its first request goes out, and removed once the server accepts it. Kill the app mid-request and the write is still there next launch, replayed or surfaced as `OutboxUncertain` by the rules above. That costs one encrypted write and one delete per online mutation.
+
+The server caps two sizes on idempotent routes. A request body over `middleware.IdempotencyMaxBody` (1 MiB by default) gets 413, which no retry can fix, so it surfaces as a permanent `OutboxValidation` with status 413. Raise the cap on routes that take big uploads. A response over `middleware.IdempotencyMaxResponse` (also 1 MiB) is sent in full the first time and replayed without its body, marked `Idempotent-Truncated: true`. The outbox treats that replay as a success with no body and invalidates the entity, so your next read refetches it.
 
 Some smaller facts. A write whose caller cancelled it is never stored. A binary body is stored as bytes and replays as bytes. Credential headers are never written to disk: `Authorization`, `Cookie`, `X-API-Key` and any header whose name contains `token`, `secret` or `auth` are dropped from the record, and the transport supplies them fresh on replay. Two identical writes are two requests, unless you pass a short `duplicateWindow` to the constructor. And the devtools Outbox panel can force a replay out of turn, which can overtake an earlier write in its lane and fail where the normal order would have worked.
 

@@ -22,9 +22,8 @@ const int _busyTimeoutMs = 5000;
 /// On native platforms [directory] is required; pass
 /// `(await getApplicationSupportDirectory()).path`. The package keeps every
 /// file in its own `forge_client_offline` subdirectory of it, and never
-/// touches anything else there. On the web [directory]
-/// prefixes the OPFS path or IndexedDB name, and [wasmUri] locates
-/// `sqlite3mc.wasm` (default: `sqlite3mc.wasm` next to the page).
+/// touches anything else there. Web: not yet supported. [wasmUri] is
+/// reserved for the browser adapter and has no effect on native platforms.
 ///
 /// Files are named by [labels], an HMAC of the principal under a per-install
 /// salt kept in the keystore, never by the principal. It defaults to [keys]
@@ -93,8 +92,8 @@ final class EncryptionUnavailable implements Exception {
   @override
   String toString() =>
       'EncryptionUnavailable: this SQLite build has no cipher. Add '
-      '"hooks: user_defines: sqlite3: source: sqlite3mc" to the app pubspec.yaml, '
-      'or load sqlite3mc.wasm on the web.';
+      '"hooks: user_defines: sqlite3: source: sqlite3mc" to the app '
+      'pubspec.yaml. (Web: not yet supported.)';
 }
 
 /// Whether [db] is SQLite3MultipleCiphers. Plain SQLite ignores unknown

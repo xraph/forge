@@ -60,8 +60,8 @@ final class MemoryPassphraseSaltStore implements PassphraseSaltStore {
 }
 
 /// Derives each principal's key from a user secret with Argon2id. The secret
-/// is read through [secret] on every [KeyProvider.obtain] and never stored,
-/// which is the stronger option on the web, where there is no keystore.
+/// is read through [secret] on every [KeyProvider.obtain] and never stored.
+/// (Web: not yet supported.)
 ///
 /// Each principal gets a random 16-byte salt, created on first use and kept in
 /// [salts] (a plain-text sidecar next to the database, supplied by the storage

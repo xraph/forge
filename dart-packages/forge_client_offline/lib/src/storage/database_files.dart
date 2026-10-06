@@ -5,7 +5,8 @@ export 'database_files_stub.dart'
     show platformDatabaseFiles, platformPassphraseSaltStore;
 
 /// Where one principal's database lives and how it is opened, flushed and
-/// deleted. [platformDatabaseFiles] returns the native or web implementation.
+/// deleted. [platformDatabaseFiles] returns the native implementation. Web:
+/// not yet supported.
 ///
 /// Files are named by the principal's label (see `PrincipalLabeler`), never
 /// by the principal or a plain hash of it.

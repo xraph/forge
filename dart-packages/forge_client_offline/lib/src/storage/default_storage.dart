@@ -6,7 +6,8 @@ import '../keys/web_crypto_keys.dart';
 import 'encrypted_storage.dart';
 
 /// The default encrypted storage: [encryptedSqliteStorage] keyed by the
-/// platform keystore on native platforms, and by `webCryptoKeys` on the web.
+/// platform keystore on native platforms. Web: not yet supported (the web
+/// branch reaches the `webCryptoKeys` placeholder, which has no key store).
 /// [keystore] replaces the default flutter_secure_storage configuration
 /// (`secureStorageFor`), and with it whatever [requireUserPresence] would
 /// have set.
