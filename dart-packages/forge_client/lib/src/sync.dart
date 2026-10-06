@@ -192,16 +192,44 @@ final class SyncContext {
   /// Apply [edit] to the cache's store and notify the cache's watchers, or do
   /// nothing at all when the context is no longer [active].
   ///
-  /// The only way a source writes records. [edit] must be synchronous: the
-  /// fence is checked once, before it runs. The watchers are notified even
-  /// when [edit] throws part way, and the error is rethrown.
+  /// The only way a source writes records. The edit must be synchronous (an
+  /// async edit throws [ArgumentError]): the fence is checked once, before it
+  /// runs, so an edit that awaited would write after the fence closed. An
+  /// `async` closure is rejected before it runs. A closure typed as returning
+  /// void that returns a [Future] at run time (an expression body such as
+  /// `(store) => later()`) is rejected after its synchronous part has run,
+  /// and the watchers are not notified. The watchers are notified even when
+  /// [edit] throws part way, and the error is rethrown.
   void write(void Function(EntityStore store) edit) {
+    if (edit is Future<void> Function(EntityStore)) {
+      throw ArgumentError.value(
+        edit,
+        'edit',
+        'must be synchronous: the fence is checked once, before it runs',
+      );
+    }
+
     if (!_active) return;
 
+    final Object? Function(EntityStore store) run = edit;
+    var notify = true;
+
     try {
-      edit(cache.store);
+      final result = run(cache.store);
+
+      if (result is Future<Object?>) {
+        notify = false;
+        result.ignore();
+
+        throw ArgumentError.value(
+          edit,
+          'edit',
+          'must be synchronous: it returned a Future, which the fence '
+              'cannot cover',
+        );
+      }
     } finally {
-      cache.notifyChanged();
+      if (notify) cache.notifyChanged();
     }
   }
 }

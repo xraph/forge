@@ -1,4 +1,5 @@
 import 'package:forge_client/forge_client.dart';
+import 'package:forge_client/src/sync.dart' show deactivateSyncContext;
 import 'package:test/test.dart';
 
 import 'support/core_support.dart';
@@ -236,6 +237,120 @@ void main() {
       await source.stop();
 
       expect(source.stopped, isTrue);
+    });
+  });
+
+  group('SyncContext.write', () {
+    late QueryCache cache;
+    late SyncContext context;
+    late List<void> commits;
+
+    setUp(() {
+      cache = QueryCache(
+        transport: ScriptedTransport(const []),
+        entities: schema,
+      );
+      context = SyncContext(
+        cache: cache,
+        principal: 'alice',
+        transport: ScriptedTransport(const []),
+        storage: null,
+      );
+      commits = <void>[];
+      final subscription = cache.commits.listen(commits.add);
+      addTearDown(subscription.cancel);
+    });
+
+    Future<int> settledCommits() async {
+      await pumpEventQueue();
+
+      return commits.length;
+    }
+
+    test('applies a synchronous edit and notifies the watchers', () async {
+      context.write(
+        (store) => store.put('Document:d1', {'id': 'd1', 'title': 'one'}),
+      );
+
+      expect(cache.store.has('Document:d1'), isTrue);
+      expect(await settledCommits(), 1);
+    });
+
+    test('throws on an async block body before the edit runs', () async {
+      var ran = false;
+
+      expect(
+        () => context.write((store) async {
+          ran = true;
+          store.put('Document:d1', {'id': 'd1'});
+        }),
+        throwsArgumentError,
+      );
+
+      expect(ran, isFalse);
+      expect(cache.store.has('Document:d1'), isFalse);
+      expect(await settledCommits(), 0);
+    });
+
+    test('throws on an expression body that returns a Future', () async {
+      var ran = false;
+
+      Future<void> later() {
+        ran = true;
+
+        return Future<void>.value();
+      }
+
+      expect(
+        () => context.write((store) => later()),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            contains('must be synchronous'),
+          ),
+        ),
+      );
+
+      // Its synchronous part ran, but it wrote nothing and told nobody.
+      expect(ran, isTrue);
+      expect(cache.store.has('Document:d1'), isFalse);
+      expect(await settledCommits(), 0);
+    });
+
+    test(
+      'does not leave an unhandled error from the rejected Future',
+      () async {
+        final later = Future<void>.error(StateError('late'));
+
+        expect(() => context.write((store) => later), throwsArgumentError);
+
+        await pumpEventQueue();
+      },
+    );
+
+    test(
+      'still notifies the watchers when a synchronous edit throws',
+      () async {
+        expect(
+          () => context.write((store) => throw StateError('part way')),
+          throwsStateError,
+        );
+
+        expect(await settledCommits(), 1);
+      },
+    );
+
+    test('is a no-op once the context is inactive', () async {
+      deactivateSyncContext(context);
+
+      context.write(
+        (store) => store.put('Document:d1', {'id': 'd1', 'title': 'one'}),
+      );
+
+      expect(context.active, isFalse);
+      expect(cache.store.has('Document:d1'), isFalse);
+      expect(await settledCommits(), 0);
     });
   });
 
