@@ -49,8 +49,10 @@ String wireIdKeyFor(GroveEntity binding, String idField) {
 ///
 /// The target id is, in order: the entity `targetOf` names from the
 /// operation's `invalidates` tags, the path parameter that spells the id
-/// field, the client-shaped body's id field, and for a `POST` a new uuid v4
-/// written into the body before encoding. A `PUT`, `PATCH` or `DELETE` with
+/// field, the client-shaped body's id field, on a dataset route the lone
+/// remaining path parameter when it ends the path template, and for a `POST` a
+/// new uuid v4 written into the body before encoding. A `PUT`, `PATCH` or
+/// `DELETE` with
 /// no resolvable id throws [ArgumentError], as does any other method, and a
 /// codec that does not encode the body to a map.
 ///
@@ -74,13 +76,17 @@ GroveWrite toGroveWrite(
     _ => <String, Object?>{},
   };
 
+  final isCreate = method == 'POST';
   var id =
       _targetId(m, entity) ??
-      (method == 'POST' ? null : _pathId(m, idField, datasetParam));
+      (isCreate ? null : _pathId(m, idField, datasetParam));
 
   if (id == null && idField != null && isIdentity(body[idField])) {
     id = jsString(body[idField]);
   }
+
+  // Last, and only for a route that ends in the row: see [_trailingRowParam].
+  if (id == null && !isCreate) id = _trailingRowParam(m, datasetParam);
 
   switch (method) {
     case 'DELETE':
@@ -147,8 +153,7 @@ String? _targetId(PendingMutation m, String entity) {
 
 /// The path parameter that spells the id field, found the way tag lookups do
 /// (the exact key, else the key that differs only in `_`, `-` and case), and
-/// never the dataset parameter. When [datasetParam] is set and no parameter
-/// spells the id, a lone remaining parameter is the row.
+/// never the dataset parameter.
 String? _pathId(PendingMutation m, String? idField, String? datasetParam) {
   if (idField == null) return null;
 
@@ -159,16 +164,39 @@ String? _pathId(PendingMutation m, String? idField, String? datasetParam) {
     for (final k in path.keys)
       if (skip == null || _fold(k) != skip) k,
   ];
-  final spelled = candidates.contains(idField)
+  final key = candidates.contains(idField)
       ? idField
       : candidates.where((k) => _fold(k) == wanted).firstOrNull;
-  // On a dataset route the path names the dataset and the row, so the one
-  // parameter left over is the row, whatever it is called (`{rowId}`).
-  final key =
-      spelled ??
-      (skip != null && candidates.length == 1 ? candidates.single : null);
 
   if (key == null) return null;
+
+  final value = path[key];
+
+  return isIdentity(value) ? jsString(value) : null;
+}
+
+/// On a dataset route, the one parameter besides the dataset parameter, when
+/// it is the final segment of the path template (`/datasets/{id}/rows/{rowId}`
+/// names its row `rowId`, whatever the id field is called).
+///
+/// A parameter anywhere else names a parent (`/datasets/{id}/folders/
+/// {folderId}/rows`), and guessing it would write or delete the wrong row, so
+/// the route yields null and the caller fails loudly.
+String? _trailingRowParam(PendingMutation m, String? datasetParam) {
+  if (datasetParam == null) return null;
+
+  final skip = _fold(datasetParam);
+  final path = m.args.path;
+  final candidates = [
+    for (final k in path.keys)
+      if (_fold(k) != skip) k,
+  ];
+
+  if (candidates.length != 1) return null;
+
+  final key = candidates.single;
+
+  if (!m.meta.path.endsWith('/{$key}')) return null;
 
   final value = path[key];
 

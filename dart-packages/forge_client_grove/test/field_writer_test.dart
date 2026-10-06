@@ -404,6 +404,70 @@ void main() {
       },
     );
 
+    test('a parent parameter is never taken for the row', () {
+      const parents = TagContext(path: {'id': 'ds1', 'folderId': 'f1'});
+
+      expect(
+        () => write(
+          rowMutation(
+            'DELETE',
+            '/datasets/{id}/folders/{folderId}/rows',
+            parents,
+          ),
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => '$e',
+            'message',
+            contains('row id'),
+          ),
+        ),
+      );
+      expect(
+        () => write(
+          rowMutation(
+            'PATCH',
+            '/datasets/{id}/folders/{folderId}/rows',
+            const TagContext(
+              path: {'id': 'ds1', 'folderId': 'f1'},
+              body: {'name': 'x'},
+            ),
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('the body id outranks a parent parameter', () {
+      final w = write(
+        rowMutation(
+          'PUT',
+          '/datasets/{id}/folders/{folderId}/rows',
+          const TagContext(
+            path: {'id': 'ds1', 'folderId': 'f1'},
+            body: {'id': 'r9', 'name': 'x'},
+          ),
+        ),
+      );
+
+      expect(w.id, 'r9');
+    });
+
+    test('the body id outranks the trailing parameter fallback', () {
+      final w = write(
+        rowMutation(
+          'PUT',
+          '/datasets/{id}/rows/{rowId}',
+          const TagContext(
+            path: {'id': 'ds1', 'rowId': 'r7'},
+            body: {'id': 'r9', 'name': 'x'},
+          ),
+        ),
+      );
+
+      expect(w.id, 'r9');
+    });
+
     test('without a dataset param the path id still wins for a PATCH', () {
       final w = toGroveWrite(
         rowMutation(
