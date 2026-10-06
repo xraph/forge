@@ -8,6 +8,7 @@ import '../operation.dart';
 import '../tags.dart';
 import '../transport.dart';
 import 'actions.dart';
+import 'control.dart';
 import 'explain.dart' as ex;
 import 'explain.dart' show MissCause, TagsCause, argsKey, causeOf;
 import 'frames.dart';
@@ -31,9 +32,10 @@ final class FrameOptions {
 /// gives the slot back on [Devtools.dispose] if it is still ours.
 ///
 /// Nothing crosses principals: when the cache's principal changes, the log, the
-/// frame ring and the [requests] log are purged (one marker each is left) before the cache drops
-/// the previous principal's records, so none of what was recorded for one user
-/// is readable once the next is in charge. A query a component is still
+/// frame ring and the [requests] log are purged (one marker each is left), and
+/// an armed failure on [controls] is disarmed, before the cache drops the
+/// previous principal's records, so none of what was recorded for one user is
+/// readable once the next is in charge. A query a component is still
 /// watching is re-mounted by the cache for the new principal under the same
 /// key, so that key (and a value in it) reappears in the new session's log
 /// exactly as it does in the cache's own registry.
@@ -44,6 +46,8 @@ Devtools attach(
   int argsLimit = 200,
   FrameOptions? frames,
   RequestLog? requests,
+  ControlledTransport? controls,
+  Revalidation? revalidation,
 }) => Devtools._(
   cache,
   limit: limit,
@@ -51,6 +55,8 @@ Devtools attach(
   argsLimit: argsLimit,
   frames: frames,
   requestLog: requests,
+  controls: controls,
+  revalidation: revalidation,
 );
 
 /// The inspector over one cache.
@@ -62,6 +68,8 @@ final class Devtools {
     required this._argsLimit,
     required FrameOptions? frames,
     required this.requestLog,
+    required this.controls,
+    required this.revalidation,
   }) : _log = EventLog(capacity: limit, clock: _clock),
        _ring = _ringFor(frames) {
     _previous = cache.observer;
@@ -79,6 +87,14 @@ final class Devtools {
 
   /// The request log the transport reports into, when one is wired.
   final RequestLog? requestLog;
+
+  /// The network conditions, when wired. Absent means the panel shows no rail.
+  /// An armed failure is cleared when the principal changes; the mode and the
+  /// latency are the developer's and stay.
+  final ControlledTransport? controls;
+
+  /// The revalidation toggles, when the application registered any.
+  final Revalidation? revalidation;
 
   final EventLog _log;
   final Clock _clock;
@@ -338,6 +354,7 @@ final class Devtools {
     _log.clear();
     _ring?.clear();
     requestLog?.clear();
+    controls?.disarm();
     _fetching.clear();
     _seen.clear();
     _pending.clear();
@@ -442,9 +459,10 @@ final class Devtools {
   ///
   /// Everything recorded for the previous principal goes: the log keeps one
   /// [PrincipalLog] marker, the frame ring (when capture is on) keeps one marker
-  /// capture, the request log (when wired) keeps one marker request, and the per-query bookkeeping, which is keyed by the previous
-  /// principal's queries, is dropped. No marker carries an id, a payload
-  /// or the principal's value. Until the cache has emptied itself, nothing is
+  /// capture, the request log (when wired) keeps one marker request, an armed
+  /// failure on the controls is disarmed, and the per-query bookkeeping, which
+  /// is keyed by the previous principal's queries, is dropped. No marker carries
+  /// an id, a payload or the principal's value. Until the cache has emptied itself, nothing is
   /// delivered to subscribers and nothing is answered from the cache.
   void _adopt(String? principal, {required bool cleared}) {
     if (principal == _owner) return;
@@ -462,6 +480,7 @@ final class Devtools {
 
     _ring?.purge(seq: marker.seq, at: marker.at);
     requestLog?.purge();
+    controls?.disarm();
 
     if (cleared) {
       _settle();
