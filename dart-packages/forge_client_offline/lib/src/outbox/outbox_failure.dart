@@ -212,6 +212,11 @@ final class OutboxGone extends OutboxFailure {
 /// The write was sent and no response arrived, and the operation is not safe
 /// to repeat (not PUT, not DELETE, not `idempotent`). It may or may not have
 /// been applied. The outbox never resends it on its own.
+///
+/// Also raised when the outbox gave up retrying a write after repeated
+/// retryable failures (408, 429, 5xx, never sent); [reason] says so. Its
+/// record and `Idempotency-Key` are kept, so [retry] resends with the same
+/// key.
 final class OutboxUncertain extends OutboxFailure {
   /// An uncertain outcome, described by [reason].
   const OutboxUncertain({
@@ -238,6 +243,20 @@ final class OutboxSuspended implements Exception {
   String toString() =>
       'OutboxSuspended: the principal changed; the write is kept for when '
       'they return';
+}
+
+/// A write was refused because it was made for a principal that is no longer
+/// signed in: the principal changed while the write waited for that
+/// principal's session or outbox to open. Nothing was sent and nothing was
+/// stored, so it can never go out under the next principal's credentials.
+final class OutboxStale implements Exception {
+  /// Creates the error.
+  const OutboxStale();
+
+  @override
+  String toString() =>
+      'OutboxStale: the write was made for a principal that is no longer '
+      'signed in; it was not sent or kept';
 }
 
 /// A queued write's caller was released because the app discarded the write.

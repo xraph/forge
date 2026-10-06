@@ -247,6 +247,9 @@ final class ScriptedStorage implements StorageAdapter {
   FutureOr<void> Function(String mutationId, String stateJson)?
   beforeUpdateState;
 
+  /// Runs before each `readOutbox` reaches [inner], with the principal.
+  FutureOr<void> Function(String principal)? beforeReadOutbox;
+
   @override
   Future<StorageSession> open(String principal) async =>
       _ScriptedSession(this, await inner.open(principal));
@@ -272,7 +275,10 @@ final class _ScriptedSession implements StorageSession {
       _inner.writeSnapshot(snapshot);
 
   @override
-  Future<List<PendingMutationRecord>> readOutbox() => _inner.readOutbox();
+  Future<List<PendingMutationRecord>> readOutbox() async {
+    await _storage.beforeReadOutbox?.call(_inner.principal);
+    return _inner.readOutbox();
+  }
 
   @override
   Future<void> enqueue(PendingMutationRecord record) => _inner.enqueue(record);
@@ -293,6 +299,35 @@ final class _ScriptedSession implements StorageSession {
   Future<void> close() async {
     if (!_storage.keepOpen) await _inner.close();
   }
+}
+
+/// A jitter source with no jitter: backoff delays are exact.
+double _midpoint() => 0.5;
+
+/// A sync source that owns [entities] and records what it is asked to apply.
+final class FakeSource implements SyncSource {
+  FakeSource(this.entities);
+
+  @override
+  final Set<String> entities;
+
+  final List<PendingMutation> applied = [];
+
+  @override
+  Future<void> start(SyncContext context) async {}
+
+  @override
+  Future<MutationOutcome> apply(PendingMutation mutation) async {
+    applied.add(mutation);
+    return const Applied(null);
+  }
+
+  @override
+  Stream<SyncStatus> status(String entity) =>
+      Stream<SyncStatus>.value(const Synced());
+
+  @override
+  Future<void> stop() async {}
 }
 
 final class Harness {
@@ -326,6 +361,8 @@ final class Harness {
     Set<String> excludedEntities = const {},
     bool wireAuthPrincipal = false,
     OverlayIntentFor overlayIntent = deriveOverlayIntent,
+    List<SyncSource> syncSources = const [],
+    double Function() random = _midpoint,
   }) async {
     final network = FakeTransport()..credentials = principal;
     final outbox = OutboxTransport(network);
@@ -336,6 +373,7 @@ final class Harness {
       entities: entities,
       clock: clock,
       storage: store,
+      syncSources: syncSources,
     );
     final events = <CacheEvent>[];
     cache.observer = events.add;
@@ -357,6 +395,7 @@ final class Harness {
             overlayIntent: overlayIntent,
             authPrincipal: wireAuthPrincipal ? authPrincipal : null,
             onError: onError,
+            random: random,
           )
         : OfflineClient(
             cache: cache,
@@ -370,6 +409,7 @@ final class Harness {
             overlayIntent: overlayIntent,
             authPrincipal: wireAuthPrincipal ? authPrincipal : null,
             onError: onError,
+            random: random,
           );
 
     await switchTo(cache, principal);
@@ -393,6 +433,7 @@ final class Harness {
     bool online = false,
     StorageAdapter? storage,
     bool wireAuthPrincipal = false,
+    double Function() random = _midpoint,
   }) {
     Harness? created;
     unawaited(
@@ -400,6 +441,7 @@ final class Harness {
         online: online,
         storage: storage,
         wireAuthPrincipal: wireAuthPrincipal,
+        random: random,
       ).then((h) => created = h),
     );
     async.flushMicrotasks();

@@ -1217,6 +1217,220 @@ void main() {
     });
   });
 
+  group('fix round 1', () {
+    test(
+      "retry sends at once during another write's backoff and keeps its level",
+      () {
+        fakeAsync((async) {
+          final h = Harness.createIn(async);
+          unawaited(
+            h
+                .write(opUpdateOrder, orderArgs('7', {'note': 'x'}))
+                .catchError((Object _) => null),
+          );
+          unawaited(
+            h
+                .write(
+                  opUpdateCustomer,
+                  const TagContext(path: {'id': '1'}, body: {'name': 'y'}),
+                )
+                .catchError((Object _) => null),
+          );
+          async.flushMicrotasks();
+
+          h.network.respond = (r) => noteOf(r) == 'x'
+              ? throw const HttpStatusError(409, null)
+              : throw const HttpStatusError(503, null);
+          h.goOnline();
+          async.flushMicrotasks();
+          // x failed for good; the customer write backs off (1 s, then 2 s).
+          expect(h.writes.map((r) => r.meta.id), [
+            'op_update_order',
+            'op_update_customer',
+          ]);
+
+          h.network.respond = (_) => throw const HttpStatusError(503, null);
+          unawaited(h.offline.currentFailures.single.retry());
+          async.flushMicrotasks();
+          expect(h.writes, hasLength(3));
+          expect(h.writes[2].meta.id, 'op_update_order');
+
+          // The repeat failure re-arms at the level reached, 2 s, not 1 s.
+          async.elapse(const Duration(milliseconds: 1999));
+          expect(h.writes, hasLength(3));
+          async.elapse(const Duration(milliseconds: 1));
+          expect(h.writes, hasLength(4));
+        });
+      },
+    );
+
+    for (final (random, before, at) in [
+      (0.0, 799, 800),
+      (0.9999, 1199, 1200),
+    ]) {
+      test('the backoff is jittered by up to 20 percent (random $random)', () {
+        fakeAsync((async) {
+          final h = Harness.createIn(async, random: () => random);
+          unawaited(h.write(opUpdateOrder, orderArgs('7', {'note': 'x'})));
+          async.flushMicrotasks();
+
+          h.network.respond = failingWith([const HttpStatusError(503, null)]);
+          h.goOnline();
+          async.flushMicrotasks();
+          expect(h.writes, hasLength(1));
+
+          async.elapse(Duration(milliseconds: before));
+          expect(h.writes, hasLength(1));
+          async.elapse(Duration(milliseconds: at - before));
+          expect(h.writes, hasLength(2));
+        });
+      });
+    }
+
+    test('a write that keeps failing retryably is surfaced after 8 attempts and keeps its key', () {
+      fakeAsync((async) {
+        final h = Harness.createIn(async);
+        final write = Watched(
+          h.write(opCreateOrder, const TagContext(body: {'total': 5})),
+        );
+        async.flushMicrotasks();
+
+        h.network.respond = (_) => throw const HttpStatusError(503, null);
+        h.goOnline();
+        async.flushMicrotasks();
+        async.elapse(const Duration(hours: 1));
+
+        expect(h.writes, hasLength(8));
+        expect(h.offline.currentFailures.single, isA<OutboxUncertain>());
+        expect(write.error, isA<OutboxUncertain>());
+        final record = readIn(async, h.stored()).single;
+        expect(record.stateJson, contains('"kind":"failed"'));
+        expect(h.writes.map((r) => r.headers['Idempotency-Key']).toSet(), {
+          record.idempotencyKey,
+        });
+
+        h.network.respond = echo;
+        readIn(async, h.offline.currentFailures.single.retry());
+        async.flushMicrotasks();
+
+        expect(h.writes, hasLength(9));
+        expect(h.writes.last.headers['Idempotency-Key'], record.idempotencyKey);
+        expect(readIn(async, h.stored()), isEmpty);
+      });
+    });
+
+    test(
+      'a replay marker for an unknown write is refused, never sent',
+      () async {
+        final h = await Harness.create(online: true);
+
+        final write = Watched(
+          h.cache.mutate(
+            opUpdateOrder,
+            orderArgs('7', {'note': 'x'}),
+            options: const MutateOptions(headers: {outboxReplayHeader: 'nope'}),
+          ),
+        );
+        await settle();
+
+        expect(write.error, isA<StateError>());
+        expect(h.writes, isEmpty);
+      },
+    );
+
+    test('a stored write for an entity a sync source now owns is surfaced, not handed to the source', () async {
+      final storage = memoryStorage();
+      await seedOutbox(storage, 'alice', [
+        seededEntry(id: 'm1', meta: opUpdateOrder, seq: 1),
+        seededEntry(
+          id: 'm2',
+          meta: opUpdateCustomer,
+          seq: 2,
+          args: const TagContext(path: {'id': '1'}, body: {'name': 'z'}),
+        ),
+      ]);
+      final source = FakeSource({'Order'});
+
+      final h = await Harness.create(
+        storage: storage,
+        online: true,
+        syncSources: [source],
+      );
+      await settle();
+
+      expect(source.applied, isEmpty);
+      final failure = h.offline.currentFailures.single;
+      expect(failure, isA<OutboxGone>());
+      expect((failure as OutboxGone).status, 0);
+      expect(h.writes.map((r) => r.meta.id), ['op_update_customer']);
+    });
+  });
+
+  group('a write made for a principal who left', () {
+    test(
+      "a write made while alice's session opens never goes out as bob",
+      () async {
+        final h = await Harness.create(online: true, wireAuthPrincipal: true);
+        await switchTo(h.cache, null);
+
+        h.cache.setPrincipal('alice');
+        expect(h.cache.session, isNull);
+        final write = Watched(
+          h.write(opUpdateOrder, orderArgs('7', {'note': 'alice'})),
+        );
+        // Alice signs out and bob signs in, in the documented order.
+        h.cache.setPrincipal(null);
+        h.cache.setPrincipal('bob');
+        h.network.credentials = 'bob';
+        await h.cache.idle;
+        await settle();
+
+        expect(h.writes, isEmpty);
+        expect(write.error, isA<OutboxStale>());
+        expect(await h.stored('bob'), isEmpty);
+        expect(await h.stored('alice'), isEmpty);
+      },
+    );
+
+    test(
+      "a write made while alice's outbox is read never goes out as bob",
+      () async {
+        final storage = ScriptedStorage(memoryStorage());
+        final h = await Harness.create(
+          storage: storage,
+          online: true,
+          wireAuthPrincipal: true,
+        );
+        await switchTo(h.cache, null);
+
+        final reading = Completer<void>();
+        final release = Completer<void>();
+        storage.beforeReadOutbox = (principal) async {
+          if (principal != 'alice' || reading.isCompleted) return;
+          reading.complete();
+          await release.future;
+        };
+        await switchTo(h.cache, 'alice');
+        await reading.future;
+
+        final write = Watched(
+          h.write(opUpdateOrder, orderArgs('7', {'note': 'alice'})),
+        );
+        await settle();
+        expect(h.writes, isEmpty);
+
+        await switchTo(h.cache, 'bob');
+        h.network.credentials = 'bob';
+        release.complete();
+        await settle();
+
+        expect(h.writes, isEmpty);
+        expect(write.error, isA<OutboxStale>());
+        expect(await h.stored('bob'), isEmpty);
+      },
+    );
+  });
+
   group('credentials', () {
     test(
       'in the documented order no write is replayed under the next principal',

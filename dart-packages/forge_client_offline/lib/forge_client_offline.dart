@@ -34,6 +34,7 @@ export 'src/outbox/outbox_failure.dart'
         OutboxFailure,
         OutboxGone,
         OutboxOffline,
+        OutboxStale,
         OutboxSuspended,
         OutboxUnauthorized,
         OutboxUnavailable,
@@ -41,6 +42,7 @@ export 'src/outbox/outbox_failure.dart'
         OutboxValidation;
 export 'src/outbox/outbox_transport.dart'
     show
+        OutboxHandler,
         OutboxTransport,
         idempotencyKeyHeader,
         outboxReplayHeader,

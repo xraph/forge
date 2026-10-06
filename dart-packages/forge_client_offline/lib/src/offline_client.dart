@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:forge_client/forge_client.dart';
 import 'package:uuid/uuid.dart';
@@ -42,7 +43,21 @@ typedef OverlayIntentFor = OverlayIntent Function(
 /// to) and the outbox also refuses to send a write while the two disagree,
 /// which covers an app that swaps credentials first. Without it, an app that
 /// swaps credentials before calling `setPrincipal` can have a write that was
-/// already due go out under the next principal's credentials.
+/// already due go out under the next principal's credentials. A write made
+/// while a principal's session or outbox is still opening, and overtaken by
+/// a principal change before it could be queued, fails with [OutboxStale]:
+/// nothing is sent or kept.
+///
+/// Lanes: writes to one entity type replay one at a time, in order. Lanes are
+/// independent, so a backoff armed by one lane does not hold a new write to
+/// an idle lane: that write is still sent directly. The backoff only holds
+/// replays of writes already queued.
+///
+/// A queued write's future stays pending for as long as the write is queued,
+/// which can be indefinitely (offline for days, or held by the backoff). The
+/// cache shows its optimistic overlay meanwhile; a UI should draw from the
+/// cache and never block, or show a spinner, on that future. Use [pending],
+/// [pendingCount] and [failures] for outbox status instead.
 final class OfflineClient {
   /// Attaches to [transport], which must be the transport [cache] was built
   /// with, and follows [cache]'s sessions. [operations] is the generated
@@ -62,6 +77,21 @@ final class OfflineClient {
   /// to right now. Before every send the outbox compares it with the
   /// principal whose write it is, and on a mismatch it holds the write and
   /// checks again after a backoff, on reconnect and on the next session.
+  ///
+  /// Each backoff delay is jittered by up to 20 percent either way, using
+  /// [random] (a source in `[0, 1)`, injectable for tests).
+  ///
+  /// After [maxRetryableFailures] consecutive retryable failures of one write
+  /// (a 408, a 429, a 5xx, a request that never left the device), the write
+  /// stops retrying on its own and surfaces as an [OutboxUncertain] failure,
+  /// so a server that keeps answering 503 does not hide it forever. The
+  /// record and its `Idempotency-Key` stay, and `retry` resends with the same
+  /// key. The count lives in memory and starts again after a restart.
+  ///
+  /// Writes to an entity a sync source owns never reach the transport (the
+  /// cache hands them to the source), so they are never tracked. A stored
+  /// write for such an entity, queued before the source took it over, is
+  /// surfaced as an [OutboxGone] with status 0 rather than replayed.
   OfflineClient({
     required QueryCache cache,
     required this._operations,
@@ -76,7 +106,11 @@ final class OfflineClient {
     bool initiallyOnline = true,
     this._authPrincipal,
     this._onError,
-  }) : _cache = cache,
+    double Function()? random,
+    this._maxRetryableFailures = 8,
+  }) : assert(_maxRetryableFailures >= 1),
+       _random = random ?? math.Random().nextDouble,
+       _cache = cache,
        _transport = transport,
        _initialBackoff = initialBackoff,
        _excluded = excludedEntities,
@@ -108,6 +142,8 @@ final class OfflineClient {
   final OverlayIntentFor _overlayIntent;
   final String? Function()? _authPrincipal;
   final void Function(Object error, String context)? _onError;
+  final double Function() _random;
+  final int _maxRetryableFailures;
 
   late final _Control _control;
   late final void Function() _unwatchChanging;
@@ -316,6 +352,23 @@ final class OfflineClient {
       return;
     }
 
+    if (_ownedBySource(meta)) {
+      await _fail(
+        session,
+        p,
+        OutboxGone(
+          mutationId: entry.id,
+          operationId: entry.operationId,
+          control: _control,
+          status: 0,
+          body:
+              '${meta.entity} is owned by a sync source, which sends its own '
+              'writes',
+        ),
+      );
+      return;
+    }
+
     if (entry.sentAt != null && !isSafeToRepeat(meta)) {
       await _fail(
         session,
@@ -396,7 +449,13 @@ final class OfflineClient {
         _scheduleDrain();
         return parked.future;
       }
-      return _transport.inner.execute(withoutReplayMarker(request));
+      // No queued write carries this id, so there is no Idempotency-Key to
+      // send it with. Refused rather than sent unprotected.
+      return Future<Object?>.error(
+        StateError(
+          'an outbox replay marker names no queued write; it was not sent',
+        ),
+      );
     }
 
     final meta = request.meta;
@@ -404,17 +463,32 @@ final class OfflineClient {
     if (method == 'GET' ||
         method == 'HEAD' ||
         _operations[meta.id] == null ||
-        _excluded.contains(meta.entity)) {
+        _excluded.contains(meta.entity) ||
+        _ownedBySource(meta)) {
       return _transport.inner.execute(request);
     }
 
-    return _track(request, waitedForSwitch: false);
+    // The cache's life the write was made in. Every principal change starts
+    // a new one, so a write that waits below and finds it changed was made
+    // for someone who has left.
+    return _track(
+      request,
+      generation: _cache.generation,
+      waitedForSwitch: false,
+    );
   }
 
   Future<Object?> _track(
     TransportRequest request, {
+    required int generation,
     required bool waitedForSwitch,
   }) {
+    // Resumed after a wait, and the principal changed meanwhile: dispatching
+    // now would send this write under whoever is signed in next.
+    if (_cache.generation != generation) {
+      return Future<Object?>.error(const OutboxStale());
+    }
+
     // A principal is set and its session is not open yet (or the cache still
     // holds the previous one): a switch is in progress. The write belongs to
     // the next principal, so it waits for their session rather than going
@@ -424,7 +498,9 @@ final class OfflineClient {
     if (!waitedForSwitch &&
         principal != null &&
         (current == null || current.principal != principal)) {
-      return _cache.idle.then((_) => _track(request, waitedForSwitch: true));
+      return _cache.idle.then(
+        (_) => _track(request, generation: generation, waitedForSwitch: true),
+      );
     }
 
     // No storage, no principal, or a session that failed to open.
@@ -437,7 +513,11 @@ final class OfflineClient {
     final restoring = _restoring;
     if (!_restored && restoring != null) {
       return restoring.then(
-        (_) => _track(request, waitedForSwitch: waitedForSwitch),
+        (_) => _track(
+          request,
+          generation: generation,
+          waitedForSwitch: waitedForSwitch,
+        ),
       );
     }
 
@@ -488,6 +568,8 @@ final class OfflineClient {
     // completer before this returns.
     final result = p.completer!.future;
 
+    // An idle lane sends directly even while another lane's backoff is
+    // armed: lanes are independent, and the backoff only holds replays.
     if (_online && !laneBusy) {
       unawaited(_attemptDirect(session, p, request.cancel));
     } else {
@@ -593,7 +675,7 @@ final class OfflineClient {
     // this write, so sending it again at once would only fail again.
     await _park(session, p, drain: false);
     if (p.epoch == _epoch && p.persisted) {
-      _scheduleRetry(atLeast: _retryAfter(error));
+      await _backOff(session, p, error, atLeast: _retryAfter(error));
     }
   }
 
@@ -639,7 +721,12 @@ final class OfflineClient {
   /// or the server just refused a write. Reconnecting cancels it.
   void _scheduleRetry({Duration? atLeast}) {
     if (_retryTimer != null || _disposed || _session == null) return;
-    var delay = _backoff;
+    // Up to 20 percent either way, so clients that lost the same server do
+    // not all come back at once. Retry-After is never undercut.
+    final jitter = 1 + (_random() - 0.5) * 0.4;
+    var delay = Duration(
+      microseconds: (_backoff.inMicroseconds * jitter).round(),
+    );
     if (atLeast != null && atLeast > delay) delay = atLeast;
     if (delay > _maxBackoff) delay = _maxBackoff;
     final doubled = _backoff * 2;
@@ -752,8 +839,7 @@ final class OfflineClient {
     if (status != null) {
       if (_retryableStatus(error)) {
         await _unsend(session, p);
-        _retryLater(p, atLeast: _retryAfter(error));
-        return false;
+        return _backOff(session, p, error, atLeast: _retryAfter(error));
       }
       await _fail(
         session,
@@ -786,11 +872,9 @@ final class OfflineClient {
       // and the request never got its answer: treated like one never sent.
       case NetworkFailure.notSent || NetworkFailure.cancelled:
         await _unsend(session, p);
-        _retryLater(p);
-        return false;
+        return _backOff(session, p, error);
       case NetworkFailure.uncertain when isSafeToRepeat(meta):
-        _retryLater(p);
-        return false;
+        return _backOff(session, p, error);
       case NetworkFailure.uncertain:
         await _fail(
           session,
@@ -806,15 +890,40 @@ final class OfflineClient {
     }
   }
 
-  /// Backs off before the next attempt, or, when the principal changed while
-  /// the request was out, releases its caller: the record is in that
-  /// principal's storage.
-  void _retryLater(_Pending p, {Duration? atLeast}) {
-    if (p.epoch == _epoch) {
-      _scheduleRetry(atLeast: atLeast);
-    } else {
+  /// After a retryable failure of [p]: backs off before the next attempt,
+  /// or, once [p] has failed retryably [_maxRetryableFailures] times in a
+  /// row, surfaces it as [OutboxUncertain] with its record and key kept.
+  /// When the principal changed while the request was out, releases its
+  /// caller instead: the record is in that principal's storage. Always false:
+  /// the drain stops until the backoff ends.
+  Future<bool> _backOff(
+    StorageSession session,
+    _Pending p,
+    Object error, {
+    Duration? atLeast,
+  }) async {
+    if (p.epoch != _epoch) {
       _reject(p, const OutboxSuspended());
+      return false;
     }
+    p.retryableFailures++;
+    if (p.retryableFailures >= _maxRetryableFailures) {
+      await _fail(
+        session,
+        p,
+        OutboxUncertain(
+          mutationId: p.entry.id,
+          operationId: p.entry.operationId,
+          control: _control,
+          reason:
+              'gave up after ${p.retryableFailures} attempts that each failed '
+              'retryably; the last: $error',
+        ),
+      );
+    }
+    // Armed either way, so other lanes' writes still replay after it.
+    if (p.epoch == _epoch) _scheduleRetry(atLeast: atLeast);
+    return false;
   }
 
   /// 408, 429 and 5xx: the idempotency middleware released the key, so the
@@ -959,8 +1068,14 @@ final class OfflineClient {
     final queued = p.entry.copyWith(clearFailure: true, clearSentAt: true);
     if (await _mark(session, queued) != null || p.epoch != _epoch) return;
 
-    p.entry = queued;
+    p
+      ..entry = queued
+      ..retryableFailures = 0;
     _clearFailure(p);
+    // An explicit user action: it does not wait out the backoff. The level
+    // is kept, so a repeat failure re-arms where the backoff had reached.
+    _retryTimer?.cancel();
+    _retryTimer = null;
     p.completer = _parked();
     _reissue(p);
     _notifyPending();
@@ -1079,6 +1194,13 @@ final class OfflineClient {
     return false;
   }
 
+  /// Whether a sync source owns [meta]'s entity, so the cache sends its
+  /// writes to that source and never to the transport.
+  bool _ownedBySource(OperationMeta meta) {
+    final entity = meta.entity;
+    return entity != null && _cache.owns(entity);
+  }
+
   String _laneOf(OperationMeta meta) => meta.entity ?? 'op:${meta.id}';
 
   _Pending? _byId(String id) {
@@ -1194,6 +1316,9 @@ final class _Pending {
   bool persisted;
   bool inFlight = false;
   bool awaitingReissue = false;
+
+  /// Consecutive retryable failures since the write was admitted or retried.
+  int retryableFailures = 0;
   OutboxFailure? failure;
   final Map<String, String> liveHeaders;
 }

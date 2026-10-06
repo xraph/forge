@@ -14,17 +14,36 @@ bool isSafeToRepeat(OperationMeta meta) =>
 
 const Set<String> _unpersisted = {
   'authorization',
+  'proxy-authorization',
   'cookie',
+  'set-cookie',
+  'x-api-key',
+  'x-csrf-token',
+  'x-xsrf-token',
   'idempotency-key',
   'x-forge-outbox-replay',
 };
 
+/// Name fragments that mark a header as a credential, matched ignoring case.
+/// Deliberately broad: dropping a harmless header such as `X-Author` costs
+/// less than writing a secret to disk.
+const List<String> _credentialFragments = ['token', 'secret', 'auth'];
+
+bool _persistable(String name) {
+  final lower = name.toLowerCase();
+  return !_unpersisted.contains(lower) &&
+      !_credentialFragments.any(lower.contains);
+}
+
 /// The request headers worth keeping with a queued write: everything except
 /// credentials, which the transport supplies fresh on replay, and the
-/// outbox's own headers.
+/// outbox's own headers. A credential is any of `Authorization`,
+/// `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`,
+/// `X-CSRF-Token` and `X-XSRF-Token`, or any header whose name contains
+/// `token`, `secret` or `auth`, all ignoring case.
 Map<String, String> persistableHeaders(Map<String, String> headers) => {
   for (final MapEntry(:key, :value) in headers.entries)
-    if (!_unpersisted.contains(key.toLowerCase())) key: value,
+    if (_persistable(key)) key: value,
 };
 
 /// The value of header [name] in [headers], ignoring case.

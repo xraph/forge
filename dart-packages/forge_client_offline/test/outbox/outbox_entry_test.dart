@@ -237,6 +237,27 @@ void main() {
     },
   );
 
+  test('persistableHeaders drops every credential-shaped header', () {
+    expect(
+      persistableHeaders({
+        'Proxy-Authorization': 'Basic x',
+        'X-API-Key': 'k',
+        'X-CSRF-Token': 'c',
+        'x-xsrf-token': 'x',
+        'Set-Cookie': 's=1',
+        'X-Session-Token': 't',
+        'X-Refresh-TOKEN': 'r',
+        'X-Client-Secret': 's',
+        'X-Auth-User': 'u',
+        'OAuth-Scope': 'o',
+        'X-Trace': 't',
+        'Accept-Language': 'en',
+        'X-Tenant': 'acme',
+      }),
+      {'X-Trace': 't', 'Accept-Language': 'en', 'X-Tenant': 'acme'},
+    );
+  });
+
   test('headerValue ignores case', () {
     expect(headerValue({'idempotency-key': 'k'}, 'Idempotency-Key'), 'k');
     expect(headerValue({}, 'Idempotency-Key'), isNull);
