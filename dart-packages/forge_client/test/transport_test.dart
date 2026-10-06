@@ -1326,6 +1326,17 @@ void main() {
       },
     );
 
+    test('a form list value repeats its key once per item', () async {
+      final sent = await send(put('application/x-www-form-urlencoded'), {
+        'tag': ['a', 'b c', null, 3],
+        'set': {'x'},
+        'none': <String>[],
+        'n': 1,
+      });
+
+      expect(sent.body, 'tag=a&tag=b+c&tag=3&set=x&n=1');
+    });
+
     test('a text body goes out raw under its declared type', () async {
       final plain = await send(put('text/plain'), 'abc "q"');
 

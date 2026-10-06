@@ -780,10 +780,19 @@ final class RestTransport implements Transport {
         outgoing.body = text;
       case final Map<Object?, Object?> fields
           when _essence(declared) == _formType:
+        // An Iterable value repeats its key once per non-null item, as the
+        // query string does (`tag=a&tag=b`), rather than going out as the
+        // list's toString.
         outgoing.body = Uri(
           queryParameters: {
             for (final MapEntry(:key, :value) in fields.entries)
-              if (value != null) '$key': '$value',
+              if (value is Iterable<Object?>)
+                '$key': [
+                  for (final item in value)
+                    if (item != null) '$item',
+                ]
+              else if (value != null)
+                '$key': '$value',
           },
         ).query;
       default:
