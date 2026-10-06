@@ -64,6 +64,69 @@ final class _SlowSource implements SyncSource {
   }
 }
 
+/// A sync source that projects one owned row as it starts, the way a replica
+/// source does on every launch, and says when it has.
+final class _ProjectingSource implements SyncSource {
+  _ProjectingSource(this.started);
+
+  final Completer<void> started;
+
+  @override
+  Set<String> get entities => const {'Customer'};
+
+  @override
+  Future<void> start(SyncContext context) async {
+    context.write(
+      (store) => store.put('Customer:c1', <String, Object?>{'id': 'c1'}),
+    );
+    if (!started.isCompleted) started.complete();
+  }
+
+  @override
+  Future<MutationOutcome> apply(PendingMutation mutation) async =>
+      const Applied(null);
+
+  @override
+  Stream<SyncStatus> status(String entity) =>
+      Stream<SyncStatus>.value(const Synced());
+
+  @override
+  Future<void> stop() async {}
+}
+
+/// A query whose response holds no entity, so it adds nothing to the store.
+const opGetStats = OperationMeta(
+  id: 'op_get_stats',
+  method: 'GET',
+  path: '/stats',
+);
+
+/// A client over [storage] built with the constructor, plus what it reported.
+({QueryCache cache, OfflineClient offline, List<String> errors}) _built(
+  StorageAdapter storage, {
+  FakeTransport? network,
+}) {
+  final outbox = OutboxTransport(network ?? FakeTransport());
+  final cache = QueryCache(
+    transport: outbox,
+    entities: entities,
+    storage: storage,
+  );
+  final errors = <String>[];
+  final offline = OfflineClient(
+    cache: cache,
+    operations: operations,
+    connectivity: FakeConnectivity(),
+    transport: outbox,
+    onError: (_, context) => errors.add(context),
+  );
+  return (cache: cache, offline: offline, errors: errors);
+}
+
+Map<String, Object?>? _order(QueryCache cache, String id) =>
+    cache.getState(opGetOrder, orderArgs(id)).dataOrNull
+        as Map<String, Object?>?;
+
 /// Seeds [principal]'s stored snapshot with order 7 at total 10.
 Future<void> seedSnapshot(StorageAdapter storage, String principal) async {
   final source = QueryCache(transport: FakeTransport(), entities: entities)
@@ -179,6 +242,114 @@ void main() {
     );
 
     test(
+      'restores the snapshot when only a sync source wrote during the read',
+      () async {
+        final storage = CountingStorage(memoryStorage());
+        await seedSnapshot(storage.inner, 'alice');
+        final started = Completer<void>();
+        // The read returns only after the source projected its row.
+        storage.beforeReadSnapshot = () => started.future;
+        final network = FakeTransport();
+
+        final offline = await OfflineClient.open(
+          transport: network,
+          entities: entities,
+          operations: operations,
+          storage: storage,
+          principal: 'alice',
+          syncSources: [_ProjectingSource(started)],
+          onError: (_, _) {},
+        );
+
+        expect(offline.cache.store.has('Customer:c1'), isTrue);
+        expect(_order(offline.cache, '7')!['total'], 10);
+        expect(network.requests, isEmpty);
+        await offline.close();
+      },
+    );
+
+    test(
+      'skips the snapshot when an entity landed during the read with no query',
+      () async {
+        final storage = CountingStorage(memoryStorage());
+        await seedSnapshot(storage.inner, 'alice');
+        final c = _built(storage);
+        var queriesThen = -1;
+        storage.beforeReadSnapshot = () {
+          // A frame or a mutation response: a record, and no query.
+          c.cache.store.put('Order:9', <String, Object?>{
+            'id': '9',
+            'total': 1,
+          });
+          queriesThen = c.cache.queries.length;
+        };
+
+        await switchTo(c.cache, 'alice');
+        await c.offline.restore();
+
+        expect(queriesThen, 0, reason: 'only the store holds data');
+        expect(_order(c.cache, '7'), isNull);
+        expect(c.errors, contains('forge_client_offline: snapshot.skipped'));
+        await c.offline.dispose();
+        await c.cache.dispose();
+      },
+    );
+
+    test(
+      'skips the snapshot when a query settled during the read with no entity',
+      () async {
+        final storage = CountingStorage(memoryStorage());
+        await seedSnapshot(storage.inner, 'alice');
+        final network = FakeTransport()
+          ..respond = (r) async => r.meta.id == opGetStats.id
+              ? <String, Object?>{'count': 3}
+              : echo(r);
+        final c = _built(storage, network: network);
+        var storeThen = -1;
+        storage.beforeReadSnapshot = () async {
+          await c.cache.fetch(opGetStats, TagContext.empty);
+          storeThen = c.cache.store.size;
+        };
+
+        await switchTo(c.cache, 'alice');
+        await c.offline.restore();
+
+        expect(storeThen, 0, reason: 'only a query holds data');
+        expect(_order(c.cache, '7'), isNull);
+        expect(c.errors, contains('forge_client_offline: snapshot.skipped'));
+        await c.offline.dispose();
+        await c.cache.dispose();
+      },
+    );
+
+    test(
+      'a debounced write waits for the stored snapshot to be read',
+      () async {
+        final storage = CountingStorage(memoryStorage());
+        await seedSnapshot(storage.inner, 'alice');
+        fakeAsync((async) {
+          storage.beforeReadSnapshot = () =>
+              Future<void>.delayed(const Duration(seconds: 3));
+          final c = _built(storage);
+          c.cache.setPrincipal('alice');
+          async.flushMicrotasks();
+
+          // A commit one debounce period before the read returns.
+          unawaited(c.cache.fetch(opGetOrder, orderArgs('8')));
+          async.elapse(const Duration(milliseconds: 2500));
+          expect(
+            storage.snapshotWrites,
+            0,
+            reason: 'the read is still running',
+          );
+
+          async.elapse(const Duration(seconds: 2));
+          expect(storage.snapshotWrites, 1, reason: 'owed, then written');
+        });
+      },
+    );
+
+    test(
       'a snapshot is never written before the stored one was read',
       () async {
         final storage = CountingStorage(memoryStorage());
@@ -278,6 +449,8 @@ void main() {
         async.flushMicrotasks();
 
         unawaited(switchTo(h.cache, 'bob'));
+        async.flushMicrotasks();
+        unawaited(h.seed('8'));
         async.elapse(const Duration(seconds: 10));
 
         Snapshot? stored(String principal) {
@@ -292,9 +465,12 @@ void main() {
           return read;
         }
 
-        expect(stored('alice'), isNull, reason: 'its write was cancelled');
-        final bob = stored('bob');
-        if (bob != null) expect(bob.json['queries'], isEmpty);
+        expect(stored('alice'), isNull, reason: 'nothing written for alice');
+        final bob = stored('bob')!;
+        expect((bob.json['records']! as Map<String, Object?>).keys, [
+          'Order:8',
+        ]);
+        expect(bob.json['queries'], hasLength(1));
       });
     });
   });
@@ -822,7 +998,14 @@ void main() {
       h.network.respond = (_) =>
           throw const SocketException('Connection refused');
 
-      await expectLater(h.offline.replay(id), throwsA(isA<OutboxOffline>()));
+      await expectLater(
+        h.offline.replay(id),
+        throwsA(
+          isA<OutboxOffline>()
+              .having((e) => e.cause, 'cause', OutboxOfflineCause.offline)
+              .having((e) => e.status, 'status', isNull),
+        ),
+      );
 
       final stored = await h.stored();
       expect(stored.single.id, id);
@@ -854,6 +1037,56 @@ void main() {
         expect(await h.stored(), isEmpty);
       },
     );
+
+    test('replay after a retryable status says so, with the status', () async {
+      final h = await Harness.create();
+      unawaited(
+        h
+            .write(opUpdateOrder, orderArgs('7', {'note': 'x'}))
+            .catchError((Object _) => null),
+      );
+      await settle();
+      final id = h.offline.pending.single.id;
+      h.network.respond = (_) => throw const HttpStatusError(503, null);
+
+      await expectLater(
+        h.offline.replay(id),
+        throwsA(
+          isA<OutboxOffline>()
+              .having(
+                (e) => e.cause,
+                'cause',
+                OutboxOfflineCause.retryableStatus,
+              )
+              .having((e) => e.status, 'status', 503),
+        ),
+      );
+      expect(await h.stored(), hasLength(1));
+    });
+
+    test('replay held for credentials of another principal says so', () async {
+      final h = await Harness.create(wireAuthPrincipal: true);
+      unawaited(
+        h
+            .write(opUpdateOrder, orderArgs('7', {'note': 'x'}))
+            .catchError((Object _) => null),
+      );
+      await settle();
+      final id = h.offline.pending.single.id;
+      h.network.credentials = 'bob';
+
+      await expectLater(
+        h.offline.replay(id),
+        throwsA(
+          isA<OutboxOffline>().having(
+            (e) => e.cause,
+            'cause',
+            OutboxOfflineCause.credentialsHeld,
+          ),
+        ),
+      );
+      expect(h.writes, isEmpty);
+    });
 
     test('replay of an unknown write is a StateError', () async {
       final h = await Harness.create();

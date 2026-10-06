@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
@@ -97,6 +99,60 @@ void main() {
     );
     expect(uncertain.mutationId, 'm1');
     expect(uncertain.operationId, 'op');
+  });
+
+  group('OutboxOffline', () {
+    const offline = OutboxOffline('m1');
+    const status = OutboxOffline(
+      'm2',
+      cause: OutboxOfflineCause.retryableStatus,
+      status: 503,
+    );
+    const held = OutboxOffline('m3', cause: OutboxOfflineCause.credentialsHeld);
+
+    test('says why the write could not go', () {
+      expect(offline.cause, OutboxOfflineCause.offline);
+      expect(offline.toString(), contains('could not reach the server'));
+      expect(
+        status.toString(),
+        allOf(contains('503'), isNot(contains('could not reach'))),
+      );
+      expect(
+        held.toString(),
+        allOf(contains('credentials'), isNot(contains('could not reach'))),
+      );
+      for (final e in [offline, status, held]) {
+        expect(e.toString(), contains('still queued'));
+      }
+    });
+
+    test('survives toJson and fromJson', () {
+      for (final e in [offline, status, held]) {
+        final back = OutboxOffline.fromJson(
+          jsonDecode(jsonEncode(e.toJson())) as Map<String, Object?>,
+        );
+        expect(back.mutationId, e.mutationId);
+        expect(back.cause, e.cause);
+        expect(back.status, e.status);
+        expect(back.toString(), e.toString());
+      }
+    });
+
+    test('a malformed record is a FormatException', () {
+      for (final json in <Map<String, Object?>>[
+        {'kind': 'offline', 'cause': 'offline'},
+        {'kind': 'offline', 'mutationId': 'm', 'cause': 'mystery'},
+        {
+          'kind': 'offline',
+          'mutationId': 'm',
+          'cause': 'retryableStatus',
+          'status': 'x',
+        },
+        {'kind': 'gone', 'mutationId': 'm', 'cause': 'offline'},
+      ]) {
+        expect(() => OutboxOffline.fromJson(json), throwsFormatException);
+      }
+    });
   });
 
   test('an unknown kind is a FormatException', () {

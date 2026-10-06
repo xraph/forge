@@ -287,18 +287,84 @@ final class OutboxUnavailable implements Exception {
       'OutboxUnavailable: the write could not be stored: $cause';
 }
 
-/// Thrown by `OfflineClient.replay` when the write could not reach the
-/// server (the device is offline, or the outcome was uncertain on an
-/// operation that is safe to repeat). The write is still queued.
+/// Why [OutboxOffline] was thrown: why the write could not go.
+enum OutboxOfflineCause {
+  /// The request never reached the server (no network, a refused
+  /// connection), or its outcome was uncertain on an operation that is safe
+  /// to repeat.
+  offline,
+
+  /// The server answered with a status a retry can change: a 408, a 429, a
+  /// 5xx, or a 409 that carries `Retry-After`. [OutboxOffline.status] holds
+  /// it.
+  retryableStatus,
+
+  /// The write was not sent: the transport's credentials belong to another
+  /// principal than the write's (see `authPrincipal` on `OfflineClient`).
+  credentialsHeld,
+}
+
+/// Thrown by `OfflineClient.replay` when the write could not go; [cause]
+/// says why. The write is still queued and replays on its own later.
 final class OutboxOffline implements Exception {
-  /// Creates the error for [mutationId].
-  const OutboxOffline(this.mutationId);
+  /// Creates the error for [mutationId]. [status] is the server's status
+  /// when [cause] is [OutboxOfflineCause.retryableStatus].
+  const OutboxOffline(
+    this.mutationId, {
+    this.cause = OutboxOfflineCause.offline,
+    this.status,
+  });
+
+  /// Rebuilds an error written by [toJson]. Throws [FormatException] when
+  /// [json] is not one.
+  factory OutboxOffline.fromJson(Map<String, Object?> json) {
+    final mutationId = json['mutationId'];
+    final cause = json['cause'];
+    final status = json['status'];
+    if (json['kind'] != 'offline' ||
+        mutationId is! String ||
+        cause is! String ||
+        (status != null && status is! int)) {
+      throw FormatException('not a stored OutboxOffline', json);
+    }
+    for (final value in OutboxOfflineCause.values) {
+      if (value.name == cause) {
+        return OutboxOffline(mutationId, cause: value, status: status as int?);
+      }
+    }
+    throw FormatException('unknown OutboxOffline cause $cause', json);
+  }
 
   /// The write that is still queued.
   final String mutationId;
 
+  /// Why it could not go.
+  final OutboxOfflineCause cause;
+
+  /// The server's status for [OutboxOfflineCause.retryableStatus]; null
+  /// otherwise.
+  final int? status;
+
+  /// A JSON-safe form, for the devtools panel. [OutboxOffline.fromJson]
+  /// reads it back.
+  Map<String, Object?> toJson() => {
+    'kind': 'offline',
+    'mutationId': mutationId,
+    'cause': cause.name,
+    'status': ?status,
+  };
+
   @override
-  String toString() =>
+  String toString() => switch (cause) {
+    OutboxOfflineCause.offline =>
       'OutboxOffline: the write could not reach the server and is still '
-      'queued';
+          'queued',
+    OutboxOfflineCause.retryableStatus =>
+      'OutboxOffline: the server answered '
+          '${status ?? 'with a retryable status'}; the write is still queued '
+          'and will be retried',
+    OutboxOfflineCause.credentialsHeld =>
+      'OutboxOffline: the write was held because the transport credentials '
+          'belong to another principal; it is still queued',
+  };
 }

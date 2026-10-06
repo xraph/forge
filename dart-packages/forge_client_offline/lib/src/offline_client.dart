@@ -331,6 +331,13 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// When [storage] is an `EncryptedSqliteStorage`, its resets are wired to
   /// [resets] and [currentResets]. Use one storage adapter per directory per
   /// isolate.
+  ///
+  /// After the session opens, this restores, and restoring waits for
+  /// `cache.idle`, which includes every sync source's `start`. A source whose
+  /// `start` never returns therefore keeps this from returning, and
+  /// [sessionTimeout] does not cover it (it bounds the storage open only).
+  /// `SyncSource.start` must return promptly and do network work in the
+  /// background.
   static Future<OfflineClient> open({
     required Transport transport,
     required EntitySchema entities,
@@ -492,10 +499,21 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// Sends the stored write [mutationId] now, out of its turn, ignoring the
   /// backoff and the connectivity flag. Completes when the server accepted
   /// it. Throws its [OutboxFailure] when the server refused it, and
-  /// [OutboxOffline] when it could not go (it stays queued). A failed write
-  /// is cleared and redrawn first. Waits for an attempt already on the wire,
-  /// and for the write to be re-issued through the cache, rather than
-  /// sending beside them. The devtools Outbox panel drives this.
+  /// [OutboxOffline] when it could not go (it stays queued; see below). A
+  /// failed write is cleared and redrawn first. Waits for an attempt already
+  /// on the wire, and for the write to be re-issued through the cache,
+  /// rather than sending beside them. The devtools Outbox panel drives this.
+  ///
+  /// Out of its turn means ahead of earlier writes in its own lane too: a
+  /// forced replay of an update can reach the server before the queued
+  /// create it depends on, and fail (a 404, say) where the normal order
+  /// would have succeeded. The failure is then reported like any other and
+  /// can be retried once the earlier write has gone.
+  ///
+  /// [OutboxOffline.cause] says why a write stayed queued: no network, a
+  /// retryable status (with [OutboxOffline.status]), or credentials that
+  /// belong to another principal. A storage error throws
+  /// [OutboxUnavailable].
   ///
   /// Throws [StateError] for an id that is not a stored write of the current
   /// principal, and for a write no replay can send (its operation is not in
@@ -591,7 +609,11 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     if (p.epoch != _epoch) throw const OutboxSuspended();
     final failure = p.failure;
     if (failure != null) throw failure;
-    if (_queue.contains(p)) throw OutboxOffline(p.entry.id);
+    if (_queue.contains(p)) {
+      final storageError = p.storageError;
+      if (storageError != null) throw OutboxUnavailable(storageError);
+      throw p.held ?? OutboxOffline(p.entry.id);
+    }
     throw const OutboxDiscarded();
   }
 
@@ -645,6 +667,22 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     }
   }
 
+  /// Whether the cache holds none of what a snapshot carries: no settled
+  /// query and no record of an entity the cache does not own. Rows a sync
+  /// source projects are owned; a snapshot never holds or restores them, so
+  /// a source that projects while the snapshot is read does not stop it.
+  bool _holdsNoSnapshotData() {
+    if (_cache.queries.isNotEmpty) return false;
+    for (final key in _cache.store.keys) {
+      // An entity key is `<typename>:<id...>`; the typename ends at the
+      // first colon (the rule core's snapshot and frame paths share).
+      final colon = key.indexOf(':');
+      final typename = colon == -1 ? key : key.substring(0, colon);
+      if (!_cache.owns(typename)) return false;
+    }
+    return true;
+  }
+
   void _onStorageReset(StorageReset reset) {
     // Only the principal now being served; never kept for anyone else.
     if (_disposed || reset.principal != _cache.principal) return;
@@ -679,15 +717,15 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   }
 
   /// Reads the session's snapshot into the cache, marked stale so a watched
-  /// query refetches. Only into a cache that holds nothing yet: data that
-  /// arrived while the snapshot was read is newer, and an older snapshot is
-  /// never merged over it.
+  /// query refetches. Only into a cache that holds nothing a snapshot
+  /// carries yet: data that arrived while the snapshot was read is newer,
+  /// and an older snapshot is never merged over it.
   Future<void> _hydrate(StorageSession session) async {
     try {
       final snapshot = await session.readSnapshot();
       if (!identical(_session, session)) return;
       if (snapshot != null) {
-        if (_cache.queries.isEmpty && _cache.store.size == 0) {
+        if (_holdsNoSnapshotData()) {
           hydrate(
             _cache,
             snapshot,
@@ -1297,14 +1335,20 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
         !identical(_cache.session, session)) {
       return false;
     }
+    p
+      ..held = null
+      ..storageError = null;
     if (!_credentialsMatch(session)) {
+      p.held = _held(p, OutboxOfflineCause.credentialsHeld);
       _scheduleRetry();
       return false;
     }
 
     final queued = p.entry;
     final sending = queued.copyWith(sentAt: _now());
-    if (await _mark(session, sending) != null) {
+    final markError = await _mark(session, sending);
+    if (markError != null) {
+      p.storageError = markError;
       if (p.epoch == _epoch) _scheduleRetry();
       return false;
     }
@@ -1315,6 +1359,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     if (p.epoch != _epoch ||
         !identical(_cache.session, session) ||
         !_credentialsMatch(session)) {
+      p.held = _held(p, OutboxOfflineCause.credentialsHeld);
       await _mark(session, queued);
       if (p.epoch == _epoch) _scheduleRetry();
       return false;
@@ -1354,6 +1399,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     final status = statusOf(error);
     if (status != null) {
       if (_retryableStatus(error)) {
+        p.held = _held(p, OutboxOfflineCause.retryableStatus, status: status);
         await _unsend(session, p);
         return _backOff(session, p, error, atLeast: _retryAfter(error));
       }
@@ -1387,9 +1433,11 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
       // A replay carries no cancel signal, so an abort here came from below
       // and the request never got its answer: treated like one never sent.
       case NetworkFailure.notSent || NetworkFailure.cancelled:
+        p.held = _held(p, OutboxOfflineCause.offline);
         await _unsend(session, p);
         return _backOff(session, p, error);
       case NetworkFailure.uncertain when isSafeToRepeat(meta):
+        p.held = _held(p, OutboxOfflineCause.offline);
         return _backOff(session, p, error);
       case NetworkFailure.uncertain:
         await _fail(
@@ -1684,6 +1732,13 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     _signal(p.reissued);
   }
 
+  /// Why [p]'s last replay attempt left it queued.
+  static OutboxOffline _held(
+    _Pending p,
+    OutboxOfflineCause cause, {
+    int? status,
+  }) => OutboxOffline(p.entry.id, cause: cause, status: status);
+
   static void _settleForced(_Pending p) {
     final forced = p.forced;
     p.forced = null;
@@ -1890,6 +1945,12 @@ final class _Pending {
   /// Set by [OfflineClient.replay]: the drain sends this write next and
   /// completes it after the attempt.
   Completer<void>? forced;
+
+  /// Why the last replay attempt left this write queued, when it did.
+  OutboxOffline? held;
+
+  /// The storage error that stopped the last replay attempt, when one did.
+  Object? storageError;
   OutboxFailure? failure;
   final Map<String, String> liveHeaders;
 }

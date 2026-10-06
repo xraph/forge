@@ -34,6 +34,7 @@ export 'src/outbox/outbox_failure.dart'
         OutboxFailure,
         OutboxGone,
         OutboxOffline,
+        OutboxOfflineCause,
         OutboxStale,
         OutboxSuspended,
         OutboxUnauthorized,
