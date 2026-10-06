@@ -278,6 +278,114 @@ void main() {
       expect(offline.currentFailures, isEmpty);
     });
 
+    // Plan 06 final review I1: the principal change always wins over the
+    // release. A write asleep in simulated latency when the principal
+    // switches is aborted, even though the close that follows is what wakes
+    // it, so it is never sent with the next principal's credentials.
+    test('a write asleep in latency when the principal switches and the client closes never reaches the wire', () async {
+      final (:rest, :wire) = restOverFakeServer();
+      final storage = memoryStorage();
+      final offline = await OfflineClient.open(
+        transport: rest,
+        entities: entities,
+        operations: operations,
+        storage: storage,
+        principal: 'alice',
+        devtools: true,
+      );
+      addTearDown(offline.dispose);
+      final controls = forgeDevtoolsFor(offline.cache)!.controls!;
+
+      controls.latency = const Duration(seconds: 2);
+      final write = Watched(
+        offline.cache.mutate(
+          opUpdateOrder,
+          orderArgs('7', {'note': 'alice-secret'}),
+        ),
+      );
+      await settle();
+
+      // Asleep in the simulator.
+      expect(patches(wire), isEmpty);
+      expect(write.done, isFalse);
+
+      offline.cache.setPrincipal('bob');
+      await offline.close();
+      await settle();
+
+      expect(wire.where((r) => r.method != 'GET'), isEmpty);
+      expect(
+        wire.map((r) => '${r.url} ${r.body}').join('\n'),
+        isNot(contains('alice-secret')),
+      );
+      // The outbox reads the abort as the principal change it was: the
+      // caller is told the write was suspended, not that it succeeded.
+      expect(write.done, isTrue);
+      expect(write.error, isA<OutboxSuspended>());
+      expect(write.value, isNull);
+      // Nothing of it reaches the next principal's storage. The record stays
+      // in alice's own storage, as the outbox keeps any write a principal
+      // change cut short, for alice's return.
+      expect(await storedOutbox(storage, 'bob'), isEmpty);
+      expect(await storedOutbox(storage, 'alice'), hasLength(1));
+    });
+
+    // The same for a read. A write is also guarded by the outbox's own
+    // cancel, which the transport checks after reading credentials; a read
+    // has only the simulator's abort between it and the wire, so this is the
+    // case that tells the rulings apart.
+    test('a read asleep in latency when the principal switches and the client closes is never sent with the next credentials', () async {
+      final wire = <String>[];
+      var token = 'alice-token';
+      final rest = RestTransport(
+        baseUrl: Uri.parse('http://forge.test'),
+        client: MockClient((request) async {
+          wire.add(
+            '${request.method} ${request.url} '
+            '${request.headers['Authorization']}',
+          );
+          return http.Response(
+            jsonEncode({'id': '7', 'total': 10, 'note': null}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+        auth: AuthProvider.callbacks(
+          credentials: (_) => {'Authorization': 'Bearer $token'},
+        ),
+      );
+      final offline = await OfflineClient.open(
+        transport: rest,
+        entities: entities,
+        operations: operations,
+        storage: memoryStorage(),
+        principal: 'alice',
+        devtools: true,
+      );
+      addTearDown(offline.dispose);
+      final controls = forgeDevtoolsFor(offline.cache)!.controls!;
+
+      controls.latency = const Duration(seconds: 2);
+      final read = Watched(
+        offline.cache.fetch(
+          opGetOrder,
+          const TagContext(path: {'id': '7'}, query: {'q': 'alice-secret'}),
+        ),
+      );
+      await settle();
+
+      expect(wire, isEmpty);
+
+      offline.cache.setPrincipal('bob');
+      token = 'bob-token';
+      await offline.close();
+      await settle();
+
+      expect(wire, isEmpty);
+      expect(read.done, isTrue);
+      expect(read.error, isNotNull);
+    });
+
     // Privacy through the production wiring (preflight P1, P2). A configureClient
     // cache has no OutboxInspector, so only this path puts the outbox and sync
     // mirrors behind the extensions.

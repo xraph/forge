@@ -280,6 +280,52 @@ void main() {
     expect((await call(ForgeDevtoolsProtocol.control))['wired'], isFalse);
   });
 
+  // Final review I1, through the public path: sign out, then close the
+  // client, inside the latency window. The disposal releases the simulator,
+  // and the request alice started must still never reach the wire.
+  test('a request asleep in latency when the principal signs out and the cache is disposed is never sent', () async {
+    final wire = <String>[];
+    var token = 'alice-token';
+    final rest = RestTransport(
+      baseUrl: Uri.parse('http://forge.test'),
+      client: MockClient((request) async {
+        wire.add('${request.url} ${request.headers['Authorization']}');
+        return http.Response(
+          '{"ok":true}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+      auth: AuthProvider.callbacks(
+        credentials: (_) => {'Authorization': 'Bearer $token'},
+      ),
+      sleep: (_) async {},
+    );
+    final cache = configureClient(transport: rest, entities: schema);
+    final controls = forgeDevtoolsFor(cache)!.controls!;
+    controls.latency = const Duration(seconds: 2);
+    cache.setPrincipal('alice');
+
+    Object? outcome;
+    final pending = controls
+        .execute(
+          const TransportRequest(
+            meta: Ops.orderList,
+            args: TagContext(query: {'q': 'alice-secret-query'}),
+          ),
+        )
+        .then<void>((v) => outcome = v, onError: (Object e) => outcome = e);
+    await pumpEventQueue();
+
+    cache.setPrincipal(null);
+    token = 'none';
+    await cache.dispose();
+    await pending.timeout(const Duration(seconds: 1));
+
+    expect(outcome, isA<http.RequestAbortedException>());
+    expect(wire, isEmpty);
+  });
+
   test('forgeDevtoolsFor is null once the cache is detached', () {
     final (:rest, sent: _) = wiredRest();
     final cache = configureClient(transport: rest, entities: schema);

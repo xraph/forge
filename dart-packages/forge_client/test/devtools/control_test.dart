@@ -636,6 +636,92 @@ void main() {
       expect(wire, hasLength(1));
     });
 
+    // Final review I1: the release woke a request a switch had orphaned, and
+    // the release was checked first, so it went out under the next principal.
+    test('stays aborted when the principal changes and the inspector is disposed before it wakes', () async {
+      final h = Harness();
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+        requests: log,
+      );
+      h.cache.setPrincipal('alice');
+
+      final pending = controls.execute(alice);
+      final outcome = expectLater(
+        pending,
+        throwsA(isA<http.RequestAbortedException>()),
+      );
+      await pumpEventQueue();
+
+      h.cache.setPrincipal('bob');
+      // Disposed while the request still sleeps: the release wakes it.
+      devtools.dispose();
+      await outcome;
+
+      expect(wire, isEmpty);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(wire, isEmpty);
+      expect(
+        jsonEncode(log.entries().map((e) => e.toJson()).toList()),
+        isNot(contains('alice')),
+      );
+    });
+
+    test('is never sent with the next principal\'s token when A, then B, then a dispose', () async {
+      final h = Harness();
+      final wire = <String>[];
+      var token = 'alice-token';
+      final rest = RestTransport(
+        baseUrl: Uri.parse('http://forge.test'),
+        client: MockClient((request) async {
+          wire.add('${request.url} ${request.headers['Authorization']}');
+          return http.Response(
+            '{"ok":true}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+        auth: AuthProvider.callbacks(
+          credentials: (_) => {'Authorization': 'Bearer $token'},
+        ),
+        sleep: (_) async {},
+      );
+      final controls = ControlledTransport(
+        rest,
+        sleep: (_) => Completer<void>().future,
+      )..latency = const Duration(seconds: 5);
+      final devtools = attach(h.cache, clock: CounterClock(), controls: controls);
+      h.cache.setPrincipal('alice');
+
+      Object? outcome;
+      final pending = controls
+          .execute(alice)
+          .then<void>((v) => outcome = v, onError: (Object e) => outcome = e);
+      await pumpEventQueue();
+
+      h.cache.setPrincipal('bob');
+      token = 'bob-token';
+      devtools.dispose();
+      await pending;
+
+      expect(outcome, isA<http.RequestAbortedException>());
+      expect(wire, isEmpty);
+
+      // The discriminator: the transport itself still sends, now passing
+      // through, and what it sends is bob's own request.
+      await controls.execute(
+        const TransportRequest(meta: Ops.orderList, args: TagContext.empty),
+      );
+
+      expect(wire, ['http://forge.test/orders Bearer bob-token']);
+    });
+
     test('passes through after the inspector is disposed, with no delay and no offline', () async {
       final h = Harness();
       final (:controls, :rest, :log, :wire, :gate) = wired();

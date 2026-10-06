@@ -32,10 +32,14 @@
 /// without `Devtools` is not told about principal changes.
 ///
 /// Disposing the inspector is not a principal change: `Devtools.dispose` calls
-/// [ControlledTransport.release]. Nothing is aborted, because the write that
-/// was waiting belongs to a user who is still there, and aborting it would lose
-/// it. Requests waiting out latency go straight to the inner transport, and the
-/// transport passes through from then on.
+/// [ControlledTransport.release]. A request waiting out latency for the user
+/// who is still there is not aborted, because aborting it would lose it: it
+/// goes straight to the inner transport, and the transport passes through from
+/// then on. A request that a principal change already orphaned stays aborted.
+/// The principal change always wins over the release, so a sign out followed by
+/// a dispose (an `OfflineClient.signOut` then `close`, an unregister, an
+/// eviction) never sends the previous principal's request with the next
+/// credentials.
 library;
 
 import 'dart:async';
@@ -165,9 +169,10 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// Stops simulating for good: disarms, releases every request waiting out
   /// latency straight to [inner] (the principal is unchanged, so it is still
   /// the user's request), and passes through from now on, with no delay and no
-  /// simulated offline. If the mode was offline, [online] reports the network
-  /// back, synchronously, so a held write can drain. `Devtools` calls this on
-  /// dispose.
+  /// simulated offline. A request that began before a [principalChanged] is
+  /// not released: it is aborted as the change already decided. If the mode
+  /// was offline, [online] reports the network back, synchronously, so a held
+  /// write can drain. `Devtools` calls this on dispose.
   void release() {
     if (_released) return;
 
@@ -200,11 +205,15 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
       final epoch = _epoch;
       await Future.any([_sleep(delay), _release.future]);
 
-      // Released while it waited: the simulator is gone, the request is not.
+      // A request that began under one principal is never sent under the
+      // next. Checked before the release: a switch followed by a dispose
+      // wakes the request through the release, and it must stay aborted.
+      if (epoch != _epoch) throw http.RequestAbortedException(uri);
+
+      // Released while it waited, with the principal unchanged: the simulator
+      // is gone, the request is not.
       if (_released) return inner.execute(request);
 
-      // A request that began under one principal is never sent under the next.
-      if (epoch != _epoch) throw http.RequestAbortedException(uri);
       // The network went away while it waited.
       if (_mode == NetworkMode.offline) throw SimulatedOffline(uri);
     }

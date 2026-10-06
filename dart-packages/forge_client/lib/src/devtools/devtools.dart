@@ -655,7 +655,8 @@ final class Devtools {
   /// the principal it belongs to. Every read after this returns empty. The
   /// controls are released, not aborted: the principal is unchanged, so a
   /// request waiting out simulated latency is sent and the transport passes
-  /// through from then on.
+  /// through from then on. A request a principal change already orphaned
+  /// stays aborted.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
