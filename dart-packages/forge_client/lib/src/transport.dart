@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 
 import 'operation.dart';
 import 'ref.dart';
@@ -513,6 +514,12 @@ final class RestTransport implements Transport {
   final RequestObserver? _observer;
   final double Function() _random;
 
+  /// A second observer slot for the devtools, filled by
+  /// `registerForgeServiceExtensions`. Called after the constructor observer.
+  /// Not part of the public API.
+  @internal
+  RequestObserver? debugObserver;
+
   Future<void>? _refreshing;
   int _generation = 0;
   int _requests = 0;
@@ -538,7 +545,7 @@ final class RestTransport implements Transport {
       _base + operationUrl(meta.path, request.args, '$method ${meta.path}'),
     );
     final limit = _idempotent.contains(method) ? _retry.attempts : 1;
-    final report = _observer == null
+    final report = _observer == null && debugObserver == null
         ? null
         : RequestReport(id: ++_requests, meta: meta, args: request.args);
 
@@ -596,15 +603,30 @@ final class RestTransport implements Transport {
 
   void _emit(RequestReport? report, RequestEvent Function(int at) build) {
     final observer = _observer;
+    final debug = debugObserver;
 
-    if (observer == null || report == null) return;
+    if (report == null || (observer == null && debug == null)) return;
 
-    try {
-      observer(build(_clock.now()));
-    } on Object {
-      // The observer is a debug seam: it must never fail a request, turn a
-      // success into a retry, or replace a request's own error. The transport
-      // has no error channel of its own to send this to, so it is dropped.
+    final event = build(_clock.now());
+
+    // One guard per slot: the observers are debug seams that must never fail a
+    // request, turn a success into a retry, or replace a request's own error,
+    // and one throwing must not silence the other. The transport has no error
+    // channel of its own to send this to, so it is dropped.
+    if (observer != null) {
+      try {
+        observer(event);
+      } on Object {
+        // Dropped, see above.
+      }
+    }
+
+    if (debug != null) {
+      try {
+        debug(event);
+      } on Object {
+        // Dropped, see above.
+      }
     }
   }
 

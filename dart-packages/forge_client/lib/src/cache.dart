@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:uuid/uuid.dart';
 
 import 'invalidate.dart';
@@ -355,6 +356,11 @@ final class QueryCache {
 
   /// How many queries are tracked, watched or merely remembered.
   int get size => _records.length;
+
+  /// The LRU order the cache reaps from the front of, oldest first. Read only
+  /// by the devtools' inspection-does-not-mutate test.
+  @internal
+  List<String> get debugLruOrder => [..._records.keys];
 
   /// Whether [dispose] has run. A disposed cache refuses new work.
   bool get isDisposed => _disposed;
@@ -967,6 +973,12 @@ final class QueryCache {
   // entity come from its source, never from a REST response or a stream
   // frame, and its mutations go to the source.
   final List<SyncSource> _syncSources;
+
+  /// The sync sources the cache was built with. Read by the devtools' sync
+  /// panel through `seams.dart`.
+  @internal
+  List<SyncSource> get syncSources => _syncSources;
+
   final StorageAdapter? _storage;
   final Map<String, SyncSource> _owners = <String, SyncSource>{};
   final Map<String, SyncStatus> _entityStatus = <String, SyncStatus>{};
