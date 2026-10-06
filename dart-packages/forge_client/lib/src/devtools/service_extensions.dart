@@ -85,6 +85,14 @@ void unregisterForgeDevtools(QueryCache cache) {
   ForgeDevtoolsHost.instance.detach(cache);
 }
 
+/// The devtools attached to [cache], or null when none is (always null in a
+/// release build). Use it to reach the simulator `configureClient` installed,
+/// for example to feed `withSimulatedConnectivity`.
+dt.Devtools? forgeDevtoolsFor(QueryCache cache) {
+  if (!kForgeDevtools) return null;
+  return ForgeDevtoolsHost.instance.find(cache);
+}
+
 final class _BadParams implements Exception {
   const _BadParams(this.message);
 
@@ -220,6 +228,9 @@ final class ForgeDevtoolsHost {
   List<QueryCache> get debugCaches => [
     for (final a in _attached.values) a.devtools.cache,
   ];
+
+  /// The devtools attached to [cache], if any.
+  dt.Devtools? find(QueryCache cache) => _find(cache)?.devtools;
 
   _Attached? _find(QueryCache cache) {
     for (final attached in _attached.values) {
