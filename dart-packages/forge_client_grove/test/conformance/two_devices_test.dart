@@ -37,8 +37,8 @@ const rowsSync = SyncDeclaration(
 );
 
 /// Records every request and can hold a push before it reaches the server.
-final class _Wire extends http.BaseClient {
-  _Wire() : _inner = http.Client();
+final class RecordingWire extends http.BaseClient {
+  RecordingWire() : _inner = http.Client();
 
   final http.Client _inner;
 
@@ -50,6 +50,10 @@ final class _Wire extends http.BaseClient {
 
   /// Completes when a push is waiting on [holdPush].
   Completer<void>? heldPush;
+
+  /// Completes when the push that waited on [holdPush] got its answer (or
+  /// failed), so nothing of it is still on its way to the client.
+  Completer<void>? heldAnswered;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -70,6 +74,12 @@ final class _Wire extends http.BaseClient {
       holdPush = null;
       heldPush?.complete();
       await hold.future;
+
+      try {
+        return await _inner.send(copy);
+      } finally {
+        heldAnswered?.complete();
+      }
     }
 
     return _inner.send(copy);
@@ -82,12 +92,12 @@ final class _Wire extends http.BaseClient {
 /// A push debounce so long that a device stays offline until `syncNow`.
 const offline = Duration(hours: 1);
 
-final class _Device {
-  _Device(this.cache, this.source, [this.wire]);
+final class Device {
+  Device(this.cache, this.source, [this.wire]);
 
   final QueryCache cache;
   final GroveSyncSource source;
-  final _Wire? wire;
+  final RecordingWire? wire;
 }
 
 Future<void> until(
@@ -105,15 +115,62 @@ Future<void> until(
   }
 }
 
+/// Both devices hold the same whole record, the server's merged state agrees
+/// with it field by field over the union of keys, nothing is pending and
+/// neither entity failed.
+Future<void> expectConverged(
+  GroveServer server,
+  List<Device> devices, {
+  required String pk,
+}) async {
+  final records = [
+    for (final d in devices) d.cache.store.getRecord('Note:$pk')?.data,
+  ];
+
+  for (final r in records) {
+    expect(r, isNotNull, reason: 'every device holds Note:$pk');
+  }
+
+  for (final r in records.skip(1)) {
+    expect(r, records.first, reason: 'whole records match across devices');
+  }
+
+  final wire = const NoteCodec().encode(records.first) as Map<String, Object?>;
+  final state = (await server.state('notes', pk))!;
+
+  expect(wire['note_id'], pk, reason: 'the record carries its id');
+
+  for (final key in {...wire.keys, ...state.fields.keys}) {
+    if (key == 'note_id') continue;
+
+    final field = state.fields[key];
+
+    expect(
+      wire[key],
+      field == null ? isNull : resolveFieldValue(field),
+      reason: 'field $key: device vs server',
+    );
+  }
+
+  for (final d in devices) {
+    expect(
+      d.source.replica('Note')!.pendingCount,
+      0,
+      reason: 'nothing pending',
+    );
+    expect(await d.source.status('Note').first, isNot(isA<SyncFailed>()));
+  }
+}
+
 void main() {
   group(
     'two devices through the Go server',
     skip: GroveServer.skipReason(),
     () {
       late GroveServer server;
-      final devices = <_Device>[];
+      final devices = <Device>[];
 
-      _Device device(
+      Device device(
         Uri root, {
         LiveChannel live = LiveChannel.sse,
         int Function()? nowMs,
@@ -138,25 +195,39 @@ void main() {
           syncSources: [source],
           storage: memoryStorage(),
         )..setPrincipal('user');
-        final d = _Device(cache, source);
+        final d = Device(cache, source);
 
         devices.add(d);
 
         return d;
       }
 
-      String? title(_Device d, String id) =>
+      String? title(Device d, String id) =>
           d.cache.store.getRecord('Note:$id')?.data['title'] as String?;
 
       setUp(() async => server = await GroveServer.start());
       tearDown(() async {
-        for (final d in devices) {
-          await d.cache.dispose();
-          d.wire?.close();
+        Object? failure;
+        StackTrace? trace;
+
+        try {
+          for (final d in devices) {
+            try {
+              await d.cache.dispose().timeout(const Duration(seconds: 10));
+            } on Object catch (e, st) {
+              failure ??= e;
+              trace ??= st;
+            }
+
+            d.wire?.close();
+          }
+        } finally {
+          devices.clear();
+          // Whatever disposing did, the child dies by PID and is awaited.
+          await server.stop();
         }
 
-        devices.clear();
-        await server.stop();
+        if (failure != null) Error.throwWithStackTrace(failure, trace!);
       });
 
       test('an edit on one device reaches the other over SSE', () async {
@@ -172,6 +243,8 @@ void main() {
           const TagContext(path: {'noteId': 'n1'}, body: {'title': 'from a'}),
         );
         await until(() => title(b, 'n1') == 'from a');
+        await until(() => a.source.replica('Note')!.pendingCount == 0);
+        await expectConverged(server, [a, b], pk: 'n1');
       });
 
       test(
@@ -211,12 +284,7 @@ void main() {
 
           expect(title(a, 'n1'), 'b later');
           expect(title(b, 'n1'), 'b later');
-          expect(
-            resolveFieldValue(
-              (await server.state('notes', 'n1'))!.fields['title']!,
-            ),
-            'b later',
-          );
+          await expectConverged(server, [a, b], pk: 'n1');
         },
       );
 
@@ -289,11 +357,12 @@ void main() {
           await a.source.syncNow();
           await b.source.syncNow();
 
-          int? views(_Device d) =>
+          int? views(Device d) =>
               d.cache.store.getRecord('Note:n1')?.data['viewCount'] as int?;
 
           expect(views(a), 10);
           expect(views(b), 10);
+          await expectConverged(server, [a, b], pk: 'n1');
         },
         // Go parity: crdt.SyncController.HandlePull returns the rows whose
         // stored HLC is past the cursor.
@@ -340,11 +409,12 @@ void main() {
           await b.source.syncNow();
           await a.source.syncNow();
 
-          int? views(_Device d) =>
+          int? views(Device d) =>
               d.cache.store.getRecord('Note:n1')?.data['viewCount'] as int?;
 
           expect(views(a), 10);
           expect(views(b), 10);
+          await expectConverged(server, [a, b], pk: 'n1');
         },
       );
 
@@ -352,7 +422,7 @@ void main() {
         "a push in flight across a principal switch never moves alice's data "
         "under bob's node",
         () async {
-          final wire = _Wire();
+          final wire = RecordingWire();
           var token = 'alice-token';
           final slow = SlowStop();
           final source = GroveSyncSource(
@@ -378,7 +448,7 @@ void main() {
             storage: memoryStorage(),
           );
 
-          devices.add(_Device(cache, source, wire));
+          devices.add(Device(cache, source, wire));
 
           const dataset = GroveDataset('ds1', table: 'ds_notes');
           List<String> noteKeys() => [
@@ -403,6 +473,7 @@ void main() {
           });
           wire.holdPush = release;
           wire.heldPush = Completer<void>();
+          wire.heldAnswered = Completer<void>();
           unawaited(
             cache.mutate(
               opUpdateNote,
@@ -448,10 +519,26 @@ void main() {
             (await server.state('ds_notes', 'r1'))!.fields['title']!.nodeId,
             aliceNode,
           );
-          expect(noteKeys(), isEmpty);
+
+          // Alice's answer has come back (or the push failed). Let the late
+          // response travel through the fenced run, then look again: a leak
+          // can happen here as well as at the switch.
+          await wire.heldAnswered!.future.timeout(const Duration(seconds: 5));
+          await pumpEventQueue(times: 200);
+          expect(
+            noteKeys(),
+            isEmpty,
+            reason: "alice's late answer reached bob",
+          );
 
           slow.hold!.complete();
           await cache.idle;
+
+          // One more sync round under bob, before he joins the dataset.
+          await source.syncNow();
+          await pumpEventQueue(times: 200);
+          expect(noteKeys(), isEmpty, reason: 'after bob starts and syncs');
+
           await source.join(dataset);
           await until(
             () =>
