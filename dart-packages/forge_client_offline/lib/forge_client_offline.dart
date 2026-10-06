@@ -21,6 +21,7 @@ export 'src/keys/passphrase_key.dart'
 export 'src/keys/principal_hash.dart' show principalHash;
 export 'src/keys/principal_labels.dart' show PrincipalLabels;
 export 'src/keys/web_crypto_keys.dart' show webCryptoKeys;
+export 'src/offline_client.dart' show OfflineClient, OverlayIntentFor;
 export 'src/outbox/network_error.dart' show classifyNetworkError;
 export 'src/outbox/network_failure.dart' show NetworkFailure;
 export 'src/outbox/outbox_entry.dart'
@@ -38,6 +39,12 @@ export 'src/outbox/outbox_failure.dart'
         OutboxUnavailable,
         OutboxUncertain,
         OutboxValidation;
+export 'src/outbox/outbox_transport.dart'
+    show
+        OutboxTransport,
+        idempotencyKeyHeader,
+        outboxReplayHeader,
+        withoutReplayMarker;
 export 'src/outbox/overlay_intent.dart'
     show
         DeleteOverlay,
