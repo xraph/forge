@@ -20,5 +20,10 @@ dependencies:
 
 dev_dependencies:
   fake_async: ^1.3.3
+  # The OfflineClient interplay test only. Its tests import
+  # `src/offline_client.dart`, which is plain Dart; the package barrel pulls
+  # in Flutter.
+  forge_client_offline:
+    path: ../forge_client_offline
   lints: ^6.1.0
   test: ^1.32.0

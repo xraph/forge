@@ -178,6 +178,19 @@ final class GroveRejectedChange {
 
   /// The server's text.
   final String reason;
+
+  @override
+  bool operator ==(Object other) =>
+      other is GroveRejectedChange &&
+      other.key == key &&
+      other.entity == entity &&
+      other.id == id &&
+      other.field == field &&
+      other.kind == kind &&
+      other.reason == reason;
+
+  @override
+  int get hashCode => Object.hash(key, entity, id, field, kind, reason);
 }
 
 /// The error inside `SyncFailed` when the server refused changes.
@@ -191,6 +204,25 @@ final class GroveChangeRejected implements Exception {
 
   /// The first change's reason.
   String get reason => changes.first.reason;
+
+  /// Equal when both hold equal changes in the same order, so a status that
+  /// did not change compares equal and is not announced again.
+  @override
+  bool operator ==(Object other) {
+    if (other is! GroveChangeRejected ||
+        other.changes.length != changes.length) {
+      return false;
+    }
+
+    for (var i = 0; i < changes.length; i++) {
+      if (other.changes[i] != changes[i]) return false;
+    }
+
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hashAll(changes);
 
   @override
   String toString() => 'GroveChangeRejected: $reason';
@@ -209,6 +241,15 @@ final class GroveDatasetGone implements Exception {
   final String message;
 
   @override
+  bool operator ==(Object other) =>
+      other is GroveDatasetGone &&
+      other.datasetId == datasetId &&
+      other.message == message;
+
+  @override
+  int get hashCode => Object.hash(GroveDatasetGone, datasetId, message);
+
+  @override
   String toString() => 'GroveDatasetGone($datasetId): $message';
 }
 
@@ -220,6 +261,13 @@ final class GroveUnauthorized implements Exception {
 
   /// The dataset id.
   final String datasetId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is GroveUnauthorized && other.datasetId == datasetId;
+
+  @override
+  int get hashCode => Object.hash(GroveUnauthorized, datasetId);
 
   @override
   String toString() => 'GroveUnauthorized($datasetId)';
