@@ -11,6 +11,10 @@ final class MemorySecretStore implements SecretStore {
 
   Object? failWritesWith;
 
+  /// When set, a write stores what this returns instead of the value given, as
+  /// if another writer's value had landed first.
+  String Function(String name, String value)? rewriteWrites;
+
   @override
   Future<String?> read(String name) async {
     final failure = failReadsWith;
@@ -23,7 +27,7 @@ final class MemorySecretStore implements SecretStore {
     final failure = failWritesWith;
     if (failure != null) throw failure;
     writes++;
-    values[name] = value;
+    values[name] = rewriteWrites?.call(name, value) ?? value;
   }
 
   @override

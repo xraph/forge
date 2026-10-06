@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:meta/meta.dart';
 
 import 'key_provider.dart';
 import 'principal_hash.dart';
@@ -33,16 +34,33 @@ const _labelContext = 'forge_client_offline/principal-label/v1\u0000';
 /// storage would mistake an unreadable keystore for a new install. A salt that
 /// is present but damaged is treated the same way and never replaced.
 ///
-/// Use one instance per store in a process. The first call creates the salt,
-/// and two instances racing on an empty store could each create one.
+/// Every instance in one isolate that talks to the same store shares one salt
+/// future (a static map keyed by the store), so two providers built over one keystore cannot create two
+/// salts. After writing a new salt the value is read back and the stored value
+/// is used, so a salt that another writer put there first wins.
+///
+/// That sharing stops at the isolate. The first open of a database, which is
+/// when the salt is created, must run on the main isolate: two isolates racing
+/// on an empty keystore could each create a salt, orphaning the database made
+/// under the loser's labels.
 final class PrincipalLabels implements PrincipalLabeler {
   /// Keeps the salt in [store], generating it with [random].
+  ///
+  /// Instances share a salt when their stores are equal (`==`). A [SecretStore]
+  /// that is rebuilt on every call but reaches one physical store, like
+  /// [FlutterSecretStore], must override `==` and `hashCode` to say so.
   PrincipalLabels(this._store, {Random? random})
     : _random = random ?? Random.secure();
 
   final SecretStore _store;
   final Random _random;
-  Future<Uint8List>? _salt;
+
+  /// Salt attempts by store identity, one per isolate.
+  static final Map<Object, Future<Uint8List>> _salts = {};
+
+  /// Forgets every cached salt, as a new process would.
+  @visibleForTesting
+  static void forgetCachedSalts() => _salts.clear();
 
   @override
   Future<String> principalLabel(String principal) => label(principal);
@@ -63,40 +81,26 @@ final class PrincipalLabels implements PrincipalLabeler {
     return hex(mac.bytes);
   }
 
-  /// One shared attempt, so concurrent first calls agree on one salt. A failure
-  /// is not remembered: the next call tries the store again.
+  /// One shared attempt per store, so concurrent and repeated first calls agree
+  /// on one salt. A failure is not remembered: the next call tries again.
   Future<Uint8List> _loadSalt() {
-    final running = _salt;
+    final running = _salts[_store];
     if (running != null) return running;
 
     final attempt = _readOrCreateSalt();
-    _salt = attempt;
+    _salts[_store] = attempt;
     attempt.then<void>(
       (_) {},
       onError: (Object _) {
-        if (identical(_salt, attempt)) _salt = null;
+        if (identical(_salts[_store], attempt)) _salts.remove(_store);
       },
     );
     return attempt;
   }
 
   Future<Uint8List> _readOrCreateSalt() async {
-    final String? stored;
-    try {
-      stored = await _store.read(_saltEntry);
-    } on Object catch (error) {
-      throw _SaltFailure(error);
-    }
-
-    if (stored != null) {
-      final decoded = _decode(stored);
-      if (decoded == null) {
-        throw const _SaltFailure(
-          FormatException('the stored install salt is not 32 bytes of base64'),
-        );
-      }
-      return decoded;
-    }
+    final existing = await _readSalt();
+    if (existing != null) return existing;
 
     final salt = Uint8List.fromList(
       List<int>.generate(_saltLength, (_) => _random.nextInt(256)),
@@ -106,7 +110,34 @@ final class PrincipalLabels implements PrincipalLabeler {
     } on Object catch (error) {
       throw _SaltFailure(error);
     }
-    return salt;
+
+    // Use what the store now holds, not what was just generated: if another
+    // writer's salt landed first, theirs is the one the files are named by.
+    final stored = await _readSalt();
+    if (stored == null) {
+      throw const _SaltFailure(
+        FormatException('the install salt was written but cannot be read back'),
+      );
+    }
+    return stored;
+  }
+
+  Future<Uint8List?> _readSalt() async {
+    final String? stored;
+    try {
+      stored = await _store.read(_saltEntry);
+    } on Object catch (error) {
+      throw _SaltFailure(error);
+    }
+    if (stored == null) return null;
+
+    final decoded = _decode(stored);
+    if (decoded == null) {
+      throw const _SaltFailure(
+        FormatException('the stored install salt is not 32 bytes of base64'),
+      );
+    }
+    return decoded;
   }
 
   static Uint8List? _decode(String stored) {

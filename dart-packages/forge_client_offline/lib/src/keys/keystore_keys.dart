@@ -7,6 +7,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'key_provider.dart';
 import 'principal_labels.dart';
 
+/// The namespace this package keeps its entries in, apart from the app's own
+/// use of flutter_secure_storage.
+const _namespace = 'forge_client_offline';
+
 /// Keys held in the platform keystore through flutter_secure_storage: the
 /// Keychain on iOS and macOS, the Keystore on Android. Each principal gets a
 /// random 256-bit key on first use.
@@ -53,6 +57,12 @@ KeystoreKeys keystoreKeys({
 /// be minted over a database that still holds queued writes. With false the
 /// plugin throws instead, [KeystoreKeys] raises [KeyUnavailable], and the
 /// database file is left alone.
+///
+/// Every entry lives in this package's own namespace: `accountName` on Apple
+/// platforms and `storageNamespace` on Android, both `forge_client_offline`.
+/// The app's own `FlutterSecureStorage()` (whose Android default is
+/// `resetOnError: true`), or a logout `deleteAll()`, then cannot wipe the salt
+/// and keys, and the Android cipher markers do not collide.
 FlutterSecureStorage secureStorageFor({
   required bool requireUserPresence,
   required bool useDataProtectionKeychain,
@@ -68,15 +78,21 @@ FlutterSecureStorage secureStorageFor({
     aOptions: requireUserPresence
         ? const AndroidOptions.biometric(
             resetOnError: false,
+            storageNamespace: _namespace,
             enforceBiometrics: true,
             biometricPromptTitle: 'Unlock offline data',
           )
-        : const AndroidOptions(resetOnError: false),
+        : const AndroidOptions(
+            resetOnError: false,
+            storageNamespace: _namespace,
+          ),
     iOptions: IOSOptions(
+      accountName: _namespace,
       accessibility: accessibility,
       accessControlFlags: flags,
     ),
     mOptions: MacOsOptions(
+      accountName: _namespace,
       accessibility: accessibility,
       accessControlFlags: flags,
       usesDataProtectionKeychain: useDataProtectionKeychain,
@@ -91,6 +107,19 @@ final class FlutterSecretStore implements SecretStore {
 
   /// The underlying plugin instance.
   final FlutterSecureStorage storage;
+
+  /// Which physical store [storage] reaches: the Android namespace and the
+  /// Apple account names. Two wrappers over the same one are interchangeable.
+  String get _identity =>
+      '${storage.aOptions.storageNamespace}/${storage.iOptions.accountName}/'
+      '${storage.mOptions.accountName}';
+
+  @override
+  bool operator ==(Object other) =>
+      other is FlutterSecretStore && other._identity == _identity;
+
+  @override
+  int get hashCode => _identity.hashCode;
 
   @override
   Future<String?> read(String name) => storage.read(key: name);
@@ -115,22 +144,26 @@ final class KeystoreKeys implements KeyProvider, PrincipalLabeler {
   final SecretStore _store;
   final Random _random;
   final PrincipalLabels _labels;
-  final Map<String, Future<DatabaseKey>> _inflight = {};
+
+  /// Key attempts by store and principal, one per isolate, so two providers
+  /// built over one store cannot each create a key for the same principal.
+  static final Map<(SecretStore, String), Future<DatabaseKey>> _inflight = {};
 
   @override
   Future<String> principalLabel(String principal) => _labels.label(principal);
 
   @override
   Future<DatabaseKey> obtain(String principal) {
-    final running = _inflight[principal];
+    final id = (_store, principal);
+    final running = _inflight[id];
     if (running != null) return running;
 
     // A block body: an arrow would return remove's result, which is this very
     // future, and the call would wait on itself forever.
     final future = _obtain(principal).whenComplete(() {
-      _inflight.remove(principal);
+      _inflight.remove(id);
     });
-    _inflight[principal] = future;
+    _inflight[id] = future;
     return future;
   }
 

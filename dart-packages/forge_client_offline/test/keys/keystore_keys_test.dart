@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'
+    show FlutterSecureStorage;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
 
@@ -172,6 +174,7 @@ void main() {
     final entries = Map<String, String>.of(secrets.values);
     secrets.failReadsWith = StateError('keychain locked');
     secrets.failReadsFor = (name) => name == _saltEntry;
+    PrincipalLabels.forgetCachedSalts(); // a new process, with nothing cached
 
     await expectLater(
       keystoreKeys(store: secrets).obtain('alice'),
@@ -187,6 +190,7 @@ void main() {
       await keys.obtain('alice');
       secrets.values[_saltEntry] = base64Encode([1, 2, 3]);
       final entries = Map<String, String>.of(secrets.values);
+      PrincipalLabels.forgetCachedSalts(); // a new process, with nothing cached
 
       await expectLater(
         keystoreKeys(store: secrets).obtain('alice'),
@@ -310,43 +314,96 @@ void main() {
   });
 
   group('secureStorageFor', () {
+    FlutterSecureStorage storage({
+      bool presence = false,
+      bool dataProtection = true,
+    }) => secureStorageFor(
+      requireUserPresence: presence,
+      useDataProtectionKeychain: dataProtection,
+    );
+
     test('never lets Android wipe the store on a Keystore error', () {
       for (final presence in [false, true]) {
-        final storage = secureStorageFor(
-          requireUserPresence: presence,
-          useDataProtectionKeychain: true,
-        );
-
         expect(
-          storage.aOptions.toMap()['resetOnError'],
+          storage(presence: presence).aOptions.toMap()['resetOnError'],
           'false',
           reason: 'requireUserPresence: $presence',
         );
       }
     });
 
+    test('keeps every entry in a namespace of its own', () {
+      for (final presence in [false, true]) {
+        final s = storage(presence: presence);
+        const reason = 'the app must not be able to wipe or collide with these';
+
+        expect(
+          s.aOptions.toMap()['storageNamespace'],
+          'forge_client_offline',
+          reason: reason,
+        );
+        expect(
+          s.iOptions.toMap()['accountName'],
+          'forge_client_offline',
+          reason: reason,
+        );
+        expect(
+          s.mOptions.toMap()['accountName'],
+          'forge_client_offline',
+          reason: reason,
+        );
+      }
+    });
+
+    test('never syncs the key to iCloud', () {
+      expect(storage().iOptions.toMap()['synchronizable'], 'false');
+      expect(storage().mOptions.toMap()['synchronizable'], 'false');
+    });
+
     test(
       'keeps the key off other devices and behind a passcode when asked',
       () {
-        final open = secureStorageFor(
-          requireUserPresence: false,
-          useDataProtectionKeychain: true,
-        );
-        final guarded = secureStorageFor(
-          requireUserPresence: true,
-          useDataProtectionKeychain: false,
-        );
+        final open = storage();
+        final guarded = storage(presence: true, dataProtection: false);
 
         expect(
           open.iOptions.toMap()['accessibility'],
           'first_unlock_this_device',
         );
+        expect(
+          open.mOptions.toMap()['accessibility'],
+          'first_unlock_this_device',
+        );
         expect(guarded.iOptions.toMap()['accessibility'], 'passcode');
+        expect(guarded.mOptions.toMap()['accessibility'], 'passcode');
         expect(
           guarded.iOptions.toMap()['accessControlFlags'],
           contains('userPresence'),
         );
+        expect(
+          guarded.mOptions.toMap()['accessControlFlags'],
+          contains('userPresence'),
+        );
         expect(guarded.aOptions.toMap()['enforceBiometrics'], 'true');
+      },
+    );
+
+    test('macOS uses the data protection keychain unless told not to', () {
+      expect(storage().mOptions.toMap()['usesDataProtectionKeychain'], 'true');
+      expect(
+        storage(dataProtection: false).mOptions
+            .toMap()['usesDataProtectionKeychain'],
+        'false',
+      );
+    });
+
+    test(
+      'two wrappers over the keystore are one store, so they share a salt',
+      () {
+        expect(
+          FlutterSecretStore(storage()),
+          FlutterSecretStore(storage(presence: true)),
+        );
       },
     );
   });
