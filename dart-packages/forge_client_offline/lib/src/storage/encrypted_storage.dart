@@ -20,7 +20,9 @@ const int _busyTimeoutMs = 5000;
 /// One encrypted SQLite database per principal, keyed by [keys].
 ///
 /// On native platforms [directory] is required; pass
-/// `(await getApplicationSupportDirectory()).path`. On the web [directory]
+/// `(await getApplicationSupportDirectory()).path`. The package keeps every
+/// file in its own `forge_client_offline` subdirectory of it, and never
+/// touches anything else there. On the web [directory]
 /// prefixes the OPFS path or IndexedDB name, and [wasmUri] locates
 /// `sqlite3mc.wasm` (default: `sqlite3mc.wasm` next to the page).
 ///
@@ -172,7 +174,6 @@ final class EncryptedSqliteStorage implements StorageAdapter {
         final key = await _keys.obtain(principal);
         final db = await _unlocked(principal, key);
         try {
-          db.execute('PRAGMA busy_timeout = $_busyTimeoutMs');
           migrate(db);
         } on Object {
           await _files.close(principal);
@@ -190,6 +191,7 @@ final class EncryptedSqliteStorage implements StorageAdapter {
   Future<CommonDatabase> _unlocked(String principal, DatabaseKey key) async {
     final db = await _files.open(principal);
     try {
+      _waitForLocks(db);
       unlockDatabase(db, key.bytes);
       return db;
     } on SqliteException catch (error) {
@@ -215,6 +217,7 @@ final class EncryptedSqliteStorage implements StorageAdapter {
 
     final fresh = await _files.open(principal);
     try {
+      _waitForLocks(fresh);
       unlockDatabase(fresh, key.bytes);
     } on Object {
       await _files.close(principal);
@@ -222,6 +225,12 @@ final class EncryptedSqliteStorage implements StorageAdapter {
     }
     return fresh;
   }
+
+  /// Sets the busy timeout before anything reads the file, so the key check
+  /// and a hot-journal rollback wait for another connection's lock too.
+  /// The pragma reads nothing from the file, so it is safe before the key.
+  static void _waitForLocks(CommonDatabase db) =>
+      db.execute('PRAGMA busy_timeout = $_busyTimeoutMs');
 
   StorageSession _handle(String principal, _Connection connection) {
     late final SqliteStorageSession session;
@@ -304,7 +313,9 @@ final class EncryptedSqliteStorage implements StorageAdapter {
   /// every handle is revoked, every key and the install salt are removed from
   /// the keystore namespace, then every database, journal and salt sidecar
   /// the package owns is deleted, including those of principals this storage
-  /// never opened or can no longer name.
+  /// never opened or can no longer name. On native platforms that is only the
+  /// package's `forge_client_offline` subdirectory: files the app keeps in
+  /// the directory it passed are never touched, whatever they are called.
   ///
   /// Never called automatically. Call it after the user confirms, or when
   /// [open] keeps throwing [KeyUnavailable] while the device is unlocked. One

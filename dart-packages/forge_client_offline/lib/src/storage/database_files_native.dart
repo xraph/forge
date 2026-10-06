@@ -13,9 +13,20 @@ import 'database_files.dart';
 /// A label as `PrincipalLabels` makes it: 64 lowercase hex characters.
 final _label = RegExp(r'^[0-9a-f]{64}$');
 
-/// Every file name this package writes into a storage directory: a database,
-/// its journal siblings, a passphrase salt sidecar, and the temporary file a
-/// sidecar is written through.
+/// The subdirectory of the app's directory that this package owns. Every file
+/// it writes lives here and nowhere else, so erasing it never touches a file
+/// the app keeps beside it.
+const _subdirectory = 'forge_client_offline';
+
+/// How old an empty salt sidecar must be before it is taken for the leftover
+/// of a crashed [FilePassphraseSaltStore.put] rather than a creator still at
+/// work. A live creator holds the empty placeholder for one rename.
+const _stalePlaceholderAge = Duration(seconds: 2);
+
+/// Every file name this package writes into its subdirectory: a database, its
+/// journal siblings, a passphrase salt sidecar, and the temporary file a
+/// sidecar is written through. A second guard: only files inside the
+/// package's own subdirectory are ever considered.
 final _ownedFile = RegExp(
   r'^[0-9a-f]{64}\.(db|db-journal|db-wal|db-shm|salt|salt\.[0-9a-f]{16}\.tmp)$',
 );
@@ -23,13 +34,14 @@ final _ownedFile = RegExp(
 /// Suffixes SQLite adds to a database's path for its journal files.
 const _journalSuffixes = ['-journal', '-wal', '-shm'];
 
-/// The native [DatabaseFiles]: one file per principal in [directory], named
-/// by [labels].
+/// The native [DatabaseFiles]: one file per principal, named by [labels], in
+/// the `forge_client_offline` subdirectory of [directory].
 ///
 /// Pass the app's support directory, for example
 /// `(await getApplicationSupportDirectory()).path`, and the `KeystoreKeys`
-/// (or a `PrincipalLabels` over the keystore) as [labels]. [wasmUri] is the
-/// web's and is ignored here.
+/// (or a `PrincipalLabels` over the keystore) as [labels]. The package keeps
+/// to its own subdirectory, so files the app keeps in [directory] are never
+/// touched. [wasmUri] is the web's and is ignored here.
 DatabaseFiles platformDatabaseFiles({
   String? directory,
   Uri? wasmUri,
@@ -55,8 +67,9 @@ DatabaseFiles platformDatabaseFiles({
 }
 
 /// The native [PassphraseSaltStore]: a [FilePassphraseSaltStore] beside the
-/// databases in [directory]. Give `passphraseKey` this store and give
-/// `encryptedSqliteStorage` the same [directory].
+/// databases in the `forge_client_offline` subdirectory of [directory]. Give
+/// `passphraseKey` this store and give `encryptedSqliteStorage` the same
+/// [directory].
 PassphraseSaltStore platformPassphraseSaltStore({String? directory}) {
   if (directory == null) {
     throw ArgumentError.value(
@@ -68,19 +81,24 @@ PassphraseSaltStore platformPassphraseSaltStore({String? directory}) {
   return FilePassphraseSaltStore(directory);
 }
 
-/// Where [principal]'s database file lives inside [directory]: `<label>.db`,
-/// named by the principal's label from [labels], never by the principal.
+/// Where [principal]'s database file lives for the app directory
+/// [directory]: `<directory>/forge_client_offline/<label>.db`, named by the
+/// principal's label from [labels], never by the principal.
 Future<String> nativeDatabasePath(
   String directory,
   PrincipalLabeler labels,
   String principal,
 ) async => _databasePath(directory, await _labelOf(labels, principal));
 
+/// The subdirectory of [directory] that holds every file of the package.
+String nativeStoreDirectory(String directory) =>
+    '$directory${Platform.pathSeparator}$_subdirectory';
+
 String _databasePath(String directory, String label) =>
-    '$directory${Platform.pathSeparator}$label.db';
+    '${nativeStoreDirectory(directory)}${Platform.pathSeparator}$label.db';
 
 String _saltPath(String directory, String label) =>
-    '$directory${Platform.pathSeparator}$label.salt';
+    '${nativeStoreDirectory(directory)}${Platform.pathSeparator}$label.salt';
 
 /// [labels]' label for [principal], refused unless it is the 64 lowercase hex
 /// characters `PrincipalLabels` makes. Anything else could escape the
@@ -103,16 +121,19 @@ void _checkLabel(String label) {
 
 /// [DatabaseFiles] on a native file system.
 ///
-/// Each principal's database is `<label>.db` in [directory], with SQLite's
-/// `-journal`, `-wal` and `-shm` siblings and, for a passphrase key, the
-/// `<label>.salt` sidecar a [FilePassphraseSaltStore] writes. Calls for one
-/// principal must not overlap; `EncryptedSqliteStorage` serializes them.
+/// Each principal's database is `<label>.db` in the `forge_client_offline`
+/// subdirectory of [directory], with SQLite's `-journal`, `-wal` and `-shm`
+/// siblings and, for a passphrase key, the `<label>.salt` sidecar a
+/// [FilePassphraseSaltStore] writes. Nothing is ever written to [directory]
+/// itself. Calls for one principal must not overlap;
+/// `EncryptedSqliteStorage` serializes them.
 final class NativeDatabaseFiles implements DatabaseFiles {
-  /// Keeps databases in [directory], creating it on first open, and names
-  /// them with [labels].
+  /// Keeps databases in the `forge_client_offline` subdirectory of
+  /// [directory], creating it on first open, and names them with [labels].
   NativeDatabaseFiles(this.directory, {required this._labels});
 
-  /// The directory holding the database files.
+  /// The app directory whose `forge_client_offline` subdirectory holds the
+  /// database files.
   final String directory;
 
   final PrincipalLabeler _labels;
@@ -122,7 +143,7 @@ final class NativeDatabaseFiles implements DatabaseFiles {
   Future<CommonDatabase> open(String principal) async {
     await close(principal);
     final path = await nativeDatabasePath(directory, _labels, principal);
-    await Directory(directory).create(recursive: true);
+    await Directory(nativeStoreDirectory(directory)).create(recursive: true);
     final db = sqlite3.open(path);
     _open[principal] = db;
     return db;
@@ -141,10 +162,16 @@ final class NativeDatabaseFiles implements DatabaseFiles {
     _open.remove(principal)?.close();
   }
 
-  /// Deletes the database and its journals first and the salt sidecar last.
-  /// Interrupted here, the leftover is a sidecar, which is not secret and
-  /// which the next database for the label adopts, rather than a database
-  /// whose salt is gone.
+  /// Deletes the database, its journals and the salt sidecar.
+  ///
+  /// For a passphrase key `EncryptedSqliteStorage.destroy` has usually
+  /// removed the sidecar already: it deletes the key first, and
+  /// `PassphraseKey.delete` deletes the salt, which is the passphrase's half
+  /// of the crypto-shred. A destroy interrupted after that point leaves a
+  /// database whose salt is gone; no passphrase can open it, and opening it
+  /// fails closed with `KeyUnavailable` until the destroy is retried (or
+  /// `resetOfflineData` runs), which finishes deleting it. Deleting the
+  /// sidecar here as well covers key providers that leave it behind.
   @override
   Future<void> delete(String principal) async {
     await close(principal);
@@ -164,18 +191,25 @@ final class NativeDatabaseFiles implements DatabaseFiles {
       await close(principal);
     }
 
-    final dir = Directory(directory);
+    // Only the package's own subdirectory, never the app's directory.
+    final dir = Directory(nativeStoreDirectory(directory));
     if (!await dir.exists()) return;
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is! File) continue;
       final name = entity.path.split(Platform.pathSeparator).last;
       if (_ownedFile.hasMatch(name)) await _deleteIfPresent(entity);
     }
+    try {
+      await dir.delete();
+    } on FileSystemException {
+      // Something that is not the package's is still in there: keep it.
+    }
   }
 }
 
 /// A [PassphraseSaltStore] kept as a plain-text sidecar `<label>.salt` beside
-/// the `<label>.db` database in [directory].
+/// the `<label>.db` database, in the `forge_client_offline` subdirectory of
+/// [directory].
 ///
 /// The salt is not secret (see [PassphraseSaltStore]). It is born with the
 /// database: `passphraseKey` stores it just before the database is first
@@ -185,16 +219,25 @@ final class NativeDatabaseFiles implements DatabaseFiles {
 /// creators racing on a new database cannot overwrite each other's salt, and
 /// the loser fails instead. The salt is written to a temporary file and
 /// renamed over an empty placeholder created exclusively first, so a reader
-/// sees no salt, an empty sidecar, or the whole salt, never part of one. If
-/// the process dies between the placeholder and the rename, the empty sidecar
-/// is left behind; `passphraseKey` then refuses it as malformed rather than
-/// guess, and destroying the principal or `resetOfflineData` clears it.
+/// sees no salt, an empty sidecar, or the whole salt, never part of one.
+///
+/// If the process dies between the placeholder and the rename, an empty
+/// sidecar is left with no database. While no database exists, an empty
+/// sidecar older than a couple of seconds is that leftover: [get] reports it
+/// as absent and [put] replaces it. The replacement stays exclusive: the
+/// leftover is first renamed away (only one claimant can), and the new salt
+/// still goes through an exclusive create. A younger empty sidecar belongs to
+/// a creator still at work, and [put] refuses as for any existing salt. Next
+/// to an existing database an empty sidecar is never replaced; the salt is
+/// lost and `passphraseKey` fails closed.
 final class FilePassphraseSaltStore implements PassphraseSaltStore {
-  /// Keeps sidecars in [directory].
+  /// Keeps sidecars in the `forge_client_offline` subdirectory of
+  /// [directory].
   FilePassphraseSaltStore(this.directory, {Random? random})
     : _random = random ?? Random.secure();
 
-  /// The directory holding the databases and their sidecars.
+  /// The app directory whose `forge_client_offline` subdirectory holds the
+  /// databases and their sidecars.
   final String directory;
 
   final Random _random;
@@ -204,7 +247,9 @@ final class FilePassphraseSaltStore implements PassphraseSaltStore {
     _checkLabel(label);
     final file = File(_saltPath(directory, label));
     if (!await file.exists()) return null;
-    return file.readAsBytes();
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty && await _isStalePlaceholder(label, file)) return null;
+    return bytes;
   }
 
   /// Whether `<label>.db` exists beside the sidecar.
@@ -215,20 +260,20 @@ final class FilePassphraseSaltStore implements PassphraseSaltStore {
   }
 
   /// Stores [salt] for [label] unless a sidecar exists already, in which case
-  /// it throws [StateError] and changes nothing.
+  /// it throws [StateError] and changes nothing. The one exception is the
+  /// empty leftover of a crashed [put], described on the class.
   @override
   Future<void> put(String label, Uint8List salt) async {
     _checkLabel(label);
-    await Directory(directory).create(recursive: true);
+    await Directory(nativeStoreDirectory(directory)).create(recursive: true);
 
     final target = File(_saltPath(directory, label));
-    final suffix = hex(List<int>.generate(8, (_) => _random.nextInt(256)));
-    final temp = File('${target.path}.$suffix.tmp');
+    final temp = File(_tempPath(target));
     await temp.writeAsBytes(salt, flush: true);
 
-    try {
-      await target.create(exclusive: true);
-    } on FileSystemException {
+    if (!await _createExclusive(target) &&
+        !(await _claimStalePlaceholder(label, target) &&
+            await _createExclusive(target))) {
       await _deleteIfPresent(temp);
       throw StateError(
         'a passphrase salt already exists for this database and is never '
@@ -249,6 +294,66 @@ final class FilePassphraseSaltStore implements PassphraseSaltStore {
   Future<void> delete(String label) async {
     _checkLabel(label);
     await _deleteIfPresent(File(_saltPath(directory, label)));
+  }
+
+  String _tempPath(File target) {
+    final suffix = hex(List<int>.generate(8, (_) => _random.nextInt(256)));
+    return '${target.path}.$suffix.tmp';
+  }
+
+  /// Creates [file] empty, or returns false when it exists.
+  static Future<bool> _createExclusive(File file) async {
+    try {
+      await file.create(exclusive: true);
+      return true;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Whether [file] is the empty, old leftover of a crashed [put] with no
+  /// database beside it.
+  Future<bool> _isStalePlaceholder(String label, File file) async {
+    if (await hasData(label)) return false;
+    final stat = await file.stat();
+    return stat.type == FileSystemEntityType.file &&
+        stat.size == 0 &&
+        DateTime.now().difference(stat.modified) >= _stalePlaceholderAge;
+  }
+
+  /// Moves a stale empty sidecar at [target] out of the way, so an exclusive
+  /// create can replace it. Returns false, with [target] as it was, when what
+  /// is there is a real salt or a creator's fresh placeholder.
+  Future<bool> _claimStalePlaceholder(String label, File target) async {
+    if (!await _isStalePlaceholder(label, target)) return false;
+
+    // The rename is the claim: of several claimants only one moves the file,
+    // and the rest go on to the exclusive create, which picks one winner.
+    final File claimed;
+    try {
+      claimed = await target.rename(_tempPath(target));
+    } on FileSystemException {
+      return true;
+    }
+
+    // Another claimant may have replaced the leftover between the check and
+    // the rename; what was moved is then theirs, and goes back.
+    if (await _isStaleFile(claimed)) {
+      await _deleteIfPresent(claimed);
+      return true;
+    }
+    try {
+      await claimed.rename(target.path);
+    } on FileSystemException {
+      await _deleteIfPresent(claimed);
+    }
+    return false;
+  }
+
+  static Future<bool> _isStaleFile(File file) async {
+    final stat = await file.stat();
+    return stat.size == 0 &&
+        DateTime.now().difference(stat.modified) >= _stalePlaceholderAge;
   }
 }
 

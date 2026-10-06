@@ -31,6 +31,8 @@ abstract interface class DatabaseFiles {
 
   /// Closes every open database and deletes every file this package owns in
   /// its location, for every principal, including principals whose label can
-  /// no longer be computed. Files that are not this package's are left alone.
+  /// no longer be computed. The location is the package's own (a
+  /// subdirectory on native platforms), so files that are not this package's
+  /// are never touched.
   Future<void> deleteAll();
 }

@@ -4,7 +4,7 @@
 // Usage: dart run test/support/kill_writer.dart <directory>
 //
 // It prints `pid <n>`, then writes forever: each round enqueues one outbox
-// record, then writes one batch of [_batchSize] key-value rows of about 4 KB in a single
+// record, then writes one batch of [_batchSize] key-value rows of about 20 KB in a single
 // transaction, and prints `committed <round>` once both have returned. It
 // never closes the database. The test kills it with SIGKILL mid-write.
 import 'dart:io';
@@ -17,9 +17,11 @@ import 'fixed_keys.dart';
 
 const _batchSize = 200;
 
-/// Makes each row about 4 KB, so most of a round is spent inside SQLite's
-/// write transaction, where a kill leaves a hot journal behind.
-final _padding = 'x' * 4000;
+/// Makes each row about 20 KB, so a batch (about 4 MB) outgrows SQLite's
+/// default 2 MB page cache and spills to the file mid-transaction. Most of a
+/// round is then spent with the database file half rewritten, where a kill
+/// leaves a hot journal behind.
+final _padding = 'x' * 20000;
 
 Future<void> main(List<String> args) async {
   stdout.writeln('pid $pid');

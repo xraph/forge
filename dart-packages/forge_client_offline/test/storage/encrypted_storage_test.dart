@@ -10,7 +10,7 @@ import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
 import 'package:forge_client_offline/src/keys/principal_hash.dart' show hex;
 import 'package:forge_client_offline/src/storage/database_files_native.dart'
-    show NativeDatabaseFiles, nativeDatabasePath;
+    show NativeDatabaseFiles, nativeDatabasePath, nativeStoreDirectory;
 import 'package:forge_client_offline/src/storage/raw_key.dart';
 import 'package:sqlite3/common.dart' show CommonDatabase;
 import 'package:sqlite3/sqlite3.dart';
@@ -102,6 +102,63 @@ final class _CountingFiles implements DatabaseFiles {
   Future<void> deleteAll() => inner.deleteAll();
 }
 
+/// Records every statement run on the connections it opens, in order.
+final class _RecordingFiles implements DatabaseFiles {
+  _RecordingFiles(this.inner);
+
+  final DatabaseFiles inner;
+  final List<String> statements = [];
+
+  @override
+  Future<CommonDatabase> open(String principal) async =>
+      _RecordingDatabase(await inner.open(principal), statements);
+
+  @override
+  String kind(String principal) => inner.kind(principal);
+
+  @override
+  Future<void> afterWrite(String principal) => inner.afterWrite(principal);
+
+  @override
+  Future<void> close(String principal) => inner.close(principal);
+
+  @override
+  Future<void> delete(String principal) => inner.delete(principal);
+
+  @override
+  Future<void> deleteAll() => inner.deleteAll();
+}
+
+/// The members of a connection that open, unlock, migrate and the session
+/// use, recorded and passed on.
+final class _RecordingDatabase implements CommonDatabase {
+  _RecordingDatabase(this.inner, this.statements);
+
+  final CommonDatabase inner;
+  final List<String> statements;
+
+  @override
+  ResultSet select(String sql, [List<Object?> parameters = const []]) {
+    statements.add(sql);
+    return inner.select(sql, parameters);
+  }
+
+  @override
+  void execute(String sql, [List<Object?> parameters = const []]) {
+    statements.add(sql);
+    inner.execute(sql, parameters);
+  }
+
+  @override
+  bool get autocommit => inner.autocommit;
+
+  @override
+  int get updatedRows => inner.updatedRows;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 /// Wraps a KeyProvider so a test can hold an obtain or a delete half way and
 /// see the order they ran in.
 final class _GatedKeys implements KeyProvider {
@@ -173,6 +230,17 @@ void main() {
 
   Future<String> pathOf(String principal) =>
       nativeDatabasePath(dir.path, keystore, principal);
+
+  /// The package's own subdirectory of the test directory.
+  String store() => nativeStoreDirectory(dir.path);
+
+  /// The names in the package's subdirectory, or none when it is gone.
+  Set<String> storeNames() => Directory(store()).existsSync()
+      ? {
+          for (final e in Directory(store()).listSync())
+            e.path.split(Platform.pathSeparator).last,
+        }
+      : {};
 
   Future<void> writeRecord(
     EncryptedSqliteStorage storage,
@@ -299,6 +367,37 @@ void main() {
     });
   });
 
+  test('the busy timeout is set before anything reads the file', () async {
+    final files = _RecordingFiles(
+      NativeDatabaseFiles(dir.path, labels: keystore),
+    );
+    final session = await storageWith(files: files).open('alice');
+
+    final timeout = files.statements.indexWhere(
+      (sql) => sql.startsWith('PRAGMA busy_timeout'),
+    );
+    expect(timeout, 0, reason: 'before the cipher check, key and first read');
+    await session.close();
+  });
+
+  test('a database started fresh also waits 5 s for a lock', () async {
+    final files = _CountingFiles(
+      NativeDatabaseFiles(dir.path, labels: keystore),
+    );
+    final storage = storageWith(files: files);
+    await writeRecord(storage, 'alice', 'a');
+    secrets.values.removeWhere((name, _) => name.contains('.key.'));
+
+    final session = await storage.open('alice');
+
+    expect(resets, hasLength(1));
+    expect(
+      files.last!.select('PRAGMA busy_timeout').single.values.single,
+      5000,
+    );
+    await session.close();
+  });
+
   group('cipherAvailable', () {
     test('is true for the native build', () {
       final db = sqlite3.openInMemory();
@@ -337,7 +436,7 @@ void main() {
       'a passphrase salt sidecar is born with the database and dies with it',
       () async {
         final label = await keystore.principalLabel('alice');
-        final sidecar = File('${dir.path}/$label.salt');
+        final sidecar = File('${store()}/$label.salt');
         final storage = storageWith(keys: pass('right'));
 
         await writeRecord(storage, 'alice', 'a');
@@ -447,13 +546,13 @@ void main() {
         );
         await writeRecord(storage, 'alice', 'a');
         final label = await keys.principalLabel('alice');
-        final sidecar = File('${dir.path}/$label.salt')..writeAsStringSync('s');
+        final sidecar = File('${store()}/$label.salt')..writeAsStringSync('s');
 
         await storage.destroy('alice');
 
         expect(keys.deleted, ['alice']);
         expect(await sidecar.exists(), isFalse);
-        expect(dir.listSync(), isEmpty);
+        expect(storeNames(), isEmpty);
       },
     );
 
@@ -714,7 +813,11 @@ void main() {
         final path = await pathOf(principal);
         final label = await keystore.principalLabel(principal);
 
-        expect(path, '${dir.path}${Platform.pathSeparator}$label.db');
+        expect(path, '${store()}${Platform.pathSeparator}$label.db');
+        expect(
+          store(),
+          '${dir.path}${Platform.pathSeparator}forge_client_offline',
+        );
         expect(path, isNot(contains('alice')));
         expect(path, isNot(contains(await principalHash(principal))));
       },
@@ -726,7 +829,7 @@ void main() {
         final files = NativeDatabaseFiles(dir.path, labels: _BadLabels());
 
         await expectLater(files.open('alice'), throwsArgumentError);
-        expect(dir.listSync(), isEmpty);
+        expect(storeNames(), isEmpty);
       },
     );
   });
@@ -805,12 +908,22 @@ void main() {
       final open = await storage.open('bob');
       await writeRecord(storageWith(keys: pass('carol secret')), 'carol', 'c');
       final label = await keystore.principalLabel('dave');
-      await File('${dir.path}/$label.salt.0123456789abcdef.tmp')
+      await File('${store()}/$label.salt.0123456789abcdef.tmp')
           .writeAsString('x');
-      await File('${dir.path}/$label.db-journal').writeAsString('x');
-      // Not the package's: left alone.
-      await File('${dir.path}/app.db').writeAsString('the app');
-      await File('${dir.path}/notes.txt').writeAsString('the app');
+      await File('${store()}/$label.db-journal').writeAsString('x');
+      // Not the package's: left alone, even when named like one of its own.
+      final appLabel = 'c0' * 32;
+      final appFiles = {
+        'app.db',
+        'notes.txt',
+        '$appLabel.db',
+        '$appLabel.db-wal',
+        '$appLabel.db-shm',
+        '$appLabel.salt',
+      };
+      for (final name in appFiles) {
+        await File('${dir.path}/$name').writeAsString('the app');
+      }
       expect(secrets.values, isNotEmpty);
 
       await storage.resetOfflineData();
@@ -821,8 +934,11 @@ void main() {
             .listSync()
             .map((e) => e.path.split(Platform.pathSeparator).last)
             .toSet(),
-        {'app.db', 'notes.txt'},
+        appFiles,
       );
+      for (final name in appFiles) {
+        expect(File('${dir.path}/$name').readAsStringSync(), 'the app');
+      }
       expect(open.readOutbox(), throwsClosed);
 
       final fresh = await storage.open('alice');
@@ -844,7 +960,7 @@ void main() {
       await storage.resetOfflineData();
 
       expect(secrets.values, isEmpty);
-      expect(dir.listSync(), isEmpty);
+      expect(storeNames(), isEmpty);
     });
 
     test('waits for a running open and revokes the handle it made', () async {
@@ -859,7 +975,7 @@ void main() {
       await resetting;
 
       expect(stale.readOutbox(), throwsClosed);
-      expect(dir.listSync(), isEmpty);
+      expect(storeNames(), isEmpty);
       expect(secrets.values, isEmpty);
     });
 

@@ -29,6 +29,30 @@ String _dart() {
   return [root, 'bin', 'cache', 'dart-sdk', 'bin', exe].join(sep);
 }
 
+/// SQLite's rollback journal header magic.
+const _journalMagic = [0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7];
+
+/// Whether [journal] is a hot rollback journal: it exists and its header
+/// carries the magic, which SQLite writes only once the journal is synced and
+/// the database file is about to change.
+bool _isHot(File journal) {
+  try {
+    final file = journal.openSync();
+    try {
+      final head = file.readSync(_journalMagic.length);
+      if (head.length < _journalMagic.length) return false;
+      for (var i = 0; i < _journalMagic.length; i++) {
+        if (head[i] != _journalMagic[i]) return false;
+      }
+      return true;
+    } finally {
+      file.closeSync();
+    }
+  } on FileSystemException {
+    return false;
+  }
+}
+
 void main() {
   test('the database survives a writer process killed mid-write', () async {
     final dir = await Directory.systemTemp.createTemp('forge_offline_kill_');
@@ -43,8 +67,12 @@ void main() {
       'test/support/kill_writer.dart',
       dir.path,
     ]);
-    // Only ever kill the PIDs this test started.
-    addTearDown(() => writer.kill(ProcessSignal.sigkill));
+    // Only ever kill the PIDs this test started, and reap the child even when
+    // the test fails before its own kill.
+    addTearDown(() async {
+      writer.kill(ProcessSignal.sigkill);
+      await writer.exitCode.timeout(const Duration(seconds: 20));
+    });
 
     final stderrText = StringBuffer();
     final errors = writer.stderr
@@ -72,31 +100,29 @@ void main() {
       ),
     ]);
 
-    // The rollback journal exists only while a write transaction is open, so
-    // waiting for it lands the kill inside one: no close, no commit, no
-    // signal handler. The writer keeps writing, so it appears within ms.
+    // A journal whose header carries SQLite's magic is hot: it was synced
+    // and the transaction has begun overwriting the database file, so a kill
+    // now leaves pages that only the journal can roll back. (Until then the
+    // header is zeroed and the file untouched.) Each batch is larger than the
+    // page cache, so it spills, and goes hot, long before it commits. No
+    // close, no commit, no signal handler.
     final watch = Stopwatch()..start();
-    while (!journal.existsSync() &&
-        watch.elapsed < const Duration(seconds: 10)) {}
+    while (!_isHot(journal) && watch.elapsed < const Duration(seconds: 10)) {}
     Process.killPid(writerPid!, ProcessSignal.sigkill);
 
     await writer.exitCode.timeout(const Duration(seconds: 20));
     await lines.cancel();
     await errors.cancel();
     final lastReported = committed;
-    final hotJournal = journal.existsSync();
+    final hotJournal = _isHot(journal);
     expect(
       hotJournal,
       isTrue,
-      reason: 'the kill landed inside a write transaction',
+      reason: 'the kill landed after the transaction began writing the file',
     );
 
-    // A plain connection, keyed raw, reads the file as SQLite left it.
-    final raw = sqlite3.open(path);
-    applyRawKey(raw, keys.bytes);
-    expect(raw.select('PRAGMA integrity_check').single.values.single, 'ok');
-    raw.close();
-
+    // Reopen through the adapter first, so its unlock runs against the hot
+    // journal the kill left, as an app's next launch would.
     final storage = EncryptedSqliteStorage(
       keys: keys,
       files: NativeDatabaseFiles(dir.path, labels: keys),
@@ -105,6 +131,13 @@ void main() {
     final outbox = await session.readOutbox();
     final rows = await session.namespace('rounds').scan('r');
     await session.close();
+    expect(journal.existsSync(), isFalse, reason: 'the reopen rolled it back');
+
+    // Then a plain connection, keyed raw, checks the file it left.
+    final raw = sqlite3.open(path);
+    applyRawKey(raw, keys.bytes);
+    expect(raw.select('PRAGMA integrity_check').single.values.single, 'ok');
+    raw.close();
 
     // Every round the writer reported is there: a commit that returned is
     // durable. The outbox is a gapless prefix, each record whole.
@@ -121,7 +154,7 @@ void main() {
     final perRound = <int, int>{};
     for (final entry in rows.entries) {
       final round = int.parse(entry.key.substring(1, entry.key.indexOf('/')));
-      expect(entry.value, '$round:${'x' * 4000}');
+      expect(entry.value, '$round:${'x' * 20000}');
       perRound[round] = (perRound[round] ?? 0) + 1;
     }
     expect(perRound.values.toSet(), {_batchSize});
