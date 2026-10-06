@@ -12,6 +12,7 @@ import 'outbox/outbox_entry.dart';
 import 'outbox/outbox_failure.dart';
 import 'outbox/outbox_transport.dart';
 import 'outbox/overlay_intent.dart';
+import 'storage/encrypted_storage.dart';
 
 /// Decides how a queued write is drawn after a restart, when the app's own
 /// optimistic callback is gone.
@@ -60,7 +61,21 @@ typedef OverlayIntentFor = OverlayIntent Function(
 /// cache shows its optimistic overlay meanwhile; a UI should draw from the
 /// cache and never block, or show a spinner, on that future. Use [pending],
 /// [pendingCount] and [failures] for outbox status instead.
-final class OfflineClient {
+///
+/// Starting: [OfflineClient.open] builds the transport, the cache and this
+/// client in one call and is the usual way in. Build the client before you
+/// register any `watchPrincipalChanging` listener of your own (open does so
+/// before it returns): its listener must run first, so no listener of yours
+/// can see the previous principal's queue during a switch.
+///
+/// Snapshots: the cache is written to the session's snapshot after its
+/// commits, debounced, and read back (marked stale, so watched queries
+/// refetch) when a session opens. See [flush], [close] and [signOut].
+///
+/// Devtools: this client is the [OutboxInspector] the devtools Outbox panel
+/// drives, and the [OutboxFailureSource] a `ForgeOutboxListener` listens to.
+/// Both see only the current principal's writes.
+final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// Attaches to [transport], which must be the transport [cache] was built
   /// with, and follows [cache]'s sessions. [operations] is the generated
   /// table, used to turn a stored operation id back into its metadata.
@@ -94,6 +109,17 @@ final class OfflineClient {
   /// cache hands them to the source), so they are never tracked. A stored
   /// write for such an entity, queued before the source took it over, is
   /// surfaced as an [OutboxGone] with status 0 rather than replayed.
+  ///
+  /// Snapshots are written [snapshotDebounce] after the last commit, and at
+  /// most five debounce periods after the first.
+  ///
+  /// [storageResets] is the storage's `resets` stream
+  /// (`EncryptedSqliteStorage.resets`). A reset deletes a database whose key
+  /// no longer fits, and any writes queued in it, so pass it whenever the
+  /// cache was built with an `EncryptedSqliteStorage`: each reset is then
+  /// reported through `onError` (context `storage.reset`), emitted on
+  /// [resets] and kept in [currentResets]. [OfflineClient.open] wires it
+  /// itself.
   OfflineClient({
     required QueryCache cache,
     required this._operations,
@@ -110,6 +136,8 @@ final class OfflineClient {
     this._onError,
     double Function()? random,
     this._maxRetryableFailures = 8,
+    this._snapshotDebounce = const Duration(seconds: 1),
+    Stream<StorageReset>? storageResets,
   }) : assert(_maxRetryableFailures >= 1),
        _random = random ?? math.Random().nextDouble,
        _cache = cache,
@@ -122,11 +150,16 @@ final class OfflineClient {
     transport.attach(_handle);
     _subscriptions
       ..add(connectivity.online.listen(_setOnline))
-      ..add(cache.sessionChanges.listen(_onSession));
+      ..add(cache.sessionChanges.listen(_onSession))
+      ..add(cache.commits.listen((_) => _onCommit()));
+    if (storageResets != null) {
+      _subscriptions.add(storageResets.listen(_onStorageReset));
+    }
     // Synchronous, before the cache clears: nothing told of the change may
     // see this principal's queue. Only in-memory state moves here.
     _unwatchChanging = cache.watchPrincipalChanging((_) {
       _principalChanges++;
+      _currentResets.clear();
       _suspend();
     });
 
@@ -149,6 +182,7 @@ final class OfflineClient {
   final void Function(Object error, String context)? _onError;
   final double Function() _random;
   final int _maxRetryableFailures;
+  final Duration _snapshotDebounce;
 
   late final _Control _control;
   late final void Function() _unwatchChanging;
@@ -160,6 +194,16 @@ final class OfflineClient {
   final StreamController<OutboxFailure> _failures =
       StreamController<OutboxFailure>.broadcast();
   final StreamController<int> _pendingCount = StreamController<int>.broadcast();
+  final List<StorageReset> _currentResets = [];
+  final StreamController<StorageReset> _resets =
+      StreamController<StorageReset>.broadcast();
+
+  /// The storage [open] built the cache over; null for a client built with
+  /// the constructor, which cannot erase anything.
+  StorageAdapter? _storage;
+
+  /// Whether [open] built the cache, so [dispose] disposes it too.
+  bool _ownsCache = false;
 
   StorageSession? _session;
   Future<void>? _restoring;
@@ -171,6 +215,16 @@ final class OfflineClient {
   int _nextSeq = 1;
   Duration _backoff;
   Timer? _retryTimer;
+  Timer? _snapshotTimer;
+  Timer? _snapshotMaxTimer;
+
+  /// Whether the current session's stored snapshot has been read (restored
+  /// or skipped). Until then nothing is written, so an empty cache never
+  /// replaces a stored snapshot before it could be read.
+  bool _hydrated = false;
+
+  /// A commit arrived before [_hydrated]; a snapshot is owed once it is.
+  bool _snapshotOwed = false;
 
   /// Bumped by every suspension. Work that started under an earlier epoch
   /// belongs to a principal this client no longer serves: it may still
@@ -188,7 +242,18 @@ final class OfflineClient {
 
   /// Failures as they happen, including ones restored from storage.
   /// Broadcast: a screen and a test may both listen.
+  @override
   Stream<OutboxFailure> get failures => _failures.stream;
+
+  /// Every storage reset of the current principal as it happens: a database
+  /// whose key no longer fits was deleted unread and started fresh, and any
+  /// writes queued in it are gone. Broadcast. A reset during [open] happens
+  /// before anyone can listen: read [currentResets] for it.
+  Stream<StorageReset> get resets => _resets.stream;
+
+  /// The storage resets of the current principal since it was set. Emptied
+  /// when the principal changes, so it never shows another principal's.
+  List<StorageReset> get currentResets => List.unmodifiable(_currentResets);
 
   /// Failures waiting for the app to retry, edit or discard them.
   List<OutboxFailure> get currentFailures =>
@@ -212,18 +277,20 @@ final class OfflineClient {
   /// Whether the client currently believes the network is reachable.
   bool get isOnline => _online;
 
-  /// Completes when the current session's outbox has been restored. With no
-  /// session it completes at once. Safe to call more than once.
-  Future<void> restore() {
+  /// Completes when the current session's snapshot and outbox have been
+  /// restored. Waits for a principal switch in progress first (the cache has
+  /// no session while one runs). With no session it completes at once. Safe
+  /// to call more than once: a session is restored once.
+  Future<void> restore() async {
+    await _cache.idle;
     final session = _cache.session;
-    if (session == null || session.principal != _cache.principal) {
-      return Future<void>.value();
-    }
-    return _restoreSession(session);
+    if (session == null || session.principal != _cache.principal) return;
+    await _restoreSession(session);
   }
 
   /// Detaches from the transport and stops listening. Parked callers get
-  /// [OutboxSuspended]; stored writes are kept.
+  /// [OutboxSuspended]; stored writes are kept. A cache built by [open] is
+  /// disposed too, which closes its session.
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
@@ -235,6 +302,355 @@ final class OfflineClient {
     _transport.attach(null);
     await _failures.close();
     await _pendingCount.close();
+    await _resets.close();
+    if (_ownsCache) await _cache.dispose();
+  }
+
+  /// Builds an [OutboxTransport] over [transport], a [QueryCache] that owns
+  /// [storage], and an [OfflineClient] over both; sets [principal], waits for
+  /// its session to open and restores it. App code then uses [cache] like
+  /// any other cache, and the writes it makes while offline are queued.
+  ///
+  /// The client is built, with its principal listener, before the principal
+  /// is set and before this returns, so it runs ahead of any
+  /// `watchPrincipalChanging` listener the app registers later.
+  ///
+  /// [connectivity] null means "assume online": a write is still queued when
+  /// its request fails before reaching the server. Entities owned by
+  /// [syncSources] bypass the outbox. [authPrincipal] is passed to the
+  /// client; see the constructor.
+  ///
+  /// When [storage] cannot open the principal (`KeyUnavailable`, `WrongKey`,
+  /// `UnsupportedSchemaVersion`, `EncryptionUnavailable` and so on) this
+  /// throws that error, after reporting it to [onError] with the context
+  /// `storage`, and disposes what it built. A storage that neither opens nor
+  /// fails throws [TimeoutException] after [sessionTimeout]. Nothing is
+  /// erased: after repeated `KeyUnavailable` while the device is unlocked,
+  /// the app may offer `EncryptedSqliteStorage.resetOfflineData`.
+  ///
+  /// When [storage] is an `EncryptedSqliteStorage`, its resets are wired to
+  /// [resets] and [currentResets]. Use one storage adapter per directory per
+  /// isolate.
+  static Future<OfflineClient> open({
+    required Transport transport,
+    required EntitySchema entities,
+    required Map<String, OperationMeta> operations,
+    required StorageAdapter storage,
+    required String principal,
+    ConnectivitySignal? connectivity,
+    CommitScheduler? commitScheduler,
+    Clock clock = realClock,
+    Set<String> excludedEntities = const {},
+    List<SyncSource> syncSources = const [],
+    Duration sessionTimeout = const Duration(seconds: 30),
+    Duration snapshotDebounce = const Duration(seconds: 1),
+    String? Function()? authPrincipal,
+    void Function(Object error, String context)? onError,
+  }) async {
+    // The cache reports a session that failed to open to onError and never
+    // emits it, so the wait below listens there too.
+    Completer<void>? opening;
+    void report(Object error, String context) {
+      final waiting = opening;
+      if (context == 'storage' && waiting != null && !waiting.isCompleted) {
+        waiting.completeError(error);
+      }
+      onError?.call(error, context);
+    }
+
+    final outbox = OutboxTransport(transport);
+    final cache = QueryCache(
+      transport: outbox,
+      entities: entities,
+      commitScheduler: commitScheduler,
+      clock: clock,
+      onError: report,
+      syncSources: syncSources,
+      storage: storage,
+    );
+    final client =
+        OfflineClient(
+            cache: cache,
+            operations: operations,
+            connectivity: connectivity ?? const _AssumeOnline(),
+            transport: outbox,
+            clock: clock,
+            excludedEntities: {
+              ...excludedEntities,
+              for (final source in syncSources) ...source.entities,
+            },
+            authPrincipal: authPrincipal,
+            onError: onError,
+            snapshotDebounce: snapshotDebounce,
+            storageResets: storage is EncryptedSqliteStorage
+                ? storage.resets
+                : null,
+          )
+          .._storage = storage
+          .._ownsCache = true;
+
+    final waiting = opening = Completer<void>();
+    final subscription = cache.sessionChanges.listen((session) {
+      if (session?.principal == principal && !waiting.isCompleted) {
+        waiting.complete();
+      }
+    });
+    try {
+      cache.setPrincipal(principal);
+      await waiting.future.timeout(sessionTimeout);
+      opening = null;
+      await client.restore();
+    } on Object {
+      opening = null;
+      await subscription.cancel();
+      await client.dispose();
+      rethrow;
+    }
+    await subscription.cancel();
+    return client;
+  }
+
+  /// Writes the snapshot now. Call it when the app pauses. Waits for a
+  /// restore in progress first, so the stored snapshot is read before it is
+  /// replaced.
+  Future<void> flush() async {
+    final restoring = _restoring;
+    if (restoring != null) await restoring;
+    _cancelSnapshot();
+    await _writeSnapshot();
+  }
+
+  /// Flushes the snapshot and disposes the client (and the cache when [open]
+  /// built it, which closes its session). Data is kept.
+  Future<void> close() async {
+    await flush();
+    await dispose();
+  }
+
+  /// Signs the current principal out: sets the cache's principal to null and
+  /// waits until its sources have stopped and its session has closed. With
+  /// [erase] (the default) it then destroys the principal's storage (the key
+  /// first, then the files), queued writes included. Without it the
+  /// snapshot is flushed first and everything is kept for the principal's
+  /// return.
+  ///
+  /// Erasing needs the storage given to [open]. A client built with the
+  /// constructor throws [StateError] for it, and the app runs
+  /// `cache.setPrincipal(null)`, `await cache.idle` and
+  /// `storage.destroy(principal)` itself.
+  Future<void> signOut({bool erase = true}) async {
+    final storage = _storage;
+    if (erase && storage == null) {
+      throw StateError(
+        'signOut(erase: true) needs the storage given to OfflineClient.open; '
+        'otherwise call cache.setPrincipal(null), await cache.idle, then '
+        'storage.destroy(principal)',
+      );
+    }
+
+    final principal = _cache.principal;
+    if (!erase) await flush();
+    await _leave();
+    if (storage != null && erase && principal != null) {
+      await storage.destroy(principal);
+    }
+  }
+
+  /// Erases everything this package keeps on the device, for every
+  /// principal, and leaves the cache signed out. See
+  /// `EncryptedSqliteStorage.resetOfflineData`: queued writes that never
+  /// reached the server are lost.
+  ///
+  /// Never called automatically. Call it after the user confirms, or after
+  /// [open] keeps throwing `KeyUnavailable` while the device is unlocked (a
+  /// failed [open] disposed its client, so call
+  /// `EncryptedSqliteStorage.resetOfflineData` on the storage directly in
+  /// that case). It signs out first, without erasing per principal, then
+  /// runs the storage reset. Needs the `EncryptedSqliteStorage` given to
+  /// [open]; anything else throws [StateError].
+  Future<void> resetOfflineData() async {
+    final storage = _storage;
+    if (storage is! EncryptedSqliteStorage) {
+      throw StateError(
+        'resetOfflineData needs the EncryptedSqliteStorage given to '
+        'OfflineClient.open; otherwise call cache.setPrincipal(null), await '
+        'cache.idle, then storage.resetOfflineData()',
+      );
+    }
+    await _leave();
+    await storage.resetOfflineData();
+  }
+
+  /// Sets the principal to null and waits for the transition: the sources
+  /// stopped and the session closed. `sessionChanges` emits null before
+  /// either, so it is not what this waits for.
+  Future<void> _leave() async {
+    _cache.setPrincipal(null);
+    await _cache.idle;
+  }
+
+  /// Sends the stored write [mutationId] now, out of its turn, ignoring the
+  /// backoff and the connectivity flag. Completes when the server accepted
+  /// it. Throws its [OutboxFailure] when the server refused it, and
+  /// [OutboxOffline] when it could not go (it stays queued). A failed write
+  /// is cleared and redrawn first. Waits for an attempt already on the wire,
+  /// and for the write to be re-issued through the cache, rather than
+  /// sending beside them. The devtools Outbox panel drives this.
+  ///
+  /// Throws [StateError] for an id that is not a stored write of the current
+  /// principal, and for a write no replay can send (its operation is not in
+  /// the table, or a sync source owns its entity): discard those.
+  @override
+  Future<void> replay(String mutationId) async {
+    final p = _inspected(mutationId);
+    final session = _session!;
+    final meta = p.meta;
+    if (meta == null) {
+      throw StateError(
+        'write $mutationId names an operation that is not in the operations '
+        'table; discard it',
+      );
+    }
+    if (_ownedBySource(meta)) {
+      throw StateError(
+        'write $mutationId is for ${meta.entity}, which a sync source owns and '
+        'sends itself; discard it',
+      );
+    }
+
+    if (p.failure != null) {
+      final queued = p.entry.copyWith(clearFailure: true, clearSentAt: true);
+      final error = await _mark(session, queued);
+      if (error != null) throw OutboxUnavailable(error);
+      if (p.epoch != _epoch) throw const OutboxSuspended();
+      if (p.failure != null && _queue.contains(p)) {
+        p
+          ..entry = queued
+          ..retryableFailures = 0;
+        _clearFailure(p);
+        p.completer = _parked();
+        _reissue(p);
+        _notifyPending();
+      }
+    }
+
+    // What is already under way finishes first: the re-issue through the
+    // cache (so the cache commits the response), then any attempt on the
+    // wire. Each is a completion, not a count of event-loop turns.
+    final reissued = p.reissued;
+    if (reissued != null) await reissued.future;
+    for (var attempt = p.sending; attempt != null; attempt = p.sending) {
+      await attempt.future;
+    }
+
+    if (p.sent) return;
+    if (p.epoch == _epoch && p.failure == null && _queue.contains(p)) {
+      // The drain sends it next, ahead of its lane and past the backoff and
+      // the offline flag, one request at a time like every other replay.
+      final forced = p.forced ??= Completer<void>();
+      _scheduleDrain();
+      await forced.future;
+    }
+    _throwUnlessSent(p);
+  }
+
+  /// Removes the stored write [mutationId] and rolls back its overlay (its
+  /// parked caller gets [OutboxDiscarded]). The devtools Outbox panel drives
+  /// this; [OutboxFailure.discard] does the same for a failure.
+  ///
+  /// Throws [StateError] for an id that is not a stored write of the current
+  /// principal or that is on the wire, and [OutboxUnavailable] when storage
+  /// refuses the removal.
+  @override
+  Future<void> discard(String mutationId) async {
+    final p = _inspected(mutationId);
+    if (p.inFlight) {
+      throw StateError(
+        'write $mutationId is being sent; discard it after its answer',
+      );
+    }
+    final error = await _discard(mutationId);
+    if (error != null) throw OutboxUnavailable(error);
+  }
+
+  /// The stored write [mutationId] of the current principal. Reads only the
+  /// in-memory queue, which a principal change empties synchronously, so
+  /// another principal's writes are never found.
+  _Pending _inspected(String mutationId) {
+    final p = _byId(mutationId);
+    if (_session == null || p == null || !p.persisted || p.epoch != _epoch) {
+      throw StateError('no stored write $mutationId for the current principal');
+    }
+    return p;
+  }
+
+  /// After a forced replay of [p]: returns when it was sent, and otherwise
+  /// throws why not.
+  void _throwUnlessSent(_Pending p) {
+    if (p.sent) return;
+    if (p.epoch != _epoch) throw const OutboxSuspended();
+    final failure = p.failure;
+    if (failure != null) throw failure;
+    if (_queue.contains(p)) throw OutboxOffline(p.entry.id);
+    throw const OutboxDiscarded();
+  }
+
+  // ---------------------------------------------------------------- snapshots
+
+  void _onCommit() {
+    if (_session == null || _disposed) return;
+    if (!_hydrated) {
+      _snapshotOwed = true;
+      return;
+    }
+    _scheduleSnapshot();
+  }
+
+  void _scheduleSnapshot() {
+    _snapshotTimer?.cancel();
+    _snapshotTimer = Timer(_snapshotDebounce, _snapshotDue);
+    _snapshotMaxTimer ??= Timer(_snapshotDebounce * 5, _snapshotDue);
+  }
+
+  void _snapshotDue() {
+    _cancelSnapshot();
+    unawaited(_writeSnapshot());
+  }
+
+  void _cancelSnapshot() {
+    _snapshotTimer?.cancel();
+    _snapshotTimer = null;
+    _snapshotMaxTimer?.cancel();
+    _snapshotMaxTimer = null;
+  }
+
+  /// Writes the cache, normalized (owned rows are omitted), to the current
+  /// session. Only while that session is still the cache's: after a switch
+  /// the cache holds another principal's data, which must never land in
+  /// this file. The dehydrate runs synchronously under that check.
+  Future<void> _writeSnapshot() async {
+    final session = _session;
+    if (session == null ||
+        !_hydrated ||
+        !identical(_cache.session, session) ||
+        _cache.principal != session.principal) {
+      return;
+    }
+    try {
+      await session.writeSnapshot(
+        dehydrate(_cache, principal: session.principal),
+      );
+    } on Object catch (error) {
+      _report(error, 'snapshot.write');
+    }
+  }
+
+  void _onStorageReset(StorageReset reset) {
+    // Only the principal now being served; never kept for anyone else.
+    if (_disposed || reset.principal != _cache.principal) return;
+    _currentResets.add(reset);
+    if (!_resets.isClosed) _resets.add(reset);
+    _report(reset, 'storage.reset');
   }
 
   // ---------------------------------------------------------------- sessions
@@ -257,8 +673,47 @@ final class OfflineClient {
   }
 
   Future<void> _restore(StorageSession session) async {
+    await _hydrate(session);
     await _loadOutbox(session);
     _scheduleDrain();
+  }
+
+  /// Reads the session's snapshot into the cache, marked stale so a watched
+  /// query refetches. Only into a cache that holds nothing yet: data that
+  /// arrived while the snapshot was read is newer, and an older snapshot is
+  /// never merged over it.
+  Future<void> _hydrate(StorageSession session) async {
+    try {
+      final snapshot = await session.readSnapshot();
+      if (!identical(_session, session)) return;
+      if (snapshot != null) {
+        if (_cache.queries.isEmpty && _cache.store.size == 0) {
+          hydrate(
+            _cache,
+            snapshot,
+            principal: session.principal,
+            operations: _operations,
+            stale: true,
+          );
+        } else {
+          _report(
+            StateError(
+              'the stored snapshot was not restored: the cache already holds '
+              'newer data',
+            ),
+            'snapshot.skipped',
+          );
+        }
+      }
+    } on Object catch (error) {
+      _report(error, 'snapshot.hydrate');
+    }
+    if (!identical(_session, session)) return;
+    _hydrated = true;
+    if (_snapshotOwed) {
+      _snapshotOwed = false;
+      _scheduleSnapshot();
+    }
   }
 
   /// Forgets everything in memory about the current principal. Synchronous
@@ -270,6 +725,9 @@ final class OfflineClient {
     _epoch++;
     _retryTimer?.cancel();
     _retryTimer = null;
+    _cancelSnapshot();
+    _hydrated = false;
+    _snapshotOwed = false;
     _draining = false;
     _heldForCredentials = false;
     _backoff = _initialBackoff;
@@ -278,6 +736,9 @@ final class OfflineClient {
     _queue.clear();
     _currentFailures.clear();
     for (final p in parked) {
+      // A replay waiting on either finds the epoch moved.
+      _signal(p.reissued);
+      _settleForced(p);
       if (!p.inFlight) _reject(p, const OutboxSuspended());
     }
 
@@ -424,7 +885,10 @@ final class OfflineClient {
   /// Puts a stored write back through the cache so it is drawn with its
   /// overlay and its response is committed when the replay succeeds.
   void _reissue(_Pending p) {
-    p.awaitingReissue = true;
+    _signal(p.reissued);
+    p
+      ..awaitingReissue = true
+      ..reissued = Completer<void>();
     final future = _cache.mutate(
       p.meta!,
       p.entry.args,
@@ -438,7 +902,7 @@ final class OfflineClient {
         (_) {},
         onError: (Object error) {
           if (p.awaitingReissue) {
-            p.awaitingReissue = false;
+            _reissueArrived(p);
             _report(error, 'outbox.reissue');
             _scheduleDrain();
           }
@@ -455,7 +919,7 @@ final class OfflineClient {
       final p = _byId(marker);
       final parked = p?.completer;
       if (p != null && parked != null) {
-        p.awaitingReissue = false;
+        _reissueArrived(p);
         _scheduleDrain();
         return parked.future;
       }
@@ -635,7 +1099,9 @@ final class OfflineClient {
       await _directFailed(session, p, error, stack);
       return;
     }
-    p.inFlight = false;
+    p
+      ..inFlight = false
+      ..sent = true;
     if (p.epoch != _epoch) {
       _complete(p, response);
       return;
@@ -751,31 +1217,58 @@ final class OfflineClient {
     });
   }
 
+  /// Schedules a drain. Offline or during the backoff only a forced replay
+  /// (see [replay]) can run.
   void _scheduleDrain() {
-    if (!_online || _session == null || _disposed || _retryTimer != null) {
-      return;
-    }
+    if (_session == null || _disposed) return;
+    if ((!_online || _retryTimer != null) && _nextForced() == null) return;
     scheduleMicrotask(() => unawaited(_drain()));
   }
 
+  /// Sends stored writes one at a time: a forced replay first, then, while
+  /// online and not backing off, the next write of each lane in order.
   Future<void> _drain() async {
     if (_draining) return;
     _draining = true;
     final epoch = _epoch;
     try {
-      while (_online &&
-          _session != null &&
-          !_disposed &&
-          _retryTimer == null &&
-          epoch == _epoch) {
-        final next = _nextReplayable();
+      while (_session != null && !_disposed && epoch == _epoch) {
+        final next =
+            _nextForced() ??
+            (_online && _retryTimer == null ? _nextReplayable() : null);
         if (next == null) break;
-        if (!await _replay(next)) break;
+        final bool sent;
+        try {
+          sent = await _replay(next);
+        } finally {
+          // Attempted once, whatever came of it; replay reads the outcome.
+          _settleForced(next);
+        }
+        if (!sent && _nextForced() == null) break;
       }
     } finally {
       // A suspension reset the flag for the next principal's drain.
-      if (epoch == _epoch) _draining = false;
+      if (epoch == _epoch) {
+        _draining = false;
+        // A replay forced while this drain was finishing.
+        if (_nextForced() != null) _scheduleDrain();
+      }
     }
+  }
+
+  /// The first write a [replay] forced that can be sent now.
+  _Pending? _nextForced() {
+    for (final p in _queue) {
+      if (p.forced != null &&
+          p.failure == null &&
+          !p.inFlight &&
+          p.persisted &&
+          !p.awaitingReissue &&
+          p.meta != null) {
+        return p;
+      }
+    }
+    return null;
   }
 
   _Pending? _nextReplayable() {
@@ -827,20 +1320,29 @@ final class OfflineClient {
       return false;
     }
 
+    // Completed once the outcome is recorded, not when the response
+    // arrives, so a replay waiting on it reads the final state.
+    final attempt = Completer<void>();
     p
       ..entry = sending
-      ..inFlight = true;
-    final Object? response;
+      ..inFlight = true
+      ..sending = attempt;
     try {
-      response = await _transport.inner.execute(_requestFor(p));
-    } on Object catch (error) {
+      final Object? response;
+      try {
+        response = await _transport.inner.execute(_requestFor(p));
+      } on Object catch (error) {
+        p.inFlight = false;
+        return await _replayFailed(session, p, meta, error);
+      }
       p.inFlight = false;
-      return _replayFailed(session, p, meta, error);
-    }
-    p.inFlight = false;
 
-    await _succeed(session, p, response);
-    return true;
+      await _succeed(session, p, response);
+      return true;
+    } finally {
+      if (identical(p.sending, attempt)) p.sending = null;
+      attempt.complete();
+    }
   }
 
   Future<bool> _replayFailed(
@@ -1008,6 +1510,7 @@ final class OfflineClient {
       // server's idempotency store answers it.
       _report(error, 'outbox.remove');
     }
+    p.sent = true;
     if (p.epoch != _epoch) {
       _complete(p, response);
       return;
@@ -1097,24 +1600,28 @@ final class OfflineClient {
     _notifyPending();
   }
 
-  Future<void> _discard(String id) async {
+  /// Removes write [id] and releases its caller. Returns the storage error
+  /// when the record could not be removed (the write then stays).
+  Future<Object?> _discard(String id) async {
     final p = _byId(id);
     final session = _session;
-    if (p == null || session == null || p.inFlight) return;
+    if (p == null || session == null || p.inFlight) return null;
 
     try {
       await session.remove(id);
     } on Object catch (error) {
       _report(error, 'outbox.discard');
-      return;
+      return error;
     }
-    if (p.epoch != _epoch) return;
+    if (p.epoch != _epoch) return null;
 
     _queue.remove(p);
     _clearFailure(p);
+    _settleForced(p);
     _reject(p, const OutboxDiscarded());
     _notifyPending();
     _scheduleDrain();
+    return null;
   }
 
   Future<void> _edit(String id, TagContext args) async {
@@ -1168,6 +1675,23 @@ final class OfflineClient {
     _emit(outboxEnqueued(replacement));
     _reissue(next);
     _notifyPending();
+  }
+
+  /// The re-issued mutation of [p] reached the transport, or failed before
+  /// it could: either way it is no longer awaited.
+  static void _reissueArrived(_Pending p) {
+    p.awaitingReissue = false;
+    _signal(p.reissued);
+  }
+
+  static void _settleForced(_Pending p) {
+    final forced = p.forced;
+    p.forced = null;
+    _signal(forced);
+  }
+
+  static void _signal(Completer<void>? completer) {
+    if (completer != null && !completer.isCompleted) completer.complete();
   }
 
   void _clearFailure(_Pending p) {
@@ -1352,6 +1876,20 @@ final class _Pending {
 
   /// Consecutive retryable failures since the write was admitted or retried.
   int retryableFailures = 0;
+
+  /// Whether the server accepted this write.
+  bool sent = false;
+
+  /// Completes when the current re-issue through the cache reaches the
+  /// transport (or fails before it could).
+  Completer<void>? reissued;
+
+  /// Completes when the replay attempt on the wire has its outcome recorded.
+  Completer<void>? sending;
+
+  /// Set by [OfflineClient.replay]: the drain sends this write next and
+  /// completes it after the attempt.
+  Completer<void>? forced;
   OutboxFailure? failure;
   final Map<String, String> liveHeaders;
 }
@@ -1365,9 +1903,20 @@ final class _Control implements OutboxControl {
   Future<void> retry(String mutationId) => _client._retry(mutationId);
 
   @override
-  Future<void> discard(String mutationId) => _client._discard(mutationId);
+  Future<void> discard(String mutationId) async {
+    await _client._discard(mutationId);
+  }
 
   @override
   Future<void> edit(String mutationId, TagContext args) =>
       _client._edit(mutationId, args);
+}
+
+/// The connectivity [OfflineClient.open] assumes when given none: always
+/// online, so writes are attempted and queued only when a request fails.
+final class _AssumeOnline implements ConnectivitySignal {
+  const _AssumeOnline();
+
+  @override
+  Stream<bool> get online => const Stream<bool>.empty();
 }

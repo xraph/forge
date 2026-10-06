@@ -165,6 +165,15 @@ final class EncryptedSqliteStorage implements StorageAdapter {
   /// Completes when the running [resetOfflineData] finishes.
   Future<void>? _resetting;
 
+  final StreamController<StorageReset> _resets =
+      StreamController<StorageReset>.broadcast(sync: true);
+
+  /// Every database started fresh, as it happens: the same events the
+  /// `onReset` callback gets. Broadcast and synchronous, so a listener added
+  /// before [open] hears a reset before [open] returns. `OfflineClient.open`
+  /// listens here, so a reset that drops queued writes is never silent.
+  Stream<StorageReset> get resets => _resets.stream;
+
   @override
   Future<StorageSession> open(String principal) =>
       _serialized(principal, () async {
@@ -204,16 +213,16 @@ final class EncryptedSqliteStorage implements StorageAdapter {
     }
 
     await _files.delete(principal);
-    _onReset?.call(
-      StorageReset(
-        principal: principal,
-        reason: key.created
-            ? 'no key was stored for this database, so it was deleted unread '
-                  'and started fresh'
-            : 'the stored key does not decrypt this database, so it was '
-                  'deleted unread and started fresh',
-      ),
+    final reset = StorageReset(
+      principal: principal,
+      reason: key.created
+          ? 'no key was stored for this database, so it was deleted unread '
+                'and started fresh'
+          : 'the stored key does not decrypt this database, so it was '
+                'deleted unread and started fresh',
     );
+    _resets.add(reset);
+    _onReset?.call(reset);
 
     final fresh = await _files.open(principal);
     try {

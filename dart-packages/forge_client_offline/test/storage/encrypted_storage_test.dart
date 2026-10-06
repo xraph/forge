@@ -380,6 +380,20 @@ void main() {
     await session.close();
   });
 
+  test('a reset reaches the resets stream as well as onReset', () async {
+    final storage = storageWith();
+    final heard = <StorageReset>[];
+    storage.resets.listen(heard.add);
+    await writeRecord(storage, 'alice', 'a');
+    secrets.values.removeWhere((name, _) => name.contains('.key.'));
+
+    final session = await storage.open('alice');
+
+    expect(heard.single.principal, 'alice', reason: 'delivered synchronously');
+    expect(resets.single.principal, 'alice');
+    await session.close();
+  });
+
   test('a database started fresh also waits 5 s for a lock', () async {
     final files = _CountingFiles(
       NativeDatabaseFiles(dir.path, labels: keystore),

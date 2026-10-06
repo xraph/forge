@@ -56,6 +56,7 @@ export 'src/outbox/overlay_intent.dart'
         deriveOverlayIntent;
 export 'src/storage/database_files.dart'
     show DatabaseFiles, platformDatabaseFiles, platformPassphraseSaltStore;
+export 'src/storage/default_storage.dart' show encryptedStorage;
 export 'src/storage/encrypted_storage.dart'
     show
         EncryptedSqliteStorage,
