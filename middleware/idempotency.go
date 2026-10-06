@@ -65,6 +65,16 @@ const IdempotencyKeyHeader = idempotency.HeaderName
 // IdempotentReplayedHeader is set to "true" on a replayed response.
 const IdempotentReplayedHeader = idempotency.ReplayedHeader
 
+// IdempotencySkippedHeader is set on the response to a request whose
+// Idempotency-Key the middleware did not act on. "anonymous" means the request
+// had no principal, so it ran without deduplication.
+const IdempotencySkippedHeader = idempotency.SkippedHeader
+
+// IdempotentTruncatedHeader is set to "true" on a replay of a response larger
+// than IdempotencyMaxResponse: the status and headers are replayed, the body
+// is empty.
+const IdempotentTruncatedHeader = idempotency.TruncatedHeader
+
 // DefaultIdempotencyMaxEntries is the in-memory store's default cap.
 const DefaultIdempotencyMaxEntries = idempotency.DefaultMaxEntries
 
@@ -83,9 +93,14 @@ type MemoryIdempotencyOption = idempotency.MemoryOption
 // A handler that returns an error, panics or answers 408, 429 or 5xx stores
 // nothing, so the client's retry runs it again. A 4xx the handler writes
 // itself is stored, while a 4xx returned as an error is not, because the
-// error handler writes it outside this middleware. GET, HEAD and OPTIONS,
-// writes without the header, and requests without a principal (unless
-// IdempotencyAllowAnonymous is set) pass straight through.
+// error handler writes it outside this middleware. A response larger than
+// IdempotencyMaxResponse is replayed without its body, marked
+// Idempotent-Truncated: true. GET, HEAD and OPTIONS and writes without the
+// header pass straight through. So does a keyed request without a principal
+// (unless IdempotencyAllowAnonymous is set), undeduplicated: its response
+// carries Idempotency-Skipped: anonymous, and the first one on each route is
+// logged as a warning, because the usual cause is auth registered after this
+// middleware.
 //
 // The handler runs on a fresh context that shares the outer context's values
 // and session, so ctx.Get and ctx.Session work behind this middleware. Other
@@ -131,23 +146,35 @@ func IdempotencyPrincipal(fn IdempotencyPrincipalFunc) IdempotencyOption {
 	return idempotency.Principal(fn)
 }
 
-// IdempotencyRequireKey answers 400 to a write without an Idempotency-Key.
+// IdempotencyRequireKey answers 400 to a write without an Idempotency-Key. A
+// keyed write without a principal still passes through undeduplicated, with
+// Idempotency-Skipped: anonymous on its response.
 func IdempotencyRequireKey() IdempotencyOption { return idempotency.RequireKey() }
 
 // IdempotencyAllowAnonymous deduplicates requests without a principal too. By
 // default such a request runs as if it carried no Idempotency-Key, because
-// every anonymous caller shares the empty principal.
+// every anonymous caller shares the empty principal, and its response carries
+// Idempotency-Skipped: anonymous.
 func IdempotencyAllowAnonymous() IdempotencyOption { return idempotency.AllowAnonymous() }
 
-// IdempotencyMaxBody caps the request body hashed for the fingerprint. Default 1 MiB.
+// IdempotencyMaxBody caps the request body hashed for the fingerprint. A larger
+// body on a keyed request gets 413. Default 1 MiB.
 func IdempotencyMaxBody(n int64) IdempotencyOption { return idempotency.MaxBody(n) }
 
-// IdempotencyMaxResponse caps the response body stored for replay. Default 1 MiB.
+// IdempotencyMaxResponse caps the response body stored for replay. A larger
+// response is sent in full and replayed with its status and headers, an empty
+// body and Idempotent-Truncated: true. Default 1 MiB.
 func IdempotencyMaxResponse(n int) IdempotencyOption { return idempotency.MaxResponse(n) }
+
+// IdempotencyLogger is where the middleware warns about a misconfiguration,
+// such as keyed requests arriving with no principal. Default: the
+// application logger in the request's container.
+func IdempotencyLogger(l forge.Logger) IdempotencyOption { return idempotency.Logger(l) }
 
 // IdempotencyClock replaces the middleware's clock, for tests.
 func IdempotencyClock(now func() time.Time) IdempotencyOption { return idempotency.Clock(now) }
 
 // DefaultIdempotencyPrincipal reads "auth.subject", then the Subject of
-// "auth_context", and returns "" for an anonymous request.
+// "auth_context" (as "provider:subject" when its ProviderName is set), and
+// returns "" for an anonymous request.
 func DefaultIdempotencyPrincipal(ctx forge.Context) string { return idempotency.DefaultPrincipal(ctx) }

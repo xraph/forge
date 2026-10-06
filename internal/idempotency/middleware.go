@@ -12,10 +12,14 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/router"
+	"github.com/xraph/forge/internal/shared"
 	forge_http "github.com/xraph/go-utils/http"
+	"github.com/xraph/vessel"
 )
 
 // HeaderName is the request header that carries the client's key.
@@ -24,6 +28,16 @@ const HeaderName = "Idempotency-Key"
 // ReplayedHeader marks a response written from the store rather than by the
 // handler.
 const ReplayedHeader = "Idempotent-Replayed"
+
+// SkippedHeader is set on the response to a request that carried an
+// Idempotency-Key the middleware did not act on. Its value says why;
+// "anonymous" means the request had no principal and AllowAnonymous is off.
+const SkippedHeader = "Idempotency-Skipped"
+
+// TruncatedHeader is set to "true" on a replay whose stored response was
+// larger than MaxResponse: the status and headers are the handler's, and the
+// body is empty.
+const TruncatedHeader = "Idempotent-Truncated"
 
 const maxKeyLength = 255
 
@@ -64,6 +78,7 @@ type config struct {
 	maxBody     int64
 	maxResponse int
 	now         func() time.Time
+	logger      logger.Logger
 }
 
 // Option configures Middleware.
@@ -122,7 +137,10 @@ func Principal(fn PrincipalFunc) Option {
 	}
 }
 
-// RequireKey answers 400 to a write that carries no Idempotency-Key.
+// RequireKey answers 400 to a write that carries no Idempotency-Key. A keyed
+// write with no principal still passes through undeduplicated, as it does
+// without RequireKey, and its response carries Idempotency-Skipped:
+// anonymous.
 func RequireKey() Option {
 	return func(c *config) { c.requireKey = true }
 }
@@ -132,6 +150,11 @@ func RequireKey() Option {
 // anonymous caller would share the "" principal, so one could be handed
 // another's stored response by sending the same key. Skipping also fails safe
 // when auth middleware is registered after this one and has not yet run.
+//
+// A skipped request is not refused, because public routes see third-party
+// clients that send Idempotency-Key routinely. Its response carries
+// Idempotency-Skipped: anonymous, and the first one on each route is logged
+// as a warning, so a misordered auth middleware shows up.
 func AllowAnonymous() Option {
 	return func(c *config) { c.anonymous = true }
 }
@@ -147,11 +170,24 @@ func MaxBody(n int64) Option {
 }
 
 // MaxResponse caps the response body stored for replay. A larger response is
-// still sent, but not stored, so a retry runs the handler again. Default 1 MiB.
+// still sent in full, and its status and headers are stored with an empty
+// body and Idempotent-Truncated: true, so a repeat gets those instead of
+// running the handler again. Default 1 MiB.
 func MaxResponse(n int) Option {
 	return func(c *config) {
 		if n > 0 {
 			c.maxResponse = n
+		}
+	}
+}
+
+// Logger is where the middleware warns about a misconfiguration. Without it
+// the middleware uses the application logger from the request's container
+// (forge registers it as "forge.logger"), and logs nothing if there is none.
+func Logger(l logger.Logger) Option {
+	return func(c *config) {
+		if l != nil {
+			c.logger = l
 		}
 	}
 }
@@ -177,10 +213,13 @@ func Clock(now func() time.Time) Option {
 // it. A handler that returns an error or panics also gives the key back, even
 // when the error maps to a 4xx: the error handler writes that response outside
 // this middleware, so only a 4xx the handler writes itself (ctx.JSON and the
-// like) is stored. A response larger than MaxResponse is sent but not stored.
+// like) is stored. A response larger than MaxResponse is stored without its
+// body and replayed with Idempotent-Truncated: true.
 //
 // A request whose principal is "" runs as if it carried no key unless
-// AllowAnonymous is set. While a request holds a key, a duplicate that cannot
+// AllowAnonymous is set; its response carries Idempotency-Skipped: anonymous
+// and the first such request on each route logs a warning (see Logger). While
+// a request holds a key, a duplicate that cannot
 // wait gets 409 with Retry-After: 1, so a client can tell the conflict is
 // temporary.
 //
@@ -218,9 +257,11 @@ func Middleware(store Store, opts ...Option) router.Middleware {
 // DefaultPrincipal reads the authenticated subject: the "auth.subject"
 // context value when it is a string, else the Subject field of whatever
 // "auth_context" holds (the auth extension stores *auth.AuthContext there),
-// else "" for an anonymous request. Every anonymous request shares the ""
-// principal, so on routes open to anonymous callers the key itself is the
-// only thing keeping one caller's response from another.
+// prefixed with its ProviderName as "provider:subject" when that is set, else
+// "" for an anonymous request. The prefix keeps one subject id issued by two
+// providers from sharing keys. Every anonymous request shares the ""
+// principal, so on routes open to anonymous callers (with AllowAnonymous) the
+// key itself is the only thing keeping one caller's response from another.
 func DefaultPrincipal(ctx router.Context) string {
 	if s, ok := ctx.Get("auth.subject").(string); ok && s != "" {
 		return s
@@ -229,6 +270,9 @@ func DefaultPrincipal(ctx router.Context) string {
 	return subjectOf(ctx.Get("auth_context"))
 }
 
+// subjectOf reads Subject, and ProviderName when there is one, from the
+// struct v points to. A subject from a named provider is "provider:subject",
+// so one subject id issued by two providers is two principals.
 func subjectOf(v any) string {
 	if v == nil {
 		return ""
@@ -247,7 +291,20 @@ func subjectOf(v any) string {
 		return ""
 	}
 
-	f := rv.FieldByName("Subject")
+	subject := stringField(rv, "Subject")
+	if subject == "" {
+		return ""
+	}
+
+	if provider := stringField(rv, "ProviderName"); provider != "" {
+		return provider + ":" + subject
+	}
+
+	return subject
+}
+
+func stringField(rv reflect.Value, name string) string {
+	f := rv.FieldByName(name)
 	if !f.IsValid() || f.Kind() != reflect.String {
 		return ""
 	}
@@ -255,7 +312,105 @@ func subjectOf(v any) string {
 	return f.String()
 }
 
-type handler struct{ cfg config }
+// maxWarnedRoutes bounds the routes a handler remembers having warned about.
+// A route is named by its pattern, so the set stays small; the bound only
+// matters for a router that reports no path parameters.
+const maxWarnedRoutes = 1024
+
+type handler struct {
+	cfg config
+
+	warnMu sync.Mutex
+	warned map[string]struct{}
+}
+
+// warnSkipped logs, once per route, that a keyed request ran without
+// deduplication because it had no principal.
+func (h *handler) warnSkipped(ctx router.Context) {
+	route := ctx.Request().Method + " " + routeOf(ctx)
+
+	h.warnMu.Lock()
+	_, seen := h.warned[route]
+
+	if !seen && len(h.warned) < maxWarnedRoutes {
+		if h.warned == nil {
+			h.warned = map[string]struct{}{}
+		}
+
+		h.warned[route] = struct{}{}
+	} else {
+		seen = true
+	}
+	h.warnMu.Unlock()
+
+	if seen {
+		return
+	}
+
+	l := h.cfg.logger
+	if l == nil {
+		l = containerLogger(ctx)
+	}
+
+	if l == nil {
+		return
+	}
+
+	l.Warn("idempotency: a request carried an Idempotency-Key but had no principal, so it was not deduplicated "+
+		"(register auth before the idempotency middleware, or pass AllowAnonymous on a public route)",
+		logger.String("route", route))
+}
+
+// routeOf names the matched route: the path with every segment that holds a
+// path parameter's value replaced by {name}, so /orders/7 and /orders/8 are
+// one route.
+func routeOf(ctx router.Context) string {
+	path := ctx.Request().URL.Path
+
+	params := ctx.Params()
+	if len(params) == 0 {
+		return path
+	}
+
+	byValue := make(map[string]string, len(params))
+	for name, value := range params {
+		if value != "" {
+			byValue[value] = name
+		}
+	}
+
+	segments := strings.Split(path, "/")
+	for i, seg := range segments {
+		if name, ok := byValue[seg]; ok {
+			segments[i] = "{" + name + "}"
+		}
+	}
+
+	return strings.Join(segments, "/")
+}
+
+// containerLogger is the application logger registered in the request's
+// container, or nil. Forge registers it by type, which is where this looks
+// first, then under the name "forge.logger".
+func containerLogger(ctx router.Context) logger.Logger {
+	c := ctx.Container()
+	if c == nil {
+		return nil
+	}
+
+	if l, err := vessel.Inject[logger.Logger](c); err == nil && l != nil {
+		return l
+	}
+
+	v, err := c.Resolve(shared.LoggerKey)
+	if err != nil {
+		return nil
+	}
+
+	l, _ := v.(logger.Logger)
+
+	return l
+}
 
 var errBodyTooLarge = errors.New("idempotency: request body too large")
 
@@ -281,6 +436,12 @@ func (h *handler) wrap(next router.Handler) router.Handler {
 
 		principal := h.cfg.principal(ctx)
 		if principal == "" && !h.cfg.anonymous {
+			// Not deduplicated, and said so: on the response, for a client
+			// that relies on the key, and once per route in the log, because
+			// the usual cause is auth registered after this middleware.
+			ctx.Response().Header().Set(SkippedHeader, "anonymous")
+			h.warnSkipped(ctx)
+
 			return next(ctx)
 		}
 
@@ -433,15 +594,28 @@ func (h *handler) run(ctx router.Context, next router.Handler, key Key, token To
 		rec.status = http.StatusOK
 	}
 
-	if rec.overflow || retryable(rec.status) {
+	if retryable(rec.status) {
 		return nil
+	}
+
+	header := addedHeaders(before, rec.Header())
+	body := bytes.Clone(rec.body.Bytes())
+
+	if rec.overflow {
+		// Too large to keep, but the handler's side effect has happened, so
+		// the key stays taken: a repeat gets the status and headers, an empty
+		// body and a marker saying the body was dropped, never a second run.
+		header.Del("Content-Length")
+		header.Set(TruncatedHeader, "true")
+
+		body = nil
 	}
 
 	now := h.cfg.now()
 	resp := Response{
 		Status:      rec.status,
-		Header:      addedHeaders(before, rec.Header()),
-		Body:        bytes.Clone(rec.body.Bytes()),
+		Header:      header,
+		Body:        body,
 		Fingerprint: fp,
 		StoredAt:    now,
 		ExpiresAt:   now.Add(h.cfg.ttl),

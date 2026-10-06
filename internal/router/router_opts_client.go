@@ -123,8 +123,15 @@ func (o *idempotentOpt) Apply(cfg *RouteConfig) {
 
 // WithIdempotent marks the route as safe to replay with an Idempotency-Key and
 // installs mw, the middleware that makes it so. The two travel together on
-// purpose: a route that advertised x-forge-idempotent without enforcing it
-// would tell an offline client to resend writes the server applies twice.
+// purpose: a route that advertised x-forge-idempotent without installing the
+// middleware would tell an offline client to resend writes the server applies
+// twice.
+//
+// The mark promises deduplication for an authenticated caller only. A keyed
+// request that reaches mw with no principal (auth not registered, or
+// registered after mw) runs undeduplicated; mw says so on the response with
+// Idempotency-Skipped: anonymous, and the Dart outbox reports that header, so
+// the gap shows up instead of passing silently.
 //
 // forge.WithIdempotency is the public entry point; it builds mw.
 func WithIdempotent(mw Middleware) RouteOption { return &idempotentOpt{mw} }

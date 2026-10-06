@@ -14,6 +14,7 @@ import (
 	"time"
 
 	forge "github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 	forge_http "github.com/xraph/go-utils/http"
 )
 
@@ -415,23 +416,6 @@ func TestIdempotencyDoesNotReplayHeadersSetBeforeTheHandler(t *testing.T) {
 
 	if got := second.Header().Get("X-Request-Id"); got != "req-2" {
 		t.Fatalf("X-Request-Id = %q, want req-2 (the first request's id leaked into the replay)", got)
-	}
-}
-
-func TestIdempotencyDoesNotStoreAnOversizedResponse(t *testing.T) {
-	var calls atomic.Int32
-
-	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyMaxResponse(4))
-
-	first, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
-	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
-
-	if first.Code != http.StatusCreated || first.Body.Len() == 0 {
-		t.Fatalf("the oversized response was not sent: %d %q", first.Code, first.Body.String())
-	}
-
-	if calls.Load() != 2 {
-		t.Fatalf("handler ran %d times, want 2 (nothing was stored to replay)", calls.Load())
 	}
 }
 
@@ -1069,5 +1053,260 @@ func TestIdempotencyDoesNotLeaveItsMarkerOnTheOuterContext(t *testing.T) {
 
 	if active, _ := outer.Get("idempotency.active").(bool); active {
 		t.Fatal("the idempotency marker is still set on the outer context after the handler returned")
+	}
+}
+
+// skippedLogger captures the middleware's warnings.
+func skippedLogger() *logger.TestLogger {
+	return logger.NewTestLogger().(*logger.TestLogger)
+}
+
+func TestIdempotencyMarksASkippedAnonymousKeyAndWarnsOncePerRoute(t *testing.T) {
+	var calls atomic.Int32
+
+	log := skippedLogger()
+	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyLogger(log))
+
+	first, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+	second, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k2", body: "{}", anonymous: true})
+
+	for i, rec := range []*httptest.ResponseRecorder{first, second} {
+		if got := rec.Header().Get(IdempotencySkippedHeader); got != "anonymous" {
+			t.Fatalf("response %d: %s = %q, want anonymous", i, IdempotencySkippedHeader, got)
+		}
+	}
+
+	if n := log.CountLogs("WARN"); n != 1 {
+		t.Fatalf("logged %d warnings for one route, want 1", n)
+	}
+
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k3", body: "{}", anonymous: true, path: "/invoices"})
+
+	if n := log.CountLogs("WARN"); n != 2 {
+		t.Fatalf("logged %d warnings across two routes, want 2", n)
+	}
+}
+
+func TestIdempotencyWarnsOnceForARouteWithPathParameters(t *testing.T) {
+	var calls atomic.Int32
+
+	log := skippedLogger()
+	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyLogger(log))
+
+	for _, id := range []string{"7", "8", "9"} {
+		params := &forge_http.RouteParams{}
+		params.Set("id", id)
+		reqCtx := context.WithValue(context.Background(), forge_http.RouteParamsKey, params)
+
+		_, _ = runIdemCtx(t, reqCtx, mw, countingHandler(&calls), idemCall{
+			key: "k", body: "{}", anonymous: true, path: "/orders/" + id + "/cancel",
+		})
+	}
+
+	if n := log.CountLogs("WARN"); n != 1 {
+		t.Fatalf("logged %d warnings for one route with three ids, want 1", n)
+	}
+}
+
+func TestIdempotencyFindsTheAppLoggerInTheContainer(t *testing.T) {
+	var calls atomic.Int32
+
+	log := skippedLogger()
+	container := forge.NewContainer()
+
+	// Registered the way the app registers its logger.
+	if err := forge.Provide(container, func() (forge.Logger, error) { return log, nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/orders", strings.NewReader("{}"))
+	req.Header.Set(IdempotencyKeyHeader, "k1")
+
+	if err := mw(countingHandler(&calls))(forge_http.NewContext(httptest.NewRecorder(), req, container)); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := log.CountLogs("WARN"); n != 1 {
+		t.Fatalf("logged %d warnings through the container's logger, want 1", n)
+	}
+}
+
+func TestIdempotencyDoesNotMarkWhatItDeduplicatesOrWhatCarriesNoKey(t *testing.T) {
+	var calls atomic.Int32
+
+	log := skippedLogger()
+	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyLogger(log))
+
+	signedIn, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}"})
+	keyless, _ := runIdem(t, mw, countingHandler(&calls), idemCall{body: "{}", anonymous: true})
+
+	allowed := Idempotency(NewMemoryIdempotencyStore(), IdempotencyAllowAnonymous(), IdempotencyLogger(log))
+	opted, _ := runIdem(t, allowed, countingHandler(&calls), idemCall{key: "k1", body: "{}", anonymous: true})
+
+	for name, rec := range map[string]*httptest.ResponseRecorder{"signed in": signedIn, "no key": keyless, "AllowAnonymous": opted} {
+		if got := rec.Header().Get(IdempotencySkippedHeader); got != "" {
+			t.Fatalf("%s: %s = %q, want none", name, IdempotencySkippedHeader, got)
+		}
+	}
+
+	if n := log.CountLogs("WARN"); n != 0 {
+		t.Fatalf("logged %d warnings, want none", n)
+	}
+}
+
+func TestIdempotencyStoresATruncatedReplayForAnOversizedResponse(t *testing.T) {
+	var calls atomic.Int32
+
+	big := func(ctx forge.Context) error {
+		calls.Add(1)
+
+		body := `{"big":"` + strings.Repeat("x", 64) + `"}`
+
+		ctx.Response().Header().Set("X-Order", "7")
+		ctx.Response().Header().Set("Content-Type", "application/json")
+		ctx.Response().Header().Set("Content-Length", strconv.Itoa(len(body)))
+
+		return ctx.String(http.StatusCreated, body)
+	}
+
+	mw := Idempotency(NewMemoryIdempotencyStore(), IdempotencyMaxResponse(16))
+
+	first, _ := runIdem(t, mw, big, idemCall{key: "k1", body: "{}"})
+	second, _ := runIdem(t, mw, big, idemCall{key: "k1", body: "{}"})
+
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times, want 1 (an oversized response still holds the key)", calls.Load())
+	}
+
+	if first.Code != http.StatusCreated || first.Body.Len() < 64 || first.Header().Get(IdempotentTruncatedHeader) != "" {
+		t.Fatalf("original = %d %q %v, want the whole 201 unmarked", first.Code, first.Body.String(), first.Header())
+	}
+
+	if second.Code != http.StatusCreated || second.Body.Len() != 0 {
+		t.Fatalf("replay = %d %q, want 201 with an empty body", second.Code, second.Body.String())
+	}
+
+	h := second.Header()
+	if h.Get(IdempotentTruncatedHeader) != "true" || h.Get(IdempotentReplayedHeader) != "true" || h.Get("X-Order") != "7" {
+		t.Fatalf("replay headers = %v, want Idempotent-Truncated, Idempotent-Replayed and the handler's headers", h)
+	}
+
+	if h.Get("Content-Length") != "" {
+		t.Fatalf("replay kept Content-Length %q for an empty body", h.Get("Content-Length"))
+	}
+}
+
+// idemProviderAuth has the shape of the auth extension's AuthContext, with
+// the provider that authenticated the request.
+type idemProviderAuth struct {
+	Subject      string
+	ProviderName string
+}
+
+func TestIdempotencyScopesKeysByAuthProvider(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+
+	as := func(provider string) func(forge.Context) {
+		return func(ctx forge.Context) {
+			ctx.Set("auth_context", &idemProviderAuth{Subject: "u1", ProviderName: provider})
+		}
+	}
+
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", setup: as("google")})
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", setup: as("github")})
+
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2 (one subject id from two providers is two principals)", calls.Load())
+	}
+
+	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", setup: as("google")})
+
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2 (the same provider and subject replays)", calls.Load())
+	}
+}
+
+func TestIdempotencyPrefixesThePrincipalWithTheProvider(t *testing.T) {
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/orders", nil)
+	ctx := forge_http.NewContext(httptest.NewRecorder(), req, nil)
+
+	ctx.Set("auth_context", &idemProviderAuth{Subject: "u1", ProviderName: "google"})
+
+	if got := DefaultIdempotencyPrincipal(ctx); got != "google:u1" {
+		t.Fatalf("principal = %q, want google:u1", got)
+	}
+
+	ctx.Set("auth_context", &idemProviderAuth{Subject: "u1"})
+
+	if got := DefaultIdempotencyPrincipal(ctx); got != "u1" {
+		t.Fatalf("principal without a provider = %q, want u1", got)
+	}
+
+	ctx.Set("auth_context", &idemProviderAuth{ProviderName: "google"})
+
+	if got := DefaultIdempotencyPrincipal(ctx); got != "" {
+		t.Fatalf("principal without a subject = %q, want anonymous", got)
+	}
+}
+
+// 101 Switching Protocols is the one 1xx that is final: once a handler sends
+// it, nothing follows, so it is the outcome that is stored.
+func TestIdempotencyTreats101AsTheFinalStatus(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+	switching := func(ctx forge.Context) error {
+		calls.Add(1)
+		ctx.Response().WriteHeader(http.StatusSwitchingProtocols)
+		// Dropped: the 101 already ended the response.
+		ctx.Response().WriteHeader(http.StatusCreated)
+
+		return nil
+	}
+
+	first, _ := runIdem(t, mw, switching, idemCall{key: "k1", body: "{}"})
+	second, _ := runIdem(t, mw, switching, idemCall{key: "k1", body: "{}"})
+
+	if first.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("original = %d, want 101", first.Code)
+	}
+
+	if calls.Load() != 1 || second.Code != http.StatusSwitchingProtocols || second.Header().Get(IdempotentReplayedHeader) != "true" {
+		t.Fatalf("after %d calls the repeat got %d replayed=%q, want the stored 101", calls.Load(), second.Code, second.Header().Get(IdempotentReplayedHeader))
+	}
+}
+
+// A handler that sends only an informational status and returns has sent no
+// final status; net/http answers with an empty 200, and that is stored.
+func TestIdempotencyStoresTheImplicit200AfterOnlyAn1xx(t *testing.T) {
+	var calls atomic.Int32
+
+	mw := Idempotency(NewMemoryIdempotencyStore())
+	hintsOnly := func(ctx forge.Context) error {
+		calls.Add(1)
+		ctx.Response().WriteHeader(http.StatusEarlyHints)
+
+		return nil
+	}
+
+	var hints *hintsWriter
+
+	_, _ = runIdem(t, mw, hintsOnly, idemCall{key: "k1", body: "{}", wrap: func(rec http.ResponseWriter) http.ResponseWriter {
+		hints = &hintsWriter{ResponseRecorder: rec.(*httptest.ResponseRecorder)}
+
+		return hints
+	}})
+
+	if len(hints.informational) != 1 || hints.informational[0] != http.StatusEarlyHints {
+		t.Fatalf("informational = %v, want [103] passed through", hints.informational)
+	}
+
+	second, _ := runIdem(t, mw, hintsOnly, idemCall{key: "k1", body: "{}"})
+
+	if calls.Load() != 1 || second.Code != http.StatusOK || second.Body.Len() != 0 || second.Header().Get(IdempotentReplayedHeader) != "true" {
+		t.Fatalf("after %d calls the repeat got %d %q, want the stored empty 200", calls.Load(), second.Code, second.Body.String())
 	}
 }

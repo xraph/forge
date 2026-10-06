@@ -39,9 +39,13 @@ func IdempotencyBackend(store IdempotencyStore) IdempotencyOption {
 //   - A handler that returns an error, panics, or answers 408, 429 or 5xx
 //     stores nothing, so the client's retry runs the handler again. Every
 //     other status is stored and replayed until the TTL (24h by default).
+//   - A response larger than middleware.IdempotencyMaxResponse (1 MiB) is sent
+//     in full and replayed without its body, marked Idempotent-Truncated: true.
 //   - A request with no principal is not deduplicated: it runs as if it had
-//     no key. Every anonymous caller shares the empty principal, so one could
-//     otherwise be handed another's response. Pass
+//     no key, and its response carries Idempotency-Skipped: anonymous. Every
+//     anonymous caller shares the empty principal, so one could otherwise be
+//     handed another's response. The first such request on each route logs a
+//     warning through the application logger. Pass
 //     middleware.IdempotencyAllowAnonymous() to opt in on a route that has no
 //     auth.
 //   - GET, HEAD, OPTIONS and writes without the header pass straight through.
@@ -50,7 +54,14 @@ func IdempotencyBackend(store IdempotencyStore) IdempotencyOption {
 // have run already: register it at router scope (Use) or group scope, or
 // earlier in the same option list. Auth added after this option, or at route
 // level under a WithGroupIdempotency group, has not run yet, every request
-// looks anonymous, and nothing is deduplicated.
+// looks anonymous, and nothing is deduplicated. The Idempotency-Skipped
+// response header and the logged warning are how that shows up.
+//
+// The x-forge-idempotent mark tells a client the server deduplicates replays
+// for an authenticated caller. An offline outbox replays a write for up to
+// the TTL; behind a load balancer, or across deploys, pass
+// forge.IdempotencyBackend with a shared, durable store so a replay still
+// finds the stored response.
 //
 // Example:
 //
@@ -73,7 +84,8 @@ func WithIdempotency(opts ...IdempotencyOption) RouteOption {
 // Authentication must run before it: put WithGroupMiddleware(auth) ahead of
 // this option, or register auth at router scope. Auth registered after it, or
 // on a route inside the group, has not run yet, every request looks anonymous,
-// and nothing is deduplicated.
+// and nothing is deduplicated; each response then carries
+// Idempotency-Skipped: anonymous.
 func WithGroupIdempotency(opts ...IdempotencyOption) GroupOption {
 	return router.WithGroupIdempotent(idempotency.Middleware(nil, opts...))
 }

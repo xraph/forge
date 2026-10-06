@@ -605,3 +605,47 @@ func TestConcurrentBeginsOnOneKeyHaveExactlyOneWinner(t *testing.T) {
 		t.Fatalf("acquired=%d inFlight=%d other=%d; want 1, %d, 0", acquired, inFlight, other, callers-1)
 	}
 }
+
+// A key pushed out by the LRU cap and then claimed again is a new claim: its
+// token differs from every token the key had before, so a holder of the old
+// one can neither complete nor release the new claim.
+func TestATokenStaysDistinctAcrossEvictionAndRecreation(t *testing.T) {
+	s, _ := newTestStore(WithMaxEntries(1))
+	ctx := context.Background()
+	other := Key{Principal: "alice", Scope: "POST /orders", Value: "k2"}
+
+	first, err := s.Begin(ctx, orderKey, "fp", time.Minute)
+	if err != nil || first.State != Acquired {
+		t.Fatalf("first Begin = %+v, %v; want Acquired", first, err)
+	}
+
+	if err := s.Complete(ctx, orderKey, first.Token, Response{Status: 201}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Completing another key pushes orderKey out (the cap is one).
+	if err := s.Complete(ctx, other, 0, Response{Status: 201}); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := s.Begin(ctx, orderKey, "fp", time.Minute)
+	if err != nil || again.State != Acquired {
+		t.Fatalf("Begin after eviction = %+v, %v; want Acquired (the response was evicted)", again, err)
+	}
+
+	if again.Token == first.Token {
+		t.Fatalf("the re-created claim reused token %d", again.Token)
+	}
+
+	if err := s.Complete(ctx, orderKey, first.Token, Response{Status: 500}); !errors.Is(err, ErrNotHolder) {
+		t.Fatalf("Complete with the evicted claim's token = %v, want ErrNotHolder", err)
+	}
+
+	if err := s.Release(ctx, orderKey, first.Token); !errors.Is(err, ErrNotHolder) {
+		t.Fatalf("Release with the evicted claim's token = %v, want ErrNotHolder", err)
+	}
+
+	if got, _ := s.Begin(ctx, orderKey, "fp", time.Minute); got.State != InFlight {
+		t.Fatalf("after the stale token's attempts the key is %v, want still InFlight under the new claim", got.State)
+	}
+}
