@@ -381,6 +381,12 @@ enum ActionKind {
 
   /// Marked one query stale.
   stale,
+
+  /// Replayed one outbox write by hand.
+  replay,
+
+  /// Discarded one outbox write by hand.
+  discard,
 }
 
 /// What happened to a queued write.

@@ -5,6 +5,7 @@ library;
 import '../cache.dart';
 import '../observe.dart';
 import '../operation.dart';
+import '../storage.dart' show PendingMutationRecord;
 import '../tags.dart';
 import '../transport.dart';
 import 'actions.dart';
@@ -17,6 +18,7 @@ import 'inspect.dart' show EntityFilter;
 import 'log.dart';
 import 'requests.dart';
 import 'seams.dart';
+import 'sources.dart';
 import 'types.dart';
 
 /// Turns frame capture on. Presence is the switch; [limit] defaults to 200.
@@ -32,7 +34,8 @@ final class FrameOptions {
 /// gives the slot back on [Devtools.dispose] if it is still ours.
 ///
 /// Nothing crosses principals: when the cache's principal changes, the log, the
-/// frame ring and the [requests] log are purged (one marker each is left), and
+/// frame ring and the [requests] log are purged (one marker each is left), the
+/// outbox and sync mirrors are emptied, and
 /// an armed failure on [controls] is disarmed and its delayed requests are
 /// aborted, before the cache drops the
 /// previous principal's records, so none of what was recorded for one user is
@@ -49,6 +52,7 @@ Devtools attach(
   RequestLog? requests,
   ControlledTransport? controls,
   Revalidation? revalidation,
+  OutboxInspector? outbox,
 }) => Devtools._(
   cache,
   limit: limit,
@@ -58,6 +62,7 @@ Devtools attach(
   requestLog: requests,
   controls: controls,
   revalidation: revalidation,
+  outboxInspector: outbox,
 );
 
 /// The inspector over one cache.
@@ -71,6 +76,7 @@ final class Devtools {
     required this.requestLog,
     required this.controls,
     required this.revalidation,
+    required this.outboxInspector,
   }) : _log = EventLog(capacity: limit, clock: _clock),
        _ring = _ringFor(frames) {
     _previous = cache.observer;
@@ -97,7 +103,14 @@ final class Devtools {
   /// The revalidation toggles, when the application registered any.
   final Revalidation? revalidation;
 
+  /// The offline client's outbox, when the application wired one. Replaying
+  /// and discarding go through it; listing does not need it. Not final: a
+  /// later registration on a cache that is already attached sets it here.
+  OutboxInspector? outboxInspector;
+
   final EventLog _log;
+  final OutboxMirror _outbox = OutboxMirror();
+  final SyncMirror _sync = SyncMirror();
   final Clock _clock;
   final int _argsLimit;
   FrameRing? _ring;
@@ -335,6 +348,176 @@ final class Devtools {
   /// Requests the ring overwrote.
   int get requestsDropped => _disposed ? 0 : requestLog?.dropped ?? 0;
 
+  static const _noInspector =
+      '[forge] no OutboxInspector is wired; pass one to '
+      'registerForgeServiceExtensions to replay or discard';
+
+  // A result built across an await belongs to the identity session that asked.
+  // It is dropped when the cache began changing principal, or the inspector was
+  // detached, in the meantime: the principal that is in charge now must never
+  // be handed what was read for the previous one. This is the recorder's own
+  // signal, the identity session counter it bumps in the changing listener.
+  bool _moved(int session) => !_answerable() || _session != session;
+
+  Map<String, Object?> _staleOutbox() => {
+    'wired': outboxInspector != null,
+    'source': 'events',
+    'entries': const <Object?>[],
+    'stale': true,
+  };
+
+  /// The Outbox panel's rows. With a storage session, its queued writes are
+  /// the truth and the event mirror adds recent replays; without one, the
+  /// mirror alone. `wired` says whether replay and discard are available.
+  ///
+  /// Only ids, operation names, states and a reduced failure leave: never a
+  /// write's arguments or idempotency key. While the cache is changing
+  /// principal, once the inspector is disposed, and when either happens while
+  /// the session is being read, the answer is empty and `stale` is true.
+  Future<Map<String, Object?>> outbox() async {
+    if (!_answerable()) return _staleOutbox();
+
+    final epoch = _session;
+    final wired = outboxInspector != null;
+    final session = _dev.session;
+
+    if (session == null) {
+      return {
+        'wired': wired,
+        'source': 'events',
+        'entries': [for (final row in _outbox.entries()) row.toJson()],
+      };
+    }
+
+    final List<PendingMutationRecord> records;
+
+    try {
+      records = await session.readOutbox();
+    } on Object {
+      // A session closing under the read is the principal changing.
+      if (_moved(epoch)) return _staleOutbox();
+      rethrow;
+    }
+
+    if (_moved(epoch)) return _staleOutbox();
+
+    final ids = {for (final record in records) record.id};
+
+    return {
+      'wired': wired,
+      'source': 'session',
+      'entries': [
+        for (final record in records)
+          if (outboxStateOf(record.stateJson ?? _queuedState) case (
+            :final state,
+            :final failure,
+            :final since,
+          ))
+            {
+              'id': record.id,
+              'operation': record.operationId,
+              'createdAt': record.createdAt.millisecondsSinceEpoch,
+              'state': state,
+              'failure': failure,
+              'since': since,
+              'at': null,
+            },
+        for (final row in _outbox.entries())
+          if (!ids.contains(row.id) && row.state == 'replayed') row.toJson(),
+      ],
+    };
+  }
+
+  static const _queuedState = '{"kind":"queued"}';
+
+  /// Replays one queued write through the inspector. The attempt is logged
+  /// before it is made, and whatever the inspector throws (an offline
+  /// failure, or a refusal because the write belongs to another principal)
+  /// reaches the caller unchanged.
+  Future<void> replayOutbox(String id) => _outboxAction(ActionKind.replay, id);
+
+  /// Discards one queued write through the inspector. See [replayOutbox].
+  Future<void> discardOutbox(String id) =>
+      _outboxAction(ActionKind.discard, id);
+
+  Future<void> _outboxAction(ActionKind action, String id) async {
+    if (!_answerable()) {
+      throw StateError(
+        '[forge] the outbox is unavailable right now: the cache is changing '
+        'principal, or the inspector was detached. Nothing was changed.',
+      );
+    }
+
+    final inspector = outboxInspector;
+
+    if (inspector == null) throw StateError(_noInspector);
+
+    _log.push(
+      (seq, at) => ActionLog(
+        seq: seq,
+        at: at,
+        session: _session,
+        action: action,
+        target: id,
+      ),
+    );
+
+    return switch (action) {
+      ActionKind.replay => inspector.replay(id),
+      _ => inspector.discard(id),
+    };
+  }
+
+  Map<String, Object?> _staleSync() => {
+    'sources': const <Object?>[],
+    'entities': const <Object?>[],
+    'stale': true,
+  };
+
+  /// The Sync panel: each source's entities and self-description, and the
+  /// latest status each entity reported.
+  ///
+  /// A source describes itself only if it implements `DevtoolsInspectable`.
+  /// While the cache is changing principal, once the inspector is disposed,
+  /// and when either happens while a source is being asked, the answer is
+  /// empty and `stale` is true: nothing a source said for the previous
+  /// principal is returned.
+  Future<Map<String, Object?>> sync() async {
+    if (!_answerable()) return _staleSync();
+
+    final epoch = _session;
+    final sources = <Map<String, Object?>>[];
+
+    for (final source in _dev.syncSources) {
+      Object? detail;
+
+      if (source case final DevtoolsInspectable inspectable) {
+        try {
+          final described = await inspectable.describeForDevtools();
+
+          if (_moved(epoch)) return _staleSync();
+
+          detail = bounded(described, 50);
+        } on Object catch (error) {
+          if (_moved(epoch)) return _staleSync();
+
+          detail = {'error': shortMessage('$error')};
+        }
+      }
+
+      sources.add({
+        'type': source.runtimeType.toString(),
+        'entities': [...source.entities]..sort(),
+        'detail': detail,
+      });
+    }
+
+    return {
+      'sources': sources,
+      'entities': [for (final entry in _sync.entries()) entry.toJson()],
+    };
+  }
+
   /// Turns capture on with [options], or off with null. Replacing the ring
   /// discards what the old one held.
   void setCapture(FrameOptions? options) => _ring = _ringFor(options);
@@ -358,6 +541,8 @@ final class Devtools {
     _log.clear();
     _ring?.clear();
     requestLog?.clear();
+    _outbox.clear();
+    _sync.clear();
     controls?.release();
     _fetching.clear();
     _seen.clear();
@@ -485,6 +670,8 @@ final class Devtools {
 
     _ring?.purge(seq: marker.seq, at: marker.at);
     requestLog?.purge();
+    _outbox.clear();
+    _sync.clear();
     controls?.principalChanged();
 
     if (cleared) {
@@ -606,7 +793,7 @@ final class Devtools {
       case DevQueryEvent(:final key, :final status, :final fetching):
         _onQuery(key, status, fetching);
       case DevOutboxEnqueued(:final mutationId, :final operation):
-        _log.push(
+        final entry = _log.push(
           (seq, at) => OutboxLog(
             seq: seq,
             at: at,
@@ -617,46 +804,47 @@ final class Devtools {
             failure: null,
           ),
         );
-      case DevOutboxReplayed(:final mutationId):
-        _log.push(
+        _outbox.enqueued(mutationId, operation, entry.at);
+      case DevOutboxReplayed(:final mutationId, :final operation):
+        final entry = _log.push(
           (seq, at) => OutboxLog(
             seq: seq,
             at: at,
             session: _session,
             phase: OutboxPhase.replayed,
             mutationId: mutationId,
-            operation: null,
+            operation: operation,
             failure: null,
           ),
         );
-      case DevOutboxFailed(:final mutationId, :final failure):
-        _log.push(
+        _outbox.replayed(mutationId, operation, entry.at);
+      case DevOutboxFailed(:final mutationId, :final operation, :final failure):
+        final entry = _log.push(
           (seq, at) => OutboxLog(
             seq: seq,
             at: at,
             session: _session,
             phase: OutboxPhase.failed,
             mutationId: mutationId,
-            operation: null,
+            operation: operation,
             failure: failure,
           ),
         );
-      case DevSyncStatus(
-        :final entity,
-        :final status,
-        :final pending,
-        :final error,
-      ):
-        _log.push(
+        _outbox.failed(mutationId, operation, failure, entry.at);
+      case final DevSyncStatus status:
+        final entry = _log.push(
           (seq, at) => SyncLog(
             seq: seq,
             at: at,
             session: _session,
-            entity: entity,
-            status: status,
-            detail: status == 'pending' ? '$pending' : error,
+            entity: status.entity,
+            status: status.status,
+            detail: status.status == 'pending'
+                ? '${status.pending}'
+                : status.error,
           ),
         );
+        _sync.apply(status, entry.at);
     }
 
     _previous?.call(raw);
