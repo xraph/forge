@@ -543,6 +543,62 @@ void main() {
         devtools.dispose();
       },
     );
+
+    test('keeps the marker back until the old store is gone, even after a plain clear', () async {
+      const secret = 'alice-ssn';
+      final h = Harness()
+        ..reply('GET /orders', [
+          {'id': secret, 'total': 10},
+        ]);
+
+      // Registered before the recorder's own, so it runs first and reaches the
+      // recorder before the recorder has heard of the change.
+      final during = <String>[];
+      Devtools? devtools;
+
+      h.cache.watchPrincipalChanging((_) {
+        h.cache.observer?.call(
+          debugOutboxFailed('m-alice', 'op_create', '$secret rejected'),
+        );
+        during.add(jsonEncode(devtools?.whyNotRefetched(h.key(Ops.orderList))));
+      });
+
+      devtools = attach(h.cache, clock: CounterClock());
+      final sub = h.mount(Ops.orderList);
+      await h.settle();
+
+      // A plain clear moves the cache's generation without a principal change.
+      h.cache.clear();
+      await h.settle();
+
+      expect(h.dev.records, greaterThan(0));
+
+      final records = <int>[];
+      final markers = <String>[];
+
+      devtools.subscribe((entry) {
+        if (entry is PrincipalLog) {
+          records.add(h.dev.records);
+          markers.add(
+            jsonEncode(devtools!.whyNotRefetched(h.key(Ops.orderList))),
+          );
+        }
+      });
+
+      h.cache.setPrincipal('bob');
+
+      expect(records, [0]);
+      expect(during.single, isNot(contains(secret)));
+      expect(markers.single, isNot(contains(secret)));
+      expect(devtools.log().whereType<OutboxLog>(), isEmpty);
+      expect(
+        jsonEncode([for (final entry in devtools.log()) entry.toJson()]),
+        isNot(contains(secret)),
+      );
+
+      await sub.cancel();
+      devtools.dispose();
+    });
   });
 
   group('attaching and detaching', () {
@@ -838,6 +894,34 @@ void main() {
   // The standing rule is that nothing crosses principals. A recording of one
   // user's activity must not be readable by the next.
   group('purging on a principal change', () {
+    test('drains what was held before any entry pushed while it drains', () {
+      final log = EventLog(clock: CounterClock());
+      final heard = <int>[];
+
+      log.subscribe((entry) {
+        heard.add(entry.seq);
+
+        // A subscriber that reacts to the first entry by recording another.
+        if (entry.seq == 1) {
+          log.push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+        }
+      });
+      log.hold();
+      log
+        ..push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1))
+        ..push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1))
+        ..push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+
+      log.release();
+
+      expect(heard, [1, 2, 3, 4]);
+
+      // Delivery is live again once it has drained.
+      log.push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+
+      expect(heard, [1, 2, 3, 4, 5]);
+    });
+
     test(
       'holds delivery, keeps recording, and releases in order or drops unheard',
       () {

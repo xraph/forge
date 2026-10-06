@@ -60,7 +60,6 @@ final class Devtools {
     _previous = cache.observer;
     _owner = cache.principal;
     cache.observer = _observer;
-    _gen = cache.generation;
     _stopWatching = cache.watchPrincipalChanging(_onChanging);
     _stopSettled = cache.watchPrincipal(_onSettled);
   }
@@ -97,9 +96,6 @@ final class Devtools {
   // previous principal and an event under a later one is the new principal's.
   bool _changing = false;
   int _fence = 0;
-
-  // The cache generation the recorder's state last agreed with.
-  int _gen = 0;
 
   static FrameRing? _ringFor(FrameOptions? options) =>
       options == null || options.limit <= 0 ? null : FrameRing(options.limit);
@@ -292,7 +288,12 @@ final class Devtools {
     final principal = cache.principal;
 
     if (principal != _owner) {
-      _adopt(principal, cleared: cache.generation != _gen);
+      // The changing listener runs before the clear and nothing else changes
+      // the principal, so a recorder that has not heard of this change is
+      // being asked inside its window: the cache has not emptied yet. The
+      // settle listener ends the window. The cache's generation is no guide
+      // here: a plain `clear()` moves it without a principal change.
+      _adopt(principal, cleared: false);
     }
   }
 
@@ -322,7 +323,6 @@ final class Devtools {
 
   void _settle() {
     _changing = false;
-    _gen = cache.generation;
     _log.release();
   }
 

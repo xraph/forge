@@ -123,18 +123,17 @@ final class EventLog {
 
   /// Ends [hold]. With [deliver] the queued entries reach the subscribers, in
   /// the order they were recorded; without it they are dropped unheard.
+  ///
+  /// Delivery stays held while the queue drains, so an entry a subscriber
+  /// records in reaction joins the end of the queue instead of overtaking it.
   void release({bool deliver = true}) {
-    _held = false;
+    if (!deliver) _queued.clear();
 
-    final queued = [..._queued];
-
-    _queued.clear();
-
-    if (!deliver) return;
-
-    for (final entry in queued) {
-      _notify(entry);
+    while (_queued.isNotEmpty) {
+      _notify(_queued.removeAt(0));
     }
+
+    _held = false;
   }
 
   /// Hears each entry as it is recorded. Returns the unsubscribe.
