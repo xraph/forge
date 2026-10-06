@@ -51,7 +51,9 @@ typedef OverlayIntentFor = OverlayIntent Function(
 /// Lanes: writes to one entity type replay one at a time, in order. Lanes are
 /// independent, so a backoff armed by one lane does not hold a new write to
 /// an idle lane: that write is still sent directly. The backoff only holds
-/// replays of writes already queued.
+/// replays of writes already queued. A successful `retry()` of a failed write
+/// cancels that shared backoff timer, so writes in other lanes that were
+/// backing off replay as well.
 ///
 /// A queued write's future stays pending for as long as the write is queued,
 /// which can be indefinitely (offline for days, or held by the backoff). The
@@ -123,7 +125,10 @@ final class OfflineClient {
       ..add(cache.sessionChanges.listen(_onSession));
     // Synchronous, before the cache clears: nothing told of the change may
     // see this principal's queue. Only in-memory state moves here.
-    _unwatchChanging = cache.watchPrincipalChanging((_) => _suspend());
+    _unwatchChanging = cache.watchPrincipalChanging((_) {
+      _principalChanges++;
+      _suspend();
+    });
 
     final session = cache.session;
     if (session != null && session.principal == cache.principal) {
@@ -172,6 +177,11 @@ final class OfflineClient {
   /// finish against that principal's own storage, but it never touches the
   /// in-memory queue, the failures or the counts again.
   int _epoch = 0;
+
+  /// Counts real principal changes (the cache calls a changing listener
+  /// only when the principal differs). A write captures it when it arrives;
+  /// unlike `cache.generation`, a plain `clear()` does not move it.
+  int _principalChanges = 0;
 
   /// The cache this client queues writes for.
   QueryCache get cache => _cache;
@@ -468,24 +478,24 @@ final class OfflineClient {
       return _transport.inner.execute(request);
     }
 
-    // The cache's life the write was made in. Every principal change starts
-    // a new one, so a write that waits below and finds it changed was made
-    // for someone who has left.
+    // How many principal changes had happened when the write was made. A
+    // write that waits below and finds the count moved was made for someone
+    // who has left, even if they have since come back.
     return _track(
       request,
-      generation: _cache.generation,
+      principalChanges: _principalChanges,
       waitedForSwitch: false,
     );
   }
 
   Future<Object?> _track(
     TransportRequest request, {
-    required int generation,
+    required int principalChanges,
     required bool waitedForSwitch,
   }) {
     // Resumed after a wait, and the principal changed meanwhile: dispatching
     // now would send this write under whoever is signed in next.
-    if (_cache.generation != generation) {
+    if (_principalChanges != principalChanges) {
       return Future<Object?>.error(const OutboxStale());
     }
 
@@ -499,7 +509,11 @@ final class OfflineClient {
         principal != null &&
         (current == null || current.principal != principal)) {
       return _cache.idle.then(
-        (_) => _track(request, generation: generation, waitedForSwitch: true),
+        (_) => _track(
+          request,
+          principalChanges: principalChanges,
+          waitedForSwitch: true,
+        ),
       );
     }
 
@@ -515,7 +529,7 @@ final class OfflineClient {
       return restoring.then(
         (_) => _track(
           request,
-          generation: generation,
+          principalChanges: principalChanges,
           waitedForSwitch: waitedForSwitch,
         ),
       );
@@ -1061,9 +1075,11 @@ final class OfflineClient {
   Future<void> _retry(String id) async {
     final p = _byId(id);
     final session = _session;
-    if (p == null || p.failure == null || session == null || p.meta == null) {
+    final meta = p?.meta;
+    if (p == null || p.failure == null || session == null || meta == null) {
       return;
     }
+    if (_refuseOwned(meta, 'retry')) return;
 
     final queued = p.entry.copyWith(clearFailure: true, clearSentAt: true);
     if (await _mark(session, queued) != null || p.epoch != _epoch) return;
@@ -1108,6 +1124,7 @@ final class OfflineClient {
     if (p == null || p.failure == null || session == null || meta == null) {
       return;
     }
+    if (_refuseOwned(meta, 'edit')) return;
 
     // A new record first, then the old one goes: a crash between the two
     // leaves the old failure visible, never a lost write.
@@ -1192,6 +1209,22 @@ final class OfflineClient {
       );
     }
     return false;
+  }
+
+  /// True, after reporting it, when [meta]'s entity is owned by a sync
+  /// source: the cache would hand a re-issued write to that source, so
+  /// `retry` and `edit` leave the failure and its record as they are. Only
+  /// `discard` applies to such a write.
+  bool _refuseOwned(OperationMeta meta, String action) {
+    if (!_ownedBySource(meta)) return false;
+    _report(
+      StateError(
+        '$action refused: ${meta.entity} is owned by a sync source, which '
+        'sends its own writes; discard this one instead',
+      ),
+      'outbox.$action',
+    );
+    return true;
   }
 
   /// Whether a sync source owns [meta]'s entity, so the cache sends its

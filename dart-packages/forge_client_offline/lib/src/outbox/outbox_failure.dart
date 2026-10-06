@@ -42,12 +42,18 @@ sealed class OutboxFailure implements Exception {
   final OutboxControl _control;
 
   /// Sends the write again with the same Idempotency-Key.
+  ///
+  /// It does not wait out the outbox's backoff: retrying cancels the backoff
+  /// timer, which all lanes share, so writes in other lanes that were backing
+  /// off replay now too. A write for an entity a sync source owns is never
+  /// resent; only [discard] applies to it.
   Future<void> retry() => _control.retry(mutationId);
 
   /// Drops the write.
   Future<void> discard() => _control.discard(mutationId);
 
   /// Sends the write again with new arguments and a new Idempotency-Key.
+  /// A write for an entity a sync source owns is never resent.
   Future<void> edit(TagContext args) => _control.edit(mutationId, args);
 
   /// The persisted form, stored inside the record's `{"kind":"failed"}` state.

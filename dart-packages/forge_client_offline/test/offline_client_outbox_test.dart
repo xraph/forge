@@ -1319,6 +1319,47 @@ void main() {
       });
     });
 
+    for (final action in ['retry', 'edit']) {
+      test(
+        '$action on a write a sync source owns never hands it to the source',
+        () async {
+          final storage = memoryStorage();
+          await seedOutbox(storage, 'alice', [
+            seededEntry(id: 'm1', meta: opUpdateOrder, seq: 1),
+          ]);
+          final source = FakeSource({'Order'});
+          final h = await Harness.create(
+            storage: storage,
+            online: true,
+            syncSources: [source],
+          );
+          await settle();
+          final failure = h.offline.currentFailures.single;
+
+          if (action == 'retry') {
+            await failure.retry();
+          } else {
+            await failure.edit(orderArgs('7', {'note': 'edited'}));
+          }
+          await settle();
+
+          expect(source.applied, isEmpty);
+          expect(h.writes, isEmpty);
+          expect(h.offline.currentFailures.single, isA<OutboxGone>());
+          expect(h.offline.pending.single.id, 'm1');
+          expect(
+            (await h.stored()).single.stateJson,
+            contains('"kind":"gone"'),
+          );
+
+          // The lane is not stuck: the write can still be discarded.
+          await h.offline.currentFailures.single.discard();
+          expect(h.offline.pending, isEmpty);
+          expect(await h.stored(), isEmpty);
+        },
+      );
+    }
+
     test(
       'a replay marker for an unknown write is refused, never sent',
       () async {
@@ -1367,6 +1408,58 @@ void main() {
   });
 
   group('a write made for a principal who left', () {
+    test(
+      'a plain clear while a write waits for the restore does not refuse it',
+      () async {
+        final storage = ScriptedStorage(memoryStorage());
+        final h = await Harness.create(storage: storage, online: true);
+        await switchTo(h.cache, null);
+
+        final reading = Completer<void>();
+        final release = Completer<void>();
+        storage.beforeReadOutbox = (principal) async {
+          if (principal != 'alice' || reading.isCompleted) return;
+          reading.complete();
+          await release.future;
+        };
+        await switchTo(h.cache, 'alice');
+        await reading.future;
+
+        final write = Watched(
+          h.write(opUpdateOrder, orderArgs('7', {'note': 'alice'})),
+        );
+        await settle();
+        expect(h.writes, isEmpty);
+
+        h.cache.clear();
+        release.complete();
+        await settle();
+
+        expect(write.error, isNull);
+        expect(write.done, isTrue);
+        expect(h.writes, hasLength(1));
+        expect(h.network.writesSentAs, ['alice']);
+      },
+    );
+
+    test("a write made while alice's session opens is refused after alice leaves and returns", () async {
+      final h = await Harness.create(online: true);
+      await switchTo(h.cache, null);
+
+      h.cache.setPrincipal('alice');
+      final write = Watched(
+        h.write(opUpdateOrder, orderArgs('7', {'note': 'alice'})),
+      );
+      h.cache.setPrincipal(null);
+      h.cache.setPrincipal('alice');
+      await h.cache.idle;
+      await settle();
+
+      expect(write.error, isA<OutboxStale>());
+      expect(h.writes, isEmpty);
+      expect(await h.stored('alice'), isEmpty);
+    });
+
     test(
       "a write made while alice's session opens never goes out as bob",
       () async {
