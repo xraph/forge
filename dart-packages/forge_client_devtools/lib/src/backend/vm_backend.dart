@@ -6,6 +6,23 @@ import 'package:forge_client/devtools_protocol.dart';
 import 'package:vm_service/vm_service.dart';
 
 import 'backend.dart';
+import 'isolate_watch.dart';
+
+/// [ServiceHooks] over DevTools' `serviceManager`.
+final class _DevtoolsHooks implements ServiceHooks {
+  const _DevtoolsHooks();
+
+  @override
+  ValueListenable<Object?> get mainIsolate =>
+      serviceManager.isolateManager.mainIsolate;
+
+  @override
+  ValueListenable<Object?> get connection => serviceManager.connectedState;
+
+  @override
+  ValueListenable<bool> hasServiceExtension(String name) =>
+      serviceManager.serviceExtensionManager.hasServiceExtension(name);
+}
 
 /// The real backend: `serviceManager` from `devtools_extensions`, which talks
 /// to the connected app's main isolate. The only file in this package that
@@ -14,14 +31,21 @@ final class VmForgeBackend implements ForgeBackend {
   /// Creates the backend. Construct it inside `DevToolsExtension`, after the
   /// globals exist.
   VmForgeBackend()
-    : available = serviceManager.serviceExtensionManager.hasServiceExtension(
+    : _watch = IsolateWatch(
+        const _DevtoolsHooks(),
         ForgeDevtoolsProtocol.hello,
       ) {
     serviceManager.connectedState.addListener(_onConnection);
   }
 
+  /// Follows `ext.forge.hello` across hot restarts and isolate changes.
+  final IsolateWatch _watch;
+
   @override
-  final ValueListenable<bool> available;
+  ValueListenable<bool> get available => _watch.available;
+
+  @override
+  ValueListenable<int> get isolate => _watch.isolate;
 
   late final StreamController<Json> _events = StreamController<Json>.broadcast(
     onListen: _listen,

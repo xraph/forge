@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/devtools_protocol.dart';
 
+import '../support/fake_backend.dart';
 import '../support/pump.dart';
 
 void main() {
@@ -149,4 +150,28 @@ void main() {
       greaterThan(reads),
     );
   });
+
+  testWidgets(
+    'shows a query the app would not send whole as too large to show',
+    (tester) async {
+      final fake = FakeForgeBackend();
+      fake.overrides[ForgeDevtoolsProtocol.queries] = (_) => {
+        'total': 2,
+        'offset': 0,
+        'truncated': false,
+        'items': [
+          {'key': 'GET /orders', 'status': 'success'},
+          {'oversized': true, 'field': 'key'},
+        ],
+      };
+      await pumpPanel(tester, fake);
+
+      expect(find.byKey(const ValueKey('query-GET /orders')), findsOneWidget);
+      expect(
+        find.text('too large to show (key is over 64 KB)'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('query-')), findsNothing);
+    },
+  );
 }

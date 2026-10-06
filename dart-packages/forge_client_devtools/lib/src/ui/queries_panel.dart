@@ -62,7 +62,8 @@ class _QueriesPanelState extends State<QueriesPanel>
             ),
             Expanded(
               child: PagedList(
-                reloadToken: (_generation, _filter),
+                reloadToken: _filter,
+                refreshToken: _generation,
                 totalLabel: (total) => '$total queries',
                 fetch: _fetch,
                 itemBuilder: (context, row) {
@@ -187,6 +188,9 @@ class _QueryDetailState extends State<_QueryDetail>
     final detail = _detail;
     if (detail == null) {
       return const Center(child: Text('This query is no longer tracked.'));
+    }
+    if (detail.flag('oversized')) {
+      return Center(child: OversizedRow(detail));
     }
 
     final tags = detail.strings('tags');

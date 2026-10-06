@@ -80,6 +80,12 @@ typedef PageFetcher = Future<({int total, List<Json> items})> Function(
 
 /// A lazily paged list: loads [pageSize] rows, then the next page when the
 /// last row scrolls into view. Never holds more than it has been asked to show.
+///
+/// A new [reloadToken] (other inputs, such as a filter) starts again from the
+/// first page. A new [refreshToken] (the app reported activity) re-reads the
+/// rows already shown in place, so the list neither flickers nor loses its
+/// scroll position. A row the app replaced with an `oversized` marker shows
+/// as [OversizedRow] rather than through [itemBuilder].
 class PagedList extends StatefulWidget {
   /// Creates the list.
   const PagedList({
@@ -88,6 +94,7 @@ class PagedList extends StatefulWidget {
     required this.itemBuilder,
     this.pageSize = 100,
     this.reloadToken,
+    this.refreshToken,
     this.totalLabel,
     this.emptyText = 'Nothing here yet.',
   });
@@ -103,6 +110,9 @@ class PagedList extends StatefulWidget {
 
   /// Reloads from the first page whenever this changes.
   final Object? reloadToken;
+
+  /// Re-reads the loaded rows in place whenever this changes.
+  final Object? refreshToken;
 
   /// The header text for a total, or no header.
   final String Function(int total)? totalLabel;
@@ -121,6 +131,7 @@ class _PagedListState extends State<PagedList> {
   bool _loaded = false;
   String? _error;
   int _generation = 0;
+  bool _refreshAgain = false;
 
   @override
   void initState() {
@@ -137,7 +148,58 @@ class _PagedListState extends State<PagedList> {
       _total = 0;
       _loading = false;
       _loaded = false;
+      _refreshAgain = false;
       unawaited(_next());
+    } else if (oldWidget.refreshToken != widget.refreshToken) {
+      unawaited(_refresh());
+    }
+  }
+
+  /// Re-reads as many rows as are shown, page by page, then swaps them in.
+  Future<void> _refresh() async {
+    // A first load in flight reads fresh rows anyway.
+    if (!_loaded) return;
+    if (_loading) {
+      _refreshAgain = true;
+      return;
+    }
+    _loading = true;
+    final generation = _generation;
+    final want = _items.length < widget.pageSize
+        ? widget.pageSize
+        : _items.length;
+    final rows = <Json>[];
+    var total = _total;
+
+    try {
+      while (rows.length < want) {
+        final page = await widget.fetch(rows.length, widget.pageSize);
+        if (!mounted || generation != _generation) return;
+        rows.addAll(page.items);
+        total = page.total;
+        if (page.items.length < widget.pageSize) break;
+      }
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(rows);
+        _total = total;
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted || generation != _generation) return;
+      setState(() => _error = '$error');
+    } finally {
+      if (generation == _generation) _settle();
+    }
+  }
+
+  /// Ends a load, running a refresh that was asked for meanwhile.
+  void _settle() {
+    _loading = false;
+    if (_refreshAgain && mounted) {
+      _refreshAgain = false;
+      unawaited(_refresh());
     }
   }
 
@@ -159,7 +221,7 @@ class _PagedListState extends State<PagedList> {
       if (!mounted || generation != _generation) return;
       setState(() => _error = '$error');
     } finally {
-      if (generation == _generation) _loading = false;
+      if (generation == _generation) _settle();
     }
   }
 
@@ -194,13 +256,33 @@ class _PagedListState extends State<PagedList> {
                         child: Text('Loading more...'),
                       );
                     }
-                    return widget.itemBuilder(context, _items[index]);
+                    final item = _items[index];
+                    if (item.flag('oversized')) return OversizedRow(item);
+                    return widget.itemBuilder(context, item);
                   },
                 ),
         ),
       ],
     );
   }
+}
+
+/// Stands in for a row the app would not send because one of its
+/// identifiers is over 64 KB: the app replaces such a row with
+/// `{oversized: true, field: ...}`.
+class OversizedRow extends StatelessWidget {
+  /// Creates the placeholder for [row].
+  const OversizedRow(this.row, {super.key});
+
+  /// The marker row.
+  final Json row;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    dense: true,
+    enabled: false,
+    title: Text('too large to show (${row.str('field')} is over 64 KB)'),
+  );
 }
 
 /// A collapsible view of decoded JSON. Maps and lists fold; scalars print.

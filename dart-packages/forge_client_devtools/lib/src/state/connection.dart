@@ -36,6 +36,7 @@ final class ForgeConnection extends ChangeNotifier {
   /// Starts watching [backend].
   ForgeConnection(this.backend) {
     backend.available.addListener(_onAvailability);
+    backend.isolate.addListener(_onIsolate);
     _subscription = backend.events.listen(_onEvent);
     _onAvailability();
   }
@@ -63,6 +64,10 @@ final class ForgeConnection extends ChangeNotifier {
 
   late final StreamSubscription<Json> _subscription;
   bool _disposed = false;
+
+  /// Bumped on every isolate change, so a hello answered by the previous
+  /// isolate is ignored.
+  int _isolateEpoch = 0;
 
   /// The current phase.
   ConnectionPhase phase = ConnectionPhase.unavailable;
@@ -145,6 +150,8 @@ final class ForgeConnection extends ChangeNotifier {
   void selectCache(String id) {
     if (id == cacheId) return;
     cacheId = id;
+    // Each cache counts its own sessions.
+    session = null;
     _forget();
     notifyListeners();
     activity.value++;
@@ -213,6 +220,22 @@ final class ForgeConnection extends ChangeNotifier {
     generation++;
   }
 
+  /// The app may be another one now (a hot restart, a new isolate, a
+  /// reconnect). It usually reuses cache id `1` and session `0`, so nothing
+  /// the panel holds can be told apart from the new app's: drop the caches,
+  /// the session, the events and every panel, as for a principal change, and
+  /// say hello again.
+  void _onIsolate() {
+    if (_disposed) return;
+    _isolateEpoch++;
+    caches = const [];
+    cacheId = null;
+    session = null;
+    error = null;
+    _forget();
+    _onAvailability();
+  }
+
   void _onAvailability() {
     if (backend.available.value) {
       unawaited(_hello());
@@ -227,9 +250,10 @@ final class ForgeConnection extends ChangeNotifier {
 
   Future<void> _hello() async {
     _set(ConnectionPhase.connecting);
+    final epoch = _isolateEpoch;
     try {
       final hello = await backend.call(ForgeDevtoolsProtocol.hello);
-      if (_disposed) return;
+      if (_disposed || epoch != _isolateEpoch) return;
 
       final protocol = hello.integer('protocol');
       if (protocol != ForgeDevtoolsProtocol.version) {
@@ -249,7 +273,7 @@ final class ForgeConnection extends ChangeNotifier {
       error = null;
       _set(ConnectionPhase.ready);
     } on BackendError catch (failure) {
-      if (_disposed) return;
+      if (_disposed || epoch != _isolateEpoch) return;
       error = failure.message;
       _set(ConnectionPhase.failed);
     }
@@ -301,6 +325,7 @@ final class ForgeConnection extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     backend.available.removeListener(_onAvailability);
+    backend.isolate.removeListener(_onIsolate);
     unawaited(_subscription.cancel());
     activity.dispose();
     super.dispose();

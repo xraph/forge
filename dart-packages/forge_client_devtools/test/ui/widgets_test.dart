@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:forge_client_devtools/forge_client_devtools.dart';
 import 'package:forge_client_devtools/src/ui/widgets.dart';
 
 void main() {
@@ -119,4 +120,79 @@ void main() {
 
     throttle.dispose();
   });
+
+  testWidgets(
+    'a paged list re-reads the shown rows in place on a refresh token, without Loading',
+    (tester) async {
+      final asked = <(int, int)>[];
+      var version = 'a';
+      Widget build(Object token) => MaterialApp(
+        home: Scaffold(
+          body: PagedList(
+            pageSize: 2,
+            refreshToken: token,
+            fetch: (offset, limit) async {
+              asked.add((offset, limit));
+              final end = (offset + limit).clamp(0, 3);
+              return (
+                total: 3,
+                items: [
+                  for (var i = offset; i < end; i++)
+                    <String, Object?>{'id': '$version$i'},
+                ],
+              );
+            },
+            itemBuilder: (context, row) => Text('row ${row['id']}'),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(build(0));
+      await tester.pumpAndSettle();
+      expect(find.text('row a2'), findsOneWidget);
+      expect(asked, [(0, 2), (2, 2)]);
+
+      version = 'b';
+      await tester.pumpWidget(build(1));
+      // The old rows stay up while the new ones load.
+      expect(find.text('Loading...'), findsNothing);
+      expect(find.text('row a0'), findsOneWidget);
+      await tester.pumpAndSettle();
+
+      expect(find.text('row b0'), findsOneWidget);
+      expect(find.text('row b2'), findsOneWidget);
+      expect(find.text('row a0'), findsNothing);
+      expect(asked, [(0, 2), (2, 2), (0, 2), (2, 2)]);
+    },
+  );
+
+  testWidgets(
+    'a paged list shows an oversized marker row as too large, not blank',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PagedList(
+              fetch: (offset, limit) async => (
+                total: 2,
+                items: <Json>[
+                  {'key': 'GET /a'},
+                  {'oversized': true, 'field': 'key'},
+                ],
+              ),
+              itemBuilder: (context, row) => Text('row ${row['key']}'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('row GET /a'), findsOneWidget);
+      expect(
+        find.text('too large to show (key is over 64 KB)'),
+        findsOneWidget,
+      );
+      expect(find.text('row null'), findsNothing);
+    },
+  );
 }

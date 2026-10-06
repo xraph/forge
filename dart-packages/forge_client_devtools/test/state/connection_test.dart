@@ -258,4 +258,118 @@ void main() {
       },
     );
   });
+
+  group('isolate changes', () {
+    test('an isolate swap drops the cache id, the session and the events, and says hello again', () async {
+      final (fake, connection) = await _ready(
+        FakeForgeBackend()
+          ..caches = [
+            {'id': '4', 'principal': 'alice', 'label': 'cache 4'},
+          ]
+          ..session = 3,
+      );
+      await connection.call(ForgeDevtoolsProtocol.snapshot);
+      fake.emit({
+        'cache': '4',
+        'entries': [_entry('fetch', 1, 3)],
+        'skipped': 0,
+      });
+      await pumpEventQueue();
+      expect(connection.cacheId, '4');
+      expect(connection.session, 3);
+      expect(connection.events, hasLength(1));
+      final generation = connection.generation;
+
+      // A hot restart: the new isolate attaches its cache fresh.
+      fake
+        ..caches = [
+          {'id': '1', 'principal': null, 'label': 'cache 1'},
+        ]
+        ..session = 0;
+      final before = fake.calls.length;
+      fake.swapIsolate();
+      await pumpEventQueue();
+
+      expect(connection.phase, ConnectionPhase.ready);
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello), hasLength(2));
+      expect(connection.cacheId, '1');
+      expect(connection.session, isNull);
+      expect(connection.events, isEmpty);
+      expect(connection.generation, greaterThan(generation));
+
+      // The first change after the swap is aimed at the new isolate's
+      // session, not refused for carrying the old one.
+      await connection.call(ForgeDevtoolsProtocol.action, {
+        'action': 'invalidate',
+        'target': 'GET /orders',
+      });
+      expect(fake.callsTo(ForgeDevtoolsProtocol.action).single['session'], '0');
+      expect(
+        fake.calls.skip(before).any((c) => c.params['cache'] == '4'),
+        isFalse,
+      );
+    });
+
+    test(
+      'a swap keeps nothing even when the new isolate reuses the cache id',
+      () async {
+        final (fake, connection) = await _ready(
+          FakeForgeBackend()..session = 2,
+        );
+        await connection.call(ForgeDevtoolsProtocol.snapshot);
+        await _emit(fake, [_entry('fetch', 1, 2)]);
+
+        fake.session = 0;
+        fake.swapIsolate();
+        await pumpEventQueue();
+
+        expect(connection.cacheId, '1');
+        expect(connection.session, isNull);
+        expect(connection.events, isEmpty);
+      },
+    );
+
+    test('a hello answered by the previous isolate is ignored', () async {
+      final fake = FakeForgeBackend();
+      final first = Completer<Json>();
+      fake.overrides[ForgeDevtoolsProtocol.hello] = (_) => first.future;
+      final connection = ForgeConnection(fake);
+      addTearDown(connection.dispose);
+      await pumpEventQueue();
+
+      fake.overrides.clear();
+      fake.swapIsolate();
+      await pumpEventQueue();
+      first.complete({
+        'protocol': ForgeDevtoolsProtocol.version,
+        'caches': [
+          {'id': '9', 'principal': 'alice', 'label': 'cache 9'},
+        ],
+      });
+      await pumpEventQueue();
+
+      expect(connection.cacheId, '1');
+      expect(connection.caches.map((c) => c['id']), ['1']);
+    });
+
+    test(
+      'picking another cache forgets the session of the one it leaves',
+      () async {
+        final (fake, connection) = await _ready(
+          FakeForgeBackend()
+            ..caches = [
+              {'id': '1', 'principal': null, 'label': 'cache 1'},
+              {'id': '2', 'principal': null, 'label': 'cache 2'},
+            ]
+            ..session = 5,
+        );
+        await connection.call(ForgeDevtoolsProtocol.snapshot);
+        expect(connection.session, 5);
+
+        connection.selectCache('1');
+
+        expect(connection.session, isNull);
+      },
+    );
+  });
 }

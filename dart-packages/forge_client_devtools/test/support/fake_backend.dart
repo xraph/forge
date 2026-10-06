@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:forge_client/devtools_protocol.dart';
 import 'package:forge_client_devtools/forge_client_devtools.dart';
+import 'package:forge_client_devtools/src/backend/isolate_watch.dart';
 
 typedef Call = ({String method, Map<String, String> params});
 
@@ -13,9 +14,15 @@ final class FakeForgeBackend implements ForgeBackend {
     bool available = true,
     this.entityCount = 3,
     this.protocol = ForgeDevtoolsProtocol.version,
+    this._watch,
   }) : _available = ValueNotifier<bool>(available);
 
   final ValueNotifier<bool> _available;
+  final ValueNotifier<int> _isolate = ValueNotifier<int>(0);
+
+  /// When given, availability and isolate changes come from it, as they do
+  /// in DevTools, instead of from [isAvailable] and [swapIsolate].
+  final IsolateWatch? _watch;
   final StreamController<Json> _events = StreamController<Json>.broadcast();
 
   int entityCount;
@@ -52,9 +59,17 @@ final class FakeForgeBackend implements ForgeBackend {
   overrides = {};
 
   @override
-  ValueListenable<bool> get available => _available;
+  ValueListenable<bool> get available => _watch?.available ?? _available;
+
+  @override
+  ValueListenable<int> get isolate => _watch?.isolate ?? _isolate;
 
   set isAvailable(bool value) => _available.value = value;
+
+  /// The app is now another isolate (a hot restart that kept the extension
+  /// registered, a new run): signals the change without touching
+  /// availability.
+  void swapIsolate() => _isolate.value++;
 
   @override
   Stream<Json> get events => _events.stream;

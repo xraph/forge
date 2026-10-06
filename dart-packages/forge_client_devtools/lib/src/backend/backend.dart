@@ -8,6 +8,11 @@ abstract interface class ForgeBackend {
   /// True while the connected isolate has `ext.forge.hello` registered.
   ValueListenable<bool> get available;
 
+  /// Changes whenever the app the panel talks to may be a different one: the
+  /// main isolate closed or was replaced (a hot restart, a new run) or the VM
+  /// service reconnected. The value means nothing; only that it changed.
+  ValueListenable<int> get isolate;
+
   /// Calls one `ext.forge.*` method. Throws [BackendError] on failure.
   Future<Json> call(String method, [Map<String, String> params = const {}]);
 

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/devtools_protocol.dart';
 import 'package:forge_client_devtools/forge_client_devtools.dart';
+import 'package:forge_client_devtools/src/backend/isolate_watch.dart';
 
 import '../support/fake_backend.dart';
+import '../support/fake_hooks.dart';
 import '../support/pump.dart';
 
 void main() {
@@ -182,4 +184,95 @@ void main() {
       );
     },
   );
+
+  group('isolate changes, through the watch DevTools uses', () {
+    (FakeServiceHooks, FakeForgeBackend) setUpRestart() {
+      final hooks = FakeServiceHooks(registered: {ForgeDevtoolsProtocol.hello});
+      final watch = IsolateWatch(hooks, ForgeDevtoolsProtocol.hello);
+      addTearDown(watch.dispose);
+      final fake = FakeForgeBackend(watch: watch)
+        ..caches = [
+          {'id': '4', 'principal': 'alice', 'label': 'cache 4'},
+        ]
+        ..session = 3;
+      return (hooks, fake);
+    }
+
+    Future<void> openQuery(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('query-GET /orders')));
+      await tester.pumpAndSettle();
+      expect(find.text('tags (2)'), findsOneWidget);
+    }
+
+    void becomeAnotherApp(FakeForgeBackend fake) {
+      fake
+        ..caches = [
+          {'id': '1', 'principal': null, 'label': 'cache 1'},
+        ]
+        ..session = 0;
+    }
+
+    testWidgets(
+      'recovers to running after a hot restart and keeps nothing from the run before',
+      (tester) async {
+        final (hooks, fake) = setUpRestart();
+        await pumpPanel(tester, fake);
+        await openQuery(tester);
+
+        hooks.closeIsolate();
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('forge-unavailable')), findsOneWidget);
+
+        becomeAnotherApp(fake);
+        final before = fake.calls.length;
+        hooks.openIsolate('isolate-2');
+        await tester.pumpAndSettle();
+        hooks.register(ForgeDevtoolsProtocol.hello);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('forge-unavailable')), findsNothing);
+        expect(find.widgetWithText(Tab, 'Queries'), findsOneWidget);
+        expect(find.text('Pick a query.'), findsOneWidget);
+        final after = fake.calls.skip(before).toList();
+        expect(
+          after.where((c) => c.method == ForgeDevtoolsProtocol.hello),
+          isNotEmpty,
+        );
+        expect(
+          after.where((c) => c.method == ForgeDevtoolsProtocol.snapshot),
+          isNotEmpty,
+        );
+        expect(after.any((c) => c.params['cache'] == '4'), isFalse);
+      },
+    );
+
+    testWidgets('an isolate swap without a close drops what the panel showed', (
+      tester,
+    ) async {
+      final (hooks, fake) = setUpRestart();
+      await pumpPanel(tester, fake);
+      await openQuery(tester);
+
+      becomeAnotherApp(fake);
+      final before = fake.calls.length;
+      hooks.replaceIsolate('isolate-2');
+      await tester.pumpAndSettle();
+
+      expect(find.text('tags (2)'), findsNothing);
+      expect(find.text('Pick a query.'), findsOneWidget);
+      final after = fake.calls.skip(before).toList();
+      expect(
+        after.where((c) => c.method == ForgeDevtoolsProtocol.hello),
+        hasLength(1),
+      );
+      expect(after.any((c) => c.params['cache'] == '4'), isFalse);
+
+      // Acting now aims at the new isolate's session.
+      await openQuery(tester);
+      await tester.tap(find.byKey(const ValueKey('query-action-invalidate')));
+      await tester.pumpAndSettle();
+      expect(fake.actions, ['invalidate GET /orders']);
+      expect(fake.callsTo(ForgeDevtoolsProtocol.action).single['session'], '0');
+    });
+  });
 }
