@@ -20,7 +20,10 @@ bool isCancellation(Object error) =>
 /// Everything it puts in the entity store goes through [context]'s
 /// [SyncContext.write], so nothing lands once the cache has moved to another
 /// principal. Every callback that would project, report or sync checks
-/// [SyncContext.active] first.
+/// [SyncContext.active] first. Every timer (the push debounce, the retry
+/// backoff, the gone probe) checks it again when it
+/// fires, and all of them are cancelled synchronously when the cache starts
+/// moving to another principal, and again by [stop].
 final class DatasetSync {
   /// Wires a dataset. [entityTables] maps each entity to its table, or null
   /// while unknown.
@@ -82,7 +85,26 @@ final class DatasetSync {
       skew: skew,
       baseNodeId: nodeId,
     );
+
+    final cap = pollInterval < _retryCap ? pollInterval : _retryCap;
+
+    _retry = Backoff(
+      initialDelay: cap < _retryStart ? cap : _retryStart,
+      maxDelay: cap,
+    );
+    // Synchronously, as the cache starts moving to another principal: the
+    // context is fenced by then, so a timer firing later would do nothing, but
+    // none is left armed at all.
+    _unwatchPrincipal = context.cache.watchPrincipalChanging(
+      (_) => _cancelTimers(),
+    );
   }
+
+  /// The first retry delay after an interrupted run.
+  static const _retryStart = Duration(seconds: 1);
+
+  /// The longest retry delay, unless [pollInterval] is shorter.
+  static const _retryCap = Duration(minutes: 5);
 
   /// The principal's context: the only way into the entity store.
   final SyncContext context;
@@ -121,6 +143,8 @@ final class DatasetSync {
   final Uri _baseUrl;
   final CrdtAuthProvider? _auth;
   late final HttpStreamTransport _transport;
+  late final Backoff _retry;
+  late final void Function() _unwatchPrincipal;
 
   /// The replica.
   late final CrdtStore store;
@@ -135,6 +159,10 @@ final class DatasetSync {
   final Completer<void> _hydrated = Completer<void>();
   Timer? _pushTimer;
   Timer? _goneTimer;
+  Timer? _retryTimer;
+
+  /// The pending queue's length as last seen; a local write grows it.
+  int _pendingSeen = 0;
   Future<void> Function()? _stopPoll;
   CrdtSubscription? _live;
   final List<void Function()> _liveHandlers = [];
@@ -212,6 +240,7 @@ final class DatasetSync {
       if (entity != null) _project(entity, store.exportTable(table).values);
     }
 
+    _pendingSeen = store.pending.length;
     _subs
       ..add(store.documentChanges.listen(_onDoc))
       ..add(engine.events.listen(_onEngine));
@@ -259,6 +288,13 @@ final class DatasetSync {
 
     if (entity != null && doc != null) _project(entity, [doc]);
 
+    // A local write from any path (apply, or a typed op through
+    // GroveSyncSource.replica) grows the queue; a remote change does not.
+    final queued = store.pending.length;
+
+    if (queued > _pendingSeen && store.pendingCount > 0) _schedulePush();
+
+    _pendingSeen = queued;
     onStatusChange();
   }
 
@@ -268,22 +304,66 @@ final class DatasetSync {
     switch (e) {
       case DatasetGone(:final message):
         _goneMessage = message;
+        _retryTimer?.cancel();
         _closeLive();
         _armProbe();
       case AuthRequired():
+        _retryTimer?.cancel();
         _closeLive();
         _armProbe();
       case SyncSucceeded():
         _goneTimer?.cancel();
-
-        if (_live == null && _stopPoll == null) _openLive();
+        _retryTimer?.cancel();
+        _retry.reset();
+        _reopenLive();
+      case SyncInterrupted():
+        _armRetry();
       case ChangesApplied(:final affected):
         _learn(affected.map((k) => k.table));
-      case SyncInterrupted() || ChangeRejected() || ClockRebased():
+      case ChangeRejected() || ClockRebased():
         break;
     }
 
+    // Only ever lowered here (a push drained the queue), so a local write
+    // that lands during a run is still seen as growth by _onDoc.
+    final queued = store.pending.length;
+
+    if (queued < _pendingSeen) _pendingSeen = queued;
+
     onStatusChange();
+  }
+
+  /// Retries an interrupted run after a jittered, growing delay, whatever the
+  /// live channel. Not while offline: coming back online syncs at once.
+  void _armRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+
+    if (!_running || !_online) return;
+
+    _retryTimer = Timer(_retry.next(), () {
+      _retryTimer = null;
+
+      if (_running) unawaited(syncNow());
+    });
+  }
+
+  /// Opens the live channel after a successful run, unless it is open.
+  void _reopenLive() {
+    if (_live == null && _stopPoll == null) _openLive();
+  }
+
+  bool get _terminal =>
+      engine.state == SyncEngineState.gone ||
+      engine.state == SyncEngineState.unauthorized;
+
+  void _cancelTimers() {
+    _pushTimer?.cancel();
+    _goneTimer?.cancel();
+    _retryTimer?.cancel();
+    _pushTimer = null;
+    _goneTimer = null;
+    _retryTimer = null;
   }
 
   void _armProbe() {
@@ -406,13 +486,14 @@ final class DatasetSync {
   }
 
   void _schedulePush() {
-    if (engine.state == SyncEngineState.gone ||
-        engine.state == SyncEngineState.unauthorized) {
-      return;
-    }
+    if (!_running || _terminal) return;
 
     _pushTimer?.cancel();
-    _pushTimer = Timer(pushDebounce, () => unawaited(syncNow()));
+    _pushTimer = Timer(pushDebounce, () {
+      _pushTimer = null;
+
+      if (_running) unawaited(syncNow());
+    });
   }
 
   /// Follows the connectivity signal.
@@ -421,7 +502,12 @@ final class DatasetSync {
 
     _online = online;
 
-    if (online) unawaited(syncNow());
+    if (online) {
+      unawaited(syncNow());
+    } else {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+    }
 
     onStatusChange();
   }
@@ -636,8 +722,8 @@ final class DatasetSync {
   Future<void> stop() => _stopping ??= _stop();
 
   Future<void> _stop() async {
-    _pushTimer?.cancel();
-    _goneTimer?.cancel();
+    _cancelTimers();
+    _unwatchPrincipal();
     _closeLive();
 
     _markHydrated();
