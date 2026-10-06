@@ -262,6 +262,11 @@ final class ForgeDevtoolsHost {
     OutboxInspector? outbox,
     Revalidation? revalidation,
   }) {
+    // Controls an earlier detach released (an eviction, an unregister) pass
+    // everything through for good. A rail over them would show a mode it no
+    // longer imposes, so they are treated as absent.
+    if (controls != null && controls.released) controls = null;
+
     if (cache.isDisposed) {
       throw StateError(
         '[forge] cannot attach the devtools to a cache that was disposed',
@@ -501,7 +506,11 @@ final class ForgeDevtoolsHost {
       case ForgeDevtoolsProtocol.explain:
         return _explain(devtools, params);
       case ForgeDevtoolsProtocol.operations:
-        final known = _knownOperations(attached).values.toList();
+        final answering = devtools.answering;
+        final known = _knownOperations(
+          attached,
+          tracked: answering,
+        ).values.toList();
         return {
           'operations': _guarded([
             for (final meta in _head(known, _maxOperations))
@@ -515,6 +524,9 @@ final class ForgeDevtoolsHost {
           ]),
           'total': known.length,
           'truncated': known.length > _maxOperations,
+          // While the cache changes principal only the generated table is
+          // listed, and the answer says so.
+          if (!answering) 'stale': true,
         };
       case ForgeDevtoolsProtocol.wouldInvalidate:
         return _wouldInvalidate(attached, params);
@@ -523,6 +535,9 @@ final class ForgeDevtoolsHost {
       case ForgeDevtoolsProtocol.frames:
         return _frames(devtools, params);
       case ForgeDevtoolsProtocol.capture:
+        // Capturing frames records the principal's payloads, so turning it on
+        // is aimed at a session like every other change.
+        _checkSession(devtools, params);
         final enabled = _bool(params, 'enabled');
         final limit = _int(params, 'limit', fallback: 200, min: 1, max: 2000);
         devtools.setCapture(enabled ? dt.FrameOptions(limit: limit) : null);
@@ -595,11 +610,9 @@ final class ForgeDevtoolsHost {
       'protocol': ForgeDevtoolsProtocol.version,
       'caches': [
         for (final attached in _attached.values)
-          {
-            'id': attached.id,
-            'principal': attached.devtools.cache.principal,
-            'label': 'cache ${attached.id}',
-          },
+          // No principal: nothing in the panel needs it, and the panel learns
+          // a change from the session counter and the marker.
+          {'id': attached.id, 'label': 'cache ${attached.id}'},
       ],
     };
   }
@@ -650,7 +663,6 @@ final class ForgeDevtoolsHost {
 
     return {
       'cache': attached.id,
-      'principal': devtools.cache.principal,
       // While the cache changes principal the counters are zero and the answer
       // says so, as the outbox and the sync state do.
       if (!devtools.answering) 'stale': true,
@@ -808,6 +820,7 @@ final class ForgeDevtoolsHost {
       'total': matching.length,
       'offset': offset,
       'truncated': offset + page.length < matching.length,
+      if (!devtools.answering) 'stale': true,
       'items': _guarded([
         for (final tag in page)
           {
@@ -857,13 +870,74 @@ final class ForgeDevtoolsHost {
       ),
     };
 
-    return {'report': report};
+    return {
+      'report': report == null ? null : _cappedReport(report),
+      if (!devtools.answering) 'stale': true,
+    };
   }
 
-  Map<String, OperationMeta> _knownOperations(_Attached attached) {
+  /// The lists of an explain report, capped. A tag that ten thousand queries
+  /// carry, or a query that carries ten thousand tags, would otherwise send
+  /// every one.
+  static Map<String, Object?> _cappedReport(Map<String, Object?> report) => {
+    ...report,
+    for (final field in const [
+      'invalidated',
+      'carried',
+      'matched',
+      'nearest',
+      'suggestions',
+    ])
+      if (report[field] case final List<Object?> items) field: _capped(items),
+    if (report['cause'] case final Map<String, Object?> cause)
+      'cause': {
+        ...cause,
+        for (final field in const ['tags', 'unresolved'])
+          if (cause[field] case final List<Object?> items)
+            field: _capped(items),
+      },
+  };
+
+  /// The lists of an invalidation preview, capped, the reached queries of
+  /// each tag included.
+  static Map<String, Object?> _cappedPreview(Map<String, Object?> preview) => {
+    ...preview,
+    for (final field in const ['tags', 'unresolved', 'missed'])
+      if (preview[field] case final List<Object?> items) field: _capped(items),
+    if (preview['hits'] case final List<Object?> hits)
+      'hits': _capped([
+        for (final hit in hits)
+          if (hit case final Map<String, Object?> row)
+            {
+              ...row,
+              if (row['queries'] case final List<Object?> queries)
+                'queries': _capped(queries),
+            }
+          else
+            hit,
+      ]),
+  };
+
+  /// [items] as `{items, truncated, total}`, at most
+  /// [ForgeDevtoolsProtocol.maxListInDetail] of them.
+  static Map<String, Object?> _capped(List<Object?> items) => {
+    'items': _head(items, ForgeDevtoolsProtocol.maxListInDetail),
+    'truncated': items.length > ForgeDevtoolsProtocol.maxListInDetail,
+    'total': items.length,
+  };
+
+  /// The generated table, and with [tracked] the operations of the records
+  /// the cache tracks. Those are not read while the cache changes principal:
+  /// the records are still the previous principal's.
+  Map<String, OperationMeta> _knownOperations(
+    _Attached attached, {
+    bool tracked = true,
+  }) {
     final known = <String, OperationMeta>{...attached.operations};
-    for (final record in DevCache(attached.devtools.cache).trackedRecords()) {
-      known.putIfAbsent(record.meta.id, () => record.meta);
+    if (tracked) {
+      for (final record in DevCache(attached.devtools.cache).trackedRecords()) {
+        known.putIfAbsent(record.meta.id, () => record.meta);
+      }
     }
     return Map.fromEntries(
       known.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
@@ -875,8 +949,9 @@ final class ForgeDevtoolsHost {
     Map<String, String> params,
   ) {
     final id = _required(params, 'operation');
+    final devtools = attached.devtools;
     final meta =
-        _knownOperations(attached)[id] ??
+        _knownOperations(attached, tracked: devtools.answering)[id] ??
         (throw _BadParams('unknown operation $id'));
     final args = _json(params, 'args');
 
@@ -891,10 +966,13 @@ final class ForgeDevtoolsHost {
       body: map['body'],
     );
 
+    final preview = devtools
+        .wouldInvalidate(meta, context, _json(params, 'response'))
+        .toJson();
+
     return {
-      'preview': attached.devtools
-          .wouldInvalidate(meta, context, _json(params, 'response'))
-          .toJson(),
+      'preview': _cappedPreview(preview),
+      if (!devtools.answering) 'stale': true,
     };
   }
 
@@ -958,15 +1036,23 @@ final class ForgeDevtoolsHost {
     };
   }
 
-  /// Refuses an action aimed at an earlier session than the cache is on.
+  /// Refuses a change aimed at another session than the cache is on, and one
+  /// aimed at no session at all.
   ///
   /// The panel passes the `session` it last read. After a principal change the
   /// cache is on a later one, so a click made against the previous principal's
-  /// view is refused instead of landing on the next principal's data.
+  /// view is refused instead of landing on the next principal's data. A call
+  /// that says no session cannot be told apart from one made against the
+  /// previous principal, so it is refused as a bad parameter.
   void _checkSession(dt.Devtools devtools, Map<String, String> params) {
     final raw = params['session'];
 
-    if (raw == null || raw.isEmpty) return;
+    if (raw == null || raw.isEmpty) {
+      throw const _BadParams(
+        'session is required: pass the session the panel last read, from '
+        'ext.forge.snapshot or ext.forge.log',
+      );
+    }
 
     final aimed = int.tryParse(raw);
 
@@ -1052,7 +1138,8 @@ final class ForgeDevtoolsHost {
     Map<String, String> params,
   ) {
     // Every parameter here but `cache` changes the network the panel imposes,
-    // so a session the cache has left is refused as it is for an action.
+    // so a session the cache has left, or none, is refused as it is for an
+    // action. A read, with none of them, changes nothing and needs none.
     if (_controlWrites.any(params.containsKey)) _checkSession(devtools, params);
 
     final controls = devtools.controls;

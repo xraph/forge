@@ -71,6 +71,18 @@ void main() {
     return jsonDecode(response.result!) as Map<String, Object?>;
   }
 
+  /// A change, aimed at the session the cache is on now, as the panel aims
+  /// it.
+  Future<Map<String, Object?>> change(
+    String method, [
+    Map<String, String> params = const {},
+  ]) async {
+    final snapshot = await call(ForgeDevtoolsProtocol.snapshot, {
+      'cache': ?params['cache'],
+    });
+    return call(method, {'session': '${snapshot['session']}', ...params});
+  }
+
   ({RestTransport rest, List<http.Request> sent}) wiredRest({
     http.Response Function(http.Request request)? reply,
   }) {
@@ -108,7 +120,7 @@ void main() {
       ],
       ['1'],
     );
-    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isTrue);
+    expect((await change(ForgeDevtoolsProtocol.control))['wired'], isTrue);
   });
 
   test(
@@ -131,7 +143,7 @@ void main() {
     final (:rest, :sent) = wiredRest();
     final cache = configureClient(transport: rest, entities: schema);
 
-    await call(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
+    await change(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
 
     await expectLater(
       cache.fetch(Ops.orderList, TagContext.empty),
@@ -172,11 +184,11 @@ void main() {
     expect(ForgeDevtoolsHost.instance.debugCacheIds, ['1']);
     expect((await call(ForgeDevtoolsProtocol.outbox))['wired'], isTrue);
 
-    await call(ForgeDevtoolsProtocol.outboxAction, {
+    await change(ForgeDevtoolsProtocol.outboxAction, {
       'action': 'replay',
       'id': 'm1',
     });
-    await call(ForgeDevtoolsProtocol.outboxAction, {
+    await change(ForgeDevtoolsProtocol.outboxAction, {
       'action': 'discard',
       'id': 'm2',
     });
@@ -218,7 +230,7 @@ void main() {
     expect(attached.requestLog, isNull);
     expect(attached.revalidation, isNull);
     expect(inner.rest.debugObserver, isNull);
-    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isFalse);
+    expect((await change(ForgeDevtoolsProtocol.control))['wired'], isFalse);
     expect(await operationIds(), isNot(contains(Ops.orderCreate.id)));
 
     final revalidation = Revalidation({});
@@ -235,7 +247,7 @@ void main() {
     expect(attached.requestLog, isNotNull);
     expect(attached.revalidation, same(revalidation));
     expect(registrations, ForgeDevtoolsProtocol.methods.length);
-    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isTrue);
+    expect((await change(ForgeDevtoolsProtocol.control))['wired'], isTrue);
     expect(await operationIds(), contains(Ops.orderCreate.id));
 
     // The request log records what goes through the REST transport.
@@ -247,7 +259,7 @@ void main() {
 
     // The simulator is in the cache's path, so the panel's offline switch
     // reaches it: the next request fails before the wire.
-    await call(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
+    await change(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
     await expectLater(
       cache.fetch(Ops.orderList, const TagContext(query: {'again': '1'})),
       throwsA(isA<SimulatedOffline>()),
@@ -277,7 +289,7 @@ void main() {
     // first, with no simulator in front of it.
     expect(forwarding.seen, hasLength(1));
     expect(forgeDevtoolsFor(cache)!.controls, isNull);
-    expect((await call(ForgeDevtoolsProtocol.control))['wired'], isFalse);
+    expect((await change(ForgeDevtoolsProtocol.control))['wired'], isFalse);
   });
 
   // Final review I1, through the public path: sign out, then close the
@@ -324,6 +336,22 @@ void main() {
 
     expect(outcome, isA<http.RequestAbortedException>());
     expect(wire, isEmpty);
+  });
+
+  // Final fix M5: configureClient built the simulator and nothing ever
+  // disposed it. Disposing the cache now releases it and closes its stream.
+  test('disposing a configureClient cache releases and disposes the simulator it built', () async {
+    final (:rest, sent: _) = wiredRest();
+    final cache = configureClient(transport: rest, entities: schema);
+    final controls = forgeDevtoolsFor(cache)!.controls!;
+    var done = false;
+    controls.online.listen(null, onDone: () => done = true);
+
+    await cache.dispose();
+    await pumpEventQueue();
+
+    expect(controls.released, isTrue);
+    expect(done, isTrue);
   });
 
   test('forgeDevtoolsFor is null once the cache is detached', () {

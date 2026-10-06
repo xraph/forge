@@ -383,6 +383,32 @@ void main() {
       },
     );
 
+    // Final fix P5: a listener that hears `false` and releases the
+    // simulator used to make the merged signal read `isOnline` (already true)
+    // instead of the report, so the outbox never heard the network go.
+    test('a release called inside a connectivity listener does not make the merged signal skip a false', () {
+      final controls = ControlledTransport(_Inner());
+      final merged = <bool>[];
+      final subs = [
+        controls.online.listen((online) {
+          if (!online) controls.release();
+        }),
+        withSimulatedConnectivity(
+          _Real(const Stream<bool>.empty()),
+          controls,
+        ).online.listen(merged.add),
+      ];
+
+      controls.mode = NetworkMode.offline;
+
+      expect(merged, [false, true]);
+      expect(controls.isOnline, isTrue);
+
+      for (final sub in subs) {
+        unawaited(sub.cancel());
+      }
+    });
+
     test(
       'is a ClientException, so code that handles network errors handles it',
       () {
@@ -514,6 +540,27 @@ void main() {
 
       revalidation.dispose();
       devtools.dispose();
+    });
+
+    test('closes the connectivity stream when the inspector is disposed, after reporting the network back', () async {
+      final h = Harness();
+      final controls = ControlledTransport(_Inner())
+        ..mode = NetworkMode.offline;
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+      );
+      final heard = <bool>[];
+      var done = false;
+      controls.online.listen(heard.add, onDone: () => done = true);
+
+      devtools.dispose();
+      await pumpEventQueue();
+
+      expect(heard, [true]);
+      expect(done, isTrue);
+      expect(controls.released, isTrue);
     });
 
     test('disarms when the inspector is disposed, since it is no longer told of a switch', () {
@@ -696,7 +743,11 @@ void main() {
         rest,
         sleep: (_) => Completer<void>().future,
       )..latency = const Duration(seconds: 5);
-      final devtools = attach(h.cache, clock: CounterClock(), controls: controls);
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+      );
       h.cache.setPrincipal('alice');
 
       Object? outcome;

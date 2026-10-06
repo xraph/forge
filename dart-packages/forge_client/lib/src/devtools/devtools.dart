@@ -2,6 +2,8 @@
 /// panel calls. Port of `client-devtools/src/devtools.ts`.
 library;
 
+import 'dart:async';
+
 import 'package:meta/meta.dart';
 
 import '../cache.dart';
@@ -656,7 +658,8 @@ final class Devtools {
   /// controls are released, not aborted: the principal is unchanged, so a
   /// request waiting out simulated latency is sent and the transport passes
   /// through from then on. A request a principal change already orphaned
-  /// stays aborted.
+  /// stays aborted. The controls' connectivity stream is then closed, after
+  /// the release has reported the network back.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
@@ -669,7 +672,14 @@ final class Devtools {
     requestLog?.clear();
     _outbox.clear();
     _sync.clear();
-    controls?.release();
+    // Released, then disposed, so a simulator nothing will ever switch again
+    // holds no listeners: the cache keeps it as its transport, passing
+    // through.
+    final controls = this.controls;
+    if (controls != null) {
+      controls.release();
+      unawaited(controls.dispose());
+    }
     _fetching.clear();
     _seen.clear();
     _pending.clear();

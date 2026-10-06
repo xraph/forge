@@ -141,6 +141,11 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// Whether the simulated network is up. Slow counts as up.
   bool get isOnline => _released || _mode != NetworkMode.offline;
 
+  /// Whether [release] was called: the transport passes through for good.
+  /// The service host attaches no rail for released controls, since every
+  /// switch on it would be a switch that does nothing.
+  bool get released => _released;
+
   @override
   Stream<bool> get online => _online.stream;
 
@@ -230,7 +235,10 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
     'armedStatus': _next,
   };
 
-  /// Closes the connectivity stream.
+  /// Closes the connectivity stream, so nothing listening to it is held.
+  /// `Devtools.dispose` calls this after [release]: the release has already
+  /// reported the network back, and a released transport reports nothing
+  /// again.
   Future<void> dispose() => _online.close();
 }
 
@@ -316,10 +324,14 @@ final class _MergedConnectivity implements ConnectivitySignal {
     StreamSubscription<bool>? real;
     StreamSubscription<bool>? simulated;
     var realOnline = true;
+    var simulatedOnline = _controls.isOnline;
     bool? last;
 
+    // What the simulator reported, not what it says now: a release called
+    // from a listener that heard `false` first makes `isOnline` true before
+    // this listener hears the `false`, and reading it would skip the report.
     void emit() {
-      final value = realOnline && _controls.isOnline;
+      final value = realOnline && simulatedOnline;
       if (value != last) {
         last = value;
         controller.add(value);
@@ -336,8 +348,12 @@ final class _MergedConnectivity implements ConnectivitySignal {
           realOnline = value;
           emit();
         });
-        simulated = _controls.online.listen((_) => emit());
-        if (!_controls.isOnline) emit();
+        simulatedOnline = _controls.isOnline;
+        simulated = _controls.online.listen((value) {
+          simulatedOnline = value;
+          emit();
+        });
+        if (!simulatedOnline) emit();
       },
       onCancel: () async {
         await real?.cancel();

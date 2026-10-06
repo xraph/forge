@@ -63,6 +63,18 @@ void main() {
     return decoded;
   }
 
+  /// A change, aimed at the session the cache is on now, as the panel aims
+  /// it: the session is read first, and a `session` in [params] wins.
+  Future<Map<String, Object?>> change(
+    String method, [
+    Map<String, String> params = const {},
+  ]) async {
+    final snapshot = await call(ForgeDevtoolsProtocol.snapshot, {
+      'cache': ?params['cache'],
+    });
+    return call(method, {'session': '${snapshot['session']}', ...params});
+  }
+
   List<Map<String, Object?>> items(
     Map<String, Object?> page, [
     String key = 'items',
@@ -271,9 +283,12 @@ void main() {
 
       expect(report['outcome'], 'missed');
       expect(
-        items(report, 'nearest').first['relation'],
+        items(report['nearest']! as Map<String, Object?>).first['relation'],
         'instance-vs-collection',
       );
+      // Every list in a report is capped and says how long it really is.
+      expect(report['nearest'], containsPair('truncated', false));
+      expect(report['nearest'], containsPair('total', isPositive));
 
       final hypothesis = await call(ForgeDevtoolsProtocol.explain, {
         'key': h.key(Ops.orderList),
@@ -311,8 +326,18 @@ void main() {
       });
       final body = preview['preview']! as Map<String, Object?>;
 
-      expect(body['tags'], ['Order:9']);
-      expect(body['missed'], ['Order:9']);
+      expect(body['tags'], {
+        'items': ['Order:9'],
+        'truncated': false,
+        'total': 1,
+      });
+      expect((body['missed']! as Map<String, Object?>)['items'], ['Order:9']);
+      final hit = items(body['hits']! as Map<String, Object?>).single;
+      expect(hit['queries'], {
+        'items': <Object?>[],
+        'truncated': false,
+        'total': 0,
+      });
 
       final unknown = await raw(ForgeDevtoolsProtocol.wouldInvalidate, {
         'operation': 'op_nope',
@@ -352,7 +377,7 @@ void main() {
       final h = Harness();
       registerForgeServiceExtensions(h.cache);
 
-      await call(ForgeDevtoolsProtocol.capture, {
+      await change(ForgeDevtoolsProtocol.capture, {
         'enabled': 'true',
         'limit': '2',
       });
@@ -373,7 +398,7 @@ void main() {
         [2, 3],
       );
 
-      final off = await call(ForgeDevtoolsProtocol.capture, {
+      final off = await change(ForgeDevtoolsProtocol.capture, {
         'enabled': 'false',
       });
       expect(off['capturing'], isFalse);
@@ -430,7 +455,7 @@ void main() {
       final before = h.calls.length;
 
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
+        (await change(ForgeDevtoolsProtocol.action, {
           'action': 'refetch',
           'target': h.key(Ops.orderList),
         }))['ok'],
@@ -440,7 +465,7 @@ void main() {
       expect(h.calls.length, before + 1);
 
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
+        (await change(ForgeDevtoolsProtocol.action, {
           'action': 'evict',
           'target': 'Order:1',
         }))['ok'],
@@ -448,7 +473,7 @@ void main() {
       );
       expect(h.dev.hasEntity('Order:1'), isFalse);
 
-      final patched = await call(ForgeDevtoolsProtocol.action, {
+      final patched = await change(ForgeDevtoolsProtocol.action, {
         'action': 'patch',
         'target': 'Order:2',
         'fields': jsonEncode({'total': 7}),
@@ -460,7 +485,7 @@ void main() {
       );
 
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
+        (await change(ForgeDevtoolsProtocol.action, {
           'action': 'refetch',
           'target': 'GET /nothing',
         }))['ok'],
@@ -470,6 +495,7 @@ void main() {
       final unknown = await raw(ForgeDevtoolsProtocol.action, {
         'action': 'explode',
         'target': 'x',
+        'session': '0',
       });
       expect(
         unknown.errorCode,
@@ -483,7 +509,7 @@ void main() {
       final bare = Harness();
       registerForgeServiceExtensions(bare.cache);
       expect(
-        (await call(ForgeDevtoolsProtocol.control, {'cache': '1'}))['wired'],
+        (await change(ForgeDevtoolsProtocol.control, {'cache': '1'}))['wired'],
         isFalse,
       );
 
@@ -491,7 +517,7 @@ void main() {
       final controls = ControlledTransport(_Inner());
       registerForgeServiceExtensions(h.cache, controls: controls);
 
-      final offline = await call(ForgeDevtoolsProtocol.control, {
+      final offline = await change(ForgeDevtoolsProtocol.control, {
         'cache': '2',
         'mode': 'offline',
         'latencyMs': '250',
@@ -500,7 +526,7 @@ void main() {
       expect(offline['latencyMs'], 250);
       expect(controls.mode, NetworkMode.offline);
 
-      final armed = await call(ForgeDevtoolsProtocol.control, {
+      final armed = await change(ForgeDevtoolsProtocol.control, {
         'cache': '2',
         'failNext': '503',
       });
@@ -510,6 +536,7 @@ void main() {
       final bogus = await raw(ForgeDevtoolsProtocol.control, {
         'cache': '2',
         'mode': 'underwater',
+        'session': '0',
       });
       expect(bogus.errorCode, developer.ServiceExtensionResponse.invalidParams);
     });
@@ -526,6 +553,7 @@ void main() {
       final refused = await raw(ForgeDevtoolsProtocol.outboxAction, {
         'action': 'replay',
         'id': 'm1',
+        'session': '0',
       });
       expect(
         refused.errorCode,
@@ -948,7 +976,7 @@ void main() {
       );
 
       // A frame, a mutation, a request and an overlay.
-      await call(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
+      await change(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
       debugApplyFrames(cache, orderBinding, {'id': 5, 'ssn': secret});
       await cache.mutate(
         Ops.orderCreate,
@@ -960,12 +988,12 @@ void main() {
           args: TagContext(path: {'id': secret}, query: {'ssn': secret}),
         ),
       );
-      await call(ForgeDevtoolsProtocol.action, {
+      await change(ForgeDevtoolsProtocol.action, {
         'action': 'patch',
         'target': 'Order:1',
         'fields': jsonEncode({'ssn': secret}),
       });
-      await call(ForgeDevtoolsProtocol.control, {'failNext': '503'});
+      await change(ForgeDevtoolsProtocol.control, {'failNext': '503'});
       await pumpEventQueue();
 
       Future<String> read(
@@ -1079,7 +1107,7 @@ void main() {
         isTrue,
       );
       expect(
-        await call(ForgeDevtoolsProtocol.control),
+        await change(ForgeDevtoolsProtocol.control),
         containsPair('armed', false),
       );
       expect(
@@ -1090,8 +1118,9 @@ void main() {
         items(await call(ForgeDevtoolsProtocol.overlays), 'overlays'),
         isEmpty,
       );
+      // Final fix M3: hello carries no principal, not even the current one.
       expect((await call(ForgeDevtoolsProtocol.hello))['caches'], [
-        {'id': '1', 'principal': 'bob', 'label': 'cache 1'},
+        {'id': '1', 'label': 'cache 1'},
       ]);
 
       await cache.dispose();
@@ -1213,20 +1242,25 @@ void main() {
 
       // The current session, no session at all, and an action that reads.
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
+        (await change(ForgeDevtoolsProtocol.action, {
           'action': 'stale',
           'target': h.key(Ops.orderList),
           'session': '$aimed',
         }))['ok'],
         isTrue,
       );
+      // Final fix P6: an action that names no session is refused, and does
+      // nothing.
+      final unaimed = await raw(ForgeDevtoolsProtocol.action, {
+        'action': 'evict',
+        'target': 'Order:1',
+      });
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
-          'action': 'stale',
-          'target': h.key(Ops.orderList),
-        }))['ok'],
-        isTrue,
+        unaimed.errorCode,
+        developer.ServiceExtensionResponse.invalidParams,
       );
+      expect(unaimed.errorDetail, contains('session is required'));
+      expect(h.dev.hasEntity('Order:1'), isTrue);
 
       h.cache.setPrincipal('bob');
       await h.cache.idle;
@@ -1285,7 +1319,7 @@ void main() {
 
       expect(current, greaterThan(aimed));
       expect(
-        (await call(ForgeDevtoolsProtocol.action, {
+        (await change(ForgeDevtoolsProtocol.action, {
           'action': 'evict',
           'target': 'Order:1',
           'session': '$current',
@@ -1326,7 +1360,7 @@ void main() {
         isFalse,
       );
       expect(
-        await call(ForgeDevtoolsProtocol.control),
+        await change(ForgeDevtoolsProtocol.control),
         containsPair('wired', false),
       );
       expect(
@@ -1365,11 +1399,11 @@ void main() {
       expect(requests['watching'], isTrue);
       expect(items(requests, 'entries'), hasLength(1));
       expect(
-        await call(ForgeDevtoolsProtocol.control, {'mode': 'slow'}),
+        await change(ForgeDevtoolsProtocol.control, {'mode': 'slow'}),
         containsPair('wired', true),
       );
       expect(controls.mode, NetworkMode.slow);
-      final control = await call(ForgeDevtoolsProtocol.control, {
+      final control = await change(ForgeDevtoolsProtocol.control, {
         'toggle': 'focus',
       });
       expect(
@@ -1388,9 +1422,11 @@ void main() {
         'operation': 'op_order_create',
         'response': '{"id": 9}',
       });
-      expect((preview['preview']! as Map<String, Object?>)['tags'], [
-        'Order:9',
-      ]);
+      expect(
+        ((preview['preview']! as Map<String, Object?>)['tags']!
+            as Map<String, Object?>)['items'],
+        ['Order:9'],
+      );
       expect(
         (await call(ForgeDevtoolsProtocol.snapshot))['outboxWired'],
         isTrue,
@@ -1469,11 +1505,11 @@ void main() {
       expect(firstRest.debugObserver, same(observer));
       expect(secondRest.debugObserver, isNull);
 
-      await call(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
+      await change(ForgeDevtoolsProtocol.control, {'mode': 'offline'});
       expect(firstControls.mode, NetworkMode.offline);
       expect(secondControls.mode, NetworkMode.online);
 
-      final control = await call(ForgeDevtoolsProtocol.control, {
+      final control = await change(ForgeDevtoolsProtocol.control, {
         'toggle': 'poll',
       });
       expect(
@@ -1524,14 +1560,14 @@ void main() {
 
       // The current session is accepted.
       expect(
-        (await call(ForgeDevtoolsProtocol.control, {
+        (await change(ForgeDevtoolsProtocol.control, {
           'latencyMs': '5',
           'session': '$aimed',
         }))['latencyMs'],
         5,
       );
       expect(
-        (await call(ForgeDevtoolsProtocol.outboxAction, {
+        (await change(ForgeDevtoolsProtocol.outboxAction, {
           'action': 'discard',
           'id': 'm1',
           'session': '$aimed',
@@ -1577,7 +1613,7 @@ void main() {
 
       // Reading the rail needs no session.
       expect(
-        await call(ForgeDevtoolsProtocol.control, {'session': '$aimed'}),
+        await change(ForgeDevtoolsProtocol.control, {'session': '$aimed'}),
         containsPair('wired', true),
       );
     });
@@ -1650,6 +1686,10 @@ void main() {
             'question': 'whyNotRefetched',
           },
           ForgeDevtoolsProtocol.operations: {},
+          ForgeDevtoolsProtocol.wouldInvalidate: {
+            'operation': 'op_order_update',
+            'args': '{"path": {"id": "1"}}',
+          },
           ForgeDevtoolsProtocol.log: {},
           ForgeDevtoolsProtocol.frames: {},
           ForgeDevtoolsProtocol.requests: {},
@@ -1658,6 +1698,7 @@ void main() {
           ForgeDevtoolsProtocol.outbox: {},
           ForgeDevtoolsProtocol.sync: {},
         };
+        final table = {for (final op in Ops.all) op.id: op};
 
         void askAll(Object? _) {
           for (final MapEntry(:key, :value) in reads.entries) {
@@ -1666,15 +1707,15 @@ void main() {
         }
 
         if (flavour.contains('Changing')) {
-          registerForgeServiceExtensions(h.cache);
+          registerForgeServiceExtensions(h.cache, operations: table);
           h.cache.watchPrincipalChanging(askAll);
         } else {
           h.cache.watchPrincipal(askAll);
-          registerForgeServiceExtensions(h.cache);
+          registerForgeServiceExtensions(h.cache, operations: table);
         }
         final sub = h.mount(Ops.orderList);
         await h.settle();
-        await call(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
+        await change(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
         debugApplyFrames(h.cache, orderBinding, {'id': 5, 'ssn': secret});
         await sub.cancel();
 
@@ -1743,6 +1784,22 @@ void main() {
           expect(decoded[method], containsPair('stale', true), reason: method);
         }
 
+        // Final fix P1: the tag graph, the explain answers, the operations
+        // table and the invalidation preview say so as well, and the
+        // operations are the generated table alone, not what alice tracked.
+        for (final method in [
+          ForgeDevtoolsProtocol.tags,
+          ForgeDevtoolsProtocol.explain,
+          ForgeDevtoolsProtocol.operations,
+          ForgeDevtoolsProtocol.wouldInvalidate,
+        ]) {
+          expect(decoded[method], containsPair('stale', true), reason: method);
+        }
+        expect(
+          decoded[ForgeDevtoolsProtocol.operations],
+          containsPair('total', table.length),
+        );
+
         // The snapshot keeps its shape: zero-filled counters, marked stale.
         final snapshot = decoded[ForgeDevtoolsProtocol.snapshot]!;
 
@@ -1768,6 +1825,10 @@ void main() {
             ForgeDevtoolsProtocol.query,
             ForgeDevtoolsProtocol.entities,
             ForgeDevtoolsProtocol.entity,
+            ForgeDevtoolsProtocol.tags,
+            ForgeDevtoolsProtocol.explain,
+            ForgeDevtoolsProtocol.operations,
+            ForgeDevtoolsProtocol.wouldInvalidate,
           ].contains(key)) {
             expect(
               await call(key, value),
@@ -1832,14 +1893,14 @@ void main() {
 
         // And an action aimed at the listed key lands.
         expect(
-          (await call(ForgeDevtoolsProtocol.action, {
+          (await change(ForgeDevtoolsProtocol.action, {
             'action': 'stale',
             'target': listed,
           }))['ok'],
           isTrue,
         );
         expect(
-          (await call(ForgeDevtoolsProtocol.action, {
+          (await change(ForgeDevtoolsProtocol.action, {
             'action': 'evict',
             'target': entityKey,
           }))['ok'],
@@ -2025,6 +2086,181 @@ void main() {
           reason: method,
         );
       }
+    });
+  });
+
+  group('final fix minors', () {
+    // M2: a list in an explain or wouldInvalidate answer is capped, with how
+    // long it really is beside it.
+    test('caps the explain and wouldInvalidate lists, and says how long each really is', () async {
+      final h = Harness();
+      registerForgeServiceExtensions(
+        h.cache,
+        operations: {for (final op in Ops.all) op.id: op},
+      );
+      const many = ForgeDevtoolsProtocol.maxListInDetail + 5;
+      final subs = [
+        for (var i = 0; i < many; i++)
+          h.mount(Ops.orderList, TagContext(query: {'page': i})),
+      ];
+      await h.settle();
+
+      final explained = await call(ForgeDevtoolsProtocol.explain, {
+        'key': h.key(Ops.orderList, const TagContext(query: {'page': 0})),
+        'question': 'whyNotRefetched',
+        'cause': jsonEncode({
+          'tags': [for (var i = 0; i < many; i++) 'Order:$i'],
+        }),
+      });
+      final report = explained['report']! as Map<String, Object?>;
+      final invalidated = report['invalidated']! as Map<String, Object?>;
+
+      expect(
+        invalidated['items'],
+        hasLength(ForgeDevtoolsProtocol.maxListInDetail),
+      );
+      expect(invalidated['truncated'], isTrue);
+      expect(invalidated['total'], many);
+      expect(
+        (report['cause']! as Map<String, Object?>)['tags'],
+        containsPair('total', many),
+      );
+
+      final preview = await call(ForgeDevtoolsProtocol.wouldInvalidate, {
+        'operation': 'op_order_update',
+        'args': jsonEncode({
+          'path': {'id': '1'},
+        }),
+      });
+      final hits = items(
+        (preview['preview']! as Map<String, Object?>)['hits']!
+            as Map<String, Object?>,
+      );
+      final list = hits.firstWhere((hit) => hit['tag'] == 'Order[]');
+      final reached = list['queries']! as Map<String, Object?>;
+
+      expect(
+        reached['items'],
+        hasLength(ForgeDevtoolsProtocol.maxListInDetail),
+      );
+      expect(reached['truncated'], isTrue);
+      expect(reached['total'], many);
+
+      for (final sub in subs) {
+        await sub.cancel();
+      }
+    });
+
+    // M3: no principal value is put on the VM service.
+    test('hello and snapshot carry the session, never the principal', () async {
+      final h = Harness();
+      h.cache.setPrincipal('alice-principal');
+      await h.cache.idle;
+      registerForgeServiceExtensions(h.cache);
+
+      final hello = await call(ForgeDevtoolsProtocol.hello);
+      final snapshot = await call(ForgeDevtoolsProtocol.snapshot);
+
+      expect(jsonEncode(hello), isNot(contains('alice-principal')));
+      expect(jsonEncode(snapshot), isNot(contains('alice-principal')));
+      expect(items(hello, 'caches').single.containsKey('principal'), isFalse);
+      expect(snapshot.containsKey('principal'), isFalse);
+      expect(snapshot['session'], isA<int>());
+    });
+
+    // P6, and P2 for capture: every change names the session it was aimed
+    // at, and a session the cache has left is refused.
+    test('refuses an action, a network change, an outbox action and a capture that name no session, or a session the cache left', () async {
+      final h = Harness();
+      final controls = ControlledTransport(_Inner());
+      registerForgeServiceExtensions(h.cache, controls: controls);
+      h.cache.setPrincipal('alice');
+      await h.cache.idle;
+      final current =
+          (await call(ForgeDevtoolsProtocol.snapshot))['session']! as int;
+      final changes = <String, Map<String, String>>{
+        ForgeDevtoolsProtocol.action: {'action': 'clear'},
+        ForgeDevtoolsProtocol.control: {'failNext': '503'},
+        ForgeDevtoolsProtocol.outboxAction: {'action': 'replay', 'id': 'm1'},
+        ForgeDevtoolsProtocol.capture: {'enabled': 'true'},
+      };
+
+      for (final MapEntry(key: method, value: params) in changes.entries) {
+        final missing = await raw(method, params);
+        expect(
+          missing.errorCode,
+          developer.ServiceExtensionResponse.invalidParams,
+          reason: method,
+        );
+        expect(
+          missing.errorDetail,
+          contains('session is required'),
+          reason: method,
+        );
+
+        final left = await raw(method, {
+          ...params,
+          'session': '${current - 1}',
+        });
+        expect(
+          left.errorCode,
+          developer.ServiceExtensionResponse.extensionError,
+          reason: method,
+        );
+        expect(
+          left.errorDetail,
+          contains('session ${current - 1}'),
+          reason: method,
+        );
+      }
+
+      expect(controls.armed, isFalse);
+      expect(ForgeDevtoolsHost.instance.find(h.cache)!.capturing, isFalse);
+
+      // A read of the network state names none, and changes nothing.
+      expect((await call(ForgeDevtoolsProtocol.control))['armed'], isFalse);
+
+      // Aimed at the current session, capture goes through.
+      expect(
+        (await call(ForgeDevtoolsProtocol.capture, {
+          'enabled': 'true',
+          'session': '$current',
+        }))['capturing'],
+        isTrue,
+      );
+    });
+
+    // M4: an evicted cache's simulator is released and disposed, and a later
+    // registration does not show a rail over it.
+    test('disposes the simulator of an evicted cache, and attaches no rail over released controls', () async {
+      final h = Harness();
+      final controls = ControlledTransport(_Inner())
+        ..mode = NetworkMode.offline;
+      registerForgeServiceExtensions(h.cache, controls: controls);
+      var done = false;
+      controls.online.listen(null, onDone: () => done = true);
+
+      for (var i = 0; i < ForgeDevtoolsHost.maxAttached; i++) {
+        registerForgeServiceExtensions(Harness().cache);
+      }
+      await pumpEventQueue();
+
+      expect(forgeDevtoolsFor(h.cache), isNull);
+      expect(controls.released, isTrue);
+      expect(controls.isOnline, isTrue);
+      expect(done, isTrue, reason: 'nothing listening is held');
+
+      final again = registerForgeServiceExtensions(
+        h.cache,
+        controls: controls,
+      )!;
+
+      expect(again.controls, isNull);
+      final id = ForgeDevtoolsHost.instance.debugCacheIds.last;
+      expect(
+        (await call(ForgeDevtoolsProtocol.control, {'cache': id}))['wired'],
+        isFalse,
+      );
     });
   });
 }
