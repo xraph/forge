@@ -85,13 +85,16 @@ typedef PageFetcher = Future<({int total, List<Json> items})> Function(
 /// reads the pages around row 9,000 and none of those in between. A page
 /// that has not arrived shows a placeholder row. When more than [maxPages]
 /// are held, the ones least recently on screen are let go and read again if
-/// the reader scrolls back, so memory follows the window and not the store.
+/// the reader scrolls back, so memory follows the window and not the store. A
+/// page that was on screen in this frame or the one before is never let go,
+/// so a viewport that shows more than [maxPages] pages holds them all and
+/// does not read them over and over.
 ///
 /// A new [reloadToken] (other inputs, such as a filter) starts again from the
 /// first page. A new [refreshToken] (the app reported activity, or the
 /// reader asked) re-reads the pages held, in place: the rows neither flicker
-/// nor lose their scroll position, and the cost is at most [maxPages]
-/// requests however large the store is. A failed refresh is shown above the
+/// nor lose their scroll position, and the cost is at most [maxPages] plus
+/// the first page however large the store is. A failed refresh is shown above the
 /// rows and does not stop other pages from loading. A row the app replaced
 /// with an `oversized` marker shows as [OversizedRow] rather than through
 /// [itemBuilder].
@@ -119,7 +122,7 @@ class PagedList extends StatefulWidget {
   /// Rows per request.
   final int pageSize;
 
-  /// Most pages held at once. Must cover the pages on screen.
+  /// Most pages held at once, not counting those on screen.
   final int maxPages;
 
   /// A fixed row height. A list that sets it scrolls to any row without
@@ -148,6 +151,11 @@ class _PagedListState extends State<PagedList> {
   final Map<int, List<Json>> _pages = {};
   final Set<int> _inflight = {};
   final Map<int, String> _failed = {};
+
+  /// Pages built in this frame and in the one before: the ones on screen.
+  Set<int> _touched = {};
+  Set<int> _previouslyTouched = {};
+  bool _rotating = false;
   int _total = 0;
   bool _loaded = false;
   String? _error;
@@ -233,10 +241,33 @@ class _PagedListState extends State<PagedList> {
     _pages.remove(page);
     _pages[page] = rows;
     while (_pages.length > widget.maxPages) {
-      _pages.remove(_pages.keys.first);
+      // The oldest page that is not on screen. When every page is, the
+      // window is as wide as the viewport and nothing goes.
+      final victim = _pages.keys.cast<int?>().firstWhere(
+        (held) =>
+            held != page &&
+            !_touched.contains(held) &&
+            !_previouslyTouched.contains(held),
+        orElse: () => null,
+      );
+      if (victim == null) break;
+      _pages.remove(victim);
     }
   }
 
+  /// Remembers that [page] was built, and ages the set once the frame ends.
+  void _touch(int page) {
+    _touched.add(page);
+    if (_rotating) return;
+    _rotating = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _rotating = false;
+      _previouslyTouched = _touched;
+      _touched = {};
+    });
+  }
+
+  /// Lets go of pages past the total.
   void _dropBeyondTotal() {
     _pages.removeWhere((page, _) => page * widget.pageSize >= _total);
     _failed.removeWhere((page, _) => page * widget.pageSize >= _total);
@@ -260,7 +291,10 @@ class _PagedListState extends State<PagedList> {
     var total = _total;
 
     try {
-      for (final page in _pages.keys.toList()..sort()) {
+      // The first page is always asked, held or not: with no rows the total
+      // is all there is to learn, and with a window far down it is how a
+      // total that fell to zero (or rose from it) is found.
+      for (final page in {0, ..._pages.keys}.toList()..sort()) {
         final result = await widget.fetch(
           page * widget.pageSize,
           widget.pageSize,
@@ -330,12 +364,14 @@ class _PagedListState extends State<PagedList> {
     final page = index ~/ widget.pageSize;
     final rows = _pages[page];
 
+    // On screen, held or not yet: the last to be let go.
+    _touch(page);
+
     if (rows == null) {
       _request(page);
       return _placeholder(index, page);
     }
 
-    // On screen: the last to be let go.
     if (page != _pages.keys.last) {
       _pages
         ..remove(page)

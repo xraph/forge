@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/devtools_protocol.dart';
+import 'package:forge_client_devtools/forge_client_devtools.dart';
 
 import '../support/fake_backend.dart';
 import '../support/pump.dart';
@@ -172,6 +173,61 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('query-')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'an app with no queries yet shows the first one when activity arrives',
+    (tester) async {
+      final fake = FakeForgeBackend();
+      var rows = <Json>[];
+      fake.overrides[ForgeDevtoolsProtocol.queries] = (_) => {
+        'total': rows.length,
+        'offset': 0,
+        'truncated': false,
+        'items': rows,
+      };
+      await pumpPanel(tester, fake);
+      expect(find.text('0 queries'), findsOneWidget);
+
+      rows = [
+        {'key': 'GET /orders', 'status': 'success'},
+      ];
+      fake.emit({'cache': '1', 'entries': <Object?>[], 'skipped': 0});
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 queries'), findsOneWidget);
+      expect(find.byKey(const ValueKey('query-GET /orders')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'says switching account for a list and a query the app answered empty for that reason',
+    (tester) async {
+      final fake = FakeForgeBackend();
+      fake.overrides[ForgeDevtoolsProtocol.queries] = (_) => {
+        'total': 1,
+        'offset': 0,
+        'truncated': false,
+        'stale': true,
+        'items': [
+          {'key': 'GET /orders', 'status': 'success'},
+        ],
+      };
+      fake.overrides[ForgeDevtoolsProtocol.query] = (_) => {
+        'detail': null,
+        'stale': true,
+      };
+      await pumpPanel(tester, fake);
+
+      expect(find.byKey(const ValueKey('queries-switching')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('query-GET /orders')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This query is no longer tracked.'), findsNothing);
+      expect(find.text('switching account'), findsNWidgets(2));
     },
   );
 }

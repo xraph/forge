@@ -211,11 +211,48 @@ void main() {
 
       final reread =
           fake.callsTo(ForgeDevtoolsProtocol.entities).length - before;
-      expect(reread, inInclusiveRange(1, 6));
+      // The six pages held, and the first page for the total.
+      expect(reread, inInclusiveRange(1, 7));
       expect(_table(tester).pixels, offset);
       expect(find.text('Loading...'), findsNothing);
     });
   });
+
+  testWidgets('Reload shows the rows of a store that was empty', (
+    tester,
+  ) async {
+    final fake = await pumpPanel(tester, FakeForgeBackend(entityCount: 0));
+    await openTab(tester, 'Entities');
+    expect(find.text('No entities match.'), findsOneWidget);
+
+    fake.entityCount = 4;
+    await tester.tap(find.byKey(const ValueKey('entities-refresh')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('4 entities'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entity-Order:3')), findsOneWidget);
+  });
+
+  testWidgets(
+    'an entity answered empty while the account changes says so, not that it was evicted',
+    (tester) async {
+      final fake = FakeForgeBackend();
+      // The shape the app sends: an empty entity, marked stale.
+      fake.overrides[ForgeDevtoolsProtocol.entity] = (_) => {
+        'entity': null,
+        'folded': null,
+        'stale': true,
+      };
+      await pumpPanel(tester, fake);
+      await openTab(tester, 'Entities');
+
+      await tester.tap(find.byKey(const ValueKey('entity-Order:0')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('switching account'), findsOneWidget);
+      expect(find.text('The store no longer holds this entity.'), findsNothing);
+    },
+  );
 
   group('identifiers', () {
     testWidgets(

@@ -24,6 +24,7 @@ class _QueriesPanelState extends State<QueriesPanel>
   String _filter = '';
   int _generation = 0;
   String? _selected;
+  bool _switching = false;
 
   @override
   ForgeConnection get connection => widget.connection;
@@ -39,6 +40,12 @@ class _QueriesPanelState extends State<QueriesPanel>
       'limit': '$limit',
       if (_filter.isNotEmpty) 'filter': _filter,
     });
+    // An empty page the app sent while it changes account is not an empty
+    // store.
+    final switching = page.flag('stale');
+    if (mounted && switching != _switching) {
+      setState(() => _switching = switching);
+    }
     return (total: page.integer('total'), items: page.objs('items'));
   }
 
@@ -60,6 +67,14 @@ class _QueriesPanelState extends State<QueriesPanel>
                 onSubmitted: (value) => setState(() => _filter = value),
               ),
             ),
+            if (_switching)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Chip(
+                  key: ValueKey('queries-switching'),
+                  label: Text('switching account'),
+                ),
+              ),
             Expanded(
               child: PagedList(
                 reloadToken: _filter,
@@ -120,6 +135,7 @@ class _QueryDetailState extends State<_QueryDetail>
   Json? _detail;
   String? _error;
   bool _loaded = false;
+  bool _switching = false;
 
   static const _actions = {
     'refetch': 'Refetch',
@@ -146,6 +162,7 @@ class _QueryDetailState extends State<_QueryDetail>
       if (!mounted) return;
       setState(() {
         _detail = result.objOrNull('detail');
+        _switching = result.flag('stale');
         _error = null;
         _loaded = true;
       });
@@ -184,6 +201,8 @@ class _QueryDetailState extends State<_QueryDetail>
   Widget build(BuildContext context) {
     if (_error != null) return Center(child: Text(_error!));
     if (!_loaded) return const Center(child: Text('Loading...'));
+
+    if (_switching) return const Center(child: Text('switching account'));
 
     final detail = _detail;
     if (detail == null) {

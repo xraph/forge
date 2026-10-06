@@ -479,8 +479,140 @@ void main() {
         await tester.pumpWidget(build(1));
         await tester.pumpAndSettle();
 
-        expect(asked.length, lessThanOrEqualTo(3));
+        // The pages held, and the first page for the total.
+        expect(asked.length, lessThanOrEqualTo(3 + 1));
         expect(asked.length, greaterThanOrEqualTo(1));
+      },
+    );
+
+    testWidgets('an empty list shows its rows when a refresh finds some', (
+      tester,
+    ) async {
+      var total = 0;
+      Widget build(Object token) => host(
+        PagedList(
+          refreshToken: token,
+          totalLabel: (n) => '$n rows',
+          emptyText: 'Nothing',
+          fetch: (offset, limit) => rows(offset, limit, total),
+          itemBuilder: (context, row) => Text('row ${row['id']}'),
+        ),
+      );
+
+      await tester.pumpWidget(build(0));
+      await tester.pumpAndSettle();
+      expect(find.text('Nothing'), findsOneWidget);
+
+      total = 5;
+      await tester.pumpWidget(build(1));
+      await tester.pumpAndSettle();
+
+      expect(find.text('5 rows'), findsOneWidget);
+      expect(find.text('row 4'), findsOneWidget);
+    });
+
+    testWidgets('a total that falls to zero and rises again shows its rows', (
+      tester,
+    ) async {
+      var total = 5;
+      Widget build(Object token) => host(
+        PagedList(
+          refreshToken: token,
+          totalLabel: (n) => '$n rows',
+          fetch: (offset, limit) => rows(offset, limit, total),
+          itemBuilder: (context, row) => Text('row ${row['id']}'),
+        ),
+      );
+
+      await tester.pumpWidget(build(0));
+      await tester.pumpAndSettle();
+
+      total = 0;
+      await tester.pumpWidget(build(1));
+      await tester.pumpAndSettle();
+      expect(find.text('0 rows'), findsOneWidget);
+
+      total = 3;
+      await tester.pumpWidget(build(2));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 rows'), findsOneWidget);
+      expect(find.text('row 2'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a total that falls to zero while the window is far down still recovers',
+      (tester) async {
+        var total = 1000;
+        Widget build(Object token) => host(
+          PagedList(
+            pageSize: 10,
+            maxPages: 2,
+            itemExtent: 50,
+            refreshToken: token,
+            totalLabel: (n) => '$n rows',
+            fetch: (offset, limit) => rows(offset, limit, total),
+            itemBuilder: (context, row) => Text('row ${row['id']}'),
+          ),
+        );
+
+        await tester.pumpWidget(build(0));
+        await tester.pumpAndSettle();
+        final scroll = tester.state<ScrollableState>(find.byType(Scrollable));
+        // Far enough that the first page has been let go.
+        for (var page = 1; page <= 8; page++) {
+          scroll.position.jumpTo(page * 10 * 50.0);
+          await tester.pumpAndSettle();
+        }
+
+        total = 0;
+        await tester.pumpWidget(build(1));
+        await tester.pumpAndSettle();
+        expect(find.text('0 rows'), findsOneWidget);
+
+        total = 4;
+        await tester.pumpWidget(build(2));
+        await tester.pumpAndSettle();
+
+        expect(find.text('4 rows'), findsOneWidget);
+        expect(find.text('row 3'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a viewport taller than the window holds what it shows and settles',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final asked = <int>[];
+        await tester.pumpWidget(
+          host(
+            PagedList(
+              pageSize: 10,
+              maxPages: 6,
+              itemExtent: 20,
+              fetch: (offset, limit) {
+                asked.add(offset);
+                return rows(offset, limit, 5000);
+              },
+              itemBuilder: (context, row) => Text('row ${row['id']}'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final settled = asked.length;
+
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+
+        // 4,000 pixels of 20 pixel rows is twenty pages, with the rows just
+        // outside. Each is read once, and nothing is read after.
+        expect(settled, lessThan(30));
+        expect(asked.length, settled);
+        expect(asked.toSet().length, asked.length);
+        expect(find.text('row 0'), findsOneWidget);
+        expect(find.text('row 199'), findsOneWidget);
       },
     );
 
