@@ -33,7 +33,8 @@ final class FrameOptions {
 ///
 /// Nothing crosses principals: when the cache's principal changes, the log, the
 /// frame ring and the [requests] log are purged (one marker each is left), and
-/// an armed failure on [controls] is disarmed, before the cache drops the
+/// an armed failure on [controls] is disarmed and its delayed requests are
+/// aborted, before the cache drops the
 /// previous principal's records, so none of what was recorded for one user is
 /// readable once the next is in charge. A query a component is still
 /// watching is re-mounted by the cache for the new principal under the same
@@ -354,7 +355,7 @@ final class Devtools {
     _log.clear();
     _ring?.clear();
     requestLog?.clear();
-    controls?.disarm();
+    controls?.principalChanged();
     _fetching.clear();
     _seen.clear();
     _pending.clear();
@@ -460,7 +461,8 @@ final class Devtools {
   /// Everything recorded for the previous principal goes: the log keeps one
   /// [PrincipalLog] marker, the frame ring (when capture is on) keeps one marker
   /// capture, the request log (when wired) keeps one marker request, an armed
-  /// failure on the controls is disarmed, and the per-query bookkeeping, which
+  /// failure on the controls is disarmed (and its delayed requests aborted), and
+  /// the per-query bookkeeping, which
   /// is keyed by the previous principal's queries, is dropped. No marker carries
   /// an id, a payload or the principal's value. Until the cache has emptied itself, nothing is
   /// delivered to subscribers and nothing is answered from the cache.
@@ -480,7 +482,7 @@ final class Devtools {
 
     _ring?.purge(seq: marker.seq, at: marker.at);
     requestLog?.purge();
-    controls?.disarm();
+    controls?.principalChanged();
 
     if (cleared) {
       _settle();

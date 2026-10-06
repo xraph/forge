@@ -202,10 +202,10 @@ final class RequestLog {
   final Clock _clock;
   final List<_Live?> _ring;
 
-  // Requests still waiting on their settle. Emptied by [purge] and [clear]: a
-  // request that began before either one is not in this map when it settles,
-  // so it is never recorded. That is the fence for a request in flight across
-  // a principal change.
+  // Requests still waiting on their settle. Emptied by [purge] and [clear], so
+  // the map does not hold a record whose request never settles. The fence for a
+  // request in flight across a principal change is that the ring no longer
+  // holds its record: a late event updates an orphan nobody can read.
   final Map<int, _Live> _byId = {};
   int _cursor = 0;
   int _filled = 0;
@@ -247,14 +247,16 @@ final class RequestLog {
     clear();
     _push(
       _Live(
-        id: -1,
-        operation: 'principal changed',
-        method: '',
-        args: '',
-        at: _clock.now(),
-        limit: 0,
-        marker: true,
-      )..outcome = RequestOutcome.ok,
+          id: -1,
+          operation: 'principal changed',
+          method: '',
+          args: '',
+          at: _clock.now(),
+          limit: 0,
+          marker: true,
+        )
+        ..outcome = RequestOutcome.ok
+        ..attempts = 0,
     );
   }
 

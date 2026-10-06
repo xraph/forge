@@ -6,19 +6,30 @@
 /// and offline fails the operation once rather than once per retry.
 ///
 /// Placement: wrap the `RestTransport` itself, and put an `OutboxTransport`
-/// (when there is one) outside it, never the other way round. A simulated
-/// offline then fails the send a drain makes, so a write queues in the outbox
-/// as it would on a real lost connection, and a drain feels the simulated
-/// network. Wrapped outside the outbox, offline would throw before the outbox
-/// saw the write.
+/// (when there is one) outside it, never the other way round. A drain then goes
+/// through the simulator, so it feels the simulated network. Wrapped outside
+/// the outbox, offline would throw before the outbox saw the write.
+///
+/// An outbox that queues offline writes must also be given
+/// [withSimulatedConnectivity] as its connectivity signal. [SimulatedOffline]
+/// is an `http.ClientException`, which the outbox reads as an uncertain
+/// outcome ("the request may have reached the server") because forge_client
+/// has no failure kind that says "never sent" for it to honour. With the
+/// signal wired the outbox knows the device is offline and holds the write; with
+/// no signal, a non-idempotent write (a PATCH or POST) fails as uncertain
+/// instead of queuing, though the simulator never let it out.
 ///
 /// Principal changes: an armed failure belongs to the principal who armed it,
-/// so `Devtools` calls [ControlledTransport.disarm] synchronously when the
-/// principal starts changing, and the next principal's first request never
-/// inherits it. The mode and the latency are the developer's network, not any
-/// principal's data, so they persist across a switch. Revalidation toggles
-/// persist for the same reason. A transport used without `Devtools` is not told
-/// about principal changes.
+/// and so does a request waiting out simulated latency. `Devtools` calls
+/// [ControlledTransport.principalChanged] synchronously when the principal
+/// starts changing (and when it is disposed). The next principal's first request
+/// never inherits the armed failure, and a request that was sleeping is aborted
+/// with an `http.RequestAbortedException` instead of being sent under the new
+/// principal's credentials. The outbox reads that as a cancellation: it rethrows
+/// to the caller and stores nothing. The mode and the latency are the
+/// developer's network, not any principal's data, so they persist across a
+/// switch. Revalidation toggles persist for the same reason. A transport used
+/// without `Devtools` is not told about principal changes.
 library;
 
 import 'dart:async';
@@ -65,6 +76,7 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   final StreamController<bool> _online = StreamController<bool>.broadcast();
   NetworkMode _mode = NetworkMode.online;
   int? _next;
+  int _epoch = 0;
 
   /// Extra delay before every request. Not cleared by a principal change.
   Duration latency = Duration.zero;
@@ -98,11 +110,21 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// when the principal starts changing.
   void disarm() => _next = null;
 
+  /// Tells the transport the principal is changing (or the inspector is gone).
+  /// Disarms the armed failure and aborts every request still waiting out
+  /// simulated latency, so none is sent afterwards. The mode and the latency
+  /// stay. `Devtools` calls this synchronously from the principal-changing
+  /// notification.
+  void principalChanged() {
+    _epoch++;
+    disarm();
+  }
+
   @override
   Future<Object?> execute(TransportRequest request) async {
-    if (_mode == NetworkMode.offline) {
-      throw SimulatedOffline(Uri.tryParse(request.meta.path));
-    }
+    final uri = Uri.tryParse(request.meta.path);
+
+    if (_mode == NetworkMode.offline) throw SimulatedOffline(uri);
 
     final armedStatus = _next;
     if (armedStatus != null) {
@@ -114,7 +136,15 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
     }
 
     final delay = latency + (_mode == NetworkMode.slow ? _slow : Duration.zero);
-    if (delay > Duration.zero) await _sleep(delay);
+    if (delay > Duration.zero) {
+      final epoch = _epoch;
+      await _sleep(delay);
+
+      // A request that began under one principal is never sent under the next.
+      if (epoch != _epoch) throw http.RequestAbortedException(uri);
+      // The network went away while it waited.
+      if (_mode == NetworkMode.offline) throw SimulatedOffline(uri);
+    }
 
     return inner.execute(request);
   }

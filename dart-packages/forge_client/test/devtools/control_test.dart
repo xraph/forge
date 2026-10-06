@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client/src/devtools/control.dart';
 import 'package:forge_client/src/devtools/devtools.dart';
+import 'package:forge_client/src/devtools/requests.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -379,6 +381,129 @@ void main() {
       devtools.dispose();
 
       expect(controls.armed, isFalse);
+    });
+  });
+
+  group('a request waiting out simulated latency', () {
+    // A RestTransport behind a gated sleep, under a cache, with the log wired.
+    ({
+      ControlledTransport controls,
+      RestTransport rest,
+      RequestLog log,
+      List<String> wire,
+      Completer<void> gate,
+    })
+    wired() {
+      final wire = <String>[];
+      final gate = Completer<void>();
+      final log = RequestLog(clock: CounterClock());
+      final rest = RestTransport(
+        baseUrl: Uri.parse('http://forge.test'),
+        client: MockClient((request) async {
+          wire.add('${request.url} ${request.headers['Authorization']}');
+          return http.Response(
+            '{"ok":true}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+        sleep: (_) async {},
+        observer: log.observer,
+      );
+      final controls = ControlledTransport(rest, sleep: (_) => gate.future)
+        ..latency = const Duration(seconds: 5);
+      return (controls: controls, rest: rest, log: log, wire: wire, gate: gate);
+    }
+
+    const alice = TransportRequest(
+      meta: Ops.orderList,
+      args: TagContext(query: {'q': 'alice-secret-query'}),
+    );
+
+    test('is aborted, not sent and not logged, when the principal changes under it', () async {
+      final h = Harness();
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+        requests: log,
+      );
+      h.cache.setPrincipal('alice');
+
+      final pending = controls.execute(alice);
+      final outcome = expectLater(
+        pending,
+        throwsA(isA<http.RequestAbortedException>()),
+      );
+      await pumpEventQueue();
+
+      h.cache.setPrincipal('bob');
+      await h.settle();
+      gate.complete();
+      await outcome;
+      await pumpEventQueue();
+
+      expect(wire, isEmpty);
+      expect(devtools.requests(), hasLength(1));
+      expect(devtools.requests().single.marker, isTrue);
+      expect(
+        jsonEncode(log.entries().map((e) => e.toJson()).toList()),
+        isNot(contains('alice')),
+      );
+
+      devtools.dispose();
+    });
+
+    test('is aborted, not sent and not logged, when the inspector is disposed under it', () async {
+      final h = Harness();
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+        requests: log,
+      );
+
+      final pending = controls.execute(alice);
+      final outcome = expectLater(
+        pending,
+        throwsA(isA<http.RequestAbortedException>()),
+      );
+      await pumpEventQueue();
+
+      devtools.dispose();
+      gate.complete();
+      await outcome;
+
+      expect(wire, isEmpty);
+      expect(log.entries(), isEmpty);
+    });
+
+    test('is sent when nothing changed while it waited', () async {
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+
+      final pending = controls.execute(alice);
+      await pumpEventQueue();
+      gate.complete();
+
+      expect(await pending, {'ok': true});
+      expect(wire, hasLength(1));
+      expect(log.entries().single.outcome, RequestOutcome.ok);
+    });
+
+    test('fails offline when the network went away while it waited', () async {
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+
+      final pending = controls.execute(alice);
+      final outcome = expectLater(pending, throwsA(isA<SimulatedOffline>()));
+      await pumpEventQueue();
+
+      controls.mode = NetworkMode.offline;
+      gate.complete();
+      await outcome;
+
+      expect(wire, isEmpty);
     });
   });
 
