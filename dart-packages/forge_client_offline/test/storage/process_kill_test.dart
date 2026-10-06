@@ -81,33 +81,31 @@ void main() {
 
     int? writerPid;
     var committed = -1;
-    final warmedUp = Completer<void>();
+    final hot = Completer<void>();
     final lines = writer.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
           if (line.startsWith('pid ')) writerPid = int.parse(line.substring(4));
-          if (!line.startsWith('committed ')) return;
-          committed = int.parse(line.substring(10));
-          if (committed >= 30 && !warmedUp.isCompleted) warmedUp.complete();
+          if (line.startsWith('committed ')) {
+            committed = int.parse(line.substring(10));
+          }
+          if (line == 'hot' && !hot.isCompleted) hot.complete();
         });
 
+    // The writer prints `hot` once its last transaction has spilled and the
+    // journal header carries SQLite's magic: the transaction has begun
+    // overwriting the database file, so a kill now leaves pages only the
+    // journal can roll back. It then blocks with the transaction open, so
+    // the kill lands there every time, with no race and no polling here. No
+    // close, no commit, no signal handler.
     await Future.any([
-      warmedUp.future,
+      hot.future,
       writer.exitCode.then(
         (code) =>
             fail('the writer exited ($code) before it was killed: $stderrText'),
       ),
     ]);
-
-    // A journal whose header carries SQLite's magic is hot: it was synced
-    // and the transaction has begun overwriting the database file, so a kill
-    // now leaves pages that only the journal can roll back. (Until then the
-    // header is zeroed and the file untouched.) Each batch is larger than the
-    // page cache, so it spills, and goes hot, long before it commits. No
-    // close, no commit, no signal handler.
-    final watch = Stopwatch()..start();
-    while (!_isHot(journal) && watch.elapsed < const Duration(seconds: 10)) {}
     Process.killPid(writerPid!, ProcessSignal.sigkill);
 
     await writer.exitCode.timeout(const Duration(seconds: 20));

@@ -165,6 +165,27 @@ void main() {
     expect(names(), ['$_label.salt']);
   });
 
+  // Exclusivity at the file level is pinned by the stalled-creator and
+  // put-never-replaces tests. This pins the layer above it: separate but
+  // equal store instances share one in-flight attempt, so only one creator
+  // ever tries to publish a salt.
+  test(
+    'concurrent passphrase keys over separate equal instances make one put',
+    () async {
+      final puts = <String>[];
+      final keys = await Future.wait([
+        for (var i = 0; i < 6; i++)
+          keysOver(_CountingSaltStore(FilePassphraseSaltStore(dir.path), puts))
+              .obtain('alice'),
+      ]);
+
+      expect(puts, [_label]);
+      for (final key in keys) {
+        expect(key.bytes, keys.first.bytes);
+      }
+    },
+  );
+
   test('instances over one directory are equal, others are not', () {
     final a = FilePassphraseSaltStore(dir.path);
     final b = FilePassphraseSaltStore('${dir.path}${Platform.pathSeparator}');
@@ -251,6 +272,37 @@ void main() {
     }
     expect(names(), isEmpty);
   });
+}
+
+/// Records every put, and compares equal exactly when the stores it wraps
+/// do, as the passphrase key's in-flight map requires.
+final class _CountingSaltStore implements PassphraseSaltStore {
+  _CountingSaltStore(this.inner, this.puts);
+
+  final PassphraseSaltStore inner;
+  final List<String> puts;
+
+  @override
+  Future<Uint8List?> get(String label) => inner.get(label);
+
+  @override
+  Future<bool> hasData(String label) => inner.hasData(label);
+
+  @override
+  Future<void> put(String label, Uint8List salt) {
+    puts.add(label);
+    return inner.put(label, salt);
+  }
+
+  @override
+  Future<void> delete(String label) => inner.delete(label);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CountingSaltStore && other.inner == inner;
+
+  @override
+  int get hashCode => inner.hashCode;
 }
 
 final class _FixedLabel implements PrincipalLabeler {
