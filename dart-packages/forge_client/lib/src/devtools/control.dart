@@ -79,7 +79,11 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
 
   final Sleep _sleep;
   final Duration _slow;
-  final StreamController<bool> _online = StreamController<bool>.broadcast();
+  final StreamController<bool> _online = StreamController<bool>.broadcast(
+    sync: true,
+  );
+  final List<void Function()> _changes = [];
+  bool _dispatching = false;
   NetworkMode _mode = NetworkMode.online;
   int? _next;
   int _epoch = 0;
@@ -92,10 +96,41 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// The current mode.
   NetworkMode get mode => _mode;
 
-  /// Sets the mode. Entering or leaving offline is reported on [online].
+  /// Sets the mode. Entering or leaving offline is reported on [online]
+  /// synchronously, before this returns: a write sent on the next line must
+  /// find the outbox already knowing the network is gone, or it fails as an
+  /// uncertain outcome instead of queuing.
+  ///
+  /// A change requested from inside a listener is not lost and does not
+  /// interrupt the dispatch in progress: it is applied, and reported, once
+  /// that dispatch has finished. A listener that throws is reported to its
+  /// zone like any stream listener's error and does not stop the others.
   set mode(NetworkMode value) {
-    final wasOnline = isOnline;
-    _mode = value;
+    _change(() {
+      final wasOnline = isOnline;
+      _mode = value;
+      _announce(wasOnline);
+    });
+  }
+
+  /// Applies [change] now, or after the dispatch under way when called from a
+  /// listener, so connectivity reports never nest and arrive in order.
+  void _change(void Function() change) {
+    _changes.add(change);
+    if (_dispatching) return;
+
+    _dispatching = true;
+    try {
+      while (_changes.isNotEmpty) {
+        _changes.removeAt(0)();
+      }
+    } finally {
+      _dispatching = false;
+    }
+  }
+
+  /// Reports [isOnline] if it differs from [wasOnline].
+  void _announce(bool wasOnline) {
     if (wasOnline != isOnline && !_online.isClosed) _online.add(isOnline);
   }
 
@@ -131,7 +166,8 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// latency straight to [inner] (the principal is unchanged, so it is still
   /// the user's request), and passes through from now on, with no delay and no
   /// simulated offline. If the mode was offline, [online] reports the network
-  /// back so a held write can drain. `Devtools` calls this on dispose.
+  /// back, synchronously, so a held write can drain. `Devtools` calls this on
+  /// dispose.
   void release() {
     if (_released) return;
 
@@ -139,7 +175,7 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
     _released = true;
     disarm();
     _release.complete();
-    if (!wasOnline && !_online.isClosed) _online.add(true);
+    _change(() => _announce(wasOnline));
   }
 
   @override
@@ -281,7 +317,11 @@ final class _MergedConnectivity implements ConnectivitySignal {
       }
     }
 
+    // Synchronous, so the offline switch reaches the outbox before the setter
+    // that flipped it returns. An async controller would hand the report on
+    // by a microtask and reopen the window the simulator closes.
     controller = StreamController<bool>(
+      sync: true,
       onListen: () {
         real = _real.online.listen((value) {
           realOnline = value;

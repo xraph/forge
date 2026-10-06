@@ -204,6 +204,155 @@ void main() {
       },
     );
 
+    // Plan 07 Task 8: a write sent on the line after the switch reaches the
+    // outbox while it still believes it is online, and fails as uncertain
+    // instead of queuing. Nothing here is awaited between the set and the read.
+    test(
+      'reports a mode change to its listeners before the setter returns',
+      () {
+        final controls = ControlledTransport(_Inner());
+        final heard = <bool>[];
+        final merged = <bool>[];
+        final subs = [
+          controls.online.listen(heard.add),
+          withSimulatedConnectivity(
+            _Real(const Stream<bool>.empty()),
+            controls,
+          ).online.listen(merged.add),
+        ];
+
+        controls.mode = NetworkMode.offline;
+
+        expect(heard, [false]);
+        expect(merged, [false]);
+
+        controls
+          ..mode = NetworkMode.offline
+          ..mode = NetworkMode.slow;
+
+        expect(heard, [false, true]);
+        expect(merged, [false, true]);
+
+        controls.mode = NetworkMode.offline;
+        controls.release();
+
+        expect(heard, [false, true, false, true]);
+        expect(merged, [false, true, false, true]);
+
+        for (final sub in subs) {
+          unawaited(sub.cancel());
+        }
+      },
+    );
+
+    test('does not report a repeated mode again', () {
+      final controls = ControlledTransport(_Inner());
+      final heard = <bool>[];
+      final sub = controls.online.listen(heard.add);
+
+      controls
+        ..mode = NetworkMode.online
+        ..mode = NetworkMode.slow
+        ..mode = NetworkMode.offline
+        ..mode = NetworkMode.offline;
+
+      expect(heard, [false]);
+
+      unawaited(sub.cancel());
+    });
+
+    test('applies a mode requested from a listener after the dispatch in progress, and loses none', () {
+      final controls = ControlledTransport(_Inner());
+      final first = <bool>[];
+      final second = <bool>[];
+      final modeSeenInside = <NetworkMode>[];
+      var bounced = false;
+
+      final subs = [
+        controls.online.listen((online) {
+          first.add(online);
+          modeSeenInside.add(controls.mode);
+          if (!online && !bounced) {
+            bounced = true;
+            controls.mode = NetworkMode.online;
+          }
+        }),
+        controls.online.listen(second.add),
+      ];
+
+      controls.mode = NetworkMode.offline;
+
+      // Both listeners heard the report in order. The nested request waited
+      // for the first dispatch to finish rather than reordering it.
+      expect(first, [false, true]);
+      expect(second, [false, true]);
+      expect(modeSeenInside.first, NetworkMode.offline);
+      expect(controls.mode, NetworkMode.online);
+      expect(controls.isOnline, isTrue);
+
+      for (final sub in subs) {
+        unawaited(sub.cancel());
+      }
+    });
+
+    test('applies several modes requested from a listener, in order', () {
+      final controls = ControlledTransport(_Inner());
+      final heard = <bool>[];
+      var asked = false;
+
+      final sub = controls.online.listen((online) {
+        heard.add(online);
+        if (!asked) {
+          asked = true;
+          controls
+            ..mode = NetworkMode.online
+            ..mode = NetworkMode.offline;
+        }
+      });
+
+      controls.mode = NetworkMode.offline;
+
+      expect(heard, [false, true, false]);
+      expect(controls.mode, NetworkMode.offline);
+
+      unawaited(sub.cancel());
+    });
+
+    test(
+      'a listener that throws does not stop the others or the change',
+      () async {
+        final controls = ControlledTransport(_Inner());
+        final heard = <bool>[];
+        final reported = <Object>[];
+
+        await runZonedGuarded(() async {
+          final subs = [
+            controls.online.listen((_) => throw StateError('bad listener')),
+            controls.online.listen(heard.add),
+          ];
+
+          controls.mode = NetworkMode.offline;
+
+          // Applied and reported to the healthy listener before the setter returned.
+          expect(controls.mode, NetworkMode.offline);
+          expect(heard, [false]);
+
+          // Still usable afterwards.
+          controls.mode = NetworkMode.online;
+
+          expect(heard, [false, true]);
+
+          await pumpEventQueue();
+          for (final sub in subs) {
+            await sub.cancel();
+          }
+        }, (error, _) => reported.add(error));
+
+        expect(reported, everyElement(isA<StateError>()));
+        expect(reported, isNotEmpty);
+      },
+    );
+
     test(
       'merges simulated and real connectivity, offline when either is',
       () async {

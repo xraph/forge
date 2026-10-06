@@ -227,6 +227,57 @@ void main() {
       expect(offline.currentFailures, isEmpty);
     });
 
+    // Plan 07 Task 8: the switch reaches the outbox synchronously, so a write
+    // sent on the very next line queues. With the report a microtask late it
+    // failed as OutboxUncertain, because the outbox still thought it was online.
+    test('a PATCH sent on the line after setting offline queues, and drains through the simulator', () async {
+      final (:rest, :wire) = restOverFakeServer();
+      final offline = await OfflineClient.open(
+        transport: rest,
+        entities: entities,
+        operations: operations,
+        storage: memoryStorage(),
+        principal: 'alice',
+        devtools: true,
+      );
+      addTearDown(offline.dispose);
+      final controls = forgeDevtoolsFor(offline.cache)!.controls!;
+
+      // No await between the switch and the write.
+      controls.mode = NetworkMode.offline;
+      final future = offline.cache.mutate(
+        opUpdateOrder,
+        orderArgs('7', {'note': 'immediate'}),
+      );
+      final write = Watched(future);
+
+      expect(offline.isOnline, isFalse);
+
+      await settle();
+
+      expect(write.done, isFalse);
+      expect(write.error, isNull);
+      expect(offline.pending, hasLength(1));
+      expect(offline.currentFailures, isEmpty);
+      expect(patches(wire), isEmpty);
+
+      controls.latency = const Duration(milliseconds: 200);
+      controls.mode = NetworkMode.online;
+      await settle();
+
+      // Replaying, but held in the simulator's latency, so it is going through it.
+      expect(offline.isOnline, isTrue);
+      expect(patches(wire), isEmpty);
+      expect(offline.pending, hasLength(1));
+
+      final value = await future.timeout(const Duration(seconds: 5));
+
+      expect((value! as Map<String, Object?>)['note'], 'immediate');
+      expect(patches(wire), hasLength(1));
+      expect(offline.pending, isEmpty);
+      expect(offline.currentFailures, isEmpty);
+    });
+
     // Privacy through the production wiring (preflight P1, P2). A configureClient
     // cache has no OutboxInspector, so only this path puts the outbox and sync
     // mirrors behind the extensions.
