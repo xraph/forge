@@ -65,8 +65,8 @@ func renderBinding(op *operation, reg *registry) string {
 
 	b.WriteString(generatedHeader)
 
-	var dartImports []string
-	if strings.Contains(text, "Uint8List") {
+	dartImports := coreImports(text)
+	if usesIdentifier(text, "Uint8List") {
 		dartImports = append(dartImports, "import 'dart:typed_data';")
 	}
 
@@ -197,7 +197,7 @@ func renderArgs(op *operation, forge map[string]bool) string {
 		fmt.Fprintf(&b, "  final %s %s;\n", m.decl, m.name)
 	}
 
-	b.WriteString("\n  @override\n")
+	b.WriteString("\n  @dart_core.override\n")
 	b.WriteString("  TagContext toTagContext() => TagContext(\n")
 
 	// A null optional parameter is left out rather than written as null: the
@@ -245,7 +245,7 @@ func renderArgs(op *operation, forge map[string]bool) string {
 
 	b.WriteString("  );\n")
 
-	b.WriteString("\n  @override\n")
+	b.WriteString("\n  @dart_core.override\n")
 	b.WriteString("  bool operator ==(Object other) =>\n")
 	fmt.Fprintf(&b, "      other is %s", op.args)
 
@@ -255,7 +255,7 @@ func renderArgs(op *operation, forge map[string]bool) string {
 
 	b.WriteString(";\n")
 
-	b.WriteString("\n  @override\n")
+	b.WriteString("\n  @dart_core.override\n")
 
 	hashes := make([]string, len(members))
 	for i, m := range members {

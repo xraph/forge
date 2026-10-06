@@ -2,7 +2,6 @@ package dart
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -577,14 +576,13 @@ func (r *registry) typeImports(names map[string]bool, prefix string) []string {
 }
 
 // importsFor renders the model-file imports a rendered file needs: every
-// model file declaring a type the text names. Reading the text rather than
-// threading import sets through every emitter means an import is present
+// model file declaring a type the text names in code. Reading the text rather
+// than threading import sets through every emitter means an import is present
 // exactly when it is used, which the analyzer's unused_import check demands.
+// Only code counts (see codeIdentifiers): an operation summary that happens to
+// say "Get Chat Session" names no type, so it must not import one.
 func (r *registry) importsFor(text, prefix string) []string {
-	used := map[string]bool{}
-	for _, id := range identifierPattern.FindAllString(text, -1) {
-		used[id] = true
-	}
+	used := codeIdentifiers(text)
 
 	var out []string
 
@@ -654,14 +652,144 @@ var supportSymbols = []string{
 	"encodeBytes", "encodeDate", "encodeNullable", "valueEquals", "valueHash",
 }
 
-var identifierPattern = regexp.MustCompile(`[A-Za-z_$][A-Za-z0-9_$]*`)
+// codeIdentifiers returns every identifier the Dart text uses as code: the
+// names inside comments and string literals are left out, but a `$name` or
+// `${...}` interpolation inside a string is code and counts. Import tracking
+// reads this rather than the raw text, because a doc comment or a string
+// literal can spell a model's name without the file ever referring to it.
+func codeIdentifiers(text string) map[string]bool {
+	out := map[string]bool{}
+	scanCode(text, 0, false, out)
 
-// usedSymbols returns which of candidates appear as identifiers in text.
-func usedSymbols(text string, candidates []string) []string {
-	seen := map[string]bool{}
-	for _, id := range identifierPattern.FindAllString(text, -1) {
-		seen[id] = true
+	return out
+}
+
+func identStart(c byte) bool {
+	return c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+func identPart(c byte) bool { return identStart(c) || c >= '0' && c <= '9' }
+
+// scanCode records the identifiers in s from i. Inside a `${...}` interpolation
+// (interp) it returns just past the closing brace; otherwise at the end.
+func scanCode(s string, i int, interp bool, out map[string]bool) int {
+	depth := 0
+
+	for i < len(s) {
+		c := s[i]
+
+		switch {
+		case c == '/' && i+1 < len(s) && s[i+1] == '/':
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(s) && s[i+1] == '*':
+			i = skipBlockComment(s, i)
+		case c == '\'' || c == '"':
+			i = scanString(s, i, false, out)
+		case identStart(c):
+			j := i
+			for j < len(s) && identPart(s[j]) {
+				j++
+			}
+
+			if s[i:j] == "r" && j < len(s) && (s[j] == '\'' || s[j] == '"') {
+				i = scanString(s, j, true, out)
+
+				continue
+			}
+
+			out[s[i:j]] = true
+			i = j
+		case c >= '0' && c <= '9':
+			// A number, including a hex digit run or an exponent.
+			for i < len(s) && identPart(s[i]) {
+				i++
+			}
+		case interp && c == '{':
+			depth++
+			i++
+		case interp && c == '}':
+			if depth == 0 {
+				return i + 1
+			}
+
+			depth--
+			i++
+		default:
+			i++
+		}
 	}
+
+	return i
+}
+
+// skipBlockComment returns the index just past the block comment starting at
+// i. Dart block comments nest.
+func skipBlockComment(s string, i int) int {
+	depth := 0
+
+	for i < len(s) {
+		switch {
+		case strings.HasPrefix(s[i:], "/*"):
+			depth++
+			i += 2
+		case strings.HasPrefix(s[i:], "*/"):
+			depth--
+			i += 2
+
+			if depth == 0 {
+				return i
+			}
+		default:
+			i++
+		}
+	}
+
+	return i
+}
+
+// scanString consumes the string literal whose opening quote is at i,
+// recording the identifiers of its interpolations, and returns the index just
+// past it. A raw string has no escapes and no interpolation.
+func scanString(s string, i int, raw bool, out map[string]bool) int {
+	quote := s[i]
+	delim := string(quote)
+
+	if strings.HasPrefix(s[i:], strings.Repeat(delim, 3)) {
+		delim = strings.Repeat(delim, 3)
+	}
+
+	i += len(delim)
+
+	for i < len(s) {
+		switch {
+		case !raw && s[i] == '\\':
+			i += 2
+		case strings.HasPrefix(s[i:], delim):
+			return i + len(delim)
+		case !raw && s[i] == '$' && i+1 < len(s) && s[i+1] == '{':
+			i = scanCode(s, i+2, true, out)
+		case !raw && s[i] == '$' && i+1 < len(s) && identStart(s[i+1]) && s[i+1] != '$':
+			j := i + 1
+			for j < len(s) && identPart(s[j]) && s[j] != '$' {
+				j++
+			}
+
+			out[s[i+1:j]] = true
+			i = j
+		default:
+			i++
+		}
+	}
+
+	return i
+}
+
+// usedSymbols returns, sorted, which of candidates appear as identifiers in the
+// code of text.
+func usedSymbols(text string, candidates []string) []string {
+	seen := codeIdentifiers(text)
 
 	var out []string
 

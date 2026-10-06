@@ -142,9 +142,9 @@ func (d *classDecl) render() string {
 		fmt.Fprintf(&b, "  %s copyWith() => const %s();\n\n", d.name, d.name)
 		b.WriteString("  /// Encodes this value as client-shaped JSON.\n")
 		b.WriteString("  Json toClient() => <String, Object?>{};\n\n")
-		b.WriteString("  @override\n")
+		b.WriteString("  @dart_core.override\n")
 		fmt.Fprintf(&b, "  bool operator ==(Object other) => other is %s;\n\n", d.name)
-		b.WriteString("  @override\n")
+		b.WriteString("  @dart_core.override\n")
 		b.WriteString("  int get hashCode => 0;\n")
 		b.WriteString("}\n")
 
@@ -227,9 +227,9 @@ func (d *classDecl) render() string {
 
 	b.WriteString("  };\n\n")
 
-	b.WriteString("  @override\n")
+	b.WriteString("  @dart_core.override\n")
 	b.WriteString("  bool operator ==(Object other) =>\n")
-	b.WriteString("      identical(this, other) ||\n")
+	b.WriteString("      dart_core.identical(this, other) ||\n")
 	fmt.Fprintf(&b, "      other is %s", d.name)
 
 	for _, f := range d.fields {
@@ -242,7 +242,7 @@ func (d *classDecl) render() string {
 
 	b.WriteString(";\n\n")
 
-	b.WriteString("  @override\n")
+	b.WriteString("  @dart_core.override\n")
 	b.WriteString("  int get hashCode => Object.hashAll([\n")
 
 	for _, f := range d.fields {
@@ -624,17 +624,17 @@ func (d *unionDecl) render() string {
 		fmt.Fprintf(&b, "  const %s(this.value);\n\n", v.name)
 		b.WriteString("  /// The wrapped value.\n")
 		fmt.Fprintf(&b, "  final %s value;\n\n", v.typ.name)
-		b.WriteString("  @override\n")
+		b.WriteString("  @dart_core.override\n")
 		fmt.Fprintf(&b, "  Object? toClient() => %s;\n\n", v.typ.encode("value", 0))
-		b.WriteString("  @override\n")
+		b.WriteString("  @dart_core.override\n")
 
 		if v.typ.deep {
 			fmt.Fprintf(&b, "  bool operator ==(Object other) => other is %s && deepEquals(value, other.value);\n\n", v.name)
-			b.WriteString("  @override\n")
+			b.WriteString("  @dart_core.override\n")
 			b.WriteString("  int get hashCode => deepHash(value);\n}\n")
 		} else {
 			fmt.Fprintf(&b, "  bool operator ==(Object other) => other is %s && value == other.value;\n\n", v.name)
-			b.WriteString("  @override\n")
+			b.WriteString("  @dart_core.override\n")
 			b.WriteString("  int get hashCode => value.hashCode;\n}\n")
 		}
 	}
@@ -645,11 +645,11 @@ func (d *unionDecl) render() string {
 	fmt.Fprintf(&b, "  const %s(this.value);\n\n", d.unknown)
 	b.WriteString("  /// The client-shaped value as received.\n")
 	b.WriteString("  final Object? value;\n\n")
-	b.WriteString("  @override\n")
+	b.WriteString("  @dart_core.override\n")
 	b.WriteString("  Object? toClient() => value;\n\n")
-	b.WriteString("  @override\n")
+	b.WriteString("  @dart_core.override\n")
 	fmt.Fprintf(&b, "  bool operator ==(Object other) => other is %s && deepEquals(value, other.value);\n\n", d.unknown)
-	b.WriteString("  @override\n")
+	b.WriteString("  @dart_core.override\n")
 	b.WriteString("  int get hashCode => deepHash(value);\n}\n")
 
 	return b.String()
@@ -683,9 +683,7 @@ func (d *aliasDecl) render() string {
 
 // renderModelFile renders one component's model file.
 func (r *registry) renderModelFile(m *componentModel) string {
-	var b strings.Builder
-
-	b.WriteString(generatedHeader)
+	var body strings.Builder
 
 	support := false
 	typedData := false
@@ -693,9 +691,14 @@ func (r *registry) renderModelFile(m *componentModel) string {
 	for _, d := range m.decls {
 		support = support || d.usesSupport()
 		typedData = typedData || usesTypedData(d.typeNames()...)
+
+		body.WriteString("\n")
+		body.WriteString(d.render())
 	}
 
 	var dartImports, localImports []string
+
+	dartImports = append(dartImports, coreImports(body.String())...)
 
 	if typedData {
 		dartImports = append(dartImports, "import 'dart:typed_data';")
@@ -706,14 +709,8 @@ func (r *registry) renderModelFile(m *componentModel) string {
 	}
 
 	localImports = append(localImports, r.typeImports(m.imports, "")...)
-	b.WriteString(importBlock(dartImports, nil, localImports))
 
-	for _, d := range m.decls {
-		b.WriteString("\n")
-		b.WriteString(d.render())
-	}
-
-	return b.String()
+	return generatedHeader + importBlock(dartImports, nil, localImports) + body.String()
 }
 
 func sortStrings(s []string) { sort.Strings(s) }

@@ -211,7 +211,7 @@ func renderPagination(pages []paginated, reg *registry) string {
 		text := ext.String()
 
 		var dartImports []string
-		if strings.Contains(text, "Uint8List") {
+		if usesIdentifier(text, "Uint8List") {
 			dartImports = append(dartImports, "import 'dart:typed_data';")
 		}
 

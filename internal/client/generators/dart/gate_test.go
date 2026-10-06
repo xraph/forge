@@ -137,7 +137,7 @@ func runFvm(t *testing.T, fvm, dir string, args ...string) string {
 func TestGeneratedPackagesAnalyzeClean(t *testing.T) {
 	fvm := requireDart(t)
 
-	fixtures := append(gateFixtures(), enumsFixture(), restFixture(), restHooksFixture(), paginationFixture(), streamingFixture())
+	fixtures := append(gateFixtures(), enumsFixture(), restFixture(), restHooksFixture(), paginationFixture(), streamingFixture(), clashFixture(), importsFixture())
 	fixtures = append(fixtures, capabilitiesFixtures()...)
 	fixtures = append(fixtures, int64ListParamFixtures()...)
 

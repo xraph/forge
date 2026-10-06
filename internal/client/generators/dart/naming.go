@@ -38,31 +38,94 @@ var dartBuiltIns = map[string]bool{
 	"set": true, "static": true, "typedef": true,
 }
 
+// templateNames are the lowercase names generated class bodies call or
+// annotate with, bare. A member declared with one would shadow it for every
+// line of its own class: a field named `override` makes `@override` resolve to
+// the field, and one named `identical` or `deepEquals` makes the `==` that
+// calls it an invocation of a non-function. Every set below holds them, so
+// such a field is renamed rather than left to break the package.
+//
+// override and identical come from dart:core, which generated model and
+// argument files also reach through a `core` prefix (see coreImports), so they
+// could not be shadowed even if they were not listed. They are listed anyway:
+// the same name on a field and on a core member reads as a mistake, and the
+// rename is the deterministic, documented outcome. The rest are support.dart
+// helpers a model's codec members and an Args class's equality call.
+var templateNames = func() map[string]bool {
+	out := map[string]bool{"override": true, "identical": true, "dynamic": true}
+
+	for _, name := range supportSymbols {
+		out[name] = true
+	}
+
+	return out
+}()
+
 // Members a generated identifier must not take, per kind of declaration.
 // Every Dart object already has the first four; models add their codec
 // members, enums the members Dart gives every enum value, and argument
-// classes their tag-context method. Models and argument classes also keep
-// clear of Dart's lowercase built-in type names: a field declared
-// `final int int;` hides the type from every later declaration in the class.
+// classes their tag-context method. toJson and fromJson are the names
+// jsonEncode and every JSON-aware library call on a value, which a model
+// does not declare but must not let a field answer to. Models and argument
+// classes also keep clear of Dart's lowercase built-in type names: a field
+// declared `final int int;` hides the type from every later declaration in
+// the class, and clear of templateNames.
 var (
-	modelReserved = map[string]bool{
+	modelReserved = withTemplateNames(map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
-		"copyWith": true, "toClient": true, "fromClient": true,
+		"copyWith": true, "toClient": true, "fromClient": true, "toJson": true, "fromJson": true,
 		"int": true, "double": true, "bool": true, "num": true,
-	}
+	})
 	enumReserved = map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true,
 		"toClient": true, "fromClient": true, "index": true, "name": true, "values": true, "wire": true,
 		"isKnown": true, "known": true,
 	}
-	argsReserved = map[string]bool{
+	argsReserved = withTemplateNames(map[string]bool{
 		"hashCode": true, "runtimeType": true, "toString": true, "noSuchMethod": true, "toTagContext": true,
 		"int": true, "double": true, "bool": true, "num": true,
 		// The REST method's own named parameters; a parameter is named
 		// the same in its Args class and its RestClient method.
 		"cancel": true, "maxAttempts": true,
-	}
+	})
 )
+
+// withTemplateNames adds templateNames to reserved.
+func withTemplateNames(reserved map[string]bool) map[string]bool {
+	for name := range templateNames {
+		reserved[name] = true
+	}
+
+	return reserved
+}
+
+// corePrefix is the import prefix generated model and argument files give
+// dart:core. Those classes declare a member per schema property or parameter,
+// named by the API, so anything they call or annotate with bare could be
+// shadowed by one: a field named `override` turns `@override` into a reference
+// to the field. They write `@dart_core.override` and `dart_core.identical`
+// instead.
+//
+// The prefix holds an underscore because no generated member, type or binding
+// name can: sanitize drops underscores from every name it renders, so nothing
+// the API calls anything can be spelled the same. A plain `core` would lose to
+// a field, or collide with a binding, named core.
+const corePrefix = "dart_core"
+
+// coreImports is the dart:core import pair a file needs when its code uses
+// corePrefix, and none when it does not. The prefixed import replaces the
+// implicit one, so the unprefixed import is written out beside it; the
+// analyzer accepts the pair without a warning.
+func coreImports(text string) []string {
+	if !usesIdentifier(text, corePrefix) {
+		return nil
+	}
+
+	return []string{"import 'dart:core';", "import 'dart:core' as " + corePrefix + ";"}
+}
+
+// usesIdentifier reports whether text uses name as an identifier in code.
+func usesIdentifier(text, name string) bool { return codeIdentifiers(text)[name] }
 
 // sanitize keeps the characters a Dart identifier may hold. Underscores are
 // dropped too: a leading one makes a name library-private, and the casing
