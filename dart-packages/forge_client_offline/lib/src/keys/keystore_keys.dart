@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'key_provider.dart';
@@ -156,11 +158,39 @@ final class FlutterSecretStore implements SecretStore {
 
   @override
   Future<void> delete(String name) => storage.delete(key: name);
+
+  /// Removes this package's entries and nothing else.
+  ///
+  /// On Apple platforms and Android the entries live in the package's own
+  /// namespace (see [secureStorageFor]), so this is the plugin's `deleteAll`
+  /// over that namespace. On Android it runs with `resetOnError: true`: this
+  /// is the explicit recovery path, and when the Keystore key that wraps the
+  /// namespace is gone (an Auto Backup restore brings back the preferences
+  /// without it) the plugin can only clear the namespace by resetting it.
+  ///
+  /// Linux and Windows have no namespace, so a plugin `deleteAll` would wipe
+  /// the app's own entries too. There this reads every entry and deletes only
+  /// the names that carry the package prefix.
+  @override
+  Future<void> deleteAll() async {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.linux || TargetPlatform.windows:
+        final entries = await storage.readAll();
+        for (final name in entries.keys) {
+          if (name.startsWith('$_namespace.')) await storage.delete(key: name);
+        }
+      case _:
+        await storage.deleteAll(
+          aOptions: storage.aOptions.copyWith(resetOnError: true),
+        );
+    }
+  }
 }
 
 /// The [KeyProvider] [keystoreKeys] returns. It is also the install's
 /// [PrincipalLabeler], so database file names can share its labels.
-final class KeystoreKeys implements KeyProvider, PrincipalLabeler {
+final class KeystoreKeys
+    implements KeyProvider, PrincipalLabeler, ErasableSecrets {
   /// Keeps keys in [store], generating them with [random].
   KeystoreKeys(SecretStore store, {Random? random})
     : _store = store,
@@ -226,6 +256,11 @@ final class KeystoreKeys implements KeyProvider, PrincipalLabeler {
   Future<void> delete(String principal) async {
     await _store.delete(await _entryName(principal));
   }
+
+  /// Removes every key and the install salt: everything this package keeps
+  /// in the store. See [PrincipalLabels.deleteAll].
+  @override
+  Future<void> deleteAll() => _labels.deleteAll();
 
   Future<String> _entryName(String principal) async =>
       'forge_client_offline.key.${await _labels.label(principal)}';

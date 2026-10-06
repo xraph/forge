@@ -5,6 +5,7 @@ export 'src/keys/default_keys.dart' show defaultKeys;
 export 'src/keys/key_provider.dart'
     show
         DatabaseKey,
+        ErasableSecrets,
         KeyProvider,
         KeyUnavailable,
         PrincipalLabeler,
@@ -20,6 +21,17 @@ export 'src/keys/passphrase_key.dart'
 export 'src/keys/principal_hash.dart' show principalHash;
 export 'src/keys/principal_labels.dart' show PrincipalLabels;
 export 'src/keys/web_crypto_keys.dart' show webCryptoKeys;
+export 'src/storage/database_files.dart'
+    show DatabaseFiles, platformDatabaseFiles, platformPassphraseSaltStore;
+export 'src/storage/encrypted_storage.dart'
+    show
+        EncryptedSqliteStorage,
+        EncryptionUnavailable,
+        StorageReset,
+        WrongKey,
+        cipherAvailable,
+        encryptedSqliteStorage,
+        unlockDatabase;
 export 'src/storage/schema.dart'
     show
         Migration,

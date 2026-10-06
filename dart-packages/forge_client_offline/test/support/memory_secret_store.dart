@@ -34,4 +34,13 @@ final class MemorySecretStore implements SecretStore {
   Future<void> delete(String name) async {
     values.remove(name);
   }
+
+  /// How many times [deleteAll] ran.
+  int deleteAlls = 0;
+
+  @override
+  Future<void> deleteAll() async {
+    deleteAlls++;
+    values.clear();
+  }
 }

@@ -47,7 +47,7 @@ const _labelContext = 'forge_client_offline/principal-label/v1\u0000';
 /// wrote first can read the other's salt, or its own if it read before the
 /// second write landed. The loser can then have named a database file under a
 /// label that is no longer current, and that file is orphaned.
-final class PrincipalLabels implements PrincipalLabeler {
+final class PrincipalLabels implements PrincipalLabeler, ErasableSecrets {
   /// Keeps the salt in [store], generating it with [random].
   ///
   /// Instances share a salt when their stores are equal (`==`). A [SecretStore]
@@ -68,6 +68,19 @@ final class PrincipalLabels implements PrincipalLabeler {
 
   @override
   Future<String> principalLabel(String principal) => label(principal);
+
+  /// Removes everything this package keeps in the store, the install salt
+  /// included, and forgets the cached salt, so the next label is made from a
+  /// new one. Every existing label then names nothing: delete the files they
+  /// named as well, as `EncryptedSqliteStorage.resetOfflineData` does.
+  @override
+  Future<void> deleteAll() async {
+    try {
+      await _store.deleteAll();
+    } finally {
+      _salts.remove(_store)?.ignore();
+    }
+  }
 
   /// Returns [principal]'s label. See the class comment.
   Future<String> label(String principal) async {

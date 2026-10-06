@@ -80,4 +80,17 @@ abstract interface class SecretStore {
 
   /// Removes [name].
   Future<void> delete(String name);
+
+  /// Removes every entry this package keeps in the store, for every
+  /// principal, and nothing the app keeps there.
+  Future<void> deleteAll();
+}
+
+/// Keeps this package's secrets for every principal in one store and can drop
+/// all of them at once. `EncryptedSqliteStorage.resetOfflineData` clears the
+/// keystore through it.
+abstract interface class ErasableSecrets {
+  /// Removes every secret this package keeps in the store, for every
+  /// principal. Data encrypted under a removed key cannot be read again.
+  Future<void> deleteAll();
 }
