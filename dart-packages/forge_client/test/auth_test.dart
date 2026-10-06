@@ -1,7 +1,9 @@
 // Ported from packages/client-core/__tests__/auth.test.ts.
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:forge_client/forge_client.dart';
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
 import 'support/harness.dart';
@@ -47,6 +49,26 @@ FakeHttp guarded(String Function() valid) => FakeHttp((request, _) {
 
   return {'ok': true};
 });
+
+/// Answers like [guarded] but ignores the abort trigger, as a socket that
+/// already wrote the request would: whatever reaches it was sent.
+final class SendingClient extends http.BaseClient {
+  SendingClient(this.valid);
+
+  final String Function() valid;
+  final List<http.BaseRequest> calls = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    calls.add(request);
+    final ok = request.headers['Authorization'] == 'Bearer ${valid()}';
+    return http.StreamedResponse(
+      Stream.value(utf8.encode(ok ? '{"ok":true}' : '{"status":401}')),
+      ok ? 200 : 401,
+      headers: {'content-type': 'application/json'},
+    );
+  }
+}
 
 void main() {
   group('credential attach', () {
@@ -254,6 +276,129 @@ void main() {
         throwsA(httpError(401)),
       );
       expect(fake.calls, hasLength(1));
+    });
+  });
+
+  // A request cancelled while it waits for its credentials, or for a refresh,
+  // must not go out afterwards: by then the credentials may belong to someone
+  // else (an offline outbox cancels its attempt when the principal changes).
+  group('cancel while waiting for credentials', () {
+    test('an async credentials callback that resolves after the cancel sends nothing', () async {
+      final gate = Completer<void>();
+      final cancel = Completer<void>();
+      final fake = SendingClient(() => 'bob');
+      final rest = RestTransport(
+        baseUrl: base,
+        client: fake,
+        auth: AuthProvider.callbacks(
+          credentials: (_) async {
+            await gate.future;
+            return {'Authorization': 'Bearer bob'};
+          },
+        ),
+      );
+
+      final running = rest.execute(
+        TransportRequest(
+          meta: list,
+          args: TagContext.empty,
+          cancel: cancel.future,
+        ),
+      );
+      await settle();
+      cancel.complete();
+      await settle();
+      gate.complete();
+
+      await expectLater(running, throwsA(isA<http.RequestAbortedException>()));
+      expect(fake.calls, isEmpty);
+    });
+
+    test('a cancel during the 401 refresh sends no retry', () async {
+      final auth = GatedAuth();
+      final cancel = Completer<void>();
+      final fake = SendingClient(() => 't1');
+      final rest = RestTransport(baseUrl: base, client: fake, auth: auth);
+
+      final running = rest.execute(
+        TransportRequest(
+          meta: list,
+          args: TagContext.empty,
+          cancel: cancel.future,
+        ),
+      );
+      await settle();
+      expect(auth.refreshes, 1);
+      expect(fake.calls, hasLength(1));
+
+      cancel.complete();
+      await settle();
+      auth.gate.complete();
+
+      await expectLater(running, throwsA(isA<http.RequestAbortedException>()));
+      expect(fake.calls, hasLength(1), reason: 'the retry would carry t1');
+    });
+
+    test(
+      'a cancel while the retry reads its credentials sends no retry',
+      () async {
+        final second = Completer<void>();
+        final cancel = Completer<void>();
+        var reads = 0;
+        var token = 't0';
+        final fake = SendingClient(() => 't1');
+        final rest = RestTransport(
+          baseUrl: base,
+          client: fake,
+          auth: AuthProvider.callbacks(
+            credentials: (_) async {
+              if (++reads == 2) await second.future;
+              return {'Authorization': 'Bearer $token'};
+            },
+            refresh: () => token = 't1',
+          ),
+        );
+
+        final running = rest.execute(
+          TransportRequest(
+            meta: list,
+            args: TagContext.empty,
+            cancel: cancel.future,
+          ),
+        );
+        await settle();
+        expect(reads, 2);
+        expect(fake.calls, hasLength(1));
+
+        cancel.complete();
+        await settle();
+        second.complete();
+
+        await expectLater(
+          running,
+          throwsA(isA<http.RequestAbortedException>()),
+        );
+        expect(fake.calls, hasLength(1));
+      },
+    );
+
+    test('an uncancelled request still refreshes and retries', () async {
+      final auth = GatedAuth();
+      final fake = SendingClient(() => 't1');
+      final rest = RestTransport(baseUrl: base, client: fake, auth: auth);
+
+      final running = rest.execute(
+        TransportRequest(
+          meta: list,
+          args: TagContext.empty,
+          cancel: Completer<void>().future,
+        ),
+      );
+      await settle();
+      auth.gate.complete();
+
+      expect(await running, {'ok': true});
+      expect(fake.calls, hasLength(2));
     });
   });
 }

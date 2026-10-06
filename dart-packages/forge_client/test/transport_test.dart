@@ -1512,6 +1512,71 @@ void main() {
       expect(passed.closed, 0);
     });
   });
+
+  // The outbox reads idempotency headers (Idempotency-Skipped,
+  // Idempotent-Truncated) that the decoded value cannot carry.
+  group('onResponse', () {
+    test('sees the status and headers of a success', () async {
+      final seen = <(int, Map<String, String>)>[];
+      final fake = FakeHttp(
+        (_, _) => http.Response(
+          '',
+          201,
+          headers: {
+            'content-type': 'application/json',
+            'idempotent-truncated': 'true',
+          },
+        ),
+      );
+      final rest = RestTransport(baseUrl: base, client: fake.client);
+
+      final value = await rest.execute(
+        TransportRequest(
+          meta: create,
+          args: const TagContext(body: {'n': 1}),
+          onResponse: (status, headers) => seen.add((status, headers)),
+        ),
+      );
+
+      expect(value, isNull, reason: 'an empty body is not decoded');
+      expect(seen, hasLength(1));
+      expect(seen.single.$1, 201);
+      expect(seen.single.$2, containsPair('idempotent-truncated', 'true'));
+    });
+
+    test('sees an error response before the error is thrown', () async {
+      final seen = <int>[];
+      final fake = FakeHttp((_, _) => throw HttpFailure(409));
+      final rest = RestTransport(baseUrl: base, client: fake.client);
+
+      await expectLater(
+        rest.execute(
+          TransportRequest(
+            meta: create,
+            args: const TagContext(body: {'n': 1}),
+            onResponse: (status, _) => seen.add(status),
+          ),
+        ),
+        throwsA(httpError(409)),
+      );
+      expect(seen, [409]);
+    });
+
+    test('a throwing callback does not fail the request', () async {
+      final fake = FakeHttp((_, _) => {'ok': true});
+      final rest = RestTransport(baseUrl: base, client: fake.client);
+
+      final value = await rest.execute(
+        TransportRequest(
+          meta: create,
+          args: const TagContext(body: {'n': 1}),
+          onResponse: (_, _) => throw StateError('callback bug'),
+        ),
+      );
+
+      expect(value, {'ok': true});
+    });
+  });
 }
 
 /// An http client that counts how often it was closed.

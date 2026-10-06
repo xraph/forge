@@ -23,6 +23,7 @@ final class TransportRequest {
     required this.args,
     this.headers = const {},
     this.cancel,
+    this.onResponse,
   });
 
   /// The operation.
@@ -34,8 +35,17 @@ final class TransportRequest {
   /// Extra headers for this call.
   final Map<String, String> headers;
 
-  /// Completing this future aborts the request.
+  /// Completing this future aborts the request. A request cancelled while it
+  /// waits for its credentials, or for a credential refresh, is never sent.
   final Future<void>? cancel;
+
+  /// Called with the status and headers of every HTTP response this request
+  /// receives (each retry and the refresh retry included), success or error,
+  /// before the value is returned or the error thrown. It reads headers the
+  /// decoded value cannot carry, such as the idempotency middleware's. A throw
+  /// from it is ignored. A transport that has no HTTP response never calls
+  /// it.
+  final void Function(int status, Map<String, String> headers)? onResponse;
 }
 
 /// Where credentials come from, and how they are renewed.
@@ -543,7 +553,13 @@ final class RestTransport implements Transport {
       try {
         if (cancelled) throw http.RequestAbortedException(url);
 
-        final value = await _send(method, url, request, report);
+        final value = await _send(
+          method,
+          url,
+          request,
+          report,
+          () => cancelled,
+        );
 
         _emit(report, (at) => RequestSettled(report!, at, ok: true));
 
@@ -595,15 +611,21 @@ final class RestTransport implements Transport {
   /// One attempt, including the 401 path. The refresh retry applies to every
   /// method, because a 401 says the server rejected the request before acting
   /// on it, and it is strictly one retry.
+  ///
+  /// [cancelled] is checked after every credential read, so a request
+  /// cancelled while an async `credentials` callback or a refresh ran is
+  /// never sent: by then the credentials may belong to another principal.
   Future<Object?> _send(
     String method,
     Uri url,
     TransportRequest request,
     RequestReport? report,
+    bool Function() cancelled,
   ) async {
     // Read after the credentials, so a refresh landing while they are fetched
     // does not make this request look older than its credential.
     final credentials = await _auth?.credentials(request.meta);
+    if (cancelled()) throw http.RequestAbortedException(url);
     final generation = _generation;
 
     try {
@@ -625,12 +647,10 @@ final class RestTransport implements Transport {
         }
       }
 
-      return _request(
-        method,
-        url,
-        request,
-        await _auth?.credentials(request.meta),
-      );
+      final fresh = await _auth?.credentials(request.meta);
+      if (cancelled()) throw http.RequestAbortedException(url);
+
+      return _request(method, url, request, fresh);
     }
   }
 
@@ -713,6 +733,15 @@ final class RestTransport implements Transport {
               baseResponseFuture,
               abortTrigger.then((_) => throw http.RequestAbortedException(url)),
             ]);
+
+      final onResponse = request.onResponse;
+      if (onResponse != null) {
+        try {
+          onResponse(response.statusCode, response.headers);
+        } on Object {
+          // A reader of headers; it must never fail the request it reads.
+        }
+      }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpStatusError(
