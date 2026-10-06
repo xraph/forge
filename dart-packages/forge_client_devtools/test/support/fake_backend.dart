@@ -332,7 +332,10 @@ final class FakeForgeBackend implements ForgeBackend {
         },
         'folded': {'id': 1, 'total': 12},
       },
-      ForgeDevtoolsProtocol.tags => _page(_tagRows, params),
+      ForgeDevtoolsProtocol.tags => _page([
+        for (final row in _tagRows)
+          if ((row['tag']! as String).contains(params['filter'] ?? '')) row,
+      ], params),
       ForgeDevtoolsProtocol.explain => {
         'report': {
           'kind': 'miss',

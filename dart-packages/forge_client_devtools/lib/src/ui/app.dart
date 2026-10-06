@@ -6,6 +6,7 @@ import 'package:forge_client/devtools_protocol.dart';
 import '../backend/backend.dart';
 import '../state/connection.dart';
 import 'entities_panel.dart';
+import 'explain_panel.dart';
 import 'queries_panel.dart';
 import 'widgets.dart';
 
@@ -19,6 +20,7 @@ typedef PanelTab = ({
 final List<PanelTab> _panels = [
   (label: 'Queries', build: (c) => QueriesPanel(connection: c)),
   (label: 'Entities', build: (c) => EntitiesPanel(connection: c)),
+  (label: 'Tags', build: (c) => ExplainPanel(connection: c)),
 ];
 
 /// The whole forge extension UI, over any [ForgeBackend].
