@@ -455,7 +455,9 @@ void main() {
       devtools.dispose();
     });
 
-    test('is aborted, not sent and not logged, when the inspector is disposed under it', () async {
+    // Disposing the inspector is not a principal change. The request is the
+    // user's, who is still there, so it goes out once instead of being lost.
+    test('is released straight to the inner transport, once, when the inspector is disposed', () async {
       final h = Harness();
       final (:controls, :rest, :log, :wire, :gate) = wired();
       final devtools = attach(
@@ -465,19 +467,58 @@ void main() {
         requests: log,
       );
 
-      final pending = controls.execute(alice);
-      final outcome = expectLater(
-        pending,
-        throwsA(isA<http.RequestAbortedException>()),
-      );
+      var settled = false;
+      final pending = controls
+          .execute(alice)
+          .whenComplete(() => settled = true);
       await pumpEventQueue();
 
-      devtools.dispose();
-      gate.complete();
-      await outcome;
+      expect(settled, isFalse);
 
-      expect(wire, isEmpty);
-      expect(log.entries(), isEmpty);
+      devtools.dispose();
+
+      // Released without the gate ever opening.
+      expect(await pending, {'ok': true});
+      expect(wire, hasLength(1));
+
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(wire, hasLength(1));
+    });
+
+    test('passes through after the inspector is disposed, with no delay and no offline', () async {
+      final h = Harness();
+      final (:controls, :rest, :log, :wire, :gate) = wired();
+      final devtools = attach(
+        h.cache,
+        clock: CounterClock(),
+        controls: controls,
+      )..controls;
+      controls
+        ..mode = NetworkMode.offline
+        ..failNext(503);
+
+      final heard = <bool>[];
+      final sub = controls.online.listen(heard.add);
+
+      devtools.dispose();
+      await pumpEventQueue();
+
+      expect(controls.isOnline, isTrue);
+      expect(controls.armed, isFalse);
+      // The network is reported back, so a held write can drain.
+      expect(heard, [true]);
+
+      expect(await controls.execute(alice), {'ok': true});
+      expect(wire, hasLength(1));
+
+      controls.mode = NetworkMode.offline;
+
+      expect(await controls.execute(alice), {'ok': true});
+      expect(wire, hasLength(2));
+
+      await sub.cancel();
     });
 
     test('is sent when nothing changed while it waited', () async {

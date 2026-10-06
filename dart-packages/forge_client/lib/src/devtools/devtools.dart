@@ -342,9 +342,12 @@ final class Devtools {
   /// Stops observing, stops listening for identity changes, and restores the
   /// previous observer if the slot is still ours.
   ///
-  /// Everything recorded, requests included, is dropped: a disposed inspector is not told when the
-  /// identity changes, so anything it kept would outlive the principal it
-  /// belongs to. Every read after this returns empty.
+  /// Everything recorded, requests included, is dropped: a disposed inspector
+  /// is not told when the identity changes, so anything it kept would outlive
+  /// the principal it belongs to. Every read after this returns empty. The
+  /// controls are released, not aborted: the principal is unchanged, so a
+  /// request waiting out simulated latency is sent and the transport passes
+  /// through from then on.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
@@ -355,7 +358,7 @@ final class Devtools {
     _log.clear();
     _ring?.clear();
     requestLog?.clear();
-    controls?.principalChanged();
+    controls?.release();
     _fetching.clear();
     _seen.clear();
     _pending.clear();

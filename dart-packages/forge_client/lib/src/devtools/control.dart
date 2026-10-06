@@ -22,7 +22,7 @@
 /// Principal changes: an armed failure belongs to the principal who armed it,
 /// and so does a request waiting out simulated latency. `Devtools` calls
 /// [ControlledTransport.principalChanged] synchronously when the principal
-/// starts changing (and when it is disposed). The next principal's first request
+/// starts changing. The next principal's first request
 /// never inherits the armed failure, and a request that was sleeping is aborted
 /// with an `http.RequestAbortedException` instead of being sent under the new
 /// principal's credentials. The outbox reads that as a cancellation: it rethrows
@@ -30,6 +30,12 @@
 /// developer's network, not any principal's data, so they persist across a
 /// switch. Revalidation toggles persist for the same reason. A transport used
 /// without `Devtools` is not told about principal changes.
+///
+/// Disposing the inspector is not a principal change: `Devtools.dispose` calls
+/// [ControlledTransport.release]. Nothing is aborted, because the write that
+/// was waiting belongs to a user who is still there, and aborting it would lose
+/// it. Requests waiting out latency go straight to the inner transport, and the
+/// transport passes through from then on.
 library;
 
 import 'dart:async';
@@ -77,6 +83,8 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   NetworkMode _mode = NetworkMode.online;
   int? _next;
   int _epoch = 0;
+  bool _released = false;
+  final Completer<void> _release = Completer<void>();
 
   /// Extra delay before every request. Not cleared by a principal change.
   Duration latency = Duration.zero;
@@ -92,7 +100,7 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   }
 
   /// Whether the simulated network is up. Slow counts as up.
-  bool get isOnline => _mode != NetworkMode.offline;
+  bool get isOnline => _released || _mode != NetworkMode.offline;
 
   @override
   Stream<bool> get online => _online.stream;
@@ -110,18 +118,34 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
   /// when the principal starts changing.
   void disarm() => _next = null;
 
-  /// Tells the transport the principal is changing (or the inspector is gone).
-  /// Disarms the armed failure and aborts every request still waiting out
-  /// simulated latency, so none is sent afterwards. The mode and the latency
-  /// stay. `Devtools` calls this synchronously from the principal-changing
-  /// notification.
+  /// Tells the transport the principal is changing. Disarms the armed failure
+  /// and aborts every request still waiting out simulated latency, so none is
+  /// sent afterwards. The mode and the latency stay. `Devtools` calls this
+  /// synchronously from the principal-changing notification.
   void principalChanged() {
     _epoch++;
     disarm();
   }
 
+  /// Stops simulating for good: disarms, releases every request waiting out
+  /// latency straight to [inner] (the principal is unchanged, so it is still
+  /// the user's request), and passes through from now on, with no delay and no
+  /// simulated offline. If the mode was offline, [online] reports the network
+  /// back so a held write can drain. `Devtools` calls this on dispose.
+  void release() {
+    if (_released) return;
+
+    final wasOnline = isOnline;
+    _released = true;
+    disarm();
+    _release.complete();
+    if (!wasOnline && !_online.isClosed) _online.add(true);
+  }
+
   @override
   Future<Object?> execute(TransportRequest request) async {
+    if (_released) return inner.execute(request);
+
     final uri = Uri.tryParse(request.meta.path);
 
     if (_mode == NetworkMode.offline) throw SimulatedOffline(uri);
@@ -138,7 +162,10 @@ final class ControlledTransport implements Transport, ConnectivitySignal {
     final delay = latency + (_mode == NetworkMode.slow ? _slow : Duration.zero);
     if (delay > Duration.zero) {
       final epoch = _epoch;
-      await _sleep(delay);
+      await Future.any([_sleep(delay), _release.future]);
+
+      // Released while it waited: the simulator is gone, the request is not.
+      if (_released) return inner.execute(request);
 
       // A request that began under one principal is never sent under the next.
       if (epoch != _epoch) throw http.RequestAbortedException(uri);
