@@ -63,14 +63,17 @@ await grove.leave(datasetId, erase: true); // deletes it too
 ```
 
 Pass `datasets:` to the constructor when you want some joined at every start.
-It's called in the background after the source started, so it can hit the
-network.
+It's called in the background after the replicas loaded, so it can hit the
+network. `start` itself returns at once: opening and hydrating the replicas
+happens in the background too, and a write made meanwhile waits for it.
 
 Joined datasets belong to the principal. Switching accounts forgets them, and
-you join again for the next one. A `join` you make between `setPrincipal` and
-the moment the old account has stopped waits for the next account's start;
-it never lands in the old one. `leave(erase: true)` needs a signed-in principal
-and throws a `StateError` otherwise.
+you join again for the next one. A join always belongs to one principal and
+only that principal's start picks it up. Call `join` while the old account is
+still stopping (after `setPrincipal`) and it waits for the old account's next
+sign-in; the new account never joins it. If the cache moves on to anyone else
+first, it's dropped. With nobody signed in, `join` throws a `StateError`, and so
+does `leave(erase: true)`.
 
 ## Switching accounts
 

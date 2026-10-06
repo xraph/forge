@@ -241,7 +241,8 @@ void main() {
   });
 
   group('a join in the switch window', () {
-    test('made after the switch belongs to the next principal', () {
+    test("made after the switch is the fenced principal's: bob's start never "
+        "joins it, alice's next start does", () {
       fakeAsync((async) {
         final s = _signedIn(async, declarations: const [rowsSync]);
         final h = s.h;
@@ -252,17 +253,25 @@ void main() {
 
         s.toBob();
         unawaited(h.source.join(const GroveDataset('x', table: 'ds_x')));
-        expect(h.source.joined, {'x'}, reason: 'waiting for bob, not alice');
+        expect(h.source.joined, isEmpty, reason: 'shown to nobody');
         s.run(async, const Duration(seconds: 1));
         expect(
           h.server.paths.where((p) => p.startsWith('/d/x/')),
           isEmpty,
-          reason: "alice's run never syncs bob's join",
+          reason: "alice's run is fenced and never syncs it",
         );
 
         s.slow.hold!.complete();
         s.run(async, const Duration(seconds: 1));
-        expect(h.source.joined, {'x'}, reason: "alice's own join is gone");
+        expect(h.source.joined, isEmpty, reason: 'bob joins neither a nor x');
+        expect(h.server.paths.where((p) => p.startsWith('/d/x/')), isEmpty);
+
+        // Back to alice: her waiting join runs, as alice.
+        s.tokens.token = 'alice-token';
+        h.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, {'x'});
 
         final x = [
           for (final r in h.server.requests)
@@ -272,19 +281,40 @@ void main() {
         expect(x, isNotEmpty);
 
         for (final r in x) {
-          expect(r.authorization, _bob);
-          expect(r.nodeId, isNot(s.aliceNode));
+          expect(r.authorization, _alice);
+          expect(r.nodeId, s.aliceNode);
         }
 
-        // Nothing of x in alice's partition.
-        Map<String, String>? aliceX;
+        // Nothing of x in bob's partition.
+        Map<String, String>? bobX;
 
         h.storage!
-            .open('alice')
+            .open('bob')
             .then((session) => session.namespace('grove/x').scan(''))
-            .then((v) => aliceX = v);
+            .then((v) => bobX = v);
         async.flushMicrotasks();
-        expect(aliceX, isEmpty);
+        expect(bobX, isEmpty);
+      });
+    });
+
+    test('made in the window is dropped when the cache moves on to a third '
+        'principal', () {
+      fakeAsync((async) {
+        final s = _signedIn(async, declarations: const [rowsSync]);
+        final h = s.h;
+
+        s.toBob();
+        unawaited(h.source.join(const GroveDataset('x', table: 'ds_x')));
+        s.slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+        s.tokens.token = 'carol-token';
+        h.cache.setPrincipal('carol');
+        async.elapse(const Duration(seconds: 1));
+        s.tokens.token = 'alice-token';
+        h.cache.setPrincipal('alice');
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, isEmpty);
+        expect(h.server.paths.where((p) => p.startsWith('/d/x/')), isEmpty);
       });
     });
 
@@ -390,6 +420,108 @@ void main() {
         expect(e.status, const Synced(), reason: "bob's own, empty status");
       }
     });
+  });
+
+  group('start returns before the replicas load', () {
+    final replicaNs =
+        'grove/${replicaKey(datasetId: '', pullPath: '/sync/pull')}';
+
+    for (final (name, held) in [
+      ('a slow ReplicaSpace.open', 'grove'),
+      ('a slow store.ready', replicaNs),
+    ]) {
+      test('$name: start completes at once, and a switch during the load '
+          'leaves nothing of alice', () {
+        fakeAsync((async) {
+          final storage = memoryStorage();
+
+          // Alice has a persisted row that the load would project.
+          storage.open('alice').then((pre) async {
+            final space = await ReplicaSpace.open(pre, newNodeId: nextNodeId);
+
+            await space
+                .dataset(replicaNs.substring(6))
+                .saveDocument(
+                  'notes',
+                  'n1',
+                  DocumentState(
+                    table: 'notes',
+                    pk: 'n1',
+                    fields: {
+                      'title': FieldState(
+                        type: CrdtType.lww,
+                        hlc: HLC(BigInt.one, 0, 'x'),
+                        nodeId: 'x',
+                        value: const JsonValue('alice secret'),
+                      ),
+                    },
+                  ),
+                );
+            await pre.close();
+          });
+          async.flushMicrotasks();
+
+          final gate = Completer<void>();
+          final tokens = _Tokens();
+          final h = Harness(
+            storage: _MappedStorage(
+              storage,
+              (principal, namespace, store) =>
+                  principal == 'alice' && namespace == held
+                  ? _Gated(store, gate.future)
+                  : store,
+            ),
+            auth: tokens.auth,
+          );
+          var started = false;
+
+          h.cache.setPrincipal('alice');
+          h.cache.idle.then((_) => started = true);
+          async.flushMicrotasks();
+          expect(started, isTrue, reason: 'start did not wait for the replica');
+          expect(h.record('n1'), isNull);
+
+          tokens.token = 'bob-token';
+          h.cache.setPrincipal('bob');
+
+          final version = h.cache.store.version;
+
+          void check() {
+            expect(h.noteKeys, isEmpty);
+            expect(h.cache.store.version, version);
+            expect(h.source.records('Note'), isEmpty);
+            expect(
+              h.server.requests.where((r) => r.authorization == _alice),
+              isEmpty,
+              reason: "the abandoned load never synced",
+            );
+          }
+
+          check();
+          async.elapse(const Duration(seconds: 1));
+          check();
+          expect(
+            h.server.requests.where((r) => r.authorization == _bob),
+            isEmpty,
+            reason: "alice's stop waits for her load, so bob has not started",
+          );
+          gate.complete();
+
+          for (var i = 0; i < 20; i++) {
+            async.flushMicrotasks();
+            check();
+            async.elapse(const Duration(milliseconds: 50));
+            check();
+          }
+
+          expect(
+            h.server.requests.where((r) => r.authorization == _bob),
+            isNotEmpty,
+            reason: 'bob runs once the old load gave up',
+          );
+        });
+      });
+    }
   });
 
   test(
@@ -540,25 +672,30 @@ final class _FailingStorage implements StorageAdapter {
   final String failing;
 
   @override
-  Future<StorageSession> open(String principal) async =>
-      _FailingSession(await _inner.open(principal), failing);
+  Future<StorageSession> open(String principal) async {
+    final session = await _inner.open(principal);
+
+    return _FailingSession(
+      session,
+      (name) => name == failing ? _Unreadable() : session.namespace(name),
+    );
+  }
 
   @override
   Future<void> destroy(String principal) => _inner.destroy(principal);
 }
 
 final class _FailingSession implements StorageSession {
-  _FailingSession(this._inner, this._failing);
+  _FailingSession(this._inner, this._namespace);
 
   final StorageSession _inner;
-  final String _failing;
+  final KeyValueStore Function(String name) _namespace;
 
   @override
   String get principal => _inner.principal;
 
   @override
-  KeyValueStore namespace(String name) =>
-      name == _failing ? _Unreadable() : _inner.namespace(name);
+  KeyValueStore namespace(String name) => _namespace(name);
 
   @override
   Future<void> close() => _inner.close();
@@ -601,4 +738,73 @@ final class _Unreadable implements KeyValueStore {
 
   @override
   Future<void> batch(void Function(KeyValueBatch batch) build) async => _fail();
+}
+
+/// A storage whose namespaces [map] may wrap, per principal.
+final class _MappedStorage implements StorageAdapter {
+  _MappedStorage(this._inner, this._map);
+
+  final StorageAdapter _inner;
+  final KeyValueStore Function(
+    String principal,
+    String namespace,
+    KeyValueStore store,
+  )
+  _map;
+
+  @override
+  Future<StorageSession> open(String principal) async {
+    final session = await _inner.open(principal);
+
+    return _FailingSession(
+      session,
+      (name) => _map(principal, name, session.namespace(name)),
+    );
+  }
+
+  @override
+  Future<void> destroy(String principal) => _inner.destroy(principal);
+}
+
+/// A namespace whose every call waits for [_gate].
+final class _Gated implements KeyValueStore {
+  _Gated(this._inner, this._gate);
+
+  final KeyValueStore _inner;
+  final Future<void> _gate;
+
+  @override
+  Future<String?> get(String key) async {
+    await _gate;
+
+    return _inner.get(key);
+  }
+
+  @override
+  Future<void> put(String key, String value) async {
+    await _gate;
+
+    return _inner.put(key, value);
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    await _gate;
+
+    return _inner.delete(key);
+  }
+
+  @override
+  Future<Map<String, String>> scan(String prefix) async {
+    await _gate;
+
+    return _inner.scan(prefix);
+  }
+
+  @override
+  Future<void> batch(void Function(KeyValueBatch batch) build) async {
+    await _gate;
+
+    return _inner.batch(build);
+  }
 }

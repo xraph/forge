@@ -245,15 +245,53 @@ void main() {
     expect(h.source.joined, isEmpty);
   });
 
-  test('a join before any principal waits for the first start', () async {
+  test('a join while signed out throws and is not queued', () async {
     final fresh = Harness(declarations: const [rowsSync]);
+    final signedOut = throwsA(
+      isA<StateError>().having(
+        (e) => e.message,
+        'message',
+        'join requires a signed-in principal',
+      ),
+    );
 
-    await fresh.source.join(const GroveDataset('a', table: 'ds_a'));
-    expect(fresh.source.joined, {'a'});
-    await fresh.signIn();
-    expect(fresh.source.joined, {'a'});
-    expect(fresh.server.paths, contains('/d/a/pull'));
+    // Before any principal.
+    await expectLater(fresh.source.join(const GroveDataset('a')), signedOut);
+
+    // In the sign-out window, and after it.
+    h.cache.setPrincipal(null);
+    await expectLater(h.source.join(const GroveDataset('a')), signedOut);
+    await h.cache.idle;
+    await expectLater(h.source.join(const GroveDataset('a')), signedOut);
+    expect(h.source.joined, isEmpty);
   });
+
+  test(
+    'sign out, a join attempt, then bob signs in: bob joins nothing',
+    () async {
+      await h.source.join(const GroveDataset('a', table: 'ds_a'));
+      h.cache.setPrincipal(null);
+      await expectLater(
+        h.source.join(const GroveDataset('b', table: 'ds_b')),
+        throwsStateError,
+      );
+      await h.cache.idle;
+      await expectLater(
+        h.source.join(const GroveDataset('c', table: 'ds_c')),
+        throwsStateError,
+      );
+
+      final sent = h.server.paths.length;
+
+      await h.signIn('bob');
+      expect(h.source.joined, isEmpty);
+      expect(
+        h.server.paths.skip(sent),
+        isEmpty,
+        reason: 'bob syncs no dataset',
+      );
+    },
+  );
 
   test(
     'the datasets callback runs after start returned and is joined',
@@ -283,8 +321,7 @@ void main() {
       fresh.source.leave('a', erase: true),
       throwsA(isA<StateError>()),
     );
-    // Without erase it only drops a waiting join.
-    await fresh.source.join(const GroveDataset('a'));
+    // Without erase there is nothing to do.
     await fresh.source.leave('a');
     expect(fresh.source.joined, isEmpty);
   });

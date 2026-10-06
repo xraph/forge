@@ -35,6 +35,13 @@ final class _Run {
   StreamSubscription<bool>? online;
   bool stopped = false;
 
+  /// The background load [GroveSyncSource.start] kicked off: open the
+  /// replicas, hydrate and project them. Never fails.
+  Future<void> loading = Future<void>.value();
+
+  /// Whether [loading] finished (or was abandoned).
+  bool loaded = false;
+
   /// Whether the cache still serves this principal and the run was not
   /// stopped. Checked after every await.
   bool get live => !stopped && context.active;
@@ -51,8 +58,8 @@ final class _Run {
 /// the old principal's run still makes never carries the next principal's
 /// credentials. Public reads ([records], [rejected], [replica], [statusOf],
 /// [describeForDevtools], [joined]) answer as if nothing were joined once the
-/// context is fenced, a [join] made then waits for the next [start], and
-/// status changes are no longer published.
+/// context is fenced, a [join] made then waits for that same principal's next
+/// [start], and status changes are no longer published.
 final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   /// Creates the source. See the package README for the parameters.
   ///
@@ -179,8 +186,13 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
   _Run? _run;
 
-  /// Joins made while no principal's run was active, for the next [start].
-  final Map<String, GroveDataset> _pendingJoins = {};
+  /// The cache the source last started under. Only its `principal` is ever
+  /// read here, never its store.
+  QueryCache? _cache;
+
+  /// Joins made while no principal's run was active, by owning principal and
+  /// dataset id. Consumed only by a [start] for that principal.
+  final Map<String, Map<String, _PendingJoin>> _pendingJoins = {};
 
   final Map<String, SyncStatus> _lastEntity = {};
   final Map<String, SyncStatus> _lastDataset = {};
@@ -201,63 +213,97 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   @override
   Set<String> get entities => {for (final d in _declarations) d.entity};
 
-  /// Ids of the joined datasets: the running principal's, or, while none is
-  /// running, the joins waiting for the next [start].
+  /// Ids of the joined datasets: the running principal's. Between two runs,
+  /// the joins the cache's current principal has waiting for its [start];
+  /// empty while a fenced run has not stopped yet.
   Set<String> get joined {
     final run = _active;
 
-    return run == null ? {..._pendingJoins.keys} : {...run.joined.keys};
+    if (run != null) return {...run.joined.keys};
+    if (_run != null) return const {};
+
+    final principal = _cache?.principal;
+
+    return {...?_pendingJoins[principal]?.keys};
   }
 
+  /// Keeps only the pending joins that still belong with [principal], the
+  /// principal the cache serves now: the ones it owns, and the ones made
+  /// after the cache had already moved to it (the previous principal's joins
+  /// from the switch window, which wait for that principal's next start). A
+  /// principal change after a join discards it unless it is back to its owner.
+  void _prunePending(String? principal) {
+    _pendingJoins.removeWhere((owner, joins) {
+      if (owner == principal) return false;
+
+      joins.removeWhere((_, j) => j.madeUnder != principal);
+
+      return joins.isEmpty;
+    });
+  }
+
+  /// Returns at once. Opening the principal's replicas, hydrating and
+  /// projecting them runs in the background under [context], and is
+  /// abandoned at the first await after the context is fenced; [stop] waits
+  /// for it. The app's `datasets` callback runs after that, and is not waited
+  /// for.
   @override
   Future<void> start(SyncContext context) async {
     // The cache stops a source before starting it again; be safe anyway.
     if (_run != null) await stop();
 
     final run = _run = _Run(context);
+    final principal = context.principal;
 
+    _cache = context.cache;
     _lastEntity.clear();
     _lastDataset.clear();
 
-    // Joins made before this start (signed out, or in the window after the
-    // previous principal's context was fenced) belong to this principal.
-    for (final ds in _pendingJoins.values) {
-      run.joined[ds.id] = ds;
+    // This principal's own joins, made while it was not running.
+    for (final j in [...?_pendingJoins.remove(principal)?.values]) {
+      run.joined[j.dataset.id] = j.dataset;
     }
 
-    _pendingJoins.clear();
+    _prunePending(principal);
+    run.loading = _load(run).whenComplete(() => run.loaded = true);
+  }
 
-    final ReplicaSpace space;
+  Future<void> _load(_Run run) async {
+    final context = run.context;
 
     try {
-      space = await ReplicaSpace.open(context.storage, newNodeId: newNodeId);
-    } on Object {
-      // The session closed under a run that was already superseded.
-      if (!run.live) return;
-
-      rethrow;
-    }
-
-    if (!run.live) return;
-
-    run.space = space;
-
-    final plain = <String, List<SyncDeclaration>>{};
-
-    for (final d in _withoutDataset) {
-      (plain[resolveEndpoints(d, '').pull] ??= []).add(d);
-    }
-
-    for (final group in plain.values) {
-      await _startGroup(run, group, const GroveDataset(''));
+      final space = await ReplicaSpace.open(
+        context.storage,
+        newNodeId: newNodeId,
+      );
 
       if (!run.live) return;
-    }
 
-    for (final ds in [...run.joined.values]) {
-      await _startGroup(run, _withDataset.toList(), ds);
+      run.space = space;
 
-      if (!run.live) return;
+      final plain = <String, List<SyncDeclaration>>{};
+
+      for (final d in _withoutDataset) {
+        (plain[resolveEndpoints(d, '').pull] ??= []).add(d);
+      }
+
+      for (final group in plain.values) {
+        await _startGroup(run, group, const GroveDataset(''));
+
+        if (!run.live) return;
+      }
+
+      for (final ds in [...run.joined.values]) {
+        await _startGroup(run, _withDataset.toList(), ds);
+
+        if (!run.live) return;
+      }
+    } on Object catch (error) {
+      // After the fence the failure (a session closed under the load) is the
+      // superseded run's, and nobody's to hear.
+      if (run.live) context.cache.report(error, 'grove');
+
+      return;
     }
 
     run.online = connectivity?.online.listen((online) {
@@ -396,13 +442,21 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
   /// Starts syncing [dataset].
   ///
-  /// While no principal is running, or between the moment the cache fenced
-  /// the previous principal and the moment it stopped this source, the join
-  /// waits for the next [start]: it belongs to whoever is signed in next,
-  /// never to the principal on the way out. Joining an already joined id is a
-  /// no-op, except that a table given now and unknown before is adopted.
+  /// A join belongs to a principal and waits for that principal's [start]
+  /// when it cannot run now:
   ///
-  /// Throws [StateError] when no declaration takes a dataset.
+  /// - between the moment the cache fenced a principal and the moment it
+  ///   stopped this source, it belongs to the fenced principal, whose next
+  ///   start joins it (the next principal's start does not);
+  /// - between two runs it belongs to the cache's current principal.
+  ///
+  /// A principal change discards a waiting join unless the cache is back on
+  /// its owner. Joining an already joined id is a no-op, except that a table
+  /// given now and unknown before is adopted.
+  ///
+  /// Throws [StateError] when no declaration takes a dataset, and when no
+  /// principal is signed in (`join requires a signed-in principal`), which
+  /// includes before the cache first started this source.
   Future<void> join(GroveDataset dataset) async {
     if (_withDataset.isEmpty) {
       throw StateError(
@@ -412,13 +466,23 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
     final run = _active;
 
-    if (run == null) {
-      _pendingJoins[dataset.id] = _merge(_pendingJoins[dataset.id], dataset);
+    if (run != null) return _joinInto(run, dataset);
 
-      return;
+    final current = _cache?.principal;
+
+    if (current == null) {
+      throw StateError('join requires a signed-in principal');
     }
 
-    await _joinInto(run, dataset);
+    // In the switch window the fenced run's principal owns the join; between
+    // two runs the cache's current principal does.
+    final owner = _run?.context.principal ?? current;
+    final joins = _pendingJoins[owner] ??= {};
+
+    joins[dataset.id] = _PendingJoin(
+      _merge(joins[dataset.id]?.dataset, dataset),
+      current,
+    );
   }
 
   Future<void> _joinInto(_Run run, GroveDataset dataset) async {
@@ -472,8 +536,8 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   /// flushes it) before its namespace is erased, so a response still in
   /// flight cannot write it back. Erasing needs the principal's session:
   /// with [erase] and no principal running this throws [StateError]. Without
-  /// [erase] and no principal running it only drops a join waiting for the
-  /// next [start].
+  /// [erase] and no principal running it only drops a waiting join (see
+  /// [join]).
   Future<void> leave(String datasetId, {bool erase = false}) async {
     if (datasetId.isEmpty) {
       throw ArgumentError.value(datasetId, 'datasetId', 'must not be empty');
@@ -490,7 +554,12 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
         );
       }
 
-      _pendingJoins.remove(datasetId);
+      final owner = _run?.context.principal ?? _cache?.principal;
+      final joins = _pendingJoins[owner];
+
+      joins?.remove(datasetId);
+
+      if (joins != null && joins.isEmpty) _pendingJoins.remove(owner);
 
       return;
     }
@@ -612,6 +681,17 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
       return Rejected(
         StateError('grove: ${mutation.meta.id} does not target a grove entity'),
       );
+    }
+
+    // Right after a start the replicas may still be loading.
+    if (!run.loaded) {
+      await run.loading;
+
+      if (!run.live) {
+        return Rejected(
+          StateError('grove: the principal changed; the write was not applied'),
+        );
+      }
     }
 
     final decl = _declarations.firstWhere((d) => d.entity == entity);
@@ -833,11 +913,12 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
   /// Stops every dataset of the running principal and forgets its joins.
   ///
-  /// Waits for joins and leaves in flight, then stops each dataset (engine
-  /// first, abandoning the request in flight, then client and transports,
-  /// then the replica, which flushes it), all before the cache closes the
-  /// session. Joins waiting for the next [start] are kept: they were made
-  /// after this principal's context was fenced.
+  /// Waits for the background load (which gives up at its next await), and
+  /// for joins and leaves in flight, then stops each dataset (engine first,
+  /// abandoning the request in flight, then client and transports, then the
+  /// replica, which flushes it), all before the cache closes the session.
+  /// Waiting joins that no longer belong with the cache's principal are
+  /// discarded (see [join]).
   @override
   Future<void> stop() async {
     final run = _run;
@@ -846,6 +927,10 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
     _run = null;
     run.stopped = true;
+    // The principal the cache moved to: reading it touches nothing else.
+    _prunePending(run.context.cache.principal);
+    // Bounded: the load gives up at its next await now that the run stopped.
+    await run.loading;
     await run.online?.cancel();
     run.online = null;
 
@@ -873,6 +958,16 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
     _lastEntity.clear();
     _lastDataset.clear();
   }
+}
+
+/// A join waiting for its principal's next start.
+final class _PendingJoin {
+  _PendingJoin(this.dataset, this.madeUnder);
+
+  final GroveDataset dataset;
+
+  /// The cache's principal when the join was made.
+  final String madeUnder;
 }
 
 CrdtError _cancelled() => CrdtError(
