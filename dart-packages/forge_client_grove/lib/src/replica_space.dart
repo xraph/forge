@@ -52,10 +52,17 @@ final class ReplicaSpace {
   }
 
   /// The replica storage for one dataset, in namespace `grove/<replicaKey>`.
+  ///
+  /// Synchronous: it throws a [StateError] at the call when the principal's
+  /// session is closed or destroyed. Its storage calls fail through their
+  /// futures.
   KeyValueReplicaStorage dataset(String replicaKey) =>
       KeyValueReplicaStorage(_kv(replicaKey));
 
   /// Deletes every key of one dataset's namespace. The storage seam has no
   /// namespace drop, and an empty namespace is the same thing.
-  Future<void> erase(String replicaKey) => dataset(replicaKey).clearAll();
+  ///
+  /// Every failure, including a closed session's [StateError], arrives through
+  /// the returned future, never as a throw at the call.
+  Future<void> erase(String replicaKey) async => dataset(replicaKey).clearAll();
 }

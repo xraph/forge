@@ -257,6 +257,46 @@ void main() {
     );
   });
 
+  group('ReplicaSpace on a closed session', () {
+    test('erase reports a closed session through its future', () async {
+      final session = await memoryStorage().open('alice');
+      final space = await _open(session);
+
+      await session.close();
+
+      late Future<void> erased;
+
+      // Not a synchronous throw: the call returns a future that fails.
+      expect(() => erased = space.erase('ds1'), returnsNormally);
+      await expectLater(erased, throwsStateError);
+    });
+
+    test(
+      'erase after the principal is destroyed fails through its future',
+      () async {
+        final storage = memoryStorage();
+        final session = await storage.open('alice');
+        final space = await _open(session);
+
+        await storage.destroy('alice');
+
+        await expectLater(space.erase('ds1'), throwsStateError);
+      },
+    );
+
+    test(
+      'dataset is synchronous and throws a StateError at the call',
+      () async {
+        final session = await memoryStorage().open('alice');
+        final space = await _open(session);
+
+        await session.close();
+
+        expect(() => space.dataset('ds1'), throwsStateError);
+      },
+    );
+  });
+
   group('ForgeKeyValueAdapter', () {
     late KeyValueStore store;
     late ForgeKeyValueAdapter adapter;
