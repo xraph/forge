@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:forge_client/forge_client.dart';
 import 'package:grove_crdt/grove_crdt.dart';
 import 'package:uuid/uuid.dart';
@@ -21,13 +23,41 @@ final class ReplicaSpace {
   /// Whether replicas survive a restart (a session was available).
   bool get persistent => _session != null;
 
+  /// The tail of the opens queued on each session.
+  static final Expando<Future<void>> _opening = Expando('ReplicaSpace.open');
+
   /// Opens the space in [session], or in memory when [session] is null.
+  ///
+  /// Opens of one session run one after another. The key-value store has no
+  /// compare-and-set, so two first-time opens running at once would each find
+  /// no node id and mint their own; queued, the second reads the first's.
   ///
   /// [newNodeId] replaces the generator of a first-time node id, for tests.
   static Future<ReplicaSpace> open(
     StorageSession? session, {
     String Function()? newNodeId,
   }) async {
+    if (session == null) return _open(null, newNodeId);
+
+    final previous = _opening[session];
+    final done = Completer<void>();
+
+    _opening[session] = done.future;
+
+    try {
+      // Never fails: every queued open completes it normally.
+      if (previous != null) await previous;
+
+      return await _open(session, newNodeId);
+    } finally {
+      done.complete();
+    }
+  }
+
+  static Future<ReplicaSpace> _open(
+    StorageSession? session,
+    String Function()? newNodeId,
+  ) async {
     final ReplicaKeyValue meta = session == null
         ? MapReplicaKeyValue()
         : ForgeKeyValueAdapter(session.namespace('grove'));

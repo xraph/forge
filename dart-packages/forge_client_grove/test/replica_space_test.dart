@@ -79,6 +79,32 @@ final class _CountingStore implements KeyValueStore {
 
 void main() {
   group('ReplicaSpace', () {
+    test(
+      'concurrent first opens of one session agree on the node id',
+      () async {
+        final session = await memoryStorage().open('alice');
+        addTearDown(session.close);
+
+        final spaces = await Future.wait([
+          for (var i = 0; i < 3; i++) _open(session),
+        ]);
+
+        expect({for (final s in spaces) s.nodeId}, hasLength(1));
+        expect(
+          await session.namespace('grove').get('node'),
+          spaces.first.nodeId,
+        );
+      },
+    );
+
+    test('opens of one session queue behind a failed one', () async {
+      final session = await memoryStorage().open('alice');
+
+      await session.close();
+      await expectLater(_open(session), throwsStateError);
+      await expectLater(_open(session), throwsStateError);
+    });
+
     test('without a session the replica is memory-only', () async {
       final space = await _open(null);
 
