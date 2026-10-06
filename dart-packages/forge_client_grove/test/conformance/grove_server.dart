@@ -21,7 +21,9 @@ const _goEnvironment = {
 ///
 /// The server binds 127.0.0.1 only. Every instance is a child process that
 /// [stop] kills through its own [Process] and waits for, so nothing outlives a
-/// test run.
+/// test run. The child's stdin stays open for its whole life and the server
+/// exits when it ends, so a runner killed before [stop] (outside tearDown)
+/// cannot leave a server behind: its end of the pipe closes with it.
 final class GroveServer {
   GroveServer._(this._process, this.baseUrl);
 
@@ -143,8 +145,15 @@ final class GroveServer {
     return DocumentState.fromJson(jsonDecode(r.body));
   }
 
-  /// Stops the server: kills this child by PID and waits for it to exit.
+  /// Stops the server: closes its stdin, which ends it, then kills this
+  /// child by PID in case it is still running, and waits for it to exit.
   Future<void> stop() async {
+    try {
+      await _process.stdin.close();
+    } on Object {
+      // Already gone: the pipe is broken, and the kill below is a no-op.
+    }
+
     _process.kill();
     await _process.exitCode.timeout(
       const Duration(seconds: 10),

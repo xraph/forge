@@ -234,6 +234,11 @@ dependency_overrides:
 An app that depends on `grove_crdt` directly needs the same override, or the
 two constraints won't resolve to one package.
 
+The conformance tests build and run grove_crdt's Go server
+(`tool/conformance_server`) on 127.0.0.1. The harness holds the server's stdin
+open and the server exits when it closes, so a test runner that dies outside
+its tearDown doesn't leave a server behind.
+
 The OfflineClient test imports forge_client_offline's
 `src/offline_client.dart` directly. The package barrel exports the Flutter key
 stores, which plain `dart test` can't load.

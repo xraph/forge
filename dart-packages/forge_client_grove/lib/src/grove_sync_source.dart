@@ -666,6 +666,11 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   }
 
   Future<void> _leave(_Run run, String datasetId, {required bool erase}) async {
+    // A queued erase reaches here after the one before it, maybe after the
+    // switch: the run it captured is fenced, and its replicas are not this
+    // erase's to touch any more.
+    if (erase && !run.live) throw _principalChanged(datasetId);
+
     // Before any await: a load that has not reached it skips it.
     run.joined.remove(datasetId);
 

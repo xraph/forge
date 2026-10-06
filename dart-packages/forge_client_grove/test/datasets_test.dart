@@ -380,4 +380,26 @@ void main() {
       expect(() => fresh.source.attach(other), throwsArgumentError);
     });
   });
+
+  test('a second queued leave(erase) acting on a fenced run fails as a '
+      'principal change', () async {
+    await h.source.join(const GroveDataset('a', table: 'ds_a'));
+    await pumpEventQueue(times: 20);
+
+    final first = h.source.leave('a', erase: true);
+    final second = h.source.leave('a', erase: true);
+
+    h.cache.setPrincipal('bob');
+    await first;
+    await expectLater(
+      second,
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('principal changed'), contains('"a"')),
+        ),
+      ),
+    );
+  });
 }
