@@ -46,6 +46,10 @@ final class FakeForgeBackend implements ForgeBackend {
   int latencyMs = 0;
   int? armedStatus;
   bool controlsWired = true;
+
+  /// The revalidation sources the app registered, and whether each runs. Empty
+  /// means the app wired none, and the answer says `revalidation: null`.
+  final Map<String, bool> revalidation = {};
   bool capturing = false;
   int frameCapacity = 0;
   int framesDropped = 0;
@@ -191,13 +195,29 @@ final class FakeForgeBackend implements ForgeBackend {
     };
   }
 
+  Json? _revalidation() => revalidation.isEmpty
+      ? null
+      : {
+          for (final source in const ['focus', 'reconnect', 'poll'])
+            source: {
+              'registered': revalidation.containsKey(source),
+              'enabled': revalidation[source] ?? false,
+            },
+        };
+
   Json _control(Map<String, String> params) {
     if (params.keys.any(
       const {'mode', 'latencyMs', 'failNext', 'disarm', 'toggle'}.contains,
     )) {
       _checkSession(ForgeDevtoolsProtocol.control, params);
     }
-    if (!controlsWired) return {'wired': false, 'revalidation': null};
+    if (params['toggle'] case final source? when revalidation[source] != null) {
+      revalidation[source] = !revalidation[source]!;
+    }
+    // As the real host answers: no simulator, but the toggles still work.
+    if (!controlsWired) {
+      return {'wired': false, 'revalidation': _revalidation()};
+    }
     if (params['mode'] case final value?) mode = value;
     if (params['latencyMs'] case final value?) latencyMs = int.parse(value);
     if (params['failNext'] case final value?) armedStatus = int.parse(value);
@@ -209,7 +229,7 @@ final class FakeForgeBackend implements ForgeBackend {
       'slowMs': 400,
       'armed': armedStatus != null,
       'armedStatus': armedStatus,
-      'revalidation': null,
+      'revalidation': _revalidation(),
     };
   }
 
@@ -278,7 +298,7 @@ final class FakeForgeBackend implements ForgeBackend {
         'capturing': capturing,
         'watchingRequests': watchingRequests,
         'controls': controlsWired ? _control(const {}) : null,
-        'revalidation': null,
+        'revalidation': _revalidation(),
         'outboxWired': outboxWired,
       },
       ForgeDevtoolsProtocol.queries => _page([

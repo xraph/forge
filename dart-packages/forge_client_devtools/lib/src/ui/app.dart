@@ -5,12 +5,15 @@ import 'package:forge_client/devtools_protocol.dart';
 
 import '../backend/backend.dart';
 import '../state/connection.dart';
+import 'control_rail.dart';
 import 'entities_panel.dart';
 import 'events_panel.dart';
 import 'explain_panel.dart';
 import 'frames_panel.dart';
+import 'outbox_panel.dart';
 import 'queries_panel.dart';
 import 'requests_panel.dart';
+import 'sync_panel.dart';
 import 'widgets.dart';
 
 /// One tab of the workspace.
@@ -27,6 +30,8 @@ final List<PanelTab> _panels = [
   (label: 'Events', build: (c) => EventsPanel(connection: c)),
   (label: 'Frames', build: (c) => FramesPanel(connection: c)),
   (label: 'Requests', build: (c) => RequestsPanel(connection: c)),
+  (label: 'Outbox', build: (c) => OutboxPanel(connection: c)),
+  (label: 'Sync', build: (c) => SyncPanel(connection: c)),
 ];
 
 /// The whole forge extension UI, over any [ForgeBackend].
@@ -140,7 +145,10 @@ class _Workspace extends StatelessWidget {
       length: _panels.length,
       child: Column(
         children: [
-          Row(
+          // A wrap, not a row: the status bar and the rail each want the
+          // width they have, and on a narrow pane the rail drops below.
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               if (connection.caches.length > 1)
                 Padding(
@@ -160,11 +168,15 @@ class _Workspace extends StatelessWidget {
                     },
                   ),
                 ),
-              Expanded(
-                child: _StatusBar(
-                  key: ValueKey('status-$scope'),
-                  connection: connection,
-                ),
+              _StatusBar(
+                key: ValueKey('status-$scope'),
+                connection: connection,
+              ),
+              // Keyed like the panels: what the rail shows is read from the
+              // app, so it never outlives the principal or the isolate.
+              ControlRail(
+                key: ValueKey('control-$scope'),
+                connection: connection,
               ),
             ],
           ),
