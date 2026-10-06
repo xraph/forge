@@ -179,16 +179,18 @@ final class DatasetSync {
 
   /// Hydrates and projects the replica, then syncs in the background.
   ///
-  /// A replica that cannot be read ([ReplicaUnavailable]) is reported and
-  /// marks the dataset failed; its engine never runs. Nothing is projected or
+  /// A replica that cannot be read ([ReplicaUnavailable]) marks the dataset
+  /// failed, `SyncFailed(ReplicaUnavailable)`, and its engine never runs. The
+  /// cause is reported once, by the store. Nothing is projected or
   /// started when the context went inactive, or [stop] was called, while the
   /// replica loaded.
   Future<void> start() async {
     try {
       await store.ready;
     } on ReplicaUnavailable catch (error) {
+      // The store reported the cause through onStorageError just before it
+      // threw; the status carries the ReplicaUnavailable itself.
       _unavailable = error;
-      _report(error);
       _markHydrated();
 
       if (context.active) onStatusChange();

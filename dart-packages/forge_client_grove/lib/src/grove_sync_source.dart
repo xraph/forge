@@ -460,14 +460,23 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
     }
 
     final run = _active;
-
-    if (run != null) return _joinInto(run, dataset);
-
-    final current = _cache?.principal;
+    final current = run?.context.principal ?? _cache?.principal;
 
     if (current == null) {
       throw StateError('join requires a signed-in principal');
     }
+
+    // A rejoin while that principal's erase of the dataset is in flight waits
+    // for it, then starts over: a fresh replica over the erased namespace.
+    final erasing = _erasing[_erasingKey(current, dataset.id)];
+
+    if (erasing != null) {
+      await erasing;
+
+      return join(dataset);
+    }
+
+    if (run != null) return _joinInto(run, dataset);
 
     final joins = _pendingJoins[current] ??= {};
 
@@ -539,32 +548,61 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
       throw ArgumentError.value(datasetId, 'datasetId', 'must not be empty');
     }
 
-    var run = _active;
+    final active = _active;
 
-    if (run == null) {
-      final cache = _cache;
-      final principal = cache?.principal;
+    if (!erase) {
+      if (active == null) {
+        _removePending(_cache?.principal, datasetId);
 
-      _removePending(principal, datasetId);
-
-      if (!erase) return;
-
-      if (cache == null || principal == null) {
-        throw StateError(
-          'grove: leave("$datasetId", erase: true) requires a signed-in '
-          'principal',
-        );
+        return;
       }
 
-      // The principal's run starts once the transition in progress is done.
-      await cache.idle;
-      run = _active;
-
-      if (run == null || run.context.principal != principal) {
-        throw _principalChanged(datasetId);
-      }
+      return _leave(active, datasetId, erase: false);
     }
 
+    final cache = _cache;
+    final principal = active?.context.principal ?? cache?.principal;
+
+    if (cache == null || principal == null) {
+      throw StateError(
+        'grove: leave("$datasetId", erase: true) requires a signed-in '
+        'principal',
+      );
+    }
+
+    // A join of the same dataset by the same principal waits for this.
+    final key = _erasingKey(principal, datasetId);
+    final done = Completer<void>();
+    final previous = _erasing[key];
+
+    _erasing[key] = done.future;
+
+    try {
+      if (previous != null) await previous;
+
+      var run = active;
+
+      if (run == null) {
+        _removePending(principal, datasetId);
+
+        // The principal's run starts once the transition in progress is done.
+        await cache.idle;
+        run = _active;
+
+        if (run == null || run.context.principal != principal) {
+          throw _principalChanged(datasetId);
+        }
+      }
+
+      await _leave(run, datasetId, erase: true);
+    } finally {
+      _erasing.removeWhere((k, f) => k == key && identical(f, done.future));
+
+      done.complete();
+    }
+  }
+
+  Future<void> _leave(_Run run, String datasetId, {required bool erase}) async {
     // Before any await: a load that has not reached it skips it.
     run.joined.remove(datasetId);
 
@@ -587,9 +625,7 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
       );
     }
 
-    final live = run;
-
-    await _track(live, () async {
+    await _track(run, () async {
       if (sync != null) await sync.leave();
 
       if (erase) {
@@ -602,6 +638,13 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
     _lastDataset.remove(datasetId);
     _publish();
   }
+
+  /// Erases in flight, by principal and dataset id. Each completes normally
+  /// whatever the erase did.
+  final Map<String, Future<void>> _erasing = {};
+
+  static String _erasingKey(String principal, String datasetId) =>
+      '${principal.length}:$principal$datasetId';
 
   static StateError _principalChanged(String datasetId) => StateError(
     'grove: the principal changed before leave("$datasetId", erase: true) '

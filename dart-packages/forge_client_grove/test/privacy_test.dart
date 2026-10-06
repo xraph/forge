@@ -918,9 +918,14 @@ void main() {
       await h.source.join(const GroveDataset('a', table: 'ds_a'));
       await h.source.join(const GroveDataset('b', table: 'ds_b'));
       await pumpEventQueue(times: 50);
+      // Reported once: the cause, by the store.
+      expect([
+        for (final (e, _) in h.errors)
+          if (e is StateError && e.message == 'disk read failed') e,
+      ], hasLength(1));
       expect([
         for (final (e, _) in h.errors) e,
-      ], contains(isA<ReplicaUnavailable>()));
+      ], isNot(contains(isA<ReplicaUnavailable>())));
       expect(
         await h.source.statusOf('a').first,
         isA<SyncFailed>().having(
@@ -944,6 +949,284 @@ void main() {
       expect(await h.source.statusOf('b').first, const Synced());
     },
   );
+  group('joins and leaves around an erase, a load and a window', () {
+    test('a rejoin while leave(erase) waits for the load starts the dataset '
+        'fresh after the erase', () {
+      fakeAsync((async) {
+        final gate = Completer<void>();
+        final h = Harness(
+          declarations: const [rowsSync],
+          storage: _MappedStorage(
+            memoryStorage(),
+            (principal, namespace, store) =>
+                namespace == 'grove' ? _Gated(store, gate.future) : store,
+          ),
+        );
+
+        h.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+
+        Object? eraseError;
+
+        h.source
+            .leave('a', erase: true)
+            .then<void>((_) {}, onError: (Object e) => eraseError = e);
+
+        var rejoined = false;
+
+        h.source
+            .join(const GroveDataset('a', table: 'ds_a'))
+            .then((_) => rejoined = true);
+        async.flushMicrotasks();
+        expect(rejoined, isFalse, reason: 'the rejoin waits for the erase');
+
+        gate.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(eraseError, isNull);
+        expect(rejoined, isTrue);
+        expect(h.source.joined, {'a'});
+
+        Object? written;
+
+        h
+            .mutate(
+              opUpdateNote,
+              TagContext(
+                path: {'noteId': compositeId('a', 'r1')},
+                body: const {'title': 'after the rejoin'},
+              ),
+            )
+            .then((v) => written = v);
+        async.elapse(const Duration(seconds: 1));
+        expect(written, {'noteId': 'a:r1', 'title': 'after the rejoin'});
+        expect(h.server.logOf('a').single.pk, 'r1', reason: 'it syncs');
+      });
+    });
+
+    test('a leave of a dataset already in the load snapshot is skipped by '
+        'the load', () async {
+      final gate = Completer<void>();
+      final tokens = _Tokens();
+      final slow = SlowStop();
+      final h = Harness(
+        declarations: const [rowsSync],
+        auth: tokens.auth,
+        before: [slow],
+        storage: _MappedStorage(
+          memoryStorage(),
+          (principal, namespace, store) =>
+              principal == 'bob' && namespace == 'grove/a'
+              ? _Gated(store, gate.future)
+              : store,
+        ),
+      );
+
+      h.cache.setPrincipal('alice');
+      await pumpEventQueue(times: 20);
+      slow.hold = Completer<void>();
+      tokens.token = 'bob-token';
+      h.cache.setPrincipal('bob');
+      // Bob's own waiting joins; his start takes both into the load.
+      unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+      unawaited(h.source.join(const GroveDataset('b', table: 'ds_b')));
+      slow.hold!.complete();
+      await pumpEventQueue(times: 50);
+      // Bob's load is held inside a, with b next in its snapshot.
+      await h.source.leave('b');
+      gate.complete();
+      await pumpEventQueue(times: 100);
+      expect(h.server.paths.where((p) => p.startsWith('/d/b/')), isEmpty);
+      expect(h.source.joined, {'a'});
+    });
+
+    test("leave(erase) in the window waits for the new principal's run and "
+        'erases only that principal', () async {
+      final storage = memoryStorage();
+
+      Future<void> seed(String principal) async {
+        final pre = await storage.open(principal);
+        final space = await ReplicaSpace.open(pre, newNodeId: nextNodeId);
+
+        await space
+            .dataset('z')
+            .saveDocument(
+              'ds_z',
+              'r1',
+              DocumentState(
+                table: 'ds_z',
+                pk: 'r1',
+                fields: {
+                  'title': FieldState(
+                    type: CrdtType.lww,
+                    hlc: HLC(BigInt.one, 0, 'x'),
+                    nodeId: 'x',
+                    value: JsonValue('$principal at rest'),
+                  ),
+                },
+              ),
+            );
+        await pre.close();
+      }
+
+      await seed('alice');
+      await seed('bob');
+
+      final tokens = _Tokens();
+      final slow = SlowStop();
+      final h = Harness(
+        declarations: const [rowsSync],
+        auth: tokens.auth,
+        before: [slow],
+        storage: storage,
+      );
+
+      h.cache.setPrincipal('alice');
+      await pumpEventQueue(times: 20);
+      slow.hold = Completer<void>();
+      tokens.token = 'bob-token';
+      h.cache.setPrincipal('bob');
+
+      var done = false;
+      final leaving = h.source.leave('z', erase: true).then((_) => done = true);
+
+      await pumpEventQueue(times: 20);
+      expect(done, isFalse, reason: "waits for bob's run");
+      slow.hold!.complete();
+      await leaving;
+      h.cache.setPrincipal(null);
+      await h.cache.idle;
+
+      final alice = await (await storage.open('alice'))
+          .namespace('grove/z')
+          .scan('doc/');
+      final bob = await (await storage.open('bob'))
+          .namespace('grove/z')
+          .scan('doc/');
+
+      expect(alice, isNotEmpty, reason: "alice's replica is untouched");
+      expect(bob, isEmpty);
+    });
+
+    test("bob's own leave in the window drops bob's waiting join", () {
+      fakeAsync((async) {
+        final s = _signedIn(async, declarations: const [rowsSync]);
+        final h = s.h;
+
+        s.toBob();
+        unawaited(h.source.join(const GroveDataset('y', table: 'ds_y')));
+        expect(h.source.joined, {'y'});
+        unawaited(h.source.leave('y'));
+        async.flushMicrotasks();
+        expect(h.source.joined, isEmpty);
+        s.slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, isEmpty);
+        expect(h.server.paths.where((p) => p.startsWith('/d/y/')), isEmpty);
+      });
+    });
+  });
+
+  group('second layers that only matter if an inner one regresses', () {
+    test("a fenced run's errors never reach the cache's onError", () {
+      fakeAsync((async) {
+        final s = _signedIn(async);
+        final h = s.h;
+
+        s.aliceNode = h.server.requests.first.nodeId!;
+
+        // While alice is served, an unappliable remote change is reported.
+        h.server.logOf('', account: _alice).add(_unappliable(1));
+        unawaited(h.source.syncNow());
+        async.elapse(const Duration(milliseconds: 10));
+        expect(h.errors, isNotEmpty, reason: 'the probe change is reported');
+
+        final (pulled, held) = _hold(h.server, (r) => r.isPull);
+
+        unawaited(h.source.syncNow());
+        async.flushMicrotasks();
+        expect(pulled(), isNotNull);
+
+        s.toBob();
+
+        final reported = h.errors.length;
+
+        held.complete(FakeGroveHttp.pullResponse([_unappliable(2)]));
+        s.run(async, const Duration(seconds: 1));
+        expect(h.errors.length, reported, reason: "alice's run, fenced");
+        s.slow.hold!.complete();
+        s.run(async, const Duration(seconds: 1));
+      });
+    });
+
+    test(
+      'a write waiting on the load is refused once the principal changed',
+      () {
+        fakeAsync((async) {
+          final gate = Completer<void>();
+          final h = Harness(
+            storage: _MappedStorage(
+              memoryStorage(),
+              (principal, namespace, store) =>
+                  principal == 'alice' && namespace == 'grove'
+                  ? _Gated(store, gate.future)
+                  : store,
+            ),
+          );
+
+          h.cache.setPrincipal('alice');
+          async.flushMicrotasks();
+
+          Object? error;
+
+          h
+              .mutate(
+                opUpdateNote,
+                const TagContext(path: {'noteId': 'n1'}, body: {'title': 'x'}),
+              )
+              .then<void>((_) {}, onError: (Object e) => error = e);
+          async.flushMicrotasks();
+          h.cache.setPrincipal('bob');
+          gate.complete();
+          async.elapse(const Duration(seconds: 1));
+          expect(
+            error,
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              contains('the principal changed'),
+            ),
+          );
+          expect(h.noteKeys, isEmpty);
+        });
+      },
+    );
+
+    test('a datasets callback that fails after the switch is not reported', () {
+      fakeAsync((async) {
+        final answer = Completer<List<GroveDataset>>();
+        final slow = SlowStop();
+        final h = Harness(
+          declarations: const [rowsSync],
+          datasets: (_) => answer.future,
+          before: [slow],
+        );
+
+        h.cache.setPrincipal('alice');
+        async.elapse(const Duration(milliseconds: 10));
+        slow.hold = Completer<void>();
+        h.cache.setPrincipal('bob');
+
+        final reported = h.errors.length;
+
+        answer.completeError(StateError("alice's directory failed"));
+        async.elapse(const Duration(seconds: 1));
+        expect(h.errors.length, reported);
+        slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+      });
+    });
+  });
 }
 
 /// The running principal's node id, read the way devtools reads it.
@@ -1100,3 +1383,13 @@ final class _Gated implements KeyValueStore {
     return _inner.batch(build);
   }
 }
+
+/// A remote change the replica cannot apply: a set change without its op.
+ChangeRecord _unappliable(int ts) => ChangeRecord(
+  table: 'notes',
+  pk: 'bad$ts',
+  field: 'tags',
+  crdtType: CrdtType.set,
+  hlc: HLC(BigInt.from(ts), 0, 'other'),
+  nodeId: 'other',
+);

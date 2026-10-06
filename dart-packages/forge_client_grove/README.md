@@ -78,7 +78,9 @@ drops that principal's waiting joins. With nobody signed in, `join` and
 
 Right after sign-in the replicas load in the background. A `join` or `leave`
 then still works: `leave` drops the dataset from the load, and
-`leave(erase: true)` waits for the load before it erases.
+`leave(erase: true)` waits for the load before it erases. A `join` of a
+dataset whose erase is still running waits for it, then starts the dataset
+fresh over the erased replica.
 
 ## Switching accounts
 
