@@ -45,6 +45,9 @@ final class SqliteSessionStorage implements StorageAdapter {
     final db = sqlite3.open(await pathOf(principal));
     try {
       applyRawKey(db, keyOf(principal));
+      // Sibling sessions are separate connections to one file: wait for a
+      // sibling's write lock instead of failing with SQLITE_BUSY.
+      db.execute('PRAGMA busy_timeout = 5000');
       migrate(db);
     } on Object {
       db.close();

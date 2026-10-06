@@ -8,6 +8,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client_offline/src/keys/principal_hash.dart';
 import 'package:forge_client_offline/src/storage/raw_key.dart';
+import 'package:sqlite3/common.dart' show CommonDatabase;
 import 'package:sqlite3/sqlite3.dart';
 
 const _plainHeader = 'SQLite format 3\u0000';
@@ -17,6 +18,52 @@ const _plainHeader = 'SQLite format 3\u0000';
 const _chacha20KdfIterations = 64007;
 
 final _key = Uint8List.fromList(List.generate(32, (i) => (i * 37 + 11) % 256));
+
+/// A connection that answers the pragmas applyRawKey sends with canned
+/// results, standing in for builds and failures a real sqlite3mc does not
+/// produce on demand. Everything else is unexpected.
+final class _ScriptedDatabase implements CommonDatabase {
+  _ScriptedDatabase({this.cipher = 'chacha20', this.keyAnswer, this.keyError});
+
+  final String? cipher;
+  final String? keyAnswer;
+  final SqliteException? keyError;
+  final List<String> statements = [];
+
+  @override
+  ResultSet select(String sql, [List<Object?> parameters = const []]) {
+    statements.add(sql);
+    if (sql.startsWith('PRAGMA cipher')) {
+      final value = cipher;
+      return value == null
+          ? ResultSet(const [], const [], const [])
+          : ResultSet(const ['cipher'], const [null], [
+              [value],
+            ]);
+    }
+    if (sql.startsWith('PRAGMA key')) {
+      final error = keyError;
+      if (error != null) throw error;
+      final answer = keyAnswer;
+      return answer == null
+          ? ResultSet(const [], const [], const [])
+          : ResultSet(const ['ok'], const [null], [
+              [answer],
+            ]);
+    }
+    throw StateError('unexpected statement');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not scripted: ${invocation.memberName}');
+}
+
+TypeMatcher<StateError> _errorWithoutKey() => isA<StateError>().having(
+  (e) => e.toString(),
+  'text',
+  allOf(isNot(contains(hex(_key))), isNot(contains(hex(_key).toUpperCase()))),
+);
 
 void main() {
   late Directory dir;
@@ -136,5 +183,74 @@ void main() {
 
     expect(() => applyRawKey(db, Uint8List(31)), throwsArgumentError);
     expect(() => applyRawKey(db, Uint8List(33)), throwsArgumentError);
+  });
+
+  test('a refused key pragma reports no key material', () {
+    // sqlite3mc refuses a key on an in-memory database, and the
+    // SqliteException it raises prints the statement, key included.
+    final db = sqlite3.openInMemory();
+    addTearDown(db.close);
+
+    Object? caught;
+    try {
+      applyRawKey(db, _key);
+    } on Object catch (error) {
+      caught = error;
+    }
+
+    expect(caught, _errorWithoutKey());
+    expect(caught, isNot(isA<SqliteException>()));
+    expect(caught.toString(), contains('SQLite code'));
+  });
+
+  test('a scripted SqliteException carrying the key is not passed on', () {
+    final keyHex = hex(_key);
+    final db = _ScriptedDatabase(
+      keyError: SqliteException(
+        extendedResultCode: 1,
+        message: 'echoed raw:${keyHex.toUpperCase()}',
+        causingStatement: "PRAGMA key = 'raw:$keyHex'",
+      ),
+    );
+
+    expect(() => applyRawKey(db, _key), throwsA(_errorWithoutKey()));
+  });
+
+  test('a key pragma that does not answer ok is refused', () {
+    expect(
+      () => applyRawKey(_ScriptedDatabase(keyAnswer: 'nope'), _key),
+      throwsA(
+        _errorWithoutKey().having(
+          (e) => e.message,
+          'message',
+          contains('nope'),
+        ),
+      ),
+    );
+    expect(
+      () => applyRawKey(_ScriptedDatabase(keyAnswer: 'bad ${hex(_key)}'), _key),
+      throwsA(_errorWithoutKey()),
+    );
+    expect(
+      () => applyRawKey(_ScriptedDatabase(), _key),
+      throwsA(
+        _errorWithoutKey().having(
+          (e) => e.message,
+          'message',
+          contains('no result'),
+        ),
+      ),
+    );
+  });
+
+  test('a build without the cipher is refused before any key is sent', () {
+    for (final db in [
+      _ScriptedDatabase(cipher: null),
+      _ScriptedDatabase(cipher: 'aes128cbc'),
+    ]) {
+      expect(() => applyRawKey(db, _key), throwsStateError);
+      expect(db.statements, hasLength(1));
+      expect(db.statements.single, startsWith('PRAGMA cipher'));
+    }
   });
 }

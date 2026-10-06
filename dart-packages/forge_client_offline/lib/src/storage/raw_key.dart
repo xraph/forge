@@ -26,7 +26,10 @@ const String rawKeyCipher = 'chacha20';
 /// The caller checks first that the SQLite build has a cipher at all: on plain
 /// SQLite both pragmas are ignored, and this throws [StateError] rather than
 /// leave the database in plaintext. A wrong key is not detected here; the
-/// first read fails with `SQLITE_NOTADB`.
+/// first read fails with `SQLITE_NOTADB`. Every failure is a [StateError] or
+/// [ArgumentError] whose text holds no key material: the key pragma's own
+/// [SqliteException] is never rethrown, because its text includes the
+/// statement and so the key.
 void applyRawKey(CommonDatabase db, Uint8List key) {
   if (key.length != 32) {
     throw ArgumentError.value(
@@ -44,11 +47,31 @@ void applyRawKey(CommonDatabase db, Uint8List key) {
     );
   }
 
-  final result = db.select("PRAGMA key = 'raw:${hex(key)}'");
-  if (result.isEmpty || result.first.values.first != 'ok') {
+  // The statement carries the key, and SqliteException.toString() prints the
+  // statement, so neither the exception nor its text may escape from here.
+  final keyHex = hex(key);
+  final ResultSet result;
+  try {
+    result = db.select("PRAGMA key = 'raw:$keyHex'");
+  } on SqliteException catch (error) {
+    throw StateError(
+      'SQLite3MultipleCiphers refused the key (SQLite code '
+      '${error.extendedResultCode}): ${_withoutKey(error.message, keyHex)}',
+    );
+  }
+
+  final answer = result.isEmpty ? 'no result' : '${result.first.values.first}';
+  if (answer != 'ok') {
     throw StateError(
       'SQLite3MultipleCiphers did not accept the key: '
-      '${result.isEmpty ? 'no result' : result.first.values.first}',
+      '${_withoutKey(answer, keyHex)}',
     );
   }
 }
+
+/// [text], unless it holds [keyHex] in any case, in which case a placeholder.
+/// sqlite3mc's messages do not echo the key today; this keeps it that way.
+String _withoutKey(String text, String keyHex) =>
+    text.toLowerCase().contains(keyHex.toLowerCase())
+    ? '(message withheld: it contained key material)'
+    : text;

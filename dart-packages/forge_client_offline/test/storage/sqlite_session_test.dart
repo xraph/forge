@@ -1,6 +1,8 @@
 @TestOn('vm')
 library;
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
@@ -189,6 +191,82 @@ void main() {
   });
 
   group('key-value namespaces', () {
+    group('unpaired surrogates (a departure from memoryStorage)', () {
+      // SQLite stores UTF-8, which turns every unpaired surrogate into
+      // U+FFFD, so these two keys would share a row.
+      const high = 'a\uD800';
+      const low = 'a\uDC00';
+      final badKeys = [high, low, '\uDC00\uD800', 'x\uD800y', '\uD83D'];
+
+      test('a key holding one is refused by every key-value call', () async {
+        final kv = session.namespace('grove');
+
+        for (final key in badKeys) {
+          await expectLater(kv.get(key), throwsArgumentError, reason: key);
+          await expectLater(kv.put(key, 'v'), throwsArgumentError);
+          await expectLater(kv.delete(key), throwsArgumentError);
+          await expectLater(kv.scan(key), throwsArgumentError);
+          await expectLater(
+            kv.batch((b) => b.put(key, 'v')),
+            throwsArgumentError,
+          );
+          await expectLater(
+            kv.batch((b) => b.delete(key)),
+            throwsArgumentError,
+          );
+        }
+      });
+
+      test('a refused batch write applies none of the batch', () async {
+        final kv = session.namespace('grove');
+        writes = 0;
+
+        await expectLater(
+          kv.batch((b) {
+            b.put('fine', '1');
+            b.put(high, '2');
+          }),
+          throwsArgumentError,
+        );
+
+        expect(await kv.scan(''), isEmpty);
+        expect(writes, 0);
+      });
+
+      test('nothing was written under either key', () async {
+        final kv = session.namespace('grove');
+        await expectLater(kv.put(high, 'h'), throwsArgumentError);
+        await expectLater(kv.put(low, 'l'), throwsArgumentError);
+
+        expect(db.select('SELECT COUNT(*) AS c FROM kv').first['c'], 0);
+      });
+
+      test('paired surrogates are still accepted', () async {
+        final kv = session.namespace('grove');
+        await kv.put('a\u{1F600}', 'v');
+
+        expect(await kv.get('a\u{1F600}'), 'v');
+        expect(await kv.scan('a\u{1F600}'), hasLength(1));
+      });
+
+      test(
+        'a JSON value keeps a lone surrogate; a raw value does not',
+        () async {
+          final kv = session.namespace('grove');
+          final json = jsonEncode({'s': 'x\uD800'});
+          await kv.put('json', json);
+          await kv.put('raw', 'x\uD800');
+
+          expect(await kv.get('json'), json);
+          expect(
+            (jsonDecode((await kv.get('json'))!) as Map<String, Object?>)['s'],
+            'x\uD800',
+          );
+          expect(await kv.get('raw'), 'x\uFFFD');
+        },
+      );
+    });
+
     test('namespaces do not see each other', () async {
       await session.namespace('grove').put('k', 'grove-value');
       await session.namespace('other').put('k', 'other-value');

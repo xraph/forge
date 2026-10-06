@@ -68,30 +68,48 @@ final class UnsupportedSchemaVersion implements Exception {
 }
 
 /// Brings [db] to the newest version in [steps], one transaction per step.
+///
+/// Safe to run from several connections to one file at once. Each step
+/// re-reads the applied version inside its own `BEGIN IMMEDIATE` transaction
+/// and skips itself when another connection got there first. Give every such
+/// connection a busy timeout (`PRAGMA busy_timeout`) before calling this, so
+/// a connection waits for another's step instead of failing with SQLITE_BUSY.
 void migrate(
   CommonDatabase db, {
   List<Migration> steps = migrations,
   int Function()? now,
 }) {
   final clock = now ?? () => DateTime.now().millisecondsSinceEpoch;
+  final latest = steps.isEmpty ? 0 : steps.last.version;
 
   db.execute(
     'CREATE TABLE IF NOT EXISTS forge_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)',
   );
 
-  final current =
-      (db.select('SELECT MAX(version) AS v FROM forge_migrations').first['v']
-          as int?) ??
-      0;
-  final latest = steps.isEmpty ? 0 : steps.last.version;
-
-  if (current > latest) {
-    throw UnsupportedSchemaVersion(found: current, supported: latest);
+  int applied() {
+    final found =
+        (db.select('SELECT MAX(version) AS v FROM forge_migrations').first['v']
+            as int?) ??
+        0;
+    if (found > latest) {
+      throw UnsupportedSchemaVersion(found: found, supported: latest);
+    }
+    return found;
   }
+
+  // A first read outside any transaction, so a database from a newer schema
+  // is refused before this takes a write lock.
+  final current = applied();
 
   for (final step in steps.where((s) => s.version > current)) {
     db.execute('BEGIN IMMEDIATE');
     try {
+      // Read again under the write lock: another connection may have applied
+      // this step between the first read and here.
+      if (applied() >= step.version) {
+        db.execute('COMMIT');
+        continue;
+      }
       for (final statement in step.statements) {
         db.execute(statement);
       }

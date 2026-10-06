@@ -169,6 +169,14 @@ final class SqliteStorageSession implements StorageSession {
 }
 
 /// One namespace of the `kv` table. Plan 05 keeps the Grove replica here.
+///
+/// Departure from `memoryStorage()`: a key or scan prefix holding an unpaired
+/// UTF-16 surrogate throws [ArgumentError]. SQLite stores text as UTF-8, where
+/// every unpaired surrogate becomes U+FFFD, so `a\uD800` and `a\uDC00` would
+/// share one row and a scan for `\uD800` would return keys that do not start
+/// with it. Values are stored the same way: a JSON value is safe, because
+/// `jsonEncode` escapes a lone surrogate, but a raw non-JSON value holding one
+/// reads back with U+FFFD in its place.
 final class SqliteKeyValueStore implements KeyValueStore {
   SqliteKeyValueStore._(this._session, this.name);
 
@@ -185,6 +193,8 @@ final class SqliteKeyValueStore implements KeyValueStore {
 
   @override
   Future<String?> get(String key) async {
+    _session._check();
+    _checkText(key, 'key');
     final rows = _session._open.select(
       'SELECT value FROM kv WHERE namespace = ? AND key = ?',
       [name, key],
@@ -194,18 +204,24 @@ final class SqliteKeyValueStore implements KeyValueStore {
 
   @override
   Future<void> put(String key, String value) async {
+    _session._check();
+    _checkText(key, 'key');
     _session._open.execute(_upsert, [name, key, value]);
     await _session._afterWrite();
   }
 
   @override
   Future<void> delete(String key) async {
+    _session._check();
+    _checkText(key, 'key');
     _session._open.execute(_delete, [name, key]);
     await _session._afterWrite();
   }
 
   @override
   Future<Map<String, String>> scan(String prefix) async {
+    _session._check();
+    _checkText(prefix, 'prefix');
     // instr() matches the prefix literally, where LIKE would read `_` and `%`
     // as patterns (and fold ASCII case). SQLite's BINARY collation orders by
     // UTF-8 bytes, which is code point order, not the UTF-16 code unit order
@@ -267,12 +283,36 @@ final class _SqliteBatch implements KeyValueBatch {
   @override
   void put(String key, String value) {
     _check();
+    _checkText(key, 'key');
     writes.add((key, value));
   }
 
   @override
   void delete(String key) {
     _check();
+    _checkText(key, 'key');
     writes.add((key, null));
+  }
+}
+
+/// Throws [ArgumentError] when [text] holds a UTF-16 surrogate that is not
+/// half of a pair. See [SqliteKeyValueStore].
+void _checkText(String text, String name) {
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (unit < 0xD800 || unit > 0xDFFF) continue;
+    final paired =
+        unit <= 0xDBFF &&
+        i + 1 < text.length &&
+        (text.codeUnitAt(i + 1) & 0xFC00) == 0xDC00;
+    if (!paired) {
+      throw ArgumentError.value(
+        text,
+        name,
+        'holds an unpaired UTF-16 surrogate at index $i, which SQLite cannot '
+        'store',
+      );
+    }
+    i++;
   }
 }
