@@ -14,6 +14,7 @@ import 'frames.dart';
 import 'inspect.dart' as ins;
 import 'inspect.dart' show EntityFilter;
 import 'log.dart';
+import 'requests.dart';
 import 'seams.dart';
 import 'types.dart';
 
@@ -29,8 +30,8 @@ final class FrameOptions {
 /// Starts observing [cache]. Chains to an observer already in the slot and
 /// gives the slot back on [Devtools.dispose] if it is still ours.
 ///
-/// Nothing crosses principals: when the cache's principal changes, the log and
-/// the frame ring are purged (one marker each is left) before the cache drops
+/// Nothing crosses principals: when the cache's principal changes, the log, the
+/// frame ring and the [requests] log are purged (one marker each is left) before the cache drops
 /// the previous principal's records, so none of what was recorded for one user
 /// is readable once the next is in charge. A query a component is still
 /// watching is re-mounted by the cache for the new principal under the same
@@ -42,12 +43,14 @@ Devtools attach(
   Clock clock = realClock,
   int argsLimit = 200,
   FrameOptions? frames,
+  RequestLog? requests,
 }) => Devtools._(
   cache,
   limit: limit,
   clock: clock,
   argsLimit: argsLimit,
   frames: frames,
+  requestLog: requests,
 );
 
 /// The inspector over one cache.
@@ -58,6 +61,7 @@ final class Devtools {
     required this._clock,
     required this._argsLimit,
     required FrameOptions? frames,
+    required this.requestLog,
   }) : _log = EventLog(capacity: limit, clock: _clock),
        _ring = _ringFor(frames) {
     _previous = cache.observer;
@@ -72,6 +76,9 @@ final class Devtools {
 
   /// The cache under inspection.
   final QueryCache cache;
+
+  /// The request log the transport reports into, when one is wired.
+  final RequestLog? requestLog;
 
   final EventLog _log;
   final Clock _clock;
@@ -298,6 +305,19 @@ final class Devtools {
   /// Frames the ring holds before overwriting, 0 when off.
   int get framesCapacity => _ring?.capacity ?? 0;
 
+  /// What the transport did, oldest first. Empty when nothing is wired, and
+  /// once the inspector is disposed.
+  List<RequestSnapshot> requests() {
+    _check();
+    return _disposed ? const [] : requestLog?.entries() ?? const [];
+  }
+
+  /// The difference between "no requests" and "nothing is recording them".
+  bool get watchingRequests => requestLog != null && !_disposed;
+
+  /// Requests the ring overwrote.
+  int get requestsDropped => _disposed ? 0 : requestLog?.dropped ?? 0;
+
   /// Turns capture on with [options], or off with null. Replacing the ring
   /// discards what the old one held.
   void setCapture(FrameOptions? options) => _ring = _ringFor(options);
@@ -305,7 +325,7 @@ final class Devtools {
   /// Stops observing, stops listening for identity changes, and restores the
   /// previous observer if the slot is still ours.
   ///
-  /// Everything recorded is dropped: a disposed inspector is not told when the
+  /// Everything recorded, requests included, is dropped: a disposed inspector is not told when the
   /// identity changes, so anything it kept would outlive the principal it
   /// belongs to. Every read after this returns empty.
   void dispose() {
@@ -317,6 +337,7 @@ final class Devtools {
 
     _log.clear();
     _ring?.clear();
+    requestLog?.clear();
     _fetching.clear();
     _seen.clear();
     _pending.clear();
@@ -421,8 +442,8 @@ final class Devtools {
   ///
   /// Everything recorded for the previous principal goes: the log keeps one
   /// [PrincipalLog] marker, the frame ring (when capture is on) keeps one marker
-  /// capture, and the per-query bookkeeping, which is keyed by the previous
-  /// principal's queries, is dropped. Neither marker carries an id, a payload
+  /// capture, the request log (when wired) keeps one marker request, and the per-query bookkeeping, which is keyed by the previous
+  /// principal's queries, is dropped. No marker carries an id, a payload
   /// or the principal's value. Until the cache has emptied itself, nothing is
   /// delivered to subscribers and nothing is answered from the cache.
   void _adopt(String? principal, {required bool cleared}) {
@@ -440,6 +461,7 @@ final class Devtools {
     final marker = _log.purge(session: _session);
 
     _ring?.purge(seq: marker.seq, at: marker.at);
+    requestLog?.purge();
 
     if (cleared) {
       _settle();
