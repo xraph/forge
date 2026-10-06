@@ -432,3 +432,33 @@ func sortStrings(values []string) {
 		}
 	}
 }
+
+// A generated Dart package is resolved and analysed in place, which leaves
+// pub's tooling beside the generated files: .dart_tool/, pubspec.lock, and a
+// pubspec_overrides.yaml pointing the runtime at a local checkout. None of it
+// is generator output, so none of it is drift.
+func TestClientCheckIgnoresDartTooling(t *testing.T) {
+	_, outputDir := generatedProject(t)
+
+	tooling := map[string]string{
+		filepath.Join(".dart_tool", "package_config.json"): "{}\n",
+		"pubspec.lock":           "packages: {}\n",
+		"pubspec_overrides.yaml": "dependency_overrides: {}\n",
+	}
+
+	for rel, body := range tooling {
+		path := filepath.Join(outputDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("create %s: %v", filepath.Dir(path), err)
+		}
+
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	out, err := runClientCLI(t, "client", "check", "--from-spec", "openapi.json", "--output", outputDir)
+	if err != nil {
+		t.Fatalf("check should ignore Dart tooling, got %v\n%s", err, out)
+	}
+}

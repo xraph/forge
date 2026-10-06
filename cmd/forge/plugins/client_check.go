@@ -52,12 +52,22 @@ var checkIgnoredDirs = map[string]bool{
 	"build":        true,
 	"coverage":     true,
 	".next":        true,
+	// pub's resolution cache, left by `dart pub get` in a generated Dart
+	// package. The Dart counterpart of node_modules.
+	".dart_tool": true,
 }
 
 // checkIgnoredFiles are individual filenames skipped on the committed side,
 // under the same one-directional rule as checkIgnoredDirs.
+//
+// pubspec.lock is written by `dart pub get`, and pubspec_overrides.yaml is the
+// consumer's own file for pointing a dependency at a local checkout. A
+// generator that ever emits either one still has it compared, because the
+// skip only applies to paths the generator did not produce.
 var checkIgnoredFiles = map[string]bool{
-	".DS_Store": true,
+	".DS_Store":              true,
+	"pubspec.lock":           true,
+	"pubspec_overrides.yaml": true,
 }
 
 // checkClient is the CI gate: regenerate, compare, exit non-zero on any
