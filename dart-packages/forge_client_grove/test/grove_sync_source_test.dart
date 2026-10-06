@@ -292,6 +292,111 @@ void main() {
     expect(h.record('n1'), isNull);
     expect(h.source.replica('Note')!.pendingCount, 0);
   });
+
+  test('a mutation that fails part way leaves the replica untouched', () async {
+    final h = Harness(
+      bindings: const {
+        'Note': GroveEntity(
+          codec: NoteCodec(),
+          types: {'view_count': CrdtType.counter},
+        ),
+      },
+    );
+
+    await h.signIn();
+
+    final sent = h.server.paths.length;
+
+    // The title maps first and is fine; the counter cannot take a string.
+    await expectLater(
+      h.mutate(
+        opUpdateNote,
+        const TagContext(
+          path: {'noteId': 'n1'},
+          body: {'title': 'kept?', 'viewCount': 'many'},
+        ),
+      ),
+      throwsA(isA<TypeError>()),
+    );
+    await pumpEventQueue(times: 20);
+
+    final replica = h.source.replica('Note')!;
+
+    expect(replica.getDocumentState('notes', 'n1'), isNull);
+    expect(replica.pending, isEmpty);
+    expect(h.record('n1'), isNull);
+    expect(
+      h.server.paths.skip(sent).where((p) => p.endsWith('/push')),
+      isEmpty,
+    );
+  });
+
+  test('a write past the pending bound is refused whole and reported, and '
+      'nothing queued is dropped', () {
+    fakeAsync((async) {
+      final h = Harness();
+
+      h.cache.setPrincipal('alice');
+      async.flushMicrotasks();
+      // Pushes would drain the queue; no time passes, so none is sent.
+      final store = h.source.replica('Note')!;
+
+      for (var i = 0; i < 10000 - 1; i++) {
+        store.setField('notes', 'n$i', 'title', 't$i');
+      }
+
+      async.flushMicrotasks();
+      expect(store.pending, hasLength(9999));
+
+      Object? refused;
+
+      // Two fields, two changes, one slot left: none of it is written.
+      unawaited(
+        h
+            .mutate(
+              opUpdateNote,
+              const TagContext(
+                path: {'noteId': 'x'},
+                body: {'title': 'a', 'viewCount': 3},
+              ),
+            )
+            .then<void>((_) {}, onError: (Object e) => refused = e),
+      );
+      async.flushMicrotasks();
+
+      final full = isA<CrdtError>().having(
+        (e) => e.code,
+        'code',
+        CrdtErrorCode.offlineQueueFull,
+      );
+
+      expect(refused, full);
+      expect(store.getDocumentState('notes', 'x'), isNull);
+      expect(h.record('x'), isNull);
+      expect(
+        [
+          for (final (e, c) in h.errors)
+            if (c == 'grove') e,
+        ],
+        [full],
+      );
+
+      // The last slot, then five typed writes through replica(): 10,005
+      // changes in all, and the five past the bound throw.
+      store.setField('notes', 'n9999', 'title', 'last');
+
+      for (var i = 0; i < 5; i++) {
+        expect(
+          () => store.setField('notes', 'm$i', 'title', 'over'),
+          throwsA(full),
+        );
+      }
+
+      expect(store.pending, hasLength(10000));
+      expect(store.getPendingChanges().first.pk, 'n0', reason: 'none dropped');
+      expect(store.getPendingChanges().last.pk, 'n9999');
+    });
+  });
 }
 
 /// The kit codec, except that it fails with a TypeError (an Error, not an

@@ -19,6 +19,9 @@ bool isCancellation(Object error) =>
 bool _refusesStream(Object error) =>
     error is CrdtError && const {401, 403, 404, 410}.contains(error.statusCode);
 
+/// One field write of a mutation, mapped to its replica column and type.
+typedef _FieldWrite = ({String column, CrdtType type, Object? value});
+
 /// One dataset behind one set of sync endpoints, for one principal: replica,
 /// client, engine and live channel.
 ///
@@ -29,6 +32,10 @@ bool _refusesStream(Object error) =>
 /// backoff, the gone probe, a delayed stream reopen) checks it again when it
 /// fires, and all of them are cancelled synchronously when the cache starts
 /// moving to another principal, and again by [stop].
+///
+/// The replica holds at most [maxPendingChanges] unsynced changes. A write
+/// that would go past the bound is refused whole, with a [CrdtError] of code
+/// [CrdtErrorCode.offlineQueueFull]; nothing already queued is dropped.
 final class DatasetSync {
   /// Wires a dataset. [entityTables] maps each entity to its table, or null
   /// while unknown.
@@ -56,8 +63,9 @@ final class DatasetSync {
     int Function()? nowMs,
   }) : _tables = {...entityTables},
        _baseUrl = baseUrl,
-       _auth = auth {
-    final now = nowMs ?? () => DateTime.now().millisecondsSinceEpoch;
+       _auth = auth,
+       _now = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch) {
+    final now = _now;
     final skew = ClockSkew(systemNowMs: now);
     final clock = HybridClock(nodeId, nowMs: now);
 
@@ -77,9 +85,23 @@ final class DatasetSync {
       nodeId,
       clock,
       storage: storage,
+      maxPendingChanges: maxPendingChanges,
+      throwOnOverflow: true,
       onError: (error, _) => _report(error),
       onStorageError: _report,
       onPluginError: (error, _) => _report(error),
+    );
+    // Only a replica hydrated over the bound (written by a build without it)
+    // is trimmed; a local write past it is refused instead.
+    store.onPendingOverflow(
+      (dropped) => _report(
+        CrdtError(
+          'grove: the replica of dataset "$datasetId" held more than '
+          '$maxPendingChanges unsynced changes; the oldest '
+          '${dropped.length} were dropped',
+          code: CrdtErrorCode.offlineQueueFull,
+        ),
+      ),
     );
     client = CrdtClient(nodeId: nodeId, clock: clock, transport: _transport);
     engine = SyncEngine(
@@ -108,6 +130,9 @@ final class DatasetSync {
       (_) => _cancelTimers(),
     );
   }
+
+  /// The most unsynced changes a replica holds; a write past it is refused.
+  static const maxPendingChanges = 10000;
 
   /// The first retry delay after an interrupted run.
   static const _retryStart = Duration(seconds: 1);
@@ -151,6 +176,7 @@ final class DatasetSync {
   final Map<String, String?> _tables;
   final Uri _baseUrl;
   final CrdtAuthProvider? _auth;
+  final int Function() _now;
   late final HttpStreamTransport _transport;
   late final Backoff _retry;
   late final Backoff _streamBackoff;
@@ -575,8 +601,15 @@ final class DatasetSync {
   /// and schedules a push. Returns the client-shaped record, null for a
   /// delete.
   ///
+  /// All or nothing: every field is mapped and checked against a scratch copy
+  /// of the document first, so a value that does not fit its CRDT type
+  /// throws before anything is written. Then the whole mutation's changes
+  /// are checked against the room left under [maxPendingChanges].
+  ///
   /// Throws a [StateError] when the dataset stopped or its replica is
-  /// unavailable, or while the entity's table is unknown.
+  /// unavailable, or while the entity's table is unknown, and a [CrdtError]
+  /// of code [CrdtErrorCode.offlineQueueFull] (also reported to the cache)
+  /// when the mutation does not fit in the pending queue.
   Object? apply(String entity, GroveWrite write) {
     final unavailable = _unavailable;
 
@@ -602,17 +635,22 @@ final class DatasetSync {
 
     switch (write) {
       case GroveDelete(:final id):
+        _ensureRoom(1);
         store.deleteDocument(table, id);
       case GroveUpsert(:final id, :final wireFields):
+        final fields = <_FieldWrite>[
+          for (final e in wireFields.entries)
+            (
+              column: _columnFor(binding, e.key),
+              type: binding.types[e.key] ?? CrdtType.lww,
+              value: e.value,
+            ),
+        ];
+
+        _ensureRoom(_plan(table, id, fields));
         store.transact(() {
-          for (final e in wireFields.entries) {
-            store.reconcileField(
-              table,
-              id,
-              _columnFor(binding, e.key),
-              binding.types[e.key] ?? CrdtType.lww,
-              e.value,
-            );
+          for (final f in fields) {
+            store.reconcileField(table, id, f.column, f.type, f.value);
           }
         });
     }
@@ -627,6 +665,65 @@ final class DatasetSync {
     projectors[entity]!.project(context, [doc]);
 
     return write is GroveDelete ? null : projectors[entity]!.clientRecord(doc);
+  }
+
+  /// How many changes [fields] queue when written to document [pk]: they are
+  /// written to a scratch store holding a copy of the document, never to the
+  /// replica. A value that does not fit its type throws here.
+  int _plan(String table, String pk, List<_FieldWrite> fields) {
+    final doc = store.getDocumentState(table, pk);
+    final scratch = CrdtStore(
+      store.nodeId,
+      HybridClock(store.nodeId, nowMs: _now),
+      persistDebounce: Duration.zero,
+      maxPendingChanges: 0,
+    );
+
+    try {
+      if (doc != null) {
+        scratch.importState(
+          StateSnapshot(
+            version: 1,
+            nodeId: store.nodeId,
+            timestamp: 0,
+            tables: {
+              table: {pk: doc},
+            },
+            pending: const [],
+          ),
+        );
+      }
+
+      scratch.transact(() {
+        for (final f in fields) {
+          scratch.reconcileField(table, pk, f.column, f.type, f.value);
+        }
+      });
+
+      return scratch.pending.length;
+    } finally {
+      unawaited(scratch.dispose());
+    }
+  }
+
+  /// Throws, and reports, a [CrdtError] of code
+  /// [CrdtErrorCode.offlineQueueFull] when [changes] more do not fit under
+  /// [maxPendingChanges]. The bound counts rejected changes too.
+  void _ensureRoom(int changes) {
+    final queued = store.pending.length;
+
+    if (queued + changes <= maxPendingChanges) return;
+
+    final error = CrdtError(
+      'grove: the pending queue of dataset "$datasetId" is full '
+      '($queued of $maxPendingChanges changes); a write of $changes more '
+      'was refused and nothing of it was applied',
+      code: CrdtErrorCode.offlineQueueFull,
+    );
+
+    _report(error);
+
+    throw error;
   }
 
   /// Pushable pending changes of [entity].
