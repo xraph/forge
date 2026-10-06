@@ -102,8 +102,9 @@ final class ForgeConnection extends ChangeNotifier {
 
   /// Calls [method] scoped to the picked cache.
   ///
-  /// An `ext.forge.action`, an `ext.forge.outboxAction` and an
-  /// `ext.forge.control` call that changes the network also carry [session],
+  /// An `ext.forge.action`, an `ext.forge.outboxAction`, an
+  /// `ext.forge.capture` and an `ext.forge.control` call that changes the
+  /// network also carry [session],
   /// read first when the panel has not seen one. When such a call fails, the
   /// session is read again, so a refusal because the principal changed
   /// reloads the view. A call whose answer arrives after the panel saw the
@@ -160,6 +161,7 @@ final class ForgeConnection extends ChangeNotifier {
   static bool _aimed(String method, Map<String, String> params) =>
       method == ForgeDevtoolsProtocol.action ||
       method == ForgeDevtoolsProtocol.outboxAction ||
+      method == ForgeDevtoolsProtocol.capture ||
       (method == ForgeDevtoolsProtocol.control &&
           params.keys.any(controlWrites.contains));
 

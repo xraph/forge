@@ -416,6 +416,7 @@ final class FakeForgeBackend implements ForgeBackend {
       },
       ForgeDevtoolsProtocol.frames => _frames(),
       ForgeDevtoolsProtocol.capture => () {
+        _checkSession(method, params);
         capturing = params['enabled'] == 'true';
         frameCapacity = capturing ? _int(params, 'limit', 200) : 0;
         return {

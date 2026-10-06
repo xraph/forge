@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:forge_client/devtools_protocol.dart';
@@ -33,10 +34,15 @@ class _FramesPanelState extends State<FramesPanel>
     with ActivityRefresh<FramesPanel>, GenerationFence<FramesPanel> {
   Json? _state;
 
-  /// The frame open in the detail pane: its batch `seq` and its place among
-  /// the frames of that batch. The ring slides while capture runs, so a
-  /// position in the list would move the pane to another frame.
-  ({int seq, int ordinal})? _open;
+  /// The frame open in the detail pane, by what identifies it. The runtime
+  /// gives every frame of one batch the same `seq`, and the ring slides while
+  /// capture runs, so neither a position nor a position within the batch
+  /// stays with the frame: when the head of a partly kept batch is
+  /// overwritten, the survivors move up. The frame is found again by its
+  /// batch, its clock reading, its channel, message, entity and intent, and a
+  /// hash of its payload. When nothing in the ring matches, the frame is gone
+  /// and the pane says so rather than showing a neighbour.
+  _OpenFrame? _open;
   String? _error;
 
   /// Bumped by [forget], so a read that was on its way is not kept.
@@ -90,26 +96,29 @@ class _FramesPanelState extends State<FramesPanel>
     }
   }
 
+  /// The index of the open frame in [frames], or null when it is gone.
   int? _openIndex(List<Json> frames) {
     final open = _open;
     if (open == null) return null;
 
-    var ordinal = 0;
-    for (var i = 0; i < frames.length; i++) {
-      if (frames[i].integer('seq') != open.seq) continue;
-      if (ordinal == open.ordinal) return i;
-      ordinal++;
-    }
-    return null;
+    final matches = [
+      for (var i = 0; i < frames.length; i++)
+        if (open.matches(frames[i])) i,
+    ];
+    if (matches.isEmpty) return null;
+
+    // Identical frames cannot be told apart; keep to the same place among
+    // them as far as the ring still holds that many.
+    return matches[open.ordinal.clamp(0, matches.length - 1)];
   }
 
   void _select(List<Json> frames, int index) {
-    final seq = frames[index].integer('seq');
+    final open = _OpenFrame(frames[index], 0);
     var ordinal = 0;
     for (var i = 0; i < index; i++) {
-      if (frames[i].integer('seq') == seq) ordinal++;
+      if (open.matches(frames[i])) ordinal++;
     }
-    setState(() => _open = (seq: seq, ordinal: ordinal));
+    setState(() => _open = _OpenFrame(frames[index], ordinal));
   }
 
   @override
@@ -169,9 +178,14 @@ class _FramesPanelState extends State<FramesPanel>
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(
-                  child: open == null
+                  child: _open == null
                       ? const Center(
                           child: Text('Pick a frame to read its payload.'),
+                        )
+                      : open == null
+                      ? const Center(
+                          key: ValueKey('frame-gone'),
+                          child: Text('This frame is no longer in the ring.'),
                         )
                       : _Detail(frame: frames[open]),
                 ),
@@ -210,6 +224,43 @@ class _FramesPanelState extends State<FramesPanel>
       onTap: () => _select(frames, index),
     );
   }
+}
+
+/// What identifies the frame in the detail pane: enough of it to find the
+/// same frame again after the ring has moved, and no payload.
+class _OpenFrame {
+  _OpenFrame(Json frame, this.ordinal)
+    : seq = frame.integer('seq'),
+      at = frame.integer('at'),
+      channel = frame.str('channel'),
+      message = frame.str('message'),
+      entity = frame.str('entity'),
+      intent = frame.str('intent'),
+      _payloadHash = _hash(frame);
+
+  final int seq;
+  final int at;
+  final String channel;
+  final String message;
+  final String entity;
+  final String intent;
+
+  /// Its place among the frames that look exactly like it.
+  final int ordinal;
+  final int _payloadHash;
+
+  static int _hash(Json frame) => jsonEncode(frame['payload']).hashCode;
+
+  /// Whether [frame] is the one this identifies. The cheap fields first, so
+  /// the payload of only the likely ones is encoded.
+  bool matches(Json frame) =>
+      frame.integer('seq') == seq &&
+      frame.integer('at') == at &&
+      frame.str('channel') == channel &&
+      frame.str('message') == message &&
+      frame.str('entity') == entity &&
+      frame.str('intent') == intent &&
+      _hash(frame) == _payloadHash;
 }
 
 class _Detail extends StatelessWidget {
