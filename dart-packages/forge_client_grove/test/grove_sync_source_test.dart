@@ -397,6 +397,45 @@ void main() {
       expect(store.getPendingChanges().last.pk, 'n9999');
     });
   });
+
+  test('flush writes acknowledged edits to storage before the debounce', () {
+    fakeAsync((async) {
+      final h = Harness();
+
+      h.cache.setPrincipal('alice');
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 1));
+      unawaited(
+        h.mutate(
+          opUpdateNote,
+          const TagContext(path: {'noteId': 'n1'}, body: {'title': 'saved'}),
+        ),
+      );
+      async.flushMicrotasks();
+
+      final ns = h.cache.session!.namespace(
+        'grove/${replicaKey(datasetId: '', pullPath: '/sync/pull')}',
+      );
+      List<String>? keys;
+
+      void scan() {
+        keys = null;
+        ns.scan('doc/').then((rows) => keys = [...rows.keys]);
+        async.flushMicrotasks();
+      }
+
+      scan();
+      expect(keys, isEmpty, reason: 'still inside the persist debounce');
+
+      var flushed = false;
+
+      h.source.flush().then((_) => flushed = true);
+      async.flushMicrotasks();
+      expect(flushed, isTrue);
+      scan();
+      expect(keys, hasLength(1));
+    });
+  });
 }
 
 /// The kit codec, except that it fails with a TypeError (an Error, not an

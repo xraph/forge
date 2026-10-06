@@ -472,10 +472,7 @@ final class DatasetSync {
         );
       case LiveChannel.websocket when endpoints.socket != null && allKnown:
         final ws = WebSocketTransport(
-          url: _baseUrl.replace(
-            scheme: _baseUrl.scheme == 'https' ? 'wss' : 'ws',
-            path: endpoints.socket,
-          ),
+          url: socketUrl(_baseUrl, endpoints.socket!),
           auth: _auth,
         );
 
@@ -587,6 +584,18 @@ final class DatasetSync {
     }
 
     onStatusChange();
+  }
+
+  /// Waits until every write the replica acknowledged is in storage. Does
+  /// nothing once stopped, while the replica is unavailable or before it
+  /// hydrated.
+  ///
+  /// Throws the [ReplicaPersistFailed] of a write that failed; it stays
+  /// queued and is retried.
+  Future<void> flush() async {
+    if (!_running || !_ready || _unavailable != null) return;
+
+    await store.flushPersistence();
   }
 
   String _columnFor(GroveEntity b, String wireKey) {

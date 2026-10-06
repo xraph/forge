@@ -325,4 +325,59 @@ void main() {
     await fresh.source.leave('a');
     expect(fresh.source.joined, isEmpty);
   });
+
+  group('a join right after the first setPrincipal', () {
+    test(
+      "waits for that principal's start when the source is attached",
+      () async {
+        final fresh = Harness(declarations: const [rowsSync]);
+
+        fresh.source.attach(fresh.cache);
+        fresh.cache.setPrincipal('alice');
+        await fresh.source.join(const GroveDataset('a', table: 'ds_a'));
+        expect(fresh.source.joined, {'a'}, reason: 'queued for alice');
+        await fresh.cache.idle;
+        await pumpEventQueue(times: 50);
+        expect(fresh.source.joined, {'a'});
+        expect(fresh.server.paths, contains('/d/a/pull'));
+      },
+    );
+
+    test('is never taken by a principal that superseded it', () async {
+      final fresh = Harness(declarations: const [rowsSync]);
+
+      fresh.source.attach(fresh.cache);
+      fresh.cache.setPrincipal('alice');
+      await fresh.source.join(const GroveDataset('a', table: 'ds_a'));
+      fresh.cache.setPrincipal('bob');
+      await fresh.cache.idle;
+      await pumpEventQueue(times: 50);
+      expect(fresh.source.joined, isEmpty, reason: "bob's run joins nothing");
+      expect(fresh.server.paths.where((p) => p.startsWith('/d/a/')), isEmpty);
+    });
+
+    test('still throws while signed out', () async {
+      final fresh = Harness(declarations: const [rowsSync]);
+
+      fresh.source.attach(fresh.cache);
+      await expectLater(
+        fresh.source.join(const GroveDataset('a')),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            'join requires a signed-in principal',
+          ),
+        ),
+      );
+      expect(fresh.source.joined, isEmpty);
+    });
+
+    test('attach refuses a cache that does not own the entities', () {
+      final fresh = Harness(declarations: const [rowsSync]);
+      final other = QueryCache(transport: NoRest(), entities: noteEntities);
+
+      expect(() => fresh.source.attach(other), throwsArgumentError);
+    });
+  });
 }

@@ -83,6 +83,25 @@ final class GroveEndpoints {
   final String? socket;
 }
 
+/// The WebSocket URL for [socketPath] under [baseUrl]: `ws` or `wss` by the
+/// base's scheme, with the path appended to the base's own path (a trailing
+/// slash dropped), as the HTTP and SSE transports append theirs. A base such
+/// as `https://host/gateway` reaches `wss://host/gateway/<socket>`.
+Uri socketUrl(Uri baseUrl, String socketPath) {
+  var prefix = baseUrl.path;
+
+  while (prefix.endsWith('/')) {
+    prefix = prefix.substring(0, prefix.length - 1);
+  }
+
+  final path = socketPath.startsWith('/') ? socketPath : '/$socketPath';
+
+  return baseUrl.replace(
+    scheme: baseUrl.scheme == 'https' ? 'wss' : 'ws',
+    path: '$prefix$path',
+  );
+}
+
 /// The path parameter a declaration's dataset placeholder names.
 String? datasetParam(SyncDeclaration d) {
   final ds = d.dataset;

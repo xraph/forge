@@ -72,4 +72,20 @@ void main() {
     ]);
     expect(r.reason, 'locked is locked');
   });
+
+  test('the WebSocket URL keeps the base URL path prefix', () {
+    expect(
+      socketUrl(Uri.parse('https://host/gateway'), '/sync/ws'),
+      Uri.parse('wss://host/gateway/sync/ws'),
+    );
+    expect(
+      socketUrl(Uri.parse('https://host/gateway/'), '/sync/ws'),
+      Uri.parse('wss://host/gateway/sync/ws'),
+      reason: 'a trailing slash is not doubled',
+    );
+    expect(
+      socketUrl(Uri.parse('http://host:8080'), 'sync/ws'),
+      Uri.parse('ws://host:8080/sync/ws'),
+    );
+  });
 }

@@ -60,6 +60,13 @@ final class _Run {
 /// [describeForDevtools], [joined]) answer as if nothing were joined once the
 /// context is fenced, a [join] made then waits for the start of the principal
 /// the cache serves, and status changes are no longer published.
+///
+/// The credential fence covers credentials read through [auth] (forge's
+/// [AuthProvider]) only. Credentials baked into a custom [httpClient] (a
+/// cookie jar, an interceptor adding a token) are not fenced: a request the
+/// previous principal's run still has in flight after the fence reads nothing
+/// through [auth], so it carries whatever that client holds by then. Apps
+/// must supply credentials through [auth].
 final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   /// Creates the source. See the package README for the parameters.
   ///
@@ -142,13 +149,15 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   /// Per-entity framing overrides.
   final Map<String, SyncEnvelope> envelopes;
 
-  /// Credentials for sync requests.
+  /// Credentials for sync requests. The only credentials the principal fence
+  /// covers.
   final AuthProvider? auth;
 
   /// Security scheme names passed to [auth].
   final List<String> security;
 
-  /// HTTP client override.
+  /// HTTP client override. Must not carry credentials of its own; see the
+  /// class documentation on what the principal fence covers.
   final http.Client? httpClient;
 
   /// Live channel preference.
@@ -186,9 +195,46 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
 
   _Run? _run;
 
-  /// The cache the source last started under. Only its `principal` is ever
-  /// read here, never its store.
+  /// The cache the source was attached to or last started under. Only its
+  /// `principal` is ever read here, never its store.
   QueryCache? _cache;
+
+  /// Tells the source which cache it is registered with, before that cache
+  /// first starts it. Optional: call it once, right after constructing the
+  /// cache.
+  ///
+  /// The cache hands itself to a source only in [start], which it calls after
+  /// the principal's storage opened. Until then the source cannot tell a
+  /// signed-in principal from nobody, so without this a [join] made right
+  /// after the first `setPrincipal` throws `join requires a signed-in
+  /// principal`. Attached, that join waits for that principal's start, as a
+  /// join in a later switch window does. Nothing else changes: the store is
+  /// never read through it.
+  ///
+  /// Throws [ArgumentError] when [cache] does not own this source's entities,
+  /// or when the source already belongs to another cache.
+  void attach(QueryCache cache) {
+    final current = _cache;
+
+    if (current != null && !identical(current, cache)) {
+      throw ArgumentError.value(
+        cache,
+        'cache',
+        'this source is already attached to another cache',
+      );
+    }
+
+    if (!entities.every(cache.owns)) {
+      throw ArgumentError.value(
+        cache,
+        'cache',
+        'does not own the grove entities; register this source in its '
+            'syncSources',
+      );
+    }
+
+    _cache = cache;
+  }
 
   /// Joins made while no principal's run was active, by the principal the
   /// cache served when each was made, then dataset id. Consumed only by a
@@ -450,8 +496,10 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
   /// Writes wait for the load, so they find it.
   ///
   /// Throws [StateError] when no declaration takes a dataset, and when no
-  /// principal is signed in (`join requires a signed-in principal`), which
-  /// includes before the cache first started this source.
+  /// principal is signed in (`join requires a signed-in principal`). Before
+  /// the cache first started this source that includes a principal whose
+  /// start is still on its way, unless the source was [attach]ed to the
+  /// cache; `await cache.idle` after the first `setPrincipal` also works.
   Future<void> join(GroveDataset dataset) async {
     if (_withDataset.isEmpty) {
       throw StateError(
@@ -876,6 +924,40 @@ final class GroveSyncSource implements SyncSource, DevtoolsInspectable {
     }
 
     return splitCompositeId(id)?.pk ?? id;
+  }
+
+  /// Waits until every edit the running principal's replicas acknowledged is
+  /// in storage.
+  ///
+  /// A replica writes an edit to storage a short debounce (50 ms) after
+  /// [apply] returned; stop and dispose flush it. An app that must know an
+  /// acknowledged edit is on disk, for instance before the OS may reclaim a
+  /// backgrounded process (`AppLifecycleState.paused`), awaits this. Each
+  /// running dataset is flushed; one that is still loading, or whose replica
+  /// is unavailable, has nothing acknowledged to write. Does nothing while no
+  /// principal is running.
+  ///
+  /// Every dataset is flushed even when one fails; then the first failure
+  /// (a [ReplicaPersistFailed]) is thrown. What failed stays queued and is
+  /// retried.
+  Future<void> flush() async {
+    final run = _active;
+
+    if (run == null) return;
+
+    Object? failure;
+    StackTrace? trace;
+
+    for (final s in [...run.syncs.values]) {
+      try {
+        await s.flush();
+      } on Object catch (error, stack) {
+        failure ??= error;
+        trace ??= stack;
+      }
+    }
+
+    if (failure != null) Error.throwWithStackTrace(failure, trace!);
   }
 
   /// Syncs every dataset now, probing gone ones once.
