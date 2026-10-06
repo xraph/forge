@@ -36,15 +36,18 @@ typedef OverlayIntentFor = OverlayIntent Function(
 /// backoff, with the same `Idempotency-Key` on every attempt. A generated
 /// `RestClient` stays at one attempt for the writes it does not retry.
 ///
-/// Principals: call `cache.setPrincipal(next)` before swapping the
-/// credentials the transport sends. The outbox suspends synchronously when
-/// the principal starts changing, so no listener sees the previous
-/// principal's queue, and resumes when the next principal's session opens.
-/// Pass `authPrincipal` (who the transport's credentials currently belong
-/// to) and the outbox also refuses to send a write while the two disagree,
-/// which covers an app that swaps credentials first. Without it, an app that
-/// swaps credentials before calling `setPrincipal` can have a write that was
-/// already due go out under the next principal's credentials. Every attempt
+/// Principals: the supported order is `cache.setPrincipal(next)` first, then
+/// swap the credentials the transport sends. The outbox suspends
+/// synchronously when the principal starts changing, so no listener sees the
+/// previous principal's queue, and resumes when the next principal's session
+/// opens. `authPrincipal` (who the transport's credentials currently belong
+/// to) is a defence in depth: the outbox checks it immediately before each
+/// send and holds a write while the two disagree. It does not fully cover an
+/// app that swaps credentials first. A credentials read already in flight
+/// can resolve with the new token before `setPrincipal` runs, and that write
+/// then goes out under it. Without `authPrincipal`, an app that swaps
+/// credentials first can also have a write that was already due go out under
+/// the next principal's credentials. Every attempt
 /// carries a cancel that the principal change completes, so an attempt still
 /// waiting on its credentials, or on a credential refresh after a 401, is
 /// never sent under the next principal's (an attempt already on the wire is
@@ -115,9 +118,13 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// request and response.
   ///
   /// [authPrincipal] returns the principal the transport's credentials belong
-  /// to right now. Before every send the outbox compares it with the
-  /// principal whose write it is, and on a mismatch it holds the write and
-  /// checks again after a backoff, on reconnect and on the next session.
+  /// to right now. Immediately before every send the outbox compares it with
+  /// the principal whose write it is, and on a mismatch it holds the write and
+  /// checks again after a backoff, on reconnect and on the next session. It is
+  /// a defence in depth behind the supported order (`setPrincipal` first,
+  /// then swap credentials), not a substitute for it: a credentials read
+  /// already in flight when an app swaps credentials first is past this
+  /// check.
   ///
   /// Each backoff delay is jittered by up to 20 percent either way, using
   /// [random] (a source in `[0, 1)`, injectable for tests).

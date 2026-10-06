@@ -166,7 +166,7 @@ StreamSubscription<OutboxFailure> listenForFailures(OfflineClient offline) {
 
 ## Principals and credentials
 
-Call `cache.setPrincipal(next)` before you swap the credentials the transport sends. The outbox suspends the moment the principal starts changing, so no listener sees the old queue. Pass `authPrincipal` (who the credentials belong to right now) as well, and the outbox also refuses to send a write while the two disagree. That covers an app that swaps credentials first by mistake. Without `authPrincipal`, a write that was already due can go out under the next account's credentials.
+Call `cache.setPrincipal(next)` first, then swap the credentials the transport sends. That is the supported order. The outbox suspends the moment the principal starts changing, so no listener sees the old queue. Pass `authPrincipal` (who the credentials belong to right now) as well, and the outbox checks it immediately before each send and holds a write while the two disagree. Treat it as a second line of defence, not a fix for the wrong order: if you swap credentials first, a credentials read that's already in flight can come back with the new token before `setPrincipal` runs, and that write goes out under it. Without `authPrincipal`, a write that was already due can go out under the next account's credentials too.
 
 ```dart
 Future<void> switchAccount(OfflineClient offline, String userId) async {
