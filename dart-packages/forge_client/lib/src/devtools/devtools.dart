@@ -8,6 +8,7 @@ import '../operation.dart';
 import '../storage.dart' show PendingMutationRecord;
 import '../tags.dart';
 import '../transport.dart';
+import '../types.dart' show Json;
 import 'actions.dart';
 import 'control.dart';
 import 'explain.dart' as ex;
@@ -93,15 +94,22 @@ final class Devtools {
   final QueryCache cache;
 
   /// The request log the transport reports into, when one is wired.
-  final RequestLog? requestLog;
+  ///
+  /// Not final: a later registration on a cache that is already attached fills
+  /// an empty slot, and never replaces a filled one.
+  RequestLog? requestLog;
 
   /// The network conditions, when wired. Absent means the panel shows no rail.
   /// An armed failure is cleared when the principal changes; the mode and the
   /// latency are the developer's and stay.
-  final ControlledTransport? controls;
+  ///
+  /// Not final: a later registration fills an empty slot only.
+  ControlledTransport? controls;
 
   /// The revalidation toggles, when the application registered any.
-  final Revalidation? revalidation;
+  ///
+  /// Not final: a later registration fills an empty slot only.
+  Revalidation? revalidation;
 
   /// The offline client's outbox, when the application wired one. Replaying
   /// and discarding go through it; listing does not need it. Not final: a
@@ -264,6 +272,59 @@ final class Devtools {
     indexedTags: 0,
     stampedTags: 0,
   );
+
+  /// How many tracked records are in each status, how many of those are
+  /// fetching, and how many remembered queries are stale or unmounted. Counters
+  /// only: nothing is copied out of the cache.
+  Map<String, int> statusCounts() => _ask((c) {
+    final counts = <String, int>{
+      'idle': 0,
+      'pending': 0,
+      'success': 0,
+      'error': 0,
+      'fetching': 0,
+      'stale': 0,
+      'unmounted': 0,
+    };
+
+    for (final record in c.trackedRecords()) {
+      counts[record.status] = (counts[record.status] ?? 0) + 1;
+      if (record.fetching) counts['fetching'] = counts['fetching']! + 1;
+    }
+
+    for (final query in c.queries()) {
+      if (query.stale) counts['stale'] = counts['stale']! + 1;
+      if (query.mounts == 0) counts['unmounted'] = counts['unmounted']! + 1;
+    }
+
+    return counts;
+  }, const {});
+
+  /// One light row per remembered query, in registry order: its key, operation,
+  /// mount count, freshness, status and how many tags and dependencies it
+  /// carries. Never the lists themselves, so a row's size does not grow with
+  /// the cache.
+  List<Json> querySummaries() => _ask((c) {
+    final records = {
+      for (final record in c.trackedRecords()) record.key: record,
+    };
+
+    return [
+      for (final query in c.queries())
+        {
+          'key': query.key,
+          'operation': query.operation,
+          'mounts': query.mounts,
+          'stale': query.stale,
+          'settled': query.settled,
+          'settledAt': query.settledAt,
+          'status': records[query.key]?.status ?? 'idle',
+          'fetching': records[query.key]?.fetching ?? false,
+          'tagCount': query.tags.length,
+          'depCount': query.deps.length,
+        },
+    ];
+  }, const []);
 
   /// Counters, queries and the tag graph.
   CacheSnapshot snapshot() => _ask(

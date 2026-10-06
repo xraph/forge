@@ -39,6 +39,12 @@ final class DevtoolsActions {
   final int Function() _session;
   final bool Function() _answerable;
 
+  /// Throws a [StateError] unless the cache can be acted on now: not while it
+  /// is changing principal, and not once the inspector is detached. A caller
+  /// that starts work it does not wait for checks this first, so a refusal
+  /// reaches it instead of being lost with the work.
+  void ensureReady() => _ready();
+
   /// Throws unless the cache can be acted on now.
   void _ready() {
     if (_answerable()) return;
