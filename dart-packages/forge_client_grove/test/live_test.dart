@@ -21,6 +21,17 @@ const _streamSync = SyncDeclaration(
   stream: '/sync/stream',
 );
 
+/// foundry-shaped, with a change stream.
+const _rowsStream = SyncDeclaration(
+  protocol: 'grove-crdt',
+  entity: 'Note',
+  table: null,
+  pull: '/d/{id}/pull',
+  push: '/d/{id}/push',
+  stream: '/d/{id}/stream',
+  dataset: '{id}',
+);
+
 /// An SSE server: every connection stays open, silent, until the client
 /// aborts it or a test hangs it up.
 final class _FakeSse {
@@ -240,6 +251,75 @@ void main() {
         async.elapse(const Duration(seconds: 40));
         expect(h.record('n1')?['title'], 'from afar');
         expect(pushes(h), before);
+      });
+    });
+
+    test('a 404 on the change stream marks the dataset gone and stops the '
+        'reconnects until the dataset is back', () {
+      fakeAsync((async) {
+        final sse = _FakeSse();
+        final h = Harness(
+          declarations: const [_rowsStream],
+          live: LiveChannel.sse,
+          sseConnect: sse.connect,
+        );
+        final statuses = <SyncStatus>[];
+
+        int pulls() => h.server.paths.where((p) => p.endsWith('/pull')).length;
+
+        h.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+        async.elapse(const Duration(seconds: 2));
+        h.source.statusOf('a').listen(statuses.add);
+        async.flushMicrotasks();
+        expect(statuses.last, const Synced());
+
+        final connects = sse.connects.length;
+        final pulled = pulls();
+
+        // foundry restarts and forgets the dataset: the stream drops and
+        // every route answers 404.
+        h.server.goneDatasets.add('a');
+        sse.status = 404;
+        sse.bodies.last.close();
+        async.elapse(const Duration(seconds: 10));
+        expect(
+          statuses.last,
+          isA<SyncFailed>().having(
+            (s) => s.error,
+            'error',
+            isA<GroveDatasetGone>(),
+          ),
+        );
+        expect(
+          sse.connects.length - connects,
+          1,
+          reason: 'the one refused reconnect, then none',
+        );
+        expect(pulls(), pulled + 1, reason: 'the pull that classified it');
+
+        final reported = h.errors.length;
+
+        // The gone probe re-checks once per goneRecheck (5 min), and the
+        // stream stays closed.
+        async.elapse(const Duration(minutes: 9));
+        expect(sse.connects.length - connects, 1);
+        expect(pulls(), pulled + 2);
+        expect(h.errors.length, reported, reason: 'nothing more to report');
+
+        // The dataset is back: the next probe resumes the engine and the
+        // stream.
+        h.server.goneDatasets.remove('a');
+        sse.status = 200;
+        async.elapse(const Duration(minutes: 5));
+        expect(statuses.last, const Synced());
+        expect(
+          sse.connects.length - connects,
+          greaterThanOrEqualTo(2),
+          reason: 'the stream is open again (and idles out every 45 s)',
+        );
       });
     });
 

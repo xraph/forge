@@ -14,6 +14,11 @@ import 'status.dart';
 bool isCancellation(Object error) =>
     error is CrdtError && error.code == CrdtErrorCode.cancelled;
 
+/// Whether a live channel failed with a status that a pull classifies as a
+/// terminal state: 404 or 410 (gone), 401 or 403 (unauthorized).
+bool _refusesStream(Object error) =>
+    error is CrdtError && const {401, 403, 404, 410}.contains(error.statusCode);
+
 /// One dataset behind one set of sync endpoints, for one principal: replica,
 /// client, engine and live channel.
 ///
@@ -21,7 +26,7 @@ bool isCancellation(Object error) =>
 /// [SyncContext.write], so nothing lands once the cache has moved to another
 /// principal. Every callback that would project, report or sync checks
 /// [SyncContext.active] first. Every timer (the push debounce, the retry
-/// backoff, the gone probe) checks it again when it
+/// backoff, the gone probe, a delayed stream reopen) checks it again when it
 /// fires, and all of them are cancelled synchronously when the cache starts
 /// moving to another principal, and again by [stop].
 final class DatasetSync {
@@ -92,6 +97,10 @@ final class DatasetSync {
       initialDelay: cap < _retryStart ? cap : _retryStart,
       maxDelay: cap,
     );
+    _streamBackoff = Backoff(
+      initialDelay: cap < _retryStart ? cap : _retryStart,
+      maxDelay: cap,
+    );
     // Synchronously, as the cache starts moving to another principal: the
     // context is fenced by then, so a timer firing later would do nothing, but
     // none is left armed at all.
@@ -144,6 +153,7 @@ final class DatasetSync {
   final CrdtAuthProvider? _auth;
   late final HttpStreamTransport _transport;
   late final Backoff _retry;
+  late final Backoff _streamBackoff;
   late final void Function() _unwatchPrincipal;
 
   /// The replica.
@@ -160,9 +170,14 @@ final class DatasetSync {
   Timer? _pushTimer;
   Timer? _goneTimer;
   Timer? _retryTimer;
+  Timer? _reopenTimer;
 
   /// The pending queue's length as last seen; a local write grows it.
   int _pendingSeen = 0;
+
+  /// Whether the live channel was last closed because it was refused with a
+  /// terminal status; it reopens after a backoff delay, not at once.
+  bool _streamRefused = false;
   Future<void> Function()? _stopPoll;
   CrdtSubscription? _live;
   final List<void Function()> _liveHandlers = [];
@@ -348,9 +363,25 @@ final class DatasetSync {
     });
   }
 
-  /// Opens the live channel after a successful run, unless it is open.
+  /// Opens the live channel after a successful run, unless it is open. After
+  /// the stream was refused, waits a backoff delay first, so a stream that
+  /// keeps refusing while pulls succeed is not reopened in a tight loop.
   void _reopenLive() {
-    if (_live == null && _stopPoll == null) _openLive();
+    if (_live != null || _stopPoll != null || _reopenTimer != null) return;
+
+    if (!_streamRefused) {
+      _openLive();
+
+      return;
+    }
+
+    _reopenTimer = Timer(_streamBackoff.next(), () {
+      _reopenTimer = null;
+
+      if (!_running || _live != null || _stopPoll != null || _terminal) return;
+
+      _openLive();
+    });
   }
 
   bool get _terminal =>
@@ -361,9 +392,11 @@ final class DatasetSync {
     _pushTimer?.cancel();
     _goneTimer?.cancel();
     _retryTimer?.cancel();
+    _reopenTimer?.cancel();
     _pushTimer = null;
     _goneTimer = null;
     _retryTimer = null;
+    _reopenTimer = null;
   }
 
   void _armProbe() {
@@ -435,11 +468,29 @@ final class DatasetSync {
       ..add(engine.attachStream(sub))
       ..add(
         sub.on((event) {
+          if (event is StreamConnected) {
+            _streamRefused = false;
+            _streamBackoff.reset();
+
+            return;
+          }
+
           // A cancellation is the stream ending because the principal moved
           // on or the dataset stopped: expected, never a failure.
-          if (event is StreamError && !isCancellation(event.error)) {
-            _report(event.error);
-          }
+          if (event is! StreamError || isCancellation(event.error)) return;
+
+          _report(event.error);
+
+          if (!_running || !_refusesStream(event.error)) return;
+
+          // The dataset went away, or the credentials stopped working, while
+          // the stream was up: the stream alone would reconnect against it
+          // forever and the engine would never hear. Close it and let a pull
+          // classify the status; a terminal state then keeps it closed until
+          // the probe finds the dataset again.
+          _streamRefused = true;
+          _closeLive();
+          unawaited(syncNow());
         }),
       );
     sub.connect();
