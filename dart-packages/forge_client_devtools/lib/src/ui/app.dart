@@ -6,8 +6,11 @@ import 'package:forge_client/devtools_protocol.dart';
 import '../backend/backend.dart';
 import '../state/connection.dart';
 import 'entities_panel.dart';
+import 'events_panel.dart';
 import 'explain_panel.dart';
+import 'frames_panel.dart';
 import 'queries_panel.dart';
+import 'requests_panel.dart';
 import 'widgets.dart';
 
 /// One tab of the workspace.
@@ -21,6 +24,9 @@ final List<PanelTab> _panels = [
   (label: 'Queries', build: (c) => QueriesPanel(connection: c)),
   (label: 'Entities', build: (c) => EntitiesPanel(connection: c)),
   (label: 'Tags', build: (c) => ExplainPanel(connection: c)),
+  (label: 'Events', build: (c) => EventsPanel(connection: c)),
+  (label: 'Frames', build: (c) => FramesPanel(connection: c)),
+  (label: 'Requests', build: (c) => RequestsPanel(connection: c)),
 ];
 
 /// The whole forge extension UI, over any [ForgeBackend].

@@ -72,6 +72,43 @@ mixin ActivityRefresh<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// Throws away what the panel holds when the connection's [generation] moves:
+/// the principal changed, another cache was picked, or the app went away.
+///
+/// The workspace already keys every panel on the generation, so a panel it
+/// builds is replaced outright. This is the same rule for a panel that lives
+/// on its own, and the reason a panel can say that nothing it read for one
+/// principal outlives the switch: [forget] is the one place that drops it.
+mixin GenerationFence<T extends StatefulWidget> on State<T> {
+  /// The connection whose generation to follow.
+  ForgeConnection get connection;
+
+  /// Drops everything held for the previous principal, and reads again. Runs
+  /// inside `setState`.
+  void forget();
+
+  late int _heldGeneration;
+
+  @override
+  void initState() {
+    super.initState();
+    _heldGeneration = connection.generation;
+    connection.addListener(_checkGeneration);
+  }
+
+  void _checkGeneration() {
+    if (connection.generation == _heldGeneration) return;
+    _heldGeneration = connection.generation;
+    if (mounted) setState(forget);
+  }
+
+  @override
+  void dispose() {
+    connection.removeListener(_checkGeneration);
+    super.dispose();
+  }
+}
+
 /// Fetches one page: rows `[offset, offset + limit)` and the total.
 typedef PageFetcher = Future<({int total, List<Json> items})> Function(
   int offset,
@@ -498,12 +535,26 @@ class JsonView extends StatelessWidget {
         for (var i = 0; i < list.length; i++) JsonView(list[i], label: '$i'),
       ],
     ),
+    // The app marks what it left out of a bounded copy with a string: how many
+    // more, a cycle, a level cut for depth or size. Show it as a marker, not
+    // as if it were the application's own text.
+    final String text when _isMarker(text) => ListTile(
+      dense: true,
+      title: Text(
+        '$label: $text',
+        style: const TextStyle(fontStyle: FontStyle.italic),
+      ),
+    ),
     final scalar => ListTile(
       dense: true,
       title: Text('$label: ${jsonEncode(scalar)}'),
     ),
   };
 }
+
+final _marker = RegExp(r'^\[(\d+ more|more|cycle|deeper|truncated)\]$');
+
+bool _isMarker(String text) => _marker.hasMatch(text);
 
 /// A small heading inside a detail pane.
 class SectionTitle extends StatelessWidget {
