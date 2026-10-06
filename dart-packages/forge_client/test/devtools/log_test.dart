@@ -385,6 +385,164 @@ void main() {
       await sub.cancel();
       devtools.dispose();
     });
+
+    test('a subscriber that reads the cache from the marker sees nothing of the previous principal', () async {
+      const secret = 'alice-ssn';
+      final h = Harness()
+        ..reply('GET /orders', [
+          {'id': secret, 'total': 10},
+        ]);
+      final devtools = attach(h.cache, clock: CounterClock());
+      final sub = h.mount(Ops.orderList);
+      await h.settle();
+      await h.cache.mutate(Ops.orderCreate, const TagContext(body: {'id': 7}));
+      h.flush();
+      await h.settle();
+
+      final key = h.key(Ops.orderList);
+
+      // The premise: the list carries alice's record, so a report quotes it.
+      expect(devtools.whyNotRefetched(key).carried, contains('Order:$secret'));
+
+      final reports = <MissReport>[];
+      final records = <int>[];
+      final heard = <String>[];
+
+      devtools.subscribe((entry) {
+        heard.add(entry.kind);
+
+        if (entry is PrincipalLog) {
+          records.add(h.dev.records);
+          reports.add(devtools.whyNotRefetched(key));
+          reports.add(devtools.explain(key) as MissReport);
+        }
+      });
+
+      h.cache.setPrincipal('bob');
+
+      // Told after the cache emptied: no record, and nothing of alice's in
+      // what the inspector reports.
+      expect(records, [0]);
+      expect(reports, hasLength(2));
+      for (final report in reports) {
+        expect(jsonEncode(report.toJson()), isNot(contains(secret)));
+        expect(report.cause.label, contains('no mutation or frame batch'));
+      }
+
+      // The marker is first, then the new principal's mount.
+      expect(heard.first, 'principal');
+      expect(heard, contains('fetch'));
+
+      await sub.cancel();
+      devtools.dispose();
+    });
+
+    test(
+      'answers nothing from the cache while the change is in progress',
+      () async {
+        const secret = 'alice-ssn';
+        final h = Harness()
+          ..reply('GET /orders', [
+            {'id': secret, 'total': 10},
+          ]);
+
+        // Registered before the recorder's own, so it runs before it: the first
+        // reader to run inside the window, ahead of the recorder's listener.
+        Devtools? devtools;
+        final during = <String>[];
+
+        h.cache.watchPrincipalChanging((_) {
+          final d = devtools;
+          if (d == null) return;
+
+          during
+            ..add(jsonEncode([for (final entry in d.log()) entry.toJson()]))
+            ..add(jsonEncode(d.whyNotRefetched(h.key(Ops.orderList)).toJson()))
+            ..add(jsonEncode(d.explain(h.key(Ops.orderList)).toJson()))
+            ..add(
+              jsonEncode(
+                d
+                    .wouldInvalidate(
+                      Ops.orderCreate,
+                      const TagContext(body: {}),
+                    )
+                    .toJson(),
+              ),
+            );
+        });
+
+        devtools = attach(h.cache, clock: CounterClock());
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+        await h.cache.mutate(
+          Ops.orderCreate,
+          const TagContext(body: {'id': 7}),
+        );
+        h.flush();
+        await h.settle();
+
+        expect(
+          jsonEncode(devtools.whyNotRefetched(h.key(Ops.orderList)).toJson()),
+          contains(secret),
+        );
+
+        h.cache.setPrincipal('bob');
+
+        expect(during, hasLength(4));
+        for (final text in during) {
+          expect(text, isNot(contains(secret)));
+          expect(text, isNot(contains('mutation POST /orders')));
+        }
+
+        await h.settle();
+        expect(devtools.session, 1);
+        expect(devtools.log().whereType<PrincipalLog>(), hasLength(1));
+
+        await sub.cancel();
+        devtools.dispose();
+      },
+    );
+
+    test(
+      'records nothing a cache reports between the change and the clear',
+      () async {
+        final h = Harness();
+        final devtools = attach(h.cache, clock: CounterClock());
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+
+        // Registered after the recorder's own: the cache is still the previous
+        // principal's when this runs.
+        final stop = h.cache.watchPrincipalChanging((_) {
+          h.cache.observer?.call(
+            debugOutboxFailed('m-alice', 'op_create', 'alice-ssn rejected'),
+          );
+        });
+
+        h.cache.setPrincipal('bob');
+        stop();
+        await h.settle();
+
+        expect(devtools.log().whereType<OutboxLog>(), isEmpty);
+        expect(
+          jsonEncode([for (final entry in devtools.log()) entry.toJson()]),
+          isNot(contains('alice-ssn')),
+        );
+        // The new principal's own mount is still recorded.
+        expect(devtools.log().whereType<FetchLog>(), isNotEmpty);
+
+        // And once the change is over, events are recorded again.
+        h.cache.observer?.call(debugOutboxEnqueued('m-bob', 'op_create'));
+
+        final outbox = devtools.log().whereType<OutboxLog>().single;
+
+        expect(outbox.mutationId, 'm-bob');
+        expect(outbox.session, 1);
+
+        await sub.cancel();
+        devtools.dispose();
+      },
+    );
   });
 
   group('attaching and detaching', () {
@@ -425,8 +583,6 @@ void main() {
       expect(seen, isNotEmpty);
       expect(devtools.log(), isNotEmpty);
 
-      final recorded = devtools.log().length;
-
       devtools.dispose();
 
       expect(h.cache.observer, isNotNull);
@@ -435,7 +591,8 @@ void main() {
       h.flush();
       await h.settle();
 
-      expect(devtools.log(), hasLength(recorded));
+      // Disposing drops what was recorded, and nothing is recorded after.
+      expect(devtools.log(), isEmpty);
 
       await sub.cancel();
       h.cache.observer = null;
@@ -453,8 +610,6 @@ void main() {
 
       expect(second.log(), isNotEmpty);
 
-      final held = second.log().length;
-
       second.dispose();
 
       // The first observer is still in the chain, inert, so neither ring grows.
@@ -465,12 +620,13 @@ void main() {
       await h.settle();
 
       expect(first.log(), isEmpty);
-      expect(second.log(), hasLength(held));
+      expect(second.log(), isEmpty);
 
       await sub.cancel();
     });
 
-    test('stops listening for identity changes when disposed', () async {
+    test('a disposed inspector holds nothing, and a switch afterwards brings nothing back', () async {
+      const secret = 'alice-ssn';
       final h = Harness();
       final devtools = attach(
         h.cache,
@@ -479,24 +635,55 @@ void main() {
       );
       final sub = h.mount(Ops.orderList);
       await h.settle();
-      debugApplyFrames(h.cache, orderBinding, {'id': 1, 'total': 5});
-
-      final log = devtools.log();
-      final frames = devtools.frames();
-
-      devtools.dispose();
-      h.cache.setPrincipal('user-2');
+      await h.cache.mutate(
+        Ops.orderCreate,
+        const TagContext(body: {'id': 7, 'secret': secret}),
+      );
+      debugApplyFrames(h.cache, orderBinding, {'id': 7, 'secret': secret});
+      h.flush();
       await h.settle();
 
-      // A recorder still subscribed would have purged what it holds, left a
-      // marker, and started a second session. A detached one is inert.
-      expect(devtools.session, 0);
-      expect(devtools.log().map((entry) => entry.seq), [
-        for (final entry in log) entry.seq,
+      String everything() => jsonEncode([
+        [for (final entry in devtools.log()) entry.toJson()],
+        [for (final entry in devtools.eventLog.entries()) entry.toJson()],
+        [for (final frame in devtools.frames()) frame.toJson()],
+        devtools.lastCause()?.toJson(),
+        devtools.whyRefetched(h.key(Ops.orderList))?.toJson(),
+        devtools.whyNotRefetched(h.key(Ops.orderList)).toJson(),
+        devtools.explain(h.key(Ops.orderList)).toJson(),
+        devtools
+            .wouldInvalidate(Ops.orderCreate, const TagContext(body: {}))
+            .toJson(),
       ]);
-      expect(devtools.log().whereType<PrincipalLog>(), isEmpty);
-      expect(devtools.frames(), hasLength(frames.length));
-      expect(devtools.frames().single.intent, isNot('principal'));
+
+      // The premise: the planted string is held while attached.
+      expect(everything(), contains(secret));
+
+      devtools.dispose();
+
+      // Disposing drops it at once.
+      expect(devtools.log(), isEmpty);
+      expect(devtools.frames(), isEmpty);
+      expect(devtools.lastCause(), isNull);
+      expect(everything(), isNot(contains(secret)));
+
+      h.cache.setPrincipal('bob');
+      await h.settle();
+      h.flush();
+      await h.settle();
+
+      // A recorder still subscribed would have left a marker and started a
+      // second session. A detached one stays empty and inert.
+      expect(devtools.session, 0);
+      expect(devtools.log(), isEmpty);
+      expect(devtools.frames(), isEmpty);
+      expect(devtools.lastCause(), isNull);
+      expect(devtools.whyRefetched(h.key(Ops.orderList)), isNull);
+      expect(
+        devtools.whyNotRefetched(h.key(Ops.orderList)).outcome,
+        MissOutcome.notTracked,
+      );
+      expect(everything(), isNot(contains(secret)));
 
       await sub.cancel();
     });
@@ -651,6 +838,39 @@ void main() {
   // The standing rule is that nothing crosses principals. A recording of one
   // user's activity must not be readable by the next.
   group('purging on a principal change', () {
+    test(
+      'holds delivery, keeps recording, and releases in order or drops unheard',
+      () {
+        final log = EventLog(clock: CounterClock());
+        final heard = <int>[];
+
+        log.subscribe((entry) => heard.add(entry.seq));
+        log.hold();
+        log
+          ..push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1))
+          ..push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+
+        // Recorded and readable, not yet told.
+        expect(log.entries(), hasLength(2));
+        expect(heard, isEmpty);
+
+        log.release();
+        expect(heard, [1, 2]);
+
+        log.hold();
+        log.push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+        log.release(deliver: false);
+        expect(heard, [1, 2]);
+
+        // A clear drops what was queued, and a purge queues only its marker.
+        log.hold();
+        log.push((seq, at) => PrincipalLog(seq: seq, at: at, session: 1));
+        log.purge(session: 2);
+        log.release();
+        expect(heard, [1, 2, 5]);
+      },
+    );
+
     test(
       'drops every earlier entry and leaves one marker with nothing in it',
       () {

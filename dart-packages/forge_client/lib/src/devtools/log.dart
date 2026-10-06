@@ -25,6 +25,10 @@ final class EventLog {
   final List<LogEntry?> _ring;
   final Set<void Function(LogEntry entry)> _listeners = {};
 
+  // Entries recorded while delivery is held, in order. See [hold].
+  final List<LogEntry> _queued = [];
+
+  bool _held = false;
   int _cursor = 0;
   int _filled = 0;
   int _overwritten = 0;
@@ -48,7 +52,12 @@ final class EventLog {
     final entry = _detached(build(_next++, _clock.now())) as T;
 
     _store(entry);
-    _notify(entry);
+
+    if (_held) {
+      _queued.add(entry);
+    } else {
+      _notify(entry);
+    }
 
     return entry;
   }
@@ -80,8 +89,10 @@ final class EventLog {
     return null;
   }
 
-  /// Forgets everything. The sequence keeps counting; `dropped` resets.
+  /// Forgets everything, including entries whose delivery is still held. The
+  /// sequence keeps counting; `dropped` resets.
   void clear() {
+    _queued.clear();
     _ring.fillRange(0, capacity, null);
     _cursor = 0;
     _filled = 0;
@@ -100,6 +111,30 @@ final class EventLog {
     clear();
 
     return push((seq, at) => PrincipalLog(seq: seq, at: at, session: session));
+  }
+
+  /// Stops telling subscribers about new entries. They are still recorded and
+  /// readable; delivery is queued, in order, until [release].
+  ///
+  /// The recorder holds delivery across a principal change, so a subscriber
+  /// that reacts to the marker by reading the cache runs after the previous
+  /// principal's data is gone, not while the cache still holds it.
+  void hold() => _held = true;
+
+  /// Ends [hold]. With [deliver] the queued entries reach the subscribers, in
+  /// the order they were recorded; without it they are dropped unheard.
+  void release({bool deliver = true}) {
+    _held = false;
+
+    final queued = [..._queued];
+
+    _queued.clear();
+
+    if (!deliver) return;
+
+    for (final entry in queued) {
+      _notify(entry);
+    }
   }
 
   /// Hears each entry as it is recorded. Returns the unsubscribe.
