@@ -71,6 +71,24 @@ Future<OfflineClient> buildByHand(
   return offline;
 }
 
+//README-BLOCK devtools
+Future<OfflineClient> openWithDevtools(
+  RestTransport rest,
+  EncryptedSqliteStorage storage,
+  ConnectivitySignal connectivity,
+  String userId,
+) {
+  return OfflineClient.open(
+    transport: rest,
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    connectivity: connectivity,
+    devtools: true,
+  );
+}
+
 //README-BLOCK write
 void saveNote(OfflineClient offline, String id, String note) {
   updateOrder(

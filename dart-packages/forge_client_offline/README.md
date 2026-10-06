@@ -121,6 +121,33 @@ Future<OfflineClient> buildByHand(
 
 Create the `OfflineClient` before you register any `watchPrincipalChanging` listener of your own. Its listener has to run first so yours never see the previous principal's queue. Those listeners must not read the store or an adapter's providers either.
 
+## Devtools
+
+`configureClient` attaches the forge devtools on its own, but `OfflineClient.open` never goes through it, so you ask for them. In a debug or profile build, `devtools: true` does three things.
+
+```dart
+Future<OfflineClient> openWithDevtools(
+  RestTransport rest,
+  EncryptedSqliteStorage storage,
+  ConnectivitySignal connectivity,
+  String userId,
+) {
+  return OfflineClient.open(
+    transport: rest,
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    connectivity: connectivity,
+    devtools: true,
+  );
+}
+```
+
+It wraps a `RestTransport` in the devtools' offline and latency simulator, beneath the outbox. A write made while the panel says offline is then queued like one made on a lost connection, and a replay feels the simulated network. It merges the simulator into `connectivity` for you, so the outbox hears that the network is down. And it registers the client as the panel's `OutboxInspector`, which is what makes replay and discard work. A transport that isn't a `RestTransport` gets the outbox wiring but no simulator. Release builds compile all of it out.
+
+If you build the client yourself, the order is outbox, then simulator, then `RestTransport`. The `forge_client` README shows it.
+
 ## Write and watch the queue
 
 ```dart

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:forge_client/devtools.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:uuid/uuid.dart';
 
@@ -393,6 +394,20 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
   /// [sessionTimeout] does not cover it (it bounds the storage open only).
   /// `SyncSource.start` must return promptly and do network work in the
   /// background.
+  ///
+  /// [devtools] attaches the forge devtools to the cache, in debug and profile
+  /// builds only (it does nothing when `kForgeDevtools` is false, and a release
+  /// build compiles it out). `configureClient` does this on its own, but this
+  /// method never goes through it, so it is opt-in here. A [RestTransport] is
+  /// wrapped in the devtools' offline and latency simulator, placed beneath
+  /// the outbox, so a write made while the panel says offline is queued like
+  /// one made on a lost network, and a replay feels the simulated network. The
+  /// simulator's connectivity is merged into [connectivity] for you
+  /// (`withSimulatedConnectivity`). The client is registered as the panel's
+  /// `OutboxInspector`, so replay and discard work, and [operations] lets the
+  /// panel preview any operation. Any other transport is used as it is, with
+  /// no simulator and no request log. Attaching happens before the principal
+  /// is set, so the panel sees the whole session.
   static Future<OfflineClient> open({
     required Transport transport,
     required EntitySchema entities,
@@ -409,6 +424,7 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
     String? Function()? authPrincipal,
     void Function(Object error, String context)? onError,
     Duration idempotencyWindow = const Duration(hours: 24),
+    bool devtools = false,
   }) async {
     // The cache reports a session that failed to open to onError and never
     // emits it, so the wait below listens there too.
@@ -421,7 +437,13 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
       onError?.call(error, context);
     }
 
-    final outbox = OutboxTransport(transport);
+    // The simulator sits directly on the wire, beneath the outbox: outside it,
+    // offline would fail a write before the outbox could queue it.
+    final controls = kForgeDevtools && devtools && transport is RestTransport
+        ? ControlledTransport(transport)
+        : null;
+    final signal = connectivity ?? const _AssumeOnline();
+    final outbox = OutboxTransport(controls ?? transport);
     final cache = QueryCache(
       transport: outbox,
       entities: entities,
@@ -435,7 +457,9 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
         OfflineClient(
             cache: cache,
             operations: operations,
-            connectivity: connectivity ?? const _AssumeOnline(),
+            connectivity: controls == null
+                ? signal
+                : withSimulatedConnectivity(signal, controls),
             transport: outbox,
             clock: clock,
             excludedEntities: {
@@ -452,6 +476,16 @@ final class OfflineClient implements OutboxInspector, OutboxFailureSource {
           )
           .._storage = storage
           .._ownsCache = true;
+
+    if (kForgeDevtools && devtools) {
+      registerForgeServiceExtensions(
+        cache,
+        transport: transport is RestTransport ? transport : null,
+        controls: controls,
+        operations: operations,
+        outbox: client,
+      );
+    }
 
     final waiting = opening = Completer<void>();
     final subscription = cache.sessionChanges.listen((session) {
