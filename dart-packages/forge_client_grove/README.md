@@ -68,12 +68,17 @@ network. `start` itself returns at once: opening and hydrating the replicas
 happens in the background too, and a write made meanwhile waits for it.
 
 Joined datasets belong to the principal. Switching accounts forgets them, and
-you join again for the next one. A join always belongs to one principal and
-only that principal's start picks it up. Call `join` while the old account is
-still stopping (after `setPrincipal`) and it waits for the old account's next
-sign-in; the new account never joins it. If the cache moves on to anyone else
-first, it's dropped. With nobody signed in, `join` throws a `StateError`, and so
-does `leave(erase: true)`.
+you join again for the next one. A join belongs to whoever the cache is signed
+in as when you call it (`cache.principal`), and only that principal's start
+picks it up. So a `join` from the new account's UI while the old account is
+still stopping waits for the new account and runs as the new account; the old
+account never gets it. A `leave` acts for the same principal and only ever
+drops that principal's waiting joins. With nobody signed in, `join` and
+`leave(erase: true)` throw a `StateError`.
+
+Right after sign-in the replicas load in the background. A `join` or `leave`
+then still works: `leave` drops the dataset from the load, and
+`leave(erase: true)` waits for the load before it erases.
 
 ## Switching accounts
 

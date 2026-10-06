@@ -32,8 +32,25 @@ final class _Tokens {
   var token = 'alice-token';
   var refreshes = 0;
 
+  /// Every credentials read, counted when it starts.
+  var reads = 0;
+
+  /// When set, the next read waits for it (an identity provider fetching a
+  /// token), and reads the token only once it completes.
+  Completer<void>? gate;
+
   late final AuthProvider auth = AuthProvider.callbacks(
-    credentials: (_) => {'authorization': 'Bearer $token'},
+    credentials: (_) {
+      reads++;
+
+      final wait = gate;
+
+      if (wait == null) return {'authorization': 'Bearer $token'};
+
+      gate = null;
+
+      return wait.future.then((_) => {'authorization': 'Bearer $token'});
+    },
     refresh: () => refreshes++,
   );
 }
@@ -213,6 +230,191 @@ void main() {
     }
   });
 
+  group('the auth adapter checks the fence', () {
+    test('after the read: credentials still loading at the switch are never '
+        'sent', () {
+      fakeAsync((async) {
+        final s = _signedIn(async);
+        final h = s.h;
+
+        s.aliceNode = h.server.requests.first.nodeId!;
+
+        final sent = h.server.requests.length;
+        final gate = s.tokens.gate = Completer<void>();
+
+        unawaited(
+          h.mutate(
+            opUpdateNote,
+            const TagContext(
+              path: {'noteId': 'n1'},
+              body: {'title': 'alice secret'},
+            ),
+          ),
+        );
+        async.elapse(const Duration(milliseconds: 5));
+        expect(
+          h.server.requests.length,
+          sent,
+          reason: 'the push waits on auth',
+        );
+        expect(s.tokens.gate, isNull, reason: 'the read is in progress');
+
+        // The provider now answers with bob's token.
+        s.toBob();
+        gate.complete();
+        s.run(async, const Duration(seconds: 2));
+        expect(h.server.requests.length, sent, reason: 'nothing sent at all');
+        s.slow.hold!.complete();
+        s.run(async, const Duration(seconds: 1));
+      });
+    });
+
+    test(
+      'before the read: a fenced run retrying never asks for credentials',
+      () {
+        fakeAsync((async) {
+          final s = _signedIn(async);
+          final h = s.h;
+
+          s.aliceNode = h.server.requests.first.nodeId!;
+
+          final (pushed, held) = _hold(h.server, (r) => r.isPush);
+
+          unawaited(
+            h.mutate(
+              opUpdateNote,
+              const TagContext(
+                path: {'noteId': 'n1'},
+                body: {'title': 'alice secret'},
+              ),
+            ),
+          );
+          async.elapse(const Duration(milliseconds: 5));
+          expect(pushed(), isNotNull);
+
+          s.toBob();
+
+          final reads = s.tokens.reads;
+
+          // The transport retries a 503, which would read credentials again.
+          held.complete(http.Response('busy', 503, headers: fakeHeaders));
+          s.run(async, const Duration(seconds: 3));
+          expect(
+            s.tokens.reads,
+            reads,
+            reason: 'no credentials read for alice after the switch',
+          );
+          s.slow.hold!.complete();
+          s.run(async, const Duration(seconds: 1));
+        });
+      },
+    );
+  });
+
+  group('leave during the background load', () {
+    test('drops the dataset from the load, so it never syncs', () {
+      fakeAsync((async) {
+        final gate = Completer<void>();
+        final h = Harness(
+          declarations: const [rowsSync],
+          storage: _MappedStorage(
+            memoryStorage(),
+            (principal, namespace, store) =>
+                namespace == 'grove' ? _Gated(store, gate.future) : store,
+          ),
+        );
+
+        h.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+        async.flushMicrotasks();
+        expect(h.source.joined, {'a'});
+
+        Object? error;
+
+        h.source.leave('a').catchError((Object e) => error = e);
+        async.flushMicrotasks();
+        expect(error, isNull);
+        expect(h.source.joined, isEmpty);
+
+        gate.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, isEmpty);
+        expect(h.server.paths.where((p) => p.startsWith('/d/a/')), isEmpty);
+      });
+    });
+
+    test('with erase, waits for the load, erases, and never resurrects', () {
+      fakeAsync((async) {
+        final storage = memoryStorage();
+
+        // Alice already has a replica of dataset a at rest.
+        storage.open('alice').then((pre) async {
+          final space = await ReplicaSpace.open(pre, newNodeId: nextNodeId);
+
+          await space
+              .dataset('a')
+              .saveDocument(
+                'ds_a',
+                'r1',
+                DocumentState(
+                  table: 'ds_a',
+                  pk: 'r1',
+                  fields: {
+                    'title': FieldState(
+                      type: CrdtType.lww,
+                      hlc: HLC(BigInt.one, 0, 'x'),
+                      nodeId: 'x',
+                      value: const JsonValue('kept at rest'),
+                    ),
+                  },
+                ),
+              );
+          await pre.close();
+        });
+        async.flushMicrotasks();
+
+        final gate = Completer<void>();
+        final h = Harness(
+          declarations: const [rowsSync],
+          storage: _MappedStorage(
+            storage,
+            (principal, namespace, store) =>
+                namespace == 'grove' ? _Gated(store, gate.future) : store,
+          ),
+        );
+
+        h.cache.setPrincipal('alice');
+        async.flushMicrotasks();
+        unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+        async.flushMicrotasks();
+
+        var erased = false;
+        Object? error;
+
+        h.source
+            .leave('a', erase: true)
+            .then<void>((_) => erased = true, onError: (Object e) => error = e);
+        async.flushMicrotasks();
+        expect(erased, isFalse, reason: 'waits for the replicas to load');
+        expect(h.source.joined, isEmpty);
+
+        gate.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(error, isNull);
+        expect(erased, isTrue);
+        expect(h.noteKeys, isEmpty, reason: 'its rows never came back');
+        expect(h.server.paths.where((p) => p.startsWith('/d/a/')), isEmpty);
+
+        Map<String, String>? left;
+
+        h.cache.session!.namespace('grove/a').scan('').then((v) => left = v);
+        async.elapse(const Duration(seconds: 1));
+        expect(left, isEmpty);
+      });
+    });
+  });
+
   test('a pull held open across a switch lands nothing in bob\'s store', () {
     fakeAsync((async) {
       final s = _signedIn(async);
@@ -241,8 +443,8 @@ void main() {
   });
 
   group('a join in the switch window', () {
-    test("made after the switch is the fenced principal's: bob's start never "
-        "joins it, alice's next start does", () {
+    test("made in the window is the new principal's: bob's start joins it, "
+        "alice's never does", () {
       fakeAsync((async) {
         final s = _signedIn(async, declarations: const [rowsSync]);
         final h = s.h;
@@ -252,26 +454,19 @@ void main() {
         s.aliceNode = h.server.requests.first.nodeId!;
 
         s.toBob();
+        // Bob's freshly built UI joins bob's dataset.
         unawaited(h.source.join(const GroveDataset('x', table: 'ds_x')));
-        expect(h.source.joined, isEmpty, reason: 'shown to nobody');
+        expect(h.source.joined, {'x'}, reason: "bob's own waiting join");
         s.run(async, const Duration(seconds: 1));
         expect(
           h.server.paths.where((p) => p.startsWith('/d/x/')),
           isEmpty,
-          reason: "alice's run is fenced and never syncs it",
+          reason: "alice's fenced run is never credited with it",
         );
 
         s.slow.hold!.complete();
         s.run(async, const Duration(seconds: 1));
-        expect(h.source.joined, isEmpty, reason: 'bob joins neither a nor x');
-        expect(h.server.paths.where((p) => p.startsWith('/d/x/')), isEmpty);
-
-        // Back to alice: her waiting join runs, as alice.
-        s.tokens.token = 'alice-token';
-        h.cache.setPrincipal('alice');
-        async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 1));
-        expect(h.source.joined, {'x'});
+        expect(h.source.joined, {'x'}, reason: "alice's a is gone");
 
         final x = [
           for (final r in h.server.requests)
@@ -281,40 +476,137 @@ void main() {
         expect(x, isNotEmpty);
 
         for (final r in x) {
-          expect(r.authorization, _alice);
-          expect(r.nodeId, s.aliceNode);
+          expect(r.authorization, _bob);
+          expect(r.nodeId, isNot(s.aliceNode));
         }
 
-        // Nothing of x in bob's partition.
-        Map<String, String>? bobX;
-
-        h.storage!
-            .open('bob')
-            .then((session) => session.namespace('grove/x').scan(''))
-            .then((v) => bobX = v);
-        async.flushMicrotasks();
-        expect(bobX, isEmpty);
-      });
-    });
-
-    test('made in the window is dropped when the cache moves on to a third '
-        'principal', () {
-      fakeAsync((async) {
-        final s = _signedIn(async, declarations: const [rowsSync]);
-        final h = s.h;
-
-        s.toBob();
-        unawaited(h.source.join(const GroveDataset('x', table: 'ds_x')));
-        s.slow.hold!.complete();
-        async.elapse(const Duration(seconds: 1));
-        s.tokens.token = 'carol-token';
-        h.cache.setPrincipal('carol');
-        async.elapse(const Duration(seconds: 1));
+        // Back to alice: x is bob's, not hers.
         s.tokens.token = 'alice-token';
         h.cache.setPrincipal('alice');
         async.elapse(const Duration(seconds: 1));
         expect(h.source.joined, isEmpty);
-        expect(h.server.paths.where((p) => p.startsWith('/d/x/')), isEmpty);
+        expect(
+          h.server.requests.where(
+            (r) => r.path.startsWith('/d/x/') && r.authorization == _alice,
+          ),
+          isEmpty,
+        );
+
+        // Nothing of x in alice's partition.
+        Map<String, String>? aliceX;
+
+        h.storage!
+            .open('alice')
+            .then((session) => session.namespace('grove/x').scan(''))
+            .then((v) => aliceX = v);
+        async.flushMicrotasks();
+        expect(aliceX, isEmpty);
+      });
+    });
+
+    test('alice signs out, bob signs in while her stop is held, and bob joins: '
+        "the join is bob's, never alice's", () {
+      fakeAsync((async) {
+        final s = _signedIn(async, declarations: const [rowsSync]);
+        final h = s.h;
+
+        s.aliceNode = _nodeIdOf(async, h.source);
+        s.slow.hold = Completer<void>();
+        h.cache.setPrincipal(null);
+
+        Object? signedOut;
+
+        h.source
+            .join(const GroveDataset('s', table: 'ds_s'))
+            .catchError((Object e) => signedOut = e);
+        async.flushMicrotasks();
+        expect(signedOut, isA<StateError>());
+
+        s.tokens.token = 'bob-token';
+        h.cache.setPrincipal('bob');
+        unawaited(h.source.join(const GroveDataset('bobs', table: 'ds_bobs')));
+        async.flushMicrotasks();
+        expect(h.source.joined, {'bobs'});
+        s.slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, {'bobs'});
+
+        final bobs = [
+          for (final r in h.server.requests)
+            if (r.path.startsWith('/d/bobs/')) r,
+        ];
+
+        expect(bobs, isNotEmpty);
+
+        for (final r in bobs) {
+          expect(r.authorization, _bob);
+          expect(r.nodeId, isNot(s.aliceNode));
+        }
+
+        final sent = h.server.requests.length;
+
+        s.tokens.token = 'alice-token';
+        h.cache.setPrincipal('alice');
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, isEmpty);
+        expect(
+          h.server.requests
+              .skip(sent)
+              .where((r) => r.path.startsWith('/d/bobs/')),
+          isEmpty,
+          reason: "alice's start never joins bob's dataset",
+        );
+      });
+    });
+
+    test("a leave in the window never touches another principal's waiting "
+        'join', () {
+      fakeAsync((async) {
+        final tokens = _Tokens()..token = 'carol-token';
+        final slow = SlowStop();
+        final h = Harness(
+          declarations: const [rowsSync],
+          auth: tokens.auth,
+          before: [slow],
+        );
+
+        h.cache.setPrincipal('carol');
+        async.elapse(const Duration(milliseconds: 10));
+
+        // Carol's run is stopping; alice is the cache's principal and queues.
+        slow.hold = Completer<void>();
+        h.cache.setPrincipal('alice');
+        unawaited(h.source.join(const GroveDataset('a', table: 'ds_a')));
+        async.flushMicrotasks();
+        expect(h.source.joined, {'a'});
+
+        // Before alice's run ever starts, the cache moves to bob, whose UI
+        // leaves the same dataset id.
+        h.cache.setPrincipal('bob');
+        expect(h.source.joined, isEmpty);
+        unawaited(h.source.leave('a'));
+        async.flushMicrotasks();
+
+        tokens.token = 'bob-token';
+        slow.hold!.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, isEmpty, reason: 'bob joined nothing');
+
+        tokens.token = 'alice-token';
+        h.cache.setPrincipal('alice');
+        async.elapse(const Duration(seconds: 1));
+        expect(h.source.joined, {'a'}, reason: "alice's join survived");
+
+        final a = [
+          for (final r in h.server.requests)
+            if (r.path.startsWith('/d/a/')) r,
+        ];
+
+        expect(a, isNotEmpty);
+
+        for (final r in a) {
+          expect(r.authorization, _alice);
+        }
       });
     });
 
