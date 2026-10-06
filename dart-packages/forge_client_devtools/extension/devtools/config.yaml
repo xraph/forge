@@ -1,0 +1,5 @@
+name: forge_client_devtools
+issueTracker: https://github.com/xraph/forge/issues
+version: 1.0.0-dev
+materialIconCodePoint: '0xe609'
+requiresConnection: true

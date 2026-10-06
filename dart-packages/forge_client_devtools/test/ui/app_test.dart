@@ -1,0 +1,185 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:forge_client/devtools_protocol.dart';
+import 'package:forge_client_devtools/forge_client_devtools.dart';
+
+import '../support/fake_backend.dart';
+import '../support/pump.dart';
+
+void main() {
+  // Review Focus 4.
+  testWidgets(
+    'explains what to check when the app has no forge_client, and calls nothing',
+    (tester) async {
+      final fake = await pumpPanel(tester, FakeForgeBackend(available: false));
+
+      expect(find.byKey(const ValueKey('forge-unavailable')), findsOneWidget);
+      expect(find.textContaining('release build'), findsOneWidget);
+      expect(find.textContaining('forge.devtools=false'), findsOneWidget);
+      expect(
+        find.textContaining('registerForgeServiceExtensions'),
+        findsOneWidget,
+      );
+      expect(fake.calls, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'connects by itself when the extension appears later, as after a hot restart',
+    (tester) async {
+      final fake = await pumpPanel(tester, FakeForgeBackend(available: false));
+
+      fake.isAvailable = true;
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('forge-unavailable')), findsNothing);
+      expect(find.widgetWithText(Tab, 'Queries'), findsOneWidget);
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello), hasLength(1));
+    },
+  );
+
+  testWidgets('drops back to the empty state when the app goes away', (
+    tester,
+  ) async {
+    final fake = await pumpPanel(tester);
+
+    fake.isAvailable = false;
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('forge-unavailable')), findsOneWidget);
+  });
+
+  testWidgets(
+    'refuses a protocol it does not speak, and says to update both packages',
+    (tester) async {
+      await pumpPanel(
+        tester,
+        FakeForgeBackend(protocol: ForgeDevtoolsProtocol.version + 1),
+      );
+
+      expect(
+        find.textContaining(
+          'Update forge_client and forge_client_devtools together',
+        ),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(Tab, 'Queries'), findsNothing);
+    },
+  );
+
+  testWidgets('says so when no cache is attached', (tester) async {
+    await pumpPanel(tester, FakeForgeBackend()..caches = []);
+
+    expect(find.textContaining('No cache is attached'), findsOneWidget);
+  });
+
+  testWidgets('shows a failed hello with a retry that recovers', (
+    tester,
+  ) async {
+    final fake = FakeForgeBackend();
+    fake.overrides[ForgeDevtoolsProtocol.hello] = (_) =>
+        throw const BackendError('ext.forge.hello', 'isolate paused');
+    await pumpPanel(tester, fake);
+
+    expect(find.textContaining('isolate paused'), findsOneWidget);
+
+    fake.overrides.clear();
+    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(Tab, 'Queries'), findsOneWidget);
+  });
+
+  testWidgets(
+    'lets you pick between caches, and scopes every later call to the one picked',
+    (tester) async {
+      final fake = FakeForgeBackend()
+        ..caches = [
+          {'id': '1', 'principal': null, 'label': 'cache 1'},
+          {'id': '2', 'principal': 'user-2', 'label': 'cache 2'},
+        ];
+      await pumpPanel(tester, fake);
+
+      await tester.tap(find.byKey(const ValueKey('cache-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('cache 1').last);
+      await tester.pumpAndSettle();
+
+      fake.calls.clear();
+      await tester.tap(find.byKey(const ValueKey('status-refresh')));
+      await tester.pumpAndSettle();
+
+      expect(fake.calls, isNotEmpty);
+      expect(fake.calls.every((c) => c.params['cache'] == '1'), isTrue);
+    },
+  );
+
+  testWidgets('shows the status buckets from the snapshot', (tester) async {
+    await pumpPanel(tester);
+
+    final bar = find.byKey(const ValueKey('status-bar'));
+    expect(
+      find.descendant(of: bar, matching: find.text('success 1')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: bar, matching: find.text('stale 1')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: bar, matching: find.text('records 3')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'says the app is switching account instead of showing a stale snapshot as zeros',
+    (tester) async {
+      await pumpPanel(tester, FakeForgeBackend()..switching = true);
+
+      final bar = find.byKey(const ValueKey('status-bar'));
+      expect(
+        find.descendant(of: bar, matching: find.text('switching account')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: bar, matching: find.text('records 0')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: bar, matching: find.text('success 0')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'reads the status again from scratch after the principal changes',
+    (tester) async {
+      final fake = await pumpPanel(
+        tester,
+        FakeForgeBackend()..switching = true,
+      );
+      expect(find.text('switching account'), findsOneWidget);
+
+      fake
+        ..switching = false
+        ..session = 1;
+      fake.emit({
+        'cache': '1',
+        'skipped': 0,
+        'entries': [
+          {'kind': 'principal', 'seq': 1, 'at': 1, 'session': 1},
+        ],
+      });
+      await tester.pumpAndSettle();
+
+      final bar = find.byKey(const ValueKey('status-bar'));
+      expect(find.text('switching account'), findsNothing);
+      expect(
+        find.descendant(of: bar, matching: find.text('records 3')),
+        findsOneWidget,
+      );
+    },
+  );
+}

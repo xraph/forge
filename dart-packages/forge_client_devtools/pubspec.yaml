@@ -1,0 +1,24 @@
+name: forge_client_devtools
+description: Flutter DevTools extension for forge_client. Add it as a dev_dependency and the forge tab appears in DevTools.
+version: 1.0.0-dev
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.0"
+
+dependencies:
+  devtools_extensions: ^0.5.1
+  flutter:
+    sdk: flutter
+  forge_client:
+    path: ../forge_client
+  vm_service: ^15.3.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
