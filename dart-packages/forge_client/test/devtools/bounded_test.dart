@@ -357,6 +357,40 @@ void main() {
       },
     );
 
+    test('a prior capture nested in a new value is walked and counted like any other', () {
+      Object? grid = 'leaf';
+      for (var i = 0; i < 4; i++) {
+        grid = [for (var j = 0; j < 50; j++) grid];
+      }
+      final prior = capture(grid)!;
+      final wrapped = [for (var i = 0; i < 50; i++) prior];
+
+      final watch = Stopwatch()..start();
+      final copy = capture(wrapped)!;
+
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(_nodes(copy), lessThanOrEqualTo(5000 + 100));
+
+      Object? deep = 'bottom';
+      for (var i = 0; i < 6; i++) {
+        deep = {'n': deep};
+      }
+      var nested = <String, Object?>{'n': capture(deep)};
+      for (var i = 0; i < 4; i++) {
+        nested = {'n': nested};
+      }
+
+      var node = capture(nested);
+      var levels = 0;
+      while (node is Map<String, Object?>) {
+        node = node['n'];
+        levels++;
+      }
+
+      expect(levels, 7);
+      expect(node, '[deeper]');
+    });
+
     test(
       'capturing a capture changes nothing, truncation markers included',
       () {
