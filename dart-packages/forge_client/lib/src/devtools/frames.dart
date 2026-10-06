@@ -18,8 +18,10 @@ const _nodeBudget = 5000;
 const _maxText = 1000;
 
 /// Containers [bounded] has built, with the width each was capped at. Output is
-/// unmodifiable and bounded, so handing one back to [bounded] returns it
-/// untouched instead of truncating a truncated level a second time.
+/// unmodifiable and bounded, so handing one back as the top-level value
+/// returns it untouched instead of truncating a truncated level a second time.
+/// A prior capture nested inside another value is walked like any other, so it
+/// counts against the budget and the depth cap.
 final Expando<int> _built = Expando<int>('forge.devtools.bounded');
 
 /// A copy of [value] capped in depth, in width (a list's length and a map's key
@@ -66,7 +68,7 @@ Object? _walk(Object? value, int width, int depth, _Walk walk) {
   }
 
   if (value is List<Object?>) {
-    if (_reusable(value, width)) return value;
+    if (depth == 0 && _reusable(value, width)) return value;
     if (!walk.path.add(value)) return '[cycle]';
 
     final out = <Object?>[];
@@ -86,7 +88,7 @@ Object? _walk(Object? value, int width, int depth, _Walk walk) {
   }
 
   if (value is Map<Object?, Object?>) {
-    if (_reusable(value, width)) return value;
+    if (depth == 0 && _reusable(value, width)) return value;
     if (!walk.path.add(value)) return '[cycle]';
 
     final out = <String, Object?>{};
