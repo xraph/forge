@@ -3,6 +3,7 @@ package router
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,97 @@ func TestStreamingRoutesInferTheirRole(t *testing.T) {
 
 	if ext, _ := doc.Paths["/sync/pull"]["post"]["x-forge-sync"].(map[string]any); ext["role"] != "pull" {
 		t.Fatalf("pull extension = %#v", ext)
+	}
+}
+
+func TestSyncDatasetNormalizesEverySpelling(t *testing.T) {
+	for _, spelling := range []string{":id", "*id", "id", "{id}", " :id "} {
+		t.Run(spelling, func(t *testing.T) {
+			cfg := applyOpts(WithSync(SyncProtocolGroveCRDT, "Row", "", SyncDataset(spelling), SyncRole(SyncRolePull)))
+
+			defs, _ := cfg.Metadata["forge.client.sync"].([]SyncDef)
+			if len(defs) != 1 || defs[0].Dataset != "{id}" {
+				t.Fatalf("SyncDataset(%q) recorded %#v, want {id}", spelling, defs)
+			}
+		})
+	}
+
+	if got := NormalizeSyncParam(""); got != "" {
+		t.Fatalf("NormalizeSyncParam(\"\") = %q", got)
+	}
+}
+
+func TestSyncDatasetColonFormMatchesThePathPlaceholder(t *testing.T) {
+	r := NewRouter(WithOpenAPI(OpenAPIConfig{Title: "Sync", Version: "1.0.0"}))
+
+	if err := r.POST("/datasets/:id/sync/pull", func(ctx Context) error { return nil },
+		WithSync(SyncProtocolGroveCRDT, "Row", "", SyncDataset(":id"), SyncRole(SyncRolePull))); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := json.Marshal(r.OpenAPISpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var doc struct {
+		Paths map[string]map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	ext, _ := doc.Paths["/datasets/{id}/sync/pull"]["post"]["x-forge-sync"].(map[string]any)
+	if ext["dataset"] != "{id}" {
+		t.Fatalf("dataset = %#v, want {id} (the path's placeholder); extension %#v", ext["dataset"], ext)
+	}
+}
+
+func TestRouteWithoutWithSyncCarriesNoSyncExtension(t *testing.T) {
+	r := NewRouter(WithOpenAPI(OpenAPIConfig{Title: "Sync", Version: "1.0.0"}))
+
+	if err := r.POST("/plain", func(ctx Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := json.Marshal(r.OpenAPISpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(string(raw), "x-forge-sync") {
+		t.Fatalf("a route with no WithSync emitted x-forge-sync: %s", raw)
+	}
+}
+
+func TestRegisteringAMistypedSyncRoleIsAnError(t *testing.T) {
+	r := NewRouter()
+	ok := func(ctx Context) error { return nil }
+
+	err := r.POST("/sync/pull", ok, WithSync(SyncProtocolGroveCRDT, "Row", "rows", SyncRole("Pull")))
+	if err == nil || !strings.Contains(err.Error(), "/sync/pull") || !strings.Contains(err.Error(), `"Pull"`) {
+		t.Fatalf("err = %v, want one naming the route and the role", err)
+	}
+
+	err = r.POST("/sync/push", ok, WithSync(SyncProtocolGroveCRDT, "Row", "rows"))
+	if err == nil || !strings.Contains(err.Error(), "/sync/push") || !strings.Contains(err.Error(), "no role") {
+		t.Fatalf("err = %v, want one saying a pull or push route needs a role", err)
+	}
+
+	err = r.POST("/sync/pull2", ok, WithSync(SyncProtocolGroveCRDT, "Row", "rows", SyncDataset("{ds}"), SyncRole(SyncRolePull)))
+	if err == nil || !strings.Contains(err.Error(), "{ds}") {
+		t.Fatalf("err = %v, want one naming the missing dataset parameter", err)
+	}
+}
+
+func TestStreamingRouteKindDecidesTheSyncRole(t *testing.T) {
+	cfg := applyOpts(
+		WithRouteKind(KindWebSocket),
+		WithSync(SyncProtocolGroveCRDT, "Row", "rows", SyncRole(SyncRolePull)),
+	)
+
+	defs, _ := cfg.Metadata["forge.client.sync"].([]SyncDef)
+	if len(defs) != 1 || defs[0].Role != SyncRoleSocket {
+		t.Fatalf("defs = %#v, want the socket role", defs)
 	}
 }

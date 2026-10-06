@@ -84,6 +84,8 @@ func collectSyncRoute(spec *APISpec, origin, routePath, kindRole string, ext map
 		entity, _ := entry["entity"].(string)
 		table, _ := entry["table"].(string)
 		dataset, _ := entry["dataset"].(string)
+		// Specs from older servers wrote the parameter as they pleased.
+		dataset = router.NormalizeSyncParam(dataset)
 
 		role, _ := entry["role"].(string)
 		switch {

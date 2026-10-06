@@ -635,6 +635,10 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	fullPath := r.prefix + path
 
+	if err := validateSyncDefs(method, fullPath, cfg); err != nil {
+		return err
+	}
+
 	// Detect handler pattern to extract type information for OpenAPI
 	handlerInfo, err := detectHandlerPattern(handler)
 	if err != nil {

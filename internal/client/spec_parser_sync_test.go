@@ -145,3 +145,41 @@ func TestIntrospectorRawRoutesAgreeWithOpenAPIOnSyncRows(t *testing.T) {
 		t.Errorf("raw-route Sync = %#v, want the OpenAPI builder's %#v", fromRoutes.Sync, fromDoc.Sync)
 	}
 }
+
+// A raw route written with the colon spelling of both the path and the
+// dataset: the row's dataset must be the placeholder its paths carry.
+func TestIntrospectorRawRouteColonDatasetMatchesPathPlaceholder(t *testing.T) {
+	raw := router.NewRouter()
+	ok := func(ctx router.Context) error { return nil }
+
+	if err := raw.POST("/datasets/:id/sync/pull", ok,
+		router.WithSync(router.SyncProtocolGroveCRDT, "DatasetRow", "", router.SyncDataset(":id"), router.SyncRole(router.SyncRolePull))); err != nil {
+		t.Fatal(err)
+	}
+
+	spec, err := NewIntrospector(raw).Introspect(context.Background())
+	if err != nil {
+		t.Fatalf("Introspect: %v", err)
+	}
+
+	if len(spec.Sync) != 1 || spec.Sync[0].Dataset != "{id}" || spec.Sync[0].Pull != "/datasets/{id}/sync/pull" {
+		t.Fatalf("Sync = %#v, want dataset {id} matching pull /datasets/{id}/sync/pull", spec.Sync)
+	}
+}
+
+// A document written by an older server may carry the dataset in any spelling.
+func TestCollectSyncRouteNormalizesAnOlderServersDataset(t *testing.T) {
+	for _, spelling := range []string{":id", "*id", "id", "{id}"} {
+		t.Run(spelling, func(t *testing.T) {
+			spec := &APISpec{}
+
+			collectSyncRoute(spec, "POST /d/{id}/sync/pull", "/d/{id}/sync/pull", "", map[string]any{
+				"x-forge-sync": map[string]any{"protocol": "grove-crdt", "entity": "Row", "role": "pull", "dataset": spelling},
+			})
+
+			if len(spec.Sync) != 1 || spec.Sync[0].Dataset != "{id}" {
+				t.Fatalf("Sync = %#v, want dataset {id}", spec.Sync)
+			}
+		})
+	}
+}

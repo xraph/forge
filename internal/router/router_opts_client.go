@@ -1,6 +1,10 @@
 package router
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // setMeta writes one client-generation key, allocating the map on first use.
 func setMeta(cfg *RouteConfig, key string, value any) {
@@ -178,25 +182,47 @@ const (
 // SyncOption refines a sync declaration.
 type SyncOption func(*SyncDef)
 
-// SyncDataset names the path parameter that selects the dataset, written as
-// it appears in the path template, e.g. "{id}".
-func SyncDataset(param string) SyncOption { return func(d *SyncDef) { d.Dataset = param } }
+// SyncDataset names the path parameter that selects the dataset. Any spelling
+// of the parameter works (":id", "*id", "id" or "{id}"); it is recorded as
+// "{id}", the form the path takes in the generated client.
+func SyncDataset(param string) SyncOption {
+	return func(d *SyncDef) { d.Dataset = NormalizeSyncParam(param) }
+}
+
+// NormalizeSyncParam rewrites a path parameter written ":id", "*id", "id" or
+// "{id}" as "{id}". An empty or placeholder-less name stays empty.
+func NormalizeSyncParam(param string) string {
+	name := strings.TrimSpace(param)
+	name = strings.TrimPrefix(strings.TrimPrefix(name, ":"), "*")
+	name = strings.TrimSuffix(strings.TrimPrefix(name, "{"), "}")
+	name = strings.TrimSpace(name)
+
+	if name == "" {
+		return ""
+	}
+
+	return "{" + name + "}"
+}
 
 // SyncRole sets the route's role: pull, push, stream or socket. Streaming
-// routes infer it; pull and push routes must say which they are.
+// routes take theirs from the route kind, so it is only needed on pull and
+// push routes. Registering a route with a role it does not recognise, or a
+// pull or push route without one, returns an error.
 func SyncRole(role string) SyncOption { return func(d *SyncDef) { d.Role = role } }
 
 type syncOpt struct{ def SyncDef }
 
 func (o *syncOpt) Apply(cfg *RouteConfig) {
 	def := o.def
-	if def.Role == "" {
-		switch cfg.Kind {
-		case KindWebSocket:
-			def.Role = SyncRoleSocket
-		case KindSSE:
-			def.Role = SyncRoleStream
-		}
+
+	// The route's kind decides the role of a streaming route, whatever the
+	// declaration says: a socket is not a pull. The spec reader applies the
+	// same rule, so the two cannot disagree.
+	switch cfg.Kind {
+	case KindWebSocket:
+		def.Role = SyncRoleSocket
+	case KindSSE:
+		def.Role = SyncRoleStream
 	}
 
 	existing, _ := cfg.Metadata["forge.client.sync"].([]SyncDef)
@@ -222,4 +248,33 @@ func validSyncRole(role string) bool {
 	default:
 		return false
 	}
+}
+
+// validateSyncDefs rejects a WithSync declaration the client could not place:
+// a role that is not pull, push, stream or socket (a typo such as "Pull"), a
+// pull or push route that names no role (both are POST, so the client cannot
+// guess), or a dataset parameter the route's path does not have. Each would
+// otherwise drop out of the document without a word.
+//
+// Run by register, which knows the full path and returns errors; an option's
+// Apply has neither.
+func validateSyncDefs(method, fullPath string, cfg *RouteConfig) error {
+	defs, _ := cfg.Metadata["forge.client.sync"].([]SyncDef)
+	openAPIPath := ConvertPathToOpenAPIFormat(fullPath)
+
+	for _, d := range defs {
+		switch {
+		case d.Role == "":
+			return fmt.Errorf("route %s %s: WithSync(%q, %q) names no role: add SyncRole(SyncRolePull) or SyncRole(SyncRolePush)",
+				method, fullPath, d.Protocol, d.Entity)
+		case !validSyncRole(d.Role):
+			return fmt.Errorf("route %s %s: WithSync(%q, %q) has unknown role %q: use SyncRolePull, SyncRolePush, SyncRoleStream or SyncRoleSocket",
+				method, fullPath, d.Protocol, d.Entity, d.Role)
+		case d.Dataset != "" && !strings.Contains(openAPIPath, d.Dataset):
+			return fmt.Errorf("route %s %s: WithSync(%q, %q) names dataset %s, which the path does not have",
+				method, fullPath, d.Protocol, d.Entity, d.Dataset)
+		}
+	}
+
+	return nil
 }
