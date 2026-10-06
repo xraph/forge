@@ -13,6 +13,7 @@ import '../live.dart';
 import '../observe.dart';
 import '../operation.dart';
 import '../overlay.dart';
+import '../owned.dart';
 import '../registry.dart';
 import '../storage.dart';
 import '../stream_types.dart';
@@ -171,6 +172,18 @@ extension type const DevCache(QueryCache cache) {
   /// Whether the store holds [key].
   bool hasEntity(String key) => cache.store.has(key);
 
+  /// Whether a sync source owns the entity [key] names, so only that source
+  /// may write it. True whether or not the store holds it.
+  bool ownsKey(String key) => cache.owns(typenameOf(key));
+
+  /// Whether a sync source owns the entity type a tag names: `Note:1`,
+  /// `Note[]` and `Note[]:open` all name `Note`.
+  bool ownsTag(String tag) {
+    final end = tag.indexOf(_tagTypeEnd);
+
+    return cache.owns(end == -1 ? tag : tag.substring(0, end));
+  }
+
   /// Drops one entity record.
   bool evictEntity(String key) => cache.store.evict(key);
 
@@ -250,13 +263,17 @@ extension type const DevCache(QueryCache cache) {
   StorageSession? get session => cache.session;
 }
 
+final RegExp _tagTypeEnd = RegExp(r'[:\[]');
+
 String _patchKind(EntityPatch patch) => switch (patch) {
   MergePatch() => 'merge',
   CreatePatch() => 'create',
   DeletePatch() => 'delete',
 };
 
-String _short(String text) =>
+/// [text] cut to 200 characters, so a failure message that carries a response
+/// body cannot make a log entry or a snapshot enormous.
+String shortMessage(String text) =>
     text.length > 200 ? '${text.substring(0, 200)}...' : text;
 
 /// `synced`, `pending`, `offline` or `failed`.
@@ -484,13 +501,13 @@ DevEvent devEvent(CacheEvent event) => switch (event) {
     DevOutboxFailed(
       mutationId: mutationId,
       operation: operationId,
-      failure: _short(failure.toString()),
+      failure: shortMessage(failure.toString()),
     ),
   SyncStatusChanged(:final entity, :final status) => DevSyncStatus(
     entity: entity,
     status: syncStatusName(status),
     pending: status is Pending ? status.count : 0,
-    error: status is SyncFailed ? _short(status.error.toString()) : null,
+    error: status is SyncFailed ? shortMessage(status.error.toString()) : null,
   ),
 };
 

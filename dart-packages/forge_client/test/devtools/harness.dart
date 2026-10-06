@@ -109,7 +109,12 @@ final class _ReplyTransport implements Transport {
 
 /// One cache, its manual scheduler, and the requests that reached the wire.
 final class Harness {
-  factory Harness() {
+  /// [syncSources] are handed to the cache as they are; [entities] adds
+  /// entity types to the schema (a source owns types the schema names).
+  factory Harness({
+    List<SyncSource> syncSources = const [],
+    Map<String, EntityMeta> entities = const {},
+  }) {
     final calls = <TransportRequest>[];
     final replies = <String, Object?>{
       'GET /orders': [
@@ -134,7 +139,8 @@ final class Harness {
     final scheduler = ManualScheduler();
     final cache = QueryCache(
       transport: _ReplyTransport(calls, replies),
-      entities: schema,
+      entities: {...schema, ...entities},
+      syncSources: syncSources,
       scheduler: scheduler,
     );
     return Harness._(cache, scheduler, calls, replies);
@@ -171,4 +177,65 @@ final class Harness {
   /// The TS `cache.key(meta, args)`.
   String key(OperationMeta meta, [TagContext args = TagContext.empty]) =>
       queryKey(meta, args);
+}
+
+/// A sync source that owns [entities] and does nothing else. It keeps the
+/// context it is started with, so a test writes records the way a source does.
+final class IdleSource implements SyncSource {
+  /// Owns [entities].
+  IdleSource(this.entities);
+
+  @override
+  final Set<String> entities;
+
+  /// The context the cache started this source with.
+  SyncContext? context;
+
+  @override
+  Future<void> start(SyncContext context) async => this.context = context;
+
+  @override
+  Future<MutationOutcome> apply(PendingMutation mutation) async =>
+      Queued(mutation.id);
+
+  @override
+  Stream<SyncStatus> status(String entity) => const Stream.empty();
+
+  @override
+  Future<void> stop() async {}
+}
+
+/// A query over an entity a sync source owns.
+const noteList = OperationMeta(
+  id: 'op_note_list',
+  method: 'GET',
+  path: '/notes',
+  entity: 'Note',
+  provides: ['Note[]'],
+);
+
+/// The `Note:1` record a source projects in [ownedHarness].
+const ownedBody = 'projected by the source';
+
+/// A harness whose cache has a sync source owning `Note`, started for `alice`,
+/// with `Note:1` written the way a source writes it. REST says otherwise about
+/// `GET /notes`, so a refetch that wrote an owned record would show.
+Future<(Harness, IdleSource)> ownedHarness() async {
+  final source = IdleSource({'Note'});
+  final h =
+      Harness(
+        syncSources: [source],
+        entities: {'Note': const EntityMeta(idField: 'id')},
+      )..reply('GET /notes', [
+        {'id': '1', 'body': 'from rest'},
+      ]);
+
+  h.cache.setPrincipal('alice');
+  await h.cache.idle;
+
+  source.context!.write(
+    (store) => store.put('Note:1', {'id': '1', 'body': ownedBody}),
+  );
+
+  return (h, source);
 }

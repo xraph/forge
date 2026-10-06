@@ -7,9 +7,12 @@ import '../observe.dart';
 import '../operation.dart';
 import '../tags.dart';
 import '../transport.dart';
+import 'actions.dart';
 import 'explain.dart' as ex;
 import 'explain.dart' show MissCause, TagsCause, argsKey, causeOf;
 import 'frames.dart';
+import 'inspect.dart' as ins;
+import 'inspect.dart' show EntityFilter;
 import 'log.dart';
 import 'seams.dart';
 import 'types.dart';
@@ -192,6 +195,93 @@ final class Devtools {
     _check();
     return _log.last((entry) => entry is MutationLog || entry is FramesLog);
   }
+
+  /// The mutating half. Every other member is a read.
+  ///
+  /// An action throws a [StateError] while the cache is changing principal
+  /// and once the inspector is disposed, and refuses sync-owned entities; see
+  /// [DevtoolsActions].
+  late final DevtoolsActions actions = DevtoolsActions(
+    _dev,
+    _log,
+    () => _session,
+    _answerable,
+  );
+
+  // Every read below answers from the cache as it is now and moves nothing.
+  // While an identity change is in progress, and once the inspector is
+  // disposed, the cache still holds the previous principal's records (or the
+  // inspector is no longer entitled to say anything), so each one answers as
+  // an empty cache would.
+  T _ask<T>(T Function(DevCache cache) read, T empty) =>
+      _answerable() ? read(_dev) : empty;
+
+  static const _noStore = StoreSnapshot(
+    records: 0,
+    version: 0,
+    frameVersion: 0,
+    tombstones: 0,
+    tracked: 0,
+    remembered: 0,
+    mounted: 0,
+    indexedTags: 0,
+    stampedTags: 0,
+  );
+
+  /// Counters, queries and the tag graph.
+  CacheSnapshot snapshot() => _ask(
+    ins.snapshot,
+    const CacheSnapshot(store: _noStore, queries: [], tags: []),
+  );
+
+  /// The counters.
+  StoreSnapshot store() => _ask(ins.store, _noStore);
+
+  /// Every remembered query.
+  List<QuerySnapshot> queries() => _ask(ins.queries, const []);
+
+  /// One query.
+  QuerySnapshot? query(String key) => _ask((c) => ins.query(c, key), null);
+
+  /// One query joined to its record.
+  QueryDetail? detail(String key) => _ask((c) => ins.detail(c, key), null);
+
+  /// Every tracked record's cheap fields.
+  List<RecordSnapshot> records() => _ask(ins.records, const []);
+
+  /// The overlay stack.
+  List<OverlaySnapshot> overlays() => _ask(ins.overlays, const []);
+
+  /// One record before overlays. A bounded, read-only copy.
+  Map<String, Object?>? baseRecord(String key) =>
+      _ask((c) => ins.baseRecord(c, key), null);
+
+  /// One record with overlays folded in. A bounded, read-only copy.
+  Map<String, Object?>? foldedRecord(String key) =>
+      _ask((c) => ins.foldedRecord(c, key), null);
+
+  /// Pushes a hand-written field change; returns the layer id. Throws a
+  /// [StateError] for a sync-owned entity.
+  int patchEntity(String key, Map<String, Object?> fields) =>
+      actions.patchEntity(key, fields);
+
+  /// One entity and its dependents.
+  EntitySnapshot? entity(String key) => _ask((c) => ins.entity(c, key), null);
+
+  /// Entities matching [filter].
+  List<EntitySnapshot> entities([EntityFilter filter = const EntityFilter()]) =>
+      _ask((c) => ins.entities(c, filter), const []);
+
+  /// How many entities match [filter].
+  int countEntities([EntityFilter filter = const EntityFilter()]) =>
+      _ask((c) => ins.countEntities(c, filter), 0);
+
+  /// Queries that reached an entity.
+  List<QuerySnapshot> dependents(String key) =>
+      _ask((c) => ins.dependents(c, key), const []);
+
+  /// The tag graph.
+  List<TagSnapshot> tags() => _ask(ins.tags, const []);
 
   /// Whether frame capture is on.
   bool get capturing => _ring != null;
