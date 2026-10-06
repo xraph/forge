@@ -123,8 +123,20 @@ String? declaredTable(SyncDeclaration d) {
 }
 
 /// Resolves a declaration's paths for [datasetId].
+///
+/// Throws [ArgumentError] for an empty [datasetId] on a declaration that has a
+/// dataset placeholder, which would otherwise yield paths such as
+/// `/datasets//sync/pull`.
 GroveEndpoints resolveEndpoints(SyncDeclaration d, String datasetId) {
   final placeholder = d.dataset;
+
+  if (placeholder != null && placeholder.isNotEmpty && datasetId.isEmpty) {
+    throw ArgumentError.value(
+      datasetId,
+      'datasetId',
+      'must not be empty: ${d.entity} syncs per dataset ($placeholder)',
+    );
+  }
   String sub(String p) => placeholder == null || placeholder.isEmpty
       ? p
       : p.replaceAll(placeholder, Uri.encodeComponent(datasetId));

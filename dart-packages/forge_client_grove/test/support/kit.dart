@@ -1,8 +1,33 @@
 import 'package:forge_client/forge_client.dart';
 
-import '../field_writer_test.dart' show NoteCodec;
+/// Wire keys are snake_case, client keys camelCase.
+final class NoteCodec implements WireCodec {
+  const NoteCodec();
 
-export '../field_writer_test.dart' show NoteCodec;
+  static const _toClient = {
+    'note_id': 'noteId',
+    'title': 'title',
+    'view_count': 'viewCount',
+  };
+
+  @override
+  Object? decode(Object? wire) => {
+    for (final e in (wire! as Map<String, Object?>).entries)
+      (_toClient[e.key] ?? e.key): e.value,
+  };
+
+  @override
+  Object? encode(Object? client) => {
+    for (final e in (client! as Map<String, Object?>).entries)
+      (_toClient.entries
+              .firstWhere(
+                (t) => t.value == e.key,
+                orElse: () => MapEntry(e.key, e.key),
+              )
+              .key):
+          e.value,
+  };
+}
 
 /// No REST in these tests: every request fails loudly.
 final class NoRest implements Transport {

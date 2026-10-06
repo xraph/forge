@@ -27,8 +27,23 @@ final class GroveDelete extends GroveWrite {
 }
 
 /// The server JSON key of the client id field.
-String wireIdKeyFor(GroveEntity binding, String idField) =>
-    (binding.codec.encode({idField: ''})! as Map<String, Object?>).keys.single;
+///
+/// Throws [ArgumentError] when the codec does not encode the id field to
+/// exactly one key.
+String wireIdKeyFor(GroveEntity binding, String idField) {
+  final encoded = binding.codec.encode({idField: ''});
+
+  if (encoded is! Map<String, Object?> || encoded.length != 1) {
+    throw ArgumentError.value(
+      encoded,
+      'binding',
+      'the codec must encode {$idField: ""} to a map with one key, the '
+          'server id key',
+    );
+  }
+
+  return encoded.keys.single;
+}
 
 /// Maps a mutation on a Grove-backed entity to a [GroveWrite].
 ///
@@ -36,13 +51,20 @@ String wireIdKeyFor(GroveEntity binding, String idField) =>
 /// operation's `invalidates` tags, the path parameter that spells the id
 /// field, the client-shaped body's id field, and for a `POST` a new uuid v4
 /// written into the body before encoding. A `PUT`, `PATCH` or `DELETE` with
-/// no resolvable id throws [ArgumentError], as does any other method.
+/// no resolvable id throws [ArgumentError], as does any other method, and a
+/// codec that does not encode the body to a map.
+///
+/// [datasetParam] names the path parameter that selects the dataset (see
+/// `datasetParam`). It is never a row id, so the path lookup skips it, and a
+/// `POST` skips the path lookup altogether: the path parameters of a create
+/// name its parents, not the new row.
 GroveWrite toGroveWrite(
   PendingMutation m, {
   required String entity,
   required EntityMeta meta,
   required GroveEntity binding,
   required String wireIdKey,
+  String? datasetParam,
   String Function()? newId,
 }) {
   final method = m.meta.method.toUpperCase();
@@ -52,7 +74,9 @@ GroveWrite toGroveWrite(
     _ => <String, Object?>{},
   };
 
-  var id = _targetId(m, entity) ?? _pathId(m, idField);
+  var id =
+      _targetId(m, entity) ??
+      (method == 'POST' ? null : _pathId(m, idField, datasetParam));
 
   if (id == null && idField != null && isIdentity(body[idField])) {
     id = jsString(body[idField]);
@@ -62,7 +86,8 @@ GroveWrite toGroveWrite(
     case 'DELETE':
       if (id == null) {
         throw ArgumentError(
-          'grove: ${m.meta.id} deletes $entity without an id',
+          'grove: ${m.meta.id} deletes $entity without a row id '
+          '(${idField ?? 'no id field'})',
         );
       }
 
@@ -71,7 +96,8 @@ GroveWrite toGroveWrite(
       if (id == null) {
         if (method != 'POST') {
           throw ArgumentError(
-            'grove: ${m.meta.id} writes $entity without an id',
+            'grove: ${m.meta.id} writes $entity without a row id '
+            '(${idField ?? 'no id field'})',
           );
         }
 
@@ -80,7 +106,15 @@ GroveWrite toGroveWrite(
         if (idField != null) body[idField] = id;
       }
 
-      final wire = binding.codec.encode(body)! as Map<String, Object?>;
+      final wire = binding.codec.encode(body);
+
+      if (wire is! Map<String, Object?>) {
+        throw ArgumentError.value(
+          wire,
+          'binding',
+          'the codec must encode a $entity body to a map',
+        );
+      }
 
       return GroveUpsert(id, {
         for (final e in wire.entries)
@@ -111,16 +145,28 @@ String? _targetId(PendingMutation m, String entity) {
   return key.substring(0, colon) == entity ? key.substring(colon + 1) : null;
 }
 
-/// The path parameter that spells the id field, found the way tag lookups do:
-/// the exact key, else the key that differs only in `_`, `-` and case.
-String? _pathId(PendingMutation m, String? idField) {
+/// The path parameter that spells the id field, found the way tag lookups do
+/// (the exact key, else the key that differs only in `_`, `-` and case), and
+/// never the dataset parameter. When [datasetParam] is set and no parameter
+/// spells the id, a lone remaining parameter is the row.
+String? _pathId(PendingMutation m, String? idField, String? datasetParam) {
   if (idField == null) return null;
 
-  final path = m.args.path;
+  final skip = datasetParam == null ? null : _fold(datasetParam);
   final wanted = _fold(idField);
-  final key = path.containsKey(idField)
+  final path = m.args.path;
+  final candidates = [
+    for (final k in path.keys)
+      if (skip == null || _fold(k) != skip) k,
+  ];
+  final spelled = candidates.contains(idField)
       ? idField
-      : path.keys.where((k) => _fold(k) == wanted).firstOrNull;
+      : candidates.where((k) => _fold(k) == wanted).firstOrNull;
+  // On a dataset route the path names the dataset and the row, so the one
+  // parameter left over is the row, whatever it is called (`{rowId}`).
+  final key =
+      spelled ??
+      (skip != null && candidates.length == 1 ? candidates.single : null);
 
   if (key == null) return null;
 

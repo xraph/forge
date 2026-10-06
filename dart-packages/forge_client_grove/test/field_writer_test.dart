@@ -2,34 +2,7 @@ import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_grove/forge_client_grove.dart';
 import 'package:test/test.dart';
 
-/// Wire keys are snake_case, client keys camelCase.
-final class NoteCodec implements WireCodec {
-  const NoteCodec();
-
-  static const _toClient = {
-    'note_id': 'noteId',
-    'title': 'title',
-    'view_count': 'viewCount',
-  };
-
-  @override
-  Object? decode(Object? wire) => {
-    for (final e in (wire! as Map<String, Object?>).entries)
-      (_toClient[e.key] ?? e.key): e.value,
-  };
-
-  @override
-  Object? encode(Object? client) => {
-    for (final e in (client! as Map<String, Object?>).entries)
-      (_toClient.entries
-              .firstWhere(
-                (t) => t.value == e.key,
-                orElse: () => MapEntry(e.key, e.key),
-              )
-              .key):
-          e.value,
-  };
-}
+import 'support/kit.dart' show NoteCodec;
 
 const meta = EntityMeta(idField: 'noteId');
 const binding = GroveEntity(codec: NoteCodec());
@@ -319,4 +292,188 @@ void main() {
       expect(w.wireFields, {'title': 'Whole'});
     },
   );
+
+  group('a dataset route', () {
+    const rowMeta = EntityMeta(idField: 'id');
+    const rowBinding = GroveEntity(codec: _PassCodec());
+    final rowWireId = wireIdKeyFor(rowBinding, 'id');
+
+    PendingMutation rowMutation(String method, String path, TagContext args) =>
+        PendingMutation(
+          id: 'm1',
+          meta: OperationMeta(
+            id: 'op',
+            method: method,
+            path: path,
+            entity: 'Row',
+          ),
+          args: args,
+          optimistic: null,
+          idempotencyKey: 'k1',
+          createdAt: DateTime.utc(2026, 10, 6),
+        );
+
+    GroveWrite write(PendingMutation m, {String Function()? newId}) =>
+        toGroveWrite(
+          m,
+          entity: 'Row',
+          meta: rowMeta,
+          binding: rowBinding,
+          wireIdKey: rowWireId,
+          datasetParam: 'id',
+          newId: newId,
+        );
+
+    test('two creates make two rows, neither keyed by the dataset id', () {
+      const args = TagContext(path: {'id': 'ds1'}, body: {'name': 'x'});
+      final ids = ['r1', 'r2'].iterator;
+      String next() => (ids..moveNext()).current;
+
+      final first = write(
+        rowMutation('POST', '/datasets/{id}/rows', args),
+        newId: next,
+      );
+      final second = write(
+        rowMutation('POST', '/datasets/{id}/rows', args),
+        newId: next,
+      );
+
+      expect([first.id, second.id], ['r1', 'r2']);
+      expect((first as GroveUpsert).wireFields, {'name': 'x'});
+    });
+
+    test('a create with an id in the body keeps it', () {
+      final w = write(
+        rowMutation(
+          'POST',
+          '/datasets/{id}/rows',
+          const TagContext(
+            path: {'id': 'ds1'},
+            body: {'id': 'given', 'name': 'x'},
+          ),
+        ),
+      );
+
+      expect(w.id, 'given');
+    });
+
+    test('a PATCH finds the row in the other path parameter', () {
+      final w = write(
+        rowMutation(
+          'PATCH',
+          '/datasets/{id}/rows/{rowId}',
+          const TagContext(
+            path: {'id': 'ds1', 'rowId': 'r7'},
+            body: {'name': 'x'},
+          ),
+        ),
+      );
+
+      expect(w.id, 'r7');
+    });
+
+    test(
+      'a PATCH whose only id-like parameter is the dataset fails loudly',
+      () {
+        expect(
+          () => write(
+            rowMutation(
+              'PATCH',
+              '/datasets/{id}/rows',
+              const TagContext(path: {'id': 'ds1'}, body: {'name': 'x'}),
+            ),
+          ),
+          throwsA(
+            isA<ArgumentError>().having(
+              (e) => '$e',
+              'message',
+              contains('row id'),
+            ),
+          ),
+        );
+        expect(
+          () => write(
+            rowMutation(
+              'DELETE',
+              '/datasets/{id}/rows',
+              const TagContext(path: {'id': 'ds1'}),
+            ),
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test('without a dataset param the path id still wins for a PATCH', () {
+      final w = toGroveWrite(
+        rowMutation(
+          'PATCH',
+          '/rows/{id}',
+          const TagContext(path: {'id': 'r1'}, body: {'name': 'x'}),
+        ),
+        entity: 'Row',
+        meta: rowMeta,
+        binding: rowBinding,
+        wireIdKey: rowWireId,
+      );
+
+      expect(w.id, 'r1');
+    });
+  });
+
+  group('codec failures are ArgumentErrors', () {
+    test('wireIdKeyFor with a codec that encodes to no single key', () {
+      expect(
+        () => wireIdKeyFor(const GroveEntity(codec: _FlatCodec()), 'noteId'),
+        throwsArgumentError,
+      );
+    });
+
+    test('a body that does not encode to a map', () {
+      expect(
+        () => toGroveWrite(
+          mutation('POST', '/notes', const TagContext(body: {'title': 'x'})),
+          entity: 'Note',
+          meta: meta,
+          binding: const GroveEntity(codec: _ScalarCodec()),
+          wireIdKey: wireId,
+          newId: () => 'n',
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
+}
+
+/// Wire and client shapes are the same.
+final class _PassCodec implements WireCodec {
+  const _PassCodec();
+
+  @override
+  Object? decode(Object? wire) => wire;
+
+  @override
+  Object? encode(Object? client) => client;
+}
+
+/// Encodes the id field to two keys.
+final class _FlatCodec implements WireCodec {
+  const _FlatCodec();
+
+  @override
+  Object? decode(Object? wire) => wire;
+
+  @override
+  Object? encode(Object? client) => {'a': 1, 'b': 2};
+}
+
+/// Encodes to a string.
+final class _ScalarCodec implements WireCodec {
+  const _ScalarCodec();
+
+  @override
+  Object? decode(Object? wire) => wire;
+
+  @override
+  Object? encode(Object? client) => 'nope';
 }

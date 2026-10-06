@@ -27,6 +27,10 @@ void main() {
     expect(e.socket, '/twinos/api/v1/datasets/a%20b/sync/ws');
   });
 
+  test('an empty dataset id on a datasetted declaration is refused', () {
+    expect(() => resolveEndpoints(foundry, ''), throwsArgumentError);
+  });
+
   test('a declaration without a dataset keeps its paths and has no param', () {
     final e = resolveEndpoints(grove, '');
     expect(e.pull, '/sync/pull');
