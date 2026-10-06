@@ -291,6 +291,8 @@ final class EncryptedSqliteStorage implements StorageAdapter {
   /// Every step runs even when an earlier one fails, and the first failure is
   /// rethrown at the end. Deleting the key comes before deleting the files,
   /// so a delete interrupted half way leaves a file nothing can decrypt.
+  /// If destroy throws, call it again: every step is safe to repeat, and a
+  /// retry finishes the deletion.
   ///
   /// Safe to call with handles still open, for example right after
   /// `cache.setPrincipal(null)` and `await cache.idle` on sign-out, and for a

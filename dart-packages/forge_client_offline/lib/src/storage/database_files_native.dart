@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:sqlite3/common.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -18,18 +19,17 @@ final _label = RegExp(r'^[0-9a-f]{64}$');
 /// the app keeps beside it.
 const _subdirectory = 'forge_client_offline';
 
-/// How old an empty salt sidecar must be before it is taken for the leftover
-/// of a crashed [FilePassphraseSaltStore.put] rather than a creator still at
-/// work. A live creator holds the empty placeholder for one rename.
-const _stalePlaceholderAge = Duration(seconds: 2);
+/// The file inside a salt sidecar directory that holds the salt.
+const _saltFile = 'salt';
 
-/// Every file name this package writes into its subdirectory: a database, its
-/// journal siblings, a passphrase salt sidecar, and the temporary file a
-/// sidecar is written through. A second guard: only files inside the
-/// package's own subdirectory are ever considered.
-final _ownedFile = RegExp(
-  r'^[0-9a-f]{64}\.(db|db-journal|db-wal|db-shm|salt|salt\.[0-9a-f]{16}\.tmp)$',
-);
+/// Every file name this package writes into its subdirectory: a database and
+/// its journal siblings. A second guard: only entries inside the package's
+/// own subdirectory are ever considered.
+final _ownedFile = RegExp(r'^[0-9a-f]{64}\.(db|db-journal|db-wal|db-shm)$');
+
+/// Every directory name this package writes into its subdirectory: a salt
+/// sidecar, and the temporary directory a sidecar is published through.
+final _ownedDirectory = RegExp(r'^[0-9a-f]{64}\.salt(\.tmp-[0-9a-f]{16})?$');
 
 /// Suffixes SQLite adds to a database's path for its journal files.
 const _journalSuffixes = ['-journal', '-wal', '-shm'];
@@ -97,6 +97,7 @@ String nativeStoreDirectory(String directory) =>
 String _databasePath(String directory, String label) =>
     '${nativeStoreDirectory(directory)}${Platform.pathSeparator}$label.db';
 
+/// The sidecar directory of [label]: `<label>.salt/`, holding `salt`.
 String _saltPath(String directory, String label) =>
     '${nativeStoreDirectory(directory)}${Platform.pathSeparator}$label.salt';
 
@@ -191,13 +192,21 @@ final class NativeDatabaseFiles implements DatabaseFiles {
       await close(principal);
     }
 
-    // Only the package's own subdirectory, never the app's directory.
-    final dir = Directory(nativeStoreDirectory(directory));
-    if (!await dir.exists()) return;
+    // Only the package's own subdirectory, never the app's directory, and
+    // never through a link: a `forge_client_offline` that is a symlink (or
+    // anything but a real directory) is not the package's and is left alone.
+    final path = nativeStoreDirectory(directory);
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type != FileSystemEntityType.directory) return;
+
+    final dir = Directory(path);
     await for (final entity in dir.list(followLinks: false)) {
-      if (entity is! File) continue;
       final name = entity.path.split(Platform.pathSeparator).last;
-      if (_ownedFile.hasMatch(name)) await _deleteIfPresent(entity);
+      if (entity is File && _ownedFile.hasMatch(name)) {
+        await _deleteIfPresent(entity);
+      } else if (entity is Directory && _ownedDirectory.hasMatch(name)) {
+        await _deleteTree(entity);
+      }
     }
     try {
       await dir.delete();
@@ -207,29 +216,26 @@ final class NativeDatabaseFiles implements DatabaseFiles {
   }
 }
 
-/// A [PassphraseSaltStore] kept as a plain-text sidecar `<label>.salt` beside
-/// the `<label>.db` database, in the `forge_client_offline` subdirectory of
-/// [directory].
+/// A [PassphraseSaltStore] kept as a plain-text sidecar beside the
+/// `<label>.db` database, in the `forge_client_offline` subdirectory of
+/// [directory]. The sidecar is a directory, `<label>.salt/`, holding the
+/// 16-byte salt in a file named `salt`.
 ///
 /// The salt is not secret (see [PassphraseSaltStore]). It is born with the
 /// database: `passphraseKey` stores it just before the database is first
 /// created, and the storage deletes it when the database is destroyed.
 ///
-/// [put] is create-exclusive: it never replaces a sidecar that exists, so two
-/// creators racing on a new database cannot overwrite each other's salt, and
-/// the loser fails instead. The salt is written to a temporary file and
-/// renamed over an empty placeholder created exclusively first, so a reader
-/// sees no salt, an empty sidecar, or the whole salt, never part of one.
+/// A sidecar is published atomically and exclusively. [put] writes the salt
+/// into a fresh temporary directory, `<label>.salt.tmp-<random>/salt`, syncs
+/// it, and renames that directory onto `<label>.salt`. Renaming a directory
+/// onto a directory that already holds a salt fails on every platform, so of
+/// any number of creators, in any process and however long one of them
+/// stalls, exactly one publishes and the rest find its salt. A sidecar is
+/// therefore either a whole salt or absent. A crash leaves at most a
+/// temporary directory, which [get] ignores and [delete] removes.
 ///
-/// If the process dies between the placeholder and the rename, an empty
-/// sidecar is left with no database. While no database exists, an empty
-/// sidecar older than a couple of seconds is that leftover: [get] reports it
-/// as absent and [put] replaces it. The replacement stays exclusive: the
-/// leftover is first renamed away (only one claimant can), and the new salt
-/// still goes through an exclusive create. A younger empty sidecar belongs to
-/// a creator still at work, and [put] refuses as for any existing salt. Next
-/// to an existing database an empty sidecar is never replaced; the salt is
-/// lost and `passphraseKey` fails closed.
+/// Instances over the same directory are equal, so `passphraseKey` shares one
+/// in-flight salt attempt between them.
 final class FilePassphraseSaltStore implements PassphraseSaltStore {
   /// Keeps sidecars in the `forge_client_offline` subdirectory of
   /// [directory].
@@ -242,14 +248,35 @@ final class FilePassphraseSaltStore implements PassphraseSaltStore {
 
   final Random _random;
 
+  /// Runs after the salt is written to its temporary directory and before
+  /// that directory is published, so a test can stall a creator there.
+  @visibleForTesting
+  Future<void> Function()? beforePublish;
+
+  /// [directory] made absolute and normalized: what equality compares.
+  String get _identity {
+    final path = Directory(directory).absolute.uri.normalizePath().toFilePath();
+    return path.length > 1 && path.endsWith(Platform.pathSeparator)
+        ? path.substring(0, path.length - 1)
+        : path;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is FilePassphraseSaltStore && other._identity == _identity;
+
+  @override
+  int get hashCode => _identity.hashCode;
+
   @override
   Future<Uint8List?> get(String label) async {
     _checkLabel(label);
-    final file = File(_saltPath(directory, label));
-    if (!await file.exists()) return null;
-    final bytes = await file.readAsBytes();
-    if (bytes.isEmpty && await _isStalePlaceholder(label, file)) return null;
-    return bytes;
+    final file = File(_saltFileOf(label));
+    try {
+      return await file.readAsBytes();
+    } on PathNotFoundException {
+      return null;
+    }
   }
 
   /// Whether `<label>.db` exists beside the sidecar.
@@ -259,107 +286,87 @@ final class FilePassphraseSaltStore implements PassphraseSaltStore {
     return File(_databasePath(directory, label)).exists();
   }
 
-  /// Stores [salt] for [label] unless a sidecar exists already, in which case
-  /// it throws [StateError] and changes nothing. The one exception is the
-  /// empty leftover of a crashed [put], described on the class.
+  /// Publishes [salt] for [label] unless a salt is published already. When
+  /// one is, whether it was there before or another creator got there first,
+  /// it is kept and this returns without changing it: read the stored salt
+  /// back, as `passphraseKey` does, rather than assume [salt] was stored.
   @override
   Future<void> put(String label, Uint8List salt) async {
     _checkLabel(label);
     await Directory(nativeStoreDirectory(directory)).create(recursive: true);
 
-    final target = File(_saltPath(directory, label));
-    final temp = File(_tempPath(target));
-    await temp.writeAsBytes(salt, flush: true);
-
-    if (!await _createExclusive(target) &&
-        !(await _claimStalePlaceholder(label, target) &&
-            await _createExclusive(target))) {
-      await _deleteIfPresent(temp);
-      throw StateError(
-        'a passphrase salt already exists for this database and is never '
-        'replaced',
-      );
-    }
-
+    final suffix = hex(List<int>.generate(8, (_) => _random.nextInt(256)));
+    final temp = Directory('${_saltPath(directory, label)}.tmp-$suffix');
     try {
-      await temp.rename(target.path);
-    } on Object {
-      await _deleteIfPresent(temp);
-      await _deleteIfPresent(target);
-      rethrow;
+      await temp.create();
+      await File('${temp.path}${Platform.pathSeparator}$_saltFile')
+          .writeAsBytes(salt, flush: true);
+      await beforePublish?.call();
+      await _publish(label, temp);
+    } finally {
+      await _deleteTree(temp);
     }
   }
 
+  /// Renames [temp] onto the sidecar. A sidecar holding a salt makes the
+  /// rename fail, and that salt stands. An empty sidecar directory (left by a
+  /// delete that stopped between the salt file and its directory) holds no
+  /// salt: it is removed, which fails if a salt lands in it meanwhile, and
+  /// the rename is tried once more.
+  Future<void> _publish(String label, Directory temp) async {
+    final target = Directory(_saltPath(directory, label));
+    for (var attempt = 0; ; attempt++) {
+      try {
+        await temp.rename(target.path);
+        return;
+      } on FileSystemException {
+        if (await File(_saltFileOf(label)).exists()) return;
+        if (attempt > 0) rethrow;
+        try {
+          await target.delete();
+        } on FileSystemException {
+          // Not empty after all, or already gone: the retry decides.
+        }
+      }
+    }
+  }
+
+  /// Removes the sidecar and any temporary directory a creator left for
+  /// [label].
   @override
   Future<void> delete(String label) async {
     _checkLabel(label);
-    await _deleteIfPresent(File(_saltPath(directory, label)));
-  }
+    await _deleteTree(Directory(_saltPath(directory, label)));
 
-  String _tempPath(File target) {
-    final suffix = hex(List<int>.generate(8, (_) => _random.nextInt(256)));
-    return '${target.path}.$suffix.tmp';
-  }
-
-  /// Creates [file] empty, or returns false when it exists.
-  static Future<bool> _createExclusive(File file) async {
-    try {
-      await file.create(exclusive: true);
-      return true;
-    } on FileSystemException {
-      return false;
+    final store = nativeStoreDirectory(directory);
+    final type = await FileSystemEntity.type(store, followLinks: false);
+    if (type != FileSystemEntityType.directory) return;
+    await for (final entity in Directory(store).list(followLinks: false)) {
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (entity is Directory &&
+          name.startsWith('$label.salt.tmp-') &&
+          _ownedDirectory.hasMatch(name)) {
+        await _deleteTree(entity);
+      }
     }
   }
 
-  /// Whether [file] is the empty, old leftover of a crashed [put] with no
-  /// database beside it.
-  Future<bool> _isStalePlaceholder(String label, File file) async {
-    if (await hasData(label)) return false;
-    final stat = await file.stat();
-    return stat.type == FileSystemEntityType.file &&
-        stat.size == 0 &&
-        DateTime.now().difference(stat.modified) >= _stalePlaceholderAge;
-  }
-
-  /// Moves a stale empty sidecar at [target] out of the way, so an exclusive
-  /// create can replace it. Returns false, with [target] as it was, when what
-  /// is there is a real salt or a creator's fresh placeholder.
-  Future<bool> _claimStalePlaceholder(String label, File target) async {
-    if (!await _isStalePlaceholder(label, target)) return false;
-
-    // The rename is the claim: of several claimants only one moves the file,
-    // and the rest go on to the exclusive create, which picks one winner.
-    final File claimed;
-    try {
-      claimed = await target.rename(_tempPath(target));
-    } on FileSystemException {
-      return true;
-    }
-
-    // Another claimant may have replaced the leftover between the check and
-    // the rename; what was moved is then theirs, and goes back.
-    if (await _isStaleFile(claimed)) {
-      await _deleteIfPresent(claimed);
-      return true;
-    }
-    try {
-      await claimed.rename(target.path);
-    } on FileSystemException {
-      await _deleteIfPresent(claimed);
-    }
-    return false;
-  }
-
-  static Future<bool> _isStaleFile(File file) async {
-    final stat = await file.stat();
-    return stat.size == 0 &&
-        DateTime.now().difference(stat.modified) >= _stalePlaceholderAge;
-  }
+  String _saltFileOf(String label) =>
+      '${_saltPath(directory, label)}${Platform.pathSeparator}$_saltFile';
 }
 
 Future<void> _deleteIfPresent(File file) async {
   try {
     await file.delete();
+  } on PathNotFoundException {
+    // Already gone, which is what was asked for.
+  }
+}
+
+/// Deletes [dir] and everything in it, without following links.
+Future<void> _deleteTree(Directory dir) async {
+  try {
+    await dir.delete(recursive: true);
   } on PathNotFoundException {
     // Already gone, which is what was asked for.
   }

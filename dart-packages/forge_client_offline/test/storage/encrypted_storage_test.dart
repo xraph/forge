@@ -436,7 +436,7 @@ void main() {
       'a passphrase salt sidecar is born with the database and dies with it',
       () async {
         final label = await keystore.principalLabel('alice');
-        final sidecar = File('${store()}/$label.salt');
+        final sidecar = File('${store()}/$label.salt/salt');
         final storage = storageWith(keys: pass('right'));
 
         await writeRecord(storage, 'alice', 'a');
@@ -445,6 +445,7 @@ void main() {
 
         await storage.destroy('alice');
         expect(await sidecar.exists(), isFalse);
+        expect(await sidecar.parent.exists(), isFalse);
         expect(await File(await pathOf('alice')).exists(), isFalse);
       },
     );
@@ -546,7 +547,13 @@ void main() {
         );
         await writeRecord(storage, 'alice', 'a');
         final label = await keys.principalLabel('alice');
-        final sidecar = File('${store()}/$label.salt')..writeAsStringSync('s');
+        final sidecar = File('${store()}/$label.salt/salt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('s');
+        // And the temporary directory of a creator that crashed.
+        File('${store()}/$label.salt.tmp-0123456789abcdef/salt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('t');
 
         await storage.destroy('alice');
 
@@ -908,8 +915,9 @@ void main() {
       final open = await storage.open('bob');
       await writeRecord(storageWith(keys: pass('carol secret')), 'carol', 'c');
       final label = await keystore.principalLabel('dave');
-      await File('${store()}/$label.salt.0123456789abcdef.tmp')
-          .writeAsString('x');
+      File('${store()}/$label.salt.tmp-0123456789abcdef/salt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('x');
       await File('${store()}/$label.db-journal').writeAsString('x');
       // Not the package's: left alone, even when named like one of its own.
       final appLabel = 'c0' * 32;
@@ -945,6 +953,30 @@ void main() {
       expect(await fresh.readOutbox(), isEmpty);
       expect(resets, isEmpty);
       await fresh.close();
+    });
+
+    test('never follows a package subdirectory that is a symlink', () async {
+      final elsewhere = Directory.systemTemp.createTempSync('forge_elsewhere_');
+      addTearDown(() => elsewhere.deleteSync(recursive: true));
+      final label = 'd0' * 32;
+      final victims = [
+        File('${elsewhere.path}/$label.db'),
+        File('${elsewhere.path}/$label.db-wal'),
+        File('${elsewhere.path}/$label.salt/salt'),
+      ];
+      for (final file in victims) {
+        file
+          ..createSync(recursive: true)
+          ..writeAsStringSync('not the package');
+      }
+      final link = Link(store())..createSync(elsewhere.path);
+
+      await storageWith().resetOfflineData();
+
+      expect(link.existsSync(), isTrue);
+      for (final file in victims) {
+        expect(file.readAsStringSync(), 'not the package', reason: file.path);
+      }
     });
 
     test('also erases the labeler of passphrase-keyed storage', () async {

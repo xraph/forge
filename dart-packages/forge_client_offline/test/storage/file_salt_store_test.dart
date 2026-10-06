@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -28,7 +29,7 @@ void main() {
 
   String store() => nativeStoreDirectory(dir.path);
 
-  File sidecar() => File('${store()}/$_label.salt');
+  File sidecar() => File('${store()}/$_label.salt/salt');
 
   /// What is in the package's subdirectory, or nothing when it is absent.
   List<String> names() => [
@@ -37,46 +38,167 @@ void main() {
         entity.path.split(Platform.pathSeparator).last,
   ];
 
+  /// What a creator that crashed before publishing leaves behind.
+  Directory crashLeftover(int fill) {
+    final temp = Directory('${store()}/$_label.salt.tmp-00112233445566ff');
+    File('${temp.path}/salt')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(_salt(fill));
+    return temp;
+  }
+
+  PassphraseKey keysOver(PassphraseSaltStore store) =>
+      PassphraseKey.weakForTesting(
+        () => 'secret',
+        salts: store,
+        labels: _FixedLabel(),
+        memoryKiB: 64,
+        iterations: 1,
+        parallelism: 1,
+      );
+
   test('is a FilePassphraseSaltStore beside the databases', () {
     expect(salts, isA<FilePassphraseSaltStore>());
     expect((salts as FilePassphraseSaltStore).directory, dir.path);
     expect(() => platformPassphraseSaltStore(), throwsArgumentError);
   });
 
-  test('round-trips a salt through the <label>.salt sidecar', () async {
+  test('round-trips a salt through the <label>.salt/salt sidecar', () async {
     expect(await salts.get(_label), isNull);
 
     await salts.put(_label, _salt(7));
 
     expect(await salts.get(_label), _salt(7));
     expect(sidecar().readAsBytesSync(), _salt(7));
-    expect(names(), ['$_label.salt'], reason: 'no temporary file is left');
+    expect(names(), ['$_label.salt'], reason: 'no temporary directory is left');
   });
 
-  test('put never replaces an existing sidecar', () async {
+  test('put never replaces a published salt', () async {
     await salts.put(_label, _salt(1));
 
-    await expectLater(salts.put(_label, _salt(2)), throwsStateError);
+    await salts.put(_label, _salt(2));
 
     expect(await salts.get(_label), _salt(1));
     expect(names(), ['$_label.salt']);
   });
 
-  test('of concurrent creators exactly one wins and keeps its salt', () async {
-    final stores = [
-      for (var i = 0; i < 8; i++) FilePassphraseSaltStore(dir.path),
-    ];
-    final outcomes = await Future.wait([
-      for (var i = 0; i < stores.length; i++)
-        stores[i]
-            .put(_label, _salt(i + 1))
-            .then<int?>((_) => i + 1, onError: (Object _) => null),
+  test(
+    'a stalled creator never overwrites a salt another creator published',
+    () async {
+      final stalled = FilePassphraseSaltStore(dir.path);
+      final prompt = FilePassphraseSaltStore(dir.path);
+      final resume = Completer<void>();
+      final reachedPublish = Completer<void>();
+      stalled.beforePublish = () {
+        reachedPublish.complete();
+        return resume.future;
+      };
+
+      // A writes its salt, then stalls just before publishing it, for as
+      // long as it likes: no clock is consulted.
+      final a = stalled.put(_label, _salt(1));
+      await reachedPublish.future;
+
+      // B publishes for real meanwhile.
+      await prompt.put(_label, _salt(2));
+      expect(await salts.get(_label), _salt(2));
+
+      // A wakes up and tries to publish: B's salt stands.
+      resume.complete();
+      await a;
+
+      expect(await salts.get(_label), _salt(2));
+      expect(names(), ['$_label.salt'], reason: "A's temporary directory went");
+    },
+  );
+
+  test('a crash leftover is ignored by get and a later put succeeds', () async {
+    crashLeftover(5);
+
+    expect(await salts.get(_label), isNull);
+    expect(await salts.hasData(_label), isFalse);
+
+    await salts.put(_label, _salt(6));
+
+    expect(await salts.get(_label), _salt(6));
+  });
+
+  test('a passphrase key recovers from a crash leftover on its own', () async {
+    crashLeftover(5);
+
+    final first = await keysOver(salts).obtain('alice');
+
+    expect(sidecar().lengthSync(), 16);
+    expect((await keysOver(salts).obtain('alice')).bytes, first.bytes);
+  });
+
+  test(
+    'concurrent creators over separate instances converge on one salt',
+    () async {
+      final stores = [
+        for (var i = 0; i < 8; i++) FilePassphraseSaltStore(dir.path),
+      ];
+      await Future.wait([
+        for (var i = 0; i < stores.length; i++)
+          stores[i].put(_label, _salt(i + 1)),
+      ]);
+
+      final stored = await salts.get(_label);
+      expect(stored, isNotNull);
+      for (final store in stores) {
+        expect(await store.get(_label), stored);
+      }
+      expect(names(), ['$_label.salt']);
+    },
+  );
+
+  test('concurrent passphrase keys over separate instances agree', () async {
+    final keys = await Future.wait([
+      for (var i = 0; i < 6; i++)
+        keysOver(platformPassphraseSaltStore(directory: dir.path))
+            .obtain('alice'),
     ]);
 
-    final winners = outcomes.whereType<int>().toList();
-    expect(winners, hasLength(1));
-    expect(await salts.get(_label), _salt(winners.single));
+    for (final key in keys) {
+      expect(key.bytes, keys.first.bytes);
+    }
     expect(names(), ['$_label.salt']);
+  });
+
+  test('instances over one directory are equal, others are not', () {
+    final a = FilePassphraseSaltStore(dir.path);
+    final b = FilePassphraseSaltStore('${dir.path}${Platform.pathSeparator}');
+    final c = FilePassphraseSaltStore('${dir.path}/x/..');
+    final other = FilePassphraseSaltStore('${dir.path}/other');
+
+    expect(a, b);
+    expect(a, c);
+    expect(a.hashCode, b.hashCode);
+    expect(a, isNot(other));
+  });
+
+  test('a backward clock jump changes nothing', () async {
+    // Nothing reads the clock: a sidecar or leftover dated in the future or
+    // the distant past behaves the same.
+    final leftover = crashLeftover(5);
+    File('${leftover.path}/salt').setLastModifiedSync(DateTime(2099));
+
+    await salts.put(_label, _salt(6));
+    sidecar().setLastModifiedSync(DateTime(1990));
+    await salts.put(_label, _salt(7));
+
+    expect(await salts.get(_label), _salt(6));
+  });
+
+  test('an empty sidecar directory holds no salt and is replaced', () async {
+    // What a delete that stopped between the salt file and its directory
+    // leaves behind.
+    Directory('${store()}/$_label.salt').createSync(recursive: true);
+
+    expect(await salts.get(_label), isNull);
+    await salts.put(_label, _salt(4));
+
+    expect(await salts.get(_label), _salt(4));
   });
 
   test('hasData answers from whether the database file exists', () async {
@@ -89,25 +211,24 @@ void main() {
     expect(await salts.hasData(_label), isTrue);
   });
 
-  test('delete removes the sidecar, and deleting none is fine', () async {
-    await salts.put(_label, _salt(3));
+  test(
+    'delete removes the sidecar and leftovers, and deleting none is fine',
+    () async {
+      await salts.put(_label, _salt(3));
+      crashLeftover(9);
+      final otherLabel = 'cd' * 32;
+      await salts.put(otherLabel, _salt(8));
 
-    await salts.delete(_label);
-    await salts.delete(_label);
+      await salts.delete(_label);
+      await salts.delete(_label);
 
-    expect(await salts.get(_label), isNull);
-    expect(names(), isEmpty);
-  });
+      expect(await salts.get(_label), isNull);
+      expect(names(), ['$otherLabel.salt'], reason: 'other labels are kept');
+    },
+  );
 
   test('a passphrase key keeps its salt here and refuses a lost one', () async {
-    final keys = PassphraseKey.weakForTesting(
-      () => 'secret',
-      salts: salts,
-      labels: _FixedLabel(),
-      memoryKiB: 64,
-      iterations: 1,
-      parallelism: 1,
-    );
+    final keys = keysOver(salts);
 
     final first = await keys.obtain('alice');
     expect(sidecar().lengthSync(), 16);
@@ -115,85 +236,10 @@ void main() {
 
     // The database exists but its salt is gone: the key can never be derived
     // again, so the provider fails closed instead of minting a new salt.
-    File('${store()}/$_label.db')
-      ..createSync(recursive: true)
-      ..writeAsStringSync('db');
-    sidecar().deleteSync();
+    File('${store()}/$_label.db').writeAsStringSync('db');
+    Directory('${store()}/$_label.salt').deleteSync(recursive: true);
     await expectLater(keys.obtain('alice'), throwsA(isA<KeyUnavailable>()));
     expect(sidecar().existsSync(), isFalse);
-  });
-
-  /// What a crash between the exclusive placeholder and the rename leaves.
-  File leftover({Duration age = const Duration(minutes: 1)}) => sidecar()
-    ..createSync(recursive: true)
-    ..setLastModifiedSync(DateTime.now().subtract(age));
-
-  test(
-    'a crashed put leaves no brick: the empty leftover is replaced',
-    () async {
-      leftover();
-
-      expect(await salts.get(_label), isNull, reason: 'reported as absent');
-      await salts.put(_label, _salt(9));
-
-      expect(await salts.get(_label), _salt(9));
-      expect(names(), ['$_label.salt'], reason: 'nothing else left behind');
-    },
-  );
-
-  test('a passphrase key recovers from the crashed put on its own', () async {
-    leftover();
-    final keys = PassphraseKey.weakForTesting(
-      () => 'secret',
-      salts: salts,
-      labels: _FixedLabel(),
-      memoryKiB: 64,
-      iterations: 1,
-      parallelism: 1,
-    );
-
-    await keys.obtain('alice');
-
-    expect(sidecar().lengthSync(), 16);
-  });
-
-  test(
-    'a fresh empty sidecar is a creator at work and is not replaced',
-    () async {
-      leftover(age: Duration.zero);
-
-      await expectLater(salts.put(_label, _salt(9)), throwsStateError);
-
-      expect(sidecar().lengthSync(), 0);
-      expect(names(), ['$_label.salt']);
-    },
-  );
-
-  test('an empty sidecar beside a database is never replaced', () async {
-    leftover();
-    File('${store()}/$_label.db').writeAsStringSync('db');
-
-    expect(await salts.get(_label), isEmpty);
-    await expectLater(salts.put(_label, _salt(9)), throwsStateError);
-    expect(sidecar().lengthSync(), 0);
-  });
-
-  test('of concurrent replacers of a leftover exactly one wins', () async {
-    leftover();
-    final stores = [
-      for (var i = 0; i < 8; i++) FilePassphraseSaltStore(dir.path),
-    ];
-    final outcomes = await Future.wait([
-      for (var i = 0; i < stores.length; i++)
-        stores[i]
-            .put(_label, _salt(i + 1))
-            .then<int?>((_) => i + 1, onError: (Object _) => null),
-    ]);
-
-    final winners = outcomes.whereType<int>().toList();
-    expect(winners, hasLength(1));
-    expect(await salts.get(_label), _salt(winners.single));
-    expect(names(), ['$_label.salt']);
   });
 
   test('refuses a label that could leave the directory', () async {
