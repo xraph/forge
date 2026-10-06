@@ -1,8 +1,10 @@
 /// What the inspector reports and what the log records. Port of
 /// `client-devtools/src/types.ts`.
 ///
-/// Everything here is a copy: nothing aliases a live registry entry, entity
-/// record or payload, so a panel writing into a snapshot cannot move the cache.
+/// Built from copies: the producers (`inspect.dart`, the recorder) pass fresh or
+/// unmodifiable collections, so nothing aliases a live registry entry, entity
+/// record or payload and a panel writing into a snapshot cannot move the cache.
+/// The const constructors keep the collections they are given.
 library;
 
 import '../types.dart';

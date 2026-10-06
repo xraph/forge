@@ -81,5 +81,9 @@ void main() {
       expect(nearMisses(['Order:9000'], carried), hasLength(8));
       expect(nearMisses(['Order:9000'], carried, 3), hasLength(3));
     });
+
+    test('a limit below zero reports nothing rather than throwing', () {
+      expect(nearMisses(['Order:9'], ['Order:1'], -1), isEmpty);
+    });
   });
 }

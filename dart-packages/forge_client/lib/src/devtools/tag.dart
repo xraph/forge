@@ -126,14 +126,15 @@ List<NearMiss> nearMisses(
 ]) {
   final found = <(int, NearMiss)>[];
   final seen = <String>{};
+  final parsed = [for (final right in carried) parseTag(right)];
 
   for (final left in invalidated) {
     final a = parseTag(left);
 
-    for (final right in carried) {
+    for (final (index, right) in carried.indexed) {
       if (left == right) continue;
 
-      final relation = _relate(a, parseTag(right));
+      final relation = _relate(a, parsed[index]);
 
       if (relation == null) continue;
       if (!seen.add('$left\u0000$right')) continue;
@@ -155,7 +156,7 @@ List<NearMiss> nearMisses(
     return byRank != 0 ? byRank : x.$1.compareTo(y.$1);
   });
 
-  return [for (final (_, miss) in found.take(limit)) miss];
+  return [for (final (_, miss) in found.take(limit < 0 ? 0 : limit)) miss];
 }
 
 NearMissRelation? _relate(ParsedTag a, ParsedTag b) {
