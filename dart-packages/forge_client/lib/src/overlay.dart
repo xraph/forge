@@ -124,6 +124,13 @@ final class OverlayStack implements OverlayLayer {
 
   @override
   EntityRecord? effective(EntityKey key) {
+    // A key no layer touches folds to its base record. That is not worth a
+    // memo, and a memo of it would outlive the record: only a layer's
+    // settling and a store write or eviction (`rebase`) drop one, so a base
+    // record memoized here would survive `store.clear()` and read back as
+    // the previous principal's data.
+    if (!holds(key)) return _host.getRecord(key);
+
     if (_folded.containsKey(key)) return _folded[key];
 
     final record = _fold(key);
@@ -308,6 +315,10 @@ final class OverlayStack implements OverlayLayer {
 
   /// Drops everything. A pending edit is not portable across identities.
   void clear() {
+    // Whatever the stack held, nothing folded for the previous identity may
+    // answer for the next one.
+    _folded.clear();
+
     if (_entries.isEmpty) return;
 
     final touched = keys();

@@ -298,6 +298,16 @@ final class EntityStore implements OverlayHost {
 
   /// Drops everything: the identity-change path.
   void clear() {
+    // A fold memoized over a record that is about to go would otherwise
+    // outlive it. A key with no record folds the same before and after.
+    final layer = overlays;
+
+    if (layer != null) {
+      for (final key in _records.keys) {
+        layer.rebase(key);
+      }
+    }
+
     _records.clear();
     _memoByKey.clear();
     _dependents.clear();
