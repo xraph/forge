@@ -259,6 +259,180 @@ void main() {
     );
   });
 
+  // Final review I2, from the reviewer's probe: the panel stayed on a
+  // disposed cache, kept its events, and dropped every event for the cache
+  // that replaced it.
+  group('a cache that is disposed or replaced', () {
+    test('a disposed cache and a new one in the same isolate: the panel moves to the new one and keeps nothing of the old', () async {
+      final (fake, connection) = await _ready();
+      fake.emit({
+        'cache': '1',
+        'entries': [
+          {
+            'kind': 'mutation',
+            'seq': 1,
+            'session': 0,
+            'at': 1,
+            'operation': 'alice-op',
+          },
+        ],
+        'skipped': 0,
+      });
+      await pumpEventQueue();
+      expect(connection.events.single['operation'], 'alice-op');
+      final generation = connection.generation;
+
+      // The app closes cache 1 and opens cache 2 for the next user.
+      fake
+        ..gone.add('1')
+        ..caches = [
+          {'id': '2', 'label': 'cache 2'},
+        ];
+      fake.emitLifecycle('1', ForgeDevtoolsProtocol.detached);
+      fake.emitLifecycle('2', ForgeDevtoolsProtocol.attached);
+      await pumpEventQueue();
+
+      expect(connection.phase, ConnectionPhase.ready);
+      expect(connection.cacheId, '2');
+      expect(connection.events, isEmpty);
+      expect(connection.session, isNull);
+      expect(connection.generation, greaterThan(generation));
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello).length, greaterThan(1));
+
+      // Cache 2's events now show.
+      fake.emit({
+        'cache': '2',
+        'entries': [
+          {
+            'kind': 'mutation',
+            'seq': 1,
+            'session': 0,
+            'at': 1,
+            'operation': 'bob-op',
+          },
+        ],
+        'skipped': 0,
+      });
+      await pumpEventQueue();
+
+      expect([for (final e in connection.events) e['operation']], ['bob-op']);
+
+      // And calls are scoped to it.
+      await connection.call(ForgeDevtoolsProtocol.queries);
+      expect(fake.callsTo(ForgeDevtoolsProtocol.queries).last['cache'], '2');
+    });
+
+    test('a call refused because the cache is gone says hello again and drops what the panel holds', () async {
+      final (fake, connection) = await _ready();
+      await _emit(fake, [_entry('fetch', 1, 0)]);
+      final generation = connection.generation;
+
+      // The lifecycle event never arrived (a missed post), but the refusal does.
+      fake
+        ..gone.add('1')
+        ..caches = [
+          {'id': '2', 'label': 'cache 2'},
+        ];
+
+      await expectLater(
+        connection.call(ForgeDevtoolsProtocol.queries),
+        throwsA(
+          isA<BackendError>().having(
+            (e) => e.code,
+            'code',
+            ForgeDevtoolsProtocol.cacheGone,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello), hasLength(2));
+      expect(connection.cacheId, '2');
+      expect(connection.events, isEmpty);
+      expect(connection.generation, greaterThan(generation));
+    });
+
+    test('a refused change says hello again too, without reading the session of a cache that is gone', () async {
+      final (fake, connection) = await _ready();
+      await connection.call(ForgeDevtoolsProtocol.snapshot);
+      fake
+        ..gone.add('1')
+        ..caches = [
+          {'id': '2', 'label': 'cache 2'},
+        ];
+
+      await expectLater(
+        connection.call(ForgeDevtoolsProtocol.action, {
+          'action': 'invalidate',
+          'target': 'GET /orders',
+        }),
+        throwsA(isA<BackendError>()),
+      );
+      await pumpEventQueue();
+
+      expect(fake.actions, isEmpty);
+      expect(connection.cacheId, '2');
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello), hasLength(2));
+    });
+
+    test('a refusal that is not about a gone cache says no hello', () async {
+      final (fake, connection) = await _ready();
+      fake.overrides[ForgeDevtoolsProtocol.queries] = (_) =>
+          throw const BackendError(ForgeDevtoolsProtocol.queries, 'busy');
+
+      await expectLater(
+        connection.call(ForgeDevtoolsProtocol.queries),
+        throwsA(isA<BackendError>()),
+      );
+      await pumpEventQueue();
+
+      expect(fake.callsTo(ForgeDevtoolsProtocol.hello), hasLength(1));
+    });
+
+    test('a cache attaching beside the picked one keeps the pick, and still clears what was shown', () async {
+      final (fake, connection) = await _ready();
+      await _emit(fake, [_entry('fetch', 1, 0)]);
+      final generation = connection.generation;
+
+      fake.caches = [
+        {'id': '1', 'label': 'cache 1'},
+        {'id': '2', 'label': 'cache 2'},
+      ];
+      fake.emitLifecycle('2', ForgeDevtoolsProtocol.attached);
+      await pumpEventQueue();
+
+      expect(connection.cacheId, '1');
+      expect(connection.caches.map((c) => c['id']), ['1', '2']);
+      expect(connection.events, isEmpty);
+      expect(connection.generation, greaterThan(generation));
+    });
+
+    test('only the latest hello is used when several run at once', () async {
+      final (fake, connection) = await _ready();
+      final slow = Completer<Json>();
+      fake.overrides[ForgeDevtoolsProtocol.hello] = (_) => slow.future;
+      fake.emitLifecycle('2', ForgeDevtoolsProtocol.attached);
+      await pumpEventQueue();
+
+      fake.overrides.clear();
+      fake.caches = [
+        {'id': '3', 'label': 'cache 3'},
+      ];
+      fake.emitLifecycle('3', ForgeDevtoolsProtocol.attached);
+      await pumpEventQueue();
+      slow.complete({
+        'protocol': ForgeDevtoolsProtocol.version,
+        'caches': [
+          {'id': '2', 'label': 'cache 2'},
+        ],
+      });
+      await pumpEventQueue();
+
+      expect(connection.cacheId, '3');
+      expect(connection.phase, ConnectionPhase.ready);
+    });
+  });
+
   group('isolate changes', () {
     test('an isolate swap drops the cache id, the session and the events, and says hello again', () async {
       final (fake, connection) = await _ready(

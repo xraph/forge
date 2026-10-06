@@ -62,6 +62,10 @@ final class FakeForgeBackend implements ForgeBackend {
   final Map<String, FutureOr<Json> Function(Map<String, String> params)>
   overrides = {};
 
+  /// Cache ids the app no longer serves: disposed, detached or evicted. A
+  /// call about one is refused with the real host's code and wording.
+  final Set<String> gone = {};
+
   @override
   ValueListenable<bool> get available => _watch?.available ?? _available;
 
@@ -80,6 +84,11 @@ final class FakeForgeBackend implements ForgeBackend {
 
   /// Delivers one forge:event payload.
   void emit(Json event) => _events.add(event);
+
+  /// Delivers the lifecycle event the host posts when cache [id] attaches or
+  /// detaches: the id, and nothing else.
+  void emitLifecycle(String id, String change) =>
+      _events.add({'cache': id, ForgeDevtoolsProtocol.lifecycle: change});
 
   /// The params of every call to [method], in order.
   List<Map<String, String>> callsTo(String method) => [
@@ -247,6 +256,14 @@ final class FakeForgeBackend implements ForgeBackend {
   ]) async {
     calls.add((method: method, params: params));
     await Future<void>.value();
+
+    if (params['cache'] case final id? when gone.contains(id)) {
+      throw BackendError(
+        method,
+        '[forge] cache $id was disposed, so the devtools no longer serve it',
+        code: ForgeDevtoolsProtocol.cacheGone,
+      );
+    }
 
     final override = overrides[method];
     if (override != null) return override(params);

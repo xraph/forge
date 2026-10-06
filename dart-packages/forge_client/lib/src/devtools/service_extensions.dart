@@ -7,8 +7,11 @@
 /// Nothing crosses principals, and nothing outlives its cache. The devtools
 /// behind each extension answer empty while the cache changes principal; this
 /// host adds the other half: a cache that was disposed or detached is refused
-/// by every extension that takes a cache id, and the host detaches it as soon
-/// as it notices.
+/// by every extension that takes a cache id, with the error code
+/// `ForgeDevtoolsProtocol.cacheGone`, and the host detaches it as soon as it
+/// notices. Every attach and detach is posted on `forge:event` as a lifecycle
+/// event that carries the cache id and nothing else, so the panel says hello
+/// again and moves to a cache that replaced the one it showed.
 library;
 
 import 'dart:async';
@@ -95,6 +98,14 @@ dt.Devtools? forgeDevtoolsFor(QueryCache cache) {
 
 final class _BadParams implements Exception {
   const _BadParams(this.message);
+
+  final String message;
+}
+
+/// A call about a cache that is gone. Answered with
+/// [ForgeDevtoolsProtocol.cacheGone], so the panel knows to say hello again.
+final class _CacheGone implements Exception {
+  const _CacheGone(this.message);
 
   final String message;
 }
@@ -312,9 +323,17 @@ final class ForgeDevtoolsHost {
       onDone: () => _detachAttached(attached, 'disposed'),
     );
     _attached[attached.id] = attached;
+    _lifecycle(attached.id, ForgeDevtoolsProtocol.attached);
 
     return devtools;
   }
+
+  /// Tells the panel cache [id] attached or detached. Only the id goes: the
+  /// panel says hello again to learn the rest.
+  void _lifecycle(String id, String change) => _poster(
+    ForgeDevtoolsProtocol.eventKind,
+    {'cache': id, ForgeDevtoolsProtocol.lifecycle: change},
+  );
 
   void _fill(
     _Attached attached, {
@@ -373,6 +392,7 @@ final class ForgeDevtoolsHost {
     }
 
     found.devtools.dispose();
+    _lifecycle(found.id, ForgeDevtoolsProtocol.detached);
   }
 
   /// Detaches every attached cache that has been disposed.
@@ -434,6 +454,11 @@ final class ForgeDevtoolsHost {
     } on _BadParams catch (error) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.invalidParams,
+        error.message,
+      );
+    } on _CacheGone catch (error) {
+      return developer.ServiceExtensionResponse.error(
+        ForgeDevtoolsProtocol.cacheGone,
         error.message,
       );
     } on Object catch (error) {
@@ -581,7 +606,7 @@ final class ForgeDevtoolsHost {
 
   /// The cache a call is about. A disposed or detached cache is refused, never
   /// served: not from the store, the log, the frames, the requests or the
-  /// outbox.
+  /// outbox. The refusal carries [ForgeDevtoolsProtocol.cacheGone].
   _Attached _target(Map<String, String> params) {
     _pruneDisposed();
 
@@ -598,7 +623,7 @@ final class ForgeDevtoolsHost {
 
     final reason = _retired[id];
 
-    throw StateError(
+    throw _CacheGone(
       reason == null
           ? '[forge] no attached cache has id $id'
           : '[forge] cache $id was $reason, so the devtools no longer serve it',
@@ -614,7 +639,7 @@ final class ForgeDevtoolsHost {
 
     _pruneDisposed();
 
-    throw StateError(
+    throw _CacheGone(
       '[forge] cache ${attached.id} was disposed or detached while the call '
       'was running, so nothing is returned',
     );

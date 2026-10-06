@@ -93,8 +93,25 @@ abstract final class ForgeDevtoolsProtocol {
     sync,
   ];
 
-  /// The `postEvent` kind for batched log entries.
+  /// The `postEvent` kind for batched log entries, and for the lifecycle
+  /// events that say a cache attached or detached.
   static const String eventKind = 'forge:event';
+
+  /// The field a lifecycle event carries in place of `entries`. Its value is
+  /// [attached] or [detached], and the only other field is `cache`, the id.
+  static const String lifecycle = 'lifecycle';
+
+  /// A cache was attached: a new one the panel has not said hello to.
+  static const String attached = 'attached';
+
+  /// A cache was detached: disposed, unregistered, or evicted to make room.
+  static const String detached = 'detached';
+
+  /// The error code of a call refused because its cache is gone: disposed,
+  /// detached, or not attached under that id. The panel says hello again when
+  /// it sees it. It sits in the range `dart:developer` keeps for extension
+  /// errors.
+  static const int cacheGone = -32001;
 
   /// Page size when none is asked for.
   static const int defaultPage = 100;

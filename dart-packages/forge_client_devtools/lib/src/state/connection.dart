@@ -32,6 +32,15 @@ enum ConnectionPhase {
 /// `principal` marker arrive, drops its event list and bumps [generation].
 /// The workspace keys every panel on [generation], so whatever a panel held
 /// is thrown away with it.
+///
+/// The app posts a lifecycle event whenever a cache attaches or detaches, and
+/// refuses a call about a cache that is gone with
+/// [ForgeDevtoolsProtocol.cacheGone]. Either one makes the connection say
+/// hello again: everything the panel holds is dropped first, as for a
+/// principal change, and the panel moves to the newest cache when the one it
+/// showed is no longer attached. A cache that was disposed and replaced in the
+/// same isolate (an `OfflineClient.close` and `open` for the next user)
+/// therefore never stays on screen beside the app that replaced it.
 final class ForgeConnection extends ChangeNotifier {
   /// Starts watching [backend].
   ForgeConnection(this.backend) {
@@ -59,6 +68,11 @@ final class ForgeConnection extends ChangeNotifier {
       'The app changed account while this was running, so its answer was '
       'dropped and the view was reloaded. Nothing was changed.';
 
+  /// What a call says when it is made while the panel says hello. The panel
+  /// that made it is about to be replaced, so nothing is sent.
+  static const reconnectingMessage =
+      'The panel is reconnecting to the app, so nothing was sent.';
+
   /// Where calls go.
   final ForgeBackend backend;
 
@@ -68,6 +82,9 @@ final class ForgeConnection extends ChangeNotifier {
   /// Bumped on every isolate change and every time the app goes away, so a
   /// hello answered after either is ignored.
   int _isolateEpoch = 0;
+
+  /// Bumped by every hello, so only the answer to the latest one is used.
+  int _helloSequence = 0;
 
   /// The current phase.
   ConnectionPhase phase = ConnectionPhase.unavailable;
@@ -108,17 +125,32 @@ final class ForgeConnection extends ChangeNotifier {
   /// read first when the panel has not seen one. When such a call fails, the
   /// session is read again, so a refusal because the principal changed
   /// reloads the view. A call whose answer arrives after the panel saw the
-  /// principal change throws a [BackendError] instead of returning it.
+  /// principal change throws a [BackendError] instead of returning it. A call
+  /// refused because its cache is gone says hello again, which drops
+  /// everything the panel holds.
   Future<Json> call(
     String method, [
     Map<String, String> params = const {},
   ]) async {
+    // Saying hello: the panel making this call is about to be replaced, and
+    // the cache it would ask may be the one that is gone.
+    if (phase == ConnectionPhase.connecting) {
+      throw BackendError(method, reconnectingMessage);
+    }
+
     final started = generation;
     final aimed = _aimed(method, params);
-    final scoped = <String, String>{'cache': ?cacheId};
+    final cache = cacheId;
+    final scoped = <String, String>{'cache': ?cache};
 
     if (aimed && !params.containsKey('session')) {
-      final current = session ?? await _readSession(method);
+      final int current;
+      try {
+        current = session ?? await _readSession(method);
+      } on BackendError catch (failure) {
+        _refused(failure, cache);
+        rethrow;
+      }
       if (generation != started) throw BackendError(method, movedMessage);
       scoped['session'] = '$current';
     }
@@ -128,7 +160,8 @@ final class ForgeConnection extends ChangeNotifier {
 
     try {
       result = await backend.call(method, scoped);
-    } on BackendError {
+    } on BackendError catch (failure) {
+      if (_refused(failure, cache)) rethrow;
       if (aimed && !_disposed) await _resync();
       rethrow;
     }
@@ -180,16 +213,36 @@ final class ForgeConnection extends ChangeNotifier {
   }
 
   /// Reads the session again after a refused change. A session that moved
-  /// resets the panel; a failed read leaves it as it is.
+  /// resets the panel; a failed read leaves it as it is, unless the cache is
+  /// gone.
   Future<void> _resync() async {
+    final cache = cacheId;
     try {
       final snapshot = await backend.call(ForgeDevtoolsProtocol.snapshot, {
-        'cache': ?cacheId,
+        'cache': ?cache,
       });
       if (!_disposed) _note(snapshot);
-    } on BackendError {
+    } on BackendError catch (failure) {
       // The refusal itself is what the panel shows.
+      _refused(failure, cache);
     }
+  }
+
+  /// Says hello again when [failure] refused a call about [cache], the cache
+  /// the panel still shows, because it is gone. Returns whether the refusal
+  /// was about a gone cache.
+  ///
+  /// Not while a hello is already on its way: the panels it cleared read
+  /// again at once, still aimed at the gone cache until the hello answers,
+  /// and each refusal starting another hello would never let one finish.
+  bool _refused(BackendError failure, String? cache) {
+    if (_disposed || failure.code != ForgeDevtoolsProtocol.cacheGone) {
+      return false;
+    }
+    if (cache == cacheId && phase != ConnectionPhase.connecting) {
+      unawaited(_hello(again: true));
+    }
+    return true;
   }
 
   /// Takes the session from a snapshot or a log read for the picked cache.
@@ -252,12 +305,21 @@ final class ForgeConnection extends ChangeNotifier {
     }
   }
 
-  Future<void> _hello() async {
+  /// Says hello. [again] is a hello because a cache attached, detached or
+  /// was refused as gone: what the panel holds may be a cache that is gone,
+  /// or one another cache replaced, so all of it is dropped first, as for a
+  /// principal change.
+  Future<void> _hello({bool again = false}) async {
+    if (_disposed) return;
+    if (again) _forget();
     _set(ConnectionPhase.connecting);
     final epoch = _isolateEpoch;
+    final sequence = ++_helloSequence;
+    bool stale() =>
+        _disposed || epoch != _isolateEpoch || sequence != _helloSequence;
     try {
       final hello = await backend.call(ForgeDevtoolsProtocol.hello);
-      if (_disposed || epoch != _isolateEpoch) return;
+      if (stale()) return;
 
       final protocol = hello.integer('protocol');
       if (protocol != ForgeDevtoolsProtocol.version) {
@@ -277,14 +339,22 @@ final class ForgeConnection extends ChangeNotifier {
       error = null;
       _set(ConnectionPhase.ready);
     } on BackendError catch (failure) {
-      if (_disposed || epoch != _isolateEpoch) return;
+      if (stale()) return;
       error = failure.message;
       _set(ConnectionPhase.failed);
     }
   }
 
   void _onEvent(Json event) {
-    if (_disposed || event.str('cache') != cacheId) return;
+    if (_disposed) return;
+
+    // A cache attached or detached, this one or another: say hello again.
+    if (event.containsKey(ForgeDevtoolsProtocol.lifecycle)) {
+      unawaited(_hello(again: true));
+      return;
+    }
+
+    if (event.str('cache') != cacheId) return;
 
     final entries = event.objs('entries');
     var start = 0;

@@ -23,18 +23,24 @@ final class _Inner implements Transport {
 void main() {
   late Map<String, developer.ServiceExtensionHandler> handlers;
   late List<_Posted> posted;
+  late List<Map<String, Object?>> lifecycle;
   late int registrations;
 
   setUp(() {
     handlers = {};
     posted = [];
+    lifecycle = [];
     registrations = 0;
     ForgeDevtoolsHost.debugOverride(
       registrar: (method, handler) {
         registrations++;
         handlers[method] = handler;
       },
-      poster: (kind, data) => posted.add((kind: kind, data: data)),
+      // Lifecycle events (a cache attached or detached) are kept apart from
+      // the log batches most tests count.
+      poster: (kind, data) => data.containsKey(ForgeDevtoolsProtocol.lifecycle)
+          ? lifecycle.add({'kind': kind, ...data})
+          : posted.add((kind: kind, data: data)),
     );
   });
 
@@ -561,16 +567,106 @@ void main() {
       },
     );
 
+    // Final review I2: the panel had no way to learn that its cache was
+    // disposed or replaced. Every attach and detach is posted, with the id
+    // and nothing else.
+    test('posts a lifecycle event, carrying only the cache id, on every attach and detach', () async {
+      final first = Harness();
+      first.cache.setPrincipal('alice');
+      registerForgeServiceExtensions(first.cache);
+      final second = Harness();
+      registerForgeServiceExtensions(second.cache);
+      // A second register on an attached cache attaches nothing.
+      registerForgeServiceExtensions(second.cache);
+
+      expect(lifecycle, [
+        {
+          'kind': ForgeDevtoolsProtocol.eventKind,
+          'cache': '1',
+          'lifecycle': 'attached',
+        },
+        {
+          'kind': ForgeDevtoolsProtocol.eventKind,
+          'cache': '2',
+          'lifecycle': 'attached',
+        },
+      ]);
+
+      // Disposed: posted once the host hears.
+      await first.cache.dispose();
+      await pumpEventQueue();
+      // Unregistered.
+      unregisterForgeDevtools(second.cache);
+
+      expect(lifecycle.skip(2), [
+        {
+          'kind': ForgeDevtoolsProtocol.eventKind,
+          'cache': '1',
+          'lifecycle': 'detached',
+        },
+        {
+          'kind': ForgeDevtoolsProtocol.eventKind,
+          'cache': '2',
+          'lifecycle': 'detached',
+        },
+      ]);
+
+      // Evicted to make room.
+      lifecycle.clear();
+      for (var i = 0; i < ForgeDevtoolsHost.maxAttached + 1; i++) {
+        registerForgeServiceExtensions(Harness().cache);
+      }
+
+      expect(lifecycle.where((e) => e['lifecycle'] == 'detached'), [
+        {
+          'kind': ForgeDevtoolsProtocol.eventKind,
+          'cache': '3',
+          'lifecycle': 'detached',
+        },
+      ]);
+      expect(jsonEncode(lifecycle), isNot(contains('alice')));
+      expect(posted, isEmpty, reason: 'no log batch rides along');
+    });
+
+    test('refuses a call about a cache that is gone with the cacheGone code, and nothing else with it', () async {
+      final h = Harness();
+      registerForgeServiceExtensions(h.cache);
+      unregisterForgeDevtools(h.cache);
+      registerForgeServiceExtensions(Harness().cache);
+
+      final gone = await raw(ForgeDevtoolsProtocol.queries, {'cache': '1'});
+      final unknown = await raw(ForgeDevtoolsProtocol.queries, {'cache': '7'});
+      final malformed = await raw(ForgeDevtoolsProtocol.queries, {
+        'cache': '2',
+        'limit': 'x',
+      });
+      final refused = await raw(ForgeDevtoolsProtocol.outboxAction, {
+        'cache': '2',
+        'action': 'replay',
+        'id': 'm1',
+        'session': '0',
+      });
+
+      expect(gone.errorCode, ForgeDevtoolsProtocol.cacheGone);
+      expect(gone.errorDetail, contains('detached'));
+      expect(unknown.errorCode, ForgeDevtoolsProtocol.cacheGone);
+      expect(
+        malformed.errorCode,
+        developer.ServiceExtensionResponse.invalidParams,
+      );
+      expect(
+        refused.errorCode,
+        developer.ServiceExtensionResponse.extensionError,
+      );
+    });
+
     test('rejects an unknown cache id and a malformed parameter with the right error codes', () async {
       registerForgeServiceExtensions(Harness().cache);
 
       final unknown = await raw(ForgeDevtoolsProtocol.snapshot, {
         'cache': '99',
       });
-      expect(
-        unknown.errorCode,
-        developer.ServiceExtensionResponse.extensionError,
-      );
+      expect(unknown.errorCode, ForgeDevtoolsProtocol.cacheGone);
 
       final malformed = await raw(ForgeDevtoolsProtocol.entities, {
         'limit': 'abc',
@@ -642,7 +738,7 @@ void main() {
 
         expect(
           response.errorCode,
-          developer.ServiceExtensionResponse.extensionError,
+          ForgeDevtoolsProtocol.cacheGone,
           reason: method,
         );
         expect(response.errorDetail, contains('disposed'), reason: method);
@@ -684,7 +780,7 @@ void main() {
 
           expect(
             response.errorCode,
-            developer.ServiceExtensionResponse.extensionError,
+            ForgeDevtoolsProtocol.cacheGone,
             reason: method,
           );
           expect(response.errorDetail, contains('disposed'), reason: method);
@@ -729,7 +825,7 @@ void main() {
 
           expect(
             response.errorCode,
-            developer.ServiceExtensionResponse.extensionError,
+            ForgeDevtoolsProtocol.cacheGone,
             reason: method,
           );
           expect(response.errorDetail, contains('detached'), reason: method);
@@ -765,10 +861,7 @@ void main() {
         final response = await pending;
         await disposing;
 
-        expect(
-          response.errorCode,
-          developer.ServiceExtensionResponse.extensionError,
-        );
+        expect(response.errorCode, ForgeDevtoolsProtocol.cacheGone);
         expect(response.errorDetail, contains('disposed'));
         expect(response.result, isNull);
       },

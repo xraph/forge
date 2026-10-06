@@ -23,13 +23,17 @@ abstract interface class ForgeBackend {
 /// A failed extension call.
 final class BackendError implements Exception {
   /// Creates the error.
-  const BackendError(this.method, this.message);
+  const BackendError(this.method, this.message, {this.code});
 
   /// The method that failed.
   final String method;
 
   /// What the app or the VM said.
   final String message;
+
+  /// The JSON-RPC error code, when the failure came with one. The app refuses
+  /// a call about a cache that is gone with `ForgeDevtoolsProtocol.cacheGone`.
+  final int? code;
 
   @override
   String toString() => message;

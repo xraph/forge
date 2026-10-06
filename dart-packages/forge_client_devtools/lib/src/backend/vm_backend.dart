@@ -68,7 +68,11 @@ final class VmForgeBackend implements ForgeBackend {
       );
       return <String, Object?>{...?response.json};
     } on RPCError catch (error) {
-      throw BackendError(method, error.details ?? error.message);
+      throw BackendError(
+        method,
+        error.details ?? error.message,
+        code: error.code,
+      );
     } on Object catch (error) {
       throw BackendError(method, '$error');
     }
