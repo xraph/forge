@@ -1,0 +1,12 @@
+# The parent dart-packages/.gitignore already covers these; they are repeated so
+# the package stays correct if it is copied out.
+.dart_tool/
+/build/
+pubspec.lock
+
+# Written by `flutter pub get` in a Flutter package.
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Built by tool/build_extension.sh. Published, not committed.
+/extension/devtools/build/
