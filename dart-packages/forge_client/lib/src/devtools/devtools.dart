@@ -403,30 +403,57 @@ final class Devtools {
 
     final ids = {for (final record in records) record.id};
 
+    // Writes the event mirror knows and the session no longer holds: a replay
+    // that finished, or a failure whose record is gone. They carry the same
+    // body-free failure text as the stored ones.
+    final remembered = [
+      for (final row in _outbox.entries())
+        if (!ids.contains(row.id) &&
+            (row.state == 'replayed' || row.state == 'failed'))
+          row,
+    ];
+    final total = records.length + remembered.length;
+
+    final rows = <Map<String, Object?>>[
+      for (final record in records.take(_outboxLimit))
+        if (outboxStateOf(record.stateJson ?? _queuedState) case (
+          :final state,
+          :final failure,
+          :final since,
+        ))
+          {
+            'id': shortMessage(record.id),
+            'operation': shortMessage(record.operationId),
+            'createdAt': record.createdAt.millisecondsSinceEpoch,
+            'state': state,
+            'failure': failure,
+            'since': since,
+            'at': null,
+          },
+      for (final row in remembered.take(
+        _outboxLimit - records.length.clamp(0, _outboxLimit),
+      ))
+        row.toJson(),
+    ];
+
     return {
       'wired': wired,
       'source': 'session',
-      'entries': [
-        for (final record in records)
-          if (outboxStateOf(record.stateJson ?? _queuedState) case (
-            :final state,
-            :final failure,
-            :final since,
-          ))
-            {
-              'id': record.id,
-              'operation': record.operationId,
-              'createdAt': record.createdAt.millisecondsSinceEpoch,
-              'state': state,
-              'failure': failure,
-              'since': since,
-              'at': null,
-            },
-        for (final row in _outbox.entries())
-          if (!ids.contains(row.id) && row.state == 'replayed') row.toJson(),
-      ],
+      // A backlog is capped like every other list the devtools send, and each
+      // row is bounded, so the response cannot grow with the queue.
+      'entries': [for (final row in rows) bounded(row, _outboxWidth)],
+      'total': total,
+      'truncated': total > rows.length,
     };
   }
+
+  /// Rows the Outbox panel is sent from the session, as many as the event
+  /// mirror holds.
+  static const _outboxLimit = 200;
+
+  /// How many fields `bounded()` keeps of a row; an id or operation is cut to
+  /// 200 characters before that.
+  static const _outboxWidth = 20;
 
   static const _queuedState = '{"kind":"queued"}';
 

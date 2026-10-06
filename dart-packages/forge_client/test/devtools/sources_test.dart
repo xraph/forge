@@ -353,6 +353,86 @@ void main() {
       devtools.dispose();
       await cache.dispose();
     });
+    test(
+      'caps a backlog, bounds each row, and says how many there are',
+      () async {
+        final cache = await _signedIn(memoryStorage(), 'user-1');
+
+        for (var i = 0; i < 205; i++) {
+          await cache.session!.enqueue(_record('m$i'));
+        }
+        await cache.session!.enqueue(_record('x' * 500));
+
+        final devtools = attach(cache, clock: CounterClock());
+        final outbox = await devtools.outbox();
+        final rows = _rows(outbox);
+
+        expect(rows, hasLength(200));
+        expect(outbox['total'], 206);
+        expect(outbox['truncated'], isTrue);
+        expect(rows.first['id'], 'm0');
+        expect(rows.last['id'], 'm199');
+
+        // A row's strings are cut too.
+        await cache.session!.remove('m0');
+        for (var i = 1; i < 200; i++) {
+          await cache.session!.remove('m$i');
+        }
+        for (var i = 200; i < 205; i++) {
+          await cache.session!.remove('m$i');
+        }
+
+        final long = _rows(await devtools.outbox()).single['id']! as String;
+
+        expect(long.length, lessThan(250));
+
+        devtools.dispose();
+        await cache.dispose();
+      },
+    );
+
+    test('is not marked truncated when everything fits', () async {
+      final cache = await _signedIn(memoryStorage(), 'user-1');
+
+      await cache.session!.enqueue(_record('m1'));
+
+      final devtools = attach(cache, clock: CounterClock());
+      final outbox = await devtools.outbox();
+
+      expect(outbox['total'], 1);
+      expect(outbox['truncated'], isFalse);
+
+      devtools.dispose();
+      await cache.dispose();
+    });
+
+    test('shows a write whose failure event arrived and whose record is gone, with no body', () async {
+      final cache = await _signedIn(memoryStorage(), 'user-1');
+
+      await cache.session!.enqueue(_record('m1'));
+
+      final devtools = attach(cache, clock: CounterClock());
+
+      cache.observer!(
+        debugOutboxFailed(
+          'm-gone',
+          'op_order_create',
+          StateError('conflict 409'),
+        ),
+      );
+      cache.observer!(debugOutboxReplayed('m-done', 'op_order_create'));
+
+      final rows = _rows(await devtools.outbox());
+
+      expect(
+        [for (final r in rows) '${r['id']} ${r['state']}'],
+        ['m1 queued', 'm-gone failed', 'm-done replayed'],
+      );
+      expect(rows[1]['failure'], contains('conflict 409'));
+
+      devtools.dispose();
+      await cache.dispose();
+    });
   });
 
   group('reading a record state', () {
@@ -893,6 +973,72 @@ void main() {
         },
       );
     }
+
+    test('drops a session read across alice, bob and alice again, and leaks neither', () async {
+      final gate = Completer<void>();
+      final cache = await _signedIn(_GatedStorage(gate.future), 'alice');
+      final devtools = attach(cache, clock: CounterClock());
+
+      await cache.session!.enqueue(_record('m-alice'));
+      cache.observer!(debugOutboxReplayed('m-first', 'op_order_create'));
+
+      final slow = devtools.outbox();
+
+      cache.setPrincipal('bob');
+      await cache.idle;
+      await cache.session!.enqueue(_record('m-bob'));
+      cache.observer!(debugOutboxReplayed('m-bob-event', 'op_order_create'));
+      cache.setPrincipal('alice');
+      await cache.idle;
+      gate.complete();
+
+      final result = await slow;
+
+      expect(result, containsPair('stale', true));
+      expect(result['entries'], isEmpty);
+
+      // The final view is alice's stored queue and nothing the first alice or
+      // bob left in the mirror, and nothing of bob's.
+      final ids = [for (final r in _rows(await devtools.outbox())) r['id']];
+
+      expect(ids, ['m-alice']);
+
+      devtools.dispose();
+      await cache.dispose();
+    });
+
+    test('drops a source description across alice, bob and alice again, and leaks neither', () async {
+      final gate = Completer<void>();
+      final cache = QueryCache(
+        transport: _NoTransport(),
+        entities: schema,
+        syncSources: [_SlowSource(gate.future)],
+      )..setPrincipal('alice');
+      final devtools = attach(cache, clock: CounterClock());
+
+      cache.observer!(debugSyncStatusChanged('Doc', const Pending(1)));
+
+      final slow = devtools.sync();
+
+      cache.setPrincipal('bob');
+      cache.observer!(debugSyncStatusChanged('Doc', const Pending(9)));
+      cache.setPrincipal('alice');
+      gate.complete();
+
+      final result = await slow;
+
+      expect(result, containsPair('stale', true));
+      expect(result['sources'], isEmpty);
+      expect(result['entities'], isEmpty);
+      expect(jsonEncode(result), isNot(contains('alice-ssn')));
+
+      final again = await devtools.sync();
+
+      expect(again['entities'], isEmpty);
+
+      devtools.dispose();
+      await cache.dispose();
+    });
 
     test('keeps an unmoved source description', () async {
       final cache = QueryCache(
