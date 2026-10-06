@@ -20,3 +20,12 @@ export 'src/keys/passphrase_key.dart'
 export 'src/keys/principal_hash.dart' show principalHash;
 export 'src/keys/principal_labels.dart' show PrincipalLabels;
 export 'src/keys/web_crypto_keys.dart' show webCryptoKeys;
+export 'src/storage/schema.dart'
+    show
+        Migration,
+        UnsupportedSchemaVersion,
+        migrate,
+        migrations,
+        schemaVersion;
+export 'src/storage/sqlite_session.dart'
+    show SqliteKeyValueStore, SqliteStorageSession;
