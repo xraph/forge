@@ -33,6 +33,14 @@ const _namespace = 'forge_client_offline';
 /// pass false to use the login keychain, as the package's own macOS
 /// integration test does.
 ///
+/// Linux and Windows: flutter_secure_storage 11.2.0 gives `LinuxOptions` no
+/// settings and `WindowsOptions` only `useBackwardCompatibility`, so neither
+/// offers a namespace or service name. Entries there share the plugin's default
+/// store with the rest of the app, and an app-wide `deleteAll()` would remove
+/// this package's salt and keys. The entry names carry the package prefix, which
+/// avoids collisions but not wipes. Apps that target those platforms should not
+/// call `deleteAll()` on the shared store.
+///
 /// [store] replaces the platform keystore, for tests.
 KeystoreKeys keystoreKeys({
   bool requireUserPresence = false,
@@ -108,11 +116,29 @@ final class FlutterSecretStore implements SecretStore {
   /// The underlying plugin instance.
   final FlutterSecureStorage storage;
 
-  /// Which physical store [storage] reaches: the Android namespace and the
-  /// Apple account names. Two wrappers over the same one are interchangeable.
-  String get _identity =>
-      '${storage.aOptions.storageNamespace}/${storage.iOptions.accountName}/'
-      '${storage.mOptions.accountName}';
+  /// Everything in [storage]'s options that picks which native store is used:
+  /// the Android namespace and prefix, and on Apple platforms the account, the
+  /// access group, iCloud sync and, on macOS, the login or data protection
+  /// keychain. Two wrappers with the same values reach the same entries, so
+  /// they share one cached salt. Settings that do not move entries
+  /// (accessibility, access control flags) are left out on purpose: they cannot
+  /// coexist with each other over the same names.
+  String get _identity {
+    final android = storage.aOptions.toMap();
+    final ios = storage.iOptions.toMap();
+    final mac = storage.mOptions.toMap();
+    return [
+      android['storageNamespace'],
+      android['preferencesKeyPrefix'],
+      ios['accountName'],
+      ios['groupId'],
+      ios['synchronizable'],
+      mac['accountName'],
+      mac['groupId'],
+      mac['synchronizable'],
+      mac['usesDataProtectionKeychain'],
+    ].map((value) => value ?? '').join('\u0000');
+  }
 
   @override
   bool operator ==(Object other) =>

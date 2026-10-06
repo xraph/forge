@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:meta/meta.dart';
 
 import 'key_provider.dart';
 
@@ -83,8 +84,8 @@ final class MemoryPassphraseSaltStore implements PassphraseSaltStore {
 ///
 /// Defaults follow RFC 9106's second recommended Argon2id option (64 MiB, 3
 /// passes, 1 lane). Parameters below the floor, 19 MiB and 2 passes (OWASP's
-/// minimum), are refused with an [ArgumentError], unless
-/// [allowWeakParametersForTesting] is set. Only tests should set it.
+/// minimum), are refused with an [ArgumentError]. Tests that need a cheap
+/// derivation use [PassphraseKey.weakForTesting].
 ///
 /// [KeyProvider.delete] removes the salt. Without it the passphrase can no
 /// longer derive the key, but the salt is not secret and a deleted file can
@@ -97,7 +98,6 @@ KeyProvider passphraseKey(
   int memoryKiB = PassphraseKey.defaultMemoryKiB,
   int iterations = PassphraseKey.defaultIterations,
   int parallelism = PassphraseKey.defaultParallelism,
-  bool allowWeakParametersForTesting = false,
   Random? random,
 }) => PassphraseKey(
   secret,
@@ -106,7 +106,6 @@ KeyProvider passphraseKey(
   memoryKiB: memoryKiB,
   iterations: iterations,
   parallelism: parallelism,
-  allowWeakParametersForTesting: allowWeakParametersForTesting,
   random: random,
 );
 
@@ -121,14 +120,33 @@ final class PassphraseKey implements KeyProvider {
     required int memoryKiB,
     required int iterations,
     required int parallelism,
-    bool allowWeakParametersForTesting = false,
     Random? random,
   }) : _random = random ?? Random.secure(),
        _algorithm = _argon2id(
          memoryKiB: memoryKiB,
          iterations: iterations,
          parallelism: parallelism,
-         allowWeak: allowWeakParametersForTesting,
+         allowWeak: false,
+       );
+
+  /// Like the main constructor but accepts parameters below the floor, so a
+  /// test can derive a key in milliseconds. Never use it in production code: a
+  /// database keyed this way is cheap to guess.
+  @visibleForTesting
+  PassphraseKey.weakForTesting(
+    this._secret, {
+    required this._salts,
+    required this._labels,
+    required int memoryKiB,
+    required int iterations,
+    required int parallelism,
+    Random? random,
+  }) : _random = random ?? Random.secure(),
+       _algorithm = _argon2id(
+         memoryKiB: memoryKiB,
+         iterations: iterations,
+         parallelism: parallelism,
+         allowWeak: true,
        );
 
   /// RFC 9106 second recommended option: 64 MiB.
@@ -153,7 +171,11 @@ final class PassphraseKey implements KeyProvider {
   final PrincipalLabeler _labels;
   final Random _random;
   final Argon2id _algorithm;
-  final Map<String, Future<Uint8List>> _inflight = {};
+
+  /// Salt attempts by salt store and label, one per isolate, so two instances
+  /// over one salt store cannot each create a salt for the same label.
+  static final Map<(PassphraseSaltStore, String), Future<Uint8List>> _inflight =
+      {};
 
   static Argon2id _argon2id({
     required int memoryKiB,
@@ -219,14 +241,15 @@ final class PassphraseKey implements KeyProvider {
 
   /// One shared attempt per label, so concurrent first calls agree on one salt.
   Future<Uint8List> _saltFor(String principal, String label) {
-    final running = _inflight[label];
+    final id = (_salts, label);
+    final running = _inflight[id];
     if (running != null) return running;
 
     // A block body, for the reason KeystoreKeys.obtain has one.
     final future = _readOrCreateSalt(principal, label).whenComplete(() {
-      _inflight.remove(label);
+      _inflight.remove(id);
     });
-    _inflight[label] = future;
+    _inflight[id] = future;
     return future;
   }
 

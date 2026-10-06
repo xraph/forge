@@ -35,14 +35,18 @@ const _labelContext = 'forge_client_offline/principal-label/v1\u0000';
 /// is present but damaged is treated the same way and never replaced.
 ///
 /// Every instance in one isolate that talks to the same store shares one salt
-/// future (a static map keyed by the store), so two providers built over one keystore cannot create two
-/// salts. After writing a new salt the value is read back and the stored value
-/// is used, so a salt that another writer put there first wins.
+/// future (a static map keyed by the store), so two providers built over one
+/// keystore cannot create two salts. After writing a new salt the value is read
+/// back and the stored value is used, so if the store holds a different value
+/// than the one just written, that value is used.
 ///
 /// That sharing stops at the isolate. The first open of a database, which is
-/// when the salt is created, must run on the main isolate: two isolates racing
-/// on an empty keystore could each create a salt, orphaning the database made
-/// under the loser's labels.
+/// when the salt is created, must run on the main isolate. Two isolates racing
+/// on an empty keystore each write a salt and the last writer wins. Read-back
+/// adopts whatever the store holds at the moment it reads, so the isolate that
+/// wrote first can read the other's salt, or its own if it read before the
+/// second write landed. The loser can then have named a database file under a
+/// label that is no longer current, and that file is orphaned.
 final class PrincipalLabels implements PrincipalLabeler {
   /// Keeps the salt in [store], generating it with [random].
   ///

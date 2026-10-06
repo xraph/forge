@@ -5,7 +5,8 @@ import 'keystore_keys.dart';
 import 'web_crypto_keys.dart';
 
 /// The platform's default [KeyProvider]: [webCryptoKeys] on the web,
-/// [keystoreKeys] everywhere else.
+/// [keystoreKeys] everywhere else. On Linux and Windows the keystore has no
+/// namespace to isolate this package's entries; see [keystoreKeys].
 KeyProvider defaultKeys({bool requireUserPresence = false}) => kIsWeb
     ? webCryptoKeys()
     : keystoreKeys(requireUserPresence: requireUserPresence);

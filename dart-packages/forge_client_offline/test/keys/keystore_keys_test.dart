@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'
-    show FlutterSecureStorage;
+    show AndroidOptions, FlutterSecureStorage, IOSOptions, MacOsOptions;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
 
@@ -406,5 +406,40 @@ void main() {
         );
       },
     );
+
+    test('wrappers over different native stores are not equal', () {
+      FlutterSecretStore wrap({
+        AndroidOptions a = const AndroidOptions(),
+        IOSOptions i = const IOSOptions(),
+        MacOsOptions m = const MacOsOptions(),
+      }) => FlutterSecretStore(
+        FlutterSecureStorage(aOptions: a, iOptions: i, mOptions: m),
+      );
+      final base = wrap();
+
+      expect(base, wrap());
+      expect(base.hashCode, wrap().hashCode);
+      expect(
+        base,
+        isNot(wrap(m: const MacOsOptions(usesDataProtectionKeychain: false))),
+        reason: 'the login keychain and the data protection keychain differ',
+      );
+      expect(
+        FlutterSecretStore(storage(dataProtection: true)),
+        isNot(FlutterSecretStore(storage(dataProtection: false))),
+      );
+      expect(
+        base,
+        isNot(wrap(a: const AndroidOptions(storageNamespace: 'other'))),
+      );
+      expect(base, isNot(wrap(i: const IOSOptions(accountName: 'other'))));
+      expect(base, isNot(wrap(m: const MacOsOptions(accountName: 'other'))));
+      expect(base, isNot(wrap(i: const IOSOptions(groupId: 'group'))));
+      expect(base, isNot(wrap(m: const MacOsOptions(synchronizable: true))));
+      expect(
+        base,
+        isNot(wrap(a: const AndroidOptions(preferencesKeyPrefix: 'p'))),
+      );
+    });
   });
 }

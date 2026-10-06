@@ -11,6 +11,7 @@ final class _CountingSaltStore implements PassphraseSaltStore {
   final MemoryPassphraseSaltStore inner = MemoryPassphraseSaltStore();
   int puts = 0;
   Object? failGetsWith;
+  Object? failHasDataWith;
   Uint8List? keepInstead;
 
   @override
@@ -21,7 +22,11 @@ final class _CountingSaltStore implements PassphraseSaltStore {
   }
 
   @override
-  Future<bool> hasData(String label) => inner.hasData(label);
+  Future<bool> hasData(String label) async {
+    final failure = failHasDataWith;
+    if (failure != null) throw failure;
+    return inner.hasData(label);
+  }
 
   @override
   Future<void> put(String label, Uint8List salt) {
@@ -37,13 +42,13 @@ KeyProvider _fast(
   String secret, {
   required PassphraseSaltStore salts,
   PrincipalLabeler? labels,
-}) => passphraseKey(
+}) => PassphraseKey.weakForTesting(
   () => secret,
   salts: salts,
   labels: labels ?? PrincipalLabels(MemorySecretStore()),
   memoryKiB: 64,
   iterations: 1,
-  allowWeakParametersForTesting: true,
+  parallelism: 1,
 );
 
 void main() {
@@ -85,13 +90,13 @@ void main() {
 
   test('the secret is read on every call and never kept', () async {
     var secret = 'first';
-    final provider = passphraseKey(
+    final provider = PassphraseKey.weakForTesting(
       () => secret,
       salts: salts,
       labels: labels,
       memoryKiB: 64,
       iterations: 1,
-      allowWeakParametersForTesting: true,
+      parallelism: 1,
     );
 
     final a = await provider.obtain('alice');
@@ -214,6 +219,33 @@ void main() {
       expect(salts.puts, 0);
     });
 
+    test(
+      'data that cannot be checked fails closed and writes nothing',
+      () async {
+        // Swallowing this error would mint a new salt over a database that may
+        // already exist, and the passphrase could then never open it.
+        salts.failHasDataWith = StateError('cannot stat the database file');
+
+        await expectLater(
+          keys('correct horse').obtain('alice'),
+          throwsA(isA<KeyUnavailable>()),
+        );
+
+        expect(salts.puts, 0);
+        expect(salts.inner.salts, isEmpty);
+      },
+    );
+
+    test('two instances on one salt store create one salt', () async {
+      final a = keys('correct horse');
+      final b = keys('correct horse');
+
+      final both = await Future.wait([a.obtain('alice'), b.obtain('alice')]);
+
+      expect(salts.puts, 1);
+      expect(both[0].bytes, both[1].bytes);
+    });
+
     test('a salt another writer stored first is the one used', () async {
       final theirs = Uint8List.fromList(List<int>.generate(16, (i) => i));
       salts.keepInstead = theirs;
@@ -269,15 +301,23 @@ void main() {
       int iterations = PassphraseKey.defaultIterations,
       int parallelism = 1,
       bool weak = false,
-    }) => PassphraseKey(
-      () => 'x',
-      salts: salts,
-      labels: labels,
-      memoryKiB: memoryKiB,
-      iterations: iterations,
-      parallelism: parallelism,
-      allowWeakParametersForTesting: weak,
-    );
+    }) => weak
+        ? PassphraseKey.weakForTesting(
+            () => 'x',
+            salts: salts,
+            labels: labels,
+            memoryKiB: memoryKiB,
+            iterations: iterations,
+            parallelism: parallelism,
+          )
+        : PassphraseKey(
+            () => 'x',
+            salts: salts,
+            labels: labels,
+            memoryKiB: memoryKiB,
+            iterations: iterations,
+            parallelism: parallelism,
+          );
 
     test('default to RFC 9106 (64 MiB, 3 passes, 1 lane)', () {
       expect(PassphraseKey.defaultMemoryKiB, 64 * 1024);
