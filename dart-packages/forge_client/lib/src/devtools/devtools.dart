@@ -2,6 +2,8 @@
 /// panel calls. Port of `client-devtools/src/devtools.ts`.
 library;
 
+import 'package:meta/meta.dart';
+
 import '../cache.dart';
 import '../observe.dart';
 import '../operation.dart';
@@ -74,9 +76,9 @@ final class Devtools {
     required this._clock,
     required this._argsLimit,
     required FrameOptions? frames,
-    required this.requestLog,
-    required this.controls,
-    required this.revalidation,
+    required this._requestLog,
+    required this._controls,
+    required this._revalidation,
     required this.outboxInspector,
   }) : _log = EventLog(capacity: limit, clock: _clock),
        _ring = _ringFor(frames) {
@@ -95,21 +97,39 @@ final class Devtools {
 
   /// The request log the transport reports into, when one is wired.
   ///
-  /// Not final: a later registration on a cache that is already attached fills
-  /// an empty slot, and never replaces a filled one.
-  RequestLog? requestLog;
+  /// Filled only through [fillEmptySlots], which never replaces a filled slot.
+  RequestLog? get requestLog => _requestLog;
 
   /// The network conditions, when wired. Absent means the panel shows no rail.
   /// An armed failure is cleared when the principal changes; the mode and the
   /// latency are the developer's and stay.
   ///
-  /// Not final: a later registration fills an empty slot only.
-  ControlledTransport? controls;
+  /// Filled only through [fillEmptySlots].
+  ControlledTransport? get controls => _controls;
 
   /// The revalidation toggles, when the application registered any.
   ///
-  /// Not final: a later registration fills an empty slot only.
-  Revalidation? revalidation;
+  /// Filled only through [fillEmptySlots].
+  Revalidation? get revalidation => _revalidation;
+
+  RequestLog? _requestLog;
+  ControlledTransport? _controls;
+  Revalidation? _revalidation;
+
+  /// Fills the request log, the controls and the revalidation toggles that are
+  /// still empty, and leaves a filled one as it is. The service-extension host
+  /// calls this when a later registration reaches a cache that is already
+  /// attached; nothing else sets these slots.
+  @internal
+  void fillEmptySlots({
+    RequestLog? requestLog,
+    ControlledTransport? controls,
+    Revalidation? revalidation,
+  }) {
+    _requestLog ??= requestLog;
+    _controls ??= controls;
+    _revalidation ??= revalidation;
+  }
 
   /// The offline client's outbox, when the application wired one. Replaying
   /// and discarding go through it; listing does not need it. Not final: a
@@ -275,17 +295,10 @@ final class Devtools {
 
   /// How many tracked records are in each status, how many of those are
   /// fetching, and how many remembered queries are stale or unmounted. Counters
-  /// only: nothing is copied out of the cache.
+  /// only: nothing is copied out of the cache. Every count is zero while the
+  /// cache is not [answering].
   Map<String, int> statusCounts() => _ask((c) {
-    final counts = <String, int>{
-      'idle': 0,
-      'pending': 0,
-      'success': 0,
-      'error': 0,
-      'fetching': 0,
-      'stale': 0,
-      'unmounted': 0,
-    };
+    final counts = _zeroStatuses();
 
     for (final record in c.trackedRecords()) {
       counts[record.status] = (counts[record.status] ?? 0) + 1;
@@ -298,7 +311,17 @@ final class Devtools {
     }
 
     return counts;
-  }, const {});
+  }, _zeroStatuses());
+
+  static Map<String, int> _zeroStatuses() => <String, int>{
+    'idle': 0,
+    'pending': 0,
+    'success': 0,
+    'error': 0,
+    'fetching': 0,
+    'stale': 0,
+    'unmounted': 0,
+  };
 
   /// One light row per remembered query, in registry order: its key, operation,
   /// mount count, freshness, status and how many tags and dependencies it
@@ -325,6 +348,11 @@ final class Devtools {
         },
     ];
   }, const []);
+
+  /// Whether the cache can be asked now. False while it changes principal and
+  /// once the inspector is disposed, when every read answers as an empty cache
+  /// would. A response built from such a read says `stale`.
+  bool get answering => _answerable();
 
   /// Counters, queries and the tag graph.
   CacheSnapshot snapshot() => _ask(
@@ -483,7 +511,7 @@ final class Devtools {
           :final since,
         ))
           {
-            'id': shortMessage(record.id),
+            'id': record.id,
             'operation': shortMessage(record.operationId),
             'createdAt': record.createdAt.millisecondsSinceEpoch,
             'state': state,
@@ -502,7 +530,16 @@ final class Devtools {
       'source': 'session',
       // A backlog is capped like every other list the devtools send, and each
       // row is bounded, so the response cannot grow with the queue.
-      'entries': [for (final row in rows) bounded(row, _outboxWidth)],
+      // The id is an identifier: the panel sends it back to replay or discard
+      // the write, so it is kept whole. Everything else is bounded.
+      'entries': [
+        for (final row in rows)
+          {
+            'id': row['id'],
+            ...bounded(<String, Object?>{...row}..remove('id'), _outboxWidth)!
+                as Map<String, Object?>,
+          },
+      ],
       'total': total,
       'truncated': total > rows.length,
     };

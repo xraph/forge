@@ -1414,34 +1414,476 @@ void main() {
     });
   });
 
-  group('responses', () {
+  group('a stale session', () {
+    test('is refused by the network controls and by an outbox action, and nothing is armed', () async {
+      final h = Harness();
+      final controls = ControlledTransport(_Inner());
+      registerForgeServiceExtensions(
+        h.cache,
+        controls: controls,
+        outbox: _Inspector(),
+      );
+      h.cache.setPrincipal('alice');
+      await h.cache.idle;
+
+      final aimed =
+          (await call(ForgeDevtoolsProtocol.snapshot))['session']! as int;
+
+      // The current session is accepted.
+      expect(
+        (await call(ForgeDevtoolsProtocol.control, {
+          'latencyMs': '5',
+          'session': '$aimed',
+        }))['latencyMs'],
+        5,
+      );
+      expect(
+        (await call(ForgeDevtoolsProtocol.outboxAction, {
+          'action': 'discard',
+          'id': 'm1',
+          'session': '$aimed',
+        }))['ok'],
+        isTrue,
+      );
+
+      h.cache.setPrincipal('bob');
+      await h.cache.idle;
+
+      for (final write in [
+        {'failNext': '500'},
+        {'mode': 'offline'},
+        {'latencyMs': '900'},
+        {'toggle': 'focus'},
+      ]) {
+        final refused = await raw(ForgeDevtoolsProtocol.control, {
+          ...write,
+          'session': '$aimed',
+        });
+
+        expect(
+          refused.errorCode,
+          developer.ServiceExtensionResponse.extensionError,
+          reason: '$write',
+        );
+      }
+
+      final replay = await raw(ForgeDevtoolsProtocol.outboxAction, {
+        'action': 'replay',
+        'id': 'm1',
+        'session': '$aimed',
+      });
+
+      expect(
+        replay.errorCode,
+        developer.ServiceExtensionResponse.extensionError,
+      );
+      expect(replay.errorDetail, contains('session $aimed'));
+      expect(controls.armed, isFalse);
+      expect(controls.mode, NetworkMode.online);
+      expect(controls.latency, const Duration(milliseconds: 5));
+
+      // Reading the rail needs no session.
+      expect(
+        await call(ForgeDevtoolsProtocol.control, {'session': '$aimed'}),
+        containsPair('wired', true),
+      );
+    });
+  });
+
+  group('forge:event after dispose', () {
     test(
-      'pass through bounded(): an enormous value is cut, never sent whole',
+      'posts nothing for a cache that is disposed, before the host has heard',
       () async {
-        final long = List.filled(5000, 'x').join();
-        final h = Harness();
-        registerForgeServiceExtensions(
-          h.cache,
-          operations: {
-            'op_long': OperationMeta(
-              id: 'op_long',
-              method: 'GET',
-              path: '/$long',
-            ),
+        final gate = Completer<void>();
+        final h = Harness(
+          syncSources: [_StopGatedSource(gate.future)],
+          entities: {'Doc': const EntityMeta(idField: 'id')},
+        );
+        h.cache.setPrincipal('alice');
+        await h.cache.idle;
+        final devtools = registerForgeServiceExtensions(h.cache)!;
+        await pumpEventQueue();
+        posted.clear();
+
+        devtools.actions.hold('q', 'error');
+        final disposing = h.cache.dispose();
+        await pumpEventQueue();
+
+        expect(
+          ForgeDevtoolsHost.instance.debugCacheIds,
+          isEmpty,
+          reason: 'the flush noticed',
+        );
+        expect(posted, isEmpty);
+
+        gate.complete();
+        await disposing;
+      },
+    );
+  });
+
+  group('while the principal is changing', () {
+    // Every read extension, asked from inside the change, before the cache has
+    // emptied: empty, never alice. Once from a changing listener, and once
+    // from a `watchPrincipal` listener registered before the devtools
+    // attached, which runs after the clear with the devtools' window still open.
+    for (final flavour in [
+      'a watchPrincipalChanging listener',
+      'a watchPrincipal listener registered first',
+    ]) {
+      test('every read answers empty or stale, asked from $flavour', () async {
+        const secret = 'alice-ssn';
+        final h =
+            Harness(
+              syncSources: [_AliceSource(() => 'alice')],
+              entities: {'Doc': const EntityMeta(idField: 'id')},
+            )..reply('GET /orders', [
+              {'id': 1, 'ssn': secret},
+            ]);
+        h.cache.setPrincipal('alice');
+        await h.cache.idle;
+        final answers = <String, Future<developer.ServiceExtensionResponse>>{};
+        final key = h.key(Ops.orderList);
+        final reads = <String, Map<String, String>>{
+          ForgeDevtoolsProtocol.hello: {},
+          ForgeDevtoolsProtocol.snapshot: {},
+          ForgeDevtoolsProtocol.queries: {},
+          ForgeDevtoolsProtocol.query: {'key': key},
+          ForgeDevtoolsProtocol.entities: {},
+          ForgeDevtoolsProtocol.entity: {'key': 'Order:1'},
+          ForgeDevtoolsProtocol.tags: {},
+          ForgeDevtoolsProtocol.explain: {
+            'key': key,
+            'question': 'whyNotRefetched',
           },
+          ForgeDevtoolsProtocol.operations: {},
+          ForgeDevtoolsProtocol.log: {},
+          ForgeDevtoolsProtocol.frames: {},
+          ForgeDevtoolsProtocol.requests: {},
+          ForgeDevtoolsProtocol.overlays: {},
+          ForgeDevtoolsProtocol.control: {},
+          ForgeDevtoolsProtocol.outbox: {},
+          ForgeDevtoolsProtocol.sync: {},
+        };
+
+        void askAll(Object? _) {
+          for (final MapEntry(:key, :value) in reads.entries) {
+            answers[key] = raw(key, value);
+          }
+        }
+
+        if (flavour.contains('Changing')) {
+          registerForgeServiceExtensions(h.cache);
+          h.cache.watchPrincipalChanging(askAll);
+        } else {
+          h.cache.watchPrincipal(askAll);
+          registerForgeServiceExtensions(h.cache);
+        }
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+        await call(ForgeDevtoolsProtocol.capture, {'enabled': 'true'});
+        debugApplyFrames(h.cache, orderBinding, {'id': 5, 'ssn': secret});
+        await sub.cancel();
+
+        // The premise: the same asks serve the secret before the switch.
+        expect(
+          (await raw(ForgeDevtoolsProtocol.entity, {'key': 'Order:1'})).result,
+          contains(secret),
+        );
+        expect(
+          (await raw(ForgeDevtoolsProtocol.frames)).result,
+          contains(secret),
         );
 
-        final response = await raw(ForgeDevtoolsProtocol.operations);
-        final path =
-            items(
-                  jsonDecode(response.result!) as Map<String, Object?>,
-                  'operations',
-                ).single['path']!
+        h.cache.setPrincipal('bob');
+        await h.cache.idle;
+
+        expect(answers.keys.toSet(), reads.keys.toSet());
+
+        final decoded = <String, Map<String, Object?>>{};
+        for (final MapEntry(:key, :value) in answers.entries) {
+          final response = await value;
+
+          expect(
+            response.errorCode,
+            isNull,
+            reason: '$key ${response.errorDetail}',
+          );
+          expect(response.result, isNot(contains(secret)), reason: key);
+          expect(response.result, isNot(contains('alice')), reason: key);
+          decoded[key] = jsonDecode(response.result!) as Map<String, Object?>;
+        }
+
+        expect(
+          decoded[ForgeDevtoolsProtocol.entity],
+          containsPair('entity', isNull),
+        );
+        expect(
+          decoded[ForgeDevtoolsProtocol.entities],
+          containsPair('total', 0),
+        );
+        expect(
+          decoded[ForgeDevtoolsProtocol.queries],
+          containsPair('total', 0),
+        );
+        expect(
+          decoded[ForgeDevtoolsProtocol.query],
+          containsPair('detail', isNull),
+        );
+        expect(
+          decoded[ForgeDevtoolsProtocol.outbox],
+          containsPair('stale', true),
+        );
+        expect(
+          decoded[ForgeDevtoolsProtocol.sync],
+          containsPair('stale', true),
+        );
+
+        // The snapshot keeps its shape: zero-filled counters, marked stale.
+        final snapshot = decoded[ForgeDevtoolsProtocol.snapshot]!;
+
+        expect(snapshot['stale'], isTrue);
+        expect(snapshot['statuses'], {
+          'idle': 0,
+          'pending': 0,
+          'success': 0,
+          'error': 0,
+          'fetching': 0,
+          'stale': 0,
+          'unmounted': 0,
+        });
+
+        // Settled, it is a plain answer again.
+        expect(
+          await call(ForgeDevtoolsProtocol.snapshot),
+          isNot(contains('stale')),
+        );
+      });
+    }
+  });
+
+  group('identifiers', () {
+    // A query key embeds its arguments, so a list query with a long filter
+    // crosses a thousand characters easily. The panel sends every identifier
+    // back, so none is cut on the way out.
+    test(
+      'round-trip whole: a 1,230 character query key and a long entity id',
+      () async {
+        final longPath = List.filled(1200, 'k').join();
+        final longId = List.filled(1200, 'e').join();
+        final h = Harness()
+          ..reply('GET /orders/{id}', {'id': longId, 'total': 1});
+        registerForgeServiceExtensions(h.cache);
+        final args = TagContext(path: {'id': longPath});
+        final sub = h.cache.watch(Ops.orderGet, args).listen((_) {});
+        await h.settle();
+        final key = h.key(Ops.orderGet, args);
+
+        expect(key.length, greaterThan(1200));
+
+        // Listed whole, and `query` finds it again.
+        final listed =
+            items(await call(ForgeDevtoolsProtocol.queries)).single['key']!
                 as String;
 
-        expect(path.length, lessThan(1100));
-        expect(path, endsWith('...'));
-        expect(response.result!.length, lessThan(2000));
+        expect(listed, key);
+        expect(
+          (await call(ForgeDevtoolsProtocol.query, {'key': listed}))['detail'],
+          isNotNull,
+        );
+        expect(
+          (await call(ForgeDevtoolsProtocol.explain, {
+            'key': listed,
+            'question': 'whyNotRefetched',
+          }))['report'],
+          isNotNull,
+        );
+
+        // The same for an entity.
+        final entityKey =
+            items(await call(ForgeDevtoolsProtocol.entities)).single['key']!
+                as String;
+
+        expect(entityKey, 'Order:$longId');
+        expect(
+          (await call(ForgeDevtoolsProtocol.entity, {
+            'key': entityKey,
+          }))['entity'],
+          isNotNull,
+        );
+
+        // And an action aimed at the listed key lands.
+        expect(
+          (await call(ForgeDevtoolsProtocol.action, {
+            'action': 'stale',
+            'target': listed,
+          }))['ok'],
+          isTrue,
+        );
+        expect(
+          (await call(ForgeDevtoolsProtocol.action, {
+            'action': 'evict',
+            'target': entityKey,
+          }))['ok'],
+          isTrue,
+        );
+
+        // The log and its event carry the key whole too.
+        final fetch = items(
+          await call(ForgeDevtoolsProtocol.log),
+          'entries',
+        ).firstWhere((e) => e['kind'] == 'fetch');
+
+        expect(fetch['query'], key);
+        await pumpEventQueue();
+        expect([
+          for (final p in posted)
+            for (final e in p.data['entries']! as List<Object?>)
+              (e! as Map<String, Object?>)['query'],
+        ], contains(key));
+
+        await sub.cancel();
+      },
+    );
+
+    test(
+      'over 64 KB, a row is replaced by a marker, never truncated',
+      () async {
+        final huge = List.filled(70000, 'k').join();
+        final h = Harness();
+        registerForgeServiceExtensions(h.cache);
+        final args = TagContext(path: {'id': huge});
+        final sub = h.cache.watch(Ops.orderGet, args).listen((_) {});
+        await h.settle();
+
+        final response = await raw(ForgeDevtoolsProtocol.queries);
+        final row = items(jsonDecode(response.result!) as Map<String, Object?>)
+            .single;
+
+        expect(row, {'oversized': true, 'field': 'key'});
+        expect(response.result!.length, lessThan(1000));
+
+        final log = items(await call(ForgeDevtoolsProtocol.log), 'entries');
+
+        expect(log.where((e) => e['oversized'] == true), isNotEmpty);
+        expect(
+          log
+              .where((e) => e['oversized'] == true)
+              .every((e) => e.containsKey('seq')),
+          isTrue,
+        );
+
+        await pumpEventQueue();
+        expect(
+          jsonEncode([for (final p in posted) p.data]),
+          isNot(contains(huge)),
+        );
+
+        await sub.cancel();
+      },
+    );
+  });
+
+  group('responses', () {
+    test(
+      'bound what the application owns and send identifiers whole',
+      () async {
+        final note = List.filled(5000, 'n').join();
+        final h = Harness()
+          ..reply('GET /orders', [
+            {'id': 1, 'note': note},
+          ]);
+        registerForgeServiceExtensions(h.cache);
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+
+        final both = await call(ForgeDevtoolsProtocol.entity, {
+          'key': 'Order:1',
+        });
+        final fields =
+            (both['entity']! as Map<String, Object?>)['fields']!
+                as Map<String, Object?>;
+        final folded = both['folded']! as Map<String, Object?>;
+
+        expect((fields['note']! as String).length, lessThan(1100));
+        expect(fields['note'], endsWith('...'));
+        expect((folded['note']! as String).length, lessThan(1100));
+
+        final detail =
+            (await call(ForgeDevtoolsProtocol.query, {
+                  'key': h.key(Ops.orderList),
+                }))['detail']!
+                as Map<String, Object?>;
+
+        expect(jsonEncode(detail['value']), isNot(contains(note)));
+
+        await sub.cancel();
+      },
+    );
+
+    test('lists stay lists of maps: the operations table and the overlay stack say how many there are', () async {
+      final h = Harness();
+      registerForgeServiceExtensions(
+        h.cache,
+        operations: {
+          for (var i = 0; i < 5001; i++)
+            'op_$i': OperationMeta(id: 'op_$i', method: 'GET', path: '/p$i'),
+        },
+      );
+
+      final operations = await call(ForgeDevtoolsProtocol.operations);
+
+      expect(items(operations, 'operations'), hasLength(5000));
+      expect(operations['total'], 5001);
+      expect(operations['truncated'], isTrue);
+
+      final small = await call(ForgeDevtoolsProtocol.overlays);
+
+      expect(small, containsPair('total', 0));
+      expect(small, containsPair('truncated', false));
+    });
+
+    test(
+      'says whether a page is the last, on queries, entities and tags',
+      () async {
+        final h = Harness()
+          ..reply('GET /orders', [
+            for (var i = 0; i < 5; i++) {'id': i},
+          ]);
+        registerForgeServiceExtensions(h.cache);
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+
+        final first = await call(ForgeDevtoolsProtocol.entities, {
+          'limit': '2',
+        });
+        final last = await call(ForgeDevtoolsProtocol.entities, {
+          'offset': '4',
+          'limit': '2',
+        });
+
+        expect(first['truncated'], isTrue);
+        expect(last['truncated'], isFalse);
+        expect(items(last), hasLength(1));
+        expect(
+          (await call(ForgeDevtoolsProtocol.queries))['truncated'],
+          isFalse,
+        );
+        expect(
+          (await call(ForgeDevtoolsProtocol.tags, {'limit': '1'}))['truncated'],
+          isTrue,
+        );
+
+        final entity =
+            (await call(ForgeDevtoolsProtocol.entity, {
+                  'key': 'Order:1',
+                }))['entity']!
+                as Map<String, Object?>;
+
+        expect(entity['refsTotal'], 0);
+        expect(entity['dependentsTotal'], 1);
+
+        await sub.cancel();
       },
     );
 
@@ -1550,6 +1992,30 @@ final class _SlowSource implements SyncSource, DevtoolsInspectable {
     await gate;
     return {'owner': _secretOwner};
   }
+}
+
+/// A source whose stop waits on [gate], so a cache disposing around it stays
+/// disposed-but-not-closed for as long as a test wants.
+final class _StopGatedSource implements SyncSource {
+  _StopGatedSource(this.gate);
+
+  final Future<void> gate;
+
+  @override
+  Set<String> get entities => {'Doc'};
+
+  @override
+  Future<void> start(SyncContext context) async {}
+
+  @override
+  Future<MutationOutcome> apply(PendingMutation mutation) async =>
+      const Applied(null);
+
+  @override
+  Stream<SyncStatus> status(String entity) => const Stream.empty();
+
+  @override
+  Future<void> stop() => gate;
 }
 
 final class _Inspector implements OutboxInspector {

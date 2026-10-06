@@ -26,7 +26,7 @@ import 'devtools.dart' as dt;
 import 'explain.dart' show MissCause, TagsCause;
 import 'frames.dart' show bounded;
 import 'inspect.dart' show EntityFilter;
-import 'types.dart' show LogEntry;
+import 'types.dart' show EntitySnapshot, LogEntry;
 import 'protocol.dart';
 import 'release.dart';
 import 'requests.dart';
@@ -109,18 +109,64 @@ final class _Attached {
   static void _noop() {}
 }
 
-/// Most keys or elements one response container keeps. Every page is already
-/// capped at [ForgeDevtoolsProtocol.maxPage]; this is the belt over the lists
-/// that are not paged (the operations table, the overlay stack).
-const _responseWidth = 5000;
+/// The longest identifier (a query key, an entity key, a tag, an outbox id)
+/// served whole. Identifiers must round-trip into later `ext.forge.*` calls, so
+/// they are never cut; a row that carries a longer one is replaced by a marker
+/// row instead of being truncated.
+const _maxIdentifier = 64 * 1024;
 
-/// Most values one response visits.
-const _responseBudget = 100000;
+/// The most operations one response lists.
+const _maxOperations = 5000;
 
-/// Where the response walk starts counting depth. The values inside a response
-/// were already bounded at their own root, which sits up to three levels down,
-/// so starting below zero never cuts what that pass kept.
-const _responseDepth = -3;
+/// The most bytes one response may encode to. Larger is refused, not cut.
+const _maxResponseBytes = 8 * 1024 * 1024;
+
+/// Width at which an application-owned payload is bounded.
+const _payloadWidth = 100;
+
+/// Whether [value] is an identifier too long to serve.
+bool _oversized(Object? value) =>
+    value is String && value.length > _maxIdentifier;
+
+/// [row] as it is, or a marker row when any identifier in it is too long. The
+/// marker names the field and keeps the position (`seq`, `kind`) so a client
+/// paging by sequence moves on.
+Map<String, Object?> _guard(Map<String, Object?> row) {
+  for (final MapEntry(:key, :value) in row.entries) {
+    final long =
+        _oversized(value) || (value is List<Object?> && value.any(_oversized));
+
+    if (long) {
+      return {
+        'oversized': true,
+        'field': key,
+        if (row['seq'] case final int seq) 'seq': seq,
+        if (row['kind'] case final String kind) 'kind': kind,
+      };
+    }
+  }
+
+  return row;
+}
+
+List<Map<String, Object?>> _guarded(Iterable<Map<String, Object?>> rows) => [
+  for (final row in rows) _guard(row),
+];
+
+/// The first [limit] of [items], so a list inside a response never grows with
+/// the cache. The total is sent beside it.
+List<T> _head<T>(List<T> items, int limit) =>
+    items.length <= limit ? items : items.sublist(0, limit);
+
+/// [json] with the application-owned [fields] bounded: payload values are
+/// capped in depth, width, size and string length. Everything else in [json]
+/// is an identifier or a counter and is sent as it is.
+Map<String, Object?> _payload(Map<String, Object?> json, List<String> fields) =>
+    {
+      ...json,
+      for (final field in fields)
+        if (json.containsKey(field)) field: bounded(json[field], _payloadWidth),
+    };
 
 /// How many detached ids the host remembers, to say why a call failed.
 const _retiredLimit = 32;
@@ -275,24 +321,18 @@ final class ForgeDevtoolsHost {
       attached.operations.putIfAbsent(key, () => value);
     }
 
-    if (transport != null && attached.transport == null) {
+    if (transport != null && devtools.requestLog == null) {
       final log = RequestLog();
       final RequestObserver observer = log.observe;
 
       transport.debugObserver = observer;
-      devtools.requestLog = log;
+      devtools.fillEmptySlots(requestLog: log);
       attached
         ..transport = transport
         ..requestObserver = observer;
     }
 
-    if (controls != null && devtools.controls == null) {
-      devtools.controls = controls;
-    }
-
-    if (revalidation != null && devtools.revalidation == null) {
-      devtools.revalidation = revalidation;
-    }
+    devtools.fillEmptySlots(controls: controls, revalidation: revalidation);
   }
 
   /// Detaches [cache], giving back its observer and the transport's debug slot.
@@ -355,25 +395,31 @@ final class ForgeDevtoolsHost {
 
   /// Answers one extension call. Public for the registrar and for tests.
   ///
-  /// Every result goes through `bounded()` before it is encoded, so a value
-  /// the application owns can neither be enormous nor fail to encode.
+  /// A value the application owns (a record's fields, a frame payload, a query
+  /// value, a source's description) is `bounded()` before it is sent. An
+  /// identifier is sent whole, because the panel sends it back; a row whose
+  /// identifier is over 64 KB is replaced by a marker row. A result that still
+  /// encodes to more than 8 MB is refused.
   Future<developer.ServiceExtensionResponse> handle(
     String method,
     Map<String, String> params,
   ) async {
     try {
       final result = await _dispatch(method, params);
-      final safe =
-          bounded(result, _responseWidth, _responseDepth, _responseBudget)!
-              as Map<String, Object?>;
+      final encoded = jsonEncode({
+        'type': '_extensionType',
+        'method': method,
+        ...result,
+      }, toEncodable: (Object? other) => '$other');
 
-      return developer.ServiceExtensionResponse.result(
-        jsonEncode({
-          'type': '_extensionType',
-          'method': method,
-          ...safe,
-        }, toEncodable: (Object? other) => '$other'),
-      );
+      if (encoded.length > _maxResponseBytes) {
+        throw StateError(
+          '[forge] the answer is larger than ${_maxResponseBytes ~/ (1024 * 1024)} MB; '
+          'ask for a smaller page',
+        );
+      }
+
+      return developer.ServiceExtensionResponse.result(encoded);
     } on _BadParams catch (error) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.invalidParams,
@@ -408,17 +454,18 @@ final class ForgeDevtoolsHost {
       case ForgeDevtoolsProtocol.entity:
         final key = _required(params, 'key');
         return {
-          'entity': devtools.entity(key)?.toJson(),
-          'folded': devtools.foldedRecord(key),
+          'entity': _entity(devtools.entity(key)),
+          'folded': bounded(devtools.foldedRecord(key), _payloadWidth),
         };
       case ForgeDevtoolsProtocol.tags:
         return _tags(devtools, params);
       case ForgeDevtoolsProtocol.explain:
         return _explain(devtools, params);
       case ForgeDevtoolsProtocol.operations:
+        final known = _knownOperations(attached).values.toList();
         return {
-          'operations': [
-            for (final meta in _knownOperations(attached).values)
+          'operations': _guarded([
+            for (final meta in _head(known, _maxOperations))
               {
                 'id': meta.id,
                 'method': meta.method,
@@ -426,7 +473,9 @@ final class ForgeDevtoolsHost {
                 'provides': meta.provides,
                 'invalidates': meta.invalidates,
               },
-          ],
+          ]),
+          'total': known.length,
+          'truncated': known.length > _maxOperations,
         };
       case ForgeDevtoolsProtocol.wouldInvalidate:
         return _wouldInvalidate(attached, params);
@@ -443,11 +492,22 @@ final class ForgeDevtoolsHost {
         return {
           'watching': devtools.watchingRequests,
           'dropped': devtools.requestsDropped,
-          'entries': [for (final entry in devtools.requests()) entry.toJson()],
+          'entries': _guarded([
+            for (final entry in devtools.requests()) entry.toJson(),
+          ]),
         };
       case ForgeDevtoolsProtocol.overlays:
+        final layers = devtools.overlays();
         return {
-          'overlays': [for (final layer in devtools.overlays()) layer.toJson()],
+          'overlays': _guarded([
+            for (final layer in _head(
+              layers,
+              ForgeDevtoolsProtocol.maxListInDetail,
+            ))
+              layer.toJson(),
+          ]),
+          'total': layers.length,
+          'truncated': layers.length > ForgeDevtoolsProtocol.maxListInDetail,
         };
       case ForgeDevtoolsProtocol.action:
         return _action(devtools, params);
@@ -457,9 +517,13 @@ final class ForgeDevtoolsHost {
         final outbox = await devtools.outbox();
         _alive(attached);
         // `stale: true`, when the devtools say so, passes through unchanged.
-        return outbox;
+        return {
+          ...outbox,
+          'entries': _guarded((outbox['entries']! as List<Object?>).cast()),
+        };
       case ForgeDevtoolsProtocol.outboxAction:
         final id = _required(params, 'id');
+        _checkSession(devtools, params);
         switch (_required(params, 'action')) {
           case 'replay':
             await devtools.replayOutbox(id);
@@ -472,7 +536,14 @@ final class ForgeDevtoolsHost {
       case ForgeDevtoolsProtocol.sync:
         final sync = await devtools.sync();
         _alive(attached);
-        return sync;
+        return {
+          ...sync,
+          'sources': _guarded([
+            for (final source in sync['sources']! as List<Object?>)
+              _payload(source! as Map<String, Object?>, ['detail']),
+          ]),
+          'entities': _guarded((sync['entities']! as List<Object?>).cast()),
+        };
       default:
         throw _BadParams('unknown method $method');
     }
@@ -541,6 +612,9 @@ final class ForgeDevtoolsHost {
     return {
       'cache': attached.id,
       'principal': devtools.cache.principal,
+      // While the cache changes principal the counters are zero and the answer
+      // says so, as the outbox and the sync state do.
+      if (!devtools.answering) 'stale': true,
       'store': devtools.store().toJson(),
       'statuses': devtools.statusCounts(),
       'session': devtools.session,
@@ -576,10 +650,13 @@ final class ForgeDevtoolsHost {
           row,
     ]..sort((a, b) => (a['key']! as String).compareTo(b['key']! as String));
 
+    final page = matching.skip(offset).take(limit).toList();
+
     return {
       'total': matching.length,
       'offset': offset,
-      'items': matching.skip(offset).take(limit).toList(),
+      'truncated': offset + page.length < matching.length,
+      'items': _guarded(page),
     };
   }
 
@@ -592,14 +669,31 @@ final class ForgeDevtoolsHost {
 
     const cap = ForgeDevtoolsProtocol.maxListInDetail;
     return {
-      'detail': {
-        ...detail.toJson(),
+      'detail': _guard({
+        ..._payload(detail.toJson(), ['value', 'args']),
         'tags': detail.tags.take(cap).toList(),
         'tagsTotal': detail.tags.length,
         'deps': detail.deps.take(cap).toList(),
         'depsTotal': detail.deps.length,
-      },
+      }),
     };
+  }
+
+  /// One entity's JSON: the fields are the application's, so they are bounded;
+  /// the keys it points at and the queries that reach it are capped, with the
+  /// totals beside them.
+  Map<String, Object?>? _entity(EntitySnapshot? entity) {
+    if (entity == null) return null;
+
+    const cap = ForgeDevtoolsProtocol.maxListInDetail;
+
+    return _guard({
+      ..._payload(entity.toJson(), ['fields']),
+      'refs': entity.refs.take(cap).toList(),
+      'refsTotal': entity.refs.length,
+      'dependents': entity.dependents.take(cap).toList(),
+      'dependentsTotal': entity.dependents.length,
+    });
   }
 
   Map<String, Object?> _entities(
@@ -621,27 +715,31 @@ final class ForgeDevtoolsHost {
       contains: contains == null || contains.isEmpty ? null : contains,
     );
 
+    final total = devtools.countEntities(match);
+    final page = [
+      for (final entity in devtools.entities(
+        EntityFilter(
+          type: match.type,
+          contains: match.contains,
+          offset: offset,
+          limit: limit,
+        ),
+      ))
+        {
+          'key': entity.key,
+          'type': entity.type,
+          'id': entity.id,
+          'version': entity.version,
+          'frameAt': entity.frameAt,
+          'refCount': entity.refs.length,
+        },
+    ];
+
     return {
-      'total': devtools.countEntities(match),
+      'total': total,
       'offset': offset,
-      'items': [
-        for (final entity in devtools.entities(
-          EntityFilter(
-            type: match.type,
-            contains: match.contains,
-            offset: offset,
-            limit: limit,
-          ),
-        ))
-          {
-            'key': entity.key,
-            'type': entity.type,
-            'id': entity.id,
-            'version': entity.version,
-            'frameAt': entity.frameAt,
-            'refCount': entity.refs.length,
-          },
-      ],
+      'truncated': offset + page.length < total,
+      'items': _guarded(page),
     };
   }
 
@@ -660,12 +758,23 @@ final class ForgeDevtoolsHost {
         if (filter == null || filter.isEmpty || tag.tag.contains(filter)) tag,
     ];
 
+    final page = matching.skip(offset).take(limit).toList();
+    const cap = ForgeDevtoolsProtocol.maxListInDetail;
+
     return {
       'total': matching.length,
       'offset': offset,
-      'items': [
-        for (final tag in matching.skip(offset).take(limit)) tag.toJson(),
-      ],
+      'truncated': offset + page.length < matching.length,
+      'items': _guarded([
+        for (final tag in page)
+          {
+            'tag': tag.tag,
+            'carriers': tag.carriers.take(cap).toList(),
+            'carriersTotal': tag.carriers.length,
+            'mounted': tag.mounted.take(cap).toList(),
+            'mountedTotal': tag.mounted.length,
+          },
+      ]),
     };
   }
 
@@ -764,7 +873,7 @@ final class ForgeDevtoolsHost {
         : newer;
 
     return {
-      'entries': [for (final entry in kept) entry.toJson()],
+      'entries': _guarded([for (final entry in kept) entry.toJson()]),
       'dropped': devtools.dropped,
       'sequence': devtools.eventLog.sequence,
       'session': devtools.session,
@@ -800,7 +909,9 @@ final class ForgeDevtoolsHost {
 
     return {
       ..._framesState(devtools),
-      'entries': [for (final frame in kept) frame.toJson()],
+      'entries': _guarded([
+        for (final frame in kept) _payload(frame.toJson(), ['payload']),
+      ]),
     };
   }
 
@@ -885,10 +996,22 @@ final class ForgeDevtoolsHost {
     }
   }
 
+  static const _controlWrites = [
+    'mode',
+    'latencyMs',
+    'failNext',
+    'disarm',
+    'toggle',
+  ];
+
   Map<String, Object?> _control(
     dt.Devtools devtools,
     Map<String, String> params,
   ) {
+    // Every parameter here but `cache` changes the network the panel imposes,
+    // so a session the cache has left is refused as it is for an action.
+    if (_controlWrites.any(params.containsKey)) _checkSession(devtools, params);
+
     final controls = devtools.controls;
     final revalidation = devtools.revalidation;
 
@@ -945,6 +1068,10 @@ final class ForgeDevtoolsHost {
 
   void _flush(_Attached attached) {
     attached.scheduled = false;
+
+    // A disposed cache posts nothing, even before the host has heard.
+    _pruneDisposed();
+
     if (attached.buffer.isEmpty || _attached[attached.id] != attached) return;
 
     final entries = [...attached.buffer];
@@ -952,16 +1079,11 @@ final class ForgeDevtoolsHost {
     attached.buffer.clear();
     attached.skipped = 0;
 
-    _poster(
-      ForgeDevtoolsProtocol.eventKind,
-      bounded(
-            {'cache': attached.id, 'entries': entries, 'skipped': skipped},
-            _responseWidth,
-            _responseDepth,
-            _responseBudget,
-          )!
-          as Map<String, Object?>,
-    );
+    _poster(ForgeDevtoolsProtocol.eventKind, {
+      'cache': attached.id,
+      'entries': _guarded(entries),
+      'skipped': skipped,
+    });
   }
 }
 

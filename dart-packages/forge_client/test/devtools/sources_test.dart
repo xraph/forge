@@ -354,7 +354,7 @@ void main() {
       await cache.dispose();
     });
     test(
-      'caps a backlog, bounds each row, and says how many there are',
+      'caps a backlog, keeps an id whole, and says how many there are',
       () async {
         final cache = await _signedIn(memoryStorage(), 'user-1');
 
@@ -373,7 +373,8 @@ void main() {
         expect(rows.first['id'], 'm0');
         expect(rows.last['id'], 'm199');
 
-        // A row's strings are cut too.
+        // An id is an identifier: the panel sends it back to replay or discard
+        // the write, so it is never cut.
         await cache.session!.remove('m0');
         for (var i = 1; i < 200; i++) {
           await cache.session!.remove('m$i');
@@ -384,7 +385,7 @@ void main() {
 
         final long = _rows(await devtools.outbox()).single['id']! as String;
 
-        expect(long.length, lessThan(250));
+        expect(long, 'x' * 500);
 
         devtools.dispose();
         await cache.dispose();
