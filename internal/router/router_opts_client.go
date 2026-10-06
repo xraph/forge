@@ -154,3 +154,72 @@ func (o *groupIdempotentOpt) Apply(cfg *GroupConfig) {
 // reaches reads in the group too, so the OpenAPI generator keeps it off GET and
 // HEAD routes, where the middleware does nothing.
 func WithGroupIdempotent(mw Middleware) GroupOption { return &groupIdempotentOpt{mw} }
+
+// SyncDef is one x-forge-sync declaration: the entity a sync route serves,
+// where its records live on the server, and the route's role.
+type SyncDef struct {
+	Protocol string
+	Entity   string
+	Table    string
+	Dataset  string
+	Role     string
+}
+
+// x-forge-sync protocol and role names.
+const (
+	SyncProtocolGroveCRDT = "grove-crdt"
+
+	SyncRolePull   = "pull"
+	SyncRolePush   = "push"
+	SyncRoleStream = "stream"
+	SyncRoleSocket = "socket"
+)
+
+// SyncOption refines a sync declaration.
+type SyncOption func(*SyncDef)
+
+// SyncDataset names the path parameter that selects the dataset, written as
+// it appears in the path template, e.g. "{id}".
+func SyncDataset(param string) SyncOption { return func(d *SyncDef) { d.Dataset = param } }
+
+// SyncRole sets the route's role: pull, push, stream or socket. Streaming
+// routes infer it; pull and push routes must say which they are.
+func SyncRole(role string) SyncOption { return func(d *SyncDef) { d.Role = role } }
+
+type syncOpt struct{ def SyncDef }
+
+func (o *syncOpt) Apply(cfg *RouteConfig) {
+	def := o.def
+	if def.Role == "" {
+		switch cfg.Kind {
+		case KindWebSocket:
+			def.Role = SyncRoleSocket
+		case KindSSE:
+			def.Role = SyncRoleStream
+		}
+	}
+
+	existing, _ := cfg.Metadata["forge.client.sync"].([]SyncDef)
+	setMeta(cfg, "forge.client.sync", append(append([]SyncDef(nil), existing...), def))
+}
+
+// WithSync declares that this route is a sync endpoint for entity, whose
+// records live in table on the server. Repeat it on a route that serves
+// several entities.
+func WithSync(protocol, entity, table string, opts ...SyncOption) RouteOption {
+	def := SyncDef{Protocol: protocol, Entity: entity, Table: table}
+	for _, opt := range opts {
+		opt(&def)
+	}
+
+	return &syncOpt{def}
+}
+
+func validSyncRole(role string) bool {
+	switch role {
+	case SyncRolePull, SyncRolePush, SyncRoleStream, SyncRoleSocket:
+		return true
+	default:
+		return false
+	}
+}

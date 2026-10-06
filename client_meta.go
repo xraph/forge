@@ -156,3 +156,38 @@ func WithStreamBinding(builders ...*EmitsBuilder) RouteOption {
 //
 //	router.GET("/orders", listOrders, forge.WithStaleTime(30*time.Second))
 func WithStaleTime(d time.Duration) RouteOption { return router.WithStaleTime(d) }
+
+// SyncDef is one x-forge-sync declaration.
+type SyncDef = router.SyncDef
+
+// SyncOption refines a sync declaration.
+type SyncOption = router.SyncOption
+
+// x-forge-sync protocol and role names.
+const (
+	SyncProtocolGroveCRDT = router.SyncProtocolGroveCRDT
+	SyncRolePull          = router.SyncRolePull
+	SyncRolePush          = router.SyncRolePush
+	SyncRoleStream        = router.SyncRoleStream
+	SyncRoleSocket        = router.SyncRoleSocket
+)
+
+// WithSync declares that this route is a sync endpoint for entity, whose
+// records live in table on the server. The generated Dart client lists it
+// in its sync table so forge_client_grove can own the entity.
+//
+// Example:
+//
+//	router.POST("/datasets/:id/sync/pull", pull,
+//	    forge.WithSync(forge.SyncProtocolGroveCRDT, "DatasetRow", "",
+//	        forge.SyncDataset("{id}"), forge.SyncRole(forge.SyncRolePull)),
+//	)
+func WithSync(protocol, entity, table string, opts ...SyncOption) RouteOption {
+	return router.WithSync(protocol, entity, table, opts...)
+}
+
+// SyncDataset names the path parameter that selects the dataset, e.g. "{id}".
+func SyncDataset(param string) SyncOption { return router.SyncDataset(param) }
+
+// SyncRole sets the route's sync role: pull, push, stream or socket.
+func SyncRole(role string) SyncOption { return router.SyncRole(role) }

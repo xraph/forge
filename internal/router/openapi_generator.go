@@ -563,6 +563,39 @@ func ClientExtensions(method string, metadata map[string]any) map[string]any {
 		set("x-forge-idempotent", true)
 	}
 
+	if defs, ok := metadata["forge.client.sync"].([]SyncDef); ok {
+		var decls []map[string]any
+
+		for _, d := range defs {
+			// A pull and a push are both POST: without a role the client
+			// cannot place the route, so the declaration is dropped rather
+			// than guessed.
+			if d.Protocol == "" || d.Entity == "" || !validSyncRole(d.Role) {
+				continue
+			}
+
+			decl := map[string]any{"protocol": d.Protocol, "entity": d.Entity, "role": d.Role}
+			// An empty table means one table per dataset, supplied at runtime.
+			if d.Table != "" {
+				decl["table"] = d.Table
+			}
+
+			if d.Dataset != "" {
+				decl["dataset"] = d.Dataset
+			}
+
+			decls = append(decls, decl)
+		}
+
+		switch len(decls) {
+		case 0:
+		case 1:
+			set("x-forge-sync", decls[0])
+		default:
+			set("x-forge-sync", decls)
+		}
+	}
+
 	return out
 }
 
