@@ -7,7 +7,7 @@ icon: Smartphone
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
-Forge generates a Dart client from the same API specification that produces the [web client](/docs/web-client). You get typed models, a typed REST client and typed errors. Add `--hooks` and you also get streaming clients and a runtime that caches **entities**, the way the TypeScript one does: `GET /orders/7` and `GET /orders` both point at one `Order:7`, and a `PATCH` that changes its total updates the detail screen, the row in the list and the badge in your app bar with no refetch.
+Forge generates a Dart client from the same API specification that produces the [web client](/docs/web-client). You get typed models, a typed REST client and typed errors. Add `--hooks` and you also get streaming clients and a runtime that caches **entities**, the way the TypeScript one does: `GET /orders/7` and `GET /orders` both point at one `Order:7`, and a `PATCH` that changes its total updates the detail screen, the row in the list and the badge in your app bar from the response to the write.
 
 The Dart runtime also does two things the TypeScript one doesn't. Add `forge_client_offline` and, on iOS, Android and the desktop, the cache is persisted on the device and encrypted at rest, and a write you make offline survives a restart and replays when the network comes back. Add `forge_client_grove` and entities stored in Grove sync in both directions. The server can still reject a change, and [Sync](/docs/dart-client/sync) covers what happens then.
 

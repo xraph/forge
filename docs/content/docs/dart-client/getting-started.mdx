@@ -1,0 +1,356 @@
+---
+title: Getting Started
+description: From a Go route table to a Flutter screen over a normalized cache, without annotating anything
+icon: Rocket
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+You have a Forge API and a Flutter app that needs to talk to it. This page builds the client end to end with the orders API from the [web client's getting started](/docs/web-client/getting-started), so if you've read that page the server half will look familiar. The API carries no client-specific options: no entity declarations, no invalidation map. You still get typed widgets over a normalized cache, and the cache knows what each write makes stale.
+
+<Steps>
+
+<Step>
+### The server
+
+Two entities, one page type and six routes. `Order` embeds a `Customer`, and the list returns a named `OrderPage`.
+
+```go title="main.go"
+package main
+
+import "github.com/xraph/forge"
+
+type Customer struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
+
+type Order struct {
+    ID       string   `json:"id"`
+    Total    int      `json:"total"`
+    Status   string   `json:"status"`
+    Customer Customer `json:"customer"`
+}
+
+type OrderPage struct {
+    Items []Order `json:"items"`
+    Total int     `json:"total"`
+}
+
+type CreateOrderRequest struct {
+    CustomerID string `json:"customerId"`
+    Total      int    `json:"total"`
+}
+
+type UpdateOrderRequest struct {
+    Status string `json:"status"`
+}
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "orders",
+        Version:     "1.0.0",
+        HTTPAddress: ":8097",
+        RouterOptions: []forge.RouterOption{
+            forge.WithOpenAPI(forge.OpenAPIConfig{
+                Title:       "Orders API",
+                Version:     "1.0.0",
+                SpecPath:    "/openapi.json",
+                SpecEnabled: true,
+                PrettyJSON:  true,
+            }),
+        },
+    })
+
+    r := app.Router()
+
+    r.GET("/orders", listOrders,
+        forge.WithOperationID("listOrders"),
+        forge.WithResponseSchema(200, "Orders", &OrderPage{}),
+    )
+    r.GET("/orders/:id", getOrder,
+        forge.WithOperationID("getOrder"),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+    r.POST("/orders", createOrder,
+        forge.WithOperationID("createOrder"),
+        forge.WithRequestSchema(&CreateOrderRequest{}),
+        forge.WithResponseSchema(201, "Order", &Order{}),
+    )
+    r.PATCH("/orders/:id", updateOrder,
+        forge.WithOperationID("updateOrder"),
+        forge.WithRequestSchema(&UpdateOrderRequest{}),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+    r.DELETE("/orders/:id", deleteOrder,
+        forge.WithOperationID("deleteOrder"),
+        forge.WithResponseSchema(200, "Order", &Order{}),
+    )
+    r.GET("/customers/:id", getCustomer,
+        forge.WithOperationID("getCustomer"),
+        forge.WithResponseSchema(200, "Customer", &Customer{}),
+    )
+
+    if err := app.Run(); err != nil {
+        panic(err)
+    }
+}
+```
+
+The six handlers are yours to write. Nothing on this page depends on what they do beyond returning those types.
+
+<Callout type="info">
+Return a named page type from a list route, never a bare `[]Order`. Forge inlines the element schema of a bare slice, and an inline object has no name to key a cache by, so the list would get no tags. The web client's getting started [walks through that case](/docs/web-client/getting-started#the-list-endpoint-did-not-get-a-contract).
+</Callout>
+</Step>
+
+<Step>
+### Get the specification
+
+Run the app and save its OpenAPI document. Commit it: that file is what lets CI, or a Flutter repository that can't import your Go module, generate the client.
+
+```bash
+curl -s http://localhost:8097/openapi.json -o openapi.json
+```
+</Step>
+
+<Step>
+### Generate
+
+From the root of your Flutter app, with `openapi.json` in it:
+
+```bash
+forge client generate --from-spec ./openapi.json --language dart --output ../orders_forge_client --package orders_forge_client --base-url "http://localhost:8097" --hooks
+```
+
+You need a `forge` binary that knows `--language dart`. The [Installation](/docs/dart-client/installation#the-generated-client) page says how to get one today.
+
+`--hooks` asks for the cache-aware layer: the `ops.dart` table and one binding per operation. It's off by default. Leave it out and you get a typed REST client that depends on `package:http` and nothing from forge.
+</Step>
+
+<Step>
+### What came out
+
+```
+orders_forge_client/
+├── lib/
+│   ├── orders_forge_client.dart   the only import you need
+│   └── src/
+│       ├── models/                one immutable class per schema
+│       ├── codecs/                wire field names to Dart names, and back
+│       ├── bindings/              one file per operation
+│       ├── ops.dart               the cache contract, as data
+│       ├── rest.dart              typed RestClient
+│       ├── errors.dart            sealed ApiError hierarchy
+│       ├── pagination.dart
+│       ├── support.dart
+│       └── sync.dart
+├── pubspec.yaml
+└── README.md
+```
+
+Your Go types, as Dart. Each class is immutable and comes with `copyWith`, `==` and `hashCode`, and there's no `build_runner` step for you to run:
+
+```dart title="lib/src/models/order.dart"
+final class Order {
+  const Order({
+    required this.customer,
+    required this.id,
+    required this.status,
+    required this.total,
+  });
+
+  // fromClient factory elided
+
+  final Customer customer;
+  final String id;
+  final String status;
+  final int total;
+
+  // copyWith, toClient, == and hashCode follow
+}
+```
+
+Next, the cache contract, derived in Go. This is the part you didn't write:
+
+```dart title="lib/src/ops.dart"
+const opListOrders = OperationMeta(
+  id: 'op_list_orders',
+  method: 'GET',
+  path: '/orders',
+  entity: 'Order',
+  rootType: 'OrderPage',
+  provides: ['Order:{id}', 'Order[]'],
+  responseCodec: orderPageCodec,
+);
+
+const opCreateOrder = OperationMeta(
+  id: 'op_create_order',
+  method: 'POST',
+  path: '/orders',
+  entity: 'Order',
+  rootType: 'Order',
+  provides: ['Order:{id}'],
+  invalidates: ['Order[]'],
+  bodyCodec: createOrderRequestBodyCodec,
+  responseCodec: orderCodec,
+);
+
+const opUpdateOrder = OperationMeta(
+  id: 'op_update_order',
+  method: 'PATCH',
+  path: '/orders/{id}',
+  entity: 'Order',
+  rootType: 'Order',
+  provides: ['Order:{id}'],
+  invalidates: ['Order[]'],
+  bodyCodec: updateOrderRequestBodyCodec,
+  responseCodec: orderCodec,
+);
+
+const EntitySchema entities = {
+  'Customer': EntityMeta(idField: 'id'),
+  'Order': EntityMeta(idField: 'id', fields: {'customer': 'Customer'}),
+  'OrderPage': EntityMeta(fields: {'items': 'Order'}),
+};
+```
+
+And one line per operation, with no logic in any of them:
+
+```dart title="lib/src/bindings/*.dart"
+final listOrders = query<OrderPage, NoArgs>(opListOrders, OrderPage.fromClient);
+final getOrder = query<Order, GetOrderArgs>(opGetOrder, Order.fromClient);
+final getCustomer = query<Customer, GetCustomerArgs>(opGetCustomer, Customer.fromClient);
+final createOrder = mutation<Order, CreateOrderArgs, Order>(opCreateOrder, Order.fromClient, entityFromClient: Order.fromClient, entityToClient: (e) => e.toClient());
+final updateOrder = mutation<Order, UpdateOrderArgs, Order>(opUpdateOrder, Order.fromClient, entityFromClient: Order.fromClient, entityToClient: (e) => e.toClient());
+final deleteOrder = mutation<Order, DeleteOrderArgs, Order>(opDeleteOrder, Order.fromClient, entityFromClient: Order.fromClient, entityToClient: (e) => e.toClient());
+```
+
+Forge's own health, info and metrics routes get a binding each too. The listing above leaves them out.
+
+Now read what the table says. `Order` and `Customer` were both recognised as entities keyed on `id`. A create, an update or a delete of an order invalidates `Order[]`, and the list provides `Order[]`, so a new order refetches it. `OrderPage` has a field edge and no `idField`. It's a signpost the store walks through, not a record it keeps. None of that was declared anywhere.
+</Step>
+
+</Steps>
+
+## Using it
+
+Depend on the generated package and the Flutter adapter. The [Installation](/docs/dart-client/installation#add-the-packages) page explains where the sha comes from; use the same one in every `ref:`.
+
+```yaml title="pubspec.yaml"
+dependencies:
+  flutter:
+    sdk: flutter
+  forge_client:
+    git:
+      url: https://github.com/xraph/forge
+      path: dart-packages/forge_client
+      ref: <commit sha>
+  forge_client_flutter:
+    git:
+      url: https://github.com/xraph/forge
+      path: dart-packages/forge_client_flutter
+      ref: <commit sha>
+  orders_forge_client:
+    path: ../orders_forge_client
+
+dependency_overrides:
+  forge_client:
+    git:
+      url: https://github.com/xraph/forge
+      path: dart-packages/forge_client
+      ref: <commit sha>
+```
+
+Then point the runtime at the server and build a screen:
+
+```dart title="lib/main.dart"
+import 'package:flutter/material.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+void main() {
+  final cache = configureClient(
+    transport: RestTransport(baseUrl: Uri.parse('http://localhost:8097')),
+    entities: entities,
+    commitScheduler: frameCommitScheduler(),
+  );
+
+  runApp(ForgeScope(client: cache, child: const MaterialApp(home: OrdersScreen())));
+}
+
+class OrdersScreen extends StatelessWidget {
+  const OrdersScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Orders')),
+      floatingActionButton: ForgeMutationBuilder(
+        mutation: createOrder,
+        builder: (context, m) => FloatingActionButton(
+          onPressed: m.state is MutationPending
+              ? null
+              : () => m.mutate(
+                    CreateOrderArgs(body: CreateOrderRequestBody(customerId: 'c-1', total: 0)),
+                  ),
+          child: const Icon(Icons.add),
+        ),
+      ),
+      body: ForgeQueryBuilder(
+        query: listOrders(const NoArgs()),
+        builder: (context, state) => switch (state) {
+          QueryIdle() || QueryLoading() => const Center(child: CircularProgressIndicator()),
+          QueryFailure(:final error) => Center(child: Text('Could not load orders: $error')),
+          QuerySuccess(:final data) => ListView(
+              children: [
+                for (final order in data.items)
+                  ListTile(
+                    title: Text(order.customer.name),
+                    subtitle: Text(order.status),
+                    trailing: Text('${order.total}'),
+                  ),
+              ],
+            ),
+        },
+      ),
+    );
+  }
+}
+```
+
+An Android emulator can't reach your machine as `localhost`; it's `10.0.2.2` from in there. A real device needs your machine's address.
+
+The `ForgeScope` hands the cache to every widget below it. While it's mounted, it also refetches stale queries when the app returns to the foreground and when the device reconnects, so you call nothing else for that. A `POST` body is one argument, which is why `CreateOrderArgs` takes a `body:` of its own class.
+
+Tap the button and the list refetches. The server said `POST /orders` invalidates `Order[]`, and this query provides it.
+
+Change one order's status from another screen and it goes like this. The `PATCH` response carries `Order:7`, and the list and the detail screen read that same record, so both show the new status from the response itself, before anything is refetched. The write also invalidates `Order[]`, so the list refetches in the background. A detail screen built on `getOrder` provides `Order:{id}` and not `Order[]`, so it makes no request at all.
+
+When a record hasn't changed, the store keeps the same object for it. The widget layer compares query data with `identical()`, so an unchanged result is recognised as unchanged. The [Entities](/docs/dart-client/entities) page picks that up.
+
+`m.mutate` never throws. A failed write comes back as `null` and shows up as `MutationFailure` in `m.state`, so a button handler has no `try` to forget. If you'd rather catch the error yourself, `m.mutateAsync` throws it.
+
+<Callout type="info">
+This app needs `forge_client_flutter` and the generated package, and nothing else. [Offline and security](/docs/dart-client/offline-and-security) adds `forge_client_offline`, which keeps the cache on the device and queues writes made while it's offline. It runs on iOS, Android and the desktop, and the web has no offline storage yet.
+</Callout>
+
+## Next
+
+<Cards>
+<Card title="Entities" href="/docs/dart-client/entities">
+How identity reaches the Dart store, and what structural sharing buys your widgets.
+</Card>
+<Card title="Invalidation" href="/docs/dart-client/invalidation">
+Invalidating by hand, freshness, and live queries.
+</Card>
+<Card title="Flutter adapter" href="/docs/dart-client/flutter-adapter">
+Dependent queries, optimistic writes, and reading the cache outside the widget tree.
+</Card>
+<Card title="Offline and security" href="/docs/dart-client/offline-and-security">
+Keep the cache on the device and queue writes made offline.
+</Card>
+</Cards>
