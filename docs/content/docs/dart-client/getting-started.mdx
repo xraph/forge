@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
-You have a Forge API and a Flutter app that needs to talk to it. This page builds the client end to end with the orders API from the [web client's getting started](/docs/web-client/getting-started), so if you've read that page the server half will look familiar. The API carries no client-specific options: no entity declarations, no invalidation map. You still get typed widgets over a normalized cache, and the cache knows what each write makes stale.
+You have a Forge API and a Flutter app that needs to talk to it. This page builds the client end to end with the orders API from the [web client's getting started](/docs/web-client/getting-started), so if you've read that page the server half will look familiar. The API carries no client-specific options: no entity declarations, no invalidation map. You still get typed widgets over a normalized cache, and the cache knows which lists an order's create, update or delete makes stale.
 
 <Steps>
 
@@ -176,6 +176,7 @@ final class Order {
 Next, the cache contract, derived in Go. This is the part you didn't write:
 
 ```dart title="lib/src/ops.dart"
+// excerpt: four of the twelve operations
 const opListOrders = OperationMeta(
   id: 'op_list_orders',
   method: 'GET',
@@ -210,6 +211,16 @@ const opUpdateOrder = OperationMeta(
   responseCodec: orderCodec,
 );
 
+const opDeleteOrder = OperationMeta(
+  id: 'op_delete_order',
+  method: 'DELETE',
+  path: '/orders/{id}',
+  entity: 'Order',
+  rootType: 'Order',
+  invalidates: ['Order[]'],
+  responseCodec: orderCodec,
+);
+
 const EntitySchema entities = {
   'Customer': EntityMeta(idField: 'id'),
   'Order': EntityMeta(idField: 'id', fields: {'customer': 'Customer'}),
@@ -228,7 +239,7 @@ final updateOrder = mutation<Order, UpdateOrderArgs, Order>(opUpdateOrder, Order
 final deleteOrder = mutation<Order, DeleteOrderArgs, Order>(opDeleteOrder, Order.fromClient, entityFromClient: Order.fromClient, entityToClient: (e) => e.toClient());
 ```
 
-Forge's own health, info and metrics routes get a binding each too. The listing above leaves them out.
+Forge's own health, info, metrics and OpenAPI routes get a binding each too. The listing above leaves them out.
 
 Now read what the table says. `Order` and `Customer` were both recognised as entities keyed on `id`. A create, an update or a delete of an order invalidates `Order[]`, and the list provides `Order[]`, so a new order refetches it. `OrderPage` has a field edge and no `idField`. It's a signpost the store walks through, not a record it keeps. None of that was declared anywhere.
 </Step>
@@ -322,20 +333,20 @@ class OrdersScreen extends StatelessWidget {
 }
 ```
 
-An Android emulator can't reach your machine as `localhost`; it's `10.0.2.2` from in there. A real device needs your machine's address.
+This one is Android behaviour, not Forge's. An emulator reaches your machine at `10.0.2.2` instead of `localhost`, and Android 9 and later block cleartext `http`, so a debug build needs `android:usesCleartextTraffic="true"` on the `<application>` element in `android/app/src/debug/AndroidManifest.xml` (or an HTTPS server). A real device needs your machine's address.
 
 The `ForgeScope` hands the cache to every widget below it. While it's mounted, it also refetches stale queries when the app returns to the foreground and when the device reconnects, so you call nothing else for that. A `POST` body is one argument, which is why `CreateOrderArgs` takes a `body:` of its own class.
 
-Tap the button and the list refetches. The server said `POST /orders` invalidates `Order[]`, and this query provides it.
+Tap the button and the list refetches. The table says `POST /orders` invalidates `Order[]`, and this query provides it.
 
 Change one order's status from another screen and it goes like this. The `PATCH` response carries `Order:7`, and the list and the detail screen read that same record, so both show the new status from the response itself, before anything is refetched. The write also invalidates `Order[]`, so the list refetches in the background. A detail screen built on `getOrder` provides `Order:{id}` and not `Order[]`, so it makes no request at all.
 
-When a record hasn't changed, the store keeps the same object for it. The widget layer compares query data with `identical()`, so an unchanged result is recognised as unchanged. The [Entities](/docs/dart-client/entities) page picks that up.
+A refetch that brings back a record unchanged hands your widget the same object as before, so a `select:` or an `==` check on it is cheap. The [Entities](/docs/dart-client/entities) page shows where that matters.
 
 `m.mutate` never throws. A failed write comes back as `null` and shows up as `MutationFailure` in `m.state`, so a button handler has no `try` to forget. If you'd rather catch the error yourself, `m.mutateAsync` throws it.
 
 <Callout type="info">
-This app needs `forge_client_flutter` and the generated package, and nothing else. [Offline and security](/docs/dart-client/offline-and-security) adds `forge_client_offline`, which keeps the cache on the device and queues writes made while it's offline. It runs on iOS, Android and the desktop, and the web has no offline storage yet.
+This app needs `forge_client`, `forge_client_flutter` and the generated package. [Offline and security](/docs/dart-client/offline-and-security) adds `forge_client_offline`, which keeps the cache on the device and queues writes made while it's offline. It runs on iOS, Android and the desktop, and the web has no offline storage yet.
 </Callout>
 
 ## Next
