@@ -9,6 +9,8 @@
     "installation",
     "---Declaring on the server---",
     "entities",
-    "invalidation"
+    "invalidation",
+    "---Tooling---",
+    "generated-package"
   ]
 }
