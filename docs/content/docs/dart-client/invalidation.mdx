@@ -110,13 +110,13 @@ Widget liveOrder(String id) => ForgeQueryBuilder(
 
 Opting in decides whether this widget opens and holds a channel. It doesn't decide who sees the data. Once any live query has a channel open, a frame updates the shared record, and every query that reads that record gets the new value, live or not. The web client explains [why it is opt-in](/docs/web-client/adapters#live-queries), and the reasoning is the same here.
 
-A frame goes through the entity's codec before it reaches the store, just like a REST response, so under the default naming a live query sees `customerId` and never `customer_id`. The binder commits frames through the cache's commit scheduler, so with `frameCommitScheduler()` a burst of frames lands in one commit per frame.
+A frame goes through the entity's codec before it reaches the store, just like a REST response, so under the default naming a live query sees `customerId` and never `customer_id`. The binder commits frames through the cache's commit scheduler, so with `frameCommitScheduler()` a burst of frames lands in one commit per frame. Pass it as `commitScheduler:` when you build the client, as the [Installation](/docs/dart-client/installation#wiring-the-runtime) page shows.
 
 When a dropped socket reconnects, the binder invalidates the list tags of the entities on that channel and refetches every live query on it. It waits up to a second first for the server to say it replayed what you missed.
 
 ### Wiring a stream runtime
 
-The runtime opens nothing by itself. Give a `SubscriptionManager` a function that connects to an endpoint, and a `StreamBinder` joins it to the cache and the generated `streams` table:
+The runtime opens nothing by itself. Give a `SubscriptionManager` a function that connects to an endpoint, and a `StreamBinder` joins it to the cache and the generated `streams` table. This sample is for a Flutter app, where `forge_client_flutter` provides `ConnectivityPlusSignal`; in plain Dart you pass your own `ConnectivitySignal` to `revive`.
 
 ```dart
 void reportStreamError(Object error, String context) {
@@ -147,7 +147,7 @@ StreamBinder startStreams(QueryCache cache) {
 }
 ```
 
-`webSocketConnection()` and `eventSourceConnection()` return connect functions, and each picks its native or web implementation through a conditional import, so the same code runs on a phone and in a browser. The manager opens one socket per endpoint and principal, multiplexes channels over it, and closes it one turn after the last subscriber leaves. `revive` retries sockets it gave up on when the network comes back.
+The table lists channels, not transports, so which connect function an endpoint gets is up to you; the `/sse/` path test above is only an example. `webSocketConnection()` and `eventSourceConnection()` return connect functions, and each picks its native or web implementation through a conditional import, so the same code runs on a phone and in a browser. The manager opens one socket per endpoint and principal, multiplexes channels over it, and closes it one turn after the last subscriber leaves. `revive` retries sockets it gave up on when the network comes back.
 
 Build the manager with `principal: () => cache.principal`. Without it, a signed-in app gets no live frames: the binder compares the two principals, drops every frame while they differ, and reports a `StateError` through `onError`.
 
@@ -166,7 +166,7 @@ A channel served by `extensions/streaming` should hand `forgeStreamingDecoder()`
 | SSE | a streamed `http` response, parsed in Dart | `EventSource` through `package:web` |
 | WebTransport | not available | `WebTransport` through `dart:js_interop`, where the browser has it |
 
-Dart has no WebTransport outside the browser. Ask for it on a native platform, or in a browser without it, and `webTransportConnection()` throws a `TransportUnavailable` that names the route. The manager reports that once through `onError`, with the context `stream connect` and the endpoint, and never retries it. The `reportStreamError` above picks it out.
+Dart has no WebTransport outside the browser. Ask for it on a native platform, or in a browser without it, and the connect function `webTransportConnection()` returns fails with a `TransportUnavailable` that names the endpoint. The manager reports that once through `onError`, with the context `stream connect` and the endpoint, and never retries it. The `reportStreamError` above picks it out.
 
 If the same endpoint is also served over a WebSocket, put the two behind `fallbackConnection`. It tries each factory in order and moves on only when one says it's unavailable here, so any other failure still reaches you:
 
@@ -177,4 +177,4 @@ StreamConnect connectAnywhere() => fallbackConnection([
     ]);
 ```
 
-A stream bound only to a WebTransport route has nothing to fall back to, so give every WebTransport route a WebSocket sibling if your app ships beyond the web.
+An endpoint your `connect` sends only to WebTransport has nothing to fall back to, so give every WebTransport route a WebSocket sibling if your app ships beyond the web.
