@@ -7,14 +7,14 @@ icon: Download
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-You need Flutter 3.47 or newer, which ships Dart 3.13. Every package declares `sdk: ^3.13.0`, so an older toolchain fails at `pub get` with a version error, not later with something stranger.
+You need Flutter 3.47 or newer, which ships Dart 3.13. Every package declares `sdk: ^3.13.0`, so an older toolchain fails at `pub get` with a version error.
 
 ## Add the packages
 
-The packages live in the forge repository under `dart-packages/`. They aren't on pub.dev, so you depend on them with git, and every entry needs a `ref:`. Get a full commit sha first:
+The packages live in the forge repository under `dart-packages/`. You depend on them with git, and every entry needs a `ref:`. Get the full sha of a forge commit that contains `dart-packages/`. This prints the tip of main:
 
 ```bash
-git ls-remote https://github.com/xraph/forge.git main
+git ls-remote https://github.com/xraph/forge main
 ```
 
 Then add the runtime and one adapter, with that sha in each `ref:` line:
@@ -25,12 +25,12 @@ Then add the runtime and one adapter, with that sha in each `ref:` line:
 dependencies:
   forge_client:
     git:
-      url: https://github.com/xraph/forge.git
+      url: https://github.com/xraph/forge
       path: dart-packages/forge_client
       ref: <commit sha>
   forge_client_flutter:
     git:
-      url: https://github.com/xraph/forge.git
+      url: https://github.com/xraph/forge
       path: dart-packages/forge_client_flutter
       ref: <commit sha>
 ```
@@ -41,12 +41,12 @@ dependencies:
   flutter_riverpod: ^3.4.3
   forge_client:
     git:
-      url: https://github.com/xraph/forge.git
+      url: https://github.com/xraph/forge
       path: dart-packages/forge_client
       ref: <commit sha>
   forge_client_riverpod:
     git:
-      url: https://github.com/xraph/forge.git
+      url: https://github.com/xraph/forge
       path: dart-packages/forge_client_riverpod
       ref: <commit sha>
 ```
@@ -72,7 +72,7 @@ You add `forge_client_offline` with the same two lines and its own `path`, and y
 
 You pick one adapter style per app. `forge_client_riverpod` is built on `forge_client_flutter` and installs focus and reconnect revalidation through the same installer, so both styles refetch stale queries the same way. Generated clients import neither adapter, so if you change your mind later you don't regenerate anything.
 
-Offline and Grove support are separate packages for a reason: a web app that only talks REST never pulls in SQLite, a keystore plugin or CRDT code.
+`forge_client_offline` and `forge_client_grove` are separate packages, so an app that only talks REST doesn't link SQLite, a keystore plugin or CRDT code.
 
 ## The generated client
 
@@ -92,7 +92,7 @@ go install github.com/xraph/forge/cmd/forge@latest
 forge client generate --from-spec ./openapi.json --language dart --output ../orders_forge_client --package orders_forge_client --base-url "https://api.example.com" --hooks
 ```
 
-`--package` has to be a valid Dart package name: lowercase letters, digits and underscores. Then depend on the output by path:
+`--package` has to be a valid Dart package name: lowercase letters, digits and underscores, starting with a letter or an underscore, and not a Dart reserved word. Then depend on the output by path:
 
 ```yaml title="pubspec.yaml"
 dependencies:
@@ -102,18 +102,18 @@ dependencies:
 dependency_overrides:
   forge_client:
     git:
-      url: https://github.com/xraph/forge.git
+      url: https://github.com/xraph/forge
       path: dart-packages/forge_client
       ref: <commit sha>
 ```
 
-A client generated with `--hooks` depends on `forge_client`. Until the runtime is on pub.dev, the override is what tells pub where that is, and it keeps the client and your app on one copy of the runtime. Give it the same `ref` as your direct entries.
+A client generated with `--hooks` depends on `forge_client`. The runtime isn't on pub.dev, so the override is what tells pub where it is, and it keeps the client and your app on one copy of the runtime. Give it the same `ref` as your direct entries.
 
 The rest of the flags, and `check`, `diff` and `watch` for keeping a committed client honest in CI, work the same way they do for TypeScript. See [the CLI reference](/docs/web-client/cli).
 
 ## Generating without the runtime
 
-Leave out `--hooks` and you get models, codecs, a typed `RestClient`, typed errors, pagination helpers and streaming clients. That package depends on `package:http` and nothing from forge:
+Leave out `--hooks` and you get models, codecs, a typed `RestClient`, typed errors and pagination helpers. That package depends on `package:http` and nothing from forge:
 
 ```dart
 import 'package:orders_forge_client/orders_forge_client.dart';
@@ -125,11 +125,11 @@ Future<void> main() async {
 }
 ```
 
-What you don't get is the normalized cache, the tags and the bindings. Those live in `forge_client`.
+What you don't get is the normalized cache, the tags, the ops table, the bindings and the streaming clients. Those need `--hooks` and `forge_client`. Without `--hooks` the generator skips the streaming clients, and it warns you when your spec has streaming endpoints.
 
 ## Wiring the runtime
 
-Generated bindings are top-level constants, created before your app exists. Point the runtime at your API once, before `runApp`:
+Generated bindings are top-level values that aren't tied to a cache, so you point the runtime at your API once, before `runApp`:
 
 ```dart title="lib/main.dart"
 import 'package:flutter/material.dart';
@@ -195,8 +195,8 @@ RestTransport authenticatedTransport(Future<String> Function() renew) => RestTra
     );
 ```
 
-`meta.security` lists the security schemes the operation declares, so a public endpoint gets no header at all.
+`meta.security` lists the security schemes the operation declares, so a public endpoint gets no header at all. This sample starts with no token, so the first request to a secured route goes out without a header, comes back 401, and only then calls `refresh()`. Seed `_token` if you'd rather skip that round trip.
 
 <Callout type="warn">
-The runtime retries `GET`, `HEAD`, `PUT` and `DELETE` by default, because repeating them is safe. A retry happens when the request failed with no status, or with a 408, a 429 or a 5xx. It never retries a `POST` or a `PATCH` on its own. The outbox in `forge_client_offline` has its own rules for replaying those; see [Offline and security](/docs/dart-client/offline-and-security#uncertain-writes-and-idempotent-routes).
+The runtime retries `GET`, `HEAD`, `PUT` and `DELETE` by default, because repeating them is safe. A retry happens when the request failed with no status, or with a 408, a 429 or a 5xx. It never retries a `POST` or a `PATCH` on its own, apart from the single resend after a 401 once the credential has been refreshed, because the server rejected that request before acting on it. The outbox in `forge_client_offline` has its own rules for replaying those; see [Offline and security](/docs/dart-client/offline-and-security#uncertain-writes-and-idempotent-routes).
 </Callout>
