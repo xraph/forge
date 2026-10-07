@@ -512,4 +512,120 @@ void main() {
       },
     );
   });
+
+  // The advice in these messages is what a reader acts on. On a typed binding
+  // `OptimisticMany` does not typecheck, so the route that works is `key:`.
+  group('what an untargeted optimistic update says', () {
+    test('names key: when the operation invalidates no entity key', () async {
+      final (:cache, :reported, :ref, :transport) = await held(
+        () => order('shipped'),
+      );
+
+      final result = await updateOrder(
+        cache,
+        const UpdateOrderArgs(7, 'shipped'),
+        optimistic: OptimisticUpdate(
+          (order) => order.copyWith(status: 'shipped'),
+        ),
+      );
+
+      expect(result.status, 'shipped');
+      expect(transport.calls.map((call) => call.meta.method), ['GET', 'PATCH']);
+      expect(reported, hasLength(1));
+      expect(reported.single.$2, 'optimistic');
+      expect(reported.single.$1, isA<StateError>());
+      expect(
+        (reported.single.$1 as StateError).message,
+        "[forge] optimistic: PATCH /orders/{id} names no entity to patch: its "
+        'invalidates holds no single entity key. Pass key: to name the '
+        "record, for example key: entityKey('Order', id), or, on an untyped "
+        'binding, OptimisticMany with explicit keys.',
+      );
+      expect(ref.getState(cache).dataOrNull?.status, 'shipped');
+    });
+
+    test('says the same for a delete', () async {
+      final (:cache, :reported, ref: _, transport: _) = await held(() => null);
+      const remove = OperationMeta(
+        id: 'op_delete_order',
+        method: 'DELETE',
+        path: '/orders/{id}',
+        entity: 'Order',
+        invalidates: ['Order[]'],
+      );
+
+      await cache.mutate(
+        remove,
+        const TagContext(path: {'id': 7}),
+        options: const MutateOptions(optimistic: OptimisticDelete<Object?>()),
+      );
+
+      expect(
+        '${reported.single.$1}',
+        contains(
+          "Pass key: to name the record, for example key: entityKey('Order', id),",
+        ),
+      );
+    });
+
+    test('names key: and OptimisticMany when two entity keys make it ambiguous', () async {
+      final (:cache, :reported, ref: _, transport: _) = await held(
+        () => order('moved'),
+      );
+      const transfer = OperationMeta(
+        id: 'op_transfer_order',
+        method: 'PATCH',
+        path: '/orders/{id}/transfer',
+        entity: 'Order',
+        invalidates: ['Order:{id}', 'Customer:{req.customerId}'],
+      );
+
+      await cache.mutate(
+        transfer,
+        const TagContext(path: {'id': 7}, body: {'customerId': 'c2'}),
+        options: MutateOptions(
+          optimistic: OptimisticUpdate<Object?>((_) => {'status': 'moved'}),
+        ),
+      );
+
+      expect(reported.single.$2, 'optimistic');
+      expect(reported.single.$1, isA<AmbiguousTargetError>());
+      expect(
+        '${reported.single.$1}',
+        '[forge] optimistic: PATCH /orders/{id}/transfer invalidates more '
+            'than one entity (Order:7, Customer:c2), so its target cannot be '
+            'derived. Pass key: to name the record to patch, or, on an untyped '
+            'binding, OptimisticMany with a key on each patch to change several.',
+      );
+    });
+
+    test(
+      'does not suggest OptimisticMany for a create it cannot key',
+      () async {
+        final reported = <Object>[];
+        final cache = QueryCache(
+          transport: FakeTransport((_, _) => {'id': 9}),
+          entities: schema,
+          scheduler: ManualScheduler(),
+          onError: (error, _) => reported.add(error),
+        );
+        const bare = OperationMeta(id: 'bare', method: 'POST', path: '/things');
+
+        await cache.mutate(
+          bare,
+          TagContext.empty,
+          options: const MutateOptions(
+            optimistic: OptimisticCreate<Object?>({'total': 1}),
+          ),
+        );
+
+        expect(
+          (reported.single as StateError).message,
+          '[forge] optimistic: POST /things names no entity to create: an '
+          'optimistic create needs the operation to name an entity with an '
+          'identity field.',
+        );
+      },
+    );
+  });
 }

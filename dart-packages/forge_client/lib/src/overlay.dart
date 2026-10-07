@@ -572,7 +572,7 @@ bool _same(Object? a, Object? b, Set<Object>? route) {
 }
 
 /// A mutation declares more than one entity, so the one it changes cannot be
-/// derived. Pass explicit keys instead.
+/// derived. Pass `key:` instead, or [OptimisticMany] on an untyped binding.
 final class AmbiguousTargetError implements Exception {
   /// Creates the error.
   const AmbiguousTargetError(this.operation, this.keys);
@@ -586,7 +586,9 @@ final class AmbiguousTargetError implements Exception {
   @override
   String toString() =>
       '[forge] optimistic: $operation invalidates more than one entity (${keys.join(', ')}), '
-      'so its target cannot be derived. Pass explicit keys instead.';
+      'so its target cannot be derived. Pass key: to name the record to patch, '
+      'or, on an untyped binding, OptimisticMany with a key on each patch to '
+      'change several.';
 }
 
 /// The single entity a mutation changes, read out of what it invalidates.
@@ -741,8 +743,10 @@ ResolvedPatches? specToPatches(
       final idField = type == null ? null : entities[type]?.idField;
 
       if (type == null || idField == null) {
+        // Neither `key:` nor OptimisticMany can create, so neither is offered.
         refuse(
-          'names no entity to create. Pass OptimisticMany with explicit keys instead.',
+          'names no entity to create: an optimistic create needs the '
+          'operation to name an entity with an identity field.',
         );
 
         return null;
@@ -770,8 +774,12 @@ ResolvedPatches? specToPatches(
       }
 
       if (target == null) {
+        // `key:` first: on a typed binding OptimisticMany does not typecheck.
         refuse(
-          'names no entity to patch. Pass OptimisticMany with explicit keys instead.',
+          'names no entity to patch: its invalidates holds no single entity '
+          'key. Pass key: to name the record, for example '
+          "key: entityKey('${meta.entity ?? 'Type'}', id), or, on an untyped "
+          'binding, OptimisticMany with explicit keys.',
         );
 
         return null;
