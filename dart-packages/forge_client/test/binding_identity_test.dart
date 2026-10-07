@@ -159,6 +159,24 @@ void main() {
       expect(after[1], isNot(same(before[1])));
     });
 
+    test('gives a list row and the single-record read the same model', () async {
+      final (:cache, transport: _, scheduler: _) = rig(
+        (request, _) => request.meta.id == opGetOrder.id
+            ? {'id': 7, 'total': 99}
+            : [
+                {'id': 7, 'total': 99},
+                {'id': 8, 'total': 1},
+              ],
+      );
+
+      final rows = await listOrders(const ListOrdersArgs()).fetch(cache);
+      final single = await getOrder(const GetOrderArgs(id: 7)).fetch(cache);
+
+      // Both decode Order:7 through decodeCached with the same fromClient, so
+      // the store's one record becomes one model.
+      expect(single, same(rows[0]));
+    });
+
     test(
       'emits an identical typed state for every unchanged raw state on watch',
       () async {
