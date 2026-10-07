@@ -6,6 +6,9 @@
   "pages": [
     "index",
     "getting-started",
-    "installation"
+    "installation",
+    "---Declaring on the server---",
+    "entities",
+    "invalidation"
   ]
 }

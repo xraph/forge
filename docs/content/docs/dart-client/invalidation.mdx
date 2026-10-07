@@ -1,0 +1,180 @@
+---
+title: Invalidation
+description: Tags in the generated table, invalidating by hand, freshness, and live queries on each platform
+icon: RefreshCw
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Every operation carries two tag sets. `provides` is what its result can satisfy, and `invalidates` is what it makes stale. When a mutation settles, the runtime matches its `invalidates` against the tags of the queries being watched, marks the matches stale, and refetches them in one batch.
+
+Which tags an operation gets is decided in Go, the same way for both clients. The derived same-entity rule, `WithInvalidates`, `WithoutInvalidation`, tag templates and stream bindings are all on the web client's [Invalidation](/docs/web-client/invalidation) page, and you declare them there once for every client you generate. This page covers what you do with them in Dart.
+
+A call site can also skip a refetch it doesn't need. `ForgeMutationBuilder` and the mutation bindings take a `place:` map that puts the result straight into a list, and a callback that returns `null` falls back to the refetch. The contract is the one on the web client's [placement](/docs/web-client/runtime#the-placement-escape-hatch) section.
+
+## Tags in the generated table
+
+They arrive as plain lists on each operation:
+
+```dart title="lib/src/ops.dart"
+const opCreateOrder = OperationMeta(
+  id: 'op_create_order',
+  method: 'POST',
+  path: '/orders',
+  entity: 'Order',
+  rootType: 'Order',
+  provides: ['Order:{id}'],
+  invalidates: ['Order[]'],
+  bodyCodec: createOrderRequestBodyCodec,
+  responseCodec: orderCodec,
+);
+```
+
+A template such as `Customer:{req.customerId}` is resolved on each call. `req.` looks in the path, the query and the body your args class builds in `toTagContext()`, and `res.` looks in the decoded response. The resolution order and the wire-name fallback are the ones on the web page under [Tag templates](/docs/web-client/invalidation#tag-templates).
+
+A template that resolves to nothing is skipped. The runtime logs it once per template through `dart:developer`, under the name `forge`, so check there first when an invalidation seems to do nothing.
+
+## Invalidating by hand
+
+You rarely need this. When data changes on the server behind your back and no stream tells you, invalidate the tag:
+
+```dart
+void ordersChangedElsewhere(QueryCache cache) => cache.invalidate(['Order[]']);
+```
+
+Inside a widget, `context.forgeInvalidate` targets queries by their binding. Give it arguments and it marks that one query. Leave them out and it marks every cached variant of the binding.
+
+```dart
+class RefreshOrderButton extends StatelessWidget {
+  const RefreshOrderButton({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        icon: const Icon(Icons.refresh),
+        onPressed: () => context.forgeInvalidate(getOrder, GetOrderArgs(id: id)),
+      );
+}
+```
+
+Invalidating marks a query stale. A query something is watching refetches in the next batch, and keeps showing its old data with `isFetching` set until the answer lands. A query nothing is watching keeps the stale flag and refetches the next time something watches it. If you invalidate a screen you've left and see no request, that's why; open the screen and the request goes out.
+
+If you want to wait for the answer, say for a pull to refresh, use `context.forgeRefetch`. It refetches the mounted matches right away, marks the rest stale, and returns a future that completes when the mounted queries have settled. It throws if a refetch fails, so you'll want a `try` around it.
+
+## Freshness by time
+
+Tags are one reason a query refetches. Time is the other, and it's off until you turn it on. Declare `WithStaleTime` on a Go route ([how](/docs/web-client/runtime#withstaletime-on-a-route)), or set a default on the cache, or override it where you watch:
+
+```dart
+QueryCache freshForAMinute() => configureClient(
+      transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+      entities: entities,
+      staleTime: const Duration(minutes: 1),
+    );
+
+Stream<QueryState<Order>> watchOrder(QueryCache cache) =>
+    getOrder(const GetOrderArgs(id: '7')).watch(cache, staleTime: const Duration(seconds: 10));
+```
+
+A call site beats the route, and the route beats the cache default. When two widgets watch the same query with different values, the shorter one wins for as long as both are mounted. A route's value lands in the ops table as `staleTime` on its `OperationMeta`.
+
+`watch` delivers its first event on the next microtask, ahead of everything after it, because a Dart stream can't deliver inside `listen`. If you need the current state right now, `getState(cache)` returns it synchronously.
+
+The Flutter and Riverpod adapters revalidate when your app returns to the foreground and when the device gets its connection back. Revalidating refetches the watched queries that have aged past their `staleTime`, so with no `staleTime` anywhere those two triggers find nothing to do. The foreground trigger fires at most once every five seconds. A `ForgeScope` installs both for as long as it's mounted, and the Riverpod adapter installs them through its client provider. If you have neither, call `installFlutterSeams(cache)` once and keep the function it returns.
+
+In plain Dart you install the triggers yourself. `revalidateOnFocus` and `revalidateOnReconnect` take a signal you supply, and `poll` refetches one query on a timer. Each returns a function that uninstalls it.
+
+```dart
+void Function() pollOrder(QueryCache cache) => poll(
+      cache,
+      opGetOrder,
+      const GetOrderArgs(id: '7').toTagContext(),
+      const Duration(seconds: 30),
+    );
+```
+
+`poll` doesn't check staleness. It refetches on its timer, whether or not the query has aged and whether or not anything is watching it, and the next wait starts after the last request settled. It also has no idea your app went to the background, so call the uninstaller when you lose focus.
+
+## Live queries
+
+`live: true` subscribes to every channel the generated `streams` table binds to an entity this query can reach, and releases them when the last watcher goes away:
+
+```dart
+Widget liveOrder(String id) => ForgeQueryBuilder(
+      query: getOrder(GetOrderArgs(id: id)),
+      live: true,
+      builder: (context, state) => Text(state.dataOrNull?.status ?? 'Loading'),
+    );
+```
+
+Opting in decides whether this widget opens and holds a channel. It doesn't decide who sees the data. Once any live query has a channel open, a frame updates the shared record, and every query that reads that record gets the new value, live or not. The web client explains [why it is opt-in](/docs/web-client/adapters#live-queries), and the reasoning is the same here.
+
+A frame goes through the entity's codec before it reaches the store, just like a REST response, so under the default naming a live query sees `customerId` and never `customer_id`. The binder commits frames through the cache's commit scheduler, so with `frameCommitScheduler()` a burst of frames lands in one commit per frame.
+
+When a dropped socket reconnects, the binder invalidates the list tags of the entities on that channel and refetches every live query on it. It waits up to a second first for the server to say it replayed what you missed.
+
+### Wiring a stream runtime
+
+The runtime opens nothing by itself. Give a `SubscriptionManager` a function that connects to an endpoint, and a `StreamBinder` joins it to the cache and the generated `streams` table:
+
+```dart
+void reportStreamError(Object error, String context) {
+  if (error is TransportUnavailable) {
+    debugPrint('${error.route} needs ${error.transport}, which this platform lacks');
+    return;
+  }
+  debugPrint('stream $context: $error');
+}
+
+StreamBinder startStreams(QueryCache cache) {
+  final manager = SubscriptionManager(
+    baseUrl: Uri.parse('wss://api.example.com'),
+    principal: () => cache.principal,
+    revive: ConnectivityPlusSignal(),
+    onError: reportStreamError,
+    connect: (context) => context.url.path.startsWith('/sse/')
+        ? eventSourceConnection()(context)
+        : webSocketConnection()(context),
+  );
+  return StreamBinder(
+    cache: cache,
+    manager: manager,
+    streams: streams,
+    decode: forgeStreamingDecoder(),
+    onError: reportStreamError,
+  );
+}
+```
+
+`webSocketConnection()` and `eventSourceConnection()` return connect functions, and each picks its native or web implementation through a conditional import, so the same code runs on a phone and in a browser. The manager opens one socket per endpoint and principal, multiplexes channels over it, and closes it one turn after the last subscriber leaves. `revive` retries sockets it gave up on when the network comes back.
+
+Build the manager with `principal: () => cache.principal`. Without it, a signed-in app gets no live frames: the binder compares the two principals, drops every frame while they differ, and reports a `StateError` through `onError`.
+
+Without a binder, `live: true` opens nothing. The query still works as an ordinary one, and the cache reports a `StateError` with the context `live` through its `onError`, so pass one to `configureClient` if you want to see it. The `streams` table is only populated when you generate from the AsyncAPI document as well as the OpenAPI one; see [Stream bindings](/docs/web-client/invalidation#stream-bindings).
+
+<Callout type="warn">
+A channel served by `extensions/streaming` should hand `forgeStreamingDecoder()` to the binder as its decoder. Its domain frames bind without it, but presence, typing and join frames are reported as unknown messages, which is a debug log by default. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
+</Callout>
+
+### Transports by platform
+
+| Transport | Android, iOS, macOS, Windows, Linux | Web |
+|---|---|---|
+| REST | `package:http` | `package:http`, which uses `fetch` |
+| WebSocket | `web_socket_channel` | `web_socket_channel` |
+| SSE | a streamed `http` response, parsed in Dart | `EventSource` through `package:web` |
+| WebTransport | not available | `WebTransport` through `dart:js_interop`, where the browser has it |
+
+Dart has no WebTransport outside the browser. Ask for it on a native platform, or in a browser without it, and `webTransportConnection()` throws a `TransportUnavailable` that names the route. The manager reports that once through `onError`, with the context `stream connect` and the endpoint, and never retries it. The `reportStreamError` above picks it out.
+
+If the same endpoint is also served over a WebSocket, put the two behind `fallbackConnection`. It tries each factory in order and moves on only when one says it's unavailable here, so any other failure still reaches you:
+
+```dart
+StreamConnect connectAnywhere() => fallbackConnection([
+      webTransportConnection(),
+      webSocketConnection(),
+    ]);
+```
+
+A stream bound only to a WebTransport route has nothing to fall back to, so give every WebTransport route a WebSocket sibling if your app ships beyond the web.
