@@ -63,7 +63,16 @@ class _ForgeDevtoolsPanelState extends State<ForgeDevtoolsPanel> {
       ConnectionPhase.connecting => const Center(
         child: Text('Connecting to forge_client...'),
       ),
-      ConnectionPhase.incompatible || ConnectionPhase.failed => _Problem(
+      // A version mismatch offers no retry: asking the same app again gets
+      // the same answer. A hot restart or a new isolate says hello by itself.
+      ConnectionPhase.incompatible => Center(
+        key: const ValueKey('forge-incompatible'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(_connection.error ?? ForgeConnection.mismatchMessage),
+        ),
+      ),
+      ConnectionPhase.failed => _Problem(
         message: _connection.error ?? 'Unknown error.',
         onRetry: () => unawaited(_connection.reload()),
       ),

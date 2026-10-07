@@ -68,6 +68,11 @@ final class ForgeConnection extends ChangeNotifier {
       'The app changed account while this was running, so its answer was '
       'dropped and the view was reloaded. Nothing was changed.';
 
+  /// What the panel says when the app speaks another protocol version.
+  static const mismatchMessage =
+      "This DevTools extension and the app's forge_client versions don't "
+      'match; upgrade both.';
+
   /// What a call says when it is made while the panel says hello. The panel
   /// that made it is about to be replaced, so nothing is sent.
   static const reconnectingMessage =
@@ -141,6 +146,10 @@ final class ForgeConnection extends ChangeNotifier {
     // the cache it would ask may be the one that is gone.
     if (phase == ConnectionPhase.connecting) {
       throw BackendError(method, reconnectingMessage);
+    }
+    // An app that speaks another protocol version is asked nothing more.
+    if (phase == ConnectionPhase.incompatible) {
+      throw BackendError(method, mismatchMessage);
     }
 
     final started = generation;
@@ -335,9 +344,14 @@ final class ForgeConnection extends ChangeNotifier {
 
       final protocol = hello.integer('protocol');
       if (protocol != ForgeDevtoolsProtocol.version) {
+        // Nothing else is asked of an app that speaks another version: its
+        // answers would be read with the wrong shapes.
+        caches = const [];
+        cacheId = null;
+        session = null;
         error =
-            'The app speaks forge devtools protocol $protocol and this extension speaks '
-            '${ForgeDevtoolsProtocol.version}. Update forge_client and forge_client_devtools together.';
+            '$mismatchMessage The app speaks forge devtools protocol '
+            '$protocol, this extension speaks ${ForgeDevtoolsProtocol.version}.';
         _set(ConnectionPhase.incompatible);
         return;
       }
@@ -359,6 +373,10 @@ final class ForgeConnection extends ChangeNotifier {
 
   void _onEvent(Json event) {
     if (_disposed) return;
+
+    // An app that speaks another protocol version is asked nothing more,
+    // and what it posts is not read.
+    if (phase == ConnectionPhase.incompatible) return;
 
     // A cache attached or detached, this one or another: say hello again.
     if (event.containsKey(ForgeDevtoolsProtocol.lifecycle)) {

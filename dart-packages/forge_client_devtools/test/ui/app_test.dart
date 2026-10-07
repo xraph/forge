@@ -52,7 +52,7 @@ void main() {
   });
 
   testWidgets(
-    'refuses a protocol it does not speak, and says to update both packages',
+    'refuses a protocol it does not speak, and says to upgrade both packages',
     (tester) async {
       await pumpPanel(
         tester,
@@ -61,11 +61,42 @@ void main() {
 
       expect(
         find.textContaining(
-          'Update forge_client and forge_client_devtools together',
+          "This DevTools extension and the app's forge_client versions don't "
+          'match; upgrade both.',
         ),
         findsOneWidget,
       );
       expect(find.widgetWithText(Tab, 'Queries'), findsNothing);
+    },
+  );
+
+  // Protocol 2: the wire shapes changed (capped lists, required sessions, no
+  // principal value, lifecycle events), so an app on protocol 1 is refused
+  // and asked nothing more, whatever it posts.
+  testWidgets(
+    'accepts only protocol 2, and asks an app on protocol 1 nothing after hello',
+    (tester) async {
+      expect(ForgeDevtoolsProtocol.version, 2);
+      final fake = await pumpPanel(tester, FakeForgeBackend(protocol: 1));
+
+      expect(find.byKey(const ValueKey('forge-incompatible')), findsOneWidget);
+      expect(find.textContaining('upgrade both'), findsOneWidget);
+      expect(find.textContaining('protocol 1'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Retry'), findsNothing);
+      expect(fake.calls.map((c) => c.method), [ForgeDevtoolsProtocol.hello]);
+
+      fake.emitLifecycle('2', ForgeDevtoolsProtocol.attached);
+      fake.emit({
+        'cache': '1',
+        'skipped': 0,
+        'entries': [
+          {'kind': 'fetch', 'seq': 1, 'at': 1, 'session': 0, 'query': 'q'},
+        ],
+      });
+      await tester.pumpAndSettle();
+
+      expect(fake.calls.map((c) => c.method), [ForgeDevtoolsProtocol.hello]);
+      expect(find.byKey(const ValueKey('forge-incompatible')), findsOneWidget);
     },
   );
 

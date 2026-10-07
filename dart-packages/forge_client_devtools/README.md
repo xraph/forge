@@ -98,8 +98,8 @@ there now, and reconnects by itself.
 The same goes for a cache that is replaced inside one isolate. Close an
 `OfflineClient` and open the next user's, and the app tells the extension that
 cache 1 went and cache 2 arrived. The extension drops every panel and moves to
-cache 2. If it misses that news, the first call the app refuses because cache 1
-is gone does the same job.
+cache 2. If the extension misses that news, the first call the app refuses
+(because cache 1 is gone) makes the same move.
 
 The request log keeps no headers and no request or response bodies. It does
 show the operation, the path and the query values (each cut short).
@@ -113,9 +113,9 @@ Every action the extension sends (refetch, invalidate, mark stale, drop,
 evict, replay, discard, capture, and every change on the rail) carries the
 session of the cache as the extension last saw it. If the app has changed
 account since, it refuses the action and the panel shows the refusal, so a
-click made against the previous account never lands on the new one. A change
-that names no session at all is refused too. Evicting an entity that sync owns
-is refused as well.
+click made against the previous account never lands on the new one. The app
+also refuses a change that names no session at all, and an eviction of an
+entity that sync owns.
 
 ## When the tab says forge_client is not running
 
