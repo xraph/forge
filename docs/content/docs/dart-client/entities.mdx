@@ -20,7 +20,7 @@ const EntitySchema entities = {
 };
 ```
 
-Pass it as `entities:` and never edit it. Each key is a typename. `idField` is the field that identifies a record, spelled the way your Dart code sees it. Under the default `camel` naming, an identity the server sends as `invoice_number` shows up here as `invoiceNumber` (`--field-naming preserve` keeps the wire spelling). The same function renames the fields in the codecs and the ones in this table, so the table can't look for a field the decoded payload doesn't have.
+Pass it as `entities:` and never edit it. Each key is a typename. `idField` is the field that identifies a record, spelled the way the client-shaped JSON spells it, which is what `--field-naming` controls. Under the default `camel` naming, an identity the server sends as `invoice_number` shows up here as `invoiceNumber` (`--field-naming preserve` keeps the wire spelling). The same function renames the fields in the codecs and the ones in this table, so the table can't look for a field the decoded payload doesn't have.
 
 `fields` says which field holds which typename, and for a list it names the element type. A row with no `idField`, like `OrderPage`, is a signpost: the store walks through its fields and never keeps it as a record.
 

@@ -26,7 +26,7 @@ orders_forge_client/
 └── README.md
 ```
 
-Import `package:orders_forge_client/orders_forge_client.dart` and nothing under `src/`. The barrel exports models, bindings, errors, `ops.dart`, pagination and the REST client. From `support.dart` it exports only `Assign`, `Int64`, `Json`, `Unchanged` and `Value`, and it leaves the codecs out.
+Import `package:orders_forge_client/orders_forge_client.dart` and nothing under `src/`. The barrel exports models, bindings, errors, `ops.dart`, pagination and the REST client, plus `capabilities.dart` and the `streaming/` clients when they're generated. From `support.dart` it exports only `Assign`, `Int64`, `Json`, `Unchanged` and `Value`, and it leaves the codecs out.
 
 Some files show up only when the run or the specification calls for them:
 
@@ -80,7 +80,7 @@ final class Order {
 }
 ```
 
-That's one class per schema, with a `const` constructor, `copyWith`, `==` and `hashCode`. `fromClient` and `toClient` are what the runtime calls to move a record in and out of the cache. A `oneOf` or `anyOf` becomes a sealed base class with one subclass per branch, picked by the schema's discriminator when it has one and by the required fields otherwise, the same rules the TypeScript codecs use. A value that matches no branch decodes to a subclass named for the union with `Unknown` on the end, which keeps what it received. An `allOf` is flattened into one class.
+That's one class per schema, with a `const` constructor, `copyWith`, `==` and `hashCode`. `fromClient` and `toClient` are what the runtime calls to move a record in and out of the cache. A `oneOf` or `anyOf` becomes a sealed base class with one subclass per branch, picked by the schema's discriminator when it has one with a mapping, and by the required fields otherwise, the same rules the TypeScript codecs use. A value that matches no branch decodes to a subclass named for the union with `Unknown` on the end, which keeps what it received. An `allOf` is flattened into one class.
 
 There is no `build_runner`, no `json_serializable` and no `freezed`. Forge emits finished code, and you never run a second generator over it.
 
@@ -117,6 +117,8 @@ const Map<String, OperationMeta> operations = {
   'op_update_order': opUpdateOrder,
 };
 
+/// How to identify and descend each named type. A row with no idField is a
+/// signpost: walked for its fields, never stored.
 const EntitySchema entities = {
   'Customer': EntityMeta(idField: 'id'),
   'Order': EntityMeta(idField: 'id', fields: {'customer': 'Customer'}),
@@ -317,7 +319,7 @@ The runtime also has `statusOf`, which gives you the status as an `int?`. It rea
 | nullable or optional | `T?` |
 | a reference that doesn't resolve | `Object?` |
 
-Lists and maps decoded from the wire are unmodifiable.
+Typed lists and maps decoded from the wire are unmodifiable. A free-form object is a plain `Map<String, Object?>`, and you can change it.
 
 ### int64
 
@@ -368,11 +370,24 @@ enum StatusKnown {
 }
 ```
 
-When the server adds a value your app has never heard of, the field still decodes. It's a `Status` whose `isKnown` is false and whose `wire` is what the server sent, and it encodes back unchanged. For an exhaustive `switch`, switch on `known`, the plain `StatusKnown` enum, and give the `null` arm the unknown case: `switch (item.status.known)` with `StatusKnown.pending`, `StatusKnown.shipped`, `StatusKnown.delivered` and `null`. Leave an arm out and it doesn't compile. A schema with a number or a boolean among its values is an extension type over `Object` instead of `String`.
+When the server adds a value your app has never heard of, the field still decodes. It's a `Status` whose `isKnown` is false and whose `wire` is what the server sent, and it encodes back unchanged. For an exhaustive `switch`, switch on `known`, the plain `StatusKnown` enum, and give the `null` arm the unknown case:
+
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+
+String statusLabel(Item item) => switch (item.status.known) {
+      StatusKnown.pending => 'Waiting',
+      StatusKnown.shipped => 'On its way',
+      StatusKnown.delivered => 'Delivered',
+      null => 'Unknown status: ${item.status.wire}',
+    };
+```
+
+Leave an arm out and it doesn't compile. A schema with a number or a boolean among its values is an extension type over `Object` instead of `String`.
 
 ## Capabilities, pagination and streaming
 
-`capabilities.dart` holds the scopes, roles and permissions the specification declares. Scopes come from routes that use `forge.WithRequiredAuth`. Each vocabulary is an extension type with one constant per value, so a typo is a compile error. This is a trimmed copy of the file generated for a route that requires the scope `items.write`:
+`capabilities.dart` holds the scopes, roles and permissions the specification declares. Scopes come from routes that use `forge.WithRequiredAuth`. Roles and permissions come from the `x-forge-authz` extension, which Forge writes into the OpenAPI document from the roles and permissions a route declares. Each vocabulary is an extension type with one constant per value, so a typo is a compile error. This is a trimmed copy of the file generated for a route that requires the scope `items.write`, the role `admin` and the permission `items:create`:
 
 ```dart title="lib/src/capabilities.dart"
 extension type const Scope._(String value) implements Object {
@@ -385,7 +400,9 @@ void setPrincipal({
   Iterable<String>? capabilities,
   Iterable<String>? roles,
   Iterable<String>? permissions,
-}) { /* ... */ }
+}) {
+  // body elided
+}
 
 bool capabilitiesKnown() => _capabilities != null;
 bool can(Scope scope) => _capabilities?.contains(scope.value) ?? false;
@@ -393,32 +410,69 @@ bool hasRole(Role role) => _roles?.contains(role.value) ?? false;
 bool hasPermission(Permission permission) =>
     _permissions?.contains(permission.value) ?? false;
 
-List<Scope> missingCapabilities(OperationName operation) { /* ... */ }
-bool canCall(OperationName operation) { /* ... */ }
+List<Scope> missingCapabilities(OperationName operation) {
+  // body elided
+}
+
+bool canCall(OperationName operation) {
+  // body elided
+}
 ```
 
-Tell it what the signed-in user holds with `setPrincipal(capabilities: session.scopes)`, then ask `can(Scope.itemsWrite)`. Call `setPrincipal()` with no arguments on sign-out. Before anything is declared, `can` returns `false`, and `capabilitiesKnown()` tells you whether that `false` means "no" or "not yet". `canCall` and `missingCapabilities` ask the same question per operation, for a specification that has REST operations. It works like the [TypeScript module](/docs/web-client/generated-package#capabilitiests), with `setPrincipal` in place of `setCapabilities`.
+Tell it what the signed-in user holds, then ask:
+
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+
+void onSignIn(List<String> scopes, List<String> roles, List<String> permissions) {
+  setPrincipal(capabilities: scopes, roles: roles, permissions: permissions);
+}
+
+void onSignOut() => setPrincipal();
+
+bool showNewItemButton() => can(Scope.itemsWrite) && hasRole(Role.admin);
+
+List<Scope> whatIsMissing() => missingCapabilities(OperationName.createItem);
+```
+
+Before anything is declared, `can` returns `false`, and `capabilitiesKnown()` tells you whether that `false` means "no" or "not yet". `canCall` and `missingCapabilities` ask the same question per operation, for a specification that has REST operations. It works like the [TypeScript module](/docs/web-client/generated-package#capabilitiests), with `setPrincipal` in place of `setCapabilities`.
 
 <Callout type="warn">
 This is something to hide a button with and never a security boundary. The values are held by the client, so anyone running it can change them. The server still authorizes every request, and nothing in the generated request path reads these predicates. The granted set is a top-level variable of the library, so it belongs to one app on one isolate and not to a Dart server handling many users at once.
 </Callout>
 
-`pagination.dart` has `paginateAll`, `collectAll`, `PageParams` and `Page<T>`, and every list operation the generator can walk gets a `...Paginated` method on `RestClient`. An operation qualifies when it's a `GET` or `HEAD`, its response has a list named `items`, `data` or `results`, and it takes a `cursor`, `page` or `offset` query parameter without requiring any parameter of its own. The orders list takes none, so it gets no such method. This is the one generated for a list that takes a `cursor`:
+`pagination.dart` has `paginateAll`, `collectAll`, `PageParams` and `Page<T>`, and every list operation the generator can walk gets a `...Paginated` method on `RestClient`. An operation qualifies when it's a `GET` or `HEAD`, its response has a list named `items`, `data` or `results`, and it takes a `cursor`, `page` or `offset` query parameter. It must not require any other query parameter, or require a paging one. A required path parameter is fine, and becomes a required argument of the `...Paginated` method. The orders list takes no paging parameter, so it gets no such method. This is the one generated for a list under `/shops/{shopId}/items` that takes a `cursor`:
 
 ```dart title="lib/src/pagination.dart"
 extension RestClientPagination on RestClient {
-  /// Every item of `GET /items`, across pages.
-  Stream<Item> listItemsPaginated({PageParams params = const PageParams()}) =>
+  /// Every item of `GET /shops/{shopId}/items`, across pages.
+  Stream<Item> listShopItemsPaginated({required String shopId, PageParams params = const PageParams()}) =>
       paginateAll((p) async {
-        final page = await listItems(cursor: p.cursor, limit: p.limit);
+        final page = await listShopItems(shopId: shopId, cursor: p.cursor, limit: p.limit);
         return Page(page.items, nextCursor: page.nextCursor, hasMore: page.hasMore);
       }, initial: params);
 }
 ```
 
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+
+Future<List<Item>> everyItem(RestClient rest) => rest.listShopItemsPaginated(shopId: 's-1').toList();
+```
+
 The walk stops when the server says there are no more pages, when the next cursor is the one it just sent, or when a page comes back empty and the server didn't say. A cursor walk needs no seed. A page-number or offset walk goes past the first page only when `params` carries a page or an offset, because servers disagree about whether pages start at 0 or 1.
 
 `streaming/` appears with `--hooks`. Each WebSocket, SSE or WebTransport endpoint in the specification becomes a typed client in its own file, named for the endpoint's id with a `_socket`, `_events` or `_transport` suffix, such as `receive_chat_message_socket.dart`. `live_socket.dart` holds the connection and reconnect machinery they share. Pass `--rooms`, `--presence`, `--typing`, `--channels` or `--all-streaming` and you also get `rooms.dart`, `presence.dart`, `typing.dart` and `channels.dart`, plus a `streaming_client.dart` that puts them behind one object. Where the AsyncAPI document declares a path for one of those features the client uses it, and otherwise it falls back to a default.
+
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+
+Future<void> followRoom(Uri baseUrl, String roomId) async {
+  final socket = ReceiveChatMessageSocket(baseUrl: baseUrl);
+  final session = await socket.connect(roomId: roomId);
+  session.messages.listen((line) => print('${line.id}: ${line.text}'));
+}
+```
 
 These clients connect to one endpoint each and never touch the cache. Live queries run through the `streams` table and the `StreamBinder`, which [Invalidation](/docs/dart-client/invalidation#live-queries) covers. The WebTransport client works on the web only; see [Transports by platform](/docs/dart-client/invalidation#transports-by-platform).
 
@@ -438,4 +492,4 @@ dependencies:
   http: ^1.6.0
 ```
 
-With `--hooks` the package depends on `forge_client`, because the bindings call into it. Without `--hooks` the `forge_client` line is gone and `package:http` is all that's left. The version comes from your specification's `info.version`. Neither kind depends on Flutter, on an adapter, on `forge_client_offline` or on `forge_client_grove`. The [Installation](/docs/dart-client/installation#the-generated-client) page shows how your app points the client at the runtime until it's on pub.dev.
+With `--hooks` the package depends on `forge_client`, because the bindings call into it. Without `--hooks` the `forge_client` line is gone and `package:http` is all that's left. The version is always `1.0.0`, whatever your specification says, so set it yourself before you publish or version the package. Neither kind depends on Flutter, on an adapter, on `forge_client_offline` or on `forge_client_grove`. The [Installation](/docs/dart-client/installation#the-generated-client) page shows how your app points the client at the runtime until it's on pub.dev.
