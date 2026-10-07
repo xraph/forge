@@ -77,6 +77,70 @@ class ExtractSnippetsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("no dart blocks found", result.stderr)
 
+    def add(self, name, text):
+        path = os.path.join(self.docs, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(textwrap.dedent(text).lstrip())
+
+    def test_indented_fence_is_extracted_and_dedented(self):
+        self.add("steps.mdx", """
+            <Steps>
+              <Step>
+                ```dart
+                final a = 1;
+                  final b = 2;
+                ```
+              </Step>
+            </Steps>
+        """)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = self.read("steps_01.dart")
+        self.assertIn("\nfinal a = 1;\n  final b = 2;\n", text)
+
+    def test_tilde_and_uppercase_fences_are_extracted(self):
+        self.add("odd.mdx", "~~~dart\nfinal t = 1;\n~~~\n\n```Dart\nfinal u = 2;\n```\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("final t = 1;", self.read("odd_01.dart"))
+        self.assertIn("final u = 2;", self.read("odd_02.dart"))
+
+    def test_unclosed_fence_fails_instead_of_passing_unchecked(self):
+        self.add("broken.mdx", "```dart\nfinal lost = 1;\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("broken.mdx", result.stderr)
+        self.assertIn("unclosed", result.stderr)
+
+    def test_unclosed_fence_swallowing_the_next_block_fails(self):
+        self.add("swallow.mdx", "```dart\nfinal a = 1;\n\n```dart\nfinal b = 2;\n```\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("swallow.mdx", result.stderr)
+
+    def test_subdirectories_and_plain_markdown_are_read(self):
+        self.add("deep/nested/page.mdx", "```dart\nfinal n = 1;\n```\n")
+        self.add("notes.md", "```dart\nfinal m = 1;\n```\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("final n = 1;", self.read("deep_nested_page_01.dart"))
+        self.assertIn("final m = 1;", self.read("notes_01.dart"))
+
+    def test_two_pages_writing_the_same_name_fail(self):
+        self.add("a-b.mdx", "```dart\nfinal x = 1;\n```\n")
+        self.add("a_b.mdx", "```dart\nfinal y = 1;\n```\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a_b_01.dart", result.stderr)
+
+    def test_header_counts_the_header_line_and_the_prelude(self):
+        self.run_script()
+        text = self.read("flutter_adapter_01.dart")
+        self.assertIn("the header and prelude add 9 lines", text)
+        first_body_line = text.split("\n").index("final ref = getOrder(const GetOrderArgs(id: '7'));") + 1
+        self.assertEqual(first_body_line - 9, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

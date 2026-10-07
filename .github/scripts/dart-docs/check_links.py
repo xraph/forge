@@ -5,7 +5,20 @@ Usage: check_links.py DOCS_CONTENT_ROOT [--pending PATH,...] FILE...
 
 A link resolves when DOCS_CONTENT_ROOT holds <path>.mdx or <path>/index.mdx
 and, for a link with a #fragment, that page has a heading whose slug matches.
-Headings inside code fences do not count.
+Headings inside code fences do not count, and neither do links inside them.
+
+The links read are markdown links, with or without a title, and href
+attributes written with double quotes, single quotes or braces. A link that
+is only a #fragment is checked against the headings of the page it is on.
+
+The slug is Fumadocs' (github-slugger) for ordinary headings. It differs from
+Fumadocs in four cases, and every one of them makes a valid link report as
+broken and never the other way round, so a green run stays trustworthy:
+  - a repeated heading gets a -1, -2 suffix there and none here;
+  - a custom id written as "## Title [#id]" is not understood here;
+  - a heading that contains a link slugs from the link's raw markdown here;
+  - a page under a group folder such as (cli)/ is addressed without the
+    folder there, and is looked up with it here.
 
 --pending names pages that are planned but not written yet, as /docs/...
 paths. A link to one of them is reported as pending and does not fail the
@@ -19,13 +32,18 @@ import os
 import re
 import sys
 
-LINK = re.compile(r"\]\((/docs/[^)\s]+)\)|href=\"(/docs/[^\"]+)\"")
+LINK = re.compile(
+    r"""\]\(\s*((?:/docs/|\#)[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)"""
+    r"""|href=\{?\s*["'`]((?:/docs/|\#)[^"'`\s]*)["'`]"""
+)
 HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*$", re.M)
-FENCE = re.compile(r"^```.*?^```", re.M | re.S)
+FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[`~]*[ \t]*$", re.M | re.S)
 
 
 def slug(text):
-    text = text.replace("`", "").strip().lower()
+    text = text.strip().lower()
+    # Also drops backticks and every other punctuation mark, as github-slugger
+    # does. Spaces become hyphens one for one, so "a & b" slugs to "a--b".
     text = re.sub(r"[^\w\- ]", "", text)
     return text.replace(" ", "-")
 
@@ -53,6 +71,10 @@ def main(argv=None):
         for match in LINK.finditer(body):
             target = match.group(1) or match.group(2)
             path, _, fragment = target.partition("#")
+            if not path:
+                if fragment and fragment not in {slug(h) for h in HEADING.findall(body)}:
+                    broken.append(f"{name}: {target} (no heading #{fragment} on this page)")
+                continue
             found = page_file(args.root, path)
             if not found:
                 if path.rstrip("/") in pending:

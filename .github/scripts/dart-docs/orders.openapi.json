@@ -1,1 +1,317 @@
-{"openapi":"3.1.0","info":{"title":"Orders API","version":"1.0.0"},"servers":[{"url":"http://localhost:8097","description":"Development server"}],"paths":{"/_/health":{"get":{"responses":{"200":{"description":"Success"}}}},"/_/health/live":{"get":{"responses":{"200":{"description":"Success"}}}},"/_/health/ready":{"get":{"responses":{"200":{"description":"Success"}}}},"/_/info":{"get":{"responses":{"200":{"description":"Success"}}}},"/_/metrics":{"get":{"responses":{"200":{"description":"Success"}}}},"/customers/{id}":{"get":{"operationId":"getCustomer","parameters":[{"name":"id","in":"path","description":"Path parameter: id","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Customer","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Customer"}}}}}}},"/openapi.json":{"get":{"responses":{"200":{"description":"Success"}}}},"/orders":{"get":{"operationId":"listOrders","responses":{"200":{"description":"Orders","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderPage"}}}}}},"post":{"operationId":"createOrder","requestBody":{"description":"Request body","content":{"application/json":{"schema":{"$ref":"#/components/schemas/CreateOrderRequestBody"}}},"required":true},"responses":{"201":{"description":"Order","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}}}}},"/orders/{id}":{"get":{"operationId":"getOrder","parameters":[{"name":"id","in":"path","description":"Path parameter: id","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Order","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}}}},"delete":{"operationId":"deleteOrder","parameters":[{"name":"id","in":"path","description":"Path parameter: id","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Order","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}}}},"patch":{"operationId":"updateOrder","parameters":[{"name":"id","in":"path","description":"Path parameter: id","required":true,"schema":{"type":"string"}}],"requestBody":{"description":"Request body","content":{"application/json":{"schema":{"$ref":"#/components/schemas/UpdateOrderRequestBody"}}},"required":true},"responses":{"200":{"description":"Order","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}}}}}},"components":{"schemas":{"CreateOrderRequestBody":{"type":"object","required":["customerId","total"],"properties":{"customerId":{"type":"string"},"total":{"type":"integer"}}},"Customer":{"type":"object","required":["id","name"],"properties":{"id":{"type":"string"},"name":{"type":"string"}}},"Order":{"type":"object","required":["id","total","status","customer"],"properties":{"customer":{"$ref":"#/components/schemas/Customer"},"id":{"type":"string"},"status":{"type":"string"},"total":{"type":"integer"}}},"OrderPage":{"type":"object","required":["items","total"],"properties":{"items":{"type":"array","items":{"$ref":"#/components/schemas/Order"}},"total":{"type":"integer"}}},"UpdateOrderRequestBody":{"type":"object","required":["status"],"properties":{"status":{"type":"string"}}}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Orders API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8097",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/_/health": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/_/health/live": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/_/health/ready": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/_/info": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/_/metrics": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/customers/{id}": {
+      "get": {
+        "operationId": "getCustomer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter: id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/orders": {
+      "get": {
+        "operationId": "listOrders",
+        "responses": {
+          "200": {
+            "description": "Orders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createOrder",
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter: id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter: id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter: id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Request body",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrderRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateOrderRequestBody": {
+        "type": "object",
+        "required": [
+          "customerId",
+          "total"
+        ],
+        "properties": {
+          "customerId": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "required": [
+          "id",
+          "total",
+          "status",
+          "customer"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/Customer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "OrderPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Order"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "UpdateOrderRequestBody": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

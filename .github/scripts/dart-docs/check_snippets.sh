@@ -17,16 +17,24 @@
 #   WORK_DIR   where to build (default: a fresh temporary directory)
 #   PUB_GET_FLAGS  extra flags for `flutter pub get`; a run with no network
 #              passes --offline (default: none)
+#   GOPROXY    read by `go run` when it builds the generator. The script does
+#              not set it, so a run with no network exports GOPROXY=off itself;
+#              left alone, a cold module cache downloads
 #
 # Calls `fvm flutter` and `fvm dart`. In CI the workflow puts a stand-in fvm
 # on PATH that runs the one Flutter it installed.
 set -euo pipefail
+
+for tool in go python3 fvm; do
+  command -v "$tool" >/dev/null || { echo "check_snippets: $tool not found on PATH" >&2; exit 1; }
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 DOCS_DIR="$(cd "${1:-$ROOT/docs/content/docs/dart-client}" && pwd)"
 GROVE_DIR="${GROVE_DIR:-$(cd "$ROOT/.." && pwd)/grove}"
 WORK_DIR="${WORK_DIR:-$(mktemp -d)}"
+mkdir -p "$WORK_DIR"
 PACKAGES="$ROOT/dart-packages"
 
 if [[ ! -f "$GROVE_DIR/crdt-dart/pubspec.yaml" ]]; then
@@ -81,19 +89,19 @@ dependencies:
   orders_forge_client: any
 dependency_overrides:
   forge_client:
-    path: $PACKAGES/forge_client
+    path: "$PACKAGES/forge_client"
   forge_client_flutter:
-    path: $PACKAGES/forge_client_flutter
+    path: "$PACKAGES/forge_client_flutter"
   forge_client_riverpod:
-    path: $PACKAGES/forge_client_riverpod
+    path: "$PACKAGES/forge_client_riverpod"
   forge_client_offline:
-    path: $PACKAGES/forge_client_offline
+    path: "$PACKAGES/forge_client_offline"
   forge_client_grove:
-    path: $PACKAGES/forge_client_grove
+    path: "$PACKAGES/forge_client_grove"
   grove_crdt:
-    path: $GROVE_DIR/crdt-dart
+    path: "$GROVE_DIR/crdt-dart"
   orders_forge_client:
-    path: $CLIENT
+    path: "$CLIENT"
 YAML
 
 # A sample is allowed to declare a local it never reads, or import more than

@@ -56,6 +56,41 @@ class CheckLinksTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("/docs/dart-client/sync (pending)", result.stdout)
 
+    def test_titled_single_quoted_and_braced_links_are_checked(self):
+        for body in (
+            '[a](/docs/web-client/missing "a title")\n',
+            "<Card href='/docs/web-client/missing' />\n",
+            '<Card href={"/docs/web-client/missing"} />\n',
+        ):
+            result = self.check(body)
+            self.assertEqual(result.returncode, 1, body)
+            self.assertIn("/docs/web-client/missing (no page)", result.stdout)
+
+    def test_titled_link_that_resolves_passes(self):
+        result = self.check('[a](/docs/web-client/runtime#time-based-freshness "why")\n')
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_same_page_anchor_is_checked(self):
+        result = self.check("## Real heading\n\n[ok](#real-heading) and [bad](#nowhere)\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("#nowhere (no heading #nowhere on this page)", result.stdout)
+        self.assertNotIn("#real-heading", result.stdout)
+
+    def test_slug_drops_punctuation_and_backticks_and_keeps_double_hyphen(self):
+        write(os.path.join(self.root, "web-client", "slugs.mdx"), """
+            ---
+            title: Slugs
+            ---
+
+            ## `useQuery`, what's new? v1.2 (API & SDK)
+        """)
+        result = self.check("[a](/docs/web-client/slugs#usequery-whats-new-v12-api--sdk)\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_link_inside_a_code_fence_is_not_checked(self):
+        result = self.check("Text.\n\n```md\n[x](/docs/web-client/missing)\n```\n\n    ~~~md\n    [y](/docs/web-client/missing)\n    ~~~\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
