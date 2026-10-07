@@ -279,7 +279,7 @@ final class QueryCache {
     this._storage,
   }) : commitScheduler = commitScheduler ?? microtaskCommitScheduler(),
        _syncSources = List.unmodifiable(syncSources) {
-    overlays = OverlayStack(store, report);
+    overlays = OverlayStack(store, _safeReport, entities);
     store.overlays = overlays;
 
     invalidator = Invalidator(

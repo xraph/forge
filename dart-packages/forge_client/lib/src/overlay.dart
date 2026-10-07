@@ -1,4 +1,5 @@
 import 'invalidate.dart';
+import 'normalize.dart';
 import 'operation.dart';
 import 'ref.dart';
 import 'registry.dart';
@@ -88,13 +89,21 @@ final class _Projection(
 /// rollback is the removal of an entry and no inverse is recorded anywhere.
 final class OverlayStack implements OverlayLayer {
   /// Creates a stack over [_host]. [_report] receives a throwing compute patch
-  /// or placement callback, with the context `optimistic`.
-  OverlayStack(this._host, [this._report]);
+  /// or placement callback, with the context `optimistic`. [_entities] is the
+  /// schema a promoted change is normalized against; without it a changed
+  /// field is promoted in client shape.
+  OverlayStack(this._host, [this._report, this._entities = const {}]);
 
   final OverlayHost _host;
   final void Function(Object error, String context)? _report;
+  final EntitySchema _entities;
   final List<OverlayEntry> _entries = <OverlayEntry>[];
   final Map<EntityKey, EntityRecord?> _folded = <EntityKey, EntityRecord?>{};
+
+  /// The keys whose fold is on the stack right now. A compute's view that
+  /// reaches one of them again (an order's customer lists the order) reads
+  /// its base rather than folding it a second time.
+  final Set<EntityKey> _folding = <EntityKey>{};
   final Map<String, _Projection> _projections = <String, _Projection>{};
   int _ids = 0;
   int _stamp = 0;
@@ -130,6 +139,12 @@ final class OverlayStack implements OverlayLayer {
     // record memoized here would survive `store.clear()` and read back as
     // the previous principal's data.
     if (!holds(key)) return _host.getRecord(key);
+
+    // Reached from inside another key's fold, through a compute's view. A
+    // fold computed there saw its neighbour's base, so it is not memoized.
+    if (_folding.isNotEmpty) {
+      return _folding.contains(key) ? _host.getRecord(key) : _fold(key);
+    }
 
     if (_folded.containsKey(key)) return _folded[key];
 
@@ -306,7 +321,7 @@ final class OverlayStack implements OverlayLayer {
 
           if (base == null) continue;
 
-          _host.put(key, _apply(patch, base.data));
+          _host.put(key, _apply(key, patch, base.data, promote: true));
       }
     }
 
@@ -341,23 +356,31 @@ final class OverlayStack implements OverlayLayer {
     Json? data = base?.data;
     var touched = false;
 
-    for (final entry in _entries) {
-      final patch = entry.patches[key];
+    _folding.add(key);
 
-      if (patch == null) continue;
+    try {
+      for (final entry in _entries) {
+        final patch = entry.patches[key];
 
-      touched = true;
+        if (patch == null) continue;
 
-      switch (patch) {
-        case DeletePatch():
-          data = null;
-        case CreatePatch(:final fields):
-          data = {...?data, ...fields};
-        case MergePatch():
-          // A merge over a hole patches nothing.
-          final current = data;
-          if (current != null) data = {...current, ..._apply(patch, current)};
+        touched = true;
+
+        switch (patch) {
+          case DeletePatch():
+            data = null;
+          case CreatePatch(:final fields):
+            data = {...?data, ...fields};
+          case MergePatch():
+            // A merge over a hole patches nothing.
+            final current = data;
+            if (current != null) {
+              data = {...current, ..._apply(key, patch, current)};
+            }
+        }
       }
+    } finally {
+      _folding.remove(key);
     }
 
     if (!touched) return base;
@@ -370,20 +393,182 @@ final class OverlayStack implements OverlayLayer {
     );
   }
 
+  /// The fields [patch] sets on [stored], the record of [key].
+  ///
+  /// A compute sees the record the way a read does, with every reference
+  /// resolved: a typed spec decodes it with the model's `fromClient`, which
+  /// knows nothing of references. What it returns is compared field by field
+  /// with that view, and a field it left as it was is dropped, so the record
+  /// keeps its reference there and goes on tracking the embedded entity. A
+  /// changed field is kept in client shape for the fold, which shows exactly
+  /// what the caller wrote, and normalized for [promote] (see [_promoted]).
+  ///
   /// A throwing compute is reported and treated as no change.
-  Json _apply(MergePatch patch, Json previous) {
+  Json _apply(
+    EntityKey key,
+    MergePatch patch,
+    Json stored, {
+    bool promote = false,
+  }) {
     final compute = patch.compute;
 
     if (compute == null) return patch.fields;
 
+    final view = _view(key, stored);
+    final Json result;
+
     try {
-      return compute(previous);
+      result = compute(view);
     } on Object catch (error) {
       _report?.call(error, 'optimistic');
 
       return const {};
     }
+
+    final changes = <String, Object?>{};
+
+    for (final MapEntry(key: field, :value) in result.entries) {
+      if (view.containsKey(field) && _same(value, view[field], null)) continue;
+
+      changes[field] = promote ? _promoted(key, field, value) : value;
+    }
+
+    return changes;
   }
+
+  /// [stored] with every reference resolved through the overlay, the value a
+  /// read of [key] materializes. Built fresh and memo-free: it runs inside the
+  /// store's own walk, whose memos it must not disturb. A cycle closes on the
+  /// object already built for that key, as it does in a read.
+  Json _view(EntityKey key, Json stored) {
+    final built = <EntityKey, Json>{};
+    final out = <String, Object?>{};
+
+    built[key] = out;
+
+    for (final MapEntry(key: field, value: child) in stored.entries) {
+      out[field] = _resolve(child, built);
+    }
+
+    return out;
+  }
+
+  Object? _resolve(Object? node, Map<EntityKey, Json> built) {
+    if (node is EntityRef) {
+      final seen = built[node.key];
+
+      if (seen != null) return seen;
+
+      final record = effective(node.key);
+
+      if (record == null) return null;
+
+      final out = <String, Object?>{};
+
+      built[node.key] = out;
+
+      for (final MapEntry(key: field, value: child) in record.data.entries) {
+        out[field] = _resolve(child, built);
+      }
+
+      return out;
+    }
+
+    // An unmarked container holds no reference, as in a read.
+    if (node is List<Object?>) {
+      if (!isRewritten(node)) return node;
+
+      return [
+        for (final element in node)
+          // A reference whose record is gone is a hole and is dropped.
+          if (_resolve(element, built) case final value
+              when value != null || element is! EntityRef)
+            value,
+      ];
+    }
+
+    if (node is Map<String, Object?>) {
+      if (!isRewritten(node)) return node;
+
+      return {
+        for (final MapEntry(key: field, value: child) in node.entries)
+          field: _resolve(child, built),
+      };
+    }
+
+    return node;
+  }
+
+  /// A changed field on its way into base. When the schema says the field
+  /// holds entities and base holds every one it names, the field is written
+  /// as references, the shape a server response would leave. Otherwise it is
+  /// written as the caller gave it: a reference to a record base does not
+  /// hold would read back as a hole, where the inline value still reads back
+  /// as what was shown. The embedded records themselves are never written:
+  /// this patch targets [key] alone, and the response committed straight
+  /// after carries the server's version of them.
+  Object? _promoted(EntityKey key, String field, Object? value) {
+    final colon = key.indexOf(':');
+    final type = colon <= 0 ? null : key.substring(0, colon);
+    final fieldType = type == null ? null : _entities[type]?.fields[field];
+
+    if (fieldType == null) return value;
+
+    final normalized = normalize(value, fieldType, _entities);
+
+    if (normalized.records.keys.any((held) => _host.getRecord(held) == null)) {
+      return value;
+    }
+
+    return normalized.skeleton;
+  }
+}
+
+/// Deep equality between a compute's result and its view, seeing through
+/// references and terminating on the cycles a view can hold. [route] holds the
+/// containers on the path from the root, as in the store's own comparison.
+bool _same(Object? a, Object? b, Set<Object>? route) {
+  if (sameValue(a, b)) return true;
+  if (a == null || b == null) return false;
+  if (a is EntityRef || b is EntityRef) return false;
+
+  if (a is List<Object?> && b is List<Object?>) {
+    if (a.length != b.length) return false;
+
+    final path = route ?? Set<Object>.identity();
+
+    if (!path.add(a)) return true;
+
+    try {
+      for (var i = 0; i < a.length; i++) {
+        if (!_same(a[i], b[i], path)) return false;
+      }
+    } finally {
+      path.remove(a);
+    }
+
+    return true;
+  }
+
+  if (a is Map<String, Object?> && b is Map<String, Object?>) {
+    if (a.length != b.length) return false;
+
+    final path = route ?? Set<Object>.identity();
+
+    if (!path.add(a)) return true;
+
+    try {
+      for (final MapEntry(:key, :value) in a.entries) {
+        if (!b.containsKey(key) || !_same(value, b[key], path)) return false;
+      }
+    } finally {
+      path.remove(a);
+    }
+
+    return true;
+  }
+
+  return a == b;
 }
 
 /// A mutation declares more than one entity, so the one it changes cannot be
