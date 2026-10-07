@@ -1,0 +1,345 @@
+---
+title: Flutter adapter
+description: ForgeScope, ForgeQueryBuilder and ForgeMutationBuilder, with no state management library needed
+icon: Component
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`forge_client_flutter` is enough on its own. You don't need Riverpod, Bloc or Provider to use Forge well: the widgets here sit on streams and `ValueListenable`, which ship with Flutter. If your app is already on Riverpod 3, the [Riverpod adapter](/docs/dart-client/riverpod-adapter) gives you the same cache as providers.
+
+Coming from the React adapter, these are the nearest equivalents:
+
+| React | Flutter |
+|---|---|
+| `ClientProvider`, `useClient` | `ForgeScope(client: ..., child: ...)`, `ForgeScope.of(context)` |
+| `useQuery` | `ForgeQueryBuilder(query: ..., builder: ...)` |
+| `useMutation` | `ForgeMutationBuilder(mutation: ..., builder: ...)` |
+| `useInvalidate` | `context.forgeInvalidate(binding, args)` |
+| `HydrationBoundary` | `ForgeRestoreBoundary(restore: ...)`, which restores from the device and not from a server render. See [Offline and security](/docs/dart-client/offline-and-security#restoring-on-startup) |
+
+## Setup
+
+Build the cache with Flutter's commit scheduler and hand it to a `ForgeScope`:
+
+```dart
+QueryCache createCache() => configureClient(
+      transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+      entities: entities,
+      commitScheduler: frameCommitScheduler(),
+    );
+
+Widget buildApp(QueryCache cache, Widget home) =>
+    ForgeScope(client: cache, child: MaterialApp(home: home));
+
+QueryCache cacheFor(BuildContext context) => ForgeScope.of(context);
+```
+
+That's the whole setup. While the scope is mounted it keeps focus and reconnect revalidation installed on the cache, so you call nothing else. [What the adapter installs](#what-the-adapter-installs) says what that means.
+
+A widget finds its cache by explicit `client:` argument first, then the nearest `ForgeScope`, then the global one `configureClient` set. The scope is optional. Skip it and the widgets use the global client, and you install the revalidation yourself, once, because nothing else will:
+
+```dart
+void main() {
+  final cache = configureClient(
+    transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+    entities: entities,
+    commitScheduler: frameCommitScheduler(),
+  );
+  installFlutterSeams(cache);
+  runApp(const MaterialApp(home: Text('Orders')));
+}
+```
+
+A scope is the right tool when a global is the wrong answer. An app that talks to two backends gets one scope per backend, and a nested scope is how a widget test gets a cache of its own:
+
+```dart
+import 'package:flutter/widgets.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:forge_client_flutter/testing.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+Widget testScope(Widget child) => ForgeScope(
+      client: QueryCache(
+        transport: FakeTransport(
+          (request, call) => {
+            'id': '7',
+            'status': 'open',
+            'total': 10,
+            'customer': {'id': 'c-1', 'name': 'Ada'},
+          },
+        ),
+        entities: entities,
+      ),
+      focus: FakeFocusSignal(),
+      connectivity: FakeConnectivitySignal(),
+      child: child,
+    );
+```
+
+The fake signals keep the scope off the platform channels, and `FakeTransport` answers every request on the microtask queue with the client-shaped JSON you hand it.
+
+Two details about the scope. Pass `focus:` and `connectivity:` signals that live as long as the scope, a field and not an object built inside `build`, because a new object reinstalls the seams on every rebuild. And a scope notices when its `client:` changes and rebinds every widget below it.
+
+A plain global does not do that. If you swap it with `setClient`, a builder that is already mounted keeps watching the old cache until something rebuilds or remounts it. When your app replaces its client at runtime, put the new one in a `ForgeScope`.
+
+## Reading
+
+`ForgeQueryBuilder` watches one query and rebuilds with its state:
+
+```dart
+class OrderScreen extends StatelessWidget {
+  const OrderScreen({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: ForgeQueryBuilder(
+        query: getOrder(GetOrderArgs(id: id)),
+        builder: (context, state) => switch (state) {
+          QueryIdle() || QueryLoading() => const Center(child: CircularProgressIndicator()),
+          QuerySuccess(:final data, :final isFetching) => ListTile(
+              title: Text(data.customer.name),
+              subtitle: Text(data.status),
+              trailing: isFetching ? const CircularProgressIndicator() : Text('${data.total}'),
+            ),
+          QueryFailure(:final error, :final previous) => Text(
+              previous == null
+                  ? 'Could not load the order: $error'
+                  : 'Offline. Showing the last copy: ${previous.status}',
+            ),
+        },
+      ),
+    );
+  }
+}
+```
+
+`QueryState` is sealed with four cases, and the compiler checks that your `switch` covers them. Every state also carries three flags. `isFetching` is true while a request is in flight, including a background refetch of data you're already showing. `isOptimistic` is true while the data includes a write the server hasn't confirmed. `syncStatus` folds the sync state of every entity the query touches, and it matters once you add [offline support or Grove sync](/docs/dart-client/sync#sync-status).
+
+A failure that follows a success keeps the last good data in `previous`, so a screen can go on showing an order when the network drops.
+
+Write the `query:` inline, as above. The builder keys its subscription on the query's key, the one the cache uses, so a parent that rebuilds with a fresh `GetOrderArgs` doesn't refetch or resubscribe.
+
+### Dependent queries
+
+`enabled: false` gives you `QueryIdle` and nothing else. The builder sends no request and holds no mount. Use it when a query can't run yet:
+
+```dart
+class OrderDetail extends StatelessWidget {
+  const OrderDetail({super.key, required this.selectedId});
+
+  final String? selectedId;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = selectedId;
+    return ForgeQueryBuilder(
+      query: getOrder(GetOrderArgs(id: id ?? '')),
+      enabled: id != null,
+      builder: (context, state) => switch (state) {
+        QueryIdle() => const Text('Pick an order'),
+        QueryLoading() => const CircularProgressIndicator(),
+        QuerySuccess(:final data) => Text(data.status),
+        QueryFailure(:final error) => Text('Could not load the order: $error'),
+      },
+    );
+  }
+}
+```
+
+### Rebuilding less
+
+A builder runs again when something it can render changes: the data, `isFetching`, `isOptimistic` or `syncStatus`. The data is compared with `identical()`, and the store hands back the same object for a record nothing touched. A write to `Order:2` therefore doesn't call the builder of a screen showing `Order:1`, and a refetch that finds nothing new leaves the data alone.
+
+It does still flip `isFetching` on and off. When the request outlasts a frame, a plain builder runs twice with the same data in both calls. The [Entities](/docs/dart-client/entities#what-that-does-to-rebuilds) page has the longer version.
+
+If you only render one field of a large record, pass `select:`. The builder then runs when the picked value changes and not otherwise:
+
+```dart
+Widget statusChip(String id) => ForgeQueryBuilder(
+      query: getOrder(GetOrderArgs(id: id)),
+      select: (state) => state.dataOrNull?.status,
+      builder: (context, state) => Chip(label: Text(state.dataOrNull?.status ?? 'Loading')),
+    );
+```
+
+`select` takes the whole state, so it can return a record to watch several things at once. Equal values count as the same: it compares by identity and then by deep equality, so a selector that builds a new list each time doesn't rebuild while the contents hold still. This chip ignores a change to the order's total. It also ignores a failure after a success, because the status hasn't moved. Put `state is QueryFailure` in a record if you want to see failures.
+
+## Writing
+
+`ForgeMutationBuilder` gives its builder a handle with the current `MutationState` and a `mutate` method:
+
+```dart
+class ShipButton extends StatelessWidget {
+  const ShipButton({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return ForgeMutationBuilder(
+      mutation: updateOrder,
+      builder: (context, m) => FilledButton(
+        onPressed: m.state is MutationPending
+            ? null
+            : () => m.mutate(UpdateOrderArgs(id: id, status: 'shipped')),
+        child: Text(m.state is MutationFailure ? 'Try again' : 'Mark shipped'),
+      ),
+    );
+  }
+}
+```
+
+`m.mutate` never throws. It returns the response, or `null` when the write failed, and the failure lands in `m.state` as `MutationFailure`. An `onPressed` has no `try` to forget and no unhandled exception to leak into your error reporting. When the code after the write must not carry on after a failure, call `m.mutateAsync`: it records the same state and then rethrows.
+
+When the server answers, the response goes into the store and every widget showing `Order:7` rebuilds with it. Then the operation's `invalidates` tags mark the queries they match as stale, and the ones on screen refetch.
+
+The status belongs to the widget. Two builders on one binding are two independent statuses, and each one goes back to idle when the cache it resolved changes principal or the scope's client changes. A call still in flight at that moment isn't recorded when it lands, though the write itself goes through and `mutate` still returns its result.
+
+There's one exception. A call that passes its own `client:` runs against that cache, and the builder doesn't watch that cache's principal. A call in flight when it changes isn't recorded either, but a result that has already settled stays in `m.state` after the change. If you pass `client:` per call, call `m.reset()` when you switch users on that client.
+
+### Optimistic writes
+
+`optimistic:` builds a patch from the args. It's applied the moment you call `mutate`, so the detail screen, the list and the badge all show the new value before the server answers. If the server rejects the write, the patch is dropped and they go back. The store's own record is never touched while the write is pending, because the patch sits in a layer above it. When the write succeeds, the response replaces the patch.
+
+The sample below uses a different generated client than the orders API: a catalog, where `Item` holds only plain fields. The reason is in the callout under it.
+
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+import 'package:flutter/material.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
+
+class SaveNote extends StatelessWidget {
+  const SaveNote({super.key, required this.id, required this.note});
+
+  final String id;
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    return ForgeMutationBuilder(
+      mutation: patchItem,
+      optimistic: (args) => OptimisticUpdate<Item>(
+        (item) => item.copyWith(note: args.note),
+        key: entityKey('Item', id),
+      ),
+      builder: (context, m) => FilledButton(
+        onPressed: m.state is MutationPending
+            ? null
+            : () => m.mutate(PatchItemArgs(id: id, note: Assign(note))),
+        child: const Text('Save'),
+      ),
+    );
+  }
+}
+```
+
+While the patch is pending, every `QueryState` that includes it has `isOptimistic` set, which is a good moment to grey the row out. A per-call `optimistic:` on `m.mutate` wins over the builder's.
+
+Pass `key:`. The runtime can only work out the target itself when exactly one entity key shows up in the operation's `invalidates`, such as `Item:{id}`. A generated `PATCH` invalidates the collection (`Item[]`), so it names none. Leave the key out and the cache reports a `StateError` through its `onError` under the context `optimistic`, and the write goes out without optimism. Your save still happens. It just isn't instant.
+
+<Callout type="warn">
+An optimistic patch can't change a record that has another entity in one of its fields. The patch function gets the stored record decoded through the model, and a stored `Order` holds a reference where its `Customer` should be, so the decode throws. The error goes to `onError` under `optimistic`, the row is marked `isOptimistic`, and nothing on screen changes until the response lands. Use optimistic updates on entities made of plain fields. For an `Order`, a plain `mutate` shows the new status when the response arrives.
+</Callout>
+
+## Beyond one query
+
+Server data plus a little UI state shouldn't need a second library, so the adapter has four more pieces.
+
+`ForgeQueriesBuilder` watches several queries and hands you a `ForgeQueriesState`. Its `status` is `failure` if any query failed, then `loading` if any is loading, then `idle`, then `success`:
+
+```dart
+Widget dashboard() => ForgeQueriesBuilder(
+      queries: [listOrders(const NoArgs()), getOrder(const GetOrderArgs(id: '7'))],
+      builder: (context, s) => switch (s.status) {
+        ForgeCombinedStatus.idle || ForgeCombinedStatus.loading =>
+          const CircularProgressIndicator(),
+        ForgeCombinedStatus.failure => Text('${s.error}'),
+        ForgeCombinedStatus.success => Text(
+            '${s.dataAt<OrderPage>(0).items.length} orders, and order 7 is ${s.dataAt<Order>(1).status}',
+          ),
+      },
+    );
+```
+
+`ForgeListener` runs a side effect on each state transition without rebuilding its child. It's the place for a snackbar or a navigation:
+
+```dart
+Widget withFailureToast(String id, Widget child) => ForgeListener<Order>(
+      query: getOrder(GetOrderArgs(id: id)),
+      listener: (context, previous, next) {
+        if (next is QueryFailure<Order>) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${next.error}')));
+        }
+      },
+      child: child,
+    );
+```
+
+`ForgeState<T>` and `ForgeComputed<T>` hold a little local and derived state. You declare a key at the top level, like a binding, and each `ForgeScope` that reads it gets its own value, created on first read and disposed with the scope. A computed value can read states, other computed values, any `ValueListenable` and queries, and it notifies only when its result changes:
+
+```dart
+String? noSelection() => null;
+
+String? selectedStatusOf(ForgeReader read) {
+  final id = read.state(selectedId);
+  return id == null ? null : read.query(getOrder(GetOrderArgs(id: id))).dataOrNull?.status;
+}
+
+const selectedId = ForgeStateKey<String?>(noSelection, debugLabel: 'selectedId');
+const selectedStatus = ForgeComputedKey<String?>(selectedStatusOf, debugLabel: 'selectedStatus');
+
+Widget selectedLabel(BuildContext context) => ListenableBuilder(
+      listenable: context.forgeComputed(selectedStatus),
+      builder: (context, _) => Text(context.forgeComputed(selectedStatus).value ?? 'Nothing selected'),
+    );
+
+void select(BuildContext context, String id) => context.forgeState(selectedId).value = id;
+```
+
+Read a computed value inside a `ListenableBuilder`, as above, and not through a `ValueListenableBuilder`. The second one keeps the last value it read, so after an account switch it would go on showing something derived from the previous client's data.
+
+These two are meant for state that lives next to a screen. They aren't an application architecture. When your app outgrows them, the Riverpod adapter reads the same cache.
+
+`ForgeOutboxListener` surfaces writes the outbox could not deliver; see [Offline and security](/docs/dart-client/offline-and-security#when-a-replay-fails).
+
+## Outside the widget tree
+
+Repositories, background jobs and tests can use a binding without any widget:
+
+```dart
+Future<String> currentStatus(QueryCache cache) async {
+  final order = await getOrder(const GetOrderArgs(id: '7')).fetch(cache);
+  return order.status;
+}
+
+Stream<String> statusUpdates(QueryCache cache) => getOrder(const GetOrderArgs(id: '7'))
+    .watch(cache)
+    .map((state) => state.dataOrNull?.status ?? 'loading');
+
+Future<Order> ship(QueryCache cache) =>
+    updateOrder(cache, UpdateOrderArgs(id: '7', status: 'shipped'));
+```
+
+`fetch` serves a settled, fresh query from the cache without a request. `watch` is a stream of states, and a Dart stream can't deliver inside `listen`, so its first event, the current state, arrives on the next microtask, ahead of everything after it. If you need the current state right now, `getState(cache)` returns it synchronously. Cancelling the subscription releases the query, exactly like a builder leaving the tree.
+
+Calling a mutation binding directly does throw when the write fails. Only the builder's `m.mutate` turns a failure into state.
+
+## What the adapter installs
+
+Three things the pure Dart core can't see on its own:
+
+- `frameCommitScheduler()` commits store updates at the start of the next frame, so a burst of stream frames costs one rebuild per frame. A hidden or paused app has no frames, so it commits on a microtask instead.
+- `installFlutterSeams(cache)` refetches stale queries when the app comes back to the foreground, which it learns from `AppLifecycleListener`. It fires at most once every five seconds.
+- The same call refetches them again when the device regains its connection, which it learns from `connectivity_plus`.
+
+"Stale" means a watched query that has aged past its `staleTime`, so with none set anywhere the two triggers find nothing to do. [Invalidation](/docs/dart-client/invalidation#freshness-by-time) covers setting one.
+
+The scheduler is something you pass to the cache when you build it, because a cache takes its scheduler at construction. The seams are different. A mounted `ForgeScope` calls `installFlutterSeams` for you and removes them when it leaves the tree, so you only call it yourself for a global client with no scope above it. Installation is counted per cache: when several scopes share one client, the first install's signals stay in effect until every holder has let go. Pass `installSeams: false` to a scope if you'd rather manage them yourself.
+
+Leave all of it out and the widgets still work. Commits run on a microtask, and nothing revalidates on focus or reconnect. The core takes focus and connectivity as signals from its host, so a pure Dart program gets neither until it supplies them.

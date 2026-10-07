@@ -1,0 +1,233 @@
+---
+title: Riverpod adapter
+description: The same cache as Riverpod 3 providers, for apps already built on Riverpod
+icon: Layers
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`forge_client_riverpod` is for apps already on Riverpod 3. It turns any generated binding into a provider family and any mutation into a notifier. It borrows the Flutter adapter's installers and none of its widgets, so both styles revalidate the same way. There's no Riverpod codegen to run.
+
+## Setup
+
+Build the cache, then override `forgeClientProvider` in your `ProviderScope`:
+
+```dart title="lib/main.dart"
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+final getOrderProvider = queryProvider(getOrder);
+
+void main() {
+  final cache = configureClient(
+    transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+    entities: entities,
+    commitScheduler: frameCommitScheduler(),
+  );
+
+  runApp(
+    ProviderScope(
+      overrides: [forgeClientProvider.overrideWithValue(cache)],
+      child: const MaterialApp(home: OrderScreen(id: '7')),
+    ),
+  );
+}
+
+class OrderScreen extends ConsumerWidget {
+  const OrderScreen({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final order = ref.watch(getOrderProvider(GetOrderArgs(id: id)));
+    return Scaffold(
+      body: Center(
+        child: switch (order) {
+          AsyncData(:final value) => Text('${value.status}, ${value.total}'),
+          AsyncError(:final error) => Text('Could not load the order: $error'),
+          AsyncLoading() => const CircularProgressIndicator(),
+        },
+      ),
+    );
+  }
+}
+```
+
+`frameCommitScheduler` comes from this package, which re-exports it along with `ConnectivityPlusSignal`, `invalidateBinding` and `refetchBinding`. You don't import `forge_client_flutter` yourself.
+
+Every provider here reads `forgeInstalledClientProvider`, which installs focus and reconnect revalidation on your client for as long as it lives. You call nothing else, and it works whichever way you override the client, by value or by function. Don't override `forgeClientProvider` at all and it falls back to the global client from `configureClient`.
+
+## Queries
+
+`queryProvider(getOrder)` returns a family. Call it with args and you get a provider of `AsyncValue<Order>`. Generated args classes compare by value, so a `GetOrderArgs(id: '7')` built fresh on every rebuild still lands on the same provider. The family keys on the query's key, the one the cache uses, and that holds for a hand-written args class with no `==` too.
+
+While something watches the provider, the query holds its mount in the cache. When Riverpod disposes the provider, the mount is released, and a query nothing watches can be forgotten by the cache's [garbage collection](/docs/dart-client/entities#garbage-collection).
+
+The family takes the options a builder takes, as named arguments on the call:
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+final getOrderProvider = queryProvider(getOrder);
+
+String? statusOf(WidgetRef ref, String? id) {
+  if (id == null) return null;
+  final args = GetOrderArgs(id: id);
+  return ref.watch(
+    getOrderProvider(args, staleTime: const Duration(seconds: 30))
+        .select((order) => order.value?.status),
+  );
+}
+```
+
+`enabled: false` keeps the provider on `AsyncLoading` and fetches nothing. `live: true` also applies server frames, and needs the [stream wiring](/docs/dart-client/invalidation#wiring-a-stream-runtime). `staleTime` is how long this call site treats the result as fresh. The `select` there is Riverpod's own, on the provider, so there's no `select:` argument to look for. And because the provider doesn't notify when the data is identical, an unchanged refetch wakes nobody.
+
+A query provider is a plain `Provider<AsyncValue<Order>>`. It has no `.notifier` and no `.future`. To refetch one, use `refetchBinding` or `invalidateBinding` below. Retry is off for these providers: a query's failure is data, and a retried provider would refetch behind the cache's back. A failed refetch is an `AsyncError` that still carries the previous value, so `order.value` gives you the last good order while you show the error.
+
+### The full state
+
+`AsyncValue` has no room for everything a `QueryState` carries. When you need `isFetching`, `isOptimistic`, `syncStatus` or the idle state of a disabled query, watch `.state(args)` on the same family:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+final getOrderProvider = queryProvider(getOrder);
+
+class OrderSyncBadge extends ConsumerWidget {
+  const OrderSyncBadge({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(getOrderProvider.state(GetOrderArgs(id: id)));
+    return switch (state.syncStatus) {
+      Synced() => const Icon(Icons.cloud_done),
+      Pending(:final count) => Text('$count to send'),
+      Offline() => const Icon(Icons.cloud_off),
+      SyncFailed() => const Icon(Icons.error),
+    };
+  }
+}
+```
+
+The entity store is still the single source of truth. Two providers showing `Order:7` read the same record, and a write to it updates both. The `.state` form notifies when `isFetching` flips, the way a plain builder does, so it's the one to use when you want a refresh spinner.
+
+### Principal changes
+
+The value always belongs to the current client and principal, and so does `.state`. A `setPrincipal`, or a new `forgeClientProvider`, starts the value provider over from `AsyncLoading` with no previous value, and rebuilds `.state` from the new principal's query. `.value`, `select` and a read of `.state` never show the last user's data.
+
+One thing is out of this package's hands. The `previous` argument Riverpod passes to a `ref.listen` or `container.listen` callback across that change can still be the last user's value, for the value provider and for `.state` alike. Act on `next` and don't show `previous`.
+
+### Invalidating
+
+To refetch every query of one binding, invalidate it against the cache the provider holds:
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+void refreshOrders(WidgetRef ref) => invalidateBinding(ref.read(forgeClientProvider), getOrder);
+```
+
+Leave the args out and every cached variant of the binding is marked, as with `context.forgeInvalidate`. Give them and it's that one query. A mounted match refetches in the next batch, and an unmounted one waits until something watches it. `refetchBinding` does the mounted ones right away, waits for them, and throws if one fails.
+
+## Mutations
+
+`mutationProvider(updateOrder)` is a notifier whose state is a `MutationState`, with the semantics of `ForgeMutationBuilder`:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+final updateOrderProvider = mutationProvider(updateOrder);
+
+class ShipButton extends ConsumerWidget {
+  const ShipButton({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(updateOrderProvider);
+    return FilledButton(
+      onPressed: state is MutationPending
+          ? null
+          : () => ref
+              .read(updateOrderProvider.notifier)
+              .mutate(UpdateOrderArgs(id: id, status: 'shipped')),
+      child: Text(state is MutationFailure ? 'Try again' : 'Mark shipped'),
+    );
+  }
+}
+```
+
+`mutate` never throws here either. A failure becomes `MutationFailure` in the notifier's state and the future resolves with `null`. `mutateAsync` records the same state and rethrows. Both take `options: RequestOptions(headers: ..., cancel: ...)` for per-call headers and a cancel future, and `place:` for placement callbacks. Two calls that overlap settle in favour of the later one, and `reset()` puts the provider back to idle and drops whatever was still in flight.
+
+Optimistic patches are an argument of the call here, not of the provider, and they follow the [rules on the Flutter page](/docs/dart-client/flutter-adapter#optimistic-writes): pass the `key:`, and don't expect a patch to change a record that holds another entity.
+
+```dart
+import 'package:catalog_forge_client/catalog_forge_client.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+
+final patchItemProvider = mutationProvider(patchItem);
+
+Future<Item?> saveNote(WidgetRef ref, String id, String note) =>
+    ref.read(patchItemProvider.notifier).mutate(
+          PatchItemArgs(id: id, note: Assign(note)),
+          optimistic: OptimisticUpdate<Item>(
+            (item) => item.copyWith(note: Assign(note)),
+            key: entityKey('Item', id),
+          ),
+        );
+```
+
+### One status per provider
+
+The state belongs to the provider, not to the widget. Every `ShipButton` above watches the same `updateOrderProvider`, so while one order is being shipped, every button on the screen shows it as pending. That's the difference from `ForgeMutationBuilder`, where each builder has a status of its own. When two places need independent statuses, declare a second provider over the same binding:
+
+```dart
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
+
+final updateOrderFromListProvider = mutationProvider(updateOrder);
+final updateOrderFromDetailProvider = mutationProvider(updateOrder);
+```
+
+The provider auto-disposes, so watch it for as long as you care about the status. A call whose provider has been disposed still runs to its end and resolves for its caller, and records nothing. The status also belongs to the client and principal the call ran for: a `setPrincipal` or a new `forgeClientProvider` puts the provider back to idle, and a call still in flight across the change isn't recorded when it lands. The write itself still happens.
+
+## Revalidation
+
+You set up nothing for it. `forgeInstalledClientProvider` installs the same revalidation a `ForgeScope` does: it refetches stale queries when the app returns to the foreground and again on reconnect, and it removes them when the provider goes away. `frameCommitScheduler()` in your cache is the other half, batching commits once per frame. [What the adapter installs](/docs/dart-client/flutter-adapter#what-the-adapter-installs) has the details, including what "stale" means.
+
+In a test, override `forgeFocusSignalProvider` and `forgeConnectivitySignalProvider` with the `FakeFocusSignal` and `FakeConnectivitySignal` from `package:forge_client_flutter/testing.dart`, next to `forgeClientProvider`, so nothing touches a platform channel. Add `forge_client_flutter` to your `dev_dependencies` for that import.
+
+## Inside a provider's build
+
+The cache notifies its listeners synchronously, so a provider's own `build` must not start cache work. No `mutate`, `refetch`, `invalidate` or `setPrincipal` in there, and no listening to a raw `QueryRef.watch` or `cache.watch` stream, a `StreamProvider` over one included. Watch queries through `queryProvider`, which holds back a state that arrives in the middle of a build and applies it once the build has returned. Those other calls can't do that, and Riverpod asserts in debug builds when they modify a provider mid-build.
+
+Call `mutate` from an event handler. From a widget's `build` it won't assert, but it writes on every rebuild, which is rarely what you meant.
+
+## Apps on Riverpod 2
+
+This adapter needs `flutter_riverpod` 3. An app still on Riverpod 2 has two options. Migrate to Riverpod 3 first, or use the [Flutter adapter](/docs/dart-client/flutter-adapter) beside your existing providers: `ForgeQueryBuilder` works anywhere in the widget tree and needs nothing from Riverpod.
+
+<Callout type="info">
+Both adapters read one `QueryCache`. You can move a screen from `ForgeQueryBuilder` to a provider, or back, without touching the generated client or the cache.
+</Callout>

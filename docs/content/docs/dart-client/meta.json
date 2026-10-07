@@ -11,6 +11,9 @@
     "entities",
     "invalidation",
     "---Tooling---",
-    "generated-package"
+    "generated-package",
+    "---Flutter---",
+    "flutter-adapter",
+    "riverpod-adapter"
   ]
 }
