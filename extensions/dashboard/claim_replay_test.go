@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -293,6 +294,59 @@ func TestSecretCommand_SharedStoreDuplicateWaitsOnTheClaim(t *testing.T) {
 	a := await(t, second, "the duplicate")
 	if msg := conflictMessage(t, a.err); !strings.Contains(msg, "already ran") {
 		t.Fatalf("duplicate message = %q, want the tombstone's CONFLICT", msg)
+	}
+
+	if n := r.calls.Load(); n != 1 {
+		t.Fatalf("handler ran %d times, want 1", n)
+	}
+}
+
+// A secret command whose handler outlives its claim's lease, while another
+// Begin sweeps the lapsed claim, must still leave its tombstone through the
+// production store, so a replay answers CONFLICT and mints nothing.
+func TestSecretCommand_ProductionStoreKeepsTheTombstoneWhenTheClaimLapses(t *testing.T) {
+	var (
+		mu  sync.Mutex
+		now = time.Now()
+	)
+
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return now
+	}
+
+	shared := middleware.NewMemoryIdempotencyStore(middleware.MemoryIdempotencyClock(clock))
+	r := newMintRig(t, idempotency.NewSharedStore(shared), nil, dispatcher.SecretResponse())
+
+	first := r.dispatch()
+	await(t, r.started, "the handler to start")
+
+	// The handler runs for hours of store time, and an unrelated Begin
+	// sweeps its lapsed claim.
+	mu.Lock()
+	now = now.Add(2 * time.Hour)
+	mu.Unlock()
+
+	other := middleware.IdempotencyKey{Principal: "bob", Scope: idempotency.SharedScope, Value: "other"}
+
+	swept, err := shared.Begin(context.Background(), other, "", time.Minute)
+	if err != nil || swept.State != middleware.IdempotencyAcquired {
+		t.Fatalf("sweeping Begin = %+v, %v", swept, err)
+	}
+
+	_ = shared.Release(context.Background(), other, swept.Token)
+
+	close(r.gate)
+
+	if a := await(t, first, "the first dispatch"); a.err != nil || !strings.Contains(string(a.data), claimRaw) {
+		t.Fatalf("first answer = %s, %v; want the raw key", a.data, a.err)
+	}
+
+	a := await(t, r.dispatch(), "the replay")
+	if msg := conflictMessage(t, a.err); !strings.Contains(msg, "already ran") {
+		t.Fatalf("replay message = %q, want the tombstone's CONFLICT", msg)
 	}
 
 	if n := r.calls.Load(); n != 1 {

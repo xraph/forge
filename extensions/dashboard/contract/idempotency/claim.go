@@ -30,13 +30,19 @@ type Claim struct {
 	Cached *Cached
 	// End ends a claim the caller holds. Pass the entry to store under the
 	// claim, or nil to store nothing and give the key back. A caller that
-	// holds a claim must call End exactly once.
+	// holds a claim must call End exactly once. When the claim lapsed before
+	// End, End stores nothing and its error wraps ErrClaimLost.
 	End func(ctx context.Context, c *Cached) error
 }
 
 // ErrClaimHeld is what Claim's error wraps when ctx ended while another
 // caller still held the key.
 var ErrClaimHeld = errors.New("idempotency: key is held by a running command")
+
+// ErrClaimLost is what End's error wraps when the claim's lease lapsed before
+// End, so the claim was swept or passed to another caller and End stored
+// nothing. The error also wraps middleware.ErrIdempotencyNotHolder.
+var ErrClaimLost = errors.New("idempotency: claim lapsed before it ended")
 
 // claimLease bounds how long a command's claim survives a holder that never
 // ends it, such as one whose process died. It matches the HTTP idempotency
@@ -53,6 +59,12 @@ const claimPoll = 25 * time.Millisecond
 // request holds.
 func (s *InMemoryStore) Claim(ctx context.Context, key, identity string) (Claim, error) {
 	k := sharedKey(key, identity)
+
+	// lastDone is the Done the previous InFlight carried. A store that hands
+	// back the same Done already closed while the key is still held would
+	// make awaitClaim return at once every time, so Claim would spin until
+	// ctx ends; such a store is waited on by the timer instead.
+	var lastDone <-chan struct{}
 
 	for {
 		begun, err := s.shared.Begin(ctx, k, "", s.lease)
@@ -72,7 +84,14 @@ func (s *InMemoryStore) Claim(ctx context.Context, key, identity string) (Claim,
 
 			return Claim{Cached: &c}, nil
 		case middleware.IdempotencyInFlight:
-			if err := awaitClaim(ctx, begun.Done); err != nil {
+			done := begun.Done
+			if done != nil && done == lastDone && isClosed(done) {
+				done = nil
+			}
+
+			lastDone = begun.Done
+
+			if err := awaitClaim(ctx, done); err != nil {
 				return Claim{}, err
 			}
 		default:
@@ -105,10 +124,21 @@ func awaitClaim(ctx context.Context, done <-chan struct{}) error {
 	return nil
 }
 
+// isClosed reports whether done is closed, without blocking.
+func isClosed(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
+}
+
 // ender returns the End for a claim held under token. Storing completes the
 // claim with the entry. If that fails the claim is released, so a failure
 // never leaves the key held until its lease lapses. ErrNotHolder means the
-// lease already lapsed and the key moved on, and then nothing is stored.
+// lease already lapsed and the key moved on. Nothing is stored then, and the
+// error wraps ErrClaimLost so the caller can store the entry another way.
 func (s *InMemoryStore) ender(k middleware.IdempotencyKey, token middleware.IdempotencyToken) func(context.Context, *Cached) error {
 	return func(ctx context.Context, c *Cached) error {
 		if c == nil {
@@ -116,8 +146,14 @@ func (s *InMemoryStore) ender(k middleware.IdempotencyKey, token middleware.Idem
 		}
 
 		err := s.shared.Complete(ctx, k, token, toResponse(*c))
-		if err != nil {
-			_ = s.shared.Release(ctx, k, token)
+		if err == nil {
+			return nil
+		}
+
+		_ = s.shared.Release(ctx, k, token)
+
+		if errors.Is(err, middleware.ErrIdempotencyNotHolder) {
+			return fmt.Errorf("%w: %w", ErrClaimLost, err)
 		}
 
 		return err

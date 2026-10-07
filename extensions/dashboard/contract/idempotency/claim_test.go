@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,8 +209,8 @@ func TestClaimEndAfterTheLeaseLapsedStoresNothing(t *testing.T) {
 	fresh := mustClaim(t, s, ctx) // the lapsed claim is swept
 
 	err := stale.End(ctx, &Cached{Status: 200, WireBody: json.RawMessage(`"stale"`), StoredAt: clock(), TTL: time.Hour})
-	if !errors.Is(err, middleware.ErrIdempotencyNotHolder) {
-		t.Fatalf("stale End = %v, want ErrIdempotencyNotHolder", err)
+	if !errors.Is(err, middleware.ErrIdempotencyNotHolder) || !errors.Is(err, ErrClaimLost) {
+		t.Fatalf("stale End = %v, want ErrClaimLost wrapping ErrIdempotencyNotHolder", err)
 	}
 
 	if err := fresh.End(ctx, &Cached{Status: 200, WireBody: json.RawMessage(`"fresh"`), StoredAt: clock(), TTL: time.Hour}); err != nil {
@@ -268,5 +269,41 @@ func TestClaimIsPerIdentity(t *testing.T) {
 	other, err := s.Claim(ctx, "k", "someone-else")
 	if err != nil || other.End == nil {
 		t.Fatalf("Claim for another identity = %+v, %v; want its own claim", other, err)
+	}
+}
+
+// closedDoneInFlight answers every Begin with InFlight and the same Done,
+// already closed: a store bug that would make a naive waiter spin.
+type closedDoneInFlight struct {
+	middleware.IdempotencyStore
+
+	done   chan struct{}
+	begins atomic.Int64
+}
+
+func (s *closedDoneInFlight) Begin(context.Context, middleware.IdempotencyKey, string, time.Duration) (middleware.IdempotencyBegun, error) {
+	s.begins.Add(1)
+
+	return middleware.IdempotencyBegun{State: middleware.IdempotencyInFlight, Done: s.done}, nil
+}
+
+func TestClaimDoesNotSpinOnAClosedDone(t *testing.T) {
+	store := &closedDoneInFlight{IdempotencyStore: middleware.NewMemoryIdempotencyStore(), done: make(chan struct{})}
+	close(store.done)
+
+	s := NewSharedStore(store)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := s.Claim(ctx, "k", "u")
+	if !errors.Is(err, ErrClaimHeld) {
+		t.Fatalf("Claim = %v, want ErrClaimHeld once the context ends", err)
+	}
+
+	// At claimPoll (25ms) over 100ms that is a handful of Begins. Spinning on
+	// the closed Done would make thousands.
+	if n := store.begins.Load(); n > 10 {
+		t.Fatalf("Claim made %d Begin calls against a closed Done, want a handful", n)
 	}
 }

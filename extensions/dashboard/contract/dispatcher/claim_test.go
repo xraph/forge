@@ -25,6 +25,7 @@ type claimStore struct {
 	stores   int
 	releases int
 	claimErr error
+	endErr   error // when set, End stores nothing, drops the claim and returns it
 
 	waiting chan string // receives the key each time a Claim starts waiting
 }
@@ -108,6 +109,13 @@ func (s *claimStore) ender(k string, done chan struct{}) func(context.Context, *
 
 		if s.held[k] != done {
 			return errors.New("claimStore: End on a claim that is not held")
+		}
+
+		if s.endErr != nil {
+			delete(s.held, k)
+			close(done)
+
+			return s.endErr
 		}
 
 		if c == nil {
@@ -558,5 +566,70 @@ func TestClaim_QueriesAndKeylessCommandsDoNotClaim(t *testing.T) {
 
 	if claims, _, _, _ := store.counts(); claims != 0 {
 		t.Fatalf("claims = %d, want none", claims)
+	}
+}
+
+// A secret command whose claim lapsed while its handler ran must still leave
+// its tombstone, or a replay with the same key would mint a second secret.
+func TestClaim_LapsedClaimStillLeavesTheTombstone(t *testing.T) {
+	store := newClaimStore()
+	store.endErr = fmt.Errorf("%w: lease lapsed", ErrIdempotencyClaimLost)
+
+	g := newGatedCommand(t, store, nil, SecretResponse())
+	close(g.gate)
+
+	first := recv(t, g.dispatch(context.Background()), "the first dispatch")
+	if first.err != nil || !strings.Contains(string(first.data), rawKey) {
+		t.Fatalf("first answer = %s, %v; want the raw key", first.data, first.err)
+	}
+
+	entry, ok := store.Lookup(context.Background(), "k1", "alice:keys.create")
+	if !ok || entry.Status != TombstoneStatus || len(entry.WireBody) != 0 {
+		t.Fatalf("entry = %+v, %v; want a tombstone written through Store", entry, ok)
+	}
+
+	requireSecretConflict(t, recv(t, g.dispatch(context.Background()), "the replay").err)
+
+	if n := g.calls.Load(); n != 1 {
+		t.Fatalf("handler ran %d times, want 1", n)
+	}
+}
+
+func TestClaim_LapsedClaimStillLeavesTheResponse(t *testing.T) {
+	store := newClaimStore()
+	store.endErr = fmt.Errorf("%w: lease lapsed", ErrIdempotencyClaimLost)
+
+	g := newGatedCommand(t, store, nil)
+	close(g.gate)
+
+	first := recv(t, g.dispatch(context.Background()), "the first dispatch")
+	if first.err != nil {
+		t.Fatalf("first dispatch: %v", first.err)
+	}
+
+	second := recv(t, g.dispatch(context.Background()), "the replay")
+	if second.err != nil || string(second.data) != string(first.data) {
+		t.Fatalf("replay = %s, %v; want the first response", second.data, second.err)
+	}
+
+	if n := g.calls.Load(); n != 1 {
+		t.Fatalf("handler ran %d times, want 1", n)
+	}
+}
+
+// Any other End failure is logged, not papered over with a Store.
+func TestClaim_OtherEndFailureDoesNotFallBackToStore(t *testing.T) {
+	store := newClaimStore()
+	store.endErr = errors.New("backend write failed")
+
+	g := newGatedCommand(t, store, nil, SecretResponse())
+	close(g.gate)
+
+	if r := recv(t, g.dispatch(context.Background()), "the dispatch"); r.err != nil {
+		t.Fatalf("dispatch: %v", r.err)
+	}
+
+	if _, stores, _, held := store.counts(); stores != 0 || held != 0 {
+		t.Fatalf("stores=%d held=%d, want no Store fallback and no claim left", stores, held)
 	}
 }

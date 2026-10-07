@@ -901,8 +901,9 @@ type claimingIdempotencyAdapter struct {
 }
 
 // Claim forwards to the underlying claimer, converting the entry and the End
-// function between the two packages' types, and idempotency.ErrClaimHeld to
-// dispatcher.ErrIdempotencyClaimHeld.
+// function between the two packages' types, idempotency.ErrClaimHeld to
+// dispatcher.ErrIdempotencyClaimHeld and idempotency.ErrClaimLost to
+// dispatcher.ErrIdempotencyClaimLost.
 func (a *claimingIdempotencyAdapter) Claim(ctx context.Context, key, identity string) (dispatcher.IdempotencyClaim, error) {
 	claim, err := a.claimer.Claim(ctx, key, identity)
 	if errors.Is(err, idempotency.ErrClaimHeld) {
@@ -922,11 +923,18 @@ func (a *claimingIdempotencyAdapter) Claim(ctx context.Context, key, identity st
 
 	if end := claim.End; end != nil {
 		out.End = func(ctx context.Context, c *dispatcher.IdempotencyCached) error {
+			var err error
 			if c == nil {
-				return end(ctx, nil)
+				err = end(ctx, nil)
+			} else {
+				err = end(ctx, &idempotency.Cached{Status: c.Status, WireBody: c.WireBody, StoredAt: c.StoredAt, TTL: c.TTL})
 			}
 
-			return end(ctx, &idempotency.Cached{Status: c.Status, WireBody: c.WireBody, StoredAt: c.StoredAt, TTL: c.TTL})
+			if errors.Is(err, idempotency.ErrClaimLost) {
+				return fmt.Errorf("%w: %w", dispatcher.ErrIdempotencyClaimLost, err)
+			}
+
+			return err
 		}
 	}
 

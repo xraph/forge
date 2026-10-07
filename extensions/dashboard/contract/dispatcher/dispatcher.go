@@ -141,6 +141,10 @@ func WithIdempotencyStore(s IdempotencyStore) Option {
 // dispatch that holds its idempotency key, when the store is an
 // IdempotencyClaimer. When the wait ends with the key still held, the command
 // answers CONFLICT. A value of zero or less keeps DefaultIdempotencyWait.
+//
+// Keep the wait below your HTTP server's WriteTimeout. A server that times the
+// write out first cuts off a waiting duplicate's response, so the client sees
+// a dropped connection where it should have seen the replay or CONFLICT.
 func WithIdempotencyWait(wait time.Duration) Option {
 	return func(d *Dispatcher) {
 		if wait > 0 {
@@ -164,6 +168,14 @@ type IdempotencyStore interface {
 // the claim until its entry is stored or the handler fails, so two
 // overlapping dispatches never both run it. Without one, the dispatcher only
 // looks the key up before the handler and stores the entry after it.
+//
+// A Claim that fails for any reason other than the key being held (a backend
+// error, say) answers a retryable UNAVAILABLE and the handler does not run,
+// since nothing would stop a duplicate from running beside it.
+//
+// When End reports ErrIdempotencyClaimLost, the claim's lease lapsed while the
+// handler ran. The dispatcher then writes the entry with Store, so a secret
+// command still leaves its tombstone.
 type IdempotencyClaimer interface {
 	IdempotencyStore
 
@@ -182,13 +194,18 @@ type IdempotencyClaim struct {
 	Cached *IdempotencyCached
 	// End ends a claim the caller holds. Pass the entry to store under the
 	// claim, or nil to store nothing and give the key back. The dispatcher
-	// calls it exactly once.
+	// calls it exactly once. When the claim lapsed before End, End stores
+	// nothing and its error wraps ErrIdempotencyClaimLost.
 	End func(ctx context.Context, c *IdempotencyCached) error
 }
 
 // ErrIdempotencyClaimHeld is what IdempotencyClaimer.Claim's error wraps when
 // its context ended while another dispatch still held the key.
 var ErrIdempotencyClaimHeld = errors.New("dispatcher: idempotency key is held by a running command")
+
+// ErrIdempotencyClaimLost is what IdempotencyClaim.End's error wraps when the
+// claim's lease lapsed before End, so End stored nothing.
+var ErrIdempotencyClaimLost = errors.New("dispatcher: idempotency claim lapsed before it ended")
 
 // IdempotencyCached mirrors idempotency.Cached; defined here for the same
 // import-cycle reason. Adapters in the wire-up convert between the two.
@@ -467,7 +484,11 @@ func answerCached(entry handlerEntry, cached *IdempotencyCached) (json.RawMessag
 //
 // With end set, the dispatch holds a claim on the key: the entry is stored
 // through end, which ends the claim, and end runs even when there is no entry
-// to store, so the key is given back.
+// to store, so the key is given back. If the claim lapsed while the handler
+// ran, end stores nothing, so the entry goes through Store as it does without
+// a claim. A tombstone is always safe to write that way, and so is a response:
+// Store never overwrites a live claim, and a duplicate that took the key
+// writes its own entry when it finishes.
 func (d *Dispatcher) remember(ctx context.Context, req contract.Request, p contract.Principal, secret bool, data json.RawMessage, meta contract.ResponseMeta, end func(context.Context, *IdempotencyCached) error) {
 	// TTL: 24h hardcoded. Phase 6 will surface this via Extension config.
 	cached := &IdempotencyCached{StoredAt: time.Now(), TTL: idempotencyTTL}
@@ -486,16 +507,33 @@ func (d *Dispatcher) remember(ctx context.Context, req contract.Request, p contr
 		}
 	}
 
+	identity := principalIdentity(p, req.Intent)
+
 	if end != nil {
 		// The response is already on its way, so a client gone by now must
 		// not cost the entry, nor leave the key held.
-		_ = end(context.WithoutCancel(ctx), cached)
+		ctx = context.WithoutCancel(ctx)
 
+		err := end(ctx, cached)
+		if err == nil {
+			return
+		}
+
+		if cached == nil || !errors.Is(err, ErrIdempotencyClaimLost) {
+			log.Printf("dispatcher: ending the idempotency claim for %s/%s@%d: %v", req.Contributor, req.Intent, req.IntentVersion, err)
+
+			return
+		}
+
+		log.Printf("dispatcher: idempotency claim for %s/%s@%d lapsed while the handler ran; storing its entry without the claim", req.Contributor, req.Intent, req.IntentVersion)
+	}
+
+	if cached == nil {
 		return
 	}
 
-	if cached != nil {
-		_ = d.store.Store(ctx, req.IdempotencyKey, principalIdentity(p, req.Intent), *cached)
+	if err := d.store.Store(ctx, req.IdempotencyKey, identity, *cached); err != nil && end != nil {
+		log.Printf("dispatcher: storing the idempotency entry for %s/%s@%d after its claim lapsed: %v", req.Contributor, req.Intent, req.IntentVersion, err)
 	}
 }
 
