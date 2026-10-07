@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ type Dispatcher struct {
 	store   IdempotencyStore // optional; nil = no command dedup
 
 	mu            sync.RWMutex
-	handlers      map[handlerKey]Handler
+	handlers      map[handlerKey]handlerEntry
 	subscriptions map[handlerKey]SubscriptionHandler
 	// remote is consulted by Dispatch when no local handler exists. Slice (m)
 	// added this so contributors hosted in other services can serve queries
@@ -50,6 +51,46 @@ type handlerKey struct {
 	Contributor string
 	Intent      string
 	Version     int
+}
+
+// handlerEntry is one registered query or command handler with the options
+// it was registered under.
+type handlerEntry struct {
+	h      Handler
+	secret bool
+}
+
+// RegisterOption configures one handler registration. Register and
+// RegisterCommand take any number of them, so a call without options keeps
+// compiling and behaving as before.
+type RegisterOption func(*handlerEntry)
+
+// SecretResponse marks a command whose response carries a secret the caller
+// sees once, such as a freshly minted API key. The dispatcher never keeps
+// that response for idempotent replay. A successful dispatch with an
+// idempotency key stores a tombstone (TombstoneStatus, no body), and a later
+// dispatch with the same key and user answers CONFLICT without running the
+// handler again, because running it again would mint a second secret.
+func SecretResponse() RegisterOption {
+	return func(e *handlerEntry) { e.secret = true }
+}
+
+// TombstoneStatus is the Status of the idempotency entry a SecretResponse
+// command leaves behind. The entry has no WireBody. Any entry with this
+// status answers CONFLICT on lookup, whatever the handler's current
+// registration says, so a tombstone never falls through to a fresh dispatch.
+const TombstoneStatus = http.StatusConflict
+
+// idempotencyTTL is how long a command's idempotency entry, tombstone or
+// response, stays in the store.
+const idempotencyTTL = 24 * time.Hour
+
+// errSecretNotKept is what a replay of a SecretResponse command answers.
+func errSecretNotKept() *contract.Error {
+	return &contract.Error{
+		Code:    contract.CodeConflict,
+		Message: "command already ran and its response held a secret that is not kept; send a new idempotency key to run it again",
+	}
 }
 
 // Option configures a Dispatcher.
@@ -98,7 +139,7 @@ func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 	}
 	d := &Dispatcher{
 		metrics:       metrics,
-		handlers:      map[handlerKey]Handler{},
+		handlers:      map[handlerKey]handlerEntry{},
 		subscriptions: map[handlerKey]SubscriptionHandler{},
 	}
 	for _, opt := range opts {
@@ -117,18 +158,27 @@ func (d *Dispatcher) SetRemoteDispatcher(rd RemoteDispatcher) {
 }
 
 // Register binds a query/command handler to a (contributor, intent, version)
-// key. Returns an error on duplicate registration.
-func (d *Dispatcher) Register(contributor, intent string, version int, h Handler) error {
+// key. Returns an error on duplicate registration. Pass SecretResponse for a
+// command whose response must never be kept for replay.
+func (d *Dispatcher) Register(contributor, intent string, version int, h Handler, opts ...RegisterOption) error {
 	if h == nil {
 		return fmt.Errorf("dispatcher: nil handler for %s/%s@%d", contributor, intent, version)
 	}
+
+	entry := handlerEntry{h: h}
+	for _, opt := range opts {
+		opt(&entry)
+	}
+
 	k := handlerKey{contributor, intent, version}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, exists := d.handlers[k]; exists {
 		return fmt.Errorf("dispatcher: handler %s/%s@%d already registered", contributor, intent, version)
 	}
-	d.handlers[k] = h
+
+	d.handlers[k] = entry
+
 	return nil
 }
 
@@ -169,10 +219,24 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 // mapping, plus optional idempotency dedup for commands. Dispatch is a thin
 // wrapper that adds optional span instrumentation.
 func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
+	k := handlerKey{req.Contributor, req.Intent, req.IntentVersion}
+
+	d.mu.RLock()
+	entry, ok := d.handlers[k]
+	remote := d.remote
+	d.mu.RUnlock()
+
 	// Idempotency wrap (commands only, requires store + key).
 	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
 		identity := principalIdentity(p, req.Intent)
-		if cached, ok := d.store.Lookup(ctx, req.IdempotencyKey, identity); ok {
+		if cached, hit := d.store.Lookup(ctx, req.IdempotencyKey, identity); hit {
+			// A tombstone, or any entry at all for a secret command, means
+			// the command already ran and its answer is gone. Running it
+			// again would mint a second secret, so refuse before the
+			// fallthrough below can.
+			if entry.secret || cached.Status == TombstoneStatus {
+				return nil, contract.ResponseMeta{}, errSecretNotKept()
+			}
 			// Decode the cached envelope back into (data, meta).
 			var resp contract.Response
 			if err := json.Unmarshal(cached.WireBody, &resp); err == nil && resp.OK {
@@ -182,11 +246,6 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 		}
 	}
 
-	k := handlerKey{req.Contributor, req.Intent, req.IntentVersion}
-	d.mu.RLock()
-	h, ok := d.handlers[k]
-	remote := d.remote
-	d.mu.RUnlock()
 	if !ok {
 		// Slice (m): no local handler — fall through to the remote dispatcher
 		// if wired. Forwarding inherits the dispatcher's metrics + dedup
@@ -214,7 +273,7 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	}
 
 	t0 := time.Now()
-	res, handlerErr := h(ctx, req.Payload, req.Params, p)
+	res, handlerErr := entry.h(ctx, req.Payload, req.Params, p)
 	latency := time.Since(t0)
 
 	wireErr := mapDispatchError(handlerErr)
@@ -251,19 +310,35 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 
 	// Capture for next time on successful command dispatch.
 	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
-		identity := principalIdentity(p, req.Intent)
-		successResp := contract.Response{OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta}
-		body, _ := json.Marshal(successResp)
-		// TTL: 24h hardcoded. Phase 6 will surface this via Extension config.
-		_ = d.store.Store(ctx, req.IdempotencyKey, identity, IdempotencyCached{
-			Status:   200,
-			WireBody: body,
-			StoredAt: time.Now(),
-			TTL:      24 * time.Hour,
-		})
+		d.remember(ctx, req, p, entry.secret, data, meta)
 	}
 
 	return data, meta, nil
+}
+
+// remember stores the idempotency entry for a command that succeeded. A
+// secret command leaves a tombstone: TombstoneStatus and no body, so the
+// secret its response carries never reaches the store. Any other command
+// leaves its full success envelope for replay.
+func (d *Dispatcher) remember(ctx context.Context, req contract.Request, p contract.Principal, secret bool, data json.RawMessage, meta contract.ResponseMeta) {
+	// TTL: 24h hardcoded. Phase 6 will surface this via Extension config.
+	cached := IdempotencyCached{StoredAt: time.Now(), TTL: idempotencyTTL}
+
+	if secret {
+		cached.Status = TombstoneStatus
+	} else {
+		body, err := json.Marshal(contract.Response{OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta})
+		if err != nil {
+			// Nothing worth replaying. The old code stored the empty body,
+			// which a replay could not decode and ran afresh anyway.
+			return
+		}
+
+		cached.Status = http.StatusOK
+		cached.WireBody = body
+	}
+
+	_ = d.store.Store(ctx, req.IdempotencyKey, principalIdentity(p, req.Intent), cached)
 }
 
 // principalIdentity is the per-user dedup key suffix. Empty user is allowed

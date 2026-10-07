@@ -18,9 +18,15 @@ func RegisterQuery[I, O any](d *Dispatcher, contributor, intent string, version 
 // RegisterCommand is identical in shape to RegisterQuery; both register a
 // query/command handler. The dispatcher's wire layer enforces kind/capability
 // matching against the manifest, so the only practical difference between the
-// two helpers is intent of the caller — they're aliases.
-func RegisterCommand[I, O any](d *Dispatcher, contributor, intent string, version int, fn func(ctx context.Context, in I, p contract.Principal) (O, error)) error {
-	return d.Register(contributor, intent, version, wrapTyped[I, O](fn))
+// two helpers is the options RegisterCommand takes.
+//
+// Pass SecretResponse for a command whose response carries a secret the
+// caller sees once (a raw API key, say). Its response is never kept for
+// idempotent replay:
+//
+//	dispatcher.RegisterCommand(d, "keysmith", "keys.create", 1, createKey, dispatcher.SecretResponse())
+func RegisterCommand[I, O any](d *Dispatcher, contributor, intent string, version int, fn func(ctx context.Context, in I, p contract.Principal) (O, error), opts ...RegisterOption) error {
+	return d.Register(contributor, intent, version, wrapTyped[I, O](fn), opts...)
 }
 
 func wrapTyped[I, O any](fn func(ctx context.Context, in I, p contract.Principal) (O, error)) Handler {
