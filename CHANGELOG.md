@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/xraph/forge/compare/v1.12.0...v1.12.1) (2026-10-07)
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.12.0 ([d95f626b](https://github.com/xraph/forge/commit/d95f626b))
+
 ## [1.12.0](https://github.com/xraph/forge/compare/v1.11.2...v1.12.0) (2026-10-02)
 
 
