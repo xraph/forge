@@ -1,0 +1,10 @@
+{
+  "title": "Dart Client",
+  "description": "Typed Dart and Flutter clients with an encrypted offline cache",
+  "icon": "Smartphone",
+  "root": true,
+  "pages": [
+    "index",
+    "installation"
+  ]
+}

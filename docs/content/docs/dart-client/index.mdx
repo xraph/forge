@@ -1,0 +1,134 @@
+---
+title: Dart Client
+description: Generate a typed Dart client for Flutter, with a normalized cache that keeps working offline
+icon: Smartphone
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+Forge generates a Dart client from the same API specification that produces the [web client](/docs/web-client). You get typed models, a typed REST client, typed errors and streaming clients. Add `--hooks` and you also get a runtime that caches **entities**, the way the TypeScript one does: `GET /orders/7` and `GET /orders` both point at one `Order:7`, and a `PATCH` that changes its total updates the detail screen, the row in the list and the badge in your app bar with no refetch.
+
+A phone isn't a browser tab, though. It loses signal in a lift, the OS kills it in the background, and sometimes three people share it. So the Dart runtime goes further than the TypeScript one in three places. On iOS, Android and the desktop, the cache is persisted on the device and encrypted at rest. A write you make offline survives a restart and replays when the network comes back. Entities stored in Grove sync in both directions and merge, so you don't write a conflict path.
+
+You decide what counts as an entity, and what a write makes stale, in Go before either client is generated, so the Dart and TypeScript clients follow the same rules. These pages cover the Dart side. The server side is shared, so if you want the details of declaring it, they're in the web client docs under [entities](/docs/web-client/entities) and [invalidation](/docs/web-client/invalidation).
+
+## What you write to get it
+
+On the server, nothing new. This route is enough:
+
+```go
+r.GET("/orders/:id", getOrder,
+    forge.WithOperationID("getOrder"),
+    forge.WithResponseSchema(200, "Order", &Order{}),
+)
+```
+
+The generator turns it into a row of data:
+
+```dart title="lib/src/ops.dart"
+const opGetOrder = OperationMeta(
+  id: 'op_get_order',
+  method: 'GET',
+  path: '/orders/{id}',
+  entity: 'Order',
+  rootType: 'Order',
+  provides: ['Order:{id}'],
+  responseCodec: orderCodec,
+);
+```
+
+and a one-line binding your widgets call:
+
+```dart
+class OrderTotal extends StatelessWidget {
+  const OrderTotal({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return ForgeQueryBuilder(
+      query: getOrder(GetOrderArgs(id: id)),
+      builder: (context, state) => switch (state) {
+        QuerySuccess(:final data) => Text('${data.total}'),
+        QueryFailure() => const Text('Could not load the order'),
+        QueryIdle() || QueryLoading() => const CircularProgressIndicator(),
+      },
+    );
+  }
+}
+```
+
+`QueryState` is sealed, so that `switch` is checked by the compiler. Forget the failure case and it doesn't build.
+
+<Callout type="info">
+Everything on these pages is built and tested in the forge repository, and it's waiting on a release. The packages aren't on pub.dev. They're versioned `1.0.0-dev` and you install them from the forge repository with a git dependency. See [Installation](/docs/dart-client/installation).
+</Callout>
+
+On the web, the cache lives in memory for now. Encrypted offline storage there isn't built yet, and [Not yet shipped](/docs/dart-client/not-yet-shipped) lists what else isn't.
+
+## Start here
+
+<Cards>
+<Card title="Getting Started" href="/docs/dart-client/getting-started">
+An orders API with no client annotations, from Go route to a Flutter screen.
+</Card>
+<Card title="Installation" href="/docs/dart-client/installation">
+The packages, the git dependencies, and generating the client.
+</Card>
+<Card title="Entities" href="/docs/dart-client/entities">
+How identity reaches the Dart store, and why an unchanged record never rebuilds its widget.
+</Card>
+<Card title="Invalidation" href="/docs/dart-client/invalidation">
+Tags, invalidating by hand, freshness, and live queries on each platform.
+</Card>
+<Card title="The generated package" href="/docs/dart-client/generated-package">
+Models, the ops table, bindings, args classes, the REST client and the type mapping.
+</Card>
+<Card title="Flutter adapter" href="/docs/dart-client/flutter-adapter">
+`ForgeScope`, `ForgeQueryBuilder` and `ForgeMutationBuilder`, with no state library needed.
+</Card>
+<Card title="Riverpod adapter" href="/docs/dart-client/riverpod-adapter">
+The same cache as Riverpod 3 providers, for apps already built on it.
+</Card>
+<Card title="Offline and security" href="/docs/dart-client/offline-and-security">
+The encrypted cache, keys per platform, sign-out, and the outbox.
+</Card>
+<Card title="Sync" href="/docs/dart-client/sync">
+Two-way sync for Grove entities, and what happens when the server rejects a change.
+</Card>
+<Card title="Devtools" href="/docs/dart-client/devtools">
+The cache inspector inside Flutter DevTools, plus outbox and sync panels.
+</Card>
+<Card title="Not yet shipped" href="/docs/dart-client/not-yet-shipped">
+What the Dart client can't do yet.
+</Card>
+</Cards>
+
+## How the pieces fit
+
+```
+Go route + options
+        │
+        ├─ OpenAPI  (operations, entity identity, cache tags, x-forge-sync, x-forge-idempotent)
+        └─ AsyncAPI (channels, stream bindings)
+                │
+                ▼
+   forge client generate --language dart --hooks
+                │
+                ▼
+   models/  codecs/  ops.dart  bindings/  rest.dart  errors.dart
+                │
+                ▼
+         forge_client                     entity store, tags, transports, snapshot
+                │
+      ┌─────────┼───────────────────┐
+      ▼         ▼                   ▼
+ forge_client_flutter    forge_client_offline    forge_client_grove
+      │
+      ▼
+ forge_client_riverpod
+```
+
+Generated code holds data and one-line bindings, never logic. A runtime fix ships as a new version of `forge_client`, so you bump one dependency and never regenerate the client in every app that talks to your API.
