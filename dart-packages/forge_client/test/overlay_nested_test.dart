@@ -377,7 +377,7 @@ void main() {
       });
       cache.notifyChanged();
 
-      Object? seen;
+      bool? closes;
       final raw = mutation<Object?, UpdateOrderArgs, Object?>(
         opUpdateOrder,
         (client) => client,
@@ -388,7 +388,12 @@ void main() {
           cache,
           const UpdateOrderArgs(7, 'shipped'),
           optimistic: OptimisticUpdate<Json>((Json previous) {
-            seen = previous;
+            // Read while the compute runs: afterwards the view is sealed.
+            final customer = previous['customer']! as Json;
+            closes ??= identical(
+              (customer['orders']! as List<Object?>).single,
+              previous,
+            );
 
             return {...previous, 'status': 'shipped'};
           }, key: 'Order:7'),
@@ -398,11 +403,7 @@ void main() {
       expect(ref.getState(cache).dataOrNull?.status, 'shipped');
 
       // The cycle closes on the view itself, as a read's does.
-      final customer = (seen! as Json)['customer']! as Json;
-      expect(
-        identical((customer['orders']! as List<Object?>).single, seen),
-        isTrue,
-      );
+      expect(closes, isTrue);
       expect(
         cache.overlays.effective('Order:7')!.data['customer'],
         refTo('Customer:c1'),

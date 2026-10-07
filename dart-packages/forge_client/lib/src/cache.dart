@@ -279,7 +279,12 @@ final class QueryCache {
     this._storage,
   }) : commitScheduler = commitScheduler ?? microtaskCommitScheduler(),
        _syncSources = List.unmodifiable(syncSources) {
-    overlays = OverlayStack(store, _safeReport, entities);
+    overlays = OverlayStack(
+      store,
+      _safeReport,
+      entities,
+      () => store.frameVersion,
+    );
     store.overlays = overlays;
 
     invalidator = Invalidator(
@@ -361,6 +366,25 @@ final class QueryCache {
   /// by the devtools' inspection-does-not-mutate test.
   @internal
   List<String> get debugLruOrder => [..._records.keys];
+
+  /// Makes a taken overlay [entry] permanent in base, as a mutation that
+  /// succeeded does, and returns the keys left with no record. A key a frame
+  /// wrote after [since] (a frame-clock reading), or one a sync source owns,
+  /// is not written: not the entry's own targets, and not an embedded entity
+  /// one of its merges changed. The devtools' "promote" goes through here
+  /// too, with the entry's own [OverlayEntry.pushedAt].
+  @internal
+  List<EntityKey> promoteSettled(OverlayEntry entry, int since) {
+    final overtaken = store.racedSince(entry.patches.keys, since).toSet();
+
+    // An owned record's patch is discarded like an overtaken one: the
+    // source, not this response, decides what the record holds.
+    return overlays.promote(
+      entry,
+      _withOwned(overtaken, entry.patches.keys) ?? overtaken,
+      (key) => store.frameStamp(key) > since || owns(typenameOf(key)),
+    );
+  }
 
   /// Whether [dispose] has run. A disposed cache refuses new work.
   bool get isDisposed => _disposed;
@@ -687,24 +711,7 @@ final class QueryCache {
     if (overlay != null) {
       final entry = overlays.take(overlay);
 
-      if (entry != null) {
-        final overtaken = store
-            .racedSince(entry.patches.keys, dispatchedAt)
-            .toSet();
-
-        // An owned record's patch is discarded like an overtaken one: the
-        // source, not this response, decides what the record holds.
-        skip.addAll(
-          overlays.promote(
-            entry,
-            _withOwned(overtaken, entry.patches.keys) ?? overtaken,
-            // An embedded entity a frame wrote in flight, or a source owns,
-            // is not the promotion's to write.
-            (key) =>
-                store.frameStamp(key) > dispatchedAt || owns(typenameOf(key)),
-          ),
-        );
-      }
+      if (entry != null) skip.addAll(promoteSettled(entry, dispatchedAt));
     }
 
     store.commit(

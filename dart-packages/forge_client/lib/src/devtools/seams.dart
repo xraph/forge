@@ -241,10 +241,13 @@ extension type const DevCache(QueryCache cache) {
   bool takeOverlay(int id) => cache.overlays.take(id) != null;
 
   /// Commits one layer to the base store. False when no layer has [id].
+  ///
+  /// Under the guard a settling mutation gets: a key a frame wrote after the
+  /// layer was pushed, or one a sync source owns, is left alone.
   bool promoteOverlay(int id) {
     final entry = cache.overlays.take(id);
     if (entry == null) return false;
-    cache.overlays.promote(entry);
+    cache.promoteSettled(entry, entry.pushedAt);
     return true;
   }
 

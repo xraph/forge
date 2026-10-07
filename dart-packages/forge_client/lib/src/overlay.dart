@@ -60,6 +60,7 @@ final class OverlayEntry {
     this.place,
     this.tags = const [],
     this.created,
+    this.pushedAt = 0,
   });
 
   /// Monotonic per stack.
@@ -76,6 +77,10 @@ final class OverlayEntry {
 
   /// The minted key, for a create.
   final EntityKey? created;
+
+  /// The store's frame-clock reading when the entry was pushed. A record a
+  /// frame wrote after it is newer than anything this entry could promote.
+  final int pushedAt;
 }
 
 final class _Projection(
@@ -93,8 +98,16 @@ final class OverlayStack implements OverlayLayer {
   /// Creates a stack over [_host]. [_report] receives a throwing compute patch
   /// or placement callback, with the context `optimistic`. [_entities] is the
   /// schema a promoted change is normalized against; without it a changed
-  /// field is promoted in client shape.
-  OverlayStack(this._host, [this._report, this._entities = const {}]);
+  /// field is promoted in client shape. [_frames] reads the store's frame
+  /// clock, stamped on every entry as [OverlayEntry.pushedAt].
+  OverlayStack(
+    this._host, [
+    this._report,
+    this._entities = const {},
+    this._frames,
+  ]);
+
+  final int Function()? _frames;
 
   final OverlayHost _host;
   final void Function(Object error, String context)? _report;
@@ -303,6 +316,7 @@ final class OverlayStack implements OverlayLayer {
       place: place,
       tags: tags,
       created: created,
+      pushedAt: _frames?.call() ?? 0,
     );
 
     _entries.add(entry);
@@ -486,35 +500,55 @@ final class OverlayStack implements OverlayLayer {
     if (compute == null) return patch.fields;
 
     final origins = Map<Object, EntityKey>.identity();
-    final view = _view(key, stored, origins, fromBase: promote != null);
-    final Json result;
+    final scope = _Scope(this, origins, promote != null);
+    final view = _view(key, stored, scope);
 
     try {
-      result = compute(view);
-    } on Object catch (error) {
-      if (_folding.length <= 1) _report?.call(error, 'optimistic');
+      final Json result;
 
-      return const {};
+      try {
+        result = compute(view);
+      } on Object catch (error) {
+        if (_folding.length <= 1) _report?.call(error, 'optimistic');
+
+        return const {};
+      }
+
+      final changes = <String, Object?>{};
+
+      for (final MapEntry(key: field, :value) in result.entries) {
+        if (view.containsKey(field) && _same(value, view[field], null)) {
+          continue;
+        }
+
+        final relinked = _relink(
+          value,
+          origins,
+          Map<Object, Object?>.identity(),
+        );
+
+        if (promote == null) {
+          changes[field] = relinked;
+          continue;
+        }
+
+        final promoted = _promoted(key, field, relinked, promote);
+
+        if (!identical(promoted, _unpromoted)) changes[field] = promoted;
+      }
+
+      return changes;
+    } finally {
+      // A `previous` the compute kept must never look anything up again: by
+      // the time it is read the store may hold another principal's records.
+      scope.sealed = true;
     }
-
-    final changes = <String, Object?>{};
-
-    for (final MapEntry(key: field, :value) in result.entries) {
-      if (view.containsKey(field) && _same(value, view[field], null)) continue;
-
-      final relinked = _relink(value, origins, Map<Object, Object?>.identity());
-
-      changes[field] = promote == null
-          ? relinked
-          : _promoted(key, field, relinked, promote);
-    }
-
-    return changes;
   }
 
   /// [stored] with every reference resolved, the value a read of [key]
-  /// materializes: through the overlay, or through base alone when
-  /// [fromBase]. [origins] receives every entity view made, with its key.
+  /// materializes: through the overlay, or through base alone when the
+  /// [scope] is a promotion's. The scope's `origins` receives every entity
+  /// view made, with its key.
   ///
   /// Lazy: a field is resolved the first time something reads it, so a
   /// compute that spreads `previous` and sets one field never folds a
@@ -522,17 +556,11 @@ final class OverlayStack implements OverlayLayer {
   /// for it. Memo-free with respect to the store: it runs inside the store's
   /// own walk, whose memos it must not disturb. A cycle closes on the view
   /// already made for that key, as it does in a read.
-  Json _view(
-    EntityKey key,
-    Json stored,
-    Map<Object, EntityKey> origins, {
-    bool fromBase = false,
-  }) {
-    final scope = _Scope(this, origins, fromBase);
+  Json _view(EntityKey key, Json stored, _Scope scope) {
     final root = _View(scope, stored);
 
     scope.built[key] = root;
-    origins[root] = key;
+    scope.origins[root] = key;
 
     return root;
   }
@@ -644,6 +672,15 @@ final class OverlayStack implements OverlayLayer {
 
     final normalized = normalize(value, fieldType, _entities);
 
+    // A key the stack minted belongs to a create that has not been answered.
+    // It is never written, and nothing written may point at it: the field is
+    // left for the response, which carries the server's own answer.
+    if (normalized.records.keys.any(_isMinted) ||
+        _namesMinted(normalized.skeleton) ||
+        normalized.records.values.any(_namesMinted)) {
+      return _unpromoted;
+    }
+
     for (final MapEntry(key: entity, value: fields)
         in normalized.records.entries) {
       if (entity == key || held(entity)) continue;
@@ -670,6 +707,21 @@ final class OverlayStack implements OverlayLayer {
 
 bool _never(EntityKey _) => false;
 
+/// What [OverlayStack._promoted] returns for a field it leaves alone.
+const Object _unpromoted = Object();
+
+/// Whether [key] is one [OverlayStack.mint] made: `Type:~opt1`.
+bool _isMinted(EntityKey key) => key.contains(':~opt');
+
+/// Whether [node], a normalized skeleton or record, references a minted key.
+/// References break every cycle, so the walk needs no guard.
+bool _namesMinted(Object? node) => switch (node) {
+  EntityRef(:final key) => _isMinted(key),
+  List<Object?>() => node.any(_namesMinted),
+  Map<String, Object?>() => node.values.any(_namesMinted),
+  _ => false,
+};
+
 /// What the views of one compute share: the entity views made so far, by key
 /// and by identity, and where references resolve.
 final class _Scope {
@@ -679,6 +731,10 @@ final class _Scope {
   final Map<Object, EntityKey> origins;
   final bool fromBase;
   final Map<EntityKey, _View> built = <EntityKey, _View>{};
+
+  /// Set when the compute that owns these views returns. From then on a view
+  /// answers only from what it already holds and looks nothing up.
+  bool sealed = false;
 
   Object? resolve(Object? node) {
     if (node is EntityRef) return stack._resolveRef(node, this);
@@ -715,14 +771,28 @@ final class _View extends MapBase<String, Object?> {
   final Map<String, Object?> _local = <String, Object?>{};
   final Set<String> _removed = <String>{};
 
+  /// Once the scope is sealed, a field never read before answers with its
+  /// stored value when that is plain data (part of the record this view
+  /// already holds) and null when it would have to follow a reference.
+  /// Null rather than a throw: a kept `previous` read later, from a log line
+  /// or an undo buffer, must not take the app down.
   @override
   Object? operator [](Object? key) {
     if (key is! String) return null;
     if (_local.containsKey(key)) return _local[key];
     if (_removed.contains(key) || !_source.containsKey(key)) return null;
 
-    return _local[key] = _scope.resolve(_source[key]);
+    final stored = _source[key];
+
+    if (_scope.sealed) return _holdsReference(stored) ? null : stored;
+
+    return _local[key] = _scope.resolve(stored);
   }
+
+  static bool _holdsReference(Object? node) =>
+      node is EntityRef ||
+      ((node is List<Object?> || node is Map<String, Object?>) &&
+          isRewritten(node!));
 
   @override
   void operator []=(String key, Object? value) {
@@ -894,6 +964,13 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   const OptimisticUpdate(this.update, {this.key});
 
   /// Computes the new value from the current one. Re-run on every refold.
+  ///
+  /// Read the record and the entities embedded in it directly, such as an
+  /// order and its customer. Each embedded entity you read is folded with its
+  /// own pending changes first, so a compute that walks further, through the
+  /// customer to all of the customer's orders and their line items, does
+  /// more work for every record it reaches. Across a large connected graph
+  /// with many pending changes that cost adds up on every refold.
   final E Function(E previous) update;
 
   /// The entity, or null to derive it.
@@ -905,10 +982,18 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   /// Returns only the fields [update] changed, judged against [previous]
   /// round-tripped through the same codecs rather than against [previous]
   /// itself. A model's `toClient` rarely reproduces the wire byte for byte
-  /// (a `DateTime` respelled, an explicit null omitted, a field the model
-  /// does not declare dropped), and none of that is a change the caller made.
-  /// A field the round trip dropped and [update] did not bring back is not
-  /// returned; one it kept and [update] removed is returned as null.
+  /// (a `DateTime` respelled or cut from Go's nanoseconds to microseconds, an
+  /// explicit null omitted, a field the model does not declare dropped), and
+  /// none of that is a change the caller made.
+  ///
+  /// The comparison goes all the way down. Wherever a part of the new value
+  /// encodes the same as the same part of the old one, the raw part of
+  /// [previous] is returned in its place: an untouched field keeps the
+  /// server's exact spelling, and an untouched embedded entity stays the
+  /// object the overlay resolved, which it turns back into a reference. Only
+  /// the leaves the caller changed come back encoded. A field the round trip
+  /// kept and [update] removed comes back as null; one the round trip dropped
+  /// and [update] did not bring back is not returned.
   ///
   /// For `MutationBinding`. Reading [update] through a wider view (an
   /// `OptimisticUpdate<Json>` held as `Optimistic<Object?>`) fails Dart's
@@ -924,16 +1009,51 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
     final before = encode(model);
     final after = encode(update(model));
 
-    if (before is! Json || after is! Json) return after;
+    if (before is! Json || after is! Json || previous is! Json) return after;
 
     return <String, Object?>{
       for (final MapEntry(:key, :value) in after.entries)
         if (!before.containsKey(key) || !_same(value, before[key], null))
-          key: value,
+          key: previous.containsKey(key)
+              ? _keepUntouched(value, before[key], previous[key])
+              : value,
       for (final key in before.keys)
         if (!after.containsKey(key)) key: null,
     };
   }
+}
+
+/// [after] with every part that encodes the same as in [before] replaced by
+/// the raw part of [previous] at the same place. Maps recurse by key, lists
+/// of one length by index; anything else that changed is [after]'s own.
+Object? _keepUntouched(Object? after, Object? before, Object? previous) {
+  if (_same(after, before, null)) return previous;
+
+  if (after is Map<String, Object?> &&
+      before is Map<String, Object?> &&
+      previous is Map<String, Object?>) {
+    return <String, Object?>{
+      for (final MapEntry(:key, :value) in after.entries)
+        key: before.containsKey(key) && previous.containsKey(key)
+            ? _keepUntouched(value, before[key], previous[key])
+            : value,
+      for (final key in before.keys)
+        if (!after.containsKey(key)) key: null,
+    };
+  }
+
+  if (after is List<Object?> &&
+      before is List<Object?> &&
+      previous is List<Object?> &&
+      after.length == before.length &&
+      before.length == previous.length) {
+    return [
+      for (var i = 0; i < after.length; i++)
+        _keepUntouched(after[i], before[i], previous[i]),
+    ];
+  }
+
+  return after;
 }
 
 /// Removes the target. [key] null derives it with [targetOf].
