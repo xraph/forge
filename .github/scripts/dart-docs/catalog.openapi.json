@@ -1,0 +1,178 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Catalog API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8098",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/shops/{shopId}/items": {
+      "get": {
+        "operationId": "listShopItems",
+        "parameters": [
+          {
+            "name": "shopId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Items",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ItemPage" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items": {
+      "post": {
+        "operationId": "createItem",
+        "security": [{ "jwt": ["items.write"] }],
+        "x-forge-authz": {
+          "roles": ["admin"],
+          "permissions": ["items:create"]
+        },
+        "x-forge-idempotent": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateItemBody" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Item",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items/{id}": {
+      "get": {
+        "operationId": "items.get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchItem",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PatchItemBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "jwt": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Status": {
+        "type": "string",
+        "enum": ["pending", "shipped", "delivered"]
+      },
+      "Item": {
+        "type": "object",
+        "required": ["id", "status", "seq"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/Status" },
+          "seq": { "type": "integer", "format": "int64" },
+          "big": { "type": "integer", "format": "uint64" },
+          "note": { "type": "string", "nullable": true }
+        }
+      },
+      "ItemPage": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Item" }
+          },
+          "nextCursor": { "type": "string" },
+          "hasMore": { "type": "boolean" }
+        }
+      },
+      "CreateItemBody": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "seq": { "type": "integer", "format": "int64" }
+        }
+      },
+      "PatchItemBody": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer" },
+          "note": { "type": "string", "nullable": true }
+        }
+      }
+    }
+  }
+}

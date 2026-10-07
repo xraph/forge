@@ -5,10 +5,16 @@
 #
 #   .github/scripts/dart-docs/check_snippets.sh [DOCS_DIR]
 #
-# It generates orders_forge_client from orders.openapi.json with the Dart
-# generator in this tree, builds a throwaway Flutter package that depends on
-# every dart-packages/ package plus that client, writes one file per block
-# (extract_snippets.py) and runs the analyzer over them.
+# It generates two clients with the Dart generator in this tree:
+# orders_forge_client from orders.openapi.json, which every block gets through
+# the prelude, and catalog_forge_client from catalog.openapi.json plus
+# catalog.asyncapi.json, which has what orders lacks (an enum, scopes, roles
+# and permissions, a paginated list, a stream). A block that uses the catalog
+# client imports it by name and so gets no prelude. It then checks that each
+# generated excerpt on a page is real output (check_excerpts.py), builds a
+# throwaway Flutter package that depends on every dart-packages/ package plus
+# both clients, writes one file per block (extract_snippets.py) and runs the
+# analyzer over them.
 #
 # Environment:
 #   GROVE_DIR  a grove checkout holding crdt-dart/ (default: ../grove beside
@@ -64,6 +70,23 @@ rm -rf "$CLIENT"
     --hooks
 )
 
+CATALOG="$WORK_DIR/catalog_forge_client"
+rm -rf "$CATALOG"
+(
+  cd "$ROOT/cmd/forge"
+  GOWORK="$WORKFILE" go run . client generate \
+    --from-spec "$HERE/catalog.openapi.json" \
+    --from-spec "$HERE/catalog.asyncapi.json" \
+    --language dart \
+    --output "$CATALOG" \
+    --package catalog_forge_client \
+    --base-url http://localhost:8098 \
+    --hooks
+)
+
+# A page that pastes generated output has to match what was just generated.
+python3 "$HERE/check_excerpts.py" "$DOCS_DIR" "$CLIENT" "$CATALOG"
+
 SNIPPETS="$WORK_DIR/snippets"
 rm -rf "$SNIPPETS"
 mkdir -p "$SNIPPETS/lib"
@@ -87,6 +110,7 @@ dependencies:
   forge_client_offline: any
   forge_client_grove: any
   orders_forge_client: any
+  catalog_forge_client: any
 dependency_overrides:
   forge_client:
     path: "$PACKAGES/forge_client"
@@ -102,6 +126,8 @@ dependency_overrides:
     path: "$GROVE_DIR/crdt-dart"
   orders_forge_client:
     path: "$CLIENT"
+  catalog_forge_client:
+    path: "$CATALOG"
 YAML
 
 # A sample is allowed to declare a local it never reads, or import more than

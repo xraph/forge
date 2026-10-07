@@ -1,0 +1,37 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Catalog API",
+    "version": "1.0.0"
+  },
+  "servers": {
+    "ws": { "host": "localhost:8098", "protocol": "ws" }
+  },
+  "channels": {
+    "chat": {
+      "address": "/ws/chat/{roomId}",
+      "servers": [{ "$ref": "#/servers/ws" }],
+      "messages": {
+        "line": { "payload": { "$ref": "#/components/schemas/ChatLine" } }
+      }
+    }
+  },
+  "operations": {
+    "receiveChatMessage": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/chat" }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatLine": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    }
+  }
+}
