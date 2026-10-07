@@ -275,6 +275,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-${{ needs.detect.outputs.module_name }}-
 
+      # The TypeScript generator tests shell out to tsc and esbuild. ubuntu
+      # images happen to ship tsc globally; macOS images do not, and the
+      # helper's `npx --no-install tsc` fallback then resolves the unrelated
+      # `tsc` npm package and fails every type-check test. Pin the same
+      # toolchain go.yml provisions so both legs run the same gate.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install TypeScript toolchain
+        run: npm install -g typescript@5.8.2 esbuild@0.28.1
+
       - name: Run tests
         run: |
           cd ${{ needs.detect.outputs.module_path }}
