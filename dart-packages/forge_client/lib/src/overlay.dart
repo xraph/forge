@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'invalidate.dart';
 import 'normalize.dart';
 import 'operation.dart';
@@ -104,6 +106,19 @@ final class OverlayStack implements OverlayLayer {
   /// reaches one of them again (an order's customer lists the order) reads
   /// its base rather than folding it a second time.
   final Set<EntityKey> _folding = <EntityKey>{};
+
+  /// Neighbours folded while the outermost fold builds its views, each once.
+  /// Dropped when that fold returns: a fold made here saw the keys on the
+  /// path as their base, so it cannot answer for a top-level read.
+  final Map<EntityKey, EntityRecord?> _nested = <EntityKey, EntityRecord?>{};
+
+  /// Every key the outermost fold's views resolved, while one runs.
+  Set<EntityKey>? _reads;
+
+  /// For each key, the folded keys whose computes saw it. A write to the key
+  /// drops those folds, so a compute that read an embedded entity runs again
+  /// when the entity changes.
+  final Map<EntityKey, Set<EntityKey>> _readers = <EntityKey, Set<EntityKey>>{};
   final Map<String, _Projection> _projections = <String, _Projection>{};
   int _ids = 0;
   int _stamp = 0;
@@ -141,9 +156,17 @@ final class OverlayStack implements OverlayLayer {
     if (!holds(key)) return _host.getRecord(key);
 
     // Reached from inside another key's fold, through a compute's view. A
-    // fold computed there saw its neighbour's base, so it is not memoized.
+    // key already on the path reads its base, which is what ends a cycle.
+    // Any other key is folded once for the whole outermost fold, which keeps
+    // a fold linear in the records it reaches.
     if (_folding.isNotEmpty) {
-      return _folding.contains(key) ? _host.getRecord(key) : _fold(key);
+      if (_folding.contains(key)) return _host.getRecord(key);
+      if (_nested.containsKey(key)) return _nested[key];
+
+      final record = _fold(key);
+      _nested[key] = record;
+
+      return record;
     }
 
     if (_folded.containsKey(key)) return _folded[key];
@@ -157,6 +180,13 @@ final class OverlayStack implements OverlayLayer {
   @override
   void rebase(EntityKey key) {
     _folded.remove(key);
+
+    final readers = _readers.remove(key);
+
+    if (readers == null || readers.isEmpty) return;
+
+    readers.forEach(_folded.remove);
+    _host.touch(readers);
   }
 
   /// A query's value with every matching pending placement applied, memoized
@@ -299,7 +329,15 @@ final class OverlayStack implements OverlayLayer {
   /// A create is never promoted: the real entity arrives in the response. A
   /// patch for a key in [overtaken] (a stream frame wrote it while the
   /// mutation was in flight) is discarded rather than promoted.
-  List<EntityKey> promote(OverlayEntry entry, [Set<EntityKey>? overtaken]) {
+  ///
+  /// A merge that changed an embedded entity writes that entity too (see
+  /// [_promoted]), except where [held] says another writer owns the key now:
+  /// a frame that wrote it in flight, or a sync source.
+  List<EntityKey> promote(
+    OverlayEntry entry, [
+    Set<EntityKey>? overtaken,
+    bool Function(EntityKey key)? held,
+  ]) {
     final buried = <EntityKey>[];
 
     for (final MapEntry(:key, value: patch) in entry.patches.entries) {
@@ -321,7 +359,10 @@ final class OverlayStack implements OverlayLayer {
 
           if (base == null) continue;
 
-          _host.put(key, _apply(key, patch, base.data, promote: true));
+          _host.put(
+            key,
+            _apply(key, patch, base.data, promote: held ?? _never),
+          );
       }
     }
 
@@ -333,6 +374,7 @@ final class OverlayStack implements OverlayLayer {
     // Whatever the stack held, nothing folded for the previous identity may
     // answer for the next one.
     _folded.clear();
+    _readers.clear();
 
     if (_entries.isEmpty) return;
 
@@ -344,10 +386,18 @@ final class OverlayStack implements OverlayLayer {
   void _settle(Iterable<EntityKey> keys) {
     final touched = keys.toList();
 
+    // A fold whose compute read a settling key is as stale as the key's own.
+    final readers = <EntityKey>{
+      for (final key in touched) ...?_readers.remove(key),
+    };
+
     touched.forEach(_folded.remove);
+    readers.forEach(_folded.remove);
+
+    if (_entries.isEmpty) _readers.clear();
 
     _stamp++;
-    _host.touch(touched);
+    _host.touch({...touched, ...readers});
     _projections.clear();
   }
 
@@ -355,6 +405,9 @@ final class OverlayStack implements OverlayLayer {
     final base = _host.getRecord(key);
     Json? data = base?.data;
     var touched = false;
+    final outermost = _folding.isEmpty;
+
+    if (outermost) _reads = <EntityKey>{};
 
     _folding.add(key);
 
@@ -381,6 +434,17 @@ final class OverlayStack implements OverlayLayer {
       }
     } finally {
       _folding.remove(key);
+
+      if (outermost) {
+        final reads = _reads!;
+
+        _reads = null;
+        _nested.clear();
+
+        for (final read in reads) {
+          (_readers[read] ??= <EntityKey>{}).add(key);
+        }
+      }
     }
 
     if (!touched) return base;
@@ -399,28 +463,36 @@ final class OverlayStack implements OverlayLayer {
   /// resolved: a typed spec decodes it with the model's `fromClient`, which
   /// knows nothing of references. What it returns is compared field by field
   /// with that view, and a field it left as it was is dropped, so the record
-  /// keeps its reference there and goes on tracking the embedded entity. A
-  /// changed field is kept in client shape for the fold, which shows exactly
-  /// what the caller wrote, and normalized for [promote] (see [_promoted]).
+  /// keeps its reference there and goes on tracking the embedded entity.
   ///
-  /// A throwing compute is reported and treated as no change.
+  /// A changed field is relinked: any entity it still holds exactly as the
+  /// view resolved it (the caller kept the object) goes back to a reference.
+  /// Whatever the caller built is kept in client shape in the fold, which
+  /// shows exactly what was written. On promotion ([promote] non-null) the
+  /// view is built from base alone, so no other mutation's pending patch can
+  /// reach what is written, and the field is normalized (see [_promoted]).
+  ///
+  /// A throwing compute is reported and treated as no change. Only the fold
+  /// a read asked for reports it: a neighbour folded for a view is folded,
+  /// and reported, by its own read.
   Json _apply(
     EntityKey key,
     MergePatch patch,
     Json stored, {
-    bool promote = false,
+    bool Function(EntityKey key)? promote,
   }) {
     final compute = patch.compute;
 
     if (compute == null) return patch.fields;
 
-    final view = _view(key, stored);
+    final origins = Map<Object, EntityKey>.identity();
+    final view = _view(key, stored, origins, fromBase: promote != null);
     final Json result;
 
     try {
       result = compute(view);
     } on Object catch (error) {
-      _report?.call(error, 'optimistic');
+      if (_folding.length <= 1) _report?.call(error, 'optimistic');
 
       return const {};
     }
@@ -430,84 +502,140 @@ final class OverlayStack implements OverlayLayer {
     for (final MapEntry(key: field, :value) in result.entries) {
       if (view.containsKey(field) && _same(value, view[field], null)) continue;
 
-      changes[field] = promote ? _promoted(key, field, value) : value;
+      final relinked = _relink(value, origins, Map<Object, Object?>.identity());
+
+      changes[field] = promote == null
+          ? relinked
+          : _promoted(key, field, relinked, promote);
     }
 
     return changes;
   }
 
-  /// [stored] with every reference resolved through the overlay, the value a
-  /// read of [key] materializes. Built fresh and memo-free: it runs inside the
-  /// store's own walk, whose memos it must not disturb. A cycle closes on the
-  /// object already built for that key, as it does in a read.
-  Json _view(EntityKey key, Json stored) {
-    final built = <EntityKey, Json>{};
-    final out = <String, Object?>{};
+  /// [stored] with every reference resolved, the value a read of [key]
+  /// materializes: through the overlay, or through base alone when
+  /// [fromBase]. [origins] receives every entity view made, with its key.
+  ///
+  /// Lazy: a field is resolved the first time something reads it, so a
+  /// compute that spreads `previous` and sets one field never folds a
+  /// neighbour, and only a compute that reads into an embedded entity pays
+  /// for it. Memo-free with respect to the store: it runs inside the store's
+  /// own walk, whose memos it must not disturb. A cycle closes on the view
+  /// already made for that key, as it does in a read.
+  Json _view(
+    EntityKey key,
+    Json stored,
+    Map<Object, EntityKey> origins, {
+    bool fromBase = false,
+  }) {
+    final scope = _Scope(this, origins, fromBase);
+    final root = _View(scope, stored);
 
-    built[key] = out;
+    scope.built[key] = root;
+    origins[root] = key;
 
-    for (final MapEntry(key: field, value: child) in stored.entries) {
-      out[field] = _resolve(child, built);
-    }
-
-    return out;
+    return root;
   }
 
-  Object? _resolve(Object? node, Map<EntityKey, Json> built) {
-    if (node is EntityRef) {
-      final seen = built[node.key];
+  /// One reference resolved for a view in [scope].
+  Object? _resolveRef(EntityRef ref, _Scope scope) {
+    final seen = scope.built[ref.key];
 
-      if (seen != null) return seen;
+    if (seen != null) return seen;
 
-      final record = effective(node.key);
+    _reads?.add(ref.key);
 
-      if (record == null) return null;
+    final record = scope.fromBase
+        ? _host.getRecord(ref.key)
+        : effective(ref.key);
 
-      final out = <String, Object?>{};
+    if (record == null) return null;
 
-      built[node.key] = out;
+    final view = _View(scope, record.data);
 
-      for (final MapEntry(key: field, value: child) in record.data.entries) {
-        out[field] = _resolve(child, built);
+    scope.built[ref.key] = view;
+    scope.origins[view] = ref.key;
+
+    return view;
+  }
+
+  /// [value] with every entity object the view built put back as a
+  /// reference, and every container that gained one rebuilt and marked, as
+  /// `normalize` marks a skeleton. Objects the caller made are kept; [done]
+  /// ends a cycle among them.
+  Object? _relink(
+    Object? value,
+    Map<Object, EntityKey> origins,
+    Map<Object, Object?> done,
+  ) {
+    if (value is! List<Object?> && value is! Map<String, Object?>) {
+      return value;
+    }
+
+    final origin = origins[value!];
+
+    if (origin != null) return makeRef(origin);
+    if (done.containsKey(value)) return done[value];
+
+    var changed = false;
+
+    if (value is List<Object?>) {
+      final out = <Object?>[];
+
+      done[value] = out;
+
+      for (final element in value) {
+        final linked = _relink(element, origins, done);
+
+        if (!identical(linked, element)) changed = true;
+
+        out.add(linked);
       }
 
-      return out;
+      if (!changed) return done[value] = value;
+
+      return markRewritten(out);
     }
 
-    // An unmarked container holds no reference, as in a read.
-    if (node is List<Object?>) {
-      if (!isRewritten(node)) return node;
+    final source = value as Map<String, Object?>;
+    final out = <String, Object?>{};
 
-      return [
-        for (final element in node)
-          // A reference whose record is gone is a hole and is dropped.
-          if (_resolve(element, built) case final value
-              when value != null || element is! EntityRef)
-            value,
-      ];
+    // A view never leaves its compute: it resolves lazily, against whatever
+    // the overlay holds when it is read.
+    if (source is _View) changed = true;
+
+    done[value] = out;
+
+    for (final MapEntry(key: field, value: child) in source.entries) {
+      final linked = _relink(child, origins, done);
+
+      if (!identical(linked, child)) changed = true;
+
+      out[field] = linked;
     }
 
-    if (node is Map<String, Object?>) {
-      if (!isRewritten(node)) return node;
+    if (!changed) return done[value] = value;
 
-      return {
-        for (final MapEntry(key: field, value: child) in node.entries)
-          field: _resolve(child, built),
-      };
-    }
-
-    return node;
+    return markRewritten(out);
   }
 
-  /// A changed field on its way into base. When the schema says the field
-  /// holds entities and base holds every one it names, the field is written
-  /// as references, the shape a server response would leave. Otherwise it is
-  /// written as the caller gave it: a reference to a record base does not
-  /// hold would read back as a hole, where the inline value still reads back
-  /// as what was shown. The embedded records themselves are never written:
-  /// this patch targets [key] alone, and the response committed straight
-  /// after carries the server's version of them.
-  Object? _promoted(EntityKey key, String field, Object? value) {
+  /// A changed, relinked field on its way into base, normalized against the
+  /// schema so it is written as references, the shape a response leaves. No
+  /// embedded entity is ever written inline, so nothing written can hold a
+  /// cycle, and a later write to the entity shows through.
+  ///
+  /// Each embedded entity is written too, as what was shown while the write
+  /// was pending: a record base did not hold is written whole, and a held one
+  /// gets the fields that differ from base. The view was built from base, so
+  /// an entity the caller did not edit matches base and writes nothing. A key
+  /// [held] claims (overtaken by a frame, or owned by a sync source) and the
+  /// target itself are left alone.
+  Object? _promoted(
+    EntityKey key,
+    String field,
+    Object? value,
+    bool Function(EntityKey key) held,
+  ) {
     final colon = key.indexOf(':');
     final type = colon <= 0 ? null : key.substring(0, colon);
     final fieldType = type == null ? null : _entities[type]?.fields[field];
@@ -516,11 +644,123 @@ final class OverlayStack implements OverlayLayer {
 
     final normalized = normalize(value, fieldType, _entities);
 
-    if (normalized.records.keys.any((held) => _host.getRecord(held) == null)) {
-      return value;
+    for (final MapEntry(key: entity, value: fields)
+        in normalized.records.entries) {
+      if (entity == key || held(entity)) continue;
+
+      final base = _host.getRecord(entity)?.data;
+
+      if (base == null) {
+        _host.put(entity, fields);
+        continue;
+      }
+
+      final changed = <String, Object?>{
+        for (final MapEntry(key: name, :value) in fields.entries)
+          if (!base.containsKey(name) || !_same(value, base[name], null))
+            name: value,
+      };
+
+      if (changed.isNotEmpty) _host.put(entity, changed);
     }
 
     return normalized.skeleton;
+  }
+}
+
+bool _never(EntityKey _) => false;
+
+/// What the views of one compute share: the entity views made so far, by key
+/// and by identity, and where references resolve.
+final class _Scope {
+  _Scope(this.stack, this.origins, this.fromBase);
+
+  final OverlayStack stack;
+  final Map<Object, EntityKey> origins;
+  final bool fromBase;
+  final Map<EntityKey, _View> built = <EntityKey, _View>{};
+
+  Object? resolve(Object? node) {
+    if (node is EntityRef) return stack._resolveRef(node, this);
+
+    // An unmarked container holds no reference, as in a read.
+    if (node is List<Object?>) {
+      if (!isRewritten(node)) return node;
+
+      return [
+        for (final element in node)
+          // A reference whose record is gone is a hole and is dropped.
+          if (resolve(element) case final value
+              when value != null || element is! EntityRef)
+            value,
+      ];
+    }
+
+    if (node is Map<String, Object?>) {
+      return isRewritten(node) ? _View(this, node) : node;
+    }
+
+    return node;
+  }
+}
+
+/// A record or a marked container, its references resolved on first read.
+/// Writable, as the plain map it stands for would be: a write lands in the
+/// view and never reaches the record it reads from.
+final class _View extends MapBase<String, Object?> {
+  _View(this._scope, this._source);
+
+  final _Scope _scope;
+  final Json _source;
+  final Map<String, Object?> _local = <String, Object?>{};
+  final Set<String> _removed = <String>{};
+
+  @override
+  Object? operator [](Object? key) {
+    if (key is! String) return null;
+    if (_local.containsKey(key)) return _local[key];
+    if (_removed.contains(key) || !_source.containsKey(key)) return null;
+
+    return _local[key] = _scope.resolve(_source[key]);
+  }
+
+  @override
+  void operator []=(String key, Object? value) {
+    _removed.remove(key);
+    _local[key] = value;
+  }
+
+  @override
+  bool containsKey(Object? key) =>
+      _local.containsKey(key) ||
+      (!_removed.contains(key) && _source.containsKey(key));
+
+  @override
+  Iterable<String> get keys => {
+    for (final key in _source.keys)
+      if (!_removed.contains(key)) key,
+    ..._local.keys,
+  };
+
+  @override
+  int get length => keys.length;
+
+  @override
+  Object? remove(Object? key) {
+    final value = this[key];
+
+    if (key is String) {
+      _local.remove(key);
+      _removed.add(key);
+    }
+
+    return value;
+  }
+
+  @override
+  void clear() {
+    _removed.addAll(_source.keys);
+    _local.clear();
   }
 }
 
@@ -631,6 +871,24 @@ sealed class Optimistic<E> {
 
 /// Replaces the target's fields with what [update] returns for the current
 /// value. [key] null derives the target with [targetOf].
+///
+/// `previous` is the record the way a read shows it, not the stored record:
+/// every embedded entity is resolved, through whatever other mutations have
+/// pending. That is what a typed spec needs to decode it. It differs from the
+/// TypeScript runtime, whose function patch gets the raw record with its
+/// references. Two consequences for an untyped `OptimisticUpdate<Json>`:
+///
+/// * `previous` can be cyclic. An order's customer can list the order, and
+///   that list then holds `previous` itself, as a read's value would. Spread
+///   it (`{...previous, 'status': 'shipped'}`) rather than walking, copying or
+///   `jsonEncode`-ing it whole.
+/// * Only what [update] changes is written. A field returned as it was keeps
+///   the stored reference, so the record goes on tracking the embedded
+///   entity, and a change to that entity runs [update] again.
+///
+/// A change to an embedded entity made through the parent (a new customer
+/// name on the order) shows at once, and on success it is written to that
+/// entity's own record as well as to the parent.
 final class OptimisticUpdate<E> extends Optimistic<E> {
   /// Creates the spec.
   const OptimisticUpdate(this.update, {this.key});
@@ -644,6 +902,14 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   /// Runs [update] over a client-shaped [previous]: decoded with [decode],
   /// checked against [E], and encoded back with [encode].
   ///
+  /// Returns only the fields [update] changed, judged against [previous]
+  /// round-tripped through the same codecs rather than against [previous]
+  /// itself. A model's `toClient` rarely reproduces the wire byte for byte
+  /// (a `DateTime` respelled, an explicit null omitted, a field the model
+  /// does not declare dropped), and none of that is a change the caller made.
+  /// A field the round trip dropped and [update] did not bring back is not
+  /// returned; one it kept and [update] removed is returned as null.
+  ///
   /// For `MutationBinding`. Reading [update] through a wider view (an
   /// `OptimisticUpdate<Json>` held as `Optimistic<Object?>`) fails Dart's
   /// covariance check, so the function is only ever called from in here,
@@ -653,7 +919,21 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
     Object? previous,
     Object? Function(Object? client) decode,
     Object? Function(Object? model) encode,
-  ) => encode(update(decode(previous) as E));
+  ) {
+    final model = decode(previous) as E;
+    final before = encode(model);
+    final after = encode(update(model));
+
+    if (before is! Json || after is! Json) return after;
+
+    return <String, Object?>{
+      for (final MapEntry(:key, :value) in after.entries)
+        if (!before.containsKey(key) || !_same(value, before[key], null))
+          key: value,
+      for (final key in before.keys)
+        if (!after.containsKey(key)) key: null,
+    };
+  }
 }
 
 /// Removes the target. [key] null derives it with [targetOf].

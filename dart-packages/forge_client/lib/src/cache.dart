@@ -698,6 +698,10 @@ final class QueryCache {
           overlays.promote(
             entry,
             _withOwned(overtaken, entry.patches.keys) ?? overtaken,
+            // An embedded entity a frame wrote in flight, or a source owns,
+            // is not the promotion's to write.
+            (key) =>
+                store.frameStamp(key) > dispatchedAt || owns(typenameOf(key)),
           ),
         );
       }

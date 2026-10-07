@@ -330,40 +330,40 @@ void main() {
       },
     );
 
-    test(
-      'promotes a reassignment to an entity base does not hold as given',
-      () async {
-        final gate = Completer<Object?>();
-        final (:cache, :reported, :ref, transport: _) = await held(
-          () => gate.future,
-        );
+    test('promotes a reassignment to an entity base does not hold as a reference to its new record', () async {
+      final gate = Completer<Object?>();
+      final (:cache, :reported, :ref, transport: _) = await held(
+        () => gate.future,
+      );
 
-        final pending = updateOrder(
-          cache,
-          const UpdateOrderArgs(7, 'open'),
-          optimistic: OptimisticUpdate(
-            (order) => order.copyWith(
-              customer: const Customer(id: 'c3', name: 'Hedy'),
-            ),
-            key: 'Order:7',
+      final pending = updateOrder(
+        cache,
+        const UpdateOrderArgs(7, 'open'),
+        optimistic: OptimisticUpdate(
+          (order) => order.copyWith(
+            customer: const Customer(id: 'c3', name: 'Hedy'),
           ),
-        );
+          key: 'Order:7',
+        ),
+      );
 
-        expect(ref.getState(cache).dataOrNull?.customer.name, 'Hedy');
+      expect(ref.getState(cache).dataOrNull?.customer.name, 'Hedy');
 
-        gate.complete(null);
-        await pending.then<void>((_) {}, onError: (Object _) {});
+      gate.complete(null);
+      await pending.then<void>((_) {}, onError: (Object _) {});
 
-        // A reference here would read back as a hole and fail the decode.
-        expect(cache.store.getRecord('Order:7')!.data['customer'], {
-          'id': 'c3',
-          'name': 'Hedy',
-        });
-        expect(cache.store.has('Customer:c3'), isFalse);
-        expect(ref.getState(cache).dataOrNull?.customer.name, 'Hedy');
-        expect(reported, isEmpty);
-      },
-    );
+      // The record is written too, so the reference is never a hole.
+      expect(
+        cache.store.getRecord('Order:7')!.data['customer'],
+        refTo('Customer:c3'),
+      );
+      expect(cache.store.getRecord('Customer:c3')!.data, {
+        'id': 'c3',
+        'name': 'Hedy',
+      });
+      expect(ref.getState(cache).dataOrNull?.customer.name, 'Hedy');
+      expect(reported, isEmpty);
+    });
 
     test('terminates on a cycle back to the record being patched', () async {
       final gate = Completer<Object?>();
