@@ -7,7 +7,12 @@ library;
 /// Method names, the event kind and the paging limits.
 abstract final class ForgeDevtoolsProtocol {
   /// Bumped on any incompatible change. The extension refuses a mismatch.
-  static const int version = 1;
+  ///
+  /// 2: explain and wouldInvalidate lists are capped as
+  /// `{items, truncated, total}`, every change requires `session`, hello and
+  /// snapshot carry no principal value, and caches post lifecycle events and
+  /// are refused as gone with [cacheGone].
+  static const int version = 2;
 
   /// Protocol version and attached caches.
   static const String hello = 'ext.forge.hello';

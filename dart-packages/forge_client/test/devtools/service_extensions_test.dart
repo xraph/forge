@@ -136,6 +136,9 @@ void main() {
         final hello = await call(ForgeDevtoolsProtocol.hello);
 
         expect(hello['protocol'], ForgeDevtoolsProtocol.version);
+        // Version 2: capped lists, required sessions, no principal value and
+        // lifecycle events changed the wire, so an older extension refuses.
+        expect(hello['protocol'], 2);
         expect([for (final c in items(hello, 'caches')) c['id']], ['1', '2']);
       },
     );
