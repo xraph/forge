@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -877,9 +878,59 @@ type idempotencyAdapter struct{ inner idempotency.Store }
 
 // adaptIdempotencyStore returns a dispatcher.IdempotencyStore backed by an
 // idempotency.Store. Used at NewExtension/Register time to wire the in-memory
-// store into the dispatcher.
+// store into the dispatcher. When s is also an idempotency.Claimer, the
+// result is a dispatcher.IdempotencyClaimer, so the dispatcher holds a
+// command's key while its handler runs.
 func adaptIdempotencyStore(s idempotency.Store) dispatcher.IdempotencyStore {
-	return &idempotencyAdapter{inner: s}
+	a := &idempotencyAdapter{inner: s}
+
+	if c, ok := s.(idempotency.Claimer); ok {
+		return &claimingIdempotencyAdapter{idempotencyAdapter: a, claimer: c}
+	}
+
+	return a
+}
+
+// claimingIdempotencyAdapter is idempotencyAdapter over a store that can also
+// claim. It is a separate type so the dispatcher's type assertion finds a
+// claimer only when the store underneath is one.
+type claimingIdempotencyAdapter struct {
+	*idempotencyAdapter
+
+	claimer idempotency.Claimer
+}
+
+// Claim forwards to the underlying claimer, converting the entry and the End
+// function between the two packages' types, and idempotency.ErrClaimHeld to
+// dispatcher.ErrIdempotencyClaimHeld.
+func (a *claimingIdempotencyAdapter) Claim(ctx context.Context, key, identity string) (dispatcher.IdempotencyClaim, error) {
+	claim, err := a.claimer.Claim(ctx, key, identity)
+	if errors.Is(err, idempotency.ErrClaimHeld) {
+		return dispatcher.IdempotencyClaim{}, fmt.Errorf("%w: %w", dispatcher.ErrIdempotencyClaimHeld, err)
+	}
+
+	if err != nil {
+		return dispatcher.IdempotencyClaim{}, err
+	}
+
+	var out dispatcher.IdempotencyClaim
+
+	if claim.Cached != nil {
+		c := claim.Cached
+		out.Cached = &dispatcher.IdempotencyCached{Status: c.Status, WireBody: c.WireBody, StoredAt: c.StoredAt, TTL: c.TTL}
+	}
+
+	if end := claim.End; end != nil {
+		out.End = func(ctx context.Context, c *dispatcher.IdempotencyCached) error {
+			if c == nil {
+				return end(ctx, nil)
+			}
+
+			return end(ctx, &idempotency.Cached{Status: c.Status, WireBody: c.WireBody, StoredAt: c.StoredAt, TTL: c.TTL})
+		}
+	}
+
+	return out, nil
 }
 
 // Lookup forwards to the underlying store, converting the cached envelope

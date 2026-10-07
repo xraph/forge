@@ -50,6 +50,7 @@ func WithMaxEntries(n int) Option {
 type InMemoryStore struct {
 	shared middleware.IdempotencyStore
 	wait   time.Duration
+	lease  time.Duration // a Claim's lease
 }
 
 // NewInMemoryStore returns a Store backed by its own in-memory
@@ -65,7 +66,7 @@ func NewInMemoryStore(opts ...Option) *InMemoryStore {
 
 // NewSharedStore returns a Store that keeps its entries in shared.
 func NewSharedStore(shared middleware.IdempotencyStore) *InMemoryStore {
-	return &InMemoryStore{shared: shared, wait: storeWait}
+	return &InMemoryStore{shared: shared, wait: storeWait, lease: claimLease}
 }
 
 func sharedKey(key, identity string) middleware.IdempotencyKey {
@@ -84,12 +85,7 @@ func (s *InMemoryStore) Lookup(ctx context.Context, key, identity string) (*Cach
 
 	switch begun.State {
 	case middleware.IdempotencyReplay:
-		r := begun.Response
-		c := Cached{Status: r.Status, WireBody: json.RawMessage(r.Body), StoredAt: r.StoredAt}
-
-		if !r.ExpiresAt.IsZero() {
-			c.TTL = r.ExpiresAt.Sub(r.StoredAt)
-		}
+		c := fromResponse(*begun.Response)
 
 		return &c, true
 	case middleware.IdempotencyAcquired:
@@ -102,19 +98,34 @@ func (s *InMemoryStore) Lookup(ctx context.Context, key, identity string) (*Cach
 // Store implements Store. A TTL of zero or less never expires, matching
 // Cached.Expired.
 func (s *InMemoryStore) Store(ctx context.Context, key, identity string, c Cached) error {
+	return s.complete(ctx, sharedKey(key, identity), toResponse(c))
+}
+
+// toResponse is c as the shared store keeps it. A TTL of zero or less never
+// expires, matching Cached.Expired.
+func toResponse(c Cached) middleware.IdempotentResponse {
 	var expires time.Time
 	if c.TTL > 0 {
 		expires = c.StoredAt.Add(c.TTL)
 	}
 
-	resp := middleware.IdempotentResponse{
+	return middleware.IdempotentResponse{
 		Status:    c.Status,
 		Body:      []byte(c.WireBody),
 		StoredAt:  c.StoredAt,
 		ExpiresAt: expires,
 	}
+}
 
-	return s.complete(ctx, sharedKey(key, identity), resp)
+// fromResponse is the Cached a stored response came from.
+func fromResponse(r middleware.IdempotentResponse) Cached {
+	c := Cached{Status: r.Status, WireBody: json.RawMessage(r.Body), StoredAt: r.StoredAt}
+
+	if !r.ExpiresAt.IsZero() {
+		c.TTL = r.ExpiresAt.Sub(r.StoredAt)
+	}
+
+	return c
 }
 
 // complete stores resp over whatever the key holds. The old store let Store
