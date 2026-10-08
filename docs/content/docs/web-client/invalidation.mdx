@@ -86,6 +86,32 @@ Declared tags merge with the derived ones, deduplicated and sorted:
   },
 ```
 
+### When the response isn't an entity
+
+You don't need an entity in the response to declare what a write invalidates. A DELETE that answers 204, or an approval that answers with a redirect target, gets the tags it declares and nothing derived:
+
+```go
+r.DELETE("/rules/:id", deleteRule,
+    forge.WithOperationID("deleteRule"),
+    forge.WithInvalidates("Rule[]"),
+)
+```
+
+```ts
+  deleteRule: {
+    method: 'DELETE',
+    path: '/rules/{id}',
+    provides: [],
+    invalidates: ['Rule[]'],
+  },
+```
+
+The row has no `entity`, so the runtime never tries to normalize the response.
+
+`WithoutEntity()` combined with `WithInvalidates` works the same way. `WithoutEntity()` takes the response out of the cache, along with every tag the generator would have derived from it, but the tags you declared with `WithInvalidates` stay on the operation. Plenty of routes need both: the response isn't worth storing, and the write still changes records you've cached elsewhere.
+
+The generator also checks each tag you declare. An empty tag, a brace that doesn't pair up, or an empty `{}` placeholder can never match anything the runtime has cached, so you get a warning naming the route and that one tag is dropped. Unusual shapes like `Order[]:{req.archived}` are fine.
+
 ### Tag templates
 
 A tag naming a specific record needs a value from the request or the response. Templates are resolved per call.

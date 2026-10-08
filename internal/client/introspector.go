@@ -1111,12 +1111,31 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 		}
 	}
 
+	// Declared tags fold into whatever the response derives, and that may be
+	// nothing. WithInvalidates describes what a write does to OTHER entities,
+	// so a DELETE answering 204 or an approval answering with a redirect still
+	// has every edge it declared. Reading these only once an entity resolved
+	// is how both used to lose them without a word.
+	withOverrides := func(base TagSet) TagSet {
+		return ApplyTagOverrides(
+			base,
+			declaredTags(spec, ext, "x-forge-invalidates", endpointOrigin(ep)),
+			declaredTags(spec, ext, "x-forge-no-invalidation", endpointOrigin(ep)),
+		)
+	}
+
 	// An opt-out takes the response out of the cache entirely, RootType
 	// included. Leaving the root type behind would keep the runtime walking
 	// into the response and normalizing whatever entities it found nested
 	// there, which is the merge into canonical records that WithoutEntity()
 	// exists to prevent -- just one level down from where it was declared.
+	//
+	// It drops what the response would have derived and keeps what the route
+	// declared. WithoutEntity says the response is not stored; it does not say
+	// the write has no effects, and the author who wrote both meant both.
 	if v, _ := boolExtension(spec, ext, "x-forge-no-entity", endpointOrigin(ep)); v {
+		ep.CacheTags = withOverrides(TagSet{})
+
 		return
 	}
 
@@ -1129,18 +1148,16 @@ func resolveEndpointCacheMeta(spec *APISpec, ep *Endpoint, ext map[string]any) {
 	ep.RootType = schemaName(schema)
 
 	entity, isList := endpointEntity(spec, ep, ext, schema, isList)
+
+	// DeriveTags answers a nil entity with an empty set, so an entity-less
+	// endpoint carries exactly what it declared.
+	ep.CacheTags = withOverrides(DeriveTags(ep.Method, entity, isList))
+
 	if entity == nil {
 		return
 	}
 
 	ep.Entity = entity
-
-	base := DeriveTags(ep.Method, entity, isList)
-	ep.CacheTags = ApplyTagOverrides(
-		base,
-		stringSliceExtension(spec, ext, "x-forge-invalidates", endpointOrigin(ep)),
-		stringSliceExtension(spec, ext, "x-forge-no-invalidation", endpointOrigin(ep)),
-	)
 
 	if spec.Entities == nil {
 		spec.Entities = make(map[string]*EntityRef)
@@ -1466,6 +1483,77 @@ func stringSliceExtension(spec *APISpec, ext map[string]any, key, origin string)
 
 		return nil
 	}
+}
+
+// declaredTags reads a list of tag templates, dropping (loudly) any the runtime
+// could never match.
+//
+// Deliberately narrow. The runtime's grammar is permissive, and
+// `Order[]:{req.archived}` is a legitimate tag, so this rejects only the three
+// shapes client-core's resolveTag cannot do anything useful with: an empty tag,
+// a brace that does not pair (it is substituted as literal text and matches no
+// key ever provided), and a `{}` placeholder that names nothing and so never
+// resolves. Each would ship as an invalidation that silently never fires.
+func declaredTags(spec *APISpec, ext map[string]any, key, origin string) []string {
+	tags := stringSliceExtension(spec, ext, key, origin)
+	if len(tags) == 0 {
+		return tags
+	}
+
+	out := make([]string, 0, len(tags))
+
+	for _, tag := range tags {
+		if reason := malformedTag(tag); reason != "" {
+			spec.Warnings = append(spec.Warnings, fmt.Sprintf(
+				"client: %s declares %s tag %q, which %s; the tag is dropped.",
+				origin, key, tag, reason))
+
+			continue
+		}
+
+		out = append(out, tag)
+	}
+
+	return out
+}
+
+// malformedTag reports why the runtime could never match a tag template, or ""
+// when it could.
+func malformedTag(tag string) string {
+	if strings.TrimSpace(tag) == "" {
+		return "is empty"
+	}
+
+	open := false
+
+	var placeholder strings.Builder
+
+	for _, r := range tag {
+		switch {
+		case r == '{' && open:
+			return "nests one placeholder inside another"
+		case r == '{':
+			open = true
+
+			placeholder.Reset()
+		case r == '}' && !open:
+			return "closes a placeholder it never opened"
+		case r == '}':
+			if strings.TrimSpace(placeholder.String()) == "" {
+				return "has an empty placeholder that names no value"
+			}
+
+			open = false
+		case open:
+			placeholder.WriteRune(r)
+		}
+	}
+
+	if open {
+		return "opens a placeholder it never closes"
+	}
+
+	return ""
 }
 
 // numericExtension reads an integer extension, tolerating the float64 that a
