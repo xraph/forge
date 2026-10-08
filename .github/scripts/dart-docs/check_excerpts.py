@@ -17,6 +17,9 @@ comments) are the author's elisions and are not checked. A title with a "*" in
 it, such as lib/src/bindings/*.dart, stands for every file it matches in one
 client, and an excerpt of it may draw lines from any of them.
 
+When an excerpt fails, the line reported is the first one missing from the client
+that misses the fewest lines, since that client is the one the page meant.
+
 Exits 0 when every excerpt matches, 1 when any does not, 2 on bad usage.
 """
 
@@ -47,13 +50,10 @@ def checked_lines(body):
     return out
 
 
-def missing_line(wanted, generated):
-    """Return the first wanted line the generated text lacks, or None."""
+def missing_lines(wanted, generated):
+    """Return every wanted line the generated text lacks, in order."""
     have = {collapse(line) for line in generated.split("\n")}
-    for text in wanted:
-        if text not in have:
-            return text
-    return None
+    return [text for text in wanted if text not in have]
 
 
 def generated_texts(title, clients):
@@ -92,10 +92,14 @@ def main(argv):
                 failures.append(f"{where}: no generated file matches that title in any client")
                 continue
             wanted = checked_lines(body)
-            misses = [missing_line(wanted, text) for text in candidates]
+            misses = [missing_lines(wanted, text) for text in candidates]
             checked += 1
-            if all(miss is not None for miss in misses):
-                failures.append(f"{where}: not in the generated file; first line that is missing: {misses[0]!r}")
+            if all(misses):
+                closest = min(misses, key=len)
+                failures.append(
+                    f"{where}: not in the generated file; first line that is missing "
+                    f"from the closest client ({len(closest)} missing): {closest[0]!r}"
+                )
     for failure in failures:
         print(f"check_excerpts: {failure}", file=sys.stderr)
     if failures:
