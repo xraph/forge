@@ -466,10 +466,15 @@ export class OverlayStack implements OverlayLayer {
 /**
  * Which entity this mutation changes, read out of what it already invalidates.
  *
- * Derived same-entity invalidation means `PATCH /orders/{id}` reaches the client
- * carrying `Order:{id}`, and resolving that template against the call's
- * arguments produces `Order:7` -- which IS the entity key. So the common cases
- * need nothing from the caller: the manifest already knows.
+ * When a mutation declares `Order:{id}` in its invalidates, resolving that
+ * template against the call's arguments produces `Order:7`, which IS the entity
+ * key, and the caller has to name nothing.
+ *
+ * A generated client never declares it, though. DeriveTags gives a PATCH or PUT
+ * on one entity `Order:{id}` in `provides` and only `Order[]` in invalidates,
+ * and a DELETE only `Order[]`. So for a generated update or delete this returns
+ * `undefined`, and the caller names the record with the array form. Only a
+ * route that adds the item tag to its invalidates gets a derived target.
  *
  * A tag names an entity KEY when it has a `Type:` head and that head is not a
  * collection. Checking the head rather than searching for a colon is what keeps
@@ -477,8 +482,9 @@ export class OverlayStack implements OverlayLayer {
  * from being mistaken for an entity.
  *
  * Three answers, and the third is the point: a key, `undefined` for "no entity
- * named, so this is a create", or `'ambiguous'` for a mutation declaring two
- * entities, where guessing one would silently patch the wrong record.
+ * named" (a create on a POST, and a missing key on anything else), or
+ * `'ambiguous'` for a mutation declaring two entities, where guessing one would
+ * silently patch the wrong record.
  */
 export function targetOf(
   meta: OperationMeta,
@@ -587,17 +593,35 @@ export function specToPatches(
     };
   }
 
-  // No entity key among the tags: a create. It needs a typename to be keyed
-  // under and an identity field to carry the minted id, and a mutation
-  // declaring neither cannot be made optimistic.
+  // No entity key among the tags. Only a literal on a POST is a create: a
+  // generated PATCH or PUT invalidates nothing but `Type[]`, so it lands here
+  // too, and minting for it would put a phantom `Order:~opt1` beside the record
+  // the caller meant to change. A delete or an updater function is an update
+  // whatever the method.
   const type = meta.entity;
-  const idField = type === undefined ? undefined : entities[type]?.idField;
 
-  if (type === undefined || idField === undefined || spec === 'delete' || typeof spec === 'function') {
+  if (meta.method.toUpperCase() !== 'POST' || spec === 'delete' || typeof spec === 'function') {
     report?.(
       new Error(
-        `[forge] optimistic: ${meta.method} ${meta.path} names no entity to create. ` +
-          'Pass an array of {key, patch} instead.',
+        `[forge] optimistic: ${meta.method} ${meta.path} names no entity to patch: ` +
+          'its invalidates holds no single entity key. Pass an array that names the record, ' +
+          `for example [{ key: '${type ?? 'Type'}:<id>', patch }].`,
+      ),
+      'optimistic',
+    );
+
+    return undefined;
+  }
+
+  // A create needs a typename to be keyed under and an identity field to carry
+  // the minted id. The array form cannot create either, so it is not offered.
+  const idField = type === undefined ? undefined : entities[type]?.idField;
+
+  if (type === undefined || idField === undefined) {
+    report?.(
+      new Error(
+        `[forge] optimistic: ${meta.method} ${meta.path} names no entity to create: ` +
+          'an optimistic create needs the operation to name an entity with an identity field.',
       ),
       'optimistic',
     );

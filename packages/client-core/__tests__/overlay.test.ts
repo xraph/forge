@@ -615,6 +615,56 @@ describe('optimistic mutations', () => {
     expect(queries.overlays.empty).toBe(true);
   });
 
+  // What the Go generator emits for `PATCH /orders/{id}` and `PUT /orders/{id}`:
+  // DeriveTags provides the item tag but invalidates only the collection, so no
+  // tag in `invalidates` names the record being written.
+  it.each(['PATCH', 'PUT'])(
+    'reports a literal %s patch with no derivable target instead of minting a create',
+    async (method) => {
+      const gate = deferred<unknown>();
+      const errors: unknown[] = [];
+      const scheduler = manualScheduler();
+      const transport = fakeTransport((request) =>
+        request.meta.method === 'GET' ? [{ id: 7, status: 'open' }] : gate.promise,
+      );
+      const queries = new QueryCache({
+        transport,
+        entities: schema,
+        scheduler: scheduler.schedule,
+        onError: (error, context) => {
+          if (context === 'optimistic') errors.push(error);
+        },
+      });
+      const updateOrder: OperationMeta = {
+        method,
+        path: '/orders/{id}',
+        entity: 'Order',
+        provides: ['Order:{id}'],
+        invalidates: ['Order[]'],
+      };
+
+      await queries.fetch(orderList);
+      queries.subscribe(orderList, undefined, () => undefined);
+
+      const pending = queries.mutate(
+        updateOrder,
+        { path: { id: 7 }, body: { status: 'shipped' } },
+        { optimistic: { status: 'shipped' } },
+      );
+
+      // No phantom `Order:~opt1` on the stack, and the write still went out.
+      expect(queries.overlays.empty).toBe(true);
+      expect(queries.store.read(makeRef('Order:~opt1'))).toBeUndefined();
+      expect(transport.calls.some((call) => call.meta.method === method)).toBe(true);
+      expect(errors).toHaveLength(1);
+      expect(String(errors[0])).toContain(`${method} /orders/{id} names no entity to patch`);
+      expect(String(errors[0])).toContain("[{ key: 'Order:<id>', patch }]");
+
+      gate.resolve({ id: 7, status: 'shipped' });
+      await pending;
+    },
+  );
+
   it('drops every overlay when the principal changes', async () => {
     const gate = deferred<unknown>();
     const { cache: queries } = optimisticCache((request) =>

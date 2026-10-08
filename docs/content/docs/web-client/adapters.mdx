@@ -169,19 +169,21 @@ Both record identical state. The only difference is who owns the failure.
 Pass `optimistic` and the change shows up immediately, before the server answers — no rollback function, no cache-update function, no settle handler to write:
 
 ```ts
-// update — the change itself, and nothing else
+// update: the record's key and the change, nothing else
 update.mutate({ path: { id: 7 }, body: { status: 'shipped' } },
-              { optimistic: { status: 'shipped' } });
+              { optimistic: [{ key: 'Order:7', patch: { status: 'shipped' } }] });
 
-// delete — list membership included; no placement, no refetch to wait for
-remove.mutate({ path: { id: 7 } }, { optimistic: 'delete' });
+// delete: list membership included, no placement, no refetch to wait for
+remove.mutate({ path: { id: 7 } }, { optimistic: [{ key: 'Order:7', patch: 'delete' }] });
 
-// create — the patch is the row; `place` says where it goes, as it already does
+// create: the patch is the row, and `place` says where it goes, as it already does
 create.mutate({ body: { total: 99 } }, {
   optimistic: { total: 99, status: 'open' },
   place: { 'Order[]': (order, current) => [order, ...current] },
 });
 ```
+
+An update or a delete has to name its record. The generated `updateOrder` and `deleteOrder` invalidate only `Order[]`, so there's no key in their tags to read a target from, and you pass it yourself as `[{ key, patch }]`. The short forms (a bare object, `'delete'`, an updater function) only work on a route that also invalidates its own item tag, `Order:{id}`. Leave the key off a generated update and the cache's `onError` gets an `optimistic` report naming the operation. The write still goes out, just without the overlay.
 
 A failure drops the overlay and raises no tags — base was never touched, so there is nothing to revert and nothing to refetch. The `mutate` never rejects contract above is unchanged: an optimistic write fails exactly the way a non-optimistic one does, just with one fewer render in between.
 
