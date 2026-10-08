@@ -59,7 +59,7 @@ class OrderScreen extends ConsumerWidget {
 
 `frameCommitScheduler` comes from this package, which re-exports it along with `ConnectivityPlusSignal`, `invalidateBinding` and `refetchBinding`. You don't import `forge_client_flutter` yourself.
 
-Every provider here reads `forgeInstalledClientProvider`, which installs focus and reconnect revalidation on your client for as long as it lives. You call nothing else, and it works whichever way you override the client, by value or by function. Don't override `forgeClientProvider` at all and it falls back to the global client from `configureClient`.
+Every provider here reads `forgeInstalledClientProvider`, which installs focus and reconnect revalidation on your client for as long as it lives. You call nothing else, and it works whichever way you override the client, by value or by function. Don't override `forgeClientProvider` at all and it falls back to the global client from `configureClient`. It reads that global once, so if your app replaces the global client later, override `forgeClientProvider` with the new one instead.
 
 ## Queries
 
@@ -178,22 +178,22 @@ class ShipButton extends ConsumerWidget {
 
 `mutate` never throws here either. A failure becomes `MutationFailure` in the notifier's state and the future resolves with `null`. `mutateAsync` records the same state and rethrows. Both take `options: RequestOptions(headers: ..., cancel: ...)` for per-call headers and a cancel future, and `place:` for placement callbacks. Two calls that overlap settle in favour of the later one, and `reset()` puts the provider back to idle and drops whatever was still in flight.
 
-Optimistic patches are an argument of the call here, not of the provider, and they follow the [rules on the Flutter page](/docs/dart-client/flutter-adapter#optimistic-writes): pass the `key:`, and don't expect a patch to change a record that holds another entity.
+Optimistic patches are an argument of the call here, not of the provider, and they follow the [rules on the Flutter page](/docs/dart-client/flutter-adapter#optimistic-writes): pass the key.
 
 ```dart
-import 'package:catalog_forge_client/catalog_forge_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
 
-final patchItemProvider = mutationProvider(patchItem);
+final updateOrderProvider = mutationProvider(updateOrder);
 
-Future<Item?> saveNote(WidgetRef ref, String id, String note) =>
-    ref.read(patchItemProvider.notifier).mutate(
-          PatchItemArgs(id: id, note: Assign(note)),
-          optimistic: OptimisticUpdate<Item>(
-            (item) => item.copyWith(note: Assign(note)),
-            key: entityKey('Item', id),
+Future<Order?> shipNow(WidgetRef ref, String id) =>
+    ref.read(updateOrderProvider.notifier).mutate(
+          UpdateOrderArgs(id: id, status: 'shipped'),
+          optimistic: OptimisticUpdate<Order>(
+            (order) => order.copyWith(status: 'shipped'),
+            key: entityKey('Order', id),
           ),
         );
 ```
@@ -217,6 +217,20 @@ The provider auto-disposes, so watch it for as long as you care about the status
 You set up nothing for it. `forgeInstalledClientProvider` installs the same revalidation a `ForgeScope` does: it refetches stale queries when the app returns to the foreground and again on reconnect, and it removes them when the provider goes away. `frameCommitScheduler()` in your cache is the other half, batching commits once per frame. [What the adapter installs](/docs/dart-client/flutter-adapter#what-the-adapter-installs) has the details, including what "stale" means.
 
 In a test, override `forgeFocusSignalProvider` and `forgeConnectivitySignalProvider` with the `FakeFocusSignal` and `FakeConnectivitySignal` from `package:forge_client_flutter/testing.dart`, next to `forgeClientProvider`, so nothing touches a platform channel. Add `forge_client_flutter` to your `dev_dependencies` for that import.
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/testing.dart';
+import 'package:forge_client_riverpod/forge_client_riverpod.dart';
+
+List<Override> testOverrides(QueryCache cache) => [
+      forgeClientProvider.overrideWithValue(cache),
+      forgeFocusSignalProvider.overrideWithValue(FakeFocusSignal()),
+      forgeConnectivitySignalProvider.overrideWithValue(FakeConnectivitySignal()),
+    ];
+```
 
 ## Inside a provider's build
 

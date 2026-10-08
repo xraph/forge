@@ -4,8 +4,6 @@ description: ForgeScope, ForgeQueryBuilder and ForgeMutationBuilder, with no sta
 icon: Component
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
 `forge_client_flutter` is enough on its own. You don't need Riverpod, Bloc or Provider to use Forge well: the widgets here sit on streams and `ValueListenable`, which ship with Flutter. If your app is already on Riverpod 3, the [Riverpod adapter](/docs/dart-client/riverpod-adapter) gives you the same cache as providers.
 
 Coming from the React adapter, these are the nearest equivalents:
@@ -78,7 +76,7 @@ Widget testScope(Widget child) => ForgeScope(
     );
 ```
 
-The fake signals keep the scope off the platform channels, and `FakeTransport` answers every request on the microtask queue with the client-shaped JSON you hand it.
+Build it once per test. The fake signals keep the scope off the platform channels, and `FakeTransport` answers every request on the microtask queue with the client-shaped JSON you hand it.
 
 Two details about the scope. Pass `focus:` and `connectivity:` signals that live as long as the scope, a field and not an object built inside `build`, because a new object reinstalls the seams on every rebuild. And a scope notices when its `client:` changes and rebinds every widget below it.
 
@@ -153,7 +151,7 @@ class OrderDetail extends StatelessWidget {
 
 ### Rebuilding less
 
-A builder runs again when something it can render changes: the data, `isFetching`, `isOptimistic` or `syncStatus`. The data is compared with `identical()`, and the store hands back the same object for a record nothing touched. A write to `Order:2` therefore doesn't call the builder of a screen showing `Order:1`, and a refetch that finds nothing new leaves the data alone.
+A builder runs again when something it can render changes: the data (or, for a failure, the error), `isFetching`, `isOptimistic` or `syncStatus`. The data is compared with `identical()`, and the store hands back the same object for a record nothing touched. A write to `Order:2` therefore doesn't call the builder of a screen showing `Order:1`, and a refetch that finds nothing new leaves the data alone.
 
 It does still flip `isFetching` on and off. When the request outlasts a frame, a plain builder runs twice with the same data in both calls. The [Entities](/docs/dart-client/entities#what-that-does-to-rebuilds) page has the longer version.
 
@@ -204,35 +202,32 @@ There's one exception. A call that passes its own `client:` runs against that ca
 
 ### Optimistic writes
 
-`optimistic:` builds a patch from the args. It's applied the moment you call `mutate`, so the detail screen, the list and the badge all show the new value before the server answers. If the server rejects the write, the patch is dropped and they go back. The store's own record is never touched while the write is pending, because the patch sits in a layer above it. When the write succeeds, the response replaces the patch.
-
-The sample below uses a different generated client than the orders API: a catalog, where `Item` holds only plain fields. The reason is in the callout under it.
+`optimistic:` builds a patch from the args. It's applied the moment you call `mutate`, so the detail screen, the list and the badge all show the new value before the server answers. If the server rejects the write, the patch is dropped and they go back. The store's own record isn't touched while the write is pending, because the patch sits in a layer above it. When the write succeeds, the patch is folded into the store and the response is committed over it.
 
 ```dart
-import 'package:catalog_forge_client/catalog_forge_client.dart';
 import 'package:flutter/material.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:orders_forge_client/orders_forge_client.dart';
 
-class SaveNote extends StatelessWidget {
-  const SaveNote({super.key, required this.id, required this.note});
+class ShipNow extends StatelessWidget {
+  const ShipNow({super.key, required this.id});
 
   final String id;
-  final String note;
 
   @override
   Widget build(BuildContext context) {
     return ForgeMutationBuilder(
-      mutation: patchItem,
-      optimistic: (args) => OptimisticUpdate<Item>(
-        (item) => item.copyWith(note: args.note),
-        key: entityKey('Item', id),
+      mutation: updateOrder,
+      optimistic: (args) => OptimisticUpdate<Order>(
+        (order) => order.copyWith(status: args.status),
+        key: entityKey('Order', id),
       ),
       builder: (context, m) => FilledButton(
         onPressed: m.state is MutationPending
             ? null
-            : () => m.mutate(PatchItemArgs(id: id, note: Assign(note))),
-        child: const Text('Save'),
+            : () => m.mutate(UpdateOrderArgs(id: id, status: 'shipped')),
+        child: const Text('Mark shipped'),
       ),
     );
   }
@@ -241,11 +236,11 @@ class SaveNote extends StatelessWidget {
 
 While the patch is pending, every `QueryState` that includes it has `isOptimistic` set, which is a good moment to grey the row out. A per-call `optimistic:` on `m.mutate` wins over the builder's.
 
-Pass `key:`. The runtime can only work out the target itself when exactly one entity key shows up in the operation's `invalidates`, such as `Item:{id}`. A generated `PATCH` invalidates the collection (`Item[]`), so it names none. Leave the key out and the cache reports a `StateError` through its `onError` under the context `optimistic`, and the write goes out without optimism. Your save still happens. It just isn't instant.
+An `Order` embeds its `Customer`, and a record like that works the same way as a flat one. Your patch function gets the order the way a read shows it, with its `customer` filled in, and only the fields you change are written over the stored record, so the order stays linked to its customer. If your patch changes the embedded customer itself, the order shows the new customer while the write is pending, but the `Customer` record isn't touched until the write succeeds. Keep the function to the record itself and the entities embedded in it directly. Each embedded entity it reads is worked out first, so reading further costs more for every record it reaches.
 
-<Callout type="warn">
-An optimistic patch can't change a record that has another entity in one of its fields. The patch function gets the stored record decoded through the model, and a stored `Order` holds a reference where its `Customer` should be, so the decode throws. The error goes to `onError` under `optimistic`, the row is marked `isOptimistic`, and nothing on screen changes until the response lands. Use optimistic updates on entities made of plain fields. For an `Order`, a plain `mutate` shows the new status when the response arrives.
-</Callout>
+Pass `key:`. The runtime works out the target itself only when exactly one entity key shows up in the operation's `invalidates`, such as `Order:{id}`. By default a generated `PATCH`, `PUT` or `DELETE` invalidates only the collection (`Order[]`), so it names none, unless the Go route adds an entity tag with `WithInvalidates`. Leave the key out and the cache reports a `StateError` through the `onError` you gave `configureClient`, under the context `optimistic`, and the write goes out without optimism. If two entity keys show up, the report is an `AmbiguousTargetError` and the result is the same. Either way your save still happens. It just isn't instant.
+
+`OptimisticDelete(key: ...)` hides a record the same way, and `OptimisticCreate(value)` shows a new one under a temporary key until the answer arrives; pair it with `place:` to put the row in a list. A `optimistic:` callback that throws fails the mutation without sending it. `mutate` still doesn't throw: the error lands in `m.state`. That's deliberate, because the callback is your code and its failure is a bug you should see.
 
 ## Beyond one query
 
@@ -267,11 +262,12 @@ Widget dashboard() => ForgeQueriesBuilder(
     );
 ```
 
-`ForgeListener` runs a side effect on each state transition without rebuilding its child. It's the place for a snackbar or a navigation:
+`ForgeListener` runs a side effect on each state transition without rebuilding its child. It's the place for a snackbar or a navigation. It hears every transition that renders differently, and that includes `isFetching` flipping on a retry, so filter with `listenWhen`, or a retry that fails will show the snackbar more than once:
 
 ```dart
 Widget withFailureToast(String id, Widget child) => ForgeListener<Order>(
       query: getOrder(GetOrderArgs(id: id)),
+      listenWhen: (previous, next) => next is QueryFailure<Order> && !next.isFetching,
       listener: (context, previous, next) {
         if (next is QueryFailure<Order>) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${next.error}')));
@@ -301,6 +297,8 @@ Widget selectedLabel(BuildContext context) => ListenableBuilder(
 
 void select(BuildContext context, String id) => context.forgeState(selectedId).value = id;
 ```
+
+These two need a `ForgeScope` above them. Without one they throw a `StateError`.
 
 Read a computed value inside a `ListenableBuilder`, as above, and not through a `ValueListenableBuilder`. The second one keeps the last value it read, so after an account switch it would go on showing something derived from the previous client's data.
 
