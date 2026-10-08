@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Add `forge_client_offline` and three things change. The cache survives a restart, so your app opens on the data it had, marked stale, and refreshes when it can. A write made with no network goes into a durable outbox and replays, in order, when the network comes back. And all of it is encrypted on disk, with the key held by the platform keystore.
 
-This runs on iOS, Android, macOS, Linux and Windows. The web has no offline storage yet; [The web is weaker](#the-web-is-weaker) says what is planned.
+It's built for iOS, Android, macOS, Linux and Windows, and [Keys on each platform](#keys-on-each-platform) says how much of that has run on real devices. The web has no offline storage yet; [The web is weaker](#the-web-is-weaker) says what is planned.
 
 ## Turning it on
 
@@ -117,7 +117,20 @@ Every signed-in user gets a random 256-bit key, held by the platform keystore th
 
 Pass `requireUserPresence: true` to `encryptedStorage`. Without it, Apple platforms store the key readable after the first unlock, so the outbox can replay while the app is in the background. With it, the key needs the user, and a background replay waits until the app is opened.
 
-The package keeps its entries in a keystore namespace of its own, so your own use of `flutter_secure_storage` doesn't collide with them. Linux and Windows have no namespace to give, so there an app-wide `FlutterSecureStorage().deleteAll()` wipes this package's keys too. Don't call it on those platforms. Their keystore code is exercised against a fake in the package's tests and not against a real keystore.
+`requireUserPresence` has requirements of its own. On Apple platforms it stores the key with `passcode` accessibility, so a device with no passcode can't hold the key, and removing the passcode deletes it. The next open then starts a fresh database and the queued writes in the old one are gone. On Android it needs API 28 (Android 9) or later, and `enforceBiometrics` is on, so the device needs a lock screen with biometrics or a credential enrolled.
+
+On macOS the key goes to the data protection keychain by default. That needs a signed app with the `keychain-access-groups` entitlement. For an unsigned build, such as a debug run from your editor, give `encryptedStorage` a keystore that uses the login keychain:
+
+```dart
+StorageAdapter unsignedMacStorage(String directory) => encryptedStorage(
+      directory: directory,
+      keystore: secureStorageFor(requireUserPresence: false, useDataProtectionKeychain: false),
+    );
+```
+
+A `keystore:` replaces the default configuration, so it also replaces whatever `requireUserPresence` would have set. The `useDataProtectionKeychain` flag applies to macOS only. The passphrase sample below passes `true`, so change it the same way for an unsigned build.
+
+The package keeps its entries in a keystore namespace of its own, so your own use of `flutter_secure_storage` doesn't collide with them. Linux and Windows have no namespace to give, so there an app-wide `FlutterSecureStorage().deleteAll()` wipes this package's keys too. Don't call it on those platforms. Only macOS, on the login keychain, has run against a real keystore. The package's tests fake the keystore everywhere else, so iOS, Android, Linux and Windows have only run against that fake, and `requireUserPresence` hasn't run on a device yet.
 
 The database is SQLite built with SQLite3MultipleCiphers. Open it without the key and you get an error, not data.
 
@@ -160,7 +173,7 @@ Browsers have no keystore, which is why the planned design is weaker. The defaul
 
 Each signed-in user has one encrypted database. It holds the entity snapshot, the outbox and, with `forge_client_grove` installed, the Grove replica. Nothing a user caches is written anywhere else. The files sit in a `forge_client_offline` folder inside the directory you passed, named by an HMAC of the user id under a per-install salt kept in the keystore, so neither the folder listing nor the file names tell you who signed in.
 
-Switching account through `setPrincipal` stops every sync source, closes the old user's database and opens the new user's. It never reopens the old one. On a shared tablet the next person to sign in can't read the last person's orders, from the UI or from the files.
+Switching account through `setPrincipal` stops every sync source, closes the old user's database and opens the new user's. It never reopens the old one. On a shared tablet the next person to sign in can't read the last person's orders, from the UI or from the files. The files are only ciphertext while the old user's key is out of reach, so on a shared device sign out with erase, which is what removes the key.
 
 Sign-out follows the same rule with one extra step. After `setPrincipal(null)` the sources stop in the background and the session closes after them, so `await cache.idle` before you erase anything. [Signing out shreds the data](#signing-out-shreds-the-data) has the code.
 
@@ -174,7 +187,7 @@ Future<void> signOutByHand(QueryCache cache, StorageAdapter storage, String user
 }
 ```
 
-`destroy` deletes the user's key first, which makes the database unreadable at once, and deletes the files after. If the app is killed between the two steps, what's left on disk is ciphertext whose key no longer exists anywhere. If `destroy` throws, call it again. Every step is safe to repeat.
+`destroy` deletes the user's key first, which makes the database unreadable at once, and deletes the files after. With a keystore key, if the app is killed between the two steps, what's left on disk is ciphertext whose key no longer exists anywhere. A passphrase key is weaker, as [Keys from a passphrase](#keys-from-a-passphrase) explains. If `destroy` throws, call it again. Every step is safe to repeat.
 
 A client from `OfflineClient.open` does all of it for you:
 
@@ -253,9 +266,9 @@ The failures you hold in a list belong to the user who made the writes. Drop the
 
 A mutation made while offline, or one whose request failed before it reached the server, goes into a durable outbox in the encrypted database. The record is stored before the first request goes out and removed when the server accepts it, so a write survives the app being killed mid-request.
 
-While the app runs, the write draws from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox redraws each stored write from its arguments. A `PATCH` or `PUT` with an object body merges that body into the one entity key the operation names in `invalidates`. A `DELETE` hides that entity. A create draws nothing. A generated update or delete invalidates the collection (`Order[]`) and names no entity key, so it draws nothing after a restart. The write is still queued and still replays. Your screen just doesn't show it in the meantime.
+While the app runs, the write draws from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox redraws each stored write from its arguments. A `PATCH` or `PUT` with an object body merges that body into the one entity key the operation names in `invalidates`. A `DELETE` hides that entity. A create draws nothing. A generated update or delete invalidates the collection (`Order[]`) and names no entity key, so it draws nothing after a restart. The write is still queued and still replays. Until it does, the screen shows the server's last value, and a deleted order comes back. If you build the client by hand, the constructor takes an `overlayIntent:` that can key the overlay from the path argument, using `MergeOverlay` and `DeleteOverlay`. `OfflineClient.open` doesn't take one.
 
-When the connection comes back, the outbox replays in order. Writes to one entity type go one at a time, so a later edit to an order can't overtake an earlier one, and the lanes for different entity types are independent. A retryable answer (a 408, a 429 or a 5xx) backs off, doubling from a second up to five minutes with some jitter. Every write carries an `Idempotency-Key` header, generated when it's queued and reused on every replay.
+When the connection comes back, the outbox replays in order. Writes to one entity type go one at a time, so a later edit to an order can't overtake an earlier one, and the lanes for different entity types are independent. A retryable answer (a 408, a 429, a 5xx, or a request that never left the device) backs off, doubling from a second up to five minutes with some jitter. Every write carries an `Idempotency-Key` header, generated when it's queued and reused on every replay.
 
 A queued write's future stays pending for as long as the write is queued, and that can be days. Draw your screen from the cache, which shows the optimistic value, and don't put a spinner on that future. For status, read `offline.pending` (the stored writes in replay order), `offline.pendingCount` and `offline.failures`.
 
@@ -317,7 +330,7 @@ The middleware reads the `Idempotency-Key` the outbox sends. A key it has alread
 Three things about the other side of that contract:
 
 - A `POST` or `PATCH` is safe to repeat only while the server still remembers the key. That's the middleware's TTL, 24 hours by default, and only as long as its store survives. The default store is in memory and shared by the process, so a deploy forgets every key. The client's `idempotencyWindow` (on `open` and the constructor, 24 hours by default) should match the TTL. Once a write's first unanswered attempt is older than that, it surfaces as `OutboxUncertain` and isn't replayed. `PUT` and `DELETE` replay at any age. Behind a load balancer, give the route `forge.IdempotencyBackend(...)` with a durable store shared by every instance.
-- A request with no signed-in user isn't deduplicated, because there's nobody to scope the key to. It runs as if it had no key, and the response carries `Idempotency-Skipped: anonymous`. The outbox reports that header through `onError` with the context `outbox.idempotency-skipped`. If you see it for a signed-in user, your auth middleware runs after the idempotency middleware. Authentication has to run first, at router or group scope, or every replay of that route can run twice.
+- A request with no signed-in user isn't deduplicated, because there's nobody to scope the key to. It runs as if it had no key, and the response carries `Idempotency-Skipped: anonymous`. The outbox reports that header through `onError` with the context `outbox.idempotency-skipped`. If you see it for a signed-in user, your auth middleware runs after the idempotency middleware. Authentication has to run first, at router or group scope or earlier in the same option list, or every replay of that route can run twice. A route with no auth at all can opt in with `middleware.IdempotencyAllowAnonymous()`.
 - A request body over the middleware's cap (1 MiB by default) gets a 413, which no retry can fix, so the outbox surfaces it as an `OutboxValidation`. A response over 1 MiB is sent in full the first time and replayed without its body, marked `Idempotent-Truncated: true`. The outbox treats that replay as a success and invalidates the entity so the next read refetches it.
 
 After 8 retryable failures in a row, a write stops retrying and surfaces as `OutboxUncertain` too. Its record and key are kept.
@@ -325,6 +338,8 @@ After 8 retryable failures in a row, a write stops retrying and surfaces as `Out
 ## When the key can't be read
 
 `open` throws `KeyUnavailable` when the keystore can't be read right now. On iOS that is usually transient: the app woke before the first unlock, and the keychain item isn't readable yet. Wait and open again. Nothing is erased.
+
+On macOS, a `KeyUnavailable` on the very first open usually means the app isn't signed with the `keychain-access-groups` entitlement. That isn't transient, and a reset won't help. Sign the app, or use the login keychain as [Keys on each platform](#keys-on-each-platform) shows.
 
 If it keeps failing while the device is unlocked, you can offer `resetOfflineData()`. It erases everything this package keeps, for every user, and any write that never reached the server goes with it, so call it only after the user says yes. A failed `open` has already disposed its client, so the reset goes to the storage:
 

@@ -20,7 +20,7 @@ Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the
 
 Use it for data that already lives in Grove's `crdt` package and was designed to merge: last-writer-wins registers, counters, sets and text. If your entity is a row in Postgres behind a REST handler, this package does nothing for it, and that's correct. Merging data that was never designed to merge quietly loses writes.
 
-One limit you should know about before you build on counters, sets, lists or text. A change stamped earlier than a peer has already pulled can miss that peer. Say a phone is offline for a day, adds to a set, and reconnects. The server merges the add, but a device that already pulled past that stamp is never sent it, until a fix to the Grove server lands. Last-writer-wins fields mostly escape this, because an older write loses anyway. The client is correct here. The gap is on the server, and [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
+One limit you should know about before you build on it. Whenever a merge changes what the server stores, the server files that change under the stamp the edit was made with. A device pulls changes newer than the last point it synced to, and the live stream works the same way, so a change stamped earlier than a peer's sync point never reaches that peer. That holds for every CRDT type, last-writer-wins fields included. Say a technician's tablet is offline for a day and edits a note. Phones that synced while it was offline have already moved past the stamp, so they never see the edit, while a device that has never synced does. Only a late write that loses to a newer one escapes, because the server doesn't change anything for it. The client is correct here. The gap is on the server, a fix to the Grove server is still to land, and [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
 
 ## On the server
 
@@ -136,7 +136,7 @@ Future<OfflineClient> openWithSync(
 }
 ```
 
-The offline client keeps the source's entities out of its outbox and out of what it restores, because the source owns them. Without `forge_client_offline`, pass the source to `configureClient`. Leave `storage` out and the replica lives in memory for the session, which is also what you get on the web:
+The offline client keeps the source's entities out of its outbox and out of what it restores, because the source owns them. Without `forge_client_offline`, pass the source to `configureClient`. Leave `storage` out and the replica lives in memory for the session:
 
 ```dart
 import 'package:catalog_forge_client/catalog_forge_client.dart';
@@ -163,7 +163,7 @@ Future<Note> retitle(QueryCache cache, String id, String title) =>
     patchNote(cache, PatchNoteArgs(id: id, title: Assign(title)));
 ```
 
-The call returns the updated record, and it invalidates what the operation's `invalidates` names. The source takes the row id from the entity key in `invalidates`, else from the path parameter that spells the id field, else from the body. A create with no id gets a new uuid. A push that fails on a network error or a 5xx is retried with a jittered backoff capped at five minutes. Remote changes arrive over the SSE stream when the table declares one, else the WebSocket, else by polling, and `live:` on the source overrides that choice.
+The call returns the updated record, and it invalidates what the operation's `invalidates` names. The source takes the row id from the entity key in `invalidates`, else from the path parameter that spells the id field, else from the body. A create with no id gets a new uuid. A push that fails on a network error or a 5xx is retried with a jittered backoff capped at five minutes. Remote changes arrive over the SSE stream when the table declares one, else the WebSocket when one is declared and the table is known, else by polling, and `live:` on the source overrides that choice.
 
 Each dataset's replica holds at most 10,000 unsynced changes. A mutation that would go past that is refused whole, with a `CrdtError` of code `offlineQueueFull`, and nothing of it is written.
 
@@ -183,10 +183,11 @@ Future<void> openDataset(QueryCache cache, GroveSyncSource grove, String userId,
   grove.statusOf(datasetId).listen((status) => debugPrint('$datasetId: $status'));
 }
 
-Future<void> closeDataset(GroveSyncSource grove, String datasetId) async {
-  await grove.leave(datasetId);
-  await grove.leave(datasetId, erase: true);
-}
+Future<void> pauseDataset(GroveSyncSource grove, String datasetId) =>
+    grove.leave(datasetId);
+
+Future<void> eraseDataset(GroveSyncSource grove, String datasetId) =>
+    grove.leave(datasetId, erase: true);
 ```
 
 The records of a dataset share the entity store under the composite id `<dataset>:<id>`. `leave` stops syncing and keeps the replica for a rejoin, and `leave(erase: true)` deletes it too. Joined datasets belong to the signed-in user, so switching accounts forgets them.
@@ -195,7 +196,7 @@ The records of a dataset share the entity store under the composite id `<dataset
 
 ## On the web
 
-A browser WebSocket handshake can't carry custom headers. On the web the connector adds your `auth` headers to the URL as lower-cased query parameters instead, so the token travels in the query string. A proxy, a server or a log can record a URL. Use short-lived tokens there, never a long-lived secret. The package keeps those values out of the errors and strings it prints. SSE doesn't have the problem, because the web SSE connector uses `fetch`, which can set headers.
+A browser WebSocket handshake can't carry custom headers. On the web the connector adds your `auth` headers to the URL as lower-cased query parameters instead, so the token travels in the query string. A proxy, a server or a log can record a URL. Use short-lived tokens there, never a long-lived secret. The package keeps those values out of the errors and strings it prints. These web connectors are built, and a browser test hasn't run them yet. SSE doesn't have the problem, because the web SSE connector uses `fetch`, which can set headers.
 
 If you use presence from `grove_crdt` next to the source, presence keeps the node id the device first connected with. The clock can move to a new node id when this device's clock ran ahead of the server's, and your own presence still doesn't show up as a peer of itself.
 
@@ -269,4 +270,4 @@ Register it with `WidgetsBinding.instance.addObserver`. `flush()` writes every r
 
 ## Without forge_client_grove
 
-A generated client never requires the CRDT package. Leave `forge_client_grove` out and Grove-backed entities behave as plain REST entities, as long as your server also serves them over REST: you get the encrypted cache, the outbox, and conflicts reported to your app. A web app that only reads them can skip the package and its download.
+A generated client never requires the CRDT package. Leave `forge_client_grove` out and Grove-backed entities behave as plain REST entities, as long as your server also serves them over REST: you get the encrypted cache, the outbox, and conflicts reported to your app. A web app that only reads them can skip the package.
