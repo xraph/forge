@@ -100,7 +100,7 @@ While the app runs, a queued write is drawn from the optimistic update you passe
 
 ### A Grove dataset joined offline reports online
 
-A dataset's sync status follows the connectivity signal, and it starts out assumed online. One joined while the device is already offline reports its pending or synced state, not Offline, until the next connectivity change. Going offline stops its retries but leaves its live channel open.
+A dataset's sync status follows the `connectivity:` signal you give `GroveSyncSource`, and it starts out assumed online; a source built without one never reports Offline. One joined while the device is already offline reports its pending or synced state, not Offline, until the next connectivity change. Going offline stops its retries but leaves its live channel open.
 
 ### Nothing is in a forge release yet
 

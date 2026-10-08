@@ -96,7 +96,8 @@ A source that fails to parse aborts the whole run; generation never degrades to 
 
 | Flag | Default | Description |
 |---|---|---|
-| `--hooks` | `false` | Generate the operation manifest (`ops.ts`) and typed hook facades (`hooks.ts`) over `@forge-go/client-core` |
+| `--hooks` | `false` | Generate the operation manifest (`ops.ts`) and typed hook facades (`hooks.ts`) over `@forge-go/client-core`; for Dart, the `ops.dart` table and bindings over `forge_client` |
+| `--int64 <string>` | `string` | Dart only: represent int64 as an extension type over `String`, which keeps every digit on the web, or as plain `int` |
 | `--react-query` | `false` | **Deprecated**: use `--hooks` (the generated hooks are not TanStack Query) |
 
 <Callout type="warn">
