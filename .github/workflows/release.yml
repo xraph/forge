@@ -64,6 +64,15 @@ defaults:
   run:
     shell: bash
 
+env:
+  # Every extension "all" mode tags. Removed extensions are not listed: ai,
+  # cron, database, gateway and storage are migration notes now, with no
+  # go.mod to tag. The version-reuse guard and the tag step both read this, so
+  # the guard checks exactly the tags the step would create.
+  RELEASE_EXTENSIONS: >-
+    auth cache consensus discovery events features graphql grpc hls kafka
+    mcp mqtt orpc queue search security streaming webrtc
+
 # -------------------------------------------------------------------
 # Job: detect
 # Normalises inputs from both tag-push and workflow_dispatch triggers
@@ -205,41 +214,110 @@ jobs:
           echo "| Skip tests | $SKIP_TESTS |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Release all | $IS_ALL |" >> "$GITHUB_STEP_SUMMARY"
 
-      # For manual dispatch, create & push the main tag if it doesn't exist
-      - name: Create tag (manual dispatch)
-        if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.dry_run == 'false'
+      # A version is used once. On 2026-10-08 a dispatch of 1.12.1, a version
+      # whose tag already existed at an older commit, skipped the main tag,
+      # tagged all 18 extensions at that day's main instead of the release
+      # commit, and pushed them. The proxy serves those now and they cannot be
+      # taken back. GoReleaser then found only extension tags on HEAD and
+      # failed on "extensions/webrtc/v1.12.1" as a version.
+      #
+      # So before anything is tagged: every tag this run would create must be
+      # absent, or already point at the checked-out commit. The second case is
+      # a re-run of the same release and stays allowed, since it creates
+      # nothing new. To redo a release whose tag exists, run this workflow on
+      # the tag itself ("Use workflow from" the tag), not on a branch.
+      #
+      # It runs on dry runs too, so a rehearsal catches a taken version. The
+      # tags come from the checkout above, whose fetch-depth: 0 fetches them all.
+      # .github/scripts/test_release_workflow.py runs this shell against a
+      # scratch repository.
+      - name: Guard against version reuse
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          IS_ALL: ${{ steps.resolve.outputs.is_all }}
         run: |
-          TAG="${{ steps.resolve.outputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists — skipping creation"
-          else
-            git tag "$TAG"
-            git push origin "$TAG"
-            echo "Created and pushed tag $TAG"
+          set -euo pipefail
+
+          HEAD_SHA=$(git rev-parse HEAD)
+          WANTED=("$TAG")
+          if [ "$IS_ALL" = "true" ]; then
+            read -ra EXTENSIONS <<< "$RELEASE_EXTENSIONS"
+            for ext in "${EXTENSIONS[@]}"; do
+              WANTED+=("extensions/${ext}/v${VERSION}")
+            done
           fi
 
-      # For "all" mode, also create tags for every extension module
-      - name: Create extension tags (all mode)
-        if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.is_all == 'true' && steps.resolve.outputs.dry_run == 'false'
-        run: |
-          VERSION="${{ steps.resolve.outputs.version }}"
-          # Removed extensions are not listed: ai, cron, database, gateway and
-          # storage are migration notes now, with no go.mod to tag.
-          EXTENSIONS=(auth cache consensus discovery events features graphql grpc hls kafka mcp mqtt orpc queue search security streaming webrtc)
-
-          for ext in "${EXTENSIONS[@]}"; do
-            EXT_TAG="extensions/${ext}/v${VERSION}"
-            if git rev-parse "$EXT_TAG" >/dev/null 2>&1; then
-              echo "Tag $EXT_TAG already exists — skipping"
-            else
-              git tag "$EXT_TAG"
-              echo "Created tag $EXT_TAG"
+          TAKEN=0
+          for t in "${WANTED[@]}"; do
+            if sha=$(git rev-parse -q --verify "refs/tags/${t}^{commit}"); then
+              if [ "$sha" = "$HEAD_SHA" ]; then
+                echo "Tag $t already points at HEAD ($HEAD_SHA); this is a re-run of the same release."
+              else
+                echo "::error::Tag $t already exists at $sha, not at the checked-out commit $HEAD_SHA."
+                TAKEN=$((TAKEN + 1))
+              fi
             fi
           done
 
-          # Push all new tags in one go
-          git push origin --tags
-          echo "Pushed all extension tags"
+          if [ "$TAKEN" -gt 0 ]; then
+            echo "::error::Version $VERSION is already taken by $TAKEN tag(s) at another commit, so nothing was tagged or pushed. Release a new version, or run this workflow on $TAG itself to repeat that release."
+            exit 1
+          fi
+          echo "No tag for $VERSION points anywhere but HEAD ($HEAD_SHA)."
+
+      # Creates the main tag at HEAD, and in "all" mode every extension tag at
+      # that same commit, then pushes only the tags it created, in one atomic
+      # push. The guard above has already refused any tag at another commit.
+      - name: Create tags (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.dry_run == 'false'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          IS_ALL: ${{ steps.resolve.outputs.is_all }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(git rev-parse HEAD)
+          NEW=()
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists at HEAD; not creating it again."
+          else
+            git tag "$TAG" "$HEAD_SHA"
+            NEW+=("refs/tags/$TAG")
+          fi
+
+          # Every extension tag goes on the main tag's commit. Checked again
+          # here so a later edit to the guard cannot quietly tag elsewhere.
+          TARGET=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          if [ "$TARGET" != "$HEAD_SHA" ]; then
+            echo "::error::$TAG points at $TARGET, not HEAD $HEAD_SHA. Refusing to tag."
+            exit 1
+          fi
+
+          if [ "$IS_ALL" = "true" ]; then
+            read -ra EXTENSIONS <<< "$RELEASE_EXTENSIONS"
+            for ext in "${EXTENSIONS[@]}"; do
+              EXT_TAG="extensions/${ext}/v${VERSION}"
+              if git rev-parse -q --verify "refs/tags/$EXT_TAG" >/dev/null; then
+                echo "Tag $EXT_TAG already exists at HEAD; not creating it again."
+              else
+                git tag "$EXT_TAG" "$TARGET"
+                NEW+=("refs/tags/$EXT_TAG")
+              fi
+            done
+          fi
+
+          if [ "${#NEW[@]}" -eq 0 ]; then
+            echo "Every tag already exists at HEAD; nothing to push."
+          else
+            # Named refs only. `git push --tags` would also push any stray
+            # local tag the runner happens to hold.
+            git push --atomic origin "${NEW[@]}"
+            printf 'Pushed %s\n' "${NEW[@]}"
+          fi
 
   # -------------------------------------------------------------------
   # Job: test
@@ -405,6 +483,67 @@ jobs:
             echo "Go proxy notification failed (normal for private repos)"
 
   # -------------------------------------------------------------------
+  # Job: trigger-publish
+  # Starts npm-publish.yml and dart-publish.yml for a dispatched release.
+  #
+  # A tag a human pushes starts both of them by itself. The tag this
+  # workflow's detect job pushes does not: it is pushed with GITHUB_TOKEN, and
+  # GitHub starts no workflow from a GITHUB_TOKEN push. workflow_dispatch is
+  # the exception to that rule, so this job dispatches both on the release
+  # tag, which is exactly the run a tag push would have produced (dart-publish
+  # accepts a real publish from a dispatch only on refs/tags/vX.Y.Z).
+  #
+  # Why not push the tag with a PAT (secrets.GORELEASER_TOKEN, which GoReleaser
+  # already uses for the tap and bucket) so the push itself triggers them? A
+  # PAT push also starts this very workflow's `push: tags` trigger, so every
+  # dispatched release would run a second, competing release from the tag, and
+  # in "all" mode 18 more for the extension tags. It would also make
+  # publishing depend on a secret nobody can read to confirm its scope.
+  # Dispatching needs only `actions: write` on GITHUB_TOKEN.
+  #
+  # pub.dev: a dispatch-started upload is refused unless "Enable publishing
+  # from workflow_dispatch events" is ticked on each package's automated
+  # publishing settings, next to the tag pattern.
+  #
+  # Both publish workflows are safe to start twice for the same tag: dart
+  # skips versions already on pub.dev, npm skips a tag whose packages are all
+  # on npm, and each queues behind an earlier run for the same ref.
+  # Prereleases are left alone, as the tag triggers ignore them too.
+  # -------------------------------------------------------------------
+  trigger-publish:
+    name: Start npm and pub.dev publishing
+    needs: [detect, test]
+    if: |
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.detect.outputs.module_type == 'main' &&
+      needs.detect.outputs.dry_run == 'false' &&
+      needs.detect.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the publish workflows on the release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.detect.outputs.tag }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$VERSION" == *[-+]* ]]; then
+            echo "::notice::$VERSION is a prerelease; npm and pub.dev publish stable tags only. Nothing dispatched."
+            exit 0
+          fi
+
+          for wf in npm-publish.yml dart-publish.yml; do
+            gh workflow run "$wf" --ref "$TAG" -f dry-run=false -f version="$VERSION"
+            echo "Started $wf on $TAG at version $VERSION." | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+  # -------------------------------------------------------------------
   # Job: dry-run
   # Validates the release pipeline without publishing anything.
   # -------------------------------------------------------------------
@@ -488,7 +627,7 @@ jobs:
   # -------------------------------------------------------------------
   summary:
     name: Release summary
-    needs: [detect, test, release-cli, release-module, dry-run]
+    needs: [detect, test, release-cli, release-module, trigger-publish, dry-run]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -540,6 +679,7 @@ jobs:
             echo "| Test | ${{ needs.test.result }} |"
             echo "| CLI Release | ${{ needs.release-cli.result }} |"
             echo "| Module Release | ${{ needs.release-module.result }} |"
+            echo "| Publish Dispatch | ${{ needs.trigger-publish.result }} |"
             echo "| Dry Run | ${{ needs.dry-run.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 

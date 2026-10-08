@@ -18,6 +18,17 @@ name: Publish NPM Packages
 # core. It needs client-react and client-devtools built as well as client-core,
 # because its `tsc` resolves all three through `file:` links. Move it up the
 # list and its build fails on its own public types.
+#
+# The list lives in the check job's PACKAGES and reaches publish through that
+# job's output, so the job that asks npm and the job that publishes always
+# walk the same packages.
+#
+# A tag whose versions are all on npm already is skipped, not failed. The
+# check job asks npm for every package first: all present skips publish, none
+# present publishes, and a mix fails naming each side. Skipping only the
+# present ones would need the reusable workflow to accept a per-package skip,
+# which xraph/workflows' npm-publish.yml does not offer; that change belongs
+# in a PR there.
 
 on:
   # A real publish happens only here, on a version tag.
@@ -40,6 +51,13 @@ on:
 
 permissions:
   contents: read
+
+# The tag push and the dispatch release.yml starts for the same tag would
+# otherwise race each other to the registry. The later one queues, then finds
+# every version present and skips.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # Resolves the version and whether this is a real publish.
@@ -82,20 +100,86 @@ jobs:
             echo "Publishing version '${version:-<package.json>}'." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # Asks npm which package versions it already has.
+  check:
+    name: Check npm for existing versions
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.check.outputs.packages }}
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check
+        id: check
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
+          # client-core first; everything else peer-depends on it. See the
+          # note at the top of this file for why client-react-devtools is last.
+          PACKAGES: >-
+            ["packages/client-core",
+             "packages/client-react",
+             "packages/client-vue",
+             "packages/client-angular",
+             "packages/client-devtools",
+             "packages/client-react-devtools"]
+        run: |
+          set -euo pipefail
+
+          packages=$(jq -c . <<< "$PACKAGES")
+          if [ "$(jq length <<< "$packages")" -eq 0 ]; then
+            echo "::error::PACKAGES is empty."
+            exit 1
+          fi
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+          err=$(mktemp)
+          present=()
+          missing=()
+          while IFS= read -r dir; do
+            name=$(jq -r .name "$dir/package.json")
+            version="${VERSION:-$(jq -r .version "$dir/package.json")}"
+            spec="$name@$version"
+            # npm answers a missing version or package with E404. Older npm
+            # printed nothing and exited 0 for a missing version instead.
+            if out=$(npm view "$spec" version 2>"$err"); then
+              if [ -n "$out" ]; then present+=("$spec"); else missing+=("$spec"); fi
+            elif grep -q E404 "$err"; then
+              missing+=("$spec")
+            else
+              cat "$err" >&2
+              echo "::error::Could not ask npm whether $spec exists."
+              exit 1
+            fi
+          done < <(jq -r '.[]' <<< "$packages")
+
+          skip=false
+          if [ "$DRY_RUN" = "true" ]; then
+            if [ "${#present[@]}" -gt 0 ]; then
+              echo "::notice::Already on npm, a real publish would trip on: ${present[*]}"
+            fi
+          elif [ "${#missing[@]}" -eq 0 ]; then
+            skip=true
+            echo "Every package is on npm already (${present[*]}). Nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "${#present[@]}" -gt 0 ]; then
+            echo "::error::Some of these versions are on npm and some are not. Already published: ${present[*]}. Not yet published: ${missing[*]}. The reusable workflow cannot publish only the missing ones; publish those by hand, or bump the version."
+            exit 1
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Publish
-    needs: prepare
+    needs: [prepare, check]
+    if: needs.check.outputs.skip != 'true'
     uses: xraph/workflows/.github/workflows/npm-publish.yml@v1
     with:
-      # client-core first; everything else peer-depends on it. See the note at
-      # the top of this file for why client-react-devtools is last.
-      packages: >-
-        ["packages/client-core",
-         "packages/client-react",
-         "packages/client-vue",
-         "packages/client-angular",
-         "packages/client-devtools",
-         "packages/client-react-devtools"]
+      # The list, and its order, comes from the check job's PACKAGES.
+      packages: ${{ needs.check.outputs.packages }}
 
       version: ${{ needs.prepare.outputs.version }}
       dry-run: ${{ needs.prepare.outputs.dry-run == 'true' }}
