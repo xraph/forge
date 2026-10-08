@@ -72,11 +72,25 @@ def job(name):
 
 
 def published_packages():
-    """The package arguments the publish step passes to dart_publish.sh."""
-    match = re.search(r"run: >-\n\s+bash \.github/scripts/dart_publish\.sh\n((?:\s+[a-z_]+\n?)+)", text())
+    """The DART_PACKAGES list both publishing jobs pass to dart_publish.sh."""
+    match = re.search(r"\n  DART_PACKAGES: >-\n((?:    [a-z_]+\n)+)", text())
     if not match:
-        raise AssertionError("no step runs dart_publish.sh with a package list")
+        raise AssertionError("no DART_PACKAGES list in dart-publish.yml")
     return match.group(1).split()
+
+
+def run_block(job_body, step_name):
+    """The run: | body of the named step, dedented as GitHub renders it."""
+    lines = job_body.split("\n")
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {step_name}")
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run + 1]) - len(lines[run + 1].lstrip())
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) < indent:
+            break
+        body.append(line[indent:])
+    return "\n".join(body).rstrip() + "\n"
 
 
 def sibling_dependencies(package):
@@ -143,22 +157,107 @@ class PublishTriggerTest(unittest.TestCase):
         self.assertIn('dry_run="${INPUT_DRY_RUN:-true}"', body)
         self.assertIn('version="${INPUT_VERSION#v}"', body)
 
-    def test_the_publish_job_takes_both_from_prepare(self):
-        body = job("publish")
-        self.assertIn("needs: prepare", body)
-        self.assertIn("VERSION: ${{ needs.prepare.outputs.version }}", body)
-        self.assertIn("DRY_RUN: ${{ needs.prepare.outputs.dry-run }}", body)
+    def test_each_mode_has_its_own_job_fed_by_prepare(self):
+        dry, real = job("dry-run"), job("publish")
+        self.assertIn("if: needs.prepare.outputs.dry-run == 'true'", dry)
+        self.assertIn("if: needs.prepare.outputs.dry-run == 'false'", real)
+        for body, mode in ((dry, "'true'"), (real, "'false'")):
+            with self.subTest(mode=mode):
+                self.assertIn("needs: [prepare, devtools]", body)
+                self.assertIn("VERSION: ${{ needs.prepare.outputs.version }}", body)
+                self.assertIn(f"DRY_RUN: {mode}", body)
+                self.assertIn('read -r -a packages <<< "$DART_PACKAGES"\n'
+                              '          bash .github/scripts/dart_publish.sh "${packages[@]}"', body)
 
     def test_the_script_defaults_to_a_dry_run(self):
         self.assertIn("dry_run=${DRY_RUN:-true}", script())
+
+
+class PrepareTest(unittest.TestCase):
+    """Runs prepare's shell, taken from the workflow, for each way in."""
+
+    def prepare(self, event, ref, version="", dry_run=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = os.path.join(tmp, "out"), os.path.join(tmp, "summary")
+            env = {
+                "PATH": os.environ["PATH"],
+                "EVENT": event,
+                "REF": ref,
+                "REF_NAME": ref.rsplit("/", 1)[-1],
+                "INPUT_VERSION": version,
+                "INPUT_DRY_RUN": dry_run,
+                "GITHUB_OUTPUT": out,
+                "GITHUB_STEP_SUMMARY": summary,
+            }
+            result = subprocess.run(["bash", "-c", run_block(job("prepare"), "Resolve")], env=env,
+                                    capture_output=True, text=True)
+            outputs = {}
+            if os.path.exists(out):
+                with open(out, encoding="utf-8") as f:
+                    outputs = dict(line.split("=", 1) for line in f.read().splitlines())
+            return result, outputs
+
+    def assertResolves(self, expected, *args, **kwargs):
+        result, outputs = self.prepare(*args, **kwargs)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(outputs, expected)
+
+    def assertRefuses(self, message, *args, **kwargs):
+        result, outputs = self.prepare(*args, **kwargs)
+        self.assertNotEqual(result.returncode, 0, outputs)
+        self.assertEqual(outputs, {})
+        self.assertIn(message, result.stdout + result.stderr)
+
+    def test_a_tag_push_publishes_its_version(self):
+        self.assertResolves({"version": "1.13.0", "dry_run": "false"}, "push", "refs/tags/v1.13.0")
+
+    def test_a_manual_run_defaults_to_a_dry_run(self):
+        self.assertResolves({"version": "", "dry_run": "true"}, "workflow_dispatch", "refs/heads/main", "", "true")
+        # An absent input, as an older caller would send, is a dry run too.
+        self.assertResolves({"version": "", "dry_run": "true"}, "workflow_dispatch", "refs/heads/main", "", "")
+
+    def test_a_manual_dry_run_can_stamp_any_version_from_any_ref(self):
+        self.assertResolves({"version": "2.0.0", "dry_run": "true"},
+                            "workflow_dispatch", "refs/heads/feature/x", "v2.0.0", "true")
+        self.assertResolves({"version": "1.13.0-rc.1", "dry_run": "true"},
+                            "workflow_dispatch", "refs/heads/main", "1.13.0-rc.1", "true")
+
+    def test_a_real_manual_run_from_a_branch_is_refused(self):
+        self.assertRefuses("must run on refs/tags/v1.13.0, not refs/heads/main",
+                           "workflow_dispatch", "refs/heads/main", "1.13.0", "false")
+
+    def test_a_real_manual_run_without_a_version_is_refused(self):
+        self.assertRefuses("A real publish needs a version", "workflow_dispatch", "refs/tags/v1.13.0", "", "false")
+
+    def test_a_real_manual_run_on_another_tag_is_refused(self):
+        self.assertRefuses("must run on refs/tags/v1.14.0, not refs/tags/v1.13.0",
+                           "workflow_dispatch", "refs/tags/v1.13.0", "1.14.0", "false")
+
+    def test_a_real_manual_run_on_the_matching_tag_is_a_tag_push(self):
+        self.assertResolves({"version": "1.13.0", "dry_run": "false"},
+                            "workflow_dispatch", "refs/tags/v1.13.0", "v1.13.0", "false")
+
+    def test_versions_pub_would_misread_are_refused(self):
+        # The trigger glob matches v01.2.3, so prepare is the gate.
+        self.assertRefuses("not a version pub accepts", "push", "refs/tags/v01.2.3")
+        for bad in ("1.13", "1.02.3", "1.2.03", "latest", "1.2.3.4"):
+            with self.subTest(version=bad):
+                self.assertRefuses("not a version pub accepts", "workflow_dispatch", "refs/heads/main", bad, "true")
+
+    def test_zero_components_are_fine(self):
+        self.assertResolves({"version": "0.1.0", "dry_run": "false"}, "push", "refs/tags/v0.1.0")
+        self.assertResolves({"version": "10.0.0", "dry_run": "false"}, "push", "refs/tags/v10.0.0")
 
 
 class PublishPermissionsTest(unittest.TestCase):
     def test_only_the_publish_job_can_mint_an_oidc_token(self):
         self.assertEqual(text().count("id-token: write"), 1)
         self.assertIn("    permissions:\n      contents: read\n      id-token: write\n", job("publish"))
-        self.assertNotIn("id-token", job("prepare"))
-        self.assertNotIn("permissions", job("prepare"))
+        for name in ("prepare", "devtools", "dry-run"):
+            with self.subTest(job=name):
+                self.assertNotIn("id-token", job(name))
+                self.assertNotIn("permissions", job(name))
+                self.assertNotIn("setup-dart", job(name))
 
     def test_the_workflow_default_is_read_only(self):
         top = text().split("\njobs:\n")[0]
@@ -170,17 +269,18 @@ class PublishPermissionsTest(unittest.TestCase):
 
     def test_setup_dart_registers_the_token_before_flutter_shadows_its_dart(self):
         body = job("publish")
-        dart = body.index("uses: dart-lang/setup-dart@")
-        flutter = body.index("uses: subosito/flutter-action@")
-        self.assertLess(dart, flutter)
-        step = body[body.rfind("- name:", 0, dart):dart]
-        self.assertIn("if: needs.prepare.outputs.dry-run != 'true'", step)
+        self.assertEqual(text().count("uses: dart-lang/setup-dart@"), 1)
+        self.assertLess(body.index("uses: dart-lang/setup-dart@"), body.index("uses: subosito/flutter-action@"))
 
-    def test_the_script_re_mints_the_token_right_before_each_upload(self):
+    def test_the_script_mints_a_fresh_token_for_every_real_pub_command(self):
+        # pub sends the registered token on reads too, so `pub get` needs a
+        # live one as much as the upload does.
         body = script()
-        refresh = body.index("      refresh_pub_token\n")
-        upload = body.index('      "$tool" pub publish --force\n')
-        self.assertLess(refresh, upload)
+        self.assertIn("pub_fresh() {\n  refresh_pub_token || return 1\n  \"$tool\" pub \"$@\"\n}", body)
+        real = body[body.index("      rm -f pubspec_overrides.yaml\n"):body.index("    echo \"::endgroup::\"\n    current=\"\"\n")]
+        self.assertNotIn('"$tool" pub', real)
+        self.assertIn("pub_fresh publish --force", real)
+        self.assertIn("while ! pub_fresh get --no-example; do", body)
         self.assertIn("audience=https://pub.dev", body)
         self.assertIn('echo "::add-mask::$token"', body)
 
@@ -193,11 +293,13 @@ class PublishPermissionsTest(unittest.TestCase):
                 self.assertRegex(comment, r"^ # v\d+\.\d+\.\d+$")
 
     def test_flutter_comes_from_fvmrc_with_no_caches(self):
-        body = job("publish")
-        self.assertIn("flutter-version-file: dart-packages/.fvmrc", body)
-        self.assertIn("cache: false", body)
-        self.assertIn("pub-cache: false", body)
-        self.assertNotIn("actions/cache", body)
+        self.assertNotIn("actions/cache", text())
+        for name in ("devtools", "dry-run", "publish"):
+            with self.subTest(job=name):
+                body = job(name)
+                self.assertIn("flutter-version-file: dart-packages/.fvmrc", body)
+                self.assertIn("cache: false", body)
+                self.assertIn("pub-cache: false", body)
 
 
 class PublishStepsTest(unittest.TestCase):
@@ -216,30 +318,81 @@ class PublishStepsTest(unittest.TestCase):
     def test_a_stamped_version_also_stamps_the_changelog(self):
         self.assertIn('--hosted --version "$VERSION" --changelog', script())
 
-    def test_the_devtools_extension_is_built_before_publishing(self):
-        body = job("publish")
-        build = body.index("run: bash tool/build_extension.sh")
-        step = body[body.rfind("- name:", 0, build):build]
-        self.assertIn("working-directory: dart-packages/forge_client_devtools", step)
-        self.assertLess(build, body.index("bash .github/scripts/dart_publish.sh"))
+    def test_the_devtools_extension_is_built_without_the_token_and_handed_over(self):
+        build = job("devtools")
+        self.assertIn("working-directory: dart-packages/forge_client_devtools\n        run: bash tool/build_extension.sh", build)
+        self.assertLess(build.index("run: bash tool/build_extension.sh"), build.index("uses: actions/upload-artifact@"))
+        self.assertIn("path: dart-packages/forge_client_devtools/extension/devtools/build", build)
+        self.assertIn("if-no-files-found: error", build)
+        self.assertIn("digest: ${{ steps.digest.outputs.digest }}", build)
+        self.assertEqual(text().count("run: bash tool/build_extension.sh"), 1)
+
+    def test_both_publishing_jobs_check_the_build_arrived_before_publishing(self):
+        fingerprint = run_block(job("devtools"), "Fingerprint the build").split("\n")[0]
+        for name in ("dry-run", "publish"):
+            with self.subTest(job=name):
+                body = job(name)
+                download = body.index("uses: actions/download-artifact@")
+                check = body.index("- name: Check the DevTools build arrived whole")
+                self.assertLess(download, check)
+                self.assertLess(check, body.index("bash .github/scripts/dart_publish.sh"))
+                self.assertIn("name: devtools-extension\n          path: dart-packages/forge_client_devtools/extension/devtools/build", body)
+                verify = run_block(body, "Check the DevTools build arrived whole")
+                self.assertIn("test -f index.html && test -f main.dart.js", verify)
+                self.assertIn(fingerprint, verify)
+                self.assertIn("EXPECTED: ${{ needs.devtools.outputs.digest }}", body)
+
+    def test_the_fingerprint_matches_a_tree_and_catches_a_missing_file(self):
+        verify = run_block(job("publish"), "Check the DevTools build arrived whole")
+        fingerprint = run_block(job("devtools"), "Fingerprint the build").split("\n")[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("index.html", "main.dart.js", "assets/a.bin", ".last_build_id"):
+                os.makedirs(os.path.dirname(os.path.join(tmp, name)) or tmp, exist_ok=True)
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                    f.write(name)
+            digest = subprocess.run(["bash", "-c", fingerprint + '\necho "$digest"'], cwd=tmp,
+                                    capture_output=True, text=True, check=True).stdout.strip()
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
+            # The artifact drops hidden files, so they must not count.
+            os.remove(os.path.join(tmp, ".last_build_id"))
+            ok = subprocess.run(["bash", "-e", "-c", verify], cwd=tmp, env={**os.environ, "EXPECTED": digest},
+                                capture_output=True, text=True)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            os.remove(os.path.join(tmp, "assets", "a.bin"))
+            bad = subprocess.run(["bash", "-e", "-c", verify], cwd=tmp, env={**os.environ, "EXPECTED": digest},
+                                 capture_output=True, text=True)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn("differs", bad.stdout)
 
     def test_the_fvm_stand_in_drops_a_leading_exec(self):
-        body = job("publish")
-        self.assertEqual(body.count('"$RUNNER_TEMP/fvm-shim/fvm" <<'), 1)
+        body = job("devtools")
+        self.assertEqual(text().count('"$RUNNER_TEMP/fvm-shim/fvm" <<'), 1)
         self.assertIn(SHIM_EXEC, body)
         self.assertLess(body.index(SHIM_EXEC), body.index("run: bash tool/build_extension.sh"))
+
+    def test_the_publish_job_outlasts_the_scripts_budget(self):
+        self.assertIn("timeout-minutes: 90", job("publish"))
+        self.assertIn("BUDGET_SECONDS=${BUDGET_SECONDS:-4500}", script())
 
     def test_runs_for_the_same_ref_queue_instead_of_cancelling(self):
         self.assertIn("cancel-in-progress: false", text())
 
 
-# The fake `dart`/`flutter`: logs each call, and on `pub publish --force`
-# marks the package published on the fake pub.dev unless told to fail.
+# The fake `dart`/`flutter`: logs each call with the token it was handed,
+# fails the first FAIL_GET_TIMES `pub get`s of each package, and on
+# `pub publish --force` marks the package published on the fake pub.dev
+# unless told to fail.
 FAKE_TOOL = r"""#!/usr/bin/env bash
 pkg=$(basename "$PWD")
 overrides=no
 [ -f pubspec_overrides.yaml ] && overrides=yes
 echo "$pkg $* overrides=$overrides token=${PUB_TOKEN:-}" >> "$FAKE_LOG"
+if [ "$1 $2" = "pub get" ] && [ -n "${FAIL_GET_TIMES:-}" ]; then
+  count_file="$FAKE_STATE/.gets-$pkg"
+  count=$(cat "$count_file" 2>/dev/null || echo 0)
+  echo $((count + 1)) > "$count_file"
+  [ "$count" -lt "$FAIL_GET_TIMES" ] && exit 1
+fi
 if [ "$*" = "pub publish --force" ]; then
   [ "$pkg" = "${FAIL_ON:-}" ] && exit 1
   [ -n "${NEVER_LIVE:-}" ] || touch "$FAKE_STATE/$pkg"
@@ -254,6 +407,7 @@ class FakePubDev(http.server.BaseHTTPRequestHandler):
     state = None
     answers = {}
     requests = []
+    tokens = 0
 
     def log_message(self, *args):
         pass
@@ -263,7 +417,10 @@ class FakePubDev(http.server.BaseHTTPRequestHandler):
         token = re.match(r"^/token\?x=1&audience=(.+)$", self.path)
         if token:
             ok = self.headers.get("Authorization") == "bearer request-token" and token.group(1) == "https://pub.dev"
-            return self.reply(200 if ok else 403, {"value": "oidc-token"})
+            # A different token every time, so a test can tell a fresh one
+            # from a reused one.
+            FakePubDev.tokens += 1
+            return self.reply(200 if ok else 403, {"value": f"oidc-{FakePubDev.tokens}"})
         version = re.match(r"^/api/packages/([a-z_]+)/versions/([^/]+)$", self.path)
         if not version:
             return self.reply(404, {})
@@ -313,6 +470,7 @@ class PublishScriptTest(unittest.TestCase):
         FakePubDev.state = self.state
         FakePubDev.answers = {}
         FakePubDev.requests = []
+        FakePubDev.tokens = 0
 
         packages = os.path.join(self.repo, "dart-packages")
         write(os.path.join(packages, "a", "pubspec.yaml"), """
@@ -361,6 +519,7 @@ class PublishScriptTest(unittest.TestCase):
             "PUB_API": self.base,
             "WAIT_ATTEMPTS": "3",
             "WAIT_SECONDS": "0",
+            "RESOLVE_SECONDS": "0",
             "VERSION": "2.0.0",
             "DRY_RUN": "false",
             "GITHUB_STEP_SUMMARY": self.summary,
@@ -391,7 +550,7 @@ class PublishScriptTest(unittest.TestCase):
         with open(self.summary, encoding="utf-8") as f:
             return f.read()
 
-    def test_publishes_in_order_against_pub_dev_with_a_fresh_token(self):
+    def test_publishes_in_order_against_pub_dev(self):
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.uploads(), ["a", "b", "c"])
@@ -399,11 +558,47 @@ class PublishScriptTest(unittest.TestCase):
             with self.subTest(call=line):
                 # A real run resolves against pub.dev, never the local copies.
                 self.assertIn("overrides=no", line)
-        for line in self.calls():
-            if " pub publish --force " in line:
-                self.assertIn("token=oidc-token", line)
-        self.assertEqual(sum(1 for p in FakePubDev.requests if p.startswith("/token")), 3)
         self.assertIn("Published: a 2.0.0, b 2.0.0, c 2.0.0.", self.read_summary())
+
+    def test_every_real_pub_command_gets_its_own_fresh_token(self):
+        # pub sends the token on `pub get` too, so a stale one there fails the
+        # run before any upload.
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual([" ".join(line.split()[1:3]) for line in calls[:3]], ["pub get", "pub publish", "pub publish"])
+        tokens = [re.search(r"token=(\S*)", line).group(1) for line in calls]
+        self.assertEqual(tokens, [f"oidc-{i}" for i in range(1, len(calls) + 1)])
+        gets = [line for line in calls if " pub get " in line]
+        self.assertEqual(len(gets), 3)
+
+    def test_pub_get_is_retried_with_a_fresh_token_each_time(self):
+        result = self.run_script(FAIL_GET_TIMES="2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        a_gets = [line for line in self.calls() if line.startswith("a pub get ")]
+        self.assertEqual(len(a_gets), 3)
+        self.assertEqual(len({re.search(r"token=(\S*)", line).group(1) for line in a_gets}), 3)
+        self.assertEqual(self.uploads(), ["a", "b", "c"])
+
+    def test_pub_get_gives_up_after_its_attempts(self):
+        result = self.run_script(FAIL_GET_TIMES="99", RESOLVE_ATTEMPTS="4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len([line for line in self.calls() if line.startswith("a pub get ")]), 4)
+        self.assertEqual(self.uploads(), [])
+        self.assertIn("Failed: a. Not attempted: b c.", self.read_summary())
+
+    def test_a_real_run_needs_a_version(self):
+        result = self.run_script(VERSION="")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("a real publish needs VERSION", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_spent_budget_stops_before_the_next_package(self):
+        result = self.run_script(BUDGET_SECONDS="0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("Out of time", result.stderr)
+        self.assertIn("Failed: a. Not attempted: b c.", self.read_summary())
 
     def test_each_upload_waits_for_the_previous_version_to_go_live(self):
         result = self.run_script()
@@ -444,12 +639,15 @@ class PublishScriptTest(unittest.TestCase):
         self.assertIn("Failed: b. Not attempted: c.", summary)
         self.assertIn("re-run", summary)
 
-    def test_a_version_that_never_goes_live_times_out_clearly(self):
+    def test_a_version_that_never_goes_live_is_reported_as_uploaded_not_failed(self):
         result = self.run_script(NEVER_LIVE="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.uploads(), ["a"])
-        self.assertIn("a 2.0.0 was published, but pub.dev did not serve it within 0s.", result.stderr)
-        self.assertIn("Not attempted: b c.", self.read_summary())
+        self.assertIn("a 2.0.0 was uploaded, but pub.dev had not served it after", result.stderr)
+        summary = self.read_summary()
+        self.assertIn("Published: none.", summary)
+        self.assertIn("Uploaded, not yet visible on pub.dev: a 2.0.0. Not attempted: b c.", summary)
+        self.assertNotIn("Failed:", summary)
 
     def test_an_unclear_answer_from_pub_dev_stops_before_uploading(self):
         FakePubDev.answers = {"a": 500}
@@ -463,6 +661,7 @@ class PublishScriptTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.uploads(), [])
         self.assertIn("id-token: write", result.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_a_dry_run_keeps_the_overrides_and_never_calls_pub_dev(self):
         result = self.run_script(DRY_RUN=None)

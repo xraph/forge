@@ -8,11 +8,15 @@ name: Publish Dart Packages
 # raised to ^1.13.0. The committed pubspecs stay 1.0.0-dev with
 # `publish_to: none`; dart_ci_pubspec.py rewrites them on the runner only.
 #
+# A real publish happens only from the tag that names the version. prepare
+# refuses one from any other ref, including a manual run from a branch, and
+# refuses one without a version. A pub.dev version cannot be deleted.
+#
 # Publish order is load-bearing. A real publish resolves each package against
 # live pub.dev with no local overrides, so everything a package depends on,
 # dev_dependencies included, has to be on pub.dev at the new version before
 # it goes up. dart_publish.sh waits for each version to go live before it
-# starts the next.
+# starts the next. The list is DART_PACKAGES below.
 #
 #   forge_client           depends on no sibling. Everything else needs it.
 #   forge_client_offline   needs forge_client.
@@ -20,10 +24,10 @@ name: Publish Dart Packages
 #                          dev_dependency (its README's offline example), so
 #                          it comes after offline, not before.
 #   forge_client_riverpod  needs forge_client and forge_client_flutter.
-#   forge_client_devtools  needs forge_client. Last, because it has the one
-#                          extra build step: tool/build_extension.sh, which
-#                          produces the gitignored extension/devtools/build
-#                          that the package ships through .pubignore.
+#   forge_client_devtools  needs forge_client. Last, because it is the one
+#                          with a build: tool/build_extension.sh produces the
+#                          gitignored extension/devtools/build, which the
+#                          package ships through .pubignore.
 #
 # forge_client_grove is left out on purpose. It depends on grove_crdt, which
 # is not on pub.dev yet, so pub would refuse it. Add it after forge_client
@@ -31,36 +35,55 @@ name: Publish Dart Packages
 # publishes grove_crdt.
 #
 # Auth is pub.dev's automated publishing: GitHub OIDC, no stored secret. Only
-# the publish job can mint a token. setup-dart registers it with pub as "read
-# PUB_TOKEN"; Flutter's pub reads the same token file, so Flutter is set up
-# after it and its `dart` shadows setup-dart's (the order setup-dart's own
-# reusable publish.yml uses). dart_publish.sh re-mints PUB_TOKEN before every
-# upload, because a GitHub OIDC token is short-lived and the run waits
-# between packages.
+# the publish job can mint a token, and it runs only for a real publish. The
+# DevTools build, which runs third-party build code, happens in its own job
+# without that permission and hands its output over as an artifact. A dry run
+# has its own job without it too. In the publish job, setup-dart registers
+# the token with pub as "read PUB_TOKEN"; Flutter's pub reads the same token
+# file, so Flutter is set up after it and its `dart` shadows setup-dart's
+# (the order setup-dart's own reusable publish.yml uses). pub sends that
+# token on every request to pub.dev, reads included, and a GitHub OIDC token
+# is short-lived, so dart_publish.sh mints a fresh one before every pub
+# command.
+#
+# Optional, and a repository setting rather than this file: a GitHub
+# environment with a required reviewer on the publish job, required in turn
+# on each package's pub.dev admin page, puts a human approval in front of
+# every upload.
 #
 # One-time steps, by hand, before the first tag run can publish anything:
 #
-#   1. Publish the first version of each package yourself with
-#      `dart pub publish` (`flutter pub publish` for the Flutter packages),
-#      in the order listed above. pub.dev only lets you enable automated
-#      publishing on a package that already exists. Running
-#      `dart_ci_pubspec.py PACKAGE --hosted --version X.Y.Z --changelog`
-#      prepares a package the way this workflow does; delete the
-#      pubspec_overrides.yaml it writes before you publish. If X.Y.Z is the
-#      next tag's version, that tag's run finds every package already there
-#      and skips them all.
+#   1. Publish the first version of each package yourself, in the order
+#      listed above. pub.dev only lets you enable automated publishing on a
+#      package that already exists. Do it from a throwaway clone or
+#      `git worktree add`, never a checkout you work in, because preparing a
+#      package rewrites tracked files; delete the clone or worktree when you
+#      are done. In it, for each package in turn, run
+#      `python3 .github/scripts/dart_ci_pubspec.py dart-packages/PACKAGE
+#      --hosted --version X.Y.Z --changelog`, delete the
+#      pubspec_overrides.yaml that writes, and run `dart pub publish`
+#      (`flutter pub publish` for the Flutter packages). If X.Y.Z is the next
+#      tag's version, that tag's run finds every package already there and
+#      skips them all.
 #   2. On each package's admin page on pub.dev, enable automated publishing
 #      from GitHub Actions with repository `xraph/forge` and tag pattern
 #      `v{{version}}`.
-#   3. Add forge_client_grove to the list below once grove_crdt is on pub.dev.
+#   3. Add forge_client_grove to DART_PACKAGES once grove_crdt is on pub.dev.
 #
-# If a real run fails partway, its summary lists what was published and what
-# was not. Re-run it for the same tag: versions already on pub.dev are
-# skipped, not re-uploaded.
+# dart_publish.sh is meant for a runner. Run on a laptop, it rewrites each
+# package's pubspec.yaml and CHANGELOG.md, writes pubspec_overrides.yaml, and
+# marks the two tracked files `git update-index --assume-unchanged`, so
+# `git status` stops showing the rewrite. To undo it, in each package it ran
+# on: `git update-index --no-assume-unchanged pubspec.yaml CHANGELOG.md &&
+# git checkout -- pubspec.yaml CHANGELOG.md && rm -f pubspec_overrides.yaml`.
+#
+# If a real run fails partway, its summary lists what was published, what was
+# uploaded but not yet served, and what was not attempted. Re-run it for the
+# same tag: versions already on pub.dev are skipped, not re-uploaded.
 #
 # .github/scripts/test_dart_publish_workflow.py pins the order, the grove
-# exclusion, the token permissions and the dry-run default. Change them
-# together.
+# exclusion, the token permissions, the ref check and the dry-run default,
+# and runs prepare's shell. Change them together.
 
 on:
   # A real publish happens only here, on a version tag.
@@ -68,8 +91,9 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
-  # Rehearsal. Defaults to a dry run so this can be exercised safely; flip the
-  # input to publish from a branch when that is genuinely what you want.
+  # Rehearsal. Defaults to a dry run so this can be exercised safely. A real
+  # publish from here is accepted only when run on the tag that matches
+  # `version`, which then behaves exactly like the tag push.
   workflow_dispatch:
     inputs:
       dry-run:
@@ -77,7 +101,7 @@ on:
         type: boolean
         default: true
       version:
-        description: 'Version to stamp (without a leading v). Empty keeps each pubspec.yaml version.'
+        description: 'Version to stamp (without a leading v). Empty keeps each pubspec.yaml version. Required to publish.'
         type: string
         default: ''
 
@@ -89,6 +113,15 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  # Published top to bottom. The header says why in this order.
+  DART_PACKAGES: >-
+    forge_client
+    forge_client_offline
+    forge_client_flutter
+    forge_client_riverpod
+    forge_client_devtools
 
 jobs:
   # Resolves the version and whether this is a real publish.
@@ -107,6 +140,7 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
@@ -121,10 +155,25 @@ jobs:
             dry_run="${INPUT_DRY_RUN:-true}"
           fi
 
-          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          # No leading zeros: pub reads 01.2.3 as 1.2.3, and pub.dev would
+          # then be asked about a version it never has.
+          n='(0|[1-9][0-9]*)'
+          semver="^$n\.$n\.$n(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
           if [ -n "$version" ] && ! [[ "$version" =~ $semver ]]; then
             echo "::error::'$version' is not a version pub accepts."
             exit 1
+          fi
+
+          # A real publish only from the tag that names the version.
+          if [ "$dry_run" != "true" ]; then
+            if [ -z "$version" ]; then
+              echo "::error::A real publish needs a version. Push the tag vX.Y.Z, or run this on that tag with version X.Y.Z."
+              exit 1
+            fi
+            if [ "$REF" != "refs/tags/v$version" ]; then
+              echo "::error::A real publish of $version must run on refs/tags/v$version, not $REF. Push the tag, or leave dry-run ticked."
+              exit 1
+            fi
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -133,33 +182,24 @@ jobs:
           if [ "$dry_run" = "true" ]; then
             echo "Dry run at version '${version:-<pubspec.yaml>}'." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Publishing version '${version:-<pubspec.yaml>}'." >> "$GITHUB_STEP_SUMMARY"
+            echo "Publishing version '$version'." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  publish:
-    name: ${{ needs.prepare.outputs.dry-run == 'true' && 'Dry run' || 'Publish' }}
+  # Builds forge_client_devtools' extension without the token permission.
+  # build_and_copy runs `flutter build web` over third-party packages, and
+  # none of that should run where a pub.dev token can be minted.
+  devtools:
+    name: Build the DevTools extension
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # The only job that can mint an OIDC token, which is how pub.dev knows
-    # this run may publish.
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Mints an OIDC token for pub.dev and runs
-      # `dart pub token add https://pub.dev --env-var PUB_TOKEN`. A dry run
-      # needs no token, so it never asks for one.
-      - name: Set up the pub.dev token
-        if: needs.prepare.outputs.dry-run != 'true'
-        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
-
-      # After setup-dart, so this Flutter's `dart` comes first on PATH. No
-      # caches: a release job should not restore what another run saved.
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
@@ -181,23 +221,127 @@ jobs:
           chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
           echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
 
-      # The extension's web build is gitignored but shipped through
-      # .pubignore, so it has to exist before forge_client_devtools is packed.
-      # It builds against the committed pubspec, whose path dependency on
-      # forge_client is this checkout.
-      - name: Build the DevTools extension
+      # Against the committed pubspec, whose path dependency on forge_client
+      # is this checkout.
+      - name: Build
         working-directory: dart-packages/forge_client_devtools
         run: bash tool/build_extension.sh
 
-      # One package at a time, in the order explained at the top of this file.
-      - name: ${{ needs.prepare.outputs.dry-run == 'true' && 'Publish dry run' || 'Publish to pub.dev' }}
+      # Hidden files are left out on both sides: the artifact drops them and
+      # pub does not pack them.
+      - name: Fingerprint the build
+        id: digest
+        working-directory: dart-packages/forge_client_devtools/extension/devtools/build
+        run: |
+          digest=$(find . -type f ! -path '*/.*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devtools-extension
+          path: dart-packages/forge_client_devtools/extension/devtools/build
+          if-no-files-found: error
+          retention-days: 1
+
+  # A dry run never needs a token, so it gets a job that cannot mint one.
+  dry-run:
+    name: Dry run
+    needs: [prepare, devtools]
+    if: needs.prepare.outputs.dry-run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: false
+          pub-cache: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devtools-extension
+          path: dart-packages/forge_client_devtools/extension/devtools/build
+
+      - name: Check the DevTools build arrived whole
+        working-directory: dart-packages/forge_client_devtools/extension/devtools/build
+        env:
+          EXPECTED: ${{ needs.devtools.outputs.digest }}
+        run: |
+          test -f index.html && test -f main.dart.js
+          digest=$(find . -type f ! -path '*/.*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          if [ "$digest" != "$EXPECTED" ]; then
+            echo "::error::The DevTools build differs from the one the devtools job built."
+            exit 1
+          fi
+
+      # One package at a time, in DART_PACKAGES order.
+      - name: Publish dry run
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
-        run: >-
-          bash .github/scripts/dart_publish.sh
-          forge_client
-          forge_client_offline
-          forge_client_flutter
-          forge_client_riverpod
-          forge_client_devtools
+          DRY_RUN: 'true'
+        run: |
+          read -r -a packages <<< "$DART_PACKAGES"
+          bash .github/scripts/dart_publish.sh "${packages[@]}"
+
+  publish:
+    name: Publish
+    needs: [prepare, devtools]
+    if: needs.prepare.outputs.dry-run == 'false'
+    runs-on: ubuntu-latest
+    # dart_publish.sh stops itself at 75 minutes (BUDGET_SECONDS), so its
+    # summary is written before this kills the job.
+    timeout-minutes: 90
+    # The only job that can mint an OIDC token, which is how pub.dev knows
+    # this run may publish.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Mints an OIDC token for pub.dev and runs
+      # `dart pub token add https://pub.dev --env-var PUB_TOKEN`.
+      - name: Set up the pub.dev token
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+
+      # After setup-dart, so this Flutter's `dart` comes first on PATH. No
+      # caches: a release job should not restore what another run saved.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: false
+          pub-cache: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devtools-extension
+          path: dart-packages/forge_client_devtools/extension/devtools/build
+
+      - name: Check the DevTools build arrived whole
+        working-directory: dart-packages/forge_client_devtools/extension/devtools/build
+        env:
+          EXPECTED: ${{ needs.devtools.outputs.digest }}
+        run: |
+          test -f index.html && test -f main.dart.js
+          digest=$(find . -type f ! -path '*/.*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          if [ "$digest" != "$EXPECTED" ]; then
+            echo "::error::The DevTools build differs from the one the devtools job built."
+            exit 1
+          fi
+
+      # One package at a time, in DART_PACKAGES order.
+      - name: Publish to pub.dev
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DRY_RUN: 'false'
+        run: |
+          read -r -a packages <<< "$DART_PACKAGES"
+          bash .github/scripts/dart_publish.sh "${packages[@]}"

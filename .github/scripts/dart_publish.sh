@@ -7,12 +7,17 @@
 #
 # Settings come from the environment:
 #
-#   VERSION        X.Y.Z stamped on every package, with every dependency on a
-#                  sibling raised to ^X.Y.Z. Empty keeps each pubspec's own.
-#   DRY_RUN        true (the default) or false.
-#   PUB_API        pub.dev's base URL. Only the tests change it.
-#   WAIT_ATTEMPTS  How many times to look for a version after publishing it.
-#   WAIT_SECONDS   How long to sleep between looks. 60 x 10s by default.
+#   VERSION           X.Y.Z stamped on every package, with every dependency
+#                     on a sibling raised to ^X.Y.Z. Empty keeps each
+#                     pubspec's own, which only a dry run accepts.
+#   DRY_RUN           true (the default) or false.
+#   PUB_API           pub.dev's base URL. Only the tests change it.
+#   WAIT_ATTEMPTS     How many times to look for a version after uploading
+#   WAIT_SECONDS      it, and how long to sleep between looks: 30 x 10s.
+#   RESOLVE_ATTEMPTS  How many times a real run tries `pub get`, and how long
+#   RESOLVE_SECONDS   it sleeps between tries: 12 x 20s.
+#   BUDGET_SECONDS    When the whole run gives up: 4500s, inside the publish
+#                     job's 90 minutes, so the summary is always written.
 #
 # A dry run validates each package the way dart-packages.yml's dry run does:
 # hosted constraints for pub's validator, with the local copies kept as
@@ -25,7 +30,14 @@
 # order matters, and why the script waits for each version to go live before
 # it moves on. It skips any version pub.dev already has, so re-running a run
 # that failed halfway finishes the job instead of failing on the first
-# package. On failure it says what was published and what was not.
+# package. On failure it says what was published, what was uploaded but not
+# yet served, and what was not attempted.
+#
+# Run on a laptop, it leaves each package rewritten and the two tracked files
+# marked assume-unchanged, so `git status` hides the rewrite. To undo it, in
+# each package it ran on: `git update-index --no-assume-unchanged pubspec.yaml
+# CHANGELOG.md && git checkout -- pubspec.yaml CHANGELOG.md &&
+# rm -f pubspec_overrides.yaml`.
 #
 # Runs under the bash 3.2 macOS ships, so the rehearsal and the tests can run
 # it on a laptop: no mapfile, and no expanding an empty array under set -u.
@@ -34,10 +46,16 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PUB_API=${PUB_API:-https://pub.dev}
-WAIT_ATTEMPTS=${WAIT_ATTEMPTS:-60}
+WAIT_ATTEMPTS=${WAIT_ATTEMPTS:-30}
 WAIT_SECONDS=${WAIT_SECONDS:-10}
+RESOLVE_ATTEMPTS=${RESOLVE_ATTEMPTS:-12}
+RESOLVE_SECONDS=${RESOLVE_SECONDS:-20}
+BUDGET_SECONDS=${BUDGET_SECONDS:-4500}
 
+deadline=$((SECONDS + BUDGET_SECONDS))
+tool=""
 done_list=""
+unseen=""
 skipped_list=""
 current=""
 remaining=""
@@ -57,7 +75,7 @@ or_none() {
 # Prints the HTTP status pub.dev answers for PACKAGE VERSION, or 000 when
 # there is no answer at all.
 version_status() {
-  curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+  curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
     "$PUB_API/api/packages/$1/versions/$2" || true
 }
 
@@ -74,11 +92,15 @@ already_published() {
   exit 1
 }
 
+out_of_time() {
+  [ "$SECONDS" -ge "$deadline" ]
+}
+
 # pub resolves the next package against live pub.dev, so it cannot start
 # until the one it depends on is served there.
 wait_until_live() {
-  local attempt=1
-  while [ "$attempt" -le "$WAIT_ATTEMPTS" ]; do
+  local attempt=1 started=$SECONDS
+  while [ "$attempt" -le "$WAIT_ATTEMPTS" ] && ! out_of_time; do
     if [ "$(version_status "$1" "$2")" = 200 ]; then
       echo "$1 $2 is live on pub.dev."
       return 0
@@ -86,27 +108,38 @@ wait_until_live() {
     sleep "$WAIT_SECONDS"
     attempt=$((attempt + 1))
   done
-  echo "::error::$1 $2 was published, but pub.dev did not serve it within $((WAIT_ATTEMPTS * WAIT_SECONDS))s." >&2
+  unseen="$1 $2"
+  echo "::error::$1 $2 was uploaded, but pub.dev had not served it after $((SECONDS - started))s." >&2
   return 1
 }
 
 # pub.dev's package listing, which `pub get` reads, can trail the version
-# endpoint wait_until_live polls, so a real run gives resolution a few tries.
+# endpoint wait_until_live polls, so a real run gives resolution a few
+# minutes.
 resolve() {
   local attempt=1
-  while ! "$1" pub get --no-example; do
-    if [ "$attempt" -ge 6 ]; then
+  while ! pub_fresh get --no-example; do
+    if [ "$attempt" -ge "$RESOLVE_ATTEMPTS" ] || out_of_time; then
       return 1
     fi
-    echo "pub get failed (attempt $attempt of 6). Retrying in ${WAIT_SECONDS}s." >&2
-    sleep "$WAIT_SECONDS"
+    echo "pub get failed (attempt $attempt of $RESOLVE_ATTEMPTS). Retrying in ${RESOLVE_SECONDS}s." >&2
+    sleep "$RESOLVE_SECONDS"
     attempt=$((attempt + 1))
   done
 }
 
-# setup-dart registered the pub.dev token as "read it from PUB_TOKEN". A
-# GitHub OIDC token is short-lived and a run waits between packages, so the
-# value is minted again right before every upload.
+# setup-dart registered the pub.dev token as "read it from PUB_TOKEN", and
+# pub sends it on every request to pub.dev, reads included. A GitHub OIDC
+# token is short-lived, and by the time a package is reached the job has
+# set up Flutter and waited on the packages before it, so a fresh one is
+# minted right before every pub command a real run makes.
+# resolve calls this as a loop condition, where set -e does not apply, so
+# every failure here returns explicitly.
+pub_fresh() {
+  refresh_pub_token || return 1
+  "$tool" pub "$@"
+}
+
 refresh_pub_token() {
   if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
     echo "::error::No OIDC token to request. The publish job needs permissions: id-token: write." >&2
@@ -116,7 +149,11 @@ refresh_pub_token() {
   token=$(curl -sSf --max-time 30 \
     -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
     "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://pub.dev" |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])')
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])') || return 1
+  if [ -z "$token" ]; then
+    echo "::error::GitHub returned an empty OIDC token." >&2
+    return 1
+  fi
   echo "::add-mask::$token"
   export PUB_TOKEN="$token"
 }
@@ -138,8 +175,13 @@ report() {
   say "Published: $(or_none "$done_list")."
   say "Already on pub.dev, skipped: $(or_none "$skipped_list")."
   if [ "$status" -ne 0 ]; then
-    say "Failed: ${current:-setup}. Not attempted: $(or_none "$remaining")."
-    say "Fix the cause and re-run. Versions already on pub.dev are skipped."
+    if [ -n "$unseen" ]; then
+      say "Uploaded, not yet visible on pub.dev: $unseen. Not attempted: $(or_none "$remaining")."
+      say "Re-run once pub.dev shows it. It will be skipped, and the rest published."
+    else
+      say "Failed: ${current:-setup}. Not attempted: $(or_none "$remaining")."
+      say "Fix the cause and re-run. Versions already on pub.dev are skipped."
+    fi
   fi
   exit "$status"
 }
@@ -165,8 +207,16 @@ main() {
       exit 2
       ;;
   esac
+  if [ "$dry_run" = false ] && [ -z "${VERSION:-}" ]; then
+    echo "dart_publish: a real publish needs VERSION. The committed pubspecs are 1.0.0-dev." >&2
+    exit 2
+  fi
+  if [ "$dry_run" = false ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+    echo "::error::No OIDC token to request. The publish job needs permissions: id-token: write." >&2
+    exit 2
+  fi
 
-  local root pkg tool version
+  local root pkg version
   root=$(git rev-parse --show-toplevel)
   remaining="$*"
   trap 'report $?' EXIT
@@ -175,6 +225,10 @@ main() {
     current=$pkg
     remaining=${remaining#"$pkg"}
     remaining=${remaining# }
+    if out_of_time; then
+      echo "::error::Out of time: the run's ${BUDGET_SECONDS}s budget is spent." >&2
+      exit 1
+    fi
     echo "::group::$pkg"
     cd "$root/dart-packages/$pkg"
     tool=$(flutter_or_dart)
@@ -200,12 +254,11 @@ main() {
       skipped_list="${skipped_list:+$skipped_list, }$pkg $version"
     else
       rm -f pubspec_overrides.yaml
-      resolve "$tool"
-      "$tool" pub publish --dry-run
-      refresh_pub_token
-      "$tool" pub publish --force
-      done_list="${done_list:+$done_list, }$pkg $version"
+      resolve
+      pub_fresh publish --dry-run
+      pub_fresh publish --force
       wait_until_live "$pkg" "$version"
+      done_list="${done_list:+$done_list, }$pkg $version"
     fi
 
     echo "::endgroup::"
