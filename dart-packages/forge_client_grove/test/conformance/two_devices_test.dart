@@ -320,59 +320,48 @@ void main() {
         },
       );
 
-      test(
-        'counters set offline on two devices add up on both',
-        () async {
-          final base = DateTime.now().millisecondsSinceEpoch;
-          const types = {'view_count': CrdtType.counter};
-          final a = device(
-            server.baseUrl,
-            live: LiveChannel.poll,
-            pushDebounce: offline,
-            nowMs: () => base,
-            types: types,
-          );
-          final b = device(
-            server.baseUrl,
-            live: LiveChannel.poll,
-            pushDebounce: offline,
-            nowMs: () => base + 1000,
-            types: types,
-          );
+      test('counters set offline on two devices add up on both', () async {
+        final base = DateTime.now().millisecondsSinceEpoch;
+        const types = {'view_count': CrdtType.counter};
+        final a = device(
+          server.baseUrl,
+          live: LiveChannel.poll,
+          pushDebounce: offline,
+          nowMs: () => base,
+          types: types,
+        );
+        final b = device(
+          server.baseUrl,
+          live: LiveChannel.poll,
+          pushDebounce: offline,
+          nowMs: () => base + 1000,
+          types: types,
+        );
 
-          await a.cache.idle;
-          await b.cache.idle;
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-          await a.cache.mutate(
-            opUpdateNote,
-            const TagContext(path: {'noteId': 'n1'}, body: {'viewCount': 3}),
-          );
-          await b.cache.mutate(
-            opUpdateNote,
-            const TagContext(path: {'noteId': 'n1'}, body: {'viewCount': 7}),
-          );
-          // B syncs first with the later stamp. A then pushes an earlier one,
-          // and B's pull cursor is already past it.
-          await b.source.syncNow();
-          await a.source.syncNow();
-          await b.source.syncNow();
+        await a.cache.idle;
+        await b.cache.idle;
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await a.cache.mutate(
+          opUpdateNote,
+          const TagContext(path: {'noteId': 'n1'}, body: {'viewCount': 3}),
+        );
+        await b.cache.mutate(
+          opUpdateNote,
+          const TagContext(path: {'noteId': 'n1'}, body: {'viewCount': 7}),
+        );
+        // B syncs first with the later stamp. A then pushes an earlier one,
+        // and B's pull cursor is already past it.
+        await b.source.syncNow();
+        await a.source.syncNow();
+        await b.source.syncNow();
 
-          int? views(Device d) =>
-              d.cache.store.getRecord('Note:n1')?.data['viewCount'] as int?;
+        int? views(Device d) =>
+            d.cache.store.getRecord('Note:n1')?.data['viewCount'] as int?;
 
-          expect(views(a), 10);
-          expect(views(b), 10);
-          await expectConverged(server, [a, b], pk: 'n1');
-        },
-        // Go parity: crdt.SyncController.HandlePull returns the rows whose
-        // stored HLC is past the cursor.
-        skip:
-            'grove v1.7.0 limitation, not changed by fix/crdt-sync-defects: a '
-            'pull returns the rows whose stored HLC is past the cursor, so a '
-            'counter pushed with an older stamp than a device has already '
-            'synced past is never delivered to it. See grove_crdt '
-            'doc/go-parity.md and its convergence_test.dart.',
-      );
+        expect(views(a), 10);
+        expect(views(b), 10);
+        await expectConverged(server, [a, b], pk: 'n1');
+      });
 
       test(
         'the devices converge in stamp order, the earlier edit syncing first',

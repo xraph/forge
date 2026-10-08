@@ -48,7 +48,7 @@ class DartCiPubspecTest(unittest.TestCase):
                 git:
                   url: https://github.com/xraph/grove.git
                   path: crdt-dart
-                  ref: 11453d954cbb830703813e4a8ec858ad80862220
+                  ref: c98e352065b354be48796ce8f64b5cca770dbbfd
               meta: ^1.19.0
             dev_dependencies:
               test: ^1.32.0
@@ -295,7 +295,7 @@ class DartCiPubspecTest(unittest.TestCase):
         before = self.read("pubspec.yaml")
         result = run(self.pkg, "--print-ref", "grove_crdt")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "11453d954cbb830703813e4a8ec858ad80862220\n")
+        self.assertEqual(result.stdout, "c98e352065b354be48796ce8f64b5cca770dbbfd\n")
         self.assertEqual(self.read("pubspec.yaml"), before)
         self.assertFalse(os.path.exists(os.path.join(self.pkg, "pubspec_overrides.yaml")))
 
