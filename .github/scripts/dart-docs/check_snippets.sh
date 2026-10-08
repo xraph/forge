@@ -109,6 +109,7 @@ dependencies:
   forge_client_riverpod: any
   forge_client_offline: any
   forge_client_grove: any
+  grove_crdt: any
   orders_forge_client: any
   catalog_forge_client: any
 dependency_overrides:

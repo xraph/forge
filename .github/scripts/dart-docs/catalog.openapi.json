@@ -124,6 +124,99 @@
           }
         }
       }
+    },
+    "/notes/{id}": {
+      "get": {
+        "operationId": "getNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Note" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PatchNoteBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Note",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Note" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sync/pull": {
+      "post": {
+        "operationId": "crdtPull",
+        "x-forge-sync": [
+          { "protocol": "grove-crdt", "entity": "Note", "table": "notes", "role": "pull" }
+        ],
+        "responses": { "200": { "description": "Changes" } }
+      }
+    },
+    "/sync/push": {
+      "post": {
+        "operationId": "crdtPush",
+        "x-forge-sync": [
+          { "protocol": "grove-crdt", "entity": "Note", "table": "notes", "role": "push" }
+        ],
+        "responses": { "200": { "description": "Merged" } }
+      }
+    },
+    "/sync/stream": {
+      "get": {
+        "operationId": "crdtStream",
+        "x-forge-sync": [
+          { "protocol": "grove-crdt", "entity": "Note", "table": "notes", "role": "stream" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Change stream",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/sync/ws": {
+      "get": {
+        "operationId": "crdtSocket",
+        "x-forge-sync": [
+          { "protocol": "grove-crdt", "entity": "Note", "table": "notes", "role": "socket" }
+        ],
+        "responses": { "101": { "description": "Switching protocols" } }
+      }
     }
   },
   "components": {
@@ -171,6 +264,22 @@
         "properties": {
           "count": { "type": "integer" },
           "note": { "type": "string", "nullable": true }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      },
+      "PatchNoteBody": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "text": { "type": "string" }
         }
       }
     }
