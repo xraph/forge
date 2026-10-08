@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.3](https://github.com/xraph/forge/compare/v1.12.2...v1.12.3) (2026-10-08)
+
+
+### Bug Fixes
+
+* **client-grove:** pin grove_crdt to grove main and run the late-stamp tests ([109d78d2](https://github.com/xraph/forge/commit/109d78d2))
+* **ci:** refuse a taken release version, tag all modules at one commit, start npm and pub.dev ([7c9bdb40](https://github.com/xraph/forge/commit/7c9bdb40))
+
+
+### Maintenance
+
+* **deps:** clear every open Dependabot alert (#112) ([12d86b28](https://github.com/xraph/forge/commit/12d86b28))
+* **changelog:** update CHANGELOG.md for v1.12.2 ([5875d0e7](https://github.com/xraph/forge/commit/5875d0e7))
+
 ## [1.12.2](https://github.com/xraph/forge/compare/v1.12.1...v1.12.2) (2026-10-08)
 
 
