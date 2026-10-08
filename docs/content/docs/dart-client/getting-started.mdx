@@ -99,7 +99,7 @@ func main() {
 }
 ```
 
-The six handlers are yours to write. Nothing on this page depends on what they do beyond returning those types.
+The six handlers are yours to write, and nothing on this page depends on what they do beyond returning those types.
 
 <Callout type="info">
 Return a named page type from a list route, never a bare `[]Order`. Forge inlines the element schema of a bare slice, and an inline object has no name to key a cache by, so the list would get no tags. The web client's getting started [walks through that case](/docs/web-client/getting-started#the-list-endpoint-did-not-get-a-contract).
@@ -109,7 +109,7 @@ Return a named page type from a list route, never a bare `[]Order`. Forge inline
 <Step>
 ### Get the specification
 
-Run the app and save its OpenAPI document. Commit it: that file is what lets CI, or a Flutter repository that can't import your Go module, generate the client.
+Run the app and save its OpenAPI document. Commit it, because that file is what lets CI, or a Flutter repository that can't import your Go module, generate the client without ever running your server.
 
 ```bash
 curl -s http://localhost:8097/openapi.json -o openapi.json
@@ -125,9 +125,9 @@ From the root of your Flutter app, with `openapi.json` in it:
 forge client generate --from-spec ./openapi.json --language dart --output ../orders_forge_client --package orders_forge_client --base-url "http://localhost:8097" --hooks
 ```
 
-You need a `forge` binary that knows `--language dart`. The [Installation](/docs/dart-client/installation#the-generated-client) page says how to get one today.
+You'll need a `forge` binary that knows `--language dart`. The [Installation](/docs/dart-client/installation#the-generated-client) page says how to get one today.
 
-`--hooks` asks for the cache-aware layer: the `ops.dart` table and one binding per operation. It's off by default. Leave it out and you get a typed REST client that depends on `package:http` and nothing from forge.
+`--hooks` asks for the cache-aware layer, which is the `ops.dart` table and one binding per operation. It's off by default, and if you leave it out you get a typed REST client that depends on `package:http` and nothing from forge.
 </Step>
 
 <Step>
@@ -151,7 +151,7 @@ orders_forge_client/
 └── README.md
 ```
 
-Your Go types, as Dart. Each class is immutable and comes with `copyWith`, `==` and `hashCode`, and there's no `build_runner` step for you to run:
+Your Go types come out as Dart. Each class is immutable and comes with `copyWith`, `==` and `hashCode`, and there's no `build_runner` step for you to run:
 
 ```dart title="lib/src/models/order.dart"
 final class Order {
@@ -241,7 +241,7 @@ final deleteOrder = mutation<Order, DeleteOrderArgs, Order>(opDeleteOrder, Order
 
 Forge's own health, info, metrics and OpenAPI routes get a binding each too. The listing above leaves them out.
 
-Now read what the table says. `Order` and `Customer` were both recognised as entities keyed on `id`. A create, an update or a delete of an order invalidates `Order[]`, and the list provides `Order[]`, so a new order refetches it. `OrderPage` has a field edge and no `idField`. It's a signpost the store walks through, not a record it keeps. None of that was declared anywhere.
+Now read what the table says. `Order` and `Customer` were both recognised as entities keyed on `id`. A create, an update or a delete of an order invalidates `Order[]`, and the list provides `Order[]`, so a new order refetches it. `OrderPage` has a field edge and no `idField`, which makes it a signpost the store walks through and never keeps as a record. You declared none of that anywhere.
 </Step>
 
 </Steps>
@@ -335,13 +335,13 @@ class OrdersScreen extends StatelessWidget {
 
 This one is Android behaviour, not Forge's. An emulator reaches your machine at `10.0.2.2` instead of `localhost`, and Android 9 and later block cleartext `http`, so a debug build needs `android:usesCleartextTraffic="true"` on the `<application>` element in `android/app/src/debug/AndroidManifest.xml` (or an HTTPS server). A real device needs your machine's address.
 
-The `ForgeScope` hands the cache to every widget below it. While it's mounted, it also refetches stale queries when the app returns to the foreground and when the device reconnects, so you call nothing else for that. A `POST` body is one argument, which is why `CreateOrderArgs` takes a `body:` of its own class.
+The `ForgeScope` hands the cache to every widget below it. While it's mounted it also refetches stale queries when the app returns to the foreground and when the device reconnects, so there's nothing else for you to call. A `POST` body is one argument, which is why `CreateOrderArgs` takes a `body:` of its own class.
 
 Tap the button and the list refetches. The table says `POST /orders` invalidates `Order[]`, and this query provides it.
 
-Change one order's status from another screen and it goes like this. The `PATCH` response carries `Order:7`, and the list and the detail screen read that same record, so both show the new status from the response itself, before anything is refetched. The write also invalidates `Order[]`, so the list refetches in the background. A detail screen built on `getOrder` provides `Order:{id}` and not `Order[]`, so it makes no request at all.
+Now change one order's status from another screen. The `PATCH` response carries `Order:7`, and the list and the detail screen read that same record, so both show the new status from the response itself, before anything is refetched. The write also invalidates `Order[]`, so the list refetches in the background, but a detail screen built on `getOrder` provides `Order:{id}` and not `Order[]`, so it makes no request at all.
 
-A refetch that brings back a record unchanged hands your widget the same object as before, so a `select:` or an `==` check on it is cheap. The [Entities](/docs/dart-client/entities) page shows where that matters.
+When a refetch brings back a record unchanged, your widget gets the same object as before, so a `select:` or an `==` check you write on it is cheap. The [Entities](/docs/dart-client/entities) page shows where that matters.
 
 `m.mutate` never throws. A failed write comes back as `null` and shows up as `MutationFailure` in `m.state`, so a button handler has no `try` to forget. If you'd rather catch the error yourself, `m.mutateAsync` throws it.
 

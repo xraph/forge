@@ -9,9 +9,9 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 
 Forge generates a Dart client from the same API specification that produces the [web client](/docs/web-client). You get typed models, a typed REST client and typed errors. Add `--hooks` and you also get streaming clients and a runtime that caches **entities**, the way the TypeScript one does: `GET /orders/7` and `GET /orders` both point at one `Order:7`, and a `PATCH` that changes its total updates the detail screen, the row in the list and the badge in your app bar from the response to the write.
 
-The Dart runtime also does two things the TypeScript one doesn't. Add `forge_client_offline` and, on iOS, Android and the desktop, the cache is persisted on the device and encrypted at rest, and a write you make offline survives a restart and replays when the network comes back. Add `forge_client_grove` and entities stored in Grove sync in both directions. The server can still reject a change, and [Sync](/docs/dart-client/sync) covers what happens then.
+The Dart runtime also does two things the TypeScript one doesn't. Add `forge_client_offline` and, on iOS, Android and the desktop, the cache is persisted on the device and encrypted at rest, so a write you make offline survives a restart and replays when the network comes back. Add `forge_client_grove` and entities stored in Grove sync in both directions. The server can still reject a change, and [Sync](/docs/dart-client/sync) covers what happens then.
 
-You decide what counts as an entity, and what a write makes stale, in Go before either client is generated, so the Dart and TypeScript clients follow the same rules. These pages cover the Dart side. The server side is shared, so if you want the details of declaring it, they're in the web client docs under [entities](/docs/web-client/entities) and [invalidation](/docs/web-client/invalidation).
+You decide what counts as an entity, and what a write makes stale, in Go before either client is generated, so the Dart and TypeScript clients follow the same rules. These pages cover the Dart side. The server side is shared, so for the details of declaring it you'll want the web client docs, under [entities](/docs/web-client/entities) and [invalidation](/docs/web-client/invalidation).
 
 ## What you write to get it
 
@@ -60,13 +60,13 @@ class OrderTotal extends StatelessWidget {
 }
 ```
 
-`QueryState` is sealed, so that `switch` is checked by the compiler. Forget the failure case and it doesn't build.
+`QueryState` is sealed, so the compiler checks that `switch` for you, and if you forget the failure case the app doesn't build.
 
 <Callout type="info">
 Everything on these pages is built and tested in the forge repository, and it's waiting on a release. The Grove half lives in the grove repository. The packages are versioned `1.0.0-dev` and you install them from the forge repository with a git dependency. See [Installation](/docs/dart-client/installation).
 </Callout>
 
-On the web, the cache lives in memory for now. Encrypted offline storage there isn't built yet, and [Not yet shipped](/docs/dart-client/not-yet-shipped) lists what else isn't.
+If you run Flutter on the web, the cache lives in memory for now, because encrypted offline storage there isn't built yet. [Not yet shipped](/docs/dart-client/not-yet-shipped) lists what else you can't have today.
 
 ## Start here
 
@@ -75,19 +75,19 @@ On the web, the cache lives in memory for now. Encrypted offline storage there i
 An orders API with no client annotations, from Go route to a Flutter screen.
 </Card>
 <Card title="Installation" href="/docs/dart-client/installation">
-The packages, the git dependencies, and generating the client.
+The packages, the git dependencies, generating the client, and wiring the runtime.
 </Card>
 <Card title="Entities" href="/docs/dart-client/entities">
-How identity reaches the Dart store, and why an unchanged record never rebuilds its widget.
+How identity reaches the Dart store, what an unchanged record keeps, and when the cache lets go of records.
 </Card>
 <Card title="Invalidation" href="/docs/dart-client/invalidation">
 Tags, invalidating by hand, freshness, and live queries on each platform.
 </Card>
 <Card title="The generated package" href="/docs/dart-client/generated-package">
-Models, the ops table, bindings, args classes, the REST client and the type mapping.
+Models, the ops table, bindings, args classes, the REST client, the type mapping, and the enums, capabilities, pagination and streaming files.
 </Card>
 <Card title="Flutter adapter" href="/docs/dart-client/flutter-adapter">
-`ForgeScope`, `ForgeQueryBuilder` and `ForgeMutationBuilder`, with no state library needed.
+`ForgeScope`, `ForgeQueryBuilder` and `ForgeMutationBuilder`, optimistic writes and local state, with no state library needed.
 </Card>
 <Card title="Riverpod adapter" href="/docs/dart-client/riverpod-adapter">
 The same cache as Riverpod 3 providers, for apps already built on it.

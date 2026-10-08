@@ -4,7 +4,7 @@ description: What the Dart client can't do yet, what each limit means for you, a
 icon: ClipboardList
 ---
 
-Documentation that promises unshipped things is worse than none. This page is the full list, so nothing on the other pages has to be read hopefully. It has two kinds of entry. Some are limits we chose and will keep, and each says what to do about it today. The rest are things that aren't built or released yet, and each says what it waits on.
+Documentation that promises unshipped things is worse than none. This page is the full list, so you never have to read the other pages hopefully. It has two kinds of entry. Some are limits we chose and will keep, and each says what you can do about it today, while the rest are things that aren't built or released yet, and each says what it waits on.
 
 ## Limits by design
 
@@ -12,37 +12,37 @@ There are seven. Each one is a decision about how the runtime behaves, and each 
 
 ### WebTransport is web only
 
-Dart has no WebTransport outside the browser, and writing a QUIC stack was out of scope. On Android, iOS and the desktops, a stream bound only to a WebTransport route fails with `TransportUnavailable`, naming the endpoint. The subscription manager reports it once and doesn't retry. When the same channel also has a WebSocket or SSE binding, you put the two behind `fallbackConnection` and the manager uses the one that exists.
+Dart has no WebTransport outside the browser, and writing a QUIC stack was out of scope. On Android, iOS and the desktops, a stream bound only to a WebTransport route fails with `TransportUnavailable`, naming the endpoint, and the subscription manager reports it once and doesn't retry. When the same channel also has a WebSocket or SSE binding, you put the two behind `fallbackConnection` and the manager uses the one that exists.
 
 If your app ships beyond the web, give every WebTransport route a WebSocket sibling. See [Transports by platform](/docs/dart-client/invalidation#transports-by-platform).
 
 ### Web storage will protect files, not the browser profile
 
-Offline storage doesn't exist on the web yet (see [Offline storage on the web](#offline-storage-on-the-web) below). The design for when it does is a non-extractable WebCrypto key kept in IndexedDB. Someone who copies or reads the storage files gets nothing. Code running as that browser profile, such as an extension or a script injected into your origin, can still use the key without extracting it.
+Offline storage doesn't exist on the web yet (see [Offline storage on the web](#offline-storage-on-the-web) below). The design for when it does is a non-extractable WebCrypto key kept in IndexedDB, so someone who copies or reads the storage files gets nothing. Code running as that browser profile, such as an extension or a script injected into your origin, can still use the key without extracting it.
 
-`passphraseKey` is the answer for apps that need more, at the price of a passphrase every session. See [The web is weaker](/docs/dart-client/offline-and-security#the-web-is-weaker).
+If your app needs more, `passphraseKey` is the answer, at the price of a passphrase every session. See [The web is weaker](/docs/dart-client/offline-and-security#the-web-is-weaker).
 
 ### Full sync covers Grove entities only
 
-Two-way sync works for entities stored in Grove's CRDT engine. Every other entity gets the encrypted cache and the outbox, and a conflict on one of them reaches your app as an `OutboxConflict`, never merged behind your back.
+Two-way sync works for entities stored in Grove's CRDT engine. Every other entity gets the encrypted cache and the outbox, and when one of them conflicts you receive an `OutboxConflict` in your app, never a merge behind your back.
 
 There's no change feed for data outside Grove yet. The `SyncSource` seam the runtime routes through is shaped so a source for one can plug in later without changing your app code.
 
 ### An uncertain write is reported, not retried
 
-When a write was sent and no response came back, the outbox resends it only if repeating it is safe: a `PUT`, a `DELETE`, or any route that uses Forge's idempotency middleware. A `POST` or `PATCH` without the middleware comes back as `OutboxUncertain`, and your app decides what to do.
+When a write was sent and no response came back, the outbox resends it only if repeating it is safe: a `PUT`, a `DELETE`, or any route that uses Forge's idempotency middleware. A `POST` or `PATCH` without the middleware comes back as `OutboxUncertain`, and what happens next is up to your app.
 
 Add `forge.WithIdempotency()` to the routes you want retried automatically. See [Uncertain writes and idempotent routes](/docs/dart-client/offline-and-security#uncertain-writes-and-idempotent-routes).
 
 ### An optimistic create with an integer id isn't shown until the server confirms it
 
-The runtime gives an optimistic create a temporary string id, and a generated integer field can't decode that. So the typed view keeps showing the value it last decoded (or loading, if it never decoded one), never an error, and the new row appears when the server answers. A list that holds the temporary id behaves the same way.
+The runtime gives an optimistic create a temporary string id, and a generated integer field can't decode that. So the typed view keeps showing the value it last decoded (or loading, if it never decoded one), never an error, and you see the new row when the server answers. A list that holds the temporary id behaves the same way.
 
-If the entity's id is a string, there's no limit: the row shows at once. For an integer id, show your own pending row until the answer lands.
+If the entity's id is a string, there's no limit and the row shows at once. If it's an integer, show your own pending row until the answer lands.
 
 ### A mutation in flight at sign-out completes for its caller only
 
-When a user signs out, or the account switches, while a mutation is still in flight, the call completes and returns its response to whoever made it. Nothing from that response is written to the cache, and the write's optimistic change doesn't come back. That's how a late answer can never reach the next user's data. The cost is that the signed-out user's screen, if it's still showing, doesn't update from it.
+When a user signs out, or the account switches, while a mutation is still in flight, the call completes and returns its response to whoever made it, but nothing from that response is written to the cache, and the write's optimistic change doesn't come back. That's how a late answer can never reach the next user's data. The cost is that the signed-out user's screen, if it's still showing, doesn't update from it.
 
 ### Runtime edges carried over from the web client
 
@@ -56,9 +56,9 @@ The web page's first edge, a new container for a refetch that returned identical
 
 ## Optimistic updates
 
-Two limits of `OptimisticUpdate` you'd otherwise find by surprise.
+There are two limits of `OptimisticUpdate` you'd otherwise find by surprise.
 
-Keep the function to the record itself and the entities embedded in it directly. Each embedded entity it reads is first worked out with its own pending changes, so a function that walks further, through the customer to all of the customer's orders and their line items, does more work for every record it reaches. With many pending changes that all reach each other, one read costs about the square of their number. At 200 of them that took about 1.2 seconds, and a write to any entity the function read pays it again. Updates that read only their own record and its direct embeds stay linear.
+Keep your function to the record itself and the entities embedded in it directly. Each embedded entity it reads is first worked out with its own pending changes, so a function that walks further, through the customer to all of the customer's orders and their line items, does more work for every record it reaches. With many pending changes that all reach each other, one read costs about the square of their number. At 200 of them that took about 1.2 seconds, and a write to any entity the function read pays it again. Updates that read only their own record and its direct embeds stay linear.
 
 While a change to an embedded entity is pending, the entity shows only the fields its model declares. A field your Dart model doesn't declare isn't lost: the stored record keeps it, and the response is merged into it when the write lands. It just isn't visible until then.
 
@@ -66,7 +66,7 @@ While a change to an embedded entity is pending, the entity shows only the field
 
 ### Offline storage on the web
 
-On the web, the cache lives in memory. `encryptedStorage` throws an `UnsupportedError` there, `webCryptoKeys` throws on every platform, and the code that opens database files in a browser is a stub. So the web has no encrypted cache, no restore on startup and no outbox. A web app gets the in-memory cache that `configureClient` builds when you leave `storage:` out.
+On the web, the cache lives in memory. `encryptedStorage` throws an `UnsupportedError` there, `webCryptoKeys` throws on every platform, and the code that opens database files in a browser is a stub, so the web has no encrypted cache, no restore on startup and no outbox. A web app gets the in-memory cache that `configureClient` builds when you leave `storage:` out.
 
 Everything else on the [Offline and security](/docs/dart-client/offline-and-security) page is built for Android, iOS, macOS, Linux and Windows. How much of it has run on real devices is a separate question. Only macOS, on the login keychain, has run against a real keystore. iOS, Android, Linux and Windows have run against a fake only, and `requireUserPresence` hasn't run on a device. [Keys on each platform](/docs/dart-client/offline-and-security#keys-on-each-platform) has the detail.
 
@@ -74,7 +74,7 @@ The web connectors for Grove sync are built too, and a browser test hasn't run t
 
 ### Not on pub.dev
 
-Every package is versioned `1.0.0-dev` with `publish_to: none`, and that's deliberate. You install them from the forge repository with a git dependency, a `ref:` on every entry, as [Installation](/docs/dart-client/installation) shows. `grove_crdt` is the same, from the Grove repository. Until the Grove commit merges, the `grove_crdt` pin in `forge_client_grove`'s `pubspec.yaml` points at a branch, and the `ref:` will change when it does.
+Every package is versioned `1.0.0-dev` with `publish_to: none`, and that's deliberate. You install them from the forge repository with a git dependency and a `ref:` on every entry, as [Installation](/docs/dart-client/installation) shows. `grove_crdt` is the same, from the Grove repository. Until the Grove commit merges, the `grove_crdt` pin in `forge_client_grove`'s `pubspec.yaml` points at a branch, and the `ref:` will change when it does.
 
 ### The devtools extension isn't built for you
 
@@ -82,13 +82,13 @@ The built extension is gitignored. A git dependency on `forge_client_devtools` g
 
 ### A change stamped late can miss a peer
 
-This is the Grove late-stamp gap. The server keeps the stamp a change was made with, and a device pulls only changes newer than its last sync point. So a change stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note: phones that synced meanwhile have moved past the stamp and never see the edit. It holds for every CRDT type, last-writer-wins fields included, for any late write that changes what the server stores. Only a late write that loses to a newer one escapes, because the server changes nothing for it.
+This is the Grove late-stamp gap. The server keeps the stamp a change was made with, and a device pulls only changes newer than its last sync point. So a change stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note: phones that synced meanwhile have moved past the stamp and never see the edit. The same goes for every CRDT type, last-writer-wins fields included, for any late write that changes what the server stores. Only a late write that loses to a newer one escapes, because the server changes nothing for it.
 
 The client is correct here. The gap is in the Grove server, and it stays until a server fix lands. [Sync](/docs/dart-client/sync#when-to-use-it) has the details.
 
 ### Joining a Grove dataset before the runtime starts
 
-A cache hands itself to a sync source only when it starts the source, after that user's storage has opened. Until then, `join` can't tell a signed-in user from nobody and throws. Call `attach(cache)` on the source right after you build the cache, or `await cache.idle` after the first `setPrincipal`. A client from `OfflineClient.open` has already waited, so a `join` after it just works. See [Datasets](/docs/dart-client/sync#datasets).
+A cache hands itself to a sync source only when it starts the source, after that user's storage has opened. Until then, `join` can't tell a signed-in user from nobody and throws. To avoid it, call `attach(cache)` on the source right after you build the cache, or `await cache.idle` after the first `setPrincipal`. A client from `OfflineClient.open` has already waited, so a `join` after it just works. See [Datasets](/docs/dart-client/sync#datasets).
 
 The core runtime has no hook yet that tells a source who's signed in before it starts, which is why the extra call is needed.
 
@@ -96,7 +96,7 @@ The core runtime has no hook yet that tells a source who's signed in before it s
 
 While the app runs, a queued write is drawn from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox derives what to draw from the operation. It can only do that when the operation names exactly one entity key in `invalidates`, and a generated `PATCH`, `PUT` or `DELETE` names the collection (`Order[]`) instead. So after a restart a queued generated update or delete shows no optimistic change. The write is still stored, still replays, and still fails with a typed reason. Until it replays, the screen shows the server's last value, and a deleted order comes back.
 
-`OfflineClient.open` takes no `overlayIntent:`. A client built by hand with the constructor does, so it can key the overlay itself. Otherwise, read `offline.pending` to mark rows that are waiting. See [The outbox](/docs/dart-client/offline-and-security#the-outbox).
+`OfflineClient.open` takes no `overlayIntent:`, but a client you build by hand with the constructor does, so it can key the overlay itself. Otherwise, read `offline.pending` to mark rows that are waiting. See [The outbox](/docs/dart-client/offline-and-security#the-outbox).
 
 ### A Grove dataset joined offline reports online
 

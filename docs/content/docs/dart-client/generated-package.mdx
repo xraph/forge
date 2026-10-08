@@ -26,9 +26,9 @@ orders_forge_client/
 └── README.md
 ```
 
-Import `package:orders_forge_client/orders_forge_client.dart` and nothing under `src/`. The barrel exports models, bindings, errors, `ops.dart`, pagination and the REST client, plus `capabilities.dart` and the `streaming/` clients when they're generated. From `support.dart` it exports only `Assign`, `Int64`, `Json`, `Unchanged` and `Value`, and it leaves the codecs out.
+Import `package:orders_forge_client/orders_forge_client.dart` and nothing under `src/`. You'll find that the barrel exports models, bindings, errors, `ops.dart`, pagination and the REST client, plus `capabilities.dart` and the `streaming/` clients when they're generated. From `support.dart` it exports only `Assign`, `Int64`, `Json`, `Unchanged` and `Value`, and it leaves the codecs out.
 
-Some files show up only when the run or the specification calls for them:
+Some files show up only when your run or your specification calls for them:
 
 | File | When it exists |
 |---|---|
@@ -37,7 +37,7 @@ Some files show up only when the run or the specification calls for them:
 | `streaming/` | With `--hooks`, when the specification has WebSocket, SSE or WebTransport endpoints, or you ask for the rooms, presence, typing or channels clients. |
 | `README.md` | Unless you pass `--client-only`, which keeps `pubspec.yaml` and drops the README. |
 
-The generator owns every file directly inside `lib/src/` and inside `models/`, `codecs/`, `bindings/` and `streaming/`. Each run deletes the ones it didn't write, so an operation you withdraw from the specification loses its binding file on the next run. Keep your own code out of those directories.
+The generator owns every file directly inside `lib/src/` and inside `models/`, `codecs/`, `bindings/` and `streaming/`. Each run deletes the ones it didn't write, so an operation you withdraw from the specification loses its binding file on the next run, and any file of yours in those directories goes with it. Keep your own code somewhere else.
 
 ## Models
 
@@ -82,11 +82,11 @@ final class Order {
 
 That's one class per schema, with a `const` constructor, `copyWith`, `==` and `hashCode`. `fromClient` and `toClient` are what the runtime calls to move a record in and out of the cache. A `oneOf` or `anyOf` becomes a sealed base class with one subclass per branch, picked by the schema's discriminator when it has one with a mapping, and by the required fields otherwise, the same rules the TypeScript codecs use. A value that matches no branch decodes to a subclass named for the union with `Unknown` on the end, which keeps what it received. An `allOf` is flattened into one class.
 
-There is no `build_runner`, no `json_serializable` and no `freezed`. Forge emits finished code, and you never run a second generator over it.
+You won't need `build_runner`, `json_serializable` or `freezed`. Forge emits finished code, and you never run a second generator over it.
 
 Dart members are always `lowerCamelCase`. `--field-naming` decides something else: the keys of the client-shaped JSON the codecs produce, which is what the cache stores and what the `entities` table names. It defaults to `camel`, so `invoice_number` on the wire is `invoiceNumber` in the store, and `preserve` keeps `invoice_number`.
 
-Optional and nullable fields need one extra idea. `copyWith(note: null)` can't say whether you meant "leave the note alone" or "clear the note", so `copyWith` takes a `Value` for each of them:
+Optional and nullable fields need one extra idea. Since `copyWith(note: null)` can't say whether you meant "leave the note alone" or "clear the note", `copyWith` takes a `Value` for each of them:
 
 ```dart
 const Value<String> leaveItAlone = Unchanged();
@@ -141,7 +141,7 @@ const Map<String, SecurityScheme> securitySchemes = {};
 | `securitySchemes` | your `AuthProvider`, through each operation's `security` list |
 | `sync` | `forge_client_grove`; see [Sync](/docs/dart-client/sync) |
 
-The orders API has no streams, no security scheme and nothing to sync, so those three tables are empty here. Give a route a bearer scheme named `jwt` and its operation gains `security: ['jwt']`, while the table gains this:
+The orders API has no streams, no security scheme and nothing to sync, so those three tables are empty here. If you give a route a bearer scheme named `jwt`, its operation gains `security: ['jwt']` and the table gains this:
 
 ```dart title="lib/src/ops.dart"
 const Map<String, SecurityScheme> securitySchemes = {
@@ -151,7 +151,7 @@ const Map<String, SecurityScheme> securitySchemes = {
 
 An operation carries `idempotent: true` when the specification marks its route idempotent. The outbox reads that flag to decide whether a write is safe to resend after an uncertain failure; [Offline and security](/docs/dart-client/offline-and-security#uncertain-writes-and-idempotent-routes) has the rules.
 
-Like `ops.ts` on the web, this file is worth reading in code review. A change here with no change to any request or response shape is a change to what the cache does.
+Like `ops.ts` on the web, this file is worth reading in code review. If you see a change here and no change to any request or response shape, the change is to what the cache does.
 
 ## Bindings
 
@@ -180,7 +180,7 @@ final class GetOrderArgs implements OperationArgs {
 }
 ```
 
-A binding belongs to no framework. `ForgeQueryBuilder`, Riverpod's `queryProvider` and plain Dart all take the same object, so switching state libraries never means regenerating. Plain Dart looks like this:
+A binding belongs to no framework. `ForgeQueryBuilder`, Riverpod's `queryProvider` and plain Dart all take the same object, so when you switch state libraries you never have to regenerate. Here's what plain Dart looks like:
 
 ```dart
 Future<String> fetchStatus(QueryCache cache, String id) async {
@@ -195,7 +195,7 @@ Future<String> fetchStatus(QueryCache cache, String id) async {
 
 ## Args classes
 
-Dart has no structural types, so each operation gets a class that gathers its arguments. Path, query and header parameters become fields, required or optional as the specification says. An operation with no parameters and no body takes `const NoArgs()`.
+Dart has no structural types, so each operation gets a class that gathers its arguments, with path, query and header parameters as fields, required or optional as the specification says. If an operation has no parameters and no body, you pass `const NoArgs()`.
 
 Bodies are where you have to look at the operation. A `POST` body is one argument, `body:`, of the body's own class. A `PATCH` whose JSON body is a class is the exception: its fields are flattened onto the args beside the path parameters, so that "leave this alone" and "set this to null" stay separate things:
 
@@ -207,7 +207,7 @@ final newOne = CreateOrderArgs(
 );
 ```
 
-A required field of the `PATCH` body is a plain value, as `status` is here. An optional one is a `Value`, defaulting to `Unchanged()`. This is what a `PATCH` with optional `count` and `note` fields generates, from a different specification than the orders one:
+A required field of the `PATCH` body is a plain value, as `status` is here, and an optional one is a `Value` that defaults to `Unchanged()`. This is what a `PATCH` with optional `count` and `note` fields generates, from a different specification than the orders one:
 
 ```dart title="lib/src/bindings/patch_item.dart"
 final class PatchItemArgs implements OperationArgs {
@@ -266,7 +266,7 @@ Future<String> orderStatus(String id) async {
 }
 ```
 
-The client takes `headers`, a `credentials` callback that runs before every request, a `timeout` and your own `httpClient`. Each call takes a `cancel` future and a `maxAttempts`:
+The client takes `headers`, a `credentials` callback that runs before every request, a `timeout` and your own `httpClient`, and each call you make takes a `cancel` future and a `maxAttempts`:
 
 ```dart
 import 'package:orders_forge_client/orders_forge_client.dart';
@@ -297,7 +297,7 @@ String failureText(Object error) => switch (apiErrorOf(error)) {
     };
 ```
 
-The runtime also has `statusOf`, which gives you the status as an `int?`. It reads only an `HttpStatusError`, so it returns `null` for an `ApiError` thrown by `RestClient`. Use it on errors that came through a binding, and `apiErrorOf` when you can't tell which kind you have.
+The runtime also has `statusOf`, which gives you the status as an `int?`. It reads only an `HttpStatusError`, so it returns `null` for an `ApiError` thrown by `RestClient`. Use it on errors that came through a binding, and reach for `apiErrorOf` when you can't tell which kind you have.
 
 ## Type mapping
 
@@ -319,11 +319,11 @@ The runtime also has `statusOf`, which gives you the status as an `int?`. It rea
 | nullable or optional | `T?` |
 | a reference that doesn't resolve | `Object?` |
 
-Typed lists and maps decoded from the wire are unmodifiable. A free-form object is a plain `Map<String, Object?>`, and you can change it.
+Typed lists and maps decoded from the wire are unmodifiable, so copy one before you change it. A free-form object is a plain `Map<String, Object?>`, and that one you can change in place.
 
 ### int64
 
-On the web, a Dart `int` is a JavaScript number. Above 2^53 it loses precision without telling you, which turns a large ID into a different ID. So an int64 field is carried as a decimal string by default, in an extension type that costs nothing at runtime and can't be mixed up with an ordinary `String`:
+On the web, a Dart `int` is a JavaScript number, and above 2^53 it loses precision without telling you, which turns a large ID into a different ID. So you get an int64 field carried as a decimal string by default, in an extension type that costs nothing at runtime and can't be mixed up with an ordinary `String`:
 
 ```dart
 BigInt nextVersion(Int64 version) => version.toBigInt() + BigInt.one;
@@ -370,7 +370,7 @@ enum StatusKnown {
 }
 ```
 
-When the server adds a value your app has never heard of, the field still decodes. It's a `Status` whose `isKnown` is false and whose `wire` is what the server sent, and it encodes back unchanged. For an exhaustive `switch`, switch on `known`, the plain `StatusKnown` enum, and give the `null` arm the unknown case:
+When the server adds a value your app has never heard of, the field still decodes. You get a `Status` whose `isKnown` is false and whose `wire` is what the server sent, and it encodes back unchanged. If you want an exhaustive `switch`, switch on `known`, the plain `StatusKnown` enum, and give the `null` arm the unknown case:
 
 ```dart
 import 'package:catalog_forge_client/catalog_forge_client.dart';
@@ -383,7 +383,7 @@ String statusLabel(Item item) => switch (item.status.known) {
     };
 ```
 
-Leave an arm out and it doesn't compile. A schema with a number or a boolean among its values is an extension type over `Object` instead of `String`.
+If you leave an arm out it doesn't compile. A schema with a number or a boolean among its values is an extension type over `Object` instead of `String`.
 
 ## Capabilities, pagination and streaming
 
@@ -435,7 +435,7 @@ bool showNewItemButton() => can(Scope.itemsWrite) && hasRole(Role.admin);
 List<Scope> whatIsMissing() => missingCapabilities(OperationName.createItem);
 ```
 
-Before anything is declared, `can` returns `false`, and `capabilitiesKnown()` tells you whether that `false` means "no" or "not yet". `canCall` and `missingCapabilities` ask the same question per operation, for a specification that has REST operations. It works like the [TypeScript module](/docs/web-client/generated-package#capabilitiests), with `setPrincipal` in place of `setCapabilities`.
+Before anything is declared, `can` returns `false`, and you can call `capabilitiesKnown()` to find out whether that `false` means "no" or "not yet". `canCall` and `missingCapabilities` ask the same question per operation, for a specification that has REST operations. It works like the [TypeScript module](/docs/web-client/generated-package#capabilitiests), with `setPrincipal` in place of `setCapabilities`.
 
 <Callout type="warn">
 This is something to hide a button with and never a security boundary. The values are held by the client, so anyone running it can change them. The server still authorizes every request, and nothing in the generated request path reads these predicates. The granted set is a top-level variable of the library, so it belongs to one app on one isolate and not to a Dart server handling many users at once.
@@ -492,4 +492,4 @@ dependencies:
   http: ^1.6.0
 ```
 
-With `--hooks` the package depends on `forge_client`, because the bindings call into it. Without `--hooks` the `forge_client` line is gone and `package:http` is all that's left. The version is always `1.0.0`, whatever your specification says, so set it yourself before you publish or version the package. Neither kind depends on Flutter, on an adapter, on `forge_client_offline` or on `forge_client_grove`. The [Installation](/docs/dart-client/installation#the-generated-client) page shows how your app points the client at the runtime until it's on pub.dev.
+With `--hooks` the package depends on `forge_client`, because the bindings call into it. Without `--hooks` the `forge_client` line is gone and `package:http` is all that's left. The version is always `1.0.0`, whatever your specification says, so you'll want to set it yourself before you publish or version the package. Neither kind depends on Flutter, on an adapter, on `forge_client_offline` or on `forge_client_grove`. The [Installation](/docs/dart-client/installation#the-generated-client) page shows how your app points the client at the runtime until it's on pub.dev.

@@ -6,7 +6,7 @@ icon: Fingerprint
 
 Hand the generated `entities` table to `configureClient` and the cache stores each record once, whichever query brought it in. `Order:7` becomes one object that the list, the detail screen and a badge in your app bar all read, so when a response carries a new `Order:7`, all three show it before anything is refetched.
 
-Which types are entities, and which field identifies each one, is decided in Go when the specification is written, and the Dart generator reads the result, so declaring identity works the same way for both clients. Everything on the web client's [Entities](/docs/web-client/entities) page applies as it stands: inference from an `id` field, the cases where inference refuses, `ForgeEntity`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity` and envelopes. Read that page for the Go half. This one covers the device.
+Which types are entities, and which field identifies each one, is decided in Go when the specification is written, and the Dart generator reads the result, so declaring identity works the same way for both clients. Everything on the web client's [Entities](/docs/web-client/entities) page applies as it stands: inference from an `id` field, the cases where inference refuses, `ForgeEntity`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity` and envelopes. Read that page for the Go half, because this one covers the device.
 
 ## The entities table
 
@@ -20,7 +20,7 @@ const EntitySchema entities = {
 };
 ```
 
-Pass it as `entities:` and never edit it. Each key is a typename. `idField` is the field that identifies a record, spelled the way the client-shaped JSON spells it, which is what `--field-naming` controls. Under the default `camel` naming, an identity the server sends as `invoice_number` shows up here as `invoiceNumber` (`--field-naming preserve` keeps the wire spelling). The same function renames the fields in the codecs and the ones in this table, so the table can't look for a field the decoded payload doesn't have.
+Pass it as `entities:` and don't edit it. Each key is a typename. `idField` is the field that identifies a record, spelled the way the client-shaped JSON spells it, which is what `--field-naming` controls. Under the default `camel` naming, an identity the server sends as `invoice_number` shows up here as `invoiceNumber` (`--field-naming preserve` keeps the wire spelling). The same function renames the fields in the codecs and the ones in this table, so the table can't look for a field the decoded payload doesn't have.
 
 `fields` says which field holds which typename, and for a list it names the element type. A row with no `idField`, like `OrderPage`, is a signpost: the store walks through its fields and never keeps it as a record.
 
@@ -30,9 +30,9 @@ Pass it as `entities:` and never edit it. Each key is a typename. `idField` is t
 EntityKey keyOf(Order order) => entityKey('Order', order.id);
 ```
 
-A key is the typename and the id joined by a colon, so that gives `Order:7`. Pass the id as `7`, `7.0` or `'7'` and you get the same key, because it's rendered the way JavaScript renders it. The TypeScript client makes that key for the same record, too.
+A key is the typename and the id joined by a colon, so that gives `Order:7`. Pass the id as `7`, `7.0` or `'7'` and you get the same key, because it's rendered the way JavaScript renders it, which also means the TypeScript client makes that key for the same record.
 
-You'll meet keys in three places. They're the tags `cache.invalidate` matches for every query that reaches `Order:7`, the `key:` an `OptimisticUpdate` can name, and the list the DevTools inspector shows when you look at the store.
+You'll meet keys in three places: the tags `cache.invalidate` matches for every query that reaches `Order:7`, the `key:` an `OptimisticUpdate` can name, and the list the DevTools inspector shows when you look at the store.
 
 ## An unchanged record keeps its identity
 
@@ -44,19 +44,19 @@ final Expando<String> _labels = Expando<String>('order labels');
 String labelOf(Order order) => _labels[order] ??= '${order.customer.name} (${order.status})';
 ```
 
-You build each label once per `Order` object. Refetch and find nothing new, and you get back the object you already labelled, so the lookup hits.
+You build each label once per `Order` object. If you refetch and find nothing new, you get back the object you already labelled, so the lookup hits.
 
-Here's what the store does to make that true. When a refetch returns a record with the same data, the store keeps the record it had and hands back the same object, not an equal copy. `identical()` is true. That holds for the raw map the query reads and for the typed `Order` decoded from it, which is memoized on that map. A write merges its fields into the stored record, so a response that carries fewer fields doesn't erase the ones it left out.
+Here's what the store does to make that true. When a refetch returns a record with the same data, the store keeps the record it had and hands back the same object, not an equal copy, so `identical()` is true. That holds for the raw map the query reads and for the typed `Order` decoded from it, which is memoized on that map. A write merges its fields into the stored record, so a response that carries fewer fields doesn't erase the ones it left out.
 
-It holds for the containers too. Refetch `listOrders` and get the same orders back, and the `OrderPage` in your hand is the one you had. Change one order's total and the page is new, and so are the changed order and its customer, while every other order, with its customer, is still the object it was. A row in `listOrders` and the result of `getOrder` for the same id are the same object too.
+It holds for the containers too. If you refetch `listOrders` and get the same orders back, the `OrderPage` in your hand is the one you had. Change one order's total and the page is new, and so are the changed order and its customer, while every other order, with its customer, is still the object it was. A row in `listOrders` and the result of `getOrder` for the same id are the same object too.
 
-Identity lasts as long as the store holds the record. Change the principal, let garbage collection drop the record, or evict it by hand, and the next fetch builds new objects.
+Identity lasts as long as the store holds the record. If you change the principal, let garbage collection drop the record, or evict it by hand, the next fetch builds new objects.
 
 ### What that does to rebuilds
 
 `ForgeQueryBuilder` and the Riverpod adapter compare data with `identical()`, which the sharing above makes exact.
 
-A write to `Order:2` doesn't call the builder of a screen showing `Order:1`. Neither does a write that stores what the record already holds. And a refetch that finds nothing new still flips `isFetching` to true and back, because `isFetching` is part of the state, so a plain builder runs twice with the same data in both calls. If you don't want those two builds, pass `select:`:
+A write to `Order:2` doesn't call the builder of a screen showing `Order:1`, and neither does a write that stores what the record already holds. A refetch that finds nothing new still flips `isFetching` to true and back, because `isFetching` is part of the state, so a plain builder runs twice with the same data in both calls. If you don't want those two builds, pass `select:`:
 
 ```dart
 Widget orderStatus(String id) => ForgeQueryBuilder(
@@ -70,7 +70,7 @@ Widget orderStatus(String id) => ForgeQueryBuilder(
     );
 ```
 
-The builder now runs when the order changes or the query fails, and for nothing else. The selection also says whether the query failed, and that is deliberate: a failure after a success keeps the last good data, so the data alone would hide it. Leaving `isFetching` out of the selection means no spinner for background refreshes. Add it back if you want one.
+The builder now runs when the order changes or the query fails, and for nothing else. The selection also says whether the query failed, and that is deliberate: a failure after a success keeps the last good data, so the data alone would hide it. Because `isFetching` is out of the selection, you get no spinner for background refreshes, and you can add it back if you want one.
 
 With Riverpod, `queryProvider` hands you an `AsyncValue` and doesn't notify when the data is identical, so an unchanged refetch wakes nobody. The `.state` form carries the whole `QueryState`, `isFetching` included, and notifies on that flip the way the builder does.
 
@@ -88,7 +88,7 @@ QueryCache roomyCache() => configureClient(
 
 Once the cache is tracking more than `limit` queries it forgets the least recently used one that nothing is watching and nothing has in flight. The default is 128. A query you're watching is never forgotten, so a screen that's on display keeps its data however many others come and go.
 
-When the cache forgets a query it sweeps: it drops every record that no remaining query and no pending optimistic write can reach. A record a sync source owns is the one exception, and it stays for as long as its source keeps it. You can run the same sweep yourself with `cache.collect()`, which returns how many records it dropped, but you rarely need to.
+When the cache forgets a query it sweeps: it drops every record that no remaining query and no pending optimistic write can reach. A record a sync source owns is the one exception, and it stays for as long as its source keeps it. You can run the same sweep yourself with `cache.collect()`, which returns how many records it dropped, though you'll rarely need to.
 
 ## One store per signed-in user
 
@@ -98,6 +98,6 @@ void onSignedIn(QueryCache cache, String userId) => cache.setPrincipal(userId);
 void onSignedOut(QueryCache cache) => cache.setPrincipal(null);
 ```
 
-Tell the cache who is signed in. When that changes, it drops every record and every query it holds, abandons requests in flight, and refetches the queries something is watching. Setting the principal it already has does nothing. If the next person to use the phone signs in as someone else, none of the previous user's orders are left to render.
+Tell the cache who is signed in. When that changes, it drops every record and every query it holds, abandons requests in flight, and refetches the queries something is watching, and setting the principal it already has does nothing. If the next person to use the phone signs in as someone else, none of the previous user's orders are left to render.
 
 With `forge_client_offline` installed, the principal also decides which encrypted database is open, so the same rule holds for everything written to disk. With storage installed, sign-out also has to `await cache.idle` after `setPrincipal(null)` before it erases anything, and [Offline and security](/docs/dart-client/offline-and-security#one-database-per-user) walks through that.

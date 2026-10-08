@@ -76,7 +76,7 @@ You pick one adapter style per app. `forge_client_riverpod` is built on `forge_c
 
 ## The generated client
 
-The generator ships with the Forge CLI and needs none of the packages above.
+The generator ships with the Forge CLI, so you don't need any of the packages above to run it.
 
 <Callout type="warn">
 The Dart generator ships with the next forge release. Until then `forge@latest` doesn't have `--language dart`. To use it today, build the CLI from a forge checkout with the root module and `cmd/forge` in one Go workspace: `go work init . ./cmd/forge`, then `go build -o forge ./cmd/forge`.
@@ -147,7 +147,7 @@ void main() {
 }
 ```
 
-`configureClient` creates the `QueryCache` and makes it the global one. `frameCommitScheduler()` commits store updates once per frame, and it has to be passed here because a cache takes its scheduler when it's built. The `ForgeScope` does the rest: while it's mounted, it refetches stale queries when the app comes back to the foreground and again when the device reconnects. If you use Riverpod, the installed client provider does that job and you don't need a scope at all.
+`configureClient` creates the `QueryCache` and makes it the global one. `frameCommitScheduler()` commits store updates once per frame, and you have to pass it here because a cache takes its scheduler when it's built. The `ForgeScope` does the rest, and while it's mounted it refetches stale queries when the app comes back to the foreground and again when the device reconnects. If you use Riverpod, the installed client provider does that job and you don't need a scope at all.
 
 A `ForgeScope` is optional. If you skip it, install those two behaviours yourself, once:
 
@@ -163,7 +163,7 @@ void main() {
 }
 ```
 
-`installFlutterSeams` returns its uninstaller, and you can ignore it for a client that lives as long as the app. Put a scope above a subtree when a global is the wrong answer: a widget test that must not leak into the next, or an app that talks to two backends. A widget finds its cache by explicit argument first, then the nearest `ForgeScope`, then the global. If you give it none of the three, `getClient()` throws a `StateError` that says so, so you never end up with a cache nothing else can see.
+`installFlutterSeams` returns its uninstaller, and you can ignore it for a client that lives as long as the app. Put a scope above a subtree when a global is the wrong answer, which happens in a widget test that must not leak into the next one and in an app that talks to two backends. A widget finds its cache by explicit argument first, then the nearest `ForgeScope`, then the global. If you give it none of the three, `getClient()` throws a `StateError` that says so, so you never end up with a cache nothing else can see.
 
 ### Credentials
 

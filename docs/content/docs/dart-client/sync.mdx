@@ -6,11 +6,11 @@ icon: GitMerge
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Some data gets edited in more than one place at once: a shared document, a checklist two technicians tick off on the same site, a counter. When that data is stored in Grove, `forge_client_grove` syncs it both ways. A change made on the device shows at once, is saved to the encrypted database, and is pushed when there's a connection. Changes from other devices arrive over a stream and merge into the same replica. Grove's data types are built to merge, so two people editing at once don't leave you picking a winner.
+Some data gets edited in more than one place at once: a shared document, a checklist two technicians tick off on the same site, a counter. When that data is stored in Grove, `forge_client_grove` syncs it both ways. A change made on the device shows at once, is saved to the encrypted database, and is pushed when there's a connection, while changes from other devices arrive over a stream and merge into the same replica. Grove's data types are built to merge, so when two people edit at once you don't end up picking a winner.
 
 The server can still say no. It runs a hook on every incoming change, and a change it refuses stays on the device, marked, until you retry it or drop it. [When the server says no](#when-the-server-says-no) covers that.
 
-Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the-outbox). Full sync covers Grove entities only. A plain REST entity gets the encrypted cache and the outbox, and a conflict on it is reported to your app.
+Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the-outbox), because full sync covers Grove entities only. A plain REST entity gets the encrypted cache and the outbox, and a conflict on it is reported to your app.
 
 <Callout type="warn">
 `forge.WithSync` is on forge main and ships with the next forge release. `WithCRDTEntity`, the option that makes Grove's extension declare an entity, ships with the Grove release that carries the Dart client. Until both are out, a released forge and a released Grove produce a spec with no `x-forge-sync` marks, and the generated `sync` table is empty.
@@ -18,9 +18,9 @@ Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the
 
 ## When to use it
 
-Use it for data that already lives in Grove's `crdt` package and was designed to merge: last-writer-wins registers, counters, sets and text. If your entity is a row in Postgres behind a REST handler, this package does nothing for it, and that's correct. Merging data that was never designed to merge quietly loses writes.
+Use it for data that already lives in Grove's `crdt` package and was designed to merge: last-writer-wins registers, counters, sets and text. If your entity is a row in Postgres behind a REST handler, this package does nothing for it, and that's correct, since merging data that was never designed to merge quietly loses writes.
 
-One limit you should know about before you build on it. Whenever a merge changes what the server stores, the server keeps the stamp the change was made with; it never restamps a change with the time it arrived. A device pulls changes newer than the last point it synced to, and the live stream works the same way, so a change stamped earlier than a peer's sync point never reaches that peer. That holds for every CRDT type, last-writer-wins fields included. Say a technician's tablet is offline for a day and edits a note. Phones that synced while it was offline have already moved past the stamp, so they never see the edit, while a device that has never synced does. Only a late write that loses to a newer one escapes, because the server doesn't change anything for it. The client is correct here. The gap is on the server, a fix to the Grove server is still to land, and [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
+There's one limit you should know about before you build on it. Whenever a merge changes what the server stores, the server keeps the stamp the change was made with; it never restamps a change with the time it arrived. A device pulls changes newer than the last point it synced to, and the live stream works the same way, so a change stamped earlier than a peer's sync point never reaches that peer. That holds for every CRDT type, last-writer-wins fields included. Say a technician's tablet is offline for a day and edits a note. Phones that synced while it was offline have already moved past the stamp, so they never see the edit, while a device that has never synced does. Only a late write that loses to a newer one escapes, because the server doesn't change anything for it. The client is correct here. The gap is on the server, a fix to the Grove server is still to land, and [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
 
 ## On the server
 
@@ -30,7 +30,7 @@ The generator has to know which entities are Grove-backed and where their sync r
 "x-forge-sync": [{ "protocol": "grove-crdt", "entity": "Note", "table": "notes", "role": "pull" }]
 ```
 
-Grove's Forge extension adds it to the pull, push, stream and WebSocket routes it registers, one entry per entity you name. You say which entity a table backs:
+Grove's Forge extension adds it to the pull, push, stream and WebSocket routes it registers, one entry per entity you name, and you say which entity a table backs:
 
 ```go
 ext := groveext.New(
@@ -40,9 +40,9 @@ ext := groveext.New(
 )
 ```
 
-A table with no `WithCRDTEntity` still syncs, and the extension logs a warning that it left `x-forge-sync` off. If you register the sync routes yourself, put `forge.WithSync(forge.SyncProtocolGroveCRDT, "Note", "notes", forge.SyncRole(forge.SyncRolePull))` on each of the four, with the role that route plays. A server that gives every dataset its own routes adds `forge.SyncDataset("{id}")` to name the path parameter.
+A table with no `WithCRDTEntity` still syncs, and the extension logs a warning that it left `x-forge-sync` off. If you register the sync routes yourself, you put `forge.WithSync(forge.SyncProtocolGroveCRDT, "Note", "notes", forge.SyncRole(forge.SyncRolePull))` on each of the four, with the role that route plays. A server that gives every dataset its own routes adds `forge.SyncDataset("{id}")` to name the path parameter.
 
-The Grove routes carry sync and nothing else. For the Dart client to have something to call when a user edits a note, the spec also needs the REST route for the write, such as `PATCH /notes/{id}`. The client never sends that request for a Grove entity. It turns the call into a local change.
+The Grove routes carry sync and nothing else. For the Dart client to have something to call when a user edits a note, the spec also needs the REST route for the write, such as `PATCH /notes/{id}`, even though the client never sends that request for a Grove entity and turns the call into a local change instead.
 
 The generator collects the routes per entity into `lib/src/sync.dart`:
 
@@ -73,7 +73,7 @@ dependencies:
       ref: <commit sha>
 ```
 
-`forge_client_grove` depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and pub fetches it from the Grove repository for you. You only add it yourself when your own code imports it, for `CrdtType` or the typed operations. Then give it the same pin as `forge_client_grove`'s own `pubspec.yaml`, or the two won't resolve to one package:
+`forge_client_grove` depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and pub fetches it from the Grove repository for you. You only add it yourself when your own code imports it, for `CrdtType` or the typed operations, and then you give it the same pin as `forge_client_grove`'s own `pubspec.yaml`, or the two won't resolve to one package:
 
 ```yaml title="pubspec.yaml"
 dependencies:
@@ -110,7 +110,7 @@ GroveSyncSource noteSource(AuthProvider auth) => GroveSyncSource(
 
 The generated barrel leaves the codecs out, so the codec comes from the operation that returns the entity, where it's `responseCodec`. `types` maps a server field to a CRDT type, and any field you leave out is last-writer-wins. The constructor throws an `ArgumentError` naming any Grove entity that has no binding or no `idField`.
 
-Pass credentials through `auth`, not through a custom `httpClient`. When the signed-in user changes, the source stops reading credentials for the old user's requests, and it can only do that for the `AuthProvider` it was given.
+Pass credentials through `auth`, not through a custom `httpClient`. When the signed-in user changes, the source stops reading credentials for the old user's requests, and it can only do that for the `AuthProvider` you gave it.
 
 With `forge_client_offline`, hand the source to `OfflineClient.open`. The replica then lives in the same encrypted per-user database as the snapshot and the outbox:
 
@@ -136,7 +136,7 @@ Future<OfflineClient> openWithSync(
 }
 ```
 
-The offline client keeps the source's entities out of its outbox and out of what it restores, because the source owns them. Without `forge_client_offline`, pass the source to `configureClient`. Leave `storage` out and the replica lives in memory for the session:
+The offline client keeps the source's entities out of its outbox and out of what it restores, because the source owns them. If you don't use `forge_client_offline`, pass the source to `configureClient`, and if you leave `storage` out the replica lives in memory for the session:
 
 ```dart
 import 'package:catalog_forge_client/catalog_forge_client.dart';
@@ -151,7 +151,7 @@ QueryCache syncingCache(GroveSyncSource grove, StorageAdapter? storage) => confi
     );
 ```
 
-Once a user is signed in, a Grove entity's records live in the replica and the source writes them into the entity store. A query that reaches them reads the store, so your own edits show at once and remote changes show as they merge. When a record appears that the lists haven't seen, the lists that name the collection refetch. An edit to a record already in a list doesn't refetch it.
+Once a user is signed in, a Grove entity's records live in the replica and the source writes them into the entity store. A query that reaches them reads the store, so your own edits show at once and remote changes show as they merge. When a record appears that the lists haven't seen, the lists that name the collection refetch, but an edit to a record already in a list doesn't refetch it.
 
 A mutation on a Grove entity never reaches the REST transport. It becomes a local change, is visible at once, and is pushed in the background:
 
@@ -163,13 +163,13 @@ Future<Note> retitle(QueryCache cache, String id, String title) =>
     patchNote(cache, PatchNoteArgs(id: id, title: Assign(title)));
 ```
 
-The call returns the updated record, and it invalidates what the operation's `invalidates` names. The source takes the row id from the entity key in `invalidates`, else from the path parameter that spells the id field, else from the body. A create with no id gets a new uuid. A push that fails on a network error or a 5xx is retried with a jittered backoff capped at five minutes. Remote changes arrive over the SSE stream when the table declares one, else the WebSocket when one is declared and the table is known, else by polling, and `live:` on the source overrides that choice.
+You get the updated record back, and the call invalidates what the operation's `invalidates` names. The source takes the row id from the entity key in `invalidates`, else from the path parameter that spells the id field, else from the body. A create with no id gets a new uuid. A push that fails on a network error or a 5xx is retried with a jittered backoff capped at five minutes. Remote changes arrive over the SSE stream when the table declares one, else the WebSocket when one is declared and the table is known, else by polling, and `live:` on the source overrides that choice.
 
 Each dataset's replica holds at most 10,000 unsynced changes. A mutation that would go past that is refused whole, with a `CrdtError` of code `offlineQueueFull`, and nothing of it is written.
 
 ### Datasets
 
-Some servers give every dataset its own routes and tables, with the dataset id in the path. Then the `sync` row carries a `dataset:` placeholder and you join the datasets you want, at runtime:
+Some servers give every dataset its own routes and tables, with the dataset id in the path. In that case the `sync` row carries a `dataset:` placeholder, and you join the datasets you want at runtime:
 
 ```dart
 import 'package:flutter/foundation.dart';
@@ -198,7 +198,7 @@ The records of a dataset share the entity store under the composite id `<dataset
 
 A browser WebSocket handshake can't carry custom headers. On the web the connector adds your `auth` headers to the URL as lower-cased query parameters instead, so the token travels in the query string. A proxy, a server or a log can record a URL. Use short-lived tokens there, never a long-lived secret. The package keeps those values out of the errors and strings it prints. These web connectors are built, and a browser test hasn't run them yet. SSE doesn't have the problem, because the web SSE connector uses `fetch`, which can set headers.
 
-If you use presence from `grove_crdt` next to the source, presence keeps the node id the device first connected with. The clock can move to a new node id when this device's clock ran ahead of the server's, and your own presence still doesn't show up as a peer of itself.
+If you use presence from `grove_crdt` next to the source, presence keeps the node id the device first connected with. The clock can move to a new node id when this device's clock ran ahead of the server's, and even then your own presence doesn't show up as a peer of itself.
 
 ## Sync status
 
@@ -220,13 +220,13 @@ Widget syncBadge(QueryState<Object?> state) => switch (state.syncStatus) {
     };
 ```
 
-The fold picks the worst news first: a failure anywhere wins, then offline, then the pending counts added together, then synced. A query over entities no sync source owns is always `Synced`. The source also has `status(entity)` and, for a dataset, `statusOf(id)`, which emit the current status and then every change.
+The fold picks the worst news first: a failure anywhere wins, then offline, then the pending counts added together, then synced. A query over entities no sync source owns is always `Synced`. If you want the status outside a query, the source also has `status(entity)` and, for a dataset, `statusOf(id)`, which emit the current status and then every change.
 
 ## When the server says no
 
 Grove lets the server check every incoming change with a sync hook, `BeforeInboundChange`, and a push can fail validation or the clock-drift check as well. When the server refuses a change, the entity reports `SyncFailed(GroveChangeRejected)`, and the error carries each refused change's entity, id, field, kind and the server's reason. The kind is `hook`, `validation`, `drift`, `bad_request` or `server`.
 
-The change stays in the replica, marked, and in the queue, so the user's work isn't thrown away. Your app decides what happens to it:
+The change stays in the replica, marked, and in the queue, so the user's work isn't thrown away, and you decide in your app what happens to it:
 
 ```dart
 import 'package:forge_client_grove/forge_client_grove.dart';
@@ -242,13 +242,13 @@ Future<void> resolveRejected(GroveSyncSource grove, {required bool keepTrying}) 
 }
 ```
 
-`retryRejected` makes the change pushable again, which is worth doing once the user has edited it or the rule has changed. `discardRejected` drops it and restores the server's value, after it refetches the field. Other failures set the same status without a rejected change. A dataset the server no longer has (404 or 410) reports `SyncFailed(GroveDatasetGone)` and is probed again every five minutes. A refused credential reports `SyncFailed(GroveUnauthorized)`.
+`retryRejected` makes the change pushable again, which is worth doing once the user has edited it or the rule has changed, and `discardRejected` drops it and restores the server's value, after it refetches the field. Other failures set the same status without a rejected change. A dataset the server no longer has (404 or 410) reports `SyncFailed(GroveDatasetGone)` and is probed again every five minutes. A refused credential reports `SyncFailed(GroveUnauthorized)`.
 
 The [DevTools](/docs/dart-client/devtools) Sync panel shows the replica's clock, its pending changes and each entity's status while you work this out.
 
 ## Staying safe on disk
 
-The replica writes an acknowledged edit to storage about 50 ms after the mutation returns. Stopping the source or disposing the cache flushes it, but a process the OS kills inside that window loses the edit. If you need it on disk, for instance when the app goes to the background, await `flush()`:
+The replica writes an acknowledged edit to storage about 50 ms after the mutation returns. Stopping the source or disposing the cache flushes it, but a process the OS kills inside that window loses the edit, so if you need it on disk (when the app goes to the background, say), await `flush()`:
 
 ```dart
 import 'package:flutter/widgets.dart';
@@ -270,4 +270,4 @@ Register it with `WidgetsBinding.instance.addObserver`. `flush()` writes every r
 
 ## Without forge_client_grove
 
-A generated client never requires the CRDT package. Leave `forge_client_grove` out and Grove-backed entities behave as plain REST entities, as long as your server also serves them over REST: you get the encrypted cache, the outbox, and conflicts reported to your app. A web app that only reads them can skip the package.
+A generated client never requires the CRDT package. If you leave `forge_client_grove` out, Grove-backed entities behave as plain REST entities, as long as your server also serves them over REST, and you get the encrypted cache, the outbox, and conflicts reported to your app. A web app that only reads them can skip the package.

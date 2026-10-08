@@ -6,7 +6,7 @@ icon: Bug
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A query that should have refetched and didn't produces no error, no event and no request. The screen is just wrong until somebody notices. `forge_client_devtools` adds a Forge tab to Flutter DevTools that answers the question for you: why a query did or didn't refetch, what the store holds, and what is sitting in the outbox.
+A query that should have refetched and didn't produces no error, no event and no request, so your screen is just wrong until somebody notices. `forge_client_devtools` adds a Forge tab to Flutter DevTools that answers the question for you: why a query did or didn't refetch, what the store holds, and what is sitting in the outbox.
 
 ## Installing
 
@@ -25,13 +25,13 @@ cd ../forge/dart-packages/forge_client_devtools
 ./tool/build_extension.sh
 ```
 
-The script runs `fvm flutter pub get`, builds the extension into `extension/devtools/build/`, and runs the validator from `devtools_extensions` over the result. It calls `fvm`, so you need fvm installed, and it uses the Flutter version pinned in `dart-packages/.fvmrc`. The first run fetches packages your pub cache may not have yet.
+The script runs `fvm flutter pub get`, builds the extension into `extension/devtools/build/`, and runs the validator from `devtools_extensions` over the result. It calls `fvm`, so you need fvm installed, and it uses the Flutter version pinned in `dart-packages/.fvmrc`. Expect the first run to fetch packages your pub cache may not have yet.
 
-Why a path and not a git dependency? The built extension is tens of megabytes, and git ignores it. A git dependency gives you the package without an extension, and DevTools has nothing to load. Pull a newer forge later and you'll want to run the script again, because nothing rebuilds it for you.
+Why a path and not a git dependency? The built extension is tens of megabytes, and git ignores it, so a git dependency gives you the package without an extension and DevTools has nothing to load. When you pull a newer forge later, run the script again, because nothing rebuilds it for you.
 
-Run your app in debug or profile mode and open DevTools. The first time, it asks whether to enable the `forge_client_devtools` extension. Say yes and the Forge tab appears. DevTools remembers the answer in `devtools_options.yaml` at the root of your project.
+Run your app in debug or profile mode and open DevTools. The first time, it asks whether you want to enable the `forge_client_devtools` extension, and when you say yes the Forge tab appears. DevTools remembers your answer in `devtools_options.yaml` at the root of your project.
 
-In debug and profile builds, `configureClient` attaches the devtools to the cache it creates, so there's nothing to call. A cache you built with the `QueryCache` constructor needs `registerForgeServiceExtensions(cache)` from `package:forge_client/devtools.dart`. Until you do, the tab says `forge_client` isn't running.
+In debug and profile builds, `configureClient` attaches the devtools to the cache it creates, so there's nothing for you to call. If you built a cache with the `QueryCache` constructor, you need `registerForgeServiceExtensions(cache)` from `package:forge_client/devtools.dart`, and until you add it the tab says `forge_client` isn't running.
 
 ## Release builds pay nothing
 
@@ -39,7 +39,7 @@ In debug and profile builds, `configureClient` attaches the devtools to the cach
 
 That covers `configureClient`, `registerForgeServiceExtensions` and `OfflineClient.open`. If you call the rest of `package:forge_client/devtools.dart` yourself (`attach`, `Devtools`, `ControlledTransport`), those calls aren't gated, so wrap them in `kForgeDevtools`.
 
-Reading doesn't disturb the cache either. Looking at an entity writes no store row and doesn't move the query in the LRU order. The buttons in the panels are different, because refetch, invalidate, drop and evict do what they say.
+Reading doesn't disturb the cache either, since looking at an entity writes no store row and doesn't move the query in the LRU order. The buttons in the panels are different, because refetch, invalidate, drop and evict do what they say.
 
 ## What the tab shows
 
@@ -55,11 +55,11 @@ Eight panels sit under the cache counts (success, error, fetching, stale, unmoun
 
 ### Why did this query not refetch?
 
-Type a query key into the Tags panel, copied from the Queries panel, and press Explain. It names one of five outcomes: `missed`, `stale-while-unmounted`, `placed`, `refetched` or `not-tracked`. These are the same five the web inspector reports, and [the web page](/docs/web-client/devtools#why-did-this-query-not-refetch) explains what each one means. `stale-while-unmounted` is the one to learn. It looks like a bug and it's the cache declining to fetch something nobody is looking at.
+Copy a query key from the Queries panel, type it into the Tags panel and press Explain. You'll get one of five outcomes: `missed`, `stale-while-unmounted`, `placed`, `refetched` or `not-tracked`. These are the same five the web inspector reports, and [the web page](/docs/web-client/devtools#why-did-this-query-not-refetch) explains what each one means. `stale-while-unmounted` is the one to learn. It looks like a bug, and it's really the cache declining to fetch something nobody is looking at.
 
 For `missed`, the report lists the near misses. An invalidation of `Order:9` against a query that carries only `Order[]` is the classic one, and the hint says what to change. When some of the operation's `invalidates` templates resolved to nothing, a `{res.x}` against a response without `x`, the report says so first. That is the most common reason an invalidation silently didn't happen.
 
-The same panel answers why a query did refetch, from the log: the mutation or stream frame that caused it. A second box previews what an operation would invalidate without running it, and which mounted queries each tag reaches. It needs the generated operations table. `OfflineClient.open` passes it for you. With `configureClient`, hand it over yourself. The `outbox` argument is for an app that built an `OfflineClient` by hand and wants Replay and Discard to work. Leave it out otherwise.
+The same panel answers why a query did refetch, from the log: the mutation or stream frame that caused it. A second box previews what an operation would invalidate without running it, and which mounted queries each tag reaches. It needs the generated operations table, which `OfflineClient.open` passes for you and which you hand over yourself with `configureClient`. The `outbox` argument is for an app that built an `OfflineClient` by hand and wants Replay and Discard to work, so leave it out otherwise.
 
 ```dart
 import 'package:forge_client/devtools.dart';
@@ -75,7 +75,7 @@ On a cache that's already attached, this fills in what's still empty and never o
 
 ## The network simulator
 
-The quickest way to watch the outbox work is to switch the network off without touching the device. Above the panels sits a rail with three modes (Online, Slow and Offline), an extra delay of 250 ms, 1 s or 3 s, and a Fail next button. Pick a status beside it first, from 408, 429, 500, 503 and 409, so you can walk the retry, backoff and conflict paths by hand. It's 500 until you change it. Fail next fails one request and then disarms itself. A failure that stayed armed would look exactly like the bug you were hunting. Revalidation toggles that the app registered, such as focus and reconnect, show up in the rail as well.
+The quickest way for you to watch the outbox work is to switch the network off without touching the device. Above the panels sits a rail with three modes (Online, Slow and Offline), an extra delay of 250 ms, 1 s or 3 s, and a Fail next button. Pick a status beside it first, from 408, 429, 500, 503 and 409, so you can walk the retry, backoff and conflict paths by hand; it's 500 until you change it. Fail next fails one request and then disarms itself, because a failure that stayed armed would look exactly like the bug you were hunting. Revalidation toggles that the app registered, such as focus and reconnect, show up in the rail as well.
 
 The simulator sits outside the retry loop. Offline fails the whole operation, not one attempt that then retries, and added delay holds the operation back once, not once per attempt.
 
@@ -117,7 +117,7 @@ The Sync panel shows each sync source and what it says about itself. The Grove s
 
 Nothing carries over from one account to the next. When the app changes principal, `forge_client` drops its event log, frame ring, request log and the outbox and sync mirrors, and cancels any armed Fail next. It keeps one marker that says the identity changed, with no ids or payloads in it, and the extension clears every panel when it arrives. During the switch the panels say "switching account" instead of showing an empty cache.
 
-Every action the extension sends carries the session it last saw. If the account changed since, the app refuses the action and the panel shows the refusal, so a click aimed at the previous user never lands on the new one. The Frames panel is the one place that shows payloads, and only while capture is on.
+Every action the extension sends carries the session it last saw. If the account changed since, the app refuses the action and the panel shows you the refusal, so a click aimed at the previous user never lands on the new one. The Frames panel is the one place that shows payloads, and only while capture is on.
 
 ## When the tab doesn't connect
 
@@ -129,7 +129,7 @@ The other message to know is this one:
 This DevTools extension and the app's forge_client versions don't match; upgrade both.
 ```
 
-The extension and the `forge_client` in your app both speak a numbered protocol, and they have to be the same number. The current protocol is 2. When the app answers with another number, the extension asks it nothing more, because it would read the answers with the wrong shapes, and the message adds the two numbers. There's no Retry button, since asking the same app again gets the same answer. It tries again by itself after a hot restart or a new isolate.
+The extension and the `forge_client` in your app both speak a numbered protocol, and they have to be the same number. The current protocol is 2. When the app answers with another number, the extension asks it nothing more, because it would read the answers with the wrong shapes, and the message adds the two numbers. You won't find a Retry button, since asking the same app again gets the same answer; the extension tries again by itself after a hot restart or a new isolate.
 
 Most often it's two different checkouts. Your app resolved `forge_client` at one commit and the extension was built from another. Point both at the same forge commit, run `./tool/build_extension.sh` again, and restart the app.
 

@@ -10,7 +10,7 @@ Every operation carries two tag sets. `provides` is what its result can satisfy,
 
 Which tags an operation gets is decided in Go, the same way for both clients. The derived same-entity rule, `WithInvalidates`, `WithoutInvalidation`, tag templates and stream bindings are all on the web client's [Invalidation](/docs/web-client/invalidation) page, and you declare them there once for every client you generate. This page covers what you do with them in Dart.
 
-A call site can also skip a refetch it doesn't need. `ForgeMutationBuilder` and the mutation bindings take a `place:` map that puts the result straight into a list, and a callback that returns `null` falls back to the refetch. The contract is the one on the web client's [placement](/docs/web-client/runtime#the-placement-escape-hatch) section.
+You can also skip a refetch you don't need, right at the call site. `ForgeMutationBuilder` and the mutation bindings take a `place:` map that puts the result straight into a list, and a callback that returns `null` falls back to the refetch. The contract is the one on the web client's [placement](/docs/web-client/runtime#the-placement-escape-hatch) section.
 
 ## Tags in the generated table
 
@@ -32,7 +32,7 @@ const opCreateOrder = OperationMeta(
 
 A template such as `Customer:{req.customerId}` is resolved on each call. `req.` looks in the path, the query and the body your args class builds in `toTagContext()`, and `res.` looks in the decoded response. The resolution order and the wire-name fallback are the ones on the web page under [Tag templates](/docs/web-client/invalidation#tag-templates).
 
-A template that resolves to nothing is skipped. The runtime logs it once per template through `dart:developer`, under the name `forge`, so check there first when an invalidation seems to do nothing.
+A template that resolves to nothing is skipped. The runtime logs it once per template through `dart:developer`, under the name `forge`, so that's the first place you'll want to look when an invalidation seems to do nothing.
 
 ## Invalidating by hand
 
@@ -108,7 +108,7 @@ Widget liveOrder(String id) => ForgeQueryBuilder(
     );
 ```
 
-Opting in decides whether this widget opens and holds a channel. It doesn't decide who sees the data. Once any live query has a channel open, a frame updates the shared record, and every query that reads that record gets the new value, live or not. The web client explains [why it is opt-in](/docs/web-client/adapters#live-queries), and the reasoning is the same here.
+Opting in decides whether this widget opens and holds a channel, and it has no say over who sees the data. Once any live query has a channel open, a frame updates the shared record, and every query that reads that record gets the new value, live or not. The web client explains [why it is opt-in](/docs/web-client/adapters#live-queries), and the reasoning is the same here.
 
 A frame goes through the entity's codec before it reaches the store, just like a REST response, so under the default naming a live query sees `customerId` and never `customer_id`. The binder commits frames through the cache's commit scheduler, so with `frameCommitScheduler()` a burst of frames lands in one commit per frame. Pass it as `commitScheduler:` when you build the client, as the [Installation](/docs/dart-client/installation#wiring-the-runtime) page shows.
 
@@ -149,9 +149,9 @@ StreamBinder startStreams(QueryCache cache) {
 
 The table lists channels, not transports, so which connect function an endpoint gets is up to you; the `/sse/` path test above is only an example. `webSocketConnection()` and `eventSourceConnection()` return connect functions, and each picks its native or web implementation through a conditional import, so the same code runs on a phone and in a browser. The manager opens one socket per endpoint and principal, multiplexes channels over it, and closes it one turn after the last subscriber leaves. `revive` retries sockets it gave up on when the network comes back.
 
-Build the manager with `principal: () => cache.principal`. Without it, a signed-in app gets no live frames: the binder compares the two principals, drops every frame while they differ, and reports a `StateError` through `onError`.
+Build the manager with `principal: () => cache.principal`. If you leave it out, a signed-in app gets no live frames at all, because the binder compares the two principals, drops every frame while they differ, and reports a `StateError` through `onError`.
 
-Without a binder, `live: true` opens nothing. The query still works as an ordinary one, and the cache reports a `StateError` with the context `live` through its `onError`, so pass one to `configureClient` if you want to see it. The `streams` table is only populated when you generate from the AsyncAPI document as well as the OpenAPI one; see [Stream bindings](/docs/web-client/invalidation#stream-bindings).
+Without a binder, `live: true` opens nothing. The query still works as an ordinary one, and the cache reports a `StateError` with the context `live` through its `onError`, so pass one to `configureClient` if you want to see what's happening. The `streams` table is only populated when you generate from the AsyncAPI document as well as the OpenAPI one; see [Stream bindings](/docs/web-client/invalidation#stream-bindings).
 
 <Callout type="warn">
 A channel served by `extensions/streaming` should hand `forgeStreamingDecoder()` to the binder as its decoder. Its domain frames bind without it, but presence, typing and join frames are reported as unknown messages, which is a debug log by default. See [Which field carries the name](/docs/web-client/invalidation#which-field-carries-the-name).
