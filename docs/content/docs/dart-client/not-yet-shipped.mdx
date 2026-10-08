@@ -86,13 +86,13 @@ The web connectors for Grove sync are built too, and a browser test hasn't run t
 
 ### forge_client_grove isn't on pub.dev
 
-The other five packages are on pub.dev at 1.12.2, and `forge_client_grove` isn't. It depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and `grove_crdt` isn't published, so pub.dev would turn the upload away. You install `forge_client_grove` from the forge repository with a git dependency and a `ref:`, as [Sync](/docs/dart-client/sync#on-the-device) shows. `grove_crdt` is the same, from the Grove repository. Until the Grove commit merges, the `grove_crdt` pin in `forge_client_grove`'s `pubspec.yaml` points at a branch, and the `ref:` will change when it does. It can go to pub.dev once `grove_crdt` is there.
+The other five packages are on pub.dev at 1.12.2, and `forge_client_grove` isn't. It depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and `grove_crdt` isn't published, so pub.dev would turn the upload away. You install `forge_client_grove` from the forge repository with a git dependency and a `ref:`, as [Sync](/docs/dart-client/sync#on-the-device) shows. `grove_crdt` is the same, from the Grove repository. The `grove_crdt` pin in `forge_client_grove`'s `pubspec.yaml` points at a commit on Grove's main branch, and the `ref:` will change when a Grove release carries it. It can go to pub.dev once `grove_crdt` is there.
 
-### A change stamped late can miss a peer
+### A change stamped late can miss a peer on an older Grove server
 
-This is the Grove late-stamp gap. The server keeps the stamp a change was made with, and a device pulls only changes newer than its last sync point. So a change stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note: phones that synced meanwhile have moved past the stamp and never see the edit. The same goes for every CRDT type, last-writer-wins fields included, for any late write that changes what the server stores. Only a late write that loses to a newer one escapes, because the server changes nothing for it.
+This is the Grove late-stamp gap. Grove v1.7.0 and earlier keep the stamp a change was made with, and a device pulls only changes newer than its last sync point. So a change stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note: phones that synced meanwhile have moved past the stamp and never see the edit. The same goes for every CRDT type, last-writer-wins fields included, for any late write that changes what the server stores. Only a late write that loses to a newer one escapes, because the server changes nothing for it.
 
-The client is correct here. The gap is in the Grove server, and it stays until a server fix lands. [Sync](/docs/dart-client/sync#when-to-use-it) has the details.
+The client was never the problem. The fix is in the Grove server and is on Grove's main branch (xraph/grove#37), where a merge that changes a row moves it to a fresh pull position. No tagged Grove release carries it yet, so run a server built from that commit or later until one does. [Sync](/docs/dart-client/sync#when-to-use-it) has the details.
 
 ### Joining a Grove dataset before the runtime starts
 

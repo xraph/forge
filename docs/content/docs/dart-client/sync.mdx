@@ -20,7 +20,7 @@ Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the
 
 Use it for data that already lives in Grove's `crdt` package and was designed to merge: last-writer-wins registers, counters, sets and text. If your entity is a row in Postgres behind a REST handler, this package does nothing for it, and that's correct, since merging data that was never designed to merge quietly loses writes.
 
-There's one limit you should know about before you build on it. Whenever a merge changes what the server stores, the server keeps the stamp the change was made with; it never restamps a change with the time it arrived. A device pulls changes newer than the last point it synced to, and the live stream works the same way, so a change stamped earlier than a peer's sync point never reaches that peer. That holds for every CRDT type, last-writer-wins fields included. Say a technician's tablet is offline for a day and edits a note. Phones that synced while it was offline have already moved past the stamp, so they never see the edit, while a device that has never synced does. Only a late write that loses to a newer one escapes, because the server doesn't change anything for it. The client is correct here. The gap is on the server, a fix to the Grove server is still to land, and [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
+Check which Grove server you run before you build on it. Grove v1.7.0 and earlier keep the stamp a change was made with, and a device pulls only changes newer than the last point it synced to, so an edit stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note. Phones that synced while it was offline have already moved past the stamp, and on those servers they never see the edit. Grove's main branch fixes this (xraph/grove#37): a merge that changes a row moves it to a fresh pull position, so the next pull of every peer returns it, and the `grove_crdt` pin below is tested against that server. No tagged Grove release carries the fix yet, so a server on an older release still has the gap. [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
 
 ## On the server
 
@@ -93,10 +93,10 @@ dependencies:
     git:
       url: https://github.com/xraph/grove.git
       path: crdt-dart
-      ref: 11453d954cbb830703813e4a8ec858ad80862220
+      ref: c98e352065b354be48796ce8f64b5cca770dbbfd
 ```
 
-That commit sits on a Grove branch that hasn't merged, so the pin moves when it does. Check `forge_client_grove`'s `pubspec.yaml` for the current one.
+That commit is on Grove's main branch. The pin moves when a Grove release carries the Dart client, so check `forge_client_grove`'s `pubspec.yaml` for the current one.
 
 Build the source from the generated `sync` table and `entities`, and bind each Grove entity to its codec:
 
