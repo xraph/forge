@@ -516,7 +516,7 @@ final class OverlayStack implements OverlayLayer {
 
       final changes = <String, Object?>{};
 
-      for (final MapEntry(key: field, :value) in result.entries) {
+      for (final MapEntry(key: field, :value) in _fieldsOf(result)) {
         if (view.containsKey(field) && _same(value, view[field], null)) {
           continue;
         }
@@ -526,6 +526,12 @@ final class OverlayStack implements OverlayLayer {
           origins,
           Map<Object, Object?>.identity(),
         );
+
+        // Back to exactly what the record stores (a kept `previous` returned
+        // as it was, its references never read): nothing changed.
+        if (stored.containsKey(field) && _same(relinked, stored[field], null)) {
+          continue;
+        }
 
         if (promote == null) {
           changes[field] = relinked;
@@ -587,10 +593,17 @@ final class OverlayStack implements OverlayLayer {
     return view;
   }
 
-  /// [value] with every entity object the view built put back as a
-  /// reference, and every container that gained one rebuilt and marked, as
-  /// `normalize` marks a skeleton. Objects the caller made are kept; [done]
-  /// ends a cycle among them.
+  /// [value] with every entity object a view built put back as a reference,
+  /// and every container that gained one rebuilt and marked, as `normalize`
+  /// marks a skeleton. Objects the caller made are kept; [done] ends a cycle
+  /// among them.
+  ///
+  /// A view from any compute is recognised, including a sealed one an
+  /// earlier compute kept and this one returned (an undo). An entity view
+  /// becomes its reference. Any other view is rebuilt from what it resolved
+  /// and, for the fields it never read, from the stored skeleton, so a
+  /// reference it never followed stays a reference rather than reading back
+  /// as the null its seal answers. Nothing is looked up to do this.
   Object? _relink(
     Object? value,
     Map<Object, EntityKey> origins,
@@ -600,7 +613,9 @@ final class OverlayStack implements OverlayLayer {
       return value;
     }
 
-    final origin = origins[value!];
+    final origin =
+        origins[value!] ??
+        (value is _View ? value._scope.origins[value] : null);
 
     if (origin != null) return makeRef(origin);
     if (done.containsKey(value)) return done[value];
@@ -634,7 +649,7 @@ final class OverlayStack implements OverlayLayer {
 
     done[value] = out;
 
-    for (final MapEntry(key: field, value: child) in source.entries) {
+    for (final MapEntry(key: field, value: child) in _fieldsOf(source)) {
       final linked = _relink(child, origins, done);
 
       if (!identical(linked, child)) changed = true;
@@ -668,32 +683,37 @@ final class OverlayStack implements OverlayLayer {
     final type = colon <= 0 ? null : key.substring(0, colon);
     final fieldType = type == null ? null : _entities[type]?.fields[field];
 
-    if (fieldType == null) return value;
+    // A key or an id the stack minted belongs to a create that has not been
+    // answered. It is never written, and nothing written may name it: a list
+    // element that does is dropped from the list, and a field that does
+    // anywhere else is left for the response, which carries the server's
+    // own answer (see [_withoutMinted]).
+    if (fieldType == null) return _withoutMinted(value);
 
     final normalized = normalize(value, fieldType, _entities);
+    final skeleton = _withoutMinted(normalized.skeleton);
 
-    // A key the stack minted belongs to a create that has not been answered.
-    // It is never written, and nothing written may point at it: the field is
-    // left for the response, which carries the server's own answer.
-    if (normalized.records.keys.any(_isMinted) ||
-        _namesMinted(normalized.skeleton) ||
-        normalized.records.values.any(_namesMinted)) {
-      return _unpromoted;
-    }
+    if (identical(skeleton, _unpromoted)) return _unpromoted;
 
     for (final MapEntry(key: entity, value: fields)
         in normalized.records.entries) {
-      if (entity == key || held(entity)) continue;
+      if (_isMinted(entity) || entity == key || held(entity)) continue;
 
+      final kept = <String, Object?>{
+        for (final MapEntry(key: name, :value) in fields.entries)
+          if (_withoutMinted(value) case final clean
+              when !identical(clean, _unpromoted))
+            name: clean,
+      };
       final base = _host.getRecord(entity)?.data;
 
       if (base == null) {
-        _host.put(entity, fields);
+        _host.put(entity, kept);
         continue;
       }
 
       final changed = <String, Object?>{
-        for (final MapEntry(key: name, :value) in fields.entries)
+        for (final MapEntry(key: name, :value) in kept.entries)
           if (!base.containsKey(name) || !_same(value, base[name], null))
             name: value,
       };
@@ -701,7 +721,94 @@ final class OverlayStack implements OverlayLayer {
       if (changed.isNotEmpty) _host.put(entity, changed);
     }
 
-    return normalized.skeleton;
+    return skeleton;
+  }
+
+  /// [node] with every list element that names a minted key or id dropped,
+  /// or [_unpromoted] when one sits anywhere a list element does not hold
+  /// it: a field, or the whole of [node]. Dropping an element writes the rest
+  /// of the list's change, which is what the caller asked for apart from the
+  /// record the server has not made yet.
+  Object? _withoutMinted(Object? node) {
+    final clean = _stripMinted(node, Set<Object>.identity());
+
+    return identical(clean, _minted) ? _unpromoted : clean;
+  }
+
+  /// [_withoutMinted]'s walk: [_minted] when [node] is itself minted,
+  /// [_unpromoted] when a map beneath it names a minted key, otherwise [node]
+  /// or its copy without the minted list elements. [route] ends a cycle a
+  /// caller built.
+  Object? _stripMinted(Object? node, Set<Object> route) {
+    switch (node) {
+      case EntityRef(:final key):
+        return _isMinted(key) ? _minted : node;
+      case String():
+        return _isMintedId(node) ? _minted : node;
+      case List<Object?>():
+        if (!route.add(node)) return node;
+
+        try {
+          final out = <Object?>[];
+          var changed = false;
+
+          for (final element in node) {
+            final clean = _stripMinted(element, route);
+
+            if (identical(clean, _minted) || identical(clean, _unpromoted)) {
+              changed = true;
+              continue;
+            }
+
+            if (!identical(clean, element)) changed = true;
+
+            out.add(clean);
+          }
+
+          if (!changed) return node;
+
+          return isRewritten(node) ? markRewritten(out) : out;
+        } finally {
+          route.remove(node);
+        }
+      case Map<String, Object?>():
+        if (!route.add(node)) return node;
+
+        try {
+          final out = <String, Object?>{};
+          var changed = false;
+
+          for (final MapEntry(:key, :value) in node.entries) {
+            final clean = _stripMinted(value, route);
+
+            if (identical(clean, _minted) || identical(clean, _unpromoted)) {
+              return _unpromoted;
+            }
+
+            if (!identical(clean, value)) changed = true;
+
+            out[key] = clean;
+          }
+
+          if (!changed) return node;
+
+          return isRewritten(node) ? markRewritten(out) : out;
+        } finally {
+          route.remove(node);
+        }
+      default:
+        return node;
+    }
+  }
+
+  /// Whether [value] is an id this stack minted, `~opt3`, as a scalar foreign
+  /// key next to its entity (`customerId`) would hold it.
+  bool _isMintedId(String value) {
+    if (!value.startsWith('~opt')) return false;
+
+    final n = int.tryParse(value.substring(4));
+
+    return n != null && n >= 1 && n <= _temps && value == '~opt$n';
   }
 }
 
@@ -710,17 +817,27 @@ bool _never(EntityKey _) => false;
 /// What [OverlayStack._promoted] returns for a field it leaves alone.
 const Object _unpromoted = Object();
 
+/// What [OverlayStack._stripMinted] returns for a node that is itself minted.
+const Object _minted = Object();
+
 /// Whether [key] is one [OverlayStack.mint] made: `Type:~opt1`.
 bool _isMinted(EntityKey key) => key.contains(':~opt');
 
-/// Whether [node], a normalized skeleton or record, references a minted key.
-/// References break every cycle, so the walk needs no guard.
-bool _namesMinted(Object? node) => switch (node) {
-  EntityRef(:final key) => _isMinted(key),
-  List<Object?>() => node.any(_namesMinted),
-  Map<String, Object?>() => node.values.any(_namesMinted),
-  _ => false,
-};
+/// The fields of [map] as a diff or a relink must see them. A view answers
+/// with what it resolved and, for a field it never read, with the stored
+/// value itself. Reading a view here therefore looks nothing up, and a
+/// sealed view's null never stands in for a reference it did not follow.
+Iterable<MapEntry<String, Object?>> _fieldsOf(Map<String, Object?> map) {
+  if (map is! _View) return map.entries;
+
+  return [
+    for (final key in map.keys)
+      MapEntry(
+        key,
+        map._local.containsKey(key) ? map._local[key] : map._source[key],
+      ),
+  ];
+}
 
 /// What the views of one compute share: the entity views made so far, by key
 /// and by identity, and where references resolve.
@@ -958,7 +1075,23 @@ sealed class Optimistic<E> {
 ///
 /// A change to an embedded entity made through the parent (a new customer
 /// name on the order) shows at once, and on success it is written to that
-/// entity's own record as well as to the parent.
+/// entity's own record as well as to the parent. While it is pending, a
+/// typed update shows that entity with the fields its model declares and no
+/// others; base keeps the undeclared ones, and promotion merges into them.
+///
+/// `previous` is good for the length of [update]. Keeping it is fine (for an
+/// undo, `(_) => saved` returns what it held), but read later it answers
+/// only what [update] read while it ran, and null for anything it would have
+/// to look up. Returned from a later update, it writes what it held, and a
+/// reference it never followed stays a reference.
+///
+/// A record an optimistic create has not had answered yet (its key is
+/// `Type:~opt1`) is never written to base, and neither is anything that
+/// names it. A list element that names one, as a reference or as a scalar
+/// id, is dropped from the list and the rest of the list's change is
+/// promoted. Anywhere else, such as `customer` or a `customerId` holding a
+/// minted id, the whole field is left as base held it. The response carries
+/// the server's answer for it.
 final class OptimisticUpdate<E> extends Optimistic<E> {
   /// Creates the spec.
   const OptimisticUpdate(this.update, {this.key});
@@ -971,6 +1104,12 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   /// customer to all of the customer's orders and their line items, does
   /// more work for every record it reaches. Across a large connected graph
   /// with many pending changes that cost adds up on every refold.
+  ///
+  /// The size of it: with n pending records that can all reach each other
+  /// through what their updates read, one read of them runs about n squared
+  /// computes, about 1.2 s at n = 200. A write to any entity a compute read
+  /// pays that again, because each of those computes reruns. Updates that
+  /// read only their own record and its direct embeds stay linear.
   final E Function(E previous) update;
 
   /// The entity, or null to derive it.
@@ -995,6 +1134,20 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   /// kept and [update] removed comes back as null; one the round trip dropped
   /// and [update] did not bring back is not returned.
   ///
+  /// Entities are matched by identity, not by position. A list of embedded
+  /// entities is paired by entity key, so appending, removing or reordering
+  /// line items keeps every untouched one as itself. An entity put where
+  /// another stood (a customer swapped for another) is compared with its own
+  /// record, never with the one it replaced, and one the store does not hold
+  /// is written as given. Values with no identity, such as a list of plain
+  /// timestamps, are kept raw only where the same index encodes the same; an
+  /// edited one comes back encoded whole.
+  ///
+  /// A field the model does not declare cannot be carried through a typed
+  /// update. On the target it is simply not returned, so it keeps its stored
+  /// value. On an embedded entity the update changed, the pending view shows
+  /// only the declared fields, and base keeps the rest.
+  ///
   /// For `MutationBinding`. Reading [update] through a wider view (an
   /// `OptimisticUpdate<Json>` held as `Optimistic<Object?>`) fails Dart's
   /// covariance check, so the function is only ever called from in here,
@@ -1011,11 +1164,16 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
 
     if (before is! Json || after is! Json || previous is! Json) return after;
 
+    final untouched = _Untouched(previous, decode, encode);
+    final type = untouched.typeOf(untouched.keyOf(previous));
+
     return <String, Object?>{
       for (final MapEntry(:key, :value) in after.entries)
         if (!before.containsKey(key) || !_same(value, before[key], null))
           key: previous.containsKey(key)
-              ? _keepUntouched(value, before[key], previous[key])
+              ? untouched.merge(value, before[key], previous[key], previous, [
+                  key,
+                ], untouched.fieldType(type, key))
               : value,
       for (final key in before.keys)
         if (!after.containsKey(key)) key: null,
@@ -1023,37 +1181,307 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   }
 }
 
-/// [after] with every part that encodes the same as in [before] replaced by
-/// the raw part of [previous] at the same place. Maps recurse by key, lists
-/// of one length by index; anything else that changed is [after]'s own.
-Object? _keepUntouched(Object? after, Object? before, Object? previous) {
-  if (_same(after, before, null)) return previous;
+/// A step on the way from the root of a `previous` to one of its parts: a
+/// field name or a list index.
+typedef _Path = List<Object>;
 
-  if (after is Map<String, Object?> &&
-      before is Map<String, Object?> &&
-      previous is Map<String, Object?>) {
-    return <String, Object?>{
-      for (final MapEntry(:key, :value) in after.entries)
-        key: before.containsKey(key) && previous.containsKey(key)
-            ? _keepUntouched(value, before[key], previous[key])
-            : value,
-      for (final key in before.keys)
-        if (!after.containsKey(key)) key: null,
-    };
+/// What [OptimisticUpdate.applyClient] keeps raw: every part of the new value
+/// that encodes the same as the same entity's old value is replaced by the
+/// raw part of `previous`, so it keeps the server's exact bytes, and an
+/// untouched entity comes back as the view the overlay resolved, which it
+/// turns back into a reference.
+///
+/// Entities are paired by identity, never by position. A view knows its key,
+/// and the schema names each type's identity field, so a list's elements are
+/// paired by entity key: an append, a removal and a reorder each keep every
+/// untouched sibling as itself. An entity the caller put where another stood
+/// (a customer swapped for another one) is compared with its own record,
+/// round-tripped through the same codecs, and never borrows the old one's
+/// bytes. One with no record anywhere is written as given. Elements with no
+/// identity pair only by index, and only where they encode equal.
+final class _Untouched {
+  _Untouched(this.root, this.decode, this.encode)
+    : scope = root is _View ? root._scope : null;
+
+  final Json root;
+  final Object? Function(Object? client) decode;
+  final Object? Function(Object? model) encode;
+
+  /// Where the root's references resolve. Null when `previous` is not a view,
+  /// which leaves no schema and no identities to pair by.
+  final _Scope? scope;
+
+  EntitySchema get _schema => scope?.stack._entities ?? const {};
+
+  /// The entity key of [node] when it is an entity view.
+  EntityKey? keyOf(Object? node) =>
+      node is _View ? node._scope.origins[node] : null;
+
+  /// The typename of [key].
+  String? typeOf(EntityKey? key) {
+    if (key == null) return null;
+
+    final colon = key.indexOf(':');
+
+    return colon <= 0 ? null : key.substring(0, colon);
   }
 
-  if (after is List<Object?> &&
-      before is List<Object?> &&
-      previous is List<Object?> &&
-      after.length == before.length &&
-      before.length == previous.length) {
-    return [
-      for (var i = 0; i < after.length; i++)
-        _keepUntouched(after[i], before[i], previous[i]),
-    ];
+  /// The typename the schema gives [field] of [type].
+  String? fieldType(String? type, String field) =>
+      type == null ? null : _schema[type]?.fields[field];
+
+  /// The entity key [value], in client shape, would normalize to as a
+  /// [type], or null when it has no identity.
+  EntityKey? identity(Object? value, String? type) {
+    if (value is! Map<String, Object?> || type == null) return null;
+
+    final idField = _schema[type]?.idField;
+    final id = idField == null ? null : value[idField];
+
+    return isIdentity(id) ? entityKey(type, id!) : null;
   }
 
-  return after;
+  /// [after] with the parts that encode as [before] replaced by [previous]'s.
+  /// [frame] is the raw root [path] walks into from, and [type] the
+  /// schema's typename at that place.
+  Object? merge(
+    Object? after,
+    Object? before,
+    Object? previous,
+    Json frame,
+    _Path? path,
+    String? type,
+  ) {
+    final held = keyOf(previous);
+    final here = typeOf(held) ?? type;
+
+    if (after is Map<String, Object?>) {
+      final named = identity(after, here);
+
+      if (held != null || named != null) {
+        // Another entity, or one whose identity cannot be told: nothing of
+        // [previous] is its own.
+        if (named == null) return after;
+        if (named != held) return _elsewhere(after, named, frame, path, here);
+      }
+    }
+
+    if (_same(after, before, null)) return previous;
+
+    if (after is Map<String, Object?> &&
+        before is Map<String, Object?> &&
+        previous is Map<String, Object?>) {
+      return <String, Object?>{
+        for (final MapEntry(:key, :value) in after.entries)
+          key: before.containsKey(key) && previous.containsKey(key)
+              ? merge(
+                  value,
+                  before[key],
+                  previous[key],
+                  frame,
+                  path == null ? null : [...path, key],
+                  fieldType(here, key),
+                )
+              : value,
+        for (final key in before.keys)
+          if (!after.containsKey(key)) key: null,
+      };
+    }
+
+    if (after is List<Object?> &&
+        before is List<Object?> &&
+        previous is List<Object?> &&
+        before.length == previous.length) {
+      return _list(after, before, previous, frame, path, type);
+    }
+
+    return after;
+  }
+
+  Object? _list(
+    List<Object?> after,
+    List<Object?> before,
+    List<Object?> previous,
+    Json frame,
+    _Path? path,
+    String? type,
+  ) {
+    final out = List<Object?>.filled(after.length, null);
+    final used = List<bool>.filled(previous.length, false);
+
+    // The raw part each element stands for, for the round trip below: the
+    // view it was paired with or found as, or the caller's own value.
+    final raw = List<Object?>.filled(after.length, null);
+    final elsewhere = <int, _View>{};
+
+    for (var j = 0; j < after.length; j++) {
+      final element = after[j];
+      final named = identity(element, type);
+
+      if (named == null) {
+        // No identity: only the same place, only when it encodes the same.
+        final same =
+            j < previous.length &&
+            !used[j] &&
+            keyOf(previous[j]) == null &&
+            _same(element, before[j], null);
+
+        if (same) used[j] = true;
+
+        out[j] = raw[j] = same ? previous[j] : element;
+        continue;
+      }
+
+      final at = _unused(previous, used, named);
+
+      if (at >= 0) {
+        used[at] = true;
+        raw[j] = previous[at];
+        out[j] = merge(
+          element,
+          before[at],
+          previous[at],
+          frame,
+          path == null ? null : [...path, at],
+          type,
+        );
+        continue;
+      }
+
+      final found = path == null ? null : _find(named);
+
+      raw[j] = found ?? element;
+      out[j] = element;
+
+      if (found != null) elsewhere[j] = found;
+    }
+
+    if (elsewhere.isEmpty) return out;
+
+    // An entity that came from elsewhere is compared with its own record:
+    // the list is rebuilt from raw parts, each in its new place, and
+    // round-tripped once.
+    final trip = _roundTrip(frame, path!, raw);
+    final encoded = trip?.$2;
+
+    if (encoded is! List<Object?> || encoded.length != after.length) {
+      return out;
+    }
+
+    for (final MapEntry(key: j, value: found) in elsewhere.entries) {
+      out[j] = merge(after[j], encoded[j], found, trip!.$1, [...path, j], type);
+    }
+
+    return out;
+  }
+
+  /// [after] as the entity [key] it names, which [previous] at this place is
+  /// not. Compared with that entity's own record when one is held anywhere,
+  /// so its untouched fields keep their own bytes; written as given when not.
+  Object? _elsewhere(
+    Map<String, Object?> after,
+    EntityKey key,
+    Json frame,
+    _Path? path,
+    String? type,
+  ) {
+    final found = path == null ? null : _find(key);
+
+    if (found == null) return after;
+
+    final trip = _roundTrip(frame, path!, found);
+    final encoded = trip?.$2;
+
+    if (encoded is! Map<String, Object?>) return after;
+
+    return merge(after, encoded, found, trip!.$1, path, typeOf(key) ?? type);
+  }
+
+  /// The first element of [previous] not yet [used] that is the view of
+  /// [key], or -1.
+  int _unused(List<Object?> previous, List<bool> used, EntityKey key) {
+    for (var i = 0; i < previous.length; i++) {
+      if (!used[i] && keyOf(previous[i]) == key) return i;
+    }
+
+    return -1;
+  }
+
+  /// The view of [key] in this compute's scope, resolved the way any
+  /// reference in `previous` is, or null when nothing holds it.
+  _View? _find(EntityKey key) {
+    final scope = this.scope;
+
+    if (scope == null) return null;
+
+    final found = scope.stack._resolveRef(makeRef(key), scope);
+
+    return found is _View ? found : null;
+  }
+
+  /// [frame] with the part at [path] replaced by [raw], and what that
+  /// encodes to at [path] through the same codecs. Null when [path] does not
+  /// fit, the substituted value does not decode, or its encoding has no such
+  /// place: the caller then keeps what it had.
+  (Json, Object?)? _roundTrip(Json frame, _Path path, Object raw) {
+    try {
+      final substituted = _substitute(frame, path, 0, raw)! as Json;
+      var node = encode(decode(substituted));
+
+      for (final step in path) {
+        if (step is String && node is Map<String, Object?>) {
+          node = node[step];
+        } else if (step is int && node is List<Object?> && step < node.length) {
+          node = node[step];
+        } else {
+          return null;
+        }
+      }
+
+      return (substituted, node);
+    } on Object {
+      return null;
+    }
+  }
+
+  /// [node] with the part at [path] from [at] on replaced by [raw]. Every
+  /// container on the way is copied, never written; a map is wrapped, so a
+  /// view's other fields stay lazy. Throws when [path] does not fit.
+  Object? _substitute(Object? node, _Path path, int at, Object raw) {
+    if (at == path.length) return raw;
+
+    final step = path[at];
+
+    if (step is String && node is Map<String, Object?>) {
+      return _Swapped(node, step, _substitute(node[step], path, at + 1, raw));
+    }
+
+    if (step is int && node is List<Object?>) {
+      return [...node]..[step] = _substitute(node[step], path, at + 1, raw);
+    }
+
+    throw StateError('[forge] optimistic: no $step in $node');
+  }
+}
+
+/// [_source] with [field] answering [value], read-only, for a round trip of
+/// one substituted part. Every other field reads through, lazily, so a view
+/// stays lazy.
+final class _Swapped extends UnmodifiableMapBase<String, Object?> {
+  _Swapped(this._source, this._field, this._value);
+
+  final Map<String, Object?> _source;
+  final String _field;
+  final Object? _value;
+
+  @override
+  Object? operator [](Object? key) => key == _field ? _value : _source[key];
+
+  @override
+  bool containsKey(Object? key) => key == _field || _source.containsKey(key);
+
+  @override
+  Iterable<String> get keys => {..._source.keys, _field};
 }
 
 /// Removes the target. [key] null derives it with [targetOf].
