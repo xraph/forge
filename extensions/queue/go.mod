@@ -6,7 +6,7 @@ retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10
 
 require (
 	github.com/nats-io/nats.go v1.47.0
-	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/xraph/forge v1.9.13
 	github.com/xraph/vessel v1.0.4
