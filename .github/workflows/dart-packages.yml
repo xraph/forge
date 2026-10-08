@@ -35,12 +35,16 @@ on:
       # the TypeScript generator; only the generator job below runs them.
       - 'internal/client/generators/typescript/**'
       - 'cmd/forge/plugins/client.go'
+      # internal/client imports both, and the introspector reads route options
+      # from them, so a change there can change what the generator emits.
+      - 'internal/router/**'
+      - 'internal/shared/**'
       - 'packages/client-fixtures/**'
       - 'extensions/streaming/internal/streaming.go'
       - 'docs/content/docs/dart-client/**'
-      # The docs job checks these two pages' links into the Dart section.
-      - 'docs/content/docs/web-client/index.mdx'
-      - 'docs/content/docs/web-client/not-yet-shipped.mdx'
+      # The Dart pages link to headings in the web client pages, so rewording
+      # one of those headings has to fail the docs job here.
+      - 'docs/content/docs/web-client/**'
       - '.github/scripts/dart_ci_pubspec.py'
       - '.github/scripts/test_dart_ci_pubspec.py'
       - '.github/scripts/test_dart_workflow.py'
@@ -57,12 +61,16 @@ on:
       # the TypeScript generator; only the generator job below runs them.
       - 'internal/client/generators/typescript/**'
       - 'cmd/forge/plugins/client.go'
+      # internal/client imports both, and the introspector reads route options
+      # from them, so a change there can change what the generator emits.
+      - 'internal/router/**'
+      - 'internal/shared/**'
       - 'packages/client-fixtures/**'
       - 'extensions/streaming/internal/streaming.go'
       - 'docs/content/docs/dart-client/**'
-      # The docs job checks these two pages' links into the Dart section.
-      - 'docs/content/docs/web-client/index.mdx'
-      - 'docs/content/docs/web-client/not-yet-shipped.mdx'
+      # The Dart pages link to headings in the web client pages, so rewording
+      # one of those headings has to fail the docs job here.
+      - 'docs/content/docs/web-client/**'
       - '.github/scripts/dart_ci_pubspec.py'
       - '.github/scripts/test_dart_ci_pubspec.py'
       - '.github/scripts/test_dart_workflow.py'
@@ -397,14 +405,18 @@ jobs:
           chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
           echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
 
-      # The two web client pages link into the Dart section, so renaming a
-      # Dart page or heading has to fail here too.
+      # The web client pages link into the Dart section and the Dart pages
+      # link back, so renaming a heading on either side has to fail here.
       - name: Links resolve
         run: >-
           python3 .github/scripts/dart-docs/check_links.py docs/content/docs
           docs/content/docs/dart-client/*.mdx
-          docs/content/docs/web-client/index.mdx
-          docs/content/docs/web-client/not-yet-shipped.mdx
+          docs/content/docs/web-client/*.mdx
+
+      # The website renders only a few components, and renders a Tab as a code
+      # block, so prose inside one would come out as raw text on the site.
+      - name: Components the website renders
+        run: python3 .github/scripts/dart-docs/check_components.py docs/content/docs/dart-client/*.mdx
 
       # The pattern is built with printf so this file contains no em dash
       # itself, and stays clean under the same check.

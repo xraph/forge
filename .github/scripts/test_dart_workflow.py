@@ -107,9 +107,17 @@ MUST_RUN = [
     "cmd/forge/plugins/client.go",
     "packages/client-fixtures/snapshot/orders.json",
     "docs/content/docs/dart-client/sync.mdx",
-    # The docs job checks their links into the Dart section.
+    # The docs job checks the links between the web client pages and the Dart
+    # ones, so any web client page has to trigger it, not only the two that
+    # link in today.
     "docs/content/docs/web-client/index.mdx",
     "docs/content/docs/web-client/not-yet-shipped.mdx",
+    "docs/content/docs/web-client/runtime.mdx",
+    "docs/content/docs/web-client/invalidation.mdx",
+    # internal/client imports both packages, and the introspector reads route
+    # options through them.
+    "internal/router/router_impl.go",
+    "internal/shared/di.go",
     # forge_client's streaming_kinds_test pins the Dart frame kinds to this file.
     "extensions/streaming/internal/streaming.go",
     ".github/scripts/dart_ci_pubspec.py",
@@ -122,7 +130,7 @@ MUST_RUN = [
 
 MUST_NOT_RUN = [
     "internal/client/README.md",
-    "docs/content/docs/web-client/runtime.mdx",
+    "docs/content/docs/index.mdx",
     "packages/client-core/src/cache.ts",
     "extensions/hls/extension.go",
     "extensions/streaming/extension.go",
@@ -302,9 +310,11 @@ class WorkflowMatrixTest(unittest.TestCase):
     def test_docs_links_cover_the_web_pages_that_link_in(self):
         body = job("docs")
         self.assertIn("docs/content/docs/dart-client/*.mdx", body)
-        self.assertIn("docs/content/docs/web-client/index.mdx", body)
-        self.assertIn("docs/content/docs/web-client/not-yet-shipped.mdx", body)
+        self.assertIn("docs/content/docs/web-client/*.mdx", body)
         self.assertNotIn("--pending", body)
+
+    def test_docs_job_checks_the_components(self):
+        self.assertIn("dart-docs/check_components.py docs/content/docs/dart-client/*.mdx", job("docs"))
 
     def test_every_python_suite_runs(self):
         body = job("scripts")
