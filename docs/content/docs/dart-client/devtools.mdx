@@ -10,24 +10,23 @@ A query that should have refetched and didn't produces no error, no event and no
 
 ## Installing
 
-Depend on the package by path, from a checkout of the forge repository, under `dev_dependencies`:
+Add the package from pub.dev, under `dev_dependencies`:
 
 ```yaml title="pubspec.yaml"
 dev_dependencies:
-  forge_client_devtools:
-    path: ../forge/dart-packages/forge_client_devtools
+  forge_client_devtools: ^1.12.2
 ```
 
-You need Flutter 3.47 or newer, the same as every other package here. Then build the extension once:
+You need Flutter 3.47 or newer, the same as every other package here. There's no build step. The published package carries the built extension, and DevTools loads it from there.
+
+If you work from a checkout of the forge repository, you can depend on the package by path instead. A checkout doesn't have the built extension, because git ignores it and it runs to tens of megabytes, so you build it once:
 
 ```bash
 cd ../forge/dart-packages/forge_client_devtools
 ./tool/build_extension.sh
 ```
 
-The script runs `fvm flutter pub get`, builds the extension into `extension/devtools/build/`, and runs the validator from `devtools_extensions` over the result. It calls `fvm`, so you need fvm installed, and it uses the Flutter version pinned in `dart-packages/.fvmrc`. Expect the first run to fetch packages your pub cache may not have yet.
-
-Why a path and not a git dependency? The built extension is tens of megabytes, and git ignores it, so a git dependency gives you the package without an extension and DevTools has nothing to load. When you pull a newer forge later, run the script again, because nothing rebuilds it for you.
+The script runs `fvm flutter pub get`, builds the extension into `extension/devtools/build/`, and runs the validator from `devtools_extensions` over the result. It calls `fvm`, so you need fvm installed, and it uses the Flutter version pinned in `dart-packages/.fvmrc`. Expect the first run to fetch packages your pub cache may not have yet. When you pull a newer forge later, run the script again, because nothing rebuilds it for you.
 
 Run your app in debug or profile mode and open DevTools. The first time, it asks whether you want to enable the `forge_client_devtools` extension, and when you say yes the Forge tab appears. DevTools remembers your answer in `devtools_options.yaml` at the root of your project.
 
@@ -131,7 +130,7 @@ This DevTools extension and the app's forge_client versions don't match; upgrade
 
 The extension and the `forge_client` in your app both speak a numbered protocol, and they have to be the same number. The current protocol is 2. When the app answers with another number, the extension asks it nothing more, because it would read the answers with the wrong shapes, and the message adds the two numbers. You won't find a Retry button, since asking the same app again gets the same answer; the extension tries again by itself after a hot restart or a new isolate.
 
-Most often it's two different checkouts. Your app resolved `forge_client` at one commit and the extension was built from another. Point both at the same forge commit, run `./tool/build_extension.sh` again, and restart the app.
+Most often it's two different versions. Your app resolved `forge_client` at one version and the extension came from another. Keep `forge_client` and `forge_client_devtools` on the same version and restart the app. If you build the extension from a checkout, point both at the same forge commit and run `./tool/build_extension.sh` again first.
 
 <Callout type="info">
 The rail's mode belongs to the running app, and a restart puts it back online. To see writes survive a restart, queue a few while the rail says Offline and watch them appear in the Outbox panel. Then switch the device itself to airplane mode, kill the app and start it again. After the restart they are still listed. The client reads the device's connectivity from the signal you passed, so it knows it is offline, sends nothing and counts nothing against the writes, however long you wait. Turn airplane mode off and they replay, writes to one entity type in the order you made them.

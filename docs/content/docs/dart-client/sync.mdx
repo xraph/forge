@@ -13,7 +13,7 @@ The server can still say no. It runs a hook on every incoming change, and a chan
 Everything else stays on the [outbox](/docs/dart-client/offline-and-security#the-outbox), because full sync covers Grove entities only. A plain REST entity gets the encrypted cache and the outbox, and a conflict on it is reported to your app.
 
 <Callout type="warn">
-`forge.WithSync` is on forge main and ships with the next forge release. `WithCRDTEntity`, the option that makes Grove's extension declare an entity, ships with the Grove release that carries the Dart client. Until both are out, a released forge and a released Grove produce a spec with no `x-forge-sync` marks, and the generated `sync` table is empty.
+`forge.WithSync` needs forge v1.12.2 or later. `WithCRDTEntity`, the option that makes Grove's extension declare an entity, ships with the Grove release that carries the Dart client. Until that's out, a released Grove adds no `x-forge-sync` marks, and the generated `sync` table stays empty unless you put `forge.WithSync` on the routes yourself.
 </Callout>
 
 ## When to use it
@@ -64,16 +64,28 @@ An entity with no pull or no push route is left out with a warning and stays a p
 
 ## On the device
 
+`forge_client_grove` isn't on pub.dev, because it depends on `grove_crdt` and that isn't published either. You install it from the forge repository, and every entry needs a `ref:`. Get the full sha of a forge commit that contains `dart-packages/`; `git ls-remote https://github.com/xraph/forge main` prints the tip of main. If you're on a release, take the commit its tag points to.
+
 ```yaml title="pubspec.yaml"
 dependencies:
+  forge_client: ^1.12.2
   forge_client_grove:
     git:
       url: https://github.com/xraph/forge
       path: dart-packages/forge_client_grove
       ref: <commit sha>
+
+dependency_overrides:
+  forge_client:
+    git:
+      url: https://github.com/xraph/forge
+      path: dart-packages/forge_client
+      ref: <commit sha>
 ```
 
-`forge_client_grove` depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and pub fetches it from the Grove repository for you. You only add it yourself when your own code imports it, for `CrdtType` or the typed operations, and then you give it the same pin as `forge_client_grove`'s own `pubspec.yaml`, or the two won't resolve to one package:
+The override is there because `forge_client_grove` names `forge_client` by a relative path inside the repository, and pub reads that as a git dependency on the same commit. Your hosted `forge_client` is a different source, so without the override pub stops with "forge_client_grove from git is forbidden". Use the same sha in both places. The override puts the runtime from that commit under every package that uses it, the hosted adapters included, so pick a commit from the release your hosted packages are on.
+
+`forge_client_grove` brings `grove_crdt` with it, the Dart port of Grove's `crdt-js`, and pub fetches it from the Grove repository for you. You only add it yourself when your own code imports it, for `CrdtType` or the typed operations, and then you give it the same pin as `forge_client_grove`'s own `pubspec.yaml`, or the two won't resolve to one package:
 
 ```yaml title="pubspec.yaml"
 dependencies:

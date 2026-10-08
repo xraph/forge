@@ -11,53 +11,40 @@ You need Flutter 3.47 or newer, which ships Dart 3.13. Every package declares `s
 
 ## Add the packages
 
-The packages live in the forge repository under `dart-packages/`. You depend on them with git, and every entry needs a `ref:`. Get the full sha of a forge commit that contains `dart-packages/`. This prints the tip of main:
-
-```bash
-git ls-remote https://github.com/xraph/forge main
-```
-
-Then add the runtime and one adapter, with that sha in each `ref:` line:
+Five of the packages are on pub.dev, so you add them like any other dependency. Add the runtime and one adapter:
 
 <Tabs items={["Flutter adapter", "Riverpod adapter"]}>
 <Tab value="Flutter adapter">
 ```yaml title="pubspec.yaml"
 dependencies:
-  forge_client:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client
-      ref: <commit sha>
-  forge_client_flutter:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client_flutter
-      ref: <commit sha>
+  forge_client: ^1.12.2
+  forge_client_flutter: ^1.12.2
 ```
 </Tab>
 <Tab value="Riverpod adapter">
 ```yaml title="pubspec.yaml"
 dependencies:
   flutter_riverpod: ^3.4.3
-  forge_client:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client
-      ref: <commit sha>
-  forge_client_riverpod:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client_riverpod
-      ref: <commit sha>
+  forge_client: ^1.12.2
+  forge_client_riverpod: ^1.12.2
 ```
 </Tab>
 </Tabs>
 
-Use the same sha everywhere. The packages depend on each other through relative paths inside the repository, and pub turns each of those into a git dependency pinned to the commit it resolved, which means your own direct `forge_client` entry has to name that exact commit too or pub can't reconcile the two. A branch name fails. So does a missing `ref`.
+The packages are versioned in lockstep with forge, so 1.12.2 of one goes with 1.12.2 of the others, and each package asks for its siblings at `^1.12.2`. Keep them on one version. When you upgrade, move them all together.
 
-You add `forge_client_offline` with the same two lines and its own `path`, and your app then needs a `hooks` block in its root `pubspec.yaml` that selects the encrypted SQLite build. [Offline and security](/docs/dart-client/offline-and-security) shows it. `forge_client_grove` brings `grove_crdt` with it. You add `grove_crdt` yourself only when your own code imports it, and then at the same pin as `forge_client_grove`'s `pubspec.yaml`. [Sync](/docs/dart-client/sync) has the entry. Both packages are optional.
+You add `forge_client_offline` the same way, and your app then needs a `hooks` block in its root `pubspec.yaml` that selects the encrypted SQLite build. [Offline and security](/docs/dart-client/offline-and-security) shows it. The package is optional.
 
-`forge_client_devtools` is different. DevTools can't load the extension until it's built, so you depend on the package by path from a checkout, under `dev_dependencies`, and run its `tool/build_extension.sh` once. The [Devtools](/docs/dart-client/devtools) page walks through it.
+`forge_client_devtools` goes under `dev_dependencies`:
+
+```yaml title="pubspec.yaml"
+dev_dependencies:
+  forge_client_devtools: ^1.12.2
+```
+
+The published package carries the built extension, so there's nothing to build. The [Devtools](/docs/dart-client/devtools) page walks through turning it on.
+
+`forge_client_grove` is the one package that isn't on pub.dev. It depends on `grove_crdt`, the Dart port of Grove's `crdt-js`, and `grove_crdt` hasn't been published, which means pub.dev wouldn't take the upload. You install it from the forge repository with a git dependency instead, and the entry needs one extra override. [Sync](/docs/dart-client/sync#on-the-device) has both, along with the `grove_crdt` pin. You can skip it unless you sync Grove entities.
 
 ## The packages
 
@@ -78,15 +65,13 @@ You pick one adapter style per app. `forge_client_riverpod` is built on `forge_c
 
 The generator ships with the Forge CLI, so you don't need any of the packages above to run it.
 
-<Callout type="warn">
-The Dart generator ships with the next forge release. Until then `forge@latest` doesn't have `--language dart`. To use it today, build the CLI from a forge checkout with the root module and `cmd/forge` in one Go workspace: `go work init . ./cmd/forge`, then `go build -o forge ./cmd/forge`.
-</Callout>
-
-Once it's released, this installs it:
+The generator needs forge v1.12.2 or later, because earlier releases have no `--language dart`. Install the CLI at that version:
 
 ```bash
-go install github.com/xraph/forge/cmd/forge@latest
+go install github.com/xraph/forge/cmd/forge@v1.12.2
 ```
+
+`@latest` works too. Then generate:
 
 ```bash
 forge client generate --from-spec ./openapi.json --language dart --output ../orders_forge_client --package orders_forge_client --base-url "https://api.example.com" --hooks
@@ -96,18 +81,12 @@ forge client generate --from-spec ./openapi.json --language dart --output ../ord
 
 ```yaml title="pubspec.yaml"
 dependencies:
+  forge_client: ^1.12.2
   orders_forge_client:
     path: ../orders_forge_client
-
-dependency_overrides:
-  forge_client:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client
-      ref: <commit sha>
 ```
 
-A client generated with `--hooks` depends on `forge_client`. The runtime isn't on pub.dev, so the override is what tells pub where it is, and it keeps the client and your app on one copy of the runtime. Give it the same `ref` as your direct entries.
+A client generated with `--hooks` depends on `forge_client` from pub.dev, with the constraint `^1.0.0-dev`. That accepts 1.12.2, so your direct entry and the client land on one copy of the runtime and you have nothing to override.
 
 The rest of the flags, and `check`, `diff` and `watch` for keeping a committed client honest in CI, work the same way they do for TypeScript. See [the CLI reference](/docs/web-client/cli).
 

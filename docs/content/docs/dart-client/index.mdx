@@ -63,7 +63,7 @@ class OrderTotal extends StatelessWidget {
 `QueryState` is sealed, so the compiler checks that `switch` for you, and if you forget the failure case the app doesn't build.
 
 <Callout type="info">
-Everything on these pages is built and tested in the forge repository, apart from what [Not yet shipped](/docs/dart-client/not-yet-shipped) lists. It's waiting on a release. The Grove half lives in the grove repository. The packages are versioned `1.0.0-dev` and you install them from the forge repository with a git dependency. See [Installation](/docs/dart-client/installation).
+Everything on these pages ships in forge v1.12.2, apart from what [Not yet shipped](/docs/dart-client/not-yet-shipped) lists. Five of the packages are on pub.dev at 1.12.2, and the Dart generator is in the forge CLI. `forge_client_grove` isn't on pub.dev, and the Grove half lives in the grove repository. See [Installation](/docs/dart-client/installation).
 </Callout>
 
 If you run Flutter on the web, the cache lives in memory for now, because encrypted offline storage there isn't built yet. [Not yet shipped](/docs/dart-client/not-yet-shipped) lists what else you can't have today.
@@ -75,7 +75,7 @@ If you run Flutter on the web, the cache lives in memory for now, because encryp
 An orders API with no client annotations, from Go route to a Flutter screen.
 </Card>
 <Card title="Installation" href="/docs/dart-client/installation">
-The packages, the git dependencies, generating the client, and wiring the runtime.
+The packages on pub.dev, generating the client, and wiring the runtime.
 </Card>
 <Card title="Entities" href="/docs/dart-client/entities">
 How identity reaches the Dart store, what an unchanged record keeps, and when the cache lets go of records.

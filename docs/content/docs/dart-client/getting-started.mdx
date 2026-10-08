@@ -248,31 +248,16 @@ Now read what the table says. `Order` and `Customer` were both recognised as ent
 
 ## Using it
 
-Depend on the generated package and the Flutter adapter. The [Installation](/docs/dart-client/installation#add-the-packages) page explains where the sha comes from; use the same one in every `ref:`.
+Depend on the generated package and the Flutter adapter. Both packages are on pub.dev; the [Installation](/docs/dart-client/installation#add-the-packages) page has the details.
 
 ```yaml title="pubspec.yaml"
 dependencies:
   flutter:
     sdk: flutter
-  forge_client:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client
-      ref: <commit sha>
-  forge_client_flutter:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client_flutter
-      ref: <commit sha>
+  forge_client: ^1.12.2
+  forge_client_flutter: ^1.12.2
   orders_forge_client:
     path: ../orders_forge_client
-
-dependency_overrides:
-  forge_client:
-    git:
-      url: https://github.com/xraph/forge
-      path: dart-packages/forge_client
-      ref: <commit sha>
 ```
 
 Then point the runtime at the server and build a screen:
