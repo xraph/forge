@@ -1,0 +1,377 @@
+---
+title: Offline and security
+description: An encrypted cache on the device, keys in the platform keystore, and an outbox for writes made offline
+icon: ShieldCheck
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Add `forge_client_offline` and three things change. The cache survives a restart, so your app opens on the data it had, marked stale, and refreshes when it can. A write made with no network goes into a durable outbox and replays, in order, when the network comes back. And all of it is encrypted on disk, with the key held by the platform keystore.
+
+This runs on iOS, Android, macOS, Linux and Windows. The web has no offline storage yet; [The web is weaker](#the-web-is-weaker) says what is planned.
+
+## Turning it on
+
+Depend on the package the way [Installation](/docs/dart-client/installation#add-the-packages) shows, with the same `ref` as your other forge entries, and add `path_provider` for the directory:
+
+```yaml title="pubspec.yaml"
+dependencies:
+  path_provider: ^2.1.6
+  forge_client_offline:
+    git:
+      url: https://github.com/xraph/forge
+      path: dart-packages/forge_client_offline
+      ref: <commit sha>
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
+```
+
+The `hooks` block goes in your app's own `pubspec.yaml`, because the build reads user defines from the root package only. It makes the `sqlite3` package build SQLite3MultipleCiphers. Leave it out and opening storage fails with `EncryptionUnavailable`. Nothing is ever written unencrypted.
+
+<Callout type="info">
+That build hook downloads a prebuilt SQLite3MultipleCiphers library from the `sqlite3` package's GitHub release. It happens on the first build, and again after a fresh clone or `flutter clean`, so a CI runner or a build machine with no network needs it fetched once.
+</Callout>
+
+Then open the offline client when the user signs in:
+
+```dart title="lib/client.dart"
+import 'package:flutter/widgets.dart';
+import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:forge_client_offline/forge_client_offline.dart';
+import 'package:orders_forge_client/orders_forge_client.dart' show entities, operations;
+import 'package:path_provider/path_provider.dart';
+
+Future<StorageAdapter> createStorage() async =>
+    encryptedStorage(directory: (await getApplicationSupportDirectory()).path);
+
+Future<OfflineClient> signIn(StorageAdapter storage, String userId) {
+  return OfflineClient.open(
+    transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    connectivity: ConnectivityPlusSignal(),
+    commitScheduler: frameCommitScheduler(),
+  );
+}
+
+Widget appFor(OfflineClient offline, Widget home) =>
+    ForgeScope(client: offline.cache, child: home);
+```
+
+Call `createStorage` once and keep the result for the life of the app. A storage object serializes its own opens and destroys, so two of them over one directory don't see each other. Run the first open on the main isolate.
+
+`OfflineClient.open` does four things in one call. It wraps your transport in an `OutboxTransport`, builds a cache that owns your storage, signs `userId` in and waits for that user's encrypted database to open, and restores the stored snapshot and outbox. You get back a client that holds the cache as `offline.cache`. Give it to a `ForgeScope`, or override `forgeClientProvider` with it. `open` doesn't make it the global client, so call `setClient(offline.cache)` if your code reads the global.
+
+`operations` is the generated table of every operation by id. The outbox stores an operation's id and never its code, and it uses the table to find the operation again after a restart. `connectivity` is the same `ConnectivitySignal` that `revalidateOnReconnect` takes, and it tells the outbox when to start replaying. Pass nothing and the client assumes it's online, and still queues a write whose request fails before it reaches the server.
+
+If `open` can't open the storage it throws what the storage threw, after reporting it to `onError`, and it disposes what it built. Nothing is erased. [When the key can't be read](#when-the-key-cant-be-read) covers the one you'll meet.
+
+Your mutation code doesn't change. Call `updateOrder` or `m.mutate` as before, and when there's no network the write goes into the outbox instead of failing. It shows on screen straight away if the call carries an optimistic update, so pass `key:` as the [Flutter adapter](/docs/dart-client/flutter-adapter#optimistic-writes) explains. [The outbox](#the-outbox) says what a write looks like after a restart.
+
+### Building it by hand
+
+`OutboxTransport` is a decorator: it sits between the cache and the real transport and parks a write that can't reach the server. `open` is a shortcut for the objects below. Build them yourself when the cache has to exist before anyone signs in:
+
+```dart
+Future<OfflineClient> signInByHand(EncryptedSqliteStorage storage, String userId) async {
+  final outbox = OutboxTransport(RestTransport(baseUrl: Uri.parse('https://api.example.com')));
+  final cache = configureClient(
+    transport: outbox,
+    entities: entities,
+    storage: storage,
+    commitScheduler: frameCommitScheduler(),
+  );
+  final offline = OfflineClient(
+    cache: cache,
+    transport: outbox,
+    operations: operations,
+    connectivity: ConnectivityPlusSignal(),
+    storageResets: storage.resets,
+  );
+  cache.setPrincipal(userId);
+  await offline.restore();
+  return offline;
+}
+```
+
+The cache and the client have to share the one `OutboxTransport`. The storage belongs to the cache, which takes it as `storage:` like any other option, and nothing opens until the cache knows who is signed in. After `cache.setPrincipal(userId)` it opens that user's encrypted database, and the outbox and every sync source read the session the cache opened. None of them opens one of its own.
+
+Build the `OfflineClient` before you register a `watchPrincipalChanging` listener of your own. Its listener has to run first, so yours never sees the previous user's queue. A hand-built client needs a non-null `connectivity`, and `storageResets` is how a storage reset reaches `onError` instead of passing silently.
+
+## Keys on each platform
+
+Every signed-in user gets a random 256-bit key, held by the platform keystore through `flutter_secure_storage`:
+
+| Platform | Where the key lives | With `requireUserPresence: true` |
+|---|---|---|
+| iOS, macOS | Keychain | Face ID, Touch ID or the device passcode unlocks it |
+| Android | Android Keystore | biometrics or the device credential unlocks it |
+| Linux, Windows | the plugin's own store for that OS | no effect |
+| Web | not yet available | not yet available |
+
+Pass `requireUserPresence: true` to `encryptedStorage`. Without it, Apple platforms store the key readable after the first unlock, so the outbox can replay while the app is in the background. With it, the key needs the user, and a background replay waits until the app is opened.
+
+The package keeps its entries in a keystore namespace of its own, so your own use of `flutter_secure_storage` doesn't collide with them. Linux and Windows have no namespace to give, so there an app-wide `FlutterSecureStorage().deleteAll()` wipes this package's keys too. Don't call it on those platforms. Their keystore code is exercised against a fake in the package's tests and not against a real keystore.
+
+The database is SQLite built with SQLite3MultipleCiphers. Open it without the key and you get an error, not data.
+
+### Keys from a passphrase
+
+When a keystore isn't enough, derive the key from a secret the user types and you never store. You build the storage yourself, and the salt and the file names need a shared `PrincipalLabels`:
+
+```dart
+import 'package:forge_client_offline/forge_client_offline.dart';
+
+EncryptedSqliteStorage passphraseStorage(String directory, String Function() askForPassphrase) {
+  final labels = PrincipalLabels(
+    FlutterSecretStore(
+      secureStorageFor(requireUserPresence: false, useDataProtectionKeychain: true),
+    ),
+  );
+  return encryptedSqliteStorage(
+    keys: passphraseKey(
+      askForPassphrase,
+      salts: platformPassphraseSaltStore(directory: directory),
+      labels: labels,
+    ),
+    labels: labels,
+    directory: directory,
+  );
+}
+```
+
+`passphraseKey` derives the key with Argon2id (64 MiB, 3 passes, 1 lane by default) and asks for the secret whenever a database opens fresh, which means every cold start pays for the derivation. On an Apple M3 Max that took about 450 ms. A phone will be slower, and nobody has timed one yet. A wrong passphrase raises `WrongKey` and keeps the data.
+
+It's a weaker shred than a keystore key. The salt is a plain file next to the database, so a copy of the database, that salt and the passphrase still decrypt after a sign-out. Signing out removes the salt and the database, and can't reach a copy somebody already made.
+
+### The web is weaker
+
+Offline storage is native only for now. On the web `encryptedStorage` throws an `UnsupportedError`, and `webCryptoKeys` is a placeholder that throws on every platform. A web app gets the in-memory cache that `configureClient` builds when you leave `storage:` out, and no outbox.
+
+Browsers have no keystore, which is why the planned design is weaker. The default web key would be a non-extractable WebCrypto key in IndexedDB. That stops anyone who copies the storage files off a disk. It doesn't stop code running as that browser profile, such as a malicious extension or a script injected into your origin, because it can use the key without ever extracting it. The stronger option would be the passphrase key above. [Not yet shipped](/docs/dart-client/not-yet-shipped) tracks it.
+
+## One database per user
+
+Each signed-in user has one encrypted database. It holds the entity snapshot, the outbox and, with `forge_client_grove` installed, the Grove replica. Nothing a user caches is written anywhere else. The files sit in a `forge_client_offline` folder inside the directory you passed, named by an HMAC of the user id under a per-install salt kept in the keystore, so neither the folder listing nor the file names tell you who signed in.
+
+Switching account through `setPrincipal` stops every sync source, closes the old user's database and opens the new user's. It never reopens the old one. On a shared tablet the next person to sign in can't read the last person's orders, from the UI or from the files.
+
+Sign-out follows the same rule with one extra step. After `setPrincipal(null)` the sources stop in the background and the session closes after them, so `await cache.idle` before you erase anything. [Signing out shreds the data](#signing-out-shreds-the-data) has the code.
+
+## Signing out shreds the data
+
+```dart
+Future<void> signOutByHand(QueryCache cache, StorageAdapter storage, String userId) async {
+  cache.setPrincipal(null);
+  await cache.idle;
+  await storage.destroy(userId);
+}
+```
+
+`destroy` deletes the user's key first, which makes the database unreadable at once, and deletes the files after. If the app is killed between the two steps, what's left on disk is ciphertext whose key no longer exists anywhere. If `destroy` throws, call it again. Every step is safe to repeat.
+
+A client from `OfflineClient.open` does all of it for you:
+
+```dart
+Future<void> signOut(OfflineClient offline) => offline.signOut();
+
+Future<void> sessionExpired(OfflineClient offline) => offline.signOut(erase: false);
+```
+
+`signOut()` erases by default, queued writes included. `signOut(erase: false)` flushes the snapshot and keeps everything for when the same person signs back in, which is what you want when a session merely expires. A hand-built client has no storage of its own to erase, so `signOut()` throws a `StateError` there and you run the three lines above.
+
+Call `destroy` only when someone signs out on purpose. `setPrincipal(null)` on its own closes the database and keeps it.
+
+Your own token store is yours to clear. Erasing the database doesn't touch the credentials your transport sends.
+
+## Restoring on startup
+
+When a user's database opens, the cache reads their snapshot and serves what it has at once, marked stale. Every watched query then refetches under the usual freshness rules. The snapshot never holds an optimistic patch, so a restored screen shows what the server last said, and the outbox draws the pending writes over it.
+
+The client writes the snapshot about a second after changes settle, and at most five seconds after the first change, never on every frame. Nothing writes it for you when the app goes to the background. If you want it on disk before the OS reclaims the process, call `await offline.flush()` from your own lifecycle handler. `close()` flushes and then disposes the client.
+
+A client from `OfflineClient.open` has already restored by the time `open` returns. A hand-built client restores in the background as soon as its database opens, and `offline.restore()` completes when that's done. `ForgeRestoreBoundary` covers the frames in between, so the first screen never flashes empty:
+
+```dart
+Widget restoredApp(OfflineClient offline, Widget home) => ForgeRestoreBoundary(
+      restore: offline.restore,
+      placeholder: const Center(child: CircularProgressIndicator()),
+      onError: (error, stackTrace) => debugPrint('restore failed: $error'),
+      child: home,
+    );
+```
+
+The boundary runs `restore` once per mount, after the frame that mounts it. If the restore fails it still shows `child` on whatever the cache holds, so the app works on a cold cache and fetches. Give the boundary a new `Key` (`ValueKey(principal)` is the usual one) when the principal changes and you want the placeholder again.
+
+The snapshot uses the same format as the web client's `dehydrate`. In Dart it exists for persistence, and there's no server rendering.
+
+## Principals and credentials
+
+Call `cache.setPrincipal(next)` first, then swap the credentials your transport sends. That's the supported order. The outbox suspends the moment the principal starts changing, so no listener sees the old queue and no attempt still waiting on a credentials read goes out under the new account.
+
+```dart
+String? token;
+String? tokenOwner;
+
+Future<OfflineClient> openFor(StorageAdapter storage, String userId, String userToken) {
+  token = userToken;
+  tokenOwner = userId;
+  return OfflineClient.open(
+    transport: RestTransport(
+      baseUrl: Uri.parse('https://api.example.com'),
+      auth: AuthProvider.callbacks(
+        credentials: (_) => token == null ? null : {'Authorization': 'Bearer $token'},
+      ),
+    ),
+    entities: entities,
+    operations: operations,
+    storage: storage,
+    principal: userId,
+    authPrincipal: () => tokenOwner,
+  );
+}
+
+Future<void> switchAccount(OfflineClient offline, String userId, String userToken) async {
+  offline.cache.setPrincipal(userId);
+  token = userToken;
+  tokenOwner = userId;
+  await offline.cache.idle;
+}
+```
+
+`authPrincipal` returns who the transport's credentials belong to right now. Immediately before every send, the outbox compares it with the user whose write it is, and holds the write while the two disagree. It's a second line of defence. If you swap credentials first and call `setPrincipal` after, a credentials read that is already in flight can come back with the new token, and that write goes out under it. Without `authPrincipal`, a write that was already due can do the same.
+
+The failures you hold in a list belong to the user who made the writes. Drop them all when the principal changes, because acting on one afterwards would reach the wrong outbox.
+
+## The outbox
+
+A mutation made while offline, or one whose request failed before it reached the server, goes into a durable outbox in the encrypted database. The record is stored before the first request goes out and removed when the server accepts it, so a write survives the app being killed mid-request.
+
+While the app runs, the write draws from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox redraws each stored write from its arguments. A `PATCH` or `PUT` with an object body merges that body into the one entity key the operation names in `invalidates`. A `DELETE` hides that entity. A create draws nothing. A generated update or delete invalidates the collection (`Order[]`) and names no entity key, so it draws nothing after a restart. The write is still queued and still replays. Your screen just doesn't show it in the meantime.
+
+When the connection comes back, the outbox replays in order. Writes to one entity type go one at a time, so a later edit to an order can't overtake an earlier one, and the lanes for different entity types are independent. A retryable answer (a 408, a 429 or a 5xx) backs off, doubling from a second up to five minutes with some jitter. Every write carries an `Idempotency-Key` header, generated when it's queued and reused on every replay.
+
+A queued write's future stays pending for as long as the write is queued, and that can be days. Draw your screen from the cache, which shows the optimistic value, and don't put a spinner on that future. For status, read `offline.pending` (the stored writes in replay order), `offline.pendingCount` and `offline.failures`.
+
+### When a replay fails
+
+When the server refuses a replayed write, its optimistic patch is rolled back and you get a typed failure:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
+import 'package:forge_client_offline/forge_client_offline.dart';
+
+String describe(OutboxFailure failure) => switch (failure) {
+      OutboxConflict() => 'Someone else changed this order first. Reload it and try again.',
+      OutboxValidation() => 'The server would not accept this change.',
+      OutboxUnauthorized() => 'Sign in again to send your changes.',
+      OutboxGone() => 'This order no longer exists.',
+      OutboxUncertain() => 'We could not tell whether this change was saved.',
+    };
+
+Widget withOutboxMessages(OfflineClient offline, Widget child) => ForgeOutboxListener(
+      source: offline,
+      onFailure: (context, failure) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failure is OutboxFailure ? describe(failure) : '$failure')),
+      ),
+      child: child,
+    );
+```
+
+`ForgeOutboxListener` listens to an `OutboxFailureSource`, an interface with one getter, `Stream<Object> get failures`, and the offline client is one, so you pass it straight in. The stream is typed `Object` so the widget package doesn't depend on the offline package, which is why the handler checks for `OutboxFailure` before it switches. The listener never runs your callback in the middle of a build. A failure that arrives then waits for the end of the frame.
+
+`OutboxConflict` is a 409 or 412, the record changed under you. `OutboxValidation` is a 400, a 422 or another 4xx, the server rejected the body. `OutboxUnauthorized` is a 401 or 403, and `OutboxGone` is a 404 or 410. `OutboxUncertain` is the hard one, covered next. `OutboxFailure` is sealed, so the `switch` has to handle all five, and the `Outbox` prefix keeps them apart from the generated client's `ApiError` classes.
+
+A failure stays in the outbox until you decide. Writes queued behind it for the same entity wait too. Call `failure.retry()` to send it again, `failure.edit(args)` to send it with new arguments, or `failure.discard()` to drop it and let the writes behind it go. A retry after a final answer (a conflict, a validation error, an auth refusal, a missing record) goes out under a new `Idempotency-Key`. The server stored its answer under the old one and would hand you the same 409 for the next 24 hours, even after you fixed the cause. An `OutboxUncertain` retry keeps its key, because the server may be holding that write's real result under it.
+
+The [DevTools extension](/docs/dart-client/devtools) has an Outbox panel that lists pending and failed writes and can replay or discard them by hand, which is the quickest way to watch all of this happen. A replay that still can't reach the server leaves the write queued: the client's `replay` throws `OutboxOffline`, and its `cause` says why.
+
+### Uncertain writes and idempotent routes
+
+A request that was sent and never answered may or may not have been applied. The app was killed mid-request, or the connection dropped after the bytes left. The outbox resends that on its own only when repeating it is safe. That means `PUT` and `DELETE`, by HTTP semantics, and any operation whose route uses Forge's idempotency middleware, which the generated row marks `idempotent: true`. Everything else comes back as `OutboxUncertain`, because sending a `POST /orders` twice could create two orders. A request that never left the device is different. It's always safe to send again, and the outbox does.
+
+Make a route safe to retry on the server:
+
+```go
+r.POST("/orders", createOrder,
+    forge.WithOperationID("createOrder"),
+    forge.WithRequestSchema(&CreateOrderRequest{}),
+    forge.WithResponseSchema(201, "Order", &Order{}),
+    forge.WithIdempotency(),
+)
+```
+
+<Callout type="warn">
+`forge.WithIdempotency` is on forge main and ships with the next forge release. Until then, a spec generated by a released forge has no `x-forge-idempotent` marks, so `POST` and `PATCH` writes that get no answer come back as `OutboxUncertain`.
+</Callout>
+
+The middleware reads the `Idempotency-Key` the outbox sends. A key it has already seen for the same user, method and path gets the stored response back, and your handler doesn't run again. The same key with a different body gets a 422. Two requests racing with one key either wait for each other, or get a 409 with `Retry-After` if the route uses `middleware.IdempotencyOnConflict(middleware.IdempotencyReject)`. The outbox retries that 409. A handler that errors, panics or answers 408, 429 or a 5xx stores nothing, so the retry runs the handler again.
+
+Three things about the other side of that contract:
+
+- A `POST` or `PATCH` is safe to repeat only while the server still remembers the key. That's the middleware's TTL, 24 hours by default, and only as long as its store survives. The default store is in memory and shared by the process, so a deploy forgets every key. The client's `idempotencyWindow` (on `open` and the constructor, 24 hours by default) should match the TTL. Once a write's first unanswered attempt is older than that, it surfaces as `OutboxUncertain` and isn't replayed. `PUT` and `DELETE` replay at any age. Behind a load balancer, give the route `forge.IdempotencyBackend(...)` with a durable store shared by every instance.
+- A request with no signed-in user isn't deduplicated, because there's nobody to scope the key to. It runs as if it had no key, and the response carries `Idempotency-Skipped: anonymous`. The outbox reports that header through `onError` with the context `outbox.idempotency-skipped`. If you see it for a signed-in user, your auth middleware runs after the idempotency middleware. Authentication has to run first, at router or group scope, or every replay of that route can run twice.
+- A request body over the middleware's cap (1 MiB by default) gets a 413, which no retry can fix, so the outbox surfaces it as an `OutboxValidation`. A response over 1 MiB is sent in full the first time and replayed without its body, marked `Idempotent-Truncated: true`. The outbox treats that replay as a success and invalidates the entity so the next read refetches it.
+
+After 8 retryable failures in a row, a write stops retrying and surfaces as `OutboxUncertain` too. Its record and key are kept.
+
+## When the key can't be read
+
+`open` throws `KeyUnavailable` when the keystore can't be read right now. On iOS that is usually transient: the app woke before the first unlock, and the keychain item isn't readable yet. Wait and open again. Nothing is erased.
+
+If it keeps failing while the device is unlocked, you can offer `resetOfflineData()`. It erases everything this package keeps, for every user, and any write that never reached the server goes with it, so call it only after the user says yes. A failed `open` has already disposed its client, so the reset goes to the storage:
+
+```dart
+Future<OfflineClient?> openOrOfferReset(
+  EncryptedSqliteStorage storage,
+  String userId,
+  Future<bool> Function() userConfirmsErase,
+) async {
+  try {
+    return await OfflineClient.open(
+      transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+      entities: entities,
+      operations: operations,
+      storage: storage,
+      principal: userId,
+    );
+  } on KeyUnavailable {
+    if (!await userConfirmsErase()) return null;
+    await storage.resetOfflineData();
+    return OfflineClient.open(
+      transport: RestTransport(baseUrl: Uri.parse('https://api.example.com')),
+      entities: entities,
+      operations: operations,
+      storage: storage,
+      principal: userId,
+    );
+  }
+}
+```
+
+A database restored without its key, an OS restore onto a new device for example, is deleted unread and started fresh, and the writes queued in it are gone. You hear about it through `offline.resets`. Check `offline.currentResets` right after `open`, because a reset during `open` happens before anyone can listen.
+
+On Android, exclude the secure-storage preferences and the package's `forge_client_offline/` folder from Auto Backup. A restore that brings the preferences back without the Keystore key that decrypts them leaves every key unreadable, and `open` throws `KeyUnavailable` for good. `resetOfflineData()` is the way out, but that path hasn't been tried on an Android device yet.
+
+## Tests without a keystore
+
+A widget test has no Keychain. Use `memoryStorage()`, which keeps everything in memory and needs no plugin:
+
+```dart
+Future<OfflineClient> testClient(Transport transport) => OfflineClient.open(
+      transport: transport,
+      entities: entities,
+      operations: operations,
+      storage: memoryStorage(),
+      principal: 'test-user',
+    );
+```
+
+`StorageAdapter` is an interface, so an app that already has an encrypted store of its own can implement it and pass that to the cache instead.
