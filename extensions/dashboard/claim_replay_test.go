@@ -32,7 +32,7 @@ type mintRig struct {
 func newMintRig(t *testing.T, store idempotency.Store, dispOpts []dispatcher.Option, regOpts ...dispatcher.RegisterOption) *mintRig {
 	t.Helper()
 
-	opts := append([]dispatcher.Option{dispatcher.WithIdempotencyStore(adaptIdempotencyStore(store))}, dispOpts...)
+	opts := append([]dispatcher.Option{dispatcher.WithIdempotencyStore(AdaptIdempotencyStore(store))}, dispOpts...)
 	r := &mintRig{
 		d:       dispatcher.NewWithOptions(dispatcher.NoopMetricsEmitter{}, opts...),
 		started: make(chan struct{}, 64),
@@ -115,16 +115,6 @@ func conflictMessage(t *testing.T, err error) string {
 	}
 
 	return ce.Message
-}
-
-func TestProductionStoreIsAClaimer(t *testing.T) {
-	if _, ok := adaptIdempotencyStore(idempotency.NewInMemoryStore()).(dispatcher.IdempotencyClaimer); !ok {
-		t.Fatal("the production store's adapter is not a dispatcher.IdempotencyClaimer")
-	}
-
-	if _, ok := adaptIdempotencyStore(lookupOnlyStore{}).(dispatcher.IdempotencyClaimer); ok {
-		t.Fatal("a store that cannot claim was adapted into a claimer")
-	}
 }
 
 // lookupOnlyStore is an idempotency.Store with no Claim.

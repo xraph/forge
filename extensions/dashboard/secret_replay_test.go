@@ -18,7 +18,7 @@ import (
 func TestSecretCommand_ProductionStoreKeepsOnlyATombstone(t *testing.T) {
 	inner := idempotency.NewInMemoryStore()
 	d := dispatcher.NewWithOptions(dispatcher.NoopMetricsEmitter{},
-		dispatcher.WithIdempotencyStore(adaptIdempotencyStore(inner)))
+		dispatcher.WithIdempotencyStore(AdaptIdempotencyStore(inner)))
 
 	const raw = "sk_live_do_not_keep"
 

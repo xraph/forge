@@ -219,7 +219,7 @@ func (e *Extension) Register(app forge.App) error {
 	if e.config.EnableContractSecurity {
 		dispOpts = append(dispOpts,
 			dispatcher.WithTracer(otel.Tracer("forge.dashboard.contract")),
-			dispatcher.WithIdempotencyStore(adaptIdempotencyStore(idempotency.NewInMemoryStore())),
+			dispatcher.WithIdempotencyStore(AdaptIdempotencyStore(idempotency.NewInMemoryStore())),
 		)
 	}
 	e.dispatcher = dispatcher.NewWithOptions(metricsEmitter, dispOpts...)
@@ -876,12 +876,18 @@ func (e *Extension) handleContractCapabilities() http.HandlerFunc {
 // dispatcher. The conversion is lossless.
 type idempotencyAdapter struct{ inner idempotency.Store }
 
-// adaptIdempotencyStore returns a dispatcher.IdempotencyStore backed by an
-// idempotency.Store. Used at NewExtension/Register time to wire the in-memory
-// store into the dispatcher. When s is also an idempotency.Claimer, the
-// result is a dispatcher.IdempotencyClaimer, so the dispatcher holds a
-// command's key while its handler runs.
-func adaptIdempotencyStore(s idempotency.Store) dispatcher.IdempotencyStore {
+// AdaptIdempotencyStore returns a dispatcher.IdempotencyStore backed by an
+// idempotency.Store, for dispatcher.WithIdempotencyStore. The extension wires
+// its own dispatcher this way, and an extension that builds a dispatcher in
+// its tests can use it to get the same wiring. When s is also an
+// idempotency.Claimer, the result is a dispatcher.IdempotencyClaimer, so the
+// dispatcher holds a command's key while its handler runs. Otherwise it is
+// not one, and the dispatcher falls back to Lookup and Store.
+//
+// It lives here because the two packages stay apart: the dispatcher keeps its
+// own mirror types so it never imports the idempotency package, and the
+// idempotency package imports nothing from the dispatcher.
+func AdaptIdempotencyStore(s idempotency.Store) dispatcher.IdempotencyStore {
 	a := &idempotencyAdapter{inner: s}
 
 	if c, ok := s.(idempotency.Claimer); ok {

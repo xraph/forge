@@ -46,7 +46,7 @@ intents:
 		t.Fatal(err)
 	}
 
-	opts := append([]dispatcher.Option{dispatcher.WithIdempotencyStore(adaptIdempotencyStore(store))}, dispOpts...)
+	opts := append([]dispatcher.Option{dispatcher.WithIdempotencyStore(AdaptIdempotencyStore(store))}, dispOpts...)
 	d := dispatcher.NewWithOptions(dispatcher.NoopMetricsEmitter{}, opts...)
 
 	r := &wireRig{
