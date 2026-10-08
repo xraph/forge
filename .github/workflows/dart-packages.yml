@@ -1,0 +1,390 @@
+name: Dart Packages
+
+# CI for the Dart and Flutter runtime under dart-packages/, for the Dart
+# generator that emits code against it, and for the docs that show it.
+#
+# Flutter comes from dart-packages/.fvmrc, the same file fvm reads on a
+# laptop, so the version CI tests on and the version a developer runs cannot
+# drift apart. Bump Flutter by editing that file and nothing else.
+#
+# go.yml already runs the generator's Go tests on every push, but it installs
+# no Flutter, so the Dart gate test skips there and proves nothing. The
+# `generator` job below is where it actually runs, and it fails if it skips.
+#
+# grove_crdt lives in xraph/grove's crdt-dart/. Every job that resolves it
+# checks grove out at the `ref:` forge_client_grove/pubspec.yaml pins, read by
+# dart_ci_pubspec.py, so repinning that one line moves CI with it.
+#
+# Versioning: every package is 1.0.0-dev with `publish_to: none`, and none is
+# listed in release-please-config.json. Publishing to pub.dev needs explicit
+# approval and is a separate change; `pub publish --dry-run` here only proves
+# the packages would pass pub's validator when that day comes.
+#
+# .github/scripts/test_dart_workflow.py pins the filters below and the parts
+# of this file a green run cannot prove. Change them together.
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'dart-packages/**'
+      - 'internal/client/*.go'
+      - 'internal/client/generators/*.go'
+      - 'internal/client/generators/dart/**'
+      - 'cmd/forge/plugins/client.go'
+      - 'packages/client-fixtures/**'
+      - 'extensions/streaming/internal/streaming.go'
+      - 'docs/content/docs/dart-client/**'
+      - '.github/scripts/dart_ci_pubspec.py'
+      - '.github/scripts/test_dart_ci_pubspec.py'
+      - '.github/scripts/test_dart_workflow.py'
+      - '.github/scripts/dart-docs/**'
+      - '.github/workflows/dart-packages.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'dart-packages/**'
+      - 'internal/client/*.go'
+      - 'internal/client/generators/*.go'
+      - 'internal/client/generators/dart/**'
+      - 'cmd/forge/plugins/client.go'
+      - 'packages/client-fixtures/**'
+      - 'extensions/streaming/internal/streaming.go'
+      - 'docs/content/docs/dart-client/**'
+      - '.github/scripts/dart_ci_pubspec.py'
+      - '.github/scripts/test_dart_ci_pubspec.py'
+      - '.github/scripts/test_dart_workflow.py'
+      - '.github/scripts/dart-docs/**'
+      - '.github/workflows/dart-packages.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    name: CI scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test the CI helpers and the workflow's own filters
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s .github/scripts/dart-docs -p 'test_*.py' -v
+
+  packages:
+    name: ${{ matrix.package }} (${{ matrix.platform || matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: scripts
+    timeout-minutes: 40
+    continue-on-error: ${{ matrix.optional == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { package: forge_client, os: ubuntu-latest }
+          - { package: forge_client_flutter, os: ubuntu-latest }
+          - { package: forge_client_riverpod, os: ubuntu-latest }
+          # The spec runs the offline and security suite on macOS desktop and
+          # in Chrome for the WASM build. The macOS leg also builds
+          # SQLite3MultipleCiphers through sqlite3's build hook natively.
+          - { package: forge_client_offline, os: macos-latest }
+          # Only test/outbox/network_error_web_test.dart runs here (see Test),
+          # so this leg skips format, analyze and the dry run.
+          - { package: forge_client_offline, os: ubuntu-latest, platform: chrome, tests_only: true }
+          # The salt store's empty-sidecar retry in
+          # lib/src/storage/database_files_native.dart (_publish) only runs on
+          # Windows, where renaming onto an existing empty directory fails.
+          # Nothing else exercises it. It does not gate: a red result goes to
+          # the forge_client_offline owner, it is not loosened here.
+          - { package: forge_client_offline, os: windows-latest, tests_only: true, optional: true }
+          - { package: forge_client_grove, os: ubuntu-latest }
+          - { package: forge_client_devtools, os: ubuntu-latest }
+    defaults:
+      run:
+        shell: bash
+        working-directory: dart-packages/${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Windows images have `python`; `python3` there can be the Store stub.
+      - name: Read the grove_crdt pin
+        working-directory: .
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py=python; else py=python3; fi
+          echo "PY=$py" >> "$GITHUB_ENV"
+          ref=$("$py" .github/scripts/dart_ci_pubspec.py dart-packages/forge_client_grove --print-ref grove_crdt)
+          echo "GROVE_REF=$ref" >> "$GITHUB_ENV"
+
+      # In full: forge_client_grove's conformance tests build
+      # crdt-dart/tool/conformance_server, whose go.mod replaces
+      # github.com/xraph/grove with the checkout root.
+      - name: Check out grove
+        uses: actions/checkout@v7
+        with:
+          repository: xraph/grove
+          ref: ${{ env.GROVE_REF }}
+          path: .ci/grove
+
+      - name: Set up Flutter
+        id: flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: true
+          # The action's own pub cache is keyed on pubspec.lock, and packages
+          # do not commit one, so its key would never change and a new
+          # dependency would never be saved. The step below keys on pubspec.yaml.
+          pub-cache: false
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.flutter.outputs.PUB-CACHE-PATH }}
+          key: pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-${{ matrix.package }}-${{ hashFiles('dart-packages/*/pubspec.yaml', '.ci/grove/crdt-dart/pubspec.yaml') }}
+          restore-keys: |
+            pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-${{ matrix.package }}-
+
+      # Tests and tools written for a laptop call `fvm dart`, `fvm flutter`
+      # and `fvm exec CMD`. The runner has exactly one Flutter, the one .fvmrc
+      # names, so the stand-in drops a leading `exec` and runs the rest.
+      - name: Put an fvm stand-in on PATH
+        working-directory: .
+        run: |
+          mkdir -p "$RUNNER_TEMP/fvm-shim"
+          cat > "$RUNNER_TEMP/fvm-shim/fvm" <<'SH'
+          #!/usr/bin/env bash
+          if [ "${1:-}" = exec ]; then shift; fi
+          exec "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
+          echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
+
+      # The conformance tests build grove's Go server with GOPROXY=off, so
+      # its modules have to be in the cache before they run.
+      - name: Set up Go for the grove conformance server
+        if: matrix.package == 'forge_client_grove'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: .ci/grove/crdt-dart/tool/conformance_server/go.mod
+          cache-dependency-path: .ci/grove/crdt-dart/tool/conformance_server/go.sum
+
+      - name: Fetch the conformance server's modules
+        if: matrix.package == 'forge_client_grove'
+        working-directory: .ci/grove/crdt-dart/tool/conformance_server
+        env:
+          GOWORK: 'off'
+          GOFLAGS: -mod=mod
+        run: go build -o /dev/null .
+
+      - name: Pick dart or flutter
+        id: tool
+        run: |
+          if grep -Eq '^\s+sdk:\s*flutter\s*$' pubspec.yaml; then
+            echo "name=flutter" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=dart" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Point local dependencies at this checkout
+        run: |
+          "$PY" "$GITHUB_WORKSPACE/.github/scripts/dart_ci_pubspec.py" . --override "grove_crdt=$GITHUB_WORKSPACE/.ci/grove/crdt-dart"
+
+      - name: Resolve
+        run: ${{ steps.tool.outputs.name }} pub get
+
+      - name: Format
+        if: ${{ !matrix.tests_only }}
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        if: ${{ !matrix.tests_only }}
+        run: dart analyze --fatal-infos
+
+      # The extension's web build is gitignored but shipped through .pubignore,
+      # so it has to exist before the tests read it and before the dry run
+      # packs it. The script builds it with devtools_extensions build_and_copy
+      # and then validates it.
+      - name: Build the DevTools extension
+        if: matrix.package == 'forge_client_devtools'
+        run: bash tool/build_extension.sh
+
+      - name: Test
+        env:
+          TOOL: ${{ steps.tool.outputs.name }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [ "$TOOL" = dart ]; then
+            dart test
+          elif [ "$PLATFORM" = chrome ]; then
+            # Only this file until plan 04 Task 9 lands: web storage is a
+            # stub, and two untagged tests (readme_test.dart and
+            # forge_client_readme_test.dart) import dart:io.
+            flutter test --platform chrome test/outbox/network_error_web_test.dart
+          else
+            flutter test
+          fi
+
+      # pub's validator rejects every path and git dependency and refuses a
+      # `publish_to: none` package outright, so the dry run gets hosted
+      # constraints, with the local copies kept as overrides, and no
+      # publish_to. The rewrite only ever happens on the runner.
+      # --no-example: forge_client_offline's example still depends on
+      # forge_client by path, which the rewritten package no longer agrees
+      # with, and the example is not what is being published.
+      - name: Publish dry run
+        if: ${{ !matrix.tests_only }}
+        run: |
+          "$PY" "$GITHUB_WORKSPACE/.github/scripts/dart_ci_pubspec.py" . --hosted --override "grove_crdt=$GITHUB_WORKSPACE/.ci/grove/crdt-dart"
+          ${{ steps.tool.outputs.name }} pub get --no-example
+          ${{ steps.tool.outputs.name }} pub publish --dry-run
+
+  generator:
+    name: Dart generator (Go, with Flutter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The same toolchain go.yml installs. Without esbuild the codec parity
+      # test skips, which the check below turns into a failure, and without
+      # tsc the TypeScript generator's type check fails outright.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install the TypeScript toolchain
+        run: npm install -g typescript@5.8.2 esbuild@0.28.1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: true
+          pub-cache: false
+
+      - name: Put an fvm stand-in on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/fvm-shim"
+          cat > "$RUNNER_TEMP/fvm-shim/fvm" <<'SH'
+          #!/usr/bin/env bash
+          if [ "${1:-}" = exec ]; then shift; fi
+          exec "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
+          echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
+
+      # Runs every test under internal/client, so the parity test is covered
+      # wherever it lives. Then fails if anything Dart-related skipped: with
+      # Flutter installed, a skipped gate test means it could not find the
+      # toolchain, and a green run would be a lie. The Dart tests run `dart pub
+      # get` against pub.dev, so the package timeout sits above go test's
+      # default 10m and below the job's: a stalled pub.dev then names the
+      # test it stalled instead of cancelling the job.
+      - name: Generator tests
+        run: |
+          set +e
+          go test -count=1 -timeout=30m -json ./internal/client/... > go-test.json
+          status=$?
+          set -e
+          jq -r 'select(.Action == "output") | .Output' go-test.json | grep -E '^(--- FAIL|FAIL|ok|panic)' || true
+          if [ "$status" -ne 0 ]; then
+            jq -r 'select(.Action == "output") | .Output' go-test.json
+            exit "$status"
+          fi
+          skipped=$(jq -r 'select(.Action == "skip" and .Test != null and ((.Package | endswith("/generators/dart")) or (.Test | test("dart"; "i")))) | "\(.Package) \(.Test)"' go-test.json)
+          if [ -n "$skipped" ]; then
+            echo "::error::Dart generator tests skipped with Flutter on PATH:"
+            echo "$skipped"
+            exit 1
+          fi
+          ran=$(jq -r 'select(.Action == "pass" and .Test != null and (.Package | endswith("/generators/dart"))) | .Test' go-test.json | wc -l)
+          echo "Dart generator tests passed: $ran"
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::no test ran in internal/client/generators/dart"
+            exit 1
+          fi
+
+  docs:
+    name: Docs samples compile
+    runs-on: ubuntu-latest
+    needs: scripts
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the grove_crdt pin
+        run: |
+          ref=$(python3 .github/scripts/dart_ci_pubspec.py dart-packages/forge_client_grove --print-ref grove_crdt)
+          echo "GROVE_REF=$ref" >> "$GITHUB_ENV"
+
+      # The samples only compile against crdt-dart, so a sparse checkout does.
+      - name: Check out grove (crdt-dart)
+        uses: actions/checkout@v7
+        with:
+          repository: xraph/grove
+          ref: ${{ env.GROVE_REF }}
+          path: .ci/grove
+          sparse-checkout: crdt-dart
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/forge/go.sum
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: true
+          pub-cache: false
+
+      - name: Put an fvm stand-in on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/fvm-shim"
+          cat > "$RUNNER_TEMP/fvm-shim/fvm" <<'SH'
+          #!/usr/bin/env bash
+          if [ "${1:-}" = exec ]; then shift; fi
+          exec "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
+          echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
+
+      # The two web client pages link into the Dart section, so renaming a
+      # Dart page or heading has to fail here too.
+      - name: Links resolve
+        run: >-
+          python3 .github/scripts/dart-docs/check_links.py docs/content/docs
+          docs/content/docs/dart-client/*.mdx
+          docs/content/docs/web-client/index.mdx
+          docs/content/docs/web-client/not-yet-shipped.mdx
+
+      # The pattern is built with printf so this file contains no em dash
+      # itself, and stays clean under the same check.
+      - name: No em dashes
+        run: |
+          if grep -n "$(printf '\342\200\224')" docs/content/docs/dart-client/*.mdx; then
+            echo "::error::em dash in the Dart client docs"
+            exit 1
+          fi
+
+      # Generates the orders and catalog clients, checks every pasted
+      # excerpt against them (check_excerpts.py), then compiles every dart
+      # block against the packages, both clients and grove_crdt.
+      - name: Every dart block compiles
+        env:
+          GROVE_DIR: ${{ github.workspace }}/.ci/grove
+          WORK_DIR: ${{ runner.temp }}/dart-docs
+        run: .github/scripts/dart-docs/check_snippets.sh
