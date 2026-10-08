@@ -13,7 +13,6 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/a-h/templ v0.3.1001 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -83,11 +82,10 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.3 // indirect
 	github.com/xraph/forge/extensions/auth v1.9.13 // indirect
-	github.com/xraph/forgeui v1.4.1 // indirect
 	github.com/xraph/go-utils v1.3.0 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.opentelemetry.io/otel v1.45.0 // indirect
+	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
@@ -109,7 +107,6 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
-	nhooyr.io/websocket v1.8.17 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
