@@ -15,8 +15,11 @@
     "---Flutter---",
     "flutter-adapter",
     "riverpod-adapter",
+    "devtools",
     "---On the device---",
     "offline-and-security",
-    "sync"
+    "sync",
+    "---Status---",
+    "not-yet-shipped"
   ]
 }
