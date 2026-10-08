@@ -205,7 +205,7 @@ Clearing your own token store is up to you, because erasing the database doesn't
 
 ## Restoring on startup
 
-When a user's database opens, the cache reads their snapshot and serves what it has at once, marked stale, and every watched query then refetches under the usual freshness rules. The snapshot never holds an optimistic patch, so a restored screen shows what the server last said, and the outbox draws the pending writes over it.
+When a user's database opens, the cache reads their snapshot and serves what it has at once, marked stale, and every watched query then refetches under the usual freshness rules. The snapshot never holds an optimistic patch, so a restored screen shows what the server last said. The outbox then draws over it the pending writes it can find a target for. [The outbox](#the-outbox) says which those are: a generated update or delete draws nothing until it replays.
 
 The client writes the snapshot about a second after changes settle, and at most five seconds after the first change, never on every frame. Nothing writes it for you when the app goes to the background, so if you want it on disk before the OS reclaims the process, call `await offline.flush()` from your own lifecycle handler. `close()` flushes and then disposes the client.
 

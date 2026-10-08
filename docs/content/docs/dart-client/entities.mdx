@@ -56,7 +56,7 @@ Identity lasts as long as the store holds the record. If you change the principa
 
 `ForgeQueryBuilder` and the Riverpod adapter compare data with `identical()`, which the sharing above makes exact.
 
-A write to `Order:2` doesn't call the builder of a screen showing `Order:1`, and neither does a write that stores what the record already holds. A refetch that finds nothing new still flips `isFetching` to true and back, because `isFetching` is part of the state, so a plain builder runs twice with the same data in both calls. If you don't want those two builds, pass `select:`:
+A write to `Order:2` doesn't call the builder of a screen showing `Order:1`, and neither does a write that stores what the record already holds. A refetch that finds nothing new still flips `isFetching` to true and back, because `isFetching` is part of the state, so when the request outlasts a frame a plain builder runs twice with the same data in both calls. If you don't want those two builds, pass `select:`:
 
 ```dart
 Widget orderStatus(String id) => ForgeQueryBuilder(

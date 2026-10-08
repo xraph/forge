@@ -346,7 +346,7 @@ When a refetch brings back a record unchanged, your widget gets the same object 
 `m.mutate` never throws. A failed write comes back as `null` and shows up as `MutationFailure` in `m.state`, so a button handler has no `try` to forget. If you'd rather catch the error yourself, `m.mutateAsync` throws it.
 
 <Callout type="info">
-This app needs `forge_client`, `forge_client_flutter` and the generated package. [Offline and security](/docs/dart-client/offline-and-security) adds `forge_client_offline`, which keeps the cache on the device and queues writes made while it's offline. It runs on iOS, Android and the desktop, and the web has no offline storage yet.
+This app needs `forge_client`, `forge_client_flutter` and the generated package. [Offline and security](/docs/dart-client/offline-and-security) adds `forge_client_offline`, which keeps the cache on the device and queues writes made while it's offline. It's built for iOS, Android and the desktop, and the web has no offline storage yet.
 </Callout>
 
 ## Next

@@ -55,7 +55,7 @@ dependencies:
 
 Use the same sha everywhere. The packages depend on each other through relative paths inside the repository, and pub turns each of those into a git dependency pinned to the commit it resolved, which means your own direct `forge_client` entry has to name that exact commit too or pub can't reconcile the two. A branch name fails. So does a missing `ref`.
 
-You add `forge_client_offline` with the same two lines and its own `path`, and your app then needs a `hooks` block in its root `pubspec.yaml` that selects the encrypted SQLite build. [Offline and security](/docs/dart-client/offline-and-security) shows it. `forge_client_grove` wants `grove_crdt` beside it, at the pin in its own `pubspec.yaml`, and [Sync](/docs/dart-client/sync) has the entry. Both are optional.
+You add `forge_client_offline` with the same two lines and its own `path`, and your app then needs a `hooks` block in its root `pubspec.yaml` that selects the encrypted SQLite build. [Offline and security](/docs/dart-client/offline-and-security) shows it. `forge_client_grove` brings `grove_crdt` with it. You add `grove_crdt` yourself only when your own code imports it, and then at the same pin as `forge_client_grove`'s `pubspec.yaml`. [Sync](/docs/dart-client/sync) has the entry. Both packages are optional.
 
 `forge_client_devtools` is different. DevTools can't load the extension until it's built, so you depend on the package by path from a checkout, under `dev_dependencies`, and run its `tool/build_extension.sh` once. The [Devtools](/docs/dart-client/devtools) page walks through it.
 
