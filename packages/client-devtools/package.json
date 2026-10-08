@@ -129,7 +129,7 @@
     "jsdom": "^26.0.0",
     "size-limit": "^11.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.11"
   },
   "files": [
     "dist",

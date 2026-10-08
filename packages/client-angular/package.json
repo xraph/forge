@@ -69,10 +69,10 @@
     "@forge-go/client-core": "^1.9.10"
   },
   "devDependencies": {
-    "@angular/common": "^22.0.0",
-    "@angular/compiler": "^22.0.0",
-    "@angular/core": "^22.0.0",
-    "@angular/platform-browser": "^22.0.0",
+    "@angular/common": "^22.1.1",
+    "@angular/compiler": "^22.1.1",
+    "@angular/core": "^22.1.1",
+    "@angular/platform-browser": "^22.1.1",
     "@forge-go/client-core": "file:../client-core",
     "@size-limit/preset-small-lib": "^11.0.0",
     "@types/node": "^22.20.1",
@@ -80,7 +80,7 @@
     "rxjs": "^7.8.0",
     "size-limit": "^11.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.11"
   },
   "files": [
     "dist",
