@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
+import 'package:forge_client_offline/src/outbox/network_error_io.dart'
+    show classifySocketException, notSentCodesFor;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
@@ -163,6 +165,94 @@ void main() {
       NetworkFailure.uncertain,
       reason: 'a reset code is not on the not-sent list',
     );
+  });
+
+  group('the code of each system is read against its own table', () {
+    NetworkFailure on(String os, int code, [String message = 'localized']) =>
+        classifySocketException(
+          SocketException(message, osError: OSError(message, code)),
+          operatingSystem: os,
+        );
+
+    test('a Windows refusal, unreachable network or failed lookup is '
+        'notSent', () {
+      const notSent = {
+        // What a refusal arriving through ConnectEx carries. This is the
+        // code the first Windows CI run classified as uncertain.
+        1225: 'ERROR_CONNECTION_REFUSED',
+        1231: 'ERROR_NETWORK_UNREACHABLE',
+        1232: 'ERROR_HOST_UNREACHABLE',
+        10050: 'WSAENETDOWN',
+        10051: 'WSAENETUNREACH',
+        10061: 'WSAECONNREFUSED',
+        10064: 'WSAEHOSTDOWN',
+        10065: 'WSAEHOSTUNREACH',
+        11001: 'WSAHOST_NOT_FOUND',
+        11002: 'WSATRY_AGAIN',
+        11004: 'WSANO_DATA',
+      };
+      for (final MapEntry(key: code, value: name) in notSent.entries) {
+        expect(on('windows', code), NetworkFailure.notSent, reason: name);
+      }
+    });
+
+    test('Dart\'s own Windows refusal, in English, is notSent', () {
+      expect(
+        on(
+          'windows',
+          1225,
+          'The remote computer refused the network connection.',
+        ),
+        NetworkFailure.notSent,
+      );
+    });
+
+    test('a Windows reset, abort or timeout stays uncertain', () {
+      const uncertain = {
+        64: 'ERROR_NETNAME_DELETED',
+        121: 'ERROR_SEM_TIMEOUT',
+        1236: 'ERROR_CONNECTION_ABORTED',
+        10053: 'WSAECONNABORTED',
+        10054: 'WSAECONNRESET',
+        10060: 'WSAETIMEDOUT',
+      };
+      for (final MapEntry(key: code, value: name) in uncertain.entries) {
+        expect(on('windows', code), NetworkFailure.uncertain, reason: name);
+      }
+    });
+
+    test('a refusal is notSent on macOS, iOS, Linux and Android', () {
+      expect(on('macos', 61), NetworkFailure.notSent);
+      expect(on('ios', 61), NetworkFailure.notSent);
+      expect(on('linux', 111), NetworkFailure.notSent);
+      expect(on('android', 111), NetworkFailure.notSent);
+    });
+
+    test('a timeout or reset stays uncertain on macOS and Linux', () {
+      expect(on('macos', 54), NetworkFailure.uncertain, reason: 'ECONNRESET');
+      expect(on('macos', 60), NetworkFailure.uncertain, reason: 'ETIMEDOUT');
+      expect(on('linux', 104), NetworkFailure.uncertain, reason: 'ECONNRESET');
+      expect(on('linux', 110), NetworkFailure.uncertain, reason: 'ETIMEDOUT');
+    });
+
+    test('one number means different things on different systems', () {
+      // EHOSTDOWN on macOS, a reset (ERROR_NETNAME_DELETED) on Windows.
+      expect(on('macos', 64), NetworkFailure.notSent);
+      expect(on('windows', 64), NetworkFailure.uncertain);
+      // A Windows refusal code means nothing on Linux.
+      expect(on('linux', 1225), NetworkFailure.uncertain);
+    });
+
+    test('the running system uses its own table', () {
+      expect(
+        notSentCodesFor(Platform.operatingSystem),
+        contains(switch (Platform.operatingSystem) {
+          'windows' => 1225,
+          'macos' || 'ios' => 61,
+          _ => 111,
+        }),
+      );
+    });
   });
 
   group('a request the caller cancelled', () {
