@@ -103,7 +103,7 @@ const opUpdateOrder = OperationMeta(
   entity: 'Order',
   rootType: 'Order',
   provides: ['Order:{id}'],
-  invalidates: ['Order[]', 'Order:{id}'],
+  invalidates: ['Order[]'],
   idempotent: true,
 );
 
