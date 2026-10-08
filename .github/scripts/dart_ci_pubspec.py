@@ -47,7 +47,9 @@ GIT_REF = re.compile(r"^      ref:\s*['\"]?([^'\"\s]+)['\"]?\s*$")
 VERSION = re.compile(r"^version:\s*(\S+)\s*$", re.M)
 PRIVATE = re.compile(r"""^publish_to:\s*(none|'none'|"none")\s*$""")
 VERSION_LINE = re.compile(r"^version:\s*\S+\s*$")
-SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
+# No leading zeros: pub reads 01.2.3 as 1.2.3, so the stamped version and the
+# one pub.dev is asked about would disagree.
+SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")
 RELEASES = "https://github.com/xraph/forge/releases/tag/v"
 
 
@@ -97,7 +99,9 @@ def stamp_changelog(directory, version):
         sys.exit(f"dart_ci_pubspec: no CHANGELOG.md in {directory}")
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    heading = re.compile(rf"^##\s+\[?v?{re.escape(version)}\]?(\s|$)", re.M)
+    # `# X.Y.Z`, `### vX.Y.Z`, `## [X.Y.Z] - date`, and release-please's
+    # `## [X.Y.Z](compare-url)`, but not `## X.Y.Z-rc.1`.
+    heading = re.compile(rf"^#{{1,3}}\s+\[?v?{re.escape(version)}\]?(?=[\s(]|$)", re.M)
     if heading.search(text):
         return
     entry = (

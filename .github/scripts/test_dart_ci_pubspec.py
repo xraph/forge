@@ -200,7 +200,7 @@ class DartCiPubspecTest(unittest.TestCase):
         self.assertEqual(self.read("pubspec.yaml"), before.replace("version: 1.0.0-dev", "version: 1.13.0"))
 
     def test_version_rejects_a_leading_v_and_non_versions(self):
-        for bad in ("v1.13.0", "1.13", "latest", ""):
+        for bad in ("v1.13.0", "1.13", "latest", "", "01.2.3", "1.02.3", "1.2.03"):
             with self.subTest(version=bad):
                 result = run(self.pkg, "--hosted", "--version", bad)
                 self.assertEqual(result.returncode, 1)
@@ -231,6 +231,46 @@ class DartCiPubspecTest(unittest.TestCase):
         result = run(self.pkg, "--hosted", "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read("CHANGELOG.md"), notes)
+
+    def test_version_accepts_zero_components_and_prereleases(self):
+        for good in ("0.1.0", "1.0.0", "10.20.30", "1.13.0-rc.1"):
+            with self.subTest(version=good):
+                result = run(self.pkg, "--version", good, "--override",
+                             f"grove_crdt={os.path.join(self.root, 'grove', 'crdt-dart')}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"version: {good}\n", self.read("pubspec.yaml"))
+
+    def test_changelog_recognises_the_common_heading_styles(self):
+        # Prepending a generic section above real notes would show the
+        # version twice on pub.dev, boilerplate first.
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        for heading in (
+            "## [1.13.0](https://github.com/xraph/forge/compare/v1.12.0...v1.13.0) (2026-10-07)",
+            "## [1.13.0] - 2026-10-07",
+            "## v1.13.0",
+            "# 1.13.0",
+            "### 1.13.0",
+            "## 1.13.0 (2026-10-07)",
+        ):
+            with self.subTest(heading=heading):
+                notes = f"{heading}\n\n- Real notes.\n\n## 1.0.0-dev\n\n- Initial release.\n"
+                with open(os.path.join(self.pkg, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+                    f.write(notes)
+                result = run(self.pkg, "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.read("CHANGELOG.md"), notes)
+
+    def test_changelog_ignores_deeper_headings_and_other_versions(self):
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        for heading in ("#### 1.13.0", "## 1.13.01", "## 11.13.0", "## [1.13.0-rc.1](https://x)"):
+            with self.subTest(heading=heading):
+                with open(os.path.join(self.pkg, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+                    f.write(f"{heading}\n\n- Other.\n")
+                result = run(self.pkg, "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                changelog = self.read("CHANGELOG.md")
+                self.assertTrue(changelog.startswith("## 1.13.0\n\n- Released with forge v1.13.0"))
+                self.assertEqual(changelog.count("- Released with forge"), 1)
 
     def test_changelog_does_not_take_a_longer_version_for_this_one(self):
         notes = "## 1.13.0-rc.1\n\n- Candidate.\n"
