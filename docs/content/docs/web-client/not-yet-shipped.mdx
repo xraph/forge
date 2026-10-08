@@ -25,7 +25,7 @@ Freshness has two sources now, not one. The tag graph is still there: a query is
 
 - **No `gcTime`.** A query stays cached until the LRU forgets it, which by default is after 128 others have been used more recently. There is no separate time-based eviction the way there is now a time-based staleness check.
 - **No pagination primitive.** There is no infinite-query helper. Pages are ordinary queries, and stitching them is your code's job.
-- **No persistence.** The cache is memory only. Nothing writes to `localStorage` or IndexedDB, and there is no offline mode.
+- **No persistence.** The cache is memory only. Nothing writes to `localStorage` or IndexedDB, and there is no offline mode. The [Dart client](/docs/dart-client/offline-and-security) has both for apps that run on a device, though its web builds keep the cache in memory like this one does.
 - **No suspense integration.** `useQuery` returns a status. It does not throw a promise.
 
 If someone else changes a record and you are not on a stream channel carrying it, this client will not find out, because a tag graph only fires on writes it can see. Where that matters, put the entity on a channel or invalidate by hand.

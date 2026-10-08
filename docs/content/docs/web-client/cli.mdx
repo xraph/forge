@@ -85,7 +85,7 @@ A source that fails to parse aborts the whole run; generation never degrades to 
 
 | Flag | Default | Description |
 |---|---|---|
-| `-l, --language <string>` | `go` | Target language (`go`, `typescript`) |
+| `-l, --language <string>` | `go` | Target language (`go`, `typescript`, `dart`) |
 | `-o, --output <string>` | `./client` | Output directory |
 | `-p, --package <string>` | `client` | Package/module name |
 | `-b, --base-url <string>` | — | API base URL |
@@ -107,7 +107,7 @@ A source that fails to parse aborts the whole run; generation never degrades to 
 
 | Flag | Default | Description |
 |---|---|---|
-| `--field-naming <string>` | `camel` for TypeScript, `preserve` otherwise | Client-side field naming: `camel`, `pascal`, `snake`, `preserve` |
+| `--field-naming <string>` | `camel` for TypeScript and Dart, `preserve` otherwise | Client-side field naming: `camel`, `pascal`, `snake`, `preserve` |
 | `--field-overrides <string>` | — | Comma-separated overrides, e.g. `User.user_id=userIdentifier,api_key=apiKey`. Schema-scoped keys use `Schema.wire_name`; a bare `wire_name` applies globally |
 | `--include <string>...` | `[]` | Only generate endpoints whose path matches a pattern (repeatable; prefix, glob or `/**`) |
 | `--exclude <string>...` | `[]` | Skip endpoints whose path matches a pattern; applied after `--include` |

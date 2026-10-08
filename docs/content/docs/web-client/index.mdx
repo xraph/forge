@@ -11,6 +11,8 @@ Forge generates a TypeScript client from your API specification. The client cove
 
 The difference shows up the first time two screens display the same record. With a response-keyed cache, `GET /orders/7` and `GET /orders` hold two unrelated copies of order 7, and keeping them in step is invalidation you write by hand in every frontend that talks to your API. With a normalized cache, both reference one `Order:7`, and a `PATCH` that changes its total updates the detail page, the row in the list and a sidebar badge with no refetch and no wiring.
 
+If you are building for Flutter, the [Dart client](/docs/dart-client) is generated from the same specification and caches the same entities, with an encrypted offline store on top.
+
 ## What you write to get it
 
 Nothing, in the common case. Identity is inferred in Go from your response types: a named struct with an `id` field becomes a cacheable entity, and every non-`GET` that touches it is derived to invalidate that entity's collection. There is no annotation to add and no client-side invalidation map to maintain.

@@ -4,7 +4,7 @@ An elegant, extensible client code generator that introspects Forge routes and g
 
 ## Features
 
-- **Multi-Language Support**: Currently supports Go and TypeScript, extensible to Rust and other languages
+- **Multi-Language Support**: Currently supports Go, TypeScript and Dart, extensible to Rust and other languages
 - **Comprehensive API Coverage**: Generates clients for REST, WebSocket, and SSE endpoints
 - **Smart Auth Integration**: Detects and generates proper authentication code (Bearer, API Key, Basic, OAuth2)
 - **Advanced Streaming**: Includes reconnection, heartbeat, and connection state management for WebSocket/SSE
@@ -47,6 +47,13 @@ Features:
 - Type-safe interfaces from OpenAPI schemas
 - Modern async/await patterns
 - NPM package generation with `package.json` and `tsconfig.json`
+
+#### Dart Generator (`generators/dart/`)
+
+- A Dart package with immutable models, codecs, a typed `RestClient` and a sealed `ApiError` hierarchy, and no `build_runner` step for the consumer
+- With `--hooks`, the `ops.dart` table and one-line bindings over the `forge_client` runtime in `dart-packages/`
+- int64 as an extension type over `String` by default, plain `int` with `--int64=int`
+- Documented in `docs/content/docs/dart-client/`
 
 ## Usage
 
