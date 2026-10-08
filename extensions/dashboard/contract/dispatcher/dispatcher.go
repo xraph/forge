@@ -88,11 +88,33 @@ const TombstoneStatus = http.StatusConflict
 // response, stays in the store.
 const idempotencyTTL = 24 * time.Hour
 
+// ReasonDetail is the key, in a contract.Error's Details, under which the
+// dispatcher's idempotency answers name why the command did not run. Its
+// value is one of the Reason constants. Codes and messages are for people;
+// a client that needs to tell these answers apart reads the reason.
+const ReasonDetail = "reason"
+
+// Reasons the dispatcher gives, under ReasonDetail, when a command with an
+// idempotency key does not run. The strings are wire-stable.
+const (
+	// ReasonAlreadyRan is the CONFLICT a replay of a SecretResponse command
+	// answers: the command ran, and its response is not kept.
+	ReasonAlreadyRan = "idempotency.already_ran"
+	// ReasonStillRunning is the retryable CONFLICT a command answers when
+	// another dispatch with the same key and user still holds the key after
+	// the wait.
+	ReasonStillRunning = "idempotency.still_running"
+	// ReasonClaimFailed is the retryable UNAVAILABLE a command answers when
+	// its key could not be claimed for any other reason.
+	ReasonClaimFailed = "idempotency.claim_failed"
+)
+
 // errSecretNotKept is what a replay of a SecretResponse command answers.
 func errSecretNotKept() *contract.Error {
 	return &contract.Error{
 		Code:    contract.CodeConflict,
 		Message: "command already ran and its response held a secret that is not kept; send a new idempotency key to run it again",
+		Details: map[string]any{ReasonDetail: ReasonAlreadyRan},
 	}
 }
 
@@ -102,6 +124,7 @@ func errStillRunning() *contract.Error {
 	return &contract.Error{
 		Code:      contract.CodeConflict,
 		Message:   "the same command is still running under this idempotency key; retry once it finishes",
+		Details:   map[string]any{ReasonDetail: ReasonStillRunning},
 		Retryable: true,
 	}
 }
@@ -113,6 +136,7 @@ func errClaimFailed() *contract.Error {
 	return &contract.Error{
 		Code:      contract.CodeUnavailable,
 		Message:   "could not claim the idempotency key",
+		Details:   map[string]any{ReasonDetail: ReasonClaimFailed},
 		Retryable: true,
 	}
 }
