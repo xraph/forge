@@ -99,7 +99,7 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 		var err error
 		opts, err = redis.ParseURL(addr)
 		if err != nil {
-			return fmt.Errorf("failed to parse redis URL: %w", err)
+			return fmt.Errorf("failed to parse redis URL: %w", redactURLError(err))
 		}
 	} else {
 		opts = &redis.Options{
@@ -142,7 +142,7 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 
 	q.connected = true
 	q.startTime = time.Now()
-	q.logger.Info("connected to redis queue", forge.F("addr", addr))
+	q.logger.Info("connected to redis queue", forge.F("addr", redactURL(addr)))
 
 	return nil
 }
