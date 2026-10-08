@@ -115,7 +115,10 @@ class SaveButton extends ConsumerWidget {
           ? null
           : () => ref.read(updateOrderProvider.notifier).mutate(
                 UpdateOrderArgs(id: id, note: Assign(note)),
-                optimistic: OptimisticUpdate((order) => order.copyWith(note: Assign(note))),
+                optimistic: OptimisticUpdate(
+                  (order) => order.copyWith(note: Assign(note)),
+                  key: entityKey('Order', id),
+                ),
               ),
       child: switch (status) {
         MutationIdle() || MutationSuccess() => const Text('Save'),

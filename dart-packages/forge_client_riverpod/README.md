@@ -182,7 +182,10 @@ class SaveButton extends ConsumerWidget {
           ? null
           : () => ref.read(updateOrderProvider.notifier).mutate(
                 UpdateOrderArgs(id: id, note: Assign(note)),
-                optimistic: OptimisticUpdate((order) => order.copyWith(note: Assign(note))),
+                optimistic: OptimisticUpdate(
+                  (order) => order.copyWith(note: Assign(note)),
+                  key: entityKey('Order', id),
+                ),
               ),
       child: switch (status) {
         MutationIdle() || MutationSuccess() => const Text('Save'),
@@ -193,6 +196,8 @@ class SaveButton extends ConsumerWidget {
   }
 }
 ```
+
+Pass `key:`. A generated `PATCH` invalidates only the collection (`Order[]`), so the runtime can't tell which record to patch on its own. Without a key the cache reports a `StateError` through `onError` under the context `optimistic`, and the write goes out with no optimism.
 
 An optional field of a PATCH body is a `Value`. It defaults to `const Unchanged()`, which leaves the field out of the request, and `Assign(x)` sets it (`Assign(null)` clears it on the server). A model's `copyWith` takes the same `Value<T>?` for each nullable field. An operation with no parameters takes `NoArgs`.
 

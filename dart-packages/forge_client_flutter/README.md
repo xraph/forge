@@ -124,13 +124,18 @@ The `principal:` line is the one to get right. The manager opens each socket for
 ```dart
 Widget saveButton(String id, String note) => ForgeMutationBuilder(
   mutation: updateOrder,
-  optimistic: (args) => OptimisticUpdate((order) => order.copyWith(note: args.note)),
+  optimistic: (args) => OptimisticUpdate(
+    (order) => order.copyWith(note: args.note),
+    key: entityKey('Order', id),
+  ),
   builder: (context, m) => FilledButton(
     onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: Assign(note))),
     child: const Text('Save'),
   ),
 );
 ```
+
+Pass `key:`. A generated `PATCH` invalidates only the collection (`Order[]`), so the runtime can't tell which record to patch on its own. Without a key the cache reports a `StateError` through `onError` under the context `optimistic`, and the write goes out with no optimism.
 
 An optional field of a PATCH body is a `Value`. It defaults to `const Unchanged()`, which leaves the field out of the request, and `Assign(x)` sets it (`Assign(null)` clears it on the server). A model's `copyWith` takes the same `Value<T>?` for each nullable field, which is why `args.note` goes straight into it above and `order.copyWith(note: Assign('gift'))` works anywhere else. An operation with no parameters takes `NoArgs`.
 

@@ -67,7 +67,10 @@ Widget liveOrder(String id) => ForgeQueryBuilder(
 //README-BLOCK mutations
 Widget saveButton(String id, String note) => ForgeMutationBuilder(
   mutation: updateOrder,
-  optimistic: (args) => OptimisticUpdate((order) => order.copyWith(note: args.note)),
+  optimistic: (args) => OptimisticUpdate(
+    (order) => order.copyWith(note: args.note),
+    key: entityKey('Order', id),
+  ),
   builder: (context, m) => FilledButton(
     onPressed: m.isPending ? null : () => m.mutate(UpdateOrderArgs(id: id, note: Assign(note))),
     child: const Text('Save'),

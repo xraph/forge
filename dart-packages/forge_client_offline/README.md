@@ -155,10 +155,15 @@ void saveNote(OfflineClient offline, String id, String note) {
   updateOrder(
     offline.cache,
     UpdateOrderArgs(id: id, note: Assign(note)),
-    optimistic: OptimisticUpdate((order) => order.copyWith(note: Assign(note))),
+    optimistic: OptimisticUpdate(
+      (order) => order.copyWith(note: Assign(note)),
+      key: entityKey('Order', id),
+    ),
   ).ignore();
 }
 ```
+
+Pass `key:`. A generated `PATCH` invalidates only the collection (`Order[]`), so the runtime can't tell which record to patch on its own. Without a key the cache reports a `StateError` through `onError` under the context `optimistic`, and the write is queued with no optimism.
 
 A queued write's future stays pending for as long as the write is queued. That can be days offline, or however long the backoff holds it. Draw your screen from the cache, which shows the optimistic value meanwhile, and never put a spinner on that future. If you do await it, expect it to throw the `OutboxFailure` when the server refuses the write.
 

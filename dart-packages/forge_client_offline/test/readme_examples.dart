@@ -94,7 +94,10 @@ void saveNote(OfflineClient offline, String id, String note) {
   updateOrder(
     offline.cache,
     UpdateOrderArgs(id: id, note: Assign(note)),
-    optimistic: OptimisticUpdate((order) => order.copyWith(note: Assign(note))),
+    optimistic: OptimisticUpdate(
+      (order) => order.copyWith(note: Assign(note)),
+      key: entityKey('Order', id),
+    ),
   ).ignore();
 }
 
