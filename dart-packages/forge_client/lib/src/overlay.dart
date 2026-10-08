@@ -820,6 +820,9 @@ const Object _unpromoted = Object();
 /// What [OverlayStack._stripMinted] returns for a node that is itself minted.
 const Object _minted = Object();
 
+/// What [_Untouched] finds when no old encoding names an entity.
+const Object _unfound = Object();
+
 /// Whether [key] is one [OverlayStack.mint] made: `Type:~opt1`.
 bool _isMinted(EntityKey key) => key.contains(':~opt');
 
@@ -1139,9 +1142,21 @@ final class OptimisticUpdate<E> extends Optimistic<E> {
   /// line items keeps every untouched one as itself. An entity put where
   /// another stood (a customer swapped for another) is compared with its own
   /// record, never with the one it replaced, and one the store does not hold
-  /// is written as given. Values with no identity, such as a list of plain
-  /// timestamps, are kept raw only where the same index encodes the same; an
-  /// edited one comes back encoded whole.
+  /// is written as given. A codec that reorders a list on decode never pairs
+  /// the caller's value with another entity: where identities disagree, that
+  /// part is written exactly as the caller gave it.
+  ///
+  /// Values with no identity (a list of plain timestamps, a list of notes)
+  /// cannot be told apart, so they are paired by index. When nothing was
+  /// inserted, removed or moved, an edited value object keeps its untouched
+  /// fields' raw bytes, as a field of the record does. A removal and an
+  /// insert that leave the length unchanged look the same, since nothing
+  /// says otherwise. Once an insert or a removal shifts them, a value keeps
+  /// raw bytes only where the same index encodes the same. Two values that
+  /// encode the same but differ raw (two Go timestamps in one microsecond)
+  /// can then trade raw spellings with a neighbour, and an edited value
+  /// object comes back encoded whole, with its untouched lossy fields
+  /// respelled. The next response or fetch puts the server's bytes back.
   ///
   /// A field the model does not declare cannot be carried through a typed
   /// update. On the target it is simply not returned, so it keeps its stored
@@ -1309,6 +1324,33 @@ final class _Untouched {
     final out = List<Object?>.filled(after.length, null);
     final used = List<bool>.filled(previous.length, false);
 
+    // Entities first, by identity: where each one stood before.
+    final named = [for (final element in after) identity(element, type)];
+    final pairs = List<int>.filled(after.length, -1);
+
+    for (var j = 0; j < after.length; j++) {
+      final key = named[j];
+
+      if (key == null) continue;
+
+      final at = _unused(previous, used, key);
+
+      if (at < 0) continue;
+
+      used[at] = true;
+      pairs[j] = at;
+    }
+
+    // In place: nothing inserted, removed or moved. Only then does an index
+    // still say which old value an element with no identity was, so only
+    // then is one recursed into. Once something shifts, a value would take
+    // its neighbour's bytes.
+    var inPlace = after.length == previous.length;
+
+    for (var j = 0; inPlace && j < after.length; j++) {
+      if (pairs[j] >= 0 && pairs[j] != j) inPlace = false;
+    }
+
     // The raw part each element stands for, for the round trip below: the
     // view it was paired with or found as, or the caller's own value.
     final raw = List<Object?>.filled(after.length, null);
@@ -1316,39 +1358,63 @@ final class _Untouched {
 
     for (var j = 0; j < after.length; j++) {
       final element = after[j];
-      final named = identity(element, type);
+      final key = named[j];
 
-      if (named == null) {
-        // No identity: only the same place, only when it encodes the same.
-        final same =
-            j < previous.length &&
-            !used[j] &&
-            keyOf(previous[j]) == null &&
-            _same(element, before[j], null);
+      if (key == null) {
+        final free =
+            j < previous.length && !used[j] && keyOf(previous[j]) == null;
 
-        if (same) used[j] = true;
+        if (!free) {
+          out[j] = raw[j] = element;
+          continue;
+        }
 
-        out[j] = raw[j] = same ? previous[j] : element;
+        used[j] = true;
+
+        if (inPlace) {
+          raw[j] = previous[j];
+          out[j] = merge(
+            element,
+            before[j],
+            previous[j],
+            frame,
+            path == null ? null : [...path, j],
+            type,
+          );
+        } else {
+          // Shifted: only what encodes the same keeps its raw bytes.
+          final same = _same(element, before[j], null);
+
+          out[j] = raw[j] = same ? previous[j] : element;
+        }
+
         continue;
       }
 
-      final at = _unused(previous, used, named);
+      final at = pairs[j];
 
       if (at >= 0) {
-        used[at] = true;
         raw[j] = previous[at];
-        out[j] = merge(
-          element,
-          before[at],
-          previous[at],
-          frame,
-          path == null ? null : [...path, at],
-          type,
-        );
+
+        // A codec that reorders on decode puts another entity at [at]. The
+        // entity's own old encoding is then found by identity, and when it
+        // cannot be, the element is written as the caller gave it.
+        final old = _encodedOf(before, at, key, type);
+
+        out[j] = identical(old, _unfound)
+            ? element
+            : merge(
+                element,
+                old,
+                previous[at],
+                frame,
+                path == null ? null : [...path, at],
+                type,
+              );
         continue;
       }
 
-      final found = path == null ? null : _find(named);
+      final found = path == null ? null : _find(key);
 
       raw[j] = found ?? element;
       out[j] = element;
@@ -1369,6 +1435,10 @@ final class _Untouched {
     }
 
     for (final MapEntry(key: j, value: found) in elsewhere.entries) {
+      // A codec that reorders on decode puts something else at [j]: the
+      // element is then written exactly as the caller gave it.
+      if (identity(encoded[j], type) != named[j]) continue;
+
       out[j] = merge(after[j], encoded[j], found, trip!.$1, [...path, j], type);
     }
 
@@ -1391,10 +1461,33 @@ final class _Untouched {
 
     final trip = _roundTrip(frame, path!, found);
     final encoded = trip?.$2;
+    final here = typeOf(key) ?? type;
 
-    if (encoded is! Map<String, Object?>) return after;
+    // Checked by identity too: a codec that reshapes what it decodes must
+    // never pair the caller's value with another entity's encoding.
+    if (encoded is! Map<String, Object?> || identity(encoded, here) != key) {
+      return after;
+    }
 
-    return merge(after, encoded, found, trip!.$1, path, typeOf(key) ?? type);
+    return merge(after, encoded, found, trip!.$1, path, here);
+  }
+
+  /// The old encoding of the entity [key] in [before]: the one at [at],
+  /// which lines up with `previous` unless the codec reorders on decode, or
+  /// else the first that names [key]. [_unfound] when none does.
+  Object? _encodedOf(
+    List<Object?> before,
+    int at,
+    EntityKey key,
+    String? type,
+  ) {
+    if (identity(before[at], type) == key) return before[at];
+
+    for (final candidate in before) {
+      if (identity(candidate, type) == key) return candidate;
+    }
+
+    return _unfound;
   }
 
   /// The first element of [previous] not yet [used] that is the view of
