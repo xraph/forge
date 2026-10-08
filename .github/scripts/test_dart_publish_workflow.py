@@ -237,6 +237,12 @@ class PrepareTest(unittest.TestCase):
         self.assertResolves({"version": "1.13.0", "dry_run": "false"},
                             "workflow_dispatch", "refs/tags/v1.13.0", "v1.13.0", "false")
 
+    def test_a_real_prerelease_is_refused_even_on_its_own_tag(self):
+        self.assertRefuses("is a prerelease or build version",
+                           "workflow_dispatch", "refs/tags/v1.13.0-rc.1", "1.13.0-rc.1", "false")
+        self.assertRefuses("is a prerelease or build version",
+                           "workflow_dispatch", "refs/tags/v1.13.0+build.7", "1.13.0+build.7", "false")
+
     def test_versions_pub_would_misread_are_refused(self):
         # The trigger glob matches v01.2.3, so prepare is the gate.
         self.assertRefuses("not a version pub accepts", "push", "refs/tags/v01.2.3")

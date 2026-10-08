@@ -46,10 +46,11 @@ name: Publish Dart Packages
 # is short-lived, so dart_publish.sh mints a fresh one before every pub
 # command.
 #
-# Optional, and a repository setting rather than this file: a GitHub
-# environment with a required reviewer on the publish job, required in turn
-# on each package's pub.dev admin page, puts a human approval in front of
-# every upload.
+# Optional: a human approval before every upload. Create a GitHub
+# environment with a required reviewer in the repository settings, add
+# `environment: <name>` to the publish job in this file, and only then require
+# that environment on each package's pub.dev admin page. Requiring it on
+# pub.dev without the `environment:` line here makes every upload fail.
 #
 # One-time steps, by hand, before the first tag run can publish anything:
 #
@@ -174,6 +175,13 @@ jobs:
               echo "::error::A real publish of $version must run on refs/tags/v$version, not $REF. Push the tag, or leave dry-run ticked."
               exit 1
             fi
+            # Stable versions only, like npm-publish's tag trigger: a pub.dev
+            # version is permanent, and a prerelease of every package is not
+            # something to cut by accident. Dry runs may still try one.
+            if [[ "$version" == *[-+]* ]]; then
+              echo "::error::$version is a prerelease or build version. Real publishes take X.Y.Z only; leave dry-run ticked to rehearse it."
+              exit 1
+            fi
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -241,7 +249,9 @@ jobs:
           name: devtools-extension
           path: dart-packages/forge_client_devtools/extension/devtools/build
           if-no-files-found: error
-          retention-days: 1
+          # Seven days, so "Re-run failed jobs" still finds the build after a
+          # failed publish; past that, use "Re-run all jobs".
+          retention-days: 7
 
   # A dry run never needs a token, so it gets a job that cannot mint one.
   dry-run:
