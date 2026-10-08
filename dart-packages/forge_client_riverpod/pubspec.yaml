@@ -1,6 +1,7 @@
 name: forge_client_riverpod
 description: Riverpod 3 providers for forge_client. Query families yielding AsyncValue, mutation notifiers, and the same frame, focus and reconnect seams as forge_client_flutter.
 version: 1.0.0-dev
+repository: https://github.com/xraph/forge/tree/main/dart-packages/forge_client_riverpod
 publish_to: none
 
 environment:

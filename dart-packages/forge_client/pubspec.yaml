@@ -1,6 +1,7 @@
 name: forge_client
 description: Runtime core for generated Forge Dart clients. Normalized entity store, tag graph, query cache and REST transport.
 version: 1.0.0-dev
+repository: https://github.com/xraph/forge/tree/main/dart-packages/forge_client
 publish_to: none
 
 environment:

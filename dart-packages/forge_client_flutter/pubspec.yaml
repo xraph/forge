@@ -1,6 +1,7 @@
 name: forge_client_flutter
 description: Flutter widgets and seams for forge_client. Scopes, query and mutation builders, local state, and frame, focus and reconnect revalidation, with no state library required.
 version: 1.0.0-dev
+repository: https://github.com/xraph/forge/tree/main/dart-packages/forge_client_flutter
 publish_to: none
 
 environment:

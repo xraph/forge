@@ -1,6 +1,7 @@
 name: forge_client_grove
 description: Grove CRDT sync for forge_client. Owns Grove-backed entities, projects their replica into the entity store, and syncs them over Grove's protocol.
 version: 1.0.0-dev
+repository: https://github.com/xraph/forge/tree/main/dart-packages/forge_client_grove
 publish_to: none
 
 environment:
