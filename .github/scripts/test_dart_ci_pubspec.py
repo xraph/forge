@@ -141,6 +141,111 @@ class DartCiPubspecTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.read("pubspec.yaml").endswith("  forge_client: ^1.0.0-dev\n"))
 
+    def test_version_stamps_the_package_and_every_path_dependency(self):
+        # Lockstep: v1.13.0 publishes 1.13.0 of everything, so a sibling's
+        # committed 1.0.0-dev must not leak into the constraint.
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--hosted", "--version", "1.13.0", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pubspec = self.read("pubspec.yaml")
+        self.assertTrue(pubspec.startswith("name: forge_client_grove\nversion: 1.13.0\nenvironment:\n"))
+        self.assertIn("  forge_client: ^1.13.0\n", pubspec)
+        self.assertNotIn("1.0.0-dev", pubspec.replace("grove_crdt: ^1.0.0-dev", ""))
+        self.assertNotIn("publish_to", pubspec)
+        self.assertIn("  meta: ^1.19.0\n", pubspec)
+
+    def test_version_leaves_a_git_dependency_at_its_own_version(self):
+        # grove_crdt is grove's package, not one of forge's lockstepped ones.
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--hosted", "--version", "1.13.0", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("  grove_crdt: ^1.0.0-dev\n", self.read("pubspec.yaml"))
+
+    def test_version_stamps_dev_dependencies_too(self):
+        write(os.path.join(self.root, "forge_client_offline", "pubspec.yaml"), """
+            name: forge_client_offline
+            version: 1.0.0-dev
+        """)
+        write(os.path.join(self.pkg, "pubspec.yaml"), """
+            name: forge_client_flutter
+            version: 1.0.0-dev
+            publish_to: none
+            dependencies:
+              forge_client:
+                path: ../forge_client
+            dev_dependencies:
+              forge_client_offline:
+                path: ../forge_client_offline
+        """)
+        result = run(self.pkg, "--hosted", "--version", "2.0.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pubspec = self.read("pubspec.yaml")
+        self.assertIn("  forge_client: ^2.0.1\n", pubspec)
+        self.assertIn("  forge_client_offline: ^2.0.1\n", pubspec)
+
+    def test_version_keeps_the_overrides_on_the_local_copies(self):
+        # The dry run resolves a sibling that is not on pub.dev at ^X.Y.Z
+        # through these.
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--hosted", "--version", "1.13.0", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"  forge_client:\n    path: {os.path.join(self.root, 'forge_client')}\n",
+                      self.read("pubspec_overrides.yaml"))
+
+    def test_version_without_hosted_only_changes_the_version(self):
+        before = self.read("pubspec.yaml")
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--version", "1.13.0", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read("pubspec.yaml"), before.replace("version: 1.0.0-dev", "version: 1.13.0"))
+
+    def test_version_rejects_a_leading_v_and_non_versions(self):
+        for bad in ("v1.13.0", "1.13", "latest", ""):
+            with self.subTest(version=bad):
+                result = run(self.pkg, "--hosted", "--version", bad)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("--version wants X.Y.Z", result.stderr)
+        self.assertNotIn("1.13", self.read("pubspec.yaml"))
+
+    def test_changelog_gets_a_section_for_the_version(self):
+        # pub warns "CHANGELOG.md doesn't mention current version", and the
+        # dry run exits 65 on any warning.
+        write(os.path.join(self.pkg, "CHANGELOG.md"), """
+            ## 1.0.0-dev
+
+            - Initial release.
+        """)
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--hosted", "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        changelog = self.read("CHANGELOG.md")
+        self.assertTrue(changelog.startswith("## 1.13.0\n\n- Released with forge v1.13.0"))
+        self.assertIn("https://github.com/xraph/forge/releases/tag/v1.13.0", changelog)
+        self.assertTrue(changelog.endswith("## 1.0.0-dev\n\n- Initial release.\n"))
+
+    def test_changelog_keeps_notes_already_written_for_the_version(self):
+        notes = "## 1.13.0\n\n- Real notes.\n\n## 1.0.0-dev\n\n- Initial release.\n"
+        with open(os.path.join(self.pkg, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+            f.write(notes)
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--hosted", "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read("CHANGELOG.md"), notes)
+
+    def test_changelog_does_not_take_a_longer_version_for_this_one(self):
+        notes = "## 1.13.0-rc.1\n\n- Candidate.\n"
+        with open(os.path.join(self.pkg, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+            f.write(notes)
+        grove = os.path.join(self.root, "grove", "crdt-dart")
+        result = run(self.pkg, "--version", "1.13.0", "--changelog", "--override", f"grove_crdt={grove}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.read("CHANGELOG.md").startswith("## 1.13.0\n\n"))
+
+    def test_changelog_needs_a_version(self):
+        result = run(self.pkg, "--hosted", "--changelog")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--changelog needs --version", result.stderr)
+
     def test_missing_override_directory_fails(self):
         result = run(self.pkg, "--override", "grove_crdt=/nonexistent")
         self.assertEqual(result.returncode, 1)
