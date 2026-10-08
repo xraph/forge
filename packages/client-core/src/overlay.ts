@@ -493,10 +493,7 @@ export function targetOf(
   const keys: EntityKey[] = [];
 
   for (const template of meta.invalidates) {
-    const colon = template.indexOf(':');
-
-    if (colon <= 0) continue;
-    if (template.slice(0, colon).endsWith('[]')) continue;
+    if (!namesEntity(template)) continue;
 
     const tag = resolveTag(template, args);
 
@@ -512,6 +509,34 @@ export function targetOf(
   if (keys.length > 1) return 'ambiguous';
 
   return keys[0] as EntityKey;
+}
+
+/** Whether a tag template names one entity's KEY: a `Type:` head that is not a collection. */
+function namesEntity(template: string): boolean {
+  const colon = template.indexOf(':');
+
+  return colon > 0 && !template.slice(0, colon).endsWith('[]');
+}
+
+/**
+ * Whether a POST writes a record that already exists, as `POST /orders/{id}/ship` does.
+ *
+ * DeriveTags gives every POST `Order:{id}` in `provides`, a create included, so
+ * the template alone says nothing. What differs is where `{id}` comes from. A
+ * record that exists is named by its path; a create's id is not in the path yet.
+ * Resolving against the path alone keeps a create that picks its own id in the
+ * body, and one nested under `/customers/{customerId}`, a create.
+ *
+ * This only decides that minting would be wrong. It never becomes the target.
+ */
+function writesExisting(meta: OperationMeta, args: TagContext): boolean {
+  const path = args.path;
+
+  if (path === undefined) return false;
+
+  return meta.provides.some(
+    (template) => namesEntity(template) && resolveTag(template, { path }) !== undefined,
+  );
 }
 
 /** One explicitly targeted patch. The escape hatch for a multi-entity write. */
@@ -593,14 +618,19 @@ export function specToPatches(
     };
   }
 
-  // No entity key among the tags. Only a literal on a POST is a create: a
-  // generated PATCH or PUT invalidates nothing but `Type[]`, so it lands here
-  // too, and minting for it would put a phantom `Order:~opt1` beside the record
-  // the caller meant to change. A delete or an updater function is an update
-  // whatever the method.
+  // No entity key among the tags. Only a literal on a POST that does not name
+  // an existing record is a create: a generated PATCH, PUT or POST action
+  // invalidates nothing but `Type[]`, so it lands here too, and minting for it
+  // would put a phantom `Order:~opt1` beside the record the caller meant to
+  // change. A delete or an updater function is an update whatever the method.
   const type = meta.entity;
 
-  if (meta.method.toUpperCase() !== 'POST' || spec === 'delete' || typeof spec === 'function') {
+  if (
+    meta.method.toUpperCase() !== 'POST' ||
+    spec === 'delete' ||
+    typeof spec === 'function' ||
+    writesExisting(meta, args)
+  ) {
     report?.(
       new Error(
         `[forge] optimistic: ${meta.method} ${meta.path} names no entity to patch: ` +

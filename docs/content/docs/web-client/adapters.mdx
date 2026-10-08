@@ -183,7 +183,7 @@ create.mutate({ body: { total: 99 } }, {
 });
 ```
 
-An update or a delete has to name its record. The generated `updateOrder` and `deleteOrder` invalidate only `Order[]`, so there's no key in their tags to read a target from, and you pass it yourself as `[{ key, patch }]`. The short forms (a bare object, `'delete'`, an updater function) only work on a route that also invalidates its own item tag, `Order:{id}`. Leave the key off a generated update and the cache's `onError` gets an `optimistic` report naming the operation. The write still goes out, just without the overlay.
+An update or a delete has to name its record. The generated `updateOrder` and `deleteOrder` invalidate only `Order[]`, and so does a POST action on one order like `POST /orders/{id}/ship`, so there's no key in their tags to read a target from, and you pass it yourself as `[{ key, patch }]`. The short forms (a bare object, `'delete'`, an updater function) only work on a route that also invalidates its own item tag, `Order:{id}`. Leave the key off a generated update and the cache's `onError` gets an `optimistic` report naming the operation. The write still goes out, just without the overlay.
 
 A failure drops the overlay and raises no tags — base was never touched, so there is nothing to revert and nothing to refetch. The `mutate` never rejects contract above is unchanged: an optimistic write fails exactly the way a non-optimistic one does, just with one fewer render in between.
 

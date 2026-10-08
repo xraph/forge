@@ -665,6 +665,74 @@ describe('optimistic mutations', () => {
     },
   );
 
+  // A POST on one record gets the same generated tags as a PATCH. The path
+  // naming the record's id is what says it is not a create.
+  it('reports a literal patch on a POST action instead of minting a create', async () => {
+    const errors: unknown[] = [];
+    const scheduler = manualScheduler();
+    const transport = fakeTransport(() => ({ id: 7, status: 'shipped' }));
+    const queries = new QueryCache({
+      transport,
+      entities: schema,
+      scheduler: scheduler.schedule,
+      onError: (error, context) => {
+        if (context === 'optimistic') errors.push(error);
+      },
+    });
+    const shipOrder: OperationMeta = {
+      method: 'POST',
+      path: '/orders/{id}/ship',
+      entity: 'Order',
+      provides: ['Order:{id}'],
+      invalidates: ['Order[]'],
+    };
+
+    const pending = queries.mutate(shipOrder, { path: { id: 7 } }, { optimistic: { status: 'shipped' } });
+
+    expect(queries.overlays.empty).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('POST /orders/{id}/ship names no entity to patch');
+    expect(String(errors[0])).toContain("[{ key: 'Order:<id>', patch }]");
+
+    await pending;
+    expect(transport.calls.some((call) => call.meta.method === 'POST')).toBe(true);
+  });
+
+  // The two creates that must survive that rule: one that picks its own id in
+  // the body, and one nested under a parent whose path parameter is not the
+  // created record's id.
+  it.each([
+    ['a client-chosen id in the body', '/orders', { body: { id: 'o-1', total: 99 } }],
+    ['a parent in the path', '/customers/{customerId}/orders', { path: { customerId: 3 }, body: { total: 99 } }],
+  ] as const)('still creates with %s', async (_name, path, args) => {
+    const gate = deferred<unknown>();
+    const errors: string[] = [];
+    const scheduler = manualScheduler();
+    const queries = new QueryCache({
+      transport: fakeTransport(() => gate.promise),
+      entities: schema,
+      scheduler: scheduler.schedule,
+      onError: (_error, context) => errors.push(context),
+    });
+    const create: OperationMeta = {
+      method: 'POST',
+      path,
+      entity: 'Order',
+      provides: ['Order:{id}'],
+      invalidates: ['Order[]'],
+    };
+
+    const pending = queries.mutate(create, args, { optimistic: { total: 99 } });
+
+    expect(errors).toEqual([]);
+    expect(queries.store.read(makeRef('Order:~opt1'))).toEqual(
+      expect.objectContaining({ id: '~opt1', total: 99 }),
+    );
+
+    gate.resolve({ id: 9, total: 99 });
+    await pending;
+  });
+
   it('drops every overlay when the principal changes', async () => {
     const gate = deferred<unknown>();
     const { cache: queries } = optimisticCache((request) =>
