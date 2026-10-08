@@ -66,7 +66,7 @@ def filters(event):
             item = re.match(r"^      - '([^']+)'\s*$", line)
             if item:
                 globs.append(item.group(1))
-            elif line.strip():
+            elif line.strip() and not line.strip().startswith("#"):
                 in_paths = False
     return globs
 
@@ -100,9 +100,16 @@ MUST_RUN = [
     "internal/client/generators/interface.go",
     "internal/client/generators/dart/generator.go",
     "internal/client/generators/dart/testdata/fixtures/orders.json",
+    # TestGeneratedCodecsAgreeAcrossRuntimes generates the TypeScript half
+    # from this generator and runs only in the generator job (go.yml has no
+    # Dart), and portgen and the features and tables parity tests read it too.
+    "internal/client/generators/typescript/generator.go",
     "cmd/forge/plugins/client.go",
     "packages/client-fixtures/snapshot/orders.json",
     "docs/content/docs/dart-client/sync.mdx",
+    # The docs job checks their links into the Dart section.
+    "docs/content/docs/web-client/index.mdx",
+    "docs/content/docs/web-client/not-yet-shipped.mdx",
     # forge_client's streaming_kinds_test pins the Dart frame kinds to this file.
     "extensions/streaming/internal/streaming.go",
     ".github/scripts/dart_ci_pubspec.py",
@@ -114,9 +121,8 @@ MUST_RUN = [
 ]
 
 MUST_NOT_RUN = [
-    "internal/client/generators/typescript/generator.go",
     "internal/client/README.md",
-    "docs/content/docs/web-client/index.mdx",
+    "docs/content/docs/web-client/runtime.mdx",
     "packages/client-core/src/cache.ts",
     "extensions/hls/extension.go",
     "extensions/streaming/extension.go",
@@ -150,8 +156,17 @@ class WorkflowToolchainTest(unittest.TestCase):
         self.assertNotIn("flutter-version: ", text())
 
     def test_pub_cache_keys_on_pubspec_yaml(self):
-        self.assertIn("pub-cache: false", text())
-        self.assertIn("hashFiles('dart-packages/*/pubspec.yaml'", text())
+        # Every job turns the action's lock-keyed cache off and caches the
+        # action's own pub cache directory, keyed on pubspec.yaml instead.
+        actions = text().count("uses: subosito/flutter-action@")
+        self.assertEqual(text().count("pub-cache: false"), actions)
+        self.assertEqual(text().count("path: ${{ steps.flutter.outputs.PUB-CACHE-PATH }}"), actions)
+        self.assertEqual(text().count("hashFiles('dart-packages/*/pubspec.yaml'"), actions)
+        for name in ("packages", "generator", "docs"):
+            with self.subTest(job=name):
+                body = job(name)
+                self.assertIn("id: flutter\n", body)
+                self.assertLess(body.index("uses: subosito/flutter-action@"), body.index("uses: actions/cache@v4"))
 
     def test_cache_action_uses_forges_pin(self):
         self.assertIn("uses: actions/cache@v4", text())
@@ -222,6 +237,33 @@ class WorkflowGroveTest(unittest.TestCase):
         warm = body.find("tool/conformance_server")
         self.assertNotEqual(warm, -1)
         self.assertLess(warm, body.index("      - name: Test\n"))
+
+
+class WorkflowDryRunTest(unittest.TestCase):
+    def test_the_hosted_rewrite_is_hidden_from_git(self):
+        # pub's GitStatusValidator warns on a modified checked-in file, and
+        # --dry-run exits 65 on any warning. The rewrite modifies pubspec.yaml.
+        body = job("packages")
+        step = body[body.index("      - name: Publish dry run\n"):]
+        lines = [line.strip() for line in step.split("\n") if line.strip() and not line.strip().startswith("#")]
+        hosted = next(i for i, line in enumerate(lines) if "--hosted" in line)
+        self.assertEqual(lines[hosted + 1], "git update-index --assume-unchanged pubspec.yaml")
+        self.assertIn("pub publish --dry-run", "\n".join(lines[hosted + 2:]))
+
+
+class PackageArchiveTest(unittest.TestCase):
+    def test_git_ignores_no_tracked_file_under_dart_packages(self):
+        # pub leaves every gitignored file out of the archive, tracked or not.
+        # A blanket rule such as the root's **/*.md once dropped every
+        # CHANGELOG.md, which pub then warned about and the dry run failed on.
+        import subprocess
+
+        root = os.path.join(HERE, "..", "..")
+        out = subprocess.run(
+            ["git", "ls-files", "-ci", "--exclude-standard", "dart-packages"],
+            cwd=root, capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(out.stdout, "")
 
 
 class WorkflowMatrixTest(unittest.TestCase):

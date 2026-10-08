@@ -7,3 +7,7 @@ pubspec.lock
 # keep their tests in tracked `test/` directories, so un-ignore them.
 !test/
 !test/**
+
+# pub reads this file too. Git still ignores the devtools build through the
+# package's own .gitignore; pub ships it through the package's .pubignore.
+!forge_client_devtools/extension/devtools/build/

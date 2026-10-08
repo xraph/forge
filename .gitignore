@@ -119,6 +119,7 @@ METRICS_DEADLOCK_FIX.md
 .github/MONOREPO_STRATEGY.md
 
 **/*.md
+!dart-packages/*/CHANGELOG.md
 !**/README.md
 !/CONTRIBUTING.md
 !docs/**/*.md

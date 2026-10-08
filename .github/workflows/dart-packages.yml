@@ -31,10 +31,16 @@ on:
       - 'internal/client/*.go'
       - 'internal/client/generators/*.go'
       - 'internal/client/generators/dart/**'
+      # The codec parity, features and tables parity tests and portgen read
+      # the TypeScript generator; only the generator job below runs them.
+      - 'internal/client/generators/typescript/**'
       - 'cmd/forge/plugins/client.go'
       - 'packages/client-fixtures/**'
       - 'extensions/streaming/internal/streaming.go'
       - 'docs/content/docs/dart-client/**'
+      # The docs job checks these two pages' links into the Dart section.
+      - 'docs/content/docs/web-client/index.mdx'
+      - 'docs/content/docs/web-client/not-yet-shipped.mdx'
       - '.github/scripts/dart_ci_pubspec.py'
       - '.github/scripts/test_dart_ci_pubspec.py'
       - '.github/scripts/test_dart_workflow.py'
@@ -47,10 +53,16 @@ on:
       - 'internal/client/*.go'
       - 'internal/client/generators/*.go'
       - 'internal/client/generators/dart/**'
+      # The codec parity, features and tables parity tests and portgen read
+      # the TypeScript generator; only the generator job below runs them.
+      - 'internal/client/generators/typescript/**'
       - 'cmd/forge/plugins/client.go'
       - 'packages/client-fixtures/**'
       - 'extensions/streaming/internal/streaming.go'
       - 'docs/content/docs/dart-client/**'
+      # The docs job checks these two pages' links into the Dart section.
+      - 'docs/content/docs/web-client/index.mdx'
+      - 'docs/content/docs/web-client/not-yet-shipped.mdx'
       - '.github/scripts/dart_ci_pubspec.py'
       - '.github/scripts/test_dart_ci_pubspec.py'
       - '.github/scripts/test_dart_workflow.py'
@@ -241,6 +253,9 @@ jobs:
         if: ${{ !matrix.tests_only }}
         run: |
           "$PY" "$GITHUB_WORKSPACE/.github/scripts/dart_ci_pubspec.py" . --hosted --override "grove_crdt=$GITHUB_WORKSPACE/.ci/grove/crdt-dart"
+          # pub warns (and --dry-run exits 65) on checked-in files modified in
+          # git; this rewrite is deliberate and lives only on the runner.
+          git update-index --assume-unchanged pubspec.yaml
           ${{ steps.tool.outputs.name }} pub get --no-example
           ${{ steps.tool.outputs.name }} pub publish --dry-run
 
@@ -267,11 +282,22 @@ jobs:
         run: npm install -g typescript@5.8.2 esbuild@0.28.1
 
       - name: Set up Flutter
+        id: flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: dart-packages/.fvmrc
           cache: true
           pub-cache: false
+
+      # Keyed like the packages job's: the gate fixtures resolve against
+      # forge_client and the same hosted packages.
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.flutter.outputs.PUB-CACHE-PATH }}
+          key: pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-generator-${{ hashFiles('dart-packages/*/pubspec.yaml') }}
+          restore-keys: |
+            pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-generator-
 
       - name: Put an fvm stand-in on PATH
         run: |
@@ -345,11 +371,20 @@ jobs:
             cmd/forge/go.sum
 
       - name: Set up Flutter
+        id: flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: dart-packages/.fvmrc
           cache: true
           pub-cache: false
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.flutter.outputs.PUB-CACHE-PATH }}
+          key: pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-docs-${{ hashFiles('dart-packages/*/pubspec.yaml', '.ci/grove/crdt-dart/pubspec.yaml') }}
+          restore-keys: |
+            pub-${{ runner.os }}-${{ steps.flutter.outputs.VERSION }}-docs-
 
       - name: Put an fvm stand-in on PATH
         run: |
