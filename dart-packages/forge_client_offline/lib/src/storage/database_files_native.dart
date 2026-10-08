@@ -140,6 +140,13 @@ final class NativeDatabaseFiles implements DatabaseFiles {
   final PrincipalLabeler _labels;
   final Map<String, Database> _open = {};
 
+  /// Runs with each path [delete] and [deleteAll] are about to remove, just
+  /// before it goes. Windows refuses to delete a file that is still open and
+  /// POSIX does not, so a test checks here that every connection is closed
+  /// first, and a wrong order fails on every system, not only on Windows.
+  @visibleForTesting
+  void Function(String path)? beforeDelete;
+
   @override
   Future<CommonDatabase> open(String principal) async {
     await close(principal);
@@ -179,9 +186,9 @@ final class NativeDatabaseFiles implements DatabaseFiles {
     final label = await _labelOf(_labels, principal);
     final path = _databasePath(directory, label);
 
-    await _deleteIfPresent(File(path));
+    await _deleteFile(File(path));
     for (final suffix in _journalSuffixes) {
-      await _deleteIfPresent(File('$path$suffix'));
+      await _deleteFile(File('$path$suffix'));
     }
     await FilePassphraseSaltStore(directory).delete(label);
   }
@@ -203,16 +210,23 @@ final class NativeDatabaseFiles implements DatabaseFiles {
     await for (final entity in dir.list(followLinks: false)) {
       final name = entity.path.split(Platform.pathSeparator).last;
       if (entity is File && _ownedFile.hasMatch(name)) {
-        await _deleteIfPresent(entity);
+        await _deleteFile(entity);
       } else if (entity is Directory && _ownedDirectory.hasMatch(name)) {
+        beforeDelete?.call(entity.path);
         await _deleteTree(entity);
       }
     }
     try {
+      beforeDelete?.call(dir.path);
       await dir.delete();
     } on FileSystemException {
       // Something that is not the package's is still in there: keep it.
     }
+  }
+
+  Future<void> _deleteFile(File file) async {
+    beforeDelete?.call(file.path);
+    await _deleteIfPresent(file);
   }
 }
 

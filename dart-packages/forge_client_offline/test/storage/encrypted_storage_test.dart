@@ -102,6 +102,88 @@ final class _CountingFiles implements DatabaseFiles {
   Future<void> deleteAll() => inner.deleteAll();
 }
 
+/// Records the open, close and delete calls a storage makes, in order, and
+/// keeps every connection [inner] opened, so a test can see whether a file
+/// was deleted while its connection was still open.
+final class _LifecycleFiles implements DatabaseFiles {
+  _LifecycleFiles(this.inner);
+
+  final DatabaseFiles inner;
+  final List<String> events = [];
+  final List<CommonDatabase> connections = [];
+  final Set<String> _openNow = {};
+
+  /// Every principal whose delete was asked for while its database was open.
+  final List<String> deletedWhileOpen = [];
+
+  @override
+  Future<CommonDatabase> open(String principal) async {
+    events.add('open');
+    final db = await inner.open(principal);
+    _openNow.add(principal);
+    connections.add(db);
+    return db;
+  }
+
+  @override
+  String kind(String principal) => inner.kind(principal);
+
+  @override
+  Future<void> afterWrite(String principal) => inner.afterWrite(principal);
+
+  @override
+  Future<void> close(String principal) {
+    events.add('close');
+    _openNow.remove(principal);
+    return inner.close(principal);
+  }
+
+  @override
+  Future<void> delete(String principal) {
+    events.add('delete');
+    if (_openNow.contains(principal)) deletedWhileOpen.add(principal);
+    _openNow.remove(principal);
+    return inner.delete(principal);
+  }
+
+  @override
+  Future<void> deleteAll() {
+    events.add('deleteAll');
+    _openNow.clear();
+    return inner.deleteAll();
+  }
+}
+
+/// Whether [db] is still open. A closed connection refuses every statement.
+bool isOpen(CommonDatabase db) {
+  try {
+    db.select('SELECT 1');
+    return true;
+  } on StateError {
+    return false;
+  }
+}
+
+/// Applies the Windows rule on every system: deleting a file while any of
+/// [connections] is open fails, as Windows fails it ("being used by another
+/// process"). Each path is added to [deleted], or to [deletedWhileOpen] when
+/// the rule refused it.
+void Function(String path) windowsDeleteRule(
+  List<CommonDatabase> connections, {
+  required List<String> deleted,
+  required List<String> deletedWhileOpen,
+}) => (path) {
+  if (connections.any(isOpen)) {
+    deletedWhileOpen.add(path);
+    throw FileSystemException(
+      'The process cannot access the file because it is being used by '
+      'another process',
+      path,
+    );
+  }
+  deleted.add(path);
+};
+
 /// Records every statement run on the connections it opens, in order.
 final class _RecordingFiles implements DatabaseFiles {
   _RecordingFiles(this.inner);
@@ -202,14 +284,32 @@ void main() {
   late KeystoreKeys keystore;
   late List<StorageReset> resets;
 
+  /// Connections a test opened on the package's files itself, outside any
+  /// storage.
+  late List<Database> raws;
+
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('forge_offline_');
     secrets = MemorySecretStore();
     keystore = keystoreKeys(store: secrets);
     resets = [];
+    raws = [];
   });
 
+  /// Closes the test's own connections. Windows refuses to delete a file
+  /// that is open, so this runs before anything deletes: before each
+  /// storage's reset and before the directory goes. Tear-downs run last
+  /// registered first, so closing them in their own tear-down would come
+  /// too late for a storage made after them.
+  void closeRaws() {
+    for (final raw in raws) {
+      raw.close();
+    }
+    raws.clear();
+  }
+
   tearDown(() async {
+    closeRaws();
     if (await dir.exists()) await dir.delete(recursive: true);
   });
 
@@ -224,7 +324,10 @@ void main() {
       onReset: resets.add,
     );
     // Closes whatever a test left open, so the directory can go.
-    addTearDown(() => storage.resetOfflineData());
+    addTearDown(() {
+      closeRaws();
+      return storage.resetOfflineData();
+    });
     return storage;
   }
 
@@ -263,7 +366,7 @@ void main() {
   /// A raw connection to [path], keyed with [key] as the raw cipher key.
   Database rawOpen(String path, [Uint8List? key]) {
     final raw = sqlite3.open(path);
-    addTearDown(raw.close);
+    raws.add(raw);
     if (key != null) applyRawKey(raw, key);
     return raw;
   }
@@ -712,6 +815,121 @@ void main() {
         reason: 'the files were still deleted',
       );
       expect(session.readOutbox(), throwsClosed);
+    });
+  });
+
+  group('closed before deleted', () {
+    // Windows refuses to delete a file that is still open; POSIX deletes it
+    // and the open connection keeps the data alive. These tests apply the
+    // Windows rule everywhere, so a sign-out that deletes before it closes
+    // fails here on every system, not only on a Windows runner.
+    late NativeDatabaseFiles native;
+    late _LifecycleFiles files;
+    late List<String> deleted;
+    late List<String> deletedWhileOpen;
+
+    setUp(() {
+      native = NativeDatabaseFiles(dir.path, labels: keystore);
+      files = _LifecycleFiles(native);
+      deleted = [];
+      deletedWhileOpen = [];
+      native.beforeDelete = windowsDeleteRule(
+        files.connections,
+        deleted: deleted,
+        deletedWhileOpen: deletedWhileOpen,
+      );
+    });
+
+    test('destroy closes the connection before it deletes any file', () async {
+      final storage = storageWith(files: files);
+      final first = await storage.open('alice');
+      await first.enqueue(record('a'));
+      final second = await storage.open('alice');
+      expect(files.connections.every(isOpen), isTrue);
+      final path = await pathOf('alice');
+      final before = files.events.length;
+
+      await storage.destroy('alice');
+
+      expect(files.events.sublist(before), ['close', 'delete']);
+      expect(files.deletedWhileOpen, isEmpty);
+      expect(deletedWhileOpen, isEmpty);
+      expect(deleted, [path, '$path-journal', '$path-wal', '$path-shm']);
+      expect(await File(path).exists(), isFalse);
+      expect(second.readOutbox(), throwsClosed);
+    });
+
+    test(
+      'a key that no longer fits closes the file before deleting it',
+      () async {
+        final storage = storageWith(files: files);
+        await writeRecord(storage, 'alice', 'a');
+        // The keystore forgets the key, as after an OS restore.
+        secrets.values.removeWhere((name, _) => name.contains('.key.'));
+        final path = await pathOf('alice');
+        final before = files.events.length;
+
+        final session = await storage.open('alice');
+
+        expect(resets.single.principal, 'alice');
+        expect(files.events.sublist(before), [
+          'open',
+          'close',
+          'delete',
+          'open',
+        ]);
+        expect(files.deletedWhileOpen, isEmpty);
+        expect(deletedWhileOpen, isEmpty);
+        expect(deleted, contains(path));
+        expect(await session.readOutbox(), isEmpty);
+        await session.close();
+      },
+    );
+
+    test('NativeDatabaseFiles.delete closes the connection first', () async {
+      final db = await native.open('alice');
+      expect(isOpen(db), isTrue);
+      final path = await pathOf('alice');
+
+      await native.delete('alice');
+
+      expect(isOpen(db), isFalse);
+      expect(deletedWhileOpen, isEmpty);
+      expect(deleted, [path, '$path-journal', '$path-wal', '$path-shm']);
+    });
+
+    test(
+      'NativeDatabaseFiles.deleteAll closes every connection first',
+      () async {
+        final alice = await native.open('alice');
+        final bob = await native.open('bob');
+        files.connections.addAll([alice, bob]);
+
+        await native.deleteAll();
+
+        expect([isOpen(alice), isOpen(bob)], [false, false]);
+        expect(deletedWhileOpen, isEmpty);
+        expect(deleted, contains(await pathOf('alice')));
+        expect(deleted, contains(await pathOf('bob')));
+        expect(storeNames(), isEmpty);
+      },
+    );
+
+    test('resetOfflineData closes every handle before it deletes', () async {
+      final storage = storageWith(files: files);
+      final alice = await storage.open('alice');
+      await alice.enqueue(record('a'));
+      final bob = await storage.open('bob');
+      expect(files.connections, hasLength(2));
+      // Before the reset: it erases the install salt the labels come from.
+      final paths = [await pathOf('alice'), await pathOf('bob')];
+
+      await storage.resetOfflineData();
+
+      expect(deletedWhileOpen, isEmpty);
+      expect(deleted, containsAll(paths));
+      expect(storeNames(), isEmpty);
+      expect(bob.readOutbox(), throwsClosed);
     });
   });
 
