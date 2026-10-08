@@ -2,6 +2,8 @@ module github.com/xraph/forge/extensions/discovery
 
 go 1.26.0
 
+retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
+
 replace github.com/xraph/forge => ../..
 
 require (

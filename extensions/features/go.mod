@@ -2,6 +2,8 @@ module github.com/xraph/forge/extensions/features
 
 go 1.26.0
 
+retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
+
 require (
 	github.com/Flagsmith/flagsmith-go-client/v3 v3.7.0
 	github.com/Unleash/unleash-client-go/v4 v4.5.0

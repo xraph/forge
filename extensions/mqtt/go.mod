@@ -2,6 +2,8 @@ module github.com/xraph/forge/extensions/mqtt
 
 go 1.26.0
 
+retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
+
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/xraph/confy v1.0.3

@@ -2,6 +2,8 @@ module github.com/xraph/forge/extensions/kafka
 
 go 1.26.0
 
+retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
+
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/xdg-go/scram v1.1.2

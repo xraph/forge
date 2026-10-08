@@ -2,6 +2,8 @@ module github.com/xraph/forge/extensions/queue
 
 go 1.26.0
 
+retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
+
 require (
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rabbitmq/amqp091-go v1.10.0
