@@ -126,6 +126,10 @@ MUST_RUN = [
     ".github/scripts/dart-docs/check_snippets.sh",
     ".github/scripts/dart-docs/catalog.openapi.json",
     ".github/workflows/dart-packages.yml",
+    # dart-publish.yml has no CI of its own, so its tests run here.
+    ".github/scripts/dart_publish.sh",
+    ".github/scripts/test_dart_publish_workflow.py",
+    ".github/workflows/dart-publish.yml",
 ]
 
 MUST_NOT_RUN = [

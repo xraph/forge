@@ -1,0 +1,203 @@
+name: Publish Dart Packages
+
+# Publishes the Dart and Flutter runtime packages under dart-packages/ to
+# pub.dev. The Dart counterpart of npm-publish.yml.
+#
+# Versioning is lockstep. Every package publishes at the forge tag's version,
+# so v1.13.0 publishes 1.13.0 of each, and every dependency on a sibling is
+# raised to ^1.13.0. The committed pubspecs stay 1.0.0-dev with
+# `publish_to: none`; dart_ci_pubspec.py rewrites them on the runner only.
+#
+# Publish order is load-bearing. A real publish resolves each package against
+# live pub.dev with no local overrides, so everything a package depends on,
+# dev_dependencies included, has to be on pub.dev at the new version before
+# it goes up. dart_publish.sh waits for each version to go live before it
+# starts the next.
+#
+#   forge_client           depends on no sibling. Everything else needs it.
+#   forge_client_offline   needs forge_client.
+#   forge_client_flutter   needs forge_client, and forge_client_offline as a
+#                          dev_dependency (its README's offline example), so
+#                          it comes after offline, not before.
+#   forge_client_riverpod  needs forge_client and forge_client_flutter.
+#   forge_client_devtools  needs forge_client. Last, because it has the one
+#                          extra build step: tool/build_extension.sh, which
+#                          produces the gitignored extension/devtools/build
+#                          that the package ships through .pubignore.
+#
+# forge_client_grove is left out on purpose. It depends on grove_crdt, which
+# is not on pub.dev yet, so pub would refuse it. Add it after forge_client
+# (it also dev-depends on forge_client_offline, so after that too) once grove
+# publishes grove_crdt.
+#
+# Auth is pub.dev's automated publishing: GitHub OIDC, no stored secret. Only
+# the publish job can mint a token. setup-dart registers it with pub as "read
+# PUB_TOKEN"; Flutter's pub reads the same token file, so Flutter is set up
+# after it and its `dart` shadows setup-dart's (the order setup-dart's own
+# reusable publish.yml uses). dart_publish.sh re-mints PUB_TOKEN before every
+# upload, because a GitHub OIDC token is short-lived and the run waits
+# between packages.
+#
+# One-time steps, by hand, before the first tag run can publish anything:
+#
+#   1. Publish the first version of each package yourself with
+#      `dart pub publish` (`flutter pub publish` for the Flutter packages),
+#      in the order listed above. pub.dev only lets you enable automated
+#      publishing on a package that already exists. Running
+#      `dart_ci_pubspec.py PACKAGE --hosted --version X.Y.Z --changelog`
+#      prepares a package the way this workflow does; delete the
+#      pubspec_overrides.yaml it writes before you publish. If X.Y.Z is the
+#      next tag's version, that tag's run finds every package already there
+#      and skips them all.
+#   2. On each package's admin page on pub.dev, enable automated publishing
+#      from GitHub Actions with repository `xraph/forge` and tag pattern
+#      `v{{version}}`.
+#   3. Add forge_client_grove to the list below once grove_crdt is on pub.dev.
+#
+# If a real run fails partway, its summary lists what was published and what
+# was not. Re-run it for the same tag: versions already on pub.dev are
+# skipped, not re-uploaded.
+#
+# .github/scripts/test_dart_publish_workflow.py pins the order, the grove
+# exclusion, the token permissions and the dry-run default. Change them
+# together.
+
+on:
+  # A real publish happens only here, on a version tag.
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+  # Rehearsal. Defaults to a dry run so this can be exercised safely; flip the
+  # input to publish from a branch when that is genuinely what you want.
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Validate every package without publishing'
+        type: boolean
+        default: true
+      version:
+        description: 'Version to stamp (without a leading v). Empty keeps each pubspec.yaml version.'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# Two runs for the same ref would race each other to pub.dev, and a publish
+# cancelled halfway leaves a partial release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Resolves the version and whether this is a real publish.
+  #
+  # The expression language has no string-replace, so the leading v cannot be
+  # stripped from a tag name inline.
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dry-run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - name: Resolve
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "push" ]; then
+            version="${REF_NAME#v}"
+            dry_run=false
+          else
+            version="${INPUT_VERSION#v}"
+            dry_run="${INPUT_DRY_RUN:-true}"
+          fi
+
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [ -n "$version" ] && ! [[ "$version" =~ $semver ]]; then
+            echo "::error::'$version' is not a version pub accepts."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+
+          if [ "$dry_run" = "true" ]; then
+            echo "Dry run at version '${version:-<pubspec.yaml>}'." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Publishing version '${version:-<pubspec.yaml>}'." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: ${{ needs.prepare.outputs.dry-run == 'true' && 'Dry run' || 'Publish' }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # The only job that can mint an OIDC token, which is how pub.dev knows
+    # this run may publish.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Mints an OIDC token for pub.dev and runs
+      # `dart pub token add https://pub.dev --env-var PUB_TOKEN`. A dry run
+      # needs no token, so it never asks for one.
+      - name: Set up the pub.dev token
+        if: needs.prepare.outputs.dry-run != 'true'
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+
+      # After setup-dart, so this Flutter's `dart` comes first on PATH. No
+      # caches: a release job should not restore what another run saved.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: dart-packages/.fvmrc
+          cache: false
+          pub-cache: false
+
+      # tool/build_extension.sh calls `fvm flutter` and `fvm exec CMD`. The
+      # runner has exactly one Flutter, the one .fvmrc names, so the stand-in
+      # drops a leading `exec` and runs the rest.
+      - name: Put an fvm stand-in on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/fvm-shim"
+          cat > "$RUNNER_TEMP/fvm-shim/fvm" <<'SH'
+          #!/usr/bin/env bash
+          if [ "${1:-}" = exec ]; then shift; fi
+          exec "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/fvm-shim/fvm"
+          echo "$RUNNER_TEMP/fvm-shim" >> "$GITHUB_PATH"
+
+      # The extension's web build is gitignored but shipped through
+      # .pubignore, so it has to exist before forge_client_devtools is packed.
+      # It builds against the committed pubspec, whose path dependency on
+      # forge_client is this checkout.
+      - name: Build the DevTools extension
+        working-directory: dart-packages/forge_client_devtools
+        run: bash tool/build_extension.sh
+
+      # One package at a time, in the order explained at the top of this file.
+      - name: ${{ needs.prepare.outputs.dry-run == 'true' && 'Publish dry run' || 'Publish to pub.dev' }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry-run }}
+        run: >-
+          bash .github/scripts/dart_publish.sh
+          forge_client
+          forge_client_offline
+          forge_client_flutter
+          forge_client_riverpod
+          forge_client_devtools

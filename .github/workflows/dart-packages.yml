@@ -16,9 +16,10 @@ name: Dart Packages
 # dart_ci_pubspec.py, so repinning that one line moves CI with it.
 #
 # Versioning: every package is 1.0.0-dev with `publish_to: none`, and none is
-# listed in release-please-config.json. Publishing to pub.dev needs explicit
-# approval and is a separate change; `pub publish --dry-run` here only proves
-# the packages would pass pub's validator when that day comes.
+# listed in release-please-config.json. dart-publish.yml publishes them to
+# pub.dev on a forge version tag, stamped with that tag's version;
+# `pub publish --dry-run` here proves on every change that they would pass
+# pub's validator.
 #
 # .github/scripts/test_dart_workflow.py pins the filters below and the parts
 # of this file a green run cannot prove. Change them together.
@@ -50,6 +51,11 @@ on:
       - '.github/scripts/test_dart_workflow.py'
       - '.github/scripts/dart-docs/**'
       - '.github/workflows/dart-packages.yml'
+      # The release workflow has no CI of its own; its tests run in the
+      # scripts job here.
+      - '.github/scripts/dart_publish.sh'
+      - '.github/scripts/test_dart_publish_workflow.py'
+      - '.github/workflows/dart-publish.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
@@ -76,6 +82,11 @@ on:
       - '.github/scripts/test_dart_workflow.py'
       - '.github/scripts/dart-docs/**'
       - '.github/workflows/dart-packages.yml'
+      # The release workflow has no CI of its own; its tests run in the
+      # scripts job here.
+      - '.github/scripts/dart_publish.sh'
+      - '.github/scripts/test_dart_publish_workflow.py'
+      - '.github/workflows/dart-publish.yml'
 
 permissions:
   contents: read
