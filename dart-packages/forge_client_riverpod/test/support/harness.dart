@@ -118,7 +118,10 @@ final class CreateOrderArgs implements OperationArgs {
   TagContext toTagContext() => TagContext(body: {'total': total});
 }
 
-final listOrders = query<List<Order>, ListOrdersArgs>(opListOrders, ordersFromClient);
+final listOrders = query<List<Order>, ListOrdersArgs>(
+  opListOrders,
+  ordersFromClient,
+);
 final getOrder = query<Order, OrderArgs>(opGetOrder, Order.fromClient);
 final patchOrder = mutation<Order, PatchOrderArgs, Order>(
   opPatchOrder,
@@ -126,7 +129,10 @@ final patchOrder = mutation<Order, PatchOrderArgs, Order>(
   entityFromClient: Order.fromClient,
   entityToClient: (order) => order.toClient(),
 );
-final createOrder = mutation<Order, CreateOrderArgs, Order>(opCreateOrder, Order.fromClient);
+final createOrder = mutation<Order, CreateOrderArgs, Order>(
+  opCreateOrder,
+  Order.fromClient,
+);
 
 final class Boom implements Exception {
   const Boom(this.message);
@@ -173,7 +179,9 @@ ProviderContainer containerFor(
     overrides: [
       forgeClientProvider.overrideWithValue(h.cache),
       forgeFocusSignalProvider.overrideWithValue(focus ?? FakeFocusSignal()),
-      forgeConnectivitySignalProvider.overrideWithValue(connectivity ?? FakeConnectivitySignal()),
+      forgeConnectivitySignalProvider.overrideWithValue(
+        connectivity ?? FakeConnectivitySignal(),
+      ),
     ],
     retry: (_, _) => null,
   );

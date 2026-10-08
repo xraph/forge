@@ -14,8 +14,7 @@ QueryState<T> firstState<T>(
   QueryCache client,
   QueryRef<T, OperationArgs> query, {
   required bool enabled,
-}) =>
-    query.getState(client, enabled: enabled);
+}) => query.getState(client, enabled: enabled);
 
 /// Whether two query states would render the same.
 ///
@@ -31,7 +30,10 @@ bool sameQueryState(QueryState<Object?> a, QueryState<Object?> b) {
   }
   return switch ((a, b)) {
     (QueryIdle(), QueryIdle()) || (QueryLoading(), QueryLoading()) => true,
-    (QuerySuccess(data: final x), QuerySuccess(data: final y)) => identical(x, y),
+    (QuerySuccess(data: final x), QuerySuccess(data: final y)) => identical(
+      x,
+      y,
+    ),
     (
       QueryFailure(error: final e1, previous: final p1),
       QueryFailure(error: final e2, previous: final p2),

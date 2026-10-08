@@ -41,7 +41,11 @@ void main() {
       expect(
         () => container.read(forgeClientProvider),
         throwsA(
-          isA<Object>().having(_unwrapped, 'unwrapped error', isA<StateError>()),
+          isA<Object>().having(
+            _unwrapped,
+            'unwrapped error',
+            isA<StateError>(),
+          ),
         ),
       );
     });
@@ -61,7 +65,11 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      final sub = container.listen(forgeClientProvider, (_, _) {}, onError: (_, _) {});
+      final sub = container.listen(
+        forgeClientProvider,
+        (_, _) {},
+        onError: (_, _) {},
+      );
       addTearDown(sub.close);
 
       await tester.pump(const Duration(seconds: 10));
@@ -71,28 +79,31 @@ void main() {
   });
 
   group('forgeInstalledClientProvider', () {
-    test('installs the seams for the overridden client while the container lives', () {
-      final h = harness((_, _) => null);
-      final focus = FakeFocusSignal();
-      final connectivity = FakeConnectivitySignal();
-      final container = ProviderContainer(
-        overrides: [
-          forgeClientProvider.overrideWithValue(h.cache),
-          forgeFocusSignalProvider.overrideWithValue(focus),
-          forgeConnectivitySignalProvider.overrideWithValue(connectivity),
-        ],
-        retry: (_, _) => null,
-      );
+    test(
+      'installs the seams for the overridden client while the container lives',
+      () {
+        final h = harness((_, _) => null);
+        final focus = FakeFocusSignal();
+        final connectivity = FakeConnectivitySignal();
+        final container = ProviderContainer(
+          overrides: [
+            forgeClientProvider.overrideWithValue(h.cache),
+            forgeFocusSignalProvider.overrideWithValue(focus),
+            forgeConnectivitySignalProvider.overrideWithValue(connectivity),
+          ],
+          retry: (_, _) => null,
+        );
 
-      container.read(forgeInstalledClientProvider);
-      expect(flutterSeamsInstalled(h.cache), isTrue);
-      expect(focus.hasListener, isTrue);
-      expect(connectivity.hasListener, isTrue);
+        container.read(forgeInstalledClientProvider);
+        expect(flutterSeamsInstalled(h.cache), isTrue);
+        expect(focus.hasListener, isTrue);
+        expect(connectivity.hasListener, isTrue);
 
-      container.dispose();
-      expect(flutterSeamsInstalled(h.cache), isFalse);
-      expect(focus.hasListener, isFalse);
-    });
+        container.dispose();
+        expect(flutterSeamsInstalled(h.cache), isFalse);
+        expect(focus.hasListener, isFalse);
+      },
+    );
 
     test('reinstalls when the focus signal changes', () {
       final h = harness((_, _) => null);
@@ -104,7 +115,10 @@ void main() {
         forgeFocusSignalProvider.overrideWithValue(focus),
         forgeConnectivitySignalProvider.overrideWithValue(connectivity),
       ];
-      final container = ProviderContainer(overrides: overrides(first), retry: (_, _) => null);
+      final container = ProviderContainer(
+        overrides: overrides(first),
+        retry: (_, _) => null,
+      );
       addTearDown(container.dispose);
       container.read(forgeInstalledClientProvider);
       expect(first.hasListener, isTrue);
@@ -127,7 +141,10 @@ void main() {
         forgeFocusSignalProvider.overrideWithValue(focus),
         forgeConnectivitySignalProvider.overrideWithValue(connectivity),
       ];
-      final container = ProviderContainer(overrides: overrides(first), retry: (_, _) => null);
+      final container = ProviderContainer(
+        overrides: overrides(first),
+        retry: (_, _) => null,
+      );
       addTearDown(container.dispose);
       container.read(forgeInstalledClientProvider);
       expect(first.hasListener, isTrue);
@@ -155,12 +172,18 @@ void main() {
         retry: (_, _) => null,
       );
       addTearDown(container.dispose);
-      expect(container.read(forgeInstalledClientProvider), same(oldHarness.cache));
+      expect(
+        container.read(forgeInstalledClientProvider),
+        same(oldHarness.cache),
+      );
       expect(flutterSeamsInstalled(oldHarness.cache), isTrue);
 
       container.updateOverrides(overrides(newHarness.cache));
 
-      expect(container.read(forgeInstalledClientProvider), same(newHarness.cache));
+      expect(
+        container.read(forgeInstalledClientProvider),
+        same(newHarness.cache),
+      );
       expect(flutterSeamsInstalled(oldHarness.cache), isFalse);
       expect(flutterSeamsInstalled(newHarness.cache), isTrue);
       expect(focus.hasListener, isTrue);

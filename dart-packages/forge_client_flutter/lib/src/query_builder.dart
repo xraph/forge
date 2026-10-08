@@ -70,7 +70,9 @@ final class ForgeQueryBuilder<T> extends StatefulWidget {
 }
 
 final class _ForgeQueryBuilderState<T> extends State<ForgeQueryBuilder<T>> {
-  late final QuerySubscription<T> _subscription = QuerySubscription<T>(_changed);
+  late final QuerySubscription<T> _subscription = QuerySubscription<T>(
+    _changed,
+  );
   QueryCache? _scoped;
   Object? _selected;
 
@@ -118,5 +120,6 @@ final class _ForgeQueryBuilderState<T> extends State<ForgeQueryBuilder<T>> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, _subscription.state);
+  Widget build(BuildContext context) =>
+      widget.builder(context, _subscription.state);
 }

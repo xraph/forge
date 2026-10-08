@@ -36,8 +36,9 @@ final class FakeTransport implements Transport {
 
 /// A [FocusSignal] the test drives by hand.
 final class FakeFocusSignal implements FocusSignal {
-  final StreamController<bool> _controller =
-      StreamController<bool>.broadcast(sync: true);
+  final StreamController<bool> _controller = StreamController<bool>.broadcast(
+    sync: true,
+  );
 
   @override
   Stream<bool> get focused => _controller.stream;
@@ -55,8 +56,9 @@ final class FakeFocusSignal implements FocusSignal {
 
 /// A [ConnectivitySignal] the test drives by hand.
 final class FakeConnectivitySignal implements ConnectivitySignal {
-  final StreamController<bool> _controller =
-      StreamController<bool>.broadcast(sync: true);
+  final StreamController<bool> _controller = StreamController<bool>.broadcast(
+    sync: true,
+  );
 
   @override
   Stream<bool> get online => _controller.stream;

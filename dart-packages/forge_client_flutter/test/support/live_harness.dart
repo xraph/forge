@@ -31,7 +31,8 @@ final class FakeConnection implements StreamConnection {
   FakeConnection(this.context);
 
   final StreamConnectContext context;
-  final StreamController<Object?> _messages = StreamController<Object?>.broadcast(sync: true);
+  final StreamController<Object?> _messages =
+      StreamController<Object?>.broadcast(sync: true);
   final Completer<void> _closed = Completer<void>();
 
   bool get isClosed => _closed.isCompleted;
@@ -132,7 +133,9 @@ LiveHarness liveHarness(
   void onError(Object error, String context) => errors.add('$context: $error');
   // Recorded and asserted at teardown rather than thrown: an error thrown
   // inside a runtime callback is exactly what the runtime swallows.
-  addTearDown(() => expect(errors, isEmpty, reason: 'the runtime reported an error'));
+  addTearDown(
+    () => expect(errors, isEmpty, reason: 'the runtime reported an error'),
+  );
   final cache = QueryCache(
     transport: transport,
     entities: schema,

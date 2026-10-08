@@ -38,7 +38,8 @@ final class ForgeQueriesState {
   }
 
   /// The first failure's error, or null.
-  Object? get error => states.whereType<QueryFailure<Object?>>().firstOrNull?.error;
+  Object? get error =>
+      states.whereType<QueryFailure<Object?>>().firstOrNull?.error;
 
   /// Whether any query is fetching.
   bool get isFetching => states.any((s) => s.isFetching);
@@ -50,7 +51,8 @@ final class ForgeQueriesState {
   SyncStatus get syncStatus => foldSyncStatus(states.map((s) => s.syncStatus));
 
   /// Every query's data, in order, when [status] is success; otherwise null.
-  List<Object?>? get data => status == .success ? [for (final s in states) s.dataOrNull] : null;
+  List<Object?>? get data =>
+      status == .success ? [for (final s in states) s.dataOrNull] : null;
 
   /// Query [index]'s data, cast to [T]. Use a nullable [T] when the query may
   /// not have data yet.

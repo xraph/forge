@@ -134,8 +134,14 @@ final class CreateOrderArgs implements OperationArgs {
 }
 
 /// The bindings, exactly as a generated package declares them.
-final listOrders = query<List<Order>, ListOrdersArgs>(opListOrders, ordersFromClient);
-final searchOrders = query<List<Order>, ListOrdersArgs>(opSearchOrders, ordersFromClient);
+final listOrders = query<List<Order>, ListOrdersArgs>(
+  opListOrders,
+  ordersFromClient,
+);
+final searchOrders = query<List<Order>, ListOrdersArgs>(
+  opSearchOrders,
+  ordersFromClient,
+);
 final getOrder = query<Order, OrderArgs>(opGetOrder, Order.fromClient);
 final patchOrder = mutation<Order, PatchOrderArgs, Order>(
   opPatchOrder,
@@ -143,7 +149,10 @@ final patchOrder = mutation<Order, PatchOrderArgs, Order>(
   entityFromClient: Order.fromClient,
   entityToClient: (order) => order.toClient(),
 );
-final createOrder = mutation<Order, CreateOrderArgs, Order>(opCreateOrder, Order.fromClient);
+final createOrder = mutation<Order, CreateOrderArgs, Order>(
+  opCreateOrder,
+  Order.fromClient,
+);
 
 /// An error whose message is the whole of its `toString`, so a test can
 /// render it and find it.
@@ -226,13 +235,12 @@ Widget scope(
   Widget child, {
   FakeFocusSignal? focus,
   FakeConnectivitySignal? connectivity,
-}) =>
-    ForgeScope(
-      client: h.cache,
-      focus: focus ?? FakeFocusSignal(),
-      connectivity: connectivity ?? FakeConnectivitySignal(),
-      child: ltr(child),
-    );
+}) => ForgeScope(
+  client: h.cache,
+  focus: focus ?? FakeFocusSignal(),
+  connectivity: connectivity ?? FakeConnectivitySignal(),
+  child: ltr(child),
+);
 
 /// A harness signed in as alice whose server answers by who is signed in:
 /// an order's total is 100 + id for alice and 200 + id for bob, and a patch

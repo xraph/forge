@@ -1,3 +1,4 @@
+// dart format off
 // Every ```dart block of README.md, pasted verbatim, so `flutter analyze`
 // compiles them against the real APIs. test/readme_test.dart fails when a
 // block in the README is not found here, so the two cannot drift. Not a test

@@ -90,26 +90,31 @@ final class _ForgeRestoreBoundaryState extends State<ForgeRestoreBoundary> {
       try {
         onError(error, stackTrace);
       } catch (handlerError, handlerStack) {
-        FlutterError.reportError(FlutterErrorDetails(
-          exception: handlerError,
-          stack: handlerStack,
-          library: 'forge_client_flutter',
-          context: ErrorDescription('while reporting a failed restore'),
-          informationCollector: () => [
-            ErrorDescription('The restore itself failed with: $error'),
-          ],
-        ));
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: handlerError,
+            stack: handlerStack,
+            library: 'forge_client_flutter',
+            context: ErrorDescription('while reporting a failed restore'),
+            informationCollector: () => [
+              ErrorDescription('The restore itself failed with: $error'),
+            ],
+          ),
+        );
       }
       return;
     }
-    FlutterError.reportError(FlutterErrorDetails(
-      exception: error,
-      stack: stackTrace,
-      library: 'forge_client_flutter',
-      context: ErrorDescription('while restoring the cache'),
-    ));
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'forge_client_flutter',
+        context: ErrorDescription('while restoring the cache'),
+      ),
+    );
   }
 
   @override
-  Widget build(BuildContext context) => _ready ? widget.child : widget.placeholder;
+  Widget build(BuildContext context) =>
+      _ready ? widget.child : widget.placeholder;
 }

@@ -881,41 +881,38 @@ void main() {
 
     // Dart-only: the hook an adapter uses to drop the previous principal's
     // data before anything sees the new principal's empty cache.
-    test(
-      'tells changing listeners before the clear notifies watchers and before watchPrincipal',
-      () async {
-        final (:cache, transport: _, scheduler: _) = rig(
-          (_, _) => [
-            {'id': 7},
-          ],
-        );
-        final events = <String>[];
+    test('tells changing listeners before the clear notifies watchers and before watchPrincipal', () async {
+      final (:cache, transport: _, scheduler: _) = rig(
+        (_, _) => [
+          {'id': 7},
+        ],
+      );
+      final events = <String>[];
 
-        final subscription = cache.watch(orderList, none).listen((state) {
-          if (state is QueryLoading) events.add('watcher loading');
-        });
-        await settle();
-        expect(dataOf(cache, orderList), isNotNull);
+      final subscription = cache.watch(orderList, none).listen((state) {
+        if (state is QueryLoading) events.add('watcher loading');
+      });
+      await settle();
+      expect(dataOf(cache, orderList), isNotNull);
 
-        // Registered first, and still told second.
-        cache.watchPrincipal((principal) => events.add('changed $principal'));
-        cache.watchPrincipalChanging(
-          (next) => events.add(
-            'changing $next principal=${cache.principal} '
-            'records=${cache.store.size > 0}',
-          ),
-        );
-        events.clear();
+      // Registered first, and still told second.
+      cache.watchPrincipal((principal) => events.add('changed $principal'));
+      cache.watchPrincipalChanging(
+        (next) => events.add(
+          'changing $next principal=${cache.principal} '
+          'records=${cache.store.size > 0}',
+        ),
+      );
+      events.clear();
 
-        cache.setPrincipal('user-b');
+      cache.setPrincipal('user-b');
 
-        expect(events.first, 'changing user-b principal=user-b records=true');
-        expect(events, contains('watcher loading'));
-        expect(events.last, 'changed user-b');
+      expect(events.first, 'changing user-b principal=user-b records=true');
+      expect(events, contains('watcher loading'));
+      expect(events.last, 'changed user-b');
 
-        unawaited(subscription.cancel());
-      },
-    );
+      unawaited(subscription.cancel());
+    });
 
     // R18. The clear reinstates every watched record before it notifies any,
     // so a watch made from inside its notifications joins the reinstated
@@ -1038,38 +1035,35 @@ void main() {
       );
     }
 
-    test(
-      'reports a throwing changing listener, stops telling a removed one, and forgets them on dispose',
-      () async {
-        final errors = <(Object, String)>[];
-        final transport = FakeTransport((_, _) => null);
-        final cache = QueryCache(
-          transport: transport,
-          entities: schema,
-          onError: (error, context) => errors.add((error, context)),
-        );
-        final told = <String?>[];
+    test('reports a throwing changing listener, stops telling a removed one, and forgets them on dispose', () async {
+      final errors = <(Object, String)>[];
+      final transport = FakeTransport((_, _) => null);
+      final cache = QueryCache(
+        transport: transport,
+        entities: schema,
+        onError: (error, context) => errors.add((error, context)),
+      );
+      final told = <String?>[];
 
-        cache.watchPrincipalChanging((_) => throw StateError('boom'));
-        final remove = cache.watchPrincipalChanging(told.add);
-        final kept = <String?>[];
-        cache.watchPrincipalChanging(kept.add);
+      cache.watchPrincipalChanging((_) => throw StateError('boom'));
+      final remove = cache.watchPrincipalChanging(told.add);
+      final kept = <String?>[];
+      cache.watchPrincipalChanging(kept.add);
 
-        cache.setPrincipal('a');
-        expect(errors.single.$2, 'principal');
-        expect(told, ['a']);
-        expect(kept, ['a']);
+      cache.setPrincipal('a');
+      expect(errors.single.$2, 'principal');
+      expect(told, ['a']);
+      expect(kept, ['a']);
 
-        remove();
-        cache.setPrincipal('b');
-        expect(told, ['a']);
-        expect(kept, ['a', 'b']);
+      remove();
+      cache.setPrincipal('b');
+      expect(told, ['a']);
+      expect(kept, ['a', 'b']);
 
-        await cache.dispose();
-        cache.setPrincipal('c');
-        expect(kept, ['a', 'b']);
-      },
-    );
+      await cache.dispose();
+      cache.setPrincipal('c');
+      expect(kept, ['a', 'b']);
+    });
   });
 
   group('prefetching', () {

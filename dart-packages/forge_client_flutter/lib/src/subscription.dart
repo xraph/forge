@@ -13,8 +13,7 @@ String watchSignature(
   required bool live,
   Duration? staleTime,
   required bool enabled,
-}) =>
-    '${query.key}\u0000$live\u0000${staleTime?.inMicroseconds}\u0000$enabled';
+}) => '${query.key}\u0000$live\u0000${staleTime?.inMicroseconds}\u0000$enabled';
 
 /// One subscription to one query, for a widget or a computed value: listen,
 /// swap and cancel.
@@ -107,8 +106,12 @@ final class QuerySubscription<T> {
     Duration? staleTime,
     required bool enabled,
   }) {
-    final signature =
-        watchSignature(query, live: live, staleTime: staleTime, enabled: enabled);
+    final signature = watchSignature(
+      query,
+      live: live,
+      staleTime: staleTime,
+      enabled: enabled,
+    );
     if (identical(client, _client) && signature == _signature) return false;
 
     final previous = _subscription;

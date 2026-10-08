@@ -77,7 +77,8 @@ final class _ForgeOutboxListenerState extends State<ForgeOutboxListener> {
   void _receive(Object failure) {
     if (!mounted) return;
     final building =
-        SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks;
+        SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks;
     if (_held.isEmpty && !building) {
       _deliver(failure);
       return;
@@ -110,12 +111,14 @@ final class _ForgeOutboxListenerState extends State<ForgeOutboxListener> {
     try {
       widget.onFailure(context, failure);
     } catch (error, stackTrace) {
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        library: 'forge_client_flutter',
-        context: ErrorDescription('while handling an outbox failure'),
-      ));
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'forge_client_flutter',
+          context: ErrorDescription('while handling an outbox failure'),
+        ),
+      );
     }
   }
 

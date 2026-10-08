@@ -39,7 +39,11 @@ void main() {
       }
     }
 
-    expect(hasCipher, isTrue, reason: 'plain SQLite is linked: the hooks user_defines block is not in effect');
+    expect(
+      hasCipher,
+      isTrue,
+      reason: 'plain SQLite is linked: the hooks user_defines block is not in effect',
+    );
 
     final key = '00' * 32;
     db.execute("PRAGMA hexkey = '$key'");
@@ -51,7 +55,11 @@ void main() {
 
     final bytes = File(path).readAsBytesSync();
     expect(bytes.length, greaterThanOrEqualTo(16));
-    expect(String.fromCharCodes(bytes.sublist(0, 16)), isNot(_plainHeader), reason: 'the file header is plain SQLite');
+    expect(
+      String.fromCharCodes(bytes.sublist(0, 16)),
+      isNot(_plainHeader),
+      reason: 'the file header is plain SQLite',
+    );
     expect(String.fromCharCodes(bytes), isNot(contains('secret-marker')));
 
     final right = sqlite3.open(path);
@@ -62,10 +70,16 @@ void main() {
     final wrong = sqlite3.open(path);
     addTearDown(wrong.close);
     wrong.execute("PRAGMA hexkey = '${'11' * 32}'");
-    expect(() => wrong.select('SELECT v FROM t'), throwsA(isA<SqliteException>()));
+    expect(
+      () => wrong.select('SELECT v FROM t'),
+      throwsA(isA<SqliteException>()),
+    );
 
     final keyless = sqlite3.open(path);
     addTearDown(keyless.close);
-    expect(() => keyless.select('SELECT v FROM t'), throwsA(isA<SqliteException>()));
+    expect(
+      () => keyless.select('SELECT v FROM t'),
+      throwsA(isA<SqliteException>()),
+    );
   });
 }

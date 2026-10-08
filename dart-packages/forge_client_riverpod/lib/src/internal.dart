@@ -35,12 +35,12 @@ final class _PrincipalNotifier extends Notifier<String?> {
 /// The principal of a client, for providers whose state belongs to one
 /// principal: watching it rebuilds them, synchronously marked dirty, on
 /// every `setPrincipal`.
-final principalProvider =
-    NotifierProvider.autoDispose.family<_PrincipalNotifier, String?, QueryCache>(
-  _PrincipalNotifier.new,
-  name: 'forgePrincipalProvider',
-  retry: noRetry,
-);
+final principalProvider = NotifierProvider.autoDispose
+    .family<_PrincipalNotifier, String?, QueryCache>(
+      _PrincipalNotifier.new,
+      name: 'forgePrincipalProvider',
+      retry: noRetry,
+    );
 
 /// How many Forge notifiers are inside their `build` right now, across every
 /// container.

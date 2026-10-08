@@ -42,7 +42,8 @@ import 'scope.dart';
 /// A state change that happens while the tree is being built, such as a
 /// `mutate` called from a `build` method, is applied after that frame rather
 /// than during it.
-final class ForgeMutationBuilder<R, A extends OperationArgs, E> extends StatefulWidget {
+final class ForgeMutationBuilder<R, A extends OperationArgs, E>
+    extends StatefulWidget {
   /// Creates a builder for [mutation].
   const ForgeMutationBuilder({
     super.key,
@@ -57,7 +58,8 @@ final class ForgeMutationBuilder<R, A extends OperationArgs, E> extends Stateful
   final MutationBinding<R, A, E> mutation;
 
   /// Builds the subtree for the current mutation handle.
-  final Widget Function(BuildContext context, ForgeMutation<R, A, E> mutation) builder;
+  final Widget Function(BuildContext context, ForgeMutation<R, A, E> mutation)
+  builder;
 
   /// Use this cache rather than the scoped or global one.
   final QueryCache? client;
@@ -77,7 +79,8 @@ final class ForgeMutationBuilder<R, A extends OperationArgs, E> extends Stateful
   final Map<String, Placement> place;
 
   @override
-  State<ForgeMutationBuilder<R, A, E>> createState() => _ForgeMutationBuilderState<R, A, E>();
+  State<ForgeMutationBuilder<R, A, E>> createState() =>
+      _ForgeMutationBuilderState<R, A, E>();
 }
 
 /// The handle a [ForgeMutationBuilder] passes to its builder: the current
@@ -244,7 +247,8 @@ final class _ForgeMutationBuilderState<R, A extends OperationArgs, E>
     QueryCache? target;
     String? principal;
     bool current() =>
-        identical(_resolve(), resolved) && (target == null || target.principal == principal);
+        identical(_resolve(), resolved) &&
+        (target == null || target.principal == principal);
     try {
       // Everything that can throw is inside the try, so a missing client or a
       // throwing `optimistic` callback is recorded as the call's failure

@@ -118,7 +118,8 @@ abstract interface class ForgeReader {
 /// Read [value] in the builder of a `ListenableBuilder` when this matters: a
 /// `ValueListenableBuilder` keeps the last value it read, so it would go on
 /// showing the old client's value.
-final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T> {
+final class ForgeComputed<T> extends ChangeNotifier
+    implements ValueListenable<T> {
   ForgeComputed._(this._key, this._owner);
 
   final ForgeComputedKey<T> _key;
@@ -216,12 +217,12 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
     }
     final subscription = read.subscription as QuerySubscription<Q>;
     read.bindTo = (client) => subscription.bind(
-          client,
-          query,
-          live: live,
-          staleTime: staleTime,
-          enabled: enabled,
-        );
+      client,
+      query,
+      live: live,
+      staleTime: staleTime,
+      enabled: enabled,
+    );
     // A no-op unless this read is new or the scope's client was swapped, in
     // which case it listens on the new client before releasing the old one.
     read.bindTo(_owner.client);
@@ -245,14 +246,18 @@ final class ForgeComputed<T> extends ChangeNotifier implements ValueListenable<T
     try {
       next = _run();
     } catch (error, stack) {
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: error,
-        stack: stack,
-        library: 'forge_client_flutter',
-        context: ErrorDescription(
-          moving ? 'while moving $_key to a new client' : 'while recomputing $_key',
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'forge_client_flutter',
+          context: ErrorDescription(
+            moving
+                ? 'while moving $_key to a new client'
+                : 'while recomputing $_key',
+          ),
         ),
-      ));
+      );
       if (moving || _failure != null) {
         final entering = _failure == null;
         _failure = error;
@@ -312,7 +317,8 @@ final class _Reader implements ForgeReader {
   S state<S>(ForgeStateKey<S> key) => listen(_computed._owner.state(key));
 
   @override
-  S computed<S>(ForgeComputedKey<S> key) => listen(_computed._owner.computed(key));
+  S computed<S>(ForgeComputedKey<S> key) =>
+      listen(_computed._owner.computed(key));
 
   @override
   S listen<S>(ValueListenable<S> listenable) {
@@ -328,9 +334,20 @@ final class _Reader implements ForgeReader {
     Duration? staleTime,
     bool enabled = true,
   }) {
-    final id = watchSignature(query, live: live, staleTime: staleTime, enabled: enabled);
+    final id = watchSignature(
+      query,
+      live: live,
+      staleTime: staleTime,
+      enabled: enabled,
+    );
     queries.add(id);
-    return _computed._query(id, query, live: live, staleTime: staleTime, enabled: enabled);
+    return _computed._query(
+      id,
+      query,
+      live: live,
+      staleTime: staleTime,
+      enabled: enabled,
+    );
   }
 }
 
@@ -448,14 +465,16 @@ final class ForgeScopeOwner {
       final count = refreshes[next] = (refreshes[next] ?? 0) + 1;
       if (count > _maxRefreshes) {
         if (count == _maxRefreshes + 1) {
-          FlutterError.reportError(FlutterErrorDetails(
-            exception: StateError(
-              '${next._key} kept changing its own dependencies while '
-              'computing. A compute function must only read, never write.',
+          FlutterError.reportError(
+            FlutterErrorDetails(
+              exception: StateError(
+                '${next._key} kept changing its own dependencies while '
+                'computing. A compute function must only read, never write.',
+              ),
+              library: 'forge_client_flutter',
+              context: ErrorDescription('while recomputing ${next._key}'),
             ),
-            library: 'forge_client_flutter',
-            context: ErrorDescription('while recomputing ${next._key}'),
-          ));
+          );
         }
         continue;
       }
@@ -473,10 +492,15 @@ final class ForgeScopeOwner {
     return _dirty.first;
   }
 
-  bool _readsDirty(ForgeComputed<Object?> computed, Set<ForgeComputed<Object?>> seen) {
+  bool _readsDirty(
+    ForgeComputed<Object?> computed,
+    Set<ForgeComputed<Object?>> seen,
+  ) {
     for (final dependency in computed._dependencies) {
       if (!seen.add(dependency)) continue;
-      if (_dirty.contains(dependency) || _readsDirty(dependency, seen)) return true;
+      if (_dirty.contains(dependency) || _readsDirty(dependency, seen)) {
+        return true;
+      }
     }
     return false;
   }

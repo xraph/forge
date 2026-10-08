@@ -29,78 +29,95 @@ Future<Snapshot> snapshotOf(int total) async {
 
 void main() {
   group('restoring', () {
-    testWidgets('shows the placeholder until restore completes, then the child', (tester) async {
-      final h = harness((_, _) => order(1, 5));
-      final gate = Completer<void>();
+    testWidgets(
+      'shows the placeholder until restore completes, then the child',
+      (tester) async {
+        final h = harness((_, _) => order(1, 5));
+        final gate = Completer<void>();
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () => gate.future,
-          placeholder: const Text('restoring'),
-          child: const Text('ready'),
-        ),
-      ));
-      await settle(tester);
-      expect(find.text('restoring'), findsOneWidget);
-      expect(find.text('ready'), findsNothing);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () => gate.future,
+              placeholder: const Text('restoring'),
+              child: const Text('ready'),
+            ),
+          ),
+        );
+        await settle(tester);
+        expect(find.text('restoring'), findsOneWidget);
+        expect(find.text('ready'), findsNothing);
 
-      gate.complete();
-      await settle(tester);
-      expect(find.text('ready'), findsOneWidget);
-    });
+        gate.complete();
+        await settle(tester);
+        expect(find.text('ready'), findsOneWidget);
+      },
+    );
 
-    testWidgets('renders the server data on the first pass and issues no request', (tester) async {
-      // In Dart the payload comes from the device, not a server: a snapshot
-      // dehydrated from one cache and hydrated into another by the callback.
-      final snapshot = await snapshotOf(99);
-      final target = harness((_, _) => order(1, 0));
+    testWidgets(
+      'renders the server data on the first pass and issues no request',
+      (tester) async {
+        // In Dart the payload comes from the device, not a server: a snapshot
+        // dehydrated from one cache and hydrated into another by the callback.
+        final snapshot = await snapshotOf(99);
+        final target = harness((_, _) => order(1, 0));
 
-      await tester.pumpWidget(scope(
-        target,
-        ForgeRestoreBoundary(
-          restore: () async {
-            hydrate(target.cache, snapshot, operations: operations);
-          },
-          placeholder: const Text('restoring'),
-          child: detail(),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            target,
+            ForgeRestoreBoundary(
+              restore: () async {
+                hydrate(target.cache, snapshot, operations: operations);
+              },
+              placeholder: const Text('restoring'),
+              child: detail(),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      expect(find.text('success:99'), findsOneWidget);
-      expect(target.transport.calls, isEmpty);
-    });
+        expect(find.text('success:99'), findsOneWidget);
+        expect(target.transport.calls, isEmpty);
+      },
+    );
 
-    testWidgets('hydrates once under StrictMode, whose renders are double-invoked', (tester) async {
-      // There is no StrictMode in Flutter. The hazard it probes is the same
-      // one a rebuilding parent poses: a new restore closure on every build
-      // must not restore again.
-      final h = harness((_, _) => order(1, 5));
-      var runs = 0;
-      late StateSetter bump;
+    testWidgets(
+      'hydrates once under StrictMode, whose renders are double-invoked',
+      (tester) async {
+        // There is no StrictMode in Flutter. The hazard it probes is the same
+        // one a rebuilding parent poses: a new restore closure on every build
+        // must not restore again.
+        final h = harness((_, _) => order(1, 5));
+        var runs = 0;
+        late StateSetter bump;
 
-      await tester.pumpWidget(scope(
-        h,
-        StatefulBuilder(builder: (context, setState) {
-          bump = setState;
-          return ForgeRestoreBoundary(
-            restore: () async {
-              runs++;
-            },
-            child: const Text('ready'),
-          );
-        }),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            StatefulBuilder(
+              builder: (context, setState) {
+                bump = setState;
+                return ForgeRestoreBoundary(
+                  restore: () async {
+                    runs++;
+                  },
+                  child: const Text('ready'),
+                );
+              },
+            ),
+          ),
+        );
+        await settle(tester);
 
-      for (var i = 0; i < 3; i++) {
-        bump(() {});
-        await tester.pump();
-      }
+        for (var i = 0; i < 3; i++) {
+          bump(() {});
+          await tester.pump();
+        }
 
-      expect(runs, 1);
-    });
+        expect(runs, 1);
+      },
+    );
 
     testWidgets('refetches on mount when hydrated stale', (tester) async {
       // Ported rather than skipped: whether a payload is stale is the
@@ -110,15 +127,22 @@ void main() {
       final snapshot = await snapshotOf(99);
       final target = harness((_, _) => order(1, 7));
 
-      await tester.pumpWidget(scope(
-        target,
-        ForgeRestoreBoundary(
-          restore: () async {
-            hydrate(target.cache, snapshot, operations: operations, stale: true);
-          },
-          child: detail(),
+      await tester.pumpWidget(
+        scope(
+          target,
+          ForgeRestoreBoundary(
+            restore: () async {
+              hydrate(
+                target.cache,
+                snapshot,
+                operations: operations,
+                stale: true,
+              );
+            },
+            child: detail(),
+          ),
         ),
-      ));
+      );
       await settle(tester);
 
       // The hydrated value is on screen first, with the refetch queued on the
@@ -133,13 +157,14 @@ void main() {
       expect(target.transport.countOf(opGetOrder), 1);
     });
 
-    testWidgets('renders children unchanged when there is nothing to hydrate', (tester) async {
+    testWidgets('renders children unchanged when there is nothing to hydrate', (
+      tester,
+    ) async {
       final h = harness((_, _) => order(1, 5));
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(restore: () async {}, child: detail()),
-      ));
+      await tester.pumpWidget(
+        scope(h, ForgeRestoreBoundary(restore: () async {}, child: detail())),
+      );
       await settle(tester);
 
       // Nothing restored, so the child fetches as it would without a boundary.
@@ -163,55 +188,69 @@ void main() {
   });
 
   group('when hydrate refuses the payload', () {
-    testWidgets('rethrows a principal mismatch, so an error boundary catches it', (tester) async {
-      // Flutter has no error boundaries. Without an onError the failure is
-      // reported through FlutterError, where the app's handler sees it, and
-      // the child renders on a cold cache.
-      final foreign = harness((_, _) => order(1, 99));
-      foreign.cache.setPrincipal('alice');
-      await getOrder(const OrderArgs(1)).fetch(foreign.cache);
-      final snapshot = dehydrate(foreign.cache, principal: 'alice');
-      final h = harness((_, _) => order(1, 5));
+    testWidgets(
+      'rethrows a principal mismatch, so an error boundary catches it',
+      (tester) async {
+        // Flutter has no error boundaries. Without an onError the failure is
+        // reported through FlutterError, where the app's handler sees it, and
+        // the child renders on a cold cache.
+        final foreign = harness((_, _) => order(1, 99));
+        foreign.cache.setPrincipal('alice');
+        await getOrder(const OrderArgs(1)).fetch(foreign.cache);
+        final snapshot = dehydrate(foreign.cache, principal: 'alice');
+        final h = harness((_, _) => order(1, 5));
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () async {
-            hydrate(h.cache, snapshot, operations: operations);
-          },
-          child: const Text('ready'),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () async {
+                hydrate(h.cache, snapshot, operations: operations);
+              },
+              child: const Text('ready'),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      final error = tester.takeException();
-      expect(error, isA<HydrationFailure>());
-      expect((error! as HydrationFailure).reason, 'principal');
-      expect(find.text('ready'), findsOneWidget);
-    });
+        final error = tester.takeException();
+        expect(error, isA<HydrationFailure>());
+        expect((error! as HydrationFailure).reason, 'principal');
+        expect(find.text('ready'), findsOneWidget);
+      },
+    );
 
-    testWidgets('reports and renders on when the payload is from a newer client', (tester) async {
-      final h = harness((_, _) => order(1, 5));
-      final errors = <Object>[];
+    testWidgets(
+      'reports and renders on when the payload is from a newer client',
+      (tester) async {
+        final h = harness((_, _) => order(1, 5));
+        final errors = <Object>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () async {
-            hydrate(h.cache, const Snapshot({'v': 2, 'queries': []}), operations: operations);
-          },
-          onError: (error, _) => errors.add(error),
-          child: const Text('ready'),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () async {
+                hydrate(
+                  h.cache,
+                  const Snapshot({'v': 2, 'queries': []}),
+                  operations: operations,
+                );
+              },
+              onError: (error, _) => errors.add(error),
+              child: const Text('ready'),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      expect(errors, hasLength(1));
-      expect(errors.single, isA<HydrationFailure>());
-      expect((errors.single as HydrationFailure).reason, 'version');
-      expect(tester.takeException(), isNull);
-      expect(find.text('ready'), findsOneWidget);
-    });
+        expect(errors, hasLength(1));
+        expect(errors.single, isA<HydrationFailure>());
+        expect((errors.single as HydrationFailure).reason, 'version');
+        expect(tester.takeException(), isNull);
+        expect(find.text('ready'), findsOneWidget);
+      },
+    );
   });
 
   group('while the tree is being built', () {
@@ -222,15 +261,17 @@ void main() {
       final h = harness((_, _) => order(1, 5));
       SchedulerPhase? phase;
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () async {
-            phase = SchedulerBinding.instance.schedulerPhase;
-          },
-          child: const Text('ready'),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeRestoreBoundary(
+            restore: () async {
+              phase = SchedulerBinding.instance.schedulerPhase;
+            },
+            child: const Text('ready'),
+          ),
         ),
-      ));
+      );
       await settle(tester);
 
       expect(phase, isNotNull);
@@ -238,59 +279,76 @@ void main() {
       expect(find.text('ready'), findsOneWidget);
     });
 
-    testWidgets('reports a restore that throws before it returns a future, outside the build', (tester) async {
-      // `() => throw ...` has no async body, so the error is thrown by the
-      // call itself. It must be treated like any other failed restore.
-      final h = harness((_, _) => order(1, 5));
-      final reports = <SchedulerPhase>[];
-      final errors = <Object>[];
+    testWidgets(
+      'reports a restore that throws before it returns a future, outside the build',
+      (tester) async {
+        // `() => throw ...` has no async body, so the error is thrown by the
+        // call itself. It must be treated like any other failed restore.
+        final h = harness((_, _) => order(1, 5));
+        final reports = <SchedulerPhase>[];
+        final errors = <Object>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () => throw const Boom('sync'),
-          onError: (error, _) {
-            reports.add(SchedulerBinding.instance.schedulerPhase);
-            errors.add(error);
-          },
-          child: const Text('ready'),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () => throw const Boom('sync'),
+              onError: (error, _) {
+                reports.add(SchedulerBinding.instance.schedulerPhase);
+                errors.add(error);
+              },
+              child: const Text('ready'),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      expect(errors.map((e) => '$e'), ['sync']);
-      expect(reports, isNot(contains(SchedulerPhase.persistentCallbacks)));
-      expect(tester.takeException(), isNull);
-      expect(find.text('ready'), findsOneWidget);
-    });
+        expect(errors.map((e) => '$e'), ['sync']);
+        expect(reports, isNot(contains(SchedulerPhase.persistentCallbacks)));
+        expect(tester.takeException(), isNull);
+        expect(find.text('ready'), findsOneWidget);
+      },
+    );
 
-    testWidgets('mounts the child and reports through FlutterError when onError itself throws', (tester) async {
-      final h = harness((_, _) => order(1, 5));
+    testWidgets(
+      'mounts the child and reports through FlutterError when onError itself throws',
+      (tester) async {
+        final h = harness((_, _) => order(1, 5));
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () async => throw const Boom('restore failed'),
-          onError: (error, _) => throw const Boom('handler failed'),
-          child: const Text('ready'),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () async => throw const Boom('restore failed'),
+              onError: (error, _) => throw const Boom('handler failed'),
+              child: const Text('ready'),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      final reported = tester.takeException();
-      expect(reported, isA<Boom>());
-      expect('$reported', 'handler failed');
-      expect(find.text('ready'), findsOneWidget);
-    });
+        final reported = tester.takeException();
+        expect(reported, isA<Boom>());
+        expect('$reported', 'handler failed');
+        expect(find.text('ready'), findsOneWidget);
+      },
+    );
 
-    testWidgets('does nothing when it was removed before restore completed', (tester) async {
+    testWidgets('does nothing when it was removed before restore completed', (
+      tester,
+    ) async {
       final h = harness((_, _) => order(1, 5));
       final gate = Completer<void>();
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(restore: () => gate.future, child: const Text('ready')),
-      ));
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeRestoreBoundary(
+            restore: () => gate.future,
+            child: const Text('ready'),
+          ),
+        ),
+      );
       await settle(tester);
       await tester.pumpWidget(scope(h, const Text('gone')));
 
@@ -303,45 +361,58 @@ void main() {
   });
 
   group('restoring from the cache\'s own session', () {
-    testWidgets('a restore reads the session after cache.idle, since it is null during a principal switch', (tester) async {
-      final storage = memoryStorage();
-      final foreign = harness((_, _) => order(1, 99));
-      foreign.cache.setPrincipal('alice');
-      await getOrder(const OrderArgs(1)).fetch(foreign.cache);
-      await (await storage.open('alice')).writeSnapshot(dehydrate(foreign.cache, principal: 'alice'));
+    testWidgets(
+      'a restore reads the session after cache.idle, since it is null during a principal switch',
+      (tester) async {
+        final storage = memoryStorage();
+        final foreign = harness((_, _) => order(1, 99));
+        foreign.cache.setPrincipal('alice');
+        await getOrder(const OrderArgs(1)).fetch(foreign.cache);
+        await (await storage.open('alice'))
+            .writeSnapshot(dehydrate(foreign.cache, principal: 'alice'));
 
-      final transport = FakeTransport((_, _) => order(1, 0));
-      final cache = QueryCache(
-        transport: transport,
-        entities: schema,
-        scheduler: ManualScheduler(),
-        storage: storage,
-      );
-      final h = Harness(cache, transport, ManualScheduler());
-      cache.setPrincipal('alice');
-      // The switch has begun, and the session opens when it finishes.
-      expect(cache.session, isNull);
+        final transport = FakeTransport((_, _) => order(1, 0));
+        final cache = QueryCache(
+          transport: transport,
+          entities: schema,
+          scheduler: ManualScheduler(),
+          storage: storage,
+        );
+        final h = Harness(cache, transport, ManualScheduler());
+        cache.setPrincipal('alice');
+        // The switch has begun, and the session opens when it finishes.
+        expect(cache.session, isNull);
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeRestoreBoundary(
-          restore: () async {
-            await cache.idle;
-            final stored = await cache.session!.readSnapshot();
-            hydrate(cache, stored!, principal: 'alice', operations: operations);
-          },
-          child: detail(),
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeRestoreBoundary(
+              restore: () async {
+                await cache.idle;
+                final stored = await cache.session!.readSnapshot();
+                hydrate(
+                  cache,
+                  stored!,
+                  principal: 'alice',
+                  operations: operations,
+                );
+              },
+              child: detail(),
+            ),
+          ),
+        );
+        await settle(tester);
 
-      expect(find.text('success:99'), findsOneWidget);
-      expect(transport.calls, isEmpty);
-    });
+        expect(find.text('success:99'), findsOneWidget);
+        expect(transport.calls, isEmpty);
+      },
+    );
   });
 
   group('restoring again', () {
-    testWidgets('a new key shows the placeholder and runs restore again', (tester) async {
+    testWidgets('a new key shows the placeholder and runs restore again', (
+      tester,
+    ) async {
       // The way to restore for another principal: re-key the boundary, for
       // example with `ValueKey(principal)`.
       final h = harness((_, _) => order(1, 5));

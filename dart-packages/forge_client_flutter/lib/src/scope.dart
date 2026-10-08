@@ -62,8 +62,7 @@ final class ForgeScope extends StatefulWidget {
     BuildContext context, {
     QueryCache? client,
     bool listen = true,
-  }) =>
-      client ?? maybeOf(context, listen: listen) ?? getClient();
+  }) => client ?? maybeOf(context, listen: listen) ?? getClient();
 
   /// The nearest scope's cache, or null when no scope is above [context].
   static QueryCache? maybeOf(BuildContext context, {bool listen = true}) {
@@ -121,8 +120,11 @@ final class _ForgeScopeState extends State<ForgeScope> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _ForgeInherited(client: widget.client, owner: _owner, child: widget.child);
+  Widget build(BuildContext context) => _ForgeInherited(
+    client: widget.client,
+    owner: _owner,
+    child: widget.child,
+  );
 }
 
 final class _ForgeInherited extends InheritedWidget {
@@ -162,7 +164,8 @@ extension ForgeContext on BuildContext {
 
   /// The nearest scope's state for [key], created on first read. Listen to
   /// it with `ValueListenableBuilder`; reading it does not subscribe.
-  ForgeState<T> forgeState<T>(ForgeStateKey<T> key) => scopeOwnerOf(this).state(key);
+  ForgeState<T> forgeState<T>(ForgeStateKey<T> key) =>
+      scopeOwnerOf(this).state(key);
 
   /// The nearest scope's computed value for [key], created on first read.
   /// Listen to it with `ValueListenableBuilder`; reading it does not

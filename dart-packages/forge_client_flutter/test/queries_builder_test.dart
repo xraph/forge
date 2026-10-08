@@ -20,7 +20,10 @@ const _opGetCustomer = OperationMeta(
   provides: ['Customer:{id}'],
 );
 
-final _getCustomer = query<Object?, OrderArgs>(_opGetCustomer, (client) => client);
+final _getCustomer = query<Object?, OrderArgs>(
+  _opGetCustomer,
+  (client) => client,
+);
 
 /// A sync source the test drives: it owns Order and says whatever status it
 /// is told to. Modelled on forge_client's own test source.
@@ -34,7 +37,8 @@ final class _FakeSource implements SyncSource {
   Future<void> start(SyncContext context) async {}
 
   @override
-  Future<MutationOutcome> apply(PendingMutation mutation) async => Queued(mutation.id);
+  Future<MutationOutcome> apply(PendingMutation mutation) async =>
+      Queued(mutation.id);
 
   @override
   Stream<SyncStatus> status(String entity) => _status.stream;
@@ -57,7 +61,8 @@ void main() {
   group('ForgeQueriesState', () {
     // Pure value tests, so the precedence is pinned without a widget tree.
     final h = harness((request, _) => order(idOf(request), 5));
-    QueryState<Object?> idle() => getOrder(const OrderArgs(1)).getState(h.cache, enabled: false);
+    QueryState<Object?> idle() =>
+        getOrder(const OrderArgs(1)).getState(h.cache, enabled: false);
 
     test('is success for an empty list', () {
       final state = ForgeQueriesState(const []);
@@ -102,37 +107,51 @@ void main() {
   });
 
   group('ForgeQueriesBuilder', () {
-    testWidgets('reports loading until every query has data, then success with all of them', (tester) async {
-      final gate = Completer<Object?>();
-      final h = harness(
-        (request, _) => request.meta.id == opListOrders.id ? gate.future : order(idOf(request), 5),
-      );
-      ForgeQueriesState? last;
+    testWidgets(
+      'reports loading until every query has data, then success with all of them',
+      (tester) async {
+        final gate = Completer<Object?>();
+        final h = harness(
+          (request, _) => request.meta.id == opListOrders.id
+              ? gate.future
+              : order(idOf(request), 5),
+        );
+        ForgeQueriesState? last;
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeQueriesBuilder(
-          queries: [getOrder(const OrderArgs(1)), listOrders(const ListOrdersArgs())],
-          builder: (context, state) {
-            last = state;
-            return Text('${state.status.name}:${state.data?.length ?? '-'}');
-          },
-        ),
-      ));
-      await settle(tester);
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeQueriesBuilder(
+              queries: [
+                getOrder(const OrderArgs(1)),
+                listOrders(const ListOrdersArgs()),
+              ],
+              builder: (context, state) {
+                last = state;
+                return Text(
+                  '${state.status.name}:${state.data?.length ?? '-'}',
+                );
+              },
+            ),
+          ),
+        );
+        await settle(tester);
 
-      // The order is in, the list is not.
-      expect(find.text('loading:-'), findsOneWidget);
+        // The order is in, the list is not.
+        expect(find.text('loading:-'), findsOneWidget);
 
-      gate.complete([order(2, 6)]);
-      await settle(tester);
+        gate.complete([order(2, 6)]);
+        await settle(tester);
 
-      expect(find.text('success:2'), findsOneWidget);
-      expect(last!.dataAt<Order>(0).total, 5);
-      expect(last!.dataAt<List<Order>>(1).first.total, 6);
-    });
+        expect(find.text('success:2'), findsOneWidget);
+        expect(last!.dataAt<Order>(0).total, 5);
+        expect(last!.dataAt<List<Order>>(1).first.total, 6);
+      },
+    );
 
-    testWidgets('reports failure when any query fails, with the first error', (tester) async {
+    testWidgets('reports failure when any query fails, with the first error', (
+      tester,
+    ) async {
       final gate = Completer<Object?>();
       final h = harness((request, _) {
         // The order is held loading, so failure must beat loading.
@@ -140,13 +159,19 @@ void main() {
         throw const Boom('list down');
       });
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeQueriesBuilder(
-          queries: [getOrder(const OrderArgs(1)), listOrders(const ListOrdersArgs())],
-          builder: (context, state) => Text('${state.status.name}:${state.error ?? '-'}'),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeQueriesBuilder(
+            queries: [
+              getOrder(const OrderArgs(1)),
+              listOrders(const ListOrdersArgs()),
+            ],
+            builder: (context, state) =>
+                Text('${state.status.name}:${state.error ?? '-'}'),
+          ),
         ),
-      ));
+      );
       await settle(tester);
 
       expect(find.text('failure:list down'), findsOneWidget);
@@ -155,7 +180,9 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('reports idle and fetches nothing while disabled', (tester) async {
+    testWidgets('reports idle and fetches nothing while disabled', (
+      tester,
+    ) async {
       final h = harness((request, _) => order(idOf(request), 5));
 
       Widget both({required bool enabled}) => scope(
@@ -182,19 +209,26 @@ void main() {
       // The fake transport answers before the next frame, so the refetch of
       // order 2 is held on a gate to let a build see it in flight.
       final gate = Completer<Object?>();
-      final h = harness((request, call) => call < 2 ? order(idOf(request), 5) : gate.future);
+      final h = harness(
+        (request, call) => call < 2 ? order(idOf(request), 5) : gate.future,
+      );
       final seen = <ForgeQueriesState>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeQueriesBuilder(
-          queries: [getOrder(const OrderArgs(1)), getOrder(const OrderArgs(2))],
-          builder: (context, state) {
-            seen.add(state);
-            return const SizedBox();
-          },
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeQueriesBuilder(
+            queries: [
+              getOrder(const OrderArgs(1)),
+              getOrder(const OrderArgs(2)),
+            ],
+            builder: (context, state) {
+              seen.add(state);
+              return const SizedBox();
+            },
+          ),
         ),
-      ));
+      );
       await settle(tester);
       expect(seen.last.isFetching, isFalse);
 
@@ -216,7 +250,9 @@ void main() {
       expect(seen.last.dataAt<Order>(1).total, 9);
     });
 
-    testWidgets('resubscribes only the query whose arguments changed', (tester) async {
+    testWidgets('resubscribes only the query whose arguments changed', (
+      tester,
+    ) async {
       final h = harness((request, _) => order(idOf(request), 5));
 
       Widget pair(int second) => scope(
@@ -235,29 +271,37 @@ void main() {
       expect(h.transport.calls.map(idOf), [1, 2, 3]);
     });
 
-    testWidgets('keeps the subscription of a query whose arguments did not change', (tester) async {
-      final h = harness((request, _) => order(idOf(request), 5));
+    testWidgets(
+      'keeps the subscription of a query whose arguments did not change',
+      (tester) async {
+        final h = harness((request, _) => order(idOf(request), 5));
 
-      // staleTime zero makes every new mount refetch, so a subscription that
-      // was torn down and rebuilt would show up as a second request for 1.
-      Widget pair(int second) => scope(
-        h,
-        ForgeQueriesBuilder(
-          staleTime: Duration.zero,
-          queries: [getOrder(const OrderArgs(1)), getOrder(OrderArgs(second))],
-          builder: (context, state) => Text(state.status.name),
-        ),
-      );
+        // staleTime zero makes every new mount refetch, so a subscription that
+        // was torn down and rebuilt would show up as a second request for 1.
+        Widget pair(int second) => scope(
+          h,
+          ForgeQueriesBuilder(
+            staleTime: Duration.zero,
+            queries: [
+              getOrder(const OrderArgs(1)),
+              getOrder(OrderArgs(second)),
+            ],
+            builder: (context, state) => Text(state.status.name),
+          ),
+        );
 
-      await tester.pumpWidget(pair(2));
-      await settle(tester);
-      await tester.pumpWidget(pair(3));
-      await settle(tester);
+        await tester.pumpWidget(pair(2));
+        await settle(tester);
+        await tester.pumpWidget(pair(3));
+        await settle(tester);
 
-      expect(h.transport.calls.map(idOf), [1, 2, 3]);
-    });
+        expect(h.transport.calls.map(idOf), [1, 2, 3]);
+      },
+    );
 
-    testWidgets('keeps each subscription when the queries are reordered', (tester) async {
+    testWidgets('keeps each subscription when the queries are reordered', (
+      tester,
+    ) async {
       final h = harness((request, _) => order(idOf(request), 5));
 
       // Matching is by position, so [1, 2] -> [2, 1] rebinds both slots to
@@ -280,13 +324,18 @@ void main() {
       expect(h.transport.calls.map(idOf), [1, 2]);
     });
 
-    testWidgets('folds syncStatus across its queries, summing pending counts', (tester) async {
+    testWidgets('folds syncStatus across its queries, summing pending counts', (
+      tester,
+    ) async {
       final source = _FakeSource();
       final transport = FakeTransport((request, _) => order(idOf(request), 5));
       final scheduler = ManualScheduler();
       final cache = QueryCache(
         transport: transport,
-        entities: {...schema, 'Customer': const EntityMeta(idField: 'id')},
+        entities: {
+          ...schema,
+          'Customer': const EntityMeta(idField: 'id'),
+        },
         scheduler: scheduler,
         syncSources: [source],
       );
@@ -294,22 +343,26 @@ void main() {
 
       cache.setPrincipal('alice');
       await tester.pump();
-      await tester.pumpWidget(ForgeScope(
-        client: cache,
-        focus: FakeFocusSignal(),
-        connectivity: FakeConnectivitySignal(),
-        child: ltr(ForgeQueriesBuilder(
-          queries: [
-            getOrder(const OrderArgs(1)),
-            getOrder(const OrderArgs(2)),
-            _getCustomer(const OrderArgs(3)),
-          ],
-          builder: (context, state) {
-            seen.add(state);
-            return const SizedBox();
-          },
-        )),
-      ));
+      await tester.pumpWidget(
+        ForgeScope(
+          client: cache,
+          focus: FakeFocusSignal(),
+          connectivity: FakeConnectivitySignal(),
+          child: ltr(
+            ForgeQueriesBuilder(
+              queries: [
+                getOrder(const OrderArgs(1)),
+                getOrder(const OrderArgs(2)),
+                _getCustomer(const OrderArgs(3)),
+              ],
+              builder: (context, state) {
+                seen.add(state);
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
       await settle(tester);
       expect(seen.last.syncStatus, const Synced());
 
@@ -332,14 +385,17 @@ void main() {
       unawaited(cache.dispose());
     });
 
-    testWidgets('follows the list as queries are added and removed', (tester) async {
+    testWidgets('follows the list as queries are added and removed', (
+      tester,
+    ) async {
       final h = harness((request, _) => order(idOf(request), 5));
 
       Widget some(List<int> ids) => scope(
         h,
         ForgeQueriesBuilder(
           queries: [for (final id in ids) getOrder(OrderArgs(id))],
-          builder: (context, state) => Text('${state.states.length}:${state.status.name}'),
+          builder: (context, state) =>
+              Text('${state.states.length}:${state.status.name}'),
         ),
       );
 
@@ -365,13 +421,18 @@ void main() {
     testWidgets('releases every query when it goes away', (tester) async {
       final h = harness((request, _) => order(idOf(request), 5));
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeQueriesBuilder(
-          queries: [getOrder(const OrderArgs(1)), getOrder(const OrderArgs(2))],
-          builder: (context, state) => Text(state.status.name),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeQueriesBuilder(
+            queries: [
+              getOrder(const OrderArgs(1)),
+              getOrder(const OrderArgs(2)),
+            ],
+            builder: (context, state) => Text(state.status.name),
+          ),
         ),
-      ));
+      );
       await settle(tester);
 
       await tester.pumpWidget(scope(h, const SizedBox()));
@@ -385,21 +446,29 @@ void main() {
     // Ruling R7. A builder mounted during a build onto a stale query that this
     // builder already watches starts a fetch whose isFetching event reaches
     // this builder in the middle of that build.
-    testWidgets('mounts mid-build onto a stale query another builder watches', (tester) async {
+    testWidgets('mounts mid-build onto a stale query another builder watches', (
+      tester,
+    ) async {
       final clock = ManualClock();
       final gate = Completer<Object?>();
-      final h = harness((_, call) => call == 0 ? [order(1, 10)] : gate.future, clock: clock);
+      final h = harness(
+        (_, call) => call == 0 ? [order(1, 10)] : gate.future,
+        clock: clock,
+      );
 
       Widget screen({required bool detail}) => scope(
         h,
-        Column(children: [
-          ForgeQueriesBuilder(
-            queries: [listOrders(const ListOrdersArgs())],
-            staleTime: _stale,
-            builder: (context, state) => Text('both ${state.status.name}:${state.isFetching}'),
-          ),
-          if (detail) Builder(builder: (context) => _staleList('detail')),
-        ]),
+        Column(
+          children: [
+            ForgeQueriesBuilder(
+              queries: [listOrders(const ListOrdersArgs())],
+              staleTime: _stale,
+              builder: (context, state) =>
+                  Text('both ${state.status.name}:${state.isFetching}'),
+            ),
+            if (detail) Builder(builder: (context) => _staleList('detail')),
+          ],
+        ),
       );
 
       await tester.pumpWidget(screen(detail: false));
@@ -422,28 +491,44 @@ void main() {
       expect(find.text('both success:false'), findsOneWidget);
     });
 
-    testWidgets('never builds with the previous principal\'s data after setPrincipal', (tester) async {
-      final h = principalHarness();
-      final seen = <String>[];
+    testWidgets(
+      'never builds with the previous principal\'s data after setPrincipal',
+      (tester) async {
+        final h = principalHarness();
+        final seen = <String>[];
 
-      await tester.pumpWidget(scope(h, ForgeQueriesBuilder(
-        queries: [getOrder(const OrderArgs(1)), getOrder(const OrderArgs(2))],
-        builder: (context, state) {
-          final totals = [for (final s in state.states) s.dataOrNull is Order ? (s.dataOrNull! as Order).total : '-'];
-          seen.add('${h.cache.principal}: ${state.status.name} $totals');
-          return const SizedBox();
-        },
-      )));
-      await settle(tester);
-      expect(seen.last, 'alice: success [101, 102]');
-      seen.clear();
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeQueriesBuilder(
+              queries: [
+                getOrder(const OrderArgs(1)),
+                getOrder(const OrderArgs(2)),
+              ],
+              builder: (context, state) {
+                final totals = [
+                  for (final s in state.states)
+                    s.dataOrNull is Order
+                        ? (s.dataOrNull! as Order).total
+                        : '-',
+                ];
+                seen.add('${h.cache.principal}: ${state.status.name} $totals');
+                return const SizedBox();
+              },
+            ),
+          ),
+        );
+        await settle(tester);
+        expect(seen.last, 'alice: success [101, 102]');
+        seen.clear();
 
-      h.cache.setPrincipal('bob');
-      await settle(tester);
+        h.cache.setPrincipal('bob');
+        await settle(tester);
 
-      expect(seen, isNotEmpty);
-      expect(seen.where(showsAlice), isEmpty, reason: '$seen');
-      expect(seen.last, 'bob: success [201, 202]');
-    });
+        expect(seen, isNotEmpty);
+        expect(seen.where(showsAlice), isEmpty, reason: '$seen');
+        expect(seen.last, 'bob: success [201, 202]');
+      },
+    );
   });
 }

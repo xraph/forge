@@ -10,7 +10,8 @@ import 'support/harness.dart';
 /// Stands in for plan 04's OfflineClient, which implements the same
 /// interface, re-exported here from forge_client.
 final class _FakeOutbox implements OutboxFailureSource {
-  final StreamController<Object> controller = StreamController<Object>.broadcast(sync: true);
+  final StreamController<Object> controller =
+      StreamController<Object>.broadcast(sync: true);
 
   @override
   Stream<Object> get failures => controller.stream;
@@ -18,22 +19,26 @@ final class _FakeOutbox implements OutboxFailureSource {
 
 void main() {
   group('ForgeOutboxListener', () {
-    testWidgets('hands each failure to onFailure with a live context', (tester) async {
+    testWidgets('hands each failure to onFailure with a live context', (
+      tester,
+    ) async {
       final h = harness((_, _) => null);
       final outbox = _FakeOutbox();
       final seen = <String>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeOutboxListener(
-          source: outbox,
-          onFailure: (context, failure) {
-            expect(context.mounted, isTrue);
-            seen.add('$failure');
-          },
-          child: const SizedBox(),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeOutboxListener(
+            source: outbox,
+            onFailure: (context, failure) {
+              expect(context.mounted, isTrue);
+              seen.add('$failure');
+            },
+            child: const SizedBox(),
+          ),
         ),
-      ));
+      );
 
       outbox.controller
         ..add('conflict on Order:1')
@@ -65,7 +70,9 @@ void main() {
       expect(second, ['gone']);
     });
 
-    testWidgets('moves to a new source and cancels the old one', (tester) async {
+    testWidgets('moves to a new source and cancels the old one', (
+      tester,
+    ) async {
       final h = harness((_, _) => null);
       final a = _FakeOutbox();
       final b = _FakeOutbox();
@@ -94,14 +101,16 @@ void main() {
       final h = harness((_, _) => null);
       final outbox = _FakeOutbox();
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeOutboxListener(
-          source: outbox,
-          onFailure: (context, failure) {},
-          child: const SizedBox(),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeOutboxListener(
+            source: outbox,
+            onFailure: (context, failure) {},
+            child: const SizedBox(),
+          ),
         ),
-      ));
+      );
       expect(outbox.controller.hasListener, isTrue);
 
       await tester.pumpWidget(scope(h, const SizedBox()));
@@ -110,30 +119,35 @@ void main() {
   });
 
   group('when onFailure throws', () {
-    testWidgets('reports the error and still delivers the next failure, on the direct path', (tester) async {
-      final h = harness((_, _) => null);
-      final outbox = _FakeOutbox();
-      final seen = <String>[];
+    testWidgets(
+      'reports the error and still delivers the next failure, on the direct path',
+      (tester) async {
+        final h = harness((_, _) => null);
+        final outbox = _FakeOutbox();
+        final seen = <String>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        ForgeOutboxListener(
-          source: outbox,
-          onFailure: (context, failure) {
-            if (failure == 'bad') throw const Boom('handler failed');
-            seen.add('$failure');
-          },
-          child: const SizedBox(),
-        ),
-      ));
+        await tester.pumpWidget(
+          scope(
+            h,
+            ForgeOutboxListener(
+              source: outbox,
+              onFailure: (context, failure) {
+                if (failure == 'bad') throw const Boom('handler failed');
+                seen.add('$failure');
+              },
+              child: const SizedBox(),
+            ),
+          ),
+        );
 
-      outbox.controller
-        ..add('bad')
-        ..add('good');
+        outbox.controller
+          ..add('bad')
+          ..add('good');
 
-      expect(seen, ['good']);
-      expect(tester.takeException(), isA<Boom>());
-    });
+        expect(seen, ['good']);
+        expect(tester.takeException(), isA<Boom>());
+      },
+    );
   });
 
   group('while the tree is being built', () {
@@ -150,123 +164,155 @@ void main() {
     ) => ForgeOutboxListener(
       source: outbox,
       onFailure: onFailure,
-      child: Builder(builder: (context) {
-        for (final failure in emitted) {
-          outbox.controller.add(failure);
-        }
-        emitted.clear();
-        return const SizedBox();
-      }),
+      child: Builder(
+        builder: (context) {
+          for (final failure in emitted) {
+            outbox.controller.add(failure);
+          }
+          emitted.clear();
+          return const SizedBox();
+        },
+      ),
     );
 
-    testWidgets('holds failures until the frame is done and delivers them in order', (tester) async {
+    testWidgets(
+      'holds failures until the frame is done and delivers them in order',
+      (tester) async {
+        final h = harness((_, _) => null);
+        final outbox = _FakeOutbox();
+        final seen = <String>[];
+        final phases = <SchedulerPhase>[];
+
+        await tester.pumpWidget(
+          scope(
+            h,
+            emitting(outbox, ['first', 'second'], (context, failure) {
+              phases.add(SchedulerBinding.instance.schedulerPhase);
+              expect(context.mounted, isTrue);
+              seen.add('$failure');
+            }),
+          ),
+        );
+
+        expect(seen, ['first', 'second']);
+        expect(phases, isNot(contains(SchedulerPhase.persistentCallbacks)));
+      },
+    );
+
+    testWidgets('keeps a failure that arrives after a held one behind it', (
+      tester,
+    ) async {
       final h = harness((_, _) => null);
       final outbox = _FakeOutbox();
       final seen = <String>[];
-      final phases = <SchedulerPhase>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        emitting(outbox, ['first', 'second'], (context, failure) {
-          phases.add(SchedulerBinding.instance.schedulerPhase);
-          expect(context.mounted, isTrue);
-          seen.add('$failure');
-        }),
-      ));
-
-      expect(seen, ['first', 'second']);
-      expect(phases, isNot(contains(SchedulerPhase.persistentCallbacks)));
-    });
-
-    testWidgets('keeps a failure that arrives after a held one behind it', (tester) async {
-      final h = harness((_, _) => null);
-      final outbox = _FakeOutbox();
-      final seen = <String>[];
-
-      await tester.pumpWidget(scope(
-        h,
-        ForgeOutboxListener(
-          source: outbox,
-          onFailure: (context, failure) => seen.add('$failure'),
-          child: Builder(builder: (context) {
-            // Registered first, so it runs before the listener's own
-            // post-frame callback, with 'held' still waiting. A failure
-            // arriving there must not overtake it.
-            SchedulerBinding.instance.addPostFrameCallback(
-              (_) => outbox.controller.add('late'),
-            );
-            outbox.controller.add('held');
-            return const SizedBox();
-          }),
+      await tester.pumpWidget(
+        scope(
+          h,
+          ForgeOutboxListener(
+            source: outbox,
+            onFailure: (context, failure) => seen.add('$failure'),
+            child: Builder(
+              builder: (context) {
+                // Registered first, so it runs before the listener's own
+                // post-frame callback, with 'held' still waiting. A failure
+                // arriving there must not overtake it.
+                SchedulerBinding.instance.addPostFrameCallback(
+                  (_) => outbox.controller.add('late'),
+                );
+                outbox.controller.add('held');
+                return const SizedBox();
+              },
+            ),
+          ),
         ),
-      ));
+      );
 
       expect(seen, ['held', 'late']);
     });
 
-    testWidgets('delivers the rest of a held batch when onFailure throws', (tester) async {
+    testWidgets('delivers the rest of a held batch when onFailure throws', (
+      tester,
+    ) async {
       final h = harness((_, _) => null);
       final outbox = _FakeOutbox();
       final seen = <String>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        emitting(outbox, ['bad', 'good'], (context, failure) {
-          if (failure == 'bad') throw const Boom('handler failed');
-          seen.add('$failure');
-        }),
-      ));
+      await tester.pumpWidget(
+        scope(
+          h,
+          emitting(outbox, ['bad', 'good'], (context, failure) {
+            if (failure == 'bad') throw const Boom('handler failed');
+            seen.add('$failure');
+          }),
+        ),
+      );
 
       expect(seen, ['good']);
       expect(tester.takeException(), isA<Boom>());
     });
 
-    testWidgets('queues a failure emitted from onFailure behind the ones still held', (tester) async {
-      final h = harness((_, _) => null);
-      final outbox = _FakeOutbox();
-      final seen = <String>[];
+    testWidgets(
+      'queues a failure emitted from onFailure behind the ones still held',
+      (tester) async {
+        final h = harness((_, _) => null);
+        final outbox = _FakeOutbox();
+        final seen = <String>[];
 
-      await tester.pumpWidget(scope(
-        h,
-        emitting(outbox, ['a', 'b'], (context, failure) {
-          seen.add('$failure');
-          if (failure == 'a') outbox.controller.add('c');
-        }),
-      ));
+        await tester.pumpWidget(
+          scope(
+            h,
+            emitting(outbox, ['a', 'b'], (context, failure) {
+              seen.add('$failure');
+              if (failure == 'a') outbox.controller.add('c');
+            }),
+          ),
+        );
 
-      expect(seen, ['a', 'b', 'c']);
-    });
+        expect(seen, ['a', 'b', 'c']);
+      },
+    );
 
-    testWidgets('drops a held failure when the listener is removed in the same frame', (tester) async {
-      final h = harness((_, _) => null);
-      final outbox = _FakeOutbox();
-      final seen = <String>[];
+    testWidgets(
+      'drops a held failure when the listener is removed in the same frame',
+      (tester) async {
+        final h = harness((_, _) => null);
+        final outbox = _FakeOutbox();
+        final seen = <String>[];
 
-      Widget tree({required bool listening, required List<Object> emitted}) => scope(
-        h,
-        Stack(children: [
-          // Builds before the listener is unmounted, which happens when the
-          // frame's build scope finishes.
-          Builder(builder: (context) {
-            for (final failure in emitted) {
-              outbox.controller.add(failure);
-            }
-            return const SizedBox();
-          }),
-          if (listening)
-            ForgeOutboxListener(
-              source: outbox,
-              onFailure: (context, failure) => seen.add('$failure'),
-              child: const SizedBox(),
-            ),
-        ]),
-      );
+        Widget tree({
+          required bool listening,
+          required List<Object> emitted,
+        }) => scope(
+          h,
+          Stack(
+            children: [
+              // Builds before the listener is unmounted, which happens when the
+              // frame's build scope finishes.
+              Builder(
+                builder: (context) {
+                  for (final failure in emitted) {
+                    outbox.controller.add(failure);
+                  }
+                  return const SizedBox();
+                },
+              ),
+              if (listening)
+                ForgeOutboxListener(
+                  source: outbox,
+                  onFailure: (context, failure) => seen.add('$failure'),
+                  child: const SizedBox(),
+                ),
+            ],
+          ),
+        );
 
-      await tester.pumpWidget(tree(listening: true, emitted: []));
-      await tester.pumpWidget(tree(listening: false, emitted: ['too late']));
+        await tester.pumpWidget(tree(listening: true, emitted: []));
+        await tester.pumpWidget(tree(listening: false, emitted: ['too late']));
 
-      expect(seen, isEmpty);
-      expect(tester.takeException(), isNull);
-    });
+        expect(seen, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

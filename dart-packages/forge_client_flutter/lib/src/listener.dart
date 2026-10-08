@@ -33,7 +33,12 @@ final class ForgeListener<T> extends StatefulWidget {
 
   /// Called with each transition the [listenWhen] filter lets through. The
   /// latest widget's listener is the one called.
-  final void Function(BuildContext context, QueryState<T> previous, QueryState<T> next) listener;
+  final void Function(
+    BuildContext context,
+    QueryState<T> previous,
+    QueryState<T> next,
+  )
+  listener;
 
   /// The subtree, never rebuilt by this widget.
   final Widget child;
@@ -59,7 +64,9 @@ final class ForgeListener<T> extends StatefulWidget {
 }
 
 final class _ForgeListenerState<T> extends State<ForgeListener<T>> {
-  late final QuerySubscription<T> _subscription = QuerySubscription<T>(_changed);
+  late final QuerySubscription<T> _subscription = QuerySubscription<T>(
+    _changed,
+  );
   QueryCache? _scoped;
 
   @override
@@ -89,7 +96,9 @@ final class _ForgeListenerState<T> extends State<ForgeListener<T>> {
   // never after dispose and never during a build.
   void _changed(QueryState<T> previous, QueryState<T> next) {
     final when = widget.listenWhen;
-    if (when == null || when(previous, next)) widget.listener(context, previous, next);
+    if (when == null || when(previous, next)) {
+      widget.listener(context, previous, next);
+    }
   }
 
   @override

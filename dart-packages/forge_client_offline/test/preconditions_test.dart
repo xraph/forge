@@ -51,24 +51,33 @@ void main() {
       await expectLater(session.enqueue(_record('a', '3')), throwsStateError);
 
       await session.updateState('a', '{"kind":"sending","at":1}');
-      await session.updateState('a', '{"kind":"failed","failure":{"kind":"gone","status":410}}');
+      await session.updateState(
+        'a',
+        '{"kind":"failed","failure":{"kind":"gone","status":410}}',
+      );
 
       final records = await session.readOutbox();
       expect(records.map((r) => r.id), ['a', 'b']);
       expect(records.first.argsJson, '1');
-      expect(records.first.stateJson, '{"kind":"failed","failure":{"kind":"gone","status":410}}');
+      expect(
+        records.first.stateJson,
+        '{"kind":"failed","failure":{"kind":"gone","status":410}}',
+      );
       expect(records[1].stateJson, '{"kind":"queued"}');
     });
 
-    test('memoryStorage shares records across sessions of one principal only', () async {
-      final storage = memoryStorage();
-      final alice = await storage.open('alice');
-      await alice.enqueue(_record('a', '1'));
-      await alice.close();
+    test(
+      'memoryStorage shares records across sessions of one principal only',
+      () async {
+        final storage = memoryStorage();
+        final alice = await storage.open('alice');
+        await alice.enqueue(_record('a', '1'));
+        await alice.close();
 
-      expect(await (await storage.open('alice')).readOutbox(), hasLength(1));
-      expect(await (await storage.open('bob')).readOutbox(), isEmpty);
-    });
+        expect(await (await storage.open('alice')).readOutbox(), hasLength(1));
+        expect(await (await storage.open('bob')).readOutbox(), isEmpty);
+      },
+    );
 
     test('MutateOptions.headers reach the transport', () async {
       final transport = _Recording();
@@ -95,28 +104,44 @@ void main() {
       await commit.timeout(const Duration(seconds: 1));
     });
 
-    test('hydrate with stale: true serves data and refetches when watched', () async {
-      final source = QueryCache(transport: _Recording(), entities: _entities)..setPrincipal('alice');
-      await source.fetch(_get, _seven);
-      final snapshot = dehydrate(source, principal: 'alice');
+    test(
+      'hydrate with stale: true serves data and refetches when watched',
+      () async {
+        final source = QueryCache(transport: _Recording(), entities: _entities)
+          ..setPrincipal('alice');
+        await source.fetch(_get, _seven);
+        final snapshot = dehydrate(source, principal: 'alice');
 
-      final transport = _Recording()..total = 99;
-      final target = QueryCache(transport: transport, entities: _entities)..setPrincipal('alice');
-      hydrate(target, snapshot, principal: 'alice', operations: const {'op_get_order': _get}, stale: true);
+        final transport = _Recording()..total = 99;
+        final target = QueryCache(transport: transport, entities: _entities)
+          ..setPrincipal('alice');
+        hydrate(
+          target,
+          snapshot,
+          principal: 'alice',
+          operations: const {'op_get_order': _get},
+          stale: true,
+        );
 
-      final data = target.getState(_get, _seven).dataOrNull! as Map<String, Object?>;
-      expect(data['total'], 10);
-      expect(transport.requests, isEmpty);
+        final data =
+            target.getState(_get, _seven).dataOrNull! as Map<String, Object?>;
+        expect(data['total'], 10);
+        expect(transport.requests, isEmpty);
 
-      final sub = target.watch(_get, _seven).listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await sub.cancel();
+        final sub = target.watch(_get, _seven).listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await sub.cancel();
 
-      expect(transport.requests, hasLength(1));
-    });
+        expect(transport.requests, hasLength(1));
+      },
+    );
 
     test('the cache opens a session per principal and announces it', () async {
-      final cache = QueryCache(transport: _Recording(), entities: _entities, storage: memoryStorage());
+      final cache = QueryCache(
+        transport: _Recording(),
+        entities: _entities,
+        storage: memoryStorage(),
+      );
 
       // sessionChanges is a synchronous broadcast stream, and closing a session
       // announces null from inside setPrincipal. Subscribe before either call

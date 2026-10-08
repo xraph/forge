@@ -31,9 +31,15 @@ import 'package:forge_client/forge_client.dart'
         decodeCached,
         mutation;
 import 'package:forge_client_offline/forge_client_offline.dart'
-    show OutboxConflict, OutboxUncertain, OutboxUnauthorized, OutboxValidation, StorageReset;
+    show
+        OutboxConflict,
+        OutboxUncertain,
+        OutboxUnauthorized,
+        OutboxValidation,
+        StorageReset;
 
-export 'package:forge_client/forge_client.dart' show Assign, Json, NoArgs, Unchanged, Value;
+export 'package:forge_client/forge_client.dart'
+    show Assign, Json, NoArgs, Unchanged, Value;
 
 Map<String, Object?> decodeObject(Object? value) =>
     (value as Map<Object?, Object?>).cast<String, Object?>();
@@ -54,10 +60,7 @@ int valueHash<T>(Value<T> value) => switch (value) {
 
 // models/order.dart: a required `id` and an optional `note`.
 final class Order {
-  const Order({
-    required this.id,
-    this.note,
-  });
+  const Order({required this.id, this.note});
 
   factory Order.fromClient(Object? client) {
     final json = decodeObject(client);
@@ -71,12 +74,12 @@ final class Order {
 
   final String? note;
 
-  Order copyWith({
-    String? id,
-    Value<String>? note,
-  }) => Order(
+  Order copyWith({String? id, Value<String>? note}) => Order(
     id: id ?? this.id,
-    note: switch (note) { Assign(:final value) => value, _ => this.note },
+    note: switch (note) {
+      Assign(:final value) => value,
+      _ => this.note,
+    },
   );
 
   Json toClient() => <String, Object?>{
@@ -86,13 +89,11 @@ final class Order {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is Order && this.id == other.id && this.note == other.note;
+      identical(this, other) ||
+      other is Order && this.id == other.id && this.note == other.note;
 
   @override
-  int get hashCode => Object.hashAll([
-    id,
-    note,
-  ]);
+  int get hashCode => Object.hashAll([id, note]);
 }
 
 // ops.dart: one constant per operation, then the tables.
@@ -111,9 +112,7 @@ const Map<String, OperationMeta> operations = {
   'op_update_order': opUpdateOrder,
 };
 
-const EntitySchema entities = {
-  'Order': EntityMeta(idField: 'id'),
-};
+const EntitySchema entities = {'Order': EntityMeta(idField: 'id')};
 
 // bindings/update_order.dart.
 final updateOrder = mutation<Order, UpdateOrderArgs, Order>(
@@ -123,13 +122,11 @@ final updateOrder = mutation<Order, UpdateOrderArgs, Order>(
   entityToClient: (e) => e.toClient(),
 );
 
-Order _updateOrderFromClient(Object? client) => decodeCached(Order.fromClient, client);
+Order _updateOrderFromClient(Object? client) =>
+    decodeCached(Order.fromClient, client);
 
 final class UpdateOrderArgs implements OperationArgs {
-  const UpdateOrderArgs({
-    required this.id,
-    this.note = const Unchanged(),
-  });
+  const UpdateOrderArgs({required this.id, this.note = const Unchanged()});
 
   final String id;
 
@@ -138,14 +135,14 @@ final class UpdateOrderArgs implements OperationArgs {
   @override
   TagContext toTagContext() => TagContext(
     path: {'id': id},
-    body: <String, Object?>{
-      if (note case Assign(:final value)) 'note': value,
-    },
+    body: <String, Object?>{if (note case Assign(:final value)) 'note': value},
   );
 
   @override
   bool operator ==(Object other) =>
-      other is UpdateOrderArgs && this.id == other.id && valueEquals(this.note, other.note);
+      other is UpdateOrderArgs &&
+      this.id == other.id &&
+      valueEquals(this.note, other.note);
 
   @override
   int get hashCode => Object.hashAll([id, valueHash(note)]);

@@ -10,8 +10,14 @@ import 'package:forge_client_riverpod/forge_client_riverpod.dart';
 
 import 'support/harness.dart';
 
-final createOrderProvider = mutationProvider(createOrder, name: 'createOrderProvider');
-final patchOrderProvider = mutationProvider(patchOrder, name: 'patchOrderProvider');
+final createOrderProvider = mutationProvider(
+  createOrder,
+  name: 'createOrderProvider',
+);
+final patchOrderProvider = mutationProvider(
+  patchOrder,
+  name: 'patchOrderProvider',
+);
 final listOrdersProvider = queryProvider(listOrders);
 final getOrderProvider = queryProvider(getOrder);
 
@@ -27,7 +33,8 @@ final class _Status extends ConsumerWidget {
   const _Status();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Text(statusOf(ref.watch(createOrderProvider)));
+  Widget build(BuildContext context, WidgetRef ref) =>
+      Text(statusOf(ref.watch(createOrderProvider)));
 }
 
 /// The overrides of [containerFor], over [cache], with signals that outlive
@@ -57,10 +64,16 @@ void main() {
       final container = containerFor(h);
       final states = <MutationState<Order>>[];
 
-      container.listen(createOrderProvider, (_, next) => states.add(next), fireImmediately: true);
+      container.listen(
+        createOrderProvider,
+        (_, next) => states.add(next),
+        fireImmediately: true,
+      );
       expect(states.single, isA<MutationIdle<Order>>());
 
-      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
       expect(states.last, isA<MutationPending<Order>>());
 
@@ -70,13 +83,17 @@ void main() {
 
       final last = states.last;
       expect(last, isA<MutationSuccess<Order>>());
-      expect((last as MutationSuccess<Order>).data, const Order(id: 9, total: 5));
+      expect(
+        (last as MutationSuccess<Order>).data,
+        const Order(id: 9, total: 5),
+      );
     });
 
     test(
       'runs the write against a client supplied per call',
       () {},
-      skip: 'A mutation provider writes through forgeClientProvider and takes no per-call '
+      skip:
+          'A mutation provider writes through forgeClientProvider and takes no per-call '
           'client; override forgeClientProvider, or use ForgeMutationBuilder, for another cache.',
     );
 
@@ -88,7 +105,10 @@ void main() {
 
       await notifier.mutate(const CreateOrderArgs(0));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationFailure<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationFailure<Order>>(),
+      );
 
       notifier.reset();
       await settle();
@@ -100,7 +120,9 @@ void main() {
       final container = containerFor(h);
       container.listen(createOrderProvider, (_, _) {});
 
-      final resolved = await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(0));
+      final resolved = await container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(0));
       await settle();
 
       expect(resolved, isNull);
@@ -109,37 +131,53 @@ void main() {
       expect('${(state as MutationFailure<Order>).error}', 'conflict');
     });
 
-    test('raises no unhandled rejection from the documented click handler', () async {
-      final h = harness((_, _) => throw const Boom('conflict'));
-      final container = containerFor(h);
-      container.listen(createOrderProvider, (_, _) {});
-      final uncaught = <Object>[];
+    test(
+      'raises no unhandled rejection from the documented click handler',
+      () async {
+        final h = harness((_, _) => throw const Boom('conflict'));
+        final container = containerFor(h);
+        container.listen(createOrderProvider, (_, _) {});
+        final uncaught = <Object>[];
 
-      await runZonedGuarded(() async {
-        // The README's onPressed: the future is dropped.
-        void onPressed() => container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(0));
-        onPressed();
+        await runZonedGuarded(() async {
+          // The README's onPressed: the future is dropped.
+          void onPressed() => container
+              .read(createOrderProvider.notifier)
+              .mutate(const CreateOrderArgs(0));
+          onPressed();
+          await settle();
+        }, (error, _) => uncaught.add(error));
+
+        expect(uncaught, isEmpty);
+        expect(
+          container.read(createOrderProvider),
+          isA<MutationFailure<Order>>(),
+        );
+      },
+    );
+
+    test(
+      'rejects from mutateAsync, for a caller that sequences on the write',
+      () async {
+        final h = harness((_, _) => throw const Boom('conflict'));
+        final container = containerFor(h);
+        container.listen(createOrderProvider, (_, _) {});
+
+        await expectLater(
+          container
+              .read(createOrderProvider.notifier)
+              .mutateAsync(const CreateOrderArgs(0)),
+          throwsA(isA<Boom>()),
+        );
         await settle();
-      }, (error, _) => uncaught.add(error));
 
-      expect(uncaught, isEmpty);
-      expect(container.read(createOrderProvider), isA<MutationFailure<Order>>());
-    });
-
-    test('rejects from mutateAsync, for a caller that sequences on the write', () async {
-      final h = harness((_, _) => throw const Boom('conflict'));
-      final container = containerFor(h);
-      container.listen(createOrderProvider, (_, _) {});
-
-      await expectLater(
-        container.read(createOrderProvider.notifier).mutateAsync(const CreateOrderArgs(0)),
-        throwsA(isA<Boom>()),
-      );
-      await settle();
-
-      // Same state either way.
-      expect(container.read(createOrderProvider), isA<MutationFailure<Order>>());
-    });
+        // Same state either way.
+        expect(
+          container.read(createOrderProvider),
+          isA<MutationFailure<Order>>(),
+        );
+      },
+    );
 
     test('updates the queries the mutation invalidated', () async {
       var next = 1;
@@ -152,16 +190,26 @@ void main() {
       container.listen(createOrderProvider, (_, _) {});
       await settle();
 
-      await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      await container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await invalidate(h, const []);
 
-      expect(container.read(listOrdersProvider(const ListOrdersArgs())).value?.first.id, 2);
+      expect(
+        container
+            .read(listOrdersProvider(const ListOrdersArgs()))
+            .value
+            ?.first
+            .id,
+        2,
+      );
       expect(h.transport.countOf(opListOrders), 2);
     });
 
     test('applies a placement callback instead of refetching', () async {
       final h = harness(
-        (request, _) => request.meta.id == opCreateOrder.id ? order(9, 5) : [order(1, 99)],
+        (request, _) =>
+            request.meta.id == opCreateOrder.id ? order(9, 5) : [order(1, 99)],
       );
       final container = containerFor(h);
       final list = listOrdersProvider(const ListOrdersArgs());
@@ -170,12 +218,17 @@ void main() {
       await settle();
       expect(container.read(list).value?.map((o) => o.id), [1]);
 
-      await container.read(createOrderProvider.notifier).mutate(
-        const CreateOrderArgs(5),
-        place: {
-          'Order[]': (created, current, args) => [created, ...?(current as List<Object?>?)],
-        },
-      );
+      await container
+          .read(createOrderProvider.notifier)
+          .mutate(
+            const CreateOrderArgs(5),
+            place: {
+              'Order[]': (created, current, args) => [
+                created,
+                ...?(current as List<Object?>?),
+              ],
+            },
+          );
       await invalidate(h, const []);
 
       expect(container.read(list).value?.map((o) => o.id), [9, 1]);
@@ -221,7 +274,8 @@ void main() {
     test('applies an optimistic update at once and rolls it back when the write fails', () async {
       final gate = Completer<Object?>();
       final h = harness(
-        (request, _) => request.meta.id == opPatchOrder.id ? gate.future : order(1, 10),
+        (request, _) =>
+            request.meta.id == opPatchOrder.id ? gate.future : order(1, 10),
       );
       final container = containerFor(h);
       final detail = getOrderProvider.state(const OrderArgs(1));
@@ -229,10 +283,12 @@ void main() {
       container.listen(patchOrderProvider, (_, _) {});
       await settle();
 
-      final settled = container.read(patchOrderProvider.notifier).mutate(
-        const PatchOrderArgs(1, total: 500),
-        optimistic: OptimisticUpdate<Order>((o) => o.copyWith(total: 500)),
-      );
+      final settled = container
+          .read(patchOrderProvider.notifier)
+          .mutate(
+            const PatchOrderArgs(1, total: 500),
+            optimistic: OptimisticUpdate<Order>((o) => o.copyWith(total: 500)),
+          );
       await settle();
 
       expect(container.read(detail).dataOrNull?.total, 500);
@@ -252,7 +308,9 @@ void main() {
       final container = containerFor(h);
       final subscription = container.listen(createOrderProvider, (_, _) {});
 
-      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
 
       subscription.close();
@@ -288,94 +346,122 @@ void main() {
     });
 
     // Ruling R10: parity with MutationBinding.call and ForgeMutation.
-    test('hands per-call headers and a cancel future to the transport', () async {
-      final h = harness((_, _) => order(9, 5));
-      final container = containerFor(h);
-      container.listen(createOrderProvider, (_, _) {});
-      final notifier = container.read(createOrderProvider.notifier);
-      final cancel = Completer<void>();
+    test(
+      'hands per-call headers and a cancel future to the transport',
+      () async {
+        final h = harness((_, _) => order(9, 5));
+        final container = containerFor(h);
+        container.listen(createOrderProvider, (_, _) {});
+        final notifier = container.read(createOrderProvider.notifier);
+        final cancel = Completer<void>();
 
-      await notifier.mutate(
-        const CreateOrderArgs(5),
-        options: RequestOptions(headers: const {'x-trace': 'one'}, cancel: cancel.future),
-      );
-      await notifier.mutateAsync(
-        const CreateOrderArgs(6),
-        options: const RequestOptions(headers: {'x-trace': 'two'}),
-      );
+        await notifier.mutate(
+          const CreateOrderArgs(5),
+          options: RequestOptions(
+            headers: const {'x-trace': 'one'},
+            cancel: cancel.future,
+          ),
+        );
+        await notifier.mutateAsync(
+          const CreateOrderArgs(6),
+          options: const RequestOptions(headers: {'x-trace': 'two'}),
+        );
 
-      expect(h.transport.calls, hasLength(2));
-      expect(h.transport.calls[0].headers, {'x-trace': 'one'});
-      expect(h.transport.calls[0].cancel, same(cancel.future));
-      expect(h.transport.calls[1].headers, {'x-trace': 'two'});
-      expect(h.transport.calls[1].cancel, isNull);
-    });
+        expect(h.transport.calls, hasLength(2));
+        expect(h.transport.calls[0].headers, {'x-trace': 'one'});
+        expect(h.transport.calls[0].cancel, same(cancel.future));
+        expect(h.transport.calls[1].headers, {'x-trace': 'two'});
+        expect(h.transport.calls[1].cancel, isNull);
+      },
+    );
 
-    test('records a missing client as the failure instead of throwing from mutate', () async {
-      // No client configured and none overridden: getClient throws.
-      setClient(null);
-      final container = ProviderContainer(
-        overrides: [
-          forgeFocusSignalProvider.overrideWithValue(FakeFocusSignal()),
-          forgeConnectivitySignalProvider.overrideWithValue(FakeConnectivitySignal()),
-        ],
-        retry: (_, _) => null,
-      );
-      addTearDown(container.dispose);
-      container.listen(createOrderProvider, (_, _) {}, onError: (_, _) {});
+    test(
+      'records a missing client as the failure instead of throwing from mutate',
+      () async {
+        // No client configured and none overridden: getClient throws.
+        setClient(null);
+        final container = ProviderContainer(
+          overrides: [
+            forgeFocusSignalProvider.overrideWithValue(FakeFocusSignal()),
+            forgeConnectivitySignalProvider.overrideWithValue(
+              FakeConnectivitySignal(),
+            ),
+          ],
+          retry: (_, _) => null,
+        );
+        addTearDown(container.dispose);
+        container.listen(createOrderProvider, (_, _) {}, onError: (_, _) {});
 
-      final resolved = await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+        final resolved = await container
+            .read(createOrderProvider.notifier)
+            .mutate(const CreateOrderArgs(5));
 
-      expect(resolved, isNull);
-      final state = container.read(createOrderProvider);
-      expect((state as MutationFailure<Order>).error, isA<StateError>());
-    });
+        expect(resolved, isNull);
+        final state = container.read(createOrderProvider);
+        expect((state as MutationFailure<Order>).error, isA<StateError>());
+      },
+    );
 
     // Ruling R7. A mutate called from a widget's build method would otherwise
     // modify a provider while the tree is building, which flutter_riverpod
     // asserts against.
-    testWidgets('applies a state change that happens during a build after that build', (tester) async {
-      final gate = Completer<Object?>();
-      final h = harness((_, _) => gate.future);
-      final container = containerFor(h);
-      late StateSetter setOuter;
-      var fire = false;
-      var fired = false;
+    testWidgets(
+      'applies a state change that happens during a build after that build',
+      (tester) async {
+        final gate = Completer<Object?>();
+        final h = harness((_, _) => gate.future);
+        final container = containerFor(h);
+        late StateSetter setOuter;
+        var fire = false;
+        var fired = false;
 
-      await tester.pumpWidget(UncontrolledProviderScope(
-        container: container,
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: StatefulBuilder(builder: (context, setState) {
-            setOuter = setState;
-            return Column(children: [
-              Builder(builder: (context) {
-                if (fire && !fired) {
-                  fired = true;
-                  unawaited(container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5)));
-                }
-                return const SizedBox();
-              }),
-              const _Status(),
-            ]);
-          }),
-        ),
-      ));
-      expect(find.text('idle'), findsOneWidget);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  setOuter = setState;
+                  return Column(
+                    children: [
+                      Builder(
+                        builder: (context) {
+                          if (fire && !fired) {
+                            fired = true;
+                            unawaited(
+                              container
+                                  .read(createOrderProvider.notifier)
+                                  .mutate(const CreateOrderArgs(5)),
+                            );
+                          }
+                          return const SizedBox();
+                        },
+                      ),
+                      const _Status(),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        expect(find.text('idle'), findsOneWidget);
 
-      setOuter(() => fire = true);
-      await tester.pump();
-      expect(tester.takeException(), isNull);
+        setOuter(() => fire = true);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
 
-      await tester.pump();
-      expect(find.text('pending'), findsOneWidget);
+        await tester.pump();
+        expect(find.text('pending'), findsOneWidget);
 
-      gate.complete(order(9, 5));
-      await pumpAll(tester);
+        gate.complete(order(9, 5));
+        await pumpAll(tester);
 
-      expect(find.text('success'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+        expect(find.text('success'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   // Ruling 2 (privacy). A mutation's status belongs to the client and
@@ -389,13 +475,20 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      await container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationSuccess<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationSuccess<Order>>(),
+      );
       states.clear();
       // The README sends an app's own principal listener to watchPrincipal.
       final seen = <MutationState<Order>>[];
-      h.cache.watchPrincipal((_) => seen.add(container.read(createOrderProvider)));
+      h.cache.watchPrincipal(
+        (_) => seen.add(container.read(createOrderProvider)),
+      );
 
       h.cache.setPrincipal('bob');
       expect(seen.single, isA<MutationIdle<Order>>());
@@ -419,9 +512,14 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      await container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationFailure<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationFailure<Order>>(),
+      );
       states.clear();
 
       container.updateOverrides(overridesFor(b.cache, focus, connectivity));
@@ -430,7 +528,12 @@ void main() {
       expect(container.read(createOrderProvider), isA<MutationIdle<Order>>());
       expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
 
-      expect(await container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(6)), isNotNull);
+      expect(
+        await container
+            .read(createOrderProvider.notifier)
+            .mutate(const CreateOrderArgs(6)),
+        isNotNull,
+      );
       expect(a.transport.calls, hasLength(1));
       expect(b.transport.calls, hasLength(1));
     });
@@ -443,9 +546,14 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationPending<Order>>(),
+      );
       states.clear();
 
       h.cache.setPrincipal('bob');
@@ -469,9 +577,14 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      final settled = container.read(createOrderProvider.notifier).mutateAsync(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutateAsync(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationPending<Order>>(),
+      );
       states.clear();
 
       h.cache.setPrincipal('bob');
@@ -486,25 +599,31 @@ void main() {
       expect(states.where((state) => state is! MutationIdle<Order>), isEmpty);
     });
 
-    test('records a call made straight after setPrincipal for the new principal', () async {
-      final h = harness((_, _) => order(9, 5));
-      h.cache.setPrincipal('alice');
-      final container = containerFor(h);
-      container.listen(createOrderProvider, (_, _) {});
-      // Held from before the change, as a callback captures it; reading
-      // .notifier again would bring the provider up to date by itself.
-      final notifier = container.read(createOrderProvider.notifier);
-      await settle();
+    test(
+      'records a call made straight after setPrincipal for the new principal',
+      () async {
+        final h = harness((_, _) => order(9, 5));
+        h.cache.setPrincipal('alice');
+        final container = containerFor(h);
+        container.listen(createOrderProvider, (_, _) {});
+        // Held from before the change, as a callback captures it; reading
+        // .notifier again would bring the provider up to date by itself.
+        final notifier = container.read(createOrderProvider.notifier);
+        await settle();
 
-      // Before Riverpod's scheduled rebuild for the new principal.
-      h.cache.setPrincipal('bob');
-      final resolved = await notifier.mutate(const CreateOrderArgs(5));
-      await settle();
+        // Before Riverpod's scheduled rebuild for the new principal.
+        h.cache.setPrincipal('bob');
+        final resolved = await notifier.mutate(const CreateOrderArgs(5));
+        await settle();
 
-      expect(resolved, const Order(id: 9, total: 5));
-      final state = container.read(createOrderProvider);
-      expect((state as MutationSuccess<Order>).data, const Order(id: 9, total: 5));
-    });
+        expect(resolved, const Order(id: 9, total: 5));
+        final state = container.read(createOrderProvider);
+        expect(
+          (state as MutationSuccess<Order>).data,
+          const Order(id: 9, total: 5),
+        );
+      },
+    );
 
     test('drops a call in flight across a client swap', () async {
       final gate = Completer<Object?>();
@@ -520,9 +639,14 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationPending<Order>>(),
+      );
       states.clear();
 
       container.updateOverrides(overridesFor(b.cache, focus, connectivity));
@@ -550,9 +674,14 @@ void main() {
       final states = <MutationState<Order>>[];
       container.listen(createOrderProvider, (_, next) => states.add(next));
 
-      final settled = container.read(createOrderProvider.notifier).mutate(const CreateOrderArgs(5));
+      final settled = container
+          .read(createOrderProvider.notifier)
+          .mutate(const CreateOrderArgs(5));
       await settle();
-      expect(container.read(createOrderProvider), isA<MutationPending<Order>>());
+      expect(
+        container.read(createOrderProvider),
+        isA<MutationPending<Order>>(),
+      );
       states.clear();
 
       container.updateOverrides(overridesFor(b.cache, focus, connectivity));

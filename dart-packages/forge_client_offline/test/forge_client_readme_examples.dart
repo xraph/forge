@@ -1,3 +1,4 @@
+// dart format off
 // The Dart blocks of the "Devtools" section of forge_client's README, pasted
 // verbatim, so `flutter analyze` compiles them against the real APIs (forge_client
 // itself cannot: they use the outbox). test/forge_client_readme_test.dart fails

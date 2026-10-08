@@ -26,15 +26,18 @@ import 'internal.dart';
 /// `setPrincipal` or a new `forgeClientProvider` returns it to idle, and a
 /// call still in flight across the change is not recorded when it lands.
 NotifierProvider<ForgeMutationNotifier<R, A, E>, MutationState<R>>
-    mutationProvider<R, A extends OperationArgs, E>(
+mutationProvider<R, A extends OperationArgs, E>(
   MutationBinding<R, A, E> binding, {
   String? name,
 }) =>
-        NotifierProvider.autoDispose<ForgeMutationNotifier<R, A, E>, MutationState<R>>(
-          () => ForgeMutationNotifier<R, A, E>(binding),
-          name: name,
-          retry: noRetry,
-        );
+    NotifierProvider.autoDispose<
+      ForgeMutationNotifier<R, A, E>,
+      MutationState<R>
+    >(
+      () => ForgeMutationNotifier<R, A, E>(binding),
+      name: name,
+      retry: noRetry,
+    );
 
 /// Runs one mutation binding and holds its [MutationState], for
 /// [mutationProvider].
@@ -55,14 +58,17 @@ final class ForgeMutationNotifier<R, A extends OperationArgs, E>
 
   @override
   MutationState<R> build() => building(() {
-        final inbox = _inbox = StateInbox<MutationState<R>>(ref, (next) => state = next);
-        ref.onDispose(inbox.close);
-        // Watched so that a new client or a new principal rebuilds this
-        // notifier back to idle, and unmounts the Ref a call in flight holds.
-        final client = ref.watch(forgeInstalledClientProvider);
-        ref.watch(principalProvider(client));
-        return MutationIdle<R>();
-      });
+    final inbox = _inbox = StateInbox<MutationState<R>>(
+      ref,
+      (next) => state = next,
+    );
+    ref.onDispose(inbox.close);
+    // Watched so that a new client or a new principal rebuilds this
+    // notifier back to idle, and unmounts the Ref a call in flight holds.
+    final client = ref.watch(forgeInstalledClientProvider);
+    ref.watch(principalProvider(client));
+    return MutationIdle<R>();
+  });
 
   /// Runs the mutation and rethrows on failure, after recording it.
   ///
@@ -119,7 +125,12 @@ final class ForgeMutationNotifier<R, A extends OperationArgs, E>
     RequestOptions options = const RequestOptions(),
   }) async {
     try {
-      return await mutateAsync(args, optimistic: optimistic, place: place, options: options);
+      return await mutateAsync(
+        args,
+        optimistic: optimistic,
+        place: place,
+        options: options,
+      );
     } on Object {
       // Recorded in the state by mutateAsync; this variant leaves it there.
       return null;

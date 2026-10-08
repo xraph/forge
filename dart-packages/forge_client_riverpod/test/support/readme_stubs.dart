@@ -72,10 +72,7 @@ int valueHash<T>(Value<T> value) => switch (value) {
 
 // models/order.dart: a required `id` and an optional `note`.
 final class Order {
-  const Order({
-    required this.id,
-    this.note,
-  });
+  const Order({required this.id, this.note});
 
   factory Order.fromClient(Object? client) {
     final json = decodeObject(client);
@@ -89,12 +86,12 @@ final class Order {
 
   final String? note;
 
-  Order copyWith({
-    String? id,
-    Value<String>? note,
-  }) => Order(
+  Order copyWith({String? id, Value<String>? note}) => Order(
     id: id ?? this.id,
-    note: switch (note) { Assign(:final value) => value, _ => this.note },
+    note: switch (note) {
+      Assign(:final value) => value,
+      _ => this.note,
+    },
   );
 
   Json toClient() => <String, Object?>{
@@ -104,13 +101,11 @@ final class Order {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is Order && this.id == other.id && this.note == other.note;
+      identical(this, other) ||
+      other is Order && this.id == other.id && this.note == other.note;
 
   @override
-  int get hashCode => Object.hashAll([
-    id,
-    note,
-  ]);
+  int get hashCode => Object.hashAll([id, note]);
 }
 
 // ops.dart: one constant per operation, then the tables.
@@ -148,9 +143,7 @@ const Map<String, OperationMeta> operations = {
   'op_update_order': opUpdateOrder,
 };
 
-const EntitySchema entities = {
-  'Order': EntityMeta(idField: 'id'),
-};
+const EntitySchema entities = {'Order': EntityMeta(idField: 'id')};
 
 const List<StreamBinding> streams = [
   EntityStreamBinding(
@@ -165,29 +158,30 @@ const List<StreamBinding> streams = [
 // its own private `_fromClient`; here they are named per binding.
 final getOrder = query<Order, GetOrderArgs>(opGetOrder, _getOrderFromClient);
 
-Order _getOrderFromClient(Object? client) => decodeCached(Order.fromClient, client);
+Order _getOrderFromClient(Object? client) =>
+    decodeCached(Order.fromClient, client);
 
 final class GetOrderArgs implements OperationArgs {
-  const GetOrderArgs({
-    required this.id,
-  });
+  const GetOrderArgs({required this.id});
 
   final String id;
 
   @override
-  TagContext toTagContext() => TagContext(
-    path: {'id': id},
-  );
+  TagContext toTagContext() => TagContext(path: {'id': id});
 
   @override
-  bool operator ==(Object other) => other is GetOrderArgs && this.id == other.id;
+  bool operator ==(Object other) =>
+      other is GetOrderArgs && this.id == other.id;
 
   @override
   int get hashCode => Object.hashAll([id]);
 }
 
 // bindings/list_orders.dart: no parameters and no body, so NoArgs.
-final listOrders = query<List<Order>, NoArgs>(opListOrders, _listOrdersFromClient);
+final listOrders = query<List<Order>, NoArgs>(
+  opListOrders,
+  _listOrdersFromClient,
+);
 
 List<Order> _listOrdersFromClient(Object? client) =>
     decodeList(client, (v0) => decodeCached(Order.fromClient, v0));
@@ -201,13 +195,11 @@ final updateOrder = mutation<Order, UpdateOrderArgs, Order>(
   entityToClient: (e) => e.toClient(),
 );
 
-Order _updateOrderFromClient(Object? client) => decodeCached(Order.fromClient, client);
+Order _updateOrderFromClient(Object? client) =>
+    decodeCached(Order.fromClient, client);
 
 final class UpdateOrderArgs implements OperationArgs {
-  const UpdateOrderArgs({
-    required this.id,
-    this.note = const Unchanged(),
-  });
+  const UpdateOrderArgs({required this.id, this.note = const Unchanged()});
 
   final String id;
 
@@ -216,14 +208,14 @@ final class UpdateOrderArgs implements OperationArgs {
   @override
   TagContext toTagContext() => TagContext(
     path: {'id': id},
-    body: <String, Object?>{
-      if (note case Assign(:final value)) 'note': value,
-    },
+    body: <String, Object?>{if (note case Assign(:final value)) 'note': value},
   );
 
   @override
   bool operator ==(Object other) =>
-      other is UpdateOrderArgs && this.id == other.id && valueEquals(this.note, other.note);
+      other is UpdateOrderArgs &&
+      this.id == other.id &&
+      valueEquals(this.note, other.note);
 
   @override
   int get hashCode => Object.hashAll([id, valueHash(note)]);

@@ -93,11 +93,12 @@ final class AppLifecycleFocusSignal implements FocusSignal {
   final WidgetsBinding? _binding;
   AppLifecycleListener? _listener;
 
-  late final StreamController<bool> _controller = StreamController<bool>.broadcast(
-    onListen: _start,
-    onCancel: _stop,
-    sync: true,
-  );
+  late final StreamController<bool> _controller =
+      StreamController<bool>.broadcast(
+        onListen: _start,
+        onCancel: _stop,
+        sync: true,
+      );
 
   @override
   Stream<bool> get focused => _controller.stream;
@@ -146,7 +147,8 @@ final class ConnectivityPlusSignal implements ConnectivitySignal {
   Stream<bool> get online {
     final changes = _changes;
     final source = changes ?? Connectivity().onConnectivityChanged;
-    final seed = _initial ?? (changes == null ? Connectivity().checkConnectivity : null);
+    final seed =
+        _initial ?? (changes == null ? Connectivity().checkConnectivity : null);
 
     return Stream<bool>.multi((controller) {
       bool? last;
@@ -160,11 +162,13 @@ final class ConnectivityPlusSignal implements ConnectivitySignal {
         if (previous == null ? !now : previous != now) controller.addSync(now);
       }
 
-      final subscription = source.map(_isOnline).listen(
-        (now) => seeding ? held.add(now) : handle(now),
-        onError: controller.addErrorSync,
-        onDone: controller.closeSync,
-      );
+      final subscription = source
+          .map(_isOnline)
+          .listen(
+            (now) => seeding ? held.add(now) : handle(now),
+            onError: controller.addErrorSync,
+            onDone: controller.closeSync,
+          );
       controller.onCancel = () {
         cancelled = true;
         return subscription.cancel();
@@ -189,8 +193,9 @@ final class ConnectivityPlusSignal implements ConnectivitySignal {
       results.any((result) => result != ConnectivityResult.none);
 }
 
-final Expando<_Installation> _installations =
-    Expando<_Installation>('forge_client_flutter seams');
+final Expando<_Installation> _installations = Expando<_Installation>(
+  'forge_client_flutter seams',
+);
 
 final class _Installation {
   _Installation(this._uninstallers);
@@ -224,7 +229,11 @@ void Function() installFlutterSeams(
   Duration focusThrottle = const Duration(seconds: 5),
 }) {
   final installation = _installations[cache] ??= _Installation([
-    revalidateOnFocus(cache, focus ?? AppLifecycleFocusSignal(), throttle: focusThrottle),
+    revalidateOnFocus(
+      cache,
+      focus ?? AppLifecycleFocusSignal(),
+      throttle: focusThrottle,
+    ),
     revalidateOnReconnect(cache, connectivity ?? ConnectivityPlusSignal()),
   ]);
   installation.count++;

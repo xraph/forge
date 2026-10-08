@@ -35,10 +35,10 @@ final Provider<FocusSignal> forgeFocusSignalProvider = Provider<FocusSignal>(
 /// to [ConnectivityPlusSignal]; tests override it with a fake.
 final Provider<ConnectivitySignal> forgeConnectivitySignalProvider =
     Provider<ConnectivitySignal>(
-  (ref) => ConnectivityPlusSignal(),
-  name: 'forgeConnectivitySignalProvider',
-  retry: noRetry,
-);
+      (ref) => ConnectivityPlusSignal(),
+      name: 'forgeConnectivitySignalProvider',
+      retry: noRetry,
+    );
 
 /// [forgeClientProvider]'s cache with focus and reconnect revalidation
 /// installed through `installFlutterSeams`, the same installer `ForgeScope`

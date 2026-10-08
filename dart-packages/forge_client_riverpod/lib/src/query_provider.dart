@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forge_client/forge_client.dart';
-import 'package:forge_client_flutter/forge_client_flutter.dart' show firstState, sameQueryState;
+import 'package:forge_client_flutter/forge_client_flutter.dart'
+    show firstState, sameQueryState;
 
 import 'client_provider.dart';
 import 'internal.dart';
@@ -42,8 +43,7 @@ import 'internal.dart';
 ForgeQueryFamily<T, A> queryProvider<T, A extends OperationArgs>(
   QueryBinding<T, A> binding, {
   String? name,
-}) =>
-    ForgeQueryFamily<T, A>._(binding, name);
+}) => ForgeQueryFamily<T, A>._(binding, name);
 
 /// The family argument: the query plus its watch options.
 ///
@@ -122,29 +122,36 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
   // the previous principal or client cannot be cleared by a write. A new key
   // gets a fresh notifier, and the old one is disposed, which releases its
   // mount.
-  late final _values = Provider.autoDispose.family<AsyncValue<T>, ForgeQueryParams<T, A>>(
-    (ref, params) {
-      final client = ref.watch(forgeInstalledClientProvider);
-      final principal = ref.watch(principalProvider(client));
-      return ref.watch(_notifiers(_ValueKey<T, A>(params, client, principal)));
-    },
-    name: name,
-    retry: noRetry,
-  );
+  late final _values = Provider.autoDispose
+      .family<AsyncValue<T>, ForgeQueryParams<T, A>>(
+        (ref, params) {
+          final client = ref.watch(forgeInstalledClientProvider);
+          final principal = ref.watch(principalProvider(client));
+          return ref.watch(
+            _notifiers(_ValueKey<T, A>(params, client, principal)),
+          );
+        },
+        name: name,
+        retry: noRetry,
+      );
 
   late final _notifiers = AsyncNotifierProvider.autoDispose
       .family<ForgeQueryValueNotifier<T, A>, T, _ValueKey<T, A>>(
-    (key) => ForgeQueryValueNotifier<T, A>(key.params, key.client),
-    name: name == null ? null : '$name.value',
-    retry: noRetry,
-  );
+        (key) => ForgeQueryValueNotifier<T, A>(key.params, key.client),
+        name: name == null ? null : '$name.value',
+        retry: noRetry,
+      );
 
   late final _states = NotifierProvider.autoDispose
-      .family<ForgeQueryStateNotifier<T, A>, QueryState<T>, ForgeQueryParams<T, A>>(
-    ForgeQueryStateNotifier<T, A>.new,
-    name: name == null ? null : '$name.state',
-    retry: noRetry,
-  );
+      .family<
+        ForgeQueryStateNotifier<T, A>,
+        QueryState<T>,
+        ForgeQueryParams<T, A>
+      >(
+        ForgeQueryStateNotifier<T, A>.new,
+        name: name == null ? null : '$name.state',
+        retry: noRetry,
+      );
 
   /// The query for [args], as an `AsyncValue<T>`. It holds the query's mount
   /// while watched and releases it when disposed. Its value only ever holds
@@ -154,8 +161,7 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
     bool enabled = true,
     bool live = false,
     Duration? staleTime,
-  }) =>
-      _values(_params(args, enabled, live, staleTime));
+  }) => _values(_params(args, enabled, live, staleTime));
 
   /// The query for [args] as its full [QueryState], including `isFetching`,
   /// `isOptimistic`, `syncStatus` and the idle state of a disabled query.
@@ -164,16 +170,25 @@ final class ForgeQueryFamily<T, A extends OperationArgs> {
     bool enabled = true,
     bool live = false,
     Duration? staleTime,
-  }) =>
-      _states(_params(args, enabled, live, staleTime));
+  }) => _states(_params(args, enabled, live, staleTime));
 
-  ForgeQueryParams<T, A> _params(A args, bool enabled, bool live, Duration? staleTime) =>
-      ForgeQueryParams<T, A>(binding(args), enabled: enabled, live: live, staleTime: staleTime);
+  ForgeQueryParams<T, A> _params(
+    A args,
+    bool enabled,
+    bool live,
+    Duration? staleTime,
+  ) => ForgeQueryParams<T, A>(
+    binding(args),
+    enabled: enabled,
+    live: live,
+    staleTime: staleTime,
+  );
 }
 
 /// Holds one query on one client, for one principal, as an `AsyncValue<T>`
 /// behind `ForgeQueryFamily.call`.
-final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNotifier<T> {
+final class ForgeQueryValueNotifier<T, A extends OperationArgs>
+    extends AsyncNotifier<T> {
   /// Creates the notifier for [params] on [client].
   ForgeQueryValueNotifier(this.params, this.client);
 
@@ -193,36 +208,44 @@ final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNot
 
   @override
   FutureOr<T> build() => building(() {
-        _first = null;
-        _shown = null;
-        final inbox = StateInbox<QueryState<T>>(ref, _apply);
-        final subscription = params.query
-            .watch(client, live: params.live, staleTime: params.staleTime, enabled: params.enabled)
-            .listen(inbox.receive);
-        ref.onDispose(() {
-          inbox.close();
-          unawaited(subscription.cancel());
-        });
+    _first = null;
+    _shown = null;
+    final inbox = StateInbox<QueryState<T>>(ref, _apply);
+    final subscription = params.query
+        .watch(
+          client,
+          live: params.live,
+          staleTime: params.staleTime,
+          enabled: params.enabled,
+        )
+        .listen(inbox.receive);
+    ref.onDispose(() {
+      inbox.close();
+      unawaited(subscription.cancel());
+    });
 
-        // `watch` delivers its first event on a microtask, so the first value
-        // comes from the seed, read after listening.
-        final seed = firstState(client, params.query, enabled: params.enabled);
-        switch (seed) {
-          case QuerySuccess(:final data):
-            _shown = seed;
-            return data;
-          case QueryFailure(:final error):
-            _shown = seed;
-            throw error;
-          case QueryIdle() || QueryLoading():
-            return (_first = Completer<T>()).future;
-        }
-      });
+    // `watch` delivers its first event on a microtask, so the first value
+    // comes from the seed, read after listening.
+    final seed = firstState(client, params.query, enabled: params.enabled);
+    switch (seed) {
+      case QuerySuccess(:final data):
+        _shown = seed;
+        return data;
+      case QueryFailure(:final error):
+        _shown = seed;
+        throw error;
+      case QueryIdle() || QueryLoading():
+        return (_first = Completer<T>()).future;
+    }
+  });
 
   void _apply(QueryState<T> next) {
     switch (next) {
       case QuerySuccess(:final data):
-        if (_shown case QuerySuccess(data: final shown) when identical(shown, data)) return;
+        if (_shown case QuerySuccess(data: final shown)
+            when identical(shown, data)) {
+          return;
+        }
         _shown = next;
         final first = _first;
         _first = null;
@@ -232,7 +255,10 @@ final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNot
           state = AsyncData<T>(data);
         }
       case QueryFailure(:final error):
-        if (_shown case QueryFailure(error: final shown) when identical(shown, error)) return;
+        if (_shown case QueryFailure(error: final shown)
+            when identical(shown, error)) {
+          return;
+        }
         _shown = next;
         final first = _first;
         _first = null;
@@ -249,7 +275,8 @@ final class ForgeQueryValueNotifier<T, A extends OperationArgs> extends AsyncNot
 }
 
 /// Holds one query's [QueryState] for `ForgeQueryFamily.state`.
-final class ForgeQueryStateNotifier<T, A extends OperationArgs> extends Notifier<QueryState<T>> {
+final class ForgeQueryStateNotifier<T, A extends OperationArgs>
+    extends Notifier<QueryState<T>> {
   /// Creates the notifier for [params].
   ForgeQueryStateNotifier(this.params);
 
@@ -261,24 +288,29 @@ final class ForgeQueryStateNotifier<T, A extends OperationArgs> extends Notifier
 
   @override
   QueryState<T> build() => building(() {
-        final client = ref.watch(forgeInstalledClientProvider);
-        // Dirty before setPrincipal's clear notifies anyone, so a read made
-        // during that clear builds afresh rather than returning the previous
-        // principal's state.
-        ref.watch(principalProvider(client));
-        final inbox = StateInbox<QueryState<T>>(ref, _apply);
-        final subscription = params.query
-            .watch(client, live: params.live, staleTime: params.staleTime, enabled: params.enabled)
-            .listen(inbox.receive);
-        ref.onDispose(() {
-          inbox.close();
-          unawaited(subscription.cancel());
-        });
-        // `watch` delivers its first event on a microtask, so the starting
-        // state comes from the seed, read after listening. The first event
-        // repeats it and writes nothing.
-        return _shown = firstState(client, params.query, enabled: params.enabled);
-      });
+    final client = ref.watch(forgeInstalledClientProvider);
+    // Dirty before setPrincipal's clear notifies anyone, so a read made
+    // during that clear builds afresh rather than returning the previous
+    // principal's state.
+    ref.watch(principalProvider(client));
+    final inbox = StateInbox<QueryState<T>>(ref, _apply);
+    final subscription = params.query
+        .watch(
+          client,
+          live: params.live,
+          staleTime: params.staleTime,
+          enabled: params.enabled,
+        )
+        .listen(inbox.receive);
+    ref.onDispose(() {
+      inbox.close();
+      unawaited(subscription.cancel());
+    });
+    // `watch` delivers its first event on a microtask, so the starting
+    // state comes from the seed, read after listening. The first event
+    // repeats it and writes nothing.
+    return _shown = firstState(client, params.query, enabled: params.enabled);
+  });
 
   void _apply(QueryState<T> next) {
     if (sameQueryState(_shown, next)) return;
