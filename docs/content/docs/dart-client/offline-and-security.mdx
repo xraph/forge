@@ -270,7 +270,7 @@ While the app runs, the write draws from the optimistic update you passed. After
 
 When the connection comes back, the outbox replays in order. Writes to one entity type go one at a time, so a later edit to an order can't overtake an earlier one, and the lanes for different entity types are independent. A retryable answer (a 408, a 429, a 5xx, or a request that never left the device) backs off, doubling from a second up to five minutes with some jitter. Every write carries an `Idempotency-Key` header, generated when it's queued and reused on every replay.
 
-A queued write's future stays pending for as long as the write is queued, and that can be days. Draw your screen from the cache, which shows the optimistic value, and don't put a spinner on that future. For status, read `offline.pending` (the stored writes in replay order), `offline.pendingCount` and `offline.failures`.
+A queued write's future stays pending for as long as the write is queued, and that can be days. Draw your screen from the cache, which shows the optimistic value, and don't put a spinner on that future. For status, read `offline.pending` (the stored writes in queue order), `offline.pendingCount` and `offline.failures`.
 
 ### When a replay fails
 

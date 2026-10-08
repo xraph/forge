@@ -36,7 +36,7 @@ Add `forge.WithIdempotency()` to the routes you want retried automatically. See 
 
 ### An optimistic create with an integer id isn't shown until the server confirms it
 
-The runtime gives an optimistic create a temporary string id, and a generated integer field can't decode that. So the typed view keeps showing the value it last decoded, never an error, and the new row appears when the server answers. A list that holds the temporary id behaves the same way.
+The runtime gives an optimistic create a temporary string id, and a generated integer field can't decode that. So the typed view keeps showing the value it last decoded (or loading, if it never decoded one), never an error, and the new row appears when the server answers. A list that holds the temporary id behaves the same way.
 
 If the entity's id is a string, there's no limit: the row shows at once. For an integer id, show your own pending row until the answer lands.
 
@@ -68,11 +68,13 @@ While a change to an embedded entity is pending, the entity shows only the field
 
 On the web, the cache lives in memory. `encryptedStorage` throws an `UnsupportedError` there, `webCryptoKeys` throws on every platform, and the code that opens database files in a browser is a stub. So the web has no encrypted cache, no restore on startup and no outbox. A web app gets the in-memory cache that `configureClient` builds when you leave `storage:` out.
 
-Everything else on the [Offline and security](/docs/dart-client/offline-and-security) page applies to Android, iOS, macOS, Linux and Windows. The Linux and Windows keystore code is tested against a fake and not against a real keystore.
+Everything else on the [Offline and security](/docs/dart-client/offline-and-security) page is built for Android, iOS, macOS, Linux and Windows. How much of it has run on real devices is a separate question. Only macOS, on the login keychain, has run against a real keystore. iOS, Android, Linux and Windows have run against a fake only, and `requireUserPresence` hasn't run on a device. [Keys on each platform](/docs/dart-client/offline-and-security#keys-on-each-platform) has the detail.
+
+The web connectors for Grove sync are built too, and a browser test hasn't run them yet.
 
 ### Not on pub.dev
 
-Every package is versioned `1.0.0-dev` with `publish_to: none`, and that's deliberate. You install them from the forge repository with a git dependency, a `ref:` on every entry, as [Installation](/docs/dart-client/installation) shows. `grove_crdt` is the same, from the Grove repository.
+Every package is versioned `1.0.0-dev` with `publish_to: none`, and that's deliberate. You install them from the forge repository with a git dependency, a `ref:` on every entry, as [Installation](/docs/dart-client/installation) shows. `grove_crdt` is the same, from the Grove repository. Until the Grove commit merges, the `grove_crdt` pin in `forge_client_grove`'s `pubspec.yaml` points at a branch, and the `ref:` will change when it does.
 
 ### The devtools extension isn't built for you
 
@@ -80,9 +82,9 @@ The built extension is gitignored. A git dependency on `forge_client_devtools` g
 
 ### A change stamped late can miss a peer
 
-This is the Grove late-stamp gap. A change stamped earlier than a peer has already pulled can miss that peer. A phone that adds to a set while offline for a day, then reconnects, has its add merged on the server, but a device that already pulled past that stamp is never sent it. It hits counters, sets, lists and text. Last-writer-wins fields mostly escape it, because an older write loses anyway.
+This is the Grove late-stamp gap. The server keeps the stamp a change was made with, and a device pulls only changes newer than its last sync point. So a change stamped earlier than a peer's sync point never reaches that peer. Say a technician's tablet is offline for a day and edits a note: phones that synced meanwhile have moved past the stamp and never see the edit. It holds for every CRDT type, last-writer-wins fields included, for any late write that changes what the server stores. Only a late write that loses to a newer one escapes, because the server changes nothing for it.
 
-The client is correct here. The gap is in the Grove server, and a fix there is what closes it. [Sync](/docs/dart-client/sync#when-to-use-it) has the details.
+The client is correct here. The gap is in the Grove server, and it stays until a server fix lands. [Sync](/docs/dart-client/sync#when-to-use-it) has the details.
 
 ### Joining a Grove dataset before the runtime starts
 
@@ -92,9 +94,13 @@ The core runtime has no hook yet that tells a source who's signed in before it s
 
 ### A queued update after a restart shows nothing
 
-While the app runs, a queued write is drawn from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox derives what to draw from the operation. It can only do that when the operation names exactly one entity key in `invalidates`, and a generated `PATCH`, `PUT` or `DELETE` names the collection (`Order[]`) instead. So after a restart a queued generated update or delete shows no optimistic change. The write is still stored, still replays, and still fails with a typed reason. The screen just shows the old value in the meantime.
+While the app runs, a queued write is drawn from the optimistic update you passed. After a restart nothing remembers your callback, so the outbox derives what to draw from the operation. It can only do that when the operation names exactly one entity key in `invalidates`, and a generated `PATCH`, `PUT` or `DELETE` names the collection (`Order[]`) instead. So after a restart a queued generated update or delete shows no optimistic change. The write is still stored, still replays, and still fails with a typed reason. Until it replays, the screen shows the server's last value, and a deleted order comes back.
 
-`OfflineClient.open` takes no `overlayIntent:`, so there's no way yet to tell it the target. Read `offline.pending` to mark rows that are waiting. See [The outbox](/docs/dart-client/offline-and-security#the-outbox).
+`OfflineClient.open` takes no `overlayIntent:`. A client built by hand with the constructor does, so it can key the overlay itself. Otherwise, read `offline.pending` to mark rows that are waiting. See [The outbox](/docs/dart-client/offline-and-security#the-outbox).
+
+### A Grove dataset joined offline reports online
+
+A dataset's sync status follows the connectivity signal, and it starts out assumed online. One joined while the device is already offline reports its pending or synced state, not Offline, until the next connectivity change. Going offline stops its retries but leaves its live channel open.
 
 ### Nothing is in a forge release yet
 

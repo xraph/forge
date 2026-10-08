@@ -18,7 +18,7 @@ dev_dependencies:
     path: ../forge/dart-packages/forge_client_devtools
 ```
 
-Then build the extension once:
+You need Flutter 3.47 or newer, the same as every other package here. Then build the extension once:
 
 ```bash
 cd ../forge/dart-packages/forge_client_devtools
@@ -59,7 +59,7 @@ Type a query key into the Tags panel, copied from the Queries panel, and press E
 
 For `missed`, the report lists the near misses. An invalidation of `Order:9` against a query that carries only `Order[]` is the classic one, and the hint says what to change. When some of the operation's `invalidates` templates resolved to nothing, a `{res.x}` against a response without `x`, the report says so first. That is the most common reason an invalidation silently didn't happen.
 
-The same panel answers why a query did refetch, from the log: the mutation or stream frame that caused it. A second box previews what an operation would invalidate without running it, and which mounted queries each tag reaches. It needs the generated operations table. `OfflineClient.open` passes it for you. With `configureClient`, hand it over yourself:
+The same panel answers why a query did refetch, from the log: the mutation or stream frame that caused it. A second box previews what an operation would invalidate without running it, and which mounted queries each tag reaches. It needs the generated operations table. `OfflineClient.open` passes it for you. With `configureClient`, hand it over yourself. The `outbox` argument is for an app that built an `OfflineClient` by hand and wants Replay and Discard to work. Leave it out otherwise.
 
 ```dart
 import 'package:forge_client/devtools.dart';
@@ -86,6 +86,7 @@ The rail only has network controls when the app wired a simulator, and the wirin
 
 ```dart
 import 'package:forge_client/forge_client.dart';
+import 'package:forge_client_flutter/forge_client_flutter.dart';
 import 'package:forge_client_offline/forge_client_offline.dart';
 import 'package:orders_forge_client/orders_forge_client.dart' show entities, operations;
 
@@ -96,6 +97,7 @@ Future<OfflineClient> signInWithDevtools(StorageAdapter storage, String userId) 
     operations: operations,
     storage: storage,
     principal: userId,
+    connectivity: ConnectivityPlusSignal(),
     devtools: true,
   );
 }
@@ -132,5 +134,5 @@ The extension and the `forge_client` in your app both speak a numbered protocol,
 Most often it's two different checkouts. Your app resolved `forge_client` at one commit and the extension was built from another. Point both at the same forge commit, run `./tool/build_extension.sh` again, and restart the app.
 
 <Callout type="info">
-The rail's mode belongs to the running app, and a restart puts it back online. To see writes survive a restart, queue a few while the rail says Offline, watch them appear in the Outbox panel, then switch the device itself to airplane mode before you kill and restart the app. After the restart they should still be listed, and writes to one entity type replay in the order you made them.
+The rail's mode belongs to the running app, and a restart puts it back online. To see writes survive a restart, queue a few while the rail says Offline, watch them appear in the Outbox panel, then switch the device itself to airplane mode before you kill and restart the app. After the restart they should still be listed, and writes to one entity type replay in the order you made them. Turn airplane mode off again within a minute or two. After 8 retryable failures in a row, with the delay between them doubling from a second, a queued write gives up and shows as `OutboxUncertain`, and it no longer replays on its own. Replay in the panel resends it.
 </Callout>
