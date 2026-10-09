@@ -4,38 +4,103 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Forge deployment workbench | Interactive proposal</title>
+    <script>
+      (() => {
+        let preference = "system";
+        try {
+          preference = localStorage.getItem("forge-deploy-theme") || "system";
+        } catch {}
+        if (!["light", "dark", "system"].includes(preference))
+          preference = "system";
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.dataset.theme =
+          preference === "system"
+            ? matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+      })();
+    </script>
     <style>
       :root {
+        color-scheme: light;
+        --canvas: #f4f4f5;
+        --panel: #ffffff;
+        --raised: #f4f4f5;
+        --sidebar: #fafafa;
+        --border: #e4e4e7;
+        --input: #8d8d99;
+        --text: #18181b;
+        --muted: #61616c;
+        --accent: #b45309;
+        --accent-soft: #fffbeb;
+        --accent-border: #fcd34d;
+        --green: #166534;
+        --green-soft: #f0fdf4;
+        --green-border: #86efac;
+        --blue: #1d4ed8;
+        --red: #b91c1c;
+        --red-soft: #fef2f2;
+        --red-border: #fca5a5;
+        --primary: #18181b;
+        --primary-text: #ffffff;
+        --code: #fafafa;
+        --node: #ffffff;
+        --node-border: #a1a1aa;
+        --edge: #64748b;
+        --edge-data: #15803d;
+        --radius: 8px;
+        --shadow: 0 1px 2px #00000008;
+        --sidebar-width: 256px;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      :root[data-theme="dark"] {
         color-scheme: dark;
         --canvas: #09090b;
         --panel: #121215;
-        --raised: #19191e;
-        --border: #2b2b31;
-        --text: #f4f4f5;
-        --muted: #a8a8b2;
-        --accent: #f59e0b;
-        --green: #82c5a2;
-        --blue: #96bdf2;
-        --red: #f59c9c;
+        --raised: #232329;
+        --sidebar: #111114;
+        --border: #303036;
+        --input: #71717a;
+        --text: #fafafa;
+        --muted: #a1a1aa;
+        --accent: #fbbf24;
+        --accent-soft: #292111;
+        --accent-border: #75531e;
+        --green: #86efac;
+        --green-soft: #14271b;
+        --green-border: #315c3d;
+        --blue: #93c5fd;
+        --red: #fca5a5;
+        --red-soft: #301b1d;
+        --red-border: #744249;
+        --primary: #fafafa;
+        --primary-text: #18181b;
+        --code: #0c0c0f;
+        --node: #1d1d23;
+        --node-border: #71717a;
+        --edge: #94a3b8;
+        --edge-data: #86b99b;
+        --shadow: none;
       }
       * {
         box-sizing: border-box;
+      }
+      [hidden] {
+        display: none;
       }
       body {
         margin: 0;
         background: var(--canvas);
         color: var(--text);
-        font:
-          14px/1.5 -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
+        font: 14px/1.5 var(--sans);
       }
       button,
       input,
       select,
       textarea {
         font: inherit;
+        color: inherit;
       }
       button,
       select {
@@ -45,36 +110,63 @@
       input,
       select,
       textarea {
-        border: 1px solid var(--border);
+        border: 1px solid var(--input);
         border-radius: 6px;
         background: var(--panel);
-        color: var(--text);
       }
       button {
-        padding: 7px 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 12px;
         min-height: 36px;
+        font-weight: 500;
+        white-space: nowrap;
       }
       input,
       select {
-        padding: 7px 9px;
+        padding: 7px 10px;
         min-height: 36px;
         width: 100%;
-      }
-      button:hover {
-        background: var(--raised);
-        border-color: #52525b;
-      }
-      :focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 3px;
+        min-width: 0;
       }
       button:disabled {
         opacity: 0.5;
-        cursor: default;
+        cursor: not-allowed;
+      }
+      :focus-visible {
+        outline: 2px solid var(--blue);
+        outline-offset: 3px;
       }
       a {
         color: var(--blue);
         text-underline-offset: 3px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 24px;
+        line-height: 32px;
+        letter-spacing: -0.6px;
+        font-weight: 650;
+      }
+      h2 {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 22px;
+      }
+      h3 {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.9em;
       }
       svg {
         flex-shrink: 0;
@@ -84,126 +176,9 @@
         height: 18px;
         fill: none;
         stroke: currentColor;
-        stroke-width: 1.6;
+        stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
-      }
-      .topbar {
-        min-height: 58px;
-        padding: 10px 22px;
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        border-bottom: 1px solid var(--border);
-      }
-      .brand {
-        font-size: 19px;
-        letter-spacing: -0.7px;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        gap: 9px;
-      }
-      .brand svg {
-        color: var(--accent);
-        width: 24px;
-        height: 24px;
-      }
-      .crumb {
-        color: var(--muted);
-      }
-      .tag {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 3px 8px;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        color: var(--muted);
-        font-size: 12px;
-        white-space: nowrap;
-      }
-      .topbar .tag {
-        margin-left: auto;
-      }
-      .tag.orange {
-        color: #f9c36c;
-        border-color: #664719;
-        background: #332510;
-      }
-      .tag.green {
-        color: var(--green);
-        border-color: #315943;
-        background: #14271d;
-      }
-      .layout {
-        display: grid;
-        grid-template-columns: 164px minmax(0, 1fr);
-        min-height: calc(100vh - 58px);
-      }
-      .sidebar {
-        border-right: 1px solid var(--border);
-        padding: 20px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      .sidebar button {
-        text-align: left;
-        border-color: transparent;
-        background: transparent;
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        color: var(--muted);
-      }
-      .sidebar button.active {
-        color: var(--text);
-        background: var(--raised);
-        border-color: var(--border);
-      }
-      .sidebar .local {
-        margin-top: auto;
-        padding: 22px 7px 0;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      code {
-        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-        font-size: 0.9em;
-      }
-      .local code {
-        display: block;
-        color: var(--text);
-        font-size: 11px;
-        margin-bottom: 5px;
-      }
-      main {
-        padding: 22px 26px;
-        min-width: 0;
-        max-width: 1760px;
-        width: 100%;
-        margin: 0 auto;
-      }
-      h1,
-      h2,
-      h3,
-      p {
-        margin: 0;
-      }
-      h1 {
-        font-size: 26px;
-        line-height: 1.2;
-        letter-spacing: -0.8px;
-        font-weight: 650;
-      }
-      h2 {
-        font-size: 14px;
-        font-weight: 600;
-      }
-      h3 {
-        font-size: 14px;
-        font-weight: 600;
       }
       .muted {
         color: var(--muted);
@@ -218,12 +193,274 @@
         gap: 12px;
         flex-wrap: wrap;
       }
+      .layout {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        min-height: 100dvh;
+      }
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        padding: 16px 12px 12px;
+        min-width: 0;
+        background: var(--sidebar);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 10px 20px;
+        font-size: 20px;
+        line-height: 28px;
+        font-weight: 700;
+        letter-spacing: -0.6px;
+      }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--accent-border);
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .brand-mark .icon {
+        width: 22px;
+        height: 22px;
+      }
+      .brand-caption {
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        letter-spacing: 0;
+        color: var(--muted);
+        line-height: 16px;
+      }
+      .project-context {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 2px 20px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .project-avatar {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        background: var(--raised);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 650;
+        flex: none;
+      }
+      .project-context strong {
+        font-size: 13px;
+        display: block;
+        overflow-wrap: anywhere;
+      }
+      .sidebar-content {
+        flex: 1;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .nav-group {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 24px;
+      }
+      .nav-label {
+        margin: 0 10px 6px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+      .sidebar :where(button) {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        justify-content: flex-start;
+        padding: 0 10px;
+        gap: 10px;
+        font-size: 13px;
+      }
+      .sidebar :where(button.active) {
+        color: var(--text);
+        background: var(--raised);
+        font-weight: 550;
+      }
+      .sidebar :where(button.active)::before {
+        content: "";
+        width: 3px;
+        height: 16px;
+        background: var(--accent);
+        border-radius: 2px;
+        position: absolute;
+        margin-left: -10px;
+      }
+      .nav-count {
+        margin-left: auto;
+        font-size: 11px;
+        min-width: 20px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .nav-count.attention {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-border);
+        border-radius: 4px;
+      }
+      .local {
+        margin-top: auto;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .local code {
+        display: block;
+        color: var(--text);
+        margin: 8px 0;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .local .local-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--text);
+        font-weight: 500;
+      }
+      .local .local-title .icon {
+        width: 15px;
+        height: 15px;
+        color: var(--green);
+      }
+      .sidebar-footer {
+        margin-top: 12px;
+        padding: 10px 6px 0;
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 9px;
+        align-items: center;
+      }
+      .sidebar-footer .icon {
+        color: var(--muted);
+      }
+      .sidebar-footer span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .main-shell {
+        min-width: 0;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        margin: 8px 8px 8px 0;
+        box-shadow: var(--shadow);
+      }
+      .topbar {
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 0 24px;
+      }
+      .icon-button {
+        width: 32px;
+        min-height: 32px;
+        padding: 0;
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+        flex: none;
+      }
+      .header-divider {
+        height: 18px;
+        border-left: 1px solid var(--border);
+      }
+      .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        font-size: 12px;
+      }
+      .breadcrumb :where(.icon) {
+        width: 12px;
+        height: 12px;
+        color: var(--muted);
+      }
+      .breadcrumb-project {
+        color: var(--muted);
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .topbar-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .theme-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .theme-control .icon {
+        width: 16px;
+        height: 16px;
+        color: var(--muted);
+      }
+      .theme-control select {
+        min-height: 32px;
+        width: 86px;
+        padding: 4px 6px;
+        font-size: 12px;
+        border-color: var(--border);
+      }
+      .docs-link {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 12px;
+      }
+      main {
+        padding: 24px;
+        min-width: 0;
+        max-width: 1584px;
+        margin: 0 auto;
+      }
       .heading {
-        margin-bottom: 18px;
+        margin-bottom: 16px;
+      }
+      .heading > div:first-child {
+        flex: 1;
+        min-width: 220px;
+      }
+      :where(.heading) > .actions {
+        flex: none;
       }
       .heading p {
-        margin-top: 6px;
+        margin-top: 4px;
         color: var(--muted);
+        font-size: 13px;
       }
       .actions {
         display: flex;
@@ -231,51 +468,72 @@
         gap: 8px;
       }
       .primary {
-        background: var(--accent);
-        color: #171000;
-        border-color: var(--accent);
-        font-weight: 650;
-      }
-      .primary:hover {
-        background: #ffb83e;
-        border-color: #ffb83e;
+        background: var(--primary);
+        color: var(--primary-text);
+        border-color: var(--primary);
       }
       .notice {
-        padding: 9px 12px;
-        background: #1f1c16;
-        border: 1px solid #4e4028;
+        display: flex;
+        gap: 9px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 12px;
-        color: #e5c99a;
-        margin-bottom: 15px;
+        color: var(--muted);
+        background: var(--sidebar);
+        margin-bottom: 20px;
+      }
+      .notice .icon {
+        width: 16px;
+        height: 16px;
+        margin-top: 1px;
+        color: var(--accent);
+      }
+      .view-tabs {
+        display: flex;
+        gap: 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+      .view-tabs button {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0 2px 10px;
+        color: var(--muted);
+        min-height: 36px;
+      }
+      .view-tabs button[aria-selected="true"] {
+        color: var(--text);
+        box-shadow: 0 2px var(--text);
       }
       .controls {
         display: grid;
-        grid-template-columns: 1.35fr 1fr 1fr 0.55fr;
+        grid-template-columns: 1.3fr 1fr 1fr 0.55fr;
         gap: 12px;
-        margin-bottom: 14px;
+        margin-bottom: 12px;
       }
       label {
         display: block;
-        color: var(--muted);
         font-size: 12px;
-      }
-      label select,
-      label input {
-        margin-top: 5px;
+        font-weight: 500;
         color: var(--text);
       }
+      label :where(input, select) {
+        display: block;
+        margin-top: 6px;
+        font-size: 13px;
+        font-weight: 400;
+      }
       .presets {
-        border: 0;
+        margin: 0 0 20px;
         padding: 0;
-        margin-top: 0;
-        margin-inline: 0;
-        min-width: 0;
+        border: 0;
         display: flex;
+        align-items: center;
         flex-wrap: wrap;
         gap: 6px;
-        margin-bottom: 16px;
-        align-items: center;
       }
       .presets > span {
         font-size: 12px;
@@ -283,36 +541,126 @@
         margin-right: 4px;
       }
       .presets button {
-        font-size: 12px;
-        min-height: 32px;
-        padding: 5px 9px;
+        min-height: 28px;
+        padding: 0 9px;
+        font-size: 11px;
+        border-color: var(--border);
+      }
+      .presets button[aria-pressed="true"] {
+        background: var(--raised);
+        border-color: var(--input);
       }
       .workspace {
         display: grid;
-        grid-template-columns: minmax(0, 1.35fr) minmax(310px, 0.85fr);
-        gap: 16px;
+        grid-template-columns: minmax(0, 1fr) 336px;
+        gap: 20px;
         align-items: start;
       }
-      .workspace > div,
-      .workspace > aside {
+      .workspace > :where(div, aside) {
         min-width: 0;
       }
       .section {
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: var(--radius);
         background: var(--panel);
+        margin-bottom: 16px;
         overflow: hidden;
-        margin-bottom: 14px;
       }
       .section-head {
-        padding: 12px 14px;
+        padding: 14px 16px;
         border-bottom: 1px solid var(--border);
       }
       .section-head .muted {
+        font-size: 11px;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 7px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .tag.orange {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+      }
+      .tag.green {
+        color: var(--green);
+        background: var(--green-soft);
+        border-color: var(--green-border);
+      }
+      .decisions {
+        border-color: var(--accent-border);
+      }
+      .decisions .section-head {
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+        padding: 10px 16px;
+      }
+      #decisions-intro {
+        padding: 10px 16px 0;
         font-size: 12px;
+      }
+      .decision-toggle {
+        cursor: pointer;
+      }
+      .decision-toggle::marker {
+        content: "";
+      }
+      .decision-toggle::-webkit-details-marker {
+        display: none;
+      }
+      .decision-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .disclosure-chevron {
+        width: 14px;
+        height: 14px;
+        color: var(--muted);
+      }
+      :where(#decision-disclosure[open]) .disclosure-chevron {
+        transform: rotate(90deg);
+      }
+      .decision-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding: 12px 16px 16px;
+        gap: 20px;
+      }
+      .decision {
+        min-width: 0;
+        font-size: 12px;
+      }
+      .decision strong {
+        font-weight: 600;
+      }
+      .decision :where(select) {
+        max-width: none;
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      .decision .small {
+        font-size: 11px;
+      }
+      .decision details {
+        margin-top: 4px;
+        color: var(--muted);
+      }
+      .decision summary {
+        cursor: pointer;
+        font-size: 11px;
       }
       .table-wrap {
         overflow-x: auto;
+        overscroll-behavior: contain;
       }
       table {
         width: 100%;
@@ -320,20 +668,19 @@
         text-align: left;
       }
       th {
-        color: var(--muted);
         font-size: 11px;
         font-weight: 500;
-        padding: 8px 14px;
-        background: #101013;
+        color: var(--muted);
+        background: var(--sidebar);
+        padding: 10px 16px;
       }
       td {
-        padding: 10px 14px;
-        border-top: 1px solid #26262c;
+        padding: 12px 16px;
+        border-top: 1px solid var(--border);
         font-size: 12px;
         vertical-align: middle;
       }
       td:first-child {
-        font-size: 13px;
         font-weight: 500;
       }
       td .sub {
@@ -345,34 +692,30 @@
       }
       .service {
         display: inline-flex;
-        gap: 8px;
         align-items: center;
+        gap: 8px;
       }
       .service .icon {
-        color: var(--blue);
+        color: var(--muted);
         width: 16px;
         height: 16px;
       }
       .service-link {
+        min-height: 28px;
+        padding: 0;
         background: none;
         border: 0;
-        padding: 0;
-        min-height: 28px;
+        font-size: 13px;
         font-weight: 600;
-        text-align: left;
       }
-      .service-link:hover {
-        background: transparent;
-        color: var(--blue);
+      .public {
+        color: var(--accent);
       }
       .private {
         color: var(--muted);
       }
-      .public {
-        color: #f9c36c;
-      }
       .data-controls {
-        padding: 12px 14px;
+        padding: 14px 16px;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 12px;
@@ -381,24 +724,58 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        color: var(--text);
-        min-height: 34px;
+        min-height: 32px;
+        font-size: 12px;
       }
       .check input {
         width: 16px;
         height: 16px;
         min-height: 0;
-        accent-color: var(--accent);
         margin: 0;
+        accent-color: var(--accent);
       }
       .footnote {
-        padding: 10px 14px;
+        padding: 10px 16px;
         border-top: 1px solid var(--border);
         color: var(--muted);
-        font-size: 12px;
+        font-size: 11px;
       }
       .topology {
-        padding: 14px 10px 6px;
+        padding: 24px 16px 10px;
+      }
+      .scroll-hint {
+        display: none;
+      }
+      .table-wrap:focus-visible,
+      .topology:focus-visible {
+        outline-offset: -2px;
+      }
+      .service-facts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin: 20px 0;
+        padding: 16px;
+        background: var(--sidebar);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .service-facts dt {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .service-facts dd {
+        margin: 4px 0 0;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .service-contract {
+        margin: 16px 0;
+      }
+      .service-contract summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
       }
       .topology svg {
         width: 100%;
@@ -406,38 +783,34 @@
         display: block;
       }
       .node {
-        fill: #18181d;
-        stroke: #41414a;
+        fill: var(--node);
+        stroke: var(--node-border);
       }
       .node.gateway {
-        stroke: #b47b24;
+        stroke: var(--accent);
       }
       .edge {
         fill: none;
-        stroke: #6680a1;
+        stroke: var(--edge);
         stroke-width: 1.5;
       }
       .edge.data {
-        stroke: #608b75;
+        stroke: var(--edge-data);
         stroke-dasharray: 4 4;
       }
       .topology text {
-        font:
-          12px -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
-        fill: #ededf1;
+        font: 12px var(--sans);
+        fill: var(--text);
       }
       .topology text.meta {
         font-size: 10px;
-        fill: #aaaab5;
+        fill: var(--muted);
       }
       .legend {
         display: flex;
         flex-wrap: wrap;
-        gap: 15px;
-        padding: 0 14px 12px;
+        gap: 16px;
+        padding: 0 16px 16px;
         font-size: 11px;
         color: var(--muted);
       }
@@ -445,47 +818,53 @@
         content: "";
         display: inline-block;
         width: 18px;
-        border-top: 2px solid #6680a1;
+        border-top: 2px solid var(--edge);
         margin-right: 6px;
         vertical-align: middle;
       }
       .legend span:last-child::before {
-        border-color: #608b75;
+        border-color: var(--edge-data);
         border-top-style: dashed;
       }
       .tabs {
         display: flex;
-        border-bottom: 1px solid var(--border);
-        padding: 0 12px;
+        background: var(--raised);
+        border-radius: 6px;
+        margin: 12px 12px 0;
+        padding: 3px;
+        gap: 2px;
       }
       .tabs button {
-        padding: 10px 10px;
-        border: 0;
-        border-radius: 0;
+        flex: 1;
+        min-height: 30px;
+        padding: 0 8px;
+        border: 1px solid transparent;
         background: transparent;
         color: var(--muted);
+        font-size: 12px;
+        border-radius: 4px;
       }
       .tabs button[aria-selected="true"] {
         color: var(--text);
-        box-shadow: inset 0 -2px var(--accent);
+        background: var(--panel);
+        border-color: var(--border);
+        box-shadow: var(--shadow);
       }
       .panel {
-        padding: 14px;
-      }
-      .panel[hidden] {
-        display: none;
+        padding: 16px;
       }
       .summary {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 14px;
+        gap: 12px;
+        margin-bottom: 16px;
       }
       .summary strong {
         display: block;
-        font-size: 20px;
-        line-height: 1.4;
-        font-weight: 550;
+        font-size: 22px;
+        line-height: 28px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
       }
       .summary span {
         color: var(--muted);
@@ -495,7 +874,7 @@
         display: flex;
         gap: 8px;
         align-items: flex-start;
-        margin-top: 10px;
+        margin-top: 12px;
         font-size: 12px;
       }
       .review-line .icon {
@@ -509,88 +888,145 @@
       }
       .error {
         color: var(--red);
-        border: 1px solid #633d3d;
-        background: #2c181b;
+        background: var(--red-soft);
+        border: 1px solid var(--red-border);
         padding: 10px;
-        border-radius: 5px;
+        border-radius: 6px;
         margin-top: 12px;
         font-size: 12px;
-      }
-      .error[hidden] {
-        display: none;
-      }
-      .file-picker {
-        font-size: 12px;
-        margin-bottom: 9px;
       }
       pre,
       .code-preview {
         margin: 0;
-        padding: 12px;
+        padding: 14px;
         border: 1px solid var(--border);
-        border-radius: 5px;
-        background: #0b0b0e;
-        color: #d1d1d9;
+        border-radius: 6px;
+        background: var(--code);
+        color: var(--text);
         font:
-          11px/1.65 ui-monospace,
+          12px/1.75 ui-monospace,
           SFMono-Regular,
           Consolas,
           monospace;
         overflow: auto;
-        max-height: 350px;
+        overscroll-behavior: contain;
+        max-height: 400px;
         white-space: pre;
       }
       .code-preview {
         width: 100%;
-        min-height: 300px;
+        min-height: 360px;
         resize: vertical;
+        border-color: var(--input);
+      }
+      .file-picker {
+        margin-bottom: 12px;
       }
       .file-actions {
         display: flex;
-        gap: 7px;
-        margin: 10px 0;
         flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0;
       }
       .file-actions button {
         font-size: 12px;
+        min-height: 32px;
       }
-      .artifact-list {
-        margin: 9px 0 0;
-        padding: 0;
-        list-style: none;
+      .file-workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        min-width: 0;
+      }
+      .file-tree {
+        display: none;
+      }
+      .file-editor {
+        min-width: 0;
+      }
+      .file-tree-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         font-size: 12px;
+        font-weight: 600;
+        padding: 16px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .file-tree :where(button) {
+        border: 0;
+        background: transparent;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 8px;
+        min-height: 50px;
+        padding: 9px 12px;
+        width: 100%;
+        white-space: normal;
+        text-align: left;
         color: var(--muted);
       }
+      .file-tree :where(button[aria-current="true"]) {
+        background: var(--raised);
+        color: var(--text);
+      }
+      .file-tree :where(.icon) {
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+      }
+      .file-tree strong {
+        font-weight: 500;
+        font-size: 12px;
+        display: block;
+      }
+      .file-tree small {
+        display: block;
+        max-width: 166px;
+        font-size: 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .artifact-list {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
       .artifact-list li {
-        padding: 5px 0;
-        border-bottom: 1px solid #26262c;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
       }
       .prompt {
         width: 100%;
+        min-height: 140px;
+        padding: 12px;
         resize: vertical;
-        min-height: 95px;
-        padding: 10px;
         font-size: 12px;
-        line-height: 1.6;
+        line-height: 1.7;
       }
       .run-log {
-        max-height: 180px;
+        max-height: 520px;
         overflow: auto;
+        overscroll-behavior: contain;
         padding: 0;
-        margin: 12px 0 0;
+        margin: 0;
         list-style: none;
-        font-size: 12px;
+        font-size: 13px;
       }
       .run-log li {
-        padding: 5px 0;
+        padding: 12px 0;
         display: flex;
         align-items: baseline;
-        gap: 8px;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
       }
       .run-log .step-state {
         color: var(--green);
         font:
-          10px ui-monospace,
+          11px ui-monospace,
           monospace;
         width: 44px;
         flex-shrink: 0;
@@ -599,190 +1035,31 @@
         color: var(--red);
       }
       .bottom {
-        margin-top: 4px;
+        margin-top: 12px;
         color: var(--muted);
         font-size: 11px;
       }
-      #toast {
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 10;
-        background: #27272d;
-        border: 1px solid #575760;
-        border-radius: 6px;
-        padding: 10px 16px;
-        max-width: calc(100vw - 32px);
-        font-size: 13px;
-        box-shadow: 0 8px 24px #0006;
-      }
-      #toast:empty {
-        display: none;
-      }
-      dialog {
-        background: var(--panel);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 9px;
-        padding: 20px;
-        width: 560px;
-        max-width: calc(100vw - 32px);
-      }
-      dialog::backdrop {
-        background: #0009;
-      }
-      dialog pre {
-        margin: 12px 0;
-        max-height: 280px;
-      }
-      .skip {
-        position: absolute;
-        left: 8px;
-        top: -70px;
-        background: var(--panel);
-        padding: 10px;
-        z-index: 20;
-      }
-      .skip:focus {
-        top: 8px;
-      }
-      @media (max-width: 1180px) {
-        main {
-          padding: 18px;
-        }
-        .layout {
-          grid-template-columns: 140px minmax(0, 1fr);
-        }
-        .workspace {
-          grid-template-columns: minmax(0, 1fr) minmax(285px, 0.85fr);
-        }
-        td,
-        th {
-          padding-left: 10px;
-          padding-right: 10px;
-        }
-      }
-      @media (max-width: 960px) {
-        .workspace {
-          grid-template-columns: minmax(0, 1fr);
-        }
-        .layout {
-          grid-template-columns: 125px minmax(0, 1fr);
-        }
-        .controls {
-          grid-template-columns: 1fr 1fr;
-        }
-        pre {
-          max-height: 300px;
-        }
-      }
-      @media (max-width: 600px) {
-        .layout {
-          display: block;
-        }
-        .sidebar {
-          flex-direction: row;
-          overflow-x: auto;
-          padding: 8px 12px;
-          border-right: 0;
-          border-bottom: 1px solid var(--border);
-          gap: 2px;
-        }
-        .sidebar button {
-          flex-shrink: 0;
-          font-size: 12px;
-          padding: 6px 9px;
-        }
-        .sidebar .local {
-          display: none;
-        }
-        .sidebar .icon {
-          display: none;
-        }
-        .topbar {
-          padding: 10px 14px;
-          gap: 12px;
-        }
-        .crumb {
-          font-size: 12px;
-        }
-        .topbar .tag {
-          font-size: 10px;
-        }
-        main {
-          padding: 16px 12px;
-        }
-        h1 {
-          font-size: 23px;
-        }
-        .heading {
-          gap: 14px;
-        }
-        .heading .actions {
-          width: 100%;
-        }
-        .heading .actions button {
-          flex: 1;
-        }
-        .controls {
-          gap: 10px;
-        }
-        .data-controls {
-          grid-template-columns: 1fr;
-        }
-        .summary strong {
-          font-size: 18px;
-        }
-        td {
-          white-space: nowrap;
-        }
-      }
-      .decisions {
-        border-color: #4e4028;
-      }
-      .decision {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 0;
-        border-top: 1px solid var(--border);
-        font-size: 13px;
-      }
-      .decision:first-of-type {
-        border-top: 0;
-      }
-      .decision select {
-        max-width: 260px;
-        flex: none;
-      }
-      .decision.resolved strong::after {
-        content: " \2713";
-        color: var(--green);
-      }
       .checks {
         list-style: none;
-        margin: 0;
         padding: 0;
+        margin: 0;
       }
       .checks li {
         display: flex;
-        gap: 8px;
+        gap: 10px;
         align-items: flex-start;
-        padding: 7px 0;
+        padding: 12px 0;
         border-top: 1px solid var(--border);
-        font-size: 12px;
+        font-size: 13px;
       }
       .checks li:first-child {
         border-top: 0;
       }
       .checks .icon {
-        width: 14px;
-        height: 14px;
-        flex: none;
-        color: var(--green);
+        width: 16px;
+        height: 16px;
         margin-top: 2px;
+        color: var(--green);
       }
       .checks li.warn .icon {
         color: var(--accent);
@@ -790,11 +1067,33 @@
       .checks li.fail .icon {
         color: var(--red);
       }
-      .diff {
-        font-size: 11px;
-        line-height: 1.5;
-        max-height: 260px;
+      dialog {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        width: 600px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100dvh - 48px);
         overflow: auto;
+        overscroll-behavior: contain;
+        box-shadow: 0 24px 80px #0003;
+      }
+      dialog::backdrop {
+        background: #0008;
+      }
+      dialog pre {
+        margin: 16px 0;
+        max-height: 280px;
+      }
+      dialog h2 {
+        font-size: 18px;
+        line-height: 26px;
+      }
+      dialog .row button {
+        min-height: 32px;
+        font-size: 12px;
       }
       .diff .add {
         color: var(--green);
@@ -805,18 +1104,357 @@
       #plan-hash {
         font-size: 12px;
       }
-      @media (max-width: 720px) {
-        .decision {
-          flex-direction: column;
-          align-items: stretch;
+      #toast {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        max-width: calc(100vw - 32px);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 13px;
+        box-shadow: 0 6px 30px #0002;
+      }
+      #toast:empty {
+        display: none;
+      }
+      .skip {
+        position: fixed;
+        left: 8px;
+        top: -70px;
+        background: var(--panel);
+        padding: 10px;
+        z-index: 50;
+      }
+      .skip:focus {
+        top: 8px;
+      }
+      body:not([data-view="overview"]) :where(.controls, .presets, #decisions) {
+        display: none;
+      }
+      body:not([data-view="overview"]):not([data-view="preflight"]):not(
+          [data-view="activity"]
+        )
+        .view-tabs {
+        display: none;
+      }
+      body:not([data-view="overview"]):not([data-view="services"]) #services {
+        display: none;
+      }
+      body:not([data-view="overview"]):not([data-view="resources"]) #resources {
+        display: none;
+      }
+      body:not([data-view="connections"]) #connections {
+        display: none;
+      }
+      body:not([data-view="preflight"]) #preflight {
+        display: none;
+      }
+      body:not([data-view="activity"]) #activity {
+        display: none;
+      }
+      body:not([data-view="overview"]):not([data-view="files"]) #plan-section {
+        display: none;
+      }
+      body:not([data-view="overview"]) .workspace {
+        display: block;
+      }
+      body:not([data-view="overview"])
+        #content-column:has(> .section:not([hidden])) {
+        min-width: 0;
+      }
+      body[data-view="files"] .file-workspace {
+        grid-template-columns: 216px minmax(0, 1fr);
+      }
+      body[data-view="files"] .file-tree {
+        display: block;
+        border-right: 1px solid var(--border);
+        margin: -16px 16px -16px -16px;
+        padding-bottom: 12px;
+      }
+      body[data-view="files"] .code-preview {
+        min-height: 440px;
+      }
+      body[data-view="connections"] .topology {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      body[data-view="files"] :where(#review-panel, #agent-panel) {
+        max-width: 960px;
+      }
+      body[data-view="files"] #review-panel .artifact-list {
+        columns: 2;
+        column-gap: 32px;
+      }
+      body.sidebar-collapsed {
+        --sidebar-width: 72px;
+      }
+      body.sidebar-collapsed .sidebar {
+        padding-inline: 12px;
+      }
+      body.sidebar-collapsed
+        :where(
+          .brand-copy,
+          .project-copy,
+          .nav-label,
+          .nav-title,
+          .nav-count,
+          .local,
+          .sidebar-footer span
+        ) {
+        display: none;
+      }
+      body.sidebar-collapsed .brand {
+        padding: 4px 8px 20px;
+      }
+      body.sidebar-collapsed .project-context {
+        border: 0;
+        padding: 0 8px;
+        margin: 0 0 20px;
+        background: transparent;
+      }
+      body.sidebar-collapsed .sidebar :where(button) {
+        justify-content: center;
+        padding: 0;
+        min-height: 40px;
+      }
+      body.sidebar-collapsed .sidebar-footer {
+        justify-content: center;
+      }
+      #mobile-menu {
+        margin: 0;
+        width: 288px;
+        max-width: calc(100vw - 32px);
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        padding: 0;
+        border-block: 0;
+        border-left: 0;
+      }
+      #mobile-menu .sidebar {
+        height: 100%;
+        position: static;
+        padding-top: 20px;
+      }
+      .drawer-close {
+        display: none;
+      }
+      #mobile-menu .drawer-close {
+        display: inline-flex;
+        position: absolute;
+        top: 20px;
+        right: 12px;
+        width: 32px;
+      }
+      @media (hover: hover) {
+        button:not(:disabled):hover {
+          background: var(--raised);
         }
+        .primary:not(:disabled):hover {
+          background: var(--primary);
+          opacity: 0.88;
+        }
+        .service-link:hover {
+          background: transparent;
+          color: var(--blue);
+        }
+        .docs-link:hover {
+          color: var(--text);
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        button {
+          transition:
+            background-color 100ms,
+            opacity 100ms;
+        }
+      }
+      @media (max-width: 1200px) {
+        main {
+          padding: 20px;
+        }
+        .topbar {
+          padding-inline: 20px;
+        }
+        .workspace {
+          gap: 16px;
+          grid-template-columns: minmax(0, 1fr) 304px;
+        }
+        td,
+        th {
+          padding-inline: 12px;
+        }
+        .controls {
+          grid-template-columns: 1.15fr 1fr 1fr 0.6fr;
+        }
+      }
+      @media (max-width: 1024px) {
+        .workspace {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .controls {
+          grid-template-columns: 1fr 1fr;
+        }
+        #review-column {
+          margin-top: 0;
+        }
+        .decision-grid {
+          gap: 16px;
+        }
+      }
+      @media (max-width: 767px) {
+        .layout {
+          display: block;
+        }
+        .layout > .sidebar {
+          display: none;
+        }
+        .main-shell {
+          margin: 0;
+          border: 0;
+          border-radius: 0;
+          min-height: 100dvh;
+        }
+        .topbar {
+          height: 56px;
+          padding-inline: 16px;
+          gap: 8px;
+        }
+        .topbar-actions {
+          gap: 8px;
+        }
+        .breadcrumb-project,
+        .breadcrumb .icon,
+        .docs-link {
+          display: none;
+        }
+        .topbar .tag {
+          display: none;
+        }
+        .theme-control select {
+          width: 76px;
+        }
+        main {
+          padding: 20px 16px;
+        }
+        h1 {
+          font-size: 22px;
+          line-height: 30px;
+        }
+        .heading {
+          align-items: flex-start;
+          gap: 12px;
+        }
+        .heading .actions {
+          width: 100%;
+        }
+        .heading .actions button {
+          flex: 1;
+          min-height: 40px;
+          font-size: 12px;
+        }
+        .heading p {
+          font-size: 12px;
+        }
+        .notice {
+          margin-bottom: 16px;
+        }
+        .decision-grid {
+          grid-template-columns: 1fr;
+          padding: 12px 16px;
+          gap: 14px;
+        }
+        .decision + .decision {
+          border-top: 1px solid var(--border);
+          padding-top: 12px;
+        }
+        .data-controls {
+          grid-template-columns: 1fr;
+        }
+        .row {
+          gap: 8px;
+        }
+        td {
+          white-space: nowrap;
+        }
+        .section-head {
+          padding: 12px 16px;
+        }
+        body[data-view="files"] .file-workspace {
+          grid-template-columns: 1fr;
+        }
+        body[data-view="files"] .file-tree {
+          display: none;
+        }
+        body[data-view="files"] .code-preview {
+          min-height: 380px;
+        }
+        body[data-view="files"] #review-panel .artifact-list {
+          columns: auto;
+        }
+        dialog {
+          padding: 20px;
+          max-height: calc(100dvh - 32px);
+        }
+        .view-tabs {
+          gap: 20px;
+        }
+        .view-tabs button {
+          font-size: 13px;
+        }
+        .controls {
+          gap: 12px;
+        }
+        .controls :where(input, select),
+        .data-controls :where(input, select),
         .decision select {
-          max-width: none;
+          min-height: 40px;
+        }
+        .theme-control .icon {
+          display: none;
+        }
+        .topology {
+          overflow-x: auto;
+          overscroll-behavior: contain;
+        }
+        .topology svg {
+          min-width: 620px;
+        }
+        .scroll-hint {
+          display: block;
+          padding: 0 16px 12px;
+          font-size: 11px;
+          color: var(--muted);
+        }
+      }
+      @media (max-width: 359px) {
+        .controls {
+          grid-template-columns: 1fr;
+        }
+        .heading .actions {
+          flex-direction: column;
+        }
+        .breadcrumb {
+          font-size: 11px;
+        }
+      }
+      .theme-changing button {
+        transition: none;
+      }
+      @media (forced-colors: active) {
+        :where(button[aria-selected="true"], button.active) {
+          outline: 2px solid Highlight;
+          outline-offset: -2px;
         }
       }
     </style>
   </head>
-  <body>
+  <body data-view="overview">
     <svg style="display: none" aria-hidden="true">
       <defs>
         <symbol id="hammer" viewBox="0 0 24 24">
@@ -848,605 +1486,873 @@
         <symbol id="alert" viewBox="0 0 24 24">
           <path d="M12 3 2 21h20L12 3ZM12 9v5M12 17h.01" />
         </symbol>
+        <symbol id="panel-left" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M9 3v18" />
+        </symbol>
+        <symbol id="chevron-right" viewBox="0 0 24 24">
+          <path d="m9 6 6 6-6 6" />
+        </symbol>
+        <symbol id="sun" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="4" />
+          <path
+            d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"
+          />
+        </symbol>
+        <symbol id="terminal" viewBox="0 0 24 24">
+          <path d="m4 6 5 6-5 6m9 0h7" />
+        </symbol>
+        <symbol id="database" viewBox="0 0 24 24">
+          <ellipse cx="12" cy="5" rx="8" ry="3" />
+          <path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0" />
+        </symbol>
+        <symbol id="activity-icon" viewBox="0 0 24 24">
+          <path d="M3 12h4l3-8 4 16 3-8h4" />
+        </symbol>
+        <symbol id="x" viewBox="0 0 24 24">
+          <path d="m6 6 12 12M6 18 18 6" />
+        </symbol>
       </defs>
     </svg>
     <a class="skip" href="#main">Skip to deployment configuration</a>
-    <header class="topbar">
-      <div class="brand">
-        <svg class="icon" aria-hidden="true"><use href="#hammer" /></svg>forge
-      </div>
-      <span class="crumb">Local deployment workbench</span>
-      <span class="tag orange">Interactive proposal</span>
-    </header>
-    <div class="layout">
-      <nav class="sidebar" aria-label="Workbench sections">
-        <button type="button" class="active" data-section="overview">
-          <svg class="icon" aria-hidden="true"><use href="#grid" /></svg
-          >Overview
+    <div class="layout" id="app-layout">
+      <nav class="sidebar" id="sidebar" aria-label="Workbench sections">
+        <button
+          type="button"
+          class="icon-button drawer-close"
+          id="drawer-close"
+          aria-label="Close navigation"
+        >
+          <svg class="icon" aria-hidden="true"><use href="#x" /></svg>
         </button>
-        <button type="button" data-section="services">
-          <svg class="icon" aria-hidden="true"><use href="#server" /></svg
-          >Services
-        </button>
-        <button type="button" data-section="connections">
-          <svg class="icon" aria-hidden="true"><use href="#link" /></svg
-          >Connections
-        </button>
-        <button type="button" data-section="files">
-          <svg class="icon" aria-hidden="true"><use href="#file" /></svg>Files
-          &amp; plan
-        </button>
+        <div class="brand">
+          <span class="brand-mark"
+            ><svg class="icon" aria-hidden="true">
+              <use href="#hammer" /></svg></span
+          ><span class="brand-copy"
+            >forge<span class="brand-caption">Deployment workbench</span></span
+          >
+        </div>
+        <div class="project-context">
+          <span class="project-avatar">A</span>
+          <div class="project-copy">
+            <strong id="sidebar-project">atlas</strong
+            ><span class="small muted">Sample microservice project</span>
+          </div>
+        </div>
+        <div class="sidebar-content">
+          <div class="nav-group">
+            <p class="nav-label">Project</p>
+            <button
+              type="button"
+              data-section="overview"
+              aria-label="Overview"
+              title="Overview"
+              class="active"
+              aria-current="page"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#grid" /></svg
+              ><span class="nav-title">Overview</span>
+            </button>
+            <button
+              type="button"
+              data-section="services"
+              aria-label="Services"
+              title="Services"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#server" /></svg
+              ><span class="nav-title">Services</span
+              ><span class="nav-count">3</span>
+            </button>
+            <button
+              type="button"
+              data-section="resources"
+              aria-label="Resources"
+              title="Resources"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#database" /></svg
+              ><span class="nav-title">Resources</span
+              ><span class="nav-count">3</span>
+            </button>
+            <button
+              type="button"
+              data-section="connections"
+              aria-label="Connections"
+              title="Connections"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#link" /></svg
+              ><span class="nav-title">Connections</span>
+            </button>
+            <button
+              type="button"
+              data-section="files"
+              aria-label="Files & plan"
+              title="Files & plan"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#file" /></svg
+              ><span class="nav-title">Files & plan</span
+              ><span class="nav-count">8</span>
+            </button>
+          </div>
+          <div class="nav-group">
+            <p class="nav-label">Release</p>
+            <button
+              type="button"
+              data-section="preflight"
+              aria-label="Preflight"
+              title="Preflight"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#check" /></svg
+              ><span class="nav-title">Preflight</span
+              ><span class="nav-count attention" id="nav-preflight-count"
+                >2</span
+              >
+            </button>
+            <button
+              type="button"
+              data-section="activity"
+              aria-label="Activity"
+              title="Activity"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#activity-icon" /></svg
+              ><span class="nav-title">Activity</span>
+            </button>
+          </div>
+        </div>
         <div class="local">
-          <code>$ forge deploy start</code>Proposed CLI command<br />Sample
-          project only
+          <div class="local-title">
+            <svg class="icon" aria-hidden="true"><use href="#terminal" /></svg
+            >Local session
+          </div>
+          <code>$ forge deploy start</code>
+          <p>Configuration proposal only. No provider is connected.</p>
+        </div>
+        <div class="sidebar-footer">
+          <svg class="icon" aria-hidden="true"><use href="#server" /></svg
+          ><span>CLI &amp; browser, one plan</span>
         </div>
       </nav>
-      <main id="main">
-        <div class="heading row" id="overview">
-          <div>
-            <h1>Deploy <span id="project-heading">atlas</span></h1>
-            <p>Three services. One configuration. Choose where they run.</p>
-          </div>
-          <div class="actions">
-            <button type="button" id="save">Save to project files</button
-            ><button type="button" class="primary" id="rehearse">Deploy</button>
-          </div>
-        </div>
-        <div class="notice">
-          This is a working UI mock. Saving shows the files the CLI would patch
-          and keeps a draft in this browser. Deployments are simulated; no
-          provider is contacted and nothing is written to disk.
-        </div>
-        <div class="controls">
-          <label
-            >Deployment target<select id="target">
-              <option value="kubernetes">Kubernetes</option>
-              <option value="compose">Docker Compose</option>
-              <option value="render">Render</option>
-              <option value="digitalocean">DigitalOcean App Platform</option>
-            </select></label
+      <div class="main-shell" id="main-shell">
+        <header class="topbar">
+          <button
+            type="button"
+            class="icon-button"
+            id="sidebar-toggle"
+            aria-label="Collapse navigation"
+            aria-expanded="true"
+            aria-controls="sidebar"
+            title="Toggle navigation (⌘B / Ctrl+B)"
           >
-          <label
-            >Environment<select id="environment">
-              <option value="production">Production</option>
-              <option value="staging">Staging</option>
-              <option value="development">Development</option>
-            </select></label
-          >
-          <label
-            >Project name<input
-              id="project"
-              value="atlas"
-              maxlength="40"
-              pattern="[a-z][a-z0-9-]{0,39}"
-              autocomplete="off"
-          /></label>
-          <label
-            >API replicas<input
-              id="replicas"
-              type="number"
-              min="1"
-              max="12"
-              value="3"
-          /></label>
-        </div>
-        <fieldset class="presets" aria-label="Deployment presets">
-          <span>Start with</span
-          ><button type="button" data-preset="kubernetes">
-            Kubernetes production</button
-          ><button type="button" data-preset="compose">Local stack</button
-          ><button type="button" data-preset="render">Render managed</button
-          ><button type="button" data-preset="digitalocean">
-            DigitalOcean managed
+            <svg class="icon" aria-hidden="true">
+              <use href="#panel-left" />
+            </svg>
           </button>
-        </fieldset>
-        <div class="workspace">
-          <div>
-            <section
-              class="section decisions"
-              id="decisions"
-              aria-labelledby="decisions-heading"
+          <span class="header-divider" aria-hidden="true"></span>
+          <div class="breadcrumb">
+            <span class="breadcrumb-project" id="project-heading">atlas</span
+            ><svg class="icon" aria-hidden="true">
+              <use href="#chevron-right" /></svg
+            ><span id="breadcrumb-page">Overview</span>
+          </div>
+          <div class="topbar-actions">
+            <span class="tag">UI prototype</span
+            ><a
+              class="docs-link"
+              href="/docs/forge/deployment-workbench"
+              target="_blank"
+              rel="noopener"
+              >Documentation</a
+            ><label class="theme-control"
+              ><svg class="icon" aria-hidden="true"><use href="#sun" /></svg
+              ><select id="theme" aria-label="Color theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select></label
             >
-              <div class="section-head row">
+          </div>
+        </header>
+        <main id="main">
+          <div class="heading row" id="overview">
+            <div>
+              <h1 id="page-title">Deployment overview</h1>
+              <p id="page-description">
+                Configure your stack, resolve decisions, and review the
+                deployment plan.
+              </p>
+            </div>
+            <div class="actions">
+              <button type="button" id="save">
+                <svg class="icon" aria-hidden="true"><use href="#file" /></svg
+                >Save configuration</button
+              ><button type="button" class="primary" id="rehearse">
+                <svg class="icon" aria-hidden="true">
+                  <use href="#chevron-right" /></svg
+                >Review &amp; deploy
+              </button>
+            </div>
+          </div>
+          <div class="notice">
+            <svg class="icon" aria-hidden="true"><use href="#alert" /></svg>
+            <p>
+              Interactive proposal. Saves stay in this browser; downloads
+              contain configuration templates. Deployment and file writes are
+              simulated.
+            </p>
+          </div>
+          <div class="view-tabs" role="tablist" aria-label="Release views">
+            <button
+              type="button"
+              role="tab"
+              data-view-tab="overview"
+              id="overview-view-tab"
+              aria-selected="true"
+              aria-controls="release-workspace"
+            >
+              Configuration
+            </button>
+            <button
+              type="button"
+              role="tab"
+              data-view-tab="preflight"
+              id="preflight-view-tab"
+              aria-selected="false"
+              aria-controls="release-workspace"
+              tabindex="-1"
+            >
+              Preflight
+            </button>
+            <button
+              type="button"
+              role="tab"
+              data-view-tab="activity"
+              id="activity-view-tab"
+              aria-selected="false"
+              aria-controls="release-workspace"
+              tabindex="-1"
+            >
+              Activity
+            </button>
+          </div>
+          <div class="controls">
+            <label
+              >Deployment target<select id="target">
+                <option value="kubernetes">Kubernetes</option>
+                <option value="compose">Docker Compose</option>
+                <option value="render">Render</option>
+                <option value="digitalocean">DigitalOcean App Platform</option>
+              </select></label
+            >
+            <label
+              >Environment<select id="environment">
+                <option value="production">Production</option>
+                <option value="staging">Staging</option>
+                <option value="development">Development</option>
+              </select></label
+            >
+            <label
+              >Project name<input
+                id="project"
+                value="atlas"
+                maxlength="40"
+                pattern="[a-z][a-z0-9-]{0,39}"
+                autocomplete="off"
+            /></label>
+            <label
+              >API replicas<input
+                id="replicas"
+                type="number"
+                min="1"
+                max="12"
+                value="3"
+            /></label>
+          </div>
+          <fieldset class="presets" aria-label="Deployment presets">
+            <span>Start with</span
+            ><button type="button" data-preset="kubernetes">
+              Kubernetes production</button
+            ><button type="button" data-preset="compose">Local stack</button
+            ><button type="button" data-preset="render">Render managed</button
+            ><button type="button" data-preset="digitalocean">
+              DigitalOcean managed
+            </button>
+          </fieldset>
+          <section
+            class="section decisions"
+            id="decisions"
+            aria-labelledby="decisions-heading"
+          >
+            <details id="decision-disclosure" open>
+              <summary class="section-head row decision-toggle">
                 <h2 id="decisions-heading">Decisions needed</h2>
-                <span class="tag orange" id="decisions-count">2 open</span>
-              </div>
+                <span class="decision-status"
+                  ><span class="tag orange" id="decisions-count">2 open</span
+                  ><svg class="icon disclosure-chevron" aria-hidden="true">
+                    <use href="#chevron-right" /></svg
+                ></span>
+              </summary>
               <p class="small muted" id="decisions-intro">
                 Forge inferred the rest from <code>.forge.yml</code>,
                 <code>config/*.yaml</code> and <code>go.mod</code>. These two it
                 cannot guess, so deploy stays off until you answer.
               </p>
-              <div class="decision" id="decision-worker">
-                <div>
-                  <strong>worker has no listener.</strong> How should its health
-                  be observed?
-                  <div class="small muted">
-                    Source: cmd/worker/.forge.yaml sets app.type: worker and
-                    declares no port.
+              <div class="decision-grid">
+                <div class="decision" id="decision-worker">
+                  <div>
+                    <strong>worker has no listener.</strong> How should its
+                    health be observed?
+                    <details>
+                      <summary>View source</summary>
+                      <p>
+                        Source: cmd/worker/.forge.yaml sets app.type: worker and
+                        declares no port.
+                      </p>
+                    </details>
                   </div>
-                </div>
-                <select id="worker-health" aria-label="Worker health strategy">
-                  <option value="">Choose…</option>
-                  <option value="heartbeat">
-                    Application heartbeat (recommended)
-                  </option>
-                  <option value="none">No health check</option>
-                </select>
-              </div>
-              <div class="decision" id="decision-redis">
-                <div>
-                  <strong>cache is Redis.</strong> Does the app use Redis JSON
-                  or search?
-                  <div class="small muted">
-                    Source: config/api.yaml sets extensions.grove_kv.driver:
-                    redis. Feature use cannot be read from config.
-                  </div>
-                </div>
-                <select
-                  id="redis-decision"
-                  aria-label="Redis feature requirement"
-                >
-                  <option value="">Choose…</option>
-                  <option value="yes">Yes, JSON and search</option>
-                  <option value="no">No, plain cache</option>
-                </select>
-              </div>
-            </section>
-            <section
-              class="section"
-              id="services"
-              aria-labelledby="services-heading"
-            >
-              <div class="section-head row">
-                <h2 id="services-heading">Application services</h2>
-                <span class="muted">From sample <code>.forge.yml</code></span>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Service</th>
-                      <th>Exposure</th>
-                      <th>Port</th>
-                      <th>Instances</th>
-                      <th>Runtime</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>
-                        <span class="service"
-                          ><svg class="icon" aria-hidden="true">
-                            <use href="#server" /></svg
-                          ><button
-                            type="button"
-                            class="service-link"
-                            data-service="gateway"
-                          >
-                            gateway
-                          </button></span
-                        ><span class="sub">Public entry point</span>
-                      </td>
-                      <td class="public">Public HTTPS</td>
-                      <td>8080</td>
-                      <td id="gateway-replicas">2</td>
-                      <td>Go</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <span class="service"
-                          ><svg class="icon" aria-hidden="true">
-                            <use href="#server" /></svg
-                          ><button
-                            type="button"
-                            class="service-link"
-                            data-service="api"
-                          >
-                            api
-                          </button></span
-                        ><span class="sub">Grove + Trove + cache</span>
-                      </td>
-                      <td class="private">Private</td>
-                      <td>8080</td>
-                      <td id="api-replicas">3</td>
-                      <td>Go</td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <span class="service"
-                          ><svg class="icon" aria-hidden="true">
-                            <use href="#server" /></svg
-                          ><button
-                            type="button"
-                            class="service-link"
-                            data-service="worker"
-                          >
-                            worker
-                          </button></span
-                        ><span class="sub">Background jobs</span>
-                      </td>
-                      <td class="private">Outbound only</td>
-                      <td>None</td>
-                      <td>1</td>
-                      <td>Go</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="footnote">
-                Only the gateway gets a public route. Select a service to
-                inspect its health and bindings.
-              </div>
-            </section>
-            <section class="section" aria-labelledby="data-heading">
-              <div class="section-head row">
-                <h2 id="data-heading">Data &amp; storage</h2>
-                <span class="tag">Explicit resource bindings</span>
-              </div>
-              <div class="data-controls">
-                <label
-                  >Data placement<select id="placement">
-                    <option value="external">Use existing services</option>
-                    <option value="managed">Provision managed services</option>
-                    <option value="self-hosted">
-                      Self-host the data stack
+                  <select
+                    id="worker-health"
+                    aria-label="Worker health strategy"
+                  >
+                    <option value="">Choose…</option>
+                    <option value="heartbeat">
+                      Application heartbeat (recommended)
                     </option>
-                  </select></label
-                >
-                <label id="target-setting-label"
-                  >Kubernetes context<input
-                    id="target-setting"
-                    value="production-cluster"
-                    maxlength="80"
-                    autocomplete="off"
-                /></label>
+                    <option value="none">No health check</option>
+                  </select>
+                </div>
+                <div class="decision" id="decision-redis">
+                  <div>
+                    <strong>cache is Redis.</strong> Does the app use Redis JSON
+                    or search?
+                    <details>
+                      <summary>View source</summary>
+                      <p>
+                        Source: config/api.yaml sets extensions.grove_kv.driver:
+                        redis. Feature use cannot be read from config.
+                      </p>
+                    </details>
+                  </div>
+                  <select
+                    id="redis-decision"
+                    aria-label="Redis feature requirement"
+                  >
+                    <option value="">Choose…</option>
+                    <option value="yes">Yes, JSON and search</option>
+                    <option value="no">No, plain cache</option>
+                  </select>
+                </div>
               </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Resource</th>
-                      <th>Used by</th>
-                      <th>Backend</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>primary<span class="sub">Grove database</span></td>
-                      <td>api, worker</td>
-                      <td id="database-backend">External PostgreSQL</td>
-                    </tr>
-                    <tr>
-                      <td>objects<span class="sub">Trove uploads</span></td>
-                      <td>api, worker</td>
-                      <td id="storage-backend">Existing S3 bucket</td>
-                    </tr>
-                    <tr>
-                      <td>cache<span class="sub">Shared cache</span></td>
-                      <td>api, worker</td>
-                      <td id="cache-backend">External Redis</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="footnote row">
-                <label class="check"
-                  ><input id="redis-features" type="checkbox" checked />Require
-                  Redis JSON and search</label
-                ><span>Trove metadata uses <code>primary</code></span>
-              </div>
-            </section>
-            <section
-              class="section"
-              id="connections"
-              aria-labelledby="connections-heading"
-            >
-              <div class="section-head row">
-                <h2 id="connections-heading">Service connections</h2>
-                <span class="muted" id="network-label"
-                  >Kubernetes Service DNS</span
-                >
-              </div>
-              <div class="topology">
-                <svg
-                  viewBox="0 0 600 190"
-                  role="img"
-                  aria-label="Gateway calls the API over HTTP. API and worker connect to PostgreSQL, S3 storage and Redis."
-                >
-                  <defs>
-                    <marker
-                      id="arrow"
-                      markerWidth="7"
-                      markerHeight="7"
-                      refX="6"
-                      refY="3.5"
-                      orient="auto"
-                    >
-                      <path d="M0 0 7 3.5 0 7" fill="#6680a1" />
-                    </marker>
-                  </defs>
-                  <path class="edge" d="M148 48H218" marker-end="url(#arrow)" />
-                  <text x="166" y="37" class="meta">HTTP</text>
-                  <path
-                    class="edge data"
-                    d="M328 48H366V28H434M328 48H388V91H434M328 48H366V154H434M328 142H356V28H434M328 142H388V91H434M328 142H412V154H434"
-                  />
-                  <rect
-                    class="node gateway"
-                    x="18"
-                    y="24"
-                    width="130"
-                    height="48"
-                    rx="6"
-                  />
-                  <text x="32" y="45">gateway</text>
-                  <text x="32" y="60" class="meta">Public HTTPS</text>
-                  <rect
-                    class="node"
-                    x="218"
-                    y="24"
-                    width="110"
-                    height="48"
-                    rx="6"
-                  />
-                  <text x="232" y="45">api</text>
-                  <text x="232" y="60" class="meta">Private :8080</text>
-                  <rect
-                    class="node"
-                    x="218"
-                    y="118"
-                    width="110"
-                    height="48"
-                    rx="6"
-                  />
-                  <text x="232" y="139">worker</text>
-                  <text x="232" y="154" class="meta">No listener</text>
-                  <rect
-                    class="node"
-                    x="434"
-                    y="7"
-                    width="146"
-                    height="42"
-                    rx="6"
-                  />
-                  <text x="448" y="24">PostgreSQL</text>
-                  <text x="448" y="39" class="meta">
-                    Grove + Trove metadata
-                  </text>
-                  <rect
-                    class="node"
-                    x="434"
-                    y="70"
-                    width="146"
-                    height="42"
-                    rx="6"
-                  />
-                  <text x="448" y="87">Object storage</text>
-                  <text x="448" y="102" class="meta">Trove uploads</text>
-                  <rect
-                    class="node"
-                    x="434"
-                    y="133"
-                    width="146"
-                    height="42"
-                    rx="6"
-                  />
-                  <text x="448" y="150">Redis</text>
-                  <text x="448" y="165" class="meta" id="redis-graph-label">
-                    Cache + JSON + search
-                  </text>
-                </svg>
-              </div>
-              <div class="legend">
-                <span>Service call</span><span>Resource binding</span>
-              </div>
-              <div class="footnote">
-                Gateway binds
-                <code id="api-address"
-                  >http://api.atlas-production.svc:8080</code
-                >. Receiving services still enforce authentication and grants.
-              </div>
-            </section>
-          </div>
-          <aside id="files" aria-label="Deployment review">
-            <section class="section">
-              <div class="section-head row">
-                <h2>Deployment plan</h2>
-                <span class="tag orange" id="draft-status">Browser draft</span>
-              </div>
-              <div class="tabs" role="tablist" aria-label="Plan views">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected="true"
-                  aria-controls="review-panel"
-                  id="review-tab"
-                  data-tab="review"
-                >
-                  Review</button
-                ><button
-                  type="button"
-                  role="tab"
-                  aria-selected="false"
-                  aria-controls="config-panel"
-                  id="config-tab"
-                  data-tab="config"
-                  tabindex="-1"
-                >
-                  Files</button
-                ><button
-                  type="button"
-                  role="tab"
-                  aria-selected="false"
-                  aria-controls="agent-panel"
-                  id="agent-tab"
-                  data-tab="agent"
-                  tabindex="-1"
-                >
-                  CLI &amp; AI
-                </button>
-              </div>
-              <div
-                class="panel"
-                id="review-panel"
-                role="tabpanel"
-                aria-labelledby="review-tab"
+            </details>
+          </section>
+          <div class="workspace" id="release-workspace">
+            <div id="content-column">
+              <section
+                class="section"
+                id="services"
+                aria-labelledby="services-heading"
               >
-                <div class="summary">
-                  <div>
-                    <strong>3 + 3</strong
-                    ><span>App services + data resources</span>
-                  </div>
-                  <div>
-                    <strong id="instance-count">6</strong
-                    ><span>Application instances</span>
-                  </div>
+                <div class="section-head row">
+                  <h2 id="services-heading">Application services</h2>
+                  <span class="muted">From sample <code>.forge.yml</code></span>
                 </div>
-                <div class="review-line">
-                  <svg class="icon" aria-hidden="true">
-                    <use href="#check" /></svg
-                  ><span>Private API, one public gateway, outbound worker</span>
+                <section
+                  class="table-wrap"
+                  aria-label="Application services table"
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Service</th>
+                        <th>Exposure</th>
+                        <th>Port</th>
+                        <th>Instances</th>
+                        <th>Runtime</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <span class="service"
+                            ><svg class="icon" aria-hidden="true">
+                              <use href="#server" /></svg
+                            ><button
+                              type="button"
+                              class="service-link"
+                              data-service="gateway"
+                            >
+                              gateway
+                            </button></span
+                          ><span class="sub">Public entry point</span>
+                        </td>
+                        <td class="public">Public HTTPS</td>
+                        <td>8080</td>
+                        <td id="gateway-replicas">2</td>
+                        <td>Go</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <span class="service"
+                            ><svg class="icon" aria-hidden="true">
+                              <use href="#server" /></svg
+                            ><button
+                              type="button"
+                              class="service-link"
+                              data-service="api"
+                            >
+                              api
+                            </button></span
+                          ><span class="sub">Grove + Trove + cache</span>
+                        </td>
+                        <td class="private">Private</td>
+                        <td>8080</td>
+                        <td id="api-replicas">3</td>
+                        <td>Go</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <span class="service"
+                            ><svg class="icon" aria-hidden="true">
+                              <use href="#server" /></svg
+                            ><button
+                              type="button"
+                              class="service-link"
+                              data-service="worker"
+                            >
+                              worker
+                            </button></span
+                          ><span class="sub">Background jobs</span>
+                        </td>
+                        <td class="private">Outbound only</td>
+                        <td>None</td>
+                        <td>1</td>
+                        <td>Go</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+                <div class="footnote">
+                  Only the gateway gets a public route. Select a service to
+                  inspect its health and bindings.
                 </div>
-                <div class="review-line">
-                  <svg class="icon" aria-hidden="true">
-                    <use href="#check" /></svg
-                  ><span
-                    >Named database, Trove metadata and bucket bindings</span
+              </section>
+              <section
+                class="section"
+                id="resources"
+                aria-labelledby="data-heading"
+              >
+                <div class="section-head row">
+                  <h2 id="data-heading">Data &amp; storage</h2>
+                  <span class="tag">Explicit resource bindings</span>
+                </div>
+                <div class="data-controls">
+                  <label
+                    >Data placement<select id="placement">
+                      <option value="external">Use existing services</option>
+                      <option value="managed">
+                        Provision managed services
+                      </option>
+                      <option value="self-hosted">
+                        Self-host the data stack
+                      </option>
+                    </select></label
+                  >
+                  <label id="target-setting-label"
+                    >Kubernetes context<input
+                      id="target-setting"
+                      value="production-cluster"
+                      maxlength="80"
+                      autocomplete="off"
+                  /></label>
+                </div>
+                <section class="table-wrap" aria-label="Data resources table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Resource</th>
+                        <th>Used by</th>
+                        <th>Backend</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>primary<span class="sub">Grove database</span></td>
+                        <td>api, worker</td>
+                        <td id="database-backend">External PostgreSQL</td>
+                      </tr>
+                      <tr>
+                        <td>objects<span class="sub">Trove uploads</span></td>
+                        <td>api, worker</td>
+                        <td id="storage-backend">Existing S3 bucket</td>
+                      </tr>
+                      <tr>
+                        <td>cache<span class="sub">Shared cache</span></td>
+                        <td>api, worker</td>
+                        <td id="cache-backend">External Redis</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+                <div class="footnote row">
+                  <label class="check"
+                    ><input
+                      id="redis-features"
+                      type="checkbox"
+                      checked
+                    />Require Redis JSON and search</label
+                  ><span>Trove metadata uses <code>primary</code></span>
+                </div>
+              </section>
+              <section
+                class="section"
+                id="connections"
+                aria-labelledby="connections-heading"
+              >
+                <div class="section-head row">
+                  <h2 id="connections-heading">Service connections</h2>
+                  <span class="muted" id="network-label"
+                    >Kubernetes Service DNS</span
                   >
                 </div>
-                <div class="review-line">
-                  <svg class="icon" aria-hidden="true">
-                    <use href="#check" /></svg
-                  ><span>Secret references only in exported files</span>
-                </div>
-                <div class="review-line warn">
-                  <svg class="icon" aria-hidden="true">
-                    <use href="#alert" /></svg
-                  ><span id="live-checks"
-                    >Live checks still needed: target access, resource
-                    connectivity, TLS and probe routes.</span
+                <section
+                  class="topology"
+                  aria-label="Service connection diagram"
+                >
+                  <svg
+                    viewBox="0 0 600 190"
+                    role="img"
+                    aria-label="Gateway calls the API over HTTP. API and worker connect to PostgreSQL, S3 storage and Redis."
                   >
-                </div>
-                <div
-                  class="error"
-                  id="validation-error"
-                  role="status"
-                  hidden
-                ></div>
-                <h3 style="margin-top: 16px">Planned provider output</h3>
-                <p class="small muted">
-                  Artifact inventory only. The deployment compiler is proposed.
+                    <defs>
+                      <marker
+                        id="arrow"
+                        markerWidth="7"
+                        markerHeight="7"
+                        refX="6"
+                        refY="3.5"
+                        orient="auto"
+                      >
+                        <path d="M0 0 7 3.5 0 7" fill="var(--edge)" />
+                      </marker>
+                    </defs>
+                    <path
+                      class="edge"
+                      d="M148 48H218"
+                      marker-end="url(#arrow)"
+                    />
+                    <text x="166" y="37" class="meta">HTTP</text>
+                    <path
+                      class="edge data"
+                      d="M328 48H366V28H434M328 48H388V91H434M328 48H366V154H434M328 142H356V28H434M328 142H388V91H434M328 142H412V154H434"
+                    />
+                    <rect
+                      class="node gateway"
+                      x="18"
+                      y="24"
+                      width="130"
+                      height="48"
+                      rx="6"
+                    />
+                    <text x="32" y="45">gateway</text>
+                    <text x="32" y="60" class="meta">Public HTTPS</text>
+                    <rect
+                      class="node"
+                      x="218"
+                      y="24"
+                      width="110"
+                      height="48"
+                      rx="6"
+                    />
+                    <text x="232" y="45">api</text>
+                    <text x="232" y="60" class="meta">Private :8080</text>
+                    <rect
+                      class="node"
+                      x="218"
+                      y="118"
+                      width="110"
+                      height="48"
+                      rx="6"
+                    />
+                    <text x="232" y="139">worker</text>
+                    <text x="232" y="154" class="meta">No listener</text>
+                    <rect
+                      class="node"
+                      x="434"
+                      y="7"
+                      width="146"
+                      height="42"
+                      rx="6"
+                    />
+                    <text x="448" y="24">PostgreSQL</text>
+                    <text x="448" y="39" class="meta">
+                      Grove + Trove metadata
+                    </text>
+                    <rect
+                      class="node"
+                      x="434"
+                      y="70"
+                      width="146"
+                      height="42"
+                      rx="6"
+                    />
+                    <text x="448" y="87">Object storage</text>
+                    <text x="448" y="102" class="meta">Trove uploads</text>
+                    <rect
+                      class="node"
+                      x="434"
+                      y="133"
+                      width="146"
+                      height="42"
+                      rx="6"
+                    />
+                    <text x="448" y="150">Redis</text>
+                    <text x="448" y="165" class="meta" id="redis-graph-label">
+                      Cache + JSON + search
+                    </text>
+                  </svg>
+                </section>
+                <p class="scroll-hint">
+                  Scroll horizontally to inspect all connections.
                 </p>
-                <ul class="artifact-list" id="artifact-list"></ul>
-              </div>
-              <div
-                class="panel"
-                id="config-panel"
-                role="tabpanel"
-                aria-labelledby="config-tab"
-                hidden
-              >
-                <label class="file-picker"
-                  >Proposal file<select id="file-select"></select
-                ></label>
-                <textarea
-                  id="file-preview"
-                  class="code-preview"
-                  readonly
-                  spellcheck="false"
-                  wrap="off"
-                  aria-label="Selected proposal file contents"
-                ></textarea>
-                <div class="file-actions">
-                  <button type="button" id="download-file">Download file</button
-                  ><button type="button" id="copy-file">Copy contents</button
-                  ><button type="button" id="download-bundle">
-                    Download bundle
+                <div class="legend">
+                  <span>Service call</span><span>Resource binding</span>
+                </div>
+                <div class="footnote">
+                  Gateway binds
+                  <code id="api-address"
+                    >http://api.atlas-production.svc:8080</code
+                  >. Receiving services still enforce authentication and grants.
+                </div>
+              </section>
+            </div>
+            <aside id="review-column" aria-label="Deployment review">
+              <section class="section" id="plan-section">
+                <div class="section-head row">
+                  <h2>Deployment plan</h2>
+                  <span class="tag orange" id="draft-status"
+                    >Browser draft</span
+                  >
+                </div>
+                <div class="tabs" role="tablist" aria-label="Plan views">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="review-panel"
+                    id="review-tab"
+                    data-tab="review"
+                  >
+                    Review</button
+                  ><button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="config-panel"
+                    id="config-tab"
+                    data-tab="config"
+                    tabindex="-1"
+                  >
+                    Files</button
+                  ><button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="agent-panel"
+                    id="agent-tab"
+                    data-tab="agent"
+                    tabindex="-1"
+                  >
+                    CLI &amp; AI
                   </button>
                 </div>
-                <p class="small muted">
-                  The bundle is JSON containing file paths and contents. These
-                  versioned proposal files need the future compiler; the current
-                  CLI cannot deploy them.
-                </p>
-              </div>
-              <div
-                class="panel"
-                id="agent-panel"
-                role="tabpanel"
-                aria-labelledby="agent-tab"
-                hidden
-              >
-                <p class="small muted" style="margin-bottom: 10px">
-                  Proposed non-interactive workflow. Apply requires the approved
-                  plan hash.
-                </p>
-                <pre id="commands"></pre>
-                <label style="margin-top: 12px"
-                  >Implementation brief<textarea
-                    id="prompt"
-                    class="prompt"
-                    readonly
-                  ></textarea>
-                </label>
-                <div class="file-actions">
-                  <button type="button" id="copy-prompt">Copy brief</button>
-                </div>
-              </div>
-              <div class="footnote row">
-                <span id="file-count">8 proposal files</span
-                ><button
-                  type="button"
-                  id="reset"
-                  style="font-size: 11px; min-height: 28px; padding: 3px 7px"
+                <div
+                  class="panel"
+                  id="review-panel"
+                  role="tabpanel"
+                  aria-labelledby="review-tab"
                 >
-                  Reset draft
-                </button>
-              </div>
-            </section>
-            <section class="section" aria-labelledby="preflight-heading">
-              <div class="section-head row">
-                <h2 id="preflight-heading">Preflight</h2>
-                <span class="tag" id="preflight-status">Not run</span>
-              </div>
-              <div class="panel">
-                <ul class="checks" id="preflight-list"></ul>
-              </div>
-              <div class="footnote">
-                <code>forge deploy doctor</code> runs these against the real
-                target. These rows are fixtures for the selected preset.
-              </div>
-            </section>
-            <section class="section" aria-labelledby="rehearsal-heading">
-              <div class="section-head row">
-                <h2 id="rehearsal-heading">Deployment</h2>
-                <span class="tag" id="run-status">Not deployed</span>
-              </div>
-              <div class="panel">
-                <ol class="run-log" id="run-log" aria-live="polite">
-                  <li class="muted">
-                    Approve a plan to deploy. Every event here is simulated.
-                  </li>
-                </ol>
-              </div>
-              <div class="footnote">
-                Real apply builds once, provisions or binds data, runs
-                migrations, then waits for healthy services before routing.
-              </div>
-            </section>
-            <p class="bottom">
-              No cloud changes. No secrets stored.
-              <a
-                href="/docs/forge/deployment-workbench"
-                target="_blank"
-                rel="noopener"
-                >Read the proposal</a
+                  <div class="summary">
+                    <div>
+                      <strong>3 + 3</strong
+                      ><span>App services + data resources</span>
+                    </div>
+                    <div>
+                      <strong id="instance-count">6</strong
+                      ><span>Application instances</span>
+                    </div>
+                  </div>
+                  <div class="review-line">
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#check" /></svg
+                    ><span
+                      >Private API, one public gateway, outbound worker</span
+                    >
+                  </div>
+                  <div class="review-line">
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#check" /></svg
+                    ><span
+                      >Named database, Trove metadata and bucket bindings</span
+                    >
+                  </div>
+                  <div class="review-line">
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#check" /></svg
+                    ><span>Secret references only in exported files</span>
+                  </div>
+                  <div class="review-line warn">
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#alert" /></svg
+                    ><span id="live-checks"
+                      >Live checks still needed: target access, resource
+                      connectivity, TLS and probe routes.</span
+                    >
+                  </div>
+                  <div
+                    class="error"
+                    id="validation-error"
+                    role="status"
+                    hidden
+                  ></div>
+                  <h3 style="margin-top: 16px">Planned provider output</h3>
+                  <p class="small muted">
+                    Artifact inventory only. The deployment compiler is
+                    proposed.
+                  </p>
+                  <ul class="artifact-list" id="artifact-list"></ul>
+                </div>
+                <div
+                  class="panel"
+                  id="config-panel"
+                  role="tabpanel"
+                  aria-labelledby="config-tab"
+                  hidden
+                >
+                  <div class="file-workspace">
+                    <nav class="file-tree" aria-label="Proposal files">
+                      <div class="file-tree-heading">
+                        <svg class="icon" aria-hidden="true">
+                          <use href="#file" /></svg
+                        >Project files
+                      </div>
+                      <div id="file-tree-items"></div>
+                    </nav>
+                    <div class="file-editor">
+                      <label class="file-picker"
+                        >Proposal file<select id="file-select"></select
+                      ></label>
+                      <textarea
+                        id="file-preview"
+                        class="code-preview"
+                        readonly
+                        spellcheck="false"
+                        wrap="off"
+                        aria-label="Selected proposal file contents"
+                      ></textarea>
+                      <div class="file-actions">
+                        <button type="button" id="download-file">
+                          Download file</button
+                        ><button type="button" id="copy-file">
+                          Copy contents</button
+                        ><button type="button" id="download-bundle">
+                          Download bundle
+                        </button>
+                      </div>
+                      <p class="small muted">
+                        The bundle is JSON containing file paths and contents.
+                        These versioned proposal files need the future compiler;
+                        the current CLI cannot deploy them.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  class="panel"
+                  id="agent-panel"
+                  role="tabpanel"
+                  aria-labelledby="agent-tab"
+                  hidden
+                >
+                  <p class="small muted" style="margin-bottom: 10px">
+                    Proposed non-interactive workflow. Apply requires the
+                    approved plan hash.
+                  </p>
+                  <pre id="commands"></pre>
+                  <label style="margin-top: 12px"
+                    >Implementation brief<textarea
+                      id="prompt"
+                      class="prompt"
+                      readonly
+                    ></textarea>
+                  </label>
+                  <div class="file-actions">
+                    <button type="button" id="copy-prompt">Copy brief</button>
+                  </div>
+                </div>
+                <div class="footnote row">
+                  <span id="file-count">8 proposal files</span
+                  ><button
+                    type="button"
+                    id="reset"
+                    style="font-size: 11px; min-height: 28px; padding: 3px 7px"
+                  >
+                    Reset draft
+                  </button>
+                </div>
+              </section>
+              <section
+                class="section"
+                id="preflight"
+                aria-labelledby="preflight-heading"
               >
-            </p>
-          </aside>
-        </div>
-      </main>
+                <div class="section-head row">
+                  <h2 id="preflight-heading">Preflight</h2>
+                  <span class="tag" id="preflight-status">Not run</span>
+                </div>
+                <div class="panel">
+                  <ul class="checks" id="preflight-list"></ul>
+                </div>
+                <div class="footnote">
+                  <code>forge deploy doctor</code> runs these against the real
+                  target. These rows are fixtures for the selected preset.
+                </div>
+              </section>
+              <section
+                class="section"
+                id="activity"
+                aria-labelledby="rehearsal-heading"
+              >
+                <div class="section-head row">
+                  <h2 id="rehearsal-heading">Deployment</h2>
+                  <span class="tag" id="run-status">Not deployed</span>
+                </div>
+                <div class="panel">
+                  <ol class="run-log" id="run-log" aria-live="polite">
+                    <li class="muted">
+                      Approve a plan to deploy. Every event here is simulated.
+                    </li>
+                  </ol>
+                </div>
+                <div class="footnote">
+                  Real apply builds once, provisions or binds data, runs
+                  migrations, then waits for healthy services before routing.
+                </div>
+              </section>
+              <p class="bottom">
+                No cloud changes. No secrets stored.
+                <a
+                  href="/docs/forge/deployment-workbench"
+                  target="_blank"
+                  rel="noopener"
+                  >Read the proposal</a
+                >
+              </p>
+            </aside>
+          </div>
+        </main>
+      </div>
     </div>
+    <dialog id="mobile-menu" aria-label="Workbench navigation"></dialog>
     <dialog id="service-dialog" aria-labelledby="service-title">
       <div class="row">
         <h2 id="service-title">Service</h2>
@@ -1457,7 +2363,11 @@
         class="small muted"
         style="margin-top: 8px"
       ></p>
-      <pre id="service-detail"></pre>
+      <dl id="service-facts" class="service-facts"></dl>
+      <details class="service-contract">
+        <summary>View full fixture contract</summary>
+        <pre id="service-detail"></pre>
+      </details>
       <p class="small muted">
         Fixture contracts only. The real planner must check your app's actual
         configuration and routes.
@@ -1652,10 +2562,10 @@
         const overlay = (service) =>
           `# ${service}: mounted at /etc/forge/overlay.yaml and named in FORGE_CONFIG_OVERLAY.\n# Generated by forge deploy export. No secret values; \${...} resolves from the environment the target injects.\n` +
           (service === "gateway"
-            ? `services:\n  api: {url: ${apiAddr}, timeout: 5s}\n`
-            : `extensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres, dsn: \${${secretPrefix}_PRIMARY_DSN}}\n  grove_kv:\n    driver: redis\n    dsn: \${${secretPrefix}_CACHE_URL}\n` +
+            ? `services:\n  api: {url: ${yaml(apiAddr)}, timeout: 5s}\n`
+            : `extensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres, dsn: "\${${secretPrefix}_PRIMARY_DSN}"}\n  grove_kv:\n    driver: redis\n    dsn: "\${${secretPrefix}_CACHE_URL}"\n` +
               (service === "api"
-                ? `  trove:\n    storage_driver: \${${secretPrefix}_UPLOADS_DSN}\n    grove_database: primary\n    stores:\n      - {name: uploads, default_bucket: ${state.project}-uploads}\n`
+                ? `  trove:\n    storage_driver: "\${${secretPrefix}_UPLOADS_DSN}"\n    grove_database: primary\n    stores:\n      - {name: uploads, default_bucket: ${state.project}-uploads}\n`
                 : ""));
         files = {
           ".forge.yml":
@@ -1833,12 +2743,29 @@
       function render() {
         createFiles();
         $("project-heading").textContent = state.project || "your project";
+        $("sidebar-project").textContent = state.project || "Your project";
+        document.querySelector(".project-avatar").textContent =
+          (state.project || "?")[0].toUpperCase();
+        document.querySelectorAll("[data-preset]").forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.preset === state.target),
+          );
+        });
         $("gateway-replicas").textContent = String(Math.min(2, state.replicas));
         $("api-replicas").textContent = String(state.replicas);
         $("instance-count").textContent = String(
           Math.min(2, state.replicas) + state.replicas + 1,
         );
         const pending = pendingDecisions();
+        $("decision-disclosure").open =
+          pending.length > 0 || $("decisions").contains(document.activeElement);
+        $("decisions-heading").textContent = pending.length
+          ? "Decisions needed"
+          : "Deployment choices";
+        $("decisions-intro").lastChild.textContent = pending.length
+          ? ". Confirm the choices Forge cannot infer before reviewing the plan."
+          : ". Both choices are set. You can change them before reviewing the plan.";
         $("decisions-count").textContent = pending.length
           ? `${pending.length} open`
           : "All answered";
@@ -1900,7 +2827,10 @@
           : warnings
             ? `${checks.length - warnings} passed, ${warnings} warnings`
             : `${checks.length} passed`;
-        $("preflight-status").className = failures ? "tag orange" : "tag green";
+        $("preflight-status").className =
+          failures || warnings ? "tag orange" : "tag green";
+        $("nav-preflight-count").textContent = String(failures + warnings);
+        $("nav-preflight-count").hidden = failures + warnings === 0;
         $("live-checks").textContent = pending.length
           ? `${pending.length} decision${pending.length > 1 ? "s" : ""} open: ${pending.join(" and ")}. Deploy is off until you answer (the CLI exits 3 here).`
           : "Live checks still needed: target access, resource connectivity, TLS and probe routes.";
@@ -2027,7 +2957,55 @@
           `Implement the Forge deployment proposal for the gateway, API and worker sample, with Grove database bindings, Trove object storage and metadata, and shared Redis. ${choices.length ? `For this configuration, ${choices.join("; ")}. ` : "Use the Kubernetes production defaults with existing data services. "}Use one planner for the local page and CLI. Persist non-secret settings to reviewable files, validate capabilities and service authorization, and require the approved immutable plan hash before apply. Report live verification separately from rendered artifacts.`;
       }
       function renderFile() {
-        $("file-preview").value = files[$("file-select").value] || "";
+        const selected = $("file-select").value;
+        $("file-preview").value = files[selected] || "";
+        const tree = $("file-tree-items");
+        const paths = Object.keys(files);
+        if (tree.dataset.paths !== JSON.stringify(paths)) {
+          tree.replaceChildren(
+            ...paths.map((path) => {
+              const button = document.createElement("button");
+              button.type = "button";
+              button.dataset.path = path;
+              button.setAttribute("aria-current", String(path === selected));
+              button.setAttribute("aria-label", `Open ${path}`);
+              button.title = path;
+              const icon = document.createElementNS(
+                "http://www.w3.org/2000/svg",
+                "svg",
+              );
+              icon.setAttribute("class", "icon");
+              icon.setAttribute("aria-hidden", "true");
+              const use = document.createElementNS(
+                "http://www.w3.org/2000/svg",
+                "use",
+              );
+              use.setAttribute("href", "#file");
+              icon.append(use);
+              const text = document.createElement("span");
+              const name = document.createElement("strong");
+              name.textContent = path.split("/").pop();
+              const folder = document.createElement("small");
+              folder.textContent = path.includes("/")
+                ? path.slice(0, path.lastIndexOf("/"))
+                : "Project root";
+              text.append(name, folder);
+              button.append(icon, text);
+              button.addEventListener("click", () => {
+                $("file-select").value = path;
+                renderFile();
+              });
+              return button;
+            }),
+          );
+          tree.dataset.paths = JSON.stringify(paths);
+        }
+        tree.querySelectorAll("button").forEach((button) => {
+          button.setAttribute(
+            "aria-current",
+            String(button.dataset.path === selected),
+          );
+        });
       }
       function syncControls() {
         for (const [key, id] of [
@@ -2164,6 +3142,47 @@
           name === "gateway"
             ? `kind: web\nport: 8080\nexposure: public HTTPS\napi: ${apiAddress()}\nreadiness: /_/health/ready\nliveness: /_/health/live\ntimeout: 5s (must bind to actual caller)\nretries: 0\nidentity: receiving service verifies audience and grants`
             : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? `ports: none\nhealth: ${state.workerHealth === "heartbeat" ? "application heartbeat" : state.workerHealth === "none" ? "none" : "unresolved"}` : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary\ntrove.store: uploads\ntrove.metadata_database: primary\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: one pre-rollout job\ncredentials: secret references`;
+        const facts = [
+          [
+            "Service type",
+            name === "worker" ? "Background worker" : "HTTP application",
+          ],
+          [
+            "Network exposure",
+            name === "gateway"
+              ? "Public HTTPS"
+              : name === "api"
+                ? "Private network"
+                : "Outbound only, no listener",
+          ],
+          [
+            "Health strategy",
+            name === "worker"
+              ? state.workerHealth === "heartbeat"
+                ? "Application heartbeat"
+                : state.workerHealth === "none"
+                  ? "None configured"
+                  : "Decision needed"
+              : "Readiness + liveness probes",
+          ],
+          [
+            "Resource bindings",
+            name === "gateway"
+              ? "Private API connection"
+              : "Grove primary, Trove uploads, Redis",
+          ],
+        ];
+        $("service-facts").replaceChildren(
+          ...facts.map(([label, value]) => {
+            const item = document.createElement("div");
+            const term = document.createElement("dt");
+            term.textContent = label;
+            const definition = document.createElement("dd");
+            definition.textContent = value;
+            item.append(term, definition);
+            return item;
+          }),
+        );
         $("service-dialog").showModal();
       }
       function openApprove() {
@@ -2191,6 +3210,7 @@
           }
         }
         switchTab("review");
+        selectView("activity");
         $("run-log").replaceChildren();
         const generation = ++runGeneration;
         const outcome = $("outcome").value;
@@ -2319,18 +3339,9 @@
         });
       });
       document.querySelectorAll("[data-section]").forEach((button) => {
-        button.addEventListener("click", () => {
-          document.querySelectorAll("[data-section]").forEach((item) => {
-            item.classList.toggle("active", item === button);
-          });
-          if (button.dataset.section === "files") switchTab("config");
-          $(button.dataset.section).scrollIntoView({
-            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? "auto"
-              : "smooth",
-            block: "start",
-          });
-        });
+        button.addEventListener("click", () =>
+          selectView(button.dataset.section),
+        );
       });
       document.querySelectorAll("[data-service]").forEach((button) => {
         button.addEventListener("click", () =>
@@ -2379,6 +3390,224 @@
         changed();
         toast("Reset to the first-run state with both decisions open.");
       });
+      function updateScrollTargets() {
+        document
+          .querySelectorAll(".table-wrap, .topology")
+          .forEach((region) => {
+            region.tabIndex = region.scrollWidth > region.clientWidth ? 0 : -1;
+          });
+      }
+      const scrollObserver = new ResizeObserver(updateScrollTargets);
+      document.querySelectorAll(".table-wrap, .topology").forEach((region) => {
+        scrollObserver.observe(region);
+      });
+      const VIEW_META = {
+        overview: [
+          "Overview",
+          "Deployment overview",
+          "Configure your stack, resolve decisions, and review the deployment plan.",
+        ],
+        services: [
+          "Services",
+          "Application services",
+          "Inspect exposure, health contracts, and runtime bindings for each service.",
+        ],
+        resources: [
+          "Resources",
+          "Data & storage",
+          "Choose where data lives and keep named resource bindings explicit.",
+        ],
+        connections: [
+          "Connections",
+          "Service connections",
+          "Review private service calls, shared data, and the public entry point.",
+        ],
+        files: [
+          "Files & plan",
+          "Files & deployment plan",
+          "Review configuration templates and the exact operations proposed for your target.",
+        ],
+        preflight: [
+          "Preflight",
+          "Deployment preflight",
+          "Inspect target prerequisites. These checks are simulated for the selected preset.",
+        ],
+        activity: [
+          "Activity",
+          "Deployment activity",
+          "Follow the rehearsal. Every operation is simulated and no provider is contacted.",
+        ],
+      };
+      const mobileQuery = matchMedia("(max-width: 767px)");
+      const systemTheme = matchMedia("(prefers-color-scheme: dark)");
+      let sidebarCollapsed = false;
+      try {
+        sidebarCollapsed =
+          localStorage.getItem("forge-deploy-sidebar") === "collapsed";
+      } catch {}
+      function closeMobileMenu() {
+        $("mobile-menu").close();
+      }
+      $("mobile-menu").addEventListener("close", () => {
+        $("app-layout").prepend($("sidebar"));
+        $("sidebar-toggle").setAttribute(
+          "aria-expanded",
+          String(!mobileQuery.matches && !sidebarCollapsed),
+        );
+      });
+      $("mobile-menu").addEventListener("click", (event) => {
+        const rect = $("mobile-menu").getBoundingClientRect();
+        if (
+          event.target === $("mobile-menu") &&
+          (event.clientX < rect.left ||
+            event.clientX > rect.right ||
+            event.clientY < rect.top ||
+            event.clientY > rect.bottom)
+        )
+          closeMobileMenu();
+      });
+      function updateSidebar() {
+        document.body.classList.toggle(
+          "sidebar-collapsed",
+          sidebarCollapsed && !mobileQuery.matches,
+        );
+        $("sidebar-toggle").setAttribute(
+          "aria-label",
+          mobileQuery.matches
+            ? "Open navigation"
+            : sidebarCollapsed
+              ? "Expand navigation"
+              : "Collapse navigation",
+        );
+        $("sidebar-toggle").setAttribute(
+          "aria-expanded",
+          String(!mobileQuery.matches && !sidebarCollapsed),
+        );
+      }
+      function toggleSidebar() {
+        if (mobileQuery.matches) {
+          $("mobile-menu").append($("sidebar"));
+          $("mobile-menu").showModal();
+          $("sidebar-toggle").setAttribute("aria-expanded", "true");
+        } else {
+          sidebarCollapsed = !sidebarCollapsed;
+          updateSidebar();
+          try {
+            localStorage.setItem(
+              "forge-deploy-sidebar",
+              sidebarCollapsed ? "collapsed" : "expanded",
+            );
+          } catch {}
+        }
+      }
+      $("sidebar-toggle").addEventListener("click", toggleSidebar);
+      $("drawer-close").addEventListener("click", closeMobileMenu);
+      document.addEventListener("keydown", (event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key.toLowerCase() === "b" &&
+          !document.querySelector("dialog[open]") &&
+          !["INPUT", "TEXTAREA", "SELECT"].includes(
+            document.activeElement.tagName,
+          )
+        ) {
+          event.preventDefault();
+          toggleSidebar();
+        }
+      });
+      mobileQuery.addEventListener("change", () => {
+        if ($("mobile-menu").open) closeMobileMenu();
+        updateSidebar();
+      });
+      function selectView(view, focus = false, updateHash = true) {
+        if (!Object.hasOwn(VIEW_META, view)) view = "overview";
+        const [label, title, description] = VIEW_META[view];
+        document.body.dataset.view = view;
+        $("breadcrumb-page").textContent = label;
+        $("page-title").textContent = title;
+        $("page-description").textContent = description;
+        document.querySelectorAll("[data-section]").forEach((button) => {
+          const active = button.dataset.section === view;
+          button.classList.toggle("active", active);
+          if (active) button.setAttribute("aria-current", "page");
+          else button.removeAttribute("aria-current");
+        });
+        document.querySelectorAll("[data-view-tab]").forEach((button) => {
+          const active = button.dataset.viewTab === view;
+          button.setAttribute("aria-selected", String(active));
+          button.tabIndex = active ? 0 : -1;
+          if (active && focus) button.focus();
+        });
+        const releaseView = ["overview", "preflight", "activity"].includes(
+          view,
+        );
+        $("release-workspace").setAttribute(
+          "role",
+          releaseView ? "tabpanel" : "region",
+        );
+        if (releaseView)
+          $("release-workspace").setAttribute(
+            "aria-labelledby",
+            `${view}-view-tab`,
+          );
+        else $("release-workspace").setAttribute("aria-label", label);
+        if (!releaseView)
+          $("release-workspace").removeAttribute("aria-labelledby");
+        else $("release-workspace").removeAttribute("aria-label");
+        if (view === "files") switchTab("config");
+        if ($("mobile-menu").open) closeMobileMenu();
+        if (updateHash) history.replaceState(null, "", `#${view}`);
+        updateScrollTargets();
+      }
+      document.querySelectorAll("[data-view-tab]").forEach((button) => {
+        button.addEventListener("click", () =>
+          selectView(button.dataset.viewTab),
+        );
+        button.addEventListener("keydown", (event) => {
+          const views = ["overview", "preflight", "activity"];
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const index = views.indexOf(button.dataset.viewTab);
+            selectView(
+              event.key === "Home"
+                ? views[0]
+                : event.key === "End"
+                  ? views[2]
+                  : views[(index + (event.key === "ArrowRight" ? 1 : 2)) % 3],
+              true,
+            );
+          }
+        });
+      });
+      function applyTheme(preference) {
+        document.documentElement.classList.add("theme-changing");
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.dataset.theme =
+          preference === "system"
+            ? systemTheme.matches
+              ? "dark"
+              : "light"
+            : preference;
+        void document.documentElement.offsetHeight;
+        requestAnimationFrame(() =>
+          document.documentElement.classList.remove("theme-changing"),
+        );
+      }
+      $("theme").value = document.documentElement.dataset.themePreference;
+      $("theme").addEventListener("change", () => {
+        applyTheme($("theme").value);
+        try {
+          localStorage.setItem("forge-deploy-theme", $("theme").value);
+        } catch {}
+      });
+      systemTheme.addEventListener("change", () => {
+        if ($("theme").value === "system") applyTheme("system");
+      });
+      window.addEventListener("hashchange", () =>
+        selectView(location.hash.slice(1), false, false),
+      );
+      updateSidebar();
+      selectView(location.hash.slice(1), false, false);
       syncControls();
       render();
       if (!storageAvailable)
