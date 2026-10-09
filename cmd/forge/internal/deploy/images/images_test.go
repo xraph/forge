@@ -516,3 +516,19 @@ func TestPrivateRegistryConfigPreservesPluginsWithoutCopyingGlobalAuth(t *testin
 		t.Fatal("global credentials copied")
 	}
 }
+
+func TestVerifyFrozenImageDoesNotBuildChangedSource(t *testing.T) {
+	root, p, _ := imageFixture(t)
+	put(t, root, "cmd/api/main.go", "package main\nfunc main(){panic(\"changed source\")}\n")
+
+	f := fakeRunner(t, func(c execx.Command) (execx.Result, error) {
+		if slices.Contains(c.Args, "build") {
+			t.Fatal("verification rebuilt source")
+		}
+
+		return execx.Result{Stdout: testDigest}, nil
+	})
+	if err := Verify(context.Background(), f, root, p.Deployment, model.Image{Repository: testDigest}); err != nil {
+		t.Fatal(err)
+	}
+}

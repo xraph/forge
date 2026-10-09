@@ -23,5 +23,5 @@ func Factory(runner execx.Runner, root string) provider.Provider { return New(ru
 func (*Kubernetes) Capabilities(context.Context, spec.Target) (model.Capabilities, error) {
 	both := []model.Lifecycle{spec.LifecycleContainer, spec.LifecycleExternal}
 
-	return model.Capabilities{Level: model.LevelRenderable, FileMounts: true, Ingress: true, NetworkPolicy: true, Resources: map[model.ResourceType][]model.Lifecycle{model.Postgres: both, model.MySQL: both, model.MongoDB: both, model.Redis: both, model.NATS: both, model.RabbitMQ: both, model.ObjectStorage: both, model.SMTP: both}}, nil
+	return model.Capabilities{Level: model.LevelApply, Observe: true, Logs: true, Rollback: true, FileMounts: true, Ingress: true, NetworkPolicy: true, Resources: map[model.ResourceType][]model.Lifecycle{model.Postgres: both, model.MySQL: both, model.MongoDB: both, model.Redis: both, model.NATS: both, model.RabbitMQ: both, model.ObjectStorage: both, model.SMTP: both}}, nil
 }

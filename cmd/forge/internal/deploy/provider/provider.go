@@ -55,6 +55,11 @@ type Provider interface {
 	Destroy(ctx context.Context, p *plan.Plan, store *state.Store, options DestroyOptions) error
 }
 
+// Preflighter checks target access and delivery before mutations.
+type Preflighter interface {
+	Preflight(ctx context.Context, deployment *model.Deployment) error
+}
+
 // IdentityObserver reads current remote identities without changing workloads.
 type IdentityObserver interface {
 	SnapshotIDs(ctx context.Context, deployment *model.Deployment) (map[string][]string, error)

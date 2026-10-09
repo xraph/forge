@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	deployprovider "github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 )
 
 var toolsByProvider = map[string][]string{
@@ -31,7 +32,15 @@ func (e *Engine) Doctor(ctx context.Context, target, env string, online bool) (o
 		provider = res.Doc.Deploy.Targets[res.Target].Provider
 	}
 
-	for _, tool := range toolsByProvider[provider] {
+	neededTools := append([]string{}, toolsByProvider[provider]...)
+	if provider == "kubernetes" && res.Deployment != nil {
+		neededTools = append(neededTools, "docker")
+		if res.Deployment.Target.Build.Delivery != "registry" {
+			neededTools = append(neededTools, "kind")
+		}
+	}
+
+	for _, tool := range neededTools {
 		if _, err := e.runner.LookPath(tool); err != nil {
 			diags = append(diags, output.Diagnostic{Code: "DEPLOY_TOOL_MISSING", Severity: output.SeverityError,
 				Message: fmt.Sprintf("%s is not on PATH; target %q needs it", tool, res.Target), Fix: "install " + tool})
@@ -52,6 +61,15 @@ func (e *Engine) Doctor(ctx context.Context, target, env string, online bool) (o
 
 		if _, err := e.runner.Run(ctx, execx.Command{Name: "docker", Args: args, Dir: e.cfg.RootDir}); err != nil {
 			diags = append(diags, output.Diagnostic{Code: "DEPLOY_CONTEXT_UNREACHABLE", Severity: output.SeverityError, Message: "Docker daemon is unavailable for this target", Fix: "start Docker or select an available Docker context"})
+		}
+	}
+
+	if online && !diags.HasErrors() && res.Deployment != nil {
+		adapter, _ := e.registry.Get(provider)
+		if preflight, ok := adapter.(deployprovider.Preflighter); ok {
+			if err := preflight.Preflight(ctx, res.Deployment); err != nil {
+				diags = append(diags, output.Diagnostic{Code: "DEPLOY_CONTEXT_UNREACHABLE", Severity: output.SeverityError, Message: err.Error()})
+			}
 		}
 	}
 

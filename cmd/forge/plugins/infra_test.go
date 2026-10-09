@@ -138,3 +138,55 @@ func TestInfraComposeExportUsesTypedDeployEngine(t *testing.T) {
 		t.Fatal("typed resources were not exported")
 	}
 }
+
+func TestV2KubernetesExportUsesDeploymentEngine(t *testing.T) {
+	root := testdata.Copy(t, "atlas-v2")
+	path := filepath.Join(root, ".forge.yml")
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw = []byte(strings.Replace(string(raw), "{ provider: compose }", "{ provider: kubernetes, context: test, namespace: atlas-dev }", 1))
+	if err := os.WriteFile(path, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadForgeConfigFrom(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := execx.NewFake(t)
+	f.Script("go list", execx.Result{Stdout: "net/http\n"})
+
+	_, err = runCLI(t, NewInfraPluginWithRunner(cfg, f), "infra", "k8s", "export")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "deployments", "local", "dev", "kustomization.yaml")); err != nil {
+		t.Fatal("v2 adapter bundle absent", err)
+	}
+}
+
+func TestInfraKubernetesV2DeployRequiresReviewedPlan(t *testing.T) {
+	root := testdata.Copy(t, "atlas-v2")
+
+	cfg, err := config.LoadForgeConfigFrom(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := execx.NewFake(t)
+
+	_, err = runCLI(t, NewInfraPluginWithRunner(cfg, f), "infra", "k8s", "deploy")
+	if err == nil || !strings.Contains(err.Error(), "approved plan") {
+		t.Fatal("v2 reached legacy apply", err)
+	}
+
+	if len(f.Calls) != 0 {
+		t.Fatal("cluster changed before approval")
+	}
+}

@@ -90,6 +90,8 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		"export",
 		"Export Kubernetes manifests to deployments folder",
 		p.k8sExport,
+		cli.WithFlag(cli.NewStringFlag("target", "t", "Named deployment target", "")),
+		cli.WithFlag(cli.NewStringFlag("env", "e", "Deployment environment", "")),
 		cli.WithFlag(cli.NewStringFlag("output", "o", "Output directory", "")),
 		cli.WithFlag(cli.NewBoolFlag("force", "f", "Force overwrite existing files", false)),
 	))
@@ -488,6 +490,28 @@ func (p *InfraPlugin) dockerExport(ctx cli.CommandContext) error {
 // ========================================
 
 func (p *InfraPlugin) k8sDeploy(ctx cli.CommandContext) error {
+	if p.config != nil {
+		path, _, err := spec.Locate(p.config.RootDir)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+
+		if err == nil {
+			doc, ds, err := spec.Parse(path)
+			if err != nil {
+				return err
+			}
+
+			if ds.HasErrors() {
+				return output.Fail(output.ExitInvalidInput, "invalid deployment configuration", ds...)
+			}
+
+			if doc.Deploy != nil && !doc.IsV1 {
+				return output.Fail(output.ExitInvalidInput, "deploy.version: 2 requires an approved plan; run forge deploy plan, then forge deploy apply --plan <file> --approve-plan <hash>")
+			}
+		}
+	}
+
 	if err := p.validateConfig(ctx); err != nil {
 		return err
 	}
@@ -613,6 +637,51 @@ func (p *InfraPlugin) deployWithGeneratedK8s(ctx cli.CommandContext, service, en
 }
 
 func (p *InfraPlugin) k8sExport(ctx cli.CommandContext) error {
+	if p.config != nil {
+		path, _, err := spec.Locate(p.config.RootDir)
+		if err != nil {
+			return err
+		}
+
+		doc, ds, err := spec.Parse(path)
+		if err != nil {
+			return err
+		}
+
+		if ds.HasErrors() {
+			return output.Fail(output.ExitInvalidInput, "invalid deployment configuration", ds...)
+		}
+
+		if doc.Deploy != nil && !doc.IsV1 {
+			e, err := engine.New(engine.Options{Config: p.config, Runner: p.runner})
+			if err != nil {
+				return err
+			}
+
+			pl, b, err := e.Plan(ctx.Context(), ctx.String("target"), ctx.String("env"))
+			if err != nil {
+				return err
+			}
+
+			if pl.Target.Provider != "kubernetes" {
+				return output.Fail(output.ExitInvalidInput, "selected target is not Kubernetes; use forge deploy export --target <name>")
+			}
+
+			result, err := e.Export(ctx.Context(), pl, b, ctx.String("output"), ctx.Bool("force"))
+			if err != nil {
+				return err
+			}
+
+			ctx.Println(fmt.Sprintf("Exported %d files for %s / %s", len(result.Written), pl.TargetName, pl.Environment))
+
+			return nil
+		}
+
+		if ctx.String("target") != "" || ctx.String("env") != "" {
+			return output.Fail(output.ExitInvalidInput, "target and env selection require deploy.version: 2")
+		}
+	}
+
 	if err := p.validateConfig(ctx); err != nil {
 		return err
 	}
