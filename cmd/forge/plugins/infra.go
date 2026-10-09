@@ -4,12 +4,13 @@ package plugins
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/plugins/infra"
 	"github.com/xraph/forge/errors"
 )
@@ -18,14 +19,17 @@ import (
 type InfraPlugin struct {
 	config    *config.ForgeConfig
 	generator *infra.Generator
+	runner    execx.Runner
 }
 
 // NewInfraPlugin creates a new infrastructure plugin.
 func NewInfraPlugin(cfg *config.ForgeConfig) cli.Plugin {
-	return &InfraPlugin{
-		config:    cfg,
-		generator: infra.NewGenerator(cfg),
-	}
+	return NewInfraPluginWithRunner(cfg, execx.System())
+}
+
+// NewInfraPluginWithRunner creates an infra plugin with an injectable command runner.
+func NewInfraPluginWithRunner(cfg *config.ForgeConfig, r execx.Runner) cli.Plugin {
+	return &InfraPlugin{config: cfg, generator: infra.NewGenerator(cfg), runner: r}
 }
 
 func (p *InfraPlugin) Name() string           { return "infra" }
@@ -450,14 +454,8 @@ func (p *InfraPlugin) k8sDeploy(ctx cli.CommandContext) error {
 	namespace := ctx.String("namespace")
 	dryRun := ctx.Bool("dry-run")
 
-	// If no service specified, show selector
-	if service == "" {
-		selectedService, err := p.selectService(ctx)
-		if err != nil {
-			return err
-		}
-
-		service = selectedService
+	if service != "" && service != "all" {
+		return output.Fail(output.ExitInvalidInput, "--service filtering is not supported by forge infra k8s deploy; use forge deploy for scoped plans")
 	}
 
 	ctx.Info(fmt.Sprintf("☸️  Deploying to Kubernetes (environment: %s)\n", env))
@@ -495,7 +493,9 @@ func (p *InfraPlugin) deployWithExportedK8s(ctx cli.CommandContext, service, env
 	spinner.Stop(cli.Green("✓ Manifests loaded"))
 
 	// Check if kustomize is available
-	useKustomize := p.checkKustomizeAvailable()
+	if _, err := p.renderKustomize(ctx, manifestsDir); err != nil {
+		return err
+	}
 
 	if dryRun {
 		ctx.Info("→ Dry run mode enabled")
@@ -504,17 +504,11 @@ func (p *InfraPlugin) deployWithExportedK8s(ctx cli.CommandContext, service, env
 	// Deploy
 	ctx.Info("→ Applying Kubernetes manifests...")
 
-	if useKustomize {
-		if err := p.executeKubectlApplyKustomize(ctx, manifestsDir, namespace, dryRun, service); err != nil {
-			return fmt.Errorf("deployment failed: %w", err)
-		}
-	} else {
-		if err := p.executeKubectlApplyDirectory(ctx, manifestsDir, namespace, dryRun, service); err != nil {
-			return fmt.Errorf("deployment failed: %w", err)
-		}
+	if err := p.executeKubectlApplyKustomize(ctx, manifestsDir, namespace, dryRun, service); err != nil {
+		return fmt.Errorf("deployment failed: %w", err)
 	}
 
-	ctx.Success("\n✓ Deployed successfully to Kubernetes!")
+	ctx.Success("\nManifests accepted by Kubernetes. Readiness has not been verified.")
 	ctx.Println("\nUseful commands:")
 	ctx.Println("  kubectl get pods -n " + namespace)
 	ctx.Println("  kubectl get services -n " + namespace)
@@ -551,7 +545,9 @@ func (p *InfraPlugin) deployWithGeneratedK8s(ctx cli.CommandContext, service, en
 	manifestsDir := filepath.Join(tmpDir, "overlays", env)
 
 	// Check if kustomize is available
-	useKustomize := p.checkKustomizeAvailable()
+	if _, err := p.renderKustomize(ctx, manifestsDir); err != nil {
+		return err
+	}
 
 	if dryRun {
 		ctx.Info("→ Dry run mode enabled")
@@ -559,19 +555,11 @@ func (p *InfraPlugin) deployWithGeneratedK8s(ctx cli.CommandContext, service, en
 
 	ctx.Info("→ Deploying with generated manifests...")
 
-	if useKustomize {
-		if err := p.executeKubectlApplyKustomize(ctx, manifestsDir, namespace, dryRun, service); err != nil {
-			return fmt.Errorf("deployment failed: %w", err)
-		}
-	} else {
-		// Fall back to base directory if overlays don't exist
-		baseDir := filepath.Join(tmpDir, "base")
-		if err := p.executeKubectlApplyDirectory(ctx, baseDir, namespace, dryRun, service); err != nil {
-			return fmt.Errorf("deployment failed: %w", err)
-		}
+	if err := p.executeKubectlApplyKustomize(ctx, manifestsDir, namespace, dryRun, service); err != nil {
+		return fmt.Errorf("deployment failed: %w", err)
 	}
 
-	ctx.Success("\n✓ Deployed successfully to Kubernetes!")
+	ctx.Success("\nManifests accepted by Kubernetes. Readiness has not been verified.")
 	ctx.Println("\n💡 Tip: Run 'forge infra k8s export' to save these manifests for future use")
 	ctx.Println("\nUseful commands:")
 	ctx.Println("  kubectl get pods -n " + namespace)
@@ -637,74 +625,7 @@ func (p *InfraPlugin) doDeploy(ctx cli.CommandContext) error {
 		return err
 	}
 
-	service := ctx.String("service")
-	env := ctx.String("env")
-	region := ctx.String("region")
-
-	// If no service specified, show selector
-	if service == "" {
-		selectedService, err := p.selectService(ctx)
-		if err != nil {
-			return err
-		}
-
-		service = selectedService
-	}
-
-	ctx.Info(fmt.Sprintf("🌊 Deploying to Digital Ocean (environment: %s)\n", env))
-
-	// Check if exported configuration exists
-	if p.hasExportedConfig("do") {
-		ctx.Info("✓ Using exported Digital Ocean configuration from deployments/do/")
-
-		return p.deployWithExportedDO(ctx, service, env, region)
-	}
-
-	ctx.Info("→ Generating Digital Ocean configuration from .forge.yaml")
-
-	return p.deployWithGeneratedDO(ctx, service, env, region)
-}
-
-func (p *InfraPlugin) deployWithExportedDO(ctx cli.CommandContext, service, env, region string) error {
-	deployDir := filepath.Join(p.getDeploymentsDir(), "do")
-
-	spinner := ctx.Spinner("Loading Digital Ocean configuration...")
-
-	configFile := filepath.Join(deployDir, "app.yaml")
-
-	spinner.Stop(cli.Green("✓ Configuration loaded"))
-
-	ctx.Info("→ Deploying to Digital Ocean App Platform...")
-	ctx.Info("  $ doctl apps create --spec " + configFile)
-
-	ctx.Success("\n✓ Deployed successfully to Digital Ocean!")
-
-	return nil
-}
-
-func (p *InfraPlugin) deployWithGeneratedDO(ctx cli.CommandContext, service, env, region string) error {
-	spinner := ctx.Spinner("Generating Digital Ocean configuration...")
-
-	config, err := p.generator.GenerateDOConfig(service, env, region)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Generation failed"))
-
-		return fmt.Errorf("failed to generate Digital Ocean configuration: %w", err)
-	}
-
-	spinner.Stop(cli.Green("✓ Configuration generated"))
-
-	ctx.Info("→ Deploying with generated configuration...")
-	ctx.Info(fmt.Sprintf("  Services: %d", config.ServiceCount))
-
-	if region != "" {
-		ctx.Info("  Region: " + region)
-	}
-
-	ctx.Success("\n✓ Deployed successfully to Digital Ocean!")
-	ctx.Println("\n💡 Tip: Run 'forge infra do export' to save this configuration for future use")
-
-	return nil
+	return output.Unsupported("forge infra do deploy", "Run forge infra do export, review deployments/do/app.yaml, then deploy it with doctl apps create --spec.")
 }
 
 func (p *InfraPlugin) doExport(ctx cli.CommandContext) error {
@@ -757,71 +678,7 @@ func (p *InfraPlugin) renderDeploy(ctx cli.CommandContext) error {
 		return err
 	}
 
-	service := ctx.String("service")
-	env := ctx.String("env")
-
-	// If no service specified, show selector
-	if service == "" {
-		selectedService, err := p.selectService(ctx)
-		if err != nil {
-			return err
-		}
-
-		service = selectedService
-	}
-
-	ctx.Info(fmt.Sprintf("🎨 Deploying to Render.com (environment: %s)\n", env))
-
-	// Check if exported configuration exists
-	if p.hasExportedConfig("render") {
-		ctx.Info("✓ Using exported Render configuration from deployments/render/")
-
-		return p.deployWithExportedRender(ctx, service, env)
-	}
-
-	ctx.Info("→ Generating Render configuration from .forge.yaml")
-
-	return p.deployWithGeneratedRender(ctx, service, env)
-}
-
-func (p *InfraPlugin) deployWithExportedRender(ctx cli.CommandContext, service, env string) error {
-	deployDir := filepath.Join(p.getDeploymentsDir(), "render")
-
-	spinner := ctx.Spinner("Loading Render configuration...")
-
-	configFile := filepath.Join(deployDir, "render.yaml")
-
-	spinner.Stop(cli.Green("✓ Configuration loaded"))
-
-	ctx.Info("→ Deploying to Render.com...")
-	ctx.Info("  Using configuration from: " + configFile)
-
-	ctx.Success("\n✓ Deployed successfully to Render.com!")
-	ctx.Println("  View your services at: https://dashboard.render.com")
-
-	return nil
-}
-
-func (p *InfraPlugin) deployWithGeneratedRender(ctx cli.CommandContext, service, env string) error {
-	spinner := ctx.Spinner("Generating Render configuration...")
-
-	config, err := p.generator.GenerateRenderConfig(service, env)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Generation failed"))
-
-		return fmt.Errorf("failed to generate Render configuration: %w", err)
-	}
-
-	spinner.Stop(cli.Green("✓ Configuration generated"))
-
-	ctx.Info("→ Deploying with generated configuration...")
-	ctx.Info(fmt.Sprintf("  Services: %d", config.ServiceCount))
-
-	ctx.Success("\n✓ Deployed successfully to Render.com!")
-	ctx.Println("\n💡 Tip: Run 'forge infra render export' to save this configuration for future use")
-	ctx.Println("  View your services at: https://dashboard.render.com")
-
-	return nil
+	return output.Unsupported("forge infra render deploy", "Run forge infra render export, review deployments/render/render.yaml, then use the Render Blueprint flow.")
 }
 
 func (p *InfraPlugin) renderExport(ctx cli.CommandContext) error {
@@ -920,14 +777,11 @@ func (p *InfraPlugin) executeDockerComposeBuild(ctx cli.CommandContext, workDir,
 		args = append(args, service)
 	}
 
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := execx.Command{Name: "docker", Args: args, Stdout: os.Stdout, Stderr: os.Stderr, Dir: workDir}
 
 	ctx.Info("  $ docker " + strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
+	if _, err := p.runner.Run(ctx.Context(), command); err != nil {
 		// Try fallback to docker-compose command
 		if strings.Contains(err.Error(), "unknown command") {
 			return p.executeDockerComposeBuildLegacy(ctx, workDir, composeFile, service)
@@ -949,14 +803,11 @@ func (p *InfraPlugin) executeDockerComposeBuildLegacy(ctx cli.CommandContext, wo
 		args = append(args, service)
 	}
 
-	cmd := exec.Command("docker-compose", args...)
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := execx.Command{Name: "docker-compose", Args: args, Stdout: os.Stdout, Stderr: os.Stderr, Dir: workDir}
 
 	ctx.Info("  $ docker-compose " + strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
+	if _, err := p.runner.Run(ctx.Context(), command); err != nil {
 		return fmt.Errorf("docker-compose build failed: %w", err)
 	}
 
@@ -983,14 +834,11 @@ func (p *InfraPlugin) executeDockerComposeUp(ctx cli.CommandContext, workDir, co
 		args = append(args, service)
 	}
 
-	cmd := exec.Command("docker", args...)
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := execx.Command{Name: "docker", Args: args, Stdout: os.Stdout, Stderr: os.Stderr, Dir: workDir}
 
 	ctx.Info("  $ docker " + strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
+	if _, err := p.runner.Run(ctx.Context(), command); err != nil {
 		// Try fallback to docker-compose command
 		if strings.Contains(err.Error(), "unknown command") {
 			return p.executeDockerComposeUpLegacy(ctx, workDir, composeFile, envComposeFile, service)
@@ -1020,14 +868,11 @@ func (p *InfraPlugin) executeDockerComposeUpLegacy(ctx cli.CommandContext, workD
 		args = append(args, service)
 	}
 
-	cmd := exec.Command("docker-compose", args...)
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := execx.Command{Name: "docker-compose", Args: args, Stdout: os.Stdout, Stderr: os.Stderr, Dir: workDir}
 
 	ctx.Info("  $ docker-compose " + strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
+	if _, err := p.runner.Run(ctx.Context(), command); err != nil {
 		return fmt.Errorf("docker-compose up failed: %w", err)
 	}
 
@@ -1036,16 +881,14 @@ func (p *InfraPlugin) executeDockerComposeUpLegacy(ctx cli.CommandContext, workD
 	return nil
 }
 
-// checkKustomizeAvailable checks if kustomize or kubectl with kustomize is available.
-func (p *InfraPlugin) checkKustomizeAvailable() bool {
-	// Check if kustomization.yaml exists in the directory
-	// We'll use kubectl kustomize which is built-in to kubectl 1.14+
-	cmd := exec.Command("kubectl", "version", "--client", "--short")
-	if err := cmd.Run(); err != nil {
-		return false
+// renderKustomize validates the overlay and never falls back to raw directory apply.
+func (p *InfraPlugin) renderKustomize(ctx cli.CommandContext, dir string) (string, error) {
+	result, err := p.runner.Run(ctx.Context(), execx.Command{Name: "kubectl", Args: []string{"kustomize", dir}})
+	if err != nil {
+		return "", fmt.Errorf("kubectl kustomize: %w", err)
 	}
 
-	return true
+	return result.Stdout, nil
 }
 
 // executeKubectlApplyKustomize applies manifests using kustomize.
@@ -1059,64 +902,15 @@ func (p *InfraPlugin) executeKubectlApplyKustomize(ctx cli.CommandContext, kusto
 	// If specific service, we'll need to filter after generation
 	// For now, apply all and let k8s handle it
 
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := execx.Command{Name: "kubectl", Args: args, Stdout: os.Stdout, Stderr: os.Stderr}
 
 	ctx.Info("  $ kubectl " + strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
+	if _, err := p.runner.Run(ctx.Context(), command); err != nil {
 		return fmt.Errorf("kubectl apply failed: %w", err)
 	}
 
 	ctx.Success("  ✓ Manifests applied")
-
-	return nil
-}
-
-// executeKubectlApplyDirectory applies all YAML files in a directory.
-func (p *InfraPlugin) executeKubectlApplyDirectory(ctx cli.CommandContext, manifestsDir, namespace string, dryRun bool, service string) error {
-	args := []string{"apply", "-f", manifestsDir, "-n", namespace}
-
-	if dryRun {
-		args = append(args, "--dry-run=client")
-	}
-
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	ctx.Info("  $ kubectl " + strings.Join(args, " "))
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("kubectl apply failed: %w", err)
-	}
-
-	ctx.Success("  ✓ Manifests applied")
-
-	return nil
-}
-
-// executeKubectlDelete deletes resources from a directory or kustomize.
-func (p *InfraPlugin) executeKubectlDelete(ctx cli.CommandContext, manifestsDir, namespace string, useKustomize bool) error {
-	var args []string
-	if useKustomize {
-		args = []string{"delete", "-k", manifestsDir, "-n", namespace}
-	} else {
-		args = []string{"delete", "-f", manifestsDir, "-n", namespace}
-	}
-
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	ctx.Info("  $ kubectl " + strings.Join(args, " "))
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("kubectl delete failed: %w", err)
-	}
-
-	ctx.Success("  ✓ Resources deleted")
 
 	return nil
 }

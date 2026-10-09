@@ -125,7 +125,7 @@ services:
 
 	for _, app := range apps {
 		if environment == "base" {
-			contentSb121.WriteString(fmt.Sprintf(`  %s:
+			fmt.Fprintf(&contentSb121, `  %s:
     build:
       context: .
       dockerfile: Dockerfile.%s
@@ -138,7 +138,7 @@ services:
       - forge-network
     restart: unless-stopped
 
-`, app.Name, app.Name, normalizeEnvVar(app.Name), environment))
+`, app.Name, app.Name, normalizeEnvVar(app.Name), environment)
 		} else {
 			// Environment-specific overrides
 			replicas := "1"
@@ -146,7 +146,7 @@ services:
 				replicas = "3"
 			}
 
-			contentSb121.WriteString(fmt.Sprintf(`  %s:
+			fmt.Fprintf(&contentSb121, `  %s:
     deploy:
       replicas: %s
       resources:
@@ -157,7 +157,7 @@ services:
           cpus: '0.5'
           memory: 256M
 
-`, app.Name, replicas))
+`, app.Name, replicas)
 		}
 	}
 
@@ -329,7 +329,7 @@ func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 			registryImage = g.config.Deploy.Registry
 		}
 
-		contentSb308.WriteString(fmt.Sprintf(`apiVersion: apps/v1
+		fmt.Fprintf(&contentSb308, `apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: %s
@@ -375,7 +375,7 @@ spec:
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
-`, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name))
+`, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name)
 	}
 
 	content += contentSb308.String()
@@ -393,7 +393,7 @@ func (g *Generator) generateK8sService(apps []AppInfo) string {
 			contentSb373.WriteString("---\n")
 		}
 
-		contentSb373.WriteString(fmt.Sprintf(`apiVersion: v1
+		fmt.Fprintf(&contentSb373, `apiVersion: v1
 kind: Service
 metadata:
   name: %s
@@ -408,7 +408,7 @@ spec:
     name: http
   selector:
     app: %s
-`, app.Name, app.Name, app.Name))
+`, app.Name, app.Name, app.Name)
 	}
 
 	content += contentSb373.String()
@@ -450,9 +450,9 @@ replicas:
 
 	var contentSb430 strings.Builder
 	for _, app := range apps {
-		contentSb430.WriteString(fmt.Sprintf(`  - name: %s
+		fmt.Fprintf(&contentSb430, `  - name: %s
     count: %d
-`, app.Name, replicas))
+`, app.Name, replicas)
 	}
 
 	content += contentSb430.String()
@@ -468,24 +468,6 @@ commonLabels:
 // ========================================
 // Digital Ocean Generation
 // ========================================
-
-// GenerateDOConfig generates Digital Ocean App Platform configuration in-memory.
-func (g *Generator) GenerateDOConfig(service, env, region string) (*GeneratedConfig, error) {
-	apps, err := g.Introspect.DiscoverApps()
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover apps: %w", err)
-	}
-
-	if service != "" {
-		apps = filterApps(apps, service)
-	}
-
-	config := &GeneratedConfig{
-		ServiceCount: len(apps),
-	}
-
-	return config, nil
-}
 
 // ExportDO exports Digital Ocean configuration to filesystem.
 func (g *Generator) ExportDO(outputDir string) error {
@@ -539,7 +521,7 @@ services:
 
 	var contentSb516 strings.Builder
 	for _, app := range apps {
-		contentSb516.WriteString(fmt.Sprintf(`  - name: %s
+		fmt.Fprintf(&contentSb516, `  - name: %s
     github:
       repo: %s
       branch: %s
@@ -560,7 +542,7 @@ services:
       initial_delay_seconds: 30
       period_seconds: 10
 
-`, app.Name, gitRepo, gitBranch, deployOnPush, app.Name))
+`, app.Name, gitRepo, gitBranch, deployOnPush, app.Name)
 	}
 
 	content += contentSb516.String()
@@ -626,24 +608,6 @@ https://cloud.digitalocean.com/apps
 // Render Generation
 // ========================================
 
-// GenerateRenderConfig generates Render.com configuration in-memory.
-func (g *Generator) GenerateRenderConfig(service, env string) (*GeneratedConfig, error) {
-	apps, err := g.Introspect.DiscoverApps()
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover apps: %w", err)
-	}
-
-	if service != "" {
-		apps = filterApps(apps, service)
-	}
-
-	config := &GeneratedConfig{
-		ServiceCount: len(apps),
-	}
-
-	return config, nil
-}
-
 // ExportRender exports Render configuration to filesystem.
 func (g *Generator) ExportRender(outputDir string) error {
 	apps, err := g.Introspect.DiscoverApps()
@@ -686,7 +650,7 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
 
 	var contentSb659 strings.Builder
 	for _, app := range apps {
-		contentSb659.WriteString(fmt.Sprintf(`  - type: web
+		fmt.Fprintf(&contentSb659, `  - type: web
     name: %s
     env: go
     repo: https://github.com/%s
@@ -703,7 +667,7 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
     healthCheckPath: /health
     numInstances: 1
 
-`, app.Name, gitRepo, gitBranch, app.MainPath))
+`, app.Name, gitRepo, gitBranch, app.MainPath)
 	}
 
 	content += contentSb659.String()
