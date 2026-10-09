@@ -1108,7 +1108,13 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 
 // toTSParamName converts a parameter name to TypeScript naming convention (camelCase).
 func (r *RESTGenerator) toTSParamName(name string) string {
-	return r.toCamelCase(name)
+	value := r.toCamelCase(name)
+	switch value {
+	case "class", "default", "delete", "export", "extends", "function", "import", "new", "return", "super", "switch", "throw", "typeof", "var", "const", "let", "in", "instanceof", "for", "while", "if", "else", "try", "catch", "finally", "with", "yield", "await", "enum", "implements", "interface", "package", "private", "protected", "public", "static", "break", "case", "continue", "debugger", "do", "void", "null", "true", "false":
+		return value + "Param"
+	default:
+		return value
+	}
 }
 
 // toCamelCase converts a string to camelCase.
