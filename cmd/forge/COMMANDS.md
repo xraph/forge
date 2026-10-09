@@ -397,17 +397,31 @@ forge build -o ./dist               # Custom output
 
 ## Deployment Commands
 
-Use `forge deploy migrate --dry-run` to review a legacy deployment block. `forge deploy migrate --yes` writes version 2 and a backup; `forge deploy schema` prints the JSON Schema.
+Configure and apply a version 2 project with the shared deployment engine:
 
 ```bash
-forge deploy migrate --dry-run
-forge deploy migrate --yes --non-interactive --output json
-forge deploy schema
+forge deploy inspect --output json
+forge deploy init
+forge deploy doctor --env dev
+forge deploy plan --env dev --output json
+forge deploy apply --plan .forge/plans/dev-local-HASH.json --approve-plan FULL_HASH --non-interactive
+forge deploy up --env dev --services api,worker --yes
+forge deploy status --env dev
+forge deploy logs api --env dev --tail 200
+forge deploy destroy --env dev --yes  # retains data
 ```
 
-All deploy subcommands accept `--config`, `--target`, `--env`, `--timeout`, `--output text|json`, `--non-interactive` and `--no-color`. `--target` names a configured target, rather than an image tag.
+All commands accept `--config`, `--target`, `--env`, `--timeout`, `--output text|json`,
+`--non-interactive` and `--no-color`. Apply requires the full saved plan hash in
+non-interactive mode. `up --yes` approves the freshly generated plan. `destroy`
+retains volumes unless you pass `--delete-data`. Rollback refuses unqualified
+migration reversibility.
 
-The registered `init`, `start`, `inspect`, `doctor`, `plan`, `export`, `apply`, `up`, `status`, `logs`, `rollback`, `destroy`, `providers` and `catalog` commands return exit 4 until their implementation lands. The old `deploy docker` and `deploy k8s` subcommands have been removed. Legacy infra exports remain available; DigitalOcean, Render and cloud apply commands return an explicit handoff.
+Compose supports the full lifecycle. `start` and the other provider adapters are
+being implemented. Legacy platform exports remain available. Version 2 projects
+use the shared engine through `forge infra docker export` too. See the
+[deployment reference](../../docs/content/docs/forge/(cli)/build-deploy.mdx) for
+build sources, secret delivery, service scope, resource recipes and exit codes.
 
 ---
 

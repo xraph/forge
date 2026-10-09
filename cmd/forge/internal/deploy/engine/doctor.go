@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 )
 
@@ -37,9 +38,25 @@ func (e *Engine) Doctor(ctx context.Context, target, env string, online bool) (o
 		}
 	}
 
-	if online {
-		diags = append(diags, output.Diagnostic{Code: "DEPLOY_UNSUPPORTED_COMMAND", Severity: output.SeverityInfo,
-			Message: "online checks arrive with the first provider; run with --offline for now"})
+	if res.Deployment != nil {
+		if adapter, ok := e.registry.Get(provider); ok {
+			diags = append(diags, adapter.Validate(ctx, res.Deployment)...)
+		}
+	}
+
+	if online && !diags.HasErrors() && provider == "compose" {
+		args := []string{"info"}
+		if t := res.Doc.Deploy.Targets[res.Target]; t.DockerContext != "" {
+			args = append([]string{"--context", t.DockerContext}, args...)
+		}
+
+		if _, err := e.runner.Run(ctx, execx.Command{Name: "docker", Args: args, Dir: e.cfg.RootDir}); err != nil {
+			diags = append(diags, output.Diagnostic{Code: "DEPLOY_CONTEXT_UNREACHABLE", Severity: output.SeverityError, Message: "Docker daemon is unavailable for this target", Fix: "start Docker or select an available Docker context"})
+		}
+	}
+
+	if !diags.HasErrors() {
+		diags = append(diags, output.Diagnostic{Code: "DEPLOY_CONFIG_VALIDATED", Severity: output.SeverityInfo, Message: "Local deployment configuration checks passed"})
 	}
 
 	return diags.Sorted(), nil

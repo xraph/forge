@@ -59,24 +59,7 @@ type Migrations struct {
 	Owner bool `yaml:"owner"`
 }
 
-type Recipe struct {
-	ID          string             `yaml:"id"`
-	Type        model.ResourceType `yaml:"type"`
-	Version     string             `yaml:"version"`
-	Image       string             `yaml:"image"`
-	Features    []string           `yaml:"features,omitempty"`
-	Env         map[string]string  `yaml:"env,omitempty"` // values may reference ${SECRET}
-	Port        int                `yaml:"port"`
-	Volume      string             `yaml:"volume,omitempty"` // container path to persist
-	Healthcheck []string           `yaml:"healthcheck"`
-	Default     bool               `yaml:"default,omitempty"`
-	Command     []string           `yaml:"command,omitempty"`
-	InitImage   string             `yaml:"init_image,omitempty"`
-	InitEnv     map[string]string  `yaml:"init_env,omitempty"`
-	Init        []string           `yaml:"init,omitempty"` // one-shot after healthy, e.g. bucket creation
-	DSN         string             `yaml:"dsn"`            // template: "postgres://${USER}:${PASSWORD}@{host}:{port}/{database}"
-	Source      string             `yaml:"-"`
-}
+type Recipe = model.RuntimeRecipe
 
 type Catalog struct {
 	Descriptors map[string]Descriptor // by extension name

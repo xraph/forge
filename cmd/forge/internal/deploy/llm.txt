@@ -1,0 +1,10 @@
+Forge deployment automation
+Use forge deploy schema for the typed deploy v2 schema and forge deploy inspect --output json for source-qualified discovery.
+  forge deploy doctor --env dev --output json
+  forge deploy plan --env dev --output json
+The plan response contains data.hash and data.file. Apply that exact saved plan.
+  forge deploy apply --plan <data.file> --approve-plan <data.hash> --non-interactive --output json
+  forge deploy status --env dev --output json
+  forge deploy logs api --env dev --tail 200
+  forge deploy destroy --env dev --yes
+Destroy retains persistent data unless --delete-data is explicit. Service selection never schedules deletion. Invalid or stale plans fail before mutation. Unsupported provider operations exit 4. Readiness-disabled or unprobed resources are accepted, not healthy. Compose has an implemented lifecycle adapter. Other adapters and the local page are being implemented.

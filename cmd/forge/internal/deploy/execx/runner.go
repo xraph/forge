@@ -52,8 +52,12 @@ type ExitError struct {
 
 func (e *ExitError) Error() string {
 	msg := strings.TrimSpace(e.Result.Stderr)
-	if msg == "" {
-		msg = strings.TrimSpace(e.Result.Stdout)
+	if out := strings.TrimSpace(e.Result.Stdout); out != "" {
+		if msg != "" {
+			msg = "\n" + msg
+		}
+
+		msg = out + msg
 	}
 
 	return fmt.Sprintf("%s: exit %d: %s", e.Cmd, e.Result.ExitCode, msg)

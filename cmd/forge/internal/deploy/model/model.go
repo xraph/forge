@@ -56,23 +56,24 @@ const (
 )
 
 type Service struct {
-	Name        string            `json:"name"`
-	App         string            `json:"app"`
-	Dir         string            `json:"dir"`       // absolute path to the app's main package
-	MainPath    string            `json:"main_path"` // relative to project root, e.g. "cmd/api"
-	Kind        Kind              `json:"kind"`
-	Image       Image             `json:"image"`
-	Ports       []Port            `json:"ports"`
-	Health      Health            `json:"health"`
-	Replicas    int               `json:"replicas"`
-	Resources   spec.ResourceSpec `json:"resources"`
-	ConfigFiles []ConfigFile      `json:"config_files"` // the overlay and any mounted config
-	Bindings    []Binding         `json:"bindings"`
-	Env         map[string]string `json:"env"`
-	Calls       []string          `json:"calls"`
-	Discovery   bool              `json:"discovery"`
-	Migrate     []string          `json:"migrate"` // nil: none; the command when set
-	Schedule    string            `json:"schedule"`
+	RuntimeConfig map[string]any    `json:"runtime_config,omitempty"`
+	Name          string            `json:"name"`
+	App           string            `json:"app"`
+	Dir           string            `json:"dir"`       // absolute path to the app's main package
+	MainPath      string            `json:"main_path"` // relative to project root, e.g. "cmd/api"
+	Kind          Kind              `json:"kind"`
+	Image         Image             `json:"image"`
+	Ports         []Port            `json:"ports"`
+	Health        Health            `json:"health"`
+	Replicas      int               `json:"replicas"`
+	Resources     spec.ResourceSpec `json:"resources"`
+	ConfigFiles   []ConfigFile      `json:"config_files"` // the overlay and any mounted config
+	Bindings      []Binding         `json:"bindings"`
+	Env           map[string]string `json:"env"`
+	Calls         []string          `json:"calls"`
+	Discovery     bool              `json:"discovery"`
+	Migrate       []string          `json:"migrate"` // nil: none; the command when set
+	Schedule      string            `json:"schedule"`
 }
 
 type Image struct {
@@ -113,15 +114,16 @@ type Binding struct {
 }
 
 type Resource struct {
-	Name      string       `json:"name"`
-	Type      ResourceType `json:"type"`
-	Lifecycle Lifecycle    `json:"lifecycle"`
-	Version   string       `json:"version"`
-	Recipe    string       `json:"recipe"`
-	Features  []string     `json:"features"`
-	Bucket    string       `json:"bucket"`
-	Secret    SecretRef    `json:"secret"`
-	UsedBy    []string     `json:"used_by"`
+	RuntimeRecipe *RuntimeRecipe `json:"runtime_recipe,omitempty"`
+	Name          string         `json:"name"`
+	Type          ResourceType   `json:"type"`
+	Lifecycle     Lifecycle      `json:"lifecycle"`
+	Version       string         `json:"version"`
+	Recipe        string         `json:"recipe"`
+	Features      []string       `json:"features"`
+	Bucket        string         `json:"bucket"`
+	Secret        SecretRef      `json:"secret"`
+	UsedBy        []string       `json:"used_by"`
 }
 
 type Connection struct {
@@ -177,4 +179,23 @@ type Capabilities struct {
 	Observe       bool                         `json:"observe"`
 	Logs          bool                         `json:"logs"`
 	Rollback      bool                         `json:"rollback"`
+}
+
+type RuntimeRecipe struct {
+	ID          string            `json:"id"                   yaml:"id"`
+	Type        ResourceType      `json:"type"                 yaml:"type"`
+	Version     string            `json:"version"              yaml:"version"`
+	Image       string            `json:"image"                yaml:"image"`
+	Features    []string          `json:"features,omitempty"   yaml:"features,omitempty"`
+	Env         map[string]string `json:"env,omitempty"        yaml:"env,omitempty"` // values may reference ${SECRET}
+	Port        int               `json:"port"                 yaml:"port"`
+	Volume      string            `json:"volume,omitempty"     yaml:"volume,omitempty"` // container path to persist
+	Healthcheck []string          `json:"healthcheck"          yaml:"healthcheck"`
+	Default     bool              `json:"default,omitempty"    yaml:"default,omitempty"`
+	Command     []string          `json:"command,omitempty"    yaml:"command,omitempty"`
+	InitImage   string            `json:"init_image,omitempty" yaml:"init_image,omitempty"`
+	InitEnv     map[string]string `json:"init_env,omitempty"   yaml:"init_env,omitempty"`
+	Init        []string          `json:"init,omitempty"       yaml:"init,omitempty"` // one-shot after healthy, e.g. bucket creation
+	DSN         string            `json:"dsn"                  yaml:"dsn"`            // template: "postgres://${USER}:${PASSWORD}@{host}:{port}/{database}"
+	Source      string            `json:"-"                    yaml:"-"`
 }

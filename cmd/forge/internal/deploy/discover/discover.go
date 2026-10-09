@@ -81,6 +81,7 @@ func Run(ctx context.Context, cfg *config.ForgeConfig, cat *catalog.Catalog, opt
 				origins[name] = instance
 			}
 		}
+
 		bindings := suggestBindings(a, instances, cat, resources)
 		if len(bindings) > 0 {
 			res.Suggestions = append(res.Suggestions, Suggestion{Kind: SuggestBinding, Path: "deploy.services." + a.Name + ".bindings",

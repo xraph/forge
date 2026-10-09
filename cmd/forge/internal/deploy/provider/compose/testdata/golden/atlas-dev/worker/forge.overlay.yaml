@@ -1,0 +1,11 @@
+extensions:
+  grove:
+    databases:
+      - name: primary
+        driver: postgres
+        dsn: ${ATLAS_PRIMARY_DSN}
+    default: primary
+  grove_kv:
+    driver: redis
+    dsn: ${ATLAS_CACHE_DSN}
+services: {}

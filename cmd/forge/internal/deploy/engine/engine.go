@@ -11,6 +11,8 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/compose"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
@@ -23,9 +25,10 @@ type Options struct {
 }
 
 type Engine struct {
-	cfg    *config.ForgeConfig
-	runner execx.Runner
-	mode   output.Mode
+	cfg      *config.ForgeConfig
+	runner   execx.Runner
+	mode     output.Mode
+	registry *provider.Registry
 }
 
 func New(opts Options) (*Engine, error) {
@@ -38,10 +41,12 @@ func New(opts Options) (*Engine, error) {
 		r = execx.System()
 	}
 
-	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode}, nil
+	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory)}, nil
 }
 
 type InspectResult struct {
+	Config      *config.ForgeConfig
+	Selection   []string
 	Project     string
 	InputHashes map[string]string
 	Doc         *spec.Document
@@ -56,6 +61,11 @@ type InspectResult struct {
 // load parses the config, discovers the project and loads the catalog. It is
 // the first half of every command.
 func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
+	fresh, err := config.LoadForgeConfigFrom(e.cfg.RootDir)
+	if err != nil {
+		return nil, err
+	}
+
 	path, diags, err := spec.Locate(e.cfg.RootDir)
 	if err != nil {
 		return nil, err
@@ -75,7 +85,7 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 
 	diags = append(diags, cd...)
 
-	disc, err := discover.Run(ctx, e.cfg, cat, discover.Options{Runner: e.runner})
+	disc, err := discover.Run(ctx, fresh, cat, discover.Options{Runner: e.runner})
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +98,7 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 
 		diags = append(diags, cd...)
 
-		disc, err = discover.Run(ctx, e.cfg, cat, discover.Options{Runner: e.runner, Modules: disc.Modules})
+		disc, err = discover.Run(ctx, fresh, cat, discover.Options{Runner: e.runner, Modules: disc.Modules})
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +106,7 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 
 	diags = append(diags, disc.Diagnostics...)
 
-	res := &InspectResult{Project: e.cfg.Project.Name, Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}
+	res := &InspectResult{Config: fresh, Project: fresh.Project.Name, Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}
 
 	res.InputHashes, err = e.sourceHashes(res)
 	if err != nil {
@@ -165,7 +175,7 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 	res.Target, res.Environment = target, env
 	t := sp.Targets[target]
 
-	sec, err := secrets.New(sp.Secrets, e.cfg.RootDir, e.runner, t, e.cfg.Project.Name)
+	sec, err := secrets.New(sp.Secrets, e.cfg.RootDir, e.runner, t, res.Config.Project.Name)
 	if err != nil {
 		res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: "DEPLOY_UNKNOWN_KEY", Severity: output.SeverityError, Message: err.Error(), Field: "deploy.secrets.resolver"})
 
@@ -180,8 +190,8 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 		}
 	}
 
-	d, diags, err := resolve.Resolve(ctx, resolve.Input{Config: e.cfg, Doc: res.Doc, Catalog: res.Catalog, Discovery: res.Discovery,
-		Target: target, Environment: env, Caps: capabilitiesFor(t.Provider), Secrets: sec})
+	d, diags, err := resolve.Resolve(ctx, resolve.Input{Config: res.Config, Doc: res.Doc, Catalog: res.Catalog, Discovery: res.Discovery,
+		Target: target, Environment: env, Caps: capabilitiesFor(t.Provider), Secrets: sec, Services: res.Selection})
 
 	res.Diagnostics = append(res.Diagnostics, diags...)
 	if err != nil {

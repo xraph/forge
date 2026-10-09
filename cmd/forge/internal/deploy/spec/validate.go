@@ -163,6 +163,7 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 				add(output.CodeCallUnknown, f+".health_overrides."+svc, "unknown service "+svc, "remove it")
 			}
 		}
+
 		for svc := range e.Replicas {
 			if _, ok := d.Services[svc]; !ok {
 				add(output.CodeCallUnknown, f+".replicas."+svc, fmt.Sprintf("replicas set for unknown service %q", svc), "remove it")

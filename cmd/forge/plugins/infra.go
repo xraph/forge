@@ -9,8 +9,10 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 	"github.com/xraph/forge/cmd/forge/plugins/infra"
 	"github.com/xraph/forge/errors"
 )
@@ -393,6 +395,47 @@ func (p *InfraPlugin) deployWithGeneratedDocker(ctx cli.CommandContext, service,
 }
 
 func (p *InfraPlugin) dockerExport(ctx cli.CommandContext) error {
+	if p.config != nil {
+		path, _, err := spec.Locate(p.config.RootDir)
+		if err != nil {
+			return err
+		}
+
+		doc, diags, err := spec.Parse(path)
+		if err != nil {
+			return err
+		}
+
+		if diags.HasErrors() {
+			return output.Fail(output.ExitInvalidInput, "invalid deployment configuration", diags...)
+		}
+
+		if doc.Deploy != nil && !doc.IsV1 {
+			e, err := engine.New(engine.Options{Config: p.config, Runner: p.runner})
+			if err != nil {
+				return err
+			}
+
+			pl, b, err := e.Plan(ctx.Context(), "", "")
+			if err != nil {
+				return err
+			}
+
+			if pl.Target.Provider != "compose" {
+				return output.Fail(output.ExitInvalidInput, "default target is not Compose; use forge deploy export --target <name>")
+			}
+
+			result, err := e.Export(ctx.Context(), pl, b, ctx.String("output"), ctx.Bool("force"))
+			if err != nil {
+				return err
+			}
+
+			ctx.Println(fmt.Sprintf("Exported %d files for %s / %s", len(result.Written), pl.TargetName, pl.Environment))
+
+			return nil
+		}
+	}
+
 	if err := p.validateConfig(ctx); err != nil {
 		return err
 	}

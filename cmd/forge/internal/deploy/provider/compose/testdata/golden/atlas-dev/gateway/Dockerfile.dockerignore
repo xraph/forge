@@ -1,0 +1,17 @@
+.git
+.forge
+deployments
+node_modules
+**/node_modules
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+**/*.pem
+config
+**/config
+config*.yaml
+config*.yml
+**/config*.yaml
+**/config*.yml

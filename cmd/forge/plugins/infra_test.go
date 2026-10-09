@@ -1,6 +1,9 @@
 package plugins
 
 import (
+	"github.com/xraph/forge/cmd/forge/internal/deploy/testdata"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,5 +108,33 @@ func TestK8sDeployAppliesOverlayWhenKustomizeRenders(t *testing.T) {
 	lines := f.CallLines()
 	if len(lines) != 2 || !strings.HasPrefix(lines[0], "kubectl kustomize ") || !strings.Contains(lines[1], "apply -k ") || !strings.HasSuffix(lines[1], " -n x") {
 		t.Fatalf("%v", lines)
+	}
+}
+
+func TestInfraComposeExportUsesTypedDeployEngine(t *testing.T) {
+	root := testdata.Copy(t, "atlas-v2")
+
+	cfg, err := config.LoadForgeConfigFrom(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := execx.NewFake(t)
+	f.Available["go"] = true
+	f.Script("go list -m -json all", execx.Result{})
+	f.Script("go list -deps", execx.Result{})
+
+	_, err = runCLI(t, NewInfraPluginWithRunner(cfg, f), "infra", "docker", "export")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(root, "deployments", "local", "dev", "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(raw), "redis/redis-stack-server") {
+		t.Fatal("typed resources were not exported")
 	}
 }

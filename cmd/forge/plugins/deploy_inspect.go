@@ -13,12 +13,18 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/render"
+	"sort"
 )
 
 func (p *DeployPlugin) newEngine(ctx cli.CommandContext) (*engine.Engine, output.Mode, error) {
 	cfg := p.config
 
 	if path := ctx.String("config"); path != "" {
+		if name := filepath.Base(path); name != ".forge.yml" && name != ".forge.yaml" {
+			return nil, output.Mode{}, output.Fail(output.ExitInvalidInput, "--config must reference .forge.yml or .forge.yaml")
+		}
 		root, err := filepath.Abs(filepath.Dir(path))
 		if err != nil {
 			return nil, output.Mode{}, err
@@ -121,6 +127,60 @@ var deployRendererOnce sync.Once
 
 func registerDeployRenderers() {
 	deployRendererOnce.Do(func() {
+		output.RegisterRenderer("status", func(ctx cli.CommandContext, _ output.Mode, value any) {
+			status, ok := value.(provider.Status)
+			if !ok {
+				return
+			}
+
+			ctx.Println("Deployment: " + string(status.Overall))
+			table := ctx.Table()
+			table.SetHeader([]string{"Service", "Ready", "Image", "Status"})
+
+			names := make([]string, 0, len(status.Services))
+			for name := range status.Services {
+				names = append(names, name)
+			}
+
+			sort.Strings(names)
+
+			for _, name := range names {
+				s := status.Services[name]
+				table.AppendRow([]string{name, fmt.Sprintf("%d/%d", s.Ready, s.Desired), s.Image.Repository, s.Message})
+			}
+
+			table.Render()
+
+			names = names[:0]
+			for name := range status.Resources {
+				names = append(names, name)
+			}
+
+			sort.Strings(names)
+
+			for _, name := range names {
+				ctx.Println(name + ": " + string(status.Resources[name]))
+			}
+
+			for _, route := range status.Routes {
+				ctx.Println(route)
+			}
+		})
+		output.RegisterRenderer("export", func(ctx cli.CommandContext, _ output.Mode, value any) {
+			r, ok := value.(render.WriteResult)
+			if !ok {
+				return
+			}
+
+			for _, path := range r.Written {
+				ctx.Println(path)
+			}
+
+			for _, path := range r.Skipped {
+				ctx.Println("Preserved edited file: " + path)
+			}
+		})
+
 		output.RegisterRenderer("inspect", func(ctx cli.CommandContext, _ output.Mode, value any) {
 			data, ok := value.(inspectData)
 			if !ok {

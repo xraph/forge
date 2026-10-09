@@ -16,6 +16,18 @@ import (
 // a.b[name].c address a list item by its name field.
 func Overlay(d *model.Deployment, s *model.Service) ([]byte, error) {
 	root := map[string]any{}
+
+	if s.RuntimeConfig != nil {
+		raw, err := yaml.Marshal(s.RuntimeConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := yaml.Unmarshal(raw, &root); err != nil {
+			return nil, err
+		}
+	}
+
 	keys := []string{}
 	flat := map[string]string{}
 

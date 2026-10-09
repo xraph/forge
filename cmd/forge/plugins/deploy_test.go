@@ -16,9 +16,9 @@ func TestDeployOldSubcommandsAreGone(t *testing.T) {
 	}
 }
 
-func TestDeployStatusIsUnsupportedForNow(t *testing.T) {
+func TestDeployStatusRequiresProject(t *testing.T) {
 	out, err := runCLI(t, NewDeployPlugin(nil), "deploy", "status")
-	if cli.GetExitCode(err) != 4 || strings.Contains(out, "api-gateway") {
+	if cli.GetExitCode(err) != 2 || strings.Contains(out, "api-gateway") {
 		t.Fatalf("exit %d out %q", cli.GetExitCode(err), out)
 	}
 }
@@ -38,7 +38,7 @@ func TestDeployHelpListsPlannedCommands(t *testing.T) {
 
 func TestDeployGlobalFlagsParse(t *testing.T) {
 	out, err := runCLI(t, NewDeployPlugin(nil), "deploy", "status", "--output", "json", "--non-interactive", "--env", "dev")
-	if cli.GetExitCode(err) != 4 {
+	if cli.GetExitCode(err) != 2 {
 		t.Fatalf("flags must parse on every subcommand: %v %q", err, out)
 	}
 }

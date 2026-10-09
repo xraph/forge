@@ -32,7 +32,7 @@ deploy:
     worker:
       app: worker
       kind: worker
-      health: { heartbeat: true }
+      health: { readiness: /_/health/ready, liveness: /_/health/live }
       bindings:
         - { resource: primary, extension: grove,    database: primary }
         - { resource: cache,   extension: grove_kv, store: default }

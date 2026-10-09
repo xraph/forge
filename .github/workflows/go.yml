@@ -2,9 +2,9 @@ name: Go CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -21,8 +21,8 @@ jobs:
       go-versions: '["1.26"]'
       os: '["ubuntu-latest","macos-latest"]'
       only-test: true
-      node-version: '24'
-      npm-global-packages: 'typescript@5.8.2 esbuild@0.28.1'
+      node-version: "24"
+      npm-global-packages: "typescript@5.8.2 esbuild@0.28.1"
       # `make test` sweeps every module in the repo; CI deliberately tests only
       # the root module and leaves the rest to build-all-modules.
       prefer-makefile: false
@@ -37,8 +37,8 @@ jobs:
       go-versions: '["1.26"]'
       os: '["windows-latest"]'
       only-test: true
-      node-version: '24'
-      npm-global-packages: 'typescript@5.8.2 esbuild@0.28.1'
+      node-version: "24"
+      npm-global-packages: "typescript@5.8.2 esbuild@0.28.1"
       prefer-makefile: false
       coverage: false
 
@@ -92,7 +92,7 @@ jobs:
           TOTAL=0
           FAILED_MODULES=""
 
-          for modfile in $(find . -name "go.mod" -not -path "./docs/*" | sort); do
+          for modfile in $(find . -name "go.mod" -not -path "*/testdata/*" -not -path "./docs/*" | sort); do
             dir=$(dirname "$modfile")
             mod_name=$(grep -m1 '^module ' "$modfile" | awk '{print $2}')
             TOTAL=$((TOTAL + 1))
@@ -146,7 +146,7 @@ jobs:
           FAILED=0
           FAILED_MODULES=""
 
-          for modfile in $(find . -name "go.mod" -not -path "./docs/*" -not -path "./go.mod" | sort); do
+          for modfile in $(find . -name "go.mod" -not -path "*/testdata/*" -not -path "./docs/*" -not -path "./go.mod" | sort); do
             dir=$(dirname "$modfile")
             mod_name=$(grep -m1 '^module ' "$modfile" | awk '{print $2}')
 
@@ -287,11 +287,36 @@ jobs:
           path: cmd/forge/forge
           retention-days: 7
 
+  deploy-compose:
+    name: Deploy Compose Lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - name: Create development workspace
+        run: go work init . ./cmd/forge
+      - name: Test real deployment and retained data
+        working-directory: cmd/forge
+        run: go test -tags integration ./internal/deploy/provider/compose -run TestComposeStackLifecycle -count=1 -v -timeout 22m
+
   # Summary
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [test, test-windows, build-all-modules, lint, security, build-cli]
+    needs:
+      [
+        test,
+        test-windows,
+        build-all-modules,
+        lint,
+        security,
+        build-cli,
+        deploy-compose,
+      ]
     if: always()
     steps:
       - name: Generate summary
@@ -302,6 +327,7 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           CLI_RESULT: ${{ needs.build-cli.result }}
+          COMPOSE_RESULT: ${{ needs.deploy-compose.result }}
         run: |
           set -uo pipefail
           {
@@ -315,13 +341,14 @@ jobs:
             echo "| Lint | ${LINT_RESULT} |"
             echo "| Security | ${SECURITY_RESULT} |"
             echo "| Build CLI | ${CLI_RESULT} |"
+            echo "| Deploy Compose Lifecycle | ${COMPOSE_RESULT} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Windows is explicitly optional and is NOT part of the gate.
           failed=0
           for entry in "test:${TEST_RESULT}" "build-all-modules:${MODULES_RESULT}" \
                        "lint:${LINT_RESULT}" "security:${SECURITY_RESULT}" \
-                       "build-cli:${CLI_RESULT}"; do
+                       "build-cli:${CLI_RESULT}" "deploy-compose:${COMPOSE_RESULT}"; do
             name="${entry%%:*}"; status="${entry##*:}"
             if [ "$status" != "success" ]; then
               echo "::error::Required CI job '$name' did not succeed (result: $status)"

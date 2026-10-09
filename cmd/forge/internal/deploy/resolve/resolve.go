@@ -21,6 +21,7 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
+	"gopkg.in/yaml.v3"
 )
 
 type Input struct {
@@ -95,6 +96,7 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 			}
 		}
 	}
+
 	selected := in.Services
 	if selected == nil {
 		selected = env.Services
@@ -111,6 +113,7 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 
 		selected = []string{}
 	}
+
 	if len(selected) == 0 && !target.ResourceOnly {
 		return nil, output.Diagnostics{{Code: "DEPLOY_SELECTION_EMPTY", Severity: output.SeverityError, Message: "select at least one service"}}, nil
 	}
@@ -201,6 +204,8 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 			}
 
 			rec, recipeOK := in.Catalog.Recipes[res.Recipe]
+
+			res.RuntimeRecipe = &rec
 			if !recipeOK || rec.Type != res.Type || !containsAll(rec.Features, res.Features) || res.Recipe == "minio" {
 				diags = append(diags, output.Diagnostic{Code: "DEPLOY_RECIPE_INVALID", Severity: output.SeverityError, Message: "recipe unavailable or incompatible: " + res.Recipe, Field: field})
 			}
@@ -314,6 +319,13 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 		}
 
 		sort.Slice(svc.Ports, func(i, j int) bool { return svc.Ports[i].Name < svc.Ports[j].Name })
+
+		runtime, configErr := runtimeConfig(in, s, svc)
+		svc.RuntimeConfig = runtime
+
+		if configErr != nil {
+			diags = append(diags, output.Diagnostic{Code: "DEPLOY_CONFIG_INVALID", Severity: output.SeverityError, Message: configErr.Error(), Field: "deploy.services." + name + ".config"})
+		}
 
 		svc.Health = health(s)
 		if in.Discovery != nil && s.Health == nil {
@@ -526,6 +538,23 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 				diags = append(diags, output.Diagnostic{Code: "DEPLOY_HEALTH_PATH_UNVERIFIED", Severity: output.SeverityWarning,
 					Message: fmt.Sprintf("%s registers system routes under %s; readiness %s may not exist", d.Services[i].Name, prefix, d.Services[i].Health.Readiness),
 					Field:   "deploy.services." + d.Services[i].Name + ".health"})
+			}
+		}
+	}
+
+	for i := range d.Services {
+		svc := &d.Services[i]
+
+		raw, err := Overlay(d, svc)
+		if err != nil {
+			return nil, diags, err
+		}
+
+		if containsLiteralSecret(raw) {
+			diags = append(diags, output.Diagnostic{Code: "DEPLOY_SECRET_LITERAL", Severity: output.SeverityError, Message: "service " + svc.Name + " config contains a literal credential; replace it with an environment reference", Field: "deploy.services." + svc.Name + ".config"})
+		} else {
+			if err := yaml.Unmarshal(raw, &svc.RuntimeConfig); err != nil {
+				return nil, diags, err
 			}
 		}
 	}

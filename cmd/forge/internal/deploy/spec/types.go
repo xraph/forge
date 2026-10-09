@@ -162,7 +162,7 @@ type Target struct {
 	NetworkPolicy bool           `json:"network_policy,omitempty" yaml:"network_policy,omitempty"`
 	Project       string         `json:"project,omitempty"        yaml:"project,omitempty"` // compose project name
 	DockerContext string         `json:"docker_context,omitempty" yaml:"docker_context,omitempty"`
-	Extra         map[string]any `yaml:",inline"`
+	Extra         map[string]any `json:"extra,omitempty"          yaml:",inline"`
 }
 
 type Secrets struct {

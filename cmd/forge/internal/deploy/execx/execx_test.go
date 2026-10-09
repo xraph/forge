@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,12 @@ func TestFakeLookPath(t *testing.T) {
 
 	if _, err := f.LookPath("kubectl"); err == nil {
 		t.Fatal("kubectl must be missing")
+	}
+}
+
+func TestExitErrorIncludesBuildOutputAndFailureSummary(t *testing.T) {
+	err := (&ExitError{Cmd: Command{Name: "docker"}, Result: Result{ExitCode: 1, Stdout: "compiler: undefined method", Stderr: "build failed"}}).Error()
+	if !strings.Contains(err, "compiler: undefined method") || !strings.Contains(err, "build failed") {
+		t.Fatal(err)
 	}
 }

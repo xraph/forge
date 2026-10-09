@@ -63,7 +63,7 @@ var planned = []struct{ name, desc string }{
 func (p *DeployPlugin) Commands() []cli.Command {
 	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", p.help)
 
-	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor}
+	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor, "plan": p.plan, "export": p.export, "apply": p.apply, "up": p.up, "status": p.status, "logs": p.logs, "rollback": p.rollback, "destroy": p.destroy, "providers": p.providers, "catalog": p.catalog}
 	for _, c := range planned {
 		name := c.name
 
@@ -75,6 +75,26 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		}
 
 		opts := deployFlags()
+
+		switch name {
+		case "plan", "export", "up":
+			opts = append(opts, cli.WithFlag(cli.NewStringSliceFlag("services", "", "Selected service names within the environment scope", nil)))
+		}
+
+		switch name {
+		case "plan":
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("out", "", "Write a copy of the plan JSON", "")))
+		case "export":
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan", "")), cli.WithFlag(cli.NewStringFlag("output-dir", "", "Artifact directory", "")), cli.WithFlag(cli.NewBoolFlag("force", "", "Replace edited generated artifacts", false)))
+		case "apply", "up":
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan", "")), cli.WithFlag(cli.NewStringFlag("approve-plan", "", "Approve this full plan hash", "")), cli.WithFlag(cli.NewBoolFlag("allow-destructive", "", "Permit destructive operations explicitly listed in the plan", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Approve the generated plan", false)))
+		case "logs":
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("follow", "f", "Follow service logs", false)), cli.WithFlag(cli.NewIntFlag("tail", "", "Maximum recent lines", 200)))
+		case "rollback":
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("release", "", "Release ID to restore", "")), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Confirm rollback", false)))
+		case "destroy":
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("delete-data", "", "Also remove selected persistent data", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Confirm removal", false)))
+		}
 		if name == "init" {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("force", "", "Add missing deployment keys without replacing existing values", false)))
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write without confirming", false)), cli.WithFlag(cli.NewStringSliceFlag("answer", "", "Answer a decision as path=value", nil)))

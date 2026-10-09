@@ -7,4 +7,5 @@ volume: /data
 features: [json, search, timeseries, bloom]
 healthcheck: ["redis-cli", "ping"]
 dsn: "redis://{host}:{port}/0"
-command: [redis-server, --appendonly, "yes"]
+env:
+  REDIS_ARGS: "--appendonly yes"

@@ -73,16 +73,19 @@ func scanConfig(root, path string, cat *catalog.Catalog) ([]instance, error) {
 					if !valid {
 						return nil, fmt.Errorf("%s: %s instance %d must be a mapping", rel, d.ConfigKey, i)
 					}
+
 					name, _ := im[d.Instances.Name].(string)
 					if name == "" {
 						return nil, fmt.Errorf("%s: %s instance %d requires name", rel, d.ConfigKey, i)
 					}
+
 					drv := firstString(im, "driver", "type", "storage_driver")
 
 					typ, known := d.KindOf(drv)
 					if !known {
 						return nil, fmt.Errorf("%s: %s instance uses an unknown driver", rel, d.ConfigKey)
 					}
+
 					out = append(out, instance{
 						Extension: d.Extension, Name: name, Type: typ, Driver: drv,
 						Source: src(fmt.Sprintf("%s.%s.%d", d.ConfigKey, d.Instances.Path, i)),
@@ -104,6 +107,7 @@ func scanConfig(root, path string, cat *catalog.Catalog) ([]instance, error) {
 			if !known {
 				return nil, fmt.Errorf("%s: %s instance uses an unknown driver", rel, d.ConfigKey)
 			}
+
 			out = append(out, instance{
 				Extension: d.Extension, Name: "default", Type: typ, Driver: drv,
 				Source: src(d.ConfigKey), Fields: stringFields(m),

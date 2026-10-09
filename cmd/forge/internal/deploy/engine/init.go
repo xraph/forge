@@ -48,6 +48,7 @@ func (e *Engine) InitWithOptions(ctx context.Context, answers map[string]string,
 	if opts.Force {
 		block = fillMissing(existing, block)
 	}
+
 	var unanswered output.Diagnostics
 
 	for _, d := range open {
@@ -63,6 +64,7 @@ func (e *Engine) InitWithOptions(ctx context.Context, answers map[string]string,
 				continue
 			}
 		}
+
 		choice, ok := answers[d.Path]
 		if !ok {
 			unanswered = append(unanswered, output.Diagnostic{Code: "DEPLOY_DECISION_OPEN", Severity: output.SeverityError,

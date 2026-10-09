@@ -1,0 +1,4 @@
+services:
+  api:
+    timeout: 5s
+    url: http://api:8080
