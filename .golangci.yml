@@ -16,6 +16,11 @@ output:
       print-issued-lines: true
 
 linters:
+  settings:
+    gomoddirectives:
+      # Nested modules use local replacements to develop against this monorepo.
+      # Remote replacements remain denied; published consumers verify without replacements.
+      replace-local: true
   # Default set of linters.
   # The value can be:
   # - `standard`: https://golangci-lint.run/docs/linters/#enabled-by-default

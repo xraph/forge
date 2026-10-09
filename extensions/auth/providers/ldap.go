@@ -30,7 +30,8 @@ type LDAPConfig struct {
 	Attributes   []string `json:"attributes"    yaml:"attributes"`    // Attributes to fetch
 
 	// TLS settings
-	UseTLS             bool `json:"use_tls"              yaml:"use_tls"`
+	UseTLS bool `json:"use_tls" yaml:"use_tls"`
+	// InsecureSkipVerify is retained for config compatibility. True is rejected.
 	InsecureSkipVerify bool `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 
 	// Connection pool
@@ -110,6 +111,10 @@ type cacheEntry struct {
 
 // NewLDAPProvider creates a new LDAP authentication provider.
 func NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, error) {
+	if config.InsecureSkipVerify {
+		return nil, errors.New("ldap insecure_skip_verify is unsupported: trust your LDAP certificate authority and set insecure_skip_verify to false")
+	}
+
 	if config.Host == "" {
 		return nil, errors.New("ldap host is required")
 	}
@@ -443,7 +448,7 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 		resultCh := make(chan result, 1)
 
 		go func() {
-			c, e := ldap.Dial("tcp", addr)
+			c, e := ldap.DialURL("ldap://" + addr)
 			resultCh <- result{conn: c, err: e}
 		}()
 
@@ -475,12 +480,7 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 
 	// Start TLS if enabled
 	if pool.config.UseTLS {
-		tlsConfig := &tls.Config{
-			ServerName:         pool.config.Host,
-			InsecureSkipVerify: pool.config.InsecureSkipVerify,
-		}
-
-		if err := conn.StartTLS(tlsConfig); err != nil {
+		if err := conn.StartTLS(ldapTLSConfig(pool.config.Host)); err != nil {
 			conn.Close()
 
 			return nil, fmt.Errorf("failed to start tls: %w", err)
@@ -491,6 +491,13 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 	conn.SetTimeout(pool.config.RequestTimeout)
 
 	return conn, nil
+}
+
+func ldapTLSConfig(host string) *tls.Config {
+	return &tls.Config{
+		ServerName: host,
+		MinVersion: tls.VersionTLS12,
+	}
 }
 
 func (pool *ldapConnPool) getConn(ctx context.Context) (*ldap.Conn, error) {

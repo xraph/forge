@@ -14,6 +14,16 @@ Production-ready authentication system with automatic OpenAPI security scheme ge
 
 ## Quick Start
 
+### LDAP certificate trust
+
+If you use LDAP with StartTLS, install your LDAP certificate authority in the
+host trust store before connecting. The provider verifies the certificate and
+hostname and requires TLS 1.2 or newer. `InsecureSkipVerify` remains in
+`LDAPConfig` so existing code and configuration still decode, but setting it to
+`true` returns an error before any connection attempt. Set it to `false` after
+configuring trust. Deployments that relied on unverified certificates must
+configure their CA before upgrading.
+
 ### 1. Register the Auth Extension
 
 ```go

@@ -277,7 +277,7 @@ func (t *testContext) StatusCode() int {
 func newTestContext(t *testing.T) *testContext {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	return &testContext{

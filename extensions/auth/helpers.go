@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -28,6 +29,7 @@ func MustGetRegistry(c forge.Container) Registry {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get auth registry: %v", err))
 	}
+
 	return registry
 }
 
@@ -35,8 +37,9 @@ func MustGetRegistry(c forge.Container) Registry {
 // Returns error if not found or type assertion fails.
 func GetRegistryFromApp(app forge.App) (Registry, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
+
 	return GetRegistry(app.Container())
 }
 
@@ -46,5 +49,6 @@ func MustGetRegistryFromApp(app forge.App) Registry {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetRegistry(app.Container())
 }

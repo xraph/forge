@@ -56,6 +56,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("auth extension disabled")
+
 		return nil
 	}
 

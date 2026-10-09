@@ -161,7 +161,7 @@ func TestLDAPProvider_Authenticate_MissingCredentials(t *testing.T) {
 	defer provider.Close()
 
 	// Create request without auth header
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 
 	authCtx, err := provider.Authenticate(context.Background(), req)
 	assert.Error(t, err)
@@ -185,7 +185,7 @@ func TestLDAPProvider_Authenticate_EmptyCredentials(t *testing.T) {
 	defer provider.Close()
 
 	// Create request with empty credentials
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.SetBasicAuth("", "")
 
 	authCtx, err := provider.Authenticate(context.Background(), req)
@@ -220,7 +220,7 @@ func TestLDAPProvider_Middleware(t *testing.T) {
 		return ctx.String(http.StatusOK, "OK")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	ctx := forge_http.NewContext(rec, req, nil)
 

@@ -28,7 +28,7 @@ func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {
 	)
 
 	// Test with valid key in header
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("X-Api-Key", "valid-key")
 
 	ctx, err := provider.Authenticate(context.Background(), req)
@@ -45,7 +45,7 @@ func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {
 	}
 
 	// Test with invalid key
-	req = httptest.NewRequest(http.MethodGet, "/test", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("X-Api-Key", "invalid-key")
 
 	_, err = provider.Authenticate(context.Background(), req)
@@ -54,7 +54,7 @@ func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {
 	}
 
 	// Test without key
-	req = httptest.NewRequest(http.MethodGet, "/test", nil)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 
 	_, err = provider.Authenticate(context.Background(), req)
 	if !errors.Is(err, auth.ErrMissingCredentials) {
@@ -77,7 +77,7 @@ func TestAPIKeyProvider_Authenticate_Query(t *testing.T) {
 	)
 
 	// Test with valid key in query
-	req := httptest.NewRequest(http.MethodGet, "/test?api_key=valid-key", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test?api_key=valid-key", nil)
 
 	ctx, err := provider.Authenticate(context.Background(), req)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestAPIKeyProvider_Authenticate_Cookie(t *testing.T) {
 	)
 
 	// Test with valid key in cookie
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.AddCookie(&http.Cookie{Name: "api_key", Value: "valid-key"})
 
 	ctx, err := provider.Authenticate(context.Background(), req)
