@@ -171,6 +171,12 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 		}
 	}
 
+	for i, connection := range d.Connections {
+		if connection.Retry.Attempts < 0 || connection.Retry.Attempts > 5 {
+			add("DEPLOY_RETRY_INVALID", fmt.Sprintf("deploy.connections.%d.retry.attempts", i), "connection retries must be between zero and five", "set retry.attempts to zero through five")
+		}
+	}
+
 	for name, t := range d.Targets {
 		f := "deploy.targets." + name
 

@@ -53,7 +53,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	buf.WriteString("\t\"encoding/json\"\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"io\"\n")
-	buf.WriteString("\t\"net/http\"\n")
+	buf.WriteString("\t\"net/http\"\n\t\"time\"\n")
 
 	if needsURL {
 		buf.WriteString("\t\"net/url\"\n")
@@ -77,7 +77,7 @@ func (r *RESTGenerator) generateHelpers(config client.GeneratorConfig) string {
 	// doRequest helper
 	buf.WriteString("// doRequest performs an HTTP request\n")
 	buf.WriteString("func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {\n")
-	buf.WriteString("\tvar reqBody io.Reader\n\n")
+	buf.WriteString("\tif c.configurationError != nil { return c.configurationError }\n\n\tvar reqBody io.Reader\n\n")
 	buf.WriteString("\tif body != nil {\n")
 	buf.WriteString("\t\tdata, err := json.Marshal(body)\n")
 	buf.WriteString("\t\tif err != nil {\n")
@@ -98,7 +98,7 @@ func (r *RESTGenerator) generateHelpers(config client.GeneratorConfig) string {
 
 	buf.WriteString("\tc.addAuth(req)\n\n")
 
-	buf.WriteString("\tresp, err := c.httpClient.Do(req)\n")
+	buf.WriteString(retryRequestTemplate)
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"do request: %w\", err)\n")
 	buf.WriteString("\t}\n")

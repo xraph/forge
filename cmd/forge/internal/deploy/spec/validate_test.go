@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,23 @@ func TestValidateCleanV2(t *testing.T) {
 	doc := parseString(t, "deploy:\n  version: 2\n  targets: {local: {provider: compose}}\n  environments: {dev: {target: local}}\n  resources: {p: {type: postgres}}\n  services:\n    api: {app: api, kind: web, ports: {http: {port: 8080}}, bindings: [{resource: p, extension: grove, database: d}]}\n")
 	if diags := Validate(doc, []string{"api"}); diags.HasErrors() {
 		t.Fatalf("%+v", diags)
+	}
+}
+
+func TestConnectionRetryBoundsMatchRuntimeClients(t *testing.T) {
+	for _, attempts := range []int{-1, 6} {
+		body := fmt.Sprintf("deploy:\n  version: 2\n  targets: {local: {provider: compose}}\n  environments: {dev: {target: local}}\n  services: {api: {app: api, kind: web, ports: {http: {port: 8080}}}}\n  connections: [{from: api, to: api, retry: {attempts: %d}}]\n", attempts)
+		doc := parseString(t, body)
+		found := false
+
+		for _, diagnostic := range Validate(doc, []string{"api"}) {
+			if diagnostic.Code == "DEPLOY_RETRY_INVALID" {
+				found = true
+			}
+		}
+
+		if !found {
+			t.Fatalf("unbounded connection retry accepted: %d", attempts)
+		}
 	}
 }

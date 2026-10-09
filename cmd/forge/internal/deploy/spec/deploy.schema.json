@@ -311,7 +311,9 @@
       "additionalProperties": false,
       "properties": {
         "attempts": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
         }
       }
     },

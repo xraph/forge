@@ -209,3 +209,27 @@ forge build --output ./dist
 
 Build contexts must contain the modules and workspace files your app uses. For
 native libraries or CGO, supply your own Dockerfile and build configuration.
+
+## Runtime service clients
+
+Generated Go clients can use the service settings produced by deployment. Pass a
+service name to read `API_URL` for an `api` client, or pass your configuration
+manager to resolve `services.api.url`, `timeout` and `retry.attempts` first.
+
+```go
+api, err := apiclient.NewClientChecked(
+    apiclient.WithServiceConfig("api", configManager),
+)
+```
+
+The resolver needs only `GetString(key string, defaultValue ...string) string`.
+Confy implements it; the generated client has no Forge dependency. Explicit
+`WithBaseURL` and `WithTimeout` options win regardless of option order. Missing
+runtime values fall back to service environment variables and the generated URL.
+Invalid URLs, timeouts and retry limits return configuration errors.
+
+`NewClient` remains available and returns the same errors on the first REST
+request. `NewClientChecked` lets you handle them at startup. Runtime timeouts do
+not mutate a shared HTTP client. Retries default to zero and are limited to five;
+GET, HEAD and OPTIONS can retry transient failures. Use `WithRetryMethods` for
+other methods only when the endpoint's idempotency contract permits replay.

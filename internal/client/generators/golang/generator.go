@@ -281,9 +281,11 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	// net/url below is gated on needsAuth.
 	buf.WriteString("\t\"net/http/cookiejar\"\n")
 
-	if needsAuth {
+	if strings.Contains(body, "url.") {
 		buf.WriteString("\t\"net/url\"\n")
 	}
+
+	buf.WriteString("\t\"os\"\n\t\"strconv\"\n\t\"strings\"\n")
 
 	buf.WriteString("\t\"time\"\n")
 
@@ -310,7 +312,7 @@ func (g *Generator) generateClientBody(spec *client.APISpec, config client.Gener
 	buf.WriteString("// Client is the main API client\n")
 	buf.WriteString("type Client struct {\n")
 	buf.WriteString("\thttpClient *http.Client\n")
-	buf.WriteString("\tbaseURL    string\n")
+	buf.WriteString("\tbaseURL    string\n\tserviceName string\n\tserviceConfig ServiceConfigResolver\n\tconfigurationError error\n\tbaseURLExplicit bool\n\ttimeoutExplicit bool\n\trequestTimeout time.Duration\n\tretries int\n\tretryMethods map[string]bool\n")
 
 	if needsAuth {
 		buf.WriteString("\tauth       *AuthConfig\n")
@@ -345,28 +347,28 @@ func (g *Generator) generateClientBody(spec *client.APISpec, config client.Gener
 	buf.WriteString("\t\t},\n")
 
 	if config.BaseURL != "" {
-		buf.WriteString(fmt.Sprintf("\t\tbaseURL: \"%s\",\n", config.BaseURL))
+		fmt.Fprintf(&buf, "\t\tbaseURL: %q,\n", config.BaseURL)
 	}
 
 	buf.WriteString("\t}\n\n")
 	buf.WriteString("\tfor _, opt := range opts {\n")
 	buf.WriteString("\t\topt(c)\n")
 	buf.WriteString("\t}\n\n")
-	buf.WriteString("\treturn c\n")
+	buf.WriteString("\tc.configurationError = c.resolveServiceConfig()\n\treturn c\n")
 	buf.WriteString("}\n\n")
 
 	// Client options
 	buf.WriteString("// WithBaseURL sets the base URL\n")
 	buf.WriteString("func WithBaseURL(url string) ClientOption {\n")
 	buf.WriteString("\treturn func(c *Client) {\n")
-	buf.WriteString("\t\tc.baseURL = url\n")
+	buf.WriteString("\t\tc.baseURL = url\n\t\tc.baseURLExplicit = true\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("// WithHTTPClient sets a custom HTTP client\n")
 	buf.WriteString("func WithHTTPClient(client *http.Client) ClientOption {\n")
 	buf.WriteString("\treturn func(c *Client) {\n")
-	buf.WriteString("\t\tc.httpClient = client\n")
+	buf.WriteString("\t\tif client == nil { c.httpClient = nil; return }\n\t\tcloned := *client\n\t\tc.httpClient = &cloned\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
@@ -399,7 +401,7 @@ func (g *Generator) generateClientBody(spec *client.APISpec, config client.Gener
 		buf.WriteString("// WithTimeout sets the request timeout\n")
 		buf.WriteString("func WithTimeout(timeout time.Duration) ClientOption {\n")
 		buf.WriteString("\treturn func(c *Client) {\n")
-		buf.WriteString("\t\tc.httpClient.Timeout = timeout\n")
+		buf.WriteString("\t\tc.requestTimeout = timeout\n\t\tc.timeoutExplicit = true\n")
 		buf.WriteString("\t}\n")
 		buf.WriteString("}\n\n")
 	}
@@ -412,6 +414,8 @@ func (g *Generator) generateClientBody(spec *client.APISpec, config client.Gener
 		buf.WriteString("\t}\n")
 		buf.WriteString("}\n\n")
 	}
+
+	buf.WriteString(serviceConfigTemplate)
 
 	// Helper methods
 	buf.WriteString(g.generateHelperMethods(needsAuth))
