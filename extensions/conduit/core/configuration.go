@@ -28,7 +28,7 @@ func WithConfig(cfg Config) Option {
 
 // NewDeferred allows handler binding before Forge loads application configuration.
 func NewDeferred(options ...Option) (*Runtime, error) {
-	r := &Runtime{deferred: true, providers: map[string]Provider{}, registrations: map[string]registration{}}
+	r := &Runtime{deferred: true, providers: map[string]Provider{}, registrations: map[string]registration{}, rpcHandlers: map[string]RPCHandler{}}
 
 	for _, option := range options {
 		if option == nil {
@@ -118,6 +118,13 @@ func (r *Runtime) Configure(cfg Config, extra ...Option) error {
 		}
 	}
 
+	for method, handler := range r.rpcHandlers {
+		if err := ready.BindRPC(method, handler); err != nil {
+			return err
+		}
+	}
+
+	r.rpcHandlers = ready.rpcHandlers
 	r.config, r.providers, r.registrations, r.hooks, r.registry = ready.config, ready.providers, ready.registrations, ready.hooks, ready.registry
 	r.deferred = false
 

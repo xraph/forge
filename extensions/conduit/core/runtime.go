@@ -13,6 +13,7 @@ import (
 
 // Config separates stream topology, logical subscriptions and replica settings.
 type Config struct {
+	RPC             RPCConfig                     `json:"rpc"             yaml:"rpc"`
 	Identity        Identity                      `json:"identity"        yaml:"identity"`
 	Streams         map[string]StreamConfig       `json:"streams"         yaml:"streams"`
 	Subscriptions   map[string]SubscriptionConfig `json:"subscriptions"   yaml:"subscriptions"`
@@ -84,31 +85,39 @@ type registration struct {
 
 // Runtime owns one instance's connections and workers, never the service identity.
 type Runtime struct {
-	mu              sync.RWMutex
-	config          Config
-	providers       map[string]Provider
-	registrations   map[string]registration
-	hooks           []Hook
-	observers       *observerPool
-	cancel          context.CancelFunc
-	observerCancel  context.CancelFunc
-	subscriptions   []Subscription
-	workers         sync.WaitGroup
-	observerWorkers sync.WaitGroup
-	running         bool
-	startedAt       time.Time
-	published       atomic.Uint64
-	handled         atomic.Uint64
-	failed          atomic.Uint64
-	retried         atomic.Uint64
-	deadLettered    atomic.Uint64
-	acknowledged    atomic.Uint64
-	historyMu       sync.Mutex
-	history         []HookEvent
-	registry        Registry
-	closed          bool
-	stopping        bool
-	deferred        bool
+	mu               sync.RWMutex
+	config           Config
+	providers        map[string]Provider
+	registrations    map[string]registration
+	hooks            []Hook
+	observers        *observerPool
+	cancel           context.CancelFunc
+	observerCancel   context.CancelFunc
+	subscriptions    []Subscription
+	workers          sync.WaitGroup
+	observerWorkers  sync.WaitGroup
+	running          bool
+	startedAt        time.Time
+	published        atomic.Uint64
+	handled          atomic.Uint64
+	failed           atomic.Uint64
+	retried          atomic.Uint64
+	deadLettered     atomic.Uint64
+	acknowledged     atomic.Uint64
+	historyMu        sync.Mutex
+	history          []HookEvent
+	registry         Registry
+	closed           bool
+	stopping         bool
+	deferred         bool
+	processingCtx    context.Context //nolint:containedctx // Runtime owns and cancels the accepted-work lifetime independently of intake.
+	processingCancel context.CancelFunc
+	rpcHandlers      map[string]RPCHandler
+	rpcServers       []RPCServer
+	rpcCalls         atomic.Uint64
+	rpcHandled       atomic.Uint64
+	rpcFailed        atomic.Uint64
+	rpcTimedOut      atomic.Uint64
 }
 
 // WithRegistry enables registration, discovery and instance inspection.
@@ -163,6 +172,12 @@ func (r *Runtime) Instances(ctx context.Context) ([]Instance, error) {
 
 // New constructs a validated runtime. Instance ID can be generated per process.
 func New(cfg Config, options ...Option) (*Runtime, error) {
+	rpc, err := defaultsRPC(cfg.RPC)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.RPC = rpc
 	if cfg.Identity.Namespace == "" {
 		cfg.Identity.Namespace = "default"
 	}
@@ -187,7 +202,7 @@ func New(cfg Config, options ...Option) (*Runtime, error) {
 		return nil, errors.New("conduit: observer buffer exceeds 65536")
 	}
 
-	r := &Runtime{config: cfg, providers: make(map[string]Provider), registrations: make(map[string]registration)}
+	r := &Runtime{config: cfg, providers: make(map[string]Provider), registrations: make(map[string]registration), rpcHandlers: make(map[string]RPCHandler)}
 
 	r.config.Endpoints = slices.Clone(cfg.Endpoints)
 	for _, endpoint := range cfg.Endpoints {
@@ -454,6 +469,8 @@ func (r *Runtime) Start(ctx context.Context) error {
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	observeCtx, observerCancel := context.WithCancel(context.WithoutCancel(ctx))
 	r.cancel, r.observerCancel = cancel, observerCancel
+	r.processingCtx, r.processingCancel = context.WithCancel(context.WithoutCancel(ctx))
+	r.processingCtx = context.WithValue(r.processingCtx, handlerRuntimeKey{}, r)
 	r.observers = &observerPool{queue: make(chan HookEvent, r.config.ObserverBuffer)}
 
 	r.observerWorkers.Add(1)
@@ -465,6 +482,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	rollback := func() {
 		cancel()
+		r.processingCancel()
+
+		for _, server := range r.rpcServers {
+			_ = server.Close(ctx)
+		}
 
 		for _, sub := range r.subscriptions {
 			_ = sub.Close(ctx)
@@ -525,6 +547,12 @@ func (r *Runtime) Start(ctx context.Context) error {
 		r.emit(ctx, HookEvent{Stage: SubscriptionStarted, Delivery: &info})
 	}
 
+	if err := r.startRPC(r.processingCtx); err != nil {
+		rollback()
+
+		return err
+	}
+
 	if r.registry != nil {
 		if err := r.registry.Register(ctx, Instance{Identity: r.config.Identity, Version: r.config.Version, Endpoints: r.config.Endpoints, Ready: true}); err != nil {
 			rollback()
@@ -571,10 +599,20 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	r.emit(ctx, HookEvent{Stage: Draining})
 	r.cancel()
 	subs := slices.Clone(r.subscriptions)
+	servers := slices.Clone(r.rpcServers)
 	r.mu.Unlock()
 
+	var stopErr error
+	if r.registry != nil {
+		stopErr = errors.Join(stopErr, r.registry.Register(ctx, Instance{Identity: r.config.Identity, Version: r.config.Version, Endpoints: r.config.Endpoints, Ready: false}))
+	}
+
 	for _, sub := range subs {
-		_ = sub.Close(ctx)
+		stopErr = errors.Join(stopErr, sub.Close(ctx))
+	}
+
+	for _, server := range servers {
+		stopErr = errors.Join(stopErr, server.Close(ctx))
 	}
 
 	done := make(chan struct{})
@@ -584,19 +622,23 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		return ctx.Err()
+		stopErr = errors.Join(stopErr, ctx.Err())
 	}
 
-	var stopErr error
+	r.processingCancel()
+
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
 	if r.registry != nil {
-		stopErr = r.registry.Deregister(ctx, r.config.Identity)
+		stopErr = errors.Join(stopErr, r.registry.Deregister(cleanup, r.config.Identity))
 	}
 
 	for _, provider := range r.providers {
-		stopErr = errors.Join(stopErr, provider.Close(ctx))
+		stopErr = errors.Join(stopErr, provider.Close(cleanup))
 	}
 
-	r.emit(ctx, HookEvent{Stage: Stopped})
+	r.emit(cleanup, HookEvent{Stage: Stopped})
 	r.observerCancel()
 
 	observerDone := make(chan struct{})
@@ -605,8 +647,8 @@ func (r *Runtime) Stop(ctx context.Context) error {
 
 	select {
 	case <-observerDone:
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-cleanup.Done():
+		stopErr = errors.Join(stopErr, cleanup.Err())
 	}
 
 	r.mu.Lock()
@@ -662,7 +704,7 @@ func (r *Runtime) Prepare(ctx context.Context, streamName string, draft Envelope
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if !r.running {
+	if !r.canSend(ctx) {
 		return Envelope{}, ErrNotRunning
 	}
 
@@ -744,7 +786,7 @@ func (r *Runtime) Send(ctx context.Context, streamName string, msg Envelope) (Re
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if !r.running {
+	if !r.canSend(ctx) {
 		return Receipt{}, ErrNotRunning
 	}
 
@@ -816,7 +858,7 @@ func (r *Runtime) consume(ctx context.Context, sub Subscription, reg registratio
 			}
 		}
 
-		r.process(ctx, delivery, reg.config, handler)
+		r.process(r.processingCtx, delivery, reg.config, handler)
 	}
 }
 
@@ -932,6 +974,10 @@ type Snapshot struct {
 	Retried       uint64               `json:"retried"`
 	DeadLettered  uint64               `json:"deadLettered"`
 	ObserverDrops uint64               `json:"observerDrops"`
+	RPCCalls      uint64               `json:"rpcCalls"`
+	RPCHandled    uint64               `json:"rpcHandled"`
+	RPCFailed     uint64               `json:"rpcFailed"`
+	RPCTimedOut   uint64               `json:"rpcTimedOut"`
 }
 
 // Snapshot reports unavailable inspection as an error, never an empty healthy list.
@@ -940,6 +986,8 @@ func (r *Runtime) Snapshot(ctx context.Context) (Snapshot, error) {
 	defer r.mu.RUnlock()
 
 	snapshot := Snapshot{Identity: r.config.Identity, Running: r.running, StartedAt: r.startedAt, Providers: []ProviderInfo{}, Streams: []StreamInfo{}, Subscriptions: []SubscriptionConfig{}, Published: r.published.Load(), Handled: r.handled.Load(), Acknowledged: r.acknowledged.Load(), Failed: r.failed.Load(), Retried: r.retried.Load(), DeadLettered: r.deadLettered.Load()}
+
+	snapshot.RPCCalls, snapshot.RPCHandled, snapshot.RPCFailed, snapshot.RPCTimedOut = r.rpcCalls.Load(), r.rpcHandled.Load(), r.rpcFailed.Load(), r.rpcTimedOut.Load()
 	if r.observers != nil {
 		snapshot.ObserverDrops = r.observers.dropped.Load()
 	}

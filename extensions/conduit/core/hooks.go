@@ -11,6 +11,12 @@ import (
 type Stage string
 
 const (
+	RPCCalling          Stage = "rpc.calling"
+	RPCReceived         Stage = "rpc.received"
+	RPCHandling         Stage = "rpc.handling"
+	RPCHandled          Stage = "rpc.handled"
+	RPCReturned         Stage = "rpc.returned"
+	RPCFailed           Stage = "rpc.failed"
 	Starting            Stage = "starting"
 	Ready               Stage = "ready"
 	Draining            Stage = "draining"
@@ -36,6 +42,7 @@ const (
 
 // HookEvent is copied before observers receive it.
 type HookEvent struct {
+	Duration time.Duration `json:"duration,omitempty"`
 	Stage    Stage         `json:"stage"`
 	Identity Identity      `json:"identity"`
 	Provider string        `json:"provider,omitempty"`

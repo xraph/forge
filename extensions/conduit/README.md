@@ -175,7 +175,7 @@ Namespace and service claims, when present, must match the configured runtime. M
 | NATS JetStream | File storage with configured replicas | Sequence cursors and targeted recovery | Persisted KV records | Leased KV records |
 | Memory | Process memory only | Retained process-local records | Process-local records | Use a separate registry |
 
-Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. Neither supplied provider promises ordered processing by message key. Broker-based request/reply and streaming RPC are not part of this implementation; named gRPC clients provide unary and streaming RPC through generated clients.
+Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. Neither supplied provider promises ordered processing by message key. Implement `core.RPCProvider` for transient request/reply. Named gRPC clients provide streaming RPC through generated clients.
 
 ## Run the checks and demo
 
@@ -187,3 +187,24 @@ GOWORK=off go run ./cmd/demo
 ```
 
 The demo listens on `127.0.0.1:8098` and runs two instances against the memory broker. Set `CONDUIT_DEMO_NATS` to use a real JetStream server instead. In `forge-dashboard`, start the shell with `FORGE_DASHBOARD_BACKEND=http://127.0.0.1:8098` and open `/@conduit/`. PostgreSQL integration tests skip unless you provide `CONDUIT_TEST_POSTGRES`; broker restart tests run an embedded NATS server with a real file store.
+
+## Typed broker RPC
+
+Declare your procedure once and share it with callers and handlers:
+
+```go
+var lookup = conduit.Procedure[LookupRequest, LookupResponse]("billing.lookup.v1")
+
+err := conduit.Handle(ext.Runtime(), lookup,
+    func(ctx context.Context, request conduit.Request[LookupRequest]) (LookupResponse, error) {
+        return billing.Lookup(ctx, request.Data.ID)
+    })
+
+response, err := conduit.Call(ctx, runtime, "billing", lookup, LookupRequest{ID: "invoice-42"})
+```
+
+Replicas share one procedure queue. Each call reaches one instance. `rpc.provider` selects a connection when several providers support RPC; with one provider, selection is automatic. Configure `rpc.timeout`, `rpc.concurrency` and `rpc.max_in_flight` per service. Handlers can inspect caller identity, headers and correlation in `request.Envelope`. These fields are metadata; broker access controls and your authorization hooks authenticate callers.
+
+Cancellation and deadlines propagate to handlers. Cancellation is best effort, and a timed-out call may already have caused an effect. Calls send once and never retry business effects automatically. Keep an application idempotency key for mutations. RPC uses live NATS request/reply without event retention. Durable workflows belong on streams and transactional inboxes.
+
+Return `&conduit.RPCError{Code: conduit.RPCPermissionDenied, Message: "Billing access required"}` for intentional public errors. Arbitrary errors and panics become `INTERNAL` responses without their private cause. `RPCCalling`, `RPCReceived`, `RPCHandling`, `RPCHandled`, `RPCReturned` and `RPCFailed` hooks expose the request lifecycle. Existing publish and handle control hooks run before RPC work.

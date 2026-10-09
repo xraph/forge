@@ -157,6 +157,7 @@ func (b Binding) ConsumerID() string {
 
 // Capabilities report guarantees implemented by a provider.
 type Capabilities struct {
+	RPC         bool `json:"rpc"`
 	Durable     bool `json:"durable"`
 	Replay      bool `json:"replay"`
 	DeadLetters bool `json:"deadLetters"`

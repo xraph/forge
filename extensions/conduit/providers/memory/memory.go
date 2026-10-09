@@ -37,9 +37,11 @@ type consumer struct {
 
 // Broker can be shared by several development instances.
 type Broker struct {
-	mu      sync.Mutex
-	streams map[string]*stream
-	letters map[string]core.DeadLetter
+	mu        sync.Mutex
+	streams   map[string]*stream
+	letters   map[string]core.DeadLetter
+	rpc       map[string][]*rpcServer
+	rpcCursor int
 }
 
 // New creates a broker whose state lasts for this process only.
@@ -52,7 +54,7 @@ func (b *Broker) Name() string { return "memory" }
 
 // Capabilities explicitly exclude disk durability and key ordering.
 func (b *Broker) Capabilities() core.Capabilities {
-	return core.Capabilities{Replay: true, DeadLetters: true}
+	return core.Capabilities{Replay: true, DeadLetters: true, RPC: true}
 }
 
 // Connect needs no external connection.

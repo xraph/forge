@@ -61,6 +61,12 @@ const (
 	DeadLettered        = core.DeadLettered
 	Replayed            = core.Replayed
 	Duplicate           = core.Duplicate
+	RPCCalling          = core.RPCCalling
+	RPCReceived         = core.RPCReceived
+	RPCHandling         = core.RPCHandling
+	RPCHandled          = core.RPCHandled
+	RPCReturned         = core.RPCReturned
+	RPCFailed           = core.RPCFailed
 )
 
 // Errors let callers distinguish rejected requests from unknown broker outcomes.
