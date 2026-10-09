@@ -303,6 +303,32 @@ jobs:
         working-directory: cmd/forge
         run: go test -tags integration ./internal/deploy/provider/compose -run TestComposeStackLifecycle -count=1 -v -timeout 22m
 
+  deploy-kubernetes:
+    name: Deploy Kubernetes Lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - name: Install cluster tools
+        run: |
+          go install sigs.k8s.io/kind@v0.33.0
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl --fail --location https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl -o "$RUNNER_TEMP/bin/kubectl"
+          curl --fail --location https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl.sha256 -o "$RUNNER_TEMP/bin/kubectl.sha256"
+          cd "$RUNNER_TEMP/bin"
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          chmod +x kubectl
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Create development workspace
+        run: go work init . ./cmd/forge
+      - name: Test real Kubernetes deployment and retained data
+        working-directory: cmd/forge
+        run: go test -tags integration ./internal/deploy/provider/kubernetes -run TestKubernetesStackLifecycle -count=1 -v -timeout 25m
+
   conduit-integration:
     name: Conduit Broker and PostgreSQL Integration
     runs-on: ubuntu-latest
@@ -347,6 +373,7 @@ jobs:
         security,
         build-cli,
         deploy-compose,
+        deploy-kubernetes,
         conduit-integration,
       ]
     if: always()
@@ -360,6 +387,7 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           CLI_RESULT: ${{ needs.build-cli.result }}
           CONDUIT_RESULT: ${{ needs.conduit-integration.result }}
+          KUBERNETES_RESULT: ${{ needs.deploy-kubernetes.result }}
           COMPOSE_RESULT: ${{ needs.deploy-compose.result }}
         run: |
           set -uo pipefail
@@ -376,6 +404,7 @@ jobs:
             echo "| Build CLI | ${CLI_RESULT} |"
             echo "| Conduit Integration | ${CONDUIT_RESULT} |"
             echo "| Deploy Compose Lifecycle | ${COMPOSE_RESULT} |"
+            echo "| Deploy Kubernetes Lifecycle | ${KUBERNETES_RESULT} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Windows is explicitly optional and is NOT part of the gate.
@@ -383,6 +412,7 @@ jobs:
           for entry in "test:${TEST_RESULT}" "build-all-modules:${MODULES_RESULT}" \
                        "lint:${LINT_RESULT}" "security:${SECURITY_RESULT}" \
                        "build-cli:${CLI_RESULT}" "deploy-compose:${COMPOSE_RESULT}" \
+                       "deploy-kubernetes:${KUBERNETES_RESULT}" \
                        "conduit-integration:${CONDUIT_RESULT}"; do
             name="${entry%%:*}"; status="${entry##*:}"
             if [ "$status" != "success" ]; then

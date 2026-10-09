@@ -1,11 +1,11 @@
 ---
-title: Deployment Workbench Proposal
+title: Deployment workbench
 description: A local deployment page, a versioned deploy section in .forge.yml, and one planner shared by the page, the CLI and AI agents
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Deployment Workbench Proposal
+# Deployment workbench
 
 You describe your services and the databases, buckets and caches they need in
 one `deploy:` block, and Forge renders and applies that to Compose, Kubernetes
@@ -15,10 +15,10 @@ others see.
 
 <Callout type="info">
   The versioned config editor, migration, catalog, service discovery and
-  `inspect`, `init`, `doctor`, and the Compose plan, export, apply, status,
-  logs, rollback and destroy commands are implemented. The local page and other
-  provider adapters are being connected to that engine. The mock remains a
-  browser preview and performs no deployments.
+  `inspect`, `init`, `doctor`, and the Compose and Kubernetes plan, export,
+  apply, status, logs, rollback and destroy commands are implemented. The local
+  page and managed provider adapters are being connected to that engine. The
+  mock remains a browser preview and performs no deployments.
 </Callout>
 
 ## Inspect and configure your project
@@ -113,8 +113,7 @@ proposals are described in the
 From nothing, on a laptop with Docker:
 
 ```bash
-# Planned commands. Not available in the current CLI.
-forge deploy init        # suggests the deploy block, asks the open questions
+forge deploy init        # suggests the deploy block and asks the open questions
 forge deploy up          # plan and apply the default environment
 forge deploy status
 forge deploy logs api -f
@@ -190,6 +189,58 @@ gains a resolver that reads them. Only `exposure: public` ports get a route.
 Receiving services still run their auth middleware; discovery and private
 networking do not grant authorization.
 
+## Deploy to Kubernetes
+
+You need `kubectl`, an explicit context and a namespace. For a local kind
+cluster, select `local_cluster` and the matching `kind-<name>` context. Forge
+verifies each built image, loads it into that cluster and records the immutable
+artifact. Other clusters require registry delivery. Builder push access and
+cluster pull access are separate: private images need an existing
+`kubernetes.io/dockerconfigjson` Secret in the target namespace.
+
+```yaml
+deploy:
+  targets:
+    k8s-dev:
+      provider: kubernetes
+      context: kind-atlas
+      local_cluster: atlas
+      namespace: atlas-dev
+      build: { source: local, builder: docker, delivery: local }
+```
+
+```bash
+forge deploy doctor --target k8s-dev --env dev --output json
+forge deploy plan --target k8s-dev --env dev --out plan.json --output json
+forge deploy apply --plan plan.json --approve-plan <hash> --non-interactive
+forge deploy status --target k8s-dev --env dev --output json
+forge deploy logs api --target k8s-dev --env dev --tail 100
+```
+
+Apply checks the cluster, existing object ownership and the manifests with
+server-side dry-run. Backends become ready before initialization and migration
+Jobs run. Applications roll out only after those Jobs finish. Status compares
+observed generation, replicas and image with the saved release. Each mutating
+step is journaled, so retrying the same approved plan skips completed work.
+A migration failure stays visible even when the previous application is ready.
+
+Container databases, Redis and object storage use one StatefulSet replica and
+retained PVCs. You can choose a storage class and size. These recipes do not
+provide database HA, backups or upgrades. `destroy` verifies ownership and
+recorded UIDs, waits for deletion and retains PVCs unless you explicitly pass
+`--delete-data`. It never deletes the namespace. Rollback restores saved
+immutable images and stops when an intervening migration is irreversible.
+
+The real kind fixture verifies private service calls, Grove PostgreSQL,
+Trove object writes, Redis JSON/search, data surviving restarts, service
+selection, logs, failed migration and retained PVCs. NetworkPolicy enforcement
+remains unverified with the default kind CNI. Enable policies only on a cluster
+whose CNI enforces them, with explicit allowed external and API-server CIDRs.
+
+`forge infra k8s export` forwards version 2 configuration to this compiler.
+The older `infra k8s deploy` command directs version 2 projects to the approved
+plan workflow.
+
 ## Targets and order
 
 | Target                                      | First path                                                                         | Plan |
@@ -216,7 +267,7 @@ GitHub.
   names, signatures, diagnostic codes and fixtures the plans share.
 - `docs/superpowers/plans/2026-10-09-forge-deploy-01-honest-cli-and-spec.md`,
   `02-discover-catalog-resolve.md` and `03-compose.md`: the first three
-  slices as small test-first tasks. Plans 04 to 07 are written when 03 ships.
+  slices as small test-first tasks. Plan 04 covers Kubernetes and image delivery. Plans 05 to 07 cover the local page, managed providers and extension hooks.
 - [Source review](https://github.com/xraph/forge/blob/main/docs/deployment/PLAN.md):
   what the current commands do, with file references, and the acceptance
   gates for live providers.

@@ -1,6 +1,6 @@
 # Forge deployment workbench
 
-Status: source review and proposal, 9 October 2026. The browser mock and documentation are implemented. The deployment compiler, new CLI commands and provider adapters described here are not implemented.
+Status: implementation in progress, 9 October 2026. The typed compiler and Compose/Kubernetes lifecycle adapters are implemented. Real Compose and kind fixtures verify service calls, Grove/Trove/Redis persistence, failed migrations and retained data. The local page, managed adapters and extension hooks are the remaining slices. The source review table below records the initial findings before implementation.
 
 The design decisions, the final `deploy:` schema and the implementation order now live in the design spec at `docs/superpowers/specs/2026-10-09-forge-deploy-design.md`, with shared contracts and the first three plans under `docs/superpowers/plans/`. That directory is gitignored in this repository, so those files sit beside the code in a checkout and are not on GitHub. Where this review and the spec differ, the spec wins. Three things changed on the way from this document to the spec: the `deploy:` block is inline in `.forge.yml` by default with `deploy/stack.yml` as an optional split; bindings reach the app through an overlay file named by a new `FORGE_CONFIG_OVERLAY` variable; and extension descriptors ship in the CLI first, with module-shipped `forge-deploy.yaml` files and a runtime interface following later. The findings table below is still the record of what the current code does.
 
