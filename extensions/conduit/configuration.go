@@ -73,6 +73,7 @@ func (e *Extension) configure(app forge.App) error {
 			for _, key := range []string{"extensions.discovery.enabled", "discovery.enabled"} {
 				if manager.IsSet(key) {
 					hasDiscovery = hasDiscovery && manager.GetBool(key)
+
 					break
 				}
 			}

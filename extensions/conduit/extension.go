@@ -22,7 +22,7 @@ type Extension struct {
 	runtime *Runtime
 }
 
-// NewExtension constructs a Conduit extension with explicit service identity.
+// NewExtension constructs a Conduit extension with optional application overrides.
 func NewExtension(opts ...Option) (*Extension, error) {
 	runtime, err := core.NewDeferred(opts...)
 	if err != nil {
