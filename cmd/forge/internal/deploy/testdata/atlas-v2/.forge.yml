@@ -1,0 +1,70 @@
+# .forge.yml
+project:
+  name: atlas
+  module: example.com/atlas
+build:
+  apps:
+    - { name: gateway, cmd: ./cmd/gateway }
+    - { name: api,     cmd: ./cmd/api }
+    - { name: worker,  cmd: ./cmd/worker }
+
+deploy:
+  version: 2
+  registry: ghcr.io/example
+  defaults: { target: local, environment: dev }
+
+  services:
+    gateway:
+      app: gateway
+      kind: web
+      ports: { http: { port: 8080, exposure: public } }
+      calls: [api]
+    api:
+      app: api
+      kind: web
+      ports: { http: { port: 8080, exposure: private } }
+      config: [./config/api.yaml]
+      migrate: auto                      # run the app's migration entry point before rollout
+      bindings:
+        - { resource: primary, extension: grove,    database: primary }
+        - { resource: uploads, extension: trove,    store: uploads, metadata_database: primary }
+        - { resource: cache,   extension: grove_kv, store: cache }
+    worker:
+      app: worker
+      kind: worker
+      health: { heartbeat: true }
+      bindings:
+        - { resource: primary, extension: grove,    database: primary }
+        - { resource: cache,   extension: grove_kv, store: cache }
+
+  resources:
+    primary: { type: postgres, version: "16" }
+    uploads: { type: object-storage, bucket: atlas-uploads }
+    cache:   { type: redis, features: [json, search] }
+
+  environments:
+    dev:
+      target: local
+      resources:
+        primary: { lifecycle: container }
+        uploads: { lifecycle: container }
+        cache:   { lifecycle: container }
+    production:
+      target: k8s-prod
+      replicas: { gateway: 2, api: 3 }
+      resources:
+        primary: { lifecycle: external, secret: primary-dsn }
+        uploads: { lifecycle: external, secret: uploads-credentials }
+        cache:   { lifecycle: managed }
+      ingress: { host: api.example.com, tls: letsencrypt }
+
+  targets:
+    local:    { provider: compose }
+    k8s-prod: { provider: kubernetes, context: prod-cluster, namespace: atlas-production,
+                ingress_class: nginx, network_policy: true }
+    render:   { provider: render, region: oregon }
+    do:       { provider: digitalocean, region: nyc1 }
+
+  secrets:
+    resolver: env                        # env | file | kubernetes
+    file: .forge/secrets.env             # used when resolver is file; gitignored

@@ -1,0 +1,7 @@
+# mqtt.yaml
+schema: 1
+extension: mqtt
+config_key: extensions.mqtt
+instances: { path: "", name: "", default_from: [broker] }
+kinds: { mqtt: mqtt }
+bind: { dsn: broker }

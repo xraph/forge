@@ -1,0 +1,7 @@
+id: mailpit
+type: smtp
+version: "1"
+image: axllent/mailpit:v1
+port: 1025
+healthcheck: [wget, -qO-, "http://127.0.0.1:8025/livez"]
+dsn: "smtp://{host}:{port}"

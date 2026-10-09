@@ -1,0 +1,10 @@
+id: redis-7
+type: redis
+version: "7"
+image: redis:7
+port: 6379
+volume: /data
+features: []
+healthcheck: ["redis-cli", "ping"]
+dsn: "redis://{host}:{port}/0"
+command: [redis-server, --appendonly, "yes"]

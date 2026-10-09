@@ -1,0 +1,9 @@
+id: rabbitmq-3
+type: rabbitmq
+version: "3"
+image: rabbitmq:3-management
+port: 5672
+volume: /var/lib/rabbitmq
+env: {RABBITMQ_DEFAULT_USER: "${USER}", RABBITMQ_DEFAULT_PASS: "${PASSWORD}"}
+healthcheck: [rabbitmq-diagnostics, -q, ping]
+dsn: "amqp://${USER}:${PASSWORD}@{host}:{port}/"

@@ -1,0 +1,22 @@
+schema: 1
+extension: trove
+config_key: extensions.trove
+instances:
+  path: stores
+  name: name
+  default_from: [storage_driver]
+kinds:
+  s3: object-storage
+  gcs: object-storage
+  azure: object-storage
+  sftp: ""
+  file: ""
+  local: ""
+  mem: ""
+bind:
+  dsn: storage_driver
+  bucket: "{instance}.default_bucket"
+requires:
+  - { extension: grove, via: grove_database }
+migrations:
+  owner: true

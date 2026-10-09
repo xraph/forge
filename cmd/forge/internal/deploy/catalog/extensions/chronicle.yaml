@@ -1,0 +1,6 @@
+schema: 1
+extension: chronicle
+config_key: extensions.relay
+requires:
+  - { extension: grove, via: grove_database }
+  - { extension: grove_kv, via: grove_kv }

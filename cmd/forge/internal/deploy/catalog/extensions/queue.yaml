@@ -1,0 +1,7 @@
+# queue.yaml
+schema: 1
+extension: queue
+config_key: extensions.queue
+instances: { path: "", name: "", default_from: [driver, url] }
+kinds: { inmemory: "", redis: redis, rabbitmq: rabbitmq, nats: nats }
+bind: { dsn: url, driver: driver }

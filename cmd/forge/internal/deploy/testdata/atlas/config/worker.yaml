@@ -1,0 +1,7 @@
+extensions:
+  grove:
+    databases:
+      - { name: primary, driver: postgres }
+    default: primary
+  grove_kv:
+    driver: redis

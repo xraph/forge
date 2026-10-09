@@ -1,0 +1,13 @@
+schema: 1
+extension: authsome
+config_key: extensions.authsome
+requires:
+  - { extension: grove, via: grove_database }
+optional:
+  - kind: smtp
+    when: { field: mailer.provider, equals: smtp }
+    bind:
+      host: mailer.smtp.host
+      port: mailer.smtp.port
+      username: mailer.smtp.username
+      password: mailer.smtp.password

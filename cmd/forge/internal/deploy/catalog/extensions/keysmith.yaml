@@ -1,0 +1,5 @@
+schema: 1
+extension: keysmith
+config_key: extensions.keysmith
+requires:
+  - {extension: grove, via: grove_database}

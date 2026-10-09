@@ -107,7 +107,7 @@ build-modules:
 	@echo "$(COLOR_GREEN)Building all modules...$(COLOR_RESET)"
 	@PASSED=0; FAILED=0; FAILED_LIST=""; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		printf "  Building $$dir... "; \
 		if cd "$$ROOT_DIR/$$dir" && $(GOBUILD) ./... 2>&1; then \
@@ -159,7 +159,7 @@ test:
 	@echo "$(COLOR_GREEN)Running tests in all modules...$(COLOR_RESET)"
 	@COUNT=0; FAILED=0; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Testing $$dir..."; \
 		if cd "$$ROOT_DIR/$$dir" && $(GOTEST) $(TEST_FLAGS) ./...; then \
@@ -269,7 +269,7 @@ lint:
 	fi
 	@COUNT=0; FAILED=0; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Linting $$dir..."; \
 		if cd "$$ROOT_DIR/$$dir" && $(GOLANGCI_LINT) run ./... --timeout=5m; then \
@@ -298,7 +298,7 @@ fmt:
 	@echo "$(COLOR_GREEN)Formatting code in all modules...$(COLOR_RESET)"
 	@COUNT=0; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Formatting $$dir..."; \
 		cd "$$ROOT_DIR/$$dir" && $(GOFMT) ./...; \
@@ -320,7 +320,7 @@ vet:
 	@echo "$(COLOR_GREEN)Running go vet on all modules...$(COLOR_RESET)"
 	@COUNT=0; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Vetting $$dir..."; \
 		cd "$$ROOT_DIR/$$dir" && $(GOVET) ./...; \
@@ -335,7 +335,7 @@ tidy:
 	@echo "$(COLOR_GREEN)Tidying all modules...$(COLOR_RESET)"
 	@COUNT=0; \
 	ROOT_DIR=$$(pwd); \
-	for modfile in $$(find . -name "go.mod" -type f | grep -v "/vendor/" | sort); do \
+	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Tidying $$dir..."; \
 		cd "$$ROOT_DIR/$$dir" && $(GOMOD) tidy; \

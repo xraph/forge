@@ -1,0 +1,12 @@
+id: postgres-16
+type: postgres
+version: "16"
+image: postgres:16
+port: 5432
+volume: /var/lib/postgresql/data
+env:
+  POSTGRES_USER: ${USER}
+  POSTGRES_PASSWORD: ${PASSWORD}
+  POSTGRES_DB: ${DATABASE}
+healthcheck: ["pg_isready", "-U", "${USER}", "-d", "${DATABASE}"]
+dsn: "postgres://${USER}:${PASSWORD}@{host}:{port}/${DATABASE}?sslmode=disable"

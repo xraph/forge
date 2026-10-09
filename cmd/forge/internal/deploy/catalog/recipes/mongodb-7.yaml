@@ -1,0 +1,9 @@
+id: mongodb-7
+type: mongodb
+version: "7"
+image: mongo:7
+port: 27017
+volume: /data/db
+env: {MONGO_INITDB_ROOT_USERNAME: "${USER}", MONGO_INITDB_ROOT_PASSWORD: "${PASSWORD}"}
+healthcheck: [mongosh, --quiet, --eval, "db.runCommand('ping').ok"]
+dsn: "mongodb://${USER}:${PASSWORD}@{host}:{port}/${DATABASE}?authSource=admin"

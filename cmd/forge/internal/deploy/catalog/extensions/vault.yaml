@@ -1,0 +1,5 @@
+schema: 1
+extension: vault
+config_key: extensions.vault
+requires:
+  - {extension: grove, via: grove_database}

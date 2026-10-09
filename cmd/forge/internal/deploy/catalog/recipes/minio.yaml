@@ -1,0 +1,12 @@
+id: minio
+type: object-storage
+version: "latest"
+image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+port: 9000
+volume: /data
+env:
+  MINIO_ROOT_USER: ${USER}
+  MINIO_ROOT_PASSWORD: ${PASSWORD}
+healthcheck: ["mc", "ready", "local"]
+init: ["mc", "alias", "set", "local", "http://{host}:{port}", "${USER}", "${PASSWORD}", "&&", "mc", "mb", "-p", "local/${BUCKET}"]
+dsn: "s3://${USER}:${PASSWORD}@us-east-1/${BUCKET}?endpoint=http://{host}:{port}&path_style=true"

@@ -1,0 +1,9 @@
+schema: 1
+extension: herald
+config_key: extensions.herald
+requires:
+  - {extension: grove, via: grove_database}
+optional:
+  - kind: smtp
+    when: {field: "providers[].driver", equals: smtp}
+    bind: {host: "providers[].credentials.host", port: "providers[].credentials.port", username: "providers[].credentials.username", password: "providers[].credentials.password"}

@@ -1,0 +1,22 @@
+schema: 1
+extension: grove
+config_key: extensions.grove
+instances:
+  path: databases
+  name: name
+  default_from: [driver, dsn]
+kinds:
+  postgres: postgres
+  pg: postgres
+  mysql: mysql
+  sqlite: sqlite
+  mongodb: mongodb
+  mongo: mongodb
+  clickhouse: clickhouse
+  turso: turso
+  elasticsearch: elasticsearch
+bind:
+  dsn: "{instance}.dsn"
+  driver: "{instance}.driver"
+migrations:
+  owner: true

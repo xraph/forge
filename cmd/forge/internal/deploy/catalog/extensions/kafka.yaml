@@ -1,0 +1,7 @@
+# kafka.yaml
+schema: 1
+extension: kafka
+config_key: extensions.kafka
+instances: { path: "", name: "", default_from: [brokers] }
+kinds: { kafka: kafka }
+bind: { dsn: brokers }

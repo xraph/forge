@@ -1,0 +1,2 @@
+project: {name: bare, module: example.com/bare, layout: single-module}
+build: {apps: [{name: svc, cmd: ./cmd/svc}]}

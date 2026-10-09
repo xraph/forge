@@ -1,0 +1,22 @@
+project:
+  name: atlas
+  module: example.com/atlas
+  layout: single-module
+build:
+  apps:
+    - { name: gateway, cmd: ./cmd/gateway }
+    - { name: api, cmd: ./cmd/api }
+    - { name: worker, cmd: ./cmd/worker }
+deploy:
+  registry: ghcr.io/example
+  environments:
+    - name: dev
+      namespace: dev
+      variables: { LOG_LEVEL: debug }
+    - name: production
+      namespace: prod
+      cluster: prod-cluster
+      region: us-east-1
+  kubernetes:
+    namespace: default
+    context: prod-cluster

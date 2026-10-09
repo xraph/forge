@@ -1,0 +1,13 @@
+id: mysql-8
+type: mysql
+version: "8"
+image: mysql:8
+port: 3306
+volume: /var/lib/mysql
+env:
+  MYSQL_USER: ${USER}
+  MYSQL_PASSWORD: ${PASSWORD}
+  MYSQL_DATABASE: ${DATABASE}
+  MYSQL_ROOT_PASSWORD: ${PASSWORD}
+healthcheck: ["mysqladmin", "ping", "-h", "127.0.0.1", "-p${PASSWORD}"]
+dsn: "${USER}:${PASSWORD}@tcp({host}:{port})/${DATABASE}?parseTime=true"

@@ -1,0 +1,9 @@
+project:
+  name: atlas
+  module: example.com/atlas
+  layout: single-module
+build:
+  apps:
+    - { name: gateway, cmd: ./cmd/gateway }
+    - { name: api, cmd: ./cmd/api }
+    - { name: worker, cmd: ./cmd/worker }

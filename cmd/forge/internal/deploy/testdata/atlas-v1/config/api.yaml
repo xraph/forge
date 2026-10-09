@@ -1,0 +1,14 @@
+extensions:
+  grove:
+    databases:
+      - { name: primary, driver: postgres }
+    default: primary
+  trove:
+    stores:
+      - name: uploads
+        storage_driver: s3://us-east-1/atlas-uploads
+        grove_database: primary
+        default_bucket: atlas-uploads
+    default: uploads
+  grove_kv:
+    driver: redis

@@ -1,0 +1,4 @@
+project:
+  name: mono
+  layout: multi-module
+  workspace: {enabled: true, apps: "./apps/*", services: "./services/*"}

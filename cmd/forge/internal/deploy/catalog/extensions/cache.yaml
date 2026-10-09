@@ -1,0 +1,7 @@
+# cache.yaml
+schema: 1
+extension: cache
+config_key: extensions.cache
+instances: { path: "", name: "", default_from: [driver, url] }
+kinds: { inmemory: "", redis: redis, memcached: memcached }
+bind: { dsn: url, driver: driver }

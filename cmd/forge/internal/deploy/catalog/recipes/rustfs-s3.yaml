@@ -1,0 +1,25 @@
+id: rustfs-s3
+type: object-storage
+version: "1"
+default: true
+image: rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+port: 9000
+volume: /data
+command: [/data]
+env:
+  RUSTFS_ACCESS_KEY: ${USER}
+  RUSTFS_SECRET_KEY: ${PASSWORD}
+  RUSTFS_CONSOLE_ENABLE: "false"
+healthcheck: [curl, -fsS, "http://127.0.0.1:9000/health"]
+init_image: amazon/aws-cli@sha256:ce44b800602264c12298bbf3399055a4cefdb9ed4a098abe564afe26e7071bce
+init_env:
+  AWS_ACCESS_KEY_ID: ${USER}
+  AWS_SECRET_ACCESS_KEY: ${PASSWORD}
+  AWS_DEFAULT_REGION: us-east-1
+  BUCKET: ${BUCKET}
+  ENDPOINT: "http://{host}:{port}"
+init:
+  - /bin/sh
+  - -ec
+  - 'aws --endpoint-url "$ENDPOINT" s3api head-bucket --bucket "$BUCKET" || aws --endpoint-url "$ENDPOINT" s3api create-bucket --bucket "$BUCKET"'
+dsn: "s3://${USER}:${PASSWORD}@us-east-1/${BUCKET}?endpoint=http://{host}:{port}&path_style=true"

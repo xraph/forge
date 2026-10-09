@@ -1,0 +1,10 @@
+id: redis-stack-7
+type: redis
+version: "7"
+image: redis/redis-stack-server:7.4.0-v1
+port: 6379
+volume: /data
+features: [json, search, timeseries, bloom]
+healthcheck: ["redis-cli", "ping"]
+dsn: "redis://{host}:{port}/0"
+command: [redis-server, --appendonly, "yes"]

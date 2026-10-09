@@ -1,0 +1,7 @@
+# search.yaml
+schema: 1
+extension: search
+config_key: extensions.search
+instances: { path: "", name: "", default_from: [driver, url] }
+kinds: { inmemory: "", elasticsearch: elasticsearch, meilisearch: meilisearch, typesense: typesense }
+bind: { dsn: url, driver: driver }

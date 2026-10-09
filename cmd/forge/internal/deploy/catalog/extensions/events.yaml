@@ -1,0 +1,7 @@
+# events.yaml
+schema: 1
+extension: events
+config_key: extensions.events
+instances: { path: brokers, name: name, default_from: [] }
+kinds: { memory: "", nats: nats, redis: redis }
+bind: { dsn: "{instance}.config.url", driver: "{instance}.type" }

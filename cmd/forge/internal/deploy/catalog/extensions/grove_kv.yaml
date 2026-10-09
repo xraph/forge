@@ -1,0 +1,17 @@
+schema: 1
+extension: grove_kv
+config_key: extensions.grove_kv
+instances:
+  path: stores
+  name: name
+  default_from: [driver, dsn]
+kinds:
+  redis: redis
+  memcached: memcached
+  badger: ""
+  boltdb: ""
+  bbolt: ""
+  dynamodb: ""
+bind:
+  dsn: "{instance}.dsn"
+  driver: "{instance}.driver"
