@@ -10,29 +10,34 @@ import { Callout } from "fumadocs-ui/components/callout";
 You can build Go applications and export Docker Compose, Kubernetes, DigitalOcean and Render configuration with the current CLI. Review the generated files before you use them.
 
 <Callout type="warn">
-  `forge deploy` and `forge cloud` currently contain simulated operations. The
-  DigitalOcean and Render `forge infra ... deploy` handlers also report success
-  without submitting a deployment. Their success messages do not establish a
-  running application. Docker Compose and Kubernetes infra handlers invoke real
-  tools, but do not verify application readiness.
+  Simulated deployment paths have been removed. Commands awaiting an adapter
+  return exit code 4 and explain the available handoff.
 </Callout>
 
 For the proposed file-backed local page, service communication model and resource provisioning workflow, see the [Deployment Workbench Proposal](/docs/forge/deployment-workbench). Its commands are planned, not available in the current CLI. The design spec and the implementation plans are linked from that page.
 
 ## Current support
 
-| Command family                                                                   | Current behavior                                                                                       |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `forge build`                                                                    | Runs Go builds for selected or discovered applications.                                                |
-| `forge infra docker export`                                                      | Writes Compose files, Dockerfiles and an environment example.                                          |
-| `forge infra k8s export`                                                         | Writes application Deployments, Services and Kustomize overlays.                                       |
-| `forge infra do export`                                                          | Writes an App Platform app spec and supporting files.                                                  |
-| `forge infra render export`                                                      | Writes a Render Blueprint and supporting files.                                                        |
-| `forge infra docker deploy`                                                      | Invokes Docker Compose to build/start the stack. Review build paths, ports and runtime settings first. |
-| `forge infra k8s deploy`                                                         | Invokes kubectl apply. The current fallback/filtering behavior needs review before use.                |
-| `forge deploy`, `forge deploy docker`, `forge deploy k8s`, `forge deploy status` | Simulated build/push/deployment or fixed status data.                                                  |
-| `forge infra do deploy`, `forge infra render deploy`, `forge cloud`              | Simulated remote operations. Export and use the provider's own deployment workflow.                    |
-| `forge deploy start`, `plan`, `export`, `apply`                                  | Proposed workbench commands. Not implemented.                                                          |
+| Command family                                                                                                                                      | Current behavior                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `forge build`                                                                                                                                       | Runs Go builds for selected or discovered applications.                                                |
+| `forge infra docker export`                                                                                                                         | Writes Compose files, Dockerfiles and an environment example.                                          |
+| `forge infra k8s export`                                                                                                                            | Writes application Deployments, Services and Kustomize overlays.                                       |
+| `forge infra do export`                                                                                                                             | Writes an App Platform app spec and supporting files.                                                  |
+| `forge infra render export`                                                                                                                         | Writes a Render Blueprint and supporting files.                                                        |
+| `forge infra docker deploy`                                                                                                                         | Invokes Docker Compose to build/start the stack. Review build paths, ports and runtime settings first. |
+| `forge infra k8s deploy`                                                                                                                            | Validates Kustomize before applying. Service filtering is rejected; readiness is unverified.           |
+| `forge deploy migrate`, `forge deploy schema`                                                                                                       | Migrates legacy YAML with a diff and backup; prints the deploy v2 JSON Schema.                         |
+| `forge infra do deploy`, `forge infra render deploy`, `forge cloud`                                                                                 | Exit 4 with an export or provider-tool handoff.                                                        |
+| `forge deploy start`, `init`, `inspect`, `doctor`, `plan`, `export`, `apply`, `up`, `status`, `logs`, `rollback`, `destroy`, `providers`, `catalog` | Exit 4 until the shared engine and adapters land.                                                      |
+
+Preview a migration before writing it:
+
+```bash
+forge deploy migrate --dry-run
+forge deploy migrate --yes --non-interactive --output json
+forge deploy schema
+```
 
 ## Build applications
 
@@ -177,7 +182,7 @@ Receiving services must still validate identity, audience and grants. Verify a r
 
 ## Automation today
 
-In CI, you can build and export draft infrastructure with the current CLI. Use your existing provider deployment tool after you have validated the artifacts and configured credentials. Do not use simulated `forge deploy` or `forge cloud` success as a release gate.
+In CI, you can build and export draft infrastructure with the current CLI. Use your existing provider deployment tool after you have validated the artifacts and configured credentials. Commands without an adapter return exit code 4.
 
 ```bash
 forge build --production

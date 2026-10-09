@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"errors"
 	"time"
 
 	"github.com/xraph/forge/cli"
@@ -39,6 +40,8 @@ func deployFlags() []cli.CommandOption {
 // planned lists subcommands that later releases add. Help shows them so the
 // surface is stable; each returns exit 4 until it lands.
 var planned = []struct{ name, desc string }{
+	{"migrate", "Migrate a legacy deployment configuration to version 2"},
+	{"schema", "Print the deployment JSON Schema"},
 	{"init", "Write a suggested deploy section from what the project declares"},
 	{"start", "Open the local deployment page"},
 	{"inspect", "Show the resolved deployment, suggestions and open decisions"},
@@ -58,18 +61,59 @@ var planned = []struct{ name, desc string }{
 func (p *DeployPlugin) Commands() []cli.Command {
 	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", p.help)
 
+	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema}
 	for _, c := range planned {
 		name := c.name
 
-		err := deployCmd.AddSubcommand(cli.NewCommand(name, c.desc, func(ctx cli.CommandContext) error {
-			return output.Unsupported("forge deploy "+name, "This subcommand lands in a later release. Run forge deploy for what works today.")
-		}, deployFlags()...))
-		if err != nil {
+		handler, ok := handlers[name]
+		if !ok {
+			handler = func(ctx cli.CommandContext) error {
+				return output.Unsupported("forge deploy "+name, "This command is not available yet.")
+			}
+		}
+
+		opts := deployFlags()
+		if name == "migrate" {
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Preview changes", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write the migration", false)))
+		}
+
+		if err := deployCmd.AddSubcommand(cli.NewCommand(name, c.desc, deployOutputHandler(name, handler), opts...)); err != nil {
 			panic(err)
 		}
 	}
 
 	return []cli.Command{deployCmd}
+}
+
+func deployOutputHandler(name string, handler cli.CommandHandler) cli.CommandHandler {
+	return func(ctx cli.CommandContext) error {
+		format := ctx.String("output")
+		if format != "text" && format != "json" {
+			return output.Fail(output.ExitInvalidInput, "output must be text or json")
+		}
+
+		err := handler(ctx)
+		if err == nil || format != "json" {
+			return err
+		}
+
+		var deployErr *output.Error
+
+		var diagnostics output.Diagnostics
+		if errors.As(err, &deployErr) {
+			diagnostics = deployErr.Diagnostics
+		}
+
+		if len(diagnostics) == 0 {
+			diagnostics = output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: err.Error()}}
+		}
+
+		if emitErr := output.Emit(ctx, output.ModeFromContext(ctx), output.Envelope{Command: name, OK: false, Diagnostics: diagnostics}); emitErr != nil {
+			return emitErr
+		}
+
+		return err
+	}
 }
 
 func (p *DeployPlugin) help(ctx cli.CommandContext) error {

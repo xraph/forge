@@ -34,6 +34,7 @@ forge init --template=api --git
 ```
 
 **Flags:**
+
 - `-n, --name` - Project name
 - `-m, --module` - Go module path
 - `-l, --layout` - Project layout (single-module, multi-module)
@@ -57,11 +58,13 @@ forge dev --watch=false      # Disable hot reload
 ```
 
 **Flags:**
+
 - `-a, --app` - App to run
 - `-w, --watch` - Watch for changes and auto-reload (default: true)
 - `-p, --port` - Port number
 
 **Hot Reload Features:**
+
 - Automatically watches `.go` files in app, `internal/`, and `pkg/` directories
 - Intelligently filters changes (ignores test files, temporary files, hidden files)
 - Debounces rapid file changes (300ms window) to prevent excessive restarts
@@ -69,10 +72,12 @@ forge dev --watch=false      # Disable hot reload
 - Clean shutdown on Ctrl+C with proper resource cleanup
 
 **What Triggers Reload:**
+
 - Modifications to `.go` files (write, create, delete)
 - Files in watched directories: `cmd/`, `internal/`, `pkg/`
 
 **What's Ignored:**
+
 - Test files (`*_test.go`)
 - Hidden files and directories (`.git`, `.idea`, etc.)
 - Vendor and node_modules
@@ -127,6 +132,7 @@ forge g app -n my-app
 ```
 
 **Flags:**
+
 - `-n, --name` - App name (required)
 - `-t, --template` - Template (basic, api, grpc, worker, cli)
 
@@ -154,6 +160,7 @@ The service generation command now provides interactive selection for:
    - Any extension in your project
 
 **Flags:**
+
 - `-n, --name` - Service name (required)
 
 **Example Interactive Session:**
@@ -179,6 +186,7 @@ forge gen ext -n notifications
 ```
 
 **Flags:**
+
 - `-n, --name` - Extension name (required)
 
 **`forge generate controller`** (aliases: `ctrl`, `handler`)
@@ -210,6 +218,7 @@ forge gen controller -n cache -a cache-extension
 ```
 
 **Flags:**
+
 - `-n, --name` - Controller name (required if not prompted)
 - `-a, --app` - Target app or extension name (optional, prompts if not provided)
 
@@ -235,6 +244,7 @@ forge gen model -n Product -f name:string -f price:float64 -f stock:int
 ```
 
 **Flags:**
+
 - `-n, --name` - Model name (required)
 - `-f, --fields` - Fields in format name:type (can be repeated)
 
@@ -253,6 +263,7 @@ forge database migrate --database=analytics
 ```
 
 **Common flags** (accepted by most subcommands):
+
 - `-d, --database` - Database name from project config (default: `default`)
 - `--dsn` - Override the database DSN/connection string
 - `-a, --app` - App name, scopes the command to that app's grove migration group
@@ -322,6 +333,7 @@ forge db create-sql add_user_roles --app=auth-service
 ```
 
 **Flags:**
+
 - `--tx` - Create transactional migration files (`.tx.up.sql` / `.tx.down.sql`)
 - `-a, --app` - Create the migration in an app-scoped directory
 
@@ -355,6 +367,7 @@ forge db adopt --app=api-gateway
 ```
 
 **Flags:**
+
 - `--dry-run` - Report what would be adopted, and record nothing
 
 ---
@@ -374,6 +387,7 @@ forge build -o ./dist               # Custom output
 ```
 
 **Flags:**
+
 - `-a, --app` - App to build (empty = all)
 - `-p, --platform` - Target platform (os/arch)
 - `--production` - Production build
@@ -383,60 +397,17 @@ forge build -o ./dist               # Custom output
 
 ## Deployment Commands
 
-### `forge deploy`
-
-Deploy applications.
+Use `forge deploy migrate --dry-run` to review a legacy deployment block. `forge deploy migrate --yes` writes version 2 and a backup; `forge deploy schema` prints the JSON Schema.
 
 ```bash
-forge deploy -a api-gateway -e staging -t v1.2.3
-forge deploy -a auth-service -e production --tag=latest
+forge deploy migrate --dry-run
+forge deploy migrate --yes --non-interactive --output json
+forge deploy schema
 ```
 
-**Flags:**
-- `-a, --app` - App to deploy
-- `-e, --env` - Environment
-- `-t, --tag` - Image tag
+All deploy subcommands accept `--config`, `--target`, `--env`, `--timeout`, `--output text|json`, `--non-interactive` and `--no-color`. `--target` names a configured target, rather than an image tag.
 
-#### Subcommands
-
-**`forge deploy docker`**
-
-Build and push Docker image.
-
-```bash
-forge deploy docker -a api-gateway -t v1.0.0
-forge deploy docker -a auth-service --tag=latest
-```
-
-**Flags:**
-- `-a, --app` - App to build (required)
-- `-t, --tag` - Image tag
-
-**`forge deploy k8s`** (aliases: `kubernetes`)
-
-Deploy to Kubernetes.
-
-```bash
-forge deploy k8s -e staging
-forge deploy k8s -e production --namespace=prod
-forge deploy kubernetes -e dev
-```
-
-**Flags:**
-- `-e, --env` - Environment
-- `-n, --namespace` - Kubernetes namespace
-
-**`forge deploy status`**
-
-Show deployment status.
-
-```bash
-forge deploy status
-forge deploy status --env=production
-```
-
-**Flags:**
-- `-e, --env` - Environment
+The registered `init`, `start`, `inspect`, `doctor`, `plan`, `export`, `apply`, `up`, `status`, `logs`, `rollback`, `destroy`, `providers` and `catalog` commands return exit 4 until their implementation lands. The old `deploy docker` and `deploy k8s` subcommands have been removed. Legacy infra exports remain available; DigitalOcean, Render and cloud apply commands return an explicit handoff.
 
 ---
 
@@ -474,6 +445,7 @@ forge ext info -n mcp
 ```
 
 **Flags:**
+
 - `-n, --name` - Extension name (required)
 
 ---
@@ -490,6 +462,7 @@ forge doctor --verbose    # Detailed output
 ```
 
 **Flags:**
+
 - `-v, --verbose` - Show verbose output
 
 ### `forge version`
@@ -513,17 +486,16 @@ Available for all commands:
 
 ## Aliases Quick Reference
 
-| Full Command | Aliases | Example |
-|-------------|---------|---------|
-| `generate` | `gen`, `g` | `forge gen app` |
-| `database` | `db` | `forge db migrate` |
-| `extension` | `ext` | `forge ext list` |
-| `dev list` | `dev ls` | `forge dev ls` |
-| `deploy k8s` | `deploy kubernetes` | `forge deploy k8s` |
-| `extension list` | `ext ls` | `forge ext ls` |
-| `generate service` | `gen svc` | `forge gen svc` |
-| `generate extension` | `gen ext` | `forge gen ext` |
-| `generate controller` | `gen ctrl`, `gen handler` | `forge gen ctrl` |
+| Full Command          | Aliases                   | Example            |
+| --------------------- | ------------------------- | ------------------ |
+| `generate`            | `gen`, `g`                | `forge gen app`    |
+| `database`            | `db`                      | `forge db migrate` |
+| `extension`           | `ext`                     | `forge ext list`   |
+| `dev list`            | `dev ls`                  | `forge dev ls`     |
+| `extension list`      | `ext ls`                  | `forge ext ls`     |
+| `generate service`    | `gen svc`                 | `forge gen svc`    |
+| `generate extension`  | `gen ext`                 | `forge gen ext`    |
+| `generate controller` | `gen ctrl`, `gen handler` | `forge gen ctrl`   |
 
 ---
 
@@ -552,10 +524,7 @@ forge gen app -n api-gateway
 forge gen app -n auth-service
 forge gen app -n user-service
 forge build --production
-forge deploy docker -a api-gateway -t v1.0.0
-forge deploy docker -a auth-service -t v1.0.0
-forge deploy k8s -e staging
-forge deploy status --env=staging
+forge infra k8s export
 ```
 
 ### Database Management
@@ -592,6 +561,7 @@ forge infra docker deploy -b                 # Force rebuild images
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to deploy (default: all)
 - `-e, --env` - Environment (default: dev)
 - `-b, --build` - Force rebuild images
@@ -607,6 +577,7 @@ forge infra docker export -f                 # Force overwrite
 ```
 
 **Flags:**
+
 - `-o, --output` - Output directory
 - `-f, --force` - Force overwrite existing files
 
@@ -625,6 +596,7 @@ forge infra k8s deploy --dry-run             # Preview changes
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to deploy (default: all)
 - `-e, --env` - Environment (default: dev)
 - `-n, --namespace` - Kubernetes namespace
@@ -641,6 +613,7 @@ forge infra k8s export -f                    # Force overwrite
 ```
 
 **Flags:**
+
 - `-o, --output` - Output directory
 - `-f, --force` - Force overwrite existing files
 
@@ -658,6 +631,7 @@ forge infra do deploy -r nyc1                # Deploy to region
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to deploy (default: all)
 - `-e, --env` - Environment (default: dev)
 - `-r, --region` - Digital Ocean region
@@ -672,6 +646,7 @@ forge infra do export -f                     # Force overwrite
 ```
 
 **Flags:**
+
 - `-o, --output` - Output directory
 - `-f, --force` - Force overwrite existing files
 
@@ -688,6 +663,7 @@ forge infra render deploy -e prod            # Deploy to production
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to deploy (default: all)
 - `-e, --env` - Environment (default: dev)
 
@@ -701,6 +677,7 @@ forge infra render export -f                 # Force overwrite
 ```
 
 **Flags:**
+
 - `-o, --output` - Output directory
 - `-f, --force` - Force overwrite existing files
 
@@ -726,6 +703,7 @@ forge cloud login -t YOUR_TOKEN              # Login with token
 ```
 
 **Flags:**
+
 - `-t, --token` - API token
 
 **`forge cloud logout`**
@@ -751,6 +729,7 @@ forge cloud deploy -w                        # Watch deployment progress
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to deploy (default: all)
 - `-e, --env` - Environment (default: dev)
 - `-r, --region` - Deployment region
@@ -770,6 +749,7 @@ forge cloud status -w                        # Watch status updates
 ```
 
 **Flags:**
+
 - `-e, --env` - Environment (default: dev)
 - `-s, --service` - Filter by service
 - `-w, --watch` - Watch status updates
@@ -786,6 +766,7 @@ forge cloud logs -s api -e prod -f           # Follow prod logs
 ```
 
 **Flags:**
+
 - `-s, --service` - Service name (required)
 - `-e, --env` - Environment (default: dev)
 - `-f, --follow` - Follow log output
@@ -804,6 +785,7 @@ forge cloud rollback -s api -e prod          # Rollback in production
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to rollback (required)
 - `-e, --env` - Environment (default: dev)
 - `-v, --version` - Version to rollback to
@@ -818,6 +800,7 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
 ```
 
 **Flags:**
+
 - `-s, --service` - Service to scale (required)
 - `-e, --env` - Environment (default: dev)
 - `-r, --replicas` - Number of replicas (default: 1)
@@ -829,6 +812,7 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
 1. **Tab Completion**: Most shells support tab completion. Run `forge completion bash` or `forge completion zsh` to enable it.
 
 2. **Help Everywhere**: Add `--help` to any command to see detailed usage:
+
    ```bash
    forge --help
    forge generate --help
@@ -836,12 +820,14 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
    ```
 
 3. **Interactive Mode**: Most commands prompt for missing required arguments:
+
    ```bash
    forge gen app    # Will prompt for name
    forge dev        # Will show app selector
    ```
 
 4. **Aliases**: Use shorter aliases for faster typing:
+
    ```bash
    forge g app -n my-app     # Instead of forge generate app
    forge database migrate    # Instead of forge db migrate
@@ -853,4 +839,3 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
 ---
 
 For more information, see the [README.md](./README.md) or [QUICK_START.md](./QUICK_START.md).
-

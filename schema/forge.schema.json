@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://forge.dev/schema/forge.schema.json",
   "title": "Forge Configuration",
-  "description": "Schema for .forge.yaml — the Forge CLI project configuration file.",
+  "description": "Schema for .forge.yaml \u2014 the Forge CLI project configuration file.",
   "type": "object",
   "properties": {
     "project": {
@@ -32,7 +32,9 @@
       "$ref": "#/$defs/TestConfig"
     }
   },
-  "required": ["project"],
+  "required": [
+    "project"
+  ],
   "additionalProperties": false,
   "$defs": {
     "ProjectConfig": {
@@ -55,18 +57,25 @@
           "type": "string",
           "description": "Project type.",
           "default": "monorepo",
-          "enum": ["monorepo"]
+          "enum": [
+            "monorepo"
+          ]
         },
         "layout": {
           "type": "string",
           "description": "Project layout strategy.",
           "default": "single-module",
-          "enum": ["single-module", "multi-module"]
+          "enum": [
+            "single-module",
+            "multi-module"
+          ]
         },
         "module": {
           "type": "string",
           "description": "Go module path. Required for single-module layout.",
-          "examples": ["github.com/myorg/myproject"]
+          "examples": [
+            "github.com/myorg/myproject"
+          ]
         },
         "workspace": {
           "$ref": "#/$defs/WorkspaceConfig"
@@ -75,7 +84,9 @@
           "$ref": "#/$defs/StructureConfig"
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "WorkspaceConfig": {
@@ -91,17 +102,23 @@
           "type": "string",
           "description": "Glob pattern for app modules.",
           "default": "./apps/*",
-          "examples": ["./apps/*"]
+          "examples": [
+            "./apps/*"
+          ]
         },
         "services": {
           "type": "string",
           "description": "Glob pattern for service modules.",
-          "examples": ["./services/*"]
+          "examples": [
+            "./services/*"
+          ]
         },
         "extensions": {
           "type": "string",
           "description": "Glob pattern for extension modules.",
-          "examples": ["./extensions/*"]
+          "examples": [
+            "./extensions/*"
+          ]
         },
         "pkg": {
           "type": "string",
@@ -200,7 +217,9 @@
         "paths": {
           "type": "array",
           "description": "Glob patterns of paths to watch for changes.",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
             "./apps/**/internal/**/*.go",
             "./pkg/**/*.go",
@@ -210,7 +229,9 @@
         "exclude": {
           "type": "array",
           "description": "Glob patterns of paths to exclude from watching.",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
             "**/*_test.go",
             "**/testdata/**",
@@ -233,7 +254,10 @@
           "type": "string",
           "description": "Debounce delay before restarting after a file change. Go duration string.",
           "default": "500ms",
-          "examples": ["300ms", "1s"]
+          "examples": [
+            "300ms",
+            "1s"
+          ]
         }
       },
       "additionalProperties": false
@@ -265,22 +289,31 @@
         "volumes": {
           "type": "object",
           "description": "Extra volume mounts. Keys are host paths, values are container paths.",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "env": {
           "type": "object",
           "description": "Extra environment variables injected into the container.",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "build_args": {
           "type": "object",
           "description": "Docker build arguments passed to `docker build`.",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "platform": {
           "type": "string",
           "description": "Target platform for the Docker build (e.g., linux/amd64).",
-          "examples": ["linux/amd64", "linux/arm64"]
+          "examples": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
         }
       },
       "additionalProperties": false
@@ -293,7 +326,11 @@
           "type": "string",
           "description": "Database driver.",
           "default": "postgres",
-          "enum": ["postgres", "mysql", "sqlite"]
+          "enum": [
+            "postgres",
+            "mysql",
+            "sqlite"
+          ]
         },
         "migrations_path": {
           "type": "string",
@@ -327,7 +364,9 @@
         "url": {
           "type": "string",
           "description": "Database connection URL.",
-          "examples": ["postgres://user:password@localhost:5432/mydb"]
+          "examples": [
+            "postgres://user:password@localhost:5432/mydb"
+          ]
         },
         "max_connections": {
           "type": "integer",
@@ -340,7 +379,9 @@
           "minimum": 0
         }
       },
-      "required": ["url"],
+      "required": [
+        "url"
+      ],
       "additionalProperties": false
     },
     "BuildConfig": {
@@ -379,13 +420,23 @@
         "ldflags": {
           "type": "string",
           "description": "Linker flags passed to `go build -ldflags`.",
-          "examples": ["-s -w", "-X main.version=1.0.0"]
+          "examples": [
+            "-s -w",
+            "-X main.version=1.0.0"
+          ]
         },
         "tags": {
           "type": "array",
           "description": "Build tags passed to `go build -tags`.",
-          "items": { "type": "string" },
-          "examples": [["production", "jsoniter"]]
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "production",
+              "jsoniter"
+            ]
+          ]
         }
       },
       "additionalProperties": false
@@ -405,7 +456,9 @@
         "cmd": {
           "type": "string",
           "description": "Path to main.go directory.",
-          "examples": ["./cmd/api-gateway"]
+          "examples": [
+            "./cmd/api-gateway"
+          ]
         },
         "output": {
           "type": "string",
@@ -416,7 +469,9 @@
           "description": "Path to Dockerfile for this app."
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "Platform": {
@@ -426,47 +481,37 @@
         "os": {
           "type": "string",
           "description": "Target operating system.",
-          "enum": ["linux", "darwin", "windows"]
+          "enum": [
+            "linux",
+            "darwin",
+            "windows"
+          ]
         },
         "arch": {
           "type": "string",
           "description": "Target architecture.",
-          "enum": ["amd64", "arm64", "386"]
+          "enum": [
+            "amd64",
+            "arm64",
+            "386"
+          ]
         }
       },
-      "required": ["os", "arch"],
+      "required": [
+        "os",
+        "arch"
+      ],
       "additionalProperties": false
     },
     "DeployConfig": {
-      "type": "object",
-      "description": "Deployment configuration.",
-      "properties": {
-        "registry": {
-          "type": "string",
-          "description": "Docker registry prefix for image tags.",
-          "examples": ["ghcr.io/myorg", "registry.example.com"]
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LegacyDeployConfig"
         },
-        "environments": {
-          "type": "array",
-          "description": "Deployment environment definitions.",
-          "items": {
-            "$ref": "#/$defs/EnvironmentConfig"
-          }
-        },
-        "docker": {
-          "$ref": "#/$defs/DockerConfig"
-        },
-        "kubernetes": {
-          "$ref": "#/$defs/KubernetesConfig"
-        },
-        "digitalocean": {
-          "$ref": "#/$defs/DigitalOceanConfig"
-        },
-        "render": {
-          "$ref": "#/$defs/RenderConfig"
+        {
+          "$ref": "https://raw.githubusercontent.com/xraph/forge/main/schema/forge-deploy.schema.json"
         }
-      },
-      "additionalProperties": false
+      ]
     },
     "EnvironmentConfig": {
       "type": "object",
@@ -491,10 +536,14 @@
         "variables": {
           "type": "object",
           "description": "Environment-specific variables.",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "DockerConfig": {
@@ -523,7 +572,9 @@
         "volumes": {
           "type": "object",
           "description": "Named volumes. Keys are volume names, values are mount paths.",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -560,7 +611,11 @@
         "region": {
           "type": "string",
           "description": "DigitalOcean region.",
-          "examples": ["nyc1", "sfo3", "ams3"]
+          "examples": [
+            "nyc1",
+            "sfo3",
+            "ams3"
+          ]
         },
         "app_spec_file": {
           "type": "string",
@@ -573,7 +628,9 @@
         "git_repo": {
           "type": "string",
           "description": "GitHub repository in 'owner/repo' format.",
-          "examples": ["myorg/myrepo"]
+          "examples": [
+            "myorg/myrepo"
+          ]
         },
         "git_branch": {
           "type": "string",
@@ -599,12 +656,17 @@
         "region": {
           "type": "string",
           "description": "Render region.",
-          "examples": ["oregon", "frankfurt"]
+          "examples": [
+            "oregon",
+            "frankfurt"
+          ]
         },
         "git_repo": {
           "type": "string",
           "description": "GitHub repository in 'owner/repo' format.",
-          "examples": ["myorg/myrepo"]
+          "examples": [
+            "myorg/myrepo"
+          ]
         },
         "git_branch": {
           "type": "string",
@@ -686,7 +748,45 @@
           "type": "string",
           "description": "Test timeout as a Go duration string.",
           "default": "30s",
-          "examples": ["30s", "5m", "1h"]
+          "examples": [
+            "30s",
+            "5m",
+            "1h"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "LegacyDeployConfig": {
+      "type": "object",
+      "description": "Deployment configuration.",
+      "properties": {
+        "registry": {
+          "type": "string",
+          "description": "Docker registry prefix for image tags.",
+          "examples": [
+            "ghcr.io/myorg",
+            "registry.example.com"
+          ]
+        },
+        "environments": {
+          "type": "array",
+          "description": "Deployment environment definitions.",
+          "items": {
+            "$ref": "#/$defs/EnvironmentConfig"
+          }
+        },
+        "docker": {
+          "$ref": "#/$defs/DockerConfig"
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/KubernetesConfig"
+        },
+        "digitalocean": {
+          "$ref": "#/$defs/DigitalOceanConfig"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderConfig"
         }
       },
       "additionalProperties": false

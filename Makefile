@@ -1161,3 +1161,8 @@ matrix: test-matrix
 
 .DEFAULT_GOAL := help
 
+
+.PHONY: schema-deploy
+## schema-deploy: Publish the deployment schema used by the CLI
+schema-deploy:
+	cp cmd/forge/internal/deploy/spec/deploy.schema.json schema/forge-deploy.schema.json

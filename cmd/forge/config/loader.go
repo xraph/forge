@@ -10,44 +10,67 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadForgeConfig searches for .forge.yaml up the directory tree and loads it
-// Returns the config, the path where it was found, and any error.
+// LoadForgeConfig loads the nearest project configuration. Invalid or ambiguous files stop the search.
 func LoadForgeConfig() (*ForgeConfig, string, error) {
-	// Start from current directory
 	dir, err := os.Getwd()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get current directory: %w", err)
+		return nil, "", err
 	}
-
-	// Search up the directory tree
 	for {
-		// Try .forge.yaml
-		configPath := filepath.Join(dir, ".forge.yaml")
-		if config, err := tryLoadConfig(configPath); err == nil {
-			config.RootDir = dir
-			config.ConfigPath = configPath
-
-			return config, configPath, nil
+		cfg, err := LoadForgeConfigFrom(dir)
+		if err == nil {
+			return cfg, cfg.ConfigPath, nil
 		}
 
-		// Try .forge.yml
-		configPath = filepath.Join(dir, ".forge.yml")
-		if config, err := tryLoadConfig(configPath); err == nil {
-			config.RootDir = dir
-			config.ConfigPath = configPath
-
-			return config, configPath, nil
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, "", err
 		}
 
-		// Move up one directory
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached root without finding config
-			return nil, "", errors.New("no .forge.yaml or .forge.yml found in current directory or any parent")
+			return nil, "", fmt.Errorf("no .forge.yml or .forge.yaml found: %w", os.ErrNotExist)
 		}
 
 		dir = parent
 	}
+}
+
+// LoadForgeConfigFrom loads root only and rejects ambiguous filenames.
+func LoadForgeConfigFrom(root string) (*ForgeConfig, error) {
+	var found string
+
+	for _, name := range []string{".forge.yml", ".forge.yaml"} {
+		path := filepath.Join(root, name)
+
+		_, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if found != "" {
+			return nil, fmt.Errorf("both .forge.yml and .forge.yaml exist in %s", root)
+		}
+
+		found = path
+	}
+
+	if found == "" {
+		return nil, fmt.Errorf("no project configuration in %s: %w", root, os.ErrNotExist)
+	}
+
+	cfg, err := tryLoadConfig(found)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", found, err)
+	}
+
+	cfg.RootDir = root
+	cfg.ConfigPath = found
+
+	return cfg, nil
 }
 
 // tryLoadConfig attempts to load config from a specific path.
@@ -63,9 +86,37 @@ func tryLoadConfig(path string) (*ForgeConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse YAML
+	// Decode the project envelope separately. The deploy v2 engine reads its own typed contract.
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if len(document.Content) > 0 {
+		mapping := document.Content[0]
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value != "deploy" {
+				continue
+			}
+
+			node := mapping.Content[i+1]
+
+			var version struct {
+				Version int `yaml:"version"`
+			}
+			if err := node.Decode(&version); err != nil {
+				return nil, fmt.Errorf("invalid deploy section: %w", err)
+			}
+
+			if version.Version >= 2 {
+				mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
+			}
+
+			break
+		}
+	}
 	config := DefaultConfig()
-	if err := yaml.Unmarshal(data, config); err != nil {
+	if err := document.Decode(config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
@@ -79,6 +130,75 @@ func SaveForgeConfig(config *ForgeConfig, path string) error {
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Existing v2 deployment settings belong to the deploy engine. Preserve
+	// their YAML nodes and unknown project keys when another command saves.
+	existing, readErr := os.ReadFile(path)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+
+	if readErr == nil {
+		var old, next yaml.Node
+
+		if err := yaml.Unmarshal(existing, &old); err != nil {
+			return fmt.Errorf("refusing to overwrite invalid configuration: %w", err)
+		}
+
+		if len(old.Content) > 0 && old.Content[0].Kind == yaml.MappingNode {
+			mapping := old.Content[0]
+			v2 := false
+
+			for i := 0; i+1 < len(mapping.Content); i += 2 {
+				if mapping.Content[i].Value == "deploy" {
+					var version struct {
+						Version int `yaml:"version"`
+					}
+					if err := mapping.Content[i+1].Decode(&version); err != nil {
+						return err
+					}
+
+					v2 = version.Version >= 2
+				}
+			}
+
+			if v2 {
+				if err := yaml.Unmarshal(data, &next); err != nil {
+					return err
+				}
+
+				for i := 0; i+1 < len(next.Content[0].Content); i += 2 {
+					key, value := next.Content[0].Content[i], next.Content[0].Content[i+1]
+
+					if key.Value == "deploy" {
+						continue
+					}
+
+					found := false
+
+					for j := 0; j+1 < len(mapping.Content); j += 2 {
+						if mapping.Content[j].Value == key.Value {
+							mapping.Content[j+1] = value
+							found = true
+
+							break
+						}
+					}
+
+					if !found {
+						mapping.Content = append(mapping.Content, key, value)
+					}
+				}
+
+				data, err = yaml.Marshal(&old)
+				if err != nil {
+					return err
+				}
+
+				return os.WriteFile(path, data, 0600)
+			}
+		}
 	}
 
 	// Add header comment

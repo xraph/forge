@@ -58,11 +58,7 @@ forge db migrate
 forge infra k8s export
 ```
 
-Deployment support needs care. `forge deploy` and `forge cloud` currently contain
-simulated operations, and DigitalOcean/Render infra deploy handlers do not submit
-real deployments. Compose and Kubernetes infra handlers run external tools but do
-not verify application readiness. Review exported ports, probes, build paths,
-runtime settings and data dependencies before you apply the files.
+You can migrate deployment YAML and print its schema with `forge deploy migrate` and `forge deploy schema`. Commands awaiting an adapter return exit code 4; the implementation path is recorded in [the deployment plan](../../docs/deployment/PLAN.md).
 
 The proposed `forge deploy start` local page and shared plan/apply workflow are
 described in [the deployment plan](../../docs/deployment/PLAN.md). You can review
@@ -226,28 +222,15 @@ forge build --production
 forge build -o ./dist
 ```
 
-### Deployment command placeholders
-
-These commands currently simulate their operations. Use `forge infra ... export`
-to generate draft artifacts, then validate and apply them with your deployment
-tool. Do not treat the output below as a real image push or cluster status.
+### Deployment configuration
 
 ```bash
-# Full deployment
-forge deploy -a api-gateway -e staging -t v1.2.3
-
-# Build and push Docker image
-forge deploy docker -a api-gateway -t latest
-forge deploy docker -a auth-service -t v2.0.0
-
-# Deploy to Kubernetes
-forge deploy k8s -e production
-forge deploy k8s -e staging --namespace=my-namespace
-
-# Show deployment status
-forge deploy status
-forge deploy status --env=production
+forge deploy migrate --dry-run
+forge deploy migrate --yes --non-interactive --output json
+forge deploy schema
 ```
+
+The remaining deploy engine commands are registered and return exit 4 until implemented. Legacy infrastructure exports write provider files for review.
 
 ### Extensions
 

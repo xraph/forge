@@ -186,59 +186,31 @@ build:
 # Deployment
 # -----------------------------------------------------------------------------
 deploy:
-  registry: ghcr.io/myorg # Docker registry prefix
-
-  # Environment definitions
+  version: 2
+  registry: ghcr.io/myorg
+  defaults: { target: local, environment: dev }
+  services:
+    api:
+      app: api
+      kind: web
+      ports: { http: { port: 8080, exposure: public } }
+      health: { readiness: /health, liveness: /health }
+      bindings:
+        - { resource: database, extension: grove, database: main }
+  resources:
+    database: { type: postgres, version: "17" }
   environments:
-    - name: dev
-      namespace: dev
-      variables:
-        LOG_LEVEL: debug
-    - name: staging
-      namespace: staging
-      cluster: staging-cluster
-      region: us-east-1
-      variables:
-        LOG_LEVEL: info
-    - name: production
-      namespace: prod
-      cluster: prod-cluster
-      region: us-east-1
-      variables:
-        LOG_LEVEL: warn
-
-  # Docker deployment config (forge infra docker / forge deploy docker)
-  docker:
-    build_context: .
-    dockerfile: Dockerfile
-    compose_file: docker-compose.yml
-    network: forge-network
-    volumes:
-      pg-data: /var/lib/postgresql/data
-      redis-data: /data
-
-  # Kubernetes config (forge infra k8s / forge deploy k8s)
-  kubernetes:
-    manifests: ./deployments/k8s
-    namespace: default
-    context: my-k8s-cluster
-    registry: ghcr.io/myorg
-
-  # DigitalOcean App Platform config (forge infra do)
-  digitalocean:
-    region: nyc1
-    app_spec_file: ./deployments/do/app.yaml
-    cluster_name: my-do-cluster
-    git_repo: myorg/my-project
-    git_branch: main
-    deploy_on_push: true
-
-  # Render.com config (forge infra render)
-  render:
-    blueprint_file: ./deployments/render/render.yaml
-    region: oregon
-    git_repo: myorg/my-project
-    git_branch: main
+    dev:
+      target: local
+      resources: { database: { lifecycle: container } }
+    production:
+      target: cluster
+      resources: { database: { lifecycle: external, secret: DATABASE_DSN } }
+  targets:
+    local: { provider: compose, project: my-platform }
+    cluster:
+      { provider: kubernetes, context: production, namespace: my-platform }
+  secrets: { resolver: env }
 
 # -----------------------------------------------------------------------------
 # Code generation
@@ -416,63 +388,50 @@ Configuration for `forge dev --docker`. See the [Docker Development Mode](/docs/
 
 ### `deploy`
 
-| Field          | Type                  | Default | Description               |
-| -------------- | --------------------- | ------- | ------------------------- |
-| `registry`     | `string`              | `""`    | Docker registry prefix.   |
-| `environments` | `EnvironmentConfig[]` | `[]`    | Environment definitions.  |
-| `docker`       | `object`              | —       | Docker deployment config. |
-| `kubernetes`   | `object`              | —       | Kubernetes config.        |
-| `digitalocean` | `object`              | —       | DigitalOcean config.      |
-| `render`       | `object`              | —       | Render.com config.        |
+Set `version: 2` for the deployment engine. The earlier provider blocks remain readable by legacy infra exports. Use `forge deploy migrate --dry-run` to review conversion, then `forge deploy migrate --yes` to save it with a `.v1.bak` backup.
+
+| Field               | Purpose                                                                     |
+| ------------------- | --------------------------------------------------------------------------- |
+| `version`           | Required contract version, currently `2`.                                   |
+| `registry`          | Default image registry prefix.                                              |
+| `defaults`          | Named `target` and `environment` used when flags are omitted.               |
+| `spec`              | Optional project-relative YAML holding services, resources and connections. |
+| `environment_files` | Environment names mapped to project-relative YAML files.                    |
+| `connections`       | Explicit `from`, `to`, port and runtime config-key mappings.                |
+
+#### `services`
+
+| Field                              | Purpose                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `app`, `kind`                      | Build application and workload kind: web, worker, job, cron or gateway. |
+| `ports`, `health`                  | Named ports and readiness, liveness, startup or heartbeat settings.     |
+| `config`, `env`                    | Runtime YAML files and environment variables.                           |
+| `replicas`, `resources`            | Replica count and CPU/memory requests and limits.                       |
+| `bindings`, `calls`                | Resource-to-extension bindings and calls to other services.             |
+| `migrate`, `schedule`, `discovery` | Migration owner, cron schedule and discovery opt-in.                    |
+
+#### `resources`
+
+Declare each resource by name with a `type`, optional `version`, `features` and `bucket`. Bindings name the resource and extension. Grove bindings also name a `database`; Trove bindings name a `store` and, when needed, a `metadata_database`.
 
 #### `environments`
 
-| Field       | Type                | Required | Description                                              |
-| ----------- | ------------------- | -------- | -------------------------------------------------------- |
-| `name`      | `string`            | Yes      | Environment name (e.g., `dev`, `staging`, `production`). |
-| `cluster`   | `string`            | No       | Kubernetes cluster name.                                 |
-| `namespace` | `string`            | No       | Kubernetes namespace.                                    |
-| `region`    | `string`            | No       | Cloud region.                                            |
-| `variables` | `map[string]string` | No       | Environment variables.                                   |
+| Field               | Purpose                                                         |
+| ------------------- | --------------------------------------------------------------- |
+| `target`            | Required target name.                                           |
+| `resources`         | Lifecycle, secret reference and recipe overrides per resource.  |
+| `replicas`, `env`   | Per-service replica overrides and shared environment variables. |
+| `ingress`, `backup` | Ingress host/TLS and backup schedule/destination/retention.     |
 
-#### `docker` (deploy)
+#### `targets`
 
-| Field           | Type                | Default                | Description           |
-| --------------- | ------------------- | ---------------------- | --------------------- |
-| `build_context` | `string`            | `"."`                  | Docker build context. |
-| `dockerfile`    | `string`            | `"Dockerfile"`         | Dockerfile path.      |
-| `compose_file`  | `string`            | `"docker-compose.yml"` | Compose file path.    |
-| `network`       | `string`            | `""`                   | Docker network name.  |
-| `volumes`       | `map[string]string` | `{}`                   | Named volumes.        |
+Every target names its `provider`. Compose targets use `project` and `docker_context`. Kubernetes targets use `context`, `namespace`, `ingress_class`, `gateway_api` and `network_policy`. Hosted targets carry a `region` and adapter-specific settings. Declaring a provider does not establish that its adapter supports applying a deployment.
 
-#### `kubernetes`
+#### `secrets`
 
-| Field       | Type     | Default               | Description          |
-| ----------- | -------- | --------------------- | -------------------- |
-| `manifests` | `string` | `"./deployments/k8s"` | Manifests directory. |
-| `namespace` | `string` | `"default"`           | Default namespace.   |
-| `context`   | `string` | `""`                  | kubectl context.     |
-| `registry`  | `string` | `""`                  | Image registry.      |
+`resolver` selects `env` (default), `file` or `kubernetes`. `file` names a local secret file. Store references in deployment YAML, and keep credential values out of tracked files.
 
-#### `digitalocean`
-
-| Field            | Type     | Default  | Description                 |
-| ---------------- | -------- | -------- | --------------------------- |
-| `region`         | `string` | `""`     | DO region (e.g., `nyc1`).   |
-| `app_spec_file`  | `string` | `""`     | App spec file path.         |
-| `cluster_name`   | `string` | `""`     | DOKS cluster name.          |
-| `git_repo`       | `string` | `""`     | GitHub repo (`owner/repo`). |
-| `git_branch`     | `string` | `"main"` | Branch to deploy.           |
-| `deploy_on_push` | `bool`   | `false`  | Auto-deploy on push.        |
-
-#### `render`
-
-| Field            | Type     | Default  | Description                 |
-| ---------------- | -------- | -------- | --------------------------- |
-| `blueprint_file` | `string` | `""`     | Render blueprint path.      |
-| `region`         | `string` | `""`     | Render region.              |
-| `git_repo`       | `string` | `""`     | GitHub repo (`owner/repo`). |
-| `git_branch`     | `string` | `"main"` | Branch to deploy.           |
+The [deploy JSON Schema](https://raw.githubusercontent.com/xraph/forge/main/schema/forge-deploy.schema.json) validates a standalone deploy block. The main Forge schema accepts both legacy and v2 deployment settings.
 
 ---
 
@@ -618,15 +577,29 @@ project:
   module: github.com/me/my-platform
 
 deploy:
-  registry: ghcr.io/me
-
+  version: 2
+  registry: ghcr.io/myorg
+  defaults: { target: local, environment: dev }
+  services:
+    api:
+      app: api
+      kind: web
+      ports: { http: { port: 8080, exposure: public } }
+      health: { readiness: /health, liveness: /health }
+      bindings:
+        - { resource: database, extension: grove, database: main }
+  resources:
+    database: { type: postgres, version: "17" }
   environments:
-    - name: dev
-      namespace: dev
-    - name: production
-      namespace: prod
-      region: us-east-1
-
-  kubernetes:
-    context: prod-cluster
+    dev:
+      target: local
+      resources: { database: { lifecycle: container } }
+    production:
+      target: cluster
+      resources: { database: { lifecycle: external, secret: DATABASE_DSN } }
+  targets:
+    local: { provider: compose, project: my-platform }
+    cluster:
+      { provider: kubernetes, context: production, namespace: my-platform }
+  secrets: { resolver: env }
 ```

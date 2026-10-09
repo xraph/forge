@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/xraph/forge/main/schema/forge-deploy.schema.json",
+  "title": "Forge deployment configuration v2",
+  "$ref": "#/$defs/Deploy",
+  "$defs": {
+    "Deploy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 2
+        },
+        "registry": {
+          "type": "string"
+        },
+        "defaults": {
+          "$ref": "#/$defs/Defaults"
+        },
+        "spec": {
+          "type": "string"
+        },
+        "environment_files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Service"
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Resource"
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Connection"
+          }
+        },
+        "environments": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Environment"
+          }
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Target"
+          }
+        },
+        "secrets": {
+          "$ref": "#/$defs/Secrets"
+        }
+      },
+      "required": [
+        "version"
+      ]
+    },
+    "Defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        }
+      }
+    },
+    "Service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "web",
+            "worker",
+            "job",
+            "cron",
+            "gateway"
+          ]
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Port"
+          }
+        },
+        "health": {
+          "$ref": "#/$defs/Health"
+        },
+        "config": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceSpec"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Binding"
+          }
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "migrate": {
+          "type": "string",
+          "description": "\"\", \"auto\", or a command string"
+        },
+        "discovery": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "kind"
+      ]
+    },
+    "Port": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "protocol": {
+          "type": "string",
+          "description": "\"http\" default, \"grpc\", \"tcp\"",
+          "enum": [
+            "http",
+            "grpc",
+            "tcp"
+          ]
+        },
+        "exposure": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ],
+          "description": "private default"
+        }
+      },
+      "required": [
+        "port"
+      ]
+    },
+    "Health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readiness": {
+          "type": "string"
+        },
+        "liveness": {
+          "type": "string"
+        },
+        "startup": {
+          "type": "string"
+        },
+        "heartbeat": {
+          "type": "boolean"
+        },
+        "none": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ResourceSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        },
+        "cpu_limit": {
+          "type": "string"
+        },
+        "memory_limit": {
+          "type": "string"
+        }
+      }
+    },
+    "Binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "type": "string"
+        },
+        "extension": {
+          "type": "string"
+        },
+        "database": {
+          "type": "string",
+          "description": "grove"
+        },
+        "store": {
+          "type": "string",
+          "description": "trove, grove_kv"
+        },
+        "metadata_database": {
+          "type": "string",
+          "description": "trove"
+        }
+      },
+      "required": [
+        "resource",
+        "extension"
+      ]
+    },
+    "Resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bucket": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "Connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string",
+          "description": "\"http\" default"
+        },
+        "config_key": {
+          "type": "string",
+          "description": "\"services.<to>.url\" default"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^(0|([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+)$"
+        },
+        "retry": {
+          "$ref": "#/$defs/Retry"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "Retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "type": "integer"
+        }
+      }
+    },
+    "Environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "replicas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ResourceOverride"
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "ingress": {
+          "$ref": "#/$defs/Ingress"
+        },
+        "backup": {
+          "$ref": "#/$defs/Backup"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+    "ResourceOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "container",
+            "external",
+            "managed"
+          ]
+        },
+        "secret": {
+          "type": "string"
+        },
+        "recipe": {
+          "type": "string"
+        },
+        "remove": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "tls": {
+          "type": "string",
+          "description": "issuer name, \"letsencrypt\" by convention"
+        }
+      }
+    },
+    "Backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schedule": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "retention": {
+          "type": "string"
+        }
+      }
+    },
+    "Target": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "ingress_class": {
+          "type": "string"
+        },
+        "gateway_api": {
+          "type": "boolean"
+        },
+        "network_policy": {
+          "type": "boolean"
+        },
+        "project": {
+          "type": "string",
+          "description": "compose project name"
+        },
+        "docker_context": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider"
+      ]
+    },
+    "Secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resolver": {
+          "type": "string",
+          "description": "\"env\" default, \"file\", \"kubernetes\"",
+          "enum": [
+            "env",
+            "file",
+            "kubernetes"
+          ]
+        },
+        "file": {
+          "type": "string",
+          "description": "\".forge/secrets.env\" default"
+        }
+      }
+    }
+  }
+}
