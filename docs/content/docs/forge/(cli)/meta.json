@@ -8,6 +8,7 @@
     "code-generation",
     "database",
     "build-deploy",
+    "deployment-workbench",
     "extensions"
   ]
 }

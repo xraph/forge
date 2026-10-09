@@ -4,15 +4,28 @@ description: Complete reference for the Forge project configuration file
 icon: FileCode
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Callout } from "fumadocs-ui/components/callout";
+import { Tab, Tabs } from "fumadocs-ui/components/tabs";
 
 # .forge.yaml Reference
 
 The `.forge.yaml` file is the project-level configuration for the Forge CLI. It lives at the root of your project and configures project structure, development tools, build settings, deployment targets, code generation, and testing.
 
+`.forge.yml` is also accepted. Keep the spelling already used by your project.
+
+<Callout type="warn">
+  Deployment settings do not imply a complete deployment pipeline. `forge
+  deploy` and `forge cloud` currently contain simulated operations. Infra
+  exporters produce draft provider files, and the current generator does not
+  provision a complete Grove/Trove/Redis stack. See [Build and
+  Deployment](/docs/forge/build-deploy) for current behavior and the [workbench
+  proposal](/docs/forge/deployment-workbench) for the planned versioned
+  deployment schema.
+</Callout>
+
 <Callout type="info">
-This file is **not** the same as `config.yaml` (runtime application config). See [Configuration](/docs/forge/configuration) for runtime config details.
+  This file is **not** the same as `config.yaml` (runtime application config).
+  See [Configuration](/docs/forge/configuration) for runtime config details.
 </Callout>
 
 ## JSON Schema
@@ -51,49 +64,49 @@ Below is a complete `.forge.yaml` with every supported field and inline document
 # Project metadata and structure
 # -----------------------------------------------------------------------------
 project:
-  name: my-project                       # Required. Project name.
-  version: "1.0.0"                       # Semver version string.
-  description: "My Forge application"    # Human-readable description.
-  type: monorepo                         # Project type (currently only "monorepo").
-  layout: single-module                  # "single-module" or "multi-module".
-  module: github.com/myorg/my-project    # Go module path (required for single-module).
+  name: my-project # Required. Project name.
+  version: "1.0.0" # Semver version string.
+  description: "My Forge application" # Human-readable description.
+  type: monorepo # Project type (currently only "monorepo").
+  layout: single-module # "single-module" or "multi-module".
+  module: github.com/myorg/my-project # Go module path (required for single-module).
 
   # Directory structure overrides (single-module layout).
   # Omit to use Go convention defaults.
   structure:
-    cmd: ./cmd                           # App entry points (default: ./cmd)
-    apps: ./apps                         # App config directories (default: ./apps)
-    pkg: ./pkg                           # Shared packages (default: ./pkg)
-    internal: ./internal                 # Internal packages (default: ./internal)
-    extensions: ./extensions             # Extensions (default: ./extensions)
-    database: ./database                 # Migrations & seeds (default: ./database)
-    config: ./config                     # Config files (default: ./config)
-    deployments: ./deployments           # Deployment artifacts (default: ./deployments)
+    cmd: ./cmd # App entry points (default: ./cmd)
+    apps: ./apps # App config directories (default: ./apps)
+    pkg: ./pkg # Shared packages (default: ./pkg)
+    internal: ./internal # Internal packages (default: ./internal)
+    extensions: ./extensions # Extensions (default: ./extensions)
+    database: ./database # Migrations & seeds (default: ./database)
+    config: ./config # Config files (default: ./config)
+    deployments: ./deployments # Deployment artifacts (default: ./deployments)
 
   # Workspace configuration (multi-module layout only).
   workspace:
     enabled: true
-    apps: "./apps/*"                     # Glob for app modules
-    services: "./services/*"             # Glob for service modules
-    extensions: "./extensions/*"         # Glob for extension modules
-    pkg: "./pkg"                         # Shared package path
+    apps: "./apps/*" # Glob for app modules
+    services: "./services/*" # Glob for service modules
+    extensions: "./extensions/*" # Glob for extension modules
+    pkg: "./pkg" # Shared package path
 
 # -----------------------------------------------------------------------------
 # Development server and tooling
 # -----------------------------------------------------------------------------
 dev:
-  auto_discover: true                    # Auto-discover apps in cmd/ or apps/
-  discover_pattern: "./cmd/*"            # Custom discovery glob pattern
-  default_app: api-gateway               # App to run when none is specified
+  auto_discover: true # Auto-discover apps in cmd/ or apps/
+  discover_pattern: "./cmd/*" # Custom discovery glob pattern
+  default_app: api-gateway # App to run when none is specified
 
   # File watching
   watch:
     enabled: true
-    paths:                               # Glob patterns to watch
+    paths: # Glob patterns to watch
       - "./apps/**/internal/**/*.go"
       - "./pkg/**/*.go"
       - "./internal/**/*.go"
-    exclude:                             # Glob patterns to exclude
+    exclude: # Glob patterns to exclude
       - "**/*_test.go"
       - "**/testdata/**"
       - "**/vendor/**"
@@ -101,34 +114,34 @@ dev:
   # Hot reload
   hot_reload:
     enabled: true
-    delay: 500ms                         # Debounce delay before restart
+    delay: 500ms # Debounce delay before restart
 
   # Docker dev mode (forge dev --docker)
   docker:
-    enabled: false                       # Enable Docker mode by default
-    image: golang:1.25-alpine            # Base image for dev container
-    dockerfile: ""                       # Custom Dockerfile (empty = auto-generate)
-    network: bridge                      # Docker network
-    platform: linux/amd64                # Target platform (optional)
-    volumes:                             # Extra host:container volume mounts
+    enabled: false # Enable Docker mode by default
+    image: golang:1.25-alpine # Base image for dev container
+    dockerfile: "" # Custom Dockerfile (empty = auto-generate)
+    network: bridge # Docker network
+    platform: linux/amd64 # Target platform (optional)
+    volumes: # Extra host:container volume mounts
       /tmp/go-cache: /root/.cache/go-build
-    env:                                 # Extra container environment variables
+    env: # Extra container environment variables
       DEBUG: "true"
       LOG_LEVEL: debug
-    build_args:                          # Docker build arguments
+    build_args: # Docker build arguments
       GO_VERSION: "1.25"
 
 # -----------------------------------------------------------------------------
 # Database
 # -----------------------------------------------------------------------------
 database:
-  driver: postgres                       # postgres, mysql, or sqlite
-  disable_migrations: false              # Skip auto-migrations on serve (default: false)
+  driver: postgres # postgres, mysql, or sqlite
+  disable_migrations: false # Skip auto-migrations on serve (default: false)
   migrations_path: ./database/migrations # Path to migration files
-  seeds_path: ./database/seeds           # Path to seed files
-  models_output: ./database/models       # Output for generated models
+  seeds_path: ./database/seeds # Path to seed files
+  models_output: ./database/models # Output for generated models
 
-  connections:                           # Named database connections
+  connections: # Named database connections
     default:
       url: postgres://user:password@localhost:5432/mydb
       max_connections: 25
@@ -142,11 +155,11 @@ database:
 # Build
 # -----------------------------------------------------------------------------
 build:
-  output_dir: ./bin                      # Binary output directory
-  cmd_dir: ./cmd                         # Directory with app entry points
-  auto_discover: true                    # Auto-discover buildable apps
-  ldflags: "-s -w"                       # Linker flags
-  tags:                                  # Build tags
+  output_dir: ./bin # Binary output directory
+  cmd_dir: ./cmd # Directory with app entry points
+  auto_discover: true # Auto-discover buildable apps
+  ldflags: "-s -w" # Linker flags
+  tags: # Build tags
     - production
 
   # Explicit app list (overrides auto-discovery when non-empty)
@@ -158,7 +171,7 @@ build:
     - name: worker
       cmd: ./cmd/worker
       output: worker
-      module: ./apps/worker              # Multi-module path
+      module: ./apps/worker # Multi-module path
 
   # Cross-compilation targets
   platforms:
@@ -173,7 +186,7 @@ build:
 # Deployment
 # -----------------------------------------------------------------------------
 deploy:
-  registry: ghcr.io/myorg                # Docker registry prefix
+  registry: ghcr.io/myorg # Docker registry prefix
 
   # Environment definitions
   environments:
@@ -231,9 +244,9 @@ deploy:
 # Code generation
 # -----------------------------------------------------------------------------
 generate:
-  templates_path: ./templates            # Custom template directory
+  templates_path: ./templates # Custom template directory
 
-  generators:                            # Per-generator overrides
+  generators: # Per-generator overrides
     app:
       output: "./cmd/{{.Name}}"
       cmd_path: "./cmd"
@@ -262,10 +275,10 @@ extensions:
 # Testing
 # -----------------------------------------------------------------------------
 test:
-  coverage_threshold: 80                 # Minimum coverage percentage
-  race_detector: true                    # Enable -race flag
-  parallel: true                         # Run tests in parallel
-  timeout: 30s                           # Test timeout
+  coverage_threshold: 80 # Minimum coverage percentage
+  race_detector: true # Enable -race flag
+  parallel: true # Run tests in parallel
+  timeout: 30s # Test timeout
 ```
 
 ---
@@ -274,211 +287,211 @@ test:
 
 ### `project`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | `string` | — | **Required.** Project name. |
-| `version` | `string` | `""` | Project version (semver). |
-| `description` | `string` | `""` | Human-readable description. |
-| `type` | `string` | `"monorepo"` | Project type. |
-| `layout` | `string` | `"single-module"` | `"single-module"` or `"multi-module"`. |
-| `module` | `string` | `""` | Go module path. Required for single-module. |
-| `structure` | `object` | Go conventions | Directory structure overrides. See [structure](#structure). |
-| `workspace` | `object` | — | Multi-module workspace config. See [workspace](#workspace). |
+| Field         | Type     | Default           | Description                                                 |
+| ------------- | -------- | ----------------- | ----------------------------------------------------------- |
+| `name`        | `string` | —                 | **Required.** Project name.                                 |
+| `version`     | `string` | `""`              | Project version (semver).                                   |
+| `description` | `string` | `""`              | Human-readable description.                                 |
+| `type`        | `string` | `"monorepo"`      | Project type.                                               |
+| `layout`      | `string` | `"single-module"` | `"single-module"` or `"multi-module"`.                      |
+| `module`      | `string` | `""`              | Go module path. Required for single-module.                 |
+| `structure`   | `object` | Go conventions    | Directory structure overrides. See [structure](#structure). |
+| `workspace`   | `object` | —                 | Multi-module workspace config. See [workspace](#workspace). |
 
 #### `structure`
 
 All fields default to standard Go conventions if omitted.
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `cmd` | `./cmd` | App entry point directory. |
-| `apps` | `./apps` | App config directories (also used for app-level `.forge.yaml`). |
-| `pkg` | `./pkg` | Shared packages. |
-| `internal` | `./internal` | Internal packages. |
-| `extensions` | `./extensions` | Extension code. |
-| `database` | `./database` | Migrations and seeds. |
-| `config` | `./config` | Config files. |
-| `deployments` | `./deployments` | Deployment artifacts. |
+| Field         | Default         | Description                                                     |
+| ------------- | --------------- | --------------------------------------------------------------- |
+| `cmd`         | `./cmd`         | App entry point directory.                                      |
+| `apps`        | `./apps`        | App config directories (also used for app-level `.forge.yaml`). |
+| `pkg`         | `./pkg`         | Shared packages.                                                |
+| `internal`    | `./internal`    | Internal packages.                                              |
+| `extensions`  | `./extensions`  | Extension code.                                                 |
+| `database`    | `./database`    | Migrations and seeds.                                           |
+| `config`      | `./config`      | Config files.                                                   |
+| `deployments` | `./deployments` | Deployment artifacts.                                           |
 
 #### `workspace`
 
 Used only when `project.layout` is `"multi-module"`.
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `enabled` | `false` | Enable Go workspace mode. |
-| `apps` | `"./apps/*"` | Glob for app modules. |
-| `services` | `""` | Glob for service modules. |
-| `extensions` | `""` | Glob for extension modules. |
-| `pkg` | `"./pkg"` | Shared package path. |
+| Field        | Default      | Description                 |
+| ------------ | ------------ | --------------------------- |
+| `enabled`    | `false`      | Enable Go workspace mode.   |
+| `apps`       | `"./apps/*"` | Glob for app modules.       |
+| `services`   | `""`         | Glob for service modules.   |
+| `extensions` | `""`         | Glob for extension modules. |
+| `pkg`        | `"./pkg"`    | Shared package path.        |
 
 ---
 
 ### `dev`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `auto_discover` | `bool` | `true` | Auto-discover apps. |
-| `discover_pattern` | `string` | `"./cmd/*"` | Discovery glob pattern. |
-| `default_app` | `string` | `""` | Default app when none specified. |
-| `watch` | `object` | — | File watching config. See [watch](#watch). |
-| `hot_reload` | `object` | — | Hot reload config. See [hot_reload](#hot_reload). |
-| `docker` | `object` | — | Docker dev config. See [docker (dev)](#docker-dev). |
+| Field              | Type     | Default     | Description                                         |
+| ------------------ | -------- | ----------- | --------------------------------------------------- |
+| `auto_discover`    | `bool`   | `true`      | Auto-discover apps.                                 |
+| `discover_pattern` | `string` | `"./cmd/*"` | Discovery glob pattern.                             |
+| `default_app`      | `string` | `""`        | Default app when none specified.                    |
+| `watch`            | `object` | —           | File watching config. See [watch](#watch).          |
+| `hot_reload`       | `object` | —           | Hot reload config. See [hot_reload](#hot_reload).   |
+| `docker`           | `object` | —           | Docker dev config. See [docker (dev)](#docker-dev). |
 
 #### `watch`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Enable file watching. |
-| `paths` | `string[]` | `["./apps/**/internal/**/*.go", "./pkg/**/*.go", "./internal/**/*.go"]` | Glob patterns to watch. |
-| `exclude` | `string[]` | `["**/*_test.go", "**/testdata/**", "**/vendor/**"]` | Glob patterns to exclude. |
+| Field     | Type       | Default                                                                 | Description               |
+| --------- | ---------- | ----------------------------------------------------------------------- | ------------------------- |
+| `enabled` | `bool`     | `true`                                                                  | Enable file watching.     |
+| `paths`   | `string[]` | `["./apps/**/internal/**/*.go", "./pkg/**/*.go", "./internal/**/*.go"]` | Glob patterns to watch.   |
+| `exclude` | `string[]` | `["**/*_test.go", "**/testdata/**", "**/vendor/**"]`                    | Glob patterns to exclude. |
 
 #### `hot_reload`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Enable hot reload. |
-| `delay` | `duration` | `500ms` | Debounce delay before restart. |
+| Field     | Type       | Default | Description                    |
+| --------- | ---------- | ------- | ------------------------------ |
+| `enabled` | `bool`     | `true`  | Enable hot reload.             |
+| `delay`   | `duration` | `500ms` | Debounce delay before restart. |
 
 #### `docker` (dev)
 
 Configuration for `forge dev --docker`. See the [Docker Development Mode](/docs/forge/cli/development#docker-development-mode) docs for full usage.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Enable Docker mode by default. |
-| `image` | `string` | `golang:1.25-alpine` | Base Docker image. |
-| `dockerfile` | `string` | `""` | Custom Dockerfile path (empty = auto-generate). |
-| `network` | `string` | `bridge` | Docker network name. |
-| `platform` | `string` | `""` | Target platform (e.g., `linux/amd64`). |
-| `volumes` | `map[string]string` | `{}` | Extra volumes (host path → container path). |
-| `env` | `map[string]string` | `{}` | Extra environment variables. |
-| `build_args` | `map[string]string` | `{}` | Docker build arguments. |
+| Field        | Type                | Default              | Description                                     |
+| ------------ | ------------------- | -------------------- | ----------------------------------------------- |
+| `enabled`    | `bool`              | `false`              | Enable Docker mode by default.                  |
+| `image`      | `string`            | `golang:1.25-alpine` | Base Docker image.                              |
+| `dockerfile` | `string`            | `""`                 | Custom Dockerfile path (empty = auto-generate). |
+| `network`    | `string`            | `bridge`             | Docker network name.                            |
+| `platform`   | `string`            | `""`                 | Target platform (e.g., `linux/amd64`).          |
+| `volumes`    | `map[string]string` | `{}`                 | Extra volumes (host path → container path).     |
+| `env`        | `map[string]string` | `{}`                 | Extra environment variables.                    |
+| `build_args` | `map[string]string` | `{}`                 | Docker build arguments.                         |
 
 ---
 
 ### `database`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `driver` | `string` | `"postgres"` | Database driver: `postgres`, `mysql`, or `sqlite`. |
-| `disable_migrations` | `bool` | `false` | Skip auto-migrations on serve. Also settable via `forge.WithDisableMigrations()`. See [Running Apps](/docs/forge/running-apps). |
-| `migrations_path` | `string` | `"./database/migrations"` | Migration files directory. |
-| `seeds_path` | `string` | `"./database/seeds"` | Seed files directory. |
-| `models_output` | `string` | `"./database/models"` | Generated models output. |
-| `connections` | `map[string]object` | `{}` | Named connections. Each value has `url`, `max_connections`, `max_idle`. |
+| Field                | Type                | Default                   | Description                                                                                                                     |
+| -------------------- | ------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `driver`             | `string`            | `"postgres"`              | Database driver: `postgres`, `mysql`, or `sqlite`.                                                                              |
+| `disable_migrations` | `bool`              | `false`                   | Skip auto-migrations on serve. Also settable via `forge.WithDisableMigrations()`. See [Running Apps](/docs/forge/running-apps). |
+| `migrations_path`    | `string`            | `"./database/migrations"` | Migration files directory.                                                                                                      |
+| `seeds_path`         | `string`            | `"./database/seeds"`      | Seed files directory.                                                                                                           |
+| `models_output`      | `string`            | `"./database/models"`     | Generated models output.                                                                                                        |
+| `connections`        | `map[string]object` | `{}`                      | Named connections. Each value has `url`, `max_connections`, `max_idle`.                                                         |
 
 ---
 
 ### `build`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `output_dir` | `string` | `"./bin"` | Binary output directory. |
-| `cmd_dir` | `string` | `"./cmd"` | Directory with entry points. |
-| `auto_discover` | `bool` | `true` | Auto-discover buildable apps. |
-| `ldflags` | `string` | `""` | Linker flags for `go build`. |
-| `tags` | `string[]` | `[]` | Build tags. |
-| `apps` | `BuildApp[]` | `[]` | Explicit app list. See [apps (build)](#apps-build). |
-| `platforms` | `Platform[]` | `[]` | Cross-compilation targets. |
+| Field           | Type         | Default   | Description                                         |
+| --------------- | ------------ | --------- | --------------------------------------------------- |
+| `output_dir`    | `string`     | `"./bin"` | Binary output directory.                            |
+| `cmd_dir`       | `string`     | `"./cmd"` | Directory with entry points.                        |
+| `auto_discover` | `bool`       | `true`    | Auto-discover buildable apps.                       |
+| `ldflags`       | `string`     | `""`      | Linker flags for `go build`.                        |
+| `tags`          | `string[]`   | `[]`      | Build tags.                                         |
+| `apps`          | `BuildApp[]` | `[]`      | Explicit app list. See [apps (build)](#apps-build). |
+| `platforms`     | `Platform[]` | `[]`      | Cross-compilation targets.                          |
 
 #### `apps` (build)
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | `string` | Yes | Application name. |
-| `module` | `string` | No | Go module path (multi-module). |
-| `cmd` | `string` | No | Path to main.go directory. |
-| `output` | `string` | No | Binary output name. |
-| `dockerfile` | `string` | No | Dockerfile path. |
+| Field        | Type     | Required | Description                    |
+| ------------ | -------- | -------- | ------------------------------ |
+| `name`       | `string` | Yes      | Application name.              |
+| `module`     | `string` | No       | Go module path (multi-module). |
+| `cmd`        | `string` | No       | Path to main.go directory.     |
+| `output`     | `string` | No       | Binary output name.            |
+| `dockerfile` | `string` | No       | Dockerfile path.               |
 
 #### `platforms`
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `os` | `string` | Yes | `linux`, `darwin`, or `windows`. |
-| `arch` | `string` | Yes | `amd64`, `arm64`, or `386`. |
+| Field  | Type     | Required | Description                      |
+| ------ | -------- | -------- | -------------------------------- |
+| `os`   | `string` | Yes      | `linux`, `darwin`, or `windows`. |
+| `arch` | `string` | Yes      | `amd64`, `arm64`, or `386`.      |
 
 ---
 
 ### `deploy`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `registry` | `string` | `""` | Docker registry prefix. |
-| `environments` | `EnvironmentConfig[]` | `[]` | Environment definitions. |
-| `docker` | `object` | — | Docker deployment config. |
-| `kubernetes` | `object` | — | Kubernetes config. |
-| `digitalocean` | `object` | — | DigitalOcean config. |
-| `render` | `object` | — | Render.com config. |
+| Field          | Type                  | Default | Description               |
+| -------------- | --------------------- | ------- | ------------------------- |
+| `registry`     | `string`              | `""`    | Docker registry prefix.   |
+| `environments` | `EnvironmentConfig[]` | `[]`    | Environment definitions.  |
+| `docker`       | `object`              | —       | Docker deployment config. |
+| `kubernetes`   | `object`              | —       | Kubernetes config.        |
+| `digitalocean` | `object`              | —       | DigitalOcean config.      |
+| `render`       | `object`              | —       | Render.com config.        |
 
 #### `environments`
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | `string` | Yes | Environment name (e.g., `dev`, `staging`, `production`). |
-| `cluster` | `string` | No | Kubernetes cluster name. |
-| `namespace` | `string` | No | Kubernetes namespace. |
-| `region` | `string` | No | Cloud region. |
-| `variables` | `map[string]string` | No | Environment variables. |
+| Field       | Type                | Required | Description                                              |
+| ----------- | ------------------- | -------- | -------------------------------------------------------- |
+| `name`      | `string`            | Yes      | Environment name (e.g., `dev`, `staging`, `production`). |
+| `cluster`   | `string`            | No       | Kubernetes cluster name.                                 |
+| `namespace` | `string`            | No       | Kubernetes namespace.                                    |
+| `region`    | `string`            | No       | Cloud region.                                            |
+| `variables` | `map[string]string` | No       | Environment variables.                                   |
 
 #### `docker` (deploy)
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `build_context` | `string` | `"."` | Docker build context. |
-| `dockerfile` | `string` | `"Dockerfile"` | Dockerfile path. |
-| `compose_file` | `string` | `"docker-compose.yml"` | Compose file path. |
-| `network` | `string` | `""` | Docker network name. |
-| `volumes` | `map[string]string` | `{}` | Named volumes. |
+| Field           | Type                | Default                | Description           |
+| --------------- | ------------------- | ---------------------- | --------------------- |
+| `build_context` | `string`            | `"."`                  | Docker build context. |
+| `dockerfile`    | `string`            | `"Dockerfile"`         | Dockerfile path.      |
+| `compose_file`  | `string`            | `"docker-compose.yml"` | Compose file path.    |
+| `network`       | `string`            | `""`                   | Docker network name.  |
+| `volumes`       | `map[string]string` | `{}`                   | Named volumes.        |
 
 #### `kubernetes`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
+| Field       | Type     | Default               | Description          |
+| ----------- | -------- | --------------------- | -------------------- |
 | `manifests` | `string` | `"./deployments/k8s"` | Manifests directory. |
-| `namespace` | `string` | `"default"` | Default namespace. |
-| `context` | `string` | `""` | kubectl context. |
-| `registry` | `string` | `""` | Image registry. |
+| `namespace` | `string` | `"default"`           | Default namespace.   |
+| `context`   | `string` | `""`                  | kubectl context.     |
+| `registry`  | `string` | `""`                  | Image registry.      |
 
 #### `digitalocean`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `region` | `string` | `""` | DO region (e.g., `nyc1`). |
-| `app_spec_file` | `string` | `""` | App spec file path. |
-| `cluster_name` | `string` | `""` | DOKS cluster name. |
-| `git_repo` | `string` | `""` | GitHub repo (`owner/repo`). |
-| `git_branch` | `string` | `"main"` | Branch to deploy. |
-| `deploy_on_push` | `bool` | `false` | Auto-deploy on push. |
+| Field            | Type     | Default  | Description                 |
+| ---------------- | -------- | -------- | --------------------------- |
+| `region`         | `string` | `""`     | DO region (e.g., `nyc1`).   |
+| `app_spec_file`  | `string` | `""`     | App spec file path.         |
+| `cluster_name`   | `string` | `""`     | DOKS cluster name.          |
+| `git_repo`       | `string` | `""`     | GitHub repo (`owner/repo`). |
+| `git_branch`     | `string` | `"main"` | Branch to deploy.           |
+| `deploy_on_push` | `bool`   | `false`  | Auto-deploy on push.        |
 
 #### `render`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `blueprint_file` | `string` | `""` | Render blueprint path. |
-| `region` | `string` | `""` | Render region. |
-| `git_repo` | `string` | `""` | GitHub repo (`owner/repo`). |
-| `git_branch` | `string` | `"main"` | Branch to deploy. |
+| Field            | Type     | Default  | Description                 |
+| ---------------- | -------- | -------- | --------------------------- |
+| `blueprint_file` | `string` | `""`     | Render blueprint path.      |
+| `region`         | `string` | `""`     | Render region.              |
+| `git_repo`       | `string` | `""`     | GitHub repo (`owner/repo`). |
+| `git_branch`     | `string` | `"main"` | Branch to deploy.           |
 
 ---
 
 ### `generate`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `templates_path` | `string` | `"./templates"` | Custom template directory. |
-| `generators` | `map[string]object` | `{}` | Per-generator overrides. |
+| Field            | Type                | Default         | Description                |
+| ---------------- | ------------------- | --------------- | -------------------------- |
+| `templates_path` | `string`            | `"./templates"` | Custom template directory. |
+| `generators`     | `map[string]object` | `{}`            | Per-generator overrides.   |
 
 Each generator entry supports:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `output` | `string` | Output path template. |
-| `cmd_path` | `string` | Override cmd path (single-module). |
+| Field           | Type     | Description                             |
+| --------------- | -------- | --------------------------------------- |
+| `output`        | `string` | Output path template.                   |
+| `cmd_path`      | `string` | Override cmd path (single-module).      |
 | `internal_path` | `string` | Override internal path (single-module). |
-| `create_module` | `bool` | Create a Go module (multi-module). |
-| `module_path` | `string` | Module path template (multi-module). |
+| `create_module` | `bool`   | Create a Go module (multi-module).      |
+| `module_path`   | `string` | Module path template (multi-module).    |
 
 ---
 
@@ -500,12 +513,12 @@ extensions:
 
 ### `test`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `coverage_threshold` | `int` | `80` | Minimum coverage percentage (0–100). |
-| `race_detector` | `bool` | `true` | Enable `-race` flag. |
-| `parallel` | `bool` | `true` | Run tests in parallel. |
-| `timeout` | `duration` | `30s` | Test timeout. |
+| Field                | Type       | Default | Description                          |
+| -------------------- | ---------- | ------- | ------------------------------------ |
+| `coverage_threshold` | `int`      | `80`    | Minimum coverage percentage (0–100). |
+| `race_detector`      | `bool`     | `true`  | Enable `-race` flag.                 |
+| `parallel`           | `bool`     | `true`  | Run tests in parallel.               |
+| `timeout`            | `duration` | `30s`   | Test timeout.                        |
 
 ---
 
@@ -542,19 +555,19 @@ build:
 
 ### App Config Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `app.name` | `string` | **Required.** Application name. |
-| `app.type` | `string` | App type: `web`, `cli`, `worker`, `grpc`. |
-| `app.version` | `string` | App version. |
-| `dev.port` | `int` | Dev server port. |
-| `dev.host` | `string` | Dev server host (default: `localhost`). |
-| `dev.env_file` | `string` | Path to `.env` file. |
-| `dev.docker` | `object` | Docker dev overrides (same schema as project-level `dev.docker`). |
-| `build.output` | `string` | Binary output name. |
-| `build.dockerfile` | `string` | Dockerfile path. |
-| `build.tags` | `string[]` | Build tags. |
-| `build.ldflags` | `string` | Linker flags. |
+| Field              | Type       | Description                                                       |
+| ------------------ | ---------- | ----------------------------------------------------------------- |
+| `app.name`         | `string`   | **Required.** Application name.                                   |
+| `app.type`         | `string`   | App type: `web`, `cli`, `worker`, `grpc`.                         |
+| `app.version`      | `string`   | App version.                                                      |
+| `dev.port`         | `int`      | Dev server port.                                                  |
+| `dev.host`         | `string`   | Dev server host (default: `localhost`).                           |
+| `dev.env_file`     | `string`   | Path to `.env` file.                                              |
+| `dev.docker`       | `object`   | Docker dev overrides (same schema as project-level `dev.docker`). |
+| `build.output`     | `string`   | Binary output name.                                               |
+| `build.dockerfile` | `string`   | Dockerfile path.                                                  |
+| `build.tags`       | `string[]` | Build tags.                                                       |
+| `build.ldflags`    | `string`   | Linker flags.                                                     |
 
 ---
 
@@ -597,7 +610,7 @@ dev:
       DEBUG: "true"
 ```
 
-### With Full Deploy Pipeline
+### With Deployment Settings
 
 ```yaml
 project:

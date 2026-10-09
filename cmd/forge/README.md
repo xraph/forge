@@ -7,6 +7,7 @@ Enterprise-grade command-line interface for Forge framework.
 The Forge CLI (`cmd/forge`) is a **separate Go module** from the main Forge framework. This separation is necessary because the CLI depends on `github.com/xraph/forge/extensions/database`, which creates a circular dependency if included in the main module.
 
 The module structure:
+
 - **Main module**: `github.com/xraph/forge` - Core framework
 - **Database extension**: `github.com/xraph/forge/extensions/database` - Separate module
 - **Forge CLI**: `github.com/xraph/forge/cmd/forge` - Separate module (depends on database extension)
@@ -53,9 +54,20 @@ forge build --production
 # Run database migrations
 forge db migrate
 
-# Deploy to Kubernetes
-forge deploy --env=staging
+# Export Kubernetes configuration for review
+forge infra k8s export
 ```
+
+Deployment support needs care. `forge deploy` and `forge cloud` currently contain
+simulated operations, and DigitalOcean/Render infra deploy handlers do not submit
+real deployments. Compose and Kubernetes infra handlers run external tools but do
+not verify application readiness. Review exported ports, probes, build paths,
+runtime settings and data dependencies before you apply the files.
+
+The proposed `forge deploy start` local page and shared plan/apply workflow are
+described in [the deployment plan](../../docs/deployment/PLAN.md). You can review
+the [interactive UI mock](../../docs/public/mock/deploy.html); it exports proposal
+files and simulates deployment progress without contacting a provider.
 
 ## Project Layouts
 
@@ -77,6 +89,7 @@ my-project/
 ```
 
 **Best for:**
+
 - Small to medium projects
 - Single team
 - Shared dependencies
@@ -100,6 +113,7 @@ my-project/
 ```
 
 **Best for:**
+
 - Large projects (10+ services)
 - Multiple teams
 - Independent versioning
@@ -212,7 +226,11 @@ forge build --production
 forge build -o ./dist
 ```
 
-### Deployment
+### Deployment command placeholders
+
+These commands currently simulate their operations. Use `forge infra ... export`
+to generate draft artifacts, then validate and apply them with your deployment
+tool. Do not treat the output below as a real image push or cluster status.
 
 ```bash
 # Full deployment
@@ -277,6 +295,7 @@ database:
 ```
 
 **That's it!** Everything else uses smart defaults:
+
 - Project structure: Go conventions (`cmd/`, `apps/`, `pkg/`, `internal/`)
 - Build: Auto-discovers apps in `cmd/`
 - Dev: Auto-discovers and watches Go files
@@ -287,13 +306,13 @@ database:
 
 Forge follows Go conventions and provides sensible defaults:
 
-| Setting | Default | Override When |
-|---------|---------|---------------|
-| `cmd/` directory | `./cmd` | Non-standard layout |
-| `apps/` directory | `./apps` | Non-standard layout |
-| Build output | `./bin` | Custom output location |
-| Migrations path | `./database/migrations` | Custom location |
-| Auto-discovery | Enabled | Need explicit control |
+| Setting           | Default                 | Override When          |
+| ----------------- | ----------------------- | ---------------------- |
+| `cmd/` directory  | `./cmd`                 | Non-standard layout    |
+| `apps/` directory | `./apps`                | Non-standard layout    |
+| Build output      | `./bin`                 | Custom output location |
+| Migrations path   | `./database/migrations` | Custom location        |
+| Auto-discovery    | Enabled                 | Need explicit control  |
 
 ### Key Configuration Sections
 
@@ -303,7 +322,7 @@ Forge follows Go conventions and provides sensible defaults:
 project:
   name: "my-project"
   version: "1.0.0"
-  layout: "single-module"  # or "multi-module"
+  layout: "single-module" # or "multi-module"
   module: "github.com/myorg/my-project"
 ```
 
@@ -348,7 +367,7 @@ extensions:
   cache:
     driver: "redis"
     url: "redis://localhost:6379"
-  
+
   database:
     driver: "postgres"
     url: "${DATABASE_URL}"
@@ -362,7 +381,7 @@ Forge CLI supports environment variable substitution in `.forge.yaml`:
 database:
   connections:
     production:
-      url: "${DATABASE_URL}"  # Replaced with env var
+      url: "${DATABASE_URL}" # Replaced with env var
 
 extensions:
   auth:
@@ -376,6 +395,7 @@ extensions:
 If you have an existing verbose `.forge.yaml`, you can simplify it:
 
 **Before (verbose):**
+
 ```yaml
 project:
   name: "my-project"
@@ -406,6 +426,7 @@ build:
 ```
 
 **After (minimal):**
+
 ```yaml
 project:
   name: "my-project"
@@ -419,6 +440,7 @@ database:
 ```
 
 **What changed:**
+
 - Removed `structure` - uses Go conventions
 - Removed `dev.watch.paths` - auto-discovers Go files
 - Removed `build.output_dir` - defaults to `./bin`
@@ -426,6 +448,7 @@ database:
 - All fields with default values can be omitted
 
 **Breaking Changes in v2.x:**
+
 - `database.codegen` removed (never implemented - use sqlc, gorm-gen, or sqlboiler)
 - `project.structure` is now optional (nil = use conventions)
 - Build auto-discovery is now default
@@ -493,8 +516,8 @@ forge dev -a auth-service
 # Build all services
 forge build --production
 
-# Deploy to staging
-forge deploy k8s --env=staging
+# Export deployment files for review
+forge infra k8s export
 ```
 
 ## Troubleshooting
@@ -550,4 +573,3 @@ MIT License - see LICENSE file for details.
 ---
 
 **Forge** - Enterprise-grade backend framework for Go
-

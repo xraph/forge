@@ -1,0 +1,91 @@
+---
+title: Deployment Workbench Proposal
+description: A proposed local deployment page, portable configuration model, and CLI workflow for microservice stacks
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Deployment Workbench Proposal
+
+The proposed workbench lets you configure a microservice stack locally and keep its deployment settings in files. You can review the service connections, data resources and generated provider artifacts before deploying. The terminal, local page and AI agent use the same plan.
+
+<Callout type="info">
+  This is a design proposal. The interactive mock and documentation are
+  available. `forge deploy start`, the deployment compiler and the new
+  plan/apply workflow are not implemented. For existing commands and
+  limitations, see [Build and Deployment](/docs/forge/build-deploy).
+</Callout>
+
+## Try the mock
+
+[Open the interactive deployment mock](/mock/deploy.html).
+
+The sample project has a public gateway, private API and outbound worker. The API and worker use a named Grove PostgreSQL connection, Trove object storage with metadata in that database, and shared Redis.
+
+You can switch between Kubernetes, Compose, Render and DigitalOcean presets, set replicas and data placement, inspect the service contracts and download configuration proposals. Save keeps a draft in your browser. Downloads contain no secret values.
+
+The rehearsal shows healthy and failed migration scenarios. Every deployment event is simulated. The mock does not read your repository, save files into it or contact a provider, and its versioned proposal files cannot be deployed by the current CLI.
+
+## Proposed command flow
+
+```bash
+# Planned commands. Not available in the current CLI.
+forge deploy start
+forge deploy inspect --output json
+forge deploy doctor --target kubernetes --env production --output json
+forge deploy plan --target kubernetes --env production \
+  --out .forge/plans/production.json
+forge deploy export --plan .forge/plans/production.json \
+  --output deployments/production
+forge deploy apply --plan .forge/plans/production.json \
+  --approve-plan <sha256> --non-interactive
+```
+
+On the first run, you confirm any missing ports, app kinds and resource bindings. Provider credentials stay in provider-native auth, environment variables or the OS keychain. Once the saved configuration passes preflight, the local page can apply the reviewed plan with one click.
+
+For an AI agent, `inspect` returns the resolved structure and missing choices. `doctor` returns diagnostics with source locations and repair instructions. `plan` records the exact configuration, target and intended resource operations. `apply` requires the approved plan hash and rejects changed inputs or remote drift.
+
+## Files you own
+
+| File                            | Purpose                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| `.forge.yml` or `.forge.yaml`   | Existing project/build settings plus versioned deployment entry points.           |
+| `deploy/stack.yml`              | Services, ports, resource requirements, connections and extension bindings.       |
+| `deploy/environments/<env>.yml` | Environment overrides, target selection and replicas.                             |
+| `config/<service>.yaml`         | Application settings, with resource and secret bindings compiled for the runtime. |
+| `deploy/secrets.example.yml`    | Logical secret references, with no credentials.                                   |
+| `deploy/lock.yml`               | Pinned resource recipes, descriptor/schema versions and image digests.            |
+| `deployments/<target>/<env>/`   | Reproducible provider output, with user patches kept separately.                  |
+
+The local page will save through the CLI's file editor. It must preserve comments and extension keys and detect another editor's changes before writing. Browser-local persistence in the mock only illustrates the flow.
+
+## A portable resource model
+
+You select an existing resource, a provider-managed resource or a qualified self-hosted recipe. The planner checks whether the target can satisfy every requirement.
+
+Grove is a database library; the backend could be PostgreSQL, MySQL, SQLite or another configured driver. Trove is an object storage library; it needs its configured storage backend and its metadata database. Neither should be rendered as an invented standalone server.
+
+Named connections and stores remain named. The compiler must generate the real runtime bindings, migration ordering, bucket settings, storage retention and secret references. Redis requirements include the actual feature set used by your application. A compatible protocol alone is not enough.
+
+Production presets should use managed or existing data services. Self-hosted production needs a defined availability policy, backups and a tested restore path. A development container with a volume does not satisfy those requirements.
+
+## Kubernetes and managed platforms
+
+Kubernetes output should include verified ports and probes, runtime settings, secret references, ServiceAccounts, scoped RBAC, connection policies, migration jobs, rollout settings and the selected data-resource recipes. Public routes, TLS, storage classes and operators need explicit prerequisites.
+
+Use Service DNS for ordinary internal calls. Keep public entry points explicit, and enforce authorization in the receiving service. Dynamic discovery can reuse Forge's existing discovery extension; it does not replace request authorization.
+
+Compose and Kubernetes are the first implementation targets. Render and DigitalOcean follow through capability-checked adapters. Additional platforms can use container output or implement the adapter contract, with unsupported networking or data requirements reported before apply. Provider behavior must be checked against its current documentation; the [Render Blueprint reference](https://render.com/docs/blueprint-spec) and [DigitalOcean internal routing guide](https://docs.digitalocean.com/products/app-platform/how-to/manage-internal-routing/) show why service types need separate mappings.
+
+## Implementation order
+
+1. Remove simulated remote success from the existing command paths.
+2. Add versioned configuration, descriptors and a shared deployment model.
+3. Compile and validate Compose/Kubernetes artifacts, including Grove/Trove/Redis bindings.
+4. Implement real apply, observation, logs, resume and application rollback.
+5. Connect the local page to the shared planner and file editor.
+6. Add and live-qualify managed-platform adapters.
+
+Application rollback must preserve data and respect migration compatibility. The deployment journal needs enough provider state to resume an interrupted apply without provisioning a duplicate database or bucket.
+
+The [detailed deployment plan](https://github.com/xraph/forge/blob/main/docs/deployment/PLAN.md) contains the source review, proposed schema, resource catalog, CLI contract and acceptance gates. Live provider access, file persistence, data durability, authorization and outage recovery remain implementation gates. This proposal does not establish a rollout-ready deployment system.

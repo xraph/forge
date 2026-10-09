@@ -1,738 +1,187 @@
 ---
-title: Build, Deploy, and Infrastructure Commands
-description: Build applications, deploy to environments, manage infrastructure, and use Forge Cloud
+title: Build and Deployment
+description: Build applications, export infrastructure files, and understand current deployment support
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Callout } from "fumadocs-ui/components/callout";
 
-# Build, Deploy, and Infrastructure Commands
+# Build and Deployment
 
-Forge provides a full suite of commands for building applications, deploying them to various platforms, generating infrastructure configuration, and managing Forge Cloud. These commands introspect your project automatically — discovering apps, detecting ports, and generating production-ready Dockerfiles, Compose files, and Kubernetes manifests.
+You can build Go applications and export Docker Compose, Kubernetes, DigitalOcean and Render configuration with the current CLI. Review the generated files before you use them.
 
-## Build Commands
+<Callout type="warn">
+  `forge deploy` and `forge cloud` currently contain simulated operations. The
+  DigitalOcean and Render `forge infra ... deploy` handlers also report success
+  without submitting a deployment. Their success messages do not establish a
+  running application. Docker Compose and Kubernetes infra handlers invoke real
+  tools, but do not verify application readiness.
+</Callout>
 
-### `forge build`
+For the proposed file-backed local page, service communication model and resource provisioning workflow, see the [Deployment Workbench Proposal](/docs/forge/deployment-workbench). Its commands are planned, not available in the current CLI.
 
-Build applications for production or development.
+## Current support
+
+| Command family                                                                   | Current behavior                                                                                       |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `forge build`                                                                    | Runs Go builds for selected or discovered applications.                                                |
+| `forge infra docker export`                                                      | Writes Compose files, Dockerfiles and an environment example.                                          |
+| `forge infra k8s export`                                                         | Writes application Deployments, Services and Kustomize overlays.                                       |
+| `forge infra do export`                                                          | Writes an App Platform app spec and supporting files.                                                  |
+| `forge infra render export`                                                      | Writes a Render Blueprint and supporting files.                                                        |
+| `forge infra docker deploy`                                                      | Invokes Docker Compose to build/start the stack. Review build paths, ports and runtime settings first. |
+| `forge infra k8s deploy`                                                         | Invokes kubectl apply. The current fallback/filtering behavior needs review before use.                |
+| `forge deploy`, `forge deploy docker`, `forge deploy k8s`, `forge deploy status` | Simulated build/push/deployment or fixed status data.                                                  |
+| `forge infra do deploy`, `forge infra render deploy`, `forge cloud`              | Simulated remote operations. Export and use the provider's own deployment workflow.                    |
+| `forge deploy start`, `plan`, `export`, `apply`                                  | Proposed workbench commands. Not implemented.                                                          |
+
+## Build applications
 
 ```bash
-forge build                         # Build all apps
-forge build -a api-gateway          # Build specific app
-forge build --platform=linux/amd64  # Cross-platform build
-forge build --production            # Production build
-forge build -o ./dist               # Custom output
+forge build
+forge build --app api-gateway
+forge build --platform linux/amd64
+forge build --production
+forge build --output ./dist
 ```
 
-**Flags:**
-- `-a, --app` — App to build (empty = all)
-- `-p, --platform` — Target platform (`os/arch`)
-- `--production` — Production build with optimizations
-- `-o, --output` — Output directory (default: `./bin`)
+| Flag             | Purpose                         | Default                        |
+| ---------------- | ------------------------------- | ------------------------------ |
+| `-a, --app`      | Build one application           | All discovered/configured apps |
+| `-p, --platform` | Set target OS and architecture  | Host platform                  |
+| `--production`   | Enable production build options | Disabled                       |
+| `-o, --output`   | Binary output directory         | `./bin`                        |
 
-**Build Configuration** in `.forge.yaml`:
+Both `.forge.yml` and `.forge.yaml` are accepted. You can keep the spelling already in your project.
 
 ```yaml
+project:
+  name: atlas
+  module: example.com/atlas
+  layout: single-module
 build:
   output_dir: ./bin
-  auto_discover: true        # Scan cmd/ for buildable apps
-  ldflags: "-s -w"           # Strip debug info for smaller binaries
-  tags:
-    - production
-  platforms:
-    - os: linux
-      arch: amd64
-    - os: linux
-      arch: arm64
-    - os: darwin
-      arch: arm64
-  apps:                      # Optional: explicit app list
+  auto_discover: true
+  ldflags: "-s -w"
+  apps:
     - name: api-gateway
       cmd: ./cmd/api-gateway
       output: api-gateway
-      dockerfile: docker/Dockerfile.api
 ```
 
-## Deploy Commands
+Multi-module applications need a build context that includes the modules and workspace inputs they use. Do not assume the current generated single-module Dockerfile handles your workspace, CGO dependencies or native libraries.
 
-### `forge deploy`
-
-Deploy an application — builds a Docker image, pushes to a registry, and deploys to Kubernetes.
+## Export infrastructure
 
 ```bash
-forge deploy -a api-gateway -e staging -t v1.2.3
-forge deploy -a auth-service -e production --tag=latest
-```
-
-**Flags:**
-- `-a, --app` — App to deploy (required)
-- `-e, --env` — Target environment (default: `dev`)
-- `-t, --tag` — Docker image tag (default: `latest`)
-
-**Workflow:**
-1. Build Docker image → `<registry>/<app>:<tag>`
-2. Push to configured registry
-3. Deploy to Kubernetes using environment config
-
-### `forge deploy docker`
-
-Build and push a Docker image without deploying.
-
-```bash
-forge deploy docker -a api-gateway -t v1.0.0
-forge deploy docker -a auth-service --tag=latest
-```
-
-**Flags:**
-- `-a, --app` — App to build (required)
-- `-t, --tag` — Image tag (default: `latest`)
-
-The image is tagged using the registry from your `.forge.yaml`:
-
-```yaml
-deploy:
-  registry: ghcr.io/myorg       # Docker registry prefix
-```
-
-**Example Output:**
-```
-Building Docker image for api-gateway...
-  Image: ghcr.io/myorg/api-gateway:v1.0.0
-  ✓ Image built
-Pushing Docker image...
-  Pushing: ghcr.io/myorg/api-gateway:v1.0.0
-  ✓ Image pushed
-✓ Docker image built and pushed!
-```
-
-### `forge deploy k8s` (aliases: `kubernetes`)
-
-Deploy to Kubernetes using manifests from `deployments/kubernetes/overlays/<env>`.
-
-```bash
-forge deploy k8s -e staging
-forge deploy k8s -e production --namespace=prod
-forge deploy kubernetes -e dev
-```
-
-**Flags:**
-- `-e, --env` — Environment (default: `dev`)
-- `-n, --namespace` — Kubernetes namespace (falls back to environment config, then `default`)
-
-### `forge deploy status`
-
-Show deployment status for all apps.
-
-```bash
-forge deploy status
-forge deploy status --env=production
-```
-
-**Flags:**
-- `-e, --env` — Environment (default: `dev`)
-
-**Example Output:**
-```
-Deployment status for staging environment:
-
- App              Status      Replicas  Version  Updated
- api-gateway      ✓ Running   3/3       v1.2.3   2 hours ago
- auth-service     ✓ Running   2/2       v1.1.0   1 day ago
- worker-service   ⚠ Degraded  1/2       v0.9.0   3 days ago
-```
-
-### Deploy Configuration
-
-Configure deployment environments and platform-specific settings in `.forge.yaml`:
-
-```yaml
-deploy:
-  registry: ghcr.io/myorg
-
-  environments:
-    - name: dev
-      namespace: dev
-      variables:
-        LOG_LEVEL: debug
-    - name: staging
-      namespace: staging
-      cluster: staging-cluster
-      variables:
-        LOG_LEVEL: info
-    - name: production
-      namespace: prod
-      cluster: prod-cluster
-      region: us-east-1
-      variables:
-        LOG_LEVEL: warn
-
-  # Platform-specific configs (used by forge infra)
-  docker:
-    build_context: .
-    dockerfile: Dockerfile
-    compose_file: docker-compose.yml
-    network: forge-network
-    volumes:
-      pg-data: /var/lib/postgresql/data
-
-  kubernetes:
-    manifests: ./deployments/k8s
-    namespace: default
-    context: my-cluster
-    registry: ghcr.io/myorg
-
-  digitalocean:
-    region: nyc1
-    git_repo: myorg/myrepo
-    git_branch: main
-    deploy_on_push: true
-
-  render:
-    region: oregon
-    git_repo: myorg/myrepo
-    git_branch: main
-```
-
----
-
-## Infrastructure Commands
-
-The `forge infra` command generates and deploys infrastructure configuration for Docker, Kubernetes, DigitalOcean, and Render. It auto-introspects your project — discovering apps, detecting ports, and resolving database/cache dependencies.
-
-### Command Overview
-
-```bash
-forge infra <provider> <command> [flags]
-```
-
-| Provider | Alias | Description |
-|----------|-------|-------------|
-| `docker` | — | Docker Compose infrastructure |
-| `k8s` | `kubernetes` | Kubernetes with Kustomize |
-| `do` | `digitalocean` | DigitalOcean App Platform |
-| `render` | — | Render.com |
-
-Each provider supports two subcommands:
-- **`export`** — Generate config files to the `deployments/<provider>/` directory.
-- **`deploy`** — Build and deploy (uses exported config if available, otherwise generates on-the-fly).
-
----
-
-### `forge infra docker export`
-
-Export Docker Compose configuration, Dockerfiles, and environment files.
-
-```bash
-forge infra docker export                     # Export to deployments/docker/
-forge infra docker export -o ./my-docker      # Custom output directory
-forge infra docker export --force             # Overwrite existing files
-```
-
-**Flags:**
-- `-o, --output` — Output directory (default: `deployments/docker/`)
-- `-f, --force` — Overwrite existing files
-
-**Generated Files:**
-```
-deployments/docker/
-├── docker-compose.yml          # Base Compose config
-├── docker-compose.dev.yml      # Dev environment overrides
-├── docker-compose.prod.yml     # Prod environment overrides (3 replicas)
-├── .env.example                # Environment variable template
-├── Dockerfile.api-gateway      # Multi-stage Dockerfile per app
-├── Dockerfile.auth-service
-└── Dockerfile.worker
-```
-
-**Generated `docker-compose.yml` example:**
-
-```yaml
-version: '3.8'
-
-services:
-  api-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.api-gateway
-    ports:
-      - "${API_GATEWAY_PORT:-8080}:8080"
-    environment:
-      - ENV=base
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    networks:
-      - forge-network
-    restart: unless-stopped
-
-  auth-service:
-    build:
-      context: .
-      dockerfile: Dockerfile.auth-service
-    ports:
-      - "${AUTH_SERVICE_PORT:-8080}:8080"
-    environment:
-      - ENV=base
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    networks:
-      - forge-network
-    restart: unless-stopped
-
-networks:
-  forge-network:
-    driver: bridge
-```
-
-**Generated `Dockerfile.<app>` example (multi-stage):**
-
-```dockerfile
-# Build stage
-FROM golang:1.22-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api-gateway
-
-# Runtime stage
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/main .
-EXPOSE 8080
-CMD ["./main"]
-```
-
-**Generated `.env.example`:**
-
-```bash
-# Docker Compose Environment Variables
-ENV=dev
-LOG_LEVEL=info
-
-# Service Ports
-API_GATEWAY_PORT=8080
-AUTH_SERVICE_PORT=8080
-
-# Database (if needed)
-DATABASE_URL=postgres://user:password@postgres:5432/dbname
-
-# Redis (if needed)
-REDIS_URL=redis://redis:6379
-```
-
-### `forge infra docker deploy`
-
-Build and deploy services using Docker Compose.
-
-```bash
-forge infra docker deploy                     # Deploy all services
-forge infra docker deploy -s api-gateway      # Deploy specific service
-forge infra docker deploy --env=prod          # Use prod overrides
-forge infra docker deploy --build             # Force rebuild images
-```
-
-**Flags:**
-- `-s, --service` — Service to deploy (default: all)
-- `-e, --env` — Environment (default: `dev`)
-- `-b, --build` — Force rebuild images
-
-**Behavior:**
-- If `deployments/docker/` exists (from a previous `export`), those files are used directly.
-- Otherwise, configuration is generated on-the-fly in a temporary directory.
-- Dockerfiles are copied to the project root temporarily for correct build context, then cleaned up.
-
----
-
-### `forge infra k8s export` (aliases: `kubernetes`)
-
-Export Kubernetes manifests using Kustomize overlays.
-
-```bash
-forge infra k8s export                        # Export to deployments/k8s/
-forge infra k8s export -o ./k8s-manifests     # Custom output
-forge infra k8s export --force
-```
-
-**Flags:**
-- `-o, --output` — Output directory (default: `deployments/k8s/`)
-- `-f, --force` — Overwrite existing files
-
-**Generated Structure:**
-```
-deployments/k8s/
-├── base/
-│   ├── deployment.yaml        # Deployment per app (replicas, probes, resources)
-│   ├── service.yaml           # ClusterIP Service per app
-│   └── kustomization.yaml
-└── overlays/
-    ├── dev/
-    │   └── kustomization.yaml  # 1 replica, dev- prefix
-    └── prod/
-        └── kustomization.yaml  # 3 replicas, prod- prefix
-```
-
-### `forge infra k8s deploy`
-
-Deploy to Kubernetes using `kubectl apply`.
-
-```bash
-forge infra k8s deploy                        # Deploy all
-forge infra k8s deploy -s api-gateway         # Deploy specific service
-forge infra k8s deploy --env=prod --namespace=production
-forge infra k8s deploy --dry-run              # Preview without applying
-```
-
-**Flags:**
-- `-s, --service` — Service to deploy (default: all)
-- `-e, --env` — Environment (default: `dev`)
-- `-n, --namespace` — Kubernetes namespace (default: `default`)
-- `--dry-run` — Preview changes without applying
-
-Kustomize is used if available; otherwise falls back to raw `kubectl apply -f`.
-
----
-
-### `forge infra do export` (aliases: `digitalocean`)
-
-Export DigitalOcean App Platform spec.
-
-```bash
-forge infra do export
-forge infra do export -o ./do-config --force
-```
-
-**Generated Files:**
-```
-deployments/do/
-├── app.yaml          # DO App Platform spec
-├── .env.example
-└── README.md
-```
-
-### `forge infra do deploy`
-
-Deploy to DigitalOcean App Platform.
-
-```bash
-forge infra do deploy
-forge infra do deploy -s api-gateway --region=nyc1
-```
-
-**Flags:**
-- `-s, --service` — Service to deploy (default: all)
-- `-e, --env` — Environment (default: `dev`)
-- `-r, --region` — DigitalOcean region
-
----
-
-### `forge infra render export`
-
-Export Render.com blueprint.
-
-```bash
-forge infra render export
-forge infra render export -o ./render-config --force
-```
-
-**Generated Files:**
-```
-deployments/render/
-├── render.yaml       # Render Blueprint spec
-├── .env.example
-└── README.md
-```
-
-### `forge infra render deploy`
-
-Deploy to Render.com.
-
-```bash
-forge infra render deploy
-forge infra render deploy -s api-gateway
-```
-
-**Flags:**
-- `-s, --service` — Service to deploy (default: all)
-- `-e, --env` — Environment (default: `dev`)
-
----
-
-## Forge Cloud
-
-Forge Cloud is the managed deployment platform for Forge applications. The `forge cloud` command provides a complete workflow for deploying, monitoring, scaling, and managing your services.
-
-<Callout type="warn">
-Forge Cloud is currently in preview. Some commands return stub data while the backend is being finalized.
-</Callout>
-
-### `forge cloud login`
-
-Authenticate with Forge Cloud.
-
-```bash
-forge cloud login                  # Open browser for OAuth login
-forge cloud login --token=<TOKEN>  # Authenticate with API token
-```
-
-**Flags:**
-- `-t, --token` — API token (skip browser OAuth flow)
-
-### `forge cloud logout`
-
-Log out from Forge Cloud and clear stored credentials.
-
-```bash
-forge cloud logout
-```
-
-### `forge cloud deploy`
-
-Deploy services to Forge Cloud.
-
-```bash
-forge cloud deploy                              # Deploy all services
-forge cloud deploy -s api-gateway               # Deploy specific service
-forge cloud deploy -s api-gateway -e prod       # Deploy to production
-forge cloud deploy -s api-gateway -r us-east-1  # Specify region
-forge cloud deploy --watch                      # Watch deployment progress
-```
-
-**Flags:**
-- `-s, --service` — Service to deploy (default: all, interactive selector shown)
-- `-e, --env` — Environment (default: `dev`)
-- `-r, --region` — Deployment region
-- `-w, --watch` — Watch deployment progress in real time
-
-**Workflow:**
-1. Verifies authentication (prompts `forge cloud login` if needed)
-2. Discovers apps in the project
-3. Builds images, pushes to registry, and initiates deployment
-4. With `--watch`, streams deployment progress until healthy
-
-### `forge cloud status`
-
-Show deployment status across services and environments.
-
-```bash
-forge cloud status                     # Dev environment status
-forge cloud status --env=prod          # Production status
-forge cloud status -s api-gateway      # Filter by service
-forge cloud status --watch             # Live status updates
-```
-
-**Flags:**
-- `-e, --env` — Environment (default: `dev`)
-- `-s, --service` — Filter by service name
-- `-w, --watch` — Watch for status updates
-
-**Example Output:**
-```
-☁️  Forge Cloud Status (prod environment)
-
- Service          Status      Instances  Version  Updated
- api-service      ✓ Running   3/3        v1.2.3   2 hours ago
- auth-service     ✓ Running   2/2        v1.1.0   1 day ago
- worker-service   ⚠ Degraded  1/2        v0.9.0   3 days ago
-```
-
-### `forge cloud logs`
-
-View service logs from Forge Cloud.
-
-```bash
-forge cloud logs -s api-service              # Last 100 lines
-forge cloud logs -s api-service -f           # Follow (stream) logs
-forge cloud logs -s api-service -n 500       # Last 500 lines
-forge cloud logs -s api-service -e prod      # Production logs
-```
-
-**Flags:**
-- `-s, --service` — Service name (required)
-- `-e, --env` — Environment (default: `dev`)
-- `-f, --follow` — Follow log output (live stream)
-- `-n, --tail` — Number of lines to show (default: `100`)
-
-### `forge cloud rollback`
-
-Rollback a service to a previous deployment version.
-
-```bash
-forge cloud rollback -s api-service              # Rollback to previous version
-forge cloud rollback -s api-service -v v1.1.0    # Rollback to specific version
-forge cloud rollback -s api-service -e prod      # Rollback in production
-```
-
-**Flags:**
-- `-s, --service` — Service to rollback (required)
-- `-e, --env` — Environment (default: `dev`)
-- `-v, --version` — Target version (default: previous)
-
-### `forge cloud scale`
-
-Scale service instances up or down.
-
-```bash
-forge cloud scale -s api-service -r 5           # Scale to 5 replicas
-forge cloud scale -s api-service -r 1 -e prod   # Scale prod to 1
-```
-
-**Flags:**
-- `-s, --service` — Service to scale (required)
-- `-e, --env` — Environment (default: `dev`)
-- `-r, --replicas` — Number of replicas (default: `1`, minimum: `1`)
-
----
-
-## Docker Integration
-
-### Generated Dockerfiles
-
-When exporting with `forge infra docker export`, Forge generates multi-stage Dockerfiles for each discovered app. The build stage compiles the Go binary with static linking, and the runtime stage uses a minimal Alpine image.
-
-### Docker Compose Workflow
-
-A typical Docker-based development and deployment workflow:
-
-```bash
-# 1. Export Docker configuration
 forge infra docker export
-
-# 2. Review and customize generated files
-vim deployments/docker/docker-compose.yml
-
-# 3. Copy .env.example and fill in values
-cp deployments/docker/.env.example deployments/docker/.env
-
-# 4. Build and deploy locally
-forge infra docker deploy --build
-
-# 5. Or use docker compose directly
-docker compose -f deployments/docker/docker-compose.yml up -d
-
-# 6. View logs
-docker compose -f deployments/docker/docker-compose.yml logs -f
-
-# 7. Tear down
-docker compose -f deployments/docker/docker-compose.yml down
+forge infra k8s export
+forge infra do export
+forge infra render export
 ```
 
----
-
-## CI/CD Integration
-
-### GitHub Actions
-
-```yaml
-name: Build and Deploy
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.25'
-
-    - name: Build
-      run: forge build --production
-
-    - name: Build and Push Docker
-      run: forge deploy docker -a api-gateway -t ${{ github.sha }}
-
-    - name: Deploy to Staging
-      run: forge deploy k8s -e staging
-```
-
-### GitLab CI
-
-```yaml
-stages:
-  - build
-  - deploy
-
-build:
-  stage: build
-  script:
-    - forge build --production
-    - forge deploy docker -a api-gateway -t $CI_COMMIT_SHA
-
-deploy_staging:
-  stage: deploy
-  script:
-    - forge deploy k8s -e staging
-  only:
-    - develop
-
-deploy_production:
-  stage: deploy
-  script:
-    - forge deploy k8s -e production
-  only:
-    - main
-```
-
----
-
-## Troubleshooting
-
-### Build Failures
+`kubernetes` is an alias for `k8s`; `digitalocean` is an alias for `do`. Each export accepts `--output` (`-o`) and `--force` (`-f`). Use a fresh output directory when you want to compare regenerated files without overwriting your edits.
 
 ```bash
-# Check for syntax errors
-forge build -a api-gateway
-
-# Check dependencies
-go mod tidy
-
-# Build with verbose output
-forge build -a api-gateway --verbose
+forge infra k8s export --output ./deployment-review/k8s
+forge infra docker export --output ./deployment-review/docker
 ```
 
-### Docker Build Issues
+Default outputs:
+
+```text
+deployments/
+  docker/
+    docker-compose.yml
+    docker-compose.dev.yml
+    docker-compose.prod.yml
+    .env.example
+    Dockerfile.<app>
+  k8s/
+    base/
+      deployment.yaml
+      service.yaml
+      kustomization.yaml
+    overlays/
+      dev/kustomization.yaml
+      prod/kustomization.yaml
+  do/
+    app.yaml
+    .env.example
+    README.md
+  render/
+    render.yaml
+    .env.example
+    README.md
+```
+
+The generated overlays are `dev` and `prod`. They are not automatically created for every environment name in your project configuration.
+
+### Review the generated runtime contract
+
+The current generator uses defaults that may not match your application: port 8080, a Go 1.22 builder image, mutable application tags, `/health` for liveness and `/ready` for readiness. Configure the correct Go toolchain, build path, container port, image reference and probe routes before deployment. Check the routes your app actually registers; Forge system routes and custom health handlers can use different paths.
+
+For Compose, also review the build context and Dockerfile location. Exported Dockerfiles live in the export directory, and the generated relative paths need to match where you run the build. Multiple default host-port mappings can collide.
+
+The `.env.example` file is a starting point. It does not provision a database, create a bucket, install Redis features or connect an extension to its backend. Do not commit populated credentials.
+
+### Kubernetes
+
+The export creates application Deployments and ClusterIP Services. It does not create the full infrastructure your application may need, including data services, persistent storage, migration jobs, secrets, ingress/TLS, network policies or required controllers.
+
+After reviewing and fixing the generated files, you can render and validate the selected overlay explicitly:
 
 ```bash
-# Test Docker build manually
-docker build -t api-gateway .
-
-# Check Docker daemon
-docker info
-
-# Check if Docker is available (forge does this automatically)
-which docker && docker info
+kubectl kustomize deployments/k8s/overlays/dev
+kubectl --context YOUR_CONTEXT apply --dry-run=server -k deployments/k8s/overlays/dev -n YOUR_NAMESPACE
 ```
 
-### Kubernetes Deployment Issues
+Create the intended namespace through your normal infrastructure process. Verify the context before a real apply. Server-side dry-run validates the cluster-facing resources without establishing that the application or its data connections work.
+
+The current `forge infra k8s deploy` supports `--env`, `--namespace`, `--service` and `--dry-run`. Its dry-run uses client-side validation. Its Kustomize availability check uses an obsolete kubectl flag, and the exported Kustomize apply helper does not enforce the requested service filter. Until those are fixed, render and apply your reviewed overlay with kubectl directly and do not rely on `--service` to limit the resource set.
+
+### Docker Compose
+
+`forge infra docker deploy` supports `--service`, `--env` and `--build`. It uses exported files when present and otherwise generates a temporary stack. This starts containers; it does not establish durable storage, successful migrations or healthy service communication.
+
+Validate your edited Compose file with `docker compose config`, then use your normal Compose workflow to start and inspect the stack. For production on one host, you still need explicit volume retention, secret handling, backup/restore and operational ownership.
+
+### DigitalOcean and Render
+
+Use the export commands to get draft provider files. Validate them against the provider's current schema and deploy through the provider console or CLI. The Forge deploy handlers for these providers are placeholders.
+
+Render has distinct public web, private service and worker types. DigitalOcean supports internal service ports while its workers and jobs cannot receive inbound traffic. Review the type assigned to each application and use the provider's connection-property bindings. See the [Render Blueprint reference](https://render.com/docs/blueprint-spec), [DigitalOcean app spec](https://docs.digitalocean.com/products/app-platform/reference/app-spec/) and [internal routing guide](https://docs.digitalocean.com/products/app-platform/how-to/manage-internal-routing/).
+
+## Grove, Trove and Redis
+
+Grove and Trove run inside your application. Deploy their database and storage backends, then configure the extensions with the connection names and store names your application uses.
+
+You need to account for:
+
+- Every named Grove connection, its driver, credentials and migrations.
+- Trove's object backend, bucket, credentials and Grove metadata database.
+- Shared Trove dashboard content signing secrets when multiple instances verify tickets.
+- The Redis features your application uses, persistence requirements and ACLs.
+- Runtime configuration paths and verified environment-variable overrides.
+
+The current infrastructure introspector does not fully recognize Grove/Trove requirements, named connections or dependencies configured outside `main.go`. Declare and provision them explicitly. A Redis-compatible endpoint does not by itself prove Redis JSON or search compatibility.
+
+The [workbench proposal](/docs/forge/deployment-workbench) describes a deployment catalog that can bind these requirements to local containers, Kubernetes recipes or managed resources.
+
+## Service communication
+
+Use private service addresses for internal calls and expose only the intended public entry points. On Kubernetes you can use Service DNS. On Compose you can use the service name on the shared network. Managed platforms have their own private networking and connection references.
+
+The existing discovery extension has a Kubernetes backend that lists and watches namespace-scoped Services. Use it when your application needs dynamic discovery; ordinary DNS calls do not need Kubernetes API access. FARP can carry service contract metadata, but discovery does not authorize a request or automatically establish a secure gateway route.
+
+Receiving services must still validate identity, audience and grants. Verify a real service call, a denied call, backend outage recovery and trace propagation before you call the deployment healthy.
+
+## Automation today
+
+In CI, you can build and export draft infrastructure with the current CLI. Use your existing provider deployment tool after you have validated the artifacts and configured credentials. Do not use simulated `forge deploy` or `forge cloud` success as a release gate.
 
 ```bash
-# Check cluster connection
-kubectl cluster-info
-
-# Check namespace
-kubectl get namespaces
-
-# Check deployment status
-kubectl get deployments -n staging
-
-# View pod logs
-kubectl logs -f deployment/api-gateway -n staging
+forge build --production
+forge infra k8s export --output ./deployment-review/k8s
 ```
 
-### Infrastructure Export Issues
-
-```bash
-# Export already exists (use --force to overwrite)
-forge infra docker export --force
-
-# No apps found
-forge dev list   # Check if apps are discoverable
-```
-
-<Callout type="info">
-For development server commands, see the [Development Commands](/docs/forge/cli/development) documentation.
-</Callout>
+The proposed `inspect`, `doctor`, `plan`, `export` and `apply` commands will provide structured errors, reproducible artifacts and an immutable plan hash for non-interactive deployment. Read the [proposed workflow](/docs/forge/deployment-workbench) before adopting those command names in scripts.

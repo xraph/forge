@@ -1,0 +1,1898 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forge deployment workbench | Interactive proposal</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --canvas: #09090b;
+        --panel: #121215;
+        --raised: #19191e;
+        --border: #2b2b31;
+        --text: #f4f4f5;
+        --muted: #a8a8b2;
+        --accent: #f59e0b;
+        --green: #82c5a2;
+        --blue: #96bdf2;
+        --red: #f59c9c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      select {
+        cursor: pointer;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+      }
+      button {
+        padding: 7px 11px;
+        min-height: 36px;
+      }
+      input,
+      select {
+        padding: 7px 9px;
+        min-height: 36px;
+        width: 100%;
+      }
+      button:hover {
+        background: var(--raised);
+        border-color: #52525b;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      a {
+        color: var(--blue);
+        text-underline-offset: 3px;
+      }
+      svg {
+        flex-shrink: 0;
+      }
+      .icon {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .topbar {
+        min-height: 58px;
+        padding: 10px 22px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        border-bottom: 1px solid var(--border);
+      }
+      .brand {
+        font-size: 19px;
+        letter-spacing: -0.7px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .brand svg {
+        color: var(--accent);
+        width: 24px;
+        height: 24px;
+      }
+      .crumb {
+        color: var(--muted);
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .topbar .tag {
+        margin-left: auto;
+      }
+      .tag.orange {
+        color: #f9c36c;
+        border-color: #664719;
+        background: #332510;
+      }
+      .tag.green {
+        color: var(--green);
+        border-color: #315943;
+        background: #14271d;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 164px minmax(0, 1fr);
+        min-height: calc(100vh - 58px);
+      }
+      .sidebar {
+        border-right: 1px solid var(--border);
+        padding: 20px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .sidebar button {
+        text-align: left;
+        border-color: transparent;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--muted);
+      }
+      .sidebar button.active {
+        color: var(--text);
+        background: var(--raised);
+        border-color: var(--border);
+      }
+      .sidebar .local {
+        margin-top: auto;
+        padding: 22px 7px 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.9em;
+      }
+      .local code {
+        display: block;
+        color: var(--text);
+        font-size: 11px;
+        margin-bottom: 5px;
+      }
+      main {
+        padding: 22px 26px;
+        min-width: 0;
+        max-width: 1760px;
+        width: 100%;
+        margin: 0 auto;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 26px;
+        line-height: 1.2;
+        letter-spacing: -0.8px;
+        font-weight: 650;
+      }
+      h2 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      h3 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 12px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .heading {
+        margin-bottom: 18px;
+      }
+      .heading p {
+        margin-top: 6px;
+        color: var(--muted);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .primary {
+        background: var(--accent);
+        color: #171000;
+        border-color: var(--accent);
+        font-weight: 650;
+      }
+      .primary:hover {
+        background: #ffb83e;
+        border-color: #ffb83e;
+      }
+      .notice {
+        padding: 9px 12px;
+        background: #1f1c16;
+        border: 1px solid #4e4028;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #e5c99a;
+        margin-bottom: 15px;
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr 1fr 0.55fr;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      label select,
+      label input {
+        margin-top: 5px;
+        color: var(--text);
+      }
+      .presets {
+        border: 0;
+        padding: 0;
+        margin-top: 0;
+        margin-inline: 0;
+        min-width: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 16px;
+        align-items: center;
+      }
+      .presets > span {
+        font-size: 12px;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+      .presets button {
+        font-size: 12px;
+        min-height: 32px;
+        padding: 5px 9px;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(310px, 0.85fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .workspace > div,
+      .workspace > aside {
+        min-width: 0;
+      }
+      .section {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        overflow: hidden;
+        margin-bottom: 14px;
+      }
+      .section-head {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .section-head .muted {
+        font-size: 12px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+      }
+      th {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 500;
+        padding: 8px 14px;
+        background: #101013;
+      }
+      td {
+        padding: 10px 14px;
+        border-top: 1px solid #26262c;
+        font-size: 12px;
+        vertical-align: middle;
+      }
+      td:first-child {
+        font-size: 13px;
+        font-weight: 500;
+      }
+      td .sub {
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .service {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .service .icon {
+        color: var(--blue);
+        width: 16px;
+        height: 16px;
+      }
+      .service-link {
+        background: none;
+        border: 0;
+        padding: 0;
+        min-height: 28px;
+        font-weight: 600;
+        text-align: left;
+      }
+      .service-link:hover {
+        background: transparent;
+        color: var(--blue);
+      }
+      .private {
+        color: var(--muted);
+      }
+      .public {
+        color: #f9c36c;
+      }
+      .data-controls {
+        padding: 12px 14px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+        min-height: 34px;
+      }
+      .check input {
+        width: 16px;
+        height: 16px;
+        min-height: 0;
+        accent-color: var(--accent);
+        margin: 0;
+      }
+      .footnote {
+        padding: 10px 14px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .topology {
+        padding: 14px 10px 6px;
+      }
+      .topology svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .node {
+        fill: #18181d;
+        stroke: #41414a;
+      }
+      .node.gateway {
+        stroke: #b47b24;
+      }
+      .edge {
+        fill: none;
+        stroke: #6680a1;
+        stroke-width: 1.5;
+      }
+      .edge.data {
+        stroke: #608b75;
+        stroke-dasharray: 4 4;
+      }
+      .topology text {
+        font:
+          12px -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        fill: #ededf1;
+      }
+      .topology text.meta {
+        font-size: 10px;
+        fill: #aaaab5;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        padding: 0 14px 12px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .legend span::before {
+        content: "";
+        display: inline-block;
+        width: 18px;
+        border-top: 2px solid #6680a1;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .legend span:last-child::before {
+        border-color: #608b75;
+        border-top-style: dashed;
+      }
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+        padding: 0 12px;
+      }
+      .tabs button {
+        padding: 10px 10px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--muted);
+      }
+      .tabs button[aria-selected="true"] {
+        color: var(--text);
+        box-shadow: inset 0 -2px var(--accent);
+      }
+      .panel {
+        padding: 14px;
+      }
+      .panel[hidden] {
+        display: none;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .summary strong {
+        display: block;
+        font-size: 20px;
+        line-height: 1.4;
+        font-weight: 550;
+      }
+      .summary span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .review-line {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .review-line .icon {
+        color: var(--green);
+        width: 15px;
+        height: 15px;
+        margin-top: 2px;
+      }
+      .review-line.warn .icon {
+        color: var(--accent);
+      }
+      .error {
+        color: var(--red);
+        border: 1px solid #633d3d;
+        background: #2c181b;
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 12px;
+        font-size: 12px;
+      }
+      .error[hidden] {
+        display: none;
+      }
+      .file-picker {
+        font-size: 12px;
+        margin-bottom: 9px;
+      }
+      pre,
+      .code-preview {
+        margin: 0;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: #0b0b0e;
+        color: #d1d1d9;
+        font:
+          11px/1.65 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        overflow: auto;
+        max-height: 350px;
+        white-space: pre;
+      }
+      .code-preview {
+        width: 100%;
+        min-height: 300px;
+        resize: vertical;
+      }
+      .file-actions {
+        display: flex;
+        gap: 7px;
+        margin: 10px 0;
+        flex-wrap: wrap;
+      }
+      .file-actions button {
+        font-size: 12px;
+      }
+      .artifact-list {
+        margin: 9px 0 0;
+        padding: 0;
+        list-style: none;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .artifact-list li {
+        padding: 5px 0;
+        border-bottom: 1px solid #26262c;
+      }
+      .prompt {
+        width: 100%;
+        resize: vertical;
+        min-height: 95px;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .run-log {
+        max-height: 180px;
+        overflow: auto;
+        padding: 0;
+        margin: 12px 0 0;
+        list-style: none;
+        font-size: 12px;
+      }
+      .run-log li {
+        padding: 5px 0;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .run-log .step-state {
+        color: var(--green);
+        font:
+          10px ui-monospace,
+          monospace;
+        width: 44px;
+        flex-shrink: 0;
+      }
+      .run-log .failed {
+        color: var(--red);
+      }
+      .bottom {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      #toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        background: #27272d;
+        border: 1px solid #575760;
+        border-radius: 6px;
+        padding: 10px 16px;
+        max-width: calc(100vw - 32px);
+        font-size: 13px;
+        box-shadow: 0 8px 24px #0006;
+      }
+      #toast:empty {
+        display: none;
+      }
+      dialog {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 20px;
+        width: 560px;
+        max-width: calc(100vw - 32px);
+      }
+      dialog::backdrop {
+        background: #0009;
+      }
+      dialog pre {
+        margin: 12px 0;
+        max-height: 280px;
+      }
+      .skip {
+        position: absolute;
+        left: 8px;
+        top: -70px;
+        background: var(--panel);
+        padding: 10px;
+        z-index: 20;
+      }
+      .skip:focus {
+        top: 8px;
+      }
+      @media (max-width: 1180px) {
+        main {
+          padding: 18px;
+        }
+        .layout {
+          grid-template-columns: 140px minmax(0, 1fr);
+        }
+        .workspace {
+          grid-template-columns: minmax(0, 1fr) minmax(285px, 0.85fr);
+        }
+        td,
+        th {
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+      }
+      @media (max-width: 960px) {
+        .workspace {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .layout {
+          grid-template-columns: 125px minmax(0, 1fr);
+        }
+        .controls {
+          grid-template-columns: 1fr 1fr;
+        }
+        pre {
+          max-height: 300px;
+        }
+      }
+      @media (max-width: 600px) {
+        .layout {
+          display: block;
+        }
+        .sidebar {
+          flex-direction: row;
+          overflow-x: auto;
+          padding: 8px 12px;
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+          gap: 2px;
+        }
+        .sidebar button {
+          flex-shrink: 0;
+          font-size: 12px;
+          padding: 6px 9px;
+        }
+        .sidebar .local {
+          display: none;
+        }
+        .sidebar .icon {
+          display: none;
+        }
+        .topbar {
+          padding: 10px 14px;
+          gap: 12px;
+        }
+        .crumb {
+          font-size: 12px;
+        }
+        .topbar .tag {
+          font-size: 10px;
+        }
+        main {
+          padding: 16px 12px;
+        }
+        h1 {
+          font-size: 23px;
+        }
+        .heading {
+          gap: 14px;
+        }
+        .heading .actions {
+          width: 100%;
+        }
+        .heading .actions button {
+          flex: 1;
+        }
+        .controls {
+          gap: 10px;
+        }
+        .data-controls {
+          grid-template-columns: 1fr;
+        }
+        .summary strong {
+          font-size: 18px;
+        }
+        td {
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none" aria-hidden="true">
+      <defs>
+        <symbol id="hammer" viewBox="0 0 24 24">
+          <path d="m14 3 7 7-3 3-3-3L5 20l-3-3L12 7 9 4l3-3 2 2Z" />
+        </symbol>
+        <symbol id="grid" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </symbol>
+        <symbol id="server" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="7" rx="2" />
+          <rect x="3" y="14" width="18" height="7" rx="2" />
+          <path d="M7 6.5h.01M7 17.5h.01M15 6.5h3M15 17.5h3" />
+        </symbol>
+        <symbol id="link" viewBox="0 0 24 24">
+          <path
+            d="m9 15 6-6M8 16l-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0"
+            transform="translate(0 0) scale(.95)"
+          />
+        </symbol>
+        <symbol id="file" viewBox="0 0 24 24">
+          <path d="M14 2H5v20h14V7l-5-5Z M14 2v6h5M8 13h8M8 17h6" />
+        </symbol>
+        <symbol id="check" viewBox="0 0 24 24">
+          <path d="m5 12 4 4L19 6" />
+        </symbol>
+        <symbol id="alert" viewBox="0 0 24 24">
+          <path d="M12 3 2 21h20L12 3ZM12 9v5M12 17h.01" />
+        </symbol>
+      </defs>
+    </svg>
+    <a class="skip" href="#main">Skip to deployment configuration</a>
+    <header class="topbar">
+      <div class="brand">
+        <svg class="icon" aria-hidden="true"><use href="#hammer" /></svg>forge
+      </div>
+      <span class="crumb">Local deployment workbench</span>
+      <span class="tag orange">Interactive proposal</span>
+    </header>
+    <div class="layout">
+      <nav class="sidebar" aria-label="Workbench sections">
+        <button type="button" class="active" data-section="overview">
+          <svg class="icon" aria-hidden="true"><use href="#grid" /></svg
+          >Overview
+        </button>
+        <button type="button" data-section="services">
+          <svg class="icon" aria-hidden="true"><use href="#server" /></svg
+          >Services
+        </button>
+        <button type="button" data-section="connections">
+          <svg class="icon" aria-hidden="true"><use href="#link" /></svg
+          >Connections
+        </button>
+        <button type="button" data-section="files">
+          <svg class="icon" aria-hidden="true"><use href="#file" /></svg>Files
+          &amp; plan
+        </button>
+        <div class="local">
+          <code>$ forge deploy start</code>Proposed CLI command<br />Sample
+          project only
+        </div>
+      </nav>
+      <main id="main">
+        <div class="heading row" id="overview">
+          <div>
+            <h1>Deploy <span id="project-heading">atlas</span></h1>
+            <p>Three services. One configuration. Choose where they run.</p>
+          </div>
+          <div class="actions">
+            <button type="button" id="save">Save browser draft</button
+            ><button type="button" class="primary" id="rehearse">
+              Rehearse deployment
+            </button>
+          </div>
+        </div>
+        <div class="notice">
+          This is a working UI mock. Settings persist in this browser and export
+          as proposal files. Deployment events are simulated; no provider is
+          contacted.
+        </div>
+        <div class="controls">
+          <label
+            >Deployment target<select id="target">
+              <option value="kubernetes">Kubernetes</option>
+              <option value="compose">Docker Compose</option>
+              <option value="render">Render</option>
+              <option value="digitalocean">DigitalOcean App Platform</option>
+            </select></label
+          >
+          <label
+            >Environment<select id="environment">
+              <option value="production">Production</option>
+              <option value="staging">Staging</option>
+              <option value="development">Development</option>
+            </select></label
+          >
+          <label
+            >Project name<input
+              id="project"
+              value="atlas"
+              maxlength="40"
+              pattern="[a-z][a-z0-9-]{0,39}"
+              autocomplete="off"
+          /></label>
+          <label
+            >API replicas<input
+              id="replicas"
+              type="number"
+              min="1"
+              max="12"
+              value="3"
+          /></label>
+        </div>
+        <fieldset class="presets" aria-label="Deployment presets">
+          <span>Start with</span
+          ><button type="button" data-preset="kubernetes">
+            Kubernetes production</button
+          ><button type="button" data-preset="compose">Local stack</button
+          ><button type="button" data-preset="render">Render managed</button
+          ><button type="button" data-preset="digitalocean">
+            DigitalOcean managed
+          </button>
+        </fieldset>
+        <div class="workspace">
+          <div>
+            <section
+              class="section"
+              id="services"
+              aria-labelledby="services-heading"
+            >
+              <div class="section-head row">
+                <h2 id="services-heading">Application services</h2>
+                <span class="muted">From sample <code>.forge.yml</code></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Service</th>
+                      <th>Exposure</th>
+                      <th>Port</th>
+                      <th>Instances</th>
+                      <th>Runtime</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <span class="service"
+                          ><svg class="icon" aria-hidden="true">
+                            <use href="#server" /></svg
+                          ><button
+                            type="button"
+                            class="service-link"
+                            data-service="gateway"
+                          >
+                            gateway
+                          </button></span
+                        ><span class="sub">Public entry point</span>
+                      </td>
+                      <td class="public">Public HTTPS</td>
+                      <td>8080</td>
+                      <td id="gateway-replicas">2</td>
+                      <td>Go</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <span class="service"
+                          ><svg class="icon" aria-hidden="true">
+                            <use href="#server" /></svg
+                          ><button
+                            type="button"
+                            class="service-link"
+                            data-service="api"
+                          >
+                            api
+                          </button></span
+                        ><span class="sub">Grove + Trove + cache</span>
+                      </td>
+                      <td class="private">Private</td>
+                      <td>8080</td>
+                      <td id="api-replicas">3</td>
+                      <td>Go</td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <span class="service"
+                          ><svg class="icon" aria-hidden="true">
+                            <use href="#server" /></svg
+                          ><button
+                            type="button"
+                            class="service-link"
+                            data-service="worker"
+                          >
+                            worker
+                          </button></span
+                        ><span class="sub">Background jobs</span>
+                      </td>
+                      <td class="private">Outbound only</td>
+                      <td>None</td>
+                      <td>1</td>
+                      <td>Go</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="footnote">
+                Only the gateway gets a public route. Select a service to
+                inspect its health and bindings.
+              </div>
+            </section>
+            <section class="section" aria-labelledby="data-heading">
+              <div class="section-head row">
+                <h2 id="data-heading">Data &amp; storage</h2>
+                <span class="tag">Explicit resource bindings</span>
+              </div>
+              <div class="data-controls">
+                <label
+                  >Data placement<select id="placement">
+                    <option value="external">Use existing services</option>
+                    <option value="managed">Provision managed services</option>
+                    <option value="self-hosted">
+                      Self-host the data stack
+                    </option>
+                  </select></label
+                >
+                <label id="target-setting-label"
+                  >Kubernetes context<input
+                    id="target-setting"
+                    value="production-cluster"
+                    maxlength="80"
+                    autocomplete="off"
+                /></label>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Resource</th>
+                      <th>Used by</th>
+                      <th>Backend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>primary<span class="sub">Grove database</span></td>
+                      <td>api, worker</td>
+                      <td id="database-backend">External PostgreSQL</td>
+                    </tr>
+                    <tr>
+                      <td>objects<span class="sub">Trove uploads</span></td>
+                      <td>api, worker</td>
+                      <td id="storage-backend">Existing S3 bucket</td>
+                    </tr>
+                    <tr>
+                      <td>cache<span class="sub">Shared cache</span></td>
+                      <td>api, worker</td>
+                      <td id="cache-backend">External Redis</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="footnote row">
+                <label class="check"
+                  ><input id="redis-features" type="checkbox" checked />Require
+                  Redis JSON and search</label
+                ><span>Trove metadata uses <code>primary</code></span>
+              </div>
+            </section>
+            <section
+              class="section"
+              id="connections"
+              aria-labelledby="connections-heading"
+            >
+              <div class="section-head row">
+                <h2 id="connections-heading">Service connections</h2>
+                <span class="muted" id="network-label"
+                  >Kubernetes Service DNS</span
+                >
+              </div>
+              <div class="topology">
+                <svg
+                  viewBox="0 0 600 190"
+                  role="img"
+                  aria-label="Gateway calls the API over HTTP. API and worker connect to PostgreSQL, S3 storage and Redis."
+                >
+                  <defs>
+                    <marker
+                      id="arrow"
+                      markerWidth="7"
+                      markerHeight="7"
+                      refX="6"
+                      refY="3.5"
+                      orient="auto"
+                    >
+                      <path d="M0 0 7 3.5 0 7" fill="#6680a1" />
+                    </marker>
+                  </defs>
+                  <path class="edge" d="M148 48H218" marker-end="url(#arrow)" />
+                  <text x="166" y="37" class="meta">HTTP</text>
+                  <path
+                    class="edge data"
+                    d="M328 48H366V28H434M328 48H388V91H434M328 48H366V154H434M328 142H356V28H434M328 142H388V91H434M328 142H412V154H434"
+                  />
+                  <rect
+                    class="node gateway"
+                    x="18"
+                    y="24"
+                    width="130"
+                    height="48"
+                    rx="6"
+                  />
+                  <text x="32" y="45">gateway</text>
+                  <text x="32" y="60" class="meta">Public HTTPS</text>
+                  <rect
+                    class="node"
+                    x="218"
+                    y="24"
+                    width="110"
+                    height="48"
+                    rx="6"
+                  />
+                  <text x="232" y="45">api</text>
+                  <text x="232" y="60" class="meta">Private :8080</text>
+                  <rect
+                    class="node"
+                    x="218"
+                    y="118"
+                    width="110"
+                    height="48"
+                    rx="6"
+                  />
+                  <text x="232" y="139">worker</text>
+                  <text x="232" y="154" class="meta">No listener</text>
+                  <rect
+                    class="node"
+                    x="434"
+                    y="7"
+                    width="146"
+                    height="42"
+                    rx="6"
+                  />
+                  <text x="448" y="24">PostgreSQL</text>
+                  <text x="448" y="39" class="meta">
+                    Grove + Trove metadata
+                  </text>
+                  <rect
+                    class="node"
+                    x="434"
+                    y="70"
+                    width="146"
+                    height="42"
+                    rx="6"
+                  />
+                  <text x="448" y="87">Object storage</text>
+                  <text x="448" y="102" class="meta">Trove uploads</text>
+                  <rect
+                    class="node"
+                    x="434"
+                    y="133"
+                    width="146"
+                    height="42"
+                    rx="6"
+                  />
+                  <text x="448" y="150">Redis</text>
+                  <text x="448" y="165" class="meta" id="redis-graph-label">
+                    Cache + JSON + search
+                  </text>
+                </svg>
+              </div>
+              <div class="legend">
+                <span>Service call</span><span>Resource binding</span>
+              </div>
+              <div class="footnote">
+                Gateway binds
+                <code id="api-address"
+                  >http://api.atlas-production.svc:8080</code
+                >. Receiving services still enforce authentication and grants.
+              </div>
+            </section>
+          </div>
+          <aside id="files" aria-label="Deployment review">
+            <section class="section">
+              <div class="section-head row">
+                <h2>Deployment plan</h2>
+                <span class="tag orange" id="draft-status">Browser draft</span>
+              </div>
+              <div class="tabs" role="tablist" aria-label="Plan views">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="review-panel"
+                  id="review-tab"
+                  data-tab="review"
+                >
+                  Review</button
+                ><button
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="config-panel"
+                  id="config-tab"
+                  data-tab="config"
+                  tabindex="-1"
+                >
+                  Files</button
+                ><button
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="agent-panel"
+                  id="agent-tab"
+                  data-tab="agent"
+                  tabindex="-1"
+                >
+                  CLI &amp; AI
+                </button>
+              </div>
+              <div
+                class="panel"
+                id="review-panel"
+                role="tabpanel"
+                aria-labelledby="review-tab"
+              >
+                <div class="summary">
+                  <div>
+                    <strong>3 + 3</strong
+                    ><span>App services + data resources</span>
+                  </div>
+                  <div>
+                    <strong id="instance-count">6</strong
+                    ><span>Application instances</span>
+                  </div>
+                </div>
+                <div class="review-line">
+                  <svg class="icon" aria-hidden="true">
+                    <use href="#check" /></svg
+                  ><span>Private API, one public gateway, outbound worker</span>
+                </div>
+                <div class="review-line">
+                  <svg class="icon" aria-hidden="true">
+                    <use href="#check" /></svg
+                  ><span
+                    >Named database, Trove metadata and bucket bindings</span
+                  >
+                </div>
+                <div class="review-line">
+                  <svg class="icon" aria-hidden="true">
+                    <use href="#check" /></svg
+                  ><span>Secret references only in exported files</span>
+                </div>
+                <div class="review-line warn">
+                  <svg class="icon" aria-hidden="true">
+                    <use href="#alert" /></svg
+                  ><span id="live-checks"
+                    >Live checks still needed: target access, resource
+                    connectivity, TLS and probe routes.</span
+                  >
+                </div>
+                <div
+                  class="error"
+                  id="validation-error"
+                  role="status"
+                  hidden
+                ></div>
+                <h3 style="margin-top: 16px">Planned provider output</h3>
+                <p class="small muted">
+                  Artifact inventory only. The deployment compiler is proposed.
+                </p>
+                <ul class="artifact-list" id="artifact-list"></ul>
+              </div>
+              <div
+                class="panel"
+                id="config-panel"
+                role="tabpanel"
+                aria-labelledby="config-tab"
+                hidden
+              >
+                <label class="file-picker"
+                  >Proposal file<select id="file-select"></select
+                ></label>
+                <textarea
+                  id="file-preview"
+                  class="code-preview"
+                  readonly
+                  spellcheck="false"
+                  wrap="off"
+                  aria-label="Selected proposal file contents"
+                ></textarea>
+                <div class="file-actions">
+                  <button type="button" id="download-file">Download file</button
+                  ><button type="button" id="copy-file">Copy contents</button
+                  ><button type="button" id="download-bundle">
+                    Download bundle
+                  </button>
+                </div>
+                <p class="small muted">
+                  The bundle is JSON containing file paths and contents. These
+                  versioned proposal files need the future compiler; the current
+                  CLI cannot deploy them.
+                </p>
+              </div>
+              <div
+                class="panel"
+                id="agent-panel"
+                role="tabpanel"
+                aria-labelledby="agent-tab"
+                hidden
+              >
+                <p class="small muted" style="margin-bottom: 10px">
+                  Proposed non-interactive workflow. Apply requires the approved
+                  plan hash.
+                </p>
+                <pre id="commands"></pre>
+                <label style="margin-top: 12px"
+                  >Implementation brief<textarea
+                    id="prompt"
+                    class="prompt"
+                    readonly
+                  ></textarea>
+                </label>
+                <div class="file-actions">
+                  <button type="button" id="copy-prompt">Copy brief</button>
+                </div>
+              </div>
+              <div class="footnote row">
+                <span id="file-count">8 proposal files</span
+                ><button
+                  type="button"
+                  id="reset"
+                  style="font-size: 11px; min-height: 28px; padding: 3px 7px"
+                >
+                  Reset draft
+                </button>
+              </div>
+            </section>
+            <section class="section" aria-labelledby="rehearsal-heading">
+              <div class="section-head row">
+                <h2 id="rehearsal-heading">Deployment rehearsal</h2>
+                <span class="tag" id="run-status">Not run</span>
+              </div>
+              <div class="panel">
+                <label
+                  >Simulated outcome<select id="outcome">
+                    <option value="success">Healthy rollout</option>
+                    <option value="failure">Migration failure</option>
+                  </select></label
+                >
+                <ol class="run-log" id="run-log" aria-live="polite">
+                  <li class="muted">
+                    Run a rehearsal to inspect the proposed progress flow.
+                  </li>
+                </ol>
+              </div>
+              <div class="footnote">
+                Real apply will provision or bind data, run migrations, then
+                wait for healthy services.
+              </div>
+            </section>
+            <p class="bottom">
+              No cloud changes. No secrets stored.
+              <a
+                href="/docs/forge/deployment-workbench"
+                target="_blank"
+                rel="noopener"
+                >Read the proposal</a
+              >
+            </p>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <dialog id="service-dialog" aria-labelledby="service-title">
+      <div class="row">
+        <h2 id="service-title">Service</h2>
+        <button type="button" id="close-dialog">Close</button>
+      </div>
+      <p
+        id="service-description"
+        class="small muted"
+        style="margin-top: 8px"
+      ></p>
+      <pre id="service-detail"></pre>
+      <p class="small muted">
+        Fixture contracts only. The real planner must check your app's actual
+        configuration and routes.
+      </p>
+    </dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+      const DEFAULTS = {
+        target: "kubernetes",
+        environment: "production",
+        project: "atlas",
+        replicas: 3,
+        placement: "external",
+        targetSetting: "production-cluster",
+        redisFeatures: true,
+      };
+      const PRESETS = {
+        kubernetes: { ...DEFAULTS },
+        compose: {
+          ...DEFAULTS,
+          target: "compose",
+          environment: "development",
+          replicas: 1,
+          placement: "self-hosted",
+          targetSetting: "local",
+        },
+        render: {
+          ...DEFAULTS,
+          target: "render",
+          replicas: 2,
+          placement: "managed",
+          targetSetting: "oregon",
+          redisFeatures: false,
+        },
+        digitalocean: {
+          ...DEFAULTS,
+          target: "digitalocean",
+          replicas: 2,
+          placement: "managed",
+          targetSetting: "nyc1",
+          redisFeatures: false,
+        },
+      };
+      const STORAGE_KEY = "forge-deployment-proposal-v1";
+      let state = { ...DEFAULTS };
+      let storageAvailable = true;
+      let saved = false;
+      let files = {};
+      let runGeneration = 0;
+      let toastTimer;
+      function validState(candidate) {
+        return (
+          candidate &&
+          Object.hasOwn(PRESETS, candidate.target) &&
+          ["production", "staging", "development"].includes(
+            candidate.environment,
+          ) &&
+          /^[a-z][a-z0-9-]{0,39}$/.test(candidate.project) &&
+          Number.isInteger(candidate.replicas) &&
+          candidate.replicas >= 1 &&
+          candidate.replicas <= 12 &&
+          ["external", "managed", "self-hosted"].includes(
+            candidate.placement,
+          ) &&
+          typeof candidate.targetSetting === "string" &&
+          candidate.targetSetting.length <= 80 &&
+          /^[a-zA-Z0-9._:/-]+$/.test(candidate.targetSetting) &&
+          typeof candidate.redisFeatures === "boolean"
+        );
+      }
+      try {
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+        if (validState(stored)) {
+          state = Object.fromEntries(
+            Object.keys(DEFAULTS).map((key) => [key, stored[key]]),
+          );
+          saved = true;
+        }
+      } catch {
+        storageAvailable = false;
+      }
+      const yaml = (value) => JSON.stringify(value);
+      const namespace = () => `${state.project}-${state.environment}`;
+      const targetNames = {
+        kubernetes: "Kubernetes",
+        compose: "Docker Compose",
+        render: "Render",
+        digitalocean: "DigitalOcean App Platform",
+      };
+      function resourceLifecycle(resource) {
+        if (state.placement === "managed" && resource === "objects")
+          return "external";
+        return state.placement;
+      }
+      function createFiles() {
+        const secretPrefix = state.project.replaceAll("-", "_").toUpperCase();
+        const targetOptions =
+          state.target === "kubernetes"
+            ? `      context: ${yaml(state.targetSetting)}\n      namespace: ${yaml(namespace())}`
+            : state.target === "compose"
+              ? `      docker_context: ${yaml(state.targetSetting)}`
+              : `      region: ${yaml(state.targetSetting)}`;
+        const commonHeader =
+          "# Deployment proposal. Requires the planned Forge deployment compiler.\n";
+        const resource = (name, type) =>
+          `  ${name}:\n    type: ${type}\n    lifecycle: ${resourceLifecycle(name)}\n    connection: {secret_ref: ${name === "primary" ? "primary-dsn" : name === "objects" ? "objects-dsn" : "cache-url"}}${name === "objects" ? `\n    bucket: ${yaml(`${state.project}-uploads`)}` : ""}${name === "cache" ? `\n    capabilities: ${state.redisFeatures ? "[json, search]" : "[]"}` : ""}${state.placement === "self-hosted" ? `\n    recipe: ${yaml(name === "primary" ? "postgres-single-node" : name === "objects" ? "s3-compatible-single-node" : "redis-with-required-features")}` : ""}\n`;
+        const dataBindings =
+          "      - {resource: primary, extension: grove, connection: primary}\n      - {resource: objects, extension: trove, store: uploads, metadata_database: primary}\n      - {resource: cache, extension: cache}\n";
+        files = {
+          ".forge.yml":
+            commonHeader +
+            `project:\n  name: ${yaml(state.project)}\n  module: ${yaml(`example.com/${state.project}`)}\n  layout: single-module\nbuild:\n  apps:\n    - {name: gateway, cmd: ./cmd/gateway}\n    - {name: api, cmd: ./cmd/api}\n    - {name: worker, cmd: ./cmd/worker}\ndeploy:\n  version: 2\n  registry: ghcr.io/example\n  spec: ./deploy/stack.yml\n  defaults:\n    target: ${state.target}\n    environment: ${state.environment}\n  environment_files:\n    ${state.environment}: ./deploy/environments/${state.environment}.yml\n  targets:\n    ${state.target}:\n      provider: ${state.target}\n${targetOptions}\n`,
+          "deploy/stack.yml":
+            commonHeader +
+            `version: 1\nservices:\n  gateway:\n    build_app: gateway\n    kind: web\n    config_files: [./config/gateway.yaml]\n    ports:\n      http: {port: 8080, protocol: http, exposure: public}\n    health:\n      readiness: {port: http, path: /_/health/ready}\n      liveness: {port: http, path: /_/health/live}\n  api:\n    build_app: api\n    kind: web\n    config_files: [./config/api.yaml]\n    ports:\n      http: {port: 8080, protocol: http, exposure: private}\n    health:\n      readiness: {port: http, path: /_/health/ready}\n      liveness: {port: http, path: /_/health/live}\n    bindings:\n${dataBindings}  worker:\n    build_app: worker\n    kind: worker\n    config_files: [./config/worker.yaml]\n    health: {strategy: application-heartbeat}\n    bindings:\n${dataBindings}resources:\n${resource("primary", "postgres")}${resource("objects", "object-storage")}${resource("cache", "redis")}connections:\n  - from: gateway\n    to: api\n    port: http\n    binding: {config_key: services.api.url}\n    timeout: 5s\n    retry: {attempts: 0}\n`,
+          [`deploy/environments/${state.environment}.yml`]:
+            commonHeader +
+            `version: 1\ntarget: ${state.target}\nservices:\n  gateway: {replicas: ${Math.min(2, state.replicas)}}\n  api: {replicas: ${state.replicas}}\n  worker: {replicas: 1}\npolicy:\n  public_entry: gateway\n  data_retention: retain\n  migrations: before-rollout\n  image_reference: digest\n`,
+          "deploy/secrets.example.yml":
+            commonHeader +
+            `# References only. Set these in your secret provider, not this file.\nversion: 1\nsecrets:\n  primary-dsn: {resolver: environment, key: ${secretPrefix}_PRIMARY_DSN}\n  objects-dsn: {resolver: environment, key: ${secretPrefix}_OBJECTS_DSN}\n  cache-url: {resolver: environment, key: ${secretPrefix}_CACHE_URL}\n  trove-content-secret: {resolver: environment, key: ${secretPrefix}_TROVE_CONTENT_SECRET}\n`,
+          "config/gateway.yaml":
+            commonHeader +
+            "# Compiler injects services.api.url from the declared connection.\nservices: {}\n",
+          "config/api.yaml":
+            commonHeader +
+            `# Compiler injects grove DSNs, trove storage_driver and cache URL.\n# These files are templates and cannot be used directly as runtime config.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n    disable_migrate: true\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n    disable_migrate: true\n    # Shared dashboard_content_secret comes from trove-content-secret.\n  cache:\n    driver: redis\n`,
+          "config/worker.yaml":
+            commonHeader +
+            `# Compiler injects resource connections; worker declares no HTTP port.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n    disable_migrate: true\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n    disable_routes: true\n    disable_migrate: true\n  cache:\n    driver: redis\n`,
+          "PROPOSAL.md": `# ${state.project} deployment proposal\n\nThis bundle comes from the Forge deployment UI mock. It is not deployable with the current CLI.\n\nTarget: ${targetNames[state.target]}. Environment: ${state.environment}.\nApplication services: gateway, api and worker.\nResource bindings: PostgreSQL for Grove and Trove metadata, object storage for Trove, and Redis for shared cache.\n\nThe future compiler must resolve secret bindings, verify ports and health routes, lock recipe versions and image digests, generate provider artifacts and validate target capabilities before apply.\nSelf-hosted production data requires explicit backup, restore and availability settings.\n\nNo provider access or live deployment validation was performed.\n`,
+        };
+      }
+      function validationError() {
+        if (!/^[a-z][a-z0-9-]{0,39}$/.test(state.project))
+          return "Use a project name starting with a lowercase letter, followed by lowercase letters, numbers or hyphens.";
+        if (
+          !Number.isInteger(state.replicas) ||
+          state.replicas < 1 ||
+          state.replicas > 12
+        )
+          return "Choose between 1 and 12 API replicas.";
+        if (!/^[a-zA-Z0-9._:/-]+$/.test(state.targetSetting))
+          return "Set a context or region using letters, numbers, dots, slashes, colons or hyphens.";
+        if (
+          ["render", "digitalocean"].includes(state.target) &&
+          state.placement === "self-hosted"
+        )
+          return "This platform preset has no qualified self-hosted data recipe. Use existing services or managed resources.";
+        if (state.target === "compose" && state.placement === "managed")
+          return "Compose cannot provision managed databases. Use existing services or the self-hosted local stack.";
+        if (state.placement === "managed" && state.redisFeatures)
+          return "Managed Redis JSON/search capability is unverified. Select an existing capable Redis endpoint or remove this requirement if the app does not need it.";
+        if (
+          state.placement === "self-hosted" &&
+          state.environment === "production"
+        )
+          return "Self-hosted production data needs an availability policy, backups and a tested restore recipe. This mock only provides a single-node development recipe.";
+        return "";
+      }
+      function switchTab(name, focus = false) {
+        document.querySelectorAll("[data-tab]").forEach((tab) => {
+          const active = tab.dataset.tab === name;
+          tab.setAttribute("aria-selected", String(active));
+          tab.tabIndex = active ? 0 : -1;
+          $(`${tab.dataset.tab}-panel`).hidden = !active;
+          if (active && focus) tab.focus();
+        });
+      }
+      function apiAddress() {
+        if (state.target === "kubernetes")
+          return `http://api.${namespace()}.svc:8080`;
+        if (state.target === "compose" || state.target === "digitalocean")
+          return "http://api:8080";
+        return "Resolved from Render service host and port";
+      }
+      function render() {
+        createFiles();
+        $("project-heading").textContent = state.project || "your project";
+        $("gateway-replicas").textContent = String(Math.min(2, state.replicas));
+        $("api-replicas").textContent = String(state.replicas);
+        $("instance-count").textContent = String(
+          Math.min(2, state.replicas) + state.replicas + 1,
+        );
+        $("draft-status").textContent = saved
+          ? "Saved in browser"
+          : "Browser draft";
+        $("draft-status").className = saved ? "tag green" : "tag orange";
+        $("target-setting-label").firstChild.textContent =
+          state.target === "kubernetes"
+            ? "Kubernetes context"
+            : state.target === "compose"
+              ? "Docker context"
+              : "Region";
+        const placement = state.placement;
+        $("database-backend").textContent =
+          placement === "external"
+            ? "External PostgreSQL"
+            : placement === "managed"
+              ? "Managed PostgreSQL"
+              : "PostgreSQL + volume";
+        $("storage-backend").textContent =
+          placement === "self-hosted"
+            ? "S3-compatible + volume"
+            : "Existing S3 bucket";
+        $("cache-backend").textContent =
+          placement === "external"
+            ? "External Redis"
+            : placement === "managed"
+              ? "Managed Redis"
+              : "Pinned Redis recipe";
+        $("redis-graph-label").textContent = state.redisFeatures
+          ? "Cache + JSON + search"
+          : "Shared cache";
+        $("network-label").textContent = {
+          kubernetes: "Kubernetes Service DNS",
+          compose: "Compose network",
+          render: "Render private network",
+          digitalocean: "App Platform internal routing",
+        }[state.target];
+        $("api-address").textContent = apiAddress();
+        const error = validationError();
+        $("validation-error").hidden = !error;
+        $("validation-error").textContent = error;
+        $("rehearse").disabled = Boolean(error);
+        $("save").disabled = !validState(state);
+        for (const id of ["download-file", "download-bundle", "copy-file"]) {
+          $(id).disabled = !validState(state);
+        }
+        const artifacts = {
+          kubernetes: [
+            "Kustomize base + environment overlay",
+            "App Deployments, Services and runtime ConfigMaps",
+            "ServiceAccounts, scoped RBAC and network policies",
+            "Migration Job + explicit gateway/TLS binding",
+            placement === "self-hosted"
+              ? "Selected data recipes, storage and retention policy"
+              : "External data connections and secret references",
+          ],
+          compose: [
+            "Compose services + per-app Dockerfiles",
+            "Runtime settings and secret mount references",
+            "Private network and explicit gateway host port",
+            placement === "self-hosted"
+              ? "PostgreSQL, object service and Redis + volumes"
+              : "External resource connection bindings",
+            "Migration task, health checks and retention settings",
+          ],
+          render: [
+            "render.yaml Blueprint",
+            "Public web service, private API and worker",
+            "Managed PostgreSQL + Key Value or external bindings",
+            "External S3 storage and database metadata mapping",
+            "Service property references and secret bindings",
+          ],
+          digitalocean: [
+            "App Platform app.yaml specification",
+            "Gateway, private API ports and outbound worker",
+            "Managed database or external connection bindings",
+            "External object storage and Redis requirements",
+            "Migration job and scoped secret bindings",
+          ],
+        }[state.target];
+        $("artifact-list").replaceChildren(
+          ...artifacts.map((text) => {
+            const item = document.createElement("li");
+            item.textContent = text;
+            return item;
+          }),
+        );
+        const selected = $("file-select").value;
+        $("file-select").replaceChildren(
+          ...Object.keys(files).map((name) => {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            return option;
+          }),
+        );
+        if (Object.hasOwn(files, selected)) $("file-select").value = selected;
+        renderFile();
+        $("file-count").textContent =
+          `${Object.keys(files).length} proposal files`;
+        $("commands").textContent =
+          `# Proposed commands, not available yet\nforge deploy inspect --output json\nforge deploy doctor --target ${state.target} --env ${state.environment}\nforge deploy plan --target ${state.target} --env ${state.environment} \\\n  --out .forge/plans/${state.environment}.json\nforge deploy export --plan .forge/plans/${state.environment}.json\nforge deploy apply --plan .forge/plans/${state.environment}.json \\\n  --approve-plan <sha256> --non-interactive`;
+        const choices = [];
+        if (state.target !== DEFAULTS.target)
+          choices.push(`target ${targetNames[state.target]}`);
+        if (state.environment !== DEFAULTS.environment)
+          choices.push(`use the ${state.environment} environment`);
+        if (state.project !== DEFAULTS.project)
+          choices.push(`name the project ${state.project}`);
+        if (state.replicas !== DEFAULTS.replicas)
+          choices.push(`run ${state.replicas} API replicas`);
+        if (state.placement !== DEFAULTS.placement)
+          choices.push(
+            state.placement === "managed"
+              ? "provision managed data services and bind external object storage"
+              : "self-host a persistent development data stack",
+          );
+        if (!state.redisFeatures)
+          choices.push("omit Redis JSON and search requirements");
+        if (state.targetSetting !== DEFAULTS.targetSetting)
+          choices.push(
+            `select ${state.targetSetting} as the target context or region`,
+          );
+        $("prompt").value =
+          `Implement the Forge deployment proposal for the gateway, API and worker sample, with Grove database bindings, Trove object storage and metadata, and shared Redis. ${choices.length ? `For this configuration, ${choices.join("; ")}. ` : "Use the Kubernetes production defaults with existing data services. "}Use one planner for the local page and CLI. Persist non-secret settings to reviewable files, validate capabilities and service authorization, and require the approved immutable plan hash before apply. Report live verification separately from rendered artifacts.`;
+      }
+      function renderFile() {
+        $("file-preview").value = files[$("file-select").value] || "";
+      }
+      function syncControls() {
+        for (const [key, id] of [
+          ["target", "target"],
+          ["environment", "environment"],
+          ["project", "project"],
+          ["replicas", "replicas"],
+          ["placement", "placement"],
+          ["targetSetting", "target-setting"],
+        ])
+          $(id).value = state[key];
+        $("redis-features").checked = state.redisFeatures;
+      }
+      function clearRun() {
+        runGeneration += 1;
+        $("run-status").textContent = "Not run";
+        $("run-status").className = "tag";
+        const item = document.createElement("li");
+        item.className = "muted";
+        item.textContent =
+          "Run a rehearsal to inspect the proposed progress flow.";
+        $("run-log").replaceChildren(item);
+      }
+      function changed() {
+        saved = false;
+        clearRun();
+        render();
+      }
+      function toast(message) {
+        clearTimeout(toastTimer);
+        $("toast").textContent = message;
+        toastTimer = setTimeout(() => {
+          $("toast").textContent = "";
+        }, 4000);
+      }
+      function download(name, contents, type = "text/plain") {
+        const blob = new Blob([contents], { type });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = name;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+      async function copy(text) {
+        try {
+          await navigator.clipboard.writeText(text);
+          toast("Copied to clipboard.");
+        } catch {
+          toast(
+            "Clipboard unavailable. Select the visible text and copy it manually.",
+          );
+        }
+      }
+      function save() {
+        if (!validState(state)) {
+          toast("Fix the configuration before saving.");
+          return;
+        }
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          storageAvailable = true;
+          saved = true;
+          render();
+          toast(
+            "Draft saved in this browser. Download proposal files from the Files tab.",
+          );
+        } catch {
+          storageAvailable = false;
+          toast(
+            "Browser storage is unavailable. Download the proposal bundle to keep your changes.",
+          );
+        }
+      }
+      function showService(name) {
+        $("service-title").textContent = name;
+        $("service-description").textContent =
+          name === "gateway"
+            ? "The only public entry point. Calls the private API."
+            : name === "api"
+              ? "Owns application requests, Grove data access and Trove uploads."
+              : "Processes background jobs without accepting inbound HTTP traffic.";
+        $("service-detail").textContent =
+          name === "gateway"
+            ? `kind: web\nport: 8080\nexposure: public HTTPS\napi: ${apiAddress()}\nreadiness: /_/health/ready\nliveness: /_/health/live\ntimeout: 5s (must bind to actual caller)\nretries: 0\nidentity: receiving service verifies audience and grants`
+            : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? "ports: none\nhealth: application-heartbeat (must be implemented)" : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary\ntrove.store: uploads\ntrove.metadata_database: primary\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: one pre-rollout job\ncredentials: secret references`;
+        $("service-dialog").showModal();
+      }
+      async function rehearse() {
+        if (validationError()) return;
+        switchTab("review");
+        $("run-log").replaceChildren();
+        const generation = ++runGeneration;
+        const outcome = $("outcome").value;
+        $("run-status").textContent = "Simulating";
+        $("run-status").className = "tag orange";
+        $("rehearse").disabled = true;
+        const steps = [
+          "Resolve the approved configuration",
+          "Build once and pin application image digests",
+          state.placement === "external"
+            ? "Bind existing data and secret references"
+            : "Provision declared data resources",
+          "Run the shared database migration job",
+          "Roll out gateway, API and worker",
+          "Check service calls and persisted data",
+        ];
+        for (let index = 0; index < steps.length; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          if (generation !== runGeneration) return;
+          const failed = outcome === "failure" && index === 3;
+          const item = document.createElement("li");
+          const status = document.createElement("span");
+          status.className = `step-state${failed ? " failed" : ""}`;
+          status.textContent = failed ? "FAIL" : "MOCK";
+          const text = document.createElement("span");
+          text.textContent = failed
+            ? "Migration failed. App rollout blocked; data retained."
+            : steps[index];
+          item.append(status, text);
+          $("run-log").append(item);
+          if (failed) {
+            $("run-status").textContent = "Simulated failure";
+            $("run-status").className = "tag orange";
+            $("rehearse").disabled = false;
+            return;
+          }
+        }
+        $("run-status").textContent = "Simulated healthy";
+        $("run-status").className = "tag green";
+        $("rehearse").disabled = false;
+      }
+      $("target").addEventListener("change", () => {
+        state.target = $("target").value;
+        state.targetSetting = PRESETS[state.target].targetSetting;
+        syncControls();
+        changed();
+      });
+      $("environment").addEventListener("change", () => {
+        state.environment = $("environment").value;
+        changed();
+      });
+      $("project").addEventListener("input", () => {
+        state.project = $("project").value;
+        changed();
+      });
+      $("replicas").addEventListener("input", () => {
+        state.replicas = Number($("replicas").value);
+        changed();
+      });
+      $("placement").addEventListener("change", () => {
+        state.placement = $("placement").value;
+        changed();
+      });
+      $("target-setting").addEventListener("input", () => {
+        state.targetSetting = $("target-setting").value;
+        changed();
+      });
+      $("redis-features").addEventListener("change", () => {
+        state.redisFeatures = $("redis-features").checked;
+        changed();
+      });
+      document.querySelectorAll("[data-preset]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state = { ...PRESETS[button.dataset.preset] };
+          syncControls();
+          changed();
+          toast(`${button.textContent} preset loaded.`);
+        });
+      });
+      document.querySelectorAll("[data-tab]").forEach((button) => {
+        button.addEventListener("click", () => switchTab(button.dataset.tab));
+        button.addEventListener("keydown", (event) => {
+          const names = ["review", "config", "agent"];
+          const index = names.indexOf(button.dataset.tab);
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            switchTab(
+              event.key === "Home"
+                ? names[0]
+                : event.key === "End"
+                  ? names[2]
+                  : names[(index + (event.key === "ArrowRight" ? 1 : 2)) % 3],
+              true,
+            );
+          }
+        });
+      });
+      document.querySelectorAll("[data-section]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-section]").forEach((item) => {
+            item.classList.toggle("active", item === button);
+          });
+          if (button.dataset.section === "files") switchTab("config");
+          $(button.dataset.section).scrollIntoView({
+            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "auto"
+              : "smooth",
+            block: "start",
+          });
+        });
+      });
+      document.querySelectorAll("[data-service]").forEach((button) => {
+        button.addEventListener("click", () =>
+          showService(button.dataset.service),
+        );
+      });
+      $("file-select").addEventListener("change", renderFile);
+      $("save").addEventListener("click", save);
+      $("rehearse").addEventListener("click", rehearse);
+      $("outcome").addEventListener("change", () => {
+        clearRun();
+        render();
+      });
+      $("close-dialog").addEventListener("click", () =>
+        $("service-dialog").close(),
+      );
+      $("copy-file").addEventListener("click", () =>
+        copy(files[$("file-select").value]),
+      );
+      $("copy-prompt").addEventListener("click", () => copy($("prompt").value));
+      $("download-file").addEventListener("click", () => {
+        const name = $("file-select").value;
+        download(name.split("/").pop(), files[name]);
+      });
+      $("download-bundle").addEventListener("click", () =>
+        download(
+          "forge-deployment-proposal.json",
+          `${JSON.stringify(
+            { version: 1, status: "proposal-not-deployable", files },
+            null,
+            2,
+          )}\n`,
+          "application/json",
+        ),
+      );
+      $("reset").addEventListener("click", () => {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          storageAvailable = false;
+        }
+        state = { ...DEFAULTS };
+        syncControls();
+        changed();
+        toast("Browser draft reset to Kubernetes production defaults.");
+      });
+      syncControls();
+      render();
+      if (!storageAvailable)
+        toast(
+          "Browser storage is unavailable. You can keep changes by downloading the proposal bundle.",
+        );
+    </script>
+  </body>
+</html>

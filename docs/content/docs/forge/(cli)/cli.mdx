@@ -3,8 +3,8 @@ title: Forge CLI
 description: Use Forge's powerful command-line interface for development and deployment
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Callout } from "fumadocs-ui/components/callout";
+import { Tab, Tabs } from "fumadocs-ui/components/tabs";
 
 # Forge CLI
 
@@ -48,8 +48,8 @@ forge generate app --name=my-app
 # Build the application
 forge build
 
-# Deploy the application
-forge deploy
+# Export deployment configuration for review
+forge infra k8s export
 ```
 
 ## Command Structure
@@ -106,34 +106,29 @@ See [Database Commands](/docs/forge/database) for the full reference, including 
 
 ### Build and Deployment
 
-- **`forge build`** — Build applications
-- **`forge deploy`** — Deploy applications
-  - `forge deploy docker` — Build and push Docker image
-  - `forge deploy k8s` — Deploy to Kubernetes
-  - `forge deploy status` — Show deployment status
+`forge build` builds your applications. The `forge deploy` command family
+currently simulates Docker build/push and Kubernetes deployment, and its status
+command returns fixed sample data. See [Build and Deployment](/docs/forge/build-deploy)
+for the current support matrix and export workflow.
 
 ### Infrastructure
 
 - **`forge infra`** — Infrastructure deployment and management
   - `forge infra docker deploy` — Deploy using Docker Compose
   - `forge infra docker export` — Export Dockerfiles and Compose config
-  - `forge infra k8s deploy` — Deploy to Kubernetes
+  - `forge infra k8s deploy`: invoke kubectl apply; application readiness is not verified
   - `forge infra k8s export` — Export Kubernetes manifests (Kustomize)
-  - `forge infra do deploy` — Deploy to DigitalOcean App Platform
+  - `forge infra do deploy`: placeholder; does not submit a deployment
   - `forge infra do export` — Export DigitalOcean app spec
-  - `forge infra render deploy` — Deploy to Render.com
+  - `forge infra render deploy`: placeholder; does not submit a deployment
   - `forge infra render export` — Export Render blueprint
 
 ### Forge Cloud
 
-- **`forge cloud`** — Forge Cloud managed deployment platform
-  - `forge cloud deploy` — Deploy services to Forge Cloud
-  - `forge cloud status` — Show deployment status
-  - `forge cloud login` — Authenticate with Forge Cloud
-  - `forge cloud logout` — Log out from Forge Cloud
-  - `forge cloud logs` — View service logs
-  - `forge cloud rollback` — Rollback to a previous version
-  - `forge cloud scale` — Scale service instances
+`forge cloud` currently contains simulated authentication, deployment, status,
+logs, rollback and scale operations. These commands do not establish a running
+cloud service. Use a provider's own deployment and observation tools until Forge's
+remote operation paths are implemented and verified.
 
 ### Extensions
 
@@ -175,9 +170,12 @@ forge gen app -n api-gateway
 forge gen app -n auth-service
 forge gen app -n user-service
 forge build --production
-forge deploy docker -a api-gateway -t v1.0.0
-forge deploy k8s -e staging
+forge infra k8s export
 ```
+
+Review the generated files, build context, service ports and data dependencies
+before you apply them. The current generator does not create a complete
+Grove/Trove/Redis stack.
 
 ### Infrastructure Export and Deploy
 
@@ -188,15 +186,12 @@ forge infra k8s export                 # Generate Kubernetes manifests
 forge infra k8s deploy --env=prod      # Deploy to Kubernetes
 ```
 
-### Forge Cloud Deployment
+### Proposed Deployment Workbench
 
-```bash
-forge cloud login                       # Authenticate
-forge cloud deploy -e prod              # Deploy to production
-forge cloud status --env=prod           # Check status
-forge cloud logs -s api-gateway -f      # Stream logs
-forge cloud scale -s api-gateway -r 5   # Scale to 5 replicas
-```
+The planned `forge deploy start` command opens a local deployment page backed by
+project configuration files. The same planner serves the CLI and AI agents.
+See the [workbench proposal](/docs/forge/deployment-workbench) and
+[interactive UI mock](/mock/deploy.html). Those new commands are not implemented.
 
 ## Configuration
 
@@ -209,7 +204,7 @@ The `.forge.yaml` file configures your Forge project:
 project:
   name: my-project
   module: github.com/me/my-project
-  layout: single-module  # or multi-module
+  layout: single-module # or multi-module
   structure:
     cmd: ./cmd
     apps: ./apps
@@ -269,25 +264,26 @@ forge dev --env development
 
 ## Aliases Quick Reference
 
-| Full Command | Aliases | Example |
-|-------------|---------|---------|
-| `generate` | `gen`, `g` | `forge gen app` |
-| `database` | `db` | `forge db migrate` |
-| `extension` | `ext` | `forge ext list` |
-| `dev list` | `dev ls` | `forge dev ls` |
-| `deploy k8s` | `deploy kubernetes` | `forge deploy kubernetes` |
-| `infra k8s` | `infra kubernetes` | `forge infra kubernetes deploy` |
-| `infra do` | `infra digitalocean` | `forge infra digitalocean export` |
-| `extension list` | `ext ls` | `forge ext ls` |
-| `generate service` | `gen svc` | `forge gen svc` |
-| `generate extension` | `gen ext` | `forge gen ext` |
-| `generate controller` | `gen ctrl`, `gen handler` | `forge gen ctrl` |
+| Full Command          | Aliases                   | Example                           |
+| --------------------- | ------------------------- | --------------------------------- |
+| `generate`            | `gen`, `g`                | `forge gen app`                   |
+| `database`            | `db`                      | `forge db migrate`                |
+| `extension`           | `ext`                     | `forge ext list`                  |
+| `dev list`            | `dev ls`                  | `forge dev ls`                    |
+| `deploy k8s`          | `deploy kubernetes`       | `forge deploy kubernetes`         |
+| `infra k8s`           | `infra kubernetes`        | `forge infra kubernetes deploy`   |
+| `infra do`            | `infra digitalocean`      | `forge infra digitalocean export` |
+| `extension list`      | `ext ls`                  | `forge ext ls`                    |
+| `generate service`    | `gen svc`                 | `forge gen svc`                   |
+| `generate extension`  | `gen ext`                 | `forge gen ext`                   |
+| `generate controller` | `gen ctrl`, `gen handler` | `forge gen ctrl`                  |
 
 ## Tips and Best Practices
 
 1. **Tab Completion**: Most shells support tab completion. Run `forge completion bash` or `forge completion zsh` to enable it.
 
 2. **Help Everywhere**: Add `--help` to any command to see detailed usage:
+
    ```bash
    forge --help
    forge generate --help
@@ -295,12 +291,14 @@ forge dev --env development
    ```
 
 3. **Interactive Mode**: Most commands prompt for missing required arguments:
+
    ```bash
    forge gen app    # Will prompt for name
    forge dev        # Will show app selector
    ```
 
 4. **Aliases**: Use shorter aliases for faster typing:
+
    ```bash
    forge g app -n my-app     # Instead of forge generate app
    forge database migrate    # Instead of forge db migrate
@@ -314,6 +312,7 @@ forge dev --env development
 ### Common Issues
 
 **Command not found:**
+
 ```bash
 # Check if forge is in PATH
 which forge
@@ -323,12 +322,14 @@ go install github.com/xraph/forge/cmd/forge@latest
 ```
 
 **Permission errors:**
+
 ```bash
 # Fix permissions
 sudo chown -R $(whoami) $GOPATH
 ```
 
 **Configuration errors:**
+
 ```bash
 # Validate configuration
 forge doctor
@@ -351,5 +352,6 @@ forge dev --log-level debug
 ```
 
 <Callout type="info">
-For detailed information about specific command groups, see the individual command pages in the navigation menu.
+  For detailed information about specific command groups, see the individual
+  command pages in the navigation menu.
 </Callout>
