@@ -1,0 +1,15 @@
+schemaVersion: 1
+contributor:
+  name: conduit
+  envelope: {supports: [v1], preferred: v1}
+  capabilities: [conduit.read, conduit.write]
+intents:
+  - {name: overview, kind: query, version: 1, capability: read}
+  - {name: services.list, kind: query, version: 1, capability: read}
+  - {name: deadletters.list, kind: query, version: 1, capability: read}
+  - {name: hooks.list, kind: query, version: 1, capability: read}
+  - name: deadletters.replay
+    kind: command
+    version: 1
+    capability: write
+    invalidates: [overview, deadletters.list, hooks.list]
