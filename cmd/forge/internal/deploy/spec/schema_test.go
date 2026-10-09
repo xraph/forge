@@ -49,7 +49,7 @@ func TestSchemaCoversEveryField(t *testing.T) {
 	}
 
 	for def, typ := range map[string]reflect.Type{
-		"Deploy": reflect.TypeFor[Deploy](), "Service": reflect.TypeFor[Service](), "Port": reflect.TypeFor[Port](),
+		"Build": reflect.TypeFor[Build](), "Registry": reflect.TypeFor[Registry](), "Release": reflect.TypeFor[Release](), "Workbench": reflect.TypeFor[Workbench](), "Persistence": reflect.TypeFor[Persistence](), "ServiceBuild": reflect.TypeFor[ServiceBuild](), "ExternalService": reflect.TypeFor[ExternalService](), "Deploy": reflect.TypeFor[Deploy](), "Service": reflect.TypeFor[Service](), "Port": reflect.TypeFor[Port](),
 		"Health": reflect.TypeFor[Health](), "Binding": reflect.TypeFor[Binding](), "Resource": reflect.TypeFor[Resource](),
 		"Connection": reflect.TypeFor[Connection](), "Environment": reflect.TypeFor[Environment](),
 		"ResourceOverride": reflect.TypeFor[ResourceOverride](), "Target": reflect.TypeFor[Target](), "Secrets": reflect.TypeFor[Secrets](),

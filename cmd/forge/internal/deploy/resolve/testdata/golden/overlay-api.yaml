@@ -1,0 +1,16 @@
+extensions:
+  grove:
+    databases:
+      - name: primary
+        driver: postgres
+        dsn: ${ATLAS_PRIMARY_DSN}
+  grove_kv:
+    driver: redis
+    dsn: ${ATLAS_CACHE_DSN}
+  trove:
+    stores:
+      - name: uploads
+        default_bucket: atlas-uploads
+        grove_database: primary
+        storage_driver: ${ATLAS_UPLOADS_DSN}
+services: {}

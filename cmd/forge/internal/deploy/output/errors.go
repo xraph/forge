@@ -21,6 +21,7 @@ const (
 var ErrUnsupported = errors.New("not supported")
 
 type Error struct {
+	Emitted     bool
 	Code        int
 	Message     string
 	Diagnostics Diagnostics

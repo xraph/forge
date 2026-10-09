@@ -14,12 +14,38 @@ through the same planner, so the choice you make in one place is the choice the
 others see.
 
 <Callout type="info">
-  This is a design proposal. The interactive mock and the documentation exist.
-  `forge deploy start`, the deployment compiler and the plan and apply workflow
-  are not implemented. The design spec and the first three implementation plans
-  are linked at the end of this page. For the commands that work today, see
-  [Build and Deployment](/docs/forge/build-deploy).
+  The versioned config editor, migration, catalog, service discovery and
+  `inspect`, `init`, and offline `doctor` commands are implemented. The local
+  page and provider lifecycle are being connected to that engine. The mock
+  remains a browser preview and performs no deployments.
 </Callout>
+
+## Inspect and configure your project
+
+```bash
+forge deploy inspect --output json
+forge deploy init --non-interactive --yes \
+  --answer deploy.services.worker.health=none \
+  --answer deploy.resources.cache.features=json,search
+forge deploy doctor --offline --output json
+forge deploy schema
+```
+
+Initialization reads your build apps, runtime config and extension descriptors.
+Every suggestion has a source and confidence. Imports alone need an explicit
+answer before a resource is added. Invalid config blocks the write. Existing
+versioned blocks are preserved; use `forge deploy migrate --dry-run` to review
+an older block, then `forge deploy migrate --yes` to save it with a backup.
+
+An environment can select services with `services: [api, worker]`. A call to an
+excluded service needs an `external_services` endpoint. Resource generation
+follows the selected bindings, and deselection never schedules data deletion.
+
+Grove's default connection uses `extensions.grove.dsn`; named connections use
+`databases` entries. Grove KV follows the same default versus named-store
+rule. Each named Trove store receives its own `storage_driver`, bucket and
+`grove_database`. Secrets are references, and malformed secret-file errors do
+not print their contents.
 
 ## Try the mock
 

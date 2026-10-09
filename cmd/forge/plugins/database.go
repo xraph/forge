@@ -1051,7 +1051,12 @@ func (p *DatabasePlugin) resolveConfigYamlDSN(dbName string) (dsn string, tried 
 
 	// Try the namespaced key (preferred), then the legacy top-level key.
 	var section configYamlDatabaseSection
-	if err := cm.Bind("extensions.database", &section); err != nil || len(section.Databases) == 0 {
+	if err := cm.Bind("extensions.grove", &section); err != nil || len(section.Databases) == 0 {
+		section = configYamlDatabaseSection{}
+		_ = cm.Bind("extensions.database", &section)
+	}
+
+	if len(section.Databases) == 0 {
 		section = configYamlDatabaseSection{}
 		_ = cm.Bind("database", &section)
 	}

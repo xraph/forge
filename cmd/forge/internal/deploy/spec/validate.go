@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 )
@@ -128,6 +129,23 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 			}
 		}
 
+		if e.Services != nil && len(e.Services) == 0 {
+			add("DEPLOY_SELECTION_EMPTY", f+".services", "select at least one service", "omit services for all, or name selected services")
+		}
+
+		seen := map[string]bool{}
+		for _, svc := range e.Services {
+			if !knownService(d, svc) || seen[svc] {
+				add("DEPLOY_SELECTION_INVALID", f+".services", "unknown or repeated service "+svc, "use declared service names once")
+			}
+
+			seen[svc] = true
+		}
+
+		if e.EnvironmentAction != "" && e.EnvironmentAction != "existing" && e.EnvironmentAction != "create" {
+			add(output.CodeUnknownKey, f+".environment_action", "unknown environment action", "use existing or create")
+		}
+
 		for svc := range e.Replicas {
 			if _, ok := d.Services[svc]; !ok {
 				add(output.CodeCallUnknown, f+".replicas."+svc, fmt.Sprintf("replicas set for unknown service %q", svc), "remove it")
@@ -136,9 +154,49 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 	}
 
 	for name, t := range d.Targets {
+		f := "deploy.targets." + name
+
+		switch t.Build.Source {
+		case "", "local", "remote", "ci", "existing", "git":
+		default:
+			add(output.CodeUnknownKey, f+".build.source", "unknown build source", "use local, remote, ci, existing or git")
+		}
+
+		switch t.Release.Mode {
+		case "", "direct", "gitops":
+		default:
+			add(output.CodeUnknownKey, f+".release.mode", "unknown release mode", "use direct or gitops")
+		}
+
+		if t.Build.Source == "git" && t.Build.Repo == "" {
+			add(output.CodeUnknownKey, f+".build.repo", "Git build requires a repository", "set repo")
+		}
+
+		switch t.Build.Trigger {
+		case "", "off", "checksPass", "commit":
+		default:
+			add(output.CodeUnknownKey, f+".build.trigger", "unknown automatic deploy trigger", "use off, checksPass or commit")
+		}
+
+		if t.Release.Mode == "gitops" && (t.Release.Repo == "" || t.Release.Path == "") {
+			add(output.CodeUnknownKey, f+".release", "GitOps requires repository and path", "set repo and path")
+		}
+
+		for svc, image := range t.Build.Images {
+			if !knownService(d, svc) || !strings.Contains(image, "@sha256:") {
+				add("DEPLOY_IMAGE_INVALID", f+".build.images."+svc, "existing images require a declared service and immutable digest", "set registry/repository@sha256:digest")
+			}
+		}
+
 		if t.Provider == "" {
 			add(output.CodeUnknownKey, "deploy.targets."+name+".provider", "target has no provider", "set provider: compose, kubernetes, render or digitalocean")
 		}
+	}
+
+	switch d.Workbench.Persistence.Backend {
+	case "", "files", "sqlite", "postgres":
+	default:
+		add(output.CodeUnknownKey, "deploy.workbench.persistence.backend", "unknown storage backend", "use files, sqlite or postgres")
 	}
 
 	return diags.Sorted()
@@ -153,4 +211,10 @@ func sortedKeys[V any](m map[string]V) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+func knownService(d *Deploy, name string) bool {
+	_, ok := d.Services[name]
+
+	return ok
 }

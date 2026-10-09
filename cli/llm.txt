@@ -404,3 +404,18 @@ if cli.GetExitCode(err) == cli.ExitUnauthorized {
 ### License
 MIT License - Part of Forge Framework
 
+
+Deployment configuration (Forge CLI)
+------------------------------------
+Use deploy.version: 2 in .forge.yml. The CLI and local workbench share the same engine.
+forge deploy inspect --output json reports discovered apps, selected services, resources,
+bindings and suggestions with source/confidence. It does not execute the application.
+forge deploy init --non-interactive --yes --answer path=value writes suggested settings;
+unknown answers and unresolved decisions stop the write. Imports alone require approval.
+forge deploy doctor --offline --output json checks config, local tools and secret references.
+forge deploy migrate --dry-run previews legacy migration; --yes saves a backed-up change.
+forge deploy schema prints the versioned schema. JSON uses the forge.deploy/v1 envelope.
+Exit codes: 2 invalid config, 3 unresolved decisions, 4 unsupported capability, 5 access,
+6 conflict/stale plan, 7 apply failure, 8 cancellation/timeout. Secret values never belong
+in plans or workbench settings. An environment's services list narrows rollout scope.
+Excluded dependencies need an external_services endpoint; selection cannot delete data.

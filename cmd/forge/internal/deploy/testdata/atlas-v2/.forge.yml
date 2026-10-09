@@ -28,14 +28,14 @@ deploy:
       bindings:
         - { resource: primary, extension: grove,    database: primary }
         - { resource: uploads, extension: trove,    store: uploads, metadata_database: primary }
-        - { resource: cache,   extension: grove_kv, store: cache }
+        - { resource: cache,   extension: grove_kv, store: default }
     worker:
       app: worker
       kind: worker
       health: { heartbeat: true }
       bindings:
         - { resource: primary, extension: grove,    database: primary }
-        - { resource: cache,   extension: grove_kv, store: cache }
+        - { resource: cache,   extension: grove_kv, store: default }
 
   resources:
     primary: { type: postgres, version: "16" }

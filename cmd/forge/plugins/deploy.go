@@ -15,6 +15,8 @@ type DeployPlugin struct {
 }
 
 func NewDeployPlugin(cfg *config.ForgeConfig) cli.Plugin {
+	registerDeployRenderers()
+
 	return &DeployPlugin{config: cfg}
 }
 
@@ -61,7 +63,7 @@ var planned = []struct{ name, desc string }{
 func (p *DeployPlugin) Commands() []cli.Command {
 	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", p.help)
 
-	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema}
+	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor}
 	for _, c := range planned {
 		name := c.name
 
@@ -73,6 +75,13 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		}
 
 		opts := deployFlags()
+		if name == "init" {
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write without confirming", false)), cli.WithFlag(cli.NewStringSliceFlag("answer", "", "Answer a decision as path=value", nil)))
+		}
+
+		if name == "doctor" {
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("offline", "", "Skip target checks", false)))
+		}
 		if name == "migrate" {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Preview changes", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write the migration", false)))
 		}
@@ -101,6 +110,9 @@ func deployOutputHandler(name string, handler cli.CommandHandler) cli.CommandHan
 
 		var diagnostics output.Diagnostics
 		if errors.As(err, &deployErr) {
+			if deployErr.Emitted {
+				return err
+			}
 			diagnostics = deployErr.Diagnostics
 		}
 

@@ -1,0 +1,4 @@
+services:
+  api:
+    timeout: 5s
+    url: ${API_URL}

@@ -58,7 +58,7 @@ forge db migrate
 forge infra k8s export
 ```
 
-You can migrate deployment YAML and print its schema with `forge deploy migrate` and `forge deploy schema`. Commands awaiting an adapter return exit code 4; the implementation path is recorded in [the deployment plan](../../docs/deployment/PLAN.md).
+Use `forge deploy inspect`, `forge deploy init`, and `forge deploy doctor --offline` to discover and check a stack. Migrate deployment YAML with `forge deploy migrate` and print its schema with `forge deploy schema`. Commands awaiting an adapter return exit code 4; the implementation path is recorded in [the deployment plan](../../docs/deployment/PLAN.md).
 
 The proposed `forge deploy start` local page and shared plan/apply workflow are
 described in [the deployment plan](../../docs/deployment/PLAN.md). You can review

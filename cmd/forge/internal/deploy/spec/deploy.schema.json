@@ -59,6 +59,9 @@
         },
         "secrets": {
           "$ref": "#/$defs/Secrets"
+        },
+        "workbench": {
+          "$ref": "#/$defs/Workbench"
         }
       },
       "required": [
@@ -342,6 +345,48 @@
         },
         "backup": {
           "$ref": "#/$defs/Backup"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "purpose": {
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ]
+        },
+        "environment_action": {
+          "enum": [
+            "existing",
+            "create"
+          ]
+        },
+        "external_services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ExternalService"
+          }
+        },
+        "health_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Health"
+          }
+        },
+        "binding_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Binding"
+            }
+          }
         }
       },
       "required": [
@@ -368,6 +413,9 @@
         },
         "remove": {
           "type": "boolean"
+        },
+        "target": {
+          "type": "string"
         }
       }
     },
@@ -430,6 +478,15 @@
         },
         "docker_context": {
           "type": "string"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        },
+        "release": {
+          "$ref": "#/$defs/Release"
+        },
+        "resource_only": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -452,6 +509,179 @@
         "file": {
           "type": "string",
           "description": "\".forge/secrets.env\" default"
+        },
+        "references": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "enum": [
+            "local",
+            "remote",
+            "ci",
+            "existing",
+            "git"
+          ]
+        },
+        "delivery": {
+          "enum": [
+            "local",
+            "registry"
+          ]
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "builder": {
+          "type": "string"
+        },
+        "registry": {
+          "$ref": "#/$defs/Registry"
+        },
+        "images": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "repo": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "trigger": {
+          "enum": [
+            "off",
+            "checksPass",
+            "commit"
+          ]
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ServiceBuild"
+          }
+        }
+      }
+    },
+    "Registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "secret_ref": {
+          "type": "string"
+        }
+      }
+    },
+    "ServiceBuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root_dir": {
+          "type": "string"
+        },
+        "dockerfile": {
+          "type": "string"
+        },
+        "build_command": {
+          "type": "string"
+        },
+        "start_command": {
+          "type": "string"
+        }
+      }
+    },
+    "Release": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "direct",
+            "gitops"
+          ]
+        },
+        "repo": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        },
+        "controller": {
+          "type": "string"
+        }
+      }
+    },
+    "ExternalService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "string"
+        }
+      }
+    },
+    "Workbench": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "persistence": {
+          "$ref": "#/$defs/Persistence"
+        }
+      }
+    },
+    "Persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "files",
+            "sqlite",
+            "postgres"
+          ]
+        },
+        "reference": {
+          "type": "string"
         }
       }
     }
