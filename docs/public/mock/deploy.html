@@ -738,6 +738,82 @@
           white-space: nowrap;
         }
       }
+      .decisions {
+        border-color: #4e4028;
+      }
+      .decision {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .decision:first-of-type {
+        border-top: 0;
+      }
+      .decision select {
+        max-width: 260px;
+        flex: none;
+      }
+      .decision.resolved strong::after {
+        content: " \2713";
+        color: var(--green);
+      }
+      .checks {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .checks li {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        padding: 7px 0;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+      }
+      .checks li:first-child {
+        border-top: 0;
+      }
+      .checks .icon {
+        width: 14px;
+        height: 14px;
+        flex: none;
+        color: var(--green);
+        margin-top: 2px;
+      }
+      .checks li.warn .icon {
+        color: var(--accent);
+      }
+      .checks li.fail .icon {
+        color: var(--red);
+      }
+      .diff {
+        font-size: 11px;
+        line-height: 1.5;
+        max-height: 260px;
+        overflow: auto;
+      }
+      .diff .add {
+        color: var(--green);
+      }
+      .diff .ctx {
+        color: var(--muted);
+      }
+      #plan-hash {
+        font-size: 12px;
+      }
+      @media (max-width: 720px) {
+        .decision {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .decision select {
+          max-width: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -812,16 +888,14 @@
             <p>Three services. One configuration. Choose where they run.</p>
           </div>
           <div class="actions">
-            <button type="button" id="save">Save browser draft</button
-            ><button type="button" class="primary" id="rehearse">
-              Rehearse deployment
-            </button>
+            <button type="button" id="save">Save to project files</button
+            ><button type="button" class="primary" id="rehearse">Deploy</button>
           </div>
         </div>
         <div class="notice">
-          This is a working UI mock. Settings persist in this browser and export
-          as proposal files. Deployment events are simulated; no provider is
-          contacted.
+          This is a working UI mock. Saving shows the files the CLI would patch
+          and keeps a draft in this browser. Deployments are simulated; no
+          provider is contacted and nothing is written to disk.
         </div>
         <div class="controls">
           <label
@@ -868,6 +942,56 @@
         </fieldset>
         <div class="workspace">
           <div>
+            <section
+              class="section decisions"
+              id="decisions"
+              aria-labelledby="decisions-heading"
+            >
+              <div class="section-head row">
+                <h2 id="decisions-heading">Decisions needed</h2>
+                <span class="tag orange" id="decisions-count">2 open</span>
+              </div>
+              <p class="small muted" id="decisions-intro">
+                Forge inferred the rest from <code>.forge.yml</code>,
+                <code>config/*.yaml</code> and <code>go.mod</code>. These two it
+                cannot guess, so deploy stays off until you answer.
+              </p>
+              <div class="decision" id="decision-worker">
+                <div>
+                  <strong>worker has no listener.</strong> How should its health
+                  be observed?
+                  <div class="small muted">
+                    Source: cmd/worker/.forge.yaml sets app.type: worker and
+                    declares no port.
+                  </div>
+                </div>
+                <select id="worker-health" aria-label="Worker health strategy">
+                  <option value="">Choose…</option>
+                  <option value="heartbeat">
+                    Application heartbeat (recommended)
+                  </option>
+                  <option value="none">No health check</option>
+                </select>
+              </div>
+              <div class="decision" id="decision-redis">
+                <div>
+                  <strong>cache is Redis.</strong> Does the app use Redis JSON
+                  or search?
+                  <div class="small muted">
+                    Source: config/api.yaml sets extensions.grove_kv.driver:
+                    redis. Feature use cannot be read from config.
+                  </div>
+                </div>
+                <select
+                  id="redis-decision"
+                  aria-label="Redis feature requirement"
+                >
+                  <option value="">Choose…</option>
+                  <option value="yes">Yes, JSON and search</option>
+                  <option value="no">No, plain cache</option>
+                </select>
+              </div>
+            </section>
             <section
               class="section"
               id="services"
@@ -1280,27 +1404,34 @@
                 </button>
               </div>
             </section>
-            <section class="section" aria-labelledby="rehearsal-heading">
+            <section class="section" aria-labelledby="preflight-heading">
               <div class="section-head row">
-                <h2 id="rehearsal-heading">Deployment rehearsal</h2>
-                <span class="tag" id="run-status">Not run</span>
+                <h2 id="preflight-heading">Preflight</h2>
+                <span class="tag" id="preflight-status">Not run</span>
               </div>
               <div class="panel">
-                <label
-                  >Simulated outcome<select id="outcome">
-                    <option value="success">Healthy rollout</option>
-                    <option value="failure">Migration failure</option>
-                  </select></label
-                >
+                <ul class="checks" id="preflight-list"></ul>
+              </div>
+              <div class="footnote">
+                <code>forge deploy doctor</code> runs these against the real
+                target. These rows are fixtures for the selected preset.
+              </div>
+            </section>
+            <section class="section" aria-labelledby="rehearsal-heading">
+              <div class="section-head row">
+                <h2 id="rehearsal-heading">Deployment</h2>
+                <span class="tag" id="run-status">Not deployed</span>
+              </div>
+              <div class="panel">
                 <ol class="run-log" id="run-log" aria-live="polite">
                   <li class="muted">
-                    Run a rehearsal to inspect the proposed progress flow.
+                    Approve a plan to deploy. Every event here is simulated.
                   </li>
                 </ol>
               </div>
               <div class="footnote">
-                Real apply will provision or bind data, run migrations, then
-                wait for healthy services.
+                Real apply builds once, provisions or binds data, runs
+                migrations, then waits for healthy services before routing.
               </div>
             </section>
             <p class="bottom">
@@ -1332,6 +1463,47 @@
         configuration and routes.
       </p>
     </dialog>
+    <dialog id="save-dialog" aria-labelledby="save-title">
+      <div class="row">
+        <h2 id="save-title">Save to project files</h2>
+        <button type="button" id="close-save">Cancel</button>
+      </div>
+      <p class="small muted" style="margin-top: 8px">
+        The CLI patches these files in place and keeps your comments and any
+        keys it does not know. In this mock the write is simulated and your
+        draft stays in this browser.
+      </p>
+      <ul class="artifact-list" id="save-files"></ul>
+      <pre id="save-diff" class="diff"></pre>
+      <div class="file-actions">
+        <button type="button" class="primary" id="confirm-save">
+          Write files (simulated)
+        </button>
+      </div>
+    </dialog>
+    <dialog id="approve-dialog" aria-labelledby="approve-title">
+      <div class="row">
+        <h2 id="approve-title">Approve plan</h2>
+        <button type="button" id="close-approve">Cancel</button>
+      </div>
+      <p class="small muted" style="margin-top: 8px">
+        Apply runs this exact plan or nothing. The hash is what
+        <code>forge deploy apply --approve-plan</code> takes in CI.
+      </p>
+      <pre id="plan-hash"></pre>
+      <ol class="artifact-list" id="plan-ops"></ol>
+      <label style="margin-top: 12px"
+        >Simulated outcome<select id="outcome">
+          <option value="success">Healthy rollout</option>
+          <option value="failure">Migration failure</option>
+        </select></label
+      >
+      <div class="file-actions">
+        <button type="button" class="primary" id="confirm-approve">
+          Approve and deploy (simulated)
+        </button>
+      </div>
+    </dialog>
     <div id="toast" role="status" aria-live="polite"></div>
     <script>
       "use strict";
@@ -1344,7 +1516,10 @@
         placement: "external",
         targetSetting: "production-cluster",
         redisFeatures: true,
+        workerHealth: "heartbeat",
       };
+      // First visit: two decisions are open until you answer them.
+      const FIRST_RUN = { ...DEFAULTS, redisFeatures: null, workerHealth: "" };
       const PRESETS = {
         kubernetes: { ...DEFAULTS },
         compose: {
@@ -1372,10 +1547,11 @@
           redisFeatures: false,
         },
       };
-      const STORAGE_KEY = "forge-deployment-proposal-v1";
-      let state = { ...DEFAULTS };
+      const STORAGE_KEY = "forge-deployment-proposal-v2";
+      let state = { ...FIRST_RUN };
       let storageAvailable = true;
       let saved = false;
+      let deployStatus = "none";
       let files = {};
       let runGeneration = 0;
       let toastTimer;
@@ -1396,7 +1572,8 @@
           typeof candidate.targetSetting === "string" &&
           candidate.targetSetting.length <= 80 &&
           /^[a-zA-Z0-9._:/-]+$/.test(candidate.targetSetting) &&
-          typeof candidate.redisFeatures === "boolean"
+          [true, false, null].includes(candidate.redisFeatures) &&
+          ["", "heartbeat", "none"].includes(candidate.workerHealth)
         );
       }
       try {
@@ -1423,43 +1600,84 @@
           return "external";
         return state.placement;
       }
+      function lifecycleName() {
+        return state.placement === "self-hosted"
+          ? "container"
+          : state.placement;
+      }
+      function lifecycleLine(name) {
+        const life =
+          resourceLifecycle(name) === "self-hosted"
+            ? "container"
+            : resourceLifecycle(name);
+        if (life === "container")
+          return `{lifecycle: container, recipe: ${name === "primary" ? "postgres-16" : name === "objects" ? "minio" : state.redisFeatures ? "redis-stack-7" : "redis-7"}}`;
+        if (life === "external")
+          return `{lifecycle: external, secret: ${name === "primary" ? "primary-dsn" : name === "objects" ? "uploads-credentials" : "cache-url"}}`;
+        return "{lifecycle: managed}";
+      }
       function createFiles() {
         const secretPrefix = state.project.replaceAll("-", "_").toUpperCase();
         const targetOptions =
           state.target === "kubernetes"
-            ? `      context: ${yaml(state.targetSetting)}\n      namespace: ${yaml(namespace())}`
+            ? `      context: ${yaml(state.targetSetting)}\n      namespace: ${yaml(namespace())}\n      ingress_class: nginx\n      network_policy: true`
             : state.target === "compose"
               ? `      docker_context: ${yaml(state.targetSetting)}`
               : `      region: ${yaml(state.targetSetting)}`;
+        const resolver =
+          state.target === "kubernetes"
+            ? "kubernetes"
+            : state.target === "compose"
+              ? "file"
+              : "env";
+        const ingress =
+          state.target === "kubernetes"
+            ? `      ingress: {host: ${state.project}.example.com, tls: letsencrypt}\n`
+            : "";
         const commonHeader =
           "# Deployment proposal. Requires the planned Forge deployment compiler.\n";
-        const resource = (name, type) =>
-          `  ${name}:\n    type: ${type}\n    lifecycle: ${resourceLifecycle(name)}\n    connection: {secret_ref: ${name === "primary" ? "primary-dsn" : name === "objects" ? "objects-dsn" : "cache-url"}}${name === "objects" ? `\n    bucket: ${yaml(`${state.project}-uploads`)}` : ""}${name === "cache" ? `\n    capabilities: ${state.redisFeatures ? "[json, search]" : "[]"}` : ""}${state.placement === "self-hosted" ? `\n    recipe: ${yaml(name === "primary" ? "postgres-single-node" : name === "objects" ? "s3-compatible-single-node" : "redis-with-required-features")}` : ""}\n`;
-        const dataBindings =
-          "      - {resource: primary, extension: grove, connection: primary}\n      - {resource: objects, extension: trove, store: uploads, metadata_database: primary}\n      - {resource: cache, extension: cache}\n";
+        const features = state.redisFeatures ? "[json, search]" : "[]";
+        const workerHealth =
+          state.workerHealth === "heartbeat"
+            ? "      health: {heartbeat: true}\n"
+            : state.workerHealth === "none"
+              ? "      health: {none: true}\n"
+              : "      # health: unresolved. Answer the decision above.\n";
+        const apiAddr =
+          state.target === "kubernetes"
+            ? `http://api.${namespace()}.svc.cluster.local:8080`
+            : state.target === "render"
+              ? `\${API_URL}`
+              : "http://api:8080";
+        const overlay = (service) =>
+          `# ${service}: mounted at /etc/forge/overlay.yaml and named in FORGE_CONFIG_OVERLAY.\n# Generated by forge deploy export. No secret values; \${...} resolves from the environment the target injects.\n` +
+          (service === "gateway"
+            ? `services:\n  api: {url: ${apiAddr}, timeout: 5s}\n`
+            : `extensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres, dsn: \${${secretPrefix}_PRIMARY_DSN}}\n  grove_kv:\n    driver: redis\n    dsn: \${${secretPrefix}_CACHE_URL}\n` +
+              (service === "api"
+                ? `  trove:\n    storage_driver: \${${secretPrefix}_UPLOADS_DSN}\n    grove_database: primary\n    stores:\n      - {name: uploads, default_bucket: ${state.project}-uploads}\n`
+                : ""));
         files = {
           ".forge.yml":
             commonHeader +
-            `project:\n  name: ${yaml(state.project)}\n  module: ${yaml(`example.com/${state.project}`)}\n  layout: single-module\nbuild:\n  apps:\n    - {name: gateway, cmd: ./cmd/gateway}\n    - {name: api, cmd: ./cmd/api}\n    - {name: worker, cmd: ./cmd/worker}\ndeploy:\n  version: 2\n  registry: ghcr.io/example\n  spec: ./deploy/stack.yml\n  defaults:\n    target: ${state.target}\n    environment: ${state.environment}\n  environment_files:\n    ${state.environment}: ./deploy/environments/${state.environment}.yml\n  targets:\n    ${state.target}:\n      provider: ${state.target}\n${targetOptions}\n`,
-          "deploy/stack.yml":
+            `project:\n  name: ${yaml(state.project)}\n  module: ${yaml(`example.com/${state.project}`)}\n  layout: single-module\nbuild:\n  apps:\n    - {name: gateway, cmd: ./cmd/gateway}\n    - {name: api, cmd: ./cmd/api}\n    - {name: worker, cmd: ./cmd/worker}\ndeploy:\n  version: 2\n  registry: ghcr.io/example\n  defaults: {target: ${state.target}, environment: ${state.environment}}\n  services:\n    gateway:\n      app: gateway\n      kind: web\n      ports: {http: {port: 8080, exposure: public}}\n      calls: [api]\n    api:\n      app: api\n      kind: web\n      ports: {http: {port: 8080, exposure: private}}\n      config: [./config/api.yaml]\n      migrate: auto\n      bindings:\n        - {resource: primary, extension: grove, database: primary}\n        - {resource: uploads, extension: trove, store: uploads, metadata_database: primary}\n        - {resource: cache, extension: grove_kv, store: cache}\n    worker:\n      app: worker\n      kind: worker\n${workerHealth}      bindings:\n        - {resource: primary, extension: grove, database: primary}\n        - {resource: cache, extension: grove_kv, store: cache}\n  resources:\n    primary: {type: postgres, version: "16"}\n    uploads: {type: object-storage, bucket: ${state.project}-uploads}\n    cache: {type: redis, features: ${features}}\n  environments:\n    ${state.environment}:\n      target: ${state.target}\n      replicas: {gateway: ${Math.min(2, state.replicas)}, api: ${state.replicas}, worker: 1}\n      resources:\n        primary: ${lifecycleLine("primary")}\n        uploads: ${lifecycleLine("objects")}\n        cache: ${lifecycleLine("cache")}\n${ingress}  targets:\n    ${state.target}:\n      provider: ${state.target}\n${targetOptions}\n  secrets:\n    resolver: ${resolver}${resolver === "file" ? "\n    file: .forge/secrets.env" : ""}\n`,
+          "deploy/lock.yml":
             commonHeader +
-            `version: 1\nservices:\n  gateway:\n    build_app: gateway\n    kind: web\n    config_files: [./config/gateway.yaml]\n    ports:\n      http: {port: 8080, protocol: http, exposure: public}\n    health:\n      readiness: {port: http, path: /_/health/ready}\n      liveness: {port: http, path: /_/health/live}\n  api:\n    build_app: api\n    kind: web\n    config_files: [./config/api.yaml]\n    ports:\n      http: {port: 8080, protocol: http, exposure: private}\n    health:\n      readiness: {port: http, path: /_/health/ready}\n      liveness: {port: http, path: /_/health/live}\n    bindings:\n${dataBindings}  worker:\n    build_app: worker\n    kind: worker\n    config_files: [./config/worker.yaml]\n    health: {strategy: application-heartbeat}\n    bindings:\n${dataBindings}resources:\n${resource("primary", "postgres")}${resource("objects", "object-storage")}${resource("cache", "redis")}connections:\n  - from: gateway\n    to: api\n    port: http\n    binding: {config_key: services.api.url}\n    timeout: 5s\n    retry: {attempts: 0}\n`,
-          [`deploy/environments/${state.environment}.yml`]:
-            commonHeader +
-            `version: 1\ntarget: ${state.target}\nservices:\n  gateway: {replicas: ${Math.min(2, state.replicas)}}\n  api: {replicas: ${state.replicas}}\n  worker: {replicas: 1}\npolicy:\n  public_entry: gateway\n  data_retention: retain\n  migrations: before-rollout\n  image_reference: digest\n`,
-          "deploy/secrets.example.yml":
-            commonHeader +
-            `# References only. Set these in your secret provider, not this file.\nversion: 1\nsecrets:\n  primary-dsn: {resolver: environment, key: ${secretPrefix}_PRIMARY_DSN}\n  objects-dsn: {resolver: environment, key: ${secretPrefix}_OBJECTS_DSN}\n  cache-url: {resolver: environment, key: ${secretPrefix}_CACHE_URL}\n  trove-content-secret: {resolver: environment, key: ${secretPrefix}_TROVE_CONTENT_SECRET}\n`,
+            `# Written by forge deploy plan. Commit it: it pins what the plan resolved.\nschema: 1\ndescriptors:\n  grove: {schema: 1, source: embedded}\n  grove_kv: {schema: 1, source: embedded}\n  trove: {schema: 1, source: embedded}\nrecipes:\n  postgres-16: {image: postgres:16}\n  ${state.redisFeatures ? "redis-stack-7: {image: redis/redis-stack-server:7}" : "redis-7: {image: redis:7}"}\n  minio: {image: minio/minio}\nimages:\n  ${state.environment}:\n    gateway: ghcr.io/example/${state.project}-gateway@sha256:<pinned at apply>\n    api: ghcr.io/example/${state.project}-api@sha256:<pinned at apply>\n    worker: ghcr.io/example/${state.project}-worker@sha256:<pinned at apply>\n`,
           "config/gateway.yaml":
             commonHeader +
-            "# Compiler injects services.api.url from the declared connection.\nservices: {}\n",
+            "# Your runtime config as it is today. The compiler reads it and never edits it.\n# services.api.url arrives through the overlay below.\nservices: {}\n",
           "config/api.yaml":
             commonHeader +
-            `# Compiler injects grove DSNs, trove storage_driver and cache URL.\n# These files are templates and cannot be used directly as runtime config.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n    disable_migrate: true\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n    disable_migrate: true\n    # Shared dashboard_content_secret comes from trove-content-secret.\n  cache:\n    driver: redis\n`,
+            `# Your runtime config. The compiler reads the named instances here to suggest bindings.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n  grove_kv:\n    driver: redis\n`,
           "config/worker.yaml":
             commonHeader +
-            `# Compiler injects resource connections; worker declares no HTTP port.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n    disable_migrate: true\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n    disable_routes: true\n    disable_migrate: true\n  cache:\n    driver: redis\n`,
-          "PROPOSAL.md": `# ${state.project} deployment proposal\n\nThis bundle comes from the Forge deployment UI mock. It is not deployable with the current CLI.\n\nTarget: ${targetNames[state.target]}. Environment: ${state.environment}.\nApplication services: gateway, api and worker.\nResource bindings: PostgreSQL for Grove and Trove metadata, object storage for Trove, and Redis for shared cache.\n\nThe future compiler must resolve secret bindings, verify ports and health routes, lock recipe versions and image digests, generate provider artifacts and validate target capabilities before apply.\nSelf-hosted production data requires explicit backup, restore and availability settings.\n\nNo provider access or live deployment validation was performed.\n`,
+            `# Worker declares no HTTP port. Resource connections arrive through the overlay.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n  grove_kv:\n    driver: redis\n`,
+          [`deployments/${state.target}/${state.environment}/gateway/forge.overlay.yaml`]:
+            overlay("gateway"),
+          [`deployments/${state.target}/${state.environment}/api/forge.overlay.yaml`]:
+            overlay("api"),
+          "PROPOSAL.md": `# ${state.project} deployment proposal\n\nThis bundle comes from the Forge deployment UI mock. It is not deployable with the current CLI.\n\nTarget: ${targetNames[state.target]}. Environment: ${state.environment}.\nApplication services: gateway, api and worker.\nResource bindings: PostgreSQL for Grove and Trove metadata, object storage for Trove, and Redis through Grove KV.\nData lifecycle: ${lifecycleName()}.\n\nThe compiler must resolve secret bindings, verify ports and health routes, lock recipe versions and image digests, generate provider artifacts and validate target capabilities before apply.\n\nNo provider access or live deployment validation was performed.\n`,
         };
       }
       function validationError() {
@@ -1489,6 +1707,113 @@
           return "Self-hosted production data needs an availability policy, backups and a tested restore recipe. This mock only provides a single-node development recipe.";
         return "";
       }
+      function pendingDecisions() {
+        const pending = [];
+        if (state.workerHealth === "") pending.push("worker health strategy");
+        if (state.redisFeatures === null)
+          pending.push("Redis feature requirement");
+        return pending;
+      }
+      function preflightChecks() {
+        const ok = (text) => ({ text, level: "ok" });
+        const warn = (text) => ({ text, level: "warn" });
+        const fail = (text) => ({ text, level: "fail" });
+        const secrets =
+          state.placement === "external"
+            ? ok("3 secret references resolve (values never shown here)")
+            : state.placement === "managed"
+              ? ok("Provider creates the data credentials at apply")
+              : ok("Container recipes generate local credentials once");
+        const redis =
+          state.redisFeatures && state.placement === "managed"
+            ? fail("Managed Redis: JSON and search unverified on this platform")
+            : state.redisFeatures
+              ? ok("Redis JSON and search: recipe or endpoint declares them")
+              : ok("Redis plain cache");
+        return {
+          kubernetes: [
+            ok("kubectl 1.31 found"),
+            ok(
+              `Context ${state.targetSetting} reachable, namespace ${namespace()} exists`,
+            ),
+            ok("Ingress class nginx present"),
+            warn(
+              "cert-manager issuer letsencrypt not found: TLS route blocked until installed",
+            ),
+            warn(
+              "NetworkPolicy enforcement: CNI did not report, policies render but are unverified",
+            ),
+            secrets,
+            redis,
+          ],
+          compose: [
+            ok("Docker 27 and Compose v2 found"),
+            ok("Host port 8080 free for gateway"),
+            ok("Overlay files mount into each service"),
+            secrets,
+            redis,
+          ],
+          render: [
+            ok("Render API token found in environment"),
+            ok("Blueprint validates against the Render schema"),
+            warn(
+              "Apply is a handoff: open the Blueprint link, then forge deploy status polls",
+            ),
+            secrets,
+            redis,
+          ],
+          digitalocean: [
+            ok("doctl 1.120 authenticated"),
+            ok("App spec validates"),
+            ok(`Region ${state.targetSetting} available`),
+            secrets,
+            redis,
+          ],
+        }[state.target];
+      }
+      function planHash() {
+        let h = 0x811c9dc5;
+        const text = JSON.stringify(state) + Object.values(files).join("");
+        for (const ch of text) {
+          h ^= ch.charCodeAt(0);
+          h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        const hex = h.toString(16).padStart(8, "0");
+        return `${hex}${hex.split("").reverse().join("")}`;
+      }
+      function planOperations() {
+        const ops = ["Build gateway, api and worker once; pin image digests"];
+        for (const [name, type] of [
+          ["primary", "postgres"],
+          ["uploads", "object-storage"],
+          ["cache", "redis"],
+        ]) {
+          const life = lifecycleLine(name === "uploads" ? "objects" : name);
+          ops.push(
+            life.includes("container")
+              ? `Create ${name} (${type}) from recipe with a volume`
+              : life.includes("managed")
+                ? `Provision managed ${type} ${name}`
+                : `Bind existing ${type} ${name} through its secret`,
+          );
+        }
+        ops.push("Deliver overlays and secret references to each service");
+        ops.push("Run api migration job before any rollout");
+        ops.push(
+          `Roll out gateway ${Math.min(2, state.replicas)}, api ${state.replicas}, worker 1; wait for readiness`,
+        );
+        ops.push(
+          state.target === "kubernetes"
+            ? "Route gateway through the ingress and check TLS"
+            : state.target === "compose"
+              ? "Publish gateway on host port 8080"
+              : "Publish the gateway on the platform's public URL",
+        );
+        ops.push(
+          "Acceptance: request through the gateway, write and read through Postgres and the bucket",
+        );
+        return ops;
+      }
       function switchTab(name, focus = false) {
         document.querySelectorAll("[data-tab]").forEach((tab) => {
           const active = tab.dataset.tab === name;
@@ -1513,10 +1838,72 @@
         $("instance-count").textContent = String(
           Math.min(2, state.replicas) + state.replicas + 1,
         );
-        $("draft-status").textContent = saved
-          ? "Saved in browser"
-          : "Browser draft";
-        $("draft-status").className = saved ? "tag green" : "tag orange";
+        const pending = pendingDecisions();
+        $("decisions-count").textContent = pending.length
+          ? `${pending.length} open`
+          : "All answered";
+        $("decisions-count").className = pending.length
+          ? "tag orange"
+          : "tag green";
+        $("decision-worker").classList.toggle(
+          "resolved",
+          state.workerHealth !== "",
+        );
+        $("decision-redis").classList.toggle(
+          "resolved",
+          state.redisFeatures !== null,
+        );
+        $("draft-status").textContent =
+          deployStatus === "applying"
+            ? "Applying…"
+            : deployStatus === "healthy"
+              ? "Applied, healthy"
+              : deployStatus === "failed"
+                ? "Apply failed"
+                : saved
+                  ? "Saved to files"
+                  : "Unsaved changes";
+        $("draft-status").className =
+          deployStatus === "healthy" || (deployStatus === "none" && saved)
+            ? "tag green"
+            : "tag orange";
+        const checks = preflightChecks();
+        $("preflight-list").replaceChildren(
+          ...checks.map((check) => {
+            const item = document.createElement("li");
+            item.className = check.level;
+            const icon = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "svg",
+            );
+            icon.setAttribute("class", "icon");
+            icon.setAttribute("aria-hidden", "true");
+            const use = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "use",
+            );
+            use.setAttribute(
+              "href",
+              check.level === "ok" ? "#check" : "#alert",
+            );
+            icon.append(use);
+            const text = document.createElement("span");
+            text.textContent = check.text;
+            item.append(icon, text);
+            return item;
+          }),
+        );
+        const warnings = checks.filter((c) => c.level === "warn").length;
+        const failures = checks.filter((c) => c.level === "fail").length;
+        $("preflight-status").textContent = failures
+          ? `${failures} blocking`
+          : warnings
+            ? `${checks.length - warnings} passed, ${warnings} warnings`
+            : `${checks.length} passed`;
+        $("preflight-status").className = failures ? "tag orange" : "tag green";
+        $("live-checks").textContent = pending.length
+          ? `${pending.length} decision${pending.length > 1 ? "s" : ""} open: ${pending.join(" and ")}. Deploy is off until you answer (the CLI exits 3 here).`
+          : "Live checks still needed: target access, resource connectivity, TLS and probe routes.";
         $("target-setting-label").firstChild.textContent =
           state.target === "kubernetes"
             ? "Kubernetes context"
@@ -1553,8 +1940,9 @@
         const error = validationError();
         $("validation-error").hidden = !error;
         $("validation-error").textContent = error;
-        $("rehearse").disabled = Boolean(error);
-        $("save").disabled = !validState(state);
+        $("rehearse").disabled =
+          Boolean(error) || pending.length > 0 || deployStatus === "applying";
+        $("save").disabled = !validState(state) || deployStatus === "applying";
         for (const id of ["download-file", "download-bundle", "copy-file"]) {
           $(id).disabled = !validState(state);
         }
@@ -1613,7 +2001,7 @@
         $("file-count").textContent =
           `${Object.keys(files).length} proposal files`;
         $("commands").textContent =
-          `# Proposed commands, not available yet\nforge deploy inspect --output json\nforge deploy doctor --target ${state.target} --env ${state.environment}\nforge deploy plan --target ${state.target} --env ${state.environment} \\\n  --out .forge/plans/${state.environment}.json\nforge deploy export --plan .forge/plans/${state.environment}.json\nforge deploy apply --plan .forge/plans/${state.environment}.json \\\n  --approve-plan <sha256> --non-interactive`;
+          `# Proposed commands, not available yet\nforge deploy inspect --output json\nforge deploy doctor --target ${state.target} --env ${state.environment} --output json\nforge deploy plan --target ${state.target} --env ${state.environment} \\\n  --out .forge/plans/${state.environment}.json\nforge deploy apply --plan .forge/plans/${state.environment}.json \\\n  --approve-plan ${planHash()} --non-interactive\n\n# Or, from a terminal, the whole thing:\nforge deploy up --env ${state.environment}`;
         const choices = [];
         if (state.target !== DEFAULTS.target)
           choices.push(`target ${targetNames[state.target]}`);
@@ -1651,16 +2039,25 @@
           ["targetSetting", "target-setting"],
         ])
           $(id).value = state[key];
-        $("redis-features").checked = state.redisFeatures;
+        $("redis-features").checked = state.redisFeatures === true;
+        $("redis-features").indeterminate = state.redisFeatures === null;
+        $("worker-health").value = state.workerHealth;
+        $("redis-decision").value =
+          state.redisFeatures === null
+            ? ""
+            : state.redisFeatures
+              ? "yes"
+              : "no";
       }
       function clearRun() {
         runGeneration += 1;
-        $("run-status").textContent = "Not run";
+        deployStatus = "none";
+        $("run-status").textContent = "Not deployed";
         $("run-status").className = "tag";
         const item = document.createElement("li");
         item.className = "muted";
         item.textContent =
-          "Run a rehearsal to inspect the proposed progress flow.";
+          "Approve a plan to deploy. Every event here is simulated.";
         $("run-log").replaceChildren(item);
       }
       function changed() {
@@ -1694,21 +2091,62 @@
           );
         }
       }
+      function persistDraft() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          storageAvailable = true;
+          return true;
+        } catch {
+          storageAvailable = false;
+          return false;
+        }
+      }
       function save() {
         if (!validState(state)) {
           toast("Fix the configuration before saving.");
           return;
         }
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-          storageAvailable = true;
+        $("save-files").replaceChildren(
+          ...[
+            ".forge.yml: patch the deploy block in place, comments kept",
+            "deploy/lock.yml: new, pins descriptors and recipes",
+          ].map((text) => {
+            const item = document.createElement("li");
+            item.textContent = text;
+            return item;
+          }),
+        );
+        const block = files[".forge.yml"].split("\n");
+        const from = block.findIndex((line) => line.startsWith("deploy:"));
+        const diff = document.createDocumentFragment();
+        const ctx = (text) => {
+          const line = document.createElement("div");
+          line.className = "ctx";
+          line.textContent = `  ${text}`;
+          return line;
+        };
+        const add = (text) => {
+          const line = document.createElement("div");
+          line.className = "add";
+          line.textContent = `+ ${text}`;
+          return line;
+        };
+        diff.append(ctx("--- a/.forge.yml"), ctx("+++ b/.forge.yml"));
+        diff.append(ctx(block[from - 1] || "build:"));
+        for (const line of block.slice(from, from + 14)) diff.append(add(line));
+        diff.append(ctx(`… ${block.length - from - 14} more lines`));
+        $("save-diff").replaceChildren(diff);
+        $("save-dialog").showModal();
+      }
+      function confirmSave() {
+        $("save-dialog").close();
+        if (persistDraft()) {
           saved = true;
           render();
           toast(
-            "Draft saved in this browser. Download proposal files from the Files tab.",
+            "Wrote .forge.yml and deploy/lock.yml (simulated). Draft kept in this browser.",
           );
-        } catch {
-          storageAvailable = false;
+        } else {
           toast(
             "Browser storage is unavailable. Download the proposal bundle to keep your changes.",
           );
@@ -1725,27 +2163,58 @@
         $("service-detail").textContent =
           name === "gateway"
             ? `kind: web\nport: 8080\nexposure: public HTTPS\napi: ${apiAddress()}\nreadiness: /_/health/ready\nliveness: /_/health/live\ntimeout: 5s (must bind to actual caller)\nretries: 0\nidentity: receiving service verifies audience and grants`
-            : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? "ports: none\nhealth: application-heartbeat (must be implemented)" : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary\ntrove.store: uploads\ntrove.metadata_database: primary\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: one pre-rollout job\ncredentials: secret references`;
+            : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? `ports: none\nhealth: ${state.workerHealth === "heartbeat" ? "application heartbeat" : state.workerHealth === "none" ? "none" : "unresolved"}` : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary\ntrove.store: uploads\ntrove.metadata_database: primary\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: one pre-rollout job\ncredentials: secret references`;
         $("service-dialog").showModal();
       }
-      async function rehearse() {
-        if (validationError()) return;
+      function openApprove() {
+        if (validationError() || pendingDecisions().length) return;
+        $("plan-hash").textContent =
+          `plan ${state.environment} on ${targetNames[state.target]}\nhash  ${planHash()}  (mock digest; the CLI prints a sha256)\nfiles ${Object.keys(files).length}   images 3   resources 3`;
+        $("plan-ops").replaceChildren(
+          ...planOperations().map((text) => {
+            const item = document.createElement("li");
+            item.textContent = text;
+            return item;
+          }),
+        );
+        $("approve-dialog").showModal();
+      }
+      async function deploy() {
+        $("approve-dialog").close();
+        if (!saved) {
+          if (!persistDraft()) {
+            toast(
+              "Browser storage is unavailable; deploying without a saved draft.",
+            );
+          } else {
+            saved = true;
+          }
+        }
         switchTab("review");
         $("run-log").replaceChildren();
         const generation = ++runGeneration;
         const outcome = $("outcome").value;
-        $("run-status").textContent = "Simulating";
+        deployStatus = "applying";
+        $("run-status").textContent = "Applying";
         $("run-status").className = "tag orange";
-        $("rehearse").disabled = true;
+        render();
+        const publicUrl =
+          state.target === "kubernetes"
+            ? `https://${state.project}.example.com`
+            : state.target === "compose"
+              ? "http://localhost:8080"
+              : "https://<platform-assigned host>";
         const steps = [
-          "Resolve the approved configuration",
-          "Build once and pin application image digests",
+          `Verify plan ${planHash().slice(0, 12)} against inputs and remote state`,
+          "Build gateway, api and worker; push by digest",
           state.placement === "external"
-            ? "Bind existing data and secret references"
-            : "Provision declared data resources",
-          "Run the shared database migration job",
-          "Roll out gateway, API and worker",
-          "Check service calls and persisted data",
+            ? "Bind existing Postgres, bucket and Redis through secret references"
+            : state.placement === "managed"
+              ? "Provision managed Postgres and Redis; bind the external bucket"
+              : "Start Postgres, MinIO and Redis containers; wait for health",
+          "Run the api migration job",
+          `Roll out gateway ${Math.min(2, state.replicas)}/${Math.min(2, state.replicas)}, api ${state.replicas}/${state.replicas}, worker 1/1`,
+          `Check: GET ${publicUrl}/_/health/ready, write and read through Postgres and the bucket`,
         ];
         for (let index = 0; index < steps.length; index += 1) {
           await new Promise((resolve) => setTimeout(resolve, 450));
@@ -1757,20 +2226,30 @@
           status.textContent = failed ? "FAIL" : "MOCK";
           const text = document.createElement("span");
           text.textContent = failed
-            ? "Migration failed. App rollout blocked; data retained."
+            ? "Migration failed: api rollout blocked, previous release still serving, data retained."
             : steps[index];
           item.append(status, text);
           $("run-log").append(item);
           if (failed) {
-            $("run-status").textContent = "Simulated failure";
+            deployStatus = "failed";
+            $("run-status").textContent = "Failed at migration";
             $("run-status").className = "tag orange";
-            $("rehearse").disabled = false;
+            render();
             return;
           }
         }
-        $("run-status").textContent = "Simulated healthy";
+        const done = document.createElement("li");
+        const doneState = document.createElement("span");
+        doneState.className = "step-state";
+        doneState.textContent = "MOCK";
+        const doneText = document.createElement("span");
+        doneText.textContent = `Healthy. gateway at ${publicUrl}. Release recorded in .forge/state.`;
+        done.append(doneState, doneText);
+        $("run-log").append(done);
+        deployStatus = "healthy";
+        $("run-status").textContent = "Healthy";
         $("run-status").className = "tag green";
-        $("rehearse").disabled = false;
+        render();
       }
       $("target").addEventListener("change", () => {
         state.target = $("target").value;
@@ -1800,6 +2279,17 @@
       });
       $("redis-features").addEventListener("change", () => {
         state.redisFeatures = $("redis-features").checked;
+        syncControls();
+        changed();
+      });
+      $("redis-decision").addEventListener("change", () => {
+        const value = $("redis-decision").value;
+        state.redisFeatures = value === "" ? null : value === "yes";
+        syncControls();
+        changed();
+      });
+      $("worker-health").addEventListener("change", () => {
+        state.workerHealth = $("worker-health").value;
         changed();
       });
       document.querySelectorAll("[data-preset]").forEach((button) => {
@@ -1849,11 +2339,13 @@
       });
       $("file-select").addEventListener("change", renderFile);
       $("save").addEventListener("click", save);
-      $("rehearse").addEventListener("click", rehearse);
-      $("outcome").addEventListener("change", () => {
-        clearRun();
-        render();
-      });
+      $("confirm-save").addEventListener("click", confirmSave);
+      $("close-save").addEventListener("click", () => $("save-dialog").close());
+      $("rehearse").addEventListener("click", openApprove);
+      $("confirm-approve").addEventListener("click", deploy);
+      $("close-approve").addEventListener("click", () =>
+        $("approve-dialog").close(),
+      );
       $("close-dialog").addEventListener("click", () =>
         $("service-dialog").close(),
       );
@@ -1882,10 +2374,10 @@
         } catch {
           storageAvailable = false;
         }
-        state = { ...DEFAULTS };
+        state = { ...FIRST_RUN };
         syncControls();
         changed();
-        toast("Browser draft reset to Kubernetes production defaults.");
+        toast("Reset to the first-run state with both decisions open.");
       });
       syncControls();
       render();

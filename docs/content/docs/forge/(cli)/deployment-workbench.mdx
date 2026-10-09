@@ -1,91 +1,157 @@
 ---
 title: Deployment Workbench Proposal
-description: A proposed local deployment page, portable configuration model, and CLI workflow for microservice stacks
+description: A local deployment page, a versioned deploy section in .forge.yml, and one planner shared by the page, the CLI and AI agents
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
 # Deployment Workbench Proposal
 
-The proposed workbench lets you configure a microservice stack locally and keep its deployment settings in files. You can review the service connections, data resources and generated provider artifacts before deploying. The terminal, local page and AI agent use the same plan.
+You describe your services and the databases, buckets and caches they need in
+one `deploy:` block, and Forge renders and applies that to Compose, Kubernetes
+or a managed platform. The local page, the terminal and an AI agent all go
+through the same planner, so the choice you make in one place is the choice the
+others see.
 
 <Callout type="info">
-  This is a design proposal. The interactive mock and documentation are
-  available. `forge deploy start`, the deployment compiler and the new
-  plan/apply workflow are not implemented. For existing commands and
-  limitations, see [Build and Deployment](/docs/forge/build-deploy).
+  This is a design proposal. The interactive mock and the documentation exist.
+  `forge deploy start`, the deployment compiler and the plan and apply workflow
+  are not implemented. The design spec and the first three implementation plans
+  are linked at the end of this page. For the commands that work today, see
+  [Build and Deployment](/docs/forge/build-deploy).
 </Callout>
 
 ## Try the mock
 
 [Open the interactive deployment mock](/mock/deploy.html).
 
-The sample project has a public gateway, private API and outbound worker. The API and worker use a named Grove PostgreSQL connection, Trove object storage with metadata in that database, and shared Redis.
+The sample project has a public gateway, a private API and a worker. The API
+and worker use a named Grove PostgreSQL database, a Trove store with its
+metadata in that database, and Redis through Grove KV.
 
-You can switch between Kubernetes, Compose, Render and DigitalOcean presets, set replicas and data placement, inspect the service contracts and download configuration proposals. Save keeps a draft in your browser. Downloads contain no secret values.
+On your first visit two decisions are open: how the worker's health is
+observed, and whether the app uses Redis JSON or search. Forge inferred
+everything else from `.forge.yml`, `config/*.yaml` and `go.mod`, and each
+suggestion shows where it came from. Deploy stays off until you answer. Switch
+between the Kubernetes, Compose, Render and DigitalOcean presets, set replicas
+and data placement, and watch the preflight card and the generated files change.
 
-The rehearsal shows healthy and failed migration scenarios. Every deployment event is simulated. The mock does not read your repository, save files into it or contact a provider, and its versioned proposal files cannot be deployed by the current CLI.
+Save opens a dialog that lists the files the CLI would patch and shows the
+diff. Deploy opens the plan with its hash and the operations it will run, and
+the rehearsal streams a healthy rollout or a migration failure. Every event is
+labelled as simulated. The mock keeps a draft in your browser, downloads
+proposal files without secret values, and never touches your repository or a
+provider.
 
-## Proposed command flow
+## The flow
+
+From nothing, on a laptop with Docker:
 
 ```bash
 # Planned commands. Not available in the current CLI.
-forge deploy start
-forge deploy inspect --output json
-forge deploy doctor --target kubernetes --env production --output json
-forge deploy plan --target kubernetes --env production \
-  --out .forge/plans/production.json
-forge deploy export --plan .forge/plans/production.json \
-  --output deployments/production
-forge deploy apply --plan .forge/plans/production.json \
-  --approve-plan <sha256> --non-interactive
+forge deploy init        # suggests the deploy block, asks the open questions
+forge deploy up          # plan and apply the default environment
+forge deploy status
+forge deploy logs api -f
+forge deploy destroy --env dev
 ```
 
-On the first run, you confirm any missing ports, app kinds and resource bindings. Provider credentials stay in provider-native auth, environment variables or the OS keychain. Once the saved configuration passes preflight, the local page can apply the reviewed plan with one click.
+In CI:
 
-For an AI agent, `inspect` returns the resolved structure and missing choices. `doctor` returns diagnostics with source locations and repair instructions. `plan` records the exact configuration, target and intended resource operations. `apply` requires the approved plan hash and rejects changed inputs or remote drift.
+```bash
+forge deploy doctor --target k8s-prod --env production --output json
+forge deploy plan   --target k8s-prod --env production --out plan.json
+forge deploy apply  --plan plan.json --approve-plan "$PLAN_HASH" --non-interactive
+```
+
+For an agent, the same four commands with `--output json`: `inspect` returns
+the resolved model and the open decisions, `doctor` returns diagnostics with a
+file, line, field and fix, `plan` prints a hash, and `apply` takes that hash and
+refuses anything else. Exit codes are stable: 2 invalid input, 3 unresolved
+decisions, 4 unsupported, 5 access, 6 stale plan, 7 apply failed, 8 timeout.
 
 ## Files you own
 
-| File                            | Purpose                                                                           |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| `.forge.yml` or `.forge.yaml`   | Existing project/build settings plus versioned deployment entry points.           |
-| `deploy/stack.yml`              | Services, ports, resource requirements, connections and extension bindings.       |
-| `deploy/environments/<env>.yml` | Environment overrides, target selection and replicas.                             |
-| `config/<service>.yaml`         | Application settings, with resource and secret bindings compiled for the runtime. |
-| `deploy/secrets.example.yml`    | Logical secret references, with no credentials.                                   |
-| `deploy/lock.yml`               | Pinned resource recipes, descriptor/schema versions and image digests.            |
-| `deployments/<target>/<env>/`   | Reproducible provider output, with user patches kept separately.                  |
+| File                                                | Purpose                                                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `.forge.yml` or `.forge.yaml`                       | Project and build settings plus the `deploy:` block with `version: 2`: services, resources, environments, targets and secrets. |
+| `deploy/stack.yml`, `deploy/environments/<env>.yml` | Optional splits of the same keys for large stacks, named from `deploy.spec` and `deploy.environment_files`.                    |
+| `config/<service>.yaml`                             | Your runtime configuration as it is today. The compiler reads it for suggestions and never edits it.                           |
+| `deploy/lock.yml`                                   | Descriptor versions, recipe ids and image digests per environment. Committed.                                                  |
+| `deployments/<target>/<env>/`                       | Generated artifacts with a manifest of file hashes. Your edits go in `patches/` beside them and survive regeneration.          |
+| `.forge/plans/`, `.forge/state/`                    | Plans, the apply journal, locks and releases. Gitignored, restrictive permissions, no secret values in plans.                  |
 
-The local page will save through the CLI's file editor. It must preserve comments and extension keys and detect another editor's changes before writing. Browser-local persistence in the mock only illustrates the flow.
+The page saves through the CLI's file editor. Comments, anchors and keys the
+CLI does not know survive, and a write that finds the file changed by someone
+else returns a conflict with a diff instead of overwriting.
 
-## A portable resource model
+## Resources, Grove, Trove and Redis
 
-You select an existing resource, a provider-managed resource or a qualified self-hosted recipe. The planner checks whether the target can satisfy every requirement.
+Grove and Trove run inside your app. Forge provisions or binds their backends
+and writes the real extension settings: named Grove databases with their
+driver and DSN, Trove's storage DSN, bucket and metadata database, Grove KV's
+driver and DSN. Each resource has a lifecycle per environment: `container`
+(a pinned recipe with a volume, the Compose default), `external` (an existing
+service through a secret reference) or `managed` (the platform provisions it).
 
-Grove is a database library; the backend could be PostgreSQL, MySQL, SQLite or another configured driver. Trove is an object storage library; it needs its configured storage backend and its metadata database. Neither should be rendered as an invented standalone server.
+Bindings reach the app through an overlay file the compiler renders per
+service and mounts at `/etc/forge/overlay.yaml`. The overlay holds no secret
+value; it references `${ATLAS_PRIMARY_DSN}` and the target injects that from
+its secret store. A small framework change, `FORGE_CONFIG_OVERLAY`, loads the
+file between `config.local.yaml` and environment variables, so a real
+environment variable still wins. Where a platform cannot mount files, the
+same content goes through `FORGE_CONFIG_OVERLAY_YAML`.
 
-Named connections and stores remain named. The compiler must generate the real runtime bindings, migration ordering, bucket settings, storage retention and secret references. Redis requirements include the actual feature set used by your application. A compatible protocol alone is not enough.
+How does the CLI know what Grove or Trove needs? A catalog of descriptors
+ships in the CLI for Grove, Grove KV, Trove, the Forge cache, queue, events,
+search, Kafka and MQTT extensions, and the forgery extensions that take a
+`grove_database`. Extension modules can ship a `forge-deploy.yaml` the CLI
+reads from the module cache, and you can add descriptors for in-house
+extensions under `deploy/descriptors/`. Static discovery only ever produces
+suggestions; the `deploy:` block you confirm is what gets deployed.
 
-Production presets should use managed or existing data services. Self-hosted production needs a defined availability policy, backups and a tested restore path. A development container with a volume does not satisfy those requirements.
+Redis requirements include the features your app uses. A managed Redis that
+speaks the protocol but rejects `JSON.SET` fails the plan before any app rolls
+out.
 
-## Kubernetes and managed platforms
+## Service communication
 
-Kubernetes output should include verified ports and probes, runtime settings, secret references, ServiceAccounts, scoped RBAC, connection policies, migration jobs, rollout settings and the selected data-resource recipes. Public routes, TLS, storage classes and operators need explicit prerequisites.
+The service name is the app name. On Compose that resolves on the shared
+network, on Kubernetes it is the Service DNS name in the namespace, and on
+Render or DigitalOcean it is the platform's private reference. For each
+`calls` edge the compiler writes `services.<name>.url` into the caller's
+overlay and `<NAME>_URL` into its environment, and the generated Forge client
+gains a resolver that reads them. Only `exposure: public` ports get a route.
+Receiving services still run their auth middleware; discovery and private
+networking do not grant authorization.
 
-Use Service DNS for ordinary internal calls. Keep public entry points explicit, and enforce authorization in the receiving service. Dynamic discovery can reuse Forge's existing discovery extension; it does not replace request authorization.
+## Targets and order
 
-Compose and Kubernetes are the first implementation targets. Render and DigitalOcean follow through capability-checked adapters. Additional platforms can use container output or implement the adapter contract, with unsupported networking or data requirements reported before apply. Provider behavior must be checked against its current documentation; the [Render Blueprint reference](https://render.com/docs/blueprint-spec) and [DigitalOcean internal routing guide](https://docs.digitalocean.com/products/app-platform/how-to/manage-internal-routing/) show why service types need separate mappings.
+| Target                                      | First path                                                                         | Plan |
+| ------------------------------------------- | ---------------------------------------------------------------------------------- | ---- |
+| Docker Compose                              | render, apply, observe, logs, rollback, destroy                                    | 03   |
+| Kubernetes                                  | Kustomize base and overlays, migration Job, apply with rollout observation         | 04   |
+| Local page                                  | `forge deploy start` on loopback with a token, file save and one-click apply       | 05   |
+| Render, DigitalOcean                        | export verified against the provider schema, then apply after a live run           | 06   |
+| Module descriptors, gateways, hosted target | `forge-deploy.yaml` in grove and trove, `kind: gateway`, a ctrlplane-backed target | 07   |
 
-## Implementation order
+Each adapter publishes a level: renderable, validated, apply, or live
+qualified. Nothing claims a level it has not earned.
 
-1. Remove simulated remote success from the existing command paths.
-2. Add versioned configuration, descriptors and a shared deployment model.
-3. Compile and validate Compose/Kubernetes artifacts, including Grove/Trove/Redis bindings.
-4. Implement real apply, observation, logs, resume and application rollback.
-5. Connect the local page to the shared planner and file editor.
-6. Add and live-qualify managed-platform adapters.
+## Where the design lives
 
-Application rollback must preserve data and respect migration compatibility. The deployment journal needs enough provider state to resume an interrupted apply without provisioning a duplicate database or bucket.
+The design spec, the shared contracts and the implementation plans are
+working documents under `docs/superpowers/` in the forge checkout. That
+directory is gitignored, so you will find them next to the code and not on
+GitHub.
 
-The [detailed deployment plan](https://github.com/xraph/forge/blob/main/docs/deployment/PLAN.md) contains the source review, proposed schema, resource catalog, CLI contract and acceptance gates. Live provider access, file persistence, data durability, authorization and outage recovery remain implementation gates. This proposal does not establish a rollout-ready deployment system.
+- `docs/superpowers/specs/2026-10-09-forge-deploy-design.md`: decisions, the
+  `deploy:` schema, the architecture, the CLI contract and the slice order.
+- `docs/superpowers/plans/2026-10-09-forge-deploy-00-contracts.md`: package
+  names, signatures, diagnostic codes and fixtures the plans share.
+- `docs/superpowers/plans/2026-10-09-forge-deploy-01-honest-cli-and-spec.md`,
+  `02-discover-catalog-resolve.md` and `03-compose.md`: the first three
+  slices as small test-first tasks. Plans 04 to 07 are written when 03 ships.
+- [Source review](https://github.com/xraph/forge/blob/main/docs/deployment/PLAN.md):
+  what the current commands do, with file references, and the acceptance
+  gates for live providers.
