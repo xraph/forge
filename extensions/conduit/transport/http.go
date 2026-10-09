@@ -17,17 +17,26 @@ import (
 
 // Services resolves logical destinations for standard HTTP and gRPC clients.
 type Services struct {
-	Resolver core.Resolver
-	Identity core.Identity
-	counter  atomic.Uint64
+	Resolver     core.Resolver
+	ResolverFunc func() core.Resolver
+	Identity     core.Identity
+	IdentityFunc func() core.Identity
+	counter      atomic.Uint64
 }
 
 func (s *Services) endpoints(ctx context.Context, service string, protocols ...string) ([]core.Endpoint, error) {
-	if s.Resolver == nil {
+	resolver := s.Resolver
+	if s.ResolverFunc != nil {
+		resolver = s.ResolverFunc()
+	}
+
+	if resolver == nil {
 		return nil, errors.New("conduit: service resolver is required")
 	}
 
-	instances, err := s.Resolver.Resolve(ctx, s.Identity.Namespace, service)
+	identity := s.identity()
+
+	instances, err := resolver.Resolve(ctx, identity.Namespace, service)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +44,7 @@ func (s *Services) endpoints(ctx context.Context, service string, protocols ...s
 	endpoints := make([]core.Endpoint, 0)
 
 	for _, instance := range instances {
-		if !instance.Ready || instance.Identity.Namespace != s.Identity.Namespace || instance.Identity.ServiceID != service {
+		if !instance.Ready || instance.Identity.Namespace != identity.Namespace || instance.Identity.ServiceID != service {
 			continue
 		}
 
@@ -95,8 +104,16 @@ func (t *serviceTransport) RoundTrip(request *http.Request) (*http.Response, err
 	clone.URL.Path = strings.TrimRight(base.Path, "/") + request.URL.Path
 	clone.URL.RawPath = strings.TrimRight(base.EscapedPath(), "/") + request.URL.EscapedPath()
 	clone.Host = base.Host
-	clone.Header.Set("X-Forge-Service-Id", t.services.Identity.ServiceID)
-	clone.Header.Set("X-Forge-Instance-Id", t.services.Identity.InstanceID)
+	clone.Header.Set("X-Forge-Service-Id", t.services.identity().ServiceID)
+	clone.Header.Set("X-Forge-Instance-Id", t.services.identity().InstanceID)
 
 	return t.next.RoundTrip(clone)
+}
+
+func (s *Services) identity() core.Identity {
+	if s.IdentityFunc != nil {
+		return s.IdentityFunc()
+	}
+
+	return s.Identity
 }

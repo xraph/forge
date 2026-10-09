@@ -14,6 +14,7 @@ import (
 type (
 	Identity           = core.Identity
 	Config             = core.Config
+	ConnectionConfig   = core.ConnectionConfig
 	Runtime            = core.Runtime
 	Option             = core.Option
 	Envelope           = core.Envelope
@@ -77,6 +78,9 @@ func NewID() string { return core.NewID() }
 // New constructs a runtime independent of Forge for tests and standalone services.
 func New(cfg Config, opts ...Option) (*Runtime, error) { return core.New(cfg, opts...) }
 
+// WithConfig supplies optional explicit Forge configuration.
+func WithConfig(cfg Config) Option { return core.WithConfig(cfg) }
+
 // WithProvider registers a named broker connection.
 func WithProvider(name string, provider Provider) Option { return core.WithProvider(name, provider) }
 
@@ -88,7 +92,7 @@ func WithRegistry(registry Registry) Option { return core.WithRegistry(registry)
 
 // Clients binds HTTP and generated gRPC clients to the runtime's discovery provider.
 func Clients(r *Runtime) *transport.Services {
-	return &transport.Services{Resolver: r.Resolver(), Identity: r.Identity()}
+	return &transport.Services{ResolverFunc: r.Resolver, IdentityFunc: r.Identity}
 }
 
 // Permanent rejects processing without retrying a terminal error.

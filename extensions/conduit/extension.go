@@ -23,8 +23,8 @@ type Extension struct {
 }
 
 // NewExtension constructs a Conduit extension with explicit service identity.
-func NewExtension(cfg Config, opts ...Option) (*Extension, error) {
-	runtime, err := New(cfg, opts...)
+func NewExtension(opts ...Option) (*Extension, error) {
+	runtime, err := core.NewDeferred(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -32,12 +32,24 @@ func NewExtension(cfg Config, opts ...Option) (*Extension, error) {
 	return &Extension{BaseExtension: forge.NewBaseExtension("conduit", "1.0.0", "Service communication and durable messaging"), runtime: runtime}, nil
 }
 
+// NewExtensionWithConfig supplies explicit topology while allowing identity inference.
+func NewExtensionWithConfig(cfg Config, opts ...Option) (*Extension, error) {
+	return NewExtension(append([]Option{WithConfig(cfg)}, opts...)...)
+}
+
+// DepsSpec starts Forge discovery before Conduit when it is installed.
+func (e *Extension) DepsSpec() []forge.Dep { return []forge.Dep{forge.DepOptionalSpec("discovery")} }
+
 // Runtime exposes typed handler registration before application startup.
 func (e *Extension) Runtime() *Runtime { return e.runtime }
 
 // Register provides the runtime to Forge's dependency container.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
+		return err
+	}
+
+	if err := e.configure(app); err != nil {
 		return err
 	}
 

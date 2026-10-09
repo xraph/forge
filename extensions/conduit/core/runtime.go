@@ -18,6 +18,8 @@ type Config struct {
 	Subscriptions   map[string]SubscriptionConfig `json:"subscriptions"   yaml:"subscriptions"`
 	ObserverBuffer  int                           `json:"observerBuffer"  yaml:"observer_buffer"`
 	MaxPayloadBytes int                           `json:"maxPayloadBytes" yaml:"max_payload_bytes"`
+	Providers       map[string]ConnectionConfig   `json:"providers"       yaml:"providers"`
+	Discovery       string                        `json:"discovery"       yaml:"discovery"`
 	Version         string                        `json:"version"         yaml:"version"`
 	Endpoints       []Endpoint                    `json:"endpoints"       yaml:"endpoints"`
 }
@@ -106,6 +108,7 @@ type Runtime struct {
 	registry        Registry
 	closed          bool
 	stopping        bool
+	deferred        bool
 }
 
 // WithRegistry enables registration, discovery and instance inspection.
@@ -122,7 +125,12 @@ func WithRegistry(registry Registry) Option {
 }
 
 // Resolver exposes the configured service discovery provider.
-func (r *Runtime) Resolver() Resolver { return r.registry }
+func (r *Runtime) Resolver() Resolver {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.registry
+}
 
 // Instances lists visible members inside this runtime's namespace.
 func (r *Runtime) Instances(ctx context.Context) ([]Instance, error) {
@@ -272,7 +280,12 @@ func defaults(sub SubscriptionConfig) SubscriptionConfig {
 }
 
 // Identity returns the service and replica identity for this runtime.
-func (r *Runtime) Identity() Identity { return r.config.Identity }
+func (r *Runtime) Identity() Identity {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.config.Identity
+}
 
 // DurableStream checks a provider before transactional publication.
 func (r *Runtime) DurableStream(name string) bool {
@@ -325,6 +338,25 @@ func (r *Runtime) Bind(id, messageType string, handler Handler, middlewares ...M
 		return fmt.Errorf("%w: duplicate subscription %s", ErrConflict, id)
 	}
 
+	if r.deferred {
+		if id == "" {
+			return errors.New("conduit: subscription ID is required")
+		}
+
+		if err := ValidateTopic(messageType, false); err != nil {
+			return err
+		}
+
+		wrapped, err := wrapHandler(handler, middlewares)
+		if err != nil {
+			return err
+		}
+
+		r.registrations[id] = registration{config: SubscriptionConfig{ID: id, MessageType: messageType}, handler: wrapped}
+
+		return nil
+	}
+
 	sub, ok := r.config.Subscriptions[id]
 	if !ok {
 		return fmt.Errorf("%w: subscription %s is not configured", ErrNotFound, id)
@@ -361,22 +393,12 @@ func (r *Runtime) Bind(id, messageType string, handler Handler, middlewares ...M
 		return fmt.Errorf("conduit: subscription %s does not match stream subjects", id)
 	}
 
-	if err := protect(func() error {
-		for _, v := range slices.Backward(middlewares) {
-			if v == nil {
-				return errors.New("conduit: nil middleware")
-			}
-
-			handler = v(handler)
-			if handler == nil {
-				return errors.New("conduit: middleware returned nil handler")
-			}
-		}
-
-		return nil
-	}); err != nil {
+	wrapped, err := wrapHandler(handler, middlewares)
+	if err != nil {
 		return err
 	}
+
+	handler = wrapped
 
 	r.config.Subscriptions[id] = sub
 	r.registrations[id] = registration{config: sub, handler: handler}
@@ -420,6 +442,10 @@ func validateSubscription(sub SubscriptionConfig, caps Capabilities) error {
 func (r *Runtime) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.deferred {
+		return errors.New("conduit: Forge must register the extension before startup")
+	}
 
 	if r.running || r.stopping || r.closed {
 		return fmt.Errorf("%w: runtime already started", ErrConflict)

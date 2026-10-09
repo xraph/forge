@@ -22,10 +22,7 @@ type OrderPlaced struct {
 var OrderPlacedV1 = conduit.Event[OrderPlaced]("orders.placed.v1")
 
 broker := jetstream.New(jetstream.Options{URL: "nats://localhost:4222"})
-ext, err := conduit.NewExtension(conduit.Config{
-    Identity: conduit.Identity{Namespace: "production", ServiceID: "billing"},
-    Version: "1.0.0",
-    Endpoints: []conduit.Endpoint{{Protocol: "https", URL: "https://billing.internal:8443"}},
+ext, err := conduit.NewExtension(conduit.WithConfig(conduit.Config{
     Streams: map[string]conduit.StreamConfig{
         "orders": {Provider: "events", Subjects: []string{"orders.>"}, MaxAge: 7 * 24 * time.Hour, Replicas: 3},
     },
@@ -33,7 +30,7 @@ ext, err := conduit.NewExtension(conduit.Config{
         "process-orders": {Stream: "orders", Mode: conduit.Competing, Durable: true, Concurrency: 4, MaxInFlight: 16},
         "refresh-cache":  {Stream: "orders", Mode: conduit.Broadcast},
     },
-}, conduit.WithProvider("events", broker), conduit.WithRegistry(broker))
+}), conduit.WithProvider("events", broker))
 if err != nil { return err }
 
 err = conduit.Subscribe(ext.Runtime(), OrderPlacedV1,
@@ -51,6 +48,38 @@ if err != nil { return err }
 // Register ext through app.RegisterExtension or AppConfig.Extensions.
 // Forge starts and stops the runtime with the application.
 ```
+
+Identity, version and endpoints are optional when you use the Forge extension. You can call `conduit.NewExtension()` and put provider, stream and subscription settings under `extensions.conduit` in your application configuration. Bind handlers before registration. Forge validates the loaded configuration when it registers the extension.
+
+Conduit reads the native `.forge.yaml` or `.forge.yml` application name, version, namespace and development listener settings, then fills missing values from the Forge application. The advertised host follows explicit discovery configuration, `FORGE_ADVERTISE_ADDR`, `POD_IP`, the manifest host and the machine hostname. Wildcard listeners are never advertised. Explicit Conduit fields win. `conduit.New` remains strict for standalone runtimes.
+
+```yaml
+extensions:
+  conduit:
+    providers:
+      events:
+        type: jetstream
+        url: ${NATS_URL}
+        dead_letter_replicas: 3
+    streams:
+      orders:
+        provider: events
+        subjects: [orders.>]
+        max_age: 168h
+        replicas: 3
+    subscriptions:
+      process-orders:
+        stream: orders
+        delivery: competing
+        durable: true
+        concurrency: 4
+        max_in_flight: 16
+        timeout: 30s
+```
+
+`CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL` override loaded values unless you supply those values explicitly in Go. Forge's normal configuration sources and deployment overlays also apply.
+
+When Forge discovery is installed, Conduit reuses its backend and leaves its lifecycle with Forge. Only records carrying the matching Conduit namespace are included. Otherwise a single broker registry is selected automatically. Set `discovery` to a provider name, `forge` or `none` to choose explicitly. A programmatic `WithRegistry` always wins. The bridge removes only its own instance record, and its crash-expiry guarantees follow the existing discovery backend.
 
 Conduit generates an instance ID when you omit it. Supply your pod or process identity when you need to correlate it with deployment records. Advertise an address that clients can reach; a listener's wildcard bind address is not an endpoint.
 
