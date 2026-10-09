@@ -20,6 +20,10 @@ import (
 func TestPostgresOutboxAndInbox(t *testing.T) {
 	dsn := os.Getenv("CONDUIT_TEST_POSTGRES")
 	if dsn == "" {
+		if os.Getenv("CONDUIT_REQUIRE_INTEGRATION") == "1" {
+			t.Fatal("CONDUIT_TEST_POSTGRES is required by the integration gate")
+		}
+
 		t.Skip("set CONDUIT_TEST_POSTGRES to run PostgreSQL transaction integration")
 	}
 

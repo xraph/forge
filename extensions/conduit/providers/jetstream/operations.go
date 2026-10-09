@@ -63,7 +63,7 @@ func (p *Provider) RunBackfill(ctx context.Context, binding core.Binding, in cor
 	}
 
 	key := backfillKey(binding.Identity.ServiceID, in.ID)
-	stored := storedBackfill{Job: core.Backfill{Input: in, ConsumerID: binding.ConsumerID(), Stream: binding.Stream.Name, Provider: binding.Stream.Provider, Next: in.Start, State: "running", UpdatedAt: time.Now().UTC(), Persisted: true}}
+	stored := storedBackfill{Job: core.Backfill{MessageType: binding.Subscription.MessageType, Input: in, ConsumerID: binding.ConsumerID(), Stream: binding.Stream.Name, Provider: binding.Stream.Provider, Next: in.Start, State: "running", UpdatedAt: time.Now().UTC(), Persisted: true}}
 
 	data, err := json.Marshal(stored)
 	if err != nil {
@@ -83,7 +83,7 @@ func (p *Provider) RunBackfill(ctx context.Context, binding core.Binding, in cor
 		return core.Backfill{}, err
 	}
 
-	if stored.Job.Input != in || stored.Job.ConsumerID != binding.ConsumerID() {
+	if stored.Job.Input != in || stored.Job.ConsumerID != binding.ConsumerID() || stored.Job.Stream != binding.Stream.Name || stored.Job.MessageType != binding.Subscription.MessageType {
 		return stored.Job, core.ErrConflict
 	}
 

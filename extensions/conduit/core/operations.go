@@ -47,17 +47,18 @@ func (in BackfillInput) Validate() error {
 
 // Backfill records resumable progress without exposing event data.
 type Backfill struct {
-	Input      BackfillInput `json:"input"`
-	ConsumerID string        `json:"consumerID"`
-	Stream     string        `json:"stream"`
-	Provider   string        `json:"provider"`
-	State      string        `json:"state"`
-	Next       uint64        `json:"next"`
-	Published  uint64        `json:"published"`
-	Skipped    uint64        `json:"skipped"`
-	UpdatedAt  time.Time     `json:"updatedAt"`
-	Error      string        `json:"error,omitempty"`
-	Persisted  bool          `json:"persisted"`
+	MessageType string        `json:"messageType"`
+	Input       BackfillInput `json:"input"`
+	ConsumerID  string        `json:"consumerID"`
+	Stream      string        `json:"stream"`
+	Provider    string        `json:"provider"`
+	State       string        `json:"state"`
+	Next        uint64        `json:"next"`
+	Published   uint64        `json:"published"`
+	Skipped     uint64        `json:"skipped"`
+	UpdatedAt   time.Time     `json:"updatedAt"`
+	Error       string        `json:"error,omitempty"`
+	Persisted   bool          `json:"persisted"`
 }
 
 // Operations is optional broker-backed consumer management and controlled recovery.
@@ -89,7 +90,7 @@ func ExecuteBackfill(ctx context.Context, binding Binding, job Backfill, read fu
 			job.Skipped++
 		} else {
 			msg.TargetConsumer = binding.ConsumerID()
-			if err := publish(ctx, msg, "backfill-"+job.Input.ID+"-"+strconv.FormatUint(job.Next, 10)); err != nil {
+			if err := publish(ctx, msg, "backfill-"+binding.ConsumerID()+"-"+job.Input.ID+"-"+strconv.FormatUint(job.Next, 10)); err != nil {
 				return failBackfill(ctx, job, save, err)
 			}
 

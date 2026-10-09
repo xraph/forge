@@ -83,7 +83,7 @@ func (b *Broker) RunBackfill(ctx context.Context, binding core.Binding, in core.
 	}
 
 	job, exists := b.backfills[key]
-	if exists && (job.Input != in || job.ConsumerID != binding.ConsumerID()) {
+	if exists && (job.Input != in || job.ConsumerID != binding.ConsumerID() || job.Stream != binding.Stream.Name || job.MessageType != binding.Subscription.MessageType) {
 		b.mu.Unlock()
 
 		return job, core.ErrConflict
@@ -102,7 +102,7 @@ func (b *Broker) RunBackfill(ctx context.Context, binding core.Binding, in core.
 	}
 
 	if !exists {
-		job = core.Backfill{Input: in, ConsumerID: binding.ConsumerID(), Stream: binding.Stream.Name, Provider: binding.Stream.Provider, Next: in.Start, State: "running", UpdatedAt: time.Now().UTC()}
+		job = core.Backfill{MessageType: binding.Subscription.MessageType, Input: in, ConsumerID: binding.ConsumerID(), Stream: binding.Stream.Name, Provider: binding.Stream.Provider, Next: in.Start, State: "running", UpdatedAt: time.Now().UTC()}
 		b.backfills[key] = job
 	}
 

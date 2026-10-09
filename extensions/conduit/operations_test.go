@@ -88,6 +88,29 @@ func TestConsumerControlsAndTargetedBackfill(t *testing.T) {
 				t.Fatalf("service history=%v %v", jobs, err)
 			}
 
+			// Different services may reuse an operation ID on the same retained stream.
+			otherCfg := config("analytics", "one", kind == "jetstream", conduit.Competing)
+			other := runtimeFor(t, otherCfg, provider())
+
+			var otherCount atomic.Int32
+
+			if err := conduit.Subscribe(other, placed, func(context.Context, conduit.Message[order]) error {
+				otherCount.Add(1)
+
+				return nil
+			}, conduit.Consumer("process")); err != nil {
+				t.Fatal(err)
+			}
+
+			start(t, other)
+			wait(t, func() bool { return otherCount.Load() == 1 })
+
+			if _, err := other.Backfill(t.Context(), conduit.BackfillInput{ID: "recovery-1", Subscription: "process", Start: 1, End: 1}); err != nil {
+				t.Fatal(err)
+			}
+
+			wait(t, func() bool { return otherCount.Load() == 2 })
+
 			rows, err = members["a"].Consumers(t.Context())
 			if err != nil || rows[0].Processing.Count < 2 || rows[0].Delivery.Count < 2 {
 				t.Fatalf("latency=%+v %v", rows, err)
