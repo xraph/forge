@@ -43,3 +43,11 @@ Not verified: screen-reader operation, forced-colors rendering, live changes to 
 ## Verdict
 
 Approve the inspected UI-polish scope. Accessibility, layout, writing, typography and color owning-skill reviews were not available; the targeted checks above define the verification boundary.
+
+## Target and delivery configuration follow-up
+
+This pass adds large target cards ahead of the workbench, saved profiles, service selection, broker settings, image/registry and Git delivery screens, and environment/persistence settings. It uses the existing neutral tokens, 256px sidebar, native controls and Light/Dark/System themes. Header, file and registry actions use 36px icons with accessible names and focus/hover tooltips. Source/Dockerfile details sit in a disclosure so the Git screen stays compact.
+
+Desktop, 390px and 320px checks cover the new views, mobile drawer, saved profiles, Git triggers, dependency diagnostics, empty selections and icon sizing. Counts, topology, operations and overlays follow the apply scope, with shared data retained. The reusable mock ZeroState adapter provides a left-aligned illustration, explanation and working action for empty resource/connection views. No walkthrough button is added.
+
+Authentication and deployment results remain simulated or unqualified. This UI review does not qualify a provider, registry, database or messaging integration. The earlier limits on formal multi-domain skill coverage still apply. Checks and broader lint failures are recorded in [VERIFICATION.md](VERIFICATION.md).

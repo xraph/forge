@@ -52,3 +52,19 @@ The refinement passes scoped Biome, Prettier, inline JavaScript syntax, docs typ
 `GOWORK=off make f` passes with no Go diff. The initial `GOWORK=off make l` reruns fail in 21 modules and pass in 17. The final rerun fails in 23 modules and passes in 15 while concurrent auth changes are present in the checkout. Those auth files are outside this UI change and remain untouched by its commit. The full docs lint rerun reports 100 errors, 39 warnings and 113 informational diagnostics outside the refined mock; its scoped lint is clean. These broader failures remain open.
 
 See [the UI review](UI_REVIEW.md) for source conventions, bounded palette checks, skill coverage and checks that remain unverified. The deployment engine remains proposed.
+
+## Saved targets and delivery workflows
+
+Browser checks cover target cards ahead of the sidebar, three saved profiles and reload, service selection, an excluded API binding, empty-selection blocking, working ZeroState actions, and worker-only resource/overlay scope. The worker inspector assigns no Trove store or API migration. The Render CI-check trigger survives reload, and per-service Git source/Dockerfile fields appear in a disclosure. Kubernetes GitOps delivery records a separate manifest repository/path proposal.
+
+Registry authentication/access buttons explicitly rehearse their results. Host-only images are blocked on a remote platform. Invalid database secret references block saving and deployment review. Files are the default; PostgreSQL and SQLite choices update proposed CLI arguments without connecting a database. Unqualified broker container recipes and platform environment creation block review. A worker-only healthy rehearsal creates no gateway route or API migration. A Git-backed API failure rehearsal stops at migration and retains data. Every event is simulated.
+
+The worker-only download contains eight files and seven parseable YAML documents, with only a worker overlay and Grove, Redis and NATS bindings. The final Render download contains ten files and nine parseable YAML documents. It preserves three target profiles, Compose's worker selection, Render's Git trigger and service build paths, Kubernetes GitOps delivery, broker placement and default file persistence. Both bundles say `proposal-not-deployable`.
+
+The foreground preview was checked at its normal 1113px width, 390px and 320px. Narrow documents have no horizontal overflow. Mobile navigation returns to the working content, and the header icons stay 36px square in a horizontal row. Light, Dark and System themes work. The viewport override was reset. The final preview reports no browser errors; an early topology redraw error found during implementation was corrected. The updated guide renders its link to the tracked workflow design.
+
+Scoped `npm run lint -- public/mock/deploy.html`, Prettier 3.6.2 format/check, extracted inline JavaScript syntax, `npm run types:check`, `npm run build` and `git diff --check` pass. These are the documented docs lint/format equivalents. No Go source is changed.
+
+`GOWORK=off make f` returns zero and reports 38 modules, with no Go formatting diff. Its log also reports existing `go.mod` update requirements for webtransport, streaming and webrtc. The Make target does not propagate those errors, so its zero exit does not establish that every module's formatter completed. `GOWORK=off make l` fails in 21 modules and passes in 17. Full docs lint reports 100 errors, 39 warnings and 113 informational diagnostics outside this mock. Those broader failures remain open; their files are outside this commit.
+
+Actual provider Git connections, registry authentication/build/push/pull, controller reconciliation, broker provisioning/recovery, environment creation, repository writes, database persistence/migration/locking and live service calls remain unverified. See [the workflow design](WORKBENCH_WORKFLOWS.md) for implementation and acceptance gates.

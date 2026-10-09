@@ -48,11 +48,31 @@ own and what Forge renders, and the last section shows the same steps as
 commands and the JSON an agent would read. Everything is simulated and nothing
 leaves your browser.
 
-You can also open the [deployment dashboard mock](/mock/deploy.html). It has
-separate service, resource, connection, preflight and activity views, a file
-browser, and Light, Dark and System themes. On desktop you can collapse the
-sidebar; on a narrow screen it opens as a navigation drawer. Theme and sidebar
-choices stay in your browser. The deployment and file-write flows are simulated.
+The [deployment dashboard mock](/mock/deploy.html) starts with large target
+cards before opening the sidebar. Choose several targets and switch between
+their saved profiles. The service list lets you deploy a subset, with an
+existing API binding required when you select the gateway and exclude API.
+The plan, connection graph and generated overlays follow that selection.
+
+Data and messaging settings let you propose an existing broker, a target
+container or a separate Docker host. Images & registry offers local builds,
+remote builders, CI, immutable existing images and provider Git builds. Render
+Git settings include the repository, branch and manual, CI-check or commit
+trigger; Kubernetes has a separate manifest delivery option for an existing
+GitOps controller. Registry authentication and access checks are simulated.
+No token is collected.
+
+Environment & storage includes environment creation and Files, SQLite or
+PostgreSQL persistence settings. Files are the proposed default. The mock
+always stores drafts in this browser, and downloaded files are schema
+proposals. It does not create an environment, connect a database, write to your
+repository, push Git commits or deploy services.
+
+Light, Dark and System themes, a collapsible desktop sidebar, a mobile drawer,
+keyboard tabs and compact icon actions are available. Theme, target profiles
+and configuration choices survive reload. The newer workflow and schema
+proposals are described in the
+[target and delivery design](https://github.com/xraph/forge/blob/main/docs/deployment/WORKBENCH_WORKFLOWS.md).
 
 ## The flow
 

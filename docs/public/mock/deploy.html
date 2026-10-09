@@ -86,7 +86,7 @@
       * {
         box-sizing: border-box;
       }
-      [hidden] {
+      :root [hidden] {
         display: none;
       }
       body {
@@ -1452,9 +1452,316 @@
           outline-offset: -2px;
         }
       }
+
+      body[data-setup="true"] #app-layout {
+        display: none;
+      }
+      body:not([data-setup="true"]) #target-picker {
+        display: none;
+      }
+      .target-picker {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 32px 28px;
+      }
+      .picker-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 32px;
+      }
+      .picker-intro {
+        max-width: 650px;
+        margin-bottom: 24px;
+      }
+      .picker-intro h1 {
+        font-size: 28px;
+        letter-spacing: -0.8px;
+        margin-bottom: 8px;
+      }
+      .target-cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .target-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 194px;
+        padding: 20px;
+        border: 1px solid var(--input);
+        border-radius: 12px;
+        background: var(--panel);
+        cursor: pointer;
+      }
+      .target-card:has(input:checked) {
+        border: 2px solid var(--accent);
+        padding: 19px;
+        background: var(--accent-soft);
+      }
+      .target-card:focus-within {
+        outline: 2px solid var(--blue);
+        outline-offset: 3px;
+      }
+      .target-card input {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+      }
+      input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        min-height: 16px;
+        accent-color: var(--accent);
+        padding: 0;
+      }
+      .target-card .provider-icon {
+        width: 40px;
+        height: 40px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--panel);
+      }
+      .target-card h2 {
+        font-size: 17px;
+      }
+      .target-card p {
+        color: var(--muted);
+        max-width: 46ch;
+      }
+      .card-meta {
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .picker-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        margin-top: 20px;
+      }
+      .picker-note {
+        padding: 12px 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .controls {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .zero-state {
+        padding: 20px 16px;
+      }
+      .zero-state svg {
+        width: 40px;
+        height: 40px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .zero-state p {
+        margin: 6px 0 12px;
+        color: var(--muted);
+        max-width: 52ch;
+      }
+      #settings-error {
+        margin-bottom: 12px;
+      }
+      .target-switch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .target-switch select {
+        width: auto;
+        max-width: 100%;
+      }
+      .compact-action {
+        width: 36px;
+        height: 36px;
+        min-height: 36px;
+        padding: 0;
+      }
+      [data-tooltip] {
+        position: relative;
+      }
+      [data-tooltip]:is(:hover, :focus-visible)::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        z-index: 20;
+        bottom: calc(100% + 8px);
+        right: 0;
+        padding: 6px 9px;
+        border-radius: 5px;
+        background: var(--text);
+        color: var(--panel);
+        font-size: 12px;
+        font-weight: 400;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .selection-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--raised);
+      }
+      .service-check {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px;
+        margin: -8px 2px -8px -8px;
+        cursor: pointer;
+      }
+      tr[data-deploy-service].excluded {
+        color: var(--muted);
+        background: var(--raised);
+      }
+      .subset-binding {
+        padding: 12px 16px;
+        border-top: 1px solid var(--border);
+      }
+      .settings-section {
+        max-width: 1100px;
+        margin-bottom: 16px;
+      }
+      .settings-body {
+        padding: 16px;
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 18px;
+      }
+      .form-grid label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .form-grid label:has(input[type="checkbox"]) {
+        flex-direction: row;
+        align-items: center;
+      }
+      .form-note {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .settings-status {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 14px;
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+      }
+      .settings-status p {
+        font-size: 13px;
+      }
+      body:not([data-view="images"]) #images-section,
+      body:not([data-view="settings"]) #settings-section {
+        display: none;
+      }
+      body:not([data-view="resources"]) #messaging-section {
+        display: none;
+      }
+      .overview-shortcuts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      body:not([data-view="overview"]) .overview-shortcuts {
+        display: none;
+      }
+      .connection-scope {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      @media (max-width: 767px) {
+        .controls {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .heading {
+          flex-direction: row;
+          align-items: flex-start;
+          flex-wrap: nowrap;
+        }
+        .heading > div:first-child {
+          min-width: 0;
+          flex: 1;
+        }
+        .heading .actions {
+          width: auto;
+          flex-shrink: 0;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          gap: 6px;
+        }
+        .heading .actions .compact-action {
+          flex: none;
+          width: 36px;
+          min-height: 36px;
+          padding: 0;
+        }
+
+        .target-picker {
+          padding: 20px 16px;
+        }
+        .picker-header {
+          margin-bottom: 24px;
+        }
+        .target-cards {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .target-card {
+          min-height: 162px;
+          padding: 16px;
+          gap: 8px;
+        }
+        .target-card:has(input:checked) {
+          padding: 15px;
+        }
+        .picker-footer {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+        .target-switch {
+          flex-wrap: wrap;
+        }
+        .target-switch select {
+          flex: 1;
+        }
+        .selection-bar {
+          flex-wrap: wrap;
+        }
+        .settings-status {
+          align-items: flex-start;
+        }
+      }
     </style>
   </head>
-  <body data-view="overview">
+  <body data-view="overview" data-setup="true">
     <svg style="display: none" aria-hidden="true">
       <defs>
         <symbol id="hammer" viewBox="0 0 24 24">
@@ -1509,12 +1816,132 @@
         <symbol id="activity-icon" viewBox="0 0 24 24">
           <path d="M3 12h4l3-8 4 16 3-8h4" />
         </symbol>
+        <symbol id="download" viewBox="0 0 24 24">
+          <path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5" />
+        </symbol>
+        <symbol id="copy" viewBox="0 0 24 24">
+          <rect x="8" y="8" width="12" height="12" rx="2" />
+          <path d="M16 8V4H4v12h4" />
+        </symbol>
+        <symbol id="rotate" viewBox="0 0 24 24">
+          <path d="M4 10a8 8 0 1 1 0 6M4 3v7h7" />
+        </symbol>
         <symbol id="x" viewBox="0 0 24 24">
           <path d="m6 6 12 12M6 18 18 6" />
         </symbol>
       </defs>
     </svg>
     <a class="skip" href="#main">Skip to deployment configuration</a>
+    <section
+      class="target-picker"
+      id="target-picker"
+      aria-labelledby="picker-title"
+    >
+      <div class="picker-header">
+        <div class="brand">
+          <span class="brand-mark"
+            ><svg class="icon" aria-hidden="true">
+              <use href="#hammer" /></svg></span
+          ><span>forge <span class="muted">/ deployment</span></span>
+        </div>
+        <label class="theme-control"
+          ><select id="picker-theme" aria-label="Setup color theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select></label
+        >
+      </div>
+      <div class="picker-intro">
+        <h1 id="picker-title">Where do you want to deploy?</h1>
+        <p class="muted">
+          Choose one or more targets. You can run a local stack and deploy the
+          same project to a cluster or a managed platform, with separate
+          settings for each.
+        </p>
+      </div>
+      <div class="target-cards">
+        <label class="target-card"
+          ><input
+            type="checkbox"
+            data-target-card="compose"
+            aria-label="Select Docker Compose"
+          /><svg class="icon provider-icon" aria-hidden="true">
+            <use href="#server" />
+          </svg>
+          <h2>Docker Compose</h2>
+          <p>
+            A local stack or a remote Docker host. Keep images on the host, or
+            publish to a registry.
+          </p>
+          <div class="card-meta">
+            <span>Local or host</span
+            ><span class="tag">Development default</span>
+          </div></label
+        ><label class="target-card"
+          ><input
+            type="checkbox"
+            data-target-card="kubernetes"
+            aria-label="Select Kubernetes"
+          /><svg class="icon provider-icon" aria-hidden="true">
+            <use href="#grid" />
+          </svg>
+          <h2>Kubernetes</h2>
+          <p>
+            Generate workloads, networking and resource bindings for your
+            selected cluster.
+          </p>
+          <div class="card-meta">
+            <span>Cluster context</span><span class="tag">Kustomize</span>
+          </div></label
+        ><label class="target-card"
+          ><input
+            type="checkbox"
+            data-target-card="render"
+            aria-label="Select Render"
+          /><svg class="icon provider-icon" aria-hidden="true">
+            <use href="#link" />
+          </svg>
+          <h2>Render</h2>
+          <p>
+            Configure application services and managed resources, with explicit
+            external connections.
+          </p>
+          <div class="card-meta">
+            <span>Managed platform</span><span class="tag">Export first</span>
+          </div></label
+        ><label class="target-card"
+          ><input
+            type="checkbox"
+            data-target-card="digitalocean"
+            aria-label="Select DigitalOcean"
+          /><svg class="icon provider-icon" aria-hidden="true">
+            <use href="#server" />
+          </svg>
+          <h2>DigitalOcean</h2>
+          <p>
+            Configure App Platform components, registry images and data service
+            connections.
+          </p>
+          <div class="card-meta">
+            <span>App Platform</span><span class="tag">Export first</span>
+          </div></label
+        >
+      </div>
+      <div class="picker-footer">
+        <span id="picker-summary" class="small muted" aria-live="polite"></span
+        ><button class="primary" id="continue-targets" type="button">
+          Configure selected targets
+          <svg class="icon" aria-hidden="true">
+            <use href="#chevron-right" />
+          </svg>
+        </button>
+      </div>
+      <p class="picker-note">
+        UI prototype. Your choices stay in this browser. File generation,
+        authentication and deployments are proposals and rehearsals.
+      </p>
+    </section>
     <div class="layout" id="app-layout">
       <nav class="sidebar" id="sidebar" aria-label="Workbench sections">
         <button
@@ -1592,6 +2019,27 @@
               <svg class="icon" aria-hidden="true"><use href="#file" /></svg
               ><span class="nav-title">Files & plan</span
               ><span class="nav-count">8</span>
+            </button>
+          </div>
+          <div class="nav-group">
+            <p class="nav-label">Configuration</p>
+            <button
+              type="button"
+              data-section="images"
+              aria-label="Images & registry"
+              title="Images & registry"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#server" /></svg
+              ><span class="nav-title">Images &amp; registry</span>
+            </button>
+            <button
+              type="button"
+              data-section="settings"
+              aria-label="Environment & storage"
+              title="Environment & storage"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#database" /></svg
+              ><span class="nav-title">Environment &amp; storage</span>
             </button>
           </div>
           <div class="nav-group">
@@ -1683,13 +2131,26 @@
               </p>
             </div>
             <div class="actions">
-              <button type="button" id="save">
-                <svg class="icon" aria-hidden="true"><use href="#file" /></svg
-                >Save configuration</button
-              ><button type="button" class="primary" id="rehearse">
+              <button
+                type="button"
+                class="compact-action"
+                id="save"
+                aria-label="Save configuration"
+                data-tooltip="Save configuration"
+              >
                 <svg class="icon" aria-hidden="true">
-                  <use href="#chevron-right" /></svg
-                >Review &amp; deploy
+                  <use href="#file" />
+                </svg></button
+              ><button
+                type="button"
+                class="primary compact-action"
+                id="rehearse"
+                aria-label="Review &amp; deploy"
+                data-tooltip="Review &amp; deploy"
+              >
+                <svg class="icon" aria-hidden="true">
+                  <use href="#chevron-right" />
+                </svg>
               </button>
             </div>
           </div>
@@ -1701,6 +2162,271 @@
               simulated.
             </p>
           </div>
+
+          <div class="target-switch">
+            <span class="small muted">Saved targets</span
+            ><select
+              id="active-target"
+              aria-label="Active saved target"
+            ></select
+            ><button
+              type="button"
+              class="compact-action"
+              id="edit-targets"
+              aria-label="Manage deployment targets"
+              data-tooltip="Manage targets"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#grid" />
+              </svg></button
+            ><span class="tag" id="target-scope"></span>
+          </div>
+          <p class="error" id="settings-error" role="status" hidden></p>
+          <section
+            class="section settings-section"
+            id="images-section"
+            aria-labelledby="images-heading"
+          >
+            <div class="section-head row">
+              <h2 id="images-heading">Build &amp; deliver images</h2>
+              <span class="tag">Per target</span>
+            </div>
+            <div class="settings-body">
+              <div class="form-grid">
+                <label
+                  >Image source<select id="image-source">
+                    <option value="local">Build on this machine</option>
+                    <option value="remote">Remote builder</option>
+                    <option value="ci">Build in CI</option>
+                    <option value="existing">Use existing images</option>
+                    <option value="git">Build from Git on provider</option>
+                  </select></label
+                ><label
+                  >Image delivery<select id="image-delivery">
+                    <option value="provider" hidden>
+                      Provider build from Git
+                    </option>
+                    <option value="local">Keep in Docker host</option>
+                    <option value="registry">Publish to registry</option>
+                  </select></label
+                ><label id="builder-field" hidden
+                  >Remote builder reference<input
+                    id="builder-ref"
+                    placeholder="production-builder"
+                    maxlength="80" /></label
+                ><label
+                  >Release delivery<select id="release-mode">
+                    <option value="direct">Review and apply</option>
+                    <option value="gitops">Commit manifests for GitOps</option>
+                  </select></label
+                ><label
+                  >Build architecture<select id="image-platform">
+                    <option value="linux/amd64">Linux amd64</option>
+                    <option value="linux/arm64">Linux arm64</option>
+                    <option value="linux/amd64,linux/arm64">
+                      Multi architecture
+                    </option>
+                  </select></label
+                >
+              </div>
+              <div id="git-fields" hidden>
+                <div class="settings-status">
+                  <h3>Git deployment</h3>
+                  <span class="tag">Repository access required</span>
+                </div>
+                <div class="form-grid">
+                  <label
+                    >Repository URL<input
+                      id="git-repo"
+                      maxlength="180"
+                      placeholder="https://github.com/example/atlas" /></label
+                  ><label
+                    >Branch<input
+                      id="git-branch"
+                      maxlength="100"
+                      placeholder="main" /></label
+                  ><label
+                    >Deployment trigger<select id="git-trigger">
+                      <option value="off">Manual, approved commit</option>
+                      <option value="checksPass">After CI checks pass</option>
+                      <option value="commit">Every commit</option>
+                    </select></label
+                  ><label
+                    >Manifest path / Blueprint path<input
+                      id="git-path"
+                      maxlength="140"
+                      placeholder="deployments/"
+                  /></label>
+                </div>
+                <p class="form-note" id="git-guidance"></p>
+                <details id="git-contracts">
+                  <summary>Service build contracts</summary>
+                  <p class="form-note">
+                    Paths are relative to the repository root. The compiler must
+                    generate or verify each Dockerfile before provider
+                    deployment.
+                  </p>
+                  <div id="git-service-contracts" class="form-grid"></div>
+                </details>
+              </div>
+              <p class="form-note" id="image-guidance"></p>
+              <div id="existing-images" hidden>
+                <p class="form-note">
+                  Use an immutable digest for each selected service. Excluded
+                  services have no image operation.
+                </p>
+                <div class="form-grid" id="existing-image-fields"></div>
+              </div>
+              <div id="registry-fields">
+                <div class="settings-status">
+                  <h3>Registry connection</h3>
+                  <span class="tag" id="registry-status">Not checked</span>
+                </div>
+                <div class="form-grid">
+                  <label
+                    >Registry<select id="registry-provider">
+                      <option value="ghcr">GitHub Container Registry</option>
+                      <option value="dockerhub">Docker Hub</option>
+                      <option value="custom">Custom OCI registry</option>
+                    </select></label
+                  ><label
+                    >Registry host<input
+                      id="registry-host"
+                      maxlength="120"
+                      placeholder="ghcr.io" /></label
+                  ><label
+                    >Namespace / organization<input
+                      id="registry-namespace"
+                      maxlength="100"
+                      placeholder="example" /></label
+                  ><label
+                    >Authentication<select id="registry-auth">
+                      <option value="helper">Docker credential helper</option>
+                      <option value="env">Environment secret reference</option>
+                      <option value="github-actions">
+                        GitHub Actions token
+                      </option>
+                      <option value="anonymous">
+                        Public pull, no credentials
+                      </option>
+                    </select></label
+                  ><label id="registry-secret-field"
+                    >Credential reference<input
+                      id="registry-secret"
+                      maxlength="100"
+                      placeholder="env:GHCR_TOKEN" /></label
+                  ><label
+                    >Image visibility<select id="registry-visibility">
+                      <option value="private">Private</option>
+                      <option value="public">Public</option>
+                    </select></label
+                  >
+                </div>
+                <p class="form-note" id="registry-guidance"></p>
+                <div class="settings-status">
+                  <p id="registry-result" role="status">
+                    Check push access for the builder and pull access for the
+                    deployment target.
+                  </p>
+                  <div class="actions">
+                    <button
+                      type="button"
+                      id="connect-registry"
+                      class="compact-action"
+                      aria-label="Connect registry (simulation)"
+                      data-tooltip="Connect registry (mock)"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#link" />
+                      </svg></button
+                    ><button
+                      type="button"
+                      id="check-registry"
+                      class="compact-action"
+                      aria-label="Check registry access (simulation)"
+                      data-tooltip="Check access (mock)"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#check" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section
+            id="settings-section"
+            aria-label="Environment and persistence settings"
+          >
+            <section class="section settings-section">
+              <div class="section-head row">
+                <h2>Environment setup</h2>
+                <span class="tag" id="environment-scope"></span>
+              </div>
+              <div class="settings-body">
+                <div class="form-grid">
+                  <label
+                    >Environment action<select id="environment-action">
+                      <option value="existing">
+                        Use an existing environment
+                      </option>
+                      <option value="create">Create an environment</option>
+                    </select></label
+                  ><label
+                    >Environment name<select id="settings-environment">
+                      <option value="production">Production</option>
+                      <option value="staging">Staging</option>
+                      <option value="development">Development</option>
+                    </select></label
+                  >
+                </div>
+                <p class="form-note" id="environment-guidance"></p>
+              </div>
+            </section>
+            <section class="section settings-section">
+              <div class="section-head row">
+                <h2>Workbench persistence</h2>
+                <span class="tag">Project setting</span>
+              </div>
+              <div class="settings-body">
+                <div class="form-grid">
+                  <label
+                    >Storage backend<select id="persistence-backend">
+                      <option value="files">Files (default)</option>
+                      <option value="postgres">PostgreSQL</option>
+                      <option value="sqlite">SQLite</option>
+                    </select></label
+                  ><label id="persistence-reference-field"
+                    >Database secret reference<input
+                      id="persistence-reference"
+                      placeholder="env:FORGE_DEPLOY_STATE_DSN"
+                      maxlength="140"
+                  /></label>
+                </div>
+                <p class="form-note" id="persistence-guidance"></p>
+                <pre id="persistence-command" class="code"></pre>
+                <div class="settings-status">
+                  <p class="small muted">
+                    Prototype settings stay in browser storage. No database or
+                    repository is connected.
+                  </p>
+                  <button
+                    type="button"
+                    id="export-settings"
+                    class="compact-action"
+                    aria-label="Export workbench configuration"
+                    data-tooltip="Export configuration"
+                  >
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#file" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </section>
           <div class="view-tabs" role="tablist" aria-label="Release views">
             <button
               type="button"
@@ -1735,8 +2461,9 @@
               Activity
             </button>
           </div>
+
           <div class="controls">
-            <label
+            <label hidden
               >Deployment target<select id="target">
                 <option value="kubernetes">Kubernetes</option>
                 <option value="compose">Docker Compose</option>
@@ -1768,16 +2495,18 @@
                 value="3"
             /></label>
           </div>
-          <fieldset class="presets" aria-label="Deployment presets">
-            <span>Start with</span
-            ><button type="button" data-preset="kubernetes">
-              Kubernetes production</button
-            ><button type="button" data-preset="compose">Local stack</button
-            ><button type="button" data-preset="render">Render managed</button
-            ><button type="button" data-preset="digitalocean">
-              DigitalOcean managed
+          <div class="overview-shortcuts">
+            <button type="button" data-section="images">
+              <svg class="icon" aria-hidden="true"><use href="#server" /></svg
+              >Images &amp; registry</button
+            ><button type="button" data-section="resources">
+              <svg class="icon" aria-hidden="true"><use href="#link" /></svg
+              >Data &amp; messaging</button
+            ><button type="button" data-section="settings">
+              <svg class="icon" aria-hidden="true"><use href="#database" /></svg
+              >Environment &amp; storage
             </button>
-          </fieldset>
+          </div>
           <section
             class="section decisions"
             id="decisions"
@@ -1856,6 +2585,21 @@
                   <h2 id="services-heading">Application services</h2>
                   <span class="muted">From sample <code>.forge.yml</code></span>
                 </div>
+                <div class="selection-bar">
+                  <span id="service-selection-summary" class="small"
+                    >3 of 3 services selected</span
+                  ><button
+                    type="button"
+                    id="select-all-services"
+                    class="compact-action"
+                    aria-label="Select all services"
+                    data-tooltip="Select all services"
+                  >
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#check" />
+                    </svg>
+                  </button>
+                </div>
                 <section
                   class="table-wrap"
                   aria-label="Application services table"
@@ -1871,9 +2615,15 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
+                      <tr data-deploy-service="gateway">
                         <td>
-                          <span class="service"
+                          <label class="service-check"
+                            ><input
+                              type="checkbox"
+                              data-service-selection="gateway"
+                              aria-label="Deploy gateway"
+                              checked /></label
+                          ><span class="service"
                             ><svg class="icon" aria-hidden="true">
                               <use href="#server" /></svg
                             ><button
@@ -1890,9 +2640,15 @@
                         <td id="gateway-replicas">2</td>
                         <td>Go</td>
                       </tr>
-                      <tr>
+                      <tr data-deploy-service="api">
                         <td>
-                          <span class="service"
+                          <label class="service-check"
+                            ><input
+                              type="checkbox"
+                              data-service-selection="api"
+                              aria-label="Deploy api"
+                              checked /></label
+                          ><span class="service"
                             ><svg class="icon" aria-hidden="true">
                               <use href="#server" /></svg
                             ><button
@@ -1909,9 +2665,15 @@
                         <td id="api-replicas">3</td>
                         <td>Go</td>
                       </tr>
-                      <tr>
+                      <tr data-deploy-service="worker">
                         <td>
-                          <span class="service"
+                          <label class="service-check"
+                            ><input
+                              type="checkbox"
+                              data-service-selection="worker"
+                              aria-label="Deploy worker"
+                              checked /></label
+                          ><span class="service"
                             ><svg class="icon" aria-hidden="true">
                               <use href="#server" /></svg
                             ><button
@@ -1931,9 +2693,25 @@
                     </tbody>
                   </table>
                 </section>
+                <div class="subset-binding" id="external-api-field" hidden>
+                  <label
+                    >Existing API address<input
+                      id="external-api"
+                      type="url"
+                      placeholder="https://api.internal.example.com"
+                      maxlength="180"
+                      autocomplete="off"
+                  /></label>
+                  <p class="form-note">
+                    Gateway is selected and API is excluded. Bind an existing
+                    API without deploying it. Keep service authentication
+                    enabled.
+                  </p>
+                </div>
                 <div class="footnote">
-                  Only the gateway gets a public route. Select a service to
-                  inspect its health and bindings.
+                  Only selected services are rolled out. Shared resources are
+                  retained. Only the gateway gets a public route. Select a
+                  service to inspect its health and bindings.
                 </div>
               </section>
               <section
@@ -1990,6 +2768,11 @@
                         <td>api, worker</td>
                         <td id="cache-backend">External Redis</td>
                       </tr>
+                      <tr>
+                        <td>jobs<span class="sub">Service messaging</span></td>
+                        <td>api, worker</td>
+                        <td id="broker-backend">No broker</td>
+                      </tr>
                     </tbody>
                   </table>
                 </section>
@@ -2000,7 +2783,58 @@
                       type="checkbox"
                       checked
                     />Require Redis JSON and search</label
-                  ><span>Trove metadata uses <code>primary</code></span>
+                  ><span id="trove-metadata-note"
+                    >Trove metadata uses <code>primary</code></span
+                  >
+                </div>
+              </section>
+              <section
+                class="section settings-section"
+                id="messaging-section"
+                aria-labelledby="messaging-heading"
+              >
+                <div class="section-head row">
+                  <h2 id="messaging-heading">Messaging between services</h2>
+                  <span class="tag">Optional resource</span>
+                </div>
+                <div class="settings-body">
+                  <div class="form-grid">
+                    <label
+                      >Messaging backend<select id="broker-type">
+                        <option value="none">No broker in this sample</option>
+                        <option value="nats">NATS JetStream</option>
+                        <option value="rabbitmq">RabbitMQ</option>
+                        <option value="redis">Redis queue</option>
+                      </select></label
+                    ><label
+                      >Broker placement<select id="broker-placement">
+                        <option value="external">Existing broker</option>
+                        <option value="container">Deploy on this target</option>
+                        <option value="managed">Provider managed broker</option>
+                        <option value="companion">Separate Docker host</option>
+                      </select></label
+                    ><label
+                      >Connection secret reference<input
+                        id="broker-secret"
+                        placeholder="env:ATLAS_BROKER_URL"
+                        maxlength="100" /></label
+                    ><label id="companion-field" hidden
+                      >Companion Docker context<input
+                        id="broker-host"
+                        placeholder="broker-host"
+                        maxlength="80" /></label
+                    ><label
+                      ><input id="broker-durable" type="checkbox" />Durable
+                      messages and retained storage</label
+                    >
+                  </div>
+                  <p class="form-note" id="broker-guidance"></p>
+                  <div class="connection-scope">
+                    <strong class="small" id="broker-route-heading"
+                      >api → jobs → worker</strong
+                    >
+                    <p class="small muted" id="broker-route"></p>
+                  </div>
                 </div>
               </section>
               <section
@@ -2173,7 +3007,7 @@
                 >
                   <div class="summary">
                     <div>
-                      <strong>3 + 3</strong
+                      <strong id="scope-count">3 + 3</strong
                       ><span>App services + data resources</span>
                     </div>
                     <div>
@@ -2184,14 +3018,14 @@
                   <div class="review-line">
                     <svg class="icon" aria-hidden="true">
                       <use href="#check" /></svg
-                    ><span
+                    ><span id="service-scope-line"
                       >Private API, one public gateway, outbound worker</span
                     >
                   </div>
                   <div class="review-line">
                     <svg class="icon" aria-hidden="true">
                       <use href="#check" /></svg
-                    ><span
+                    ><span id="resource-scope-line"
                       >Named database, Trove metadata and bucket bindings</span
                     >
                   </div>
@@ -2250,12 +3084,36 @@
                         aria-label="Selected proposal file contents"
                       ></textarea>
                       <div class="file-actions">
-                        <button type="button" id="download-file">
-                          Download file</button
-                        ><button type="button" id="copy-file">
-                          Copy contents</button
-                        ><button type="button" id="download-bundle">
-                          Download bundle
+                        <button
+                          type="button"
+                          id="download-file"
+                          class="compact-action"
+                          aria-label="Download file"
+                          data-tooltip="Download file"
+                        >
+                          <svg class="icon" aria-hidden="true">
+                            <use href="#download" />
+                          </svg></button
+                        ><button
+                          type="button"
+                          id="copy-file"
+                          class="compact-action"
+                          aria-label="Copy contents"
+                          data-tooltip="Copy contents"
+                        >
+                          <svg class="icon" aria-hidden="true">
+                            <use href="#copy" />
+                          </svg></button
+                        ><button
+                          type="button"
+                          id="download-bundle"
+                          class="compact-action"
+                          aria-label="Download bundle"
+                          data-tooltip="Download bundle"
+                        >
+                          <svg class="icon" aria-hidden="true">
+                            <use href="#download" />
+                          </svg>
                         </button>
                       </div>
                       <p class="small muted">
@@ -2286,7 +3144,17 @@
                     ></textarea>
                   </label>
                   <div class="file-actions">
-                    <button type="button" id="copy-prompt">Copy brief</button>
+                    <button
+                      type="button"
+                      id="copy-prompt"
+                      class="compact-action"
+                      aria-label="Copy brief"
+                      data-tooltip="Copy brief"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#copy" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
                 <div class="footnote row">
@@ -2294,9 +3162,13 @@
                   ><button
                     type="button"
                     id="reset"
-                    style="font-size: 11px; min-height: 28px; padding: 3px 7px"
+                    class="compact-action"
+                    aria-label="Reset draft"
+                    data-tooltip="Reset draft"
                   >
-                    Reset draft
+                    <svg class="icon" aria-hidden="true">
+                      <use href="#rotate" />
+                    </svg>
                   </button>
                 </div>
               </section>
@@ -2418,6 +3290,7 @@
     <script>
       "use strict";
       const $ = (id) => document.getElementById(id);
+      history.scrollRestoration = "manual";
       const DEFAULTS = {
         target: "kubernetes",
         environment: "production",
@@ -2427,6 +3300,41 @@
         targetSetting: "production-cluster",
         redisFeatures: true,
         workerHealth: "heartbeat",
+        services: ["gateway", "api", "worker"],
+        externalApi: "",
+        broker: "none",
+        brokerPlacement: "external",
+        brokerSecret: "env:ATLAS_BROKER_URL",
+        brokerHost: "",
+        brokerDurable: true,
+        imageSource: "local",
+        imageDelivery: "registry",
+        imagePlatform: "linux/amd64",
+        builderRef: "",
+        registryProvider: "ghcr",
+        registryHost: "ghcr.io",
+        registryNamespace: "example",
+        registryAuth: "helper",
+        registrySecret: "env:GHCR_TOKEN",
+        registryVisibility: "private",
+        existingImages: { gateway: "", api: "", worker: "" },
+        gitServices: {
+          gateway: {
+            root: ".",
+            dockerfile: "deployments/docker/gateway.Dockerfile",
+          },
+          api: { root: ".", dockerfile: "deployments/docker/api.Dockerfile" },
+          worker: {
+            root: ".",
+            dockerfile: "deployments/docker/worker.Dockerfile",
+          },
+        },
+        environmentAction: "existing",
+        releaseMode: "direct",
+        gitRepo: "https://github.com/example/atlas",
+        gitBranch: "main",
+        gitTrigger: "off",
+        gitPath: "render.yaml",
       };
       // First visit: two decisions are open until you answer them.
       const FIRST_RUN = { ...DEFAULTS, redisFeatures: null, workerHealth: "" };
@@ -2435,6 +3343,7 @@
         compose: {
           ...DEFAULTS,
           target: "compose",
+          imageDelivery: "local",
           environment: "development",
           replicas: 1,
           placement: "self-hosted",
@@ -2443,6 +3352,7 @@
         render: {
           ...DEFAULTS,
           target: "render",
+          imageSource: "git",
           replicas: 2,
           placement: "managed",
           targetSetting: "oregon",
@@ -2451,13 +3361,22 @@
         digitalocean: {
           ...DEFAULTS,
           target: "digitalocean",
+          imageSource: "git",
+          gitPath: ".do/app.yaml",
           replicas: 2,
           placement: "managed",
           targetSetting: "nyc1",
           redisFeatures: false,
         },
       };
-      const STORAGE_KEY = "forge-deployment-proposal-v2";
+      const STORAGE_KEY = "forge-deployment-proposal-v3";
+      const clone = (value) => JSON.parse(JSON.stringify(value));
+      let selectedTargets = ["compose"];
+      let targetProfiles = {};
+      let setupComplete = false;
+      let persistence = { backend: "files", reference: "" };
+      let registryCheck = "Not checked";
+
       let state = { ...FIRST_RUN };
       let storageAvailable = true;
       let saved = false;
@@ -2483,19 +3402,169 @@
           candidate.targetSetting.length <= 80 &&
           /^[a-zA-Z0-9._:/-]+$/.test(candidate.targetSetting) &&
           [true, false, null].includes(candidate.redisFeatures) &&
-          ["", "heartbeat", "none"].includes(candidate.workerHealth)
+          ["", "heartbeat", "none"].includes(candidate.workerHealth) &&
+          Array.isArray(candidate.services) &&
+          candidate.services.every((name) =>
+            ["gateway", "api", "worker"].includes(name),
+          ) &&
+          ["none", "nats", "rabbitmq", "redis"].includes(candidate.broker) &&
+          ["external", "container", "managed", "companion"].includes(
+            candidate.brokerPlacement,
+          ) &&
+          ["local", "remote", "ci", "existing", "git"].includes(
+            candidate.imageSource,
+          ) &&
+          ["local", "registry"].includes(candidate.imageDelivery) &&
+          ["direct", "gitops"].includes(candidate.releaseMode) &&
+          ["helper", "env", "github-actions", "anonymous"].includes(
+            candidate.registryAuth,
+          ) &&
+          typeof candidate.existingImages === "object" &&
+          candidate.existingImages !== null &&
+          !Array.isArray(candidate.existingImages) &&
+          typeof candidate.brokerDurable === "boolean" &&
+          candidate.gitServices &&
+          ["gateway", "api", "worker"].every(
+            (name) =>
+              candidate.gitServices[name] &&
+              ["root", "dockerfile"].every(
+                (key) =>
+                  typeof candidate.gitServices[name][key] === "string" &&
+                  candidate.gitServices[name][key].length <= 140,
+              ),
+          ) &&
+          ["ghcr", "dockerhub", "custom"].includes(
+            candidate.registryProvider,
+          ) &&
+          ["private", "public"].includes(candidate.registryVisibility) &&
+          ["existing", "create"].includes(candidate.environmentAction) &&
+          ["off", "checksPass", "commit"].includes(candidate.gitTrigger) &&
+          ["linux/amd64", "linux/arm64", "linux/amd64,linux/arm64"].includes(
+            candidate.imagePlatform,
+          ) &&
+          [candidate.brokerSecret, candidate.registrySecret].every(
+            (value) => value === "" || secretReference(value),
+          ) &&
+          [candidate.externalApi, candidate.gitRepo].every(
+            (value) => value === "" || safeHttpAddress(value),
+          ) &&
+          Object.keys(DEFAULTS)
+            .filter((key) => typeof DEFAULTS[key] === "string")
+            .every(
+              (key) =>
+                typeof candidate[key] === "string" &&
+                candidate[key].length <= 180,
+            )
         );
+      }
+      function normalizeProfile(candidate, target) {
+        const profile = clone(PRESETS[target]);
+        for (const key of Object.keys(DEFAULTS)) {
+          if (typeof candidate?.[key] === typeof profile[key])
+            profile[key] = candidate[key];
+        }
+        if (
+          !Array.isArray(profile.services) ||
+          profile.services.some(
+            (name) => !["gateway", "api", "worker"].includes(name),
+          )
+        )
+          profile.services = ["gateway", "api", "worker"];
+        profile.services = [...new Set(profile.services)];
+        profile.target = target;
+        if (!validState(profile)) return clone(PRESETS[target]);
+        return profile;
       }
       try {
         const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-        if (validState(stored)) {
-          state = Object.fromEntries(
-            Object.keys(DEFAULTS).map((key) => [key, stored[key]]),
+        if (stored?.schema === 3 && Array.isArray(stored.selectedTargets)) {
+          selectedTargets = [
+            ...new Set(
+              stored.selectedTargets.filter((target) =>
+                Object.hasOwn(PRESETS, target),
+              ),
+            ),
+          ];
+          for (const target of selectedTargets)
+            targetProfiles[target] = normalizeProfile(
+              stored.targets?.[target],
+              target,
+            );
+          const active = selectedTargets.includes(stored.active)
+            ? stored.active
+            : selectedTargets[0];
+          if (active) state = clone(targetProfiles[active]);
+          setupComplete =
+            stored.setupComplete === true && selectedTargets.length > 0;
+          if (
+            ["files", "postgres", "sqlite"].includes(
+              stored.persistence?.backend,
+            ) &&
+            typeof stored.persistence.reference === "string"
+          )
+            persistence = stored.persistence;
+        } else {
+          const old = JSON.parse(
+            localStorage.getItem("forge-deployment-proposal-v2") || "null",
           );
-          saved = true;
+          if (old && Object.hasOwn(PRESETS, old.target)) {
+            state = normalizeProfile(old, old.target);
+            selectedTargets = [old.target];
+            targetProfiles[old.target] = clone(state);
+          } else state = clone(PRESETS.compose);
         }
       } catch {
         storageAvailable = false;
+      }
+      const isSelected = (name) => state.services.includes(name);
+      const profileEnvironment = (profile = state) =>
+        `${profile.target}-${profile.environment}`;
+      function captureProfile() {
+        if (!validState(state)) return;
+        for (const profile of Object.values(targetProfiles))
+          profile.project = state.project;
+        if (selectedTargets.includes(state.target))
+          targetProfiles[state.target] = clone(state);
+      }
+      function resourcesFor(profile = state) {
+        const names = [];
+        if (
+          profile.services.includes("api") ||
+          profile.services.includes("worker")
+        )
+          names.push("primary", "cache");
+        if (profile.services.includes("api")) names.push("uploads");
+        if (
+          profile.broker !== "none" &&
+          profile.services.some((name) => ["api", "worker"].includes(name))
+        )
+          names.push("jobs");
+        return names;
+      }
+      function validPersistence() {
+        return (
+          persistence.backend === "files" ||
+          (persistence.backend === "postgres"
+            ? secretReference(persistence.reference)
+            : /^\.forge\/[a-zA-Z0-9_./-]+\.db$/.test(persistence.reference))
+        );
+      }
+      function secretReference(value) {
+        return /^(env|keychain|file|kubernetes):[A-Za-z0-9_./-]+$/.test(value);
+      }
+      function safeHttpAddress(value) {
+        try {
+          const url = new URL(value);
+          return (
+            ["http:", "https:"].includes(url.protocol) &&
+            !url.username &&
+            !url.password &&
+            !url.search &&
+            !url.hash
+          );
+        } catch {
+          return false;
+        }
       }
       const yaml = (value) => JSON.stringify(value);
       const namespace = () => `${state.project}-${state.environment}`;
@@ -2510,87 +3579,453 @@
           return "external";
         return state.placement;
       }
-      function lifecycleName() {
-        return state.placement === "self-hosted"
-          ? "container"
-          : state.placement;
-      }
-      function lifecycleLine(name) {
-        const life =
-          resourceLifecycle(name) === "self-hosted"
-            ? "container"
-            : resourceLifecycle(name);
-        if (life === "container")
-          return `{lifecycle: container, recipe: ${name === "primary" ? "postgres-16" : name === "objects" ? "minio" : state.redisFeatures ? "redis-stack-7" : "redis-7"}}`;
-        if (life === "external")
-          return `{lifecycle: external, secret: ${name === "primary" ? "primary-dsn" : name === "objects" ? "uploads-credentials" : "cache-url"}}`;
-        return "{lifecycle: managed}";
-      }
-      function createFiles() {
-        const secretPrefix = state.project.replaceAll("-", "_").toUpperCase();
-        const targetOptions =
-          state.target === "kubernetes"
-            ? `      context: ${yaml(state.targetSetting)}\n      namespace: ${yaml(namespace())}\n      ingress_class: nginx\n      network_policy: true`
-            : state.target === "compose"
-              ? `      docker_context: ${yaml(state.targetSetting)}`
-              : `      region: ${yaml(state.targetSetting)}`;
-        const resolver =
-          state.target === "kubernetes"
-            ? "kubernetes"
-            : state.target === "compose"
-              ? "file"
-              : "env";
-        const ingress =
-          state.target === "kubernetes"
-            ? `      ingress: {host: ${state.project}.example.com, tls: letsencrypt}\n`
-            : "";
-        const commonHeader =
-          "# Deployment proposal. Requires the planned Forge deployment compiler.\n";
-        const features = state.redisFeatures ? "[json, search]" : "[]";
-        const workerHealth =
-          state.workerHealth === "heartbeat"
-            ? "      health: {heartbeat: true}\n"
-            : state.workerHealth === "none"
-              ? "      health: {none: true}\n"
-              : "      # health: unresolved. Answer the decision above.\n";
-        const apiAddr =
-          state.target === "kubernetes"
-            ? `http://api.${namespace()}.svc.cluster.local:8080`
-            : state.target === "render"
-              ? `\${API_URL}`
-              : "http://api:8080";
-        const overlay = (service) =>
-          `# ${service}: mounted at /etc/forge/overlay.yaml and named in FORGE_CONFIG_OVERLAY.\n# Generated by forge deploy export. No secret values; \${...} resolves from the environment the target injects.\n` +
-          (service === "gateway"
-            ? `services:\n  api: {url: ${yaml(apiAddr)}, timeout: 5s}\n`
-            : `extensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres, dsn: "\${${secretPrefix}_PRIMARY_DSN}"}\n  grove_kv:\n    driver: redis\n    dsn: "\${${secretPrefix}_CACHE_URL}"\n` +
-              (service === "api"
-                ? `  trove:\n    storage_driver: "\${${secretPrefix}_UPLOADS_DSN}"\n    grove_database: primary\n    stores:\n      - {name: uploads, default_bucket: ${state.project}-uploads}\n`
-                : ""));
+      function createBaseFiles() {
+        const header =
+          "# Sample runtime configuration. The planned compiler reads it and preserves it.\n";
         files = {
-          ".forge.yml":
-            commonHeader +
-            `project:\n  name: ${yaml(state.project)}\n  module: ${yaml(`example.com/${state.project}`)}\n  layout: single-module\nbuild:\n  apps:\n    - {name: gateway, cmd: ./cmd/gateway}\n    - {name: api, cmd: ./cmd/api}\n    - {name: worker, cmd: ./cmd/worker}\ndeploy:\n  version: 2\n  registry: ghcr.io/example\n  defaults: {target: ${state.target}, environment: ${state.environment}}\n  services:\n    gateway:\n      app: gateway\n      kind: web\n      ports: {http: {port: 8080, exposure: public}}\n      calls: [api]\n    api:\n      app: api\n      kind: web\n      ports: {http: {port: 8080, exposure: private}}\n      config: [./config/api.yaml]\n      migrate: auto\n      bindings:\n        - {resource: primary, extension: grove, database: primary}\n        - {resource: uploads, extension: trove, store: uploads, metadata_database: primary}\n        - {resource: cache, extension: grove_kv, store: cache}\n    worker:\n      app: worker\n      kind: worker\n${workerHealth}      bindings:\n        - {resource: primary, extension: grove, database: primary}\n        - {resource: cache, extension: grove_kv, store: cache}\n  resources:\n    primary: {type: postgres, version: "16"}\n    uploads: {type: object-storage, bucket: ${state.project}-uploads}\n    cache: {type: redis, features: ${features}}\n  environments:\n    ${state.environment}:\n      target: ${state.target}\n      replicas: {gateway: ${Math.min(2, state.replicas)}, api: ${state.replicas}, worker: 1}\n      resources:\n        primary: ${lifecycleLine("primary")}\n        uploads: ${lifecycleLine("objects")}\n        cache: ${lifecycleLine("cache")}\n${ingress}  targets:\n    ${state.target}:\n      provider: ${state.target}\n${targetOptions}\n  secrets:\n    resolver: ${resolver}${resolver === "file" ? "\n    file: .forge/secrets.env" : ""}\n`,
-          "deploy/lock.yml":
-            commonHeader +
-            `# Written by forge deploy plan. Commit it: it pins what the plan resolved.\nschema: 1\ndescriptors:\n  grove: {schema: 1, source: embedded}\n  grove_kv: {schema: 1, source: embedded}\n  trove: {schema: 1, source: embedded}\nrecipes:\n  postgres-16: {image: postgres:16}\n  ${state.redisFeatures ? "redis-stack-7: {image: redis/redis-stack-server:7}" : "redis-7: {image: redis:7}"}\n  minio: {image: minio/minio}\nimages:\n  ${state.environment}:\n    gateway: ghcr.io/example/${state.project}-gateway@sha256:<pinned at apply>\n    api: ghcr.io/example/${state.project}-api@sha256:<pinned at apply>\n    worker: ghcr.io/example/${state.project}-worker@sha256:<pinned at apply>\n`,
-          "config/gateway.yaml":
-            commonHeader +
-            "# Your runtime config as it is today. The compiler reads it and never edits it.\n# services.api.url arrives through the overlay below.\nservices: {}\n",
+          "config/gateway.yaml": `${header}services: {}\n`,
           "config/api.yaml":
-            commonHeader +
-            `# Your runtime config. The compiler reads the named instances here to suggest bindings.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: ${yaml(`${state.project}-uploads`)}\n    default: uploads\n  grove_kv:\n    driver: redis\n`,
+            header +
+            toYaml({
+              extensions: {
+                grove: {
+                  databases: [{ name: "primary", driver: "postgres" }],
+                  default: "primary",
+                },
+                trove: {
+                  stores: [
+                    {
+                      name: "uploads",
+                      grove_database: "primary",
+                      default_bucket: `${state.project}-uploads`,
+                    },
+                  ],
+                  default: "uploads",
+                },
+                grove_kv: { driver: "redis" },
+              },
+            }),
           "config/worker.yaml":
-            commonHeader +
-            `# Worker declares no HTTP port. Resource connections arrive through the overlay.\nextensions:\n  grove:\n    databases:\n      - {name: primary, driver: postgres}\n    default: primary\n  grove_kv:\n    driver: redis\n`,
-          [`deployments/${state.target}/${state.environment}/gateway/forge.overlay.yaml`]:
-            overlay("gateway"),
-          [`deployments/${state.target}/${state.environment}/api/forge.overlay.yaml`]:
-            overlay("api"),
-          "PROPOSAL.md": `# ${state.project} deployment proposal\n\nThis bundle comes from the Forge deployment UI mock. It is not deployable with the current CLI.\n\nTarget: ${targetNames[state.target]}. Environment: ${state.environment}.\nApplication services: gateway, api and worker.\nResource bindings: PostgreSQL for Grove and Trove metadata, object storage for Trove, and Redis through Grove KV.\nData lifecycle: ${lifecycleName()}.\n\nThe compiler must resolve secret bindings, verify ports and health routes, lock recipe versions and image digests, generate provider artifacts and validate target capabilities before apply.\n\nNo provider access or live deployment validation was performed.\n`,
+            header +
+            "# Worker has no HTTP listener.\n" +
+            toYaml({
+              extensions: {
+                grove: {
+                  databases: [{ name: "primary", driver: "postgres" }],
+                  default: "primary",
+                },
+                grove_kv: { driver: "redis" },
+              },
+            }),
         };
       }
+      function toYaml(value, indent = 0) {
+        const pad = " ".repeat(indent);
+        return Object.entries(value)
+          .map(([key, item]) => {
+            const name = /^[a-zA-Z0-9_-]+$/.test(key) ? key : yaml(key);
+            if (
+              item &&
+              typeof item === "object" &&
+              !Array.isArray(item) &&
+              Object.keys(item).length
+            )
+              return `${pad}${name}:\n${toYaml(item, indent + 2)}`;
+            return `${pad}${name}: ${JSON.stringify(item)}\n`;
+          })
+          .join("");
+      }
+      function buildModel(profile) {
+        if (profile.imageSource === "git")
+          return {
+            source: "git",
+            repo: profile.gitRepo,
+            branch: profile.gitBranch,
+            trigger: profile.gitTrigger,
+            config_path: profile.gitPath,
+            services: Object.fromEntries(
+              profile.services.map((name) => [name, profile.gitServices[name]]),
+            ),
+            commit: "<resolve and approve commit SHA>",
+          };
+        const model = {
+          source: profile.imageSource,
+          delivery: profile.imageDelivery,
+          platforms: profile.imagePlatform.split(","),
+        };
+        if (profile.imageSource === "remote")
+          model.builder = profile.builderRef;
+        if (profile.imageSource === "existing")
+          model.images = Object.fromEntries(
+            profile.services.map((name) => [
+              name,
+              profile.existingImages[name],
+            ]),
+          );
+        if (profile.imageDelivery === "registry")
+          model.registry = {
+            host: profile.registryHost,
+            namespace: profile.registryNamespace,
+            auth: profile.registryAuth,
+            visibility: profile.registryVisibility,
+            ...(profile.registryAuth === "env"
+              ? { secret: profile.registrySecret }
+              : {}),
+          };
+        return model;
+      }
+      function createFiles() {
+        captureProfile();
+        createBaseFiles();
+        const services = {
+          gateway: {
+            app: "gateway",
+            kind: "web",
+            ports: { http: { port: 8080, exposure: "public" } },
+            calls: ["api"],
+            config: ["./config/gateway.yaml"],
+          },
+          api: {
+            app: "api",
+            kind: "web",
+            ports: { http: { port: 8080, exposure: "private" } },
+            config: ["./config/api.yaml"],
+            migrate: "auto",
+            bindings: [
+              { resource: "primary", extension: "grove", database: "primary" },
+              {
+                resource: "uploads",
+                extension: "trove",
+                store: "uploads",
+                metadata_database: "primary",
+              },
+              { resource: "cache", extension: "grove_kv", store: "cache" },
+            ],
+          },
+          worker: {
+            app: "worker",
+            kind: "worker",
+            config: ["./config/worker.yaml"],
+            health:
+              state.workerHealth === "none"
+                ? { none: true }
+                : { heartbeat: true },
+            bindings: [
+              { resource: "primary", extension: "grove", database: "primary" },
+              { resource: "cache", extension: "grove_kv", store: "cache" },
+            ],
+          },
+        };
+        const resources = {
+          primary: { type: "postgres", version: "16" },
+          uploads: {
+            type: "object-storage",
+            bucket: `${state.project}-uploads`,
+          },
+          cache: {
+            type: "redis",
+            features: state.redisFeatures ? ["json", "search"] : [],
+          },
+        };
+        const environments = {},
+          targets = {};
+        for (const target of selectedTargets) {
+          const profile = targetProfiles[target] || clone(PRESETS[target]);
+          profile.project = state.project;
+          const lifecycles = {};
+          for (const resource of resourcesFor(profile)) {
+            if (resource === "jobs") {
+              resources[`jobs-${target}`] = {
+                type: profile.broker,
+                durable: profile.brokerDurable,
+              };
+              lifecycles[`jobs-${target}`] = {
+                lifecycle:
+                  profile.brokerPlacement === "companion"
+                    ? "container"
+                    : profile.brokerPlacement,
+                secret: profile.brokerSecret,
+                retention: profile.brokerDurable ? "retain" : "ephemeral",
+                ...(["container", "companion"].includes(profile.brokerPlacement)
+                  ? {
+                      recipe:
+                        profile.broker === "nats"
+                          ? "nats-jetstream"
+                          : profile.broker === "rabbitmq"
+                            ? "rabbitmq"
+                            : "redis-queue",
+                      storage: profile.brokerDurable
+                        ? "persistent"
+                        : "ephemeral",
+                    }
+                  : {}),
+                ...(profile.brokerPlacement === "companion"
+                  ? { target: `${target}-broker-host`, retention: "retain" }
+                  : {}),
+              };
+            } else
+              lifecycles[resource] = {
+                lifecycle:
+                  resource === "uploads" && profile.placement === "managed"
+                    ? "external"
+                    : profile.placement === "self-hosted"
+                      ? "container"
+                      : profile.placement,
+                retention: "retain",
+                ...(profile.placement === "external" ||
+                (resource === "uploads" && profile.placement === "managed")
+                  ? {
+                      secret: {
+                        primary: "primary-dsn",
+                        cache: "cache-url",
+                        uploads: "uploads-credentials",
+                      }[resource],
+                    }
+                  : profile.placement === "self-hosted"
+                    ? {
+                        recipe:
+                          resource === "primary"
+                            ? "postgres-16"
+                            : resource === "uploads"
+                              ? "minio"
+                              : profile.redisFeatures
+                                ? "redis-with-json-search"
+                                : "redis",
+                      }
+                    : {}),
+              };
+          }
+          environments[profileEnvironment(profile)] = {
+            target,
+            services: profile.services,
+            environment_action: profile.environmentAction,
+            replicas: Object.fromEntries(
+              profile.services.map((name) => [
+                name,
+                name === "api"
+                  ? profile.replicas
+                  : name === "gateway"
+                    ? Math.min(2, profile.replicas)
+                    : 1,
+              ]),
+            ),
+            resources: lifecycles,
+            requirements: {
+              cache: {
+                features: profile.redisFeatures ? ["json", "search"] : [],
+              },
+            },
+            ...(profile.services.includes("worker")
+              ? {
+                  health_overrides: {
+                    worker:
+                      profile.workerHealth === "none"
+                        ? { none: true }
+                        : { heartbeat: true },
+                  },
+                }
+              : {}),
+            ...(profile.broker !== "none"
+              ? {
+                  binding_overrides: Object.fromEntries(
+                    profile.services
+                      .filter((name) => ["api", "worker"].includes(name))
+                      .map((name) => [
+                        name,
+                        [
+                          {
+                            resource: `jobs-${target}`,
+                            extension: "queue",
+                            connection_secret: profile.brokerSecret,
+                          },
+                        ],
+                      ]),
+                  ),
+                }
+              : {}),
+            ...(profile.services.includes("gateway") &&
+            !profile.services.includes("api")
+              ? {
+                  external_services: {
+                    api: {
+                      url: profile.externalApi,
+                      auth: "preserve-service-policy",
+                    },
+                  },
+                }
+              : {}),
+          };
+          targets[target] = {
+            provider: target,
+            ...(target === "kubernetes"
+              ? {
+                  context: profile.targetSetting,
+                  namespace: `${profile.project}-${profile.environment}`,
+                }
+              : target === "compose"
+                ? { docker_context: profile.targetSetting }
+                : { region: profile.targetSetting }),
+            build: buildModel(profile),
+            release:
+              profile.releaseMode === "gitops"
+                ? {
+                    mode: "gitops",
+                    repo: profile.gitRepo,
+                    branch: profile.gitBranch,
+                    path: profile.gitPath,
+                    approval: "commit-and-plan-hash",
+                  }
+                : { mode: "direct" },
+          };
+          if (
+            profile.brokerPlacement === "companion" &&
+            profile.broker !== "none"
+          )
+            targets[`${target}-broker-host`] = {
+              provider: "compose",
+              docker_context: profile.brokerHost,
+              resource_only: true,
+            };
+        }
+        const model = {
+          project: {
+            name: state.project,
+            module: `example.com/${state.project}`,
+            layout: "single-module",
+          },
+          build: {
+            apps: ["gateway", "api", "worker"].map((name) => ({
+              name,
+              cmd: `./cmd/${name}`,
+            })),
+          },
+          deploy: {
+            version: 2,
+            defaults: {
+              target: state.target,
+              environment: profileEnvironment(),
+            },
+            services,
+            resources,
+            environments,
+            targets,
+            secrets: {
+              resolver: "env",
+              references: {
+                "primary-dsn": `env:${state.project.replaceAll("-", "_").toUpperCase()}_PRIMARY_DSN`,
+                "cache-url": `env:${state.project.replaceAll("-", "_").toUpperCase()}_CACHE_URL`,
+                "uploads-credentials": `env:${state.project.replaceAll("-", "_").toUpperCase()}_UPLOADS_DSN`,
+              },
+            },
+            workbench: {
+              persistence: {
+                backend: persistence.backend,
+                ...(persistence.backend !== "files"
+                  ? { reference: persistence.reference }
+                  : {}),
+              },
+            },
+          },
+        };
+        const header =
+          "# Proposal extension to the planned v2 schema, not supported by the current CLI.\n# The service catalog stays complete. environments.*.services defines the apply scope.\n";
+        files[".forge.yml"] = header + toYaml(model);
+        // Only selected services get generated runtime overlays; catalog source configs stay untouched.
+        for (const path of Object.keys(files))
+          if (path.startsWith("deployments/")) delete files[path];
+        for (const name of state.services) {
+          const prefix = state.project.replaceAll("-", "_").toUpperCase();
+          const overlay =
+            name === "gateway"
+              ? { services: { api: { url: apiAddress(), timeout: "5s" } } }
+              : {
+                  extensions: {
+                    grove: {
+                      databases: [
+                        {
+                          name: "primary",
+                          driver: "postgres",
+                          dsn: `\${${prefix}_PRIMARY_DSN}`,
+                        },
+                      ],
+                    },
+                    grove_kv: {
+                      driver: "redis",
+                      dsn: `\${${prefix}_CACHE_URL}`,
+                    },
+                    ...(name === "api"
+                      ? {
+                          trove: {
+                            storage_driver: `\${${prefix}_UPLOADS_DSN}`,
+                            grove_database: "primary",
+                            stores: [
+                              {
+                                name: "uploads",
+                                default_bucket: `${state.project}-uploads`,
+                              },
+                            ],
+                          },
+                        }
+                      : {}),
+                    ...(state.broker !== "none"
+                      ? {
+                          queue: {
+                            driver: state.broker,
+                            url: `\${${prefix}_BROKER_URL}`,
+                            enable_persistence: state.brokerDurable,
+                          },
+                        }
+                      : {}),
+                  },
+                };
+          files[
+            `deployments/${state.target}/${profileEnvironment()}/${name}/forge.overlay.yaml`
+          ] = header + toYaml(overlay);
+        }
+        files["deploy/selection.yml"] =
+          header +
+          toYaml({
+            target: state.target,
+            environment: profileEnvironment(),
+            services: state.services,
+            resources: resourcesFor(),
+            excluded_service_policy: "bind-existing-or-stop",
+            shared_resource_policy: "retain",
+            build: buildModel(state),
+            release: targets[state.target].release,
+          });
+        files["deploy/lock.yml"] =
+          header +
+          toYaml({
+            schema: 1,
+            status: "unresolved-proposal",
+            images:
+              state.imageSource === "git"
+                ? {}
+                : Object.fromEntries(
+                    state.services.map((name) => [
+                      name,
+                      state.imageSource === "existing"
+                        ? state.existingImages[name]
+                        : `<resolve ${name} image digest before apply>`,
+                    ]),
+                  ),
+            source_commit:
+              state.imageSource === "git" || state.releaseMode === "gitops"
+                ? "<resolve and approve commit SHA>"
+                : null,
+            recipes: resourcesFor().map((name) => ({
+              resource: name,
+              digest: "<resolve compatible recipe digest>",
+            })),
+          });
+        files["PROPOSAL.md"] =
+          `# ${state.project} deployment proposal\n\nThis bundle comes from the Forge deployment UI mock. The current CLI cannot deploy it.\n\nSaved targets: ${selectedTargets.join(", ")}. Active target: ${state.target}.\nSelected services: ${state.services.join(", ") || "none"}. Resource scope: ${resourcesFor().join(", ") || "none"}.\nExcluded services are never silently deployed. Existing dependencies require explicit bindings. Shared data is retained.\nImage source: ${state.imageSource}. Workbench storage: ${persistence.backend} (proposed; prototype uses browser storage).\n\nThe compiler still needs real schema validation, credential resolution, provider artifacts, recipe and image digests, repository commit resolution, provider capability checks and live acceptance. No credentials, databases, repository writes or provider operations were performed.\n`;
+      }
       function validationError() {
+        const scoped = scopeError();
+        if (scoped) return scoped;
+
         if (!/^[a-z][a-z0-9-]{0,39}$/.test(state.project))
           return "Use a project name starting with a lowercase letter, followed by lowercase letters, numbers or hyphens.";
         if (
@@ -2603,24 +4038,35 @@
           return "Set a context or region using letters, numbers, dots, slashes, colons or hyphens.";
         if (
           ["render", "digitalocean"].includes(state.target) &&
-          state.placement === "self-hosted"
+          state.placement === "self-hosted" &&
+          resourcesFor().some((name) => name !== "jobs")
         )
           return "This platform preset has no qualified self-hosted data recipe. Use existing services or managed resources.";
-        if (state.target === "compose" && state.placement === "managed")
+        if (
+          state.target === "compose" &&
+          state.placement === "managed" &&
+          resourcesFor().some((name) => name !== "jobs")
+        )
           return "Compose cannot provision managed databases. Use existing services or the self-hosted local stack.";
-        if (state.placement === "managed" && state.redisFeatures)
+        if (
+          state.placement === "managed" &&
+          state.redisFeatures &&
+          resourcesFor().includes("cache")
+        )
           return "Managed Redis JSON/search capability is unverified. Select an existing capable Redis endpoint or remove this requirement if the app does not need it.";
         if (
           state.placement === "self-hosted" &&
-          state.environment === "production"
+          state.environment === "production" &&
+          resourcesFor().some((name) => name !== "jobs")
         )
           return "Self-hosted production data needs an availability policy, backups and a tested restore recipe. This mock only provides a single-node development recipe.";
         return "";
       }
       function pendingDecisions() {
         const pending = [];
-        if (state.workerHealth === "") pending.push("worker health strategy");
-        if (state.redisFeatures === null)
+        if (isSelected("worker") && state.workerHealth === "")
+          pending.push("worker health strategy");
+        if (resourcesFor().includes("cache") && state.redisFeatures === null)
           pending.push("Redis feature requirement");
         return pending;
       }
@@ -2628,14 +4074,18 @@
         const ok = (text) => ({ text, level: "ok" });
         const warn = (text) => ({ text, level: "warn" });
         const fail = (text) => ({ text, level: "fail" });
-        const secrets =
-          state.placement === "external"
-            ? ok("3 secret references resolve (values never shown here)")
+        const secrets = !resourcesFor().length
+          ? ok("No application resource operations in scope")
+          : state.placement === "external"
+            ? ok(
+                `${resourcesFor().length} resource secret references resolve (simulated)`,
+              )
             : state.placement === "managed"
               ? ok("Provider creates the data credentials at apply")
               : ok("Container recipes generate local credentials once");
-        const redis =
-          state.redisFeatures && state.placement === "managed"
+        const redis = !resourcesFor().includes("cache")
+          ? ok("Redis not in this service selection")
+          : state.redisFeatures && state.placement === "managed"
             ? fail("Managed Redis: JSON and search unverified on this platform")
             : state.redisFeatures
               ? ok("Redis JSON and search: recipe or endpoint declares them")
@@ -2658,7 +4108,11 @@
           ],
           compose: [
             ok("Docker 27 and Compose v2 found"),
-            ok("Host port 8080 free for gateway"),
+            ok(
+              isSelected("gateway")
+                ? "Host port 8080 free for gateway"
+                : "No public host port requested",
+            ),
             ok("Overlay files mount into each service"),
             secrets,
             redis,
@@ -2692,36 +4146,50 @@
         return `${hex}${hex.split("").reverse().join("")}`;
       }
       function planOperations() {
-        const ops = ["Build gateway, api and worker once; pin image digests"];
-        for (const [name, type] of [
-          ["primary", "postgres"],
-          ["uploads", "object-storage"],
-          ["cache", "redis"],
-        ]) {
-          const life = lifecycleLine(name === "uploads" ? "objects" : name);
+        const names = state.services.join(", ");
+        const ops = [
+          `Freeze plan for ${state.target}/${profileEnvironment()}; deploy only ${names || "no services"}`,
+        ];
+        if (state.environmentAction === "create")
           ops.push(
-            life.includes("container")
-              ? `Create ${name} (${type}) from recipe with a volume`
-              : life.includes("managed")
-                ? `Provision managed ${type} ${name}`
-                : `Bind existing ${type} ${name} through its secret`,
+            "Create the selected environment after provider capability and ownership checks",
           );
-        }
-        ops.push("Deliver overlays and secret references to each service");
-        ops.push("Run api migration job before any rollout");
         ops.push(
-          `Roll out gateway ${Math.min(2, state.replicas)}, api ${state.replicas}, worker 1; wait for readiness`,
+          state.imageSource === "git"
+            ? `Resolve ${state.gitBranch} to a commit SHA and request provider build for ${names}`
+            : state.imageSource === "existing"
+              ? `Verify pull access and immutable image digests for ${names}`
+              : `Build ${names} using ${state.imageSource}; ${state.imageDelivery === "local" ? "keep images on the selected Docker host" : "publish to registry and pin digests"}`,
         );
+        for (const name of resourcesFor())
+          ops.push(
+            name === "jobs"
+              ? `Bind ${state.broker} jobs: ${state.brokerPlacement}, ${state.brokerDurable ? "durable, retained storage" : "ephemeral"}`
+              : `Resolve ${name} resource: ${resourceLifecycle(name === "uploads" ? "objects" : name)}, retain shared data`,
+          );
+        if (isSelected("gateway") && !isSelected("api"))
+          ops.push(
+            "Bind gateway to the existing API; preserve its service authentication policy",
+          );
+        if (isSelected("api"))
+          ops.push("Run the API migration before its rollout");
+        if (state.releaseMode === "gitops")
+          ops.push(
+            `Propose manifest changes at ${state.gitPath}; require commit approval; let the configured controller reconcile and observe its revision`,
+          );
+        else
+          ops.push(
+            `Roll out only ${names}; observe readiness without changing excluded services`,
+          );
         ops.push(
-          state.target === "kubernetes"
-            ? "Route gateway through the ingress and check TLS"
-            : state.target === "compose"
-              ? "Publish gateway on host port 8080"
-              : "Publish the gateway on the platform's public URL",
+          isSelected("gateway")
+            ? "Check the public gateway and its authorized API connection"
+            : "Check only selected services and their resource connections; create no gateway route",
         );
-        ops.push(
-          "Acceptance: request through the gateway, write and read through Postgres and the bucket",
-        );
+        if (isSelected("api"))
+          ops.push(
+            "Write/read through Grove and Trove, restart and verify persistence",
+          );
         return ops;
       }
       function switchTab(name, focus = false) {
@@ -2734,6 +4202,8 @@
         });
       }
       function apiAddress() {
+        if (!isSelected("api"))
+          return state.externalApi || "Existing API address required";
         if (state.target === "kubernetes")
           return `http://api.${namespace()}.svc:8080`;
         if (state.target === "compose" || state.target === "digitalocean")
@@ -2788,8 +4258,8 @@
               : deployStatus === "failed"
                 ? "Apply failed"
                 : saved
-                  ? "Saved to files"
-                  : "Unsaved changes";
+                  ? "Save rehearsed"
+                  : "Browser draft";
         $("draft-status").className =
           deployStatus === "healthy" || (deployStatus === "none" && saved)
             ? "tag green"
@@ -2857,9 +4327,6 @@
             : placement === "managed"
               ? "Managed Redis"
               : "Pinned Redis recipe";
-        $("redis-graph-label").textContent = state.redisFeatures
-          ? "Cache + JSON + search"
-          : "Shared cache";
         $("network-label").textContent = {
           kubernetes: "Kubernetes Service DNS",
           compose: "Compose network",
@@ -2872,46 +4339,50 @@
         $("validation-error").textContent = error;
         $("rehearse").disabled =
           Boolean(error) || pending.length > 0 || deployStatus === "applying";
-        $("save").disabled = !validState(state) || deployStatus === "applying";
+        $("save").disabled =
+          !validState(state) ||
+          !validPersistence() ||
+          deployStatus === "applying";
         for (const id of ["download-file", "download-bundle", "copy-file"]) {
-          $(id).disabled = !validState(state);
+          $(id).disabled = !validState(state) || !validPersistence();
         }
-        const artifacts = {
-          kubernetes: [
-            "Kustomize base + environment overlay",
-            "App Deployments, Services and runtime ConfigMaps",
-            "ServiceAccounts, scoped RBAC and network policies",
-            "Migration Job + explicit gateway/TLS binding",
-            placement === "self-hosted"
-              ? "Selected data recipes, storage and retention policy"
-              : "External data connections and secret references",
-          ],
-          compose: [
-            "Compose services + per-app Dockerfiles",
-            "Runtime settings and secret mount references",
-            "Private network and explicit gateway host port",
-            placement === "self-hosted"
-              ? "PostgreSQL, object service and Redis + volumes"
-              : "External resource connection bindings",
-            "Migration task, health checks and retention settings",
-          ],
-          render: [
-            "render.yaml Blueprint",
-            "Public web service, private API and worker",
-            "Managed PostgreSQL + Key Value or external bindings",
-            "External S3 storage and database metadata mapping",
-            "Service property references and secret bindings",
-          ],
-          digitalocean: [
-            "App Platform app.yaml specification",
-            "Gateway, private API ports and outbound worker",
-            "Managed database or external connection bindings",
-            "External object storage and Redis requirements",
-            "Migration job and scoped secret bindings",
-          ],
-        }[state.target];
+        const artifacts = [
+          {
+            kubernetes: "Kustomize base and environment overlay",
+            compose: "Compose configuration and Dockerfiles",
+            render: "Render Blueprint",
+            digitalocean: "App Platform specification",
+          }[state.target],
+          `Workloads and runtime overlays: ${state.services.join(", ") || "none selected"}`,
+          ...(resourcesFor().length
+            ? [
+                `Resource bindings: ${resourcesFor().join(", ")}; shared data retained`,
+              ]
+            : []),
+          ...(isSelected("api")
+            ? ["API migration job and readiness observation"]
+            : []),
+          ...(isSelected("gateway")
+            ? [
+                isSelected("api")
+                  ? "Public gateway route and private API connection"
+                  : "Public gateway route and existing API binding",
+              ]
+            : ["No public gateway route"]),
+          ...(state.broker !== "none" && resourcesFor().includes("jobs")
+            ? [`${state.broker} broker: ${state.brokerPlacement}`]
+            : []),
+          ...(state.releaseMode === "gitops"
+            ? ["Manifest commit proposal and controller revision observation"]
+            : state.imageSource === "git"
+              ? ["Provider Git build settings and resolved source commit"]
+              : []),
+        ];
         $("artifact-list").replaceChildren(
-          ...artifacts.map((text) => {
+          ...[
+            `Apply scope: ${state.services.join(", ") || "none"}; excluded services receive no rollout`,
+            ...artifacts,
+          ].map((text) => {
             const item = document.createElement("li");
             item.textContent = text;
             return item;
@@ -2955,6 +4426,7 @@
           );
         $("prompt").value =
           `Implement the Forge deployment proposal for the gateway, API and worker sample, with Grove database bindings, Trove object storage and metadata, and shared Redis. ${choices.length ? `For this configuration, ${choices.join("; ")}. ` : "Use the Kubernetes production defaults with existing data services. "}Use one planner for the local page and CLI. Persist non-secret settings to reviewable files, validate capabilities and service authorization, and require the approved immutable plan hash before apply. Report live verification separately from rendered artifacts.`;
+        renderWorkbench();
       }
       function renderFile() {
         const selected = $("file-select").value;
@@ -3008,6 +4480,7 @@
         });
       }
       function syncControls() {
+        syncWorkbenchControls();
         for (const [key, id] of [
           ["target", "target"],
           ["environment", "environment"],
@@ -3039,6 +4512,11 @@
         $("run-log").replaceChildren(item);
       }
       function changed() {
+        registryCheck = "Not checked";
+        $("registry-result").textContent =
+          "Settings changed. Check builder push access and target pull access again.";
+        captureProfile();
+        persistDraft();
         saved = false;
         clearRun();
         render();
@@ -3070,8 +4548,25 @@
         }
       }
       function persistDraft() {
+        if (
+          !validState(state) ||
+          (persistence.backend === "postgres" &&
+            !secretReference(persistence.reference))
+        )
+          return false;
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          captureProfile();
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+              schema: 3,
+              active: state.target,
+              selectedTargets,
+              targets: targetProfiles,
+              setupComplete,
+              persistence,
+            }),
+          );
           storageAvailable = true;
           return true;
         } catch {
@@ -3080,7 +4575,7 @@
         }
       }
       function save() {
-        if (!validState(state)) {
+        if (!validState(state) || !validPersistence()) {
           toast("Fix the configuration before saving.");
           return;
         }
@@ -3141,7 +4636,7 @@
         $("service-detail").textContent =
           name === "gateway"
             ? `kind: web\nport: 8080\nexposure: public HTTPS\napi: ${apiAddress()}\nreadiness: /_/health/ready\nliveness: /_/health/live\ntimeout: 5s (must bind to actual caller)\nretries: 0\nidentity: receiving service verifies audience and grants`
-            : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? `ports: none\nhealth: ${state.workerHealth === "heartbeat" ? "application heartbeat" : state.workerHealth === "none" ? "none" : "unresolved"}` : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary\ntrove.store: uploads\ntrove.metadata_database: primary\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: one pre-rollout job\ncredentials: secret references`;
+            : `kind: ${name === "worker" ? "worker" : "web"}\n${name === "worker" ? `ports: none\nhealth: ${state.workerHealth === "heartbeat" ? "application heartbeat" : state.workerHealth === "none" ? "none" : "unresolved"}` : "port: 8080\nexposure: private\nreadiness: /_/health/ready\nliveness: /_/health/live"}\ngrove.database: primary${name === "api" ? "\ntrove.store: uploads\ntrove.metadata_database: primary" : ""}\ncache: shared Redis${state.redisFeatures ? " with JSON/search" : ""}\nmigrations: ${name === "api" ? "one pre-rollout job" : "none"}\n${state.broker !== "none" ? `queue: ${state.broker}, jobs connection\n` : ""}credentials: secret references\ndeployment scope: ${isSelected(name) ? "selected" : "excluded"}`;
         const facts = [
           [
             "Service type",
@@ -3168,8 +4663,10 @@
           [
             "Resource bindings",
             name === "gateway"
-              ? "Private API connection"
-              : "Grove primary, Trove uploads, Redis",
+              ? isSelected("api")
+                ? "Private API connection"
+                : "Existing API binding"
+              : `${name === "api" ? "Grove primary, Trove uploads, Redis" : "Grove primary, Redis"}${state.broker !== "none" ? `, ${state.broker} jobs` : ""}`,
           ],
         ];
         $("service-facts").replaceChildren(
@@ -3186,9 +4683,11 @@
         $("service-dialog").showModal();
       }
       function openApprove() {
+        $("outcome").querySelector('[value="failure"]').textContent =
+          isSelected("api") ? "Migration failure" : "Readiness failure";
         if (validationError() || pendingDecisions().length) return;
         $("plan-hash").textContent =
-          `plan ${state.environment} on ${targetNames[state.target]}\nhash  ${planHash()}  (mock digest; the CLI prints a sha256)\nfiles ${Object.keys(files).length}   images 3   resources 3`;
+          `plan ${state.environment} on ${targetNames[state.target]}\nhash  ${planHash()}  (mock digest; the CLI prints a sha256)\nfiles ${Object.keys(files).length}   services ${state.services.length}   resources ${resourcesFor().length}`;
         $("plan-ops").replaceChildren(
           ...planOperations().map((text) => {
             const item = document.createElement("li");
@@ -3224,35 +4723,33 @@
             : state.target === "compose"
               ? "http://localhost:8080"
               : "https://<platform-assigned host>";
-        const steps = [
-          `Verify plan ${planHash().slice(0, 12)} against inputs and remote state`,
-          "Build gateway, api and worker; push by digest",
-          state.placement === "external"
-            ? "Bind existing Postgres, bucket and Redis through secret references"
-            : state.placement === "managed"
-              ? "Provision managed Postgres and Redis; bind the external bucket"
-              : "Start Postgres, MinIO and Redis containers; wait for health",
-          "Run the api migration job",
-          `Roll out gateway ${Math.min(2, state.replicas)}/${Math.min(2, state.replicas)}, api ${state.replicas}/${state.replicas}, worker 1/1`,
-          `Check: GET ${publicUrl}/_/health/ready, write and read through Postgres and the bucket`,
-        ];
+        const steps = planOperations();
+        const migrationIndex = steps.findIndex((step) =>
+          step.startsWith("Run the API migration"),
+        );
         for (let index = 0; index < steps.length; index += 1) {
           await new Promise((resolve) => setTimeout(resolve, 450));
           if (generation !== runGeneration) return;
-          const failed = outcome === "failure" && index === 3;
+          const failed =
+            outcome === "failure" &&
+            index === (migrationIndex >= 0 ? migrationIndex : steps.length - 1);
           const item = document.createElement("li");
           const status = document.createElement("span");
           status.className = `step-state${failed ? " failed" : ""}`;
           status.textContent = failed ? "FAIL" : "MOCK";
           const text = document.createElement("span");
           text.textContent = failed
-            ? "Migration failed: api rollout blocked, previous release still serving, data retained."
+            ? isSelected("api")
+              ? "Migration failed: API rollout blocked, data retained."
+              : "Readiness check failed: selected services remain unverified, data retained."
             : steps[index];
           item.append(status, text);
           $("run-log").append(item);
           if (failed) {
             deployStatus = "failed";
-            $("run-status").textContent = "Failed at migration";
+            $("run-status").textContent = isSelected("api")
+              ? "Failed at migration"
+              : "Readiness failed";
             $("run-status").className = "tag orange";
             render();
             return;
@@ -3263,7 +4760,7 @@
         doneState.className = "step-state";
         doneState.textContent = "MOCK";
         const doneText = document.createElement("span");
-        doneText.textContent = `Healthy. gateway at ${publicUrl}. Release recorded in .forge/state.`;
+        doneText.textContent = `Rehearsal complete. ${isSelected("gateway") ? `Gateway at ${publicUrl}. ` : "No gateway route created. "}Selected services: ${state.services.join(", ")}. Journal backend: ${persistence.backend}.`;
         done.append(doneState, doneText);
         $("run-log").append(done);
         deployStatus = "healthy";
@@ -3272,10 +4769,7 @@
         render();
       }
       $("target").addEventListener("change", () => {
-        state.target = $("target").value;
-        state.targetSetting = PRESETS[state.target].targetSetting;
-        syncControls();
-        changed();
+        activateTarget($("target").value);
       });
       $("environment").addEventListener("change", () => {
         state.environment = $("environment").value;
@@ -3311,14 +4805,6 @@
       $("worker-health").addEventListener("change", () => {
         state.workerHealth = $("worker-health").value;
         changed();
-      });
-      document.querySelectorAll("[data-preset]").forEach((button) => {
-        button.addEventListener("click", () => {
-          state = { ...PRESETS[button.dataset.preset] };
-          syncControls();
-          changed();
-          toast(`${button.textContent} preset loaded.`);
-        });
       });
       document.querySelectorAll("[data-tab]").forEach((button) => {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
@@ -3385,10 +4871,15 @@
         } catch {
           storageAvailable = false;
         }
-        state = { ...FIRST_RUN };
+        state = clone(PRESETS.compose);
+        selectedTargets = ["compose"];
+        targetProfiles = {};
+        setupComplete = false;
+        persistence = { backend: "files", reference: "" };
+        document.body.dataset.setup = "true";
         syncControls();
         changed();
-        toast("Reset to the first-run state with both decisions open.");
+        toast("Reset the prototype. Choose your deployment targets.");
       });
       function updateScrollTargets() {
         document
@@ -3401,6 +4892,645 @@
       document.querySelectorAll(".table-wrap, .topology").forEach((region) => {
         scrollObserver.observe(region);
       });
+      const WORKBENCH_CONTROLS = {
+        "image-source": "imageSource",
+        "image-delivery": "imageDelivery",
+        "image-platform": "imagePlatform",
+        "builder-ref": "builderRef",
+        "registry-provider": "registryProvider",
+        "registry-host": "registryHost",
+        "registry-namespace": "registryNamespace",
+        "registry-auth": "registryAuth",
+        "registry-secret": "registrySecret",
+        "registry-visibility": "registryVisibility",
+        "broker-type": "broker",
+        "broker-placement": "brokerPlacement",
+        "broker-secret": "brokerSecret",
+        "broker-host": "brokerHost",
+        "broker-durable": "brokerDurable",
+        "environment-action": "environmentAction",
+        "settings-environment": "environment",
+        "release-mode": "releaseMode",
+        "git-repo": "gitRepo",
+        "git-branch": "gitBranch",
+        "git-trigger": "gitTrigger",
+        "git-path": "gitPath",
+      };
+      function scopeError() {
+        if (!state.services.length)
+          return "Select at least one application service. The planner never interprets an empty selection as all services.";
+        if (
+          isSelected("gateway") &&
+          !isSelected("api") &&
+          !safeHttpAddress(state.externalApi)
+        )
+          return "Gateway needs an existing API address when API is excluded. Use an HTTP(S) URL without credentials or query parameters.";
+        if (
+          persistence.backend === "postgres" &&
+          !secretReference(persistence.reference)
+        )
+          return "Database persistence needs a secret reference, such as env:FORGE_DEPLOY_STATE_DSN. Do not enter a connection string.";
+        if (
+          persistence.backend === "sqlite" &&
+          !/^\.forge\/[a-zA-Z0-9_./-]+\.db$/.test(persistence.reference)
+        )
+          return "Choose a SQLite file under .forge/, such as .forge/deploy.db.";
+        if (
+          state.imageSource === "git" &&
+          !["render", "digitalocean"].includes(state.target)
+        )
+          return "This preset has no provider Git build. Choose CI or a remote builder; Kubernetes GitOps can deliver rendered manifests separately.";
+        if (
+          state.imageSource !== "git" &&
+          state.imageDelivery === "local" &&
+          (state.target !== "compose" || state.imageSource !== "local")
+        )
+          return "Host-only images require a local build on the selected Compose Docker host. Choose a registry for remote builders or other targets.";
+        if (
+          state.imageSource === "remote" &&
+          !/^[a-zA-Z0-9_.:/-]+$/.test(state.builderRef)
+        )
+          return "Set a configured remote builder reference.";
+        if (state.imageSource !== "git" && state.imageDelivery === "registry") {
+          if (
+            !/^[a-z0-9.-]+(:[0-9]+)?$/.test(state.registryHost) ||
+            !/^[a-z0-9][a-z0-9_/-]*$/.test(state.registryNamespace)
+          )
+            return "Set a registry host and lowercase namespace without credentials.";
+          if (
+            state.registryAuth === "anonymous" &&
+            (state.imageSource !== "existing" ||
+              state.registryVisibility !== "public")
+          )
+            return "Anonymous authentication is only valid for pulling existing public images. Publishing requires push credentials.";
+          if (
+            state.registryAuth === "env" &&
+            !secretReference(state.registrySecret)
+          )
+            return "Registry authentication needs a secret reference, not a token.";
+          if (
+            state.registryAuth === "github-actions" &&
+            (state.imageSource !== "ci" || state.registryProvider !== "ghcr")
+          )
+            return "GitHub Actions token authentication requires a CI build publishing to GHCR. Provider pull access must be configured separately.";
+          if (
+            state.imageSource === "existing" &&
+            state.services.some(
+              (name) =>
+                typeof state.existingImages[name] !== "string" ||
+                !/^[a-z0-9][a-z0-9._:/-]*@sha256:[a-f0-9]{64}$/.test(
+                  state.existingImages[name],
+                ),
+            )
+          )
+            return "Provide a registry image with a full sha256 digest for each selected service.";
+        }
+        if (
+          state.imageSource === "git" &&
+          state.services.some((name) =>
+            ["root", "dockerfile"].some(
+              (key) =>
+                !/^[a-zA-Z0-9_./-]+$/.test(state.gitServices[name][key]) ||
+                state.gitServices[name][key].split("/").includes(".."),
+            ),
+          )
+        )
+          return "Set repository-relative source roots and Dockerfile paths for selected services, without parent-directory traversal.";
+        if (state.imageSource === "git" || state.releaseMode === "gitops") {
+          if (
+            !safeHttpAddress(state.gitRepo) ||
+            !/^[a-zA-Z0-9_./-]+$/.test(state.gitBranch) ||
+            !/^[a-zA-Z0-9_./-]+$/.test(state.gitPath)
+          )
+            return "Set a repository URL, branch and configuration path without embedded credentials.";
+          if (state.releaseMode === "gitops" && state.target !== "kubernetes")
+            return "Manifest reconciliation through GitOps needs a configured Kubernetes controller. Use provider Git deployment for Render or DigitalOcean.";
+        }
+        if (state.broker !== "none" && resourcesFor().includes("jobs")) {
+          if (!secretReference(state.brokerSecret))
+            return "Messaging needs a broker connection secret reference.";
+          if (state.brokerPlacement === "managed")
+            return "No managed broker adapter is qualified for this preset. Bind an existing broker or configure a separate Docker host.";
+          if (
+            state.brokerPlacement === "container" &&
+            !["compose", "kubernetes"].includes(state.target)
+          )
+            return "No durable broker recipe is qualified on this platform. Use an existing broker or a separate Docker host; support must be validated before provisioning.";
+          if (
+            state.brokerPlacement === "companion" &&
+            !/^[a-zA-Z0-9_.-]+$/.test(state.brokerHost)
+          )
+            return "Set the companion Docker context for the broker host. Cross-target reachability and TLS must be verified.";
+          if (
+            ["container", "companion"].includes(state.brokerPlacement) &&
+            state.environment === "production"
+          )
+            return "Self-hosted production messaging needs an availability, backup and restore policy. This prototype only models a single-node development recipe.";
+        }
+        if (
+          state.environmentAction === "create" &&
+          !["compose", "kubernetes"].includes(state.target)
+        )
+          return "Environment creation is not qualified in this provider adapter. Use an existing environment until account, project and capability checks are implemented.";
+        return "";
+      }
+      function activateTarget(target) {
+        if (!selectedTargets.includes(target)) return;
+        const project = state.project;
+        captureProfile();
+        state = clone(targetProfiles[target] || PRESETS[target]);
+        state.project = project;
+        syncControls();
+        changed();
+      }
+      function syncWorkbenchControls() {
+        for (const [id, key] of Object.entries(WORKBENCH_CONTROLS)) {
+          if ($(id).type === "checkbox") $(id).checked = state[key];
+          else $(id).value = state[key];
+        }
+        $("external-api").value = state.externalApi;
+        for (const name of ["gateway", "api", "worker"])
+          if ($(`image-${name}`)) {
+            $(`image-${name}`).value = state.existingImages[name] || "";
+            $(`image-${name}`).parentElement.hidden = !isSelected(name);
+          }
+        $("persistence-backend").value = persistence.backend;
+        $("persistence-reference").value = persistence.reference;
+        document
+          .querySelectorAll("[data-service-selection]")
+          .forEach((input) => {
+            input.checked = isSelected(input.dataset.serviceSelection);
+          });
+        for (const id of ["target", "active-target"]) {
+          $(id).replaceChildren(
+            ...selectedTargets.map((target) => {
+              const option = document.createElement("option");
+              option.value = target;
+              option.textContent = targetNames[target];
+              return option;
+            }),
+          );
+          $(id).value = state.target;
+        }
+      }
+      function ZeroState({ title, body, action, onAction }) {
+        const root = document.createElement("div");
+        root.className = "zero-state";
+        const illustration = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        illustration.setAttribute("class", "icon");
+        illustration.setAttribute("aria-hidden", "true");
+        const use = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "use",
+        );
+        use.setAttribute("href", "#database");
+        illustration.append(use);
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        const text = document.createElement("p");
+        text.textContent = body;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = action;
+        button.addEventListener("click", onAction);
+        root.append(illustration, heading, text, button);
+        return root;
+      }
+      function renderWorkbench() {
+        document.querySelectorAll("[data-target-card]").forEach((input) => {
+          input.checked = selectedTargets.includes(input.dataset.targetCard);
+        });
+        $("continue-targets").disabled = !selectedTargets.length;
+        $("picker-summary").textContent = selectedTargets.length
+          ? `${selectedTargets.length} target${selectedTargets.length === 1 ? "" : "s"} selected. Saved in this browser.`
+          : "Choose at least one target.";
+        $("target-scope").textContent = `${selectedTargets.length} configured`;
+        $("service-selection-summary").textContent =
+          `${state.services.length} of 3 services selected · excluded services stay unchanged`;
+        document.querySelectorAll("[data-deploy-service]").forEach((row) => {
+          row.classList.toggle(
+            "excluded",
+            !isSelected(row.dataset.deployService),
+          );
+        });
+        $("external-api-field").hidden =
+          !isSelected("gateway") || isSelected("api");
+        $("instance-count").textContent = String(
+          (isSelected("gateway") ? Math.min(2, state.replicas) : 0) +
+            (isSelected("api") ? state.replicas : 0) +
+            (isSelected("worker") ? 1 : 0),
+        );
+        $("gateway-replicas").textContent = isSelected("gateway")
+          ? String(Math.min(2, state.replicas))
+          : "Excluded";
+        $("api-replicas").textContent = isSelected("api")
+          ? String(state.replicas)
+          : "Excluded";
+        document.querySelector(
+          '[data-deploy-service="worker"] td:nth-child(4)',
+        ).textContent = isSelected("worker") ? "1" : "Excluded";
+        const resourceNames = resourcesFor();
+        $("api-address").parentElement.hidden = !isSelected("gateway");
+        document.querySelector("#connections .scroll-hint").hidden =
+          !state.services.length;
+        document.querySelector("#connections .legend").hidden =
+          !state.services.length;
+        $("redis-features").parentElement.hidden =
+          !resourceNames.includes("cache");
+        $("trove-metadata-note").hidden = !isSelected("api");
+        $("scope-count").textContent =
+          `${state.services.length} + ${resourceNames.length}`;
+        $("service-scope-line").textContent =
+          `Selected services: ${state.services.join(", ") || "none"}. ${isSelected("gateway") ? "Gateway public; other services private or outbound." : "No public gateway route."}`;
+        $("resource-scope-line").textContent = resourceNames.length
+          ? `Resources in scope: ${resourceNames.join(", ")}. Shared data is retained.`
+          : "No application data resource operations are in scope.";
+        for (const name of ["gateway", "api", "worker"])
+          $(`image-${name}`).parentElement.hidden = !isSelected(name);
+        const table = document.querySelector("#resources .table-wrap");
+        table.hidden = !resourceNames.some((name) => name !== "jobs");
+        let empty = $("resource-zero-state");
+        if (!empty) {
+          empty = ZeroState({
+            title: "No data resources in this selection",
+            body: "Your selected services do not require Grove, Trove or cache resources. Existing shared resources stay unchanged.",
+            action: "Choose services",
+            onAction: () => selectView("services"),
+          });
+          empty.id = "resource-zero-state";
+          table.after(empty);
+        }
+        empty.hidden = !table.hidden;
+
+        document
+          .querySelectorAll("#resources tbody tr")
+          .forEach((row, index) => {
+            const name = ["primary", "uploads", "cache", "jobs"][index];
+            row.hidden = !resourceNames.includes(name);
+            row.cells[1].textContent = state.services
+              .filter((service) =>
+                name === "uploads"
+                  ? service === "api"
+                  : ["api", "worker"].includes(service),
+              )
+              .join(", ");
+          });
+        const resourceCount = document.querySelector(
+          '[data-section="resources"] .nav-count',
+        );
+        if (resourceCount)
+          resourceCount.textContent = String(resourceNames.length);
+        const filesCount = document.querySelector(
+          '[data-section="files"] .nav-count',
+        );
+        if (filesCount)
+          filesCount.textContent = String(Object.keys(files).length);
+        $("builder-field").hidden = state.imageSource !== "remote";
+        const gitBuild = state.imageSource === "git";
+        $("image-delivery").disabled = gitBuild;
+        $("image-delivery").querySelector('[value="provider"]').hidden =
+          !gitBuild;
+        $("image-delivery").value = gitBuild ? "provider" : state.imageDelivery;
+        $("image-platform").parentElement.hidden = gitBuild;
+        $("release-mode").querySelector('[value="direct"]').textContent =
+          gitBuild ? "Provider Git deployment" : "Review and apply";
+        $("release-mode").querySelector('[value="gitops"]').disabled =
+          state.target !== "kubernetes";
+        $("git-contracts").hidden = !gitBuild;
+        for (const name of ["gateway", "api", "worker"])
+          for (const key of ["root", "dockerfile"]) {
+            const input = $(`git-${name}-${key}`);
+            input.parentElement.hidden = !isSelected(name);
+            if (input !== document.activeElement)
+              input.value = state.gitServices[name][key];
+          }
+
+        $("image-platform").disabled = gitBuild;
+        $("registry-fields").hidden =
+          gitBuild || state.imageDelivery === "local";
+        $("existing-images").hidden = state.imageSource !== "existing";
+        $("git-fields").hidden = !gitBuild && state.releaseMode !== "gitops";
+        $("registry-secret-field").hidden = state.registryAuth !== "env";
+        $("registry-status").textContent = registryCheck;
+        $("registry-status").className =
+          registryCheck === "Access rehearsed" ? "tag green" : "tag";
+        $("image-guidance").textContent = gitBuild
+          ? "The provider builds from the connected repository. No local Docker build or registry publish step is requested. Resolve the source commit before an approved deployment."
+          : state.imageDelivery === "local"
+            ? "Images remain on the selected Docker host. A different host or remote platform cannot pull them from your laptop."
+            : "The builder publishes to a registry. The deployment target pulls by digest, using separate pull credentials for private images. Actual build and pull capabilities still require validation.";
+        $("git-guidance").textContent =
+          state.releaseMode === "gitops"
+            ? "Kubernetes GitOps: commit the generated manifests to this repository, then let your configured Flux or Argo CD controller reconcile. Record its revision and health before declaring success. This prototype does not install a controller or push commits."
+            : "Provider Git deployment: connect repository access in the provider, configure each selected service root and Dockerfile, and select a trigger. An approved manual deployment pins a commit SHA. Automatic triggers are a separate policy that can supersede that commit. Connection and delivery are not implemented here.";
+        $("registry-guidance").textContent =
+          state.registryProvider === "ghcr"
+            ? "GHCR: use the Docker credential helper locally, an environment reference to a classic PAT, or GITHUB_TOKEN for a GitHub Actions workflow with package permissions. Push and target pull access are separate. Never paste a token into this prototype."
+            : "Use a configured credential helper or secret reference. A registry check must verify host, namespace, push permissions, image architecture and target pull access. This page performs no login.";
+        $("broker-backend").textContent =
+          `${{ none: "No broker", nats: "NATS JetStream", rabbitmq: "RabbitMQ", redis: "Redis queue" }[state.broker]} (${state.brokerPlacement})`;
+        $("broker-placement").disabled = state.broker === "none";
+        $("broker-secret").disabled = state.broker === "none";
+        $("broker-durable").disabled = state.broker === "none";
+        $("companion-field").hidden =
+          state.brokerPlacement !== "companion" || state.broker === "none";
+        $("broker-guidance").textContent =
+          state.broker === "none"
+            ? "Optional: add messaging when your application declares a queue or event broker. An in-memory broker cannot carry messages between processes."
+            : state.brokerPlacement === "external"
+              ? "Bind the existing broker to selected API/worker services. Validate protocol, authentication, delivery semantics and reachability from this environment."
+              : state.brokerPlacement === "companion"
+                ? "Generate a separate resource-only Compose proposal. Configure its Docker context, private reachability or TLS, retained storage and health. The application platform does not provision this host."
+                : state.brokerPlacement === "managed"
+                  ? "Managed broker provisioning requires an adapter that declares the protocol and durability capabilities. This prototype has no qualified managed broker adapter."
+                  : ["compose", "kubernetes"].includes(state.target)
+                    ? "Generate a compatible broker recipe with private networking and retained storage for development. Production requires an availability and restore policy. Durable semantics must match the application driver."
+                    : "This platform has no qualified durable broker recipe in the proposal. Use an external broker or a separate Docker host. Private TCP support alone does not establish persistent messaging.";
+        $("broker-route-heading").textContent =
+          state.broker === "none"
+            ? "Messaging connection"
+            : `${state.services.filter((name) => ["api", "worker"].includes(name)).join(" + ") || "No participants"} ↔ jobs`;
+        $("broker-route").textContent =
+          state.broker === "none"
+            ? "No messaging connection is added."
+            : `Selected participants: ${state.services.filter((name) => ["api", "worker"].includes(name)).join(", ") || "none"}. ${state.brokerDurable ? "Retain message storage." : "Ephemeral message storage selected."} Excluded consumers and producers are not deployed.`;
+        $("environment-scope").textContent =
+          `${targetNames[state.target]} / ${state.environment}`;
+        $("environment-guidance").textContent =
+          state.environmentAction === "existing"
+            ? "Bind the selected environment without silently creating a project, account or namespace. Resolve access and ownership before apply."
+            : state.target === "kubernetes"
+              ? `Propose namespace ${namespace()}. The plan must check cluster access, quotas and ownership before creating it.`
+              : state.target === "compose"
+                ? `Propose an isolated Compose project ${namespace()} with private networking and named volumes.`
+                : "Provider environment creation is unqualified. Choose an existing environment until the adapter verifies account, project and creation capabilities.";
+        $("persistence-reference-field").hidden =
+          persistence.backend === "files";
+        $("persistence-reference-field").firstChild.textContent =
+          persistence.backend === "sqlite"
+            ? "SQLite file path"
+            : "Database secret reference";
+        $("persistence-guidance").textContent =
+          persistence.backend === "files"
+            ? "Default: reviewable .forge.yml settings plus a gitignored .forge/state journal and locks. Expected file hashes prevent overwriting another editor."
+            : persistence.backend === "postgres"
+              ? "Proposed database backend: versioned settings, deployment journal and environment locks in PostgreSQL. Resolve the DSN outside the page. Export settings to files for Git review and portable deployment."
+              : "Proposed SQLite backend: settings, journal and locks in a local database file. Export configuration to files. A SQLite file does not coordinate multiple machines.";
+        $("export-settings").disabled =
+          persistence.backend === "postgres" &&
+          !secretReference(persistence.reference);
+        $("persistence-command").textContent =
+          `# Proposed CLI, not implemented\nforge deploy start --store ${persistence.backend}${persistence.backend === "files" ? "" : ` --store-ref ${persistence.reference || "<reference required>"}`}`;
+        $("commands").textContent =
+          `# Proposed CLI, not implemented\nforge deploy start --store ${persistence.backend}${persistence.backend === "files" ? "" : ` --store-ref ${persistence.reference || "<reference required>"}`}\nforge deploy doctor --target ${state.target} --env ${profileEnvironment()} --services ${state.services.join(",")} --output json\nforge deploy plan --target ${state.target} --env ${profileEnvironment()} \\\n  --services ${state.services.join(",")} --out .forge/plans/selection.json\nforge deploy apply --plan .forge/plans/selection.json \\\n  --approve-plan ${planHash()} --non-interactive`;
+        $("prompt").value =
+          `Implement the Forge deployment proposal for targets ${selectedTargets.join(", ")}. On ${state.target}, deploy only ${state.services.join(", ") || "no services"}, with build source ${state.imageSource}, delivery ${state.releaseMode}, resources ${resourceNames.join(", ") || "none"}, and ${persistence.backend} workbench persistence. Bind excluded dependencies explicitly; never deploy or delete them silently. Resolve capabilities and credentials outside the browser, review files, pin source commits and image digests, and require the immutable approved plan before apply. Report rendered, simulated and live-verified results separately.`;
+        const error =
+          validationError() ||
+          (pendingDecisions().length
+            ? `Resolve: ${pendingDecisions().join(", ")}.`
+            : "");
+        $("settings-error").hidden = !error;
+        $("settings-error").textContent = error;
+        $("live-checks").textContent =
+          `Selected services: ${state.services.join(", ") || "none"}. Preflight must verify target access, image or Git delivery, resource connections and health. All checks below are fixture simulations.`;
+        // Replace the original all-service topology with the actual apply scope.
+        const graph = document.querySelector(".topology svg");
+        graph.parentElement.hidden = !state.services.length;
+        let connectionEmpty = $("connection-zero-state");
+        if (!connectionEmpty) {
+          connectionEmpty = ZeroState({
+            title: "Choose services to review their connections",
+            body: "No service is selected for this deployment. Choose a service to include its dependencies in the plan.",
+            action: "Choose services",
+            onAction: () => selectView("services"),
+          });
+          connectionEmpty.id = "connection-zero-state";
+          graph.parentElement.after(connectionEmpty);
+        }
+        connectionEmpty.hidden = state.services.length > 0;
+        const nodes = [];
+        if (isSelected("gateway"))
+          nodes.push({ name: "gateway", detail: "Public :8080", x: 18, y: 20 });
+        if (isSelected("api") || isSelected("gateway"))
+          nodes.push({
+            name: isSelected("api") ? "api" : "existing api",
+            detail: isSelected("api") ? "Private :8080" : "External binding",
+            x: 218,
+            y: 20,
+          });
+        if (isSelected("worker"))
+          nodes.push({ name: "worker", detail: "No listener", x: 218, y: 120 });
+        resourceNames.forEach((name, index) => {
+          nodes.push({
+            name: {
+              primary: "PostgreSQL",
+              uploads: "Trove objects",
+              cache: "Redis",
+              jobs: state.broker,
+            }[name],
+            detail:
+              name === "jobs"
+                ? state.brokerPlacement
+                : name === "uploads"
+                  ? "API uploads"
+                  : "Named binding",
+            x: 434,
+            y: 10 + index * 60,
+          });
+        });
+        graph.setAttribute("viewBox", "0 0 620 260");
+        graph.setAttribute(
+          "aria-label",
+          "Selected service and resource connections",
+        );
+        graph.replaceChildren();
+        const svgNode = (tag, attrs, text) => {
+          const node = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            tag,
+          );
+          for (const [key, value] of Object.entries(attrs))
+            node.setAttribute(key, String(value));
+          if (text) node.textContent = text;
+          graph.append(node);
+        };
+        if (isSelected("gateway"))
+          svgNode("path", { class: "edge", d: "M148 44H218" });
+        resourceNames.forEach((name, index) => {
+          const y = 34 + index * 60;
+          if (isSelected("api"))
+            svgNode("path", { class: "edge data", d: `M348 44H390V${y}H434` });
+          if (isSelected("worker") && name !== "uploads")
+            svgNode("path", { class: "edge data", d: `M348 144H370V${y}H434` });
+        });
+        nodes.forEach((node) => {
+          svgNode("rect", {
+            class: "node",
+            x: node.x,
+            y: node.y,
+            width: 130,
+            height: 48,
+            rx: 6,
+          });
+          svgNode("text", { x: node.x + 12, y: node.y + 21 }, node.name);
+          svgNode(
+            "text",
+            { class: "meta", x: node.x + 12, y: node.y + 37 },
+            node.detail,
+          );
+        });
+      }
+      for (const [id, key] of Object.entries(WORKBENCH_CONTROLS)) {
+        $(id).addEventListener(
+          $(id).tagName === "INPUT" && $(id).type !== "checkbox"
+            ? "input"
+            : "change",
+          () => {
+            state[key] =
+              $(id).type === "checkbox" ? $(id).checked : $(id).value;
+            if (id === "registry-provider") {
+              state.registryHost = {
+                ghcr: "ghcr.io",
+                dockerhub: "docker.io",
+                custom: "registry.example.com",
+              }[state.registryProvider];
+            }
+            if (
+              id === "image-source" &&
+              ["remote", "ci", "existing"].includes(state.imageSource)
+            )
+              state.imageDelivery = "registry";
+            if (id === "release-mode" && state.releaseMode === "gitops")
+              state.gitPath = `deployments/${state.target}/${profileEnvironment()}`;
+            syncControls();
+            changed();
+          },
+        );
+      }
+      ["gateway", "api", "worker"].forEach((name) => {
+        const label = document.createElement("label");
+        label.textContent = `${name} image digest`;
+        const input = document.createElement("input");
+        input.id = `image-${name}`;
+        input.placeholder = `ghcr.io/example/atlas-${name}@sha256:…`;
+        input.maxLength = 260;
+        input.value = state.existingImages[name] || "";
+        input.addEventListener("input", () => {
+          state.existingImages[name] = input.value;
+          changed();
+        });
+        label.append(input);
+        $("existing-image-fields").append(label);
+      });
+      for (const name of ["gateway", "api", "worker"]) {
+        for (const key of ["root", "dockerfile"]) {
+          const label = document.createElement("label");
+          label.textContent = `${name} ${key === "root" ? "source root" : "Dockerfile"}`;
+          const input = document.createElement("input");
+          input.id = `git-${name}-${key}`;
+          input.maxLength = 140;
+          input.value = state.gitServices[name][key];
+          input.addEventListener("input", () => {
+            state.gitServices[name][key] = input.value;
+            changed();
+          });
+          label.append(input);
+          $("git-service-contracts").append(label);
+        }
+      }
+      document.querySelectorAll("[data-service-selection]").forEach((input) => {
+        input.addEventListener("change", () => {
+          state.services = ["gateway", "api", "worker"].filter(
+            (name) =>
+              document.querySelector(`[data-service-selection="${name}"]`)
+                .checked,
+          );
+          changed();
+        });
+      });
+      $("external-api").addEventListener("input", () => {
+        state.externalApi = $("external-api").value;
+        changed();
+      });
+      $("select-all-services").addEventListener("click", () => {
+        state.services = ["gateway", "api", "worker"];
+        syncControls();
+        changed();
+      });
+      $("active-target").addEventListener("change", () =>
+        activateTarget($("active-target").value),
+      );
+      $("edit-targets").addEventListener("click", () => {
+        captureProfile();
+        document.body.dataset.setup = "true";
+        $("picker-title").tabIndex = -1;
+        $("picker-title").focus();
+      });
+      document.querySelectorAll("[data-target-card]").forEach((input) => {
+        input.addEventListener("change", () => {
+          selectedTargets = [
+            ...document.querySelectorAll("[data-target-card]:checked"),
+          ].map((card) => card.dataset.targetCard);
+          persistDraft();
+          renderWorkbench();
+        });
+      });
+      $("continue-targets").addEventListener("click", () => {
+        if (!selectedTargets.length) return;
+        for (const target of selectedTargets)
+          if (!targetProfiles[target])
+            targetProfiles[target] = clone(PRESETS[target]);
+        setupComplete = true;
+        document.body.dataset.setup = "false";
+        activateTarget(
+          selectedTargets.includes(state.target)
+            ? state.target
+            : selectedTargets[0],
+        );
+        selectView("overview");
+        $("page-title").tabIndex = -1;
+        $("page-title").focus();
+      });
+      $("persistence-backend").addEventListener("change", () => {
+        persistence.backend = $("persistence-backend").value;
+        persistence.reference =
+          persistence.backend === "sqlite"
+            ? ".forge/deploy.db"
+            : persistence.backend === "postgres"
+              ? "env:FORGE_DEPLOY_STATE_DSN"
+              : "";
+        syncControls();
+        changed();
+      });
+      $("persistence-reference").addEventListener("input", () => {
+        persistence.reference = $("persistence-reference").value;
+        changed();
+      });
+      $("export-settings").addEventListener("click", () =>
+        download(
+          "forge-workbench-proposal.yml",
+          toYaml({ workbench: { persistence } }),
+        ),
+      );
+      $("connect-registry").addEventListener("click", () => {
+        registryCheck = "Connection rehearsed";
+        $("registry-result").textContent =
+          "Simulated connection only. Real authentication would run in the CLI credential helper or provider flow; no token is collected here.";
+        render();
+      });
+      $("check-registry").addEventListener("click", () => {
+        const error = scopeError();
+        registryCheck = error ? "Configuration blocked" : "Access rehearsed";
+        $("registry-result").textContent =
+          error ||
+          "Simulated: builder push access and target pull access checked. No credentials or registry network request were used.";
+        render();
+      });
+
       const VIEW_META = {
         overview: [
           "Overview",
@@ -3410,12 +5540,12 @@
         services: [
           "Services",
           "Application services",
-          "Inspect exposure, health contracts, and runtime bindings for each service.",
+          "Choose the services to deploy and bind any excluded dependencies explicitly.",
         ],
         resources: [
           "Resources",
           "Data & storage",
-          "Choose where data lives and keep named resource bindings explicit.",
+          "Configure data, storage and messaging for your selected services.",
         ],
         connections: [
           "Connections",
@@ -3431,6 +5561,16 @@
           "Preflight",
           "Deployment preflight",
           "Inspect target prerequisites. These checks are simulated for the selected preset.",
+        ],
+        images: [
+          "Images & registry",
+          "Images & registry",
+          "Choose how to build images and deliver them to this deployment target.",
+        ],
+        settings: [
+          "Environment & storage",
+          "Environment & storage",
+          "Configure environment creation and where the workbench keeps its settings and journal.",
         ],
         activity: [
           "Activity",
@@ -3557,6 +5697,7 @@
         if (view === "files") switchTab("config");
         if ($("mobile-menu").open) closeMobileMenu();
         if (updateHash) history.replaceState(null, "", `#${view}`);
+        window.scrollTo(0, 0);
         updateScrollTargets();
       }
       document.querySelectorAll("[data-view-tab]").forEach((button) => {
@@ -3594,8 +5735,14 @@
         );
       }
       $("theme").value = document.documentElement.dataset.themePreference;
+      $("picker-theme").value = $("theme").value;
+      $("picker-theme").addEventListener("change", () => {
+        $("theme").value = $("picker-theme").value;
+        $("theme").dispatchEvent(new Event("change"));
+      });
       $("theme").addEventListener("change", () => {
         applyTheme($("theme").value);
+        $("picker-theme").value = $("theme").value;
         try {
           localStorage.setItem("forge-deploy-theme", $("theme").value);
         } catch {}
@@ -3606,6 +5753,7 @@
       window.addEventListener("hashchange", () =>
         selectView(location.hash.slice(1), false, false),
       );
+      document.body.dataset.setup = String(!setupComplete);
       updateSidebar();
       selectView(location.hash.slice(1), false, false);
       syncControls();
