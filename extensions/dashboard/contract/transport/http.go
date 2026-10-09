@@ -193,7 +193,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	emitAudit(h.audit, req, in, p, err, latency)
 
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, asContractError(err))
+		contractErr := asContractError(err)
+		writeError(w, errorStatus(contractErr.Code), contractErr)
 		return
 	}
 	if req.Kind == contract.KindCommand {
@@ -265,10 +266,32 @@ func emitAudit(em contract.AuditEmitter, req contract.Request, in contract.Inten
 }
 
 func asContractError(err error) *contract.Error {
-	if e, ok := err.(*contract.Error); ok {
+	var e *contract.Error
+	if errors.As(err, &e) {
 		return e
 	}
 	return &contract.Error{Code: contract.CodeInternal, Message: err.Error()}
+}
+
+func errorStatus(code contract.ErrorCode) int {
+	switch code {
+	case contract.CodeBadRequest, contract.CodeUnsupportedVersion:
+		return http.StatusBadRequest
+	case contract.CodeUnauthenticated:
+		return http.StatusUnauthorized
+	case contract.CodePermissionDenied:
+		return http.StatusForbidden
+	case contract.CodeNotFound:
+		return http.StatusNotFound
+	case contract.CodeConflict:
+		return http.StatusConflict
+	case contract.CodeRateLimited:
+		return http.StatusTooManyRequests
+	case contract.CodeUnavailable:
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func writeOK(w http.ResponseWriter, r contract.Response) {
