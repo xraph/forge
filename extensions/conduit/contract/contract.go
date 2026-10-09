@@ -56,6 +56,26 @@ func Register(disp *dispatcher.Dispatcher, registry dash.Registry, wardens dash.
 		return err
 	}
 
+	if err := dispatcher.RegisterQuery(disp, "conduit", "consumers.list", 1, consumers(deps)); err != nil {
+		return err
+	}
+
+	if err := dispatcher.RegisterQuery(disp, "conduit", "backfills.list", 1, backfills(deps)); err != nil {
+		return err
+	}
+
+	if err := dispatcher.RegisterCommand(disp, "conduit", "consumers.pause", 1, pause(deps, true)); err != nil {
+		return err
+	}
+
+	if err := dispatcher.RegisterCommand(disp, "conduit", "consumers.resume", 1, pause(deps, false)); err != nil {
+		return err
+	}
+
+	if err := dispatcher.RegisterCommand(disp, "conduit", "backfills.run", 1, backfill(deps)); err != nil {
+		return err
+	}
+
 	return dispatcher.RegisterCommand(disp, "conduit", "deadletters.replay", 1, replay(deps))
 }
 
@@ -216,5 +236,85 @@ func replay(deps Deps) func(context.Context, ReplayInput, dash.Principal) (core.
 		receipt, err := r.ReplayDeadLetter(ctx, in.Provider, in.Subscription, in.ID)
 
 		return receipt, publicError(err)
+	}
+}
+
+// ConsumerList reports real broker cursor state with instance-local latency.
+type ConsumerList struct {
+	Consumers []core.ConsumerInfo `json:"consumers"`
+}
+
+func consumers(deps Deps) func(context.Context, struct{}, dash.Principal) (ConsumerList, error) {
+	return func(ctx context.Context, _ struct{}, principal dash.Principal) (ConsumerList, error) {
+		r, err := authorize(deps, principal)
+		if err != nil {
+			return ConsumerList{}, err
+		}
+
+		rows, err := r.Consumers(ctx)
+
+		return ConsumerList{Consumers: rows}, publicError(err)
+	}
+}
+
+type PauseInput struct {
+	Subscription string `json:"subscription"`
+}
+
+func pause(deps Deps, paused bool) func(context.Context, PauseInput, dash.Principal) (struct{}, error) {
+	return func(ctx context.Context, in PauseInput, principal dash.Principal) (struct{}, error) {
+		r, err := authorize(deps, principal)
+		if err != nil {
+			return struct{}{}, err
+		}
+
+		if in.Subscription == "" {
+			return struct{}{}, dash.ErrBadRequest
+		}
+
+		return struct{}{}, publicError(r.PauseSubscription(ctx, in.Subscription, paused))
+	}
+}
+
+// BackfillList retains service scope and opaque paging.
+type BackfillList struct {
+	Jobs       []core.Backfill `json:"jobs"`
+	NextCursor string          `json:"nextCursor"`
+}
+
+func backfills(deps Deps) func(context.Context, ListInput, dash.Principal) (BackfillList, error) {
+	return func(ctx context.Context, in ListInput, principal dash.Principal) (BackfillList, error) {
+		r, err := authorize(deps, principal)
+		if err != nil {
+			return BackfillList{}, err
+		}
+
+		if in.Provider == "" || in.Limit < 0 || in.Limit > 100 {
+			return BackfillList{}, dash.ErrBadRequest
+		}
+
+		if in.Limit == 0 {
+			in.Limit = 25
+		}
+
+		rows, cursor, err := r.Backfills(ctx, in.Provider, in.Cursor, in.Limit)
+
+		return BackfillList{Jobs: rows, NextCursor: cursor}, publicError(err)
+	}
+}
+func backfill(deps Deps) func(context.Context, core.BackfillInput, dash.Principal) (core.Backfill, error) {
+	return func(ctx context.Context, in core.BackfillInput, principal dash.Principal) (core.Backfill, error) {
+		r, err := authorize(deps, principal)
+		if err != nil {
+			return core.Backfill{}, err
+		}
+
+		if in.Validate() != nil {
+			return core.Backfill{}, dash.ErrBadRequest
+		}
+
+		job, err := r.Backfill(ctx, in)
+
+		return job, publicError(err)
 	}
 }

@@ -208,3 +208,13 @@ Replicas share one procedure queue. Each call reaches one instance. `rpc.provide
 Cancellation and deadlines propagate to handlers. Cancellation is best effort, and a timed-out call may already have caused an effect. Calls send once and never retry business effects automatically. Keep an application idempotency key for mutations. RPC uses live NATS request/reply without event retention. Durable workflows belong on streams and transactional inboxes.
 
 Return `&conduit.RPCError{Code: conduit.RPCPermissionDenied, Message: "Billing access required"}` for intentional public errors. Arbitrary errors and panics become `INTERNAL` responses without their private cause. `RPCCalling`, `RPCReceived`, `RPCHandling`, `RPCHandled`, `RPCReturned` and `RPCFailed` hooks expose the request lifecycle. Existing publish and handle control hooks run before RPC work.
+
+## Consumer operations
+
+`runtime.Consumers(ctx)` reads pending messages, outstanding acknowledgements and redeliveries from each registered broker consumer. Processing and publication-to-delivery latency summaries count attempts on the current instance. They include count, total, maximum and average durations, in nanoseconds. They are not fleet percentiles. Hooks include attempt duration, and Forge exports a processing duration histogram in seconds.
+
+`runtime.PauseSubscription(ctx, "process-orders", true)` pauses intake on the actual broker cursor. Pass `false` to resume. A competing cursor is shared by service replicas; a broadcast cursor belongs to its configured subscriber. Accepted work can finish while the cursor is paused. JetStream retains pause state across restarts; memory state lasts for the process.
+
+Run controlled recovery with `runtime.Backfill(ctx, conduit.BackfillInput{ID: "billing-recovery-42", Subscription: "process-orders", Start: 10, End: 30})`. The inclusive range is capped at 100 sequences and each run has a 30-second deadline. Missing retained messages, other event types and earlier targeted recovery records are counted as skipped. Matching original events retain their IDs and go only to the selected logical consumer. Business effects may repeat unless your inbox protects them.
+
+JetStream stores progress in a replicated file-backed KV bucket. Reuse the same operation ID and unchanged range to resume after an interruption; completed operations return their recorded result. A crash claim expires after one minute. Concurrent attempts conflict. Publication IDs are stable per operation and sequence, but broker deduplication has a finite window. Memory provides the same controls without disk persistence. The dashboard exposes real pause/resume commands, bounded backfill, scoped history and broker lag.

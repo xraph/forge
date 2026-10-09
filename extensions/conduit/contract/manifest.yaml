@@ -13,3 +13,8 @@ intents:
     version: 1
     capability: write
     invalidates: [overview, deadletters.list, hooks.list]
+  - {name: consumers.list, kind: query, version: 1, capability: read}
+  - {name: backfills.list, kind: query, version: 1, capability: read}
+  - {name: consumers.pause, kind: command, version: 1, capability: write, invalidates: [consumers.list]}
+  - {name: consumers.resume, kind: command, version: 1, capability: write, invalidates: [consumers.list]}
+  - {name: backfills.run, kind: command, version: 1, capability: write, invalidates: [overview, consumers.list, backfills.list, hooks.list]}

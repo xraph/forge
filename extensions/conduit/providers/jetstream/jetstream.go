@@ -50,7 +50,7 @@ func (p *Provider) Name() string { return "nats-jetstream" }
 
 // Capabilities reports persisted streams and recovery, with no key-ordering promise.
 func (p *Provider) Capabilities() core.Capabilities {
-	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, RPC: true}
+	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, RPC: true, ConsumerControls: true, Backfill: true}
 }
 
 // Connect creates a dedicated connection and JetStream client.

@@ -55,6 +55,10 @@ func (e *Extension) Register(app forge.App) error {
 
 	if e.Metrics() != nil {
 		if err := e.runtime.RegisterHook(HookFuncs{HookName: "forge.metrics", OnEvent: func(_ context.Context, event HookEvent) {
+			if event.Duration > 0 {
+				e.Metrics().Histogram("forge_conduit_processing_duration_seconds", forge.WithLabels(map[string]string{"namespace": event.Identity.Namespace, "service": event.Identity.ServiceID, "outcome": string(event.Stage)})).Observe(event.Duration.Seconds())
+			}
+
 			e.Metrics().Counter("forge_conduit_outcomes_total", forge.WithLabels(map[string]string{"namespace": event.Identity.Namespace, "service": event.Identity.ServiceID, "outcome": string(event.Stage)})).Inc()
 		}}); err != nil {
 			return err

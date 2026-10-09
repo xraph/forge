@@ -157,11 +157,13 @@ func (b Binding) ConsumerID() string {
 
 // Capabilities report guarantees implemented by a provider.
 type Capabilities struct {
-	RPC         bool `json:"rpc"`
-	Durable     bool `json:"durable"`
-	Replay      bool `json:"replay"`
-	DeadLetters bool `json:"deadLetters"`
-	KeyOrdering bool `json:"keyOrdering"`
+	ConsumerControls bool `json:"consumerControls"`
+	Backfill         bool `json:"backfill"`
+	RPC              bool `json:"rpc"`
+	Durable          bool `json:"durable"`
+	Replay           bool `json:"replay"`
+	DeadLetters      bool `json:"deadLetters"`
+	KeyOrdering      bool `json:"keyOrdering"`
 }
 
 // Receipt distinguishes broker acceptance from processing success.

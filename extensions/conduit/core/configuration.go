@@ -125,6 +125,7 @@ func (r *Runtime) Configure(cfg Config, extra ...Option) error {
 	}
 
 	r.rpcHandlers = ready.rpcHandlers
+	r.processingLatency, r.deliveryLatency = ready.processingLatency, ready.deliveryLatency
 	r.config, r.providers, r.registrations, r.hooks, r.registry = ready.config, ready.providers, ready.registrations, ready.hooks, ready.registry
 	r.deferred = false
 

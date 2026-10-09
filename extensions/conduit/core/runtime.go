@@ -85,39 +85,42 @@ type registration struct {
 
 // Runtime owns one instance's connections and workers, never the service identity.
 type Runtime struct {
-	mu               sync.RWMutex
-	config           Config
-	providers        map[string]Provider
-	registrations    map[string]registration
-	hooks            []Hook
-	observers        *observerPool
-	cancel           context.CancelFunc
-	observerCancel   context.CancelFunc
-	subscriptions    []Subscription
-	workers          sync.WaitGroup
-	observerWorkers  sync.WaitGroup
-	running          bool
-	startedAt        time.Time
-	published        atomic.Uint64
-	handled          atomic.Uint64
-	failed           atomic.Uint64
-	retried          atomic.Uint64
-	deadLettered     atomic.Uint64
-	acknowledged     atomic.Uint64
-	historyMu        sync.Mutex
-	history          []HookEvent
-	registry         Registry
-	closed           bool
-	stopping         bool
-	deferred         bool
-	processingCtx    context.Context //nolint:containedctx // Runtime owns and cancels the accepted-work lifetime independently of intake.
-	processingCancel context.CancelFunc
-	rpcHandlers      map[string]RPCHandler
-	rpcServers       []RPCServer
-	rpcCalls         atomic.Uint64
-	rpcHandled       atomic.Uint64
-	rpcFailed        atomic.Uint64
-	rpcTimedOut      atomic.Uint64
+	mu                sync.RWMutex
+	config            Config
+	providers         map[string]Provider
+	registrations     map[string]registration
+	hooks             []Hook
+	observers         *observerPool
+	cancel            context.CancelFunc
+	observerCancel    context.CancelFunc
+	subscriptions     []Subscription
+	workers           sync.WaitGroup
+	observerWorkers   sync.WaitGroup
+	running           bool
+	startedAt         time.Time
+	published         atomic.Uint64
+	handled           atomic.Uint64
+	failed            atomic.Uint64
+	retried           atomic.Uint64
+	deadLettered      atomic.Uint64
+	acknowledged      atomic.Uint64
+	latencyMu         sync.Mutex
+	processingLatency map[string]Latency
+	deliveryLatency   map[string]Latency
+	historyMu         sync.Mutex
+	history           []HookEvent
+	registry          Registry
+	closed            bool
+	stopping          bool
+	deferred          bool
+	processingCtx     context.Context //nolint:containedctx // Runtime owns and cancels the accepted-work lifetime independently of intake.
+	processingCancel  context.CancelFunc
+	rpcHandlers       map[string]RPCHandler
+	rpcServers        []RPCServer
+	rpcCalls          atomic.Uint64
+	rpcHandled        atomic.Uint64
+	rpcFailed         atomic.Uint64
+	rpcTimedOut       atomic.Uint64
 }
 
 // WithRegistry enables registration, discovery and instance inspection.
@@ -202,7 +205,7 @@ func New(cfg Config, options ...Option) (*Runtime, error) {
 		return nil, errors.New("conduit: observer buffer exceeds 65536")
 	}
 
-	r := &Runtime{config: cfg, providers: make(map[string]Provider), registrations: make(map[string]registration), rpcHandlers: make(map[string]RPCHandler)}
+	r := &Runtime{config: cfg, providers: make(map[string]Provider), registrations: make(map[string]registration), rpcHandlers: make(map[string]RPCHandler), processingLatency: map[string]Latency{}, deliveryLatency: map[string]Latency{}}
 
 	r.config.Endpoints = slices.Clone(cfg.Endpoints)
 	for _, endpoint := range cfg.Endpoints {
@@ -607,10 +610,6 @@ func (r *Runtime) Stop(ctx context.Context) error {
 		stopErr = errors.Join(stopErr, r.registry.Register(ctx, Instance{Identity: r.config.Identity, Version: r.config.Version, Endpoints: r.config.Endpoints, Ready: false}))
 	}
 
-	for _, sub := range subs {
-		stopErr = errors.Join(stopErr, sub.Close(ctx))
-	}
-
 	for _, server := range servers {
 		stopErr = errors.Join(stopErr, server.Close(ctx))
 	}
@@ -629,6 +628,10 @@ func (r *Runtime) Stop(ctx context.Context) error {
 
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+
+	for _, sub := range subs {
+		stopErr = errors.Join(stopErr, sub.Close(cleanup))
+	}
 
 	if r.registry != nil {
 		stopErr = errors.Join(stopErr, r.registry.Deregister(cleanup, r.config.Identity))
@@ -863,6 +866,13 @@ func (r *Runtime) consume(ctx context.Context, sub Subscription, reg registratio
 }
 
 func (r *Runtime) process(ctx context.Context, delivery Delivery, cfg SubscriptionConfig, handler Handler) {
+	started := time.Now()
+
+	defer func() {
+		msg := delivery.Message()
+		r.recordLatency(cfg.ID, time.Since(started), started.Sub(msg.CreatedAt))
+	}()
+
 	msg, info := delivery.Message(), delivery.Info()
 	r.emit(ctx, HookEvent{Stage: Received, Message: &msg, Delivery: &info})
 
@@ -892,7 +902,7 @@ func (r *Runtime) process(ctx context.Context, delivery Delivery, cfg Subscripti
 
 	if err == nil {
 		r.handled.Add(1)
-		r.emit(ctx, HookEvent{Stage: Handled, Message: &msg, Delivery: &info})
+		r.emit(ctx, HookEvent{Stage: Handled, Message: &msg, Delivery: &info, Duration: time.Since(started)})
 
 		if ackErr := delivery.Ack(ctx); ackErr != nil {
 			r.emit(ctx, HookEvent{Stage: SettlementFailed, Message: &msg, Delivery: &info, Error: ackErr.Error()})
@@ -905,7 +915,7 @@ func (r *Runtime) process(ctx context.Context, delivery Delivery, cfg Subscripti
 	}
 
 	r.failed.Add(1)
-	r.emit(ctx, HookEvent{Stage: HandleFailed, Message: &msg, Delivery: &info, Error: err.Error()})
+	r.emit(ctx, HookEvent{Stage: HandleFailed, Message: &msg, Delivery: &info, Error: err.Error(), Duration: time.Since(started)})
 
 	if ctx.Err() != nil {
 		return

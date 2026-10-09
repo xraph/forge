@@ -35,6 +35,10 @@ type (
 	Endpoint           = core.Endpoint
 	Instance           = core.Instance
 	Registry           = core.Registry
+	ConsumerInfo       = core.ConsumerInfo
+	Backfill           = core.Backfill
+	BackfillInput      = core.BackfillInput
+	Latency            = core.Latency
 )
 
 const (

@@ -30,6 +30,7 @@ type pending struct {
 	token     string
 }
 type consumer struct {
+	paused  bool
 	binding core.Binding
 	cursor  uint64
 	pending map[uint64]*pending
@@ -37,11 +38,13 @@ type consumer struct {
 
 // Broker can be shared by several development instances.
 type Broker struct {
-	mu        sync.Mutex
-	streams   map[string]*stream
-	letters   map[string]core.DeadLetter
-	rpc       map[string][]*rpcServer
-	rpcCursor int
+	mu             sync.Mutex
+	streams        map[string]*stream
+	letters        map[string]core.DeadLetter
+	rpc            map[string][]*rpcServer
+	rpcCursor      int
+	backfills      map[string]core.Backfill
+	backfillActive map[string]bool
 }
 
 // New creates a broker whose state lasts for this process only.
@@ -54,7 +57,7 @@ func (b *Broker) Name() string { return "memory" }
 
 // Capabilities explicitly exclude disk durability and key ordering.
 func (b *Broker) Capabilities() core.Capabilities {
-	return core.Capabilities{Replay: true, DeadLetters: true, RPC: true}
+	return core.Capabilities{Replay: true, DeadLetters: true, RPC: true, ConsumerControls: true, Backfill: true}
 }
 
 // Connect needs no external connection.
@@ -213,6 +216,10 @@ func (s *subscription) Next(ctx context.Context) (core.Delivery, error) {
 		st.prune(now)
 
 		for _, row := range st.records {
+			if c.paused {
+				break
+			}
+
 			p := c.pending[row.sequence]
 
 			if p == nil && row.sequence < c.cursor {
