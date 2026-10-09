@@ -41,6 +41,7 @@ func Run(ctx context.Context, cfg *config.ForgeConfig, cat *catalog.Catalog, opt
 			Message: "go is not on PATH; import-based suggestions are skipped", Fix: "install Go or declare bindings explicitly"})
 	}
 
+	origins := map[string]instance{}
 	resources := map[string]Suggestion{} // by resource name
 
 	for i := range res.Apps {
@@ -68,6 +69,18 @@ func Run(ctx context.Context, cfg *config.ForgeConfig, cat *catalog.Catalog, opt
 			instances = append(instances, found...)
 		}
 
+		for _, instance := range instances {
+			if instance.Type == "" {
+				continue
+			}
+
+			name := resourceName(instance)
+			if prev, ok := origins[name]; ok && (prev.Type != instance.Type || prev.Fields["dsn"] != "" && instance.Fields["dsn"] != "" && prev.Fields["dsn"] != instance.Fields["dsn"]) {
+				res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: "DEPLOY_RESOURCE_CONFLICT", Severity: output.SeverityError, Message: "resource name " + name + " has incompatible app configurations", File: prev.Source, Fix: "give different backends distinct names or explicitly share one configuration"})
+			} else {
+				origins[name] = instance
+			}
+		}
 		bindings := suggestBindings(a, instances, cat, resources)
 		if len(bindings) > 0 {
 			res.Suggestions = append(res.Suggestions, Suggestion{Kind: SuggestBinding, Path: "deploy.services." + a.Name + ".bindings",

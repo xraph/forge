@@ -88,6 +88,13 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 	d := &model.Deployment{Project: in.Config.Project.Name, Environment: envName, TargetName: targetName, Target: target, Registry: sp.Registry}
 	d.Overlay = overlayMode(in)
 
+	if in.Services != nil && env.Services != nil {
+		for _, name := range in.Services {
+			if !slices.Contains(env.Services, name) {
+				return nil, output.Diagnostics{{Code: "DEPLOY_SELECTION_INVALID", Severity: output.SeverityError, Message: "selection is outside environment scope: " + name}}, nil
+			}
+		}
+	}
 	selected := in.Services
 	if selected == nil {
 		selected = env.Services
@@ -97,6 +104,13 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 		selected = sortedKeys(sp.Services)
 	}
 
+	if target.ResourceOnly {
+		if len(in.Services) > 0 {
+			return nil, output.Diagnostics{{Code: "DEPLOY_SELECTION_INVALID", Severity: output.SeverityError, Message: "resource-only target cannot select applications"}}, nil
+		}
+
+		selected = []string{}
+	}
 	if len(selected) == 0 && !target.ResourceOnly {
 		return nil, output.Diagnostics{{Code: "DEPLOY_SELECTION_EMPTY", Severity: output.SeverityError, Message: "select at least one service"}}, nil
 	}
@@ -121,8 +135,12 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 	}
 
 	if target.ResourceOnly {
-		for n := range sp.Resources {
+		for n := range env.Resources {
 			needed[n] = true
+		}
+
+		if len(needed) == 0 {
+			return nil, output.Diagnostics{{Code: "DEPLOY_SELECTION_EMPTY", Severity: output.SeverityError, Message: "resource-only environment requires explicit resources"}}, nil
 		}
 	}
 	// Resources, sorted by name for determinism.
@@ -209,7 +227,9 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 				}
 
 				res.Secret = model.SecretRef{Name: ov.Secret, Resolver: in.Secrets.Name(), EnvVar: in.Secrets.EnvVar(ov.Secret), Resolved: st.Resolved, Where: st.Where}
-				if !st.Resolved {
+				if st.Unverified {
+					diags = append(diags, output.Diagnostic{Code: "DEPLOY_SECRET_UNVERIFIED", Severity: output.SeverityWarning, Message: "secret " + ov.Secret + " requires online verification", Field: field})
+				} else if !st.Resolved {
 					diags = append(diags, output.Diagnostic{Code: "DEPLOY_SECRET_UNRESOLVED", Severity: output.SeverityError,
 						Message: fmt.Sprintf("secret %q not found: %s", ov.Secret, st.Where), Field: field, Fix: "set " + res.Secret.EnvVar})
 				}
@@ -354,7 +374,7 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 			mb.Instance = instance
 
 			base := desc.ConfigKey
-			if desc.Instances != nil && instance != "" && instance != "default" {
+			if desc.Instances != nil && instance != "" && isNamedInstance(in, s.App, svc.Dir, desc, instance) {
 				base += "." + desc.Instances.Path + "[" + instance + "]"
 			}
 
@@ -379,7 +399,12 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 				}
 			default:
 				for key, path := range desc.Bind {
-					path = strings.ReplaceAll(path, "{instance}", instance)
+					selector := instance
+					if desc.Instances != nil {
+						selector = desc.Instances.Path + "[" + instance + "]"
+					}
+
+					path = strings.ReplaceAll(path, "{instance}", selector)
 					if key == "dsn" {
 						mb.Keys[desc.ConfigKey+"."+path] = ref
 					}
@@ -617,4 +642,22 @@ func sortedKeys[V any](m map[string]V) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+func isNamedInstance(in Input, app, dir string, desc catalog.Descriptor, name string) bool {
+	paths := []string{filepath.Join(in.Config.RootDir, "config", app+".yaml"), filepath.Join(in.Config.RootDir, "config", app+".yml"), filepath.Join(dir, "config.yaml"), filepath.Join(dir, "config.yml"), filepath.Join(in.Config.RootDir, "config.yaml"), filepath.Join(in.Config.RootDir, "config.yml")}
+	if in.Discovery != nil {
+		for _, a := range in.Discovery.Apps {
+			if a.Name == app {
+				paths = a.ConfigPaths
+			}
+		}
+	}
+
+	exists, hasList := discover.NamedInstance(discover.App{ConfigPaths: paths}, desc.ConfigKey, desc.Instances.Path, name)
+	if hasList {
+		return exists
+	}
+
+	return name != "default"
 }

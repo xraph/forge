@@ -129,7 +129,7 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 			}
 		}
 
-		if e.Services != nil && len(e.Services) == 0 {
+		if e.Services != nil && len(e.Services) == 0 && !d.Targets[e.Target].ResourceOnly {
 			add("DEPLOY_SELECTION_EMPTY", f+".services", "select at least one service", "omit services for all, or name selected services")
 		}
 
@@ -146,6 +146,23 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 			add(output.CodeUnknownKey, f+".environment_action", "unknown environment action", "use existing or create")
 		}
 
+		for svc, bindings := range e.BindingOverrides {
+			if !knownService(d, svc) {
+				add(output.CodeCallUnknown, f+".binding_overrides."+svc, "override names unknown service "+svc, "remove it")
+			}
+
+			for i, b := range bindings {
+				if _, ok := d.Resources[b.Resource]; !ok {
+					add(output.CodeBindingResourceUnknown, fmt.Sprintf("%s.binding_overrides.%s.%d.resource", f, svc, i), "unknown resource "+b.Resource, "declare it")
+				}
+			}
+		}
+
+		for svc := range e.HealthOverrides {
+			if !knownService(d, svc) {
+				add(output.CodeCallUnknown, f+".health_overrides."+svc, "unknown service "+svc, "remove it")
+			}
+		}
 		for svc := range e.Replicas {
 			if _, ok := d.Services[svc]; !ok {
 				add(output.CodeCallUnknown, f+".replicas."+svc, fmt.Sprintf("replicas set for unknown service %q", svc), "remove it")

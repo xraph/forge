@@ -18,7 +18,7 @@ var toolsByProvider = map[string][]string{
 // secret resolution through resolvers that need no network. online adds
 // provider checks in plan 03 and later.
 func (e *Engine) Doctor(ctx context.Context, target, env string, online bool) (output.Diagnostics, error) {
-	res, err := e.Inspect(ctx, target, env)
+	res, err := e.inspect(ctx, target, env, online)
 	if err != nil {
 		return nil, err
 	}

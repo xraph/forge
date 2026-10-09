@@ -34,8 +34,15 @@ forge deploy schema
 Initialization reads your build apps, runtime config and extension descriptors.
 Every suggestion has a source and confidence. Imports alone need an explicit
 answer before a resource is added. Invalid config blocks the write. Existing
-versioned blocks are preserved; use `forge deploy migrate --dry-run` to review
-an older block, then `forge deploy migrate --yes` to save it with a backup.
+versioned blocks are preserved. Use `forge deploy init --force` to propose
+missing keys while keeping your saved choices, or `forge deploy migrate --dry-run`
+to review an older block, then `forge deploy migrate --yes` to save it with a
+backup. Saving checks the source hashes again and writes the exact proposal
+you reviewed. If those files changed, review a new proposal first.
+
+Offline inspection checks local secret references and leaves cluster references
+unverified. It does not contact Kubernetes. Use online `doctor` to check those
+references before you apply.
 
 An environment can select services with `services: [api, worker]`. A call to an
 excluded service needs an `external_services` endpoint. Resource generation

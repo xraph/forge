@@ -125,8 +125,8 @@ type Resource struct {
 }
 
 type Connection struct {
-	From      string `json:"from"`
-	To        string
+	From      string        `json:"from"`
+	To        string        `json:"to"`
 	Port      string        `json:"port"`
 	Address   string        `json:"address"` // target-specific, filled by the provider
 	ConfigKey string        `json:"config_key"`

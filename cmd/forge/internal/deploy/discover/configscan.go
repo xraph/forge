@@ -69,10 +69,20 @@ func scanConfig(root, path string, cat *catalog.Catalog) ([]instance, error) {
 				}
 
 				for i, item := range items {
-					im, _ := item.(map[string]any)
+					im, valid := item.(map[string]any)
+					if !valid {
+						return nil, fmt.Errorf("%s: %s instance %d must be a mapping", rel, d.ConfigKey, i)
+					}
 					name, _ := im[d.Instances.Name].(string)
+					if name == "" {
+						return nil, fmt.Errorf("%s: %s instance %d requires name", rel, d.ConfigKey, i)
+					}
 					drv := firstString(im, "driver", "type", "storage_driver")
-					typ, _ := d.KindOf(drv)
+
+					typ, known := d.KindOf(drv)
+					if !known {
+						return nil, fmt.Errorf("%s: %s instance uses an unknown driver", rel, d.ConfigKey)
+					}
 					out = append(out, instance{
 						Extension: d.Extension, Name: name, Type: typ, Driver: drv,
 						Source: src(fmt.Sprintf("%s.%s.%d", d.ConfigKey, d.Instances.Path, i)),
@@ -90,7 +100,10 @@ func scanConfig(root, path string, cat *catalog.Catalog) ([]instance, error) {
 				continue
 			}
 
-			typ, _ := d.KindOf(drv)
+			typ, known := d.KindOf(drv)
+			if !known {
+				return nil, fmt.Errorf("%s: %s instance uses an unknown driver", rel, d.ConfigKey)
+			}
 			out = append(out, instance{
 				Extension: d.Extension, Name: "default", Type: typ, Driver: drv,
 				Source: src(d.ConfigKey), Fields: stringFields(m),
@@ -164,4 +177,39 @@ func ConfigValue(app App, dotted string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NamedInstance reports list presence separately from an item named default.
+func NamedInstance(app App, key, list, name string) (bool, bool) {
+	for _, p := range app.ConfigPaths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+
+		var tree map[string]any
+		if yaml.Unmarshal(raw, &tree) != nil {
+			continue
+		}
+
+		v, ok := lookup(tree, key+"."+list)
+		if !ok {
+			continue
+		}
+
+		items, ok := v.([]any)
+		if !ok {
+			return false, true
+		}
+
+		for _, item := range items {
+			if m, ok := item.(map[string]any); ok && m["name"] == name {
+				return true, true
+			}
+		}
+
+		return false, true
+	}
+
+	return false, false
 }

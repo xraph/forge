@@ -18,8 +18,9 @@ import (
 )
 
 type Status struct {
-	Resolved bool
-	Where    string
+	Unverified bool
+	Resolved   bool
+	Where      string
 }
 
 type Resolver interface {
@@ -240,4 +241,15 @@ func (r *KubernetesResolver) ValuesForApply(ctx context.Context) (map[string]str
 	}
 
 	return out, nil
+}
+
+// Deferred preserves references without performing remote I/O during inspection.
+type Deferred struct{ Resolver }
+
+func (r Deferred) Check(ctx context.Context, name string) (Status, error) {
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
+
+	return Status{Unverified: true, Where: r.Name() + " (unverified offline)"}, nil
 }

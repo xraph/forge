@@ -100,3 +100,19 @@ func TestDoctorTextOutputHasTable(t *testing.T) {
 		t.Fatalf("expected a diagnostics table: %s", out)
 	}
 }
+
+func TestInspectConfigOutsideProjectUsesRequestedIdentity(t *testing.T) {
+	app := cli.New(cli.Config{Name: "forge", Version: "test"})
+
+	var out bytes.Buffer
+	app.SetOutput(&out)
+
+	if err := app.RegisterPlugin(NewDeployPlugin(nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	err := app.Run([]string{"forge", "deploy", "inspect", "--config", testdata.Root("atlas-v2") + "/.forge.yml", "--output", "json"})
+	if err != nil || !strings.Contains(out.String(), `"project": "atlas"`) {
+		t.Fatalf("%v %s", err, &out)
+	}
+}

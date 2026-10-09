@@ -76,6 +76,7 @@ func (p *DeployPlugin) Commands() []cli.Command {
 
 		opts := deployFlags()
 		if name == "init" {
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("force", "", "Add missing deployment keys without replacing existing values", false)))
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write without confirming", false)), cli.WithFlag(cli.NewStringSliceFlag("answer", "", "Answer a decision as path=value", nil)))
 		}
 

@@ -63,7 +63,7 @@ func (p *DeployPlugin) inspect(ctx cli.CommandContext) error {
 		return output.Fail(output.ExitAccess, err.Error())
 	}
 
-	data := inspectData{Project: p.config.Project.Name, Target: res.Target, Environment: res.Environment}
+	data := inspectData{Project: res.Project, Target: res.Target, Environment: res.Environment}
 	for _, a := range res.Discovery.Apps {
 		data.Apps = append(data.Apps, a)
 	}

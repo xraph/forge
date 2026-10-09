@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/xraph/forge/cli"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 )
 
@@ -29,7 +30,7 @@ func (p *DeployPlugin) init(ctx cli.CommandContext) error {
 		}
 	}
 
-	res, files, err := e.Init(ctx.Context(), answers, false)
+	res, files, err := e.InitWithOptions(ctx.Context(), answers, engine.InitOptions{Force: ctx.Bool("force")})
 
 	var oe *output.Error
 	if errors.As(err, &oe) && oe.Code == output.ExitUnresolved && !mode.NonInteractive && !mode.JSON {
@@ -44,7 +45,7 @@ func (p *DeployPlugin) init(ctx cli.CommandContext) error {
 			answers[d.Field] = choice
 		}
 
-		res, files, err = e.Init(ctx.Context(), answers, false)
+		res, files, err = e.InitWithOptions(ctx.Context(), answers, engine.InitOptions{Force: ctx.Bool("force")})
 	}
 
 	if err != nil {
@@ -67,7 +68,7 @@ func (p *DeployPlugin) init(ctx cli.CommandContext) error {
 		}
 	}
 
-	if _, _, err := e.Init(ctx.Context(), answers, true); err != nil {
+	if err := e.SaveInit(ctx.Context(), res, files); err != nil {
 		return err
 	}
 

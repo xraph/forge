@@ -42,6 +42,8 @@ func New(opts Options) (*Engine, error) {
 }
 
 type InspectResult struct {
+	Project     string
+	InputHashes map[string]string
 	Doc         *spec.Document
 	Discovery   *discover.Result
 	Catalog     *catalog.Catalog
@@ -94,7 +96,14 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 
 	diags = append(diags, disc.Diagnostics...)
 
-	return &InspectResult{Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}, nil
+	res := &InspectResult{Project: e.cfg.Project.Name, Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}
+
+	res.InputHashes, err = e.sourceHashes(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // capabilities returns static capabilities for a provider name. Plan 03
@@ -123,7 +132,7 @@ func capabilitiesFor(provider string) model.Capabilities {
 	}
 }
 
-func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, env string) {
+func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, env string, online bool) {
 	if res.Diagnostics.HasErrors() {
 		return
 	}
@@ -165,6 +174,10 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 
 	if kr, ok := sec.(*secrets.KubernetesResolver); ok {
 		kr.Environment = env
+
+		if !online {
+			sec = secrets.Deferred{Resolver: sec}
+		}
 	}
 
 	d, diags, err := resolve.Resolve(ctx, resolve.Input{Config: e.cfg, Doc: res.Doc, Catalog: res.Catalog, Discovery: res.Discovery,
