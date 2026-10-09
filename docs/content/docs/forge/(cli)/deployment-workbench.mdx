@@ -23,25 +23,32 @@ others see.
 
 ## Try the mock
 
-[Open the interactive deployment mock](/mock/deploy.html).
+[Open the workbench mock](/mock/workbench.html).
 
-The sample project has a public gateway, a private API and a worker. The API
-and worker use a named Grove PostgreSQL database, a Trove store with its
-metadata in that database, and Redis through Grove KV.
+The page reads a sample project with a public gateway, a private API and a
+worker. The API and worker use a named Grove PostgreSQL database, a Trove
+store with its metadata in that database, and Redis through Grove KV. It is
+laid out in the order the CLI runs, and the margin names the command each
+section mirrors.
 
-On your first visit two decisions are open: how the worker's health is
-observed, and whether the app uses Redis JSON or search. Forge inferred
-everything else from `.forge.yml`, `config/*.yaml` and `go.mod`, and each
-suggestion shows where it came from. Deploy stays off until you answer. Switch
-between the Kubernetes, Compose, Render and DigitalOcean presets, set replicas
-and data placement, and watch the preflight card and the generated files change.
+You start with no deploy block. One click suggests it from the files Forge
+read, with the source file and line beside every value, and leaves two
+decisions open: how the worker's health is observed, and whether the app uses
+Redis JSON or search. Deploy stays off until you answer. Switch the
+environment to production and the lifecycle of each resource becomes a
+question too, with a secret reference that has to resolve before preflight
+passes.
 
-Save opens a dialog that lists the files the CLI would patch and shows the
-diff. Deploy opens the plan with its hash and the operations it will run, and
-the rehearsal streams a healthy rollout or a migration failure. Every event is
-labelled as simulated. The mock keeps a draft in your browser, downloads
-proposal files without secret values, and never touches your repository or a
-provider.
+Save shows the exact change to `.forge.yml` and marks the page saved. Run
+checks fills the preflight list for the chosen target. Build plan writes the
+operations into the ledger with a hash, and approving it turns the ledger into
+the journal, row by row, with a healthy rollout, a failed migration or a
+readiness timeout as the simulated outcome. The files section shows what you
+own and what Forge renders, and the last section shows the same steps as
+commands and the JSON an agent would read. Everything is simulated and nothing
+leaves your browser.
+
+An earlier mock from the first review is still at `/mock/deploy.html`.
 
 ## The flow
 

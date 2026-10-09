@@ -1,0 +1,3131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>forge deploy start | workbench mock</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #eef1f4;
+        --sheet: #ffffff;
+        --ink: #1b2430;
+        --steel: #4a6072;
+        --rule: #d5dce3;
+        --rule-strong: #b7c2cc;
+        --amber: #b8700a;
+        --amber-ink: #7a4a05;
+        --amber-soft: #fbefd6;
+        --green: #2e7d5b;
+        --green-soft: #dff1e8;
+        --red: #b3261e;
+        --red-soft: #f9e1df;
+        --blue-soft: #e3ebf2;
+        --sans:
+          "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, system-ui,
+          sans-serif;
+        --mono:
+          "IBM Plex Mono", "SF Mono", Menlo, Consolas, "Liberation Mono",
+          monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--paper);
+      }
+      body {
+        margin: 0;
+        font: 14px/1.5 var(--sans);
+        color: var(--ink);
+      }
+      a {
+        color: var(--steel);
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        background: var(--sheet);
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        padding: 6px 12px;
+        min-height: 34px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--steel);
+      }
+      button.primary {
+        background: var(--amber);
+        border-color: var(--amber);
+        color: #fff;
+        font-weight: 600;
+      }
+      button.primary:hover {
+        background: var(--amber-ink);
+        border-color: var(--amber-ink);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.quiet {
+        border-color: transparent;
+        background: transparent;
+        padding: 4px 8px;
+        min-height: 28px;
+        color: var(--steel);
+      }
+      button.quiet:hover {
+        background: var(--blue-soft);
+      }
+      select,
+      input {
+        background: var(--sheet);
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        padding: 6px 8px;
+        min-height: 34px;
+      }
+      :focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 2px;
+      }
+      code,
+      pre,
+      .mono {
+        font-family: var(--mono);
+        font-size: 12.5px;
+      }
+      pre {
+        margin: 0;
+        white-space: pre;
+        overflow: auto;
+        line-height: 1.55;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      h2 {
+        font-size: 17px;
+      }
+      h3 {
+        font-size: 14px;
+      }
+      p {
+        margin: 0;
+      }
+      .muted {
+        color: var(--steel);
+      }
+      .small {
+        font-size: 12.5px;
+      }
+
+      /* Sticky strip */
+      .strip {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: var(--sheet);
+        border-bottom: 1px solid var(--rule);
+      }
+      .strip-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 10px 24px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .strip .cmd {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      .strip .cmd b {
+        font-weight: 600;
+      }
+      .strip label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--steel);
+      }
+      .strip select {
+        min-height: 30px;
+        padding: 3px 6px;
+      }
+      .strip .spacer {
+        flex: 1;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12.5px;
+        font-weight: 600;
+        border: 1px solid var(--rule-strong);
+        background: var(--sheet);
+        white-space: nowrap;
+      }
+      .chip::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--rule-strong);
+      }
+      .chip.amber {
+        background: var(--amber-soft);
+        border-color: #e8c98f;
+        color: var(--amber-ink);
+      }
+      .chip.amber::before {
+        background: var(--amber);
+      }
+      .chip.green {
+        background: var(--green-soft);
+        border-color: #a9d8c1;
+        color: #1f5c43;
+      }
+      .chip.green::before {
+        background: var(--green);
+      }
+      .chip.red {
+        background: var(--red-soft);
+        border-color: #e9a7a2;
+        color: #7f1a14;
+      }
+      .chip.red::before {
+        background: var(--red);
+      }
+      .chip.blue {
+        background: var(--blue-soft);
+        color: var(--steel);
+      }
+      .chip.blue::before {
+        background: var(--steel);
+      }
+
+      /* Page */
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 28px 24px 80px;
+      }
+      .banner {
+        border: 1px solid #e8c98f;
+        background: var(--amber-soft);
+        color: var(--amber-ink);
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-bottom: 26px;
+      }
+      .intro {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        gap: 24px;
+        margin-bottom: 30px;
+      }
+      .intro h1 {
+        margin-bottom: 6px;
+      }
+      .intro p {
+        max-width: 68ch;
+      }
+
+      section.step {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        gap: 24px;
+        padding: 26px 0;
+        border-top: 1px solid var(--rule);
+      }
+      section.step[hidden] {
+        display: none;
+      }
+      .margin {
+        position: sticky;
+        top: 64px;
+        align-self: start;
+      }
+      .margin .cmd {
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        display: block;
+      }
+      .margin .note {
+        display: block;
+        margin-top: 4px;
+        font-size: 12.5px;
+        color: var(--steel);
+        max-width: 18ch;
+      }
+      .body > h2 {
+        margin-bottom: 4px;
+      }
+      .body > .lede {
+        margin-bottom: 16px;
+        max-width: 72ch;
+      }
+
+      /* Tables */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 12px;
+        border-top: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      thead th {
+        border-top: 0;
+        font-weight: 600;
+        font-size: 12.5px;
+        color: var(--steel);
+        background: #f6f8fa;
+      }
+      .src {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--steel);
+      }
+      .tablewrap {
+        overflow-x: auto;
+        margin-bottom: 14px;
+      }
+      .tablewrap table {
+        min-width: 560px;
+      }
+
+      /* Decisions */
+      .decision {
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        border-left: 3px solid var(--amber);
+        padding: 12px 14px;
+        margin-bottom: 10px;
+      }
+      .decision.done {
+        border-left-color: var(--green);
+      }
+      .decision .q {
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .decision .src {
+        margin-bottom: 8px;
+      }
+      .choices {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .choices label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--rule-strong);
+        border-radius: 4px;
+        padding: 5px 10px;
+        background: var(--sheet);
+        cursor: pointer;
+      }
+      .choices label:has(input:checked) {
+        border-color: var(--ink);
+        background: var(--blue-soft);
+      }
+      .choices input {
+        margin: 0;
+        min-height: 0;
+      }
+      .lifecycle-row td select {
+        min-height: 30px;
+        padding: 3px 6px;
+      }
+      .secret-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--steel);
+      }
+      .t-ok {
+        color: var(--green);
+        font-weight: 600;
+      }
+      .t-bad {
+        color: var(--red);
+        font-weight: 600;
+      }
+      .t-warn {
+        color: var(--amber-ink);
+        font-weight: 600;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      /* Topology */
+      .topology {
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        padding: 8px;
+        overflow-x: auto;
+      }
+      .topology svg {
+        display: block;
+        min-width: 620px;
+        width: 100%;
+        height: 230px;
+        font-family: var(--sans);
+      }
+      .topology .node rect {
+        fill: #fff;
+        stroke: var(--rule-strong);
+      }
+      .topology .node.public rect {
+        stroke: var(--amber);
+        stroke-width: 1.5;
+      }
+      .topology .node.resource rect {
+        fill: var(--blue-soft);
+        stroke: var(--rule-strong);
+      }
+      .topology text {
+        font-size: 12.5px;
+        fill: var(--ink);
+      }
+      .topology text.sub {
+        font-size: 11px;
+        fill: var(--steel);
+      }
+      .topology .call {
+        stroke: var(--steel);
+        stroke-width: 1.5;
+        fill: none;
+      }
+      .topology .bind {
+        stroke: var(--rule-strong);
+        stroke-width: 1.2;
+        stroke-dasharray: 4 3;
+        fill: none;
+      }
+      .legend {
+        display: flex;
+        gap: 18px;
+        margin-top: 8px;
+        font-size: 12.5px;
+        color: var(--steel);
+      }
+
+      /* Doctor */
+      .checks {
+        list-style: none;
+        margin: 0 0 12px;
+        padding: 0;
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+      }
+      .checks li {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        gap: 10px;
+        align-items: start;
+        padding: 9px 12px;
+        border-top: 1px solid var(--rule);
+        font-size: 13.5px;
+      }
+      .checks li:first-child {
+        border-top: 0;
+      }
+      .checks li.pending {
+        color: var(--steel);
+      }
+      .checks .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-top: 6px;
+        background: var(--rule-strong);
+      }
+      .checks li.ok .dot {
+        background: var(--green);
+      }
+      .checks li.warn .dot {
+        background: var(--amber);
+      }
+      .checks li.fail .dot {
+        background: var(--red);
+      }
+      .checks .code {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--steel);
+        white-space: nowrap;
+      }
+
+      /* Ledger: the one bold element */
+      .ledger {
+        background: var(--sheet);
+        border: 1px solid var(--rule-strong);
+        border-top: 3px solid var(--ink);
+        margin-top: 6px;
+      }
+      .ledger-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--rule-strong);
+        align-items: center;
+      }
+      .ledger-head .hash {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      .ledger-head .hash b {
+        font-weight: 600;
+      }
+      .ledger table {
+        border: 0;
+      }
+      .ledger td,
+      .ledger th {
+        padding: 8px 14px;
+      }
+      .ledger td.op {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        white-space: nowrap;
+        width: 1%;
+      }
+      .ledger td.st {
+        white-space: nowrap;
+        width: 1%;
+        text-align: right;
+        font-size: 12.5px;
+        color: var(--steel);
+      }
+      .ledger tr.accepted td.st,
+      .ledger tr.healthy td.st {
+        color: var(--green);
+        font-weight: 600;
+      }
+      .ledger tr.failed td.st {
+        color: var(--red);
+        font-weight: 600;
+      }
+      .ledger tr.skipped td {
+        color: var(--steel);
+      }
+      .ledger tr.applying td.st {
+        color: var(--amber-ink);
+        font-weight: 600;
+      }
+      .ledger tr.healthy td,
+      .ledger tr.accepted td {
+        background: #f3faf6;
+      }
+      .ledger tr.failed td {
+        background: #fdf1f0;
+      }
+      .ledger tr.applying td {
+        background: #fff8ea;
+      }
+      .ledger .foot {
+        padding: 10px 14px;
+        border-top: 1px solid var(--rule-strong);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: 13px;
+      }
+      .ledger .empty {
+        padding: 18px 14px;
+        color: var(--steel);
+      }
+      .outcome {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 12.5px;
+        color: var(--steel);
+      }
+      .outcome select {
+        min-height: 30px;
+        padding: 3px 6px;
+      }
+      .status-table {
+        margin-top: 14px;
+      }
+
+      /* Files */
+      .files {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        border: 1px solid var(--rule);
+        background: var(--sheet);
+        min-height: 320px;
+      }
+      .tree {
+        border-right: 1px solid var(--rule);
+        padding: 8px 0;
+        margin: 0;
+        list-style: none;
+      }
+      .tree li button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        border-radius: 0;
+        padding: 6px 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        min-height: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.4;
+      }
+      .tree li button:hover {
+        background: var(--blue-soft);
+      }
+      .tree li button[aria-current="true"] {
+        background: var(--blue-soft);
+        box-shadow: inset 3px 0 0 var(--ink);
+      }
+      .tree .dir {
+        padding: 8px 12px 2px;
+        font-size: 11.5px;
+        color: var(--steel);
+      }
+      .viewer {
+        padding: 12px 14px;
+        min-width: 0;
+      }
+      .viewer-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+      }
+      .viewer-head .badge {
+        font-family: var(--sans);
+        font-size: 11.5px;
+        color: var(--steel);
+        border: 1px solid var(--rule);
+        border-radius: 3px;
+        padding: 1px 6px;
+      }
+      .viewer pre {
+        max-height: 420px;
+      }
+      .diff .add {
+        color: var(--green);
+      }
+      .diff .del {
+        color: var(--red);
+      }
+      .diff .ctx {
+        color: var(--steel);
+      }
+
+      /* Agent */
+      .agent {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px;
+      }
+      .agent pre {
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        padding: 12px 14px;
+        max-height: 360px;
+      }
+      .agent h3 {
+        margin-bottom: 6px;
+      }
+      .copy {
+        float: right;
+      }
+
+      /* Drawer and dialogs */
+      dialog {
+        border: 1px solid var(--rule-strong);
+        border-radius: 6px;
+        padding: 18px;
+        max-width: 720px;
+        width: calc(100% - 32px);
+        background: var(--sheet);
+        color: var(--ink);
+      }
+      dialog::backdrop {
+        background: rgba(27, 36, 48, 0.45);
+      }
+      dialog h2 {
+        margin-bottom: 6px;
+      }
+      dialog pre {
+        border: 1px solid var(--rule);
+        padding: 10px 12px;
+        max-height: 320px;
+        margin: 12px 0;
+      }
+      .dialog-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        background: var(--ink);
+        color: #fff;
+        padding: 9px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        max-width: 90vw;
+      }
+      #toast:empty {
+        display: none;
+      }
+      .empty-state {
+        background: var(--sheet);
+        border: 1px dashed var(--rule-strong);
+        padding: 18px;
+      }
+      .empty-state p {
+        max-width: 60ch;
+        margin-bottom: 12px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 14px;
+        font-size: 13px;
+        margin: 8px 0 12px;
+      }
+      .kv dt {
+        color: var(--steel);
+      }
+      .kv dd {
+        margin: 0;
+      }
+
+      @media (max-width: 760px) {
+        .intro,
+        section.step {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .margin {
+          position: static;
+        }
+        .margin .note {
+          display: inline;
+          margin-left: 8px;
+          max-width: none;
+        }
+        .files,
+        .agent {
+          grid-template-columns: 1fr;
+        }
+        .tree {
+          border-right: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        .page {
+          padding: 20px 14px 60px;
+        }
+        .strip-inner {
+          padding: 8px 14px;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .checks li,
+        .ledger tr {
+          transition: background-color 180ms ease;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="strip">
+      <div class="strip-inner">
+        <span class="cmd"><b>forge deploy start</b> atlas</span>
+        <label
+          >Environment
+          <select id="env" aria-label="Environment">
+            <option value="dev">dev</option>
+            <option value="production">production</option>
+          </select></label
+        >
+        <span class="small muted" id="target-line">on local (compose)</span>
+        <span class="spacer"></span>
+        <span class="chip blue" id="status-chip">Not initialised</span>
+        <span class="chip" title="Every provider call on this page is simulated"
+          >Mock</span
+        >
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="banner">
+        This page is a mock of the local workbench. It reads a sample project,
+        keeps your choices in this browser, and simulates the CLI. Nothing is
+        written to disk and no provider is contacted.
+      </div>
+
+      <div class="intro">
+        <div></div>
+        <div>
+          <h1>Deploy atlas</h1>
+          <p class="muted">
+            Three services and the data they need, from the files already in the
+            repo. Answer what Forge cannot infer, save it to
+            <code>.forge.yml</code>, and deploy. The terminal and an agent run
+            the same steps with the commands in the margin.
+          </p>
+        </div>
+      </div>
+
+      <!-- inspect -->
+      <section class="step" id="s-inspect">
+        <div class="margin">
+          <span class="cmd">inspect</span>
+          <span class="note">What the project declares, with sources.</span>
+        </div>
+        <div class="body">
+          <h2>What Forge found</h2>
+          <p class="lede muted">
+            Read from <code>.forge.yml</code>, each app's
+            <code>.forge.yaml</code>, <code>config/*.yaml</code> and the import
+            graph. Config beats imports. Nothing here ran your code.
+          </p>
+          <div class="tablewrap">
+            <table id="apps-table">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Kind</th>
+                  <th>Port</th>
+                  <th>Uses</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="tablewrap">
+            <table id="resources-table">
+              <thead>
+                <tr>
+                  <th>Resource</th>
+                  <th>Type</th>
+                  <th>Used by</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="init-empty">
+            <h3>No deploy section yet</h3>
+            <p class="muted">
+              <code>.forge.yml</code> has project and build settings but no
+              <code>deploy:</code> block. Forge can write one from the table
+              above and ask you the two things it cannot guess.
+            </p>
+            <button type="button" class="primary" id="init-btn">
+              Suggest a deploy block
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- init: decisions -->
+      <section class="step" id="s-init" hidden>
+        <div class="margin">
+          <span class="cmd">init</span>
+          <span class="note">The questions, then the file.</span>
+        </div>
+        <div class="body">
+          <h2 id="decisions-title">Two things Forge cannot guess</h2>
+          <p class="lede muted">
+            Each answer becomes a line in the deploy block. Deploy stays off
+            until both are answered; the CLI exits 3 in the same situation.
+          </p>
+          <div class="decision" id="d-worker">
+            <div class="q">
+              worker has no listener. How should its health be observed?
+            </div>
+            <div class="src">
+              cmd/worker/.forge.yaml:3 sets app.type: worker and declares no
+              port
+            </div>
+            <div class="choices" role="radiogroup" aria-label="Worker health">
+              <label
+                ><input type="radio" name="worker-health" value="heartbeat" />
+                Application heartbeat</label
+              >
+              <label
+                ><input type="radio" name="worker-health" value="none" /> No
+                health check</label
+              >
+            </div>
+          </div>
+          <div class="decision" id="d-redis">
+            <div class="q">
+              cache is Redis. Does the app use Redis JSON or search?
+            </div>
+            <div class="src">
+              config/api.yaml:14 sets extensions.grove_kv.driver: redis. Feature
+              use is not in config
+            </div>
+            <div class="choices" role="radiogroup" aria-label="Redis features">
+              <label
+                ><input
+                  type="radio"
+                  name="redis-features"
+                  value="json,search"
+                />
+                Yes, JSON and search</label
+              >
+              <label
+                ><input type="radio" name="redis-features" value="none" /> No,
+                plain cache</label
+              >
+            </div>
+          </div>
+
+          <h3 style="margin-top: 20px">
+            Where each resource lives in <span id="env-name">dev</span>
+          </h3>
+          <p
+            class="small muted"
+            style="margin: 4px 0 10px; max-width: 70ch"
+            id="lifecycle-note"
+          ></p>
+          <div class="tablewrap">
+            <table id="lifecycle-table">
+              <thead>
+                <tr>
+                  <th>Resource</th>
+                  <th>Lifecycle</th>
+                  <th>Backing</th>
+                  <th>Secret</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="save-btn">
+              Save to .forge.yml
+            </button>
+            <button type="button" class="quiet" id="diff-btn">
+              Show the change
+            </button>
+            <span class="small muted" id="save-note"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- topology -->
+      <section class="step" id="s-topology" hidden>
+        <div class="margin">
+          <span class="cmd">inspect</span>
+          <span class="note">Who calls whom, and what binds to what.</span>
+        </div>
+        <div class="body">
+          <h2>Connections</h2>
+          <p class="lede muted" id="topology-lede"></p>
+          <div class="topology">
+            <svg
+              id="topology"
+              role="img"
+              aria-label="Service and resource graph"
+            ></svg>
+          </div>
+          <div class="legend">
+            <span
+              >Solid line: service call, written as
+              services.&lt;name&gt;.url</span
+            >
+            <span>Dashed line: resource binding in the overlay</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- doctor -->
+      <section class="step" id="s-doctor" hidden>
+        <div class="margin">
+          <span class="cmd">doctor</span>
+          <span class="note">Preflight for the chosen target.</span>
+        </div>
+        <div class="body">
+          <h2>Preflight</h2>
+          <p class="lede muted" id="doctor-lede"></p>
+          <ul class="checks" id="checks"></ul>
+          <div class="actions">
+            <button type="button" id="doctor-btn">Run checks</button>
+            <span class="small muted" id="doctor-summary">Not run yet.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- plan + apply -->
+      <section class="step" id="s-plan" hidden>
+        <div class="margin">
+          <span class="cmd">plan<br />apply</span>
+          <span class="note">The ledger is the plan, then the journal.</span>
+        </div>
+        <div class="body">
+          <h2>Plan and apply</h2>
+          <p class="lede muted">
+            A plan is a hash over the resolved model, the rendered files and the
+            remote state. Apply runs that plan or nothing. In CI the same hash
+            goes to <code>--approve-plan</code>.
+          </p>
+          <div class="ledger" id="ledger">
+            <div class="ledger-head">
+              <span class="hash" id="plan-hash">No plan yet</span>
+              <span class="chip blue" id="plan-chip">Unplanned</span>
+            </div>
+            <div class="empty" id="ledger-empty">
+              Build a plan to see the operations in order.
+            </div>
+            <table id="ledger-table" hidden>
+              <tbody></tbody>
+            </table>
+            <div class="foot">
+              <button type="button" id="plan-btn">Build plan</button>
+              <button type="button" class="primary" id="apply-btn" disabled>
+                Approve and deploy
+              </button>
+              <button type="button" id="rollback-btn" hidden>Roll back</button>
+              <span class="outcome"
+                >Simulated outcome
+                <select id="outcome" aria-label="Simulated outcome">
+                  <option value="healthy">Healthy rollout</option>
+                  <option value="migration">Migration fails</option>
+                  <option value="timeout">Readiness times out</option>
+                </select></span
+              >
+            </div>
+          </div>
+          <div class="status-table tablewrap" id="status-wrap" hidden>
+            <table id="status-table">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Ready</th>
+                  <th>Image</th>
+                  <th>Route</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- files -->
+      <section class="step" id="s-files" hidden>
+        <div class="margin">
+          <span class="cmd">export</span>
+          <span class="note">Files you own and files Forge renders.</span>
+        </div>
+        <div class="body">
+          <h2>Files</h2>
+          <p class="lede muted">
+            The first group is yours and is patched in place with comments kept.
+            The second is rendered from the plan and has a manifest of hashes,
+            so your edits in <code>patches/</code> survive.
+          </p>
+          <div class="files">
+            <ul class="tree" id="tree"></ul>
+            <div class="viewer">
+              <div class="viewer-head">
+                <span id="viewer-name"></span>
+                <span class="badge" id="viewer-badge"></span>
+                <button type="button" class="quiet copy" id="copy-file">
+                  Copy
+                </button>
+              </div>
+              <pre id="viewer"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- agent -->
+      <section class="step" id="s-agent" hidden>
+        <div class="margin">
+          <span class="cmd">--output json</span>
+          <span class="note">The same steps without a browser.</span>
+        </div>
+        <div class="body">
+          <h2>For a terminal or an agent</h2>
+          <p class="lede muted">
+            Every command prints one JSON document on stdout and progress on
+            stderr. Exit codes: 2 invalid input, 3 unresolved decisions, 4
+            unsupported, 5 access, 6 stale plan, 7 apply failed, 8 timeout.
+          </p>
+          <div class="agent">
+            <div>
+              <h3>Commands for the current state</h3>
+              <pre id="agent-commands"></pre>
+            </div>
+            <div>
+              <h3>What inspect returns right now</h3>
+              <pre id="agent-json"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="diff-dialog" aria-labelledby="diff-title">
+      <h2 id="diff-title">Change to .forge.yml</h2>
+      <p class="small muted">
+        The CLI patches the YAML tree, so comments, anchors and keys it does not
+        know are kept. Only the deploy block changes.
+      </p>
+      <pre class="diff" id="diff-body"></pre>
+      <div class="dialog-actions">
+        <button type="button" id="diff-close">Close</button>
+        <button type="button" class="primary" id="diff-save">
+          Save to .forge.yml
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="approve-dialog" aria-labelledby="approve-title">
+      <h2 id="approve-title">Approve this plan</h2>
+      <p class="small muted" id="approve-lede"></p>
+      <pre id="approve-body"></pre>
+      <div class="dialog-actions">
+        <button type="button" id="approve-cancel">Cancel</button>
+        <button type="button" class="primary" id="approve-confirm">
+          Approve and deploy
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="service-dialog" aria-labelledby="service-title">
+      <h2 id="service-title">Service</h2>
+      <p class="small muted" id="service-lede"></p>
+      <pre id="service-body"></pre>
+      <div class="dialog-actions">
+        <button type="button" id="service-close">Close</button>
+      </div>
+    </dialog>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // ---------- Fixture: what inspect reads from the sample project ----------
+      const PROJECT = {
+        name: "atlas",
+        module: "github.com/example/atlas",
+        registry: "ghcr.io/example",
+      };
+      const APPS = [
+        {
+          name: "gateway",
+          kind: "web",
+          port: 8080,
+          exposure: "public",
+          calls: ["api"],
+          bindings: [],
+          source: "cmd/gateway/main.go",
+          kindSource: "imports net/http",
+        },
+        {
+          name: "api",
+          kind: "web",
+          port: 8080,
+          exposure: "private",
+          calls: [],
+          migrate: true,
+          source: "cmd/api/.forge.yaml:2",
+          kindSource: "app.type: web",
+          bindings: [
+            {
+              resource: "primary",
+              extension: "grove",
+              key: "database",
+              value: "primary",
+              source: "config/api.yaml:4",
+            },
+            {
+              resource: "uploads",
+              extension: "trove",
+              key: "store",
+              value: "uploads",
+              meta: "primary",
+              source: "config/api.yaml:9",
+            },
+            {
+              resource: "cache",
+              extension: "grove_kv",
+              key: "store",
+              value: "cache",
+              source: "config/api.yaml:14",
+            },
+          ],
+        },
+        {
+          name: "worker",
+          kind: "worker",
+          port: 0,
+          exposure: "none",
+          calls: [],
+          source: "cmd/worker/.forge.yaml:3",
+          kindSource: "app.type: worker",
+          bindings: [
+            {
+              resource: "primary",
+              extension: "grove",
+              key: "database",
+              value: "primary",
+              source: "config/worker.yaml:4",
+            },
+            {
+              resource: "cache",
+              extension: "grove_kv",
+              key: "store",
+              value: "cache",
+              source: "config/worker.yaml:9",
+            },
+          ],
+        },
+      ];
+      const RESOURCES = {
+        primary: {
+          type: "postgres",
+          version: "16",
+          source: "config/api.yaml:4",
+          via: "extensions.grove.databases[0]",
+        },
+        uploads: {
+          type: "object-storage",
+          bucket: "atlas-uploads",
+          source: "config/api.yaml:9",
+          via: "extensions.trove.stores[0]",
+        },
+        cache: {
+          type: "redis",
+          source: "config/api.yaml:14",
+          via: "extensions.grove_kv.driver",
+        },
+      };
+      const TARGETS = {
+        local: { provider: "compose" },
+        "k8s-prod": {
+          provider: "kubernetes",
+          context: "prod-cluster",
+          namespace: "atlas-production",
+          ingress_class: "nginx",
+          network_policy: true,
+        },
+      };
+      const ENVS = {
+        dev: { target: "local" },
+        production: {
+          target: "k8s-prod",
+          replicas: { gateway: 2, api: 3, worker: 1 },
+        },
+      };
+      const RECIPES = {
+        postgres: "postgres-16",
+        "object-storage": "minio",
+        redis: "redis-7",
+        "redis-stack": "redis-stack-7",
+      };
+      const SECRET_NAMES = {
+        primary: "primary-dsn",
+        uploads: "uploads-credentials",
+        cache: "cache-url",
+      };
+
+      // ---------- State ----------
+      const KEY = "forge-workbench-mock-v1";
+      const fresh = () => ({
+        initialized: false,
+        env: "dev",
+        decisions: { workerHealth: null, redisFeatures: null },
+        lifecycles: {
+          dev: {
+            primary: "container",
+            uploads: "container",
+            cache: "container",
+          },
+          production: { primary: null, uploads: null, cache: null },
+        },
+        secrets: { dev: {}, production: {} },
+        saved: false,
+        doctor: { dev: null, production: null },
+        plan: null,
+        journal: [],
+        applyStatus: "none",
+        releases: { dev: [], production: [] },
+        file: ".forge.yml",
+      });
+      let state = fresh();
+      try {
+        const stored = JSON.parse(localStorage.getItem(KEY) || "null");
+        if (stored?.decisions && stored.lifecycles)
+          state = {
+            ...fresh(),
+            ...stored,
+            journal: [],
+            applyStatus: stored.applyStatus === "healthy" ? "healthy" : "none",
+          };
+      } catch {
+        /* storage unavailable: run in memory */
+      }
+      const persist = () => {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(state));
+        } catch {
+          /* ignore */
+        }
+      };
+
+      // ---------- Derived ----------
+      const envTarget = () => ENVS[state.env].target;
+      const provider = () => TARGETS[envTarget()].provider;
+      const caps = () =>
+        provider() === "compose"
+          ? {
+              lifecycles: ["container", "external"],
+              mounts: true,
+              ingress: false,
+            }
+          : {
+              lifecycles: ["external", "container"],
+              mounts: true,
+              ingress: true,
+            };
+      const envVar = (name) =>
+        (PROJECT.name + "_" + name).toUpperCase().replaceAll("-", "_");
+      const features = () =>
+        state.decisions.redisFeatures === "json,search"
+          ? ["json", "search"]
+          : state.decisions.redisFeatures === "none"
+            ? []
+            : null;
+      const recipe = (res) =>
+        res === "cache" && features()?.length
+          ? RECIPES["redis-stack"]
+          : RECIPES[RESOURCES[res].type];
+      const replicas = (app) => ENVS[state.env].replicas?.[app] || 1;
+      const plural = (n, word) => word + (n === 1 ? "" : "s");
+      const secretSet = (res) => Boolean(state.secrets[state.env][res]);
+
+      function diagnostics() {
+        const out = [];
+        if (!state.initialized) {
+          out.push({
+            code: "DEPLOY_VERSION_MISSING",
+            severity: "error",
+            file: ".forge.yml",
+            field: "deploy",
+            message: "no deploy section",
+            fix: "run forge deploy init",
+          });
+          return out;
+        }
+        if (!state.decisions.workerHealth)
+          out.push({
+            code: "DEPLOY_DECISION_OPEN",
+            severity: "error",
+            file: ".forge.yml",
+            field: "deploy.services.worker.health",
+            message: "worker has no health strategy",
+            fix: "set health: {heartbeat: true} or health: {none: true}",
+          });
+        if (!state.decisions.redisFeatures)
+          out.push({
+            code: "DEPLOY_DECISION_OPEN",
+            severity: "error",
+            file: ".forge.yml",
+            field: "deploy.resources.cache.features",
+            message: "cache is Redis; say which features the app uses",
+            fix: "set features: [json, search] or features: []",
+          });
+        for (const res of Object.keys(RESOURCES)) {
+          const life = state.lifecycles[state.env][res];
+          const field =
+            "deploy.environments." + state.env + ".resources." + res;
+          if (!life) {
+            out.push({
+              code: "DEPLOY_LIFECYCLE_UNSET",
+              severity: "error",
+              file: ".forge.yml",
+              field: field + ".lifecycle",
+              message: "resource " + res + " has no lifecycle for " + state.env,
+              fix: "set lifecycle to external (with a secret), managed, or container",
+            });
+            continue;
+          }
+          if (!caps().lifecycles.includes(life))
+            out.push({
+              code: "DEPLOY_LIFECYCLE_UNSUPPORTED",
+              severity: "error",
+              file: ".forge.yml",
+              field: field + ".lifecycle",
+              message:
+                provider() +
+                " cannot host " +
+                RESOURCES[res].type +
+                " as " +
+                life,
+              fix: "use " + caps().lifecycles.join(" or "),
+            });
+          if (life === "external" && !secretSet(res))
+            out.push({
+              code: "DEPLOY_SECRET_UNRESOLVED",
+              severity: "error",
+              file: ".forge.yml",
+              field: field + ".secret",
+              message:
+                "secret " +
+                SECRET_NAMES[res] +
+                " not found: " +
+                (provider() === "kubernetes"
+                  ? "secret forge-atlas-" +
+                    state.env +
+                    " (no " +
+                    envVar(SECRET_NAMES[res]) +
+                    ")"
+                  : ".forge/secrets.env (no " +
+                    envVar(SECRET_NAMES[res]) +
+                    ")"),
+              fix: "set " + envVar(SECRET_NAMES[res]),
+            });
+          if (life === "container" && state.env !== "dev") {
+            out.push({
+              code: "DEPLOY_CONTAINER_IN_PRODUCTION",
+              severity: "warning",
+              file: ".forge.yml",
+              field: field + ".lifecycle",
+              message: res + " runs as a single container in " + state.env,
+              fix: "prefer external or managed; a container recipe is dev grade",
+            });
+            out.push({
+              code: "DEPLOY_BACKUP_REQUIRED",
+              severity: "error",
+              file: ".forge.yml",
+              field: "deploy.environments." + state.env + ".backup",
+              message:
+                "container data in " + state.env + " needs a backup policy",
+              fix: "add backup: {schedule, destination} or switch to external",
+            });
+          }
+        }
+        return out;
+      }
+      const errors = () => diagnostics().filter((d) => d.severity === "error");
+      const decisionsOpen = () =>
+        diagnostics().filter((d) => d.code === "DEPLOY_DECISION_OPEN").length;
+
+      // ---------- Files ----------
+      function forgeYml() {
+        const L = [];
+        L.push(
+          "# Project settings. The deploy block below was written by forge deploy init.",
+        );
+        L.push(
+          "project:",
+          "  name: " + PROJECT.name,
+          "  module: " + PROJECT.module,
+          "  layout: single-module",
+        );
+        L.push(
+          "build:",
+          "  apps:",
+          "    - { name: gateway, cmd: ./cmd/gateway }",
+          "    - { name: api, cmd: ./cmd/api }",
+          "    - { name: worker, cmd: ./cmd/worker }",
+        );
+        if (!state.initialized) return L.join("\n") + "\n";
+        L.push(
+          "",
+          "deploy:",
+          "  version: 2",
+          "  registry: " + PROJECT.registry,
+          "  defaults: { target: local, environment: dev }",
+        );
+        L.push("  services:");
+        L.push(
+          "    gateway:",
+          "      app: gateway",
+          "      kind: web",
+          "      ports: { http: { port: 8080, exposure: public } }",
+          "      calls: [api]",
+        );
+        L.push(
+          "    api:",
+          "      app: api",
+          "      kind: web",
+          "      ports: { http: { port: 8080, exposure: private } }",
+          "      config: [./config/api.yaml]",
+          "      migrate: auto",
+          "      bindings:",
+        );
+        L.push(
+          "        - { resource: primary, extension: grove, database: primary }",
+          "        - { resource: uploads, extension: trove, store: uploads, metadata_database: primary }",
+          "        - { resource: cache, extension: grove_kv, store: cache }",
+        );
+        L.push("    worker:", "      app: worker", "      kind: worker");
+        if (state.decisions.workerHealth === "heartbeat")
+          L.push("      health: { heartbeat: true }");
+        else if (state.decisions.workerHealth === "none")
+          L.push("      health: { none: true }");
+        else L.push("      # health: open decision, see forge deploy inspect");
+        L.push(
+          "      bindings:",
+          "        - { resource: primary, extension: grove, database: primary }",
+          "        - { resource: cache, extension: grove_kv, store: cache }",
+        );
+        L.push(
+          "  resources:",
+          '    primary: { type: postgres, version: "16" }',
+          "    uploads: { type: object-storage, bucket: atlas-uploads }",
+        );
+        const f = features();
+        L.push(
+          "    cache: { type: redis" +
+            (f === null
+              ? " }  # features: open decision"
+              : ", features: [" + f.join(", ") + "] }"),
+        );
+        L.push("  environments:");
+        for (const env of ["dev", "production"]) {
+          L.push("    " + env + ":", "      target: " + ENVS[env].target);
+          if (ENVS[env].replicas)
+            L.push("      replicas: { gateway: 2, api: 3, worker: 1 }");
+          L.push("      resources:");
+          for (const res of Object.keys(RESOURCES)) {
+            const life = state.lifecycles[env][res];
+            if (!life)
+              L.push("        " + res + ": {}  # lifecycle: open decision");
+            else if (life === "external")
+              L.push(
+                "        " +
+                  res +
+                  ": { lifecycle: external, secret: " +
+                  SECRET_NAMES[res] +
+                  " }",
+              );
+            else if (life === "managed")
+              L.push("        " + res + ": { lifecycle: managed }");
+            else L.push("        " + res + ": { lifecycle: container }");
+          }
+          if (env === "production")
+            L.push(
+              "      ingress: { host: atlas.example.com, tls: letsencrypt }",
+            );
+        }
+        L.push(
+          "  targets:",
+          "    local: { provider: compose }",
+          "    k8s-prod:",
+          "      provider: kubernetes",
+          "      context: prod-cluster",
+          "      namespace: atlas-production",
+          "      ingress_class: nginx",
+          "      network_policy: true",
+        );
+        L.push("  secrets: { resolver: file, file: .forge/secrets.env }");
+        return L.join("\n") + "\n";
+      }
+      let hashing = false;
+      const digest = (a, b) =>
+        state.plan && !hashing
+          ? state.plan.hash.slice(a, b) + "…"
+          : "<pinned at apply>";
+      function lockYml() {
+        const f = features() || [];
+        return (
+          [
+            "# Written by forge deploy plan. Commit it.",
+            "schema: 1",
+            "descriptors:",
+            "  grove: { schema: 1, source: embedded }",
+            "  grove_kv: { schema: 1, source: embedded }",
+            "  trove: { schema: 1, source: embedded }",
+            "recipes:",
+            "  postgres-16: { image: postgres:16 }",
+            "  " +
+              (f.length
+                ? "redis-stack-7: { image: redis/redis-stack-server:7.4.0-v1 }"
+                : "redis-7: { image: redis:7 }"),
+            "  minio: { image: minio/minio }",
+            "images:",
+            "  " + state.env + ":",
+            "    gateway: ghcr.io/example/atlas-gateway@sha256:" +
+              digest(0, 16),
+            "    api: ghcr.io/example/atlas-api@sha256:" + digest(16, 32),
+            "    worker: ghcr.io/example/atlas-worker@sha256:" + digest(32, 48),
+          ].join("\n") + "\n"
+        );
+      }
+      function overlay(app) {
+        const a = APPS.find((x) => x.name === app);
+        const L = [
+          "# Rendered for " +
+            app +
+            ". Mounted at /etc/forge/overlay.yaml, named in FORGE_CONFIG_OVERLAY.",
+          `# No secret values: the target injects every \${VAR} from its secret store.`,
+        ];
+        if (a.bindings.length) {
+          L.push("extensions:");
+          const grove = a.bindings.find((b) => b.extension === "grove");
+          const kv = a.bindings.find((b) => b.extension === "grove_kv");
+          const trove = a.bindings.find((b) => b.extension === "trove");
+          if (grove)
+            L.push(
+              "  grove:",
+              "    databases:",
+              "      - name: " + grove.value,
+              "        driver: postgres",
+              `        dsn: \${${envVar(SECRET_NAMES.primary)}}`,
+            );
+          if (kv)
+            L.push(
+              "  grove_kv:",
+              "    stores:",
+              "      - name: " + kv.value,
+              "        driver: redis",
+              `        dsn: \${${envVar(SECRET_NAMES.cache)}}`,
+            );
+          if (trove)
+            L.push(
+              "  trove:",
+              `    storage_driver: \${${envVar(SECRET_NAMES.uploads)}}`,
+              "    grove_database: " + trove.meta,
+              "    stores:",
+              "      - name: " + trove.value,
+              "        default_bucket: atlas-uploads",
+            );
+        }
+        if (a.calls.length) {
+          L.push("services:");
+          for (const c of a.calls)
+            L.push("  " + c + ":", "    url: " + address(c), "    timeout: 5s");
+        } else L.push("services: {}");
+        return L.join("\n") + "\n";
+      }
+      function address(svc) {
+        const t = TARGETS[envTarget()];
+        return provider() === "kubernetes"
+          ? "http://" + svc + "." + t.namespace + ".svc.cluster.local:8080"
+          : "http://" + svc + ":8080";
+      }
+      function composeYaml() {
+        const L = [
+          "# Generated by forge deploy. Put your edits in patches/ beside this file.",
+          "name: atlas-" + state.env,
+          "services:",
+        ];
+        for (const res of Object.keys(RESOURCES)) {
+          if (state.lifecycles[state.env][res] !== "container") continue;
+          const r = recipe(res);
+          const img = {
+            "postgres-16": "postgres:16",
+            minio: "minio/minio",
+            "redis-7": "redis:7",
+            "redis-stack-7": "redis/redis-stack-server:7.4.0-v1",
+          }[r];
+          L.push(
+            "  " + res + ":",
+            "    image: " + img,
+            "    restart: unless-stopped",
+          );
+          if (res === "primary")
+            L.push(
+              "    environment:",
+              `      POSTGRES_USER: \${ATLAS_PRIMARY_USER}`,
+              `      POSTGRES_PASSWORD: \${ATLAS_PRIMARY_PASSWORD}`,
+              "      POSTGRES_DB: atlas",
+              "    volumes: [primary-data:/var/lib/postgresql/data]",
+              '    healthcheck: { test: ["CMD", "pg_isready", "-U", "$$ATLAS_PRIMARY_USER", "-d", "atlas"], interval: 5s, timeout: 3s, retries: 20 }',
+            );
+          if (res === "uploads")
+            L.push(
+              "    environment:",
+              `      MINIO_ROOT_USER: \${ATLAS_UPLOADS_USER}`,
+              `      MINIO_ROOT_PASSWORD: \${ATLAS_UPLOADS_PASSWORD}`,
+              "    volumes: [uploads-data:/data]",
+              '    healthcheck: { test: ["CMD", "mc", "ready", "local"], interval: 5s, timeout: 3s, retries: 20 }',
+            );
+          if (res === "cache")
+            L.push(
+              "    volumes: [cache-data:/data]",
+              '    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20 }',
+            );
+          L.push("    networks: [forge]");
+        }
+        if (state.lifecycles[state.env].uploads === "container")
+          L.push(
+            "  uploads-init:",
+            "    image: minio/minio",
+            '    entrypoint: ["sh", "-c", "mc alias set local http://uploads:9000 $$ATLAS_UPLOADS_USER $$ATLAS_UPLOADS_PASSWORD && mc mb -p local/atlas-uploads"]',
+            "    depends_on: { uploads: { condition: service_healthy } }",
+            "    networks: [forge]",
+            '    restart: "no"',
+          );
+        for (const a of APPS) {
+          L.push(
+            "  " + a.name + ":",
+            "    build: { context: ../../.., dockerfile: ./deployments/local/" +
+              state.env +
+              "/" +
+              a.name +
+              "/Dockerfile }",
+            "    image: ghcr.io/example/atlas-" + a.name + ":" + state.env,
+            "    restart: unless-stopped",
+            "    env_file: [./generated.env]",
+            "    environment:",
+            "      FORGE_CONFIG_OVERLAY: /etc/forge/overlay.yaml",
+            '      PORT: "8080"',
+          );
+          for (const c of a.calls)
+            L.push("      " + c.toUpperCase() + "_URL: " + address(c));
+          L.push(
+            "    configs: [{ source: " +
+              a.name +
+              "-overlay, target: /etc/forge/overlay.yaml }]",
+          );
+          if (a.exposure === "public") L.push('    ports: ["8080:8080"]');
+          if (a.kind === "web")
+            L.push(
+              '    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_/health/ready"], interval: 5s, timeout: 3s, retries: 30, start_period: 10s }',
+            );
+          const deps = [];
+          for (const b of a.bindings)
+            if (state.lifecycles[state.env][b.resource] === "container")
+              deps.push(b.resource + ": { condition: service_healthy }");
+          if (
+            a.bindings.some((b) => b.resource === "uploads") &&
+            state.lifecycles[state.env].uploads === "container"
+          )
+            deps.push(
+              "uploads-init: { condition: service_completed_successfully }",
+            );
+          if (APPS.some((x) => x.migrate) && a.kind !== "worker" && !a.migrate)
+            deps.push(
+              "api-migrate: { condition: service_completed_successfully }",
+            );
+          if (a.migrate)
+            deps.push(
+              "api-migrate: { condition: service_completed_successfully }",
+            );
+          for (const c of a.calls)
+            deps.push(c + ": { condition: service_started }");
+          if (deps.length)
+            L.push("    depends_on: { " + deps.join(", ") + " }");
+          L.push("    networks: [forge]");
+          if (a.migrate)
+            L.push(
+              "  api-migrate:",
+              "    image: ghcr.io/example/atlas-api:" + state.env,
+              "    command: [migrate]",
+              "    env_file: [./generated.env]",
+              "    environment: { FORGE_CONFIG_OVERLAY: /etc/forge/overlay.yaml }",
+              "    configs: [{ source: api-overlay, target: /etc/forge/overlay.yaml }]",
+              "    depends_on: { primary: { condition: service_healthy } }",
+              "    networks: [forge]",
+              '    restart: "no"',
+            );
+        }
+        L.push("configs:");
+        for (const a of APPS)
+          L.push(
+            "  " +
+              a.name +
+              "-overlay: { file: ./" +
+              a.name +
+              "/forge.overlay.yaml }",
+          );
+        L.push("volumes:");
+        for (const res of Object.keys(RESOURCES))
+          if (state.lifecycles[state.env][res] === "container")
+            L.push("  " + res + "-data: {}");
+        L.push("networks:", "  forge: {}");
+        return L.join("\n") + "\n";
+      }
+      function kustomization() {
+        return (
+          [
+            "# overlays/production/kustomization.yaml, generated by forge deploy",
+            "apiVersion: kustomize.config.k8s.io/v1beta1",
+            "kind: Kustomization",
+            "namespace: atlas-production",
+            "resources:",
+            "  - ../../base",
+            "  - ingress.yaml",
+            "  - networkpolicy.yaml",
+            "  - migrate-job.yaml",
+            "configMapGenerator:",
+            "  - name: gateway-overlay",
+            "    files: [overlay.yaml=gateway/forge.overlay.yaml]",
+            "  - name: api-overlay",
+            "    files: [overlay.yaml=api/forge.overlay.yaml]",
+            "  - name: worker-overlay",
+            "    files: [overlay.yaml=worker/forge.overlay.yaml]",
+            "replicas:",
+            "  - { name: gateway, count: 2 }",
+            "  - { name: api, count: 3 }",
+            "  - { name: worker, count: 1 }",
+            "images:",
+            "  - name: ghcr.io/example/atlas-api",
+            "    digest: sha256:" + digest(16, 32),
+            "commonLabels:",
+            "  app.kubernetes.io/part-of: atlas",
+            "  app.kubernetes.io/managed-by: forge",
+          ].join("\n") + "\n"
+        );
+      }
+      function apiDeployment() {
+        return (
+          [
+            "apiVersion: apps/v1",
+            "kind: Deployment",
+            "metadata:",
+            "  name: api",
+            "  labels: { app.kubernetes.io/name: api }",
+            "spec:",
+            "  selector: { matchLabels: { app.kubernetes.io/name: api } }",
+            "  template:",
+            "    metadata: { labels: { app.kubernetes.io/name: api } }",
+            "    spec:",
+            "      serviceAccountName: atlas-api",
+            "      automountServiceAccountToken: false",
+            "      containers:",
+            "        - name: api",
+            "          image: ghcr.io/example/atlas-api",
+            "          ports: [{ name: http, containerPort: 8080 }]",
+            "          env:",
+            "            - { name: FORGE_CONFIG_OVERLAY, value: /etc/forge/overlay.yaml }",
+            '            - { name: PORT, value: "8080" }',
+            "          envFrom:",
+            "            - secretRef: { name: forge-atlas-production }",
+            "          volumeMounts: [{ name: overlay, mountPath: /etc/forge, readOnly: true }]",
+            "          readinessProbe: { httpGet: { path: /_/health/ready, port: http }, periodSeconds: 5 }",
+            "          livenessProbe: { httpGet: { path: /_/health/live, port: http }, periodSeconds: 10 }",
+            "          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { memory: 256Mi } }",
+            "      volumes:",
+            "        - name: overlay",
+            "          configMap: { name: api-overlay }",
+          ].join("\n") + "\n"
+        );
+      }
+      function planJson() {
+        if (!state.plan) return "{}  # run plan first";
+        return JSON.stringify(
+          {
+            schema: "forge.deploy.plan/v1",
+            hash: state.plan.hash,
+            project: "atlas",
+            environment: state.env,
+            target: envTarget(),
+            operations: state.plan.ops.map((o) => ({
+              id: o.id,
+              kind: o.kind,
+              destructive: false,
+            })),
+            inputs: {
+              ".forge.yml": "sha256:" + state.plan.hash.slice(0, 12) + "…",
+            },
+          },
+          null,
+          2,
+        );
+      }
+      function files() {
+        const dir = "deployments/" + envTarget() + "/" + state.env + "/";
+        const out = [
+          {
+            group: "Yours",
+            path: ".forge.yml",
+            badge: "patched in place",
+            body: forgeYml,
+          },
+          {
+            group: "Yours",
+            path: "config/api.yaml",
+            badge: "read only",
+            body: () =>
+              "# Your runtime config, untouched by the compiler.\nextensions:\n  grove:\n    databases:\n      - { name: primary, driver: postgres }\n    default: primary\n  trove:\n    stores:\n      - name: uploads\n        grove_database: primary\n        default_bucket: atlas-uploads\n    default: uploads\n  grove_kv:\n    driver: redis\n",
+          },
+          {
+            group: "Yours",
+            path: "deploy/lock.yml",
+            badge: "committed",
+            body: lockYml,
+          },
+          {
+            group: "Rendered",
+            path: dir + "gateway/forge.overlay.yaml",
+            badge: "manifest hash",
+            body: () => overlay("gateway"),
+          },
+          {
+            group: "Rendered",
+            path: dir + "api/forge.overlay.yaml",
+            badge: "manifest hash",
+            body: () => overlay("api"),
+          },
+          {
+            group: "Rendered",
+            path: dir + "worker/forge.overlay.yaml",
+            badge: "manifest hash",
+            body: () => overlay("worker"),
+          },
+        ];
+        if (provider() === "compose")
+          out.push({
+            group: "Rendered",
+            path: dir + "compose.yaml",
+            badge: "manifest hash",
+            body: composeYaml,
+          });
+        else
+          out.push(
+            {
+              group: "Rendered",
+              path: dir + "kustomization.yaml",
+              badge: "manifest hash",
+              body: kustomization,
+            },
+            {
+              group: "Rendered",
+              path: dir + "base/api-deployment.yaml",
+              badge: "manifest hash",
+              body: apiDeployment,
+            },
+          );
+        out.push({
+          group: "Local state",
+          path:
+            ".forge/plans/" +
+            state.env +
+            "-" +
+            envTarget() +
+            "-" +
+            (state.plan ? state.plan.hash.slice(0, 12) : "…") +
+            ".json",
+          badge: "gitignored",
+          body: planJson,
+        });
+        return out;
+      }
+
+      // ---------- Plan ----------
+      function fnv(text, seed) {
+        let h = seed >>> 0;
+        for (const ch of text) {
+          h ^= ch.charCodeAt(0);
+          h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return h.toString(16).padStart(8, "0");
+      }
+      function planHash() {
+        hashing = true;
+        try {
+          const canonical = JSON.stringify({
+            env: state.env,
+            target: envTarget(),
+            decisions: state.decisions,
+            lifecycles: state.lifecycles[state.env],
+            files: files()
+              .filter((f) => f.group !== "Local state")
+              .map((f) => f.body()),
+          });
+          return [
+            0x811c9dc5, 0x9747b28c, 0x5bd1e995, 0x1b873593, 0xcc9e2d51,
+            0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f,
+          ]
+            .map((s) => fnv(canonical, s))
+            .join("");
+        } finally {
+          hashing = false;
+        }
+      }
+      function operations() {
+        const k8s = provider() === "kubernetes";
+        const ops = [];
+        for (const a of APPS)
+          ops.push({
+            id: "build:" + a.name,
+            kind: "build",
+            detail: k8s
+              ? "build, push to ghcr.io/example, pin digest"
+              : "docker compose build " + a.name,
+          });
+        for (const res of Object.keys(RESOURCES)) {
+          const life = state.lifecycles[state.env][res];
+          if (life === "container")
+            ops.push({
+              id: "create:" + res,
+              kind: "create",
+              detail: k8s
+                ? "StatefulSet from " +
+                  recipe(res) +
+                  " with a PVC, wait for ready"
+                : "start " + recipe(res) + " container, wait for health",
+            });
+          else if (life === "external")
+            ops.push({
+              id: "bind:" + res,
+              kind: "bind",
+              detail:
+                "check " +
+                envVar(SECRET_NAMES[res]) +
+                " resolves" +
+                (res === "cache" && (features() || []).length
+                  ? ", probe JSON.SET and FT.SEARCH"
+                  : ""),
+            });
+          else
+            ops.push({
+              id: "provision:" + res,
+              kind: "create",
+              detail: "provider creates " + RESOURCES[res].type,
+            });
+        }
+        ops.push({
+          id: "deliver:overlays",
+          kind: "deliver",
+          detail: k8s
+            ? "ConfigMaps for overlays, Secret envFrom"
+            : "generated.env (0600) and overlay configs",
+        });
+        ops.push({
+          id: "migrate:api",
+          kind: "migrate",
+          detail: k8s
+            ? "Job api-migrate, wait for completion"
+            : "docker compose run --rm api-migrate",
+        });
+        ops.push({
+          id: "rollout:all",
+          kind: "rollout",
+          detail: k8s
+            ? "apply Deployments, kubectl rollout status with a 10m deadline"
+            : "docker compose up -d --wait",
+        });
+        ops.push({
+          id: "route:gateway",
+          kind: "route",
+          detail: k8s
+            ? "Ingress atlas.example.com, TLS from letsencrypt"
+            : "publish host port 8080",
+        });
+        ops.push({
+          id: "check:ready",
+          kind: "check",
+          detail:
+            "GET " +
+            (k8s ? "https://atlas.example.com" : "http://localhost:8080") +
+            "/_/health/ready, write and read through Postgres and the bucket",
+        });
+        return ops;
+      }
+
+      // ---------- Rendering ----------
+      function el(tag, attrs, ...children) {
+        const n = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs || {})) {
+          if (k === "class") n.className = v;
+          else if (k === "text") n.textContent = v;
+          else n.setAttribute(k, v);
+        }
+        for (const c of children)
+          if (c !== null && c !== undefined) n.append(c);
+        return n;
+      }
+      function td(text, cls) {
+        const n = el("td", cls ? { class: cls } : {});
+        if (text instanceof Node) n.append(text);
+        else n.textContent = text;
+        return n;
+      }
+      function src(text) {
+        return el("span", { class: "src", text });
+      }
+
+      function renderStrip() {
+        $("env").value = state.env;
+        $("target-line").textContent =
+          "on " + envTarget() + " (" + provider() + ")";
+        const chip = $("status-chip");
+        const set = (cls, text) => {
+          chip.className = "chip " + cls;
+          chip.textContent = text;
+        };
+        if (!state.initialized) set("blue", "No deploy block");
+        else if (state.applyStatus === "applying") set("amber", "Applying");
+        else if (state.applyStatus === "healthy")
+          set("green", "Healthy in " + state.env);
+        else if (state.applyStatus === "failed") set("red", "Apply failed");
+        else if (state.plan && state.plan.hash === planHash())
+          set("blue", "Planned " + state.plan.hash.slice(0, 12));
+        else if (state.saved) set("green", "Saved to files");
+        else set("amber", "Unsaved changes");
+      }
+
+      function renderInspect() {
+        const tb = $("apps-table").querySelector("tbody");
+        tb.replaceChildren(
+          ...APPS.map((a) => {
+            const uses =
+              a.bindings
+                .map((b) => b.resource)
+                .concat(a.calls.map((c) => "calls " + c))
+                .join(", ") || "nothing";
+            const row = el(
+              "tr",
+              {},
+              td(
+                el("button", {
+                  type: "button",
+                  class: "quiet",
+                  text: a.name,
+                  "data-service": a.name,
+                }),
+              ),
+              td(
+                a.kind +
+                  (a.exposure === "public"
+                    ? ", public"
+                    : a.kind === "web"
+                      ? ", private"
+                      : ""),
+              ),
+              td(a.port ? String(a.port) : "none"),
+              td(uses),
+              td(src(a.source + " (" + a.kindSource + ")")),
+            );
+            return row;
+          }),
+        );
+        $("resources-table")
+          .querySelector("tbody")
+          .replaceChildren(
+            ...Object.entries(RESOURCES).map(([name, r]) => {
+              const usedBy = APPS.filter((a) =>
+                a.bindings.some((b) => b.resource === name),
+              )
+                .map((a) => a.name)
+                .join(", ");
+              return el(
+                "tr",
+                {},
+                td(name),
+                td(
+                  r.type +
+                    (r.version ? " " + r.version : "") +
+                    (r.bucket ? ", bucket " + r.bucket : ""),
+                ),
+                td(usedBy),
+                td(src(r.source + " (" + r.via + ")")),
+              );
+            }),
+          );
+        $("init-empty").hidden = state.initialized;
+        for (const id of [
+          "s-init",
+          "s-topology",
+          "s-doctor",
+          "s-plan",
+          "s-files",
+          "s-agent",
+        ])
+          $(id).hidden = !state.initialized;
+      }
+
+      function renderDecisions() {
+        const open = decisionsOpen();
+        $("decisions-title").textContent =
+          open === 0
+            ? "Both answers are in the deploy block"
+            : open === 1
+              ? "One thing Forge cannot guess"
+              : "Two things Forge cannot guess";
+        $("d-worker").classList.toggle(
+          "done",
+          Boolean(state.decisions.workerHealth),
+        );
+        $("d-redis").classList.toggle(
+          "done",
+          Boolean(state.decisions.redisFeatures),
+        );
+        for (const r of document.querySelectorAll(
+          'input[name="worker-health"]',
+        ))
+          r.checked = r.value === state.decisions.workerHealth;
+        for (const r of document.querySelectorAll(
+          'input[name="redis-features"]',
+        ))
+          r.checked = r.value === state.decisions.redisFeatures;
+        $("env-name").textContent = state.env;
+        $("lifecycle-note").textContent =
+          provider() === "compose"
+            ? "Compose defaults every resource to a container with a volume. Pick external to bind something you already run."
+            : "Kubernetes has no default here. External binds a database or bucket you already run through a secret; container renders a single-replica StatefulSet, which is dev grade and needs a backup policy in production.";
+        const tb = $("lifecycle-table").querySelector("tbody");
+        tb.replaceChildren(
+          ...Object.entries(RESOURCES).map(([name, r]) => {
+            const life = state.lifecycles[state.env][name];
+            const sel = el("select", {
+              "data-lifecycle": name,
+              "aria-label": "Lifecycle for " + name,
+            });
+            sel.append(el("option", { value: "", text: "Choose…" }));
+            for (const opt of ["container", "external", "managed"])
+              sel.append(
+                el("option", {
+                  value: opt,
+                  text:
+                    opt +
+                    (caps().lifecycles.includes(opt)
+                      ? ""
+                      : " (not on " + provider() + ")"),
+                }),
+              );
+            sel.value = life || "";
+            let backing = "";
+            let secret = el("span", {
+              class: "muted small",
+              text: "none needed",
+            });
+            if (life === "container") backing = recipe(name) + " with a volume";
+            else if (life === "external") {
+              backing = "your " + r.type;
+              const lbl = el("label", { class: "secret-toggle" });
+              const cb = el("input", { type: "checkbox", "data-secret": name });
+              cb.checked = secretSet(name);
+              lbl.append(
+                cb,
+                envVar(SECRET_NAMES[name]) +
+                  (secretSet(name) ? " resolves" : " not set"),
+              );
+              secret = el(
+                "span",
+                {},
+                lbl,
+                " ",
+                el("span", {
+                  class: secretSet(name) ? "t-ok small" : "t-bad small",
+                  text: secretSet(name)
+                    ? provider() === "kubernetes"
+                      ? "secret forge-atlas-" + state.env
+                      : ".forge/secrets.env:3"
+                    : "DEPLOY_SECRET_UNRESOLVED",
+                }),
+              );
+            } else if (life === "managed")
+              backing =
+                provider() === "kubernetes"
+                  ? "no operator recipe in this release"
+                  : "not on compose";
+            else backing = "open decision";
+            const row = el(
+              "tr",
+              { class: "lifecycle-row" },
+              td(name),
+              td(sel),
+              td(backing),
+              td(secret),
+            );
+            return row;
+          }),
+        );
+        const saved = state.saved && !dirtyFromSaved();
+        $("save-btn").disabled = saved;
+        $("save-note").textContent = saved
+          ? "Saved. The deploy block in .forge.yml matches this page."
+          : "Unsaved. The page differs from .forge.yml.";
+      }
+      let savedSnapshot = null;
+      const snapshot = () =>
+        JSON.stringify({ d: state.decisions, l: state.lifecycles });
+      const dirtyFromSaved = () => savedSnapshot !== snapshot();
+
+      function renderTopology() {
+        const svg = $("topology");
+        svg.replaceChildren();
+        const NS = "http://www.w3.org/2000/svg";
+        const mk = (tag, attrs, text) => {
+          const n = document.createElementNS(NS, tag);
+          for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+          if (text) n.textContent = text;
+          return n;
+        };
+        svg.setAttribute("viewBox", "0 0 760 230");
+        const pos = {
+          gateway: [20, 70],
+          api: [250, 70],
+          worker: [250, 160],
+          primary: [520, 20],
+          uploads: [520, 90],
+          cache: [520, 160],
+        };
+        const W = 150,
+          H = 44;
+        for (const a of APPS) {
+          for (const c of a.calls) {
+            const [x1, y1] = [pos[a.name][0] + W, pos[a.name][1] + H / 2];
+            const [x2, y2] = [pos[c][0], pos[c][1] + H / 2];
+            svg.append(
+              mk("path", {
+                class: "call",
+                d:
+                  "M" +
+                  x1 +
+                  " " +
+                  y1 +
+                  " C " +
+                  (x1 + 40) +
+                  " " +
+                  y1 +
+                  ", " +
+                  (x2 - 40) +
+                  " " +
+                  y2 +
+                  ", " +
+                  x2 +
+                  " " +
+                  y2,
+                "marker-end": "url(#arrow)",
+              }),
+            );
+          }
+          for (const b of a.bindings) {
+            const [x1, y1] = [pos[a.name][0] + W, pos[a.name][1] + H / 2];
+            const [x2, y2] = [pos[b.resource][0], pos[b.resource][1] + H / 2];
+            svg.append(
+              mk("path", {
+                class: "bind",
+                d:
+                  "M" +
+                  x1 +
+                  " " +
+                  y1 +
+                  " C " +
+                  (x1 + 60) +
+                  " " +
+                  y1 +
+                  ", " +
+                  (x2 - 60) +
+                  " " +
+                  y2 +
+                  ", " +
+                  x2 +
+                  " " +
+                  y2,
+              }),
+            );
+          }
+        }
+        const defs = mk("defs", {});
+        const marker = mk("marker", {
+          id: "arrow",
+          viewBox: "0 0 10 10",
+          refX: "9",
+          refY: "5",
+          markerWidth: "7",
+          markerHeight: "7",
+          orient: "auto-start-reverse",
+        });
+        marker.append(
+          mk("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "#4a6072" }),
+        );
+        defs.append(marker);
+        svg.append(defs);
+        for (const a of APPS) {
+          const g = mk("g", {
+            class: "node" + (a.exposure === "public" ? " public" : ""),
+          });
+          g.append(
+            mk("rect", {
+              x: pos[a.name][0],
+              y: pos[a.name][1],
+              width: W,
+              height: H,
+              rx: 4,
+            }),
+          );
+          g.append(
+            mk(
+              "text",
+              {
+                x: pos[a.name][0] + 12,
+                y: pos[a.name][1] + 19,
+                "font-weight": "600",
+              },
+              a.name,
+            ),
+          );
+          g.append(
+            mk(
+              "text",
+              { x: pos[a.name][0] + 12, y: pos[a.name][1] + 35, class: "sub" },
+              a.exposure === "public"
+                ? "public, " +
+                    replicas(a.name) +
+                    plural(replicas(a.name), " replica")
+                : a.kind === "web"
+                  ? "private :" +
+                    a.port +
+                    ", " +
+                    replicas(a.name) +
+                    plural(replicas(a.name), " replica")
+                  : "no listener, " +
+                    (state.decisions.workerHealth || "health open"),
+            ),
+          );
+          svg.append(g);
+        }
+        for (const [name, r] of Object.entries(RESOURCES)) {
+          const g = mk("g", { class: "node resource" });
+          g.append(
+            mk("rect", {
+              x: pos[name][0],
+              y: pos[name][1],
+              width: W + 60,
+              height: H,
+              rx: 4,
+            }),
+          );
+          g.append(
+            mk(
+              "text",
+              {
+                x: pos[name][0] + 12,
+                y: pos[name][1] + 19,
+                "font-weight": "600",
+              },
+              name + " (" + r.type + ")",
+            ),
+          );
+          const life = state.lifecycles[state.env][name];
+          g.append(
+            mk(
+              "text",
+              { x: pos[name][0] + 12, y: pos[name][1] + 35, class: "sub" },
+              life === "container"
+                ? recipe(name) + ", volume"
+                : life === "external"
+                  ? "external, " + envVar(SECRET_NAMES[name])
+                  : life === "managed"
+                    ? "managed by provider"
+                    : "lifecycle open",
+            ),
+          );
+          svg.append(g);
+        }
+        $("topology-lede").textContent =
+          "gateway calls api, which Forge writes as services.api.url = " +
+          address("api") +
+          ` in gateway's overlay and API_URL in its environment. Dashed lines are bindings the overlay carries as config keys with \${VAR} references.`;
+      }
+
+      function doctorRows() {
+        const rows = [];
+        const ok = (text, code) => rows.push({ level: "ok", text, code });
+        const warn = (text, code) => rows.push({ level: "warn", text, code });
+        const fail = (text, code) => rows.push({ level: "fail", text, code });
+        if (provider() === "compose") {
+          ok("Docker 27.3 and Compose v2.29 on PATH");
+          ok("Host port 8080 free for gateway");
+          ok("Overlay files mount through configs");
+        } else {
+          ok("kubectl 1.31 on PATH");
+          ok(
+            "Context prod-cluster reachable, namespace atlas-production exists",
+          );
+          ok("Ingress class nginx present");
+          warn(
+            "cert-manager issuer letsencrypt not found; the TLS route is blocked until it is installed",
+            "DEPLOY_PREREQ_MISSING",
+          );
+          warn(
+            "NetworkPolicy enforcement: the CNI did not report, policies render but are unverified",
+          );
+        }
+        for (const d of errors()) fail(d.message + ". " + d.fix, d.code);
+        for (const d of diagnostics().filter((x) => x.severity === "warning"))
+          warn(d.message + ". " + d.fix, d.code);
+        const f = features();
+        if (f?.length)
+          ok(
+            state.lifecycles[state.env].cache === "external"
+              ? "Redis JSON and search: probed on the external endpoint at plan time"
+              : "Redis JSON and search: redis-stack-7 provides them",
+          );
+        else if (f) ok("Redis plain cache");
+        return rows;
+      }
+      function renderDoctor(animate) {
+        const rows = doctorRows();
+        const ran = state.doctor[state.env];
+        $("doctor-lede").textContent =
+          "What forge deploy doctor --env " +
+          state.env +
+          " checks before a plan: tools, the target, prerequisites and every secret reference. Values are never shown.";
+        const list = $("checks");
+        list.replaceChildren(
+          ...rows.map((r) => {
+            const li = el(
+              "li",
+              { class: ran ? r.level : "pending" },
+              el("span", { class: "dot" }),
+              el("span", { text: r.text }),
+              el("span", { class: "code", text: r.code || "" }),
+            );
+            return li;
+          }),
+        );
+        if (animate && !reduced) {
+          const items = [...list.children];
+          for (const li of items) li.className = "pending";
+          items.forEach((li, i) => {
+            setTimeout(
+              () => {
+                li.className = rows[i].level;
+              },
+              120 * (i + 1),
+            );
+          });
+        }
+        const fails = rows.filter((r) => r.level === "fail").length;
+        const warns = rows.filter((r) => r.level === "warn").length;
+        $("doctor-summary").textContent = !ran
+          ? "Not run yet."
+          : fails
+            ? fails +
+              " blocking. Plan is off until they are fixed (the CLI exits 2)."
+            : warns
+              ? "Passed with " +
+                warns +
+                " warning" +
+                (warns > 1 ? "s" : "") +
+                "."
+              : "All checks passed.";
+      }
+
+      function renderLedger() {
+        const p = state.plan;
+        const table = $("ledger-table");
+        const tb = table.querySelector("tbody");
+        const current = p && p.env === state.env && p.hash === planHash();
+        $("plan-hash").replaceChildren();
+        if (current) {
+          const h = el("span", {
+            text: "plan " + state.env + " on " + envTarget() + "  hash ",
+          });
+          $("plan-hash").append(
+            h,
+            el("b", { text: p.hash.slice(0, 12) }),
+            el("span", {
+              class: "muted",
+              text:
+                p.hash.slice(12, 24) +
+                "…  (" +
+                p.ops.length +
+                " operations, mock digest)",
+            }),
+          );
+        } else
+          $("plan-hash").textContent =
+            p && p.env === state.env
+              ? "Inputs changed since plan " +
+                p.hash.slice(0, 12) +
+                ". Build it again (the CLI exits 6 on apply)."
+              : "No plan for " + state.env + " yet";
+        const chip = $("plan-chip");
+        const set = (cls, text) => {
+          chip.className = "chip " + cls;
+          chip.textContent = text;
+        };
+        if (state.applyStatus === "applying") set("amber", "Applying");
+        else if (state.applyStatus === "healthy") set("green", "Healthy");
+        else if (state.applyStatus === "failed") set("red", "Failed");
+        else if (current) set("blue", "Planned");
+        else set("blue", "Unplanned");
+        const show = Boolean(p && p.env === state.env);
+        $("ledger-empty").hidden = show;
+        table.hidden = !show;
+        if (show) {
+          const status = Object.fromEntries(
+            state.journal.map((j) => [j.op, j]),
+          );
+          tb.replaceChildren(
+            ...p.ops.map((o) => {
+              const j = status[o.id];
+              const cls = j ? j.status : current ? "planned" : "stale";
+              const tr = el(
+                "tr",
+                { class: cls },
+                td(o.id, "op"),
+                td(j?.message ? o.detail + " " + j.message : o.detail),
+                td(
+                  j
+                    ? j.status + (j.t ? "  +" + j.t + "s" : "")
+                    : current
+                      ? "planned"
+                      : "stale",
+                  "st",
+                ),
+              );
+              return tr;
+            }),
+          );
+        }
+        $("plan-btn").disabled =
+          errors().length > 0 || state.applyStatus === "applying";
+        $("plan-btn").textContent = current ? "Plan is current" : "Build plan";
+        $("apply-btn").disabled =
+          !current ||
+          state.applyStatus === "applying" ||
+          state.applyStatus === "healthy";
+        const rel = state.releases[state.env];
+        $("rollback-btn").hidden = !(
+          state.applyStatus === "failed" ||
+          (state.applyStatus === "healthy" && rel.length > 1)
+        );
+        $("rollback-btn").disabled = rel.length === 0;
+        $("rollback-btn").title =
+          rel.length === 0
+            ? "Nothing to roll back to: no earlier release"
+            : "Restore release " +
+              rel[rel.length - (state.applyStatus === "healthy" ? 2 : 1)];
+        renderStatusTable();
+      }
+      function renderStatusTable() {
+        const wrap = $("status-wrap");
+        const healthy = state.applyStatus === "healthy";
+        const failed = state.applyStatus === "failed";
+        wrap.hidden = !(healthy || failed);
+        if (wrap.hidden) return;
+        const k8s = provider() === "kubernetes";
+        $("status-table")
+          .querySelector("tbody")
+          .replaceChildren(
+            ...APPS.map((a) => {
+              const n = replicas(a.name);
+              const ready = healthy
+                ? n + "/" + n
+                : "0/" +
+                  n +
+                  (state.releases[state.env].length
+                    ? " (previous release still serving)"
+                    : " (nothing deployed yet)");
+              const route =
+                a.exposure === "public"
+                  ? k8s
+                    ? "https://atlas.example.com"
+                    : "http://localhost:8080"
+                  : "private";
+              return el(
+                "tr",
+                {},
+                td(a.name),
+                td(
+                  el("span", {
+                    class: healthy ? "t-ok" : "t-bad",
+                    text: ready,
+                  }),
+                ),
+                td(
+                  el("code", {
+                    text:
+                      "atlas-" +
+                      a.name +
+                      "@sha256:" +
+                      (state.plan ? state.plan.hash.slice(0, 10) : "") +
+                      "…",
+                  }),
+                ),
+                td(route),
+              );
+            }),
+          );
+      }
+
+      function renderFiles() {
+        const list = files();
+        if (!list.some((f) => f.path === state.file)) state.file = ".forge.yml";
+        const tree = $("tree");
+        tree.replaceChildren();
+        let group = "";
+        for (const f of list) {
+          if (f.group !== group) {
+            group = f.group;
+            tree.append(el("li", { class: "dir", text: group }));
+          }
+          const b = el("button", {
+            type: "button",
+            text: f.path,
+            "data-file": f.path,
+          });
+          if (f.path === state.file) b.setAttribute("aria-current", "true");
+          tree.append(el("li", {}, b));
+        }
+        const cur = list.find((f) => f.path === state.file);
+        $("viewer-name").textContent = cur.path;
+        $("viewer-badge").textContent = cur.badge;
+        $("viewer").textContent = cur.body();
+      }
+
+      function renderAgent() {
+        const diags = diagnostics();
+        const open = diags.filter((d) => d.severity === "error").length;
+        const L = [];
+        if (!state.initialized)
+          L.push(
+            "forge deploy inspect --output json          # exit 3: DEPLOY_VERSION_MISSING",
+            "forge deploy init --non-interactive --output json \\",
+            "  --answer deploy.services.worker.health=heartbeat \\",
+            "  --answer deploy.resources.cache.features=json,search --yes",
+          );
+        else {
+          L.push(
+            "forge deploy inspect --env " +
+              state.env +
+              " --output json" +
+              (open
+                ? "   # exit " +
+                  (diags.some((d) => d.code === "DEPLOY_DECISION_OPEN")
+                    ? "3"
+                    : "2") +
+                  ", " +
+                  open +
+                  " error" +
+                  (open > 1 ? "s" : "")
+                : "   # exit 0"),
+          );
+          L.push("forge deploy doctor --env " + state.env + " --output json");
+          L.push(
+            "forge deploy plan --env " +
+              state.env +
+              " --output json      # prints data.hash",
+          );
+          L.push(
+            "forge deploy apply --env " + state.env + " \\",
+            "  --approve-plan " +
+              (state.plan?.env === state.env
+                ? state.plan.hash.slice(0, 12) + "…"
+                : "<hash from plan>") +
+              " --non-interactive --output json",
+          );
+          L.push("forge deploy status --env " + state.env + " --output json");
+          if (state.applyStatus === "failed")
+            L.push(
+              "forge deploy rollback --env " +
+                state.env +
+                "   # exit 2 when no earlier release exists",
+            );
+        }
+        $("agent-commands").textContent = L.join("\n");
+        const envelope = {
+          schema: "forge.deploy/v1",
+          command: "inspect",
+          ok: open === 0,
+          data: state.initialized
+            ? {
+                project: "atlas",
+                environment: state.env,
+                target: envTarget(),
+                services: APPS.map((a) => ({
+                  name: a.name,
+                  kind: a.kind,
+                  replicas: replicas(a.name),
+                })),
+                resources: Object.keys(RESOURCES).map((r) => ({
+                  name: r,
+                  type: RESOURCES[r].type,
+                  lifecycle: state.lifecycles[state.env][r] || null,
+                })),
+              }
+            : { suggestions: 9, decisions: 2 },
+          diagnostics: diags,
+        };
+        $("agent-json").textContent = JSON.stringify(envelope, null, 2);
+      }
+
+      function render(opts = {}) {
+        renderStrip();
+        renderInspect();
+        if (state.initialized) {
+          renderDecisions();
+          renderTopology();
+          renderDoctor(opts.animateDoctor);
+          renderLedger();
+          renderFiles();
+        }
+        renderAgent();
+        persist();
+      }
+
+      // ---------- Actions ----------
+      let toastTimer;
+      function toast(msg) {
+        clearTimeout(toastTimer);
+        $("toast").textContent = msg;
+        toastTimer = setTimeout(() => ($("toast").textContent = ""), 4000);
+      }
+      function changed() {
+        state.saved = state.saved && !dirtyFromSaved();
+        state.doctor[state.env] = null;
+        if (state.applyStatus !== "applying")
+          state.applyStatus =
+            state.applyStatus === "healthy" ? "healthy" : "none";
+        render();
+      }
+      function diffText() {
+        const before = forgeYml.call({ ...state, initialized: false });
+        const after = forgeYml();
+        const a = before.split("\n"),
+          b = after.split("\n");
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) i++;
+        const frag = document.createDocumentFragment();
+        const line = (cls, t) =>
+          frag.append(el("div", { class: cls, text: t }));
+        line("ctx", "--- a/.forge.yml");
+        line("ctx", "+++ b/.forge.yml");
+        for (const t of a.slice(Math.max(0, i - 2), i)) line("ctx", "  " + t);
+        for (const t of b.slice(i, b.length - 1)) line("add", "+ " + t);
+        return frag;
+      }
+      function save() {
+        state.saved = true;
+        savedSnapshot = snapshot();
+        toast(
+          "Wrote the deploy block to .forge.yml (simulated). Comments kept.",
+        );
+        render();
+      }
+      function buildPlan() {
+        if (errors().length) return;
+        state.doctor[state.env] = true;
+        state.plan = { hash: planHash(), env: state.env, ops: operations() };
+        state.journal = [];
+        state.applyStatus = "none";
+        toast(
+          "Plan " +
+            state.plan.hash.slice(0, 12) +
+            " written to .forge/plans/ (simulated).",
+        );
+        render({ animateDoctor: false });
+      }
+      function openApprove() {
+        const p = state.plan;
+        $("approve-lede").textContent =
+          "forge deploy apply --env " +
+          state.env +
+          " --approve-plan " +
+          p.hash.slice(0, 12) +
+          "… runs exactly these operations, in this order. Anything that changed since the plan fails with exit 6.";
+        $("approve-body").textContent = p.ops
+          .map(
+            (o, i) =>
+              String(i + 1).padStart(2, " ") +
+              "  " +
+              o.id.padEnd(18) +
+              o.detail,
+          )
+          .join("\n");
+        $("approve-dialog").showModal();
+      }
+      let runId = 0;
+      async function apply() {
+        $("approve-dialog").close();
+        if (!state.saved) save();
+        const p = state.plan;
+        const outcome = $("outcome").value;
+        const id = ++runId;
+        state.applyStatus = "applying";
+        state.journal = [];
+        render();
+        const t0 = Date.now();
+        const stamp = () => ((Date.now() - t0) / 1000).toFixed(1);
+        const wait = (ms) =>
+          new Promise((r) => setTimeout(r, reduced ? 0 : ms));
+        const set = (op, status, message) => {
+          const existing = state.journal.find((j) => j.op === op);
+          if (existing)
+            Object.assign(existing, { status, message, t: stamp() });
+          else state.journal.push({ op, status, message, t: stamp() });
+          renderLedger();
+          renderStrip();
+        };
+        for (const o of p.ops) {
+          if (id !== runId) return;
+          set(o.id, "applying", "");
+          await wait(o.kind === "build" ? 520 : 420);
+          if (id !== runId) return;
+          if (outcome === "migration" && o.kind === "migrate") {
+            set(
+              o.id,
+              "failed",
+              "migration 0003_add_uploads failed: relation exists. Previous release still serving, data retained.",
+            );
+            for (const rest of p.ops.slice(p.ops.indexOf(o) + 1))
+              set(rest.id, "skipped", "");
+            state.applyStatus = "failed";
+            render();
+            return;
+          }
+          if (outcome === "timeout" && o.kind === "rollout") {
+            set(
+              o.id,
+              "failed",
+              "api 1/" +
+                replicas("api") +
+                " ready after the 10m deadline (simulated). Exit 8.",
+            );
+            for (const rest of p.ops.slice(p.ops.indexOf(o) + 1))
+              set(rest.id, "skipped", "");
+            state.applyStatus = "failed";
+            render();
+            return;
+          }
+          set(
+            o.id,
+            o.kind === "check" ? "healthy" : "accepted",
+            o.kind === "create"
+              ? "(id " + envTarget() + "-" + o.id.split(":")[1] + "-1)"
+              : "",
+          );
+        }
+        state.releases[state.env].push("rel-" + p.hash.slice(0, 12));
+        state.applyStatus = "healthy";
+        toast(
+          "Healthy. Release rel-" +
+            p.hash.slice(0, 12) +
+            " recorded in .forge/state/" +
+            envTarget() +
+            "/" +
+            state.env +
+            ".",
+        );
+        render();
+      }
+      function rollback() {
+        const rel = state.releases[state.env];
+        if (rel.length === 0) {
+          toast(
+            "Nothing to roll back to: this environment has no earlier release. Fix the cause and apply again.",
+          );
+          return;
+        }
+        const target =
+          rel[rel.length - (state.applyStatus === "healthy" ? 2 : 1)];
+        state.journal = [
+          {
+            op: "rollback",
+            status: "accepted",
+            message:
+              "restored " +
+              target +
+              " images and overlays; migrations untouched",
+            t: "0.0",
+          },
+        ];
+        state.applyStatus = "healthy";
+        toast(
+          "Rolled back to " +
+            target +
+            " (simulated). Data and migrations untouched.",
+        );
+        render();
+      }
+      function showService(name) {
+        const a = APPS.find((x) => x.name === name);
+        $("service-title").textContent = name;
+        $("service-lede").textContent =
+          a.kind === "worker"
+            ? "A worker gets no Service, no route and no HTTP probe. Its health comes from the heartbeat decision."
+            : a.exposure === "public"
+              ? "The only public entry point. Its route is the one host port on Compose and the Ingress on Kubernetes."
+              : "Private. Reachable from gateway through services.api.url; never routed from outside.";
+        const L = ["kind: " + a.kind];
+        if (a.port)
+          L.push(
+            "port: " + a.port + " (" + a.exposure + ")",
+            "readiness: /_/health/ready",
+            "liveness: /_/health/live",
+          );
+        else
+          L.push(
+            "health: " + (state.decisions.workerHealth || "open decision"),
+          );
+        L.push(
+          "replicas (" + state.env + "): " + replicas(name),
+          "image: ghcr.io/example/atlas-" + name,
+        );
+        for (const b of a.bindings)
+          L.push(
+            "binding: " +
+              b.extension +
+              " " +
+              b.key +
+              "=" +
+              b.value +
+              (b.meta ? ", metadata_database=" + b.meta : "") +
+              "   # " +
+              b.source,
+          );
+        for (const c of a.calls)
+          L.push(
+            "calls: " + c + " = " + address(c) + " (timeout 5s, retries 0)",
+          );
+        if (a.migrate)
+          L.push(
+            "migrate: auto (one job before rollout, owns primary and uploads metadata)",
+          );
+        $("service-body").textContent = L.join("\n");
+        $("service-dialog").showModal();
+      }
+
+      // ---------- Wiring ----------
+      $("env").addEventListener("change", () => {
+        state.env = $("env").value;
+        state.applyStatus = state.releases[state.env].length
+          ? "healthy"
+          : "none";
+        state.journal = [];
+        render();
+      });
+      $("init-btn").addEventListener("click", () => {
+        state.initialized = true;
+        toast(
+          "Suggested a deploy block from 9 findings. Two decisions are open.",
+        );
+        render();
+        $("s-init").scrollIntoView({
+          behavior: reduced ? "auto" : "smooth",
+          block: "start",
+        });
+      });
+      document.addEventListener("change", (e) => {
+        const t = e.target;
+        if (t.name === "worker-health") {
+          state.decisions.workerHealth = t.value;
+          changed();
+        } else if (t.name === "redis-features") {
+          state.decisions.redisFeatures = t.value;
+          changed();
+        } else if (t.dataset.lifecycle) {
+          state.lifecycles[state.env][t.dataset.lifecycle] = t.value || null;
+          changed();
+        } else if (t.dataset.secret) {
+          state.secrets[state.env][t.dataset.secret] = t.checked;
+          changed();
+        }
+      });
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        if (b.dataset.service) showService(b.dataset.service);
+        if (b.dataset.file) {
+          state.file = b.dataset.file;
+          renderFiles();
+          persist();
+        }
+      });
+      $("save-btn").addEventListener("click", save);
+      $("diff-btn").addEventListener("click", () => {
+        $("diff-body").replaceChildren(diffText());
+        $("diff-dialog").showModal();
+      });
+      $("diff-close").addEventListener("click", () => $("diff-dialog").close());
+      $("diff-save").addEventListener("click", () => {
+        $("diff-dialog").close();
+        save();
+      });
+      $("doctor-btn").addEventListener("click", () => {
+        state.doctor[state.env] = true;
+        render({ animateDoctor: true });
+      });
+      $("plan-btn").addEventListener("click", buildPlan);
+      $("apply-btn").addEventListener("click", openApprove);
+      $("approve-cancel").addEventListener("click", () =>
+        $("approve-dialog").close(),
+      );
+      $("approve-confirm").addEventListener("click", apply);
+      $("rollback-btn").addEventListener("click", rollback);
+      $("service-close").addEventListener("click", () =>
+        $("service-dialog").close(),
+      );
+      $("copy-file").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText($("viewer").textContent);
+          toast("Copied " + state.file + ".");
+        } catch {
+          toast("Clipboard unavailable here. Select the text to copy it.");
+        }
+      });
+      $("outcome").addEventListener("change", () => {
+        if (state.applyStatus !== "applying") {
+          state.journal = [];
+          if (state.applyStatus === "failed") state.applyStatus = "none";
+          render();
+        }
+      });
+
+      if (state.saved) savedSnapshot = snapshot();
+      render();
+    </script>
+  </body>
+</html>
