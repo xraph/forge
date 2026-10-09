@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge"
@@ -10,6 +11,7 @@ import (
 
 // TestAutoConfigFromApp validates that Service config is optional and reads from app config.
 func TestAutoConfigFromApp(t *testing.T) {
+	hostname := expectedDeploymentHostname(t)
 	// Create app with name, version, and HTTPAddress
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "kineta",
@@ -78,8 +80,8 @@ func TestAutoConfigFromApp(t *testing.T) {
 		t.Errorf("service port = %d, want 4400 (from app.HTTPAddress :4400)", instance.Port)
 	}
 
-	if instance.Address != "localhost" {
-		t.Errorf("service address = %s, want localhost (default)", instance.Address)
+	if instance.Address != hostname {
+		t.Errorf("service address = %s, want %s", instance.Address, hostname)
 	}
 
 	// Verify FARP metadata was injected
@@ -92,7 +94,7 @@ func TestAutoConfigFromApp(t *testing.T) {
 	}
 
 	// Verify manifest URL includes correct address and port
-	expectedManifest := "http://localhost:4400/_farp/manifest"
+	expectedManifest := "http://" + hostname + ":4400/_farp/manifest"
 	if instance.Metadata["farp.manifest"] != expectedManifest {
 		t.Errorf("farp.manifest = %s, want %s", instance.Metadata["farp.manifest"], expectedManifest)
 	}
@@ -206,6 +208,7 @@ func TestHTTPAddressParsingVariations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			hostname := expectedDeploymentHostname(t)
 			appConfig := forge.AppConfig{
 				Name:        "test-app",
 				Version:     "1.0.0",
@@ -240,8 +243,13 @@ func TestHTTPAddressParsingVariations(t *testing.T) {
 			instance := discExt.serviceInstance
 			discExt.mu.RUnlock()
 
-			if instance.Address != tt.expectedAddress {
-				t.Errorf("address = %s, want %s", instance.Address, tt.expectedAddress)
+			want := tt.expectedAddress
+			if strings.HasPrefix(tt.httpAddress, ":") || strings.HasPrefix(tt.httpAddress, "0.0.0.0:") || tt.httpAddress == "4400" {
+				want = hostname
+			}
+
+			if instance.Address != want {
+				t.Errorf("address = %s, want %s", instance.Address, want)
 			}
 
 			if instance.Port != tt.expectedPort {

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge"
@@ -11,6 +12,7 @@ import (
 // TestRealWorldUsageWithAppConfigExtensions tests the exact scenario from user's code
 // where extensions are passed via AppConfig.Extensions without WithAppConfig.
 func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
+	hostname := expectedDeploymentHostname(t)
 	// This mimics the user's actual usage pattern
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "kineta",
@@ -75,8 +77,8 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 		t.Errorf("service port = %d, want 4400 (from HTTPAddress :4400)", instance.Port)
 	}
 
-	if instance.Address != "localhost" {
-		t.Errorf("service address = %s, want localhost (from :4400)", instance.Address)
+	if instance.Address != hostname {
+		t.Errorf("service address = %s, want %s", instance.Address, hostname)
 	}
 
 	// Verify FARP metadata
@@ -88,7 +90,7 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 		t.Error("farp.enabled should be 'true'")
 	}
 
-	expectedManifest := "http://localhost:4400/_farp/manifest"
+	expectedManifest := "http://" + hostname + ":4400/_farp/manifest"
 	if instance.Metadata["farp.manifest"] != expectedManifest {
 		t.Errorf("farp.manifest = %s, want %s", instance.Metadata["farp.manifest"], expectedManifest)
 	}
@@ -98,6 +100,7 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 
 // TestMinimalAppConfig tests the absolute minimum configuration.
 func TestMinimalAppConfig(t *testing.T) {
+	hostname := expectedDeploymentHostname(t)
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "minimal-service",
 		HTTPAddress: ":3000",
@@ -146,8 +149,8 @@ func TestMinimalAppConfig(t *testing.T) {
 		t.Errorf("port = %d, want 3000", instance.Port)
 	}
 
-	if instance.Address != "localhost" {
-		t.Errorf("address = %s, want localhost", instance.Address)
+	if instance.Address != hostname {
+		t.Errorf("address = %s, want %s", instance.Address, hostname)
 	}
 
 	t.Log("✅ Minimal config test passed!")
@@ -183,6 +186,7 @@ func TestComplexHTTPAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			hostname := expectedDeploymentHostname(t)
 			app := forge.New(forge.WithConfig(forge.AppConfig{
 				Name:        "test-service",
 				HTTPAddress: tt.httpAddress,
@@ -216,8 +220,13 @@ func TestComplexHTTPAddress(t *testing.T) {
 			instance := discExt.serviceInstance
 			discExt.mu.RUnlock()
 
-			if instance.Address != tt.wantAddr {
-				t.Errorf("address = %s, want %s", instance.Address, tt.wantAddr)
+			want := tt.wantAddr
+			if strings.HasPrefix(tt.httpAddress, ":") || strings.HasPrefix(tt.httpAddress, "0.0.0.0:") {
+				want = hostname
+			}
+
+			if instance.Address != want {
+				t.Errorf("address = %s, want %s", instance.Address, want)
 			}
 
 			if instance.Port != tt.wantPort {

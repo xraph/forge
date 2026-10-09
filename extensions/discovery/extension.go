@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +28,7 @@ import (
 type Extension struct {
 	*forge.BaseExtension
 
+	options          []ConfigOption
 	config           Config
 	appConfig        forge.AppConfig // Store app config for accessing HTTPAddress
 	stopCh           chan struct{}
@@ -47,6 +51,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
+		options:       append([]ConfigOption(nil), opts...),
 		stopCh:        make(chan struct{}),
 	}
 }
@@ -61,6 +66,36 @@ func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
+
+	if manager, err := forge.InjectType[forge.ConfigManager](app.Container()); err == nil {
+		key := "extensions.discovery"
+		if !manager.IsSet(key) {
+			key = "discovery"
+		}
+
+		if raw := manager.Get(key + ".enabled"); raw != nil {
+			switch value := raw.(type) {
+			case bool:
+			case string:
+				if _, err := strconv.ParseBool(value); err != nil {
+					return errors.New("discovery enabled must be a boolean")
+				}
+			default:
+				return errors.New("discovery enabled must be a boolean")
+			}
+		}
+	}
+
+	finalConfig := DefaultConfig()
+	if err := e.LoadConfig("discovery", &finalConfig, nil, DefaultConfig(), false); err != nil {
+		return fmt.Errorf("load discovery configuration: %w", err)
+	}
+
+	for _, option := range e.options {
+		option(&finalConfig)
+	}
+
+	e.config = finalConfig
 
 	// Try to extract app config from metadata (if provided via WithAppConfig)
 	if e.config.Service.Metadata != nil {
@@ -598,6 +633,15 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 		if httpAddr != "" {
 			addr, port := parseHTTPAddress(httpAddr)
 			if serviceAddress == "" {
+				if os.Getenv("FORGE_ADVERTISE_ADDR") != "" || os.Getenv("POD_IP") != "" {
+					addr = ""
+				}
+
+				if host, _, err := net.SplitHostPort(httpAddr); err == nil && (host == "" || host == "0.0.0.0" || host == "::") {
+					addr = ""
+				} else if _, err := strconv.Atoi(httpAddr); err == nil {
+					addr = ""
+				}
 				serviceAddress = addr
 			}
 
@@ -608,9 +652,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	}
 
 	// Default address if still empty
-	if serviceAddress == "" {
-		serviceAddress = "localhost"
-	}
+	serviceAddress = advertisedAddress(serviceAddress)
 
 	// Generate ID
 	id := e.config.Service.ID
@@ -633,7 +675,8 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 			if e.config.Service.Metadata != nil && e.config.Service.Metadata["scheme"] != "" {
 				scheme = e.config.Service.Metadata["scheme"]
 			}
-			baseURL = fmt.Sprintf("%s://%s:%d", scheme, serviceAddress, servicePort)
+
+			baseURL = fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(serviceAddress, strconv.Itoa(servicePort)))
 		}
 
 		metadata["farp.enabled"] = "true"
@@ -718,6 +761,17 @@ func (e *Extension) getHTTPAddress() string {
 // parseHTTPAddress parses an HTTPAddress string and returns address and port
 // Handles formats like ":4400", "localhost:4400", "0.0.0.0:8080".
 func parseHTTPAddress(httpAddr string) (address string, port int) {
+	if host, rawPort, err := net.SplitHostPort(httpAddr); err == nil {
+		number, parseErr := strconv.Atoi(rawPort)
+		if parseErr == nil && number > 0 && number <= 65535 {
+			if host == "" || host == "0.0.0.0" || host == "::" {
+				host = "localhost"
+			}
+
+			return host, number
+		}
+	}
+
 	// Default values
 	address = "localhost"
 	port = 8080
@@ -869,7 +923,7 @@ func (e *Extension) enrichInstanceFromManifest(inst *ServiceInstance, node *farp
 		metadata[k] = v
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%d", inst.Address, inst.Port)
+	baseURL := "http://" + net.JoinHostPort(inst.Address, strconv.Itoa(inst.Port))
 
 	metadata["farp.enabled"] = "true"
 	metadata["farp.manifest"] = baseURL + "/_farp/manifest"

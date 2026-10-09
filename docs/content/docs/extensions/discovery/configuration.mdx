@@ -9,24 +9,24 @@ description: Config reference, YAML example, and options for Discovery
 extensions:
   discovery:
     enabled: true
-    backend: "consul"                # "memory", "consul", "etcd", "mdns", "kubernetes", "eureka"
+    backend: "consul" # "memory", "consul", "etcd", "mdns", "kubernetes", "eureka"
 
     service:
       name: "my-service"
-      id: ""                         # auto-generated if empty
+      id: "" # auto-generated if empty
       version: "1.0.0"
-      address: "localhost"
+      address: ""
       port: 8080
       tags: ["api", "v1"]
       metadata:
         team: "platform"
-      enableAutoDeregister: true
+      enable_auto_deregister: true
 
-    healthCheck:
+    health_check:
       enabled: true
       interval: "10s"
       timeout: "5s"
-      deregisterCriticalServiceAfter: "1m"
+      deregister_critical_service_after: "1m"
 
     watch:
       enabled: false
@@ -39,25 +39,25 @@ extensions:
     etcd:
       endpoints:
         - "127.0.0.1:2379"
-      dialTimeout: "5s"
-      keyPrefix: "/services"
+      dial_timeout: "5s"
+      key_prefix: "/services"
 
     mdns:
       domain: "local."
-      browseTimeout: "3s"
+      browse_timeout: "3s"
       ttl: 120
 
     farp:
       enabled: false
-      autoRegister: true
-      strategy: "push"              # "push", "pull", "hybrid"
+      auto_register: true
+      strategy: "push" # "push", "pull", "hybrid"
       endpoints:
         health: "/health"
         metrics: ""
-        openAPI: ""
-        asyncAPI: ""
-        grpcReflection: ""
-        graphQL: ""
+        openapi: ""
+        asyncapi: ""
+        grpc_reflection: ""
+        graphql: ""
       capabilities: []
 ```
 
@@ -88,82 +88,112 @@ ext := discovery.NewExtension(
 
 ### Service Registration
 
-| Field | Default | Description |
-|---|---|---|
-| `Name` | `""` | Service name (falls back to `app.Name()`) |
-| `ID` | `""` | Service instance ID (auto-generated) |
-| `Version` | `""` | Service version |
-| `Address` | `""` | Service address |
-| `Port` | `0` | Service port |
-| `Tags` | `[]` | Service tags for filtering |
-| `Metadata` | `{}` | Arbitrary key-value metadata |
-| `EnableAutoDeregister` | `true` | Auto-deregister on shutdown |
+| Field                  | Default | Description                               |
+| ---------------------- | ------- | ----------------------------------------- |
+| `Name`                 | `""`    | Service name (falls back to `app.Name()`) |
+| `ID`                   | `""`    | Service instance ID (auto-generated)      |
+| `Version`              | `""`    | Service version                           |
+| `Address`              | `""`    | Service address                           |
+| `Port`                 | `0`     | Service port                              |
+| `Tags`                 | `[]`    | Service tags for filtering                |
+| `Metadata`             | `{}`    | Arbitrary key-value metadata              |
+| `EnableAutoDeregister` | `true`  | Auto-deregister on shutdown               |
 
 ### Health Check
 
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `true` | Enable health checks |
-| `Interval` | `10s` | Health check interval |
-| `Timeout` | `5s` | Health check timeout |
-| `DeregisterCriticalServiceAfter` | `1m` | Deregister after critical for this duration |
+| Field                            | Default | Description                                 |
+| -------------------------------- | ------- | ------------------------------------------- |
+| `Enabled`                        | `true`  | Enable health checks                        |
+| `Interval`                       | `10s`   | Health check interval                       |
+| `Timeout`                        | `5s`    | Health check timeout                        |
+| `DeregisterCriticalServiceAfter` | `1m`    | Deregister after critical for this duration |
 
 ### FARP
 
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `false` | Enable FARP endpoints |
-| `AutoRegister` | `true` | Auto-register FARP manifest |
-| `Strategy` | `"push"` | Registration strategy: `push`, `pull`, `hybrid` |
-| `Schemas` | `[]` | Schema configurations (OpenAPI, AsyncAPI, GraphQL, gRPC) |
-| `Endpoints` | | API endpoint paths for schema discovery |
-| `Capabilities` | `[]` | Advertised capabilities |
+| Field          | Default  | Description                                              |
+| -------------- | -------- | -------------------------------------------------------- |
+| `Enabled`      | `false`  | Enable FARP endpoints                                    |
+| `AutoRegister` | `true`   | Auto-register FARP manifest                              |
+| `Strategy`     | `"push"` | Registration strategy: `push`, `pull`, `hybrid`          |
+| `Schemas`      | `[]`     | Schema configurations (OpenAPI, AsyncAPI, GraphQL, gRPC) |
+| `Endpoints`    |          | API endpoint paths for schema discovery                  |
+| `Capabilities` | `[]`     | Advertised capabilities                                  |
 
 ### FARP Endpoints
 
-| Field | Default | Description |
-|---|---|---|
-| `Health` | `"/health"` | Health check endpoint path |
-| `Metrics` | `""` | Metrics endpoint path |
-| `OpenAPI` | `""` | OpenAPI spec endpoint path |
-| `AsyncAPI` | `""` | AsyncAPI spec endpoint path |
-| `GRPCReflection` | `false` | Whether gRPC reflection is enabled |
-| `GraphQL` | `""` | GraphQL endpoint path |
+| Field            | Default     | Description                        |
+| ---------------- | ----------- | ---------------------------------- |
+| `Health`         | `"/health"` | Health check endpoint path         |
+| `Metrics`        | `""`        | Metrics endpoint path              |
+| `OpenAPI`        | `""`        | OpenAPI spec endpoint path         |
+| `AsyncAPI`       | `""`        | AsyncAPI spec endpoint path        |
+| `GRPCReflection` | `false`     | Whether gRPC reflection is enabled |
+| `GraphQL`        | `""`        | GraphQL endpoint path              |
 
 ### mDNS
 
-| Field | Default | Description |
-|---|---|---|
-| `Domain` | `"local."` | mDNS domain |
-| `ServiceType` | `""` | Service type for registration (default: `_<name>._tcp`) |
-| `ServiceTypes` | `[]` | Service types to browse for discovery |
-| `BrowseTimeout` | `3s` | Browse operation timeout |
-| `TTL` | `120` | DNS record TTL |
-| `WatchInterval` | `0` | Watch polling interval |
-| `Interface` | `""` | Network interface to bind to |
-| `IPv6` | `false` | Enable IPv6 |
+| Field           | Default    | Description                                             |
+| --------------- | ---------- | ------------------------------------------------------- |
+| `Domain`        | `"local."` | mDNS domain                                             |
+| `ServiceType`   | `""`       | Service type for registration (default: `_<name>._tcp`) |
+| `ServiceTypes`  | `[]`       | Service types to browse for discovery                   |
+| `BrowseTimeout` | `3s`       | Browse operation timeout                                |
+| `TTL`           | `120`      | DNS record TTL                                          |
+| `WatchInterval` | `0`        | Watch polling interval                                  |
+| `Interface`     | `""`       | Network interface to bind to                            |
+| `IPv6`          | `false`    | Enable IPv6                                             |
 
 ### FARP Config Options
 
-| Option | Description |
-|---|---|
-| `WithFARP(cfg)` | Set the full FARP configuration |
-| `WithFARPEnabled(bool)` | Enable or disable FARP |
-| `WithFARPAutoRegister(bool)` | Auto-register schemas on startup |
-| `WithFARPStrategy(string)` | Set strategy: `push`, `pull`, or `hybrid` |
-| `WithFARPSchemas(schemas...)` | Set schema configurations |
-| `WithFARPEndpoints(cfg)` | Set endpoint configuration |
-| `WithFARPCapabilities(caps...)` | Set capability tags |
+| Option                          | Description                               |
+| ------------------------------- | ----------------------------------------- |
+| `WithFARP(cfg)`                 | Set the full FARP configuration           |
+| `WithFARPEnabled(bool)`         | Enable or disable FARP                    |
+| `WithFARPAutoRegister(bool)`    | Auto-register schemas on startup          |
+| `WithFARPStrategy(string)`      | Set strategy: `push`, `pull`, or `hybrid` |
+| `WithFARPSchemas(schemas...)`   | Set schema configurations                 |
+| `WithFARPEndpoints(cfg)`        | Set endpoint configuration                |
+| `WithFARPCapabilities(caps...)` | Set capability tags                       |
 
 ### mDNS Config Options
 
-| Option | Description |
-|---|---|
-| `WithMDNS(domain)` | Set backend to mDNS with optional domain |
-| `WithMDNSServiceType(t)` | Set the mDNS service type for registration |
-| `WithMDNSServiceTypes(t...)` | Set service types to browse for discovery |
-| `WithMDNSBrowseTimeout(d)` | Set browse operation timeout |
-| `WithMDNSTTL(ttl)` | Set DNS record TTL |
-| `WithMDNSWatchInterval(d)` | Set watch polling interval |
-| `WithMDNSInterface(iface)` | Bind to a specific network interface |
-| `WithMDNSIPv6(bool)` | Enable IPv6 support |
+| Option                       | Description                                |
+| ---------------------------- | ------------------------------------------ |
+| `WithMDNS(domain)`           | Set backend to mDNS with optional domain   |
+| `WithMDNSServiceType(t)`     | Set the mDNS service type for registration |
+| `WithMDNSServiceTypes(t...)` | Set service types to browse for discovery  |
+| `WithMDNSBrowseTimeout(d)`   | Set browse operation timeout               |
+| `WithMDNSTTL(ttl)`           | Set DNS record TTL                         |
+| `WithMDNSWatchInterval(d)`   | Set watch polling interval                 |
+| `WithMDNSInterface(iface)`   | Bind to a specific network interface       |
+| `WithMDNSIPv6(bool)`         | Enable IPv6 support                        |
+
+## Deployment configuration
+
+Discovery loads `extensions.discovery` before creating its backend. The legacy
+`discovery` key remains supported. Constructor options override loaded values,
+including explicit `false` settings; `NewExtensionWithConfig` supplies the full
+configuration. Disabled discovery does not register a discovery service.
+
+Leave `service.address` empty for automatic advertisement. An explicit service
+address wins. Otherwise `FORGE_ADVERTISE_ADDR`, then `POD_IP`, replace wildcard
+listeners. Without either variable, wildcard listeners advertise your hostname.
+A specific HTTP bind address remains a fallback. IPv6 endpoints keep their port
+and use bracketed URLs in FARP metadata.
+
+```yaml
+extensions:
+  discovery:
+    enabled: true
+    backend: kubernetes
+    service:
+      name: api
+      address: ""
+    kubernetes:
+      namespace: atlas-production
+      in_cluster: true
+```
+
+On Kubernetes, expose `POD_IP` with the Downward API and choose the service
+namespace. The Kubernetes discovery backend also needs cluster discovery
+permissions.
