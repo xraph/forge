@@ -188,11 +188,13 @@ type Build struct {
 }
 
 type Registry struct {
-	Host       string `json:"host,omitempty"       yaml:"host,omitempty"`
-	Namespace  string `json:"namespace,omitempty"  yaml:"namespace,omitempty"`
-	Auth       string `json:"auth,omitempty"       yaml:"auth,omitempty"`
-	Visibility string `json:"visibility,omitempty" yaml:"visibility,omitempty"`
-	SecretRef  string `json:"secret_ref,omitempty" yaml:"secret_ref,omitempty"`
+	Username   string `json:"username,omitempty"    yaml:"username,omitempty"`
+	PullSecret string `json:"pull_secret,omitempty" yaml:"pull_secret,omitempty"`
+	Host       string `json:"host,omitempty"        yaml:"host,omitempty"`
+	Namespace  string `json:"namespace,omitempty"   yaml:"namespace,omitempty"`
+	Auth       string `json:"auth,omitempty"        yaml:"auth,omitempty"`
+	Visibility string `json:"visibility,omitempty"  yaml:"visibility,omitempty"`
+	SecretRef  string `json:"secret_ref,omitempty"  yaml:"secret_ref,omitempty"`
 }
 
 type ServiceBuild struct {

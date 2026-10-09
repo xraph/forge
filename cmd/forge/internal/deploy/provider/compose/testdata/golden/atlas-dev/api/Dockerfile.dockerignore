@@ -13,3 +13,6 @@ config*.yaml
 config*.yml
 **/config*.yaml
 **/config*.yml
+.forge.yml
+.forge/secrets.env
+config/api.yaml

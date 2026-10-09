@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/render"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
@@ -134,7 +135,7 @@ func (c *Compose) Render(ctx context.Context, d *model.Deployment) (*render.Bund
 				}
 
 				bundle.Add(s.Name+"/Dockerfile", raw)
-				bundle.Add(s.Name+"/Dockerfile.dockerignore", []byte(buildIgnore))
+				bundle.Add(s.Name+"/Dockerfile.dockerignore", images.Ignore(d))
 				file = filepath.ToSlash(filepath.Join("deployments", d.TargetName, d.Environment, s.Name, "Dockerfile"))
 			}
 

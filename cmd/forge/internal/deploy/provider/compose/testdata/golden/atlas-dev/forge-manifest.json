@@ -1,19 +1,19 @@
 {
   "schema": 1,
-  "generated": "2026-10-09T21:42:34.625874Z",
+  "generated": "2026-10-09T22:47:32.778381Z",
   "target": "local",
   "env": "dev",
   "files": {
     ".env.example": "27f48c93e2925f9de03280226518e54b4e7d5472ded0157a3760817628a6aea1",
     "api/Dockerfile": "fb9ba3619491bf9a5487d383fea69f7e1d5370ebb61b5ca62debf946c9a4b464",
-    "api/Dockerfile.dockerignore": "edf68c0a0dac623d62ccc380a1785714130bde43392eea351eb2771efb66b2d3",
+    "api/Dockerfile.dockerignore": "c6b13efa8b0b37e5c8d2edacf1a1cacfcd74d9fd1fe0ff6807b03072e373ce46",
     "api/forge.overlay.yaml": "eefb41916bb784869cbefb5edd1eef3d9e8bec4153a261d33edf2c57dfc4aa20",
     "compose.yaml": "7e6b067095640c8534e493755733e95ad0604668e3e777493c512bd50730a546",
     "gateway/Dockerfile": "32ccce0134060e2142507ec03444e9d145746b182a82fa1093361addc00f3e88",
-    "gateway/Dockerfile.dockerignore": "edf68c0a0dac623d62ccc380a1785714130bde43392eea351eb2771efb66b2d3",
+    "gateway/Dockerfile.dockerignore": "c6b13efa8b0b37e5c8d2edacf1a1cacfcd74d9fd1fe0ff6807b03072e373ce46",
     "gateway/forge.overlay.yaml": "0c43516d69400b6eb9ed5dc06589745487d01d47a4f1e82e18952519eb310387",
     "worker/Dockerfile": "512a079563b80a82f52dcaf4e45e189ca3126891932e72e4e49b2ecd18ad541a",
-    "worker/Dockerfile.dockerignore": "edf68c0a0dac623d62ccc380a1785714130bde43392eea351eb2771efb66b2d3",
+    "worker/Dockerfile.dockerignore": "c6b13efa8b0b37e5c8d2edacf1a1cacfcd74d9fd1fe0ff6807b03072e373ce46",
     "worker/forge.overlay.yaml": "7923283770e81b23484199765cc0aca15bbeb4ae6f8a0c86a6fe67cdf3e3f47c"
   }
 }

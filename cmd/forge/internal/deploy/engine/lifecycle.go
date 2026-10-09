@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
@@ -532,17 +533,15 @@ func (e *Engine) buildInputHashes(ctx context.Context, res *InspectResult) (map[
 			return err
 		}
 
-		name := entry.Name()
 		if entry.IsDir() {
-			switch name {
-			case ".git", ".forge", "deployments", "node_modules", ".next", ".turbo":
+			if !images.IncludedSource(relative, true) {
 				return filepath.SkipDir
 			}
 
 			return nil
 		}
 
-		if name == ".DS_Store" || name == ".env" || len(name) > 5 && name[:5] == ".env." || filepath.Ext(name) == ".pem" {
+		if !images.IncludedSource(relative, false) {
 			return nil
 		}
 
@@ -567,7 +566,12 @@ func (e *Engine) buildInputHashes(ctx context.Context, res *InspectResult) (map[
 			return output.Fail(output.ExitConflict, "source changed during discovery", output.Diagnostic{Code: output.CodePlanStale, Severity: output.SeverityError, File: relative, Message: "review the changed source"})
 		}
 
-		hashes[key] = digest(raw)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+
+		hashes[key] = images.SourceDigest(raw, info.Mode())
 
 		return nil
 	})

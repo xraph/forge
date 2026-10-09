@@ -25,6 +25,7 @@ func composeEngine(t *testing.T, root string) (*Engine, *execx.Fake) {
 	f.Script("go list -deps", execx.Result{Stdout: "net/http\n"})
 	f.Script("docker info", execx.Result{})
 	f.Script("docker compose", execx.Result{})
+	f.Script("docker buildx", execx.Result{})
 	e, _ := New(Options{Config: cfg, Runner: f, Mode: output.Mode{NonInteractive: true}})
 
 	return e, f

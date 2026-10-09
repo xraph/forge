@@ -88,6 +88,7 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 
 	d := &model.Deployment{Project: in.Config.Project.Name, Environment: envName, TargetName: targetName, Target: target, Registry: sp.Registry}
 	d.Overlay = overlayMode(in)
+	d.BuildExcludes = buildExcludes(in)
 
 	if in.Services != nil && env.Services != nil {
 		for _, name := range in.Services {
@@ -689,4 +690,47 @@ func isNamedInstance(in Input, app, dir string, desc catalog.Descriptor, name st
 	}
 
 	return name != "default"
+}
+
+func buildExcludes(in Input) []string {
+	paths := []string{in.Doc.Path}
+	for path := range in.Doc.Splits {
+		paths = append(paths, path)
+	}
+
+	if in.Discovery != nil {
+		for _, app := range in.Discovery.Apps {
+			paths = append(paths, app.ConfigPaths...)
+		}
+	}
+
+	for _, svc := range in.Doc.Deploy.Services {
+		paths = append(paths, svc.Config...)
+	}
+
+	if in.Doc.Deploy.Secrets.File != "" {
+		paths = append(paths, in.Doc.Deploy.Secrets.File)
+	}
+
+	out := []string{}
+
+	for _, path := range paths {
+		if filepath.IsAbs(path) {
+			relative, err := filepath.Rel(in.Config.RootDir, path)
+			if err != nil {
+				continue
+			}
+
+			path = relative
+		}
+
+		path = filepath.Clean(path)
+		if filepath.IsLocal(path) && !slices.Contains(out, path) {
+			out = append(out, filepath.ToSlash(path))
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }

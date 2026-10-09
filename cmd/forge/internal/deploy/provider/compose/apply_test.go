@@ -25,7 +25,8 @@ func applyFixture(t *testing.T) (*Compose, *plan.Plan, *state.Store, *execx.Fake
 	d.Routes = nil
 	f := execx.NewFake(t)
 	f.Script("docker compose", execx.Result{})
-	f.Script("docker image inspect", execx.Result{Stdout: "sha256:abc\n"})
+	f.Script("docker buildx", execx.Result{})
+	f.Script("docker image inspect", execx.Result{Stdout: "sha256:" + strings.Repeat("a", 64) + "\n"})
 	c := New(f, root)
 
 	b, err := c.Render(context.Background(), d)
@@ -63,6 +64,10 @@ func applyFixture(t *testing.T) (*Compose, *plan.Plan, *state.Store, *execx.Fake
 }
 func TestApplyStopsBeforeRolloutWhenMigrationFails(t *testing.T) {
 	c, p, st, f := applyFixture(t)
+	if err := st.WriteFile("image-rollout.json", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+
 	prefix := strings.Join(c.composeArgs(p.Deployment, "run", "--rm", "--no-deps", "api-migrate"), " ")
 	f.Script("docker "+prefix, execx.Result{ExitCode: 1, Stderr: "migration failed"})
 
@@ -72,7 +77,7 @@ func TestApplyStopsBeforeRolloutWhenMigrationFails(t *testing.T) {
 	}
 
 	for _, call := range f.CallLines() {
-		if strings.Contains(call, " up -d --no-deps api") {
+		if strings.Contains(call, " up -d --no-deps --no-build api") {
 			t.Fatal("application rolled out after failure")
 		}
 	}

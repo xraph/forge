@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
@@ -14,7 +15,6 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -80,10 +80,17 @@ func (c *Compose) dockerArgs(d *model.Deployment, rest ...string) []string {
 func (c *Compose) composeArgs(d *model.Deployment, rest ...string) []string {
 	args := []string{"compose", "-p", c.projectName(d), "-f", filepath.Join(c.bundleDir(d), "compose.yaml"), "--env-file", filepath.Join(c.root, ".forge", "state", d.TargetName, d.Environment, "generated.env")}
 
+	if len(rest) > 0 && (rest[0] == "run" || rest[0] == "up") {
+		file := filepath.Join(c.root, ".forge", "state", d.TargetName, d.Environment, "image-rollout.json")
+		if _, err := os.Stat(file); err == nil {
+			args = append(args, "-f", file)
+		}
+	}
+
 	return c.dockerArgs(d, append(args, rest...)...)
 }
 func (c *Compose) run(ctx context.Context, d *model.Deployment, rest ...string) (execx.Result, error) {
-	return c.runner.Run(ctx, execx.Command{Name: "docker", Args: c.composeArgs(d, rest...), Dir: c.root})
+	return c.runDocker(ctx, d, c.composeArgs(d, rest...))
 }
 func record(ctx context.Context, events chan<- provider.Event, j state.Journal, p *plan.Plan, op plan.Operation, status state.Status, msg, id string) error {
 	if err := j.Record(state.Event{Time: time.Now().UTC(), Op: op.ID, Status: status, Message: msg, ProviderID: id, IdempotencyKey: p.Hash + ":" + op.ID}); err != nil {
@@ -146,6 +153,7 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 
 	if snap.ActivePlanHash != p.Hash || snap.Status == state.StatusHealthy || snap.Status == state.StatusAccepted {
 		snap.Revision++
+		snap.Identities = p.ObservedIDs
 
 		if err := record(ctx, events, j, p, plan.Operation{ID: "apply:begin"}, state.StatusAccepted, "Deployment attempt started", ""); err != nil {
 			return err
@@ -188,7 +196,30 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 		return fail(plan.Operation{ID: "deliver:secrets"}, err)
 	}
 
-	actualImages := map[string]model.Image{}
+	actualImages, err := images.Build(ctx, c.runner, c.root, p, st, values)
+	if err != nil {
+		return fail(plan.Operation{ID: "build:images"}, err)
+	}
+
+	override := map[string]any{"services": map[string]any{}}
+
+	pinned := override["services"].(map[string]any)
+	for _, svc := range d.Services {
+		pinned[svc.Name] = map[string]any{"image": images.Ref(actualImages[svc.Name]), "pull_policy": "never"}
+		if len(svc.Migrate) > 0 {
+			pinned[svc.Name+"-migrate"] = map[string]any{"image": images.Ref(actualImages[svc.Name]), "pull_policy": "never"}
+		}
+	}
+
+	raw, err := json.Marshal(override)
+	if err != nil {
+		return fail(plan.Operation{ID: "build:images"}, err)
+	}
+
+	if err := st.WriteFile("image-rollout.json", raw); err != nil {
+		return fail(plan.Operation{ID: "build:images"}, err)
+	}
+
 	overall := state.StatusAccepted
 
 	for _, op := range p.Operations {
@@ -213,81 +244,9 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 
 		switch op.Kind {
 		case plan.OpDeliver:
-		case plan.OpBuild:
-			switch {
-			case d.Target.Build.Builder == "host":
-				var svc model.Service
+		case plan.OpBuild, plan.OpPush:
+			// The shared pipeline already verified every selected image before this stage.
 
-				for _, s := range d.Services {
-					if s.Name == op.Service {
-						svc = s
-					}
-				}
-
-				if err := st.MkdirAll(filepath.Join("build", svc.Name)); err != nil {
-					return fail(op, err)
-				}
-
-				arch := runtime.GOARCH
-
-				if len(d.Target.Build.Platforms) > 0 {
-					parts := strings.Split(d.Target.Build.Platforms[0], "/")
-					if len(parts) != 2 || parts[0] != "linux" {
-						return fail(op, errors.New("host builds require a linux platform"))
-					}
-
-					arch = parts[1]
-				}
-
-				_, err = c.runner.Run(ctx, execx.Command{Name: "go", Args: []string{"build", "-mod=readonly", "-trimpath", "-ldflags", "-s -w", "-o", filepath.Join(st.Dir(), "build", svc.Name, "app"), "./" + filepath.ToSlash(svc.MainPath)}, Dir: c.root, Env: append(hostWorkEnv(c.root), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")})
-				if err != nil {
-					return fail(op, err)
-				}
-
-				raw, readErr := os.ReadFile(filepath.Join(c.bundleDir(d), svc.Name, "Dockerfile"))
-				if readErr != nil {
-					return fail(op, readErr)
-				}
-
-				if err := st.WriteFile(filepath.Join("build", svc.Name, "Dockerfile"), raw); err != nil {
-					return fail(op, err)
-				}
-
-				_, err = c.run(ctx, d, "build", op.Service)
-			case d.Target.Build.Source == "remote":
-				var svc model.Service
-
-				for _, s := range d.Services {
-					if s.Name == op.Service {
-						svc = s
-					}
-				}
-
-				file := filepath.Join(c.bundleDir(d), svc.Name, "Dockerfile")
-				if svc.Image.Dockerfile != "" {
-					file = filepath.Join(c.root, svc.Image.Dockerfile)
-				}
-
-				args := []string{"buildx", "build", "--builder", d.Target.Build.Builder, "-t", imageRef(svc.Image), "-f", file}
-				if len(d.Target.Build.Platforms) > 0 {
-					args = append(args, "--platform", strings.Join(d.Target.Build.Platforms, ","))
-				}
-
-				if d.Target.Build.Delivery == "registry" {
-					args = append(args, "--push")
-				} else {
-					args = append(args, "--load")
-				}
-
-				args = append(args, c.root)
-				_, err = c.runner.Run(ctx, execx.Command{Name: "docker", Args: c.dockerArgs(d, args...), Dir: c.root})
-			default:
-				_, err = c.run(ctx, d, "build", op.Service)
-			}
-		case plan.OpPush:
-			if d.Target.Build.Source != "remote" {
-				_, err = c.run(ctx, d, "push", op.Service)
-			}
 		case plan.OpCreate, plan.OpUpdate:
 			if strings.HasPrefix(op.ID, "init:") {
 				_, err = c.run(ctx, d, "run", "--rm", "--no-deps", op.Resource+"-init")
@@ -313,18 +272,7 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 			if err == nil {
 				for _, s := range d.Services {
 					if s.Name == op.Service {
-						res, inspectErr := c.runner.Run(ctx, execx.Command{Name: "docker", Args: c.dockerArgs(d, "image", "inspect", "--format", "{{.Id}}", imageRef(s.Image)), Dir: c.root})
-						if inspectErr != nil {
-							err = inspectErr
-
-							break
-						}
-
-						image := s.Image
-						image.Repository = strings.TrimSpace(res.Stdout)
-						image.Tag = ""
-						image.Digest = ""
-						actualImages[s.Name] = image
+						image := actualImages[s.Name]
 
 						workload := state.WorkloadState{PlanHash: p.Hash, Image: image}
 						for _, binding := range s.Bindings {
@@ -524,7 +472,7 @@ func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Sto
 		args = append(args, s.Name)
 	}
 
-	if _, err := c.runner.Run(ctx, execx.Command{Name: "docker", Args: args, Dir: c.root}); err != nil {
+	if _, err := c.runDocker(ctx, p.Deployment, args); err != nil {
 		return err
 	}
 
@@ -587,7 +535,7 @@ func (c *Compose) Destroy(ctx context.Context, p *plan.Plan, st *state.Store, op
 
 			volume := c.projectName(d) + "_" + r.Name + "-data"
 
-			owner, err := c.runner.Run(ctx, execx.Command{Name: "docker", Args: c.dockerArgs(d, "volume", "inspect", "--format", `{{index .Labels "com.docker.compose.project"}}`, volume), Dir: c.root})
+			owner, err := c.runDocker(ctx, d, c.dockerArgs(d, "volume", "inspect", "--format", `{{index .Labels "com.docker.compose.project"}}`, volume))
 			if err != nil {
 				return err
 			}
@@ -596,7 +544,7 @@ func (c *Compose) Destroy(ctx context.Context, p *plan.Plan, st *state.Store, op
 				return errors.New("volume ownership does not match this deployment")
 			}
 
-			if _, err := c.runner.Run(ctx, execx.Command{Name: "docker", Args: c.dockerArgs(d, "volume", "rm", c.projectName(d)+"_"+r.Name+"-data"), Dir: c.root}); err != nil {
+			if _, err := c.runDocker(ctx, d, c.dockerArgs(d, "volume", "rm", c.projectName(d)+"_"+r.Name+"-data")); err != nil {
 				return err
 			}
 		}
@@ -625,15 +573,6 @@ func (c *Compose) Destroy(ctx context.Context, p *plan.Plan, st *state.Store, op
 	}
 
 	return st.SaveSnapshot(snap)
-}
-
-func hostWorkEnv(root string) []string {
-	work := filepath.Join(root, "go.work")
-	if _, err := os.Stat(work); err == nil {
-		return []string{"GOWORK=" + work}
-	}
-
-	return []string{"GOWORK=off"}
 }
 
 // Protect backends still bound by a running service outside this selected plan.
@@ -718,4 +657,21 @@ func (c *Compose) protectedResources(ctx context.Context, p *plan.Plan, st *stat
 	}
 
 	return protected, nil
+}
+
+func (c *Compose) runDocker(ctx context.Context, d *model.Deployment, args []string) (execx.Result, error) {
+	config, err := images.ConfigDir(c.root, d)
+	if err != nil {
+		return execx.Result{}, err
+	}
+
+	if err := images.PrepareDocker(ctx, c.runner, c.root, d, config); err != nil {
+		return execx.Result{}, err
+	}
+
+	if config != "" {
+		args = append([]string{"--config", config}, args...)
+	}
+
+	return c.runner.Run(ctx, execx.Command{Name: "docker", Args: args, Dir: c.root, Env: images.DockerEnv()})
 }

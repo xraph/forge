@@ -111,7 +111,8 @@ func TestRemoteRegistryBuildUsesCustomDockerfileAndOnlyPublishesOnce(t *testing.
 		t.Fatal(err)
 	}
 
-	f.Script("docker buildx", execx.Result{})
+	f.Script("docker pull", execx.Result{})
+	f.Script("docker buildx", execx.Result{Stdout: "sha256:" + strings.Repeat("a", 64)})
 	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
 
 	var err error
@@ -139,7 +140,7 @@ func TestRemoteRegistryBuildUsesCustomDockerfileAndOnlyPublishesOnce(t *testing.
 
 		if strings.Contains(call.String(), "buildx build") {
 			built = true
-			expected := filepath.Join(c.root, "custom.Dockerfile")
+			expected := filepath.Join(st.Dir(), "build", "source-"+p.Hash, "custom.Dockerfile")
 			found := false
 
 			for i, arg := range call.Args {

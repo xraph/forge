@@ -233,3 +233,49 @@ request. `NewClientChecked` lets you handle them at startup. Runtime timeouts do
 not mutate a shared HTTP client. Retries default to zero and are limited to five;
 GET, HEAD and OPTIONS can retry transient failures. Use `WithRetryMethods` for
 other methods only when the endpoint's idempotency contract permits replay.
+
+## Image delivery
+
+Choose your image source independently of the deployment provider. Local and
+remote Buildx builds can publish to a registry. Existing and CI images require
+a sha256 digest for every selected service; Forge verifies them and skips the
+build. Multi-platform output requires registry publication. The host builder
+compiles one Linux platform from the service's own Go module.
+
+```yaml
+deploy:
+  targets:
+    production:
+      provider: kubernetes
+      context: production
+      build:
+        source: remote
+        builder: release-builder
+        delivery: registry
+        platforms: [linux/amd64, linux/arm64]
+        registry:
+          host: ghcr.io
+          namespace: your-org
+          auth: ghcr
+          pull_secret: ghcr-pull
+```
+
+`auth` names a private registry connection. `username` and `secret_ref` let you
+supply a login account and credential reference instead. Push credentials and
+the cluster's `pull_secret` are separate. An authenticated builder does not
+grant your cluster access to a private image.
+
+Registry login sends the token through stdin and saves its Docker configuration
+under `.forge/connections`, with private permissions. It publishes the connection
+only after Docker persists credentials. Named Docker contexts are copied into
+that private configuration; reconnect after changing a context's endpoint.
+Your configured Buildx builders remain available.
+
+Build contexts omit configured runtime files, deployment state and credential
+files. Keep build assets separate from runtime configuration if you embed them
+in Go. Nested modules and local workspace replacements must stay inside the
+project. Compose migrations and workloads use verified immutable images, and a
+retry reuses the image recorded for that saved plan.
+
+The private-registry acceptance fixture runs on native Linux Docker. The fixture's host loopback
+registry route on Docker Desktop has not been qualified.

@@ -602,6 +602,12 @@
         },
         "secret_ref": {
           "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "pull_secret": {
+          "type": "string"
         }
       }
     },

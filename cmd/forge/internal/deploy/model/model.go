@@ -33,18 +33,19 @@ type Kind = spec.Kind
 type Exposure = spec.Exposure
 
 type Deployment struct {
-	Project     string       `json:"project"`
-	Environment string       `json:"environment"`
-	TargetName  string       `json:"target_name"`
-	Target      spec.Target  `json:"target"`
-	Registry    string       `json:"registry"`
-	Services    []Service    `json:"services"`
-	Resources   []Resource   `json:"resources"`
-	Connections []Connection `json:"connections"`
-	Secrets     []SecretRef  `json:"secrets"`
-	Migrations  []Migration  `json:"migrations"`
-	Routes      []Route      `json:"routes"`
-	Overlay     OverlayMode  `json:"overlay"` // file, inline, local-file-fallback
+	BuildExcludes []string     `json:"build_excludes,omitempty"`
+	Project       string       `json:"project"`
+	Environment   string       `json:"environment"`
+	TargetName    string       `json:"target_name"`
+	Target        spec.Target  `json:"target"`
+	Registry      string       `json:"registry"`
+	Services      []Service    `json:"services"`
+	Resources     []Resource   `json:"resources"`
+	Connections   []Connection `json:"connections"`
+	Secrets       []SecretRef  `json:"secrets"`
+	Migrations    []Migration  `json:"migrations"`
+	Routes        []Route      `json:"routes"`
+	Overlay       OverlayMode  `json:"overlay"` // file, inline, local-file-fallback
 }
 
 type OverlayMode string
