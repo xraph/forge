@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
+	"slices"
 	"strconv"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
@@ -18,6 +19,8 @@ import (
 
 type psRow struct {
 	Service  string `json:"Service"`
+	ID       string `json:"ID"`
+	Image    string `json:"Image"`
 	State    string `json:"State"`
 	Health   string `json:"Health"`
 	ExitCode int    `json:"ExitCode"`
@@ -53,6 +56,9 @@ func parseRows(raw string) ([]psRow, error) {
 	return rows, scanner.Err()
 }
 func (c *Compose) Observe(ctx context.Context, _ provider.EnvRef, st *state.Store) (provider.Status, error) {
+	return c.observe(ctx, st, true)
+}
+func (c *Compose) observe(ctx context.Context, st *state.Store, trackAttempt bool) (provider.Status, error) {
 	status := provider.Status{Overall: state.StatusUnknown, Services: map[string]provider.ServiceStatus{}, Resources: map[string]state.Status{}}
 
 	snap, err := st.Snapshot()
@@ -94,7 +100,7 @@ func (c *Compose) Observe(ctx context.Context, _ provider.EnvRef, st *state.Stor
 	allReady, accepted, failed := true, false, false
 
 	for _, s := range d.Services {
-		ss := provider.ServiceStatus{Desired: s.Replicas, Image: s.Image}
+		ss := provider.ServiceStatus{Desired: s.Replicas, IntendedImage: s.Image}
 		if ss.Desired < 1 {
 			ss.Desired = 1
 		}
@@ -102,6 +108,10 @@ func (c *Compose) Observe(ctx context.Context, _ provider.EnvRef, st *state.Stor
 		running := 0
 
 		for _, row := range indexed[s.Name] {
+			if row.Image != "" {
+				ss.Image.Repository = row.Image
+			}
+
 			if s.Kind == spec.KindJob && row.State == "exited" && row.ExitCode == 0 {
 				ss.Ready++
 
@@ -175,6 +185,26 @@ func (c *Compose) Observe(ctx context.Context, _ provider.EnvRef, st *state.Stor
 		status.Overall = state.StatusHealthy
 	default:
 		status.Overall = state.StatusPartial
+	}
+
+	if trackAttempt && (snap.Status == state.StatusPartial || snap.Status == state.StatusCancelled || snap.Status == state.StatusApplying || snap.Status == state.StatusFailed) {
+		status.Overall = snap.Status
+
+		status.FailedOperation = snap.FailedOperation
+		if status.FailedOperation == "" {
+			events, eventErr := st.Journal().Events()
+			if eventErr != nil {
+				return status, eventErr
+			}
+
+			for _, v := range slices.Backward(events) {
+				if v.Status == state.StatusFailed && strings.HasPrefix(v.IdempotencyKey, hash+":") {
+					status.FailedOperation = v.Op
+
+					break
+				}
+			}
+		}
 	}
 
 	// Routes are exposed endpoints; this status does not claim an external network reachability probe.

@@ -121,13 +121,17 @@ forge deploy apply --plan .forge/plans/dev-local-HASH.json \
 
 The JSON response includes `data.hash` and the saved plan path. Approve the full
 hash, not its filename prefix. Apply checks the plan's integrity, expiry and
-source files again. A changed source, configuration or generated artifact blocks
-apply until you review a fresh plan. Only one apply can hold an environment lock.
+source files again, then compares the approved deployment revision and recorded
+container identities under the environment lock. Changed inputs, state or remote
+workloads require a fresh plan. Imported plan files are verified and saved locally
+before rollout. Only one apply can hold an environment lock.
 
 Generated artifacts live in `deployments/<target>/<env>`. The ownership manifest
 tracks their hashes. Regeneration preserves user files and edited generated
 files; `export --force` explicitly replaces edited generated files. Apply refuses
-skipped files. Keep custom configuration in the source deploy block while you
+skipped files. Files used by active services remain owned and retained when you
+deploy a subset. `export --output-dir` adjusts Compose build paths for that
+directory; apply uses the canonical deployment directory. Keep custom configuration in the source deploy block while you
 review the generated output. Arbitrary patch files are preserved but are not
 merged into Compose artifacts.
 
@@ -135,10 +139,19 @@ Compose builds in Docker by default. Set `build: { builder: host }` on a target
 to cross-compile Go on your machine and package the binary in a runtime image.
 Host builds need complete module sums and a Linux platform; they do not support
 CGO or custom Dockerfiles. Remote Buildx builders use `source: remote` and a named
-`builder`. `source: existing` and `source: ci` require immutable `build.images`
+`builder` and publish once when registry delivery is selected. The requested
+`platforms` apply to Docker and host builds; local delivery supports one platform.
+`source: existing` and `source: ci` require immutable `build.images`
 references for every selected service. Registry delivery uses your Docker
 credential configuration; dedicated connection management is being added to the
 workbench.
+
+Status keeps an incomplete or failed deployment visible even when its previous
+containers are healthy. It shows the observed image separately from the intended
+image and identifies the failed operation. Rollback selects the predecessor of
+the active release and checks all intervening migrations, including interrupted
+attempts. Shared backend ownership survives release history pruning. Destroy
+refuses resource removal when a running service has unknown bindings.
 
 ## Commands
 

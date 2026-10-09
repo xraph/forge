@@ -19,16 +19,18 @@ type Event struct {
 	Message string       `json:"message"`
 }
 type ServiceStatus struct {
-	Ready   int         `json:"ready"`
-	Desired int         `json:"desired"`
-	Image   model.Image `json:"image"`
-	Message string      `json:"message"`
+	Ready         int         `json:"ready"`
+	Desired       int         `json:"desired"`
+	Image         model.Image `json:"image"`
+	IntendedImage model.Image `json:"intended_image"`
+	Message       string      `json:"message"`
 }
 type Status struct {
-	Overall   state.Status             `json:"overall"`
-	Services  map[string]ServiceStatus `json:"services"`
-	Resources map[string]state.Status  `json:"resources"`
-	Routes    []string                 `json:"routes"`
+	FailedOperation string                   `json:"failed_operation,omitempty"`
+	Overall         state.Status             `json:"overall"`
+	Services        map[string]ServiceStatus `json:"services"`
+	Resources       map[string]state.Status  `json:"resources"`
+	Routes          []string                 `json:"routes"`
 }
 type ServiceRef struct{ Target, Env, Service string }
 type EnvRef struct{ Target, Env string }
@@ -51,6 +53,16 @@ type Provider interface {
 	Logs(ctx context.Context, ref ServiceRef, options LogOptions) (io.ReadCloser, error)
 	Rollback(ctx context.Context, ref EnvRef, store *state.Store, release string) error
 	Destroy(ctx context.Context, p *plan.Plan, store *state.Store, options DestroyOptions) error
+}
+
+// IdentityObserver reads current remote identities without changing workloads.
+type IdentityObserver interface {
+	SnapshotIDs(ctx context.Context, deployment *model.Deployment) (map[string][]string, error)
+}
+
+// BundleRelocator adjusts build paths in an approved export for another directory.
+type BundleRelocator interface {
+	Relocate(deployment *model.Deployment, bundle *render.Bundle, directory string) (*render.Bundle, error)
 }
 
 // ExportOnly gives adapters explicit unsupported defaults for unimplemented operations.

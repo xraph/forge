@@ -157,6 +157,13 @@ func (c *Compose) Render(ctx context.Context, d *model.Deployment) (*render.Bund
 			}
 		}
 
+		if len(d.Target.Build.Platforms) > 0 {
+			svc["platform"] = d.Target.Build.Platforms[0]
+			if build, ok := svc["build"].(map[string]any); ok {
+				build["platforms"] = d.Target.Build.Platforms
+			}
+		}
+
 		if s.Replicas > 1 {
 			svc["deploy"] = map[string]any{"replicas": s.Replicas}
 		}

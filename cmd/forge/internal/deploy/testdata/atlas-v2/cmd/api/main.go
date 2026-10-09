@@ -1,6 +1,7 @@
 package main
 
 import (
+	"example.com/atlas/internal/config"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/cli"
 	_ "github.com/xraph/grove/drivers/pgdriver"
@@ -58,5 +59,5 @@ func port() string {
 	if p := os.Getenv("PORT"); p != "" {
 		return p
 	}
-	return "8080"
+	return config.HTTPPort
 }

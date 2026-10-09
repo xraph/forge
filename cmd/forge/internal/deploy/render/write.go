@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-type WriteOptions struct{ Force bool }
+type WriteOptions struct {
+	Force           bool
+	PreserveMissing bool
+}
 type WriteResult struct {
 	Written   []string `json:"written"`
 	Unchanged []string `json:"unchanged"`
@@ -92,7 +95,7 @@ func Write(dir string, b *Bundle, opts WriteOptions) (WriteResult, error) {
 	}
 
 	for p, want := range old.Files {
-		if _, keep := b.Files[p]; keep || strings.HasPrefix(p, "patches/") {
+		if _, keep := b.Files[p]; keep || opts.PreserveMissing || strings.HasPrefix(p, "patches/") {
 			continue
 		}
 
@@ -119,6 +122,14 @@ func Write(dir string, b *Bundle, opts WriteOptions) (WriteResult, error) {
 	m := b.Manifest
 	m.Files = b.Hashes()
 	m.Generated = time.Now().UTC()
+
+	if opts.PreserveMissing {
+		for p, h := range old.Files {
+			if _, ok := m.Files[p]; !ok {
+				m.Files[p] = h
+			}
+		}
+	}
 
 	for _, p := range res.Skipped {
 		if h, ok := old.Files[p]; ok {

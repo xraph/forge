@@ -50,21 +50,22 @@ type Operation struct {
 }
 
 type Plan struct {
-	Schema      string             `json:"schema"`
-	Hash        string             `json:"hash"`
-	CreatedAt   time.Time          `json:"created_at"`
-	TTL         time.Duration      `json:"ttl"`
-	Project     string             `json:"project"`
-	Environment string             `json:"environment"`
-	TargetName  string             `json:"target"`
-	Target      spec.Target        `json:"target_spec"`
-	Deployment  *model.Deployment  `json:"deployment"`
-	Files       map[string]string  `json:"files"`
-	Inputs      map[string]string  `json:"inputs"`
-	Images      []model.Image      `json:"images"`
-	Operations  []Operation        `json:"operations"`
-	Snapshot    state.Snapshot     `json:"snapshot"`
-	Diagnostics output.Diagnostics `json:"diagnostics"`
+	Schema      string              `json:"schema"`
+	Hash        string              `json:"hash"`
+	CreatedAt   time.Time           `json:"created_at"`
+	TTL         time.Duration       `json:"ttl"`
+	Project     string              `json:"project"`
+	Environment string              `json:"environment"`
+	TargetName  string              `json:"target"`
+	Target      spec.Target         `json:"target_spec"`
+	Deployment  *model.Deployment   `json:"deployment"`
+	Files       map[string]string   `json:"files"`
+	Inputs      map[string]string   `json:"inputs"`
+	Images      []model.Image       `json:"images"`
+	Operations  []Operation         `json:"operations"`
+	ObservedIDs map[string][]string `json:"observed_ids,omitempty"`
+	Snapshot    state.Snapshot      `json:"snapshot"`
+	Diagnostics output.Diagnostics  `json:"diagnostics"`
 }
 
 func Build(d *model.Deployment, b *render.Bundle, snap state.Snapshot, inputs map[string]string, ops []Operation) (*Plan, error) {

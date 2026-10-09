@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func (c *Compose) Operations(_ context.Context, d *model.Deployment, _ *render.B
 			add("build:"+s.Name, plan.OpBuild, s.Name, "", "Build the selected service image")
 		}
 
-		if d.Target.Build.Delivery == "registry" {
+		if d.Target.Build.Delivery == "registry" && d.Target.Build.Source != "remote" && d.Target.Build.Source != "existing" && d.Target.Build.Source != "ci" {
 			add("push:"+s.Name, plan.OpPush, s.Name, "", "Publish the selected service image")
 		}
 	}
@@ -116,6 +117,43 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 		snap.Resources = map[string]state.ResourceState{}
 	}
 
+	if snap.Workloads == nil {
+		snap.Workloads = map[string]state.WorkloadState{}
+		for _, v := range slices.Backward(snap.Releases) {
+			prior, loadErr := c.loadPlan(st, v.PlanHash)
+			if loadErr != nil {
+				return loadErr
+			}
+
+			for index, svc := range prior.Deployment.Services {
+				if _, known := snap.Workloads[svc.Name]; known {
+					continue
+				}
+
+				workload := state.WorkloadState{PlanHash: prior.Hash}
+				for _, binding := range svc.Bindings {
+					workload.Resources = append(workload.Resources, binding.Resource)
+				}
+
+				if index < len(v.Images) {
+					workload.Image = v.Images[index]
+				}
+
+				snap.Workloads[svc.Name] = workload
+			}
+		}
+	}
+
+	if snap.ActivePlanHash != p.Hash || snap.Status == state.StatusHealthy || snap.Status == state.StatusAccepted {
+		snap.Revision++
+
+		if err := record(ctx, events, j, p, plan.Operation{ID: "apply:begin"}, state.StatusAccepted, "Deployment attempt started", ""); err != nil {
+			return err
+		}
+	}
+
+	snap.FailedOperation = ""
+
 	snap.Status, snap.ActivePlanHash = state.StatusApplying, p.Hash
 	if err := st.SaveSnapshot(snap); err != nil {
 		return err
@@ -123,6 +161,8 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 
 	fail := func(op plan.Operation, err error) error {
 		snap.Status = state.StatusPartial
+
+		snap.FailedOperation = op.ID
 		if ctx.Err() != nil {
 			snap.Status = state.StatusCancelled
 		}
@@ -223,7 +263,12 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 					}
 				}
 
-				args := []string{"buildx", "build", "--builder", d.Target.Build.Builder, "-t", imageRef(svc.Image), "-f", filepath.Join(c.bundleDir(d), svc.Name, "Dockerfile")}
+				file := filepath.Join(c.bundleDir(d), svc.Name, "Dockerfile")
+				if svc.Image.Dockerfile != "" {
+					file = filepath.Join(c.root, svc.Image.Dockerfile)
+				}
+
+				args := []string{"buildx", "build", "--builder", d.Target.Build.Builder, "-t", imageRef(svc.Image), "-f", file}
 				if len(d.Target.Build.Platforms) > 0 {
 					args = append(args, "--platform", strings.Join(d.Target.Build.Platforms, ","))
 				}
@@ -240,7 +285,9 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 				_, err = c.run(ctx, d, "build", op.Service)
 			}
 		case plan.OpPush:
-			_, err = c.run(ctx, d, "push", op.Service)
+			if d.Target.Build.Source != "remote" {
+				_, err = c.run(ctx, d, "push", op.Service)
+			}
 		case plan.OpCreate, plan.OpUpdate:
 			if strings.HasPrefix(op.ID, "init:") {
 				_, err = c.run(ctx, d, "run", "--rm", "--no-deps", op.Resource+"-init")
@@ -278,13 +325,21 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 						image.Tag = ""
 						image.Digest = ""
 						actualImages[s.Name] = image
+
+						workload := state.WorkloadState{PlanHash: p.Hash, Image: image}
+						for _, binding := range s.Bindings {
+							workload.Resources = append(workload.Resources, binding.Resource)
+						}
+
+						snap.Workloads[s.Name] = workload
+						err = st.SaveSnapshot(snap)
 					}
 				}
 			}
 		case plan.OpCheck:
 			var observed provider.Status
 			for {
-				observed, err = c.Observe(ctx, provider.EnvRef{Target: d.TargetName, Env: d.Environment}, st)
+				observed, err = c.observe(ctx, st, false)
 				if err != nil {
 					break
 				}
@@ -320,6 +375,18 @@ func (c *Compose) Apply(ctx context.Context, p *plan.Plan, st *state.Store, valu
 
 		if err != nil {
 			return fail(op, err)
+		}
+
+		if op.Kind == plan.OpRollout || op.Kind == plan.OpCreate || op.Kind == plan.OpUpdate {
+			identities, identityErr := c.SnapshotIDs(ctx, d)
+			if identityErr != nil {
+				return fail(op, identityErr)
+			}
+
+			snap.Identities = identities
+			if err := st.SaveSnapshot(snap); err != nil {
+				return fail(op, err)
+			}
 		}
 
 		if err := record(ctx, events, j, p, op, state.StatusAccepted, "Completed", id); err != nil {
@@ -398,13 +465,6 @@ func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Sto
 		return errors.New("no release to roll back")
 	}
 
-	current := snap.Releases[len(snap.Releases)-1]
-	for id, reversible := range current.Migrations {
-		if !reversible {
-			return fmt.Errorf("%s is not marked reversible; roll forward", id)
-		}
-	}
-
 	var release *state.Release
 
 	for i := range snap.Releases {
@@ -415,6 +475,10 @@ func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Sto
 
 	if release == nil {
 		return errors.New("release not found")
+	}
+
+	if err := state.CheckRollback(snap, st.Journal(), *release); err != nil {
+		return err
 	}
 
 	p, err := c.loadPlan(st, release.PlanHash)
@@ -447,7 +511,7 @@ func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Sto
 		return err
 	}
 
-	if result, err := render.Write(c.bundleDir(p.Deployment), b, render.WriteOptions{}); err != nil {
+	if result, err := render.Write(c.bundleDir(p.Deployment), b, render.WriteOptions{PreserveMissing: true}); err != nil {
 		return err
 	} else if len(result.Skipped) > 0 {
 		return errors.New("rollback artifacts have local edits; review before rollback")
@@ -466,6 +530,26 @@ func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Sto
 
 	snap.ActivePlanHash = p.Hash
 	snap.Status = release.Status
+	snap.Revision++
+
+	snap.FailedOperation = ""
+	if snap.Workloads == nil {
+		snap.Workloads = map[string]state.WorkloadState{}
+	}
+
+	for i, svc := range p.Deployment.Services {
+		workload := state.WorkloadState{PlanHash: p.Hash, Image: release.Images[i]}
+		for _, binding := range svc.Bindings {
+			workload.Resources = append(workload.Resources, binding.Resource)
+		}
+
+		snap.Workloads[svc.Name] = workload
+	}
+
+	snap.Identities, err = c.SnapshotIDs(ctx, p.Deployment)
+	if err != nil {
+		return err
+	}
 
 	return st.SaveSnapshot(snap)
 }
@@ -532,6 +616,13 @@ func (c *Compose) Destroy(ctx context.Context, p *plan.Plan, st *state.Store, op
 	}
 
 	snap.Status = state.StatusCancelled
+	snap.Revision++
+
+	snap.FailedOperation = ""
+	for _, svc := range d.Services {
+		delete(snap.Workloads, svc.Name)
+		delete(snap.Identities, svc.Name)
+	}
 
 	return st.SaveSnapshot(snap)
 }
@@ -581,10 +672,34 @@ func (c *Compose) protectedResources(ctx context.Context, p *plan.Plan, st *stat
 		return nil, err
 	}
 
+	for _, resource := range p.Deployment.Resources {
+		delete(other, resource.Name)
+		delete(other, resource.Name+"-init")
+	}
+
+	for name := range snap.Resources {
+		delete(other, name)
+		delete(other, name+"-init")
+	}
+
+	for name, workload := range snap.Workloads {
+		if other[name] {
+			for _, resource := range workload.Resources {
+				protected[resource] = true
+			}
+
+			delete(other, name)
+		}
+	}
+	// Existing state may predate the inventory. Import bindings only while their plan is still available.
 	for _, release := range snap.Releases {
+		if len(other) == 0 {
+			break
+		}
+
 		prior, err := c.loadPlan(st, release.PlanHash)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
 		for _, svc := range prior.Deployment.Services {
@@ -592,8 +707,14 @@ func (c *Compose) protectedResources(ctx context.Context, p *plan.Plan, st *stat
 				for _, binding := range svc.Bindings {
 					protected[binding.Resource] = true
 				}
+
+				delete(other, svc.Name)
 			}
 		}
+	}
+
+	if len(other) > 0 {
+		return nil, errors.New("running workloads have unknown bindings; resource removal refused")
 	}
 
 	return protected, nil

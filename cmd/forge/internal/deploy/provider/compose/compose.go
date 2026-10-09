@@ -116,7 +116,7 @@ func (c *Compose) Validate(_ context.Context, d *model.Deployment) output.Diagno
 		fail("host builds support one linux platform", "deploy.targets."+d.TargetName+".build.platforms")
 	}
 
-	if d.Target.Build.Source == "remote" && d.Target.Build.Delivery != "registry" && len(d.Target.Build.Platforms) > 1 {
+	if d.Target.Build.Delivery != "registry" && len(d.Target.Build.Platforms) > 1 {
 		fail("multiple platforms require registry delivery", "deploy.targets."+d.TargetName+".build.delivery")
 	}
 

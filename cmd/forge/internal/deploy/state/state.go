@@ -47,11 +47,21 @@ type ResourceState struct {
 	CreatedAt  time.Time          `json:"created_at"`
 }
 
+type WorkloadState struct {
+	PlanHash  string      `json:"plan_hash"`
+	Resources []string    `json:"resources"`
+	Image     model.Image `json:"image"`
+}
+
 type Snapshot struct {
-	ActivePlanHash string                   `json:"active_plan_hash,omitempty"`
-	Releases       []Release                `json:"releases"`
-	Resources      map[string]ResourceState `json:"resources"`
-	Status         Status                   `json:"status"`
+	Revision        uint64                   `json:"revision,omitempty"`
+	Workloads       map[string]WorkloadState `json:"workloads,omitempty"`
+	Identities      map[string][]string      `json:"identities,omitempty"`
+	FailedOperation string                   `json:"failed_operation,omitempty"`
+	ActivePlanHash  string                   `json:"active_plan_hash,omitempty"`
+	Releases        []Release                `json:"releases"`
+	Resources       map[string]ResourceState `json:"resources"`
+	Status          Status                   `json:"status"`
 }
 
 var ErrLocked = errors.New("another apply holds the lock")

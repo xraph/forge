@@ -98,6 +98,13 @@ func (e *Engine) PlanWithOptions(ctx context.Context, target, env string, opts P
 		return nil, nil, err
 	}
 
+	if observer, ok := adapter.(provider.IdentityObserver); ok && (snap.ActivePlanHash != "" || len(snap.Releases) > 0) {
+		p.ObservedIDs, err = observer.SnapshotIDs(ctx, res.Deployment)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	p.Diagnostics = res.Diagnostics.Sorted()
 
 	p.Hash, err = p.ComputeHash()
@@ -138,11 +145,36 @@ func (e *Engine) Export(ctx context.Context, p *plan.Plan, b *render.Bundle, dir
 		return render.WriteResult{}, output.Fail(output.ExitConflict, "rendered files differ from the approved plan")
 	}
 
+	defaultDir := filepath.Join(e.cfg.RootDir, "deployments", p.TargetName, p.Environment)
 	if dir == "" {
-		dir = filepath.Join(e.cfg.RootDir, "deployments", p.TargetName, p.Environment)
+		dir = defaultDir
 	}
 
-	return render.Write(dir, b, render.WriteOptions{Force: force})
+	if filepath.Clean(dir) != defaultDir {
+		if relocator, ok := adapter.(provider.BundleRelocator); ok {
+			var err error
+
+			b, err = relocator.Relocate(p.Deployment, b, dir)
+			if err != nil {
+				return render.WriteResult{}, err
+			}
+		}
+	}
+
+	st, err := state.Open(e.cfg.RootDir, p.TargetName, p.Environment)
+	if err != nil {
+		return render.WriteResult{}, err
+	}
+	defer st.Close()
+
+	snap, err := st.Snapshot()
+	if err != nil {
+		return render.WriteResult{}, err
+	}
+
+	preserve := snap.ActivePlanHash != "" || len(snap.Releases) > 0 || len(snap.Workloads) > 0
+
+	return render.Write(dir, b, render.WriteOptions{Force: force, PreserveMissing: preserve})
 }
 func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowDestructive bool, ev chan<- provider.Event) error {
 	if p == nil {
@@ -196,6 +228,41 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 
 	if _, err := st.Journal().Events(); err != nil {
 		return output.Fail(output.ExitConflict, "deployment journal is invalid")
+	}
+
+	snap, err := st.Snapshot()
+	if err != nil {
+		return err
+	}
+
+	resume := snap.ActivePlanHash == p.Hash && snap.Revision == p.Snapshot.Revision+1 && (snap.Status == state.StatusApplying || snap.Status == state.StatusPartial || snap.Status == state.StatusCancelled)
+	if _, began := st.Journal().Completed(p.Hash + ":apply:begin"); !began {
+		resume = false
+	}
+
+	if !resume && !reflect.DeepEqual(snap, p.Snapshot) {
+		return output.Fail(output.ExitConflict, "deployment state changed since approval; create a new plan")
+	}
+
+	expected := p.ObservedIDs
+	if resume {
+		expected = snap.Identities
+	}
+
+	if expected != nil {
+		observer, ok := adapter.(provider.IdentityObserver)
+		if !ok {
+			return output.Fail(output.ExitConflict, "provider cannot verify recorded identities")
+		}
+
+		observed, err := observer.SnapshotIDs(ctx, p.Deployment)
+		if err != nil || !reflect.DeepEqual(expected, observed) {
+			return output.Fail(output.ExitConflict, "remote workload identities changed since approval")
+		}
+	}
+
+	if _, err := plan.Save(e.plansDir(), p); err != nil {
+		return err
 	}
 
 	if result, err := e.Export(ctx, p, nil, "", false); err != nil {
@@ -350,11 +417,20 @@ func (e *Engine) Rollback(ctx context.Context, target, env, release string) erro
 	}
 
 	if release == "" {
-		if len(snap.Releases) < 2 {
+		index := len(snap.Releases) - 1
+		for i, r := range snap.Releases {
+			if r.PlanHash == snap.ActivePlanHash {
+				index = i - 1
+
+				break
+			}
+		}
+
+		if index < 0 {
 			return output.Fail(output.ExitInvalidInput, "no previous release")
 		}
 
-		release = snap.Releases[len(snap.Releases)-2].ID
+		release = snap.Releases[index].ID
 	}
 
 	return adapter.Rollback(ctx, provider.EnvRef{Target: target, Env: env}, st, release)

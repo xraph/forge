@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const buildIgnore = ".git\n.forge\ndeployments\nnode_modules\n**/node_modules\n.env\n.env.*\n**/.env\n**/.env.*\n*.pem\n**/*.pem\nconfig\n**/config\nconfig*.yaml\nconfig*.yml\n**/config*.yaml\n**/config*.yml\n"
+const buildIgnore = ".git\n.forge\ndeployments\nnode_modules\n**/node_modules\n.env\n.env.*\n**/.env\n**/.env.*\n*.pem\n**/*.pem\nconfig*.yaml\nconfig*.yml\n**/config*.yaml\n**/config*.yml\n"
 
 var goDirective = regexp.MustCompile(`(?m)^go (\d+\.\d+)`)
 
