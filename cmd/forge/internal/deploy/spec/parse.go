@@ -100,6 +100,13 @@ func Parse(path string) (*Document, output.Diagnostics, error) {
 	}
 
 	doc.Root = &root
+	// Node decoding alone accepts duplicate keys and recursive aliases. Decode
+	// the complete envelope before choosing a section so intent is unambiguous.
+	var envelope any
+	if err := root.Decode(&envelope); err != nil {
+		return doc, output.Diagnostics{parseError(path, err)}, nil
+	}
+
 	doc.lines = IndexLines(&root)
 
 	deployNode := childNode(&root, "deploy")
@@ -261,6 +268,25 @@ func (doc *Document) loadEnvSplit(path, env string, deployNode *yaml.Node) outpu
 // unknownKeys walks a mapping node against a struct type and reports keys
 // no yaml tag declares. A struct with an inline map accepts any key.
 func unknownKeys(n *yaml.Node, t reflect.Type, prefix, file string) output.Diagnostics {
+	return walkUnknownKeys(n, t, prefix, file, map[*yaml.Node]bool{})
+}
+
+func walkUnknownKeys(n *yaml.Node, t reflect.Type, prefix, file string, ancestors map[*yaml.Node]bool) output.Diagnostics {
+	if n == nil {
+		return nil
+	}
+
+	if ancestors[n] {
+		return output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: "recursive YAML alias", File: file, Line: n.Line, Field: prefix}}
+	}
+
+	ancestors[n] = true
+	defer delete(ancestors, n)
+
+	if n.Kind == yaml.AliasNode {
+		return walkUnknownKeys(n.Alias, t, prefix, file, ancestors)
+	}
+
 	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
 		n = n.Content[0]
 	}
@@ -303,6 +329,17 @@ func unknownKeys(n *yaml.Node, t reflect.Type, prefix, file string) output.Diagn
 
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k, v := n.Content[i], n.Content[i+1]
+			if k.Tag == "!!merge" {
+				if v.Kind == yaml.SequenceNode {
+					for _, item := range v.Content {
+						diags = append(diags, walkUnknownKeys(item, t, prefix, file, ancestors)...)
+					}
+				} else {
+					diags = append(diags, walkUnknownKeys(v, t, prefix, file, ancestors)...)
+				}
+
+				continue
+			}
 
 			path := k.Value
 			if prefix != "" {
@@ -319,7 +356,7 @@ func unknownKeys(n *yaml.Node, t reflect.Type, prefix, file string) output.Diagn
 				continue
 			}
 
-			diags = append(diags, unknownKeys(v, ft, path, file)...)
+			diags = append(diags, walkUnknownKeys(v, ft, path, file, ancestors)...)
 		}
 	case reflect.Map:
 		if n.Kind != yaml.MappingNode {
@@ -328,7 +365,13 @@ func unknownKeys(n *yaml.Node, t reflect.Type, prefix, file string) output.Diagn
 
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k, v := n.Content[i], n.Content[i+1]
-			diags = append(diags, unknownKeys(v, t.Elem(), prefix+"."+k.Value, file)...)
+			if k.Tag == "!!merge" {
+				diags = append(diags, walkUnknownKeys(v, t, prefix, file, ancestors)...)
+
+				continue
+			}
+
+			diags = append(diags, walkUnknownKeys(v, t.Elem(), prefix+"."+k.Value, file, ancestors)...)
 		}
 	case reflect.Slice:
 		if n.Kind != yaml.SequenceNode {
@@ -336,7 +379,7 @@ func unknownKeys(n *yaml.Node, t reflect.Type, prefix, file string) output.Diagn
 		}
 
 		for i, item := range n.Content {
-			diags = append(diags, unknownKeys(item, t.Elem(), fmt.Sprintf("%s.%d", prefix, i), file)...)
+			diags = append(diags, walkUnknownKeys(item, t.Elem(), fmt.Sprintf("%s.%d", prefix, i), file, ancestors)...)
 		}
 	}
 

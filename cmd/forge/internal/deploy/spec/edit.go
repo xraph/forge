@@ -303,6 +303,11 @@ func (d *Document) Patch(ops []Op) (map[string][]byte, error) {
 		_ = enc.Close()
 		data := buf.Bytes()
 
+		var checked any
+		if err := yaml.Unmarshal(data, &checked); err != nil {
+			return nil, fmt.Errorf("edit would produce invalid YAML in %s: %w", path, err)
+		}
+
 		raw := raws[path]
 		if bytes.HasPrefix(raw, []byte("\xef\xbb\xbf")) {
 			data = append([]byte("\xef\xbb\xbf"), data...)

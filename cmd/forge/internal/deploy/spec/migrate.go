@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"maps"
+
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 )
@@ -38,6 +40,10 @@ func MigrateV1(legacy *config.DeployConfig) ([]Op, output.Diagnostics) {
 			t["region"] = legacy.Render.Region
 		}
 
+		if legacy.Render.GitRepo != "" {
+			t["build"] = map[string]any{"source": "git", "repo": legacy.Render.GitRepo, "branch": legacy.Render.GitBranch, "trigger": "off"}
+		}
+
 		targets["render"] = t
 	}
 
@@ -45,6 +51,15 @@ func MigrateV1(legacy *config.DeployConfig) ([]Op, output.Diagnostics) {
 		t := map[string]any{"provider": "digitalocean"}
 		if legacy.DigitalOcean.Region != "" {
 			t["region"] = legacy.DigitalOcean.Region
+		}
+
+		if legacy.DigitalOcean.GitRepo != "" {
+			trigger := "off"
+			if legacy.DigitalOcean.DeployOnPush {
+				trigger = "commit"
+			}
+
+			t["build"] = map[string]any{"source": "git", "repo": legacy.DigitalOcean.GitRepo, "branch": legacy.DigitalOcean.GitBranch, "trigger": trigger}
 		}
 
 		targets["digitalocean"] = t
@@ -81,17 +96,26 @@ func MigrateV1(legacy *config.DeployConfig) ([]Op, output.Diagnostics) {
 			m["env"] = vars
 		}
 
-		if e.Namespace != "" && defaultTarget == "kubernetes" {
-			// A per-environment namespace needs its own target.
-			tn := "kubernetes-" + e.Name
+		base := targets[defaultTarget].(map[string]any)
+		if (e.Region != "" && e.Region != base["region"]) || (defaultTarget == "kubernetes" && ((e.Namespace != "" && e.Namespace != base["namespace"]) || (e.Cluster != "" && e.Cluster != base["context"]))) {
+			// Start from the provider defaults, then preserve every environment override.
+			tn := defaultTarget + "-" + e.Name
 
-			t := map[string]any{"provider": "kubernetes", "namespace": e.Namespace}
-			if legacy.Kubernetes != nil && legacy.Kubernetes.Context != "" {
-				t["context"] = legacy.Kubernetes.Context
+			t := map[string]any{}
+			maps.Copy(t, targets[defaultTarget].(map[string]any))
+
+			if defaultTarget == "kubernetes" {
+				if e.Namespace != "" {
+					t["namespace"] = e.Namespace
+				}
+
+				if e.Cluster != "" {
+					t["context"] = e.Cluster
+				}
 			}
 
-			if e.Cluster != "" {
-				t["context"] = e.Cluster
+			if e.Region != "" {
+				t["region"] = e.Region
 			}
 
 			targets[tn] = t
@@ -111,14 +135,21 @@ func MigrateV1(legacy *config.DeployConfig) ([]Op, output.Diagnostics) {
 	)
 	if legacy.Registry != "" {
 		ops = append(ops, Op{Path: "deploy.registry", Value: legacy.Registry})
+	} else if legacy.Kubernetes != nil && legacy.Kubernetes.Registry != "" {
+		ops = append(ops, Op{Path: "deploy.registry", Value: legacy.Kubernetes.Registry})
 	}
 
 	ops = append(ops,
 		Op{Path: "deploy.environments", Value: envs},
 		Op{Path: "deploy.targets", Value: targets},
 	)
+
 	diags = append(diags, output.Diagnostic{Code: output.CodeDecisionOpen, Severity: output.SeverityInfo,
 		Message: "services and resources are not migrated; run forge deploy init to suggest them", Field: "deploy.services"})
+	if legacy.Docker != nil || legacy.Kubernetes != nil || legacy.Render != nil || legacy.DigitalOcean != nil {
+		diags = append(diags, output.Diagnostic{Code: output.CodeDecisionOpen, Severity: output.SeverityWarning,
+			Message: "legacy artifact paths, Docker build settings, networks and volumes remain in the backup and need review before deployment", Field: "deploy.targets", Fix: "compare the backup and configure resource bindings, image builds and delivery on each target"})
+	}
 
 	return ops, diags
 }

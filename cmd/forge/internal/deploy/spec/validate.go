@@ -47,7 +47,7 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 			add(output.CodeNameInvalid, f, fmt.Sprintf("service name %q must be lowercase letters, digits and hyphens", name), "rename the service")
 		}
 
-		if s.App == "" || (len(known) > 0 && !known[s.App]) {
+		if s.App == "" || !known[s.App] {
 			add(output.CodeAppUnknown, f+".app", fmt.Sprintf("service %q names app %q, which is not buildable", name, s.App), "use one of: "+fmt.Sprint(apps))
 		}
 

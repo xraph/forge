@@ -72,7 +72,7 @@ func (p *DeployPlugin) migrate(ctx cli.CommandContext) error {
 
 	files, err := doc.Patch(ops)
 	if err != nil {
-		return err
+		return output.Fail(output.ExitInvalidInput, err.Error())
 	}
 
 	diff := deployMigrationDiff(path, string(doc.RawBytes()), string(files[path]))
