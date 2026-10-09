@@ -1,0 +1,1041 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: atlas-dev
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: forge-cdb06a460410b5b6-api
+  namespace: atlas-dev
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: forge-cdb06a460410b5b6-gateway
+  namespace: atlas-dev
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: forge-cdb06a460410b5b6-worker
+  namespace: atlas-dev
+---
+apiVersion: v1
+data:
+  overlay.yaml: |
+    extensions:
+      grove:
+        databases:
+          - name: primary
+            driver: postgres
+            dsn: ${ATLAS_PRIMARY_DSN}
+        default: primary
+      grove_kv:
+        driver: redis
+        dsn: ${ATLAS_CACHE_DSN}
+      trove:
+        default: uploads
+        stores:
+          - name: uploads
+            default_bucket: atlas-uploads
+            grove_database: primary
+            storage_driver: ${ATLAS_UPLOADS_DSN}
+    services: {}
+immutable: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: api-config-eefb41916bb7
+  namespace: atlas-dev
+---
+apiVersion: v1
+data:
+  overlay.yaml: |
+    services:
+      api:
+        timeout: 5s
+        url: http://api.atlas-dev.svc.cluster.local:8080
+immutable: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: gateway-config-fb3c7fdc63fa
+  namespace: atlas-dev
+---
+apiVersion: v1
+data:
+  overlay.yaml: |
+    extensions:
+      grove:
+        databases:
+          - name: primary
+            driver: postgres
+            dsn: ${ATLAS_PRIMARY_DSN}
+        default: primary
+      grove_kv:
+        driver: redis
+        dsn: ${ATLAS_CACHE_DSN}
+    services: {}
+immutable: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: worker-config-7923283770e8
+  namespace: atlas-dev
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: api
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: app
+    forge.xraph.io/target: local
+  name: api
+  namespace: atlas-dev
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: api
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: app
+    forge.xraph.io/target: local
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: cache
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  name: cache
+  namespace: atlas-dev
+spec:
+  clusterIP: None
+  ports:
+  - name: backend
+    port: 6379
+    protocol: TCP
+    targetPort: backend
+  selector:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: cache
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: gateway
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: app
+    forge.xraph.io/target: local
+  name: gateway
+  namespace: atlas-dev
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: gateway
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: app
+    forge.xraph.io/target: local
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: primary
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  name: primary
+  namespace: atlas-dev
+spec:
+  clusterIP: None
+  ports:
+  - name: backend
+    port: 5432
+    protocol: TCP
+    targetPort: backend
+  selector:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: primary
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: uploads
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  name: uploads
+  namespace: atlas-dev
+spec:
+  clusterIP: None
+  ports:
+  - name: backend
+    port: 9000
+    protocol: TCP
+    targetPort: backend
+  selector:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/component: uploads
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/role: resource
+    forge.xraph.io/target: local
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: api
+  namespace: atlas-dev
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: api
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: app
+      forge.xraph.io/target: local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: api
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: app
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: ATLAS_CACHE_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_CACHE_DSN
+              name: forge-cdb06a460410b5b6
+        - name: ATLAS_PRIMARY_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_PRIMARY_DSN
+              name: forge-cdb06a460410b5b6
+        - name: ATLAS_UPLOADS_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_DSN
+              name: forge-cdb06a460410b5b6
+        - name: FORGE_HTTP_PORT
+          value: "8080"
+        - name: PORT
+          value: "8080"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/example/atlas-api:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/live
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        name: api
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/ready
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /app/config.local.yaml
+          name: config
+          readOnly: true
+          subPath: overlay.yaml
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: forge-cdb06a460410b5b6-api
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: api-config-eefb41916bb7
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: gateway
+  namespace: atlas-dev
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: gateway
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: app
+      forge.xraph.io/target: local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: gateway
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: app
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: API_URL
+          value: http://api.atlas-dev.svc.cluster.local:8080
+        - name: FORGE_HTTP_PORT
+          value: "8080"
+        - name: PORT
+          value: "8080"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/example/atlas-gateway:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/live
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        name: gateway
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/ready
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /app/config.local.yaml
+          name: config
+          readOnly: true
+          subPath: overlay.yaml
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: forge-cdb06a460410b5b6-gateway
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: gateway-config-fb3c7fdc63fa
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: worker
+  namespace: atlas-dev
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: worker
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: app
+      forge.xraph.io/target: local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: worker
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: app
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: ATLAS_CACHE_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_CACHE_DSN
+              name: forge-cdb06a460410b5b6
+        - name: ATLAS_PRIMARY_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_PRIMARY_DSN
+              name: forge-cdb06a460410b5b6
+        - name: FORGE_HTTP_PORT
+          value: "8080"
+        - name: PORT
+          value: "8080"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/example/atlas-worker:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/live
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        name: worker
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /_/health/ready
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /app/config.local.yaml
+          name: config
+          readOnly: true
+          subPath: overlay.yaml
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: forge-cdb06a460410b5b6-worker
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: worker-config-7923283770e8
+        name: config
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: cache
+  namespace: atlas-dev
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: cache
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: resource
+      forge.xraph.io/target: local
+  serviceName: cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: cache
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: REDIS_ARGS
+          value: --appendonly yes
+        image: redis/redis-stack-server:7.4.0-v1
+        name: cache
+        ports:
+        - containerPort: 6379
+          name: backend
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"redis-cli" "ping"'
+          failureThreshold: 6
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1001
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"redis-cli" "ping"'
+          failureThreshold: 60
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      securityContext:
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: cache
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 4Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: primary
+  namespace: atlas-dev
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: primary
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: resource
+      forge.xraph.io/target: local
+  serviceName: primary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: primary
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_DB
+          value: atlas
+        - name: ATLAS_PRIMARY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_PRIMARY_PASSWORD
+              name: forge-cdb06a460410b5b6
+        - name: POSTGRES_PASSWORD
+          value: $(ATLAS_PRIMARY_PASSWORD)
+        - name: ATLAS_PRIMARY_USER
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_PRIMARY_USER
+              name: forge-cdb06a460410b5b6
+        - name: POSTGRES_USER
+          value: $(ATLAS_PRIMARY_USER)
+        image: postgres:16
+        name: primary
+        ports:
+        - containerPort: 5432
+          name: backend
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"pg_isready" "-U" "${ATLAS_PRIMARY_USER}" "-d" "atlas"'
+          failureThreshold: 6
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 999
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"pg_isready" "-U" "${ATLAS_PRIMARY_USER}" "-d" "atlas"'
+          failureThreshold: 60
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: data
+      securityContext:
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: primary
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 4Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: uploads
+  namespace: atlas-dev
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: forge
+      forge.xraph.io/component: uploads
+      forge.xraph.io/environment: dev
+      forge.xraph.io/project: atlas
+      forge.xraph.io/role: resource
+      forge.xraph.io/target: local
+  serviceName: uploads
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: uploads
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - /data
+        env:
+        - name: ATLAS_UPLOADS_USER
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_USER
+              name: forge-cdb06a460410b5b6
+        - name: RUSTFS_ACCESS_KEY
+          value: $(ATLAS_UPLOADS_USER)
+        - name: RUSTFS_CONSOLE_ENABLE
+          value: "false"
+        - name: ATLAS_UPLOADS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_PASSWORD
+              name: forge-cdb06a460410b5b6
+        - name: RUSTFS_SECRET_KEY
+          value: $(ATLAS_UPLOADS_PASSWORD)
+        image: rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+        name: uploads
+        ports:
+        - containerPort: 9000
+          name: backend
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"curl" "-fsS" "http://127.0.0.1:9000/health"'
+          failureThreshold: 6
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1000
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -ec
+            - '"curl" "-fsS" "http://127.0.0.1:9000/health"'
+          failureThreshold: 60
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: uploads
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: resource
+        forge.xraph.io/target: local
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 4Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: api-migrate-r1
+  namespace: atlas-dev
+spec:
+  activeDeadlineSeconds: 600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: api
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: migration
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - migrate
+        - up
+        env:
+        - name: ATLAS_CACHE_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_CACHE_DSN
+              name: forge-cdb06a460410b5b6
+        - name: ATLAS_PRIMARY_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_PRIMARY_DSN
+              name: forge-cdb06a460410b5b6
+        - name: ATLAS_UPLOADS_DSN
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_DSN
+              name: forge-cdb06a460410b5b6
+        - name: FORGE_HTTP_PORT
+          value: "8080"
+        - name: PORT
+          value: "8080"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/example/atlas-api:latest
+        imagePullPolicy: IfNotPresent
+        name: api
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /app/config.local.yaml
+          name: config
+          readOnly: true
+          subPath: overlay.yaml
+      restartPolicy: Never
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: forge-cdb06a460410b5b6-api
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: api-config-eefb41916bb7
+        name: config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: forge
+    forge.xraph.io/environment: dev
+    forge.xraph.io/project: atlas
+    forge.xraph.io/target: local
+  name: uploads-init-r1
+  namespace: atlas-dev
+spec:
+  activeDeadlineSeconds: 600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: forge
+        forge.xraph.io/component: uploads
+        forge.xraph.io/environment: dev
+        forge.xraph.io/project: atlas
+        forge.xraph.io/role: init
+        forge.xraph.io/target: local
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - /bin/sh
+        - -ec
+        - aws --endpoint-url "$ENDPOINT" s3api head-bucket --bucket "$BUCKET" || aws
+          --endpoint-url "$ENDPOINT" s3api create-bucket --bucket "$BUCKET"
+        env:
+        - name: ATLAS_UPLOADS_USER
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_USER
+              name: forge-cdb06a460410b5b6
+        - name: AWS_ACCESS_KEY_ID
+          value: $(ATLAS_UPLOADS_USER)
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        - name: ATLAS_UPLOADS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: ATLAS_UPLOADS_PASSWORD
+              name: forge-cdb06a460410b5b6
+        - name: AWS_SECRET_ACCESS_KEY
+          value: $(ATLAS_UPLOADS_PASSWORD)
+        - name: BUCKET
+          value: atlas-uploads
+        - name: ENDPOINT
+          value: http://uploads:9000
+        image: amazon/aws-cli@sha256:ce44b800602264c12298bbf3399055a4cefdb9ed4a098abe564afe26e7071bce
+        name: init
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      restartPolicy: Never

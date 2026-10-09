@@ -489,6 +489,36 @@
         },
         "resource_only": {
           "type": "boolean"
+        },
+        "local_cluster": {
+          "type": "string"
+        },
+        "storage_class": {
+          "type": "string"
+        },
+        "storage_size": {
+          "type": "string"
+        },
+        "ingress_namespace": {
+          "type": "string"
+        },
+        "gateway": {
+          "type": "string"
+        },
+        "external_cidrs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "api_server_cidrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [

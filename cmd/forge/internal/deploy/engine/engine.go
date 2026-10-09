@@ -13,6 +13,7 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/compose"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/kubernetes"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
@@ -41,7 +42,7 @@ func New(opts Options) (*Engine, error) {
 		r = execx.System()
 	}
 
-	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory)}, nil
+	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory, kubernetes.Factory)}, nil
 }
 
 type InspectResult struct {
@@ -116,32 +117,6 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 	return res, nil
 }
 
-// capabilities returns static capabilities for a provider name. Plan 03
-// replaces this with provider.Registry lookups.
-func capabilitiesFor(provider string) model.Capabilities {
-	all := []model.Lifecycle{spec.LifecycleContainer, spec.LifecycleExternal}
-
-	switch provider {
-	case "compose":
-		return model.Capabilities{Level: model.LevelRenderable, FileMounts: true, Resources: map[model.ResourceType][]model.Lifecycle{
-			model.Postgres: all, model.MySQL: all, model.MongoDB: all, model.Redis: all, model.NATS: all,
-			model.RabbitMQ: all, model.ObjectStorage: all, model.SMTP: all,
-		}}
-	case "kubernetes":
-		ext := []model.Lifecycle{spec.LifecycleExternal, spec.LifecycleContainer}
-
-		return model.Capabilities{Level: model.LevelRenderable, FileMounts: true, Ingress: true, NetworkPolicy: true, Resources: map[model.ResourceType][]model.Lifecycle{
-			model.Postgres: ext, model.MySQL: ext, model.MongoDB: ext, model.Redis: ext, model.NATS: ext, model.RabbitMQ: ext, model.ObjectStorage: ext,
-		}}
-	default:
-		managed := []model.Lifecycle{spec.LifecycleExternal}
-
-		return model.Capabilities{Level: model.LevelRenderable, Resources: map[model.ResourceType][]model.Lifecycle{
-			model.Postgres: managed, model.Redis: managed, model.ObjectStorage: {spec.LifecycleExternal},
-		}}
-	}
-}
-
 func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, env string, online bool) {
 	if res.Diagnostics.HasErrors() {
 		return
@@ -190,8 +165,22 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 		}
 	}
 
+	adapter, registered := e.registry.Get(t.Provider)
+	if !registered {
+		res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: output.CodeUnsupportedCommand, Severity: output.SeverityError, Message: "deployment adapter unavailable: " + t.Provider})
+
+		return
+	}
+
+	caps, err := adapter.Capabilities(ctx, t)
+	if err != nil {
+		res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: output.CodeAccess, Severity: output.SeverityError, Message: err.Error()})
+
+		return
+	}
+
 	d, diags, err := resolve.Resolve(ctx, resolve.Input{Config: res.Config, Doc: res.Doc, Catalog: res.Catalog, Discovery: res.Discovery,
-		Target: target, Environment: env, Caps: capabilitiesFor(t.Provider), Secrets: sec, Services: res.Selection})
+		Target: target, Environment: env, Caps: caps, Secrets: sec, Services: res.Selection})
 
 	res.Diagnostics = append(res.Diagnostics, diags...)
 	if err != nil {

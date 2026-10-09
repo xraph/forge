@@ -33,6 +33,7 @@ type Kind = spec.Kind
 type Exposure = spec.Exposure
 
 type Deployment struct {
+	Revision      uint64       `json:"revision,omitempty"`
 	BuildExcludes []string     `json:"build_excludes,omitempty"`
 	Project       string       `json:"project"`
 	Environment   string       `json:"environment"`

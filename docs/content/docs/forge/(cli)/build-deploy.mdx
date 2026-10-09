@@ -277,5 +277,50 @@ in Go. Nested modules and local workspace replacements must stay inside the
 project. Compose migrations and workloads use verified immutable images, and a
 retry reuses the image recorded for that saved plan.
 
-The private-registry acceptance fixture runs on native Linux Docker. The fixture's host loopback
-registry route on Docker Desktop has not been qualified.
+The private-registry acceptance fixture passes on an isolated Linux Docker daemon.
+The fixture's host loopback registry route on Docker Desktop remains unqualified.
+
+## Kubernetes manifests
+
+You can plan and export the same service selection to Kubernetes. Set an explicit
+context and namespace, then review the generated Kustomize bundle before applying
+it. This adapter currently generates manifests; live apply is the next slice.
+
+```yaml
+deploy:
+  targets:
+    cluster-dev:
+      provider: kubernetes
+      context: kind-atlas
+      namespace: atlas-dev
+      local_cluster: atlas
+      storage_size: 4Gi
+      network_policy: true
+      ingress_namespace: ingress-nginx
+      api_server_cidrs: [10.96.0.1/32]
+```
+
+Generated applications include resource requests and limits, health probes,
+service accounts and private configuration mounts. Jobs and migrations use the
+approved revision in their names. Config maps use content hashes, so changing a
+service's config keeps earlier revisions available for rollback. A worker's HTTP
+health listener defaults to port 8080. Set `health.none` when you don't have a
+readiness endpoint; Forge cannot claim that workload is healthy.
+
+Container backends run as single-replica StatefulSets. Their data claims remain
+when you scale down or remove the workload. `storage_class` and `storage_size`
+select your cluster's storage, with a 4Gi claim by default. These recipes are for
+development and evaluation. Use external services with backup and recovery plans
+for production data; generated claims do not establish high availability.
+
+Service connections resolve the declared named port, including TCP and UDP.
+Only public HTTP ports with a configured host generate Ingress routes. TLS names
+reference existing TLS Secrets. Gateway API routes require `gateway_api: true`
+and an existing `gateway`; its listener handles TLS. Forge doesn't install your
+ingress controller, Gateway or certificate issuer.
+
+Network policies allow DNS and declared service/resource edges. For external
+backends or excluded services, provide `external_cidrs.<name>`. Discovery needs
+`api_server_cidrs` and gets a namespace-scoped Role that can read Services.
+Check these addresses against your CNI's translation behavior. Policy enforcement
+requires a compatible CNI and must be tested on your cluster.

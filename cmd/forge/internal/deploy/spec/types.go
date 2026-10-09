@@ -150,6 +150,14 @@ type Backup struct {
 }
 
 type Target struct {
+	LocalCluster     string              `json:"local_cluster,omitempty"     yaml:"local_cluster,omitempty"`
+	StorageClass     string              `json:"storage_class,omitempty"     yaml:"storage_class,omitempty"`
+	StorageSize      string              `json:"storage_size,omitempty"      yaml:"storage_size,omitempty"`
+	IngressNamespace string              `json:"ingress_namespace,omitempty" yaml:"ingress_namespace,omitempty"`
+	ExternalCIDRs    map[string][]string `json:"external_cidrs,omitempty"    yaml:"external_cidrs,omitempty"`
+	APIServerCIDRs   []string            `json:"api_server_cidrs,omitempty"  yaml:"api_server_cidrs,omitempty"`
+	Gateway          string              `json:"gateway,omitempty"           yaml:"gateway,omitempty"`
+
 	Build         Build          `json:"build,omitzero"           yaml:"build,omitempty"`
 	Release       Release        `json:"release,omitzero"         yaml:"release,omitempty"`
 	ResourceOnly  bool           `json:"resource_only,omitempty"  yaml:"resource_only,omitempty"`

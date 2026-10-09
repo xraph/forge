@@ -69,11 +69,6 @@ func (e *Engine) PlanWithOptions(ctx context.Context, target, env string, opts P
 		}
 	}
 
-	bundle, err := adapter.Render(ctx, res.Deployment)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	st, err := state.Open(e.cfg.RootDir, res.Target, res.Environment)
 	if err != nil {
 		return nil, nil, err
@@ -81,6 +76,13 @@ func (e *Engine) PlanWithOptions(ctx context.Context, target, env string, opts P
 	defer st.Close()
 
 	snap, err := st.Snapshot()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	res.Deployment.Revision = snap.Revision + 1
+
+	bundle, err := adapter.Render(ctx, res.Deployment)
 	if err != nil {
 		return nil, nil, err
 	}
