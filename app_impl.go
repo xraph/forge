@@ -159,6 +159,29 @@ func newApp(config AppConfig) *app {
 		}
 	}
 
+	// Explicit deployment overlays are required inputs, including when ordinary discovery found no files.
+	if overlaySources, cleanup, err := configOverlaySources(logger); err != nil {
+		panic("forge: " + err.Error())
+	} else if len(overlaySources) > 0 {
+		if configManager == nil {
+			configManager = NewDefaultConfigManager(logger, nil, errorHandler)
+		}
+
+		loader, ok := configManager.(interface {
+			LoadFrom(sources ...confy.ConfigSource) error
+		})
+		if !ok {
+			panic("forge: config manager cannot load deployment overlays")
+		}
+
+		if err := loader.LoadFrom(overlaySources...); err != nil {
+			cleanup()
+			panic("forge: load config overlay: " + err.Error())
+		}
+
+		cleanup()
+	}
+
 	// Create metrics with full config support
 	var metrics Metrics
 

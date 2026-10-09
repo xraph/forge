@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Config: `FORGE_CONFIG_OVERLAY` and `FORGE_CONFIG_OVERLAY_YAML` load deployment bindings after local files and before environment overrides.
+
 ## [1.12.3](https://github.com/xraph/forge/compare/v1.12.2...v1.12.3) (2026-10-08)
 
 
