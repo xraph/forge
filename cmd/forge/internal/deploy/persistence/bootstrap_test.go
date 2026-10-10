@@ -49,7 +49,9 @@ func TestConfigureCopiesStateAndMakesDatabaseAuthoritative(t *testing.T) {
 	defer db.Close()
 
 	_, actual, err := db.Settings(context.Background())
-	if err != nil || string(actual) != string(raw) {
+
+	expectedSettings, payloadErr := settingsPayload(raw)
+	if err != nil || payloadErr != nil || string(actual) != string(expectedSettings) {
 		t.Fatal("settings not copied", err)
 	}
 

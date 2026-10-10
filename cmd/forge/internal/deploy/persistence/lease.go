@@ -241,6 +241,13 @@ func (l *Lease) lost() bool {
 }
 
 func (l *Lease) SaveSettings(ctx context.Context, expected uint64, raw []byte) error {
+	clean, err := settingsPayload(raw)
+	if err != nil {
+		return err
+	}
+
+	raw = clean
+
 	if l.Scope != "authority" {
 		return errors.New("settings require an authority lease")
 	}

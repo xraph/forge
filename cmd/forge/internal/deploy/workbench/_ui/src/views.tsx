@@ -177,7 +177,11 @@ export function ServicesView({ w }: { w: Workspace }) {
     <>
       <Panel
         title="Application services"
-        description="Select the services to roll out. Other recorded workloads and shared data stay in place."
+        description={
+          w.target?.resource_only
+            ? "This companion target deploys the environment's resources. Application selection is disabled."
+            : "Select the services to roll out. Other recorded workloads and shared data stay in place."
+        }
         action={<Badge variant="outline">{w.selected.length} selected</Badge>}
       >
         {services.length ? (
@@ -206,7 +210,7 @@ export function ServicesView({ w }: { w: Workspace }) {
                         <Checkbox
                           aria-label={`Deploy ${name}`}
                           checked={w.selected.includes(name)}
-                          disabled={w.busy}
+                          disabled={w.busy || Boolean(w.target?.resource_only)}
                           onCheckedChange={(checked) => {
                             const next = checked
                               ? [...w.selected, name]

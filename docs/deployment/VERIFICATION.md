@@ -7,7 +7,9 @@ Checked on 9 October 2026 in the primary checkout on `main`.
 `forge deploy start` serves the authenticated embedded React page and calls the
 same Engine as the CLI. The page uses dashboard-kit 0.2.0 shared components.
 Files are the default; SQLite and PostgreSQL own deployment settings and state
-when selected. SQL authority never falls back to files during an outage.
+when selected. SQL authority never falls back to files during an outage. Schema 2
+stores only the deployment section and removes runtime fields from older SQL
+settings while advancing their revision. It does not rewrite old database backups.
 
 `TestWorkbenchComposeLifecycle` launches the actual CLI binary against disposable
 Atlas stacks, with separate files and SQLite runs. Both runs authenticate, serve
@@ -46,7 +48,9 @@ contracts. Workflow syntax passes actionlint.
 
 `TestWorkbenchRegistryConnection` is skipped on the local Docker Desktop endpoint,
 which cannot reach the private loopback registry fixture. Native Linux CI requires
-that test to run, so a skip cannot qualify the connection. A real GitHub Container
+that test to run, so a skip cannot qualify the connection. [CI run 38016386197](https://github.com/xraph/forge/actions/runs/38016386197) passed
+the private-registry login/denial, files/SQLite Compose lifecycle and PostgreSQL
+contracts on Linux. A real GitHub Container
 Registry account was not supplied. The browser check inspects the login form and
 separate pull credentials without claiming a successful third-party login.
 

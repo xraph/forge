@@ -496,7 +496,12 @@ function Shell({ w }: { w: Workspace }) {
                 {w.section === "overview" && <OverviewView w={w} />}{" "}
                 {w.section === "services" && <ServicesView w={w} />}{" "}
                 {w.section === "resources" && <ResourceView w={w} />}{" "}
-                {w.section === "connections" && <ConnectionsView w={w} />}{" "}
+                {w.section === "connections" && (
+                  <ConnectionsView
+                    key={`${w.project!.settings.hash}:${w.reloadVersion}`}
+                    w={w}
+                  />
+                )}{" "}
                 {w.section === "images" && <ImagesView w={w} />}{" "}
                 {w.section === "environment" && <EnvironmentView w={w} />}{" "}
                 {w.section === "files" && <FilesView w={w} />}{" "}

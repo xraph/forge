@@ -82,6 +82,7 @@ export function useWorkbench(api: API) {
   const [profile, setProfile] = useState("");
   const [environment, setEnvironment] = useState("");
   const [gate, setGate] = useState(true);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [section, setSection] = useState<Section>("overview");
   const [pending, setPending] = useState<Record<string, Op>>({});
   const [error, setError] = useState<RequestError>();
@@ -115,6 +116,7 @@ export function useWorkbench(api: API) {
         await api.request<Project>("project", undefined, signal),
       );
       setProject(p);
+      setReloadVersion((version) => version + 1);
       setDraft(
         p.settings.deploy ? structuredClone(p.settings.deploy) : undefined,
       );
@@ -328,9 +330,9 @@ export function useWorkbench(api: API) {
   }, [api, profile, environment, refresh, report]);
   const env = draft?.environments[environment];
   const target = draft?.targets[profile];
-  const selected = env?.services?.length
-    ? env.services
-    : Object.keys(draft?.services ?? {});
+  const selected = target?.resource_only
+    ? []
+    : (env?.services ?? Object.keys(draft?.services ?? {}));
   const providerLevel =
     project?.providers.find((p) => p.name === target?.provider)?.level ??
     "unavailable";
@@ -438,6 +440,7 @@ export function useWorkbench(api: API) {
     });
   return {
     api,
+    reloadVersion,
     project,
     draft,
     profile,

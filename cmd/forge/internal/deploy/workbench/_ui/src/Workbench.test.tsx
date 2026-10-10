@@ -144,6 +144,9 @@ function fixture(initial = base) {
     reject() {
       reject = true;
     },
+    accept() {
+      reject = false;
+    },
     emit(event: Progress) {
       listener(event);
     },
@@ -453,4 +456,62 @@ it("ignores late status responses after switching targets", async () => {
   );
   expect(screen.queryByText("old-target-rollout")).not.toBeInTheDocument();
   expect(screen.getByText("healthy")).toBeVisible();
+});
+
+it("plans a resource-only companion target with no application selection", async () => {
+  const initial = structuredClone(base);
+  initial.settings.deploy!.targets.local.resource_only = true;
+  initial.settings.deploy!.environments.dev.services = [];
+  const f = fixture(initial);
+  const user = await selectLocal(f.api);
+  expect(screen.getByRole("checkbox", { name: "Deploy api" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Deploy api" }));
+  expect(screen.getByRole("checkbox", { name: "Deploy api" })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  await user.click(screen.getByRole("button", { name: "Build plan" }));
+  await waitFor(() =>
+    expect(f.calls).toHaveBeenCalledWith(
+      "plan",
+      expect.objectContaining({ services: [] }),
+    ),
+  );
+});
+
+it("reloads connection text before using the fresh CAS revision", async () => {
+  const f = fixture();
+  const user = await selectLocal(f.api);
+  await user.click(screen.getByRole("button", { name: "Connections" }));
+  await user.type(screen.getByLabelText("Connection overrides"), " ");
+  await user.click(
+    screen.getByRole("button", { name: "Update connections draft" }),
+  );
+  f.reject();
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  await screen.findByRole("alert");
+  const connections = [
+    { from: "api", to: "worker", port: "http", timeout: 5000000000 },
+  ];
+  f.settings().deploy!.connections = connections;
+  f.settings().hash = "concurrent-settings";
+  f.accept();
+  await user.click(
+    screen.getByRole("button", { name: "Reload configuration" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Connection overrides")).toHaveValue(
+      JSON.stringify(connections, null, 2),
+    ),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Update connections draft" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  await waitFor(() =>
+    expect(f.settings().deploy!.connections).toEqual(connections),
+  );
 });

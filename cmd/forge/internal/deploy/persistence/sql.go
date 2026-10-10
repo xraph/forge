@@ -195,11 +195,29 @@ func (d *DB) migrate(ctx context.Context) error {
 	}
 
 	var version int
-	if err := tx.QueryRowContext(ctx, "SELECT version FROM forge_deploy_schema WHERE id=1").Scan(&version); err != nil {
+
+	query := "SELECT version FROM forge_deploy_schema WHERE id=1"
+	if d.options.Backend == "postgres" {
+		query += " FOR UPDATE"
+	}
+
+	if err := tx.QueryRowContext(ctx, query).Scan(&version); err != nil {
 		return ErrUnavailable
 	}
 
-	if version != 1 {
+	if version == 1 {
+		if err := scrubSettings(ctx, tx); err != nil {
+			return err
+		}
+
+		if _, err := tx.ExecContext(ctx, "UPDATE forge_deploy_schema SET version=2 WHERE id=1"); err != nil {
+			return ErrUnavailable
+		}
+
+		version = 2
+	}
+
+	if version != 2 {
 		return errors.New("unsupported deployment store schema version")
 	}
 
@@ -251,6 +269,12 @@ func (d *DB) Settings(ctx context.Context) (uint64, []byte, error) {
 	return revision, raw, nil
 }
 func (d *DB) SaveSettings(ctx context.Context, expected uint64, raw []byte) error {
+	clean, err := settingsPayload(raw)
+	if err != nil {
+		return err
+	}
+
+	raw = clean
 	if expected == 0 {
 		result, err := d.sql.ExecContext(ctx, "INSERT INTO forge_deploy_settings(project,revision,content) VALUES($1,1,$2) ON CONFLICT(project) DO NOTHING", d.options.Project, raw)
 

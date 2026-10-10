@@ -32,11 +32,11 @@ func acquire(t *testing.T, db *DB, scope string) *Lease {
 }
 func TestSettingsRevisionCAS(t *testing.T) { settingsContract(t, sqliteFixture(t)) }
 func settingsContract(t *testing.T, db *DB) {
-	if err := db.SaveSettings(context.Background(), 0, []byte("first")); err != nil {
+	if err := db.SaveSettings(context.Background(), 0, []byte("deploy: {value: first}\n")); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := db.SaveSettings(context.Background(), 0, []byte("stale")); !errors.Is(err, ErrConflict) {
+	if err := db.SaveSettings(context.Background(), 0, []byte("deploy: {value: stale}\n")); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale editor overwrote settings", err)
 	}
 
@@ -45,11 +45,11 @@ func settingsContract(t *testing.T, db *DB) {
 		t.Fatal(err)
 	}
 
-	if revision != 1 || string(raw) != "first" {
+	if revision != 1 || string(raw) != "deploy: {value: first}\n" {
 		t.Fatal(revision, string(raw))
 	}
 
-	if err := db.SaveSettings(context.Background(), revision, []byte("second")); err != nil {
+	if err := db.SaveSettings(context.Background(), revision, []byte("deploy: {value: second}\n")); err != nil {
 		t.Fatal(err)
 	}
 }

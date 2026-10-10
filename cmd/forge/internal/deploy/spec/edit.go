@@ -387,8 +387,42 @@ func Write(path, expectedHash string, data []byte) error {
 	return dir.Sync()
 }
 
+// CheckOwnedPath rejects symlinks in every configuration path component.
+func CheckOwnedPath(project, path string) error {
+	rel, err := filepath.Rel(project, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return errors.New("configuration path is outside project")
+	}
+
+	r, err := os.OpenRoot(project)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	current := ""
+	for component := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, component)
+
+		info, err := r.Lstat(current)
+		if err != nil {
+			return err
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrConflict
+		}
+	}
+
+	return nil
+}
+
 // WriteWithin anchors every read, temporary file and rename to the project root.
 func WriteWithin(project, path, expectedHash string, data []byte) error {
+	if err := CheckOwnedPath(project, path); err != nil {
+		return err
+	}
+
 	writeMu.Lock()
 	defer writeMu.Unlock()
 
@@ -457,6 +491,10 @@ func WriteWithin(project, path, expectedHash string, data []byte) error {
 
 	if hashOf(fresh) != expectedHash {
 		return ErrConflict
+	}
+
+	if err := CheckOwnedPath(project, path); err != nil {
+		return err
 	}
 
 	return r.Rename(temp, rel)

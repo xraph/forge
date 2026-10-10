@@ -60,6 +60,14 @@ func (e *Engine) settings(ctx context.Context) (SettingsView, *spec.Document, er
 	hashes := map[string]string{}
 
 	for _, path := range paths {
+		if err := spec.CheckOwnedPath(e.cfg.RootDir, path); err != nil {
+			if errors.Is(err, spec.ErrConflict) {
+				return SettingsView{}, nil, persistence.ErrConflict
+			}
+
+			return SettingsView{}, nil, err
+		}
+
 		content := doc.RawBytes()
 
 		hash := doc.Hash
