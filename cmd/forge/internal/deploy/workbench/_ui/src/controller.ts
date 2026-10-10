@@ -337,6 +337,60 @@ export function useWorkbench(api: API) {
     project?.providers.find((p) => p.name === target?.provider)?.level ??
     "unavailable";
   const canApply = ["apply", "live-qualified"].includes(providerLevel);
+  const canPublish = Boolean(
+    plan?.plan.target_spec.build?.delivery === "registry" &&
+    plan.plan.target_spec.build?.source !== "git",
+  );
+  const publication = [...runs]
+    .reverse()
+    .find(
+      (run) =>
+        run.action === "publish" &&
+        run.status === "completed" &&
+        run.target === profile &&
+        run.environment === environment &&
+        run.publication?.plan_hash === plan?.plan.hash,
+    )?.publication;
+  const publishImages = () =>
+    act(async () => {
+      if (!plan || !approved || dirty || !canPublish)
+        throw new Error("Approve the current registry image plan first");
+      const run = await api.request<Run>("publish", {
+        hash: plan.plan.hash,
+        approval: plan.plan.hash,
+      });
+      setRuns((existing) => [
+        ...existing.filter((item) => item.id !== run.id),
+        run,
+      ]);
+      setApproved(false);
+      setSection("activity");
+      setNotice("Image publication started");
+    });
+  const usePublishedImages = () => {
+    if (!publication || !plan || dirty) {
+      report(
+        new Error("Refresh the completed publication for the current plan"),
+      );
+      return;
+    }
+    const images = { ...target?.build?.images };
+    for (const service of plan.plan.deployment.services) {
+      const image = publication.images[service.name];
+      if (!image || !/^sha256:[a-f0-9]{64}$/.test(image.digest)) {
+        report(new Error("Publication is missing an immutable image"));
+        return;
+      }
+      images[service.name] = `${image.repository}@${image.digest}`;
+    }
+    edit(`deploy.targets.${profile}.build`, {
+      ...target?.build,
+      source: "existing",
+      delivery: "registry",
+      images,
+    });
+    setNotice("Immutable images added to draft. Save and build a new plan.");
+  };
   const buildPlan = () =>
     act(async () => {
       if (!environment)
@@ -468,6 +522,10 @@ export function useWorkbench(api: API) {
     selected,
     providerLevel,
     canApply,
+    canPublish,
+    publication,
+    publishImages,
+    usePublishedImages,
     load,
     act,
     edit,

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 )
 
@@ -140,18 +141,29 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type Publication struct {
+	PlanHash string                 `json:"plan_hash"`
+	Images   map[string]model.Image `json:"images"`
+}
+
 type Run struct {
-	ID          string     `json:"id"`
-	Action      string     `json:"action"`
-	Target      string     `json:"target"`
-	Environment string     `json:"environment"`
-	Status      string     `json:"status"`
-	StartedAt   time.Time  `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-	Error       *APIError  `json:"error,omitempty"`
+	Publication *Publication `json:"publication,omitempty"`
+	ID          string       `json:"id"`
+	Action      string       `json:"action"`
+	Target      string       `json:"target"`
+	Environment string       `json:"environment"`
+	Status      string       `json:"status"`
+	StartedAt   time.Time    `json:"started_at"`
+	FinishedAt  *time.Time   `json:"finished_at,omitempty"`
+	Error       *APIError    `json:"error,omitempty"`
 }
 
 func (s *Server) beginRun(action, target, env string, fn func(context.Context, chan<- provider.Event) error) (Run, error) {
+	return s.beginResultRun(action, target, env, func(ctx context.Context, events chan<- provider.Event) (*Publication, error) {
+		return nil, fn(ctx, events)
+	})
+}
+func (s *Server) beginResultRun(action, target, env string, fn func(context.Context, chan<- provider.Event) (*Publication, error)) (Run, error) {
 	s.operations.Lock()
 	defer s.operations.Unlock()
 
@@ -201,7 +213,7 @@ func (s *Server) beginRun(action, target, env string, fn func(context.Context, c
 
 		s.events.append(Event{Run: id, Target: target, Environment: env, Type: "started"})
 
-		err := fn(ctx, channel)
+		publication, err := fn(ctx, channel)
 		close(channel)
 		<-pumped
 
@@ -209,6 +221,10 @@ func (s *Server) beginRun(action, target, env string, fn func(context.Context, c
 		run.FinishedAt = &finished
 
 		run.Status = "completed"
+		if err == nil {
+			run.Publication = publication
+		}
+
 		if err != nil {
 			run.Status = "failed"
 			if errors.Is(ctx.Err(), context.Canceled) {

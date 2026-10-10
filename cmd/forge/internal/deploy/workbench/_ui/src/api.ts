@@ -163,6 +163,10 @@ export type Plan = {
 };
 export type Planned = { plan: Plan; artifacts: Record<string, string> };
 export type Run = {
+  publication?: {
+    plan_hash: string;
+    images: Record<string, { repository: string; digest: string }>;
+  };
   id: string;
   action: string;
   target: string;

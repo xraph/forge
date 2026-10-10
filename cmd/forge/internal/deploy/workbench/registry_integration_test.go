@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/testdata"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,7 +32,7 @@ func TestWorkbenchRegistryConnection(t *testing.T) {
 
 	root := testdata.Copy(t, "atlas-v2")
 
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
 	defer cancel()
 
 	run := func(args ...string) string {
@@ -176,5 +178,89 @@ func TestWorkbenchRegistryConnection(t *testing.T) {
 		t.Fatal("registry credentials are not private")
 	}
 
-	t.Log("real registry authentication, denial, isolated credential persistence and sanitized workbench metadata qualified")
+	tidy := exec.CommandContext(ctx, "go", "mod", "tidy")
+	tidy.Dir = root
+
+	tidy.Env = append(os.Environ(), "GOWORK=off")
+	if _, err := tidy.CombinedOutput(); err != nil {
+		t.Fatal("publication fixture dependency resolution", err)
+	}
+
+	page.call(t, "files", nil, &settings)
+
+	namespace := fmt.Sprintf("forge-publish-%d", time.Now().UnixNano())
+	build := spec.Build{Source: "local", Builder: "host", Delivery: "registry", Registry: spec.Registry{Host: host, Namespace: namespace, Auth: "registry-it", Visibility: "private"}}
+	page.call(t, "files", map[string]any{"expected": settings.Hash, "ops": []spec.Op{{Path: "deploy.targets.local.build", Value: build}, {Path: "deploy.environments.dev.services", Value: []string{"api"}}}}, &settings)
+	p := livePlan(t, page, []string{"api"})
+	localTag := p.Deployment.Services[0].Image.Repository + ":" + p.Deployment.Services[0].Image.Tag
+
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		defer stop()
+
+		_ = exec.CommandContext(cleanup, "docker", "image", "rm", localTag).Run()
+	})
+
+	var started Run
+	page.call(t, "publish", map[string]string{"hash": p.Hash, "approval": p.Hash}, &started)
+
+	deadline := time.Now().Add(6 * time.Minute)
+
+	var publication *Publication
+
+	for time.Now().Before(deadline) {
+		var runs []Run
+		page.call(t, "runs", nil, &runs)
+
+		for _, current := range runs {
+			if current.ID != started.ID {
+				continue
+			}
+
+			if current.Status == "failed" || current.Status == "cancelled" {
+				t.Fatalf("registry publication failed: %v", current.Error)
+			}
+
+			if current.Status == "completed" {
+				publication = current.Publication
+			}
+		}
+
+		if publication != nil {
+			break
+		}
+
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	if publication == nil || publication.PlanHash != p.Hash || len(publication.Images) != 1 || !strings.HasPrefix(publication.Images["api"].Digest, "sha256:") {
+		t.Fatal("publication omitted immutable image result")
+	}
+
+	var snapshot state.Snapshot
+	page.call(t, "history?target=local&env=dev", nil, &snapshot)
+
+	if snapshot.Status == state.StatusHealthy || len(snapshot.Releases) != 0 || len(snapshot.Workloads) != 0 {
+		t.Fatal("image publication claimed a workload deployment")
+	}
+
+	cli := exec.CommandContext(ctx, binary, "deploy", "publish", "--plan", p.Hash, "--approve-plan", p.Hash, "--output", "json", "--non-interactive")
+	cli.Dir = root
+
+	cli.Env = append(os.Environ(), "GOWORK=off")
+
+	output, err := cli.CombinedOutput()
+	if err != nil {
+		t.Fatalf("CLI publication replay failed: %v (%d output bytes)", err, len(output))
+	}
+
+	var envelope struct {
+		OK   bool        `json:"ok"`
+		Data Publication `json:"data"`
+	}
+	if json.Unmarshal(output, &envelope) != nil || !envelope.OK || envelope.Data.Images["api"].Digest != publication.Images["api"].Digest || bytes.Contains(output, []byte(token)) {
+		t.Fatal("CLI omitted immutable result or leaked registry credentials")
+	}
+
+	t.Log("real registry authentication, denial, isolated credentials, workbench publication and CLI digest replay qualified")
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
@@ -35,6 +36,7 @@ type engineAPI interface {
 	PlanWithOptions(ctx context.Context, target, env string, options engine.PlanOptions) (*plan.Plan, *render.Bundle, error)
 	LoadPlan(ctx context.Context, hash string) (*plan.Plan, error)
 	Export(ctx context.Context, p *plan.Plan, b *render.Bundle, dir string, force bool) (render.WriteResult, error)
+	PublishImages(ctx context.Context, p *plan.Plan, approval string, events chan<- provider.Event) (map[string]model.Image, error)
 	Apply(ctx context.Context, p *plan.Plan, approval string, destructive bool, events chan<- provider.Event) error
 	Status(ctx context.Context, target, env string) (provider.Status, error)
 	Logs(ctx context.Context, target, env, service string, options provider.LogOptions) (io.ReadCloser, error)

@@ -112,6 +112,26 @@ including `github.com/xraph/grove/drivers/pgdriver/pgmigrate` for PostgreSQL.
 A failed migration stops rollout and leaves the journal and data available for
 recovery. Completed migrations are skipped when you retry the same saved plan.
 
+## Publish images before provider handoff
+
+You can publish an approved registry image plan without starting workloads:
+
+```bash
+forge deploy publish --plan FULL_HASH --approve-plan FULL_HASH \
+  --non-interactive --output json
+```
+
+The response contains immutable image digests in `data.images`. Save each
+`repository@digest` under your target's `build.images`, select `source: existing`
+and create a new plan before provider import. Publication uses your configured
+local or remote builder and registry connection. It leaves workloads and
+releases unchanged.
+
+In the local page, approve the current plan, then use the upload icon in
+Images & delivery. Once publication completes, use the check icon to add the
+digests to your draft. Save it. The previous approval is cleared, and you can
+build a fresh plan for the platform that will run those images.
+
 ## Review, export and apply
 
 ```bash

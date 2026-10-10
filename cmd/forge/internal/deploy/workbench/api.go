@@ -317,6 +317,50 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		}
 
 		success(w, data)
+	case "POST /api/publish":
+		var body struct {
+			Hash     string `json:"hash"`
+			Approval string `json:"approval"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+
+		if body.Hash == "" || body.Approval != body.Hash {
+			apiFailure(w, 409, "approve the exact plan hash", nil)
+
+			return
+		}
+
+		p, err := s.engine.LoadPlan(ctx, body.Hash)
+		if err != nil {
+			failure(w, err)
+
+			return
+		}
+
+		if !s.mutations.TryLock() {
+			failure(w, errBusy)
+
+			return
+		}
+		run, err := s.beginResultRun("publish", p.TargetName, p.Environment, func(ctx context.Context, events chan<- provider.Event) (*Publication, error) {
+			images, err := s.engine.PublishImages(ctx, p, body.Approval, events)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Publication{PlanHash: p.Hash, Images: images}, nil
+		})
+		s.mutations.Unlock()
+
+		if err != nil {
+			failure(w, err)
+
+			return
+		}
+
+		writeJSON(w, 202, reply{OK: true, Data: run})
 	case "POST /api/apply":
 		var body struct {
 			Hash             string `json:"hash"`

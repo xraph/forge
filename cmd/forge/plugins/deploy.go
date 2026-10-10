@@ -51,6 +51,7 @@ var planned = []struct{ name, desc string }{
 	{"plan", "Write an immutable plan and print its hash"},
 	{"export", "Render provider artifacts to deployments/<target>/<env>"},
 	{"apply", "Apply an approved plan"},
+	{"publish", "Build or verify approved images and publish immutable digests"},
 	{"up", "Plan and apply the default environment"},
 	{"status", "Show the state of an environment"},
 	{"logs", "Stream logs for a service"},
@@ -63,7 +64,7 @@ var planned = []struct{ name, desc string }{
 func (p *DeployPlugin) Commands() []cli.Command {
 	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", deployOutputHandler("deploy", p.help), append(deployFlags(), startFlags()...)...)
 
-	handlers := map[string]cli.CommandHandler{"start": p.start, "migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor, "plan": p.plan, "export": p.export, "apply": p.apply, "up": p.up, "status": p.status, "logs": p.logs, "rollback": p.rollback, "destroy": p.destroy, "providers": p.providers, "catalog": p.catalog}
+	handlers := map[string]cli.CommandHandler{"start": p.start, "migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor, "plan": p.plan, "export": p.export, "apply": p.apply, "publish": p.publish, "up": p.up, "status": p.status, "logs": p.logs, "rollback": p.rollback, "destroy": p.destroy, "providers": p.providers, "catalog": p.catalog}
 
 	for _, c := range planned {
 		name := c.name
@@ -89,6 +90,8 @@ func (p *DeployPlugin) Commands() []cli.Command {
 			opts = append(opts, cli.WithFlag(cli.NewStringFlag("out", "", "Write a copy of the plan JSON", "")))
 		case "export":
 			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan file or full authority hash", "")), cli.WithFlag(cli.NewStringFlag("output-dir", "", "Artifact directory", "")), cli.WithFlag(cli.NewBoolFlag("force", "", "Replace edited generated artifacts", false)))
+		case "publish":
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Saved plan file or full authority hash", "")), cli.WithFlag(cli.NewStringFlag("approve-plan", "", "Approve image publication for this full plan hash", "")))
 		case "apply", "up":
 			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan file or full authority hash", "")), cli.WithFlag(cli.NewStringFlag("approve-plan", "", "Approve this full plan hash", "")), cli.WithFlag(cli.NewBoolFlag("allow-destructive", "", "Permit destructive operations explicitly listed in the plan", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Approve the generated plan", false)))
 		case "logs":

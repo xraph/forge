@@ -404,6 +404,7 @@ forge deploy inspect --output json
 forge deploy init
 forge deploy doctor --env dev
 forge deploy plan --env dev --output json
+forge deploy publish --plan FULL_HASH --approve-plan FULL_HASH --non-interactive --output json
 forge deploy apply --plan .forge/plans/dev-local-HASH.json --approve-plan FULL_HASH --non-interactive
 forge deploy up --env dev --services api,worker --yes
 forge deploy status --env dev

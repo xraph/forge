@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Trash2,
   Undo2,
+  Upload,
   X,
 } from "lucide-react";
 import type { Connection, Diagnostic, Lifecycle, Service } from "./api";
@@ -910,6 +911,24 @@ export function ImagesView({ w }: { w: Workspace }) {
       <Panel
         title="Image delivery"
         description="Choose where images are built and how your platform receives them."
+        action={
+          <div className="flex items-center gap-1">
+            {w.publication && (
+              <IconButton
+                label="Use published images"
+                icon={<CheckCheck />}
+                onClick={w.usePublishedImages}
+                disabled={w.busy || w.dirty}
+              />
+            )}
+            <IconButton
+              label="Publish reviewed images"
+              icon={<Upload />}
+              onClick={() => void w.publishImages()}
+              disabled={!w.canPublish || !w.approved || w.busy || w.dirty}
+            />
+          </div>
+        }
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
@@ -1785,7 +1804,7 @@ export function ReviewPane({ w }: { w: Workspace }) {
                     disabled={
                       w.dirty ||
                       w.busy ||
-                      !w.canApply ||
+                      !(w.canApply || w.canPublish) ||
                       plan.operations.some((o) => o.destructive)
                     }
                     onCheckedChange={w.setApproved}

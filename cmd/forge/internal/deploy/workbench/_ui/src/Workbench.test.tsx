@@ -101,7 +101,9 @@ function fixture(initial = base) {
             hash: "a".repeat(64),
             target: "local",
             environment: "dev",
-            target_spec: { provider: "compose" },
+            target_spec: structuredClone(
+              project.settings.deploy!.targets.local,
+            ),
             operations: [
               {
                 id: "rollout-api",
@@ -514,4 +516,88 @@ it("reloads connection text before using the fresh CAS revision", async () => {
   await waitFor(() =>
     expect(f.settings().deploy!.connections).toEqual(connections),
   );
+});
+
+it("publishes an approved plan and explicitly adopts immutable images", async () => {
+  const initial = structuredClone(base);
+  initial.settings.deploy!.targets.local.build = {
+    source: "local",
+    delivery: "registry",
+    registry: { host: "ghcr.io", namespace: "acme", visibility: "public" },
+  };
+  const f = fixture(initial);
+  let published = false;
+  const request = f.api.request.bind(f.api);
+  f.api.request = async (path, body) => {
+    if (path === "publish") {
+      f.calls(path, body);
+      published = true;
+      return {
+        id: "publish-1",
+        action: "publish",
+        status: "running",
+        target: "local",
+        environment: "dev",
+      } as never;
+    }
+    if (path === "runs" && published)
+      return [
+        {
+          id: "publish-1",
+          action: "publish",
+          status: "completed",
+          target: "local",
+          environment: "dev",
+          publication: {
+            plan_hash: "a".repeat(64),
+            images: {
+              api: {
+                repository: "ghcr.io/acme/api",
+                digest: "sha256:" + "a".repeat(64),
+              },
+            },
+          },
+        },
+      ] as never;
+    return request(path, body);
+  };
+  const user = await selectLocal(f.api);
+  await user.click(screen.getByRole("button", { name: "Build plan" }));
+  await user.click(
+    await screen.findByRole("checkbox", { name: "Approve this exact plan" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Images & delivery" }));
+  await user.click(
+    screen.getByRole("button", { name: "Publish reviewed images" }),
+  );
+  await waitFor(() =>
+    expect(f.calls).toHaveBeenCalledWith("publish", {
+      hash: "a".repeat(64),
+      approval: "a".repeat(64),
+    }),
+  );
+  act(() =>
+    f.emit({
+      id: 90,
+      type: "completed",
+      target: "local",
+      environment: "dev",
+      run: "publish-1",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Images & delivery" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Use published images" }),
+  );
+  expect(f.settings().deploy!.targets.local.build!.source).toBe("local");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  await waitFor(() =>
+    expect(f.settings().deploy!.targets.local.build!.images?.api).toBe(
+      "ghcr.io/acme/api@sha256:" + "a".repeat(64),
+    ),
+  );
+  expect(f.settings().deploy!.targets.local.build!.source).toBe("existing");
+  expect(
+    screen.queryByRole("checkbox", { name: "Approve this exact plan" }),
+  ).not.toBeInTheDocument();
 });
