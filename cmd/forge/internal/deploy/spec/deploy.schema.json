@@ -519,6 +519,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "managed_databases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
       "required": [

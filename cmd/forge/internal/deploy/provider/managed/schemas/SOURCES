@@ -1,0 +1,8 @@
+# Provider schema sources
+
+You can verify each source hash in sources.json. Runtime validation uses these local copies and makes no schema network requests.
+
+- Render: https://render.com/schema/render.yaml.json, retrieved October 9, 2026. This is the schema linked from Render's Blueprint reference.
+- DigitalOcean: https://github.com/digitalocean/openapi at c877edaca00c297f539cb4c2f52cacef7a7f6990, Apache 2.0 (LICENSE.digitalocean). The App Spec and its 47 referenced OpenAPI models are bundled into local JSON Schema definitions. Relative references are rewritten; nullable scalar types become JSON Schema unions with null. Other source constraints are preserved.
+
+Generated documents also pass Forge's capability checks before schema validation. The schema does not prove access to a cloud account or that a deployment became healthy.

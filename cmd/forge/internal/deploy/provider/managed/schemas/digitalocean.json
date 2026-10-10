@@ -1,0 +1,1540 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.xraph.dev/schemas/digitalocean-app.json",
+  "$ref": "#/$defs/specification~1resources~1apps~1models~1app_spec.yml",
+  "$defs": {
+    "specification/resources/apps/models/app_spec.yml": {
+      "title": "AppSpec",
+      "type": "object",
+      "description": "The desired configuration of an application.",
+      "properties": {
+        "name": {
+          "description": "The name of the app. Must be unique across all apps in the same account.",
+          "maxLength": 32,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$",
+          "type": "string",
+          "example": "web-app-01"
+        },
+        "region": {
+          "description": "The slug form of the geographical origin of the app. Default: `nearest available`",
+          "type": "string",
+          "enum": [
+            "atl",
+            "nyc",
+            "sfo",
+            "tor",
+            "ams",
+            "fra",
+            "lon",
+            "blr",
+            "sgp",
+            "syd"
+          ],
+          "example": "nyc"
+        },
+        "disable_edge_cache": {
+          "description": "If set to `true`, the app will **not** be cached at the edge (CDN). Enable this option if you want to manage CDN configuration yourself\u2014whether by using an external CDN provider or by handling static content and caching within your app. This setting is also recommended for apps that require real-time data or serve dynamic content, such as those using Server-Sent Events (SSE) over GET, or hosting an MCP (Model Context Protocol) Server that utilizes SSE.  \n**Note:** This feature is not available for static site components.  \nFor more information, see [Disable CDN Cache](https://docs.digitalocean.com/products/app-platform/how-to/cache-content/#disable-cdn-cache).",
+          "type": "boolean",
+          "default": false
+        },
+        "disable_email_obfuscation": {
+          "description": "If set to `true`, email addresses in the app will not be obfuscated. This is\nuseful for apps that require email addresses to be visible (in the HTML markup).",
+          "type": "boolean",
+          "default": false
+        },
+        "enhanced_threat_control_enabled": {
+          "description": "If set to `true`, suspicious requests will go through additional security checks to help mitigate layer 7 DDoS attacks.",
+          "type": "boolean",
+          "default": false
+        },
+        "domains": {
+          "description": "A set of hostnames where the application will be available.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_domain_spec.yml"
+          }
+        },
+        "services": {
+          "description": "Workloads which expose publicly-accessible HTTP services.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_service_spec.yml"
+          }
+        },
+        "static_sites": {
+          "description": "Content which can be rendered to static web assets.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_static_site_spec.yml"
+          }
+        },
+        "jobs": {
+          "description": "Pre and post deployment workloads which do not expose publicly-accessible HTTP routes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_job_spec.yml"
+          }
+        },
+        "workers": {
+          "description": "Workloads which do not expose publicly-accessible HTTP services.",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_worker_spec.yml"
+          },
+          "type": "array"
+        },
+        "functions": {
+          "description": "Workloads which expose publicly-accessible HTTP services via Functions Components.",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_functions_spec.yml"
+          },
+          "type": "array"
+        },
+        "databases": {
+          "description": "Database instances which can provide persistence to workloads within the\napplication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_database_spec.yml"
+          }
+        },
+        "ingress": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec.yml"
+        },
+        "egress": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_egress_spec.yml"
+        },
+        "maintenance": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_maintenance_spec.yml"
+        },
+        "vpc": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_vpc.yml"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_domain_spec.yml": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": "string",
+          "maxLength": 253,
+          "minLength": 4,
+          "pattern": "^((xn--)?[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*\\.)+[a-zA-Z]{2,}\\.?$",
+          "description": "The hostname for the domain",
+          "example": "app.example.com"
+        },
+        "type": {
+          "type": "string",
+          "default": "UNSPECIFIED",
+          "enum": [
+            "UNSPECIFIED",
+            "DEFAULT",
+            "PRIMARY",
+            "ALIAS"
+          ],
+          "description": "- DEFAULT: The default `.ondigitalocean.app` domain assigned to this app\n- PRIMARY: The primary domain for this app that is displayed as the default in the control panel, used in bindable environment variables, and any other places that reference an app's live URL. Only one domain may be set as primary.\n- ALIAS: A non-primary domain",
+          "example": "DEFAULT"
+        },
+        "wildcard": {
+          "type": "boolean",
+          "description": "Indicates whether the domain includes all sub-domains, in addition to the given domain",
+          "example": true
+        },
+        "zone": {
+          "description": "Optional. If the domain uses DigitalOcean DNS and you would like App\nPlatform to automatically manage it for you, set this to the name of the\ndomain on your account.\n\nFor example, If the domain you are adding is `app.domain.com`, the zone\ncould be `domain.com`.",
+          "type": "string",
+          "format": "hostname",
+          "example": "example.com"
+        },
+        "minimum_tls_version": {
+          "type": "string",
+          "maxLength": 3,
+          "minLength": 3,
+          "enum": [
+            "1.2",
+            "1.3"
+          ],
+          "description": "The minimum version of TLS a client application can use to access resources for the domain.  Must be one of the following values wrapped within quotations: `\"1.2\"` or `\"1.3\"`.",
+          "example": "1.3"
+        }
+      },
+      "required": [
+        "domain"
+      ]
+    },
+    "specification/resources/apps/models/app_service_spec.yml": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_base.yml"
+        },
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_instance_base.yml"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "autoscaling": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_autoscaling_spec_service.yml"
+            },
+            "cors": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_cors_policy.yml"
+                },
+                {
+                  "description": "(Deprecated - Use Ingress Rules instead)."
+                },
+                {
+                  "deprecated": true
+                }
+              ]
+            },
+            "health_check": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_service_spec_health_check.yml"
+            },
+            "liveness_health_check": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_health_check_spec.yml"
+            },
+            "protocol": {
+              "type": "string",
+              "description": "The protocol which the service uses to serve traffic on the http_port.\n\n- `HTTP`: The app is serving the HTTP protocol. Default.\n- `HTTP2`: The app is serving the HTTP/2 protocol. Currently, this needs to be implemented in the service by serving HTTP/2 cleartext (h2c).\n",
+              "enum": [
+                "HTTP",
+                "HTTP2"
+              ],
+              "example": "HTTP"
+            },
+            "http_port": {
+              "type": "integer",
+              "description": "The internal port on which this service's run command will listen. Default: 8080\nIf there is not an environment variable with the name `PORT`, one will be automatically added with its value set to the value of this field.",
+              "format": "int64",
+              "maximum": 65535,
+              "minimum": 1,
+              "example": 3000
+            },
+            "internal_ports": {
+              "type": "array",
+              "description": "The ports on which this service will listen for internal traffic.",
+              "items": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "example": [
+                80,
+                443
+              ]
+            },
+            "routes": {
+              "type": "array",
+              "description": "(Deprecated - Use Ingress Rules instead). A list of HTTP routes that should be routed to this component.",
+              "deprecated": true,
+              "items": {
+                "$ref": "#/$defs/specification~1resources~1apps~1models~1app_route_spec.yml"
+              }
+            },
+            "termination": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_service_spec_termination.yml"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "specification/resources/apps/models/app_component_base.yml": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$",
+          "description": "The name. Must be unique across all components within the same app.",
+          "example": "api"
+        },
+        "git": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_git_source_spec.yml"
+        },
+        "github": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_github_source_spec.yml"
+        },
+        "gitlab": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_gitlab_source_spec.yml"
+        },
+        "bitbucket": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_bitbucket_source_spec.yml"
+        },
+        "image": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_image_source_spec.yml"
+        },
+        "dockerfile_path": {
+          "type": "string",
+          "description": "The path to the Dockerfile relative to the root of the repo. If set, it will be used to build this component. Otherwise, App Platform will attempt to build it using buildpacks.",
+          "example": "path/to/Dockerfile"
+        },
+        "build_command": {
+          "type": "string",
+          "description": "An optional build command to run while building this component from source.",
+          "example": "npm run build"
+        },
+        "run_command": {
+          "type": "string",
+          "description": "An optional run command to override the component's default.",
+          "example": "bin/api"
+        },
+        "source_dir": {
+          "type": "string",
+          "description": "An optional path to the working directory to use for the build. For Dockerfile builds, this will be used as the build context. Must be relative to the root of the repo.",
+          "example": "path/to/dir"
+        },
+        "envs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_variable_definition.yml"
+          },
+          "description": "A list of environment variables made available to the component."
+        },
+        "environment_slug": {
+          "type": "string",
+          "description": "An environment slug describing the type of this app. For a full list, please refer to [the product documentation](https://docs.digitalocean.com/products/app-platform/).",
+          "example": "node-js"
+        },
+        "log_destinations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_definition.yml"
+          },
+          "description": "A list of configured log forwarding destinations."
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_git_source_spec.yml": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "The name of the branch to use",
+          "example": "main"
+        },
+        "repo_clone_url": {
+          "type": "string",
+          "description": "The clone URL of the repo. Example: `https://github.com/digitalocean/sample-golang.git`",
+          "example": "https://github.com/digitalocean/sample-golang.git"
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_github_source_spec.yml": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "The name of the branch to use",
+          "example": "main"
+        },
+        "deploy_on_push": {
+          "type": "boolean",
+          "description": "Whether to automatically deploy new commits made to the repo",
+          "example": true
+        },
+        "repo": {
+          "type": "string",
+          "description": "The name of the repo in the format owner/repo. Example: `digitalocean/sample-golang`",
+          "example": "digitalocean/sample-golang"
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_gitlab_source_spec.yml": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "The name of the branch to use",
+          "example": "main"
+        },
+        "deploy_on_push": {
+          "type": "boolean",
+          "description": "Whether to automatically deploy new commits made to the repo",
+          "example": true
+        },
+        "repo": {
+          "type": "string",
+          "description": "The name of the repo in the format owner/repo. Example: `digitalocean/sample-golang`",
+          "example": "digitalocean/sample-golang"
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_bitbucket_source_spec.yml": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "The name of the branch to use",
+          "example": "main"
+        },
+        "deploy_on_push": {
+          "type": "boolean",
+          "description": "Whether to automatically deploy new commits made to the repo",
+          "example": true
+        },
+        "repo": {
+          "type": "string",
+          "description": "The name of the repo in the format owner/repo. Example: `digitalocean/sample-golang`",
+          "example": "digitalocean/sample-golang"
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_image_source_spec.yml": {
+      "type": "object",
+      "properties": {
+        "registry": {
+          "type": "string",
+          "description": "The registry name. Must be left empty for the `DOCR` registry type.",
+          "example": "registry.hub.docker.com"
+        },
+        "registry_type": {
+          "type": "string",
+          "enum": [
+            "DOCKER_HUB",
+            "DOCR",
+            "GHCR"
+          ],
+          "description": "- DOCKER_HUB: The DockerHub container registry type.\n- DOCR: The DigitalOcean container registry type.\n- GHCR: The Github container registry type.",
+          "example": "DOCR"
+        },
+        "registry_credentials": {
+          "type": "string",
+          "description": "The credentials to be able to pull the image. The value will be encrypted on first submission. On following submissions, the encrypted value should be used.\n- \"$username:$access_token\" for registries of type `DOCKER_HUB`.\n- \"$username:$access_token\" for registries of type `GHCR`.",
+          "example": "my-dockerhub-username:dckr_pat_the_access_token"
+        },
+        "repository": {
+          "type": "string",
+          "description": "The repository name.",
+          "example": "origin/master"
+        },
+        "tag": {
+          "type": "string",
+          "description": "The repository tag. Defaults to `latest` if not provided and no digest is provided. Cannot be specified if digest is provided.",
+          "example": "latest",
+          "default": "latest"
+        },
+        "digest": {
+          "type": "string",
+          "description": "The image digest. Cannot be specified if tag is provided.",
+          "example": "sha256:795e91610e9cccb7bb80893fbabf9c808df7d52ae1f39cd1158618b4a33041ac"
+        },
+        "deploy_on_push": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether to automatically deploy new images. Can only be used for images hosted in DOCR and can only be used with an image tag, not a specific digest.",
+              "example": true
+            }
+          }
+        }
+      }
+    },
+    "specification/resources/apps/models/app_variable_definition.yml": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[_A-Za-z][_A-Za-z0-9]*$",
+          "description": "The variable name",
+          "example": "BASE_URL"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "UNSET",
+            "RUN_TIME",
+            "BUILD_TIME",
+            "RUN_AND_BUILD_TIME"
+          ],
+          "description": "- RUN_TIME: Made available only at run-time\n- BUILD_TIME: Made available only at build-time\n- RUN_AND_BUILD_TIME: Made available at both build and run-time",
+          "default": "RUN_AND_BUILD_TIME",
+          "example": "BUILD_TIME"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "GENERAL",
+            "SECRET"
+          ],
+          "description": "- GENERAL: A plain-text environment variable\n- SECRET: A secret encrypted environment variable",
+          "default": "GENERAL",
+          "example": "GENERAL"
+        },
+        "value": {
+          "description": "The value. If the type is `SECRET`, the value will be encrypted on first submission. On following submissions, the encrypted value should be used.",
+          "type": "string",
+          "example": "http://example.com"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "specification/resources/apps/models/app_log_destination_definition.yml": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 42,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9()\\[\\]'\"][-A-Za-z0-9_. \\/()\\[\\]]{0,40}[A-Za-z0-9()\\[\\]'\"]$",
+          "example": "my_log_destination"
+        },
+        "papertrail": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_papertrail_spec.yml"
+        },
+        "datadog": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_datadog_spec.yml"
+        },
+        "logtail": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_logtail_spec.yml"
+        },
+        "open_search": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_open_search_spec.yml"
+        }
+      },
+      "title": "Configurations for external logging.",
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_log_destination_papertrail_spec.yml": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Papertrail syslog endpoint.",
+          "example": "https://mypapertrailendpoint.com"
+        }
+      },
+      "description": "Papertrail configuration.",
+      "required": [
+        "endpoint"
+      ]
+    },
+    "specification/resources/apps/models/app_log_destination_datadog_spec.yml": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Datadog HTTP log intake endpoint.",
+          "example": "https://mydatadogendpoint.com"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Datadog API key.",
+          "example": "abcdefghijklmnopqrstuvwxyz0123456789"
+        }
+      },
+      "description": "DataDog configuration.",
+      "required": [
+        "api_key"
+      ]
+    },
+    "specification/resources/apps/models/app_log_destination_logtail_spec.yml": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "Logtail token.",
+          "example": "abcdefghijklmnopqrstuvwxyz0123456789"
+        }
+      },
+      "description": "Logtail configuration.",
+      "required": [
+        "endpoint"
+      ]
+    },
+    "specification/resources/apps/models/app_log_destination_open_search_spec.yml": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "OpenSearch API Endpoint. Only HTTPS is supported. Format: https://<host>:<port>.\nCannot be specified if `cluster_name` is also specified.",
+          "example": "https://example.com:9300"
+        },
+        "basic_auth": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_open_search_spec_basic_auth.yml"
+        },
+        "index_name": {
+          "type": "string",
+          "default": "logs",
+          "description": "The index name to use for the logs. If not set, the default index name is \"logs\".",
+          "example": "logs"
+        },
+        "cluster_name": {
+          "type": "string",
+          "description": "The name of a DigitalOcean DBaaS OpenSearch cluster to use as a log forwarding destination.\nCannot be specified if `endpoint` is also specified.",
+          "example": "my-opensearch-cluster"
+        }
+      },
+      "description": "OpenSearch configuration."
+    },
+    "specification/resources/apps/models/app_log_destination_open_search_spec_basic_auth.yml": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "type": "string",
+          "description": "Username to authenticate with. Only required when `endpoint` is set.\nDefaults to `doadmin` when `cluster_name` is set.",
+          "example": "apps_user"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for user defined in User. Is required when `endpoint` is set.\nCannot be set if using a DigitalOcean DBaaS OpenSearch cluster.",
+          "example": "password1"
+        }
+      },
+      "description": "Configure Username and/or Password for Basic authentication."
+    },
+    "specification/resources/apps/models/app_component_instance_base.yml": {
+      "type": "object",
+      "properties": {
+        "instance_count": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1,
+          "description": "The amount of instances that this component should be scaled to. Default: 1. Must not be set if autoscaling is used.",
+          "default": 1,
+          "example": 2
+        },
+        "instance_size_slug": {
+          "description": "The instance size to use for this component. Default: `apps-s-1vcpu-0.5gb`",
+          "oneOf": [
+            {
+              "title": "Size slug",
+              "type": "string",
+              "enum": [
+                "apps-s-1vcpu-0.5gb",
+                "apps-s-1vcpu-1gb-fixed",
+                "apps-s-1vcpu-1gb",
+                "apps-s-1vcpu-2gb",
+                "apps-s-2vcpu-4gb",
+                "apps-d-1vcpu-0.5gb",
+                "apps-d-1vcpu-1gb",
+                "apps-d-1vcpu-2gb",
+                "apps-d-1vcpu-4gb",
+                "apps-d-2vcpu-4gb",
+                "apps-d-2vcpu-8gb",
+                "apps-d-4vcpu-8gb",
+                "apps-d-4vcpu-16gb",
+                "apps-d-8vcpu-32gb"
+              ],
+              "default": "apps-s-1vcpu-0.5gb",
+              "example": "apps-s-1vcpu-0.5gb"
+            },
+            {
+              "title": "Deprecated",
+              "description": "Deprecated size slugs for legacy plans. We strongly encourage customers\nto use the new plans when creating or upgrading apps.\n",
+              "type": "string",
+              "enum": [
+                "basic-xxs",
+                "basic-xs",
+                "basic-s",
+                "basic-m",
+                "professional-xs",
+                "professional-s",
+                "professional-m",
+                "professional-1l",
+                "professional-l",
+                "professional-xl"
+              ],
+              "example": "basic-xxs",
+              "deprecated": true
+            }
+          ],
+          "example": "apps-s-1vcpu-0.5gb"
+        }
+      }
+    },
+    "specification/resources/apps/models/app_autoscaling_spec_service.yml": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_autoscaling_spec.yml"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "properties": {
+                "requests_per_second": {
+                  "description": "Settings for scaling the component based on requests per second.",
+                  "type": "object",
+                  "properties": {
+                    "per_instance": {
+                      "description": "The target number of requests per second per instance for the component.",
+                      "type": "integer",
+                      "format": "uint32",
+                      "minimum": 1,
+                      "example": 100
+                    }
+                  }
+                },
+                "request_duration": {
+                  "description": "Settings for scaling the component based on request duration.",
+                  "type": "object",
+                  "properties": {
+                    "p95_milliseconds": {
+                      "description": "The p95 target request duration in milliseconds for the component.",
+                      "type": "integer",
+                      "format": "uint32",
+                      "minimum": 1,
+                      "example": 500
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "specification/resources/apps/models/app_autoscaling_spec.yml": {
+      "description": "Configuration for automatically scaling this component based on metrics.",
+      "type": "object",
+      "properties": {
+        "min_instance_count": {
+          "description": "The minimum amount of instances for this component.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "example": 2
+        },
+        "max_instance_count": {
+          "description": "The maximum amount of instances for this component. Maximum 250. Consider using a larger instance size if your application requires more than 250 instances.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "maximum": 250,
+          "example": 3
+        },
+        "metrics": {
+          "description": "The metrics that the component is scaled on.",
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "description": "Settings for scaling the component based on CPU utilization.",
+              "type": "object",
+              "properties": {
+                "percent": {
+                  "description": "The average target CPU utilization for the component.",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "default": 80,
+                  "example": 75
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_cors_policy.yml": {
+      "type": "object",
+      "properties": {
+        "allow_origins": {
+          "type": "array",
+          "description": "The set of allowed CORS origins.",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_string_match.yml"
+          },
+          "example": [
+            {
+              "exact": "https://www.example.com"
+            },
+            {
+              "regex": "^.*example.com"
+            }
+          ]
+        },
+        "allow_methods": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The set of allowed HTTP methods. This configures the `Access-Control-Allow-Methods` header.",
+          "example": [
+            "GET",
+            "OPTIONS",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "allow_headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The set of allowed HTTP request headers. This configures the `Access-Control-Allow-Headers` header.",
+          "example": [
+            "Content-Type",
+            "X-Custom-Header"
+          ]
+        },
+        "expose_headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The set of HTTP response headers that browsers are allowed to access. This configures the `Access-Control-Expose-Headers` header.",
+          "example": [
+            "Content-Encoding",
+            "X-Custom-Header"
+          ]
+        },
+        "max_age": {
+          "type": "string",
+          "description": "An optional duration specifying how long browsers can cache the results of a preflight request. This configures the `Access-Control-Max-Age` header.",
+          "example": "5h30m"
+        },
+        "allow_credentials": {
+          "type": "boolean",
+          "description": "Whether browsers should expose the response to the client-side JavaScript code when the request\u2019s credentials mode is include. This configures the `Access-Control-Allow-Credentials` header.",
+          "example": false
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_string_match.yml": {
+      "type": "object",
+      "properties": {
+        "exact": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Exact string match. Only 1 of `exact`, `prefix`, or `regex` must be set. An empty string is a valid value and will be serialized explicitly rather than being omitted from the payload.",
+          "maxLength": 256,
+          "example": "https://www.example.com"
+        },
+        "prefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Prefix-based match. Only 1 of `exact`, `prefix`, or `regex` must be set.",
+          "maxLength": 256,
+          "example": "https://www.example.com",
+          "deprecated": true
+        },
+        "regex": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1,
+          "description": "RE2 style regex-based match. Only 1 of `exact`, `prefix`, or `regex` must be set. For more information about RE2 syntax, see: https://github.com/google/re2/wiki/Syntax",
+          "example": "^.*example.com"
+        }
+      }
+    },
+    "specification/resources/apps/models/app_service_spec_health_check.yml": {
+      "type": "object",
+      "properties": {
+        "failure_threshold": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of failed health checks before considered unhealthy.",
+          "example": 2
+        },
+        "port": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The port on which the health check will be performed. If not set, the health check will be performed on the component's http_port.",
+          "example": 80,
+          "maximum": 65535,
+          "minimum": 1
+        },
+        "http_path": {
+          "type": "string",
+          "description": "The route path used for the HTTP health check ping. If not set, the HTTP health check will be disabled and a TCP health check used instead.",
+          "example": "/health"
+        },
+        "initial_delay_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait before beginning health checks.",
+          "example": 30
+        },
+        "period_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between health checks.",
+          "example": 60
+        },
+        "success_threshold": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of successful health checks before considered healthy.",
+          "example": 3
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds after which the check times out.",
+          "example": 45
+        }
+      }
+    },
+    "specification/resources/apps/models/app_health_check_spec.yml": {
+      "type": "object",
+      "properties": {
+        "failure_threshold": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of failed health checks before considered unhealthy.",
+          "minimum": 1,
+          "maximum": 50,
+          "example": 18
+        },
+        "port": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The port on which the health check will be performed.",
+          "example": 80,
+          "maximum": 65535,
+          "minimum": 1
+        },
+        "http_path": {
+          "type": "string",
+          "description": "The route path used for the HTTP health check ping. If not set, the HTTP health check will be disabled and a TCP health check used instead.",
+          "example": "/health"
+        },
+        "initial_delay_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait before beginning health checks.",
+          "minimum": 0,
+          "maximum": 3600,
+          "example": 30
+        },
+        "period_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between health checks.",
+          "minimum": 1,
+          "maximum": 300,
+          "example": 10
+        },
+        "success_threshold": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of successful health checks before considered healthy.",
+          "example": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds after which the check times out.",
+          "minimum": 1,
+          "maximum": 120,
+          "example": 1
+        }
+      }
+    },
+    "specification/resources/apps/models/app_route_spec.yml": {
+      "title": "A criterion for routing HTTP traffic to a component.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "(Deprecated - Use Ingress Rules instead). An HTTP path prefix. Paths must start with / and must be unique across all components within an app.",
+          "type": "string",
+          "example": "/api"
+        },
+        "preserve_path_prefix": {
+          "description": "An optional flag to preserve the path that is forwarded to the backend service. By default, the HTTP request path will be trimmed from the left when forwarded to the component. For example, a component with `path=/api` will have requests to `/api/list` trimmed to `/list`. If this value is `true`, the path will remain `/api/list`.",
+          "type": "boolean",
+          "example": true
+        }
+      }
+    },
+    "specification/resources/apps/models/app_service_spec_termination.yml": {
+      "type": "object",
+      "properties": {
+        "drain_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between selecting a container instance for termination and issuing the TERM signal. Selecting a container instance for termination begins an asynchronous drain of new requests on upstream load-balancers. (Default 15)",
+          "example": 15,
+          "maximum": 110,
+          "minimum": 1
+        },
+        "grace_period_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between sending a TERM signal to a container and issuing a KILL which causes immediate shutdown. (Default 120)",
+          "example": 120,
+          "maximum": 600,
+          "minimum": 1
+        }
+      }
+    },
+    "specification/resources/apps/models/app_static_site_spec.yml": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_base.yml"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "index_document": {
+              "type": "string",
+              "description": "The name of the index document to use when serving this static site. Default: index.html",
+              "default": "index.html",
+              "example": "main.html"
+            },
+            "error_document": {
+              "type": "string",
+              "description": "The name of the error document to use when serving this static site. Default: 404.html. If no such file exists within the built assets, App Platform will supply one.",
+              "default": "404.html",
+              "example": "error.html"
+            },
+            "catchall_document": {
+              "type": "string",
+              "description": "The name of the document to use as the fallback for any requests to documents that are not found when serving this static site. Only 1 of `catchall_document` or `error_document` can be set.",
+              "example": "index.html"
+            },
+            "output_dir": {
+              "type": "string",
+              "description": "An optional path to where the built assets will be located, relative to the build context. If not set, App Platform will automatically scan for these directory names: `_static`, `dist`, `public`, `build`.",
+              "example": "dist/"
+            },
+            "cors": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_cors_policy.yml"
+                },
+                {
+                  "description": "(Deprecated - Use Ingress Rules instead)."
+                },
+                {
+                  "deprecated": true
+                }
+              ]
+            },
+            "routes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/specification~1resources~1apps~1models~1app_route_spec.yml"
+              },
+              "description": "(Deprecated - Use Ingress Rules instead). A list of HTTP routes that should be routed to this component.",
+              "deprecated": true
+            }
+          }
+        }
+      ],
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_job_spec.yml": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_base.yml"
+        },
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_instance_base.yml"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "UNSPECIFIED",
+                "PRE_DEPLOY",
+                "POST_DEPLOY",
+                "FAILED_DEPLOY"
+              ],
+              "description": "- UNSPECIFIED: Default job type, will auto-complete to POST_DEPLOY kind.\n- PRE_DEPLOY: Indicates a job that runs before an app deployment.\n- POST_DEPLOY: Indicates a job that runs after an app deployment.\n- FAILED_DEPLOY: Indicates a job that runs after a component fails to deploy.",
+              "default": "UNSPECIFIED",
+              "example": "PRE_DEPLOY"
+            },
+            "termination": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_job_spec_termination.yml"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "specification/resources/apps/models/app_job_spec_termination.yml": {
+      "type": "object",
+      "properties": {
+        "grace_period_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between sending a TERM signal to a container and issuing a KILL which causes immediate shutdown. (Default 120)",
+          "example": 120,
+          "maximum": 600,
+          "minimum": 1
+        }
+      }
+    },
+    "specification/resources/apps/models/app_worker_spec.yml": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_base.yml"
+        },
+        {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_component_instance_base.yml"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "autoscaling": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_autoscaling_spec.yml"
+            },
+            "termination": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_worker_spec_termination.yml"
+            },
+            "liveness_health_check": {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1app_health_check_spec.yml"
+            }
+          }
+        }
+      ],
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_worker_spec_termination.yml": {
+      "type": "object",
+      "properties": {
+        "grace_period_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of seconds to wait between sending a TERM signal to a container and issuing a KILL which causes immediate shutdown. (Default 120)",
+          "example": 120,
+          "maximum": 600,
+          "minimum": 1
+        }
+      }
+    },
+    "specification/resources/apps/models/app_functions_spec.yml": {
+      "type": "object",
+      "properties": {
+        "cors": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_cors_policy.yml"
+            },
+            {
+              "description": "(Deprecated - Use Ingress Rules instead)."
+            },
+            {
+              "deprecated": true
+            }
+          ]
+        },
+        "routes": {
+          "type": "array",
+          "description": "(Deprecated - Use Ingress Rules instead). A list of HTTP routes that should be routed to this component.",
+          "deprecated": true,
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_route_spec.yml"
+          }
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$",
+          "description": "The name. Must be unique across all components within the same app.",
+          "example": "api"
+        },
+        "source_dir": {
+          "type": "string",
+          "description": "An optional path to the working directory to use for the build. For Dockerfile builds, this will be used as the build context. Must be relative to the root of the repo.",
+          "example": "path/to/dir"
+        },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_alert_spec.yml"
+          }
+        },
+        "envs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_variable_definition.yml"
+          },
+          "description": "A list of environment variables made available to the component."
+        },
+        "git": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_git_source_spec.yml"
+        },
+        "github": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_github_source_spec.yml"
+        },
+        "gitlab": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_gitlab_source_spec.yml"
+        },
+        "bitbucket": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_bitbucket_source_spec.yml"
+        },
+        "log_destinations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_log_destination_definition.yml"
+          },
+          "description": "A list of configured log forwarding destinations."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_alert_spec.yml": {
+      "properties": {
+        "rule": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_alert_spec_rule.yml"
+        },
+        "disabled": {
+          "description": "Is the alert disabled?",
+          "type": "boolean",
+          "example": false
+        },
+        "operator": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_alert_spec_operator.yml"
+        },
+        "value": {
+          "description": "Threshold value for alert",
+          "format": "float",
+          "type": "number",
+          "example": 2.32
+        },
+        "window": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_alert_spec_window.yml"
+        }
+      },
+      "type": "object"
+    },
+    "specification/resources/apps/models/app_alert_spec_rule.yml": {
+      "default": "UNSPECIFIED_RULE",
+      "enum": [
+        "UNSPECIFIED_RULE",
+        "CPU_UTILIZATION",
+        "MEM_UTILIZATION",
+        "RESTART_COUNT",
+        "DEPLOYMENT_FAILED",
+        "DEPLOYMENT_LIVE",
+        "DOMAIN_FAILED",
+        "DOMAIN_LIVE",
+        "AUTOSCALE_FAILED",
+        "AUTOSCALE_SUCCEEDED",
+        "FUNCTIONS_ACTIVATION_COUNT",
+        "FUNCTIONS_AVERAGE_DURATION_MS",
+        "FUNCTIONS_ERROR_RATE_PER_MINUTE",
+        "FUNCTIONS_AVERAGE_WAIT_TIME_MS",
+        "FUNCTIONS_ERROR_COUNT",
+        "FUNCTIONS_GB_RATE_PER_SECOND",
+        "REQUESTS_PER_SECOND",
+        "REQUEST_DURATION_P95_MS"
+      ],
+      "type": "string",
+      "example": "CPU_UTILIZATION"
+    },
+    "specification/resources/apps/models/app_alert_spec_operator.yml": {
+      "default": "UNSPECIFIED_OPERATOR",
+      "enum": [
+        "UNSPECIFIED_OPERATOR",
+        "GREATER_THAN",
+        "LESS_THAN"
+      ],
+      "type": "string",
+      "example": "GREATER_THAN"
+    },
+    "specification/resources/apps/models/app_alert_spec_window.yml": {
+      "default": "UNSPECIFIED_WINDOW",
+      "enum": [
+        "UNSPECIFIED_WINDOW",
+        "FIVE_MINUTES",
+        "TEN_MINUTES",
+        "THIRTY_MINUTES",
+        "ONE_HOUR"
+      ],
+      "type": "string",
+      "example": "FIVE_MINUTES"
+    },
+    "specification/resources/apps/models/app_database_spec.yml": {
+      "type": "object",
+      "properties": {
+        "cluster_name": {
+          "description": "The name of the underlying DigitalOcean DBaaS cluster. This is required for production databases. For dev databases, if cluster_name is not set, a new cluster will be provisioned.",
+          "type": "string",
+          "example": "cluster_name"
+        },
+        "db_name": {
+          "description": "The name of the MySQL or PostgreSQL database to configure.",
+          "type": "string",
+          "example": "my_db"
+        },
+        "db_user": {
+          "description": "The name of the MySQL or PostgreSQL user to configure.",
+          "type": "string",
+          "example": "superuser"
+        },
+        "engine": {
+          "type": "string",
+          "default": "UNSET",
+          "enum": [
+            "UNSET",
+            "MYSQL",
+            "PG",
+            "REDIS",
+            "MONGODB",
+            "KAFKA",
+            "OPENSEARCH",
+            "VALKEY"
+          ],
+          "description": "- MYSQL: MySQL\n- PG: PostgreSQL\n- REDIS: Caching\n- MONGODB: MongoDB\n- KAFKA: Kafka\n- OPENSEARCH: OpenSearch\n- VALKEY: ValKey",
+          "example": "PG"
+        },
+        "name": {
+          "description": "The database's name. The name must be unique across all components within the same app and cannot use capital letters.",
+          "maxLength": 32,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$",
+          "type": "string",
+          "example": "prod-db"
+        },
+        "production": {
+          "description": "Whether this is a production or dev database.",
+          "type": "boolean",
+          "example": true
+        },
+        "version": {
+          "description": "The version of the database engine",
+          "type": "string",
+          "example": "12"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_ingress_spec.yml": {
+      "type": "object",
+      "properties": {
+        "rules": {
+          "description": "Rules for configuring HTTP ingress for component routes, CORS, rewrites, and redirects.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule.yml"
+          }
+        },
+        "custom_error_page_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Optional HTTPS URL of a custom error page to display when the app is unreachable. The\npage is shown in a full-viewport iframe. The target must allow framing: avoid\n`X-Frame-Options: DENY` and a restrictive `Content-Security-Policy` `frame-ancestors`\nthat blocks the platform. If omitted, the default platform error page is used.",
+          "example": "https://status.example.com/app-unavailable"
+        }
+      },
+      "description": "Specification for app ingress configurations."
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule.yml": {
+      "type": "object",
+      "properties": {
+        "match": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule_match.yml"
+        },
+        "cors": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_cors_policy.yml"
+        },
+        "component": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule_routing_component.yml"
+        },
+        "redirect": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule_routing_redirect.yml"
+        }
+      }
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule_match.yml": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule_string_match_prefix.yml"
+        },
+        "authority": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_ingress_spec_rule_string_match_exact.yml"
+        }
+      },
+      "description": "The match configuration for the rule."
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule_string_match_prefix.yml": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Prefix-based match. For example, `/api` will match `/api`, `/api/`, and any nested paths such as `/api/v1/endpoint`.",
+          "maxLength": 256,
+          "example": "/api"
+        }
+      },
+      "description": "The path to match on.",
+      "required": [
+        "prefix"
+      ]
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule_string_match_exact.yml": {
+      "type": "object",
+      "properties": {
+        "exact": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "example": "example.com",
+          "description": "Exact string match. An empty string is a valid value and will be serialized explicitly rather than being omitted from the payload."
+        }
+      },
+      "description": "The authority to match on.",
+      "required": [
+        "exact"
+      ]
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule_routing_component.yml": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The name of the component to route to.",
+          "type": "string",
+          "example": "web"
+        },
+        "preserve_path_prefix": {
+          "description": "An optional flag to preserve the path that is forwarded to the backend service. By default, the HTTP request path will be trimmed from the left when forwarded to the component. For example, a component with `path=/api` will have requests to `/api/list` trimmed to `/list`. If this value is `true`, the path will remain `/api/list`. Note: this is not applicable for Functions Components and is mutually exclusive with `rewrite`.",
+          "type": "string",
+          "example": "true"
+        },
+        "rewrite": {
+          "description": "An optional field that will rewrite the path of the component to be what is specified here. By default, the HTTP request path will be trimmed from the left when forwarded to the component. For example, a component with `path=/api` will have requests to `/api/list` trimmed to `/list`. If you specified the rewrite to be `/v1/`, requests to `/api/list` would be rewritten to `/v1/list`. Note: this is mutually exclusive with `preserve_path_prefix`.",
+          "type": "string",
+          "example": "/api/v1/"
+        }
+      },
+      "description": "The component to route to. Only one of `component` or `redirect` may be set.",
+      "required": [
+        "name"
+      ]
+    },
+    "specification/resources/apps/models/app_ingress_spec_rule_routing_redirect.yml": {
+      "type": "object",
+      "properties": {
+        "uri": {
+          "description": "An optional URI path to redirect to. Note: if this is specified the whole URI of the original request will be overwritten to this value, irrespective of the original request URI being matched.",
+          "type": "string",
+          "example": "/about"
+        },
+        "authority": {
+          "description": "The authority/host to redirect to. This can be a hostname or IP address. Note: use `port` to set the port.",
+          "type": "string",
+          "example": "example.com"
+        },
+        "port": {
+          "description": "The port to redirect to.",
+          "type": "integer",
+          "format": "int64",
+          "example": 443
+        },
+        "scheme": {
+          "description": "The scheme to redirect to. Supported values are `http` or `https`. Default: `https`.",
+          "type": "string",
+          "example": "https"
+        },
+        "redirect_code": {
+          "description": "The redirect code to use. Defaults to `302`. Supported values are 300, 301, 302, 303, 304, 307, 308.",
+          "type": "integer",
+          "format": "int64",
+          "example": 302
+        }
+      },
+      "description": "The redirect configuration for the rule. Only one of `component` or `redirect` may be set."
+    },
+    "specification/resources/apps/models/app_egress_spec.yml": {
+      "type": "object",
+      "description": "Specification for app egress configurations.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/specification~1resources~1apps~1models~1app_egress_type_spec.yml"
+        }
+      }
+    },
+    "specification/resources/apps/models/app_egress_type_spec.yml": {
+      "title": "The app egress type.",
+      "type": "string",
+      "default": "AUTOASSIGN",
+      "example": "AUTOASSIGN",
+      "enum": [
+        "AUTOASSIGN",
+        "DEDICATED_IP"
+      ]
+    },
+    "specification/resources/apps/models/app_maintenance_spec.yml": {
+      "type": "object",
+      "description": "Specification to configure maintenance settings for the app, such as maintenance mode and archiving the app.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Indicates whether maintenance mode should be enabled for the app.",
+          "example": true
+        },
+        "archive": {
+          "type": "boolean",
+          "description": "Indicates whether the app should be archived. Setting this to true implies that enabled is set to true.",
+          "example": true
+        },
+        "offline_page_url": {
+          "type": "string",
+          "description": "A custom offline page to display when maintenance mode is enabled or the app is archived.",
+          "example": "https://example.com/offline.html"
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_vpc.yml": {
+      "type": "object",
+      "readOnly": true,
+      "properties": {
+        "id": {
+          "title": "The ID of the VPC.",
+          "type": "string",
+          "example": "c22d8f48-4bc4-49f5-8ca0-58e7164427ac"
+        },
+        "egress_ips": {
+          "title": "The egress ips associated with the VPC.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specification~1resources~1apps~1models~1apps_vpc_egress_ip.yml"
+          }
+        }
+      }
+    },
+    "specification/resources/apps/models/apps_vpc_egress_ip.yml": {
+      "type": "object",
+      "properties": {
+        "ip": {
+          "type": "string",
+          "example": "10.0.0.1"
+        }
+      }
+    }
+  }
+}

@@ -150,6 +150,7 @@ type Backup struct {
 }
 
 type Target struct {
+	ManagedDatabases map[string]string   `json:"managed_databases,omitempty" yaml:"managed_databases,omitempty"`
 	LocalCluster     string              `json:"local_cluster,omitempty"     yaml:"local_cluster,omitempty"`
 	StorageClass     string              `json:"storage_class,omitempty"     yaml:"storage_class,omitempty"`
 	StorageSize      string              `json:"storage_size,omitempty"      yaml:"storage_size,omitempty"`

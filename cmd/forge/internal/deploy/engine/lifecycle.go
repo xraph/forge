@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
@@ -218,6 +219,15 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 	adapter, ok := e.registry.Get(p.Target.Provider)
 	if !ok {
 		return output.Unsupported("apply for "+p.Target.Provider, "")
+	}
+
+	caps, err := adapter.Capabilities(ctx, p.Target)
+	if err != nil {
+		return err
+	}
+
+	if caps.Level != model.LevelApply && caps.Level != model.LevelLiveQualified {
+		return output.Unsupported("apply for "+p.Target.Provider, "export the reviewed provider handoff")
 	}
 
 	st, err := state.Open(e.cfg.RootDir, p.TargetName, p.Environment)

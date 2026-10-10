@@ -15,6 +15,7 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/compose"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/kubernetes"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/managed"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
@@ -43,7 +44,7 @@ func New(opts Options) (*Engine, error) {
 		r = execx.System()
 	}
 
-	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory, kubernetes.Factory)}, nil
+	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory, kubernetes.Factory, managed.RenderFactory, managed.DigitalOceanFactory)}, nil
 }
 
 type InspectResult struct {
