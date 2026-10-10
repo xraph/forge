@@ -62,6 +62,14 @@ func (s *Scheduler) Name() string { return s.name }
 // A job never overlaps itself: if a run is still going when the next one is
 // due, that run is skipped rather than queued. Runs happen on their own
 // goroutines, so a slow job delays only itself.
+//
+// Cancelling is safe from any goroutine and safe to call more than once. No
+// further run starts once cancel returns, including a run the scheduler had
+// already picked up but not yet begun. A run already under way is not
+// interrupted, because it is arbitrary subsystem code part-way through its
+// work; cancel does not wait for it, so a job that must be finished as well as
+// stopped needs Stop or its own signal. Cancel never blocks, which is what
+// lets a job cancel itself from inside its own run.
 func (s *Scheduler) Every(name string, interval time.Duration, fn Runner) (cancel func()) {
 	if interval <= 0 || fn == nil {
 		return func() {}
@@ -161,6 +169,9 @@ func (s *Scheduler) cancel(id uint64) {
 
 	for i, j := range s.jobs {
 		if j.id == id {
+			// A run dispatched for this job but not yet started checks this
+			// before calling into the job, so cancel lands even mid-dispatch.
+			j.cancelled = true
 			heap.Remove(&s.jobs, i)
 
 			break
@@ -269,6 +280,17 @@ func (s *Scheduler) runDue() {
 				s.inWork.Done()
 			}()
 
+			// Cancel may have landed between runDue picking this job and this
+			// goroutine being scheduled. Nothing has called the job yet, so
+			// honour the cancel instead of running it one last time.
+			s.mu.Lock()
+			stopped := j.cancelled
+			s.mu.Unlock()
+
+			if stopped {
+				return
+			}
+
 			j.run(s.ctx)
 		}(j)
 	}
@@ -276,13 +298,14 @@ func (s *Scheduler) runDue() {
 
 // job is one registered piece of periodic work.
 type job struct {
-	id       uint64
-	name     string
-	interval time.Duration
-	run      Runner
-	next     time.Time
-	running  bool
-	index    int
+	id        uint64
+	name      string
+	interval  time.Duration
+	run       Runner
+	next      time.Time
+	running   bool
+	cancelled bool
+	index     int
 }
 
 // jobHeap orders jobs by next run time.
