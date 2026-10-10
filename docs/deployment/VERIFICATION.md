@@ -1,4 +1,68 @@
-# Deployment proposal verification
+# Deployment implementation verification
+
+Checked on 9 October 2026 in the primary checkout on `main`.
+
+## Implemented workbench
+
+`forge deploy start` serves the authenticated embedded React page and calls the
+same Engine as the CLI. The page uses dashboard-kit 0.2.0 shared components.
+Files are the default; SQLite and PostgreSQL own deployment settings and state
+when selected. SQL authority never falls back to files during an outage.
+
+`TestWorkbenchComposeLifecycle` launches the actual CLI binary against disposable
+Atlas stacks, with separate files and SQLite runs. Both runs authenticate, serve
+the embedded page, save settings with CAS, deploy the complete stack, receive
+provider progress, observe healthy workloads, apply only the worker while retaining
+API and gateway, read retained API logs, cancel a provider run and restart the page
+with saved settings and release history. The files run also proves a concurrent
+editor conflict. Owned containers, volumes and images are cleaned up.
+
+The separate PostgreSQL container contracts cover revision CAS, fencing, lease
+cancellation, journals and retired authority. Server tests cover token replay,
+Host/Origin/header denial, malformed and oversized input, anchored paths,
+concurrent mutations, stale approval, cancellation, event replay and shutdown.
+The UI tests cover saved target gates, service scope, conflicts, exact approval,
+failed operation display, Git settings, SQL plan handoff and late status responses
+from another target.
+
+The actual page was checked at 1280px and 390px in light and dark mode. Keyboard
+mobile navigation, Escape dismissal, profile/theme persistence and an actual
+service-subset save/reload passed. A separate browser session built a plan, approved
+its exact hash and applied API plus gateway against an owned Compose stack. The
+page streamed the build, backend, bucket, migration and rollout operations, then
+showed both workloads ready and a healthy recorded release. Its temporary stack
+was removed after verification. The narrow document has no horizontal overflow,
+and no browser console warnings or errors were observed. These are targeted
+checks, not a screen-reader or forced-colors qualification.
+
+## Checks and limits
+
+UI tests, ESLint, Prettier, TypeScript and the production asset build pass. CLI
+build, deployment tests and workbench race checks pass. Documentation MDX/route
+and TypeScript checks, production build and changed-document formatting pass.
+The new CI workbench job checks the committed asset build, server boundaries,
+real Compose workbench lifecycle, required registry authentication and PostgreSQL
+contracts. Workflow syntax passes actionlint.
+
+`TestWorkbenchRegistryConnection` is skipped on the local Docker Desktop endpoint,
+which cannot reach the private loopback registry fixture. Native Linux CI requires
+that test to run, so a skip cannot qualify the connection. A real GitHub Container
+Registry account was not supplied. The browser check inspects the login form and
+separate pull credentials without claiming a successful third-party login.
+
+Root `GOWORK=off make l` remains blocked by baseline/concurrent findings outside
+this deployment scope. The final run failed in 20 modules and passed in 19.
+Full documentation lint reports 100 errors, 39 warnings and 113 informational
+diagnostics in existing files/configuration. Scoped deployment lint and the changed
+Markdown/MDX formatting and compiler checks are the relevant green checks.
+
+Managed account apply, controller reconciliation and hosted provider qualification
+remain separate implementation gates. Capability levels must reflect the evidence
+for each adapter.
+
+The historical mock checks below describe the static proposal only.
+
+# Historical mock verification
 
 Checked on 9 October 2026 in the primary Forge checkout on `main`. This change adds review artifacts, documentation and a static interactive mock. It does not implement provider deployment or the proposed CLI commands.
 

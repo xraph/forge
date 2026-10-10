@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Workbench } from "./Workbench";
 import {
@@ -165,6 +165,36 @@ async function selectLocal(api: API) {
   return user;
 }
 describe("deployment workspace", () => {
+  it("clears a recovered status error after deployment completes", async () => {
+    const f = fixture();
+    let deployed = false;
+    const request = f.api.request.bind(f.api);
+    f.api.request = async (path, body) => {
+      if (path.startsWith("status")) {
+        if (!deployed) throw new RequestError("No recorded deployment", 4);
+        return {
+          overall: "healthy",
+          services: {},
+          resources: {},
+          routes: [],
+        } as never;
+      }
+      return request(path, body);
+    };
+    const user = await selectLocal(f.api);
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    expect(await screen.findByText("No recorded deployment")).toBeVisible();
+    deployed = true;
+    act(() =>
+      f.emit({ id: 1, type: "completed", target: "local", environment: "dev" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText("No recorded deployment"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("gates the sidebar on a target and persists the profile selection", async () => {
     const f = fixture();
     const user = await selectLocal(f.api);
@@ -373,4 +403,54 @@ it("saves provider Git source and trigger values used by the engine", async () =
       }),
     ),
   );
+});
+
+it("copies a plan handoff that works with SQL authority", async () => {
+  const initial = structuredClone(base);
+  initial.settings.store = { backend: "sqlite", reference: ".forge/deploy.db" };
+  const user = await selectLocal(fixture(initial).api);
+  await user.click(screen.getByRole("button", { name: "Build plan" }));
+  await user.click(await screen.findByRole("tab", { name: "CLI & AI" }));
+  const command = screen.getByText(/forge deploy apply/);
+  expect(command).toHaveTextContent(`--plan ${"a".repeat(64)}`);
+  expect(command).not.toHaveTextContent(".forge/plans/");
+});
+
+it("ignores late status responses after switching targets", async () => {
+  const f = fixture();
+  let resolveStatus!: (value: unknown) => void;
+  const delayed = new Promise((resolve) => {
+    resolveStatus = resolve;
+  });
+  const api: API = {
+    ...f.api,
+    async request<T>(path: string, body?: unknown) {
+      if (path === "status?target=local&env=dev") return delayed as Promise<T>;
+      if (path === "status?target=production&env=prod")
+        return {
+          overall: "healthy",
+          services: {},
+          resources: {},
+          routes: [],
+        } as T;
+      return f.api.request<T>(path, body);
+    },
+  };
+  const user = await selectLocal(api);
+  await user.click(screen.getByRole("button", { name: "Activity" }));
+  await user.click(screen.getByRole("button", { name: "Manage targets" }));
+  await user.click(screen.getByRole("button", { name: "Select production" }));
+  await user.click(screen.getByRole("button", { name: "Activity" }));
+  await screen.findByText("healthy");
+  await act(async () =>
+    resolveStatus({
+      overall: "failed",
+      failed_operation: "old-target-rollout",
+      services: {},
+      resources: {},
+      routes: [],
+    }),
+  );
+  expect(screen.queryByText("old-target-rollout")).not.toBeInTheDocument();
+  expect(screen.getByText("healthy")).toBeVisible();
 });

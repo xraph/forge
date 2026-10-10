@@ -51,3 +51,24 @@ This pass adds large target cards ahead of the workbench, saved profiles, servic
 Desktop, 390px and 320px checks cover the new views, mobile drawer, saved profiles, Git triggers, dependency diagnostics, empty selections and icon sizing. Counts, topology, operations and overlays follow the apply scope, with shared data retained. The reusable mock ZeroState adapter provides a left-aligned illustration, explanation and working action for empty resource/connection views. No walkthrough button is added.
 
 Authentication and deployment results remain simulated or unqualified. This UI review does not qualify a provider, registry, database or messaging integration. The earlier limits on formal multi-domain skill coverage still apply. Checks and broader lint failures are recorded in [VERIFICATION.md](VERIFICATION.md).
+
+## Implemented embedded interface
+
+`cmd/forge/internal/deploy/workbench/_ui` contains the React workspace embedded
+by the CLI. It uses published `@forge-go/dashboard-kit` 0.2.0 primitives and tokens,
+including the shared Sidebar, Tabs, Table, Sheet, Dialog, Tooltip and illustrated
+ZeroState. The sidebar is 240px, primary controls are 32px and the review panel
+stays beside working content at desktop widths. The target gate uses larger cards.
+
+The actual authenticated page was checked at 1280px and 390px in light and dark
+mode. Target selection, real service-subset save/reload, persistent theme/profile,
+keyboard mobile navigation, Escape dismissal and registry form fields passed.
+The narrow document has no horizontal overflow; wide service tables scroll inside
+their panels. No browser console errors or warnings were observed. Credentials
+were not entered into a real third-party registry during these UI checks.
+
+Behavior tests cover exact approval invalidation, stale server rejection, dirty
+conflict recovery, removed profile recovery, fresh project initialization, nullable
+wire arrays, named targets, service scope and Git source settings. The SQL plan
+handoff uses the full authority hash, so it does not assume a local JSON file.
+The historical mock review above remains limited to that mock.

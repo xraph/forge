@@ -2,18 +2,21 @@ package plugins
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/xraph/forge/cli"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"io"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xraph/forge/cli"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 )
 
 func (p *DeployPlugin) timeoutContext(ctx cli.CommandContext) (context.Context, context.CancelFunc) {
@@ -43,7 +46,16 @@ func (p *DeployPlugin) plan(ctx cli.CommandContext) error {
 		return err
 	}
 
-	file := e.PlanPath(pl)
+	options, err := persistence.Load(e.Root())
+	if err != nil {
+		return err
+	}
+
+	file := ""
+	if options.Backend == "files" {
+		file = e.PlanPath(pl)
+	}
+
 	if path := ctx.String("out"); path != "" {
 		raw, err := json.MarshalIndent(pl, "", "  ")
 		if err != nil {
@@ -65,7 +77,7 @@ func (p *DeployPlugin) plan(ctx cli.CommandContext) error {
 		ctx.Println(planSummary(pl))
 	}
 
-	return output.Emit(ctx, mode, output.Envelope{Command: "plan", OK: true, Data: map[string]any{"hash": pl.Hash, "file": file, "operations": pl.Operations, "images": pl.Images}, Diagnostics: pl.Diagnostics})
+	return output.Emit(ctx, mode, output.Envelope{Command: "plan", OK: true, Data: map[string]any{"hash": pl.Hash, "file": file, "selector": pl.Hash, "store": options.Backend, "operations": pl.Operations, "images": pl.Images}, Diagnostics: pl.Diagnostics})
 }
 func (p *DeployPlugin) export(ctx cli.CommandContext) error {
 	e, mode, err := p.newEngine(ctx)
@@ -75,7 +87,7 @@ func (p *DeployPlugin) export(ctx cli.CommandContext) error {
 
 	var pl *plan.Plan
 	if path := ctx.String("plan"); path != "" {
-		pl, err = plan.Load(path)
+		pl, err = loadDeploymentPlan(ctx.Context(), e, path)
 	} else {
 		pl, err = p.makePlan(ctx, e)
 	}
@@ -104,7 +116,7 @@ func (p *DeployPlugin) apply(ctx cli.CommandContext) error {
 
 	var pl *plan.Plan
 	if path := ctx.String("plan"); path != "" {
-		pl, err = plan.Load(path)
+		pl, err = loadDeploymentPlan(ctx.Context(), e, path)
 	} else {
 		pl, err = p.makePlan(ctx, e)
 	}
@@ -183,7 +195,7 @@ func (p *DeployPlugin) up(ctx cli.CommandContext) error {
 
 	var pl *plan.Plan
 	if path := ctx.String("plan"); path != "" {
-		pl, err = plan.Load(path)
+		pl, err = loadDeploymentPlan(ctx.Context(), e, path)
 	} else {
 		pl, err = p.makePlan(ctx, e)
 	}
@@ -360,4 +372,15 @@ func planSummary(p *plan.Plan) string {
 	}
 
 	return out.String()
+}
+
+// loadDeploymentPlan accepts an immutable authority hash or an explicit review file.
+func loadDeploymentPlan(ctx context.Context, e *engine.Engine, selector string) (*plan.Plan, error) {
+	if len(selector) == 64 {
+		if _, err := hex.DecodeString(selector); err == nil {
+			return e.LoadPlan(ctx, selector)
+		}
+	}
+
+	return plan.Load(selector)
 }

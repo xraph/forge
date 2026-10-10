@@ -329,6 +329,52 @@ jobs:
         working-directory: cmd/forge
         run: go test -tags integration ./internal/deploy/provider/kubernetes -run TestKubernetesStackLifecycle -count=1 -v -timeout 25m
 
+  deploy-workbench:
+    name: Deploy Workbench
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cmd/forge/go.mod
+          cache-dependency-path: "**/go.sum"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.1.12"
+      - name: Verify and rebuild embedded interface
+        working-directory: cmd/forge/internal/deploy/workbench/_ui
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run test
+          bun run lint
+          bun run format:check
+          bun run typecheck
+          bun run build
+          test -z "$(git status --porcelain -- dist)"
+      - name: Build standalone CLI and check server boundaries
+        working-directory: cmd/forge
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-workbench-cli" .
+          go test -race ./internal/deploy/workbench ./internal/deploy/engine ./internal/deploy/persistence ./internal/deploy/state -count=1 -timeout=3m
+      - name: Qualify real workbench and SQL authority
+        working-directory: cmd/forge
+        env:
+          GOWORK: "off"
+          FORGE_DEPLOY_CLI: ${{ runner.temp }}/forge-workbench-cli
+          FORGE_DEPLOY_REQUIRE_REGISTRY: "1"
+        run: |
+          set -euo pipefail
+          go test -tags integration ./internal/deploy/workbench -run TestWorkbench -count=1 -v -timeout=25m
+          go test -tags integration ./internal/deploy/persistence -run TestPostgresAuthorityContracts -count=1 -v -timeout=4m
+
   conduit-integration:
     name: Conduit Broker and PostgreSQL Integration
     runs-on: ubuntu-latest
@@ -409,6 +455,7 @@ jobs:
         build-cli,
         deploy-compose,
         deploy-kubernetes,
+        deploy-workbench,
         conduit-integration,
       ]
     if: always()
@@ -423,6 +470,7 @@ jobs:
           CLI_RESULT: ${{ needs.build-cli.result }}
           CONDUIT_RESULT: ${{ needs.conduit-integration.result }}
           KUBERNETES_RESULT: ${{ needs.deploy-kubernetes.result }}
+          WORKBENCH_RESULT: ${{ needs.deploy-workbench.result }}
           COMPOSE_RESULT: ${{ needs.deploy-compose.result }}
         run: |
           set -uo pipefail
@@ -440,6 +488,7 @@ jobs:
             echo "| Conduit Integration | ${CONDUIT_RESULT} |"
             echo "| Deploy Compose Lifecycle | ${COMPOSE_RESULT} |"
             echo "| Deploy Kubernetes Lifecycle | ${KUBERNETES_RESULT} |"
+            echo "| Deploy Workbench | ${WORKBENCH_RESULT} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Windows is explicitly optional and is NOT part of the gate.
@@ -447,7 +496,7 @@ jobs:
           for entry in "test:${TEST_RESULT}" "build-all-modules:${MODULES_RESULT}" \
                        "lint:${LINT_RESULT}" "security:${SECURITY_RESULT}" \
                        "build-cli:${CLI_RESULT}" "deploy-compose:${COMPOSE_RESULT}" \
-                       "deploy-kubernetes:${KUBERNETES_RESULT}" \
+                       "deploy-kubernetes:${KUBERNETES_RESULT}" "deploy-workbench:${WORKBENCH_RESULT}" \
                        "conduit-integration:${CONDUIT_RESULT}"; do
             name="${entry%%:*}"; status="${entry##*:}"
             if [ "$status" != "success" ]; then

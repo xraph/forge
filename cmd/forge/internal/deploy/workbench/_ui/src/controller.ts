@@ -85,8 +85,10 @@ export function useWorkbench(api: API) {
   const [section, setSection] = useState<Section>("overview");
   const [pending, setPending] = useState<Record<string, Op>>({});
   const [error, setError] = useState<RequestError>();
+  const statusError = useRef<RequestError | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const refreshGeneration = useRef(0);
   const [plan, setPlan] = useState<Planned>();
   const [approved, setApproved] = useState(false);
   const [status, setStatus] = useState<Status>();
@@ -104,9 +106,11 @@ export function useWorkbench(api: API) {
           );
     if (failure.code === 6) setApproved(false);
     setError(failure);
+    return failure;
   }, []);
   const load = useCallback(
     async (signal?: AbortSignal) => {
+      refreshGeneration.current++;
       const p = normalizeProject(
         await api.request<Project>("project", undefined, signal),
       );
@@ -245,6 +249,7 @@ export function useWorkbench(api: API) {
       ? preference(`forge-deploy:${project.name}:${name}:environment`)
       : null;
     const env = envs.find(([key]) => key === saved)?.[0] ?? envs[0]?.[0] ?? "";
+    refreshGeneration.current++;
     setProfile(name);
     setEnvironment(env);
     setGate(false);
@@ -266,6 +271,7 @@ export function useWorkbench(api: API) {
       );
       return;
     }
+    refreshGeneration.current++;
     setEnvironment(name);
     setPlan(undefined);
     setApproved(false);
@@ -278,6 +284,7 @@ export function useWorkbench(api: API) {
       );
   };
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     if (!profile || !environment) return;
     const query = `?target=${encodeURIComponent(profile)}&env=${encodeURIComponent(environment)}`;
     const settled = await Promise.allSettled([
@@ -285,8 +292,13 @@ export function useWorkbench(api: API) {
       api.request<History>("history" + query),
       api.request<Run[]>("runs"),
     ]);
-    if (settled[0].status === "fulfilled") setStatus(settled[0].value);
-    else report(settled[0].reason);
+    if (generation !== refreshGeneration.current) return;
+    if (settled[0].status === "fulfilled") {
+      setStatus(settled[0].value);
+      const recovered = statusError.current;
+      setError((current) => (current === recovered ? undefined : current));
+      statusError.current = undefined;
+    } else statusError.current = report(settled[0].reason);
     if (settled[1].status === "fulfilled") setHistory(settled[1].value);
     if (settled[2].status === "fulfilled") setRuns(settled[2].value);
   }, [api, profile, environment, report]);

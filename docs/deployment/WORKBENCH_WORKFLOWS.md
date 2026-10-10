@@ -1,8 +1,18 @@
 # Deployment targets, delivery and workbench storage
 
-Status: proposed additions to the deployment design, 9 October 2026. The dashboard mock implements the configuration interactions and browser persistence. The CLI flags, schema additions, authentication and deployment operations below still need implementation.
+Status: workbench and shared deployment contracts implemented, 9 October 2026.
+Run `forge deploy start` for the authenticated embedded page. It saves named
+targets, service scope, resource placement and delivery choices through the shared
+Engine, with files by default and optional SQLite or PostgreSQL authority.
+Compose and Kubernetes apply through reviewed plans. Managed delivery and hosted
+adapters retain separate qualification gates.
 
-These workflows extend the earlier design in `docs/superpowers/specs/2026-10-09-forge-deploy-design.md`. Keep its typed compiler, inline deploy block, descriptor catalog, runtime overlays and immutable plan approval. Add these fields to the shared contracts before implementing the page or adapters. The current CLI does not accept the mock's downloaded schema.
+The sections below preserve the original workflow proposal. The static dashboard
+mock still rehearses operations in browser storage. For current commands and
+persistence behavior, use the [workbench guide](<../content/docs/forge/(cli)/deployment-workbench.mdx>)
+and [verification record](VERIFICATION.md).
+
+These workflows extend the earlier design in `docs/superpowers/specs/2026-10-09-forge-deploy-design.md`. Keep its typed compiler, inline deploy block, descriptor catalog, runtime overlays and immutable plan approval. Add these fields to the shared contracts before implementing the page or adapters. The mock's downloaded bundle remains a proposal, not an importable deployment plan.
 
 ## Pick targets before configuring the stack
 

@@ -1698,7 +1698,7 @@ export function PreflightView({ w }: { w: Workspace }) {
 export function ReviewPane({ w }: { w: Workspace }) {
   const [tab, setTab] = useState("review");
   const plan = w.plan?.plan;
-  const command = `forge deploy plan --target ${w.profile} --env ${w.environment}\n${plan ? `forge deploy apply --target ${w.profile} --env ${w.environment} --plan .forge/plans/${w.environment}-${w.profile}-${plan.hash.slice(0, 12)}.json --approve-plan ${plan.hash}` : "forge deploy inspect --output json --non-interactive"}`;
+  const command = `forge deploy plan --target ${w.profile} --env ${w.environment}${w.selected.length ? ` --services ${w.selected.join(",")}` : ""} --output json --non-interactive\n${plan ? `forge deploy apply --plan ${plan.hash} --approve-plan ${plan.hash} --non-interactive --output json` : "forge deploy inspect --output json --non-interactive"}`;
   return (
     <Panel
       title="Deployment review"

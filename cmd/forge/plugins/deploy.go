@@ -88,9 +88,9 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		case "plan":
 			opts = append(opts, cli.WithFlag(cli.NewStringFlag("out", "", "Write a copy of the plan JSON", "")))
 		case "export":
-			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan", "")), cli.WithFlag(cli.NewStringFlag("output-dir", "", "Artifact directory", "")), cli.WithFlag(cli.NewBoolFlag("force", "", "Replace edited generated artifacts", false)))
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan file or full authority hash", "")), cli.WithFlag(cli.NewStringFlag("output-dir", "", "Artifact directory", "")), cli.WithFlag(cli.NewBoolFlag("force", "", "Replace edited generated artifacts", false)))
 		case "apply", "up":
-			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan", "")), cli.WithFlag(cli.NewStringFlag("approve-plan", "", "Approve this full plan hash", "")), cli.WithFlag(cli.NewBoolFlag("allow-destructive", "", "Permit destructive operations explicitly listed in the plan", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Approve the generated plan", false)))
+			opts = append(opts, cli.WithFlag(cli.NewStringFlag("plan", "", "Read a saved plan file or full authority hash", "")), cli.WithFlag(cli.NewStringFlag("approve-plan", "", "Approve this full plan hash", "")), cli.WithFlag(cli.NewBoolFlag("allow-destructive", "", "Permit destructive operations explicitly listed in the plan", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Approve the generated plan", false)))
 		case "logs":
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("follow", "f", "Follow service logs", false)), cli.WithFlag(cli.NewIntFlag("tail", "", "Maximum recent lines", 200)))
 		case "rollback":

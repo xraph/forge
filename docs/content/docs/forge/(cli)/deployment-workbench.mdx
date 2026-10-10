@@ -14,12 +14,87 @@ through the same planner, so the choice you make in one place is the choice the
 others see.
 
 <Callout type="info">
-  The versioned config editor, migration, catalog, service discovery and
-  `inspect`, `init`, `doctor`, and the Compose and Kubernetes plan, export,
-  apply, status, logs, rollback and destroy commands are implemented. The local
-  page and managed provider adapters are being connected to that engine. The
-  mock remains a browser preview and performs no deployments.
+  The local workbench, file and SQL persistence, and Compose and Kubernetes
+  lifecycle adapters are implemented. Managed platform adapters have their own
+  qualification levels. The static mock remains a design preview.
 </Callout>
+
+## Open your local workbench
+
+Run this from your project directory:
+
+```bash
+forge deploy start
+forge deploy start --port 4318 --no-open
+```
+
+The CLI serves the bundled page on `127.0.0.1`. Open the printed URL once to
+sign in. It redirects to a clean URL and keeps the session in a private cookie.
+You don't need a JavaScript runtime to use it. On an interactive terminal,
+`forge deploy` opens the same page; scripts receive command help.
+
+Choose a named target card first. You can keep several Compose hosts or
+Kubernetes clusters alongside managed platform targets. Each target restores its
+environment and service selection. Use Manage targets to return to the cards.
+Only the target and environment shown in the reviewed plan are applied.
+
+The sidebar groups your services, data and messaging, connections, delivery,
+environments, generated files and release activity. Save writes deployment
+choices through the same Engine as the CLI. The page keeps your draft when
+another editor changes a file and offers an explicit reload. Split configuration
+files are saved one at a time. Light, Dark and System themes, keyboard tabs and
+mobile navigation use the shared dashboard components.
+
+Build plan saves outstanding edits, resolves the selected stack and shows the
+actual generated files. Review the full hash, then approve that exact plan.
+Changing a service, target, environment or setting clears approval. Apply shows
+provider events and recorded failures, and you can cancel an active run. Activity
+also exposes status, retained service logs, release history and separately
+reviewed rollback or removal. Removal keeps data unless you explicitly select
+its deletion.
+
+## Choose settings persistence
+
+Files are the default. You can select a database in Environment & storage or
+start with an explicit authority:
+
+```bash
+forge deploy start --store sqlite --store-ref .forge/deploy.db
+forge deploy start --store postgres --store-ref env:FORGE_DEPLOY_STATE_DSN
+```
+
+`.forge/store.json` records the selected authority. SQL stores own deployment
+settings, plans, snapshots, journals and releases. Your runtime configuration,
+build sources and private credentials stay in the checkout. Exported files are
+review copies. A database outage does not switch back to files.
+
+SQLite coordinates local sessions. PostgreSQL can coordinate sessions that share
+one project authority; supply its DSN through an environment or private file
+reference. Database leases use renewal and fencing, so an expired owner cannot
+write deployment state after another session takes the lock. Store switches copy
+current settings and history before selecting the destination. They refuse an
+active deployment.
+
+## Images and registry access
+
+Images & delivery separates local builds, named Buildx builders, immutable
+existing images and provider Git builds. A remote builder must already be
+configured in Docker. Registry delivery builds and publishes selected services;
+existing images must include a `sha256` digest.
+
+Authenticate registry opens a private login form. The token goes to the local
+Engine, and Docker credentials are saved in an isolated project directory with
+restricted permissions. The response contains connection metadata only. A GitHub
+Container Registry connection uses `ghcr.io`, your username and a token with the
+required package permissions. Publishing access and target pull access are
+separate. Kubernetes needs its own pull Secret, and managed platforms need a
+provider credential reference.
+
+Git builds use the source repository, branch and reviewed commit, with a manual,
+commit or checks-passed trigger. Manifest delivery to an existing GitOps
+controller has a separate repository and path. The provider's capability level
+controls whether you can export or apply; saving these fields does not establish
+a provider connection or a completed deployment.
 
 ## Inspect and configure your project
 
@@ -125,7 +200,7 @@ In CI:
 ```bash
 forge deploy doctor --target k8s-prod --env production --output json
 forge deploy plan   --target k8s-prod --env production --out plan.json
-forge deploy apply  --plan plan.json --approve-plan "$PLAN_HASH" --non-interactive
+forge deploy apply  --plan "$PLAN_HASH" --approve-plan "$PLAN_HASH" --non-interactive
 ```
 
 For an agent, the same four commands with `--output json`: `inspect` returns
@@ -145,9 +220,9 @@ decisions, 4 unsupported, 5 access, 6 stale plan, 7 apply failed, 8 timeout.
 | `deployments/<target>/<env>/`                       | Generated artifacts with a manifest of file hashes. Your edits go in `patches/` beside them and survive regeneration.          |
 | `.forge/plans/`, `.forge/state/`                    | Plans, the apply journal, locks and releases. Gitignored, restrictive permissions, no secret values in plans.                  |
 
-The page saves through the CLI's file editor. Comments, anchors and keys the
-CLI does not know survive, and a write that finds the file changed by someone
-else returns a conflict with a diff instead of overwriting.
+The page saves through the CLI's configuration editor. Comments, anchors and
+unknown keys survive. A changed file or database revision returns a conflict
+and keeps your draft available for review.
 
 ## Resources, Grove, Trove and Redis
 

@@ -12,6 +12,7 @@ You can deploy a Forge project to Docker Compose from its `.forge.yml` or
 bindings, generates files and records each operation during apply.
 
 ```bash
+forge deploy start
 forge deploy inspect
 forge deploy init
 forge deploy doctor --env dev
@@ -27,9 +28,10 @@ remove the selected backend volumes.
 <Callout type="info">
   Compose has an implemented lifecycle adapter. The real integration test covers
   PostgreSQL through Grove, Redis JSON and search, Trove object writes, service
-  communication and persistence across restart. The local workbench and other
-  adapters are being implemented. You can preview the [workbench
-  design](/docs/forge/deployment-workbench).
+  communication and persistence across restart. The authenticated local
+  workbench and Kubernetes lifecycle adapter share the same Engine. Open the
+  [workbench guide](/docs/forge/deployment-workbench) for target profiles, SQL
+  persistence and image delivery.
 </Callout>
 
 ## Configure a target
@@ -119,8 +121,10 @@ forge deploy apply --plan .forge/plans/dev-local-HASH.json \
   --approve-plan FULL_HASH --non-interactive --output json
 ```
 
-The JSON response includes `data.hash` and the saved plan path. Approve the full
-hash, not its filename prefix. Apply checks the plan's integrity, expiry and
+The JSON response includes `data.hash`, `data.selector` and the selected store.
+Use `--plan FULL_HASH` with files or SQL authority. `data.file` is empty when the
+plan is held in SQL; `plan --out plan.json` writes an explicit review copy.
+Approve the full hash, not its filename prefix. Apply checks the plan's integrity, expiry and
 source files again, then compares the approved deployment revision and recorded
 container identities under the environment lock. Changed inputs, state or remote
 workloads require a fresh plan. Imported plan files are verified and saved locally
@@ -143,8 +147,8 @@ CGO or custom Dockerfiles. Remote Buildx builders use `source: remote` and a nam
 `platforms` apply to Docker and host builds; local delivery supports one platform.
 `source: existing` and `source: ci` require immutable `build.images`
 references for every selected service. Registry delivery uses your Docker
-credential configuration; dedicated connection management is being added to the
-workbench.
+isolated project credentials when you authenticate through the workbench.
+Private cluster pulls require their own credentials.
 
 Status keeps an incomplete or failed deployment visible even when its previous
 containers are healthy. It shows the observed image separately from the intended
@@ -164,6 +168,7 @@ Every command accepts `--config`, `--target`, `--env`, `--timeout`,
 | `migrate`                                   | `--dry-run`, `--yes`                                                     |
 | `schema`, `inspect`, `providers`, `catalog` | No additional options                                                    |
 | `doctor`                                    | `--offline`                                                              |
+| `start`                                     | `--port`, `--no-open`, `--token`, `--store`, `--store-ref`               |
 | `plan`                                      | `--services`, `--out`                                                    |
 | `export`                                    | `--services`, `--plan`, `--output-dir`, `--force`                        |
 | `apply`                                     | `--plan`, `--approve-plan`, `--allow-destructive`                        |
@@ -186,8 +191,8 @@ not contact Kubernetes and reports remote secret references as unverified.
 
 ## Other platforms and legacy commands
 
-The shared typed engine currently applies Compose targets. Kubernetes and managed
-platform adapters are being added. Until they land, you can export draft files
+The shared typed engine applies Compose and Kubernetes targets. Managed
+platform adapters expose their qualification level before apply is offered. Until they land, you can export draft files
 with `forge infra k8s export`, `forge infra render export` or
 `forge infra do export`, then validate and deploy through the provider's tools.
 Those legacy exports do not generate the complete version 2 resource graph.
