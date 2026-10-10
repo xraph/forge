@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.6](https://github.com/xraph/forge/compare/v1.12.5...v1.12.6) (2026-10-10)
+
+
+### Bug Fixes
+
+* **deploy:** show imported resource choices during initialization ([d202e919](https://github.com/xraph/forge/commit/d202e919))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.12.5 ([2fdf7828](https://github.com/xraph/forge/commit/2fdf7828))
+
 ## [1.12.5](https://github.com/xraph/forge/compare/v1.12.4...v1.12.5) (2026-10-10)
 
 
