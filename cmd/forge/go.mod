@@ -32,7 +32,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
-	github.com/xraph/forge v1.12.3
+	github.com/xraph/forge v1.12.7-0.20261010221529-ca116770eb6e
 	golang.org/x/text v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
