@@ -3,19 +3,21 @@ package plugins
 import (
 	"errors"
 	"fmt"
-	"github.com/xraph/forge/cmd/forge/config"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/discover"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/discover"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
+
+	"sort"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/render"
-	"sort"
 )
 
 func (p *DeployPlugin) newEngine(ctx cli.CommandContext) (*engine.Engine, output.Mode, error) {
@@ -48,14 +50,15 @@ func (p *DeployPlugin) newEngine(ctx cli.CommandContext) (*engine.Engine, output
 }
 
 type inspectData struct {
-	Project     string `json:"project"`
-	Target      string `json:"target"`
-	Environment string `json:"environment"`
-	Apps        []any  `json:"apps"`
-	Services    []any  `json:"services"`
-	Resources   []any  `json:"resources"`
-	Connections []any  `json:"connections"`
-	Suggestions []any  `json:"suggestions"`
+	Runtime     []discover.RuntimeReport `json:"runtime,omitempty"`
+	Project     string                   `json:"project"`
+	Target      string                   `json:"target"`
+	Environment string                   `json:"environment"`
+	Apps        []any                    `json:"apps"`
+	Services    []any                    `json:"services"`
+	Resources   []any                    `json:"resources"`
+	Connections []any                    `json:"connections"`
+	Suggestions []any                    `json:"suggestions"`
 }
 
 func (p *DeployPlugin) inspect(ctx cli.CommandContext) error {
@@ -64,12 +67,14 @@ func (p *DeployPlugin) inspect(ctx cli.CommandContext) error {
 		return err
 	}
 
-	res, err := e.Inspect(ctx.Context(), ctx.String("target"), ctx.String("env"))
+	timeout, cancel := p.timeoutContext(ctx)
+	defer cancel()
+	res, err := e.InspectWithOptions(timeout, ctx.String("target"), ctx.String("env"), engine.InspectOptions{Execute: ctx.Bool("exec"), App: ctx.String("app")})
 	if err != nil {
-		return output.Fail(output.ExitAccess, err.Error())
+		return err
 	}
 
-	data := inspectData{Project: res.Project, Target: res.Target, Environment: res.Environment}
+	data := inspectData{Project: res.Project, Target: res.Target, Environment: res.Environment, Runtime: res.Discovery.Runtime}
 	for _, a := range res.Discovery.Apps {
 		data.Apps = append(data.Apps, a)
 	}

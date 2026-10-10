@@ -46,6 +46,7 @@ type Suggestion struct {
 }
 
 type Result struct {
+	Runtime     []RuntimeReport    `json:"runtime,omitempty"`
 	Apps        []App              `json:"apps"`
 	Suggestions []Suggestion       `json:"suggestions"`
 	Modules     []catalog.Module   `json:"modules"`

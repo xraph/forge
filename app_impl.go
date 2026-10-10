@@ -792,6 +792,10 @@ func (a *app) Stop(ctx context.Context) error {
 
 // Run starts the HTTP server and blocks until a shutdown signal is received.
 func (a *app) Run() error {
+	if os.Getenv("FORGE_INTROSPECT") == "1" {
+		return WriteInfraRequirements(a, os.Stdout)
+	}
+
 	// Start the application
 	if err := a.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start app: %w", err)

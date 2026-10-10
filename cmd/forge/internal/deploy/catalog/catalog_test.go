@@ -122,3 +122,23 @@ func TestDefaultObjectRecipeUsesAvailablePinnedImage(t *testing.T) {
 		t.Fatalf("default object recipe: %+v %v", recipe, ok)
 	}
 }
+
+func TestDescriptorRejectsExtraDocumentsAndKinds(t *testing.T) {
+	for _, tail := range []string{"---\nschema: 1\nextension: second\nconfig_key: extensions.second\n", "kinds: {driver: fictional}\n"} {
+		root := t.TempDir()
+
+		dir := filepath.Join(root, "deploy", "descriptors")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(dir, "custom.yaml"), []byte("schema: 1\nextension: custom\nconfig_key: extensions.custom\n"+tail), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, diags, err := Load(t.Context(), root, nil)
+		if err != nil || !diags.HasErrors() {
+			t.Fatal("invalid descriptor accepted", diags, err)
+		}
+	}
+}

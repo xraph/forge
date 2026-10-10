@@ -84,6 +84,8 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		}
 
 		switch name {
+		case "inspect":
+			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("exec", "", "Execute trusted apps for runtime infrastructure metadata", false)), cli.WithFlag(cli.NewStringFlag("app", "", "Discovered app to execute (requires --exec)", "")))
 		case "start":
 			opts = append(opts, startFlags()...)
 		case "plan":

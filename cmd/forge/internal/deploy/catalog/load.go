@@ -5,13 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
-	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"gopkg.in/yaml.v3"
 )
 
 // Load returns the embedded catalog with module-shipped and project-local
@@ -74,6 +77,11 @@ func (c *Catalog) applyFile(path, source string) output.Diagnostics {
 		return output.Diagnostics{{Code: "DEPLOY_DESCRIPTOR_INVALID", Severity: output.SeverityError, Message: err.Error(), File: path}}
 	}
 
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return output.Diagnostics{{Code: output.CodeDescriptorInvalid, Severity: output.SeverityError, Message: "descriptor must contain exactly one document", File: path}}
+	}
+
 	if desc.Schema != descriptorSchema {
 		return output.Diagnostics{{Code: "DEPLOY_DESCRIPTOR_SCHEMA", Severity: output.SeverityError,
 			Message: fmt.Sprintf("descriptor %s declares schema %d; this CLI reads schema %d", desc.Extension, desc.Schema, descriptorSchema),
@@ -82,6 +90,23 @@ func (c *Catalog) applyFile(path, source string) output.Diagnostics {
 
 	if !descriptorName.MatchString(desc.Extension) || desc.ConfigKey == "" {
 		return output.Diagnostics{{Code: output.CodeDescriptorInvalid, Severity: output.SeverityError, Message: "descriptor requires a valid extension name and config_key", File: path}}
+	}
+
+	known := map[model.ResourceType]bool{}
+	for _, kind := range []model.ResourceType{model.Postgres, model.MySQL, model.SQLite, model.MongoDB, model.ClickHouse, model.Turso, model.Redis, model.Memcached, model.NATS, model.Kafka, model.RabbitMQ, model.ObjectStorage, model.SMTP, model.MQTT, model.Meilisearch, model.Elasticsearch, model.Typesense} {
+		known[kind] = true
+	}
+
+	for _, kind := range desc.Kinds {
+		if !known[kind] {
+			return output.Diagnostics{{Code: output.CodeDescriptorInvalid, Severity: output.SeverityError, Message: "descriptor declares an unsupported resource kind", File: path}}
+		}
+	}
+
+	for _, req := range desc.Optional {
+		if !known[req.Kind] {
+			return output.Diagnostics{{Code: output.CodeDescriptorInvalid, Severity: output.SeverityError, Message: "descriptor declares an unsupported optional resource kind", File: path}}
+		}
 	}
 
 	desc.Source = source
