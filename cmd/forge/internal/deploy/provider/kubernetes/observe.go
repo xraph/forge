@@ -259,7 +259,19 @@ func (k *Kubernetes) Observe(ctx context.Context, _ provider.EnvRef, st *state.S
 	}
 
 	for _, r := range p.Deployment.Routes {
-		if r.Host != "" {
+		if r.Host == "" {
+			continue
+		}
+
+		kind := "Ingress"
+		if p.Deployment.Target.GatewayAPI {
+			kind = "HTTPRoute"
+		}
+
+		status := routeStatus(p.Deployment, live[kind+"/"+r.Service+"-"+r.Port])
+		degrade(status)
+
+		if status == state.StatusAccepted {
 			result.Routes = append(result.Routes, routeURL(r))
 		}
 	}

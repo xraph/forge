@@ -21,10 +21,11 @@ import (
 type kubeRunner struct {
 	*execx.Fake
 
-	objects  map[string]object
-	fail     string
-	applied  []string
-	payloads []string
+	objects    map[string]object
+	fail       string
+	applied    []string
+	payloads   []string
+	routeReady bool
 }
 
 func (f *kubeRunner) Run(_ context.Context, c execx.Command) (execx.Result, error) {
@@ -52,6 +53,10 @@ func (f *kubeRunner) Run(_ context.Context, c execx.Command) (execx.Result, erro
 
 		if slices.Contains(c.Args, "namespace") {
 			return execx.Result{Stdout: `{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"atlas-dev"}}`}, nil
+		}
+
+		if slices.Contains(c.Args, "ingressclass") {
+			return execx.Result{Stdout: `{"apiVersion":"networking.k8s.io/v1","kind":"IngressClass","metadata":{"name":"nginx"},"spec":{"controller":"k8s.io/ingress-nginx"}}`}, nil
 		}
 
 		if slices.Contains(c.Args, "secret") {
@@ -92,7 +97,12 @@ func (f *kubeRunner) Run(_ context.Context, c execx.Command) (execx.Result, erro
 			key := o["kind"].(string) + "/" + meta["name"].(string)
 			meta["uid"] = "uid-" + key
 			meta["generation"] = 1
+
 			status := object{"observedGeneration": 1, "readyReplicas": 1, "updatedReplicas": 1, "availableReplicas": 1, "currentRevision": "revision", "updateRevision": "revision", "conditions": []any{object{"type": "Complete", "status": "True"}}}
+			if o["kind"] == "Ingress" && f.routeReady {
+				status["loadBalancer"] = object{"ingress": []any{object{"hostname": "test-controller"}}}
+			}
+
 			o["status"] = status
 			f.objects[key] = o
 			f.applied = append(f.applied, key)

@@ -35,6 +35,15 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 
 	services := map[string]model.Service{}
 	names := map[string]bool{}
+	generated := map[string]bool{}
+	reserve := func(kind, name string) {
+		key := kind + "/" + name
+		if generated[key] {
+			fail(name, "duplicate generated Kubernetes object "+key)
+		}
+
+		generated[key] = true
+	}
 
 	for _, s := range d.Services {
 		if !dnsLabel.MatchString(s.Name) || len(s.Name) > 42 {
@@ -48,6 +57,14 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 		names[s.Name] = true
 
 		services[s.Name] = s
+		if s.Kind == spec.KindJob {
+			reserve("Job", jobName(d, s.Name))
+		}
+
+		if len(s.Migrate) > 0 {
+			reserve("Job", jobName(d, s.Name+"-migrate"))
+		}
+
 		if s.Replicas < 1 {
 			fail(s.Name, "replicas must be positive")
 		}
@@ -113,13 +130,17 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 			fail(r.Name, "container resource requires a frozen runtime recipe")
 		}
 
+		if r.Lifecycle == spec.LifecycleContainer && r.RuntimeRecipe != nil && len(r.RuntimeRecipe.Init) > 0 {
+			reserve("Job", jobName(d, r.Name+"-init"))
+		}
+
 		if d.Target.NetworkPolicy && r.Lifecycle == spec.LifecycleExternal && len(d.Target.ExternalCIDRs[r.Name]) == 0 {
 			fail(r.Name, "network policy requires external_cidrs for this resource")
 		}
 	}
 
 	for _, edge := range d.Connections {
-		if s, ok := services[edge.To]; ok {
+		if s, ok := services[edge.To]; ok && internalEdge(d, edge) {
 			if _, err := namedPort(s, edge.Port); err != nil {
 				fail(edge.To, err.Error())
 			}

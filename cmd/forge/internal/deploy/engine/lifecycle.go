@@ -306,6 +306,15 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 		}
 	}
 
+	if name := p.Target.Build.Registry.SecretRef; name != "" {
+		status, value, err := secrets.Reference(ctx, res.Doc.Deploy.Secrets, e.cfg.RootDir, sec, name, true)
+		if err != nil || !status.Resolved || value == "" {
+			return output.Fail(output.ExitAccess, "registry credential is unavailable")
+		}
+
+		values[name] = value
+	}
+
 	var cancel context.CancelFunc
 	if _, ok := ctx.Deadline(); !ok {
 		ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)

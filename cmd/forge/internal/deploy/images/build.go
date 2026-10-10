@@ -3,6 +3,8 @@ package images
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -191,7 +193,7 @@ func Build(ctx context.Context, runner execx.Runner, root string, p *plan.Plan, 
 
 			if image.Digest != "" {
 				image, err = registryImage(ctx, runner, root, d, config, image)
-				if err == nil && d.Target.Provider == "compose" {
+				if err == nil && (d.Target.Provider == "compose" || build.Delivery != "registry") {
 					err = pull(ctx, runner, root, d, config, image)
 				}
 			} else {
@@ -352,7 +354,23 @@ func registryConnectionName(d *model.Deployment) string {
 		return d.Target.Build.Registry.Auth
 	}
 
-	return d.Target.Build.Registry.SecretRef
+	name := d.Target.Build.Registry.SecretRef
+	if name != "" && !connectionName.MatchString(name) {
+		hash := sha256.Sum256([]byte(name))
+		name = "registry-" + hex.EncodeToString(hash[:])[:16]
+	}
+
+	return name
+}
+
+// LocalIdentity verifies a pulled registry image in the selected Docker store.
+func LocalIdentity(ctx context.Context, runner execx.Runner, root string, d *model.Deployment, image model.Image) (model.Image, error) {
+	config, err := ConfigDir(root, d)
+	if err != nil {
+		return model.Image{}, err
+	}
+
+	return localImage(ctx, runner, root, d, config, Ref(image))
 }
 
 // ConfigDir supplies the same authenticated connection to deployment pulls.

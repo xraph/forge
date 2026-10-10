@@ -190,4 +190,20 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 	}
 
 	res.Deployment = d
+
+	if name := t.Build.Registry.SecretRef; name != "" {
+		status, _, err := secrets.Reference(ctx, sp.Secrets, e.cfg.RootDir, sec, name, false)
+		if err != nil {
+			res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: output.CodeAccess, Severity: output.SeverityError, Field: "deploy.targets." + target + ".build.registry.secret_ref", Message: "registry credential resolver is unavailable"})
+
+			return
+		}
+
+		d.Secrets = append(d.Secrets, model.SecretRef{Name: name, Resolver: sec.Name(), Resolved: status.Resolved, Where: status.Where})
+		if status.Unverified {
+			res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: "DEPLOY_SECRET_UNVERIFIED", Severity: output.SeverityWarning, Message: "registry credential requires online verification"})
+		} else if !status.Resolved {
+			res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: "DEPLOY_SECRET_UNRESOLVED", Severity: output.SeverityError, Field: "deploy.targets." + target + ".build.registry.secret_ref", Message: "registry credential is unresolved: " + status.Where})
+		}
+	}
 }

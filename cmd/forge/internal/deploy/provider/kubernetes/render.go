@@ -67,6 +67,10 @@ func jobName(d *model.Deployment, name string) string {
 	return name + "-r" + strconv.FormatUint(revision(d), 10)
 }
 func (k *Kubernetes) Render(ctx context.Context, d *model.Deployment) (*render.Bundle, error) {
+	return k.render(ctx, d, true)
+}
+
+func (k *Kubernetes) render(ctx context.Context, d *model.Deployment, buildFiles bool) (*render.Bundle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -141,7 +145,7 @@ func (k *Kubernetes) Render(ctx context.Context, d *model.Deployment) (*render.B
 	}
 
 	for _, s := range d.Services {
-		if d.Target.Build.Source != "existing" && d.Target.Build.Source != "ci" && s.Image.Dockerfile == "" {
+		if buildFiles && d.Target.Build.Source != "existing" && d.Target.Build.Source != "ci" && s.Image.Dockerfile == "" {
 			raw, err := images.Dockerfile(d, s, k.root)
 			if err != nil {
 				return nil, err
@@ -283,17 +287,41 @@ func serviceOverlay(d *model.Deployment, s model.Service) ([]byte, error) {
 			return nil, err
 		}
 
-		discovery, _ := runtime["discovery"].(map[string]any)
-		if discovery == nil {
-			discovery = object{}
+		legacy, _ := runtime["discovery"].(map[string]any)
+
+		extensions, _ := runtime["extensions"].(map[string]any)
+		if extensions == nil {
+			extensions = object{}
 		}
 
+		canonical, _ := extensions["discovery"].(map[string]any)
+		discovery := object{}
+		mergeConfiguration(discovery, legacy)
+		mergeConfiguration(discovery, canonical)
 		maps.Copy(discovery, object{"enabled": true, "backend": "kubernetes", "kubernetes": object{"namespace": namespace(d), "in_cluster": true, "label_selector": fmt.Sprintf("forge.xraph.io/project=%s,forge.xraph.io/target=%s,forge.xraph.io/environment=%s", d.Project, d.TargetName, d.Environment)}})
-		runtime["discovery"] = discovery
+		extensions["discovery"] = discovery
+		runtime["extensions"] = extensions
+		delete(runtime, "discovery")
 		s.RuntimeConfig = runtime
 	}
 
 	return resolve.Overlay(d, &s)
+}
+
+func mergeConfiguration(destination, source map[string]any) {
+	for key, value := range source {
+		if child, ok := value.(map[string]any); ok {
+			prior, _ := destination[key].(map[string]any)
+			if prior == nil {
+				prior = object{}
+			}
+
+			mergeConfiguration(prior, child)
+			destination[key] = prior
+		} else {
+			destination[key] = value
+		}
+	}
 }
 func namedPort(s model.Service, name string) (model.Port, error) {
 	if name == "" {

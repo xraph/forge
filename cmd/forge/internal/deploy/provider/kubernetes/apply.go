@@ -65,7 +65,7 @@ func (k *Kubernetes) Preflight(ctx context.Context, d *model.Deployment) error {
 		}
 	}
 
-	return nil
+	return k.routePreflight(ctx, d)
 }
 func journalEvent(ctx context.Context, events chan<- provider.Event, st *state.Store, p *plan.Plan, op plan.Operation, status state.Status) error {
 	message := op.Detail
@@ -185,35 +185,16 @@ func (k *Kubernetes) Apply(ctx context.Context, p *plan.Plan, st *state.Store, e
 
 	for i := range d.Services {
 		image := actual[d.Services[i].Name]
-		if image.Digest == "" {
-			reference := "forge.local/" + d.Project + "/" + d.Services[i].Name + ":image-" + strings.TrimPrefix(image.Repository, "sha256:")
 
-			args := []string{"image", "tag", images.Ref(image), reference}
-			if d.Target.DockerContext != "" {
-				args = append([]string{"--context", d.Target.DockerContext}, args...)
-			}
-
-			if _, err := k.runner.Run(ctx, execx.Command{Name: "docker", Args: args, Dir: k.root}); err != nil {
-				return failed(plan.Operation{ID: "deliver:images"}, errors.New("cannot tag the verified local image"))
-			}
-
-			env := []string{}
-			if d.Target.DockerContext != "" {
-				env = append(env, "DOCKER_CONTEXT="+d.Target.DockerContext)
-			}
-
-			if _, err := k.runner.Run(ctx, execx.Command{Name: "kind", Args: []string{"load", "docker-image", reference, "--name", d.Target.LocalCluster}, Env: env, Dir: k.root}); err != nil {
-				return failed(plan.Operation{ID: "deliver:images"}, errors.New("cannot load verified image into the selected kind cluster"))
-			}
-
-			repo, tag, _ := strings.Cut(reference, ":")
-			image = model.Image{Repository: repo, Tag: tag}
+		image, err = k.deliverLocal(ctx, d, image, d.Services[i].Name)
+		if err != nil {
+			return failed(plan.Operation{ID: "deliver:images"}, err)
 		}
 
 		d.Services[i].Image = image
 	}
 
-	b, err := k.Render(ctx, d)
+	b, err := k.runtimeBundle(ctx, d, snap)
 	if err != nil {
 		return failed(plan.Operation{ID: "render:runtime"}, err)
 	}
@@ -374,6 +355,9 @@ func (k *Kubernetes) Apply(ctx context.Context, p *plan.Plan, st *state.Store, e
 			}
 		case op.ID == "route:policy":
 			err = applyStage("routes", nil)
+			if err == nil {
+				err = k.waitRoutes(ctx, d)
+			}
 		case op.ID == "check:stack":
 			if err = st.SaveSnapshot(snap); err == nil {
 				var observed provider.Status
@@ -400,7 +384,12 @@ func (k *Kubernetes) Apply(ctx context.Context, p *plan.Plan, st *state.Store, e
 		}
 	}
 
-	snap.Status = state.StatusHealthy
+	observed, err := k.Observe(ctx, provider.EnvRef{}, st)
+	if err != nil {
+		return err
+	}
+
+	snap.Status = observed.Overall
 
 	for _, s := range d.Services {
 		if s.Health.None || s.Kind == spec.KindCron {

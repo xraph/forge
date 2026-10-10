@@ -4,8 +4,24 @@ import (
 	"fmt"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
+	"net/url"
 	"sort"
 )
+
+func internalEdge(d *model.Deployment, edge model.Connection) bool {
+	if edge.Address == "" {
+		return true
+	}
+
+	address, err := url.Parse(edge.Address)
+	if err != nil {
+		return false
+	}
+
+	host := address.Hostname()
+
+	return host == edge.To || host == edge.To+"."+namespace(d)+".svc.cluster.local"
+}
 
 func routeObject(d *model.Deployment, s model.Service, r model.Route) (object, error) {
 	p, err := namedPort(s, r.Port)
@@ -83,7 +99,7 @@ func networkObjects(d *model.Deployment) []object {
 	}
 
 	for _, edge := range d.Connections {
-		if s, ok := services[edge.To]; ok {
+		if s, ok := services[edge.To]; ok && internalEdge(d, edge) {
 			p, _ := namedPort(s, edge.Port)
 			ports := []any{object{"protocol": transport(p.Protocol), "port": p.Port}}
 			ingress[edge.To] = append(ingress[edge.To], object{"from": []any{peer(d, edge.From)}, "ports": ports})

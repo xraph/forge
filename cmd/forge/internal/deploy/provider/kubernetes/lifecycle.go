@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
@@ -110,23 +109,30 @@ func (k *Kubernetes) Rollback(ctx context.Context, _ provider.EnvRef, st *state.
 			return err
 		}
 
-		d.Services = slices.DeleteFunc(d.Services, func(svc model.Service) bool { return svc.Name != name })
-		if len(d.Services) != 1 {
+		found := false
+
+		for i := range d.Services {
+			if d.Services[i].Name == name {
+				d.Services[i].Image = workload.Image
+				found = true
+			}
+		}
+
+		if !found {
 			return errors.New("saved workload is unavailable")
 		}
 
-		d.Services[0].Image = workload.Image
 		if err := images.Verify(ctx, k.runner, k.root, d, workload.Image); err != nil {
 			return errors.New("rollback image is unavailable; restore its immutable artifact")
 		}
 
-		bundle, err := k.Render(ctx, d)
+		bundle, err := k.render(ctx, d, false)
 		if err != nil {
 			return err
 		}
 
 		for _, stage := range []string{"config", "applications"} {
-			objects, err := stageObjects(bundle, stage)
+			objects, err := workloadObjects(d, bundle, stage, name)
 			if err != nil {
 				return err
 			}
@@ -156,19 +162,12 @@ func (k *Kubernetes) Rollback(ctx context.Context, _ provider.EnvRef, st *state.
 		d, bundle := prepared[name], bundles[name]
 
 		workload := restored.Workloads[name]
-		if workload.Image.Digest == "" {
-			env := []string{}
-			if d.Target.DockerContext != "" {
-				env = append(env, "DOCKER_CONTEXT="+d.Target.DockerContext)
-			}
-
-			if _, err := k.runner.Run(ctx, execx.Command{Name: "kind", Args: []string{"load", "docker-image", images.Ref(workload.Image), "--name", d.Target.LocalCluster}, Env: env, Dir: k.root}); err != nil {
-				return fail(name, errors.New("cannot deliver immutable rollback image to kind"))
-			}
+		if _, err := k.deliverLocal(ctx, d, workload.Image, name); err != nil {
+			return fail(name, err)
 		}
 
 		for _, stage := range []string{"config", "applications"} {
-			objects, err := stageObjects(bundle, stage)
+			objects, err := workloadObjects(d, bundle, stage, name)
 			if err != nil {
 				return err
 			}
@@ -178,7 +177,14 @@ func (k *Kubernetes) Rollback(ctx context.Context, _ provider.EnvRef, st *state.
 			}
 		}
 
-		svc := d.Services[0]
+		var svc model.Service
+
+		for _, candidate := range d.Services {
+			if candidate.Name == name {
+				svc = candidate
+			}
+		}
+
 		if svc.Kind != spec.KindCron {
 			kind, objectName := "Deployment", name
 			if svc.Kind == spec.KindJob {
@@ -295,39 +301,22 @@ func (k *Kubernetes) Destroy(ctx context.Context, p *plan.Plan, st *state.Store,
 	candidates := map[string]bool{}
 
 	for name := range selected {
-		w, exists := snap.Workloads[name]
-		if !exists {
-			continue
+		graphs := []*model.Deployment{p.Deployment}
+
+		if workload, exists := snap.Workloads[name]; exists {
+			prior, err := k.loadPlan(workload.PlanHash)
+			if err != nil {
+				return err
+			}
+
+			graphs = append(graphs, prior.Deployment)
 		}
 
-		prior, err := k.loadPlan(w.PlanHash)
-		if err != nil {
-			return err
-		}
-
-		d, err := cloneDeployment(prior.Deployment)
-		if err != nil {
-			return err
-		}
-
-		d.Services = slices.DeleteFunc(d.Services, func(svc model.Service) bool { return svc.Name != name })
-		d.Resources = nil
-		d.Connections = nil
-		d.Routes = slices.DeleteFunc(d.Routes, func(r model.Route) bool { return r.Service != name })
-
-		bundle, err := k.Render(ctx, d)
-		if err != nil {
-			return err
-		}
-
-		objects, err := bundleObjects(bundle)
-		if err != nil {
-			return err
-		}
-
-		for key := range objects {
-			if !strings.HasPrefix(key, "Namespace/") {
-				candidates[key] = true
+		for key := range snap.Identities {
+			for _, graph := range graphs {
+				if workloadKey(graph, name, key) {
+					candidates[key] = true
+				}
 			}
 		}
 	}
@@ -365,13 +354,24 @@ func (k *Kubernetes) Destroy(ctx context.Context, p *plan.Plan, st *state.Store,
 		}
 	}
 
-	slices.SortFunc(keys, func(a, b string) int {
-		if strings.HasPrefix(a, "PersistentVolumeClaim/") != strings.HasPrefix(b, "PersistentVolumeClaim/") {
-			if strings.HasPrefix(a, "PersistentVolumeClaim/") {
-				return 1
-			}
+	// Stop application and migration jobs before removing their dependencies.
+	priority := func(key string) int {
+		kind, _, _ := strings.Cut(key, "/")
+		switch kind {
+		case "Deployment", "CronJob", "Job":
+			return 0
+		case "StatefulSet":
+			return 1
+		case "PersistentVolumeClaim":
+			return 3
+		default:
+			return 2
+		}
+	}
 
-			return -1
+	slices.SortFunc(keys, func(a, b string) int {
+		if priority(a) != priority(b) {
+			return priority(a) - priority(b)
 		}
 
 		return strings.Compare(a, b)
