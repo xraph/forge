@@ -170,12 +170,12 @@ The extension automatically contributes the `conduit` dashboard contract when th
 
 Namespace and service claims, when present, must match the configured runtime. Malformed claims are denied. Without those claims, the contract uses the explicitly configured runtime scope. The dashboard's normal authentication, CSRF, command idempotency and audit adapters remain in charge of transport access.
 
-| Provider | Durable streams | Replay | Dead letters | Discovery |
-| --- | --- | --- | --- | --- |
-| NATS JetStream | File storage with configured replicas | Sequence cursors and targeted recovery | Persisted KV records | Leased KV records |
-| Redis Streams | AOF-confirmed primary and configured replicas | Per-stream sequences and consumer groups | AOF-backed records | Use Forge or a separate registry |
-| Kafka | All configured in-sync replicas | One-based single-partition offsets | Retained failure log | Use Forge or a separate registry |
-| Memory | Process memory only | Retained process-local records | Process-local records | Use a separate registry |
+| Provider       | Durable streams                               | Replay                                   | Dead letters          | Discovery                        |
+| -------------- | --------------------------------------------- | ---------------------------------------- | --------------------- | -------------------------------- |
+| NATS JetStream | File storage with configured replicas         | Sequence cursors and targeted recovery   | Persisted KV records  | Leased KV records                |
+| Redis Streams  | AOF-confirmed primary and configured replicas | Per-stream sequences and consumer groups | AOF-backed records    | Use Forge or a separate registry |
+| Kafka          | All configured in-sync replicas               | One-based single-partition offsets       | Retained failure log  | Use Forge or a separate registry |
+| Memory         | Process memory only                           | Retained process-local records           | Process-local records | Use a separate registry          |
 
 Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. No supplied provider promises ordered processing by message key. Implement `core.RPCProvider` for transient request/reply. Named gRPC clients provide streaming RPC through generated clients.
 
@@ -231,4 +231,4 @@ Redis and Kafka supply retained events, dead letters and targeted replay. Broker
 
 The shared `providers/conformance.Run` suite checks real broker replica delivery, broadcast, isolation, durable restart, unsettled takeover, retries, recovery, topology conflicts, sequence starts and age retention. Set `CONDUIT_TEST_REDIS` and `CONDUIT_TEST_KAFKA` to run the optional local integrations. CI sets `CONDUIT_REQUIRE_PROVIDERS=1` so those checks cannot silently skip.
 
-Full usage and deployment details are in the [Conduit documentation](https://xraph.com/docs/forge/v1/extensions/conduit). Install the published module with `go get github.com/xraph/forge/extensions/conduit@v1.0.0` and the dashboard package with `pnpm add @forge-go/dashboard-plugin-conduit`.
+Full usage and deployment details are in the [Conduit documentation](https://xraph.com/docs/forge/extensions/conduit). Install the published module with `go get github.com/xraph/forge/extensions/conduit@v1.0.0` and the dashboard package with `pnpm add @forge-go/dashboard-plugin-conduit`.

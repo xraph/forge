@@ -7,7 +7,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.12.1
 	github.com/nats-io/nats.go v1.53.1
 	github.com/segmentio/kafka-go v0.4.51
-	github.com/xraph/forge v1.12.3
+	github.com/xraph/forge v1.12.4
 	github.com/xraph/vessel v1.0.4
 	google.golang.org/grpc v1.83.2
 )

@@ -1,5 +1,5 @@
 {
-  ".": "1.11.0",
+  ".": "1.12.4",
   "extensions/auth": "1.10.0",
   "extensions/cache": "1.10.0",
   "extensions/consensus": "1.10.0",
@@ -18,5 +18,5 @@
   "extensions/security": "1.10.0",
   "extensions/streaming": "1.10.0",
   "extensions/webrtc": "1.10.0",
-  "extensions/conduit": "0.0.0"
+  "extensions/conduit": "1.0.0"
 }
