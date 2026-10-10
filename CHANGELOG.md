@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.12.5](https://github.com/xraph/forge/compare/v1.12.4...v1.12.5) (2026-10-10)
+
+
+### Features
+
+* **deploy:** wire gateways and portable hosted handoffs ([73bfa1ad](https://github.com/xraph/forge/commit/73bfa1ad))
+* **deploy:** inspect registered infrastructure requirements ([90f6f0b9](https://github.com/xraph/forge/commit/90f6f0b9))
+* **deploy:** export reviewed Kubernetes controller handoffs ([79600a30](https://github.com/xraph/forge/commit/79600a30))
+* **deploy:** publish approved images without changing workloads ([fc2f7639](https://github.com/xraph/forge/commit/fc2f7639))
+* **deploy:** validate Render and DigitalOcean deployment exports ([6ea13057](https://github.com/xraph/forge/commit/6ea13057))
+* **deploy:** embed deployment workspace with saved target profiles ([4466e702](https://github.com/xraph/forge/commit/4466e702))
+* **deploy:** run authenticated local deployment workbench ([79359adb](https://github.com/xraph/forge/commit/79359adb))
+* **deploy:** share authoritative settings and connections across CLI and UI ([7aa8533c](https://github.com/xraph/forge/commit/7aa8533c))
+* **deploy:** persist settings and state with fenced SQL authority ([7f220035](https://github.com/xraph/forge/commit/7f220035))
+* **conduit:** add Redis Streams and Kafka providers with broker conformance ([eaf38a48](https://github.com/xraph/forge/commit/eaf38a48))
+* **deploy:** apply and observe approved Kubernetes plans ([82e4245e](https://github.com/xraph/forge/commit/82e4245e))
+* **deploy:** render Kubernetes services and durable backend recipes ([871eb854](https://github.com/xraph/forge/commit/871eb854))
+* **deploy:** share immutable image builds and registry delivery ([9d3ec644](https://github.com/xraph/forge/commit/9d3ec644))
+* **client:** resolve deployment endpoints and bounded runtime retries ([4ae9fc0a](https://github.com/xraph/forge/commit/4ae9fc0a))
+* **deploy:** apply reviewed Compose plans with durable infrastructure ([3233a7c3](https://github.com/xraph/forge/commit/3233a7c3))
+
+
+### Bug Fixes
+
+* **workbench:** replace theme dropdown with an icon button ([f301aded](https://github.com/xraph/forge/commit/f301aded))
+* **deploy:** enforce runtime identity and export boundaries ([3ed25d8e](https://github.com/xraph/forge/commit/3ed25d8e))
+* **deploy:** preserve managed export endpoints and secret scope ([e0c72214](https://github.com/xraph/forge/commit/e0c72214))
+* **deploy:** isolate SQL settings and protect workbench edits ([a78177c6](https://github.com/xraph/forge/commit/a78177c6))
+* **release:** keep module checks portable and warm canonical Go versions ([192a6f03](https://github.com/xraph/forge/commit/192a6f03))
+* **deploy:** preserve Kubernetes lifecycle safety ([58f7a12e](https://github.com/xraph/forge/commit/58f7a12e))
+* **conduit:** scope backfill recovery and gate broker fault integration ([4d7f71ee](https://github.com/xraph/forge/commit/4d7f71ee))
+* **deploy:** preserve active workloads and reject stale approvals ([32a59e08](https://github.com/xraph/forge/commit/32a59e08))
+* **scheduler:** stop a cancelled job that was already dispatched ([3023af8c](https://github.com/xraph/forge/commit/3023af8c))
+
+
+### Maintenance
+
+* **deploy:** build the runtime fixture with workspaces off ([e93d4695](https://github.com/xraph/forge/commit/e93d4695))
+* **deploy:** tidy the atlas-v2 fixture and add its go.sum ([1fa683d3](https://github.com/xraph/forge/commit/1fa683d3))
+* **deps:** tidy cmd/forge, discovery, auth and conduit ([48f1ac37](https://github.com/xraph/forge/commit/48f1ac37))
+* **deps:** catch streaming, webrtc and webtransport up with auth ([d20f6cb3](https://github.com/xraph/forge/commit/d20f6cb3))
+* **deploy:** document runtime inspection and deployment handoffs ([d972a3e7](https://github.com/xraph/forge/commit/d972a3e7))
+* **deploy:** qualify workbench lifecycle and SQL plan handoff ([ef44f2eb](https://github.com/xraph/forge/commit/ef44f2eb))
+* **conduit:** prepare the first published module release ([c9b5e718](https://github.com/xraph/forge/commit/c9b5e718))
+* **conduit:** add module publishing and pinned library releases ([142a3385](https://github.com/xraph/forge/commit/142a3385))
+* **deploy:** qualify Kubernetes lifecycle and retained data ([413c589f](https://github.com/xraph/forge/commit/413c589f))
+
 ## Unreleased
 
 - Config: `FORGE_CONFIG_OVERLAY` and `FORGE_CONFIG_OVERLAY_YAML` load deployment bindings after local files and before environment overrides.
