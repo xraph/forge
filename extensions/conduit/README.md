@@ -173,9 +173,11 @@ Namespace and service claims, when present, must match the configured runtime. M
 | Provider | Durable streams | Replay | Dead letters | Discovery |
 | --- | --- | --- | --- | --- |
 | NATS JetStream | File storage with configured replicas | Sequence cursors and targeted recovery | Persisted KV records | Leased KV records |
+| Redis Streams | AOF-confirmed primary and configured replicas | Per-stream sequences and consumer groups | AOF-backed records | Use Forge or a separate registry |
+| Kafka | All configured in-sync replicas | One-based single-partition offsets | Retained failure log | Use Forge or a separate registry |
 | Memory | Process memory only | Retained process-local records | Process-local records | Use a separate registry |
 
-Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. Neither supplied provider promises ordered processing by message key. Implement `core.RPCProvider` for transient request/reply. Named gRPC clients provide streaming RPC through generated clients.
+Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. No supplied provider promises ordered processing by message key. Implement `core.RPCProvider` for transient request/reply. Named gRPC clients provide streaming RPC through generated clients.
 
 ## Run the checks and demo
 
@@ -218,3 +220,15 @@ Return `&conduit.RPCError{Code: conduit.RPCPermissionDenied, Message: "Billing a
 Run controlled recovery with `runtime.Backfill(ctx, conduit.BackfillInput{ID: "billing-recovery-42", Subscription: "process-orders", Start: 10, End: 30})`. The inclusive range is capped at 100 sequences and each run has a 30-second deadline. Missing retained messages, other event types and earlier targeted recovery records are counted as skipped. Matching original events retain their IDs and go only to the selected logical consumer. Business effects may repeat unless your inbox protects them.
 
 JetStream stores progress in a replicated file-backed KV bucket. Reuse the same operation ID and unchanged range to resume after an interruption; completed operations return their recorded result. A crash claim expires after one minute. Concurrent attempts conflict. Publication IDs are stable per operation and sequence, but broker deduplication has a finite window. Memory provides the same controls without disk persistence. The dashboard exposes real pause/resume commands, bounded backfill, scoped history and broker lag.
+
+## Additional providers and published docs
+
+Use `providers/redisstreams` for Redis 7.2+ with AOF enabled, or `providers/kafka` for Kafka. Forge configuration accepts `redis-streams` and `kafka`; Kafka URLs contain comma-separated `host:port` addresses. Native provider options carry TLS and authentication settings.
+
+Redis confirms local and configured replica AOF writes with `WAITAOF`. It supports age/count retention and consumer groups, with 24-hour publication deduplication by default. Kafka uses one partition per stream and settles each event before fetching the next. One competing replica is active at a time, while broadcast groups have independent offsets. Kafka supports age retention and rejects `MaxMessages`. It preserves stable IDs without publication deduplication; retry attempt counts reset after group reassignment. Use the transactional inbox to protect business effects.
+
+Redis and Kafka supply retained events, dead letters and targeted replay. Broker RPC, pause/resume and resumable backfill remain unsupported on those adapters. You can use Forge discovery and named HTTP/gRPC clients with either provider. Kafka failure listings fold the retained service failure log, so their cost grows with that log. Concurrent recovery can publish duplicates with the original message ID.
+
+The shared `providers/conformance.Run` suite checks real broker replica delivery, broadcast, isolation, durable restart, unsettled takeover, retries, recovery, topology conflicts, sequence starts and age retention. Set `CONDUIT_TEST_REDIS` and `CONDUIT_TEST_KAFKA` to run the optional local integrations. CI sets `CONDUIT_REQUIRE_PROVIDERS=1` so those checks cannot silently skip.
+
+Full usage and deployment details are in the [Conduit documentation](https://xraph.com/docs/forge/v1/extensions/conduit). Install the published module with `go get github.com/xraph/forge/extensions/conduit@v1.0.0` and the dashboard package with `pnpm add @forge-go/dashboard-plugin-conduit`.

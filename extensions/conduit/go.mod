@@ -6,7 +6,8 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nats-io/nats-server/v2 v2.12.1
 	github.com/nats-io/nats.go v1.53.1
-	github.com/xraph/forge v1.9.13
+	github.com/segmentio/kafka-go v0.4.51
+	github.com/xraph/forge v1.12.3
 	github.com/xraph/vessel v1.0.4
 	google.golang.org/grpc v1.83.2
 )
@@ -19,6 +20,7 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/grandcat/zeroconf v1.0.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
+	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/xraph/farp v1.3.1 // indirect
 	github.com/xraph/farp/discovery v1.3.1 // indirect
@@ -103,11 +105,11 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect
 	github.com/quic-go/webtransport-go v0.12.0 // indirect
-	github.com/redis/go-redis/v9 v9.21.0 // indirect
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v1.0.3 // indirect
+	github.com/xraph/confy v1.0.3
 	github.com/xraph/forge/extensions/discovery v1.12.3
 	github.com/xraph/go-utils v1.3.0 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect

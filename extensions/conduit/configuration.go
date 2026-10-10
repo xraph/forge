@@ -14,7 +14,9 @@ import (
 	"github.com/xraph/forge"
 	adapter "github.com/xraph/forge/extensions/conduit/discovery"
 	"github.com/xraph/forge/extensions/conduit/providers/jetstream"
+	"github.com/xraph/forge/extensions/conduit/providers/kafka"
 	"github.com/xraph/forge/extensions/conduit/providers/memory"
+	"github.com/xraph/forge/extensions/conduit/providers/redisstreams"
 	discoveryext "github.com/xraph/forge/extensions/discovery"
 	"github.com/xraph/forge/extensions/discovery/backends"
 	"gopkg.in/yaml.v3"
@@ -53,6 +55,18 @@ func (e *Extension) configure(app forge.App) error {
 			}
 
 			provider = jetstream.New(jetstream.Options{URL: connection.URL, DeadLetterReplicas: connection.DeadLetterReplicas})
+		case "redis", "redis-streams":
+			if connection.URL == "" {
+				return fmt.Errorf("conduit: provider %s requires a URL", name)
+			}
+
+			provider = redisstreams.New(redisstreams.Options{URL: connection.URL})
+		case "kafka":
+			if connection.URL == "" {
+				return fmt.Errorf("conduit: provider %s requires broker addresses", name)
+			}
+
+			provider = kafka.New(kafka.Options{Brokers: strings.Split(connection.URL, ","), DeadLetterReplicas: connection.DeadLetterReplicas})
 		case "memory":
 			provider = memory.New()
 		default:

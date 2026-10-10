@@ -77,7 +77,9 @@ func TestThreeNodeFailoverAndRollingRestarts(t *testing.T) {
 	}
 
 	wait(t, func() bool {
-		return slices.ContainsFunc(nodes, func(s *server.Server) bool { return s.JetStreamIsLeader() })
+		return slices.ContainsFunc(nodes, func(s *server.Server) bool {
+			return s.JetStreamIsLeader() && len(s.JetStreamClusterPeers()) == len(nodes)
+		})
 	})
 
 	addresses := []string{}

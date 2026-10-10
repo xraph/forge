@@ -332,7 +332,7 @@ jobs:
   conduit-integration:
     name: Conduit Broker and PostgreSQL Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     services:
       postgres:
         image: postgres:16-alpine
@@ -346,19 +346,54 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      redis:
+        image: redis:7.4-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      kafka:
+        image: apache/kafka:4.1.0
+        ports: [9092:9092]
+        env:
+          KAFKA_NODE_ID: "1"
+          KAFKA_PROCESS_ROLES: "broker,controller"
+          KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+          KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+          KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+          KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+          KAFKA_HEAP_OPTS: "-Xms256M -Xmx512M"
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+          --health-start-period 15s
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: extensions/conduit/go.mod
           cache-dependency-path: "**/go.sum"
+      - name: Enable Redis persistence
+        run: docker exec ${{ job.services.redis.id }} redis-cli CONFIG SET appendonly yes
       - name: Test broker faults and transactional effects
         working-directory: extensions/conduit
         env:
           GOWORK: "off"
           CONDUIT_REQUIRE_INTEGRATION: "1"
+          CONDUIT_REQUIRE_PROVIDERS: "1"
+          CONDUIT_TEST_REDIS: "redis://localhost:6379"
+          CONDUIT_TEST_KAFKA: "localhost:9092"
           CONDUIT_TEST_POSTGRES: "postgres://conduit:conduit_test@localhost:5432/conduit?sslmode=disable"
-        run: go test -race -count=1 -timeout=5m ./...
+        run: go test -race -count=1 -timeout=8m ./...
 
   # Summary
   ci-summary:
