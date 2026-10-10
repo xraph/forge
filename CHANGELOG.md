@@ -1,5 +1,68 @@
 # Changelog
 
+## [1.13.0](https://github.com/xraph/forge/compare/v1.12.4...v1.13.0) (2026-10-10)
+
+
+### Features
+
+* **client:** resolve deployment endpoints and bounded runtime retries ([4ae9fc0](https://github.com/xraph/forge/commit/4ae9fc0ae5fc15c1e7bd991a91ed1f216924053c))
+* **conduit:** add broker consumer controls and resumable backfill ([48acc83](https://github.com/xraph/forge/commit/48acc831ec67fe6048bc2ea77ab1b09975d1b7fb))
+* **conduit:** add Redis Streams and Kafka providers with broker conformance ([eaf38a4](https://github.com/xraph/forge/commit/eaf38a4824c74ab2467e3cd0355688c52e6e7cf8))
+* **conduit:** add service messaging and discovery ([eff3491](https://github.com/xraph/forge/commit/eff34915ed06f19cdfbe3dc62a5e2edf9de9e0a7))
+* **conduit:** add typed broker RPC and graceful request draining ([dff5843](https://github.com/xraph/forge/commit/dff5843bea87d206fceb40f51e0268ce1141657c))
+* **conduit:** infer Forge identity and load service configuration ([4714fb6](https://github.com/xraph/forge/commit/4714fb6abf5c75c21443d2742f3fadbf22df7ded))
+* **dashboard:** enforce local dispatch admission before caching ([da20c5c](https://github.com/xraph/forge/commit/da20c5ce5113bb1a30c6f50a36063b88224576f4))
+* **deploy:** apply and observe approved Kubernetes plans ([82e4245](https://github.com/xraph/forge/commit/82e4245eec82eb715f382db2414f586570bb441e))
+* **deploy:** apply reviewed Compose plans with durable infrastructure ([3233a7c](https://github.com/xraph/forge/commit/3233a7c38c348e5e8935d5ad01b4b2815f6dce4a))
+* **deploy:** embed deployment workspace with saved target profiles ([4466e70](https://github.com/xraph/forge/commit/4466e702654d9767adeff72a8c7b729665ef2700))
+* **deploy:** export reviewed Kubernetes controller handoffs ([79600a3](https://github.com/xraph/forge/commit/79600a30a5975bbd7dd3659fdcc6da0f9a4562bf))
+* **deploy:** inspect registered infrastructure requirements ([90f6f0b](https://github.com/xraph/forge/commit/90f6f0b9aebf0ed014fc283dd8e29bd3a34a2011))
+* **deploy:** persist settings and state with fenced SQL authority ([7f22003](https://github.com/xraph/forge/commit/7f22003503ab9a7fbaf06bdff5eb2905fc44dcd9))
+* **deploy:** publish approved images without changing workloads ([fc2f763](https://github.com/xraph/forge/commit/fc2f763967029f20a4d1ef896aeea9bfd621820c))
+* **deploy:** render Kubernetes services and durable backend recipes ([871eb85](https://github.com/xraph/forge/commit/871eb8549e1fd4870069c8013493819d0debf2f6))
+* **deploy:** run authenticated local deployment workbench ([79359ad](https://github.com/xraph/forge/commit/79359adb802a7e3c3075e6af14dc483c81b1f40d))
+* **deploy:** share authoritative settings and connections across CLI and UI ([7aa8533](https://github.com/xraph/forge/commit/7aa8533cd084db6e0fe185ea2cf292e73491bf05))
+* **deploy:** share immutable image builds and registry delivery ([9d3ec64](https://github.com/xraph/forge/commit/9d3ec64420736a32a0809b966a22337bca81d3ee))
+* **deploy:** validate Render and DigitalOcean deployment exports ([6ea1305](https://github.com/xraph/forge/commit/6ea130576a4d4ed36e8b344c7ffb9d6e8ca51dfb))
+* **deploy:** wire gateways and portable hosted handoffs ([73bfa1a](https://github.com/xraph/forge/commit/73bfa1ade231f62f9e58a75451fbdd05c3260446))
+* **discovery:** load deployment config and advertise reachable addresses ([b62611c](https://github.com/xraph/forge/commit/b62611c584e2a46508069ba1b25b73deec1ffcc4))
+
+
+### Bug Fixes
+
+* **conduit:** allow periodic Redis fsync to confirm durable writes ([75b115f](https://github.com/xraph/forge/commit/75b115f81861422b2c2f29609c0108d8ab983c93))
+* **conduit:** patch dependencies and bound cluster polls ([728f493](https://github.com/xraph/forge/commit/728f49368348cbb556ead9815671af3933499de7))
+* **conduit:** retry Kafka rejections before append during topic startup ([d5bbb15](https://github.com/xraph/forge/commit/d5bbb15d59c02f0b6ea34751180fc064e08aeabc))
+* **conduit:** scope backfill recovery and gate broker fault integration ([4d7f71e](https://github.com/xraph/forge/commit/4d7f71ee1e0a75d9709d306b2565d536f22642b0))
+* **dashboard:** bind generic command replay to trusted scope ([81e035c](https://github.com/xraph/forge/commit/81e035c4e0412fa8e8a315edf54fb4f3f629cf71))
+* **dashboard:** consume claims after typed output encoding fails ([921b236](https://github.com/xraph/forge/commit/921b2364020debf4c547cdffb25ef1b6d6d1e2f3))
+* **dashboard:** match typed encoding failures by exact identity ([217abff](https://github.com/xraph/forge/commit/217abffa75f0e4f28325d86b6d25697acf6aef98))
+* **dashboard:** preserve contract authorization errors ([1f46924](https://github.com/xraph/forge/commit/1f46924d22f76482376fcf7f6d025a476f80c8cb))
+* **deploy:** enforce runtime identity and export boundaries ([3ed25d8](https://github.com/xraph/forge/commit/3ed25d8e44d7e9ee6b3dd447bd126c7eb1df7938))
+* **deploy:** isolate SQL settings and protect workbench edits ([a78177c](https://github.com/xraph/forge/commit/a78177c6f2da4409a792825f9fa2ee461c8c8a22))
+* **deploy:** preserve active workloads and reject stale approvals ([32a59e0](https://github.com/xraph/forge/commit/32a59e08318bb2ca2a2d95eabaf5a4fb978873a7))
+* **deploy:** preserve Kubernetes lifecycle safety ([58f7a12](https://github.com/xraph/forge/commit/58f7a12e381d703566dad2a5f45db872ddfb6a6f))
+* **deploy:** preserve managed export endpoints and secret scope ([e0c7221](https://github.com/xraph/forge/commit/e0c72214eae9e41e341f0c77a34d7fb15bdc45cd))
+* **deploy:** show imported resource choices during initialization ([d202e91](https://github.com/xraph/forge/commit/d202e91988244a196ae99420202f4838df37573b))
+* **events:** declare durability and preserve subscription removal ([32559d4](https://github.com/xraph/forge/commit/32559d4783225c9bd12d8c8690f1c3d2179cb7f3))
+* **events:** recover durable delivery and drain shutdown safely ([3e5fdf5](https://github.com/xraph/forge/commit/3e5fdf5e062e12f707eace7320638d2fd77f04d5))
+* **events:** retain anonymous subscription cleanup across retries ([582eadc](https://github.com/xraph/forge/commit/582eadcb1a159c6dcc74c372d6e6a40d22760366))
+* preserve nullable referenced API fields in generated clients ([ca11677](https://github.com/xraph/forge/commit/ca116770eb6e02d48acfaf152b8aa551b4765938))
+* **queue:** merge credential escaping and log redaction ([b3bbf6d](https://github.com/xraph/forge/commit/b3bbf6d92dddde7bde11edfe3afeca36641b958f))
+* **release:** keep module checks portable and warm canonical Go versions ([192a6f0](https://github.com/xraph/forge/commit/192a6f03ab1a8e82c6e1646ec700c5f330082456))
+* **scheduler:** merge cancellation handling for dispatched jobs ([00d4c81](https://github.com/xraph/forge/commit/00d4c81e83dda711037f07c5c816d3df1ac7e532))
+* **streaming:** merge lifecycle frame follow-ups ([ce20853](https://github.com/xraph/forge/commit/ce20853858035daed485ca21cee58682e872a169))
+* **workbench:** replace theme dropdown with an icon button ([f301ade](https://github.com/xraph/forge/commit/f301aded158645aea04292ec9f92b92298862036))
+
+
+### Documentation
+
+* **changelog:** update CHANGELOG.md for v1.12.5 ([2fdf782](https://github.com/xraph/forge/commit/2fdf782807232c38f13034d2f75310c3150dbba1))
+* **changelog:** update CHANGELOG.md for v1.12.6 ([34be6dd](https://github.com/xraph/forge/commit/34be6dd7f8d1b6debc32130311ce6661dcd8776d))
+* **client:** preserve the leftover design branches as archives ([5e64a22](https://github.com/xraph/forge/commit/5e64a228f791e93527e358f198121c03d6b6bdc4))
+* **conduit:** document service messaging and broker guarantees ([4dc3270](https://github.com/xraph/forge/commit/4dc32704386d659a2df6620c625a7475e908f82d))
+* **deploy:** document runtime inspection and deployment handoffs ([d972a3e](https://github.com/xraph/forge/commit/d972a3e7e1ed0b54e9674324c41815bef762c4c9))
+
 ## [1.12.6](https://github.com/xraph/forge/compare/v1.12.5...v1.12.6) (2026-10-10)
 
 
