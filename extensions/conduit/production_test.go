@@ -186,7 +186,10 @@ func TestThreeNodeFailoverAndRollingRestarts(t *testing.T) {
 	nodes[index].Shutdown()
 	nodes[index].WaitForShutdown()
 	wait(t, func() bool {
-		info, err := stream.Info(t.Context())
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		info, err := stream.Info(ctx)
+
+		cancel()
 
 		return err == nil && info.Cluster.Leader != "" && info.Cluster.Leader != leader
 	})
@@ -195,7 +198,10 @@ func TestThreeNodeFailoverAndRollingRestarts(t *testing.T) {
 	waitAcknowledged(t, consumer, 2)
 	nodes[index] = clusterNode(t, options[index])
 	wait(t, func() bool {
-		info, err := stream.Info(t.Context())
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		info, err := stream.Info(ctx)
+
+		cancel()
 
 		return err == nil && len(info.Cluster.Replicas) == 2 && slices.ContainsFunc(info.Cluster.Replicas, func(peer *js.PeerInfo) bool { return peer.Name == leader && peer.Current })
 	})
@@ -225,7 +231,10 @@ func TestThreeNodeFailoverAndRollingRestarts(t *testing.T) {
 		nodes[i].WaitForShutdown()
 		nodes[i] = clusterNode(t, options[i])
 		wait(t, func() bool {
-			info, err := stream.Info(t.Context())
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			info, err := stream.Info(ctx)
+
+			cancel()
 
 			return err == nil && len(info.Cluster.Replicas) == 2 && slices.ContainsFunc(info.Cluster.Replicas, func(peer *js.PeerInfo) bool { return peer.Name == nodes[i].Name() && peer.Current }) || err == nil && info.Cluster.Leader == nodes[i].Name()
 		})
