@@ -10,6 +10,11 @@ import (
 )
 
 func TestInspectRuntimeFlagIsExplicit(t *testing.T) {
+	// The runtime build inherits this process's environment, and CI runs this
+	// package with GOWORK pointing at a workspace that knows nothing about the
+	// fixture copy below. The copy is its own module, so build it as one.
+	t.Setenv("GOWORK", "off")
+
 	root := testdata.Copy(t, "atlas-v2")
 	main := filepath.Join(root, "cmd", "gateway", "main.go")
 
