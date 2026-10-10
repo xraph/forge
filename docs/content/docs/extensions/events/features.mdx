@@ -11,10 +11,10 @@ Publish events to named topics and subscribe handlers. The bus supports multiple
 bus := events.MustGetEventBus(app.Container())
 
 // Subscribe to a topic
-bus.Subscribe("order.*", func(ctx context.Context, event *core.Event) error {
+bus.Subscribe("order.placed", core.NewTypedEventHandler("order-handler", []string{"order.placed"}, func(ctx context.Context, event *core.Event) error {
     fmt.Printf("Received: %s\n", event.Type)
     return nil
-})
+}))
 
 // Publish to default broker
 bus.Publish(ctx, event)
@@ -23,7 +23,7 @@ bus.Publish(ctx, event)
 bus.PublishTo(ctx, "nats", event)
 ```
 
-The bus processes subscribed events through a pool of workers with configurable `WorkerCount` (default: 4) and `BufferSize` (default: 1000). Workers consume from a buffered channel, providing backpressure when the buffer fills.
+The bus supports a configurable worker pool and bounded queue for internal processing. Broker subscriptions use each broker's delivery path. Redis Streams handlers must commit before returning success; pending deliveries are retried after a failed worker. See [delivery configuration](./configuration#redis-delivery-modes) for ordering, retention, and recovery requirements.
 
 ## Pluggable Message Brokers
 
@@ -33,16 +33,16 @@ All brokers implement the `MessageBroker` interface:
 |---|---|---|
 | `memory` | `MemoryBroker` | In-process channels |
 | `nats` | `NATSBroker` | NATS server |
-| `redis` | `RedisBroker` | Redis Pub/Sub |
+| `redis` | `RedisBroker` | Redis Pub/Sub or durable Streams |
 
-Register additional brokers at runtime:
+Register additional brokers before starting the bus:
 
 ```go
-bus.RegisterBroker(myCustomBroker)
+bus.RegisterBroker("custom", myCustomBroker)
 bus.SetDefaultBroker("nats")
 ```
 
-The memory broker is always available. NATS and Redis brokers are created from `BrokerConfig` entries in config and support health checks, connection stats, and graceful shutdown.
+The memory broker is configured by default. NATS and Redis brokers are created from `BrokerConfig` entries in config and support health checks, connection stats, and graceful shutdown.
 
 ## Append-Only Event Store
 
@@ -75,8 +75,8 @@ Store backends:
 | Backend | Implementation | Status |
 |---|---|---|
 | Memory | `MemoryEventStore` | Fully implemented, wired in EventService |
-| PostgreSQL | `PostgresEventStore` | Implemented, not yet wired through config |
-| MongoDB | `MongoEventStore` | Implemented, not yet wired through config |
+| PostgreSQL | `PostgresEventStore` | Requires a conforming adapter and explicit store injection |
+| MongoDB | `MongoEventStore` | Requires a conforming adapter and explicit store injection |
 
 ## Snapshots
 

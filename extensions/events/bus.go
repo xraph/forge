@@ -2,8 +2,12 @@ package events
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"maps"
+	"reflect"
+	"slices"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -40,9 +44,35 @@ type EventBusImpl struct {
 	workers         []*EventWorker
 	eventQueue      chan *core.EventEnvelope
 	started         bool
+	starting        bool
+	runCtx          context.Context //nolint:containedctx // A bus run owns broker and worker cancellation.
+	cancel          context.CancelFunc
+	shutdown        *busShutdown
+	active          sync.WaitGroup
+	lifecycleMu     sync.Mutex
+	subscriptionMu  sync.Mutex
 	stopping        bool
 	mu              sync.RWMutex
 	wg              sync.WaitGroup
+}
+
+type busShutdown struct {
+	done chan struct{}
+	err  error
+}
+
+// nilDependency also rejects interfaces wrapping a nil pointer.
+func nilDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+
+	switch reflect.ValueOf(value).Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflect.ValueOf(value).IsNil()
+	default:
+		return false
+	}
 }
 
 // EventBusOptions defines configuration for EventBusImpl.
@@ -56,7 +86,7 @@ type EventBusOptions struct {
 
 // NewEventBus creates a new event bus.
 func NewEventBus(config EventBusOptions) (core.EventBus, error) {
-	if config.Store == nil {
+	if nilDependency(config.Store) {
 		return nil, errors.New("event store is required")
 	}
 
@@ -64,10 +94,15 @@ func NewEventBus(config EventBusOptions) (core.EventBus, error) {
 		return nil, errors.New("handler registry is required")
 	}
 
+	if config.Config.BufferSize < 0 || config.Config.WorkerCount < 0 {
+		return nil, errors.New("buffer size and worker count cannot be negative")
+	}
+
 	eventQueue := make(chan *core.EventEnvelope, config.Config.BufferSize)
 
 	bus := &EventBusImpl{
 		name:            "event-bus",
+		defaultBroker:   config.Config.DefaultBroker,
 		brokers:         make(map[string]core.MessageBroker),
 		store:           config.Store,
 		handlerRegistry: config.HandlerRegistry,
@@ -97,53 +132,101 @@ func (eb *EventBusImpl) Dependencies() []string {
 	return []string{"event-store", "handler-registry"}
 }
 
-// OnStart implements core.Service.
+// Start connects brokers and restores subscriptions.
 // This method is idempotent - calling it multiple times is safe.
 func (eb *EventBusImpl) Start(ctx context.Context) error {
+	eb.lifecycleMu.Lock()
+	defer eb.lifecycleMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
+	if eb.stopping {
+		eb.mu.Unlock()
+
+		return errors.New("event bus is stopping")
+	}
 
 	if eb.started {
-		return nil // Idempotent: already started
+		eb.mu.Unlock()
+
+		return nil
 	}
 
-	if eb.logger != nil {
-		eb.logger.Info("starting event bus",
-			logger.String("service", eb.name),
-			logger.Int("workers", len(eb.workers)),
-			logger.Int("buffer_size", eb.config.BufferSize),
-		)
+	if len(eb.brokers) == 0 {
+		eb.mu.Unlock()
+
+		return errors.New("event bus requires at least one broker")
 	}
 
-	// Start all registered brokers
-	for name, broker := range eb.brokers {
-		if err := broker.Connect(ctx, nil); err != nil {
-			return errors.ErrServiceStartFailed(eb.name, fmt.Errorf("failed to start broker %s: %w", name, err))
+	if eb.defaultBroker != "" && eb.brokers[eb.defaultBroker] == nil {
+		eb.mu.Unlock()
+
+		return fmt.Errorf("default broker %s not found", eb.defaultBroker)
+	}
+
+	eb.starting = true
+	brokers := make(map[string]core.MessageBroker)
+	maps.Copy(brokers, eb.brokers)
+	eb.mu.Unlock()
+
+	runCtx, cancel := context.WithCancel(ctx)
+
+	var connected []string
+
+	fail := func(err error) error {
+		cancel()
+
+		for _, v := range slices.Backward(connected) {
+			err = stderrors.Join(err, brokers[v].Close(context.WithoutCancel(ctx)))
 		}
 
-		if eb.logger != nil {
-			eb.logger.Info("broker started",
-				logger.String("broker", name),
-			)
+		eb.mu.Lock()
+		eb.starting = false
+		eb.mu.Unlock()
+
+		return err
+	}
+
+	names := brokerNames(brokers)
+	for _, name := range names {
+		// A failed connection may still have allocated broker resources.
+		connected = append(connected, name)
+		if err := brokers[name].Connect(runCtx, nil); err != nil {
+			return fail(fmt.Errorf("failed to start broker %s: %w", name, err))
 		}
 	}
 
-	// Start workers
-	for _, worker := range eb.workers {
-		eb.wg.Add(1)
-
-		go func(w *EventWorker) {
-			defer eb.wg.Done()
-
-			w.Start(ctx)
-		}(worker)
+	for topic, handlers := range eb.handlerRegistry.GetAllHandlers() {
+		for _, handler := range handlers {
+			for _, name := range names {
+				if err := brokers[name].Subscribe(runCtx, topic, handler); err != nil {
+					return fail(fmt.Errorf("failed to restore subscription on broker %s: %w", name, err))
+				}
+			}
+		}
 	}
 
-	eb.started = true
-
-	if eb.logger != nil {
-		eb.logger.Info("event bus started successfully")
+	if err := runCtx.Err(); err != nil {
+		return fail(err)
 	}
+
+	eb.mu.Lock()
+	eb.runCtx, eb.cancel = runCtx, cancel
+	eb.eventQueue = make(chan *core.EventEnvelope, eb.config.BufferSize)
+
+	eb.workers = make([]*EventWorker, 0, eb.config.WorkerCount)
+	for i := range eb.config.WorkerCount {
+		worker := NewEventWorker(i, eb.eventQueue, eb.processEvent, eb.logger, eb.metrics)
+		eb.workers = append(eb.workers, worker)
+
+		eb.wg.Go(func() { worker.Start(runCtx) })
+	}
+
+	eb.started, eb.starting = true, false
+	eb.mu.Unlock()
 
 	if eb.metrics != nil {
 		eb.metrics.Counter("forge.events.bus_started").Inc()
@@ -152,74 +235,122 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 	return nil
 }
 
-// OnStop implements core.Service.
+// Stop cancels admitted operations and waits for broker shutdown.
 func (eb *EventBusImpl) Stop(ctx context.Context) error {
+	eb.lifecycleMu.Lock()
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
+	if !eb.started && !eb.stopping {
+		var stopErr error
+		if eb.shutdown != nil {
+			stopErr = eb.shutdown.err
+		}
+		eb.mu.Unlock()
+		eb.lifecycleMu.Unlock()
 
-	if !eb.started {
-		return nil
+		return stopErr
 	}
 
-	if eb.logger != nil {
-		eb.logger.Info("stopping event bus")
+	if !eb.stopping {
+		eb.stopping = true
+		eb.shutdown = &busShutdown{done: make(chan struct{})}
+
+		eb.cancel()
+		go eb.finishStop(context.WithoutCancel(ctx))
 	}
 
-	eb.stopping = true
+	shutdown := eb.shutdown
+	eb.mu.Unlock()
+	eb.lifecycleMu.Unlock()
 
-	// Close event queue to signal workers to stop
-	if eb.eventQueue != nil {
-		close(eb.eventQueue)
+	select {
+	case <-shutdown.done:
+		return shutdown.err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
 
-	// Wait for workers to finish processing
+func (eb *EventBusImpl) finishStop(ctx context.Context) {
+	// Admission is closed before Wait, so no operation can race Add with Wait.
+	eb.active.Wait()
 	eb.wg.Wait()
+	eb.mu.RLock()
 
-	// Stop all brokers
-	for name, broker := range eb.brokers {
-		if err := broker.Close(ctx); err != nil {
-			if eb.logger != nil {
-				eb.logger.Error("failed to stop broker",
-					logger.String("broker", name),
-					logger.Error(err),
-				)
-			}
+	brokers := make(map[string]core.MessageBroker)
+	maps.Copy(brokers, eb.brokers)
+	eb.mu.RUnlock()
+
+	var stopErr error
+
+	for _, name := range brokerNames(brokers) {
+		if err := brokers[name].Close(ctx); err != nil {
+			stopErr = stderrors.Join(stopErr, fmt.Errorf("failed to close broker %s: %w", name, err))
 		}
 	}
 
-	eb.started = false
-	eb.stopping = false
-
-	if eb.logger != nil {
-		eb.logger.Info("event bus stopped")
-	}
+	eb.mu.Lock()
+	eb.started, eb.stopping = false, false
+	eb.shutdown.err = stopErr
+	close(eb.shutdown.done)
+	eb.mu.Unlock()
 
 	if eb.metrics != nil {
 		eb.metrics.Counter("forge.events.bus_stopped").Inc()
 	}
+}
 
-	return nil
+func brokerNames(brokers map[string]core.MessageBroker) []string {
+	names := make([]string, 0, len(brokers))
+	for name := range brokers {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// beginOperation admits work before shutdown and captures a consistent route set.
+func (eb *EventBusImpl) beginOperation(ctx context.Context) (context.Context, func(), map[string]core.MessageBroker, string, error) {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+
+	if !eb.started || eb.stopping {
+		return nil, nil, nil, "", errors.New("event bus not running")
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, nil, nil, "", err
+	}
+
+	if err := eb.runCtx.Err(); err != nil {
+		return nil, nil, nil, "", err
+	}
+
+	opCtx, cancel := context.WithCancel(ctx)
+	unlink := context.AfterFunc(eb.runCtx, cancel)
+	eb.active.Add(1)
+
+	brokers := make(map[string]core.MessageBroker)
+	maps.Copy(brokers, eb.brokers)
+
+	done := func() { unlink(); cancel(); eb.active.Done() }
+
+	return opCtx, done, brokers, eb.defaultBroker, nil
 }
 
 // HealthCheck implements core.EventBus.
 func (eb *EventBusImpl) HealthCheck(ctx context.Context) error {
-	eb.mu.RLock()
-	defer eb.mu.RUnlock()
-
-	if !eb.started {
-		return errors.ErrHealthCheckFailed("event-bus", errors.New("service not started"))
+	opCtx, done, brokers, _, err := eb.beginOperation(ctx)
+	if err != nil {
+		return err
 	}
+	defer done()
 
-	// Check all brokers
-	for name, broker := range eb.brokers {
-		if err := broker.HealthCheck(ctx); err != nil {
-			return errors.ErrHealthCheckFailed("event-bus", fmt.Errorf("broker %s unhealthy: %w", name, err))
+	for _, name := range brokerNames(brokers) {
+		if err := brokers[name].HealthCheck(opCtx); err != nil {
+			return fmt.Errorf("broker %s unhealthy: %w", name, err)
 		}
-	}
-
-	// Check if workers are alive (simplified check)
-	if eb.stopping {
-		return errors.ErrHealthCheckFailed("event-bus", errors.New("service is stopping"))
 	}
 
 	return nil
@@ -227,246 +358,182 @@ func (eb *EventBusImpl) HealthCheck(ctx context.Context) error {
 
 // Publish implements EventBus.
 func (eb *EventBusImpl) Publish(ctx context.Context, event *core.Event) error {
-	if !eb.started {
-		return errors.New("event bus not started")
+	opCtx, done, brokers, defaultBroker, err := eb.beginOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if event == nil {
+		return errors.New("event is required")
 	}
 
 	if err := event.Validate(); err != nil {
 		return fmt.Errorf("invalid event: %w", err)
 	}
 
+	if defaultBroker != "" {
+		broker, exists := brokers[defaultBroker]
+		if !exists {
+			return fmt.Errorf("default broker %s not found", defaultBroker)
+		}
+
+		brokers = map[string]core.MessageBroker{defaultBroker: broker}
+	}
+
+	if len(brokers) == 0 {
+		return errors.New("no brokers available for publishing")
+	}
+
+	if err := eb.store.SaveEvent(opCtx, event); err != nil {
+		return fmt.Errorf("failed to save event: %w", err)
+	}
+
+	return eb.publishToBrokers(opCtx, brokers, event)
+}
+
+// PublishTo implements EventBus.
+func (eb *EventBusImpl) PublishTo(ctx context.Context, brokerName string, event *core.Event) error {
+	opCtx, done, brokers, _, err := eb.beginOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if event == nil {
+		return errors.New("event is required")
+	}
+
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("invalid event: %w", err)
+	}
+
+	broker, exists := brokers[brokerName]
+	if !exists {
+		return fmt.Errorf("broker %s not found", brokerName)
+	}
+
+	return eb.publishToBrokers(opCtx, map[string]core.MessageBroker{brokerName: broker}, event)
+}
+
+func (eb *EventBusImpl) publishToBrokers(ctx context.Context, brokers map[string]core.MessageBroker, event *core.Event) error {
 	start := time.Now()
 
-	// Save event to store first
-	if eb.store != nil {
-		if err := eb.store.SaveEvent(ctx, event); err != nil {
-			if eb.logger != nil {
-				eb.logger.Error("failed to save event to store",
-					logger.String("event_id", event.ID),
-					logger.String("event_type", event.Type),
-					logger.Error(err),
-				)
-			}
+	var publishErr error
 
-			if eb.metrics != nil {
-				eb.metrics.Counter("forge.events.publish_store_errors").Inc()
-			}
-
-			return fmt.Errorf("failed to save event: %w", err)
+	for _, name := range brokerNames(brokers) {
+		err := ctx.Err()
+		if err == nil {
+			err = brokers[name].Publish(ctx, event.Type, *event)
 		}
-	}
 
-	// Publish to default broker or all brokers
-	if eb.defaultBroker != "" {
-		return eb.PublishTo(ctx, eb.defaultBroker, event)
-	}
-
-	// Publish to all brokers
-	var lastErr error
-
-	published := false
-
-	eb.mu.RLock()
-
-	brokers := make(map[string]core.MessageBroker)
-	maps.Copy(brokers, eb.brokers)
-
-	eb.mu.RUnlock()
-
-	for name, broker := range brokers {
-		if err := broker.Publish(ctx, event.Type, *event); err != nil {
-			lastErr = err
-			if eb.logger != nil {
-				eb.logger.Error("failed to publish to broker",
-					logger.String("broker", name),
-					logger.String("event_id", event.ID),
-					logger.String("event_type", event.Type),
-					logger.Error(err),
-				)
-			}
-
+		if err != nil {
+			publishErr = stderrors.Join(publishErr, fmt.Errorf("failed to publish to broker %s: %w", name, err))
 			if eb.metrics != nil {
 				eb.metrics.Counter("forge.events.publish_broker_errors", metrics.WithLabel("broker", name)).Inc()
 			}
-		} else {
-			published = true
 		}
 	}
 
-	// Record metrics
 	if eb.metrics != nil {
-		duration := time.Since(start)
-		eb.metrics.Histogram("forge.events.publish_duration").Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("event_type", event.Type)).Inc()
+		eb.metrics.Histogram("forge.events.publish_duration").Observe(time.Since(start).Seconds())
 
-		if published {
+		if publishErr == nil {
+			eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("event_type", event.Type)).Inc()
 			eb.metrics.Counter("forge.events.publish_success").Inc()
 		} else {
 			eb.metrics.Counter("forge.events.publish_failures").Inc()
 		}
 	}
 
-	if !published && lastErr != nil {
-		return fmt.Errorf("failed to publish to any broker: %w", lastErr)
-	}
-
-	return nil
-}
-
-// PublishTo implements EventBus.
-func (eb *EventBusImpl) PublishTo(ctx context.Context, brokerName string, event *core.Event) error {
-	if !eb.started {
-		return errors.New("event bus not started")
-	}
-
-	if err := event.Validate(); err != nil {
-		return fmt.Errorf("invalid event: %w", err)
-	}
-
-	eb.mu.RLock()
-	broker, exists := eb.brokers[brokerName]
-	eb.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("broker %s not found", brokerName)
-	}
-
-	start := time.Now()
-
-	if err := broker.Publish(ctx, event.Type, *event); err != nil {
-		if eb.metrics != nil {
-			eb.metrics.Counter("forge.events.publish_broker_errors", metrics.WithLabel("broker", brokerName)).Inc()
-		}
-
-		return fmt.Errorf("failed to publish to broker %s: %w", brokerName, err)
-	}
-
-	// Record metrics
-	if eb.metrics != nil {
-		duration := time.Since(start)
-		eb.metrics.Histogram("forge.events.publish_duration", metrics.WithLabel("broker", brokerName)).Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("broker", brokerName), metrics.WithLabel("event_type", event.Type)).Inc()
-		eb.metrics.Counter("forge.events.publish_success").Inc()
-	}
-
-	if eb.logger != nil {
-		eb.logger.Debug("event published to broker",
-			logger.String("broker", brokerName),
-			logger.String("event_id", event.ID),
-			logger.String("event_type", event.Type),
-		)
-	}
-
-	return nil
+	return publishErr
 }
 
 // Subscribe implements EventBus.
 func (eb *EventBusImpl) Subscribe(eventType string, handler core.EventHandler) error {
-	if !eb.started {
-		return errors.New("event bus not started")
+	_, done, brokers, _, err := eb.beginOperation(context.Background())
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if nilDependency(handler) {
+		return errors.New("handler is required")
 	}
 
-	// Register handler in the registry
-	if err := eb.handlerRegistry.Register(eventType, handler); err != nil {
-		return fmt.Errorf("failed to register handler: %w", err)
+	if len(brokers) == 0 {
+		return errors.New("no brokers available for subscribing")
 	}
 
-	// Subscribe to all brokers
-	eb.mu.RLock()
+	eb.subscriptionMu.Lock()
+	defer eb.subscriptionMu.Unlock()
 
-	brokers := make(map[string]core.MessageBroker)
-	maps.Copy(brokers, eb.brokers)
-
-	eb.mu.RUnlock()
-
-	var lastErr error
-
-	subscribed := false
-
-	for name, broker := range brokers {
-		if err := broker.Subscribe(context.Background(), eventType, handler); err != nil {
-			lastErr = err
-			if eb.logger != nil {
-				eb.logger.Error("failed to subscribe to broker",
-					logger.String("broker", name),
-					logger.String("event_type", eventType),
-					logger.String("handler", handler.Name()),
-					logger.Error(err),
-				)
-			}
-		} else {
-			subscribed = true
+	for _, registered := range eb.handlerRegistry.GetHandlers(eventType) {
+		if handler.Name() != "anonymous-handler" && registered.Name() == handler.Name() {
+			return fmt.Errorf("handler %s already subscribed to %s", handler.Name(), eventType)
 		}
 	}
 
-	if eb.metrics != nil {
-		eb.metrics.Counter("forge.events.subscriptions_total", metrics.WithLabel("event_type", eventType)).Inc()
+	eb.mu.RLock()
+	runCtx := eb.runCtx
+	eb.mu.RUnlock()
+
+	var subscribed []string
+
+	for _, name := range brokerNames(brokers) {
+		if err := brokers[name].Subscribe(runCtx, eventType, handler); err != nil {
+			result := fmt.Errorf("failed to subscribe to broker %s: %w", name, err)
+			for _, previous := range subscribed {
+				result = stderrors.Join(result, brokers[previous].Unsubscribe(context.WithoutCancel(runCtx), eventType, handler.Name()))
+			}
+
+			return result
+		}
+
+		subscribed = append(subscribed, name)
 	}
 
-	if eb.logger != nil {
-		eb.logger.Info("subscribed to event type",
-			logger.String("event_type", eventType),
-			logger.String("handler", handler.Name()),
-		)
-	}
-
-	if !subscribed && lastErr != nil {
-		return fmt.Errorf("failed to subscribe to any broker: %w", lastErr)
-	}
-
-	return nil
+	return eb.handlerRegistry.Register(eventType, handler)
 }
 
 // Unsubscribe implements EventBus.
 func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error {
-	if !eb.started {
-		return errors.New("event bus not started")
+	opCtx, done, brokers, _, err := eb.beginOperation(context.Background())
+	if err != nil {
+		return err
 	}
+	defer done()
 
-	// Unregister from handler registry
-	if err := eb.handlerRegistry.Unregister(eventType, handlerName); err != nil {
-		return fmt.Errorf("failed to unregister handler: %w", err)
-	}
+	eb.subscriptionMu.Lock()
+	defer eb.subscriptionMu.Unlock()
 
-	// Unsubscribe from all brokers
-	eb.mu.RLock()
+	var result error
 
-	brokers := make(map[string]core.MessageBroker)
-	maps.Copy(brokers, eb.brokers)
-
-	eb.mu.RUnlock()
-
-	for name, broker := range brokers {
-		if err := broker.Unsubscribe(context.Background(), eventType, handlerName); err != nil {
-			if eb.logger != nil {
-				eb.logger.Error("failed to unsubscribe from broker",
-					logger.String("broker", name),
-					logger.String("event_type", eventType),
-					logger.String("handler", handlerName),
-					logger.Error(err),
-				)
-			}
+	for _, name := range brokerNames(brokers) {
+		if err := brokers[name].Unsubscribe(opCtx, eventType, handlerName); err != nil {
+			result = stderrors.Join(result, fmt.Errorf("failed to unsubscribe from broker %s: %w", name, err))
 		}
 	}
 
-	if eb.metrics != nil {
-		eb.metrics.Counter("forge.events.unsubscriptions_total", metrics.WithLabel("event_type", eventType)).Inc()
+	if result != nil {
+		return result
 	}
 
-	if eb.logger != nil {
-		eb.logger.Info("unsubscribed from event type",
-			logger.String("event_type", eventType),
-			logger.String("handler", handlerName),
-		)
-	}
-
-	return nil
+	return eb.handlerRegistry.Unregister(eventType, handlerName)
 }
 
 // RegisterBroker implements EventBus.
 func (eb *EventBusImpl) RegisterBroker(name string, broker core.MessageBroker) error {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
+
+	if eb.started || eb.starting || eb.stopping {
+		return errors.New("stop the event bus before changing brokers")
+	}
+
+	if name == "" || nilDependency(broker) {
+		return errors.New("broker name and instance are required")
+	}
 
 	if _, exists := eb.brokers[name]; exists {
 		return fmt.Errorf("broker %s already registered", name)
@@ -493,37 +560,18 @@ func (eb *EventBusImpl) UnregisterBroker(name string) error {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
-	broker, exists := eb.brokers[name]
-	if !exists {
-		return fmt.Errorf("broker %s not found", name)
+	if eb.started || eb.starting || eb.stopping {
+		return errors.New("stop the event bus before changing brokers")
 	}
 
-	// Close broker connection
-	if err := broker.Close(context.Background()); err != nil {
-		if eb.logger != nil {
-			eb.logger.Error("failed to close broker during unregistration",
-				logger.String("broker", name),
-				logger.Error(err),
-			)
-		}
+	if _, exists := eb.brokers[name]; !exists {
+		return fmt.Errorf("broker %s not found", name)
 	}
 
 	delete(eb.brokers, name)
 
-	// Clear default broker if it was this one
 	if eb.defaultBroker == name {
 		eb.defaultBroker = ""
-	}
-
-	if eb.logger != nil {
-		eb.logger.Info("broker unregistered",
-			logger.String("broker", name),
-		)
-	}
-
-	if eb.metrics != nil {
-		eb.metrics.Counter("forge.events.brokers_unregistered").Inc()
-		eb.metrics.Gauge("forge.events.brokers_total").Set(float64(len(eb.brokers)))
 	}
 
 	return nil
@@ -576,34 +624,26 @@ func (eb *EventBusImpl) SetDefaultBroker(name string) error {
 // GetStats implements EventBus.
 func (eb *EventBusImpl) GetStats() map[string]any {
 	eb.mu.RLock()
-	defer eb.mu.RUnlock()
-
 	stats := map[string]any{
-		"name":           eb.name,
-		"started":        eb.started,
-		"stopping":       eb.stopping,
-		"brokers_count":  len(eb.brokers),
-		"default_broker": eb.defaultBroker,
-		"workers_count":  len(eb.workers),
-		"buffer_size":    eb.config.BufferSize,
+		"name": eb.name, "started": eb.started, "stopping": eb.stopping,
+		"brokers_count": len(eb.brokers), "default_broker": eb.defaultBroker,
+		"workers_count": len(eb.workers), "buffer_size": eb.config.BufferSize,
 	}
+	brokers := make(map[string]core.MessageBroker)
+	maps.Copy(brokers, eb.brokers)
+	workers := append([]*EventWorker(nil), eb.workers...)
+	eb.mu.RUnlock()
 
-	// Add broker stats
 	brokerStats := make(map[string]any)
-	for name, broker := range eb.brokers {
+	for name, broker := range brokers {
 		brokerStats[name] = broker.GetStats()
 	}
 
 	stats["brokers"] = brokerStats
+	stats["handlers"] = eb.handlerRegistry.Stats()
 
-	// Add handler registry stats
-	if eb.handlerRegistry != nil {
-		stats["handlers"] = eb.handlerRegistry.Stats()
-	}
-
-	// Add worker stats
-	workerStats := make([]map[string]any, 0, len(eb.workers))
-	for _, worker := range eb.workers {
+	workerStats := make([]map[string]any, 0, len(workers))
+	for _, worker := range workers {
 		workerStats = append(workerStats, worker.GetStats())
 	}
 

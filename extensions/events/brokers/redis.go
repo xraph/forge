@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
 )
 
-// RedisBroker implements MessageBroker for Redis pub/sub.
+// RedisBroker supports ephemeral Pub/Sub and durable Streams delivery.
 type RedisBroker struct {
 	client        redis.UniversalClient
 	config        *RedisConfig
@@ -23,6 +26,9 @@ type RedisBroker struct {
 	metrics       forge.Metrics
 	connected     bool
 	stopping      bool
+	poolCancel    context.CancelFunc
+	closeDone     chan struct{}
+	recovery      map[string]string
 	mu            sync.RWMutex
 	wg            sync.WaitGroup
 	stats         *RedisBrokerStats
@@ -56,27 +62,32 @@ type RedisPoolStats struct {
 
 // RedisConfig defines configuration for Redis broker.
 type RedisConfig struct {
-	Addresses       []string      `json:"addresses"          yaml:"addresses"`
-	Username        string        `json:"username"           yaml:"username"`
-	Password        string        `json:"password"           yaml:"password"`
-	Database        int           `json:"database"           yaml:"database"`
-	MasterName      string        `json:"master_name"        yaml:"master_name"`
-	PoolSize        int           `json:"pool_size"          yaml:"pool_size"`
-	MinIdleConns    int           `json:"min_idle_conns"     yaml:"min_idle_conns"`
-	MaxIdleConns    int           `json:"max_idle_conns"     yaml:"max_idle_conns"`
-	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time" yaml:"conn_max_idle_time"`
-	ConnMaxLifetime time.Duration `json:"conn_max_lifetime"  yaml:"conn_max_lifetime"`
-	DialTimeout     time.Duration `json:"dial_timeout"       yaml:"dial_timeout"`
-	ReadTimeout     time.Duration `json:"read_timeout"       yaml:"read_timeout"`
-	WriteTimeout    time.Duration `json:"write_timeout"      yaml:"write_timeout"`
-	MaxRetries      int           `json:"max_retries"        yaml:"max_retries"`
-	MinRetryBackoff time.Duration `json:"min_retry_backoff"  yaml:"min_retry_backoff"`
-	MaxRetryBackoff time.Duration `json:"max_retry_backoff"  yaml:"max_retry_backoff"`
-	ChannelSize     int           `json:"channel_size"       yaml:"channel_size"`
-	EnableStreams   bool          `json:"enable_streams"     yaml:"enable_streams"`
-	StreamMaxLen    int64         `json:"stream_max_len"     yaml:"stream_max_len"`
-	ConsumerGroup   string        `json:"consumer_group"     yaml:"consumer_group"`
-	ConsumerName    string        `json:"consumer_name"      yaml:"consumer_name"`
+	Addresses           []string      `json:"addresses"             yaml:"addresses"`
+	Username            string        `json:"username"              yaml:"username"`
+	Password            string        `json:"password"              yaml:"password"`
+	Database            int           `json:"database"              yaml:"database"`
+	MasterName          string        `json:"master_name"           yaml:"master_name"`
+	PoolSize            int           `json:"pool_size"             yaml:"pool_size"`
+	MinIdleConns        int           `json:"min_idle_conns"        yaml:"min_idle_conns"`
+	MaxIdleConns        int           `json:"max_idle_conns"        yaml:"max_idle_conns"`
+	ConnMaxIdleTime     time.Duration `json:"conn_max_idle_time"    yaml:"conn_max_idle_time"`
+	ConnMaxLifetime     time.Duration `json:"conn_max_lifetime"     yaml:"conn_max_lifetime"`
+	DialTimeout         time.Duration `json:"dial_timeout"          yaml:"dial_timeout"`
+	ReadTimeout         time.Duration `json:"read_timeout"          yaml:"read_timeout"`
+	WriteTimeout        time.Duration `json:"write_timeout"         yaml:"write_timeout"`
+	MaxRetries          int           `json:"max_retries"           yaml:"max_retries"`
+	MinRetryBackoff     time.Duration `json:"min_retry_backoff"     yaml:"min_retry_backoff"`
+	MaxRetryBackoff     time.Duration `json:"max_retry_backoff"     yaml:"max_retry_backoff"`
+	ChannelSize         int           `json:"channel_size"          yaml:"channel_size"`
+	EnableStreams       bool          `json:"enable_streams"        yaml:"enable_streams"`
+	StreamMaxLen        int64         `json:"stream_max_len"        yaml:"stream_max_len"`
+	ConsumerGroup       string        `json:"consumer_group"        yaml:"consumer_group"`
+	ConsumerName        string        `json:"consumer_name"         yaml:"consumer_name"`
+	StreamMaxDeliveries int64         `json:"stream_max_deliveries" yaml:"stream_max_deliveries"`
+	StreamClaimIdle     time.Duration `json:"stream_claim_idle"     yaml:"stream_claim_idle"`
+	StreamPollInterval  time.Duration `json:"stream_poll_interval"  yaml:"stream_poll_interval"`
+	StreamLeaseDuration time.Duration `json:"stream_lease_duration" yaml:"stream_lease_duration"`
+	StreamOrdering      string        `json:"stream_ordering"       yaml:"stream_ordering"`
 }
 
 // RedisSubscription wraps a Redis pub/sub subscription.
@@ -86,29 +97,36 @@ type RedisSubscription struct {
 	handlers []core.EventHandler
 	cancel   context.CancelFunc
 	broker   *RedisBroker
+	group    string
+	handler  core.EventHandler
 }
 
 // DefaultRedisConfig returns default Redis configuration.
 func DefaultRedisConfig() *RedisConfig {
 	return &RedisConfig{
-		Addresses:       []string{"localhost:6379"},
-		Database:        0,
-		PoolSize:        10,
-		MinIdleConns:    5,
-		MaxIdleConns:    10,
-		ConnMaxIdleTime: time.Minute * 30,
-		ConnMaxLifetime: time.Hour,
-		DialTimeout:     time.Second * 5,
-		ReadTimeout:     time.Second * 3,
-		WriteTimeout:    time.Second * 3,
-		MaxRetries:      3,
-		MinRetryBackoff: time.Millisecond * 8,
-		MaxRetryBackoff: time.Millisecond * 512,
-		ChannelSize:     100,
-		EnableStreams:   false,
-		StreamMaxLen:    10000,
-		ConsumerGroup:   "forge-events",
-		ConsumerName:    "consumer-1",
+		Addresses:           []string{"localhost:6379"},
+		Database:            0,
+		PoolSize:            10,
+		MinIdleConns:        5,
+		MaxIdleConns:        10,
+		ConnMaxIdleTime:     time.Minute * 30,
+		ConnMaxLifetime:     time.Hour,
+		DialTimeout:         time.Second * 5,
+		ReadTimeout:         time.Second * 3,
+		WriteTimeout:        time.Second * 3,
+		MaxRetries:          3,
+		MinRetryBackoff:     time.Millisecond * 8,
+		MaxRetryBackoff:     time.Millisecond * 512,
+		ChannelSize:         100,
+		EnableStreams:       false,
+		StreamMaxLen:        10000,
+		ConsumerGroup:       "forge-events",
+		ConsumerName:        uuid.NewString(),
+		StreamMaxDeliveries: 5,
+		StreamClaimIdle:     30 * time.Second,
+		StreamPollInterval:  100 * time.Millisecond,
+		StreamLeaseDuration: 10 * time.Second,
+		StreamOrdering:      "topic",
 	}
 }
 
@@ -125,29 +143,75 @@ func NewRedisBroker(config map[string]any, logger forge.Logger, metrics forge.Me
 					redisConfig.Addresses[i] = addrStr
 				}
 			}
+		} else if addresses, ok := config["addresses"].([]string); ok {
+			redisConfig.Addresses = append([]string(nil), addresses...)
 		} else if addr, ok := config["address"].(string); ok {
 			redisConfig.Addresses = []string{addr}
 		}
 
-		if password, ok := config["password"].(string); ok {
-			redisConfig.Password = password
+		for key, target := range map[string]*string{"username": &redisConfig.Username, "password": &redisConfig.Password, "master_name": &redisConfig.MasterName, "consumer_group": &redisConfig.ConsumerGroup, "consumer_name": &redisConfig.ConsumerName, "stream_ordering": &redisConfig.StreamOrdering} {
+			if value, ok := config[key].(string); ok {
+				*target = value
+			}
 		}
 
-		if database, ok := config["database"].(int); ok {
-			redisConfig.Database = database
+		for key, target := range map[string]*int{"database": &redisConfig.Database, "pool_size": &redisConfig.PoolSize} {
+			if value, ok := config[key].(int); ok {
+				*target = value
+			}
 		}
 
-		if poolSize, ok := config["pool_size"].(int); ok {
-			redisConfig.PoolSize = poolSize
+		for key, target := range map[string]*int64{"stream_max_len": &redisConfig.StreamMaxLen, "stream_max_deliveries": &redisConfig.StreamMaxDeliveries} {
+			switch value := config[key].(type) {
+			case int:
+				*target = int64(value)
+			case int64:
+				*target = value
+			case float64:
+				*target = int64(value)
+			}
 		}
 
-		if enableStreams, ok := config["enable_streams"].(bool); ok {
-			redisConfig.EnableStreams = enableStreams
+		for key, target := range map[string]*time.Duration{"stream_claim_idle": &redisConfig.StreamClaimIdle, "stream_poll_interval": &redisConfig.StreamPollInterval, "stream_lease_duration": &redisConfig.StreamLeaseDuration} {
+			switch value := config[key].(type) {
+			case time.Duration:
+				*target = value
+			case string:
+				parsed, err := time.ParseDuration(value)
+				if err != nil {
+					return nil, fmt.Errorf("invalid %s: %w", key, err)
+				}
+
+				*target = parsed
+			}
+		}
+
+		if value, ok := config["enable_streams"].(bool); ok {
+			redisConfig.EnableStreams = value
+		}
+	}
+
+	if redisConfig.EnableStreams {
+		if strings.TrimSpace(redisConfig.ConsumerGroup) == "" || strings.TrimSpace(redisConfig.ConsumerName) == "" {
+			return nil, errors.New("streams requires consumer_group and replica consumer_name")
+		}
+
+		if redisConfig.StreamMaxLen < 1 || redisConfig.StreamMaxDeliveries < 1 || redisConfig.StreamClaimIdle < time.Millisecond || redisConfig.StreamPollInterval < time.Millisecond || redisConfig.StreamLeaseDuration < 10*time.Millisecond {
+			return nil, errors.New("streams capacity, retry and lease settings must be positive")
+		}
+
+		if redisConfig.StreamOrdering != "topic" {
+			return nil, errors.New("streams supports topic ordering only")
+		}
+
+		if len(redisConfig.Addresses) > 1 && redisConfig.MasterName == "" {
+			return nil, errors.New("streams cluster mode is unsupported; use a single instance or Sentinel")
 		}
 	}
 
 	return &RedisBroker{
 		config:        redisConfig,
+		recovery:      make(map[string]string),
 		subscriptions: make(map[string]*RedisSubscription),
 		handlers:      make(map[string][]core.EventHandler),
 		logger:        logger,
@@ -168,9 +232,12 @@ func (rb *RedisBroker) Connect(ctx context.Context, config any) error {
 		return nil
 	}
 
+	rb.stopping = false
+
 	var client redis.UniversalClient
 
-	if len(rb.config.Addresses) == 1 && rb.config.MasterName == "" {
+	switch {
+	case len(rb.config.Addresses) == 1 && rb.config.MasterName == "":
 		// Single instance mode
 		options := &redis.Options{
 			Addr:            rb.config.Addresses[0],
@@ -190,7 +257,7 @@ func (rb *RedisBroker) Connect(ctx context.Context, config any) error {
 			MaxRetryBackoff: rb.config.MaxRetryBackoff,
 		}
 		client = redis.NewClient(options)
-	} else if rb.config.MasterName != "" {
+	case rb.config.MasterName != "":
 		// Sentinel mode
 		options := &redis.FailoverOptions{
 			MasterName:      rb.config.MasterName,
@@ -211,7 +278,7 @@ func (rb *RedisBroker) Connect(ctx context.Context, config any) error {
 			MaxRetryBackoff: rb.config.MaxRetryBackoff,
 		}
 		client = redis.NewFailoverClient(options)
-	} else {
+	default:
 		// Cluster mode
 		options := &redis.ClusterOptions{
 			Addrs:           rb.config.Addresses,
@@ -234,6 +301,7 @@ func (rb *RedisBroker) Connect(ctx context.Context, config any) error {
 
 	// Test connection
 	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
 		rb.stats.ConnectionErrors++
 
 		return fmt.Errorf("failed to connect to Redis: %w", err)
@@ -255,142 +323,127 @@ func (rb *RedisBroker) Connect(ctx context.Context, config any) error {
 	}
 
 	// Start pool stats collection
-	go rb.collectPoolStats(ctx)
+	poolCtx, cancel := context.WithCancel(context.Background())
+	rb.poolCancel = cancel
+
+	rb.wg.Add(1)
+	go rb.collectPoolStats(poolCtx)
 
 	return nil
 }
 
-// Publish implements MessageBroker.
+// Publish preserves the event ID and applies backpressure when retained history is full.
 func (rb *RedisBroker) Publish(ctx context.Context, topic string, event core.Event) error {
 	rb.mu.RLock()
-	defer rb.mu.RUnlock()
 
-	if !rb.connected || rb.client == nil {
+	if !rb.connected || rb.stopping || rb.client == nil {
+		rb.mu.RUnlock()
+
 		return errors.New("not connected to Redis")
 	}
 
+	client := rb.client
+	rb.wg.Add(1)
+
+	rb.mu.RUnlock()
+	defer rb.wg.Done()
+
 	start := time.Now()
 
-	// Serialize event
 	data, err := json.Marshal(event)
-	if err != nil {
-		rb.stats.PublishErrors++
-
-		return fmt.Errorf("failed to serialize event: %w", err)
-	}
-
-	// Publish to Redis
-	if rb.config.EnableStreams {
-		err = rb.publishToStream(ctx, topic, data)
-	} else {
-		err = rb.client.Publish(ctx, topic, data).Err()
-	}
-
-	if err != nil {
-		rb.stats.PublishErrors++
-		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.publish_errors", forge.WithLabel("topic", topic)).Inc()
+	if err == nil {
+		if rb.config.EnableStreams {
+			err = rb.publishToStream(ctx, client, topic, data)
+		} else {
+			err = client.Publish(ctx, topic, data).Err()
 		}
-
-		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	// Update statistics
-	duration := time.Since(start)
-	rb.stats.MessagesPublished++
-
-	rb.stats.TotalPublishTime += duration
-	if rb.stats.MessagesPublished > 0 {
+	rb.mu.Lock()
+	if err != nil {
+		rb.stats.PublishErrors++
+		if strings.Contains(err.Error(), "RECOVERY_REQUIRED") {
+			rb.recovery[topic] = err.Error()
+		}
+	} else {
+		rb.stats.MessagesPublished++
+		rb.stats.TotalPublishTime += time.Since(start)
 		rb.stats.AvgPublishTime = rb.stats.TotalPublishTime / time.Duration(rb.stats.MessagesPublished)
 	}
+	rb.mu.Unlock()
 
 	if rb.metrics != nil {
-		rb.metrics.Counter("forge.events.redis.messages_published", forge.WithLabel("topic", topic)).Inc()
-		rb.metrics.Histogram("forge.events.redis.publish_duration", forge.WithLabel("topic", topic)).Observe(duration.Seconds())
+		if err != nil {
+			rb.metrics.Counter("forge.events.redis.publish_errors", forge.WithLabel("topic", topic)).Inc()
+		} else {
+			rb.metrics.Counter("forge.events.redis.messages_published", forge.WithLabel("topic", topic)).Inc()
+			rb.metrics.Histogram("forge.events.redis.publish_duration", forge.WithLabel("topic", topic)).Observe(time.Since(start).Seconds())
+		}
 	}
 
-	if rb.logger != nil {
-		rb.logger.Debug("published event to Redis", forge.F("topic", topic), forge.F("event_id", event.ID), forge.F("event_type", event.Type), forge.F("duration", duration))
+	if err != nil {
+		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
 	return nil
 }
 
-// publishToStream publishes to Redis Streams.
-func (rb *RedisBroker) publishToStream(ctx context.Context, stream string, data []byte) error {
-	args := &redis.XAddArgs{
-		Stream: stream,
-		MaxLen: rb.config.StreamMaxLen,
-		Approx: true,
-		Values: map[string]any{
-			"data": data,
-		},
-	}
-
-	_, err := rb.client.XAdd(ctx, args).Result()
-
-	return err
-}
-
-// Subscribe implements MessageBroker.
+// Subscribe starts an ephemeral listener or a durable group for this logical handler.
 func (rb *RedisBroker) Subscribe(ctx context.Context, topic string, handler core.EventHandler) error {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	if !rb.connected || rb.client == nil {
+	if !rb.connected || rb.stopping || rb.client == nil {
 		return errors.New("not connected to Redis")
 	}
 
-	// Add handler to the list
-	if rb.handlers[topic] == nil {
-		rb.handlers[topic] = make([]core.EventHandler, 0)
+	if handler == nil {
+		return errors.New("handler is required")
+	}
+
+	if rb.config.EnableStreams {
+		err := rb.subscribeStream(ctx, topic, handler)
+		if err == nil {
+			rb.recordSubscription(topic)
+		}
+
+		return err
+	}
+
+	if _, exists := rb.subscriptions[topic]; !exists {
+		pubsub := rb.client.Subscribe(ctx, topic)
+		if _, err := pubsub.Receive(ctx); err != nil {
+			_ = pubsub.Close()
+
+			return err
+		}
+
+		subCtx, cancel := context.WithCancel(ctx)
+		sub := &RedisSubscription{pubsub: pubsub, channel: topic, cancel: cancel, broker: rb}
+		rb.subscriptions[topic] = sub
+		rb.stats.Subscriptions++
+		rb.recordSubscription(topic)
+
+		rb.wg.Add(1)
+		go rb.listen(subCtx, sub)
 	}
 
 	rb.handlers[topic] = append(rb.handlers[topic], handler)
 
-	// Create subscription if it doesn't exist
-	if _, exists := rb.subscriptions[topic]; !exists {
-		pubsub := rb.client.Subscribe(ctx, topic)
-
-		subCtx, cancel := context.WithCancel(context.Background())
-		subscription := &RedisSubscription{
-			pubsub:   pubsub,
-			channel:  topic,
-			handlers: rb.handlers[topic],
-			cancel:   cancel,
-			broker:   rb,
-		}
-
-		rb.subscriptions[topic] = subscription
-		rb.stats.Subscriptions++
-
-		// Start listening in background
-		rb.wg.Add(1)
-
-		go rb.listen(subCtx, subscription)
-
-		if rb.logger != nil {
-			rb.logger.Info("subscribed to Redis topic", forge.F("topic", topic))
-		}
-
-		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.subscriptions", forge.WithLabel("topic", topic)).Inc()
-			rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(float64(rb.stats.Subscriptions))
-		}
-	}
-
-	if rb.logger != nil {
-		rb.logger.Info("handler registered for Redis topic", forge.F("topic", topic), forge.F("handler", handler.Name()))
-	}
-
 	return nil
 }
 
-// listen listens for messages from Redis.
+func (rb *RedisBroker) recordSubscription(topic string) {
+	if rb.metrics != nil {
+		rb.metrics.Counter("forge.events.redis.subscriptions", forge.WithLabel("topic", topic)).Inc()
+		rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(float64(rb.stats.Subscriptions))
+	}
+}
+
 func (rb *RedisBroker) listen(ctx context.Context, sub *RedisSubscription) {
 	defer rb.wg.Done()
 
-	ch := sub.pubsub.Channel()
+	ch := sub.pubsub.Channel(redis.WithChannelSize(rb.config.ChannelSize))
 
 	for {
 		select {
@@ -406,81 +459,77 @@ func (rb *RedisBroker) listen(ctx context.Context, sub *RedisSubscription) {
 	}
 }
 
-// handleMessage processes a message from Redis.
-func (rb *RedisBroker) handleMessage(ctx context.Context, topic string, payload string) {
-	start := time.Now()
-
-	// Deserialize event
+func (rb *RedisBroker) handleMessage(ctx context.Context, topic, payload string) {
 	var event core.Event
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		rb.stats.ReceiveErrors++
-		if rb.logger != nil {
-			rb.logger.Error("failed to deserialize event from Redis", forge.F("topic", topic), forge.F("error", err))
-		}
-
-		if rb.metrics != nil {
-			rb.metrics.Counter("forge.events.redis.receive_errors", forge.WithLabel("topic", topic)).Inc()
-		}
+		rb.recordReceive(false, topic)
 
 		return
 	}
 
-	rb.stats.MessagesReceived++
-
-	// Get handlers for this topic
+	rb.recordReceive(true, topic)
 	rb.mu.RLock()
-	handlers := make([]core.EventHandler, len(rb.handlers[topic]))
-	copy(handlers, rb.handlers[topic])
+	handlers := append([]core.EventHandler(nil), rb.handlers[topic]...)
 	rb.mu.RUnlock()
 
-	// Process with all handlers
 	for _, handler := range handlers {
-		if !handler.CanHandle(&event) {
-			continue
-		}
-
-		if err := handler.Handle(ctx, &event); err != nil {
-			rb.stats.ReceiveErrors++
-			if rb.logger != nil {
-				rb.logger.Error("handler failed to process Redis event", forge.F("topic", topic), forge.F("handler", handler.Name()), forge.F("event_id", event.ID), forge.F("error", err))
-			}
-
-			if rb.metrics != nil {
-				rb.metrics.Counter("forge.events.redis.handler_errors", forge.WithLabel("topic", topic), forge.WithLabel("handler", handler.Name())).Inc()
+		if handler.CanHandle(&event) {
+			if err := handler.Handle(ctx, &event); err != nil {
+				rb.recordReceive(false, topic)
 			}
 		}
-	}
-
-	duration := time.Since(start)
-
-	if rb.metrics != nil {
-		rb.metrics.Counter("forge.events.redis.messages_received", forge.WithLabel("topic", topic)).Inc()
-		rb.metrics.Histogram("forge.events.redis.receive_duration", forge.WithLabel("topic", topic)).Observe(duration.Seconds())
-	}
-
-	if rb.logger != nil {
-		rb.logger.Debug("processed Redis message", forge.F("topic", topic), forge.F("event_id", event.ID), forge.F("event_type", event.Type), forge.F("handlers", len(handlers)), forge.F("duration", duration))
 	}
 }
 
-// Unsubscribe implements MessageBroker.
-func (rb *RedisBroker) Unsubscribe(ctx context.Context, topic string, handlerName string) error {
+func (rb *RedisBroker) recordReceive(success bool, topic string) {
+	if rb.metrics != nil {
+		if success {
+			rb.metrics.Counter("forge.events.redis.messages_received", forge.WithLabel("topic", topic)).Inc()
+		} else {
+			rb.metrics.Counter("forge.events.redis.receive_errors", forge.WithLabel("topic", topic)).Inc()
+		}
+	}
+
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	handlers, exists := rb.handlers[topic]
-	if !exists {
-		return fmt.Errorf("no handlers for topic %s", topic)
+	if success {
+		rb.stats.MessagesReceived++
+	} else {
+		rb.stats.ReceiveErrors++
+		now := time.Now()
+		rb.stats.LastError = &now
+	}
+}
+
+func (rb *RedisBroker) Unsubscribe(ctx context.Context, topic, handlerName string) error {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	if rb.config.EnableStreams {
+		key := streamSubscriptionKey(topic, handlerName)
+
+		sub, ok := rb.subscriptions[key]
+		if !ok {
+			return fmt.Errorf("handler %s not found for topic %s", handlerName, topic)
+		}
+
+		sub.cancel()
+		delete(rb.subscriptions, key)
+		rb.stats.Subscriptions--
+
+		return nil
 	}
 
-	newHandlers := make([]core.EventHandler, 0)
+	handlers := rb.handlers[topic]
+	kept := make([]core.EventHandler, 0, len(handlers))
 	removed := false
 
-	for _, h := range handlers {
-		if h.Name() != handlerName {
-			newHandlers = append(newHandlers, h)
-		} else {
+	for _, handler := range handlers {
+		if handler.Name() == handlerName {
 			removed = true
+		} else {
+			kept = append(kept, handler)
 		}
 	}
 
@@ -488,131 +537,120 @@ func (rb *RedisBroker) Unsubscribe(ctx context.Context, topic string, handlerNam
 		return fmt.Errorf("handler %s not found for topic %s", handlerName, topic)
 	}
 
-	rb.handlers[topic] = newHandlers
+	rb.handlers[topic] = kept
+	if len(kept) == 0 {
+		sub := rb.subscriptions[topic]
+		sub.cancel()
+		_ = sub.pubsub.Close()
 
-	// If no more handlers, unsubscribe from Redis
-	if len(newHandlers) == 0 {
-		if sub, exists := rb.subscriptions[topic]; exists {
-			sub.cancel()
-
-			if err := sub.pubsub.Close(); err != nil {
-				if rb.logger != nil {
-					rb.logger.Error("failed to close Redis subscription", forge.F("topic", topic), forge.F("error", err))
-				}
-			}
-
-			delete(rb.subscriptions, topic)
-			delete(rb.handlers, topic)
-			rb.stats.Subscriptions--
-
-			if rb.logger != nil {
-				rb.logger.Info("unsubscribed from Redis topic", forge.F("topic", topic))
-			}
-
-			if rb.metrics != nil {
-				rb.metrics.Counter("forge.events.redis.unsubscriptions", forge.WithLabel("topic", topic)).Inc()
-				rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(float64(rb.stats.Subscriptions))
-			}
-		}
+		delete(rb.subscriptions, topic)
+		delete(rb.handlers, topic)
+		rb.stats.Subscriptions--
 	}
 
 	return nil
 }
 
-// Close implements MessageBroker.
+// Close cancels handlers before waiting and never holds the broker lock during a handler.
 func (rb *RedisBroker) Close(ctx context.Context) error {
 	rb.mu.Lock()
-	defer rb.mu.Unlock()
+	if rb.stopping {
+		done := rb.closeDone
+		rb.mu.Unlock()
 
-	if !rb.connected || rb.client == nil {
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	if !rb.connected {
+		rb.mu.Unlock()
+
 		return nil
 	}
 
 	rb.stopping = true
+	rb.closeDone = make(chan struct{})
+	done := rb.closeDone
 
-	// Unsubscribe from all topics
-	for topic, sub := range rb.subscriptions {
+	client := rb.client
+	if rb.poolCancel != nil {
+		rb.poolCancel()
+	}
+
+	for _, sub := range rb.subscriptions {
 		sub.cancel()
 
-		if err := sub.pubsub.Close(); err != nil {
-			if rb.logger != nil {
-				rb.logger.Error("failed to close Redis subscription during close", forge.F("topic", topic), forge.F("error", err))
-			}
+		if sub.pubsub != nil {
+			_ = sub.pubsub.Close()
 		}
 	}
 
-	// Wait for all listeners to stop
-	rb.wg.Wait()
+	rb.mu.Unlock()
+	go func() {
+		rb.wg.Wait()
 
-	// Close client
-	if err := rb.client.Close(); err != nil {
-		if rb.logger != nil {
-			rb.logger.Error("failed to close Redis client", forge.F("error", err))
+		_ = client.Close()
+
+		rb.mu.Lock()
+		rb.client = nil
+		rb.connected = false
+		rb.stats.Connected = false
+		rb.stats.Subscriptions = 0
+		rb.subscriptions = make(map[string]*RedisSubscription)
+		rb.handlers = make(map[string][]core.EventHandler)
+
+		close(done)
+		rb.mu.Unlock()
+
+		if rb.metrics != nil {
+			rb.metrics.Gauge("forge.events.redis.connected").Set(0)
+			rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(0)
 		}
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	rb.client = nil
-	rb.connected = false
-	rb.stats.Connected = false
-
-	// Clear state
-	rb.subscriptions = make(map[string]*RedisSubscription)
-	rb.handlers = make(map[string][]core.EventHandler)
-	rb.stats.Subscriptions = 0
-
-	if rb.logger != nil {
-		rb.logger.Info("Redis connection closed")
-	}
-
-	if rb.metrics != nil {
-		rb.metrics.Gauge("forge.events.redis.connected").Set(0)
-		rb.metrics.Gauge("forge.events.redis.active_subscriptions").Set(0)
-	}
-
-	return nil
 }
 
-// HealthCheck implements MessageBroker.
 func (rb *RedisBroker) HealthCheck(ctx context.Context) error {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 
-	if !rb.connected || rb.client == nil {
+	if !rb.connected || rb.stopping || rb.client == nil {
 		return errors.New("not connected to Redis")
 	}
 
-	if err := rb.client.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("Redis health check failed: %w", err)
+	for group, reason := range rb.recovery {
+		return fmt.Errorf("recovery required for %s: %s", group, reason)
 	}
 
-	return nil
+	return rb.client.Ping(ctx).Err()
 }
 
-// GetStats implements MessageBroker.
 func (rb *RedisBroker) GetStats() map[string]any {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 
-	return map[string]any{
-		"type":               "redis",
-		"addresses":          rb.config.Addresses,
-		"connected":          rb.stats.Connected,
-		"subscriptions":      rb.stats.Subscriptions,
-		"messages_published": rb.stats.MessagesPublished,
-		"messages_received":  rb.stats.MessagesReceived,
-		"publish_errors":     rb.stats.PublishErrors,
-		"receive_errors":     rb.stats.ReceiveErrors,
-		"connection_errors":  rb.stats.ConnectionErrors,
-		"last_connected":     rb.stats.LastConnected,
-		"last_error":         rb.stats.LastError,
-		"avg_publish_time":   rb.stats.AvgPublishTime.String(),
-		"pool_stats":         rb.stats.PoolStats,
-	}
+	recovery := make(map[string]string, len(rb.recovery))
+	maps.Copy(recovery, rb.recovery)
+
+	pool := *rb.stats.PoolStats
+
+	return map[string]any{"type": "redis", "addresses": append([]string(nil), rb.config.Addresses...), "last_connected": rb.stats.LastConnected, "last_error": rb.stats.LastError, "connected": rb.stats.Connected, "subscriptions": rb.stats.Subscriptions, "messages_published": rb.stats.MessagesPublished, "messages_received": rb.stats.MessagesReceived, "publish_errors": rb.stats.PublishErrors, "receive_errors": rb.stats.ReceiveErrors, "connection_errors": rb.stats.ConnectionErrors, "avg_publish_time": rb.stats.AvgPublishTime.String(), "pool_stats": pool, "enable_streams": rb.config.EnableStreams, "recovery_required": recovery, "consumer_name": rb.config.ConsumerName, "ordering": rb.config.StreamOrdering}
 }
 
-// collectPoolStats collects Redis connection pool statistics.
 func (rb *RedisBroker) collectPoolStats(ctx context.Context) {
-	ticker := time.NewTicker(time.Second * 30)
+	defer rb.wg.Done()
+
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -620,26 +658,12 @@ func (rb *RedisBroker) collectPoolStats(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if rb.client != nil {
-				if poolStater, ok := rb.client.(interface{ PoolStats() *redis.PoolStats }); ok {
-					stats := poolStater.PoolStats()
-
-					rb.mu.Lock()
-					rb.stats.PoolStats.TotalConns = int(stats.TotalConns)
-					rb.stats.PoolStats.IdleConns = int(stats.IdleConns)
-					rb.stats.PoolStats.StaleConns = int(stats.StaleConns)
-					rb.stats.PoolStats.Hits = int(stats.Hits)
-					rb.stats.PoolStats.Misses = int(stats.Misses)
-					rb.stats.PoolStats.Timeouts = int(stats.Timeouts)
-					rb.mu.Unlock()
-
-					if rb.metrics != nil {
-						rb.metrics.Gauge("forge.events.redis.pool.total_conns").Set(float64(stats.TotalConns))
-						rb.metrics.Gauge("forge.events.redis.pool.idle_conns").Set(float64(stats.IdleConns))
-						rb.metrics.Gauge("forge.events.redis.pool.stale_conns").Set(float64(stats.StaleConns))
-					}
-				}
+			rb.mu.Lock()
+			if poolStater, ok := rb.client.(interface{ PoolStats() *redis.PoolStats }); ok {
+				stats := poolStater.PoolStats()
+				rb.stats.PoolStats = &RedisPoolStats{TotalConns: int(stats.TotalConns), IdleConns: int(stats.IdleConns), StaleConns: int(stats.StaleConns), Hits: int(stats.Hits), Misses: int(stats.Misses), Timeouts: int(stats.Timeouts)}
 			}
+			rb.mu.Unlock()
 		}
 	}
 }

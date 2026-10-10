@@ -70,7 +70,7 @@ func NewPostgresEventStore(db *sql.DB, config *core.EventStoreConfig, logger for
 	}
 
 	// Create tables
-	if err := store.migrate(); err != nil {
+	if err := store.migrate(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
@@ -85,7 +85,7 @@ func NewPostgresEventStore(db *sql.DB, config *core.EventStoreConfig, logger for
 }
 
 // migrate creates necessary tables.
-func (pes *PostgresEventStore) migrate() error {
+func (pes *PostgresEventStore) migrate(ctx context.Context) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS forge_events (
 			id VARCHAR(36) PRIMARY KEY,
@@ -117,7 +117,7 @@ func (pes *PostgresEventStore) migrate() error {
 	}
 
 	for _, query := range queries {
-		if _, err := pes.db.Exec(query); err != nil {
+		if _, err := pes.db.ExecContext(ctx, query); err != nil {
 			return fmt.Errorf("failed to execute migration query: %w", err)
 		}
 	}
@@ -151,6 +151,10 @@ func (pes *PostgresEventStore) initializeStats(ctx context.Context) error {
 		}
 
 		pes.stats.EventsByType[eventType] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
 	}
 
 	// Count total snapshots
@@ -221,7 +225,7 @@ func (pes *PostgresEventStore) SaveEvents(ctx context.Context, events []*core.Ev
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO forge_events (id, aggregate_id, type, version, data, metadata, source, timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`)
@@ -333,6 +337,10 @@ func (pes *PostgresEventStore) GetEventsByAggregate(ctx context.Context, aggrega
 		events = append(events, event)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read event rows: %w", err)
+	}
+
 	pes.stats.Metrics.EventsRead += int64(len(events))
 
 	return events, nil
@@ -370,6 +378,10 @@ func (pes *PostgresEventStore) GetEventsByType(ctx context.Context, eventType st
 		events = append(events, event)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read event rows: %w", err)
+	}
+
 	pes.stats.Metrics.EventsRead += int64(len(events))
 
 	return events, nil
@@ -395,14 +407,14 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 		argPos++
 	}
 
-	if !criteria.StartTime.IsZero() {
+	if criteria.StartTime != nil && !criteria.StartTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp >= $%d", argPos)
 
 		args = append(args, criteria.StartTime)
 		argPos++
 	}
 
-	if !criteria.EndTime.IsZero() {
+	if criteria.EndTime != nil && !criteria.EndTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argPos)
 
 		args = append(args, criteria.EndTime)
@@ -412,6 +424,7 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 	query += " ORDER BY timestamp ASC"
 
 	if criteria.Limit > 0 {
+		//nolint:gosec // Only the placeholder index is formatted; values remain bound arguments.
 		query += fmt.Sprintf(" LIMIT $%d", argPos)
 
 		args = append(args, criteria.Limit)
@@ -442,6 +455,10 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 		}
 
 		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read event rows: %w", err)
 	}
 
 	pes.stats.Metrics.EventsRead += int64(len(events))

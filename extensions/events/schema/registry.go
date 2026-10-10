@@ -208,7 +208,9 @@ func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) er
 
 	// Clean up old versions if limit exceeded
 	if sr.config.MaxVersions > 0 {
-		sr.cleanupOldVersions(ctx, schema.Name)
+		if err := sr.cleanupOldVersions(ctx, schema.Name); err != nil {
+			return err
+		}
 	}
 
 	if sr.logger != nil {
@@ -351,7 +353,6 @@ func (sr *SchemaRegistry) GetSchemaByID(schemaID string) (*Schema, error) {
 func (sr *SchemaRegistry) GetSchemaVersions(eventType string) ([]*Schema, error) {
 	sr.mu.RLock()
 	versions, exists := sr.schemas[eventType]
-	sr.mu.RUnlock()
 
 	var schemas []*Schema
 
@@ -361,11 +362,13 @@ func (sr *SchemaRegistry) GetSchemaVersions(eventType string) ([]*Schema, error)
 		}
 	}
 
+	sr.mu.RUnlock()
+
 	// Also check persistent store for any missing versions
 	if sr.store != nil {
 		storeSchemas, err := sr.store.GetSchemaVersions(context.Background(), eventType)
 		if err != nil {
-			return schemas, nil // Return what we have from memory
+			return schemas, fmt.Errorf("failed to load schema versions: %w", err)
 		}
 
 		// Merge with memory schemas, avoiding duplicates
@@ -750,10 +753,10 @@ func (sr *SchemaRegistry) isTypeChange(change SchemaChange) bool {
 	return change.OldValue != change.NewValue
 }
 
-func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType string) {
+func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType string) error {
 	versions := sr.schemas[eventType]
 	if len(versions) <= sr.config.MaxVersions {
-		return
+		return nil
 	}
 
 	// Keep only the latest N versions
@@ -778,7 +781,9 @@ func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType stri
 
 		// Delete from store
 		if sr.store != nil {
-			sr.store.DeleteSchema(ctx, schema.ID)
+			if err := sr.store.DeleteSchema(ctx, schema.ID); err != nil {
+				return fmt.Errorf("failed to delete schema %s: %w", schema.ID, err)
+			}
 		}
 
 		// Delete from memory
@@ -792,6 +797,8 @@ func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType stri
 			)
 		}
 	}
+
+	return nil
 }
 
 // GetStats returns registry statistics.
@@ -988,8 +995,8 @@ func NewMemorySchemaCache() *MemorySchemaCache {
 
 // Get implements SchemaCache.
 func (msc *MemorySchemaCache) Get(key string) (*Schema, bool) {
-	msc.mu.RLock()
-	defer msc.mu.RUnlock()
+	msc.mu.Lock()
+	defer msc.mu.Unlock()
 
 	cached, exists := msc.cache[key]
 	if !exists {

@@ -6,10 +6,12 @@ import (
 
 // EventBus defines the interface for the event bus.
 type EventBus interface {
-	// Publish publishes an event to all registered brokers
+	// Publish saves an event, then publishes to the default broker if selected,
+	// or all registered brokers. Any failed destination returns an error.
 	Publish(ctx context.Context, event *Event) error
 
-	// PublishTo publishes an event to a specific broker
+	// PublishTo publishes an event to a specific broker without saving it.
+	// Use it to bridge or retry events already committed to the source log.
 	PublishTo(ctx context.Context, brokerName string, event *Event) error
 
 	// Subscribe subscribes to events of a specific type
@@ -18,10 +20,10 @@ type EventBus interface {
 	// Unsubscribe unsubscribes from events of a specific type
 	Unsubscribe(eventType string, handlerName string) error
 
-	// RegisterBroker registers a message broker
+	// RegisterBroker registers a message broker while the bus is stopped.
 	RegisterBroker(name string, broker MessageBroker) error
 
-	// UnregisterBroker unregisters a message broker
+	// UnregisterBroker unregisters a message broker while the bus is stopped.
 	UnregisterBroker(name string) error
 
 	// GetBroker returns a broker by name

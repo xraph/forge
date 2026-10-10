@@ -1,6 +1,7 @@
 package events
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -29,6 +30,7 @@ func MustGetEventService(c forge.Container) *EventService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get event service: %v", err))
 	}
+
 	return svc
 }
 
@@ -45,6 +47,7 @@ func MustGetEventBus(c forge.Container) core.EventBus {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get event bus: %v", err))
 	}
+
 	return bus
 }
 
@@ -61,6 +64,7 @@ func MustGetEventStore(c forge.Container) core.EventStore {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get event store: %v", err))
 	}
+
 	return store
 }
 
@@ -77,6 +81,7 @@ func MustGetHandlerRegistry(c forge.Container) *core.HandlerRegistry {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get handler registry: %v", err))
 	}
+
 	return registry
 }
 
@@ -84,8 +89,9 @@ func MustGetHandlerRegistry(c forge.Container) *core.HandlerRegistry {
 // Returns error if not found or type assertion fails.
 func GetEventServiceFromApp(app forge.App) (*EventService, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
+
 	return GetEventService(app.Container())
 }
 
@@ -95,5 +101,6 @@ func MustGetEventServiceFromApp(app forge.App) *EventService {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetEventService(app.Container())
 }

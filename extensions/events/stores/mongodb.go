@@ -362,28 +362,7 @@ func (mes *MongoEventStore) GetEventsByType(ctx context.Context, eventType strin
 
 // QueryEvents implements EventStore.
 func (mes *MongoEventStore) QueryEvents(ctx context.Context, criteria *core.EventCriteria) ([]*core.Event, error) {
-	filter := bson.D{}
-
-	if len(criteria.AggregateIDs) > 0 {
-		filter = append(filter, bson.E{Key: "aggregate_id", Value: bson.D{{Key: "$in", Value: criteria.AggregateIDs}}})
-	}
-
-	if len(criteria.EventTypes) > 0 {
-		filter = append(filter, bson.E{Key: "type", Value: bson.D{{Key: "$in", Value: criteria.EventTypes}}})
-	}
-
-	if !criteria.StartTime.IsZero() || !criteria.StartTime.IsZero() {
-		timeFilter := bson.D{}
-		if !criteria.StartTime.IsZero() {
-			timeFilter = append(timeFilter, bson.E{Key: "$gte", Value: criteria.StartTime})
-		}
-
-		if !criteria.EndTime.IsZero() {
-			timeFilter = append(timeFilter, bson.E{Key: "$lte", Value: criteria.EndTime})
-		}
-
-		filter = append(filter, bson.E{Key: "timestamp", Value: timeFilter})
-	}
+	filter := mongoEventFilter(criteria)
 
 	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 	if criteria.Limit > 0 {
@@ -504,4 +483,31 @@ func (mes *MongoEventStore) docToSnapshot(doc *MongoSnapshot) *core.Snapshot {
 		Metadata:    doc.Metadata,
 		Timestamp:   doc.Timestamp,
 	}
+}
+
+func mongoEventFilter(criteria *core.EventCriteria) bson.D {
+	filter := bson.D{}
+
+	if len(criteria.AggregateIDs) > 0 {
+		filter = append(filter, bson.E{Key: "aggregate_id", Value: bson.D{{Key: "$in", Value: criteria.AggregateIDs}}})
+	}
+
+	if len(criteria.EventTypes) > 0 {
+		filter = append(filter, bson.E{Key: "type", Value: bson.D{{Key: "$in", Value: criteria.EventTypes}}})
+	}
+
+	if criteria.StartTime != nil || criteria.EndTime != nil {
+		timeFilter := bson.D{}
+		if criteria.StartTime != nil && !criteria.StartTime.IsZero() {
+			timeFilter = append(timeFilter, bson.E{Key: "$gte", Value: criteria.StartTime})
+		}
+
+		if criteria.EndTime != nil && !criteria.EndTime.IsZero() {
+			timeFilter = append(timeFilter, bson.E{Key: "$lte", Value: criteria.EndTime})
+		}
+
+		filter = append(filter, bson.E{Key: "timestamp", Value: timeFilter})
+	}
+
+	return filter
 }

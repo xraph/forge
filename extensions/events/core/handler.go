@@ -80,8 +80,8 @@ func (h *TypedEventHandler) Handle(ctx context.Context, event *Event) error {
 
 	// Apply middleware chain
 	finalHandler := h.handler
-	for i := len(h.middleware) - 1; i >= 0; i-- {
-		finalHandler = h.middleware[i](finalHandler)
+	for _, middleware := range slices.Backward(h.middleware) {
+		finalHandler = middleware(finalHandler)
 	}
 
 	// Execute with retry policy if configured
@@ -602,11 +602,9 @@ func (rh *ReflectionEventHandler) discoverMethods() {
 	targetType := reflect.TypeOf(rh.target)
 	// targetValue := reflect.ValueOf(rh.target)
 
-	for i := 0; i < targetType.NumMethod(); i++ {
-		method := targetType.Method(i)
-
+	for method := range targetType.Methods() {
 		// Check if method follows the naming convention: Handle<EventType>
-		if method.Name[:6] == "Handle" && len(method.Name) > 6 {
+		if len(method.Name) > 6 && method.Name[:6] == "Handle" {
 			eventType := method.Name[6:] // Remove "Handle" prefix
 			rh.methods[eventType] = method
 		}

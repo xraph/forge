@@ -9,17 +9,17 @@ description: Config structs, YAML examples, and option helpers for Events
 extensions:
   events:
     bus:
-      defaultBroker: "memory"       # default broker for Publish()
-      maxRetries: 3
-      retryDelay: "5s"
-      enableMetrics: true
-      enableTracing: false
-      bufferSize: 1000              # event channel buffer
-      workerCount: 10               # concurrent event workers
-      processingTimeout: "30s"
+      default_broker: "memory"       # default broker for Publish()
+      max_retries: 3
+      retry_delay: "5s"
+      enable_metrics: true
+      enable_tracing: false
+      buffer_size: 1000              # event channel buffer
+      worker_count: 10               # concurrent event workers
+      processing_timeout: "30s"
 
     store:
-      type: "memory"                # "memory", "postgres", "mongodb"
+      type: "memory"                # built-in store; inject persistent stores in Go
       database: ""                  # database connection name (for postgres/mongodb)
       table: "events"               # events table/collection name
 
@@ -35,20 +35,19 @@ extensions:
         priority: 2
         config:
           url: "nats://localhost:4222"
-          clusterID: "my-cluster"
 
       - name: "redis"
         type: "redis"
         enabled: false
         priority: 3
         config:
-          url: "redis://localhost:6379"
+          addresses: ["localhost:6379"]
 
     metrics:
       enabled: true
-      publishInterval: "30s"
-      enablePerType: true
-      enablePerHandler: true
+      publish_interval: "30s"
+      enable_per_type: true
+      enable_per_handler: true
 ```
 
 The extension loads config from `extensions.events` first, falling back to `events`.
@@ -122,3 +121,63 @@ ext := events.NewExtensionWithConfig(events.Config{
 | `PublishInterval` | `time.Duration` | `30s` | Metrics publishing interval |
 | `EnablePerType` | `bool` | `true` | Per-event-type metrics |
 | `EnablePerHandler` | `bool` | `true` | Per-handler metrics |
+
+## Redis delivery modes
+
+Redis Pub/Sub is ephemeral by default. Set `enable_streams: true` for durable
+consumer groups on a single Redis server or Sentinel deployment. Streams mode
+rejects Redis Cluster and ordering modes other than `topic`.
+
+```yaml
+brokers:
+  - name: market-events
+    type: redis
+    enabled: true
+    config:
+      addresses: ["localhost:6379"]
+      enable_streams: true
+      consumer_group: tap-events
+      stream_ordering: topic
+      stream_max_len: 10000
+      stream_max_deliveries: 5
+      stream_claim_idle: "30s"
+      stream_poll_interval: "100ms"
+      stream_lease_duration: "10s"
+```
+
+Give every logical handler a stable, non-anonymous `Name()`. The broker creates a
+separate group for each name. Replicas of that handler share its name and use
+unique `consumer_name` values, generated automatically when omitted. One leased
+worker processes a topic for that group at a time. A handler must return success
+only after its effects commit. Failed deliveries remain pending for retry; poison
+messages move to a bounded dead-letter stream with the original event and error.
+
+`stream_max_len` bounds retained messages. Publication fails when capacity cannot
+be reclaimed without losing unread or pending messages. A deleted or truncated
+history puts the subscription in `recovery_required`, visible in broker stats and
+health checks. Stop affected effects, rebuild from your authoritative source log,
+and establish a fresh delivery namespace before resuming. The broker does not
+reconstruct source history itself.
+
+Lease tokens fence acknowledgement and dead-letter writes. They cannot undo an
+external effect from a handler that ignores cancellation. Use an application inbox
+for database effects and stable command IDs plus reconciliation for external calls.
+
+## Store ownership and lifecycle
+
+The service constructs the memory store automatically. For persistent storage,
+provide a conforming `core.EventStore` with `WithEventStore(store)` or an
+`EventStoreFactory` with `WithEventStoreFactory(factory)`. An unsupported store
+configuration fails startup. The service borrows an injected store and never closes
+it; a factory-created store belongs to the service and is recreated on restart.
+
+`Publish` saves before delivery. `PublishTo(ctx, brokerName, event)` only sends to
+the named broker, so you can relay an already committed source event without
+saving a second copy. A failed destination returns an error, including partial
+fanout failures. Retrying can redeliver to destinations that already succeeded.
+
+Startup requires at least one enabled broker and a valid default broker. Register
+or remove brokers while the bus is stopped. You can change the default route while
+it is running. Shutdown stops admission, cancels active operations, and drains
+them before closing brokers. If the caller's deadline expires, cleanup continues;
+a new start is rejected until that cleanup finishes.

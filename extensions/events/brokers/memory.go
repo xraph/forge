@@ -21,7 +21,8 @@ type MemoryBroker struct {
 	connected     bool
 	mu            sync.RWMutex
 	wg            sync.WaitGroup
-	ctx           context.Context
+	done          <-chan struct{}
+	closing       chan struct{}
 	cancel        context.CancelFunc
 }
 
@@ -42,11 +43,13 @@ func (mb *MemoryBroker) Connect(ctx context.Context, config any) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
-	if mb.connected {
+	if mb.connected || mb.closing != nil {
 		return errors.New("memory broker already connected")
 	}
 
-	mb.ctx, mb.cancel = context.WithCancel(ctx)
+	workerCtx, cancel := context.WithCancel(ctx)
+	mb.done = workerCtx.Done()
+	mb.cancel = cancel
 	mb.connected = true
 
 	if mb.logger != nil {
@@ -62,36 +65,28 @@ func (mb *MemoryBroker) Connect(ctx context.Context, config any) error {
 
 // Publish implements MessageBroker.
 func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Event) error {
-	mb.mu.RLock()
-
-	if !mb.connected {
-		mb.mu.RUnlock()
+	mb.mu.Lock()
+	if !mb.connected || mb.closing != nil {
+		mb.mu.Unlock()
 
 		return errors.New("memory broker not connected")
 	}
 
-	// Get or create topic channel
 	topicChan, exists := mb.topics[topic]
 	if !exists {
-		mb.mu.RUnlock()
-		mb.mu.Lock()
+		topicChan = make(chan core.Event, 1000)
+		mb.topics[topic] = topicChan
 
-		// Double-check after acquiring write lock
-		if topicChan, exists = mb.topics[topic]; !exists {
-			topicChan = make(chan core.Event, 1000)
-			mb.topics[topic] = topicChan
-
-			// Start topic processor
-			mb.wg.Add(1)
-
-			go mb.processTopicEvents(topic, topicChan)
-		}
-
-		mb.mu.Unlock()
-		mb.mu.RLock()
+		mb.wg.Add(1)
+		//nolint:gosec // Topic workers follow the broker lifetime, not a single publication.
+		go mb.processTopicEvents(mb.done, topic, topicChan)
 	}
 
-	mb.mu.RUnlock()
+	done := mb.done
+	mb.wg.Add(1)
+
+	mb.mu.Unlock()
+	defer mb.wg.Done()
 
 	start := time.Now()
 
@@ -113,6 +108,8 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-done:
+		return errors.New("memory broker closed")
 	case <-time.After(time.Second * 5):
 		return fmt.Errorf("timeout publishing event to topic %s", topic)
 	}
@@ -176,45 +173,49 @@ func (mb *MemoryBroker) Unsubscribe(ctx context.Context, topic string, handlerNa
 // Close implements MessageBroker.
 func (mb *MemoryBroker) Close(ctx context.Context) error {
 	mb.mu.Lock()
-	defer mb.mu.Unlock()
+	if mb.closing != nil {
+		done := mb.closing
+		mb.mu.Unlock()
+
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	if !mb.connected {
+		mb.mu.Unlock()
+
 		return nil
 	}
 
-	if mb.logger != nil {
-		mb.logger.Info("closing memory broker", forge.F("broker", mb.name))
-	}
-
-	// Cancel context to stop workers
-	if mb.cancel != nil {
-		mb.cancel()
-	}
-
-	// Close all topic channels
-	for _, topicChan := range mb.topics {
-		close(topicChan)
-	}
-
-	// Wait for workers to finish
-	mb.wg.Wait()
-
-	// Reset state for potential reconnection
 	mb.connected = false
-	mb.subscriptions = make(map[string][]core.EventHandler)
-	mb.topics = make(map[string]chan core.Event)
-	mb.ctx = nil
-	mb.cancel = nil
+	mb.closing = make(chan struct{})
+	done := mb.closing
+	mb.cancel()
 
-	if mb.logger != nil {
-		mb.logger.Info("memory broker closed", forge.F("broker", mb.name))
+	mb.mu.Unlock()
+	go func() {
+		mb.wg.Wait()
+		mb.mu.Lock()
+		mb.subscriptions = make(map[string][]core.EventHandler)
+		mb.topics = make(map[string]chan core.Event)
+		mb.cancel = nil
+		mb.done = nil
+		mb.closing = nil
+
+		close(done)
+		mb.mu.Unlock()
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	if mb.metrics != nil {
-		mb.metrics.Counter("forge.events.broker.disconnected", forge.WithLabel("broker", mb.name)).Inc()
-	}
-
-	return nil
 }
 
 // HealthCheck implements MessageBroker.
@@ -243,12 +244,23 @@ func (mb *MemoryBroker) GetStats() map[string]any {
 }
 
 // processTopicEvents processes events for a topic.
-func (mb *MemoryBroker) processTopicEvents(topic string, eventChan <-chan core.Event) {
+func (mb *MemoryBroker) processTopicEvents(done <-chan struct{}, topic string, eventChan <-chan core.Event) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	defer mb.wg.Done()
 
 	for {
 		select {
-		case <-mb.ctx.Done():
+		case <-ctx.Done():
 			return
 		case event, ok := <-eventChan:
 			if !ok {
@@ -256,15 +268,17 @@ func (mb *MemoryBroker) processTopicEvents(topic string, eventChan <-chan core.E
 				return
 			}
 
-			mb.dispatchToHandlers(topic, &event)
+			mb.dispatchToHandlers(ctx, topic, &event)
 		}
 	}
 }
 
 // dispatchToHandlers dispatches an event to all topic handlers.
-func (mb *MemoryBroker) dispatchToHandlers(topic string, event *core.Event) {
+func (mb *MemoryBroker) dispatchToHandlers(ctx context.Context, topic string, event *core.Event) {
 	mb.mu.RLock()
 	handlers, exists := mb.subscriptions[topic]
+	handlers = append([]core.EventHandler(nil), handlers...)
+
 	mb.mu.RUnlock()
 
 	if !exists || len(handlers) == 0 {
@@ -274,8 +288,11 @@ func (mb *MemoryBroker) dispatchToHandlers(topic string, event *core.Event) {
 	// Dispatch to all handlers
 	for _, handler := range handlers {
 		if handler.CanHandle(event) {
+			mb.wg.Add(1)
 			go func(h core.EventHandler) {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+				defer mb.wg.Done()
+
+				ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 				defer cancel()
 
 				if err := h.Handle(ctx, event); err != nil {

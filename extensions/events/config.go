@@ -1,6 +1,8 @@
 package events
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/xraph/forge/extensions/events/core"
@@ -120,4 +122,45 @@ func (c *StoreConfig) ToCoreStoreConfig() *core.EventStoreConfig {
 		EnableMetrics:  true,
 		EnableTracing:  false,
 	}
+}
+
+// Validate checks route configuration before the service opens dependencies.
+func (c Config) Validate() error {
+	if c.Bus.BufferSize < 0 || c.Bus.WorkerCount < 0 {
+		return errors.New("buffer size and worker count cannot be negative")
+	}
+
+	enabled := make(map[string]bool)
+
+	for _, broker := range c.Brokers {
+		if !broker.Enabled {
+			continue
+		}
+
+		if broker.Name == "" {
+			return errors.New("enabled broker requires a name")
+		}
+
+		if enabled[broker.Name] {
+			return fmt.Errorf("duplicate broker name: %s", broker.Name)
+		}
+
+		switch broker.Type {
+		case "memory", "redis", "nats":
+		default:
+			return fmt.Errorf("unsupported broker type %s for %s", broker.Type, broker.Name)
+		}
+
+		enabled[broker.Name] = true
+	}
+
+	if len(enabled) == 0 {
+		return errors.New("event service requires at least one enabled broker")
+	}
+
+	if c.Bus.DefaultBroker != "" && !enabled[c.Bus.DefaultBroker] {
+		return fmt.Errorf("default broker %s is not enabled", c.Bus.DefaultBroker)
+	}
+
+	return nil
 }
