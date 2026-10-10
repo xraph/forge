@@ -301,6 +301,22 @@ func (t *codecTable) codecIDFor(parentID, prop string, schema *client.Schema, sp
 		return name
 	}
 
+	// A null-only alternative cannot select a different object shape. The
+	// runtime preserves null before walking, so use the named codec directly.
+	if len(schema.OneOf) == 2 && len(schema.AnyOf) == 0 && len(schema.AllOf) == 0 && schema.Discriminator == nil && len(schema.Properties) == 0 {
+		for i, member := range schema.OneOf {
+			other := schema.OneOf[1-i]
+			if member == nil || other == nil {
+				continue
+			}
+
+			name := refName(member.Ref)
+			if name != "" && member.Type == "" && len(member.Properties) == 0 && len(member.OneOf) == 0 && len(member.AnyOf) == 0 && len(member.AllOf) == 0 && other.Ref == "" && other.Type == "object" && other.Nullable && len(other.Enum) == 1 && other.Enum[0] == nil && len(other.Properties) == 0 && len(other.OneOf) == 0 && len(other.AnyOf) == 0 && len(other.AllOf) == 0 {
+				return name
+			}
+		}
+	}
+
 	synthetic := parentID + "." + prop
 
 	switch {

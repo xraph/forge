@@ -592,10 +592,15 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 		}
 	}
 
-	// Return a reference schema
+	// Keep null at the field boundary. OpenAPI 3.0 ignores reference siblings,
+	// and allOf cannot admit null while its referenced component rejects it.
 	refSchema := g.componentRef(componentName)
+	if field.Tag.Get("nullable") == "true" {
+		refSchema = &Schema{OneOf: []Schema{*refSchema, {Type: "object", Nullable: true, Enum: []any{nil}}}}
+		g.trackRef(componentName, &refSchema.OneOf[0])
+	}
 
-	// Apply struct tags to the reference (for description, etc.)
+	// Apply struct tags to the field wrapper (for description, etc.)
 	if desc := field.Tag.Get("description"); desc != "" {
 		refSchema.Description = desc
 	}

@@ -1349,7 +1349,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 	// both are present the literal union is more useful to callers than the
 	// generic format-driven type, so it is checked first.
 	if et := enumTSType(schema); et != "" {
-		if schema.Nullable {
+		if schema.Nullable && et != "null" {
 			return et + " | null"
 		}
 
