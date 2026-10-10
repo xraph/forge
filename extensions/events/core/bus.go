@@ -14,10 +14,11 @@ type EventBus interface {
 	// Use it to bridge or retry events already committed to the source log.
 	PublishTo(ctx context.Context, brokerName string, event *Event) error
 
-	// Subscribe subscribes to events of a specific type
+	// Subscribe subscribes to events of a specific type. Handler names beginning
+	// with forge-internal-anonymous: are reserved for internal subscription identities.
 	Subscribe(eventType string, handler EventHandler) error
 
-	// Unsubscribe unsubscribes from events of a specific type
+	// Unsubscribe removes all subscriptions with the given handler name for an event type.
 	Unsubscribe(eventType string, handlerName string) error
 
 	// RegisterBroker registers a message broker while the bus is stopped.
@@ -59,7 +60,7 @@ type MessageBroker interface {
 	// Subscribe subscribes to a topic
 	Subscribe(ctx context.Context, topic string, handler EventHandler) error
 
-	// Unsubscribe unsubscribes from a topic
+	// Unsubscribe removes all subscriptions with the given handler name for a topic.
 	Unsubscribe(ctx context.Context, topic string, handlerName string) error
 
 	// Close closes the connection to the message broker

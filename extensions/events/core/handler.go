@@ -398,7 +398,7 @@ func (hr *HandlerRegistry) Register(eventType string, handler EventHandler) erro
 	return nil
 }
 
-// Unregister removes a handler for an event type.
+// Unregister removes all handlers with the given name for an event type.
 func (hr *HandlerRegistry) Unregister(eventType string, handlerName string) error {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
@@ -408,9 +408,12 @@ func (hr *HandlerRegistry) Unregister(eventType string, handlerName string) erro
 		return fmt.Errorf("no handlers registered for event type %s", eventType)
 	}
 
-	for i, handler := range handlers {
+	kept := make([]EventHandler, 0, len(handlers))
+	removed := false
+
+	for _, handler := range handlers {
 		if handler.Name() == handlerName {
-			hr.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
+			removed = true
 
 			if hr.logger != nil {
 				hr.logger.Info("event handler unregistered",
@@ -422,12 +425,18 @@ func (hr *HandlerRegistry) Unregister(eventType string, handlerName string) erro
 			if hr.metrics != nil {
 				hr.metrics.Counter("forge.events.handlers_unregistered").Inc()
 			}
-
-			return nil
+		} else {
+			kept = append(kept, handler)
 		}
 	}
 
-	return fmt.Errorf("handler %s not found for event type %s", handlerName, eventType)
+	if !removed {
+		return fmt.Errorf("handler %s not found for event type %s", handlerName, eventType)
+	}
+
+	hr.handlers[eventType] = kept
+
+	return nil
 }
 
 // GetHandlers returns all handlers for an event type.

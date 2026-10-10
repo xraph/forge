@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,7 +52,7 @@ type EventBusImpl struct {
 	active          sync.WaitGroup
 	lifecycleMu     sync.Mutex
 	subscriptionMu  sync.Mutex
-	pendingRemovals map[subscriptionKey]map[string]bool
+	pendingRemovals map[subscriptionKey]*pendingSubscriptionRemoval
 	stopping        bool
 	mu              sync.RWMutex
 	wg              sync.WaitGroup
@@ -60,6 +61,17 @@ type EventBusImpl struct {
 type subscriptionKey struct {
 	eventType   string
 	handlerName string
+}
+
+type brokerRemovalKey struct {
+	brokerName  string
+	handlerName string
+}
+
+type pendingSubscriptionRemoval struct {
+	removals map[brokerRemovalKey]bool
+	// Cleanup after a failed Subscribe preserves registry intent until logical Unsubscribe.
+	unregister bool
 }
 
 type busShutdown struct {
@@ -208,7 +220,9 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 	for topic, handlers := range eb.handlerRegistry.GetAllHandlers() {
 		for _, handler := range handlers {
 			eb.mu.RLock()
-			_, removing := eb.pendingRemovals[subscriptionKey{topic, handler.Name()}]
+			pending := eb.pendingRemovals[subscriptionKey{topic, handler.Name()}]
+			removing := pending != nil && pending.unregister
+
 			eb.mu.RUnlock()
 
 			if removing {
@@ -216,7 +230,7 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 			}
 
 			for _, name := range names {
-				if err := brokers[name].Subscribe(runCtx, topic, handler); err != nil {
+				if err := brokers[name].Subscribe(runCtx, topic, transportHandler(handler)); err != nil {
 					return fail(fmt.Errorf("failed to restore subscription on broker %s: %w", name, err))
 				}
 			}
@@ -485,6 +499,10 @@ func (eb *EventBusImpl) Subscribe(eventType string, handler core.EventHandler) e
 		return errors.New("handler is required")
 	}
 
+	if strings.HasPrefix(handler.Name(), anonymousSubscriptionPrefix) {
+		return fmt.Errorf("handler name prefix %s is reserved for internal subscriptions", anonymousSubscriptionPrefix)
+	}
+
 	if len(brokers) == 0 {
 		return errors.New("no brokers available for subscribing")
 	}
@@ -492,23 +510,54 @@ func (eb *EventBusImpl) Subscribe(eventType string, handler core.EventHandler) e
 	eb.subscriptionMu.Lock()
 	defer eb.subscriptionMu.Unlock()
 
+	eb.mu.RLock()
+	runCtx := eb.runCtx
+	_, removing := eb.pendingRemovals[subscriptionKey{eventType, handler.Name()}]
+	eb.mu.RUnlock()
+
+	if removing {
+		return fmt.Errorf("handler %s removal is pending for %s", handler.Name(), eventType)
+	}
+
 	for _, registered := range eb.handlerRegistry.GetHandlers(eventType) {
 		if handler.Name() != "anonymous-handler" && registered.Name() == handler.Name() {
 			return fmt.Errorf("handler %s already subscribed to %s", handler.Name(), eventType)
 		}
 	}
 
-	eb.mu.RLock()
-	runCtx := eb.runCtx
-	eb.mu.RUnlock()
+	if handler.Name() == "anonymous-handler" {
+		handler = newAnonymousRegistration(handler)
+	}
+
+	transport := transportHandler(handler)
 
 	var subscribed []string
 
 	for _, name := range brokerNames(brokers) {
-		if err := brokers[name].Subscribe(runCtx, eventType, handler); err != nil {
+		if err := brokers[name].Subscribe(runCtx, eventType, transport); err != nil {
 			result := fmt.Errorf("failed to subscribe to broker %s: %w", name, err)
-			for _, previous := range subscribed {
-				result = stderrors.Join(result, brokers[previous].Unsubscribe(context.WithoutCancel(runCtx), eventType, handler.Name()))
+			// A failed Subscribe may have admitted the handler before returning an error.
+			for _, previous := range append(subscribed, name) {
+				if rollbackErr := brokers[previous].Unsubscribe(context.WithoutCancel(runCtx), eventType, transport.Name()); rollbackErr != nil {
+					result = stderrors.Join(result, fmt.Errorf("failed to roll back subscription on broker %s: %w", previous, rollbackErr))
+
+					eb.mu.Lock()
+
+					if eb.pendingRemovals == nil {
+						eb.pendingRemovals = make(map[subscriptionKey]*pendingSubscriptionRemoval)
+					}
+
+					key := subscriptionKey{eventType, handler.Name()}
+
+					pending := eb.pendingRemovals[key]
+					if pending == nil {
+						pending = &pendingSubscriptionRemoval{removals: make(map[brokerRemovalKey]bool)}
+						eb.pendingRemovals[key] = pending
+					}
+
+					pending.removals[brokerRemovalKey{previous, transport.Name()}] = true
+					eb.mu.Unlock()
+				}
 			}
 
 			return result
@@ -531,52 +580,64 @@ func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error 
 	eb.subscriptionMu.Lock()
 	defer eb.subscriptionMu.Unlock()
 
-	registered := false
+	var registered []string
 
 	for _, handler := range eb.handlerRegistry.GetHandlers(eventType) {
 		if handler.Name() == handlerName {
-			registered = true
-
-			break
+			registered = append(registered, transportHandler(handler).Name())
 		}
-	}
-
-	if !registered {
-		return fmt.Errorf("handler %s is not registered for %s", handlerName, eventType)
 	}
 
 	key := subscriptionKey{eventType, handlerName}
 
 	eb.mu.Lock()
 	if eb.pendingRemovals == nil {
-		eb.pendingRemovals = make(map[subscriptionKey]map[string]bool)
+		eb.pendingRemovals = make(map[subscriptionKey]*pendingSubscriptionRemoval)
 	}
 
 	pending, exists := eb.pendingRemovals[key]
-	if !exists {
-		pending = make(map[string]bool, len(brokers))
-		for name := range brokers {
-			pending[name] = true
-		}
+	if !exists && len(registered) == 0 {
+		eb.mu.Unlock()
 
+		return fmt.Errorf("handler %s is not registered for %s", handlerName, eventType)
+	}
+
+	if !exists {
+		pending = &pendingSubscriptionRemoval{removals: make(map[brokerRemovalKey]bool, len(brokers)*len(registered))}
 		eb.pendingRemovals[key] = pending
 	}
 
-	names := make([]string, 0, len(pending))
-	for name := range pending {
+	if !pending.unregister && len(registered) > 0 {
+		pending.unregister = true
+
+		for name := range brokers {
+			for _, transportName := range registered {
+				pending.removals[brokerRemovalKey{name, transportName}] = true
+			}
+		}
+	}
+
+	names := make([]brokerRemovalKey, 0, len(pending.removals))
+	for name := range pending.removals {
 		names = append(names, name)
 	}
 	eb.mu.Unlock()
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		if names[i].brokerName != names[j].brokerName {
+			return names[i].brokerName < names[j].brokerName
+		}
+
+		return names[i].handlerName < names[j].handlerName
+	})
 
 	var result error
 
 	for _, name := range names {
-		if err := brokers[name].Unsubscribe(opCtx, eventType, handlerName); err != nil {
-			result = stderrors.Join(result, fmt.Errorf("failed to unsubscribe from broker %s: %w", name, err))
+		if err := brokers[name.brokerName].Unsubscribe(opCtx, eventType, name.handlerName); err != nil {
+			result = stderrors.Join(result, fmt.Errorf("failed to unsubscribe from broker %s: %w", name.brokerName, err))
 		} else {
 			eb.mu.Lock()
-			delete(pending, name)
+			delete(pending.removals, name)
 			eb.mu.Unlock()
 		}
 	}
@@ -585,8 +646,10 @@ func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error 
 		return result
 	}
 
-	if err := eb.handlerRegistry.Unregister(eventType, handlerName); err != nil {
-		return err
+	if pending.unregister {
+		if err := eb.handlerRegistry.Unregister(eventType, handlerName); err != nil {
+			return err
+		}
 	}
 
 	eb.mu.Lock()
@@ -604,9 +667,13 @@ func (eb *EventBusImpl) finishBrokerRemovals(brokerName string) error {
 	var complete []subscriptionKey
 
 	for key, pending := range eb.pendingRemovals {
-		delete(pending, brokerName)
+		for removal := range pending.removals {
+			if removal.brokerName == brokerName {
+				delete(pending.removals, removal)
+			}
+		}
 
-		if len(pending) == 0 {
+		if len(pending.removals) == 0 {
 			complete = append(complete, key)
 		}
 	}
@@ -615,10 +682,16 @@ func (eb *EventBusImpl) finishBrokerRemovals(brokerName string) error {
 	var result error
 
 	for _, key := range complete {
-		if err := eb.handlerRegistry.Unregister(key.eventType, key.handlerName); err != nil {
-			result = stderrors.Join(result, err)
+		eb.mu.RLock()
+		unregister := eb.pendingRemovals[key].unregister
+		eb.mu.RUnlock()
 
-			continue
+		if unregister {
+			if err := eb.handlerRegistry.Unregister(key.eventType, key.handlerName); err != nil {
+				result = stderrors.Join(result, err)
+
+				continue
+			}
 		}
 
 		eb.mu.Lock()
@@ -676,8 +749,10 @@ func (eb *EventBusImpl) UnregisterBroker(name string) error {
 	}
 
 	for _, pending := range eb.pendingRemovals {
-		if pending[name] {
-			return fmt.Errorf("broker %s has incomplete subscription removals", name)
+		for removal := range pending.removals {
+			if removal.brokerName == name {
+				return fmt.Errorf("broker %s has incomplete subscription removals", name)
+			}
 		}
 	}
 

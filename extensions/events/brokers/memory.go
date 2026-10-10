@@ -155,19 +155,28 @@ func (mb *MemoryBroker) Unsubscribe(ctx context.Context, topic string, handlerNa
 		return fmt.Errorf("no subscriptions for topic %s", topic)
 	}
 
-	for i, handler := range handlers {
+	kept := make([]core.EventHandler, 0, len(handlers))
+	removed := false
+
+	for _, handler := range handlers {
 		if handler.Name() == handlerName {
-			mb.subscriptions[topic] = append(handlers[:i], handlers[i+1:]...)
+			removed = true
 
 			if mb.logger != nil {
 				mb.logger.Info("unsubscribed from topic", forge.F("broker", mb.name), forge.F("topic", topic), forge.F("handler", handlerName))
 			}
-
-			return nil
+		} else {
+			kept = append(kept, handler)
 		}
 	}
 
-	return fmt.Errorf("handler %s not found for topic %s", handlerName, topic)
+	if !removed {
+		return fmt.Errorf("handler %s not found for topic %s", handlerName, topic)
+	}
+
+	mb.subscriptions[topic] = kept
+
+	return nil
 }
 
 // Close implements MessageBroker.

@@ -106,7 +106,13 @@ func (rb *RedisBroker) publishToStream(ctx context.Context, client redis.Univers
 // subscribeStream is called with the broker lock held.
 func (rb *RedisBroker) subscribeStream(ctx context.Context, topic string, handler core.EventHandler) error {
 	name := handler.Name()
-	if strings.TrimSpace(name) == "" || name == "anonymous-handler" {
+
+	logicalName := name
+	if logical, ok := handler.(interface{ LogicalName() string }); ok {
+		logicalName = logical.LogicalName()
+	}
+
+	if strings.TrimSpace(name) == "" || name == "anonymous-handler" || logicalName == "anonymous-handler" {
 		return errors.New("streams requires a stable named handler")
 	}
 
