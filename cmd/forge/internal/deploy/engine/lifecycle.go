@@ -6,20 +6,23 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"maps"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"time"
+
 	"github.com/xraph/forge/cmd/forge/internal/deploy/images"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/plan"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/render"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
-	"io"
-	"maps"
-	"os"
-	"path/filepath"
-	"reflect"
-	"time"
 )
 
 type PlanOptions struct{ Services []string }
@@ -115,7 +118,7 @@ func (e *Engine) PlanWithOptions(ctx context.Context, target, env string, opts P
 		return nil, nil, err
 	}
 
-	if _, err := plan.Save(e.plansDir(), p); err != nil {
+	if err := e.savePlan(ctx, p, nil); err != nil {
 		return nil, nil, err
 	}
 
@@ -229,6 +232,22 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 	}
 	defer unlock()
 
+	ctx = st.Context(ctx)
+
+	locked, err := e.load(ctx)
+	if err != nil {
+		return err
+	}
+
+	lockedInputs, err := e.buildInputHashes(ctx, locked)
+	if err != nil {
+		return err
+	}
+
+	if ds := plan.Verify(p, lockedInputs); ds.HasErrors() {
+		return output.Fail(output.ExitConflict, "plan changed while acquiring deployment lock", ds...)
+	}
+
 	if _, err := st.Journal().Events(); err != nil {
 		return output.Fail(output.ExitConflict, "deployment journal is invalid")
 	}
@@ -264,7 +283,7 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 		}
 	}
 
-	if _, err := plan.Save(e.plansDir(), p); err != nil {
+	if err := e.savePlan(ctx, p, st); err != nil {
 		return err
 	}
 
@@ -324,6 +343,10 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 	defer cancel()
 
 	if err := adapter.Apply(ctx, p, st, values, ev); err != nil {
+		if errors.Is(context.Cause(ctx), persistence.ErrLeaseLost) {
+			return output.Fail(output.ExitConflict, "deployment authority was lost; inspect state before resuming")
+		}
+
 		if ctx.Err() != nil {
 			return output.Fail(output.ExitTimeout, "deployment timed out or was cancelled")
 		}
@@ -406,7 +429,7 @@ func (e *Engine) Logs(ctx context.Context, target, env, service string, opts pro
 
 	return adapter.Logs(ctx, provider.ServiceRef{Target: target, Env: env, Service: service}, opts)
 }
-func (e *Engine) Rollback(ctx context.Context, target, env, release string) error {
+func (e *Engine) Rollback(ctx context.Context, target, env, release string) (resultErr error) {
 	adapter, st, target, env, err := e.metadata(ctx, target, env)
 	if err != nil {
 		return err
@@ -418,6 +441,13 @@ func (e *Engine) Rollback(ctx context.Context, target, env, release string) erro
 		return output.Fail(output.ExitConflict, err.Error())
 	}
 	defer unlock()
+
+	ctx = st.Context(ctx)
+	defer func() {
+		if errors.Is(context.Cause(ctx), persistence.ErrLeaseLost) {
+			resultErr = output.Fail(output.ExitConflict, "deployment authority was lost; inspect state before resuming")
+		}
+	}()
 
 	if _, err := st.Journal().Events(); err != nil {
 		return err
@@ -447,7 +477,7 @@ func (e *Engine) Rollback(ctx context.Context, target, env, release string) erro
 
 	return adapter.Rollback(ctx, provider.EnvRef{Target: target, Env: env}, st, release)
 }
-func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData bool) error {
+func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData bool) (resultErr error) {
 	adapter, st, _, _, err := e.metadata(ctx, target, env)
 	if err != nil {
 		return err
@@ -459,6 +489,13 @@ func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData boo
 		return output.Fail(output.ExitConflict, err.Error())
 	}
 	defer unlock()
+
+	ctx = st.Context(ctx)
+	defer func() {
+		if errors.Is(context.Cause(ctx), persistence.ErrLeaseLost) {
+			resultErr = output.Fail(output.ExitConflict, "deployment authority was lost; inspect state before resuming")
+		}
+	}()
 
 	snap, err := st.Snapshot()
 	if err != nil {
@@ -478,19 +515,12 @@ func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData boo
 		return output.Fail(output.ExitInvalidInput, "nothing recorded for this environment")
 	}
 
-	matches, err := filepath.Glob(filepath.Join(e.plansDir(), "*-"+hash[:min(12, len(hash))]+".json"))
+	p, err := plan.Recorded(e.cfg.RootDir, hash, target, env)
 	if err != nil {
-		return err
+		return output.Fail(output.ExitConflict, "recorded deployment plan is missing")
 	}
 
-	for _, path := range matches {
-		p, err := plan.Load(path)
-		if err == nil && p.Hash == hash {
-			return adapter.Destroy(ctx, p, st, provider.DestroyOptions{DeleteData: deleteData})
-		}
-	}
-
-	return output.Fail(output.ExitConflict, "recorded deployment plan is missing")
+	return adapter.Destroy(ctx, p, st, provider.DestroyOptions{DeleteData: deleteData})
 }
 
 type ProviderInfo struct {
@@ -588,6 +618,16 @@ func (e *Engine) buildInputHashes(ctx context.Context, res *InspectResult) (map[
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	authority, err := json.Marshal(res.Authority)
+	if err != nil {
+		return nil, err
+	}
+
+	hashes["$forge-store"] = digest(authority)
+	if res.Authority.Backend != "files" {
+		hashes["$forge-settings"] = strconv.FormatUint(res.Revision, 10) + ":" + res.Doc.Hash
 	}
 
 	return maps.Clone(hashes), nil

@@ -239,3 +239,31 @@ func (l *Lease) lost() bool {
 		return false
 	}
 }
+
+func (l *Lease) SaveSettings(ctx context.Context, expected uint64, raw []byte) error {
+	if l.Scope != "authority" {
+		return errors.New("settings require an authority lease")
+	}
+
+	tx, err := l.db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	if err := l.guard(ctx, tx); err != nil {
+		return err
+	}
+
+	result, err := tx.ExecContext(ctx, "UPDATE forge_deploy_settings SET revision=revision+1,content=$1 WHERE project=$2 AND revision=$3", raw, l.db.options.Project, expected)
+	if err := changed(result, err, ErrConflict); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return ErrUnavailable
+	}
+
+	return nil
+}

@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 	"os"
 	"path/filepath"
+	"reflect"
+
+	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 )
 
 func digest(raw []byte) string {
@@ -41,10 +44,21 @@ func (e *Engine) sourceHashes(res *InspectResult) (map[string]string, error) {
 		}
 	}
 
+	root, err := os.OpenRoot(e.cfg.RootDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
 	out := map[string]string{}
 
 	for path := range paths {
-		raw, err := os.ReadFile(path)
+		relative, err := filepath.Rel(e.cfg.RootDir, path)
+		if err != nil || !filepath.IsLocal(relative) {
+			return nil, errors.New("source outside project")
+		}
+
+		raw, err := root.ReadFile(relative)
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +66,10 @@ func (e *Engine) sourceHashes(res *InspectResult) (map[string]string, error) {
 		out[path] = digest(raw)
 	}
 
-	out[res.Doc.Path] = res.Doc.Hash
+	if res.Authority.Backend == "files" {
+		out[res.Doc.Path] = res.Doc.Hash
+	}
+
 	for path, split := range res.Doc.Splits {
 		out[path] = split.Hash
 	}
@@ -66,11 +83,32 @@ func (e *Engine) SaveInit(ctx context.Context, res *InspectResult, files map[str
 		return err
 	}
 
-	for p, want := range res.InputHashes {
-		raw, err := os.ReadFile(p)
-		if err != nil || digest(raw) != want {
-			return output.Fail(output.ExitConflict, "configuration changed after preview", output.Diagnostic{Code: output.CodePlanStale, Severity: output.SeverityError, File: p, Message: "review a new proposal before saving"})
-		}
+	unlock, err := persistence.Authority(e.cfg.RootDir, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	fresh, err := e.load(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !reflect.DeepEqual(fresh.InputHashes, res.InputHashes) || fresh.Revision != res.Revision || fresh.Authority != res.Authority || fresh.Doc.Hash != res.Doc.Hash {
+		return output.Fail(output.ExitConflict, "configuration changed after preview", output.Diagnostic{Code: output.CodePlanStale, Severity: output.SeverityError, Message: "review a new proposal before saving"})
+	}
+
+	if len(files) != 1 {
+		return errors.New("save a proposal for one configuration file at a time")
+	}
+
+	db, err := persistence.OpenSelected(ctx, e.cfg.RootDir)
+	if err != nil {
+		return err
+	}
+
+	if db != nil {
+		defer db.Close()
 	}
 
 	for path, data := range files {
@@ -79,7 +117,26 @@ func (e *Engine) SaveInit(ctx context.Context, res *InspectResult, files map[str
 			return errors.New("proposal cannot write an unreviewed path")
 		}
 
-		if err := spec.Write(path, want, data); err != nil {
+		if db != nil && path == res.Doc.Path {
+			gate, err := db.Acquire(ctx, "authority")
+			if err != nil {
+				return err
+			}
+			defer func() { _ = gate.Release() }()
+
+			revision, _, err := db.Settings(ctx)
+			if err != nil {
+				return err
+			}
+
+			if revision != res.Revision {
+				return persistence.ErrConflict
+			}
+
+			return gate.SaveSettings(gate.Context(ctx), res.Revision, data)
+		}
+
+		if err := spec.WriteWithin(e.cfg.RootDir, path, want, data); err != nil {
 			return err
 		}
 	}

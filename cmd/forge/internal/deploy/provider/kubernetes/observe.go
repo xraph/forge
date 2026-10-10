@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -19,27 +17,7 @@ import (
 )
 
 func (k *Kubernetes) loadPlan(hash string) (*plan.Plan, error) {
-	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(hash) {
-		return nil, errors.New("invalid recorded plan identity")
-	}
-
-	paths, err := filepath.Glob(filepath.Join(k.root, ".forge", "plans", "*-"+hash[:12]+".json"))
-	if err != nil {
-		return nil, err
-	}
-
-	for _, path := range paths {
-		p, err := plan.Load(path)
-		if err != nil {
-			return nil, err
-		}
-
-		if p.Hash == hash {
-			return p, nil
-		}
-	}
-
-	return nil, errors.New("recorded deployment plan is unavailable")
+	return plan.Recorded(k.root, hash, "", "")
 }
 func number(value any) int {
 	switch n := value.(type) {

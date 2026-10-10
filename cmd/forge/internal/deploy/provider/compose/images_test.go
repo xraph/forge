@@ -18,7 +18,7 @@ func TestImmutableImageOverrideIsReadyBeforeMigrations(t *testing.T) {
 
 	f.Script("docker buildx", execx.Result{})
 	f.Script("docker image inspect", execx.Result{Stdout: digest})
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
 
 	if err := c.Apply(context.Background(), p, st, nil, nil); err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -378,4 +379,28 @@ func (s *Store) Context(ctx context.Context) context.Context {
 	}
 
 	return ctx
+}
+
+// WritePlan stores approval metadata under the already-held authority fence.
+func (s *Store) WritePlan(ctx context.Context, name string, raw []byte) error {
+	if s.db == nil || s.authority == nil {
+		return ErrLocked
+	}
+
+	if filepath.Base(name) != name || !strings.HasSuffix(name, ".json") {
+		return errors.New("invalid plan metadata name")
+	}
+
+	lease, err := s.db.Acquire(ctx, "plans")
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = lease.Release() }()
+
+	if err := lease.GuardedBy(s.authority); err != nil {
+		return err
+	}
+
+	return lease.Write(ctx, name, raw)
 }

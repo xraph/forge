@@ -61,7 +61,7 @@ func TestDestroyFailsClosedWhenRunningBindingsWerePruned(t *testing.T) {
 		}
 	}
 
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"worker","State":"running","Health":"healthy"}]`})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: `[{"Service":"worker","State":"running","Health":"healthy"}]`})
 
 	if err := c.Destroy(context.Background(), p, st, provider.DestroyOptions{DeleteData: true}); err == nil {
 		t.Fatal("unknown running dependencies allowed deletion")
@@ -84,7 +84,7 @@ func TestFailedMigrationRemainsVisibleWhenOldContainersAreHealthy(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy","Image":"old:image"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy","Image":"old:image"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
 
 	observed, err := c.Observe(context.Background(), provider.EnvRef{}, st)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestRemoteRegistryBuildUsesCustomDockerfileAndOnlyPublishesOnce(t *testing.
 
 	f.Script("docker pull", execx.Result{})
 	f.Script("docker buildx", execx.Result{Stdout: "sha256:" + strings.Repeat("a", 64)})
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`})
 
 	var err error
 

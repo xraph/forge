@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/compose"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/kubernetes"
@@ -47,6 +48,8 @@ func New(opts Options) (*Engine, error) {
 
 type InspectResult struct {
 	Config      *config.ForgeConfig
+	Revision    uint64
+	Authority   persistence.Options
 	Selection   []string
 	Project     string
 	InputHashes map[string]string
@@ -67,12 +70,22 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 		return nil, err
 	}
 
-	path, diags, err := spec.Locate(e.cfg.RootDir)
+	_, diags, err := spec.Locate(e.cfg.RootDir)
 	if err != nil {
 		return nil, err
 	}
 
-	doc, pd, err := spec.Parse(path)
+	path, revision, raw, err := persistence.Document(ctx, e.cfg.RootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	options, err := persistence.Load(e.cfg.RootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, pd, err := spec.ParseData(path, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +120,7 @@ func (e *Engine) load(ctx context.Context) (*InspectResult, error) {
 
 	diags = append(diags, disc.Diagnostics...)
 
-	res := &InspectResult{Config: fresh, Project: fresh.Project.Name, Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}
+	res := &InspectResult{Config: fresh, Revision: revision, Authority: options, Project: fresh.Project.Name, Doc: doc, Discovery: disc, Catalog: cat, Diagnostics: diags}
 
 	res.InputHashes, err = e.sourceHashes(res)
 	if err != nil {

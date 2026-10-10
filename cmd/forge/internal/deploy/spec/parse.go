@@ -19,15 +19,16 @@ import (
 )
 
 type Document struct {
-	Path    string
-	Root    *yaml.Node
-	Deploy  *Deploy
-	Hash    string
-	Splits  map[string]*Split
-	IsV1    bool
-	raw     []byte
-	lines   map[string]int
-	sources map[string]sourceLocation
+	Path      string
+	Root      *yaml.Node
+	Deploy    *Deploy
+	Hash      string
+	Splits    map[string]*Split
+	IsV1      bool
+	raw       []byte
+	lines     map[string]int
+	overrides map[string][]byte
+	sources   map[string]sourceLocation
 }
 
 type sourceLocation struct {
@@ -92,7 +93,14 @@ func Parse(path string) (*Document, output.Diagnostics, error) {
 		return nil, nil, err
 	}
 
-	doc := &Document{Path: path, Hash: hashOf(raw), raw: raw, Splits: map[string]*Split{}, sources: map[string]sourceLocation{}}
+	return ParseData(path, raw)
+}
+
+func ParseData(path string, raw []byte) (*Document, output.Diagnostics, error) {
+	return ParseProposal(path, raw, nil)
+}
+func ParseProposal(path string, raw []byte, files map[string][]byte) (*Document, output.Diagnostics, error) {
+	doc := &Document{Path: path, Hash: hashOf(raw), raw: raw, Splits: map[string]*Split{}, sources: map[string]sourceLocation{}, overrides: files}
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &root); err != nil {
@@ -168,7 +176,7 @@ func (doc *Document) loadSplit(path string, keys []string, deployNode *yaml.Node
 		return output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: err.Error(), File: doc.Path, Field: "deploy.spec"}}
 	}
 
-	raw, err := os.ReadFile(path)
+	raw, err := doc.readFile(path)
 	if err != nil {
 		return output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: err.Error(), File: doc.Path, Field: "deploy.spec", Line: doc.Line("deploy.spec")}}
 	}
@@ -226,7 +234,7 @@ func (doc *Document) loadEnvSplit(path, env string, deployNode *yaml.Node) outpu
 		return output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: err.Error(), File: doc.Path, Field: "deploy.environment_files." + env}}
 	}
 
-	raw, err := os.ReadFile(path)
+	raw, err := doc.readFile(path)
 	if err != nil {
 		return output.Diagnostics{{Code: output.CodeConfigInvalid, Severity: output.SeverityError, Message: err.Error(), File: doc.Path, Field: "deploy.environment_files." + env}}
 	}
@@ -412,3 +420,24 @@ func withinProject(root, path string) error {
 
 // RawBytes returns a copy of the original file for diffs and backups.
 func (d *Document) RawBytes() []byte { return bytes.Clone(d.raw) }
+
+func (doc *Document) readFile(path string) ([]byte, error) {
+	if raw, ok := doc.overrides[path]; ok {
+		return bytes.Clone(raw), nil
+	}
+
+	r, err := os.OpenRoot(filepath.Dir(doc.Path))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	rel, err := filepath.Rel(filepath.Dir(doc.Path), path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, errors.New("configuration path is outside project")
+	}
+
+	return r.ReadFile(rel)
+}
+
+func (s *Split) RawBytes() []byte { return bytes.Clone(s.raw) }

@@ -151,6 +151,36 @@ func Save(dir string, p *Plan) (string, error) {
 	}
 	defer root.Close()
 
+	name, err := saveRoot(root, p)
+
+	return filepath.Join(dir, name), err
+}
+func SaveWithin(project string, p *Plan) (string, error) {
+	if err := shape(p); err != nil {
+		return "", err
+	}
+
+	root, err := os.OpenRoot(project)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+
+	if err := root.MkdirAll(".forge/plans", 0700); err != nil {
+		return "", err
+	}
+
+	plans, err := root.OpenRoot(".forge/plans")
+	if err != nil {
+		return "", err
+	}
+	defer plans.Close()
+
+	name, err := saveRoot(plans, p)
+
+	return filepath.Join(project, ".forge/plans", name), err
+}
+func saveRoot(root *os.Root, p *Plan) (string, error) {
 	name := fmt.Sprintf("%s-%s-%s.json", p.Environment, p.TargetName, p.Hash[:12])
 
 	data, err := json.MarshalIndent(p, "", "  ")
@@ -191,7 +221,7 @@ func Save(dir string, p *Plan) (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(dir, name), nil
+	return name, nil
 }
 
 func Load(path string) (*Plan, error) {
@@ -200,13 +230,16 @@ func Load(path string) (*Plan, error) {
 		return nil, err
 	}
 
+	return Decode(data)
+}
+func Decode(data []byte) (*Plan, error) {
 	var p Plan
 	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 
 	if p.Schema != Schema {
-		return nil, fmt.Errorf("%s: plan schema %q is not %q", path, p.Schema, Schema)
+		return nil, fmt.Errorf("plan schema %q is not %q", p.Schema, Schema)
 	}
 
 	if err := shape(&p); err != nil {

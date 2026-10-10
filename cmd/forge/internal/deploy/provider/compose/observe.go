@@ -6,15 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"slices"
 	"strconv"
+
+	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
+
+	"io"
+	"strings"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
-	"io"
-	"strings"
 )
 
 type psRow struct {
@@ -80,9 +82,17 @@ func (c *Compose) observe(ctx context.Context, st *state.Store, trackAttempt boo
 		return status, err
 	}
 
-	d := p.Deployment
+	d, err := c.observedGraph(p, snap, st)
+	if err != nil {
+		return status, err
+	}
 
-	res, err := c.run(ctx, d, "ps", "-a", "--format", "json")
+	args, err := c.observationArgs(d, st, "ps", "-a", "--format", "json")
+	if err != nil {
+		return status, err
+	}
+
+	res, err := c.runDocker(ctx, d, args)
 	if err != nil {
 		return status, errors.New("docker status could not be read")
 	}
@@ -242,7 +252,12 @@ func (c *Compose) Logs(ctx context.Context, ref provider.ServiceRef, opts provid
 		return nil, err
 	}
 
-	p, err := c.loadPlan(st, snap.ActivePlanHash)
+	hash := snap.ActivePlanHash
+	if workload, ok := snap.Workloads[ref.Service]; ok {
+		hash = workload.PlanHash
+	}
+
+	p, err := c.loadPlan(st, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +291,15 @@ func (c *Compose) Logs(ctx context.Context, ref provider.ServiceRef, opts provid
 	args = append(args, ref.Service)
 	reader, writer := io.Pipe()
 
-	process, err := c.runner.Start(ctx, execx.Command{Name: "docker", Args: c.composeArgs(p.Deployment, args...), Dir: c.root, Stdout: writer, Stderr: writer})
+	observed, err := c.observationArgs(p.Deployment, st, args...)
+	if err != nil {
+		_ = reader.Close()
+		_ = writer.Close()
+
+		return nil, err
+	}
+
+	process, err := c.runner.Start(ctx, execx.Command{Name: "docker", Args: observed, Dir: c.root, Stdout: writer, Stderr: writer})
 	if err != nil {
 		reader.Close()
 		writer.Close()

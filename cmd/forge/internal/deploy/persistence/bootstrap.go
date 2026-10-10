@@ -158,8 +158,13 @@ func Document(ctx context.Context, root string) (string, uint64, []byte, error) 
 	defer db.Close()
 
 	revision, raw, err := db.Settings(ctx)
+	if err != nil {
+		return "", 0, nil, err
+	}
 
-	return path, revision, raw, err
+	merged, err := MergeDeploy(file, raw)
+
+	return path, revision, merged, err
 }
 func stableProject(raw []byte) (string, error) {
 	var config struct {
@@ -330,6 +335,14 @@ func (d *DB) Blobs(ctx context.Context) ([]Blob, error) {
 	return out, nil
 }
 func Configure(ctx context.Context, root string, options Options, expectedHash string) error {
+	_, revision, _, err := Document(ctx, root)
+	if err != nil {
+		return err
+	}
+
+	return ConfigureVersion(ctx, root, options, expectedHash, revision)
+}
+func ConfigureVersion(ctx context.Context, root string, options Options, expectedHash string, expectedRevision uint64) error {
 	unlock, err := Authority(root, true)
 	if err != nil {
 		return err
@@ -341,12 +354,12 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 		return err
 	}
 
-	path, _, raw, err := Document(ctx, root)
+	path, revision, raw, err := Document(ctx, root)
 	if err != nil {
 		return err
 	}
 
-	if expectedHash == "" || Hash(raw) != expectedHash {
+	if expectedHash == "" || Hash(raw) != expectedHash || revision != expectedRevision {
 		return ErrConflict
 	}
 
@@ -384,12 +397,17 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 
 		defer func() { _ = sourceLease.Release() }()
 
-		_, fresh, err := source.Settings(ctx)
+		sourceRevision, fresh, err := source.Settings(ctx)
 		if err != nil {
 			return err
 		}
 
-		if Hash(fresh) != expectedHash {
+		fresh, err = mergeCurrent(root, fresh)
+		if err != nil {
+			return err
+		}
+
+		if Hash(fresh) != expectedHash || sourceRevision != expectedRevision {
 			return ErrConflict
 		}
 	}
@@ -447,6 +465,13 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 		revision, existing, err := destination.Settings(ctx)
 		if err != nil {
 			return err
+		}
+
+		if revision > 0 {
+			existing, err = mergeCurrent(root, existing)
+			if err != nil {
+				return err
+			}
 		}
 
 		if revision > 0 && Hash(existing) != expectedHash {
@@ -513,6 +538,10 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 		}
 
 		_, verified, err := destination.Settings(ctx)
+		if err == nil {
+			verified, err = mergeCurrent(root, verified)
+		}
+
 		if err != nil || Hash(verified) != expectedHash {
 			return ErrConflict
 		}
@@ -542,7 +571,7 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 			return err
 		}
 
-		_, fresh, err := source.Settings(ctx)
+		sourceRevision, fresh, err := source.Settings(ctx)
 		if err != nil {
 			return err
 		}
@@ -552,7 +581,12 @@ func Configure(ctx context.Context, root string, options Options, expectedHash s
 			return err
 		}
 
-		if Hash(fresh) != expectedHash || !sameBlobs(blobs, current) {
+		fresh, err = mergeCurrent(root, fresh)
+		if err != nil {
+			return err
+		}
+
+		if Hash(fresh) != expectedHash || sourceRevision != expectedRevision || !sameBlobs(blobs, current) {
 			return ErrConflict
 		}
 	}
@@ -656,4 +690,110 @@ func sameBlobs(expected, actual []Blob) bool {
 	}
 
 	return true
+}
+
+// MergeDeploy keeps runtime project and build settings owned by the checkout.
+func MergeDeploy(file, settings []byte) ([]byte, error) {
+	var runtime, stored yaml.Node
+	if err := yaml.Unmarshal(file, &runtime); err != nil {
+		return nil, err
+	}
+
+	if err := yaml.Unmarshal(settings, &stored); err != nil {
+		return nil, err
+	}
+
+	if len(runtime.Content) == 0 || len(stored.Content) == 0 {
+		return nil, errors.New("deployment settings must be a mapping")
+	}
+
+	root := runtime.Content[0]
+
+	source := stored.Content[0]
+	if root.Kind != yaml.MappingNode || source.Kind != yaml.MappingNode {
+		return nil, errors.New("deployment settings must be a mapping")
+	}
+
+	var deploy *yaml.Node
+
+	for i := 0; i+1 < len(source.Content); i += 2 {
+		if source.Content[i].Value == "deploy" {
+			deploy = source.Content[i+1]
+		}
+	}
+
+	if deploy == nil {
+		hasDeploy := false
+
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if root.Content[i].Value == "deploy" {
+				hasDeploy = true
+			}
+		}
+
+		if !hasDeploy {
+			return bytes.Clone(file), nil
+		}
+	}
+
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "deploy" {
+			old, err := yaml.Marshal(root.Content[i+1])
+			if err != nil {
+				return nil, err
+			}
+
+			next, err := yaml.Marshal(deploy)
+			if err != nil {
+				return nil, err
+			}
+
+			if deploy != nil && bytes.Equal(old, next) {
+				return bytes.Clone(file), nil
+			}
+		}
+	}
+
+	found := false
+
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "deploy" {
+			found = true
+
+			if deploy == nil {
+				root.Content = append(root.Content[:i], root.Content[i+2:]...)
+			} else {
+				root.Content[i+1] = deploy
+			}
+
+			break
+		}
+	}
+
+	if !found && deploy != nil {
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "deploy"}, deploy)
+	}
+
+	var out bytes.Buffer
+
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+
+	if err := enc.Encode(&runtime); err != nil {
+		return nil, err
+	}
+
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+
+	return out.Bytes(), nil
+}
+func mergeCurrent(root string, settings []byte) ([]byte, error) {
+	_, raw, err := documentFile(root)
+	if err != nil {
+		return nil, err
+	}
+
+	return MergeDeploy(raw, settings)
 }

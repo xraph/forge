@@ -90,7 +90,7 @@ func TestApplyStopsBeforeRolloutWhenMigrationFails(t *testing.T) {
 func TestApplyPersistsCredentialsAndNeverRemovesDeselectedServices(t *testing.T) {
 	c, p, st, f := applyFixture(t)
 	rows := `[{"Service":"api","State":"running","Health":"healthy"},{"Service":"cache","State":"running","Health":"healthy"},{"Service":"primary","State":"running","Health":"healthy"},{"Service":"uploads","State":"running","Health":"healthy"}]`
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: rows})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: rows})
 
 	if err := c.Apply(context.Background(), p, st, nil, nil); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestObserveCountsAllReplicasAndRejectsInvalidOutput(t *testing.T) {
 	p.Hash, _ = p.ComputeHash()
 	_ = st.SaveSnapshot(state.Snapshot{ActivePlanHash: p.Hash})
 	_, _ = plan.Save(c.root+"/.forge/plans", p)
-	prefix := "docker " + strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " ")
+	prefix := observationPrefix(t, c, st, p.Deployment)
 	f.Script(prefix, execx.Result{Stdout: `{"Service":"api","State":"running","Health":"healthy"}` + "\n" + `{"Service":"api","State":"running","Health":"starting"}` + "\n"})
 
 	s, err := c.Observe(context.Background(), provider.EnvRef{}, st)
@@ -197,7 +197,7 @@ func TestDestroyProtectsBackendsUsedByDeselectedRunningServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.Script("docker "+strings.Join(c.composeArgs(p.Deployment, "ps", "-a", "--format", "json"), " "), execx.Result{Stdout: `[{"Service":"worker","State":"running","Health":"healthy"}]`})
+	scriptPS(t, c, st, f, p.Deployment, execx.Result{Stdout: `[{"Service":"worker","State":"running","Health":"healthy"}]`})
 
 	if err := c.Destroy(context.Background(), p, st, provider.DestroyOptions{DeleteData: true}); err != nil {
 		t.Fatal(err)

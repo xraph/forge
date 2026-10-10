@@ -4,11 +4,14 @@ import (
 	"context"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/catalog"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/secrets"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/testdata"
+	"strings"
 	"testing"
 )
 
@@ -43,4 +46,20 @@ func resolveFixtureAt(t *testing.T, root, target, env string) *model.Deployment 
 	}
 
 	return d
+}
+
+func observationPrefix(t *testing.T, c *Compose, st *state.Store, d *model.Deployment) string {
+	t.Helper()
+
+	args, err := c.observationArgs(d, st, "ps", "-a", "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return "docker " + strings.Join(args, " ")
+}
+func scriptPS(t *testing.T, c *Compose, st *state.Store, f *execx.Fake, d *model.Deployment, result execx.Result) {
+	t.Helper()
+	f.Script("docker "+strings.Join(c.composeArgs(d, "ps", "-a", "--format", "json"), " "), result)
+	f.Script(observationPrefix(t, c, st, d), result)
 }

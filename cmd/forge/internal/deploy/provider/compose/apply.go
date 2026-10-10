@@ -385,23 +385,7 @@ func redact(err error, values map[string]string) error {
 	return errors.New(msg)
 }
 func (c *Compose) loadPlan(st *state.Store, hash string) (*plan.Plan, error) {
-	if len(hash) != 64 {
-		return nil, errors.New("recorded deployment hash is invalid")
-	}
-
-	matches, err := filepath.Glob(filepath.Join(c.root, ".forge", "plans", "*-"+hash[:min(12, len(hash))]+".json"))
-	if err != nil {
-		return nil, err
-	}
-
-	for _, path := range matches {
-		p, err := plan.Load(path)
-		if err == nil && p.Hash == hash && p.Environment == filepath.Base(st.Dir()) && p.TargetName == filepath.Base(filepath.Dir(st.Dir())) {
-			return p, nil
-		}
-	}
-
-	return nil, errors.New("recorded deployment plan is unavailable")
+	return plan.Recorded(c.root, hash, filepath.Base(filepath.Dir(st.Dir())), filepath.Base(st.Dir()))
 }
 func (c *Compose) Rollback(ctx context.Context, _ provider.EnvRef, st *state.Store, releaseID string) error {
 	snap, err := st.Snapshot()

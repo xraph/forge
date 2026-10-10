@@ -62,7 +62,7 @@ func TestConfigureCopiesStateAndMakesDatabaseAuthoritative(t *testing.T) {
 		t.Fatal("credentials copied into database", err)
 	}
 
-	if err := db.SaveSettings(context.Background(), 1, []byte("changed")); err != nil {
+	if err := db.SaveSettings(context.Background(), 1, []byte("project: {name: atlas}\ndeploy: {version: 2, registry: ghcr.io/changed}\n")); err != nil {
 		t.Fatal(err)
 	}
 

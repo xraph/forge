@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -202,4 +203,66 @@ func privateWrite(root *os.Root, path string, raw []byte) error {
 	}
 
 	return root.Rename(temp, path)
+}
+
+// Connection contains public registry metadata without credentials or paths.
+type Connection struct {
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	Username  string `json:"username"`
+	Connected bool   `json:"connected"`
+}
+
+func Connections(projectRoot string) ([]Connection, error) {
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	dir, err := root.Open(".forge/connections/registries")
+	if os.IsNotExist(err) {
+		return []Connection{}, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	names, err := dir.Readdirnames(-1)
+	_ = dir.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(names)
+
+	out := []Connection{}
+
+	for _, file := range names {
+		if filepath.Ext(file) != ".json" {
+			continue
+		}
+
+		name := strings.TrimSuffix(file, ".json")
+		if !connectionName.MatchString(name) {
+			continue
+		}
+
+		raw, err := root.ReadFile(filepath.Join(".forge/connections/registries", file))
+		if err != nil {
+			return nil, err
+		}
+
+		var metadata registryConnection
+		if json.Unmarshal(raw, &metadata) != nil {
+			return nil, errors.New("invalid registry metadata")
+		}
+
+		_, err = ConnectionDir(projectRoot, name, metadata.Host)
+		out = append(out, Connection{Name: name, Host: metadata.Host, Username: metadata.Username, Connected: err == nil})
+	}
+
+	return out, nil
 }

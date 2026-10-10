@@ -2,6 +2,8 @@ package spec
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -383,4 +385,79 @@ func Write(path, expectedHash string, data []byte) error {
 	defer dir.Close()
 
 	return dir.Sync()
+}
+
+// WriteWithin anchors every read, temporary file and rename to the project root.
+func WriteWithin(project, path, expectedHash string, data []byte) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	rel, err := filepath.Rel(project, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return errors.New("configuration path is outside project")
+	}
+
+	r, err := os.OpenRoot(project)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	info, err := r.Lstat(rel)
+	if err != nil {
+		return err
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("configuration file cannot be a symlink")
+	}
+
+	current, err := r.ReadFile(rel)
+	if err != nil {
+		return err
+	}
+
+	if hashOf(current) != expectedHash {
+		return ErrConflict
+	}
+
+	token := make([]byte, 16)
+	if _, err := rand.Read(token); err != nil {
+		return err
+	}
+
+	temp := filepath.Join(filepath.Dir(rel), ".forge-write-"+hex.EncodeToString(token))
+
+	f, err := r.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Remove(temp) }()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+
+		return err
+	}
+
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	fresh, err := r.ReadFile(rel)
+	if err != nil {
+		return err
+	}
+
+	if hashOf(fresh) != expectedHash {
+		return ErrConflict
+	}
+
+	return r.Rename(temp, rel)
 }
