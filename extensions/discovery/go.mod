@@ -10,6 +10,7 @@ require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/stretchr/testify v1.11.1
+	github.com/xraph/confy v1.0.3
 	github.com/xraph/farp v1.3.1
 	github.com/xraph/farp/discovery v1.3.1
 	github.com/xraph/forge v1.9.13
@@ -91,7 +92,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/confy v1.0.3 // indirect
 	github.com/xraph/go-utils v1.3.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
