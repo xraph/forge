@@ -8,8 +8,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 # Deployment workbench
 
 You describe your services and the databases, buckets and caches they need in
-one `deploy:` block, and Forge renders and applies that to Compose, Kubernetes
-or a managed platform. The local page, the terminal and an AI agent all go
+one `deploy:` block. Forge applies reviewed plans to Compose and Kubernetes,
+and exports provider specifications or portable handoffs for other targets. The local page, the terminal and an AI agent all go
 through the same planner, so the choice you make in one place is the choice the
 others see.
 
@@ -271,6 +271,19 @@ gains a resolver that reads them. Only `exposure: public` ports get a route.
 Receiving services still run their auth middleware; discovery and private
 networking do not grant authorization.
 
+Declare your existing FARP gateway app with `kind: gateway`, one HTTP port and
+`discovery: true` on its callers. The compiler enables discovery/FARP and writes
+`extensions.discovery.farp.gateway_url` plus `FARP_GATEWAY_URL`. It preserves
+ordinary service calls as separate edges. Use `target.gateway` when you declare
+several gateways. Selecting a caller while excluding its gateway requires an
+`external_services` URL, just like any other excluded dependency.
+
+`FORGE_SERVICE_ID` is the declared logical service name. Kubernetes supplies
+`FORGE_INSTANCE_ID` from the pod UID; Compose containers keep their distinct
+hostnames. Provider-owned identity fields cannot be overwritten in service env.
+The gateway binary must already implement the FARP protocol. A workload kind
+does not add Bastion handlers to your application.
+
 ## Deploy to Kubernetes
 
 You need `kubectl`, an explicit context and a namespace. For a local kind
@@ -323,18 +336,126 @@ whose CNI enforces them, with explicit allowed external and API-server CIDRs.
 The older `infra k8s deploy` command directs version 2 projects to the approved
 plan workflow.
 
-## Targets and order
+## Runtime extension requirements
 
-| Target                                      | First path                                                                         | Plan |
-| ------------------------------------------- | ---------------------------------------------------------------------------------- | ---- |
-| Docker Compose                              | render, apply, observe, logs, rollback, destroy                                    | 03   |
-| Kubernetes                                  | Kustomize base and overlays, migration Job, apply with rollout observation         | 04   |
-| Local page                                  | `forge deploy start` on loopback with a token, file save and one-click apply       | 05   |
-| Render, DigitalOcean                        | export verified against the provider schema, then apply after a live run           | 06   |
-| Module descriptors, gateways, hosted target | `forge-deploy.yaml` in grove and trove, `kind: gateway`, a ctrlplane-backed target | 07   |
+```bash
+forge deploy inspect --exec --app api --timeout 2m --output json
+```
 
-Each adapter publishes a level: renderable, validated, apply, or live
-qualified. Nothing claims a level it has not earned.
+Ordinary inspection reads source and configuration. `--exec` builds and runs your
+selected app with `FORGE_INTROSPECT=1`; use a Forge version that includes this
+reporting mode and enter through `app.Run()`. Go builds use `-mod=readonly` and
+an owned temporary binary. App initialization and extension registration execute,
+so this option is for trusted project code. The framework returns its report
+before application Start, DI Start or migration hooks.
+
+Your extension can implement the optional `forge.InfraRequirer` interface:
+
+```go
+func (e *BillingExtension) InfraRequirements() []forge.InfraRequirement {
+    return []forge.InfraRequirement{{
+        Kind: "redis",
+        Instance: "jobs",
+        ConfigKey: "extensions.billing.redis_url",
+    }}
+}
+```
+
+The CLI returns `data.runtime` reports with schema `forge.infra/v1`, the app name
+and each requirement's extension, kind, instance, config key and optional flag.
+Reports are bounded to 1 MiB and 4,096 requirements, and malformed output fails
+without echoing raw subprocess output. A custom App implementation or an entry
+point that calls Start directly needs its own compatible reporting mode.
+
+These requirements are inspection metadata. You still choose the resource,
+binding and placement explicitly before planning. The browser never executes
+this option, and later plan/apply commands do not rerun the app for discovery.
+
+## Custom descriptors
+
+Put an extension's `forge-deploy.yaml` at its module root, or place a project
+override under `deploy/descriptors/`:
+
+```yaml
+schema: 1
+extension: billing
+config_key: extensions.billing
+kinds: { redis: redis }
+bind: { dsn: redis_url }
+```
+
+Project descriptors take precedence over module descriptors, then the embedded
+catalog. Inspection retains the source. Each file must contain one descriptor
+with a known resource kind; unknown fields, extra YAML documents and unsupported
+schema versions fail validation. A descriptor declares configuration bindings,
+not permission to provision an unsupported backend.
+
+## Portable and hosted targets
+
+```yaml
+deploy:
+  targets:
+    vm-prod:
+      provider: vm
+      build:
+        source: existing
+        delivery: registry
+        images:
+          api: ghcr.io/example/api@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    hosted-prod:
+      provider: hosted
+      secret_keys: { primary-dsn: vault-primary }
+      build:
+        source: existing
+        delivery: registry
+        images:
+          api: ghcr.io/example/api@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Use your actual image digest. `vm`, `fly` and `railway` export a portable Compose
+graph with `HANDOFF.md`. For a VM, copy the bundle to an existing host, configure
+registry pulls and private runtime values, validate Compose and follow the
+initialization/migration sequence before application rollout. Forge does not
+create a VM or run SSH. Fly and Railway require manual translation into native
+platform configuration, including persistent storage and networking.
+
+`hosted` exports `forge-hosted.json`, with one main service per workload,
+ctrlplane-compatible service/config fields and separate secret bindings. Each
+external resource secret name maps to an existing vault key through
+`target.secret_keys`. The hosted authority supplies tenant and instance identity,
+authorizes those keys and injects values at each binding's environment variable.
+Laptop credentials are not required or exported.
+
+The hosted contract currently accepts immutable registry images and existing
+external data services. Explicit external URLs are required for service edges.
+Discovery, migrations, arbitrary mounts, private image pulls and native routing
+remain account-side qualification gates. Readiness maps to the contract's health
+check; liveness and startup paths remain annotations for account-side probes.
+
+```bash
+forge deploy plan --target hosted-prod --env production --output json
+forge deploy export --plan FULL_HASH --output-dir ./deployments/hosted/production
+forge deploy providers --output json
+```
+
+Keep the environment's target and resource placement consistent with your chosen
+profile. Export adapters reject apply, status, logs, rollback and destroy with
+exit 4. Their handoffs contain no successful remote deployment claim.
+
+## Available adapters
+
+| Target               | Current behavior                                                                      | Level      |
+| -------------------- | ------------------------------------------------------------------------------------- | ---------- |
+| Docker Compose       | Apply, observe, logs, rollback and retained-data destroy                              | apply      |
+| Kubernetes           | Kustomize, explicit context, dry-run and observed rollout; optional controller export | apply      |
+| Render, DigitalOcean | Pinned-schema provider specifications and required-secret handoff                     | validated  |
+| VM, Fly.io, Railway  | Portable Compose graph with platform instructions                                     | renderable |
+| Hosted               | Typed workload/config/vault-binding export for an account authority                   | renderable |
+
+Compose and Kubernetes have disposable-stack qualification. Managed accounts,
+controller reconciliation and hosted imports need their own live qualification.
+The level is a capability boundary, not a promise that every configuration or
+platform account has been tested.
 
 ## Where the design lives
 
@@ -349,7 +470,7 @@ GitHub.
   names, signatures, diagnostic codes and fixtures the plans share.
 - `docs/superpowers/plans/2026-10-09-forge-deploy-01-honest-cli-and-spec.md`,
   `02-discover-catalog-resolve.md` and `03-compose.md`: the first three
-  slices as small test-first tasks. Plan 04 covers Kubernetes and image delivery. Plans 05 to 07 cover the local page, managed providers and extension hooks.
+  slices as small test-first tasks. Plans 04 to 07 cover Kubernetes, the local page, managed handoffs, runtime requirements and hosted contracts. These slices are implemented within the adapter boundaries above.
 - [Source review](https://github.com/xraph/forge/blob/main/docs/deployment/PLAN.md):
   what the current commands do, with file references, and the acceptance
   gates for live providers.

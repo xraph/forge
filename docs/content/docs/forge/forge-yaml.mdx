@@ -425,7 +425,22 @@ Declare each resource by name with a `type`, optional `version`, `features` and 
 
 #### `targets`
 
-Every target names its `provider`. Compose targets use `project` and `docker_context`. Kubernetes targets use `context`, `namespace`, `ingress_class`, `gateway_api` and `network_policy`. Hosted targets carry a `region` and adapter-specific settings. Declaring a provider does not establish that its adapter supports applying a deployment.
+Every target names its `provider`. Compose targets use `project` and `docker_context`. Kubernetes targets use `context`, `namespace`, `ingress_class`, `gateway_api` and `network_policy`. Render and DigitalOcean targets carry provider region/build settings. `vm`, `fly` and `railway` generate portable Compose handoffs; `hosted` generates control-plane workload contracts. Declaring a provider does not establish that its adapter supports applying a deployment.
+
+`gateway` selects a declared gateway service when there are several. Discovery-enabled callers receive its FARP URL, and an excluded gateway requires an external service endpoint.
+
+For `provider: hosted`, `secret_keys` maps each external resource's secret reference name to an existing vault key. Hosted inspection reports the mapping as unverified until the account authorizes it. The export contains separate key/environment bindings without plaintext values. Tenant and instance identity belong to the hosted authority.
+
+```yaml
+deploy:
+  targets:
+    hosted-prod:
+      provider: hosted
+      secret_keys: { primary-dsn: vault-primary }
+      build: { source: existing, delivery: registry }
+```
+
+Add immutable `build.images` for each selected service and external resource placement in the environment. `forge deploy providers --output json` reports each adapter's current level.
 
 #### `secrets`
 

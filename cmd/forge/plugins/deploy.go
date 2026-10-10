@@ -39,8 +39,8 @@ func deployFlags() []cli.CommandOption {
 	}
 }
 
-// planned lists subcommands that later releases add. Help shows them so the
-// surface is stable; each returns exit 4 until it lands.
+// planned declares the shared deployment command surface. Handlers report
+// the selected adapter's implemented capabilities.
 var planned = []struct{ name, desc string }{
 	{"migrate", "Migrate a legacy deployment configuration to version 2"},
 	{"schema", "Print the deployment JSON Schema"},

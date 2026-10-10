@@ -4,8 +4,9 @@ Status: workbench and shared deployment contracts implemented, 9 October 2026.
 Run `forge deploy start` for the authenticated embedded page. It saves named
 targets, service scope, resource placement and delivery choices through the shared
 Engine, with files by default and optional SQLite or PostgreSQL authority.
-Compose and Kubernetes apply through reviewed plans. Managed delivery and hosted
-adapters retain separate qualification gates.
+Compose and Kubernetes apply through reviewed plans. Managed delivery is
+schema-validated export, and portable/hosted contracts are renderable handoffs.
+Actual platform accounts retain separate qualification gates.
 
 The sections below preserve the original workflow proposal. The static dashboard
 mock still rehearses operations in browser storage. For current commands and

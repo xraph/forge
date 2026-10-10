@@ -182,21 +182,22 @@ refuses resource removal when a running service has unknown bindings.
 Every command accepts `--config`, `--target`, `--env`, `--timeout`,
 `--output text|json`, `--non-interactive` and `--no-color`.
 
-| Command                                     | Additional options                                                       |
-| ------------------------------------------- | ------------------------------------------------------------------------ |
-| `init`                                      | `--force`, `--yes`, repeated `--answer path=value`                       |
-| `migrate`                                   | `--dry-run`, `--yes`                                                     |
-| `schema`, `inspect`, `providers`, `catalog` | No additional options                                                    |
-| `doctor`                                    | `--offline`                                                              |
-| `start`                                     | `--port`, `--no-open`, `--token`, `--store`, `--store-ref`               |
-| `plan`                                      | `--services`, `--out`                                                    |
-| `export`                                    | `--services`, `--plan`, `--output-dir`, `--force`                        |
-| `apply`                                     | `--plan`, `--approve-plan`, `--allow-destructive`                        |
-| `up`                                        | `--services`, `--plan`, `--approve-plan`, `--yes`, `--allow-destructive` |
-| `status`                                    | No additional options                                                    |
-| `logs SERVICE`                              | `--tail`, `--follow`                                                     |
-| `rollback`                                  | `--release`, `--yes`                                                     |
-| `destroy`                                   | `--delete-data`, `--yes`                                                 |
+| Command                          | Additional options                                                       |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `init`                           | `--force`, `--yes`, repeated `--answer path=value`                       |
+| `migrate`                        | `--dry-run`, `--yes`                                                     |
+| `schema`, `providers`, `catalog` | No additional options                                                    |
+| `inspect`                        | `--exec`, `--app` (explicit trusted runtime inspection only)             |
+| `doctor`                         | `--offline`                                                              |
+| `start`                          | `--port`, `--no-open`, `--token`, `--store`, `--store-ref`               |
+| `plan`                           | `--services`, `--out`                                                    |
+| `export`                         | `--services`, `--plan`, `--output-dir`, `--force`                        |
+| `apply`                          | `--plan`, `--approve-plan`, `--allow-destructive`                        |
+| `up`                             | `--services`, `--plan`, `--approve-plan`, `--yes`, `--allow-destructive` |
+| `status`                         | No additional options                                                    |
+| `logs SERVICE`                   | `--tail`, `--follow`                                                     |
+| `rollback`                       | `--release`, `--yes`                                                     |
+| `destroy`                        | `--delete-data`, `--yes`                                                 |
 
 Rollback uses recorded image IDs. It refuses a release with irreversible or
 unqualified migrations; use a forward migration in that case. Status counts all
@@ -422,3 +423,26 @@ CLI and page apply reject GitOps profiles before provider mutation. Forge does
 not write to your manifest repository, create controller resources or record a
 controller sync as a healthy release. Render's source Git deployment is configured
 under `build`; it does not use this manifest controller handoff.
+
+## Runtime discovery and portable handoffs
+
+```bash
+forge deploy inspect --exec --app api --timeout 2m --output json
+forge deploy providers --output json
+forge deploy export --plan FULL_HASH --output-dir ./deployments/review
+```
+
+`inspect --exec` runs trusted app initialization and extension registration in
+`FORGE_INTROSPECT=1` mode, then accepts a bounded `forge.infra/v1` report. It never
+runs automatically during planning or from the browser. Your extension can add
+`InfraRequirements() []forge.InfraRequirement`; each requirement remains metadata
+until you choose an explicit deploy binding and resource placement.
+
+VM, Fly and Railway adapters export a portable Compose graph with instructions.
+They require immutable existing/CI registry images and do not apply remotely.
+Fly/Railway files need translation into native platform configuration. The hosted
+adapter exports ctrlplane service/config fields and explicit vault bindings from
+`target.secret_keys`, with account identity supplied by the hosted authority.
+Service routing, private pulls, discovery and migrations remain hosted
+qualification gates. See the [workbench guide](/docs/forge/deployment-workbench)
+for descriptors, gateway selection and complete handoff examples.

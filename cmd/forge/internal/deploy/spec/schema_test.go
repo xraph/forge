@@ -2,6 +2,8 @@ package spec
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -78,5 +80,30 @@ func TestSchemaCoversEveryField(t *testing.T) {
 
 	if schema["$id"] != "https://raw.githubusercontent.com/xraph/forge/main/schema/forge-deploy.schema.json" {
 		t.Fatalf("$id: %v", schema["$id"])
+	}
+}
+
+func TestPublishedDeploymentSchemaMatchesCLI(t *testing.T) {
+	published, e := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "schema", "forge-deploy.schema.json"))
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	embedded, e := Schema()
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	var left, right map[string]any
+	if e = json.Unmarshal(published, &left); e != nil {
+		t.Fatal(e)
+	}
+
+	if e = json.Unmarshal(embedded, &right); e != nil {
+		t.Fatal(e)
+	}
+
+	if !reflect.DeepEqual(left, right) {
+		t.Fatal("published deployment schema differs from CLI schema")
 	}
 }

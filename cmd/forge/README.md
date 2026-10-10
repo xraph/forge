@@ -60,10 +60,13 @@ forge infra k8s export
 
 Use `forge deploy inspect`, `forge deploy init`, and `forge deploy doctor --offline` to discover and check a stack. Migrate deployment YAML with `forge deploy migrate` and print its schema with `forge deploy schema`. Commands awaiting an adapter return exit code 4; the implementation path is recorded in [the deployment plan](../../docs/deployment/PLAN.md).
 
-The proposed `forge deploy start` local page and shared plan/apply workflow are
-described in [the deployment plan](../../docs/deployment/PLAN.md). You can review
-the [interactive UI mock](../../docs/public/mock/deploy.html); it exports proposal
-files and simulates deployment progress without contacting a provider.
+Run `forge deploy start` for the embedded deployment page. It saves named targets,
+service scope, resources and delivery choices through the same Engine as the CLI.
+Files are the default, with optional SQLite/PostgreSQL authority. Compose and
+Kubernetes apply reviewed plans. Render/DO export validated provider files;
+VM/Fly/Railway and hosted targets export explicit handoffs. See the
+[workbench guide](<../../docs/content/docs/forge/(cli)/deployment-workbench.mdx>).
+The [static mock](../../docs/public/mock/deploy.html) remains a proposal rehearsal.
 
 ## Project Layouts
 
@@ -230,7 +233,10 @@ forge deploy migrate --yes --non-interactive --output json
 forge deploy schema
 ```
 
-The remaining deploy engine commands are registered and return exit 4 until implemented. Legacy infrastructure exports write provider files for review.
+Use `forge deploy inspect --exec --app api` for opt-in registered infrastructure
+metadata and `forge deploy providers` for current adapter levels. Export-only
+adapters return exit 4 for lifecycle commands. Their `HANDOFF.md` explains the
+provider setup and qualification still required.
 
 ### Extensions
 

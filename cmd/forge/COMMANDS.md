@@ -400,7 +400,9 @@ forge build -o ./dist               # Custom output
 Configure and apply a version 2 project with the shared deployment engine:
 
 ```bash
+forge deploy start
 forge deploy inspect --output json
+forge deploy inspect --exec --app api --timeout 2m --output json
 forge deploy init
 forge deploy doctor --env dev
 forge deploy plan --env dev --output json
@@ -418,8 +420,12 @@ non-interactive mode. `up --yes` approves the freshly generated plan. `destroy`
 retains volumes unless you pass `--delete-data`. Rollback refuses unqualified
 migration reversibility.
 
-Compose supports the full lifecycle. `start` and the other provider adapters are
-being implemented. Legacy platform exports remain available. Version 2 projects
+Compose and Kubernetes support reviewed lifecycle operations. `start` serves the
+authenticated embedded page with file or SQL authority. Render/DO export validated
+provider specifications. VM/Fly/Railway export portable Compose handoffs and
+`hosted` exports typed workload/vault-binding contracts. Runtime `--exec` is an
+inspect-only opt-in; the browser never runs it. Export adapters return exit 4 for
+lifecycle operations. Legacy platform exports remain available. Version 2 projects
 use the shared engine through `forge infra docker export` too. See the
 [deployment reference](../../docs/content/docs/forge/(cli)/build-deploy.mdx) for
 build sources, secret delivery, service scope, resource recipes and exit codes.

@@ -142,3 +142,42 @@ Actual provider Git connections, registry authentication/build/push/pull, contro
 Render and DigitalOcean App Platform exports validate against embedded, pinned upstream schemas. Tests cover internal service references, provider secret placeholders, existing DigitalOcean database clusters, branch build triggers and rejection of unsupported resource features. No disposable cloud account has been qualified; both adapters stay at `validated` and reject lifecycle operations. Kubernetes GitOps exports pass Kustomize parsing and enumerate existing Secret requirements. Controller sync, pruning and migration ordering remain outside this handoff.
 
 The [Deploy Workbench job](https://github.com/xraph/forge/actions/runs/38019154594) passes on native Linux. It qualifies private-registry login, denied login, reviewed image publication, CLI replay, immutable digests and unchanged workload state. Files and SQLite lifecycle fixtures pass in 200.80 seconds; registry publication passes in 13.27 seconds and PostgreSQL authority contracts in 1.51 seconds. The complete repository workflow still fails unrelated baseline jobs. Docker Desktop's loopback registry fixture and actual GHCR credentials remain unqualified.
+
+## Extension reports and portable contracts
+
+`forge deploy inspect --exec --app api` builds a trusted app with readonly module
+mode and runs its registration/reporting path. Native child-process tests prove
+that Run returns before Start. Decoder and runner contracts reject malformed,
+unknown-field and oversized reports, enforce execution deadlines and suppress
+raw child output in CLI errors. Ordinary inspection and the browser never invoke
+runtime app execution. Module/project descriptor precedence remains intact, with
+strict single-document and resource-kind validation.
+
+Gateway contracts cover explicit selection, excluded-gateway external endpoints,
+separate ordinary/FARP edges and enabled FARP overlays. Compose exposes logical
+service identity; Kubernetes injects each replica's pod UID. Overrides of
+provider-owned identity fields fail validation.
+
+VM, Fly and Railway export deterministic immutable-image Compose handoffs and
+reject lifecycle operations. Hosted exports map one main service per workload,
+separate vault key/environment bindings and sanitized config files. A plan/export
+contract passes without laptop credentials. Strict typed decoding against the
+actual ctrlplane checkout at `f98ccc987c10f38689747f413db8449cb83be9df` passes for
+ServiceSpec, ConfigFile and SecretBinding. Its driver's binary memory units are
+covered separately. These adapters remain `renderable`; no VM, SaaS native import
+or hosted account deployment was performed.
+
+The final UI suite has 23 passing cases. The actual embedded page saves and
+restores a hosted target, environment, external resource reference and vault key.
+Desktop and 390px checks cover both themes and cap-aware delivery instructions,
+with no horizontal overflow or console errors. The viewport override is reset.
+A typed field contract keeps the published deployment schema equal to the CLI
+schema, including managed database and hosted vault references.
+
+Full CLI tests, root infrastructure-report tests, relevant race suites, CLI/UI
+builds, scoped deployment lint, real Compose configuration and Kustomize parsing
+pass. Hosted conformance requires `FORGE_DEPLOY_CTRLPLANE_ROOT`; a skip is not
+qualification. Actual managed accounts, controller sync, native Fly/Railway
+imports, VM setup and hosted provisioning remain unverified. Broader lint still
+fails in 20 baseline modules (19 pass); full docs lint retains 100 errors,
+39 warnings and 113 informational findings outside the changed guides.
