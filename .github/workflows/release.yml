@@ -15,11 +15,13 @@ on:
         type: choice
         options:
           - forge
+          - forge-library
           - cli
           - all
           - auth
           - cache
           - consensus
+          - conduit
           - discovery
           - events
           - features
@@ -39,6 +41,11 @@ on:
         description: 'Semantic version to release (e.g. 1.2.3 or 1.0.0-beta.1)'
         required: true
         type: string
+      source_commit:
+        description: 'Pinned source for library/extension releases. Empty uses the selected workflow ref.'
+        required: false
+        type: string
+        default: ''
       dry_run:
         description: 'Dry run — validate everything but do not publish'
         required: false
@@ -70,7 +77,7 @@ env:
   # go.mod to tag. The version-reuse guard and the tag step both read this, so
   # the guard checks exactly the tags the step would create.
   RELEASE_EXTENSIONS: >-
-    auth cache consensus discovery events features graphql grpc hls kafka
+    auth cache consensus conduit discovery events features graphql grpc hls kafka
     mcp mqtt orpc queue search security streaming webrtc
 
 # -------------------------------------------------------------------
@@ -98,9 +105,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ inputs.source_commit || github.ref }}
 
       - name: Resolve release parameters
         id: resolve
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
           DRY_RUN="false"
           SKIP_TESTS="false"
@@ -120,6 +130,11 @@ jobs:
               exit 1
             fi
 
+            if [ -n "$SOURCE_COMMIT" ] && [[ "$MODULE" =~ ^(forge|cli|all)$ ]]; then
+              echo "::error::Pinned sources are supported for library and extension releases only."
+              exit 1
+            fi
+
             if [ "$MODULE" = "all" ]; then
               # "all" releases the main module + CLI + every extension at the same version
               IS_ALL="true"
@@ -130,6 +145,12 @@ jobs:
               TAG="v${VERSION}"
             elif [ "$MODULE" = "forge" ]; then
               MODULE_TYPE="main"
+              MODULE_NAME="forge"
+              MODULE_PATH="."
+              MODULE_IMPORT="github.com/xraph/forge"
+              TAG="v${VERSION}"
+            elif [ "$MODULE" = "forge-library" ]; then
+              MODULE_TYPE="library"
               MODULE_NAME="forge"
               MODULE_PATH="."
               MODULE_IMPORT="github.com/xraph/forge"
@@ -202,17 +223,19 @@ jobs:
             echo "is_all=$IS_ALL"
           } >> "$GITHUB_OUTPUT"
 
-          echo "### Release Parameters" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Module | \`$MODULE_NAME\` ($MODULE_TYPE) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Version | \`$VERSION\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Tag | \`$TAG\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Import | \`$MODULE_IMPORT\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Pre-release | $IS_PRERELEASE |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Dry run | $DRY_RUN |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Skip tests | $SKIP_TESTS |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Release all | $IS_ALL |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Release Parameters"
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| Module | \`$MODULE_NAME\` ($MODULE_TYPE) |"
+            echo "| Version | \`$VERSION\` |"
+            echo "| Tag | \`$TAG\` |"
+            echo "| Import | \`$MODULE_IMPORT\` |"
+            echo "| Pre-release | $IS_PRERELEASE |"
+            echo "| Dry run | $DRY_RUN |"
+            echo "| Skip tests | $SKIP_TESTS |"
+            echo "| Release all | $IS_ALL |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # A version is used once. On 2026-10-08 a dispatch of 1.12.1, a version
       # whose tag already existed at an older commit, skipped the main tag,
@@ -336,6 +359,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_commit || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -370,8 +395,9 @@ jobs:
         run: |
           cd ${{ needs.detect.outputs.module_path }}
           go mod download
-          PKGS=$(go list ./... | grep -v '/bk/')
-          go test -v -race -timeout=15m $PKGS
+          go list ./... | grep -v '/bk/' > "$RUNNER_TEMP/release-packages.txt"
+          mapfile -t packages < "$RUNNER_TEMP/release-packages.txt"
+          go test -v -race -timeout=15m "${packages[@]}"
 
   # -------------------------------------------------------------------
   # Job: release-cli
@@ -446,10 +472,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_commit || github.ref }}
 
-      # Only create a GH release for extensions — GoReleaser handles main
+      # Library and extension releases publish Go modules; GoReleaser handles the CLI.
       - name: Create GitHub Release (extensions)
-        if: needs.detect.outputs.module_type == 'extension'
+        if: needs.detect.outputs.module_type == 'extension' || needs.detect.outputs.module_type == 'library'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.detect.outputs.tag }}
@@ -469,6 +497,7 @@ jobs:
 
             - [pkg.go.dev](https://pkg.go.dev/${{ needs.detect.outputs.module_import }}@${{ needs.detect.outputs.tag }})
           draft: false
+          make_latest: ${{ needs.detect.outputs.module_type == 'library' && 'false' || 'legacy' }}
           prerelease: ${{ needs.detect.outputs.is_prerelease == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -561,6 +590,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ inputs.source_commit || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -616,10 +646,12 @@ jobs:
 
       - name: Dry run summary
         run: |
-          echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Module **${{ needs.detect.outputs.module_name }}** v${{ needs.detect.outputs.version }} validated successfully." >> "$GITHUB_STEP_SUMMARY"
-          echo "No artifacts were published." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Dry Run Complete"
+            echo ""
+            echo "Module **${{ needs.detect.outputs.module_name }}** v${{ needs.detect.outputs.version }} validated successfully."
+            echo "No artifacts were published."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # -------------------------------------------------------------------
   # Job: summary
@@ -815,11 +847,11 @@ jobs:
 
           # Prepend to CHANGELOG.md (after the # Changelog header)
           TMPFILE=$(mktemp)
-          echo "# Changelog" > "$TMPFILE"
-          echo "" >> "$TMPFILE"
-          printf "${ENTRY}\n" >> "$TMPFILE"
-          # Append existing content without the header
-          tail -n +3 CHANGELOG.md >> "$TMPFILE"
+          {
+            printf '# Changelog\n\n'
+            printf '%b\n' "$ENTRY"
+            tail -n +3 CHANGELOG.md
+          } > "$TMPFILE"
           mv "$TMPFILE" CHANGELOG.md
 
           echo "SKIP_CHANGELOG=false" >> "$GITHUB_ENV"

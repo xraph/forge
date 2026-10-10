@@ -17,5 +17,6 @@
   "extensions/search": "1.10.0",
   "extensions/security": "1.10.0",
   "extensions/streaming": "1.10.0",
-  "extensions/webrtc": "1.10.0"
+  "extensions/webrtc": "1.10.0",
+  "extensions/conduit": "0.0.0"
 }

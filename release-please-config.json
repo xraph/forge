@@ -34,6 +34,11 @@
       "package-name": "consensus",
       "component": "extensions/consensus"
     },
+    "extensions/conduit": {
+      "release-type": "go",
+      "package-name": "conduit",
+      "component": "extensions/conduit"
+    },
     "extensions/discovery": {
       "release-type": "go",
       "package-name": "discovery",

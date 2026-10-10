@@ -208,11 +208,21 @@ class CreateTest(TagTest):
 
 
 class WiringTest(unittest.TestCase):
+    def test_release_checkouts_share_the_pinned_source(self):
+        workflow = read(RELEASE)
+        self.assertIn("source_commit:", workflow)
+        for name in ("detect", "test", "release-module", "dry-run"):
+            self.assertIn("ref: ${{ inputs.source_commit || github.ref }}", job(workflow, name), name)
+        self.assertIn("ref: main", job(workflow, "update-changelog"))
+        self.assertIn('MODULE_TYPE="library"', workflow)
+        self.assertIn("Pinned sources are supported for library and extension releases only", workflow)
+        self.assertIn("module_type == 'library' && 'false'", job(workflow, "release-module"))
+
     def test_every_listed_extension_has_a_module_and_a_dispatch_option(self):
-        options = re.search(r"options:\n((?:\s+- [a-z]+\n)+)", read(RELEASE)).group(1).split()
+        options = re.search(r"options:\n((?:\s+- [-a-z]+\n)+)", read(RELEASE)).group(1).split()
         options = [o for o in options if o != "-"]
         listed = release_extensions()
-        self.assertEqual(sorted(set(options) - {"forge", "cli", "all"}), sorted(listed))
+        self.assertEqual(sorted(set(options) - {"forge", "forge-library", "cli", "all"}), sorted(listed))
         for ext in listed:
             self.assertTrue(os.path.exists(os.path.join(ROOT, "extensions", ext, "go.mod")), ext)
 
