@@ -244,37 +244,29 @@ export function ThemePicker() {
   const [theme, setTheme] = useState(
     () => preference("forge-deploy:theme") ?? "system",
   );
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () =>
-      document.documentElement.classList.toggle(
-        "dark",
-        theme === "dark" || (theme === "system" && media.matches),
-      );
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [theme]);
+    const update = () => setSystemDark(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const dark = theme === "dark" || (theme === "system" && systemDark);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+  }, [dark]);
   return (
-    <div className="flex items-center gap-1.5 text-muted-foreground">
-      {theme === "dark" ? (
-        <Moon className="size-3.5" />
-      ) : (
-        <Sun className="size-3.5" />
-      )}
-      <NativeSelect
-        aria-label="Color theme"
-        value={theme}
-        onChange={(e) => {
-          setTheme(e.target.value);
-          persistPreference("forge-deploy:theme", e.target.value);
-        }}
-        size="sm"
-      >
-        <NativeSelectOption value="system">System</NativeSelectOption>
-        <NativeSelectOption value="light">Light</NativeSelectOption>
-        <NativeSelectOption value="dark">Dark</NativeSelectOption>
-      </NativeSelect>
-    </div>
+    <IconButton
+      label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      icon={dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      variant="ghost"
+      onClick={() => {
+        const nextTheme = dark ? "light" : "dark";
+        setTheme(nextTheme);
+        persistPreference("forge-deploy:theme", nextTheme);
+      }}
+    />
   );
 }
