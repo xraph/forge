@@ -3,6 +3,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -60,13 +61,36 @@ func wrapTyped[I, O any](fn func(ctx context.Context, in I, p contract.Principal
 			return nil, err
 		}
 
-		data, mErr := json.Marshal(out)
+		data, mErr := marshalTypedOutput(out)
 		if mErr != nil {
-			return nil, &contract.Error{Code: contract.CodeInternal, Message: fmt.Sprintf("marshal output: %v", mErr)}
+			return nil, mErr
 		}
 
 		return &Result{Data: data}, nil
 	}
+}
+
+// errTypedOutputEncoding marks failure after the domain handler returned success.
+// Keep it private and unwrapped so custom marshaler errors cannot become public
+// contract errors or be mistaken for a domain failure.
+var errTypedOutputEncoding = errors.New("dispatcher: could not encode successful handler output")
+
+// marshalTypedOutput recovers only the output-encoding phase. Domain-function
+// panics remain outside this recovery and retain their existing cleanup.
+func marshalTypedOutput(out any) (data json.RawMessage, err error) {
+	defer func() {
+		if recover() != nil {
+			data = nil
+			err = errTypedOutputEncoding
+		}
+	}()
+
+	data, err = json.Marshal(out)
+	if err != nil {
+		return nil, errTypedOutputEncoding
+	}
+
+	return data, nil
 }
 
 // RegisterSubscription wraps a typed subscription handler. The pump goroutine
