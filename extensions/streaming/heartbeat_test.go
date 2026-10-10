@@ -160,8 +160,12 @@ func TestHeartbeat_SendsPingOnTheConfiguredInterval(t *testing.T) {
 	}
 
 	msg := conn.rec.lastJSON(t)
-	if msg.Event != "ping" {
-		t.Errorf("heartbeat wrote event %q, want %q", msg.Event, "ping")
+	if msg.Event != "" {
+		t.Errorf("heartbeat wrote domain event %q, want an empty event", msg.Event)
+	}
+
+	if msg.Metadata[LifecycleMetadataKey] != "ping" {
+		t.Errorf("heartbeat wrote lifecycle %v, want ping", msg.Metadata[LifecycleMetadataKey])
 	}
 
 	// The ping is an application message, not a WebSocket control frame. That
