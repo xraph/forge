@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,20 +58,17 @@ func (q *RabbitMQQueue) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	// Build connection URL
-	url := q.config.URL
-	if url == "" && len(q.config.Hosts) > 0 {
-		// Build URL from components
-		url = fmt.Sprintf("amqp://%s:%s@%s%s",
-			q.config.Username,
-			q.config.Password,
-			q.config.Hosts[0],
-			q.config.VHost,
-		)
+	rawURL := q.amqpURL()
+
+	// Parse up front so a bad URL fails here, with the password redacted,
+	// rather than inside amqp.Dial, whose parse error quotes the URL whole.
+	uri, err := amqp.ParseURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid rabbitmq url: %w", redactURLError(err))
 	}
 
 	// Connect to RabbitMQ
-	conn, err := amqp.Dial(url)
+	conn, err := amqp.Dial(rawURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
 	}
@@ -97,9 +96,43 @@ func (q *RabbitMQQueue) Connect(ctx context.Context) error {
 	q.connected = true
 	q.startTime = time.Now()
 
-	q.logger.Info("connected to rabbitmq", forge.F("url", url))
+	q.logger.Info("connected to rabbitmq", amqpLogFields(uri)...)
 
 	return nil
+}
+
+// amqpURL returns the URL Connect dials. A configured URL is used as given.
+// Otherwise one is built from Hosts[0], Username, Password and VHost through
+// net/url, so credentials holding '@', ':', '/' or '%' are escaped instead of
+// being read as URL syntax.
+func (q *RabbitMQQueue) amqpURL() string {
+	if q.config.URL != "" || len(q.config.Hosts) == 0 {
+		return q.config.URL
+	}
+
+	u := url.URL{Scheme: "amqp", Host: q.config.Hosts[0]}
+	if q.config.Username != "" || q.config.Password != "" {
+		u.User = url.UserPassword(q.config.Username, q.config.Password)
+	}
+
+	// VHost used to be glued straight onto the host, so "/prod" was the
+	// working way to write it. Accept that and the bare name alike. "" and
+	// "/" both mean the default vhost, which an empty path already selects.
+	if q.config.VHost != "" && q.config.VHost != "/" {
+		u.Path = "/" + strings.TrimPrefix(q.config.VHost, "/")
+	}
+
+	return u.String()
+}
+
+// amqpLogFields describes a connection by host, port and vhost only. The
+// URL itself never goes in a log line: it carries the password.
+func amqpLogFields(uri amqp.URI) []forge.Field {
+	return []forge.Field{
+		forge.F("host", uri.Host),
+		forge.F("port", uri.Port),
+		forge.F("vhost", uri.Vhost),
+	}
 }
 
 func (q *RabbitMQQueue) Disconnect(ctx context.Context) error {

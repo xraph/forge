@@ -79,7 +79,7 @@ func (q *NATSQueue) Connect(ctx context.Context) error {
 	// Connect to NATS
 	conn, err := nats.Connect(url, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to connect to nats: %w", err)
+		return fmt.Errorf("failed to connect to nats: %w", redactURLError(err))
 	}
 
 	// Create JetStream context
@@ -95,7 +95,7 @@ func (q *NATSQueue) Connect(ctx context.Context) error {
 	q.connected = true
 	q.startTime = time.Now()
 
-	q.logger.Info("connected to nats jetstream", forge.F("url", url))
+	q.logger.Info("connected to nats jetstream", forge.F("url", redactURLList(url)))
 
 	return nil
 }
