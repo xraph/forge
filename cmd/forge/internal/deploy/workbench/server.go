@@ -152,6 +152,10 @@ func New(options Options) (*Server, error) {
 		return nil, err
 	}
 
+	if options.Assets == nil {
+		options.Assets = Assets()
+	}
+
 	s := &Server{engine: options.Engine, root: root, timeout: options.Timeout, listener: listener, host: host, origin: "http://" + host, token: token, session: session, cookieName: "forge_workbench_" + port, assets: options.Assets, done: make(chan struct{}), events: newEvents(), runs: map[string]Run{}, proofs: map[string]lifecycleProof{}}
 	s.http = &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 8192}
 

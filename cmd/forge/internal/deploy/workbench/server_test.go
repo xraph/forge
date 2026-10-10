@@ -387,3 +387,16 @@ func TestSavedSettingsReloadAndCAS(t *testing.T) {
 		t.Fatal("saved settings missing after reload", response.Code, response.Body.String())
 	}
 }
+
+func TestEmbeddedPageIsServedAfterAuthentication(t *testing.T) {
+	s, cookie := serverFixture(t)
+
+	response := request(s, cookie, "GET", "/", "")
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "Forge deployment workbench") {
+		t.Fatal("embedded page unavailable", response.Code, response.Body.String())
+	}
+
+	if response := request(s, nil, "GET", "/assets/", ""); response.Code != 401 {
+		t.Fatal("unauthenticated assets accepted", response.Code)
+	}
+}

@@ -1,0 +1,82 @@
+@import "@forge-go/dashboard-kit/globals.css";
+@source './**/*.{ts,tsx}';
+@source '../node_modules/@forge-go/dashboard-kit/src/**/*.{ts,tsx}';
+:root {
+  --radius: 0.5rem;
+}
+body {
+  margin: 0;
+  font-size: 13px;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.code-panel {
+  min-width: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: -4rem;
+  z-index: 100;
+  border-radius: 0.4rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.5rem 0.75rem;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+[data-slot="table-cell"],
+[data-slot="table-head"] {
+  padding: 0.5rem 0.625rem;
+}
+[data-slot="native-select-wrapper"] {
+  min-width: 0;
+}
+[data-slot="native-select"] {
+  max-width: 100%;
+}
+@media (min-width: 1200px) {
+  .workspace-grid {
+    grid-template-columns: minmax(0, 1fr) 19rem;
+  }
+  .review-pane {
+    position: sticky;
+    top: 4rem;
+  }
+}
+@media (max-width: 640px) {
+  [data-slot="table-container"] {
+    max-width: 100%;
+  }
+  .code-panel {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
