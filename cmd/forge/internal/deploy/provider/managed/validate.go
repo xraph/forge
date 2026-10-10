@@ -191,8 +191,22 @@ func (m *Managed) Validate(_ context.Context, d *model.Deployment) output.Diagno
 			add("connection source is excluded: " + c.From)
 		}
 
-		if _, ok := services[c.To]; !ok && c.Address == "" {
-			add("connection destination needs an external URL or selected service: " + c.To)
+		if destination, ok := services[c.To]; !ok {
+			if c.Address == "" {
+				add("connection destination needs an external URL or selected service: " + c.To)
+			}
+		} else {
+			endpoint := false
+
+			for _, port := range destination.Ports {
+				if port.Name == c.Port && (port.Protocol == "http" || port.Protocol == "https") {
+					endpoint = true
+				}
+			}
+
+			if destination.Kind != spec.KindWeb && destination.Kind != spec.KindGateway || !endpoint {
+				add("connection destination requires a web service with the named HTTP port: " + c.To + "." + c.Port)
+			}
 		}
 	}
 
@@ -203,6 +217,20 @@ func (m *Managed) Validate(_ context.Context, d *model.Deployment) output.Diagno
 
 		if _, ok := services[r.Service]; !ok {
 			add("route points to an excluded service")
+		}
+	}
+
+	if m.Name() == "digitalocean" {
+		public := 0
+
+		for _, s := range d.Services {
+			if serviceType(s) == "web" {
+				public++
+			}
+		}
+
+		if public > 1 || len(d.Routes) > 1 {
+			add("DigitalOcean export supports one public root route; put a gateway in front of multiple services")
 		}
 	}
 
@@ -231,9 +259,14 @@ func doImage(i model.Image) (map[string]any, error) {
 		return nil, errors.New("DigitalOcean supports GHCR, Docker Hub or DOCR image registries")
 	}
 
-	out := map[string]any{"registry_type": kind, "repository": repository}
+	owner, image, ok := strings.Cut(repository, "/")
+	if !ok || owner == "" || image == "" {
+		return nil, errors.New("DigitalOcean image needs an owner and repository")
+	}
+
+	out := map[string]any{"registry_type": kind, "repository": image}
 	if kind != "DOCR" {
-		out["registry"] = registry
+		out["registry"] = owner
 	}
 
 	if i.Digest != "" {

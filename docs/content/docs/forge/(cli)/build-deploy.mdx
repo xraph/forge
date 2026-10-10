@@ -217,7 +217,8 @@ remain export-only until a disposable account passes live qualification. Apply,
 status, logs, rollback and destroy return exit 4 for these providers.
 
 Render exports `render.yaml` with service references, PostgreSQL and Redis bindings.
-DigitalOcean exports `app.yaml`; its managed database placement requires an existing
+DigitalOcean exports `app.yaml` with one public root route and its custom domain.
+Put a gateway in front of multiple public services. Its managed database placement requires an existing
 production cluster name in `targets.<target>.managed_databases.<resource>`.
 Redis JSON/search, object storage and messaging brokers need an existing service or
 a companion Compose or Kubernetes deployment. The compiler rejects unsupported
@@ -237,7 +238,11 @@ forge deploy export --plan <hash> --output-dir ./deployments/render/preview
 ```
 
 Review `HANDOFF.md` for required provider environment variables and prerequisites.
-Secret values are omitted from generated artifacts. Schema validation checks the
+Render environment aliases use provider references within the same service.
+Composed environment expressions and alias cycles are rejected; put interpolation
+in the Forge configuration overlay. Secret prompts follow each service's bindings.
+For DOCR images, App Platform uses your account's registry; confirm it owns the
+exported repository before import. Secret values are omitted from generated artifacts. Schema validation checks the
 export's shape; it does not provision an account or establish service health.
 Legacy platform exports remain available, but version 2 deployments should use
 the shared engine to retain resource and service-selection checks.

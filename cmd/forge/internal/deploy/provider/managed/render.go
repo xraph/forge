@@ -2,6 +2,7 @@ package managed
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -85,11 +86,16 @@ func (m *Managed) Render(ctx context.Context, d *model.Deployment) (*render.Bund
 	}
 
 	required := map[string]bool{}
+
 	for _, s := range d.Services {
-		env, err := m.environment(&clone, s, kinds, required)
+		localRequired := map[string]bool{}
+
+		env, err := m.environment(&clone, s, kinds, localRequired)
 		if err != nil {
 			return nil, err
 		}
+
+		maps.Copy(required, localRequired)
 
 		component := object{"name": s.Name}
 		if m.Name() == "render" {
@@ -175,6 +181,11 @@ func (m *Managed) Render(ctx context.Context, d *model.Deployment) (*render.Bund
 
 				if serviceType(s) == "web" {
 					doc["ingress"] = appendIngress(doc["ingress"], s.Name)
+					for _, route := range d.Routes {
+						if route.Service == s.Name && route.Host != "" {
+							doc["domains"] = []any{object{"domain": route.Host, "type": "PRIMARY"}}
+						}
+					}
 				} else if len(s.Ports) > 0 {
 					component["internal_ports"] = []int{s.Ports[0].Port}
 				}
@@ -336,9 +347,6 @@ func appendIngress(value any, name string) object {
 	rules := out["rules"].([]any)
 
 	path := "/"
-	if len(rules) > 0 {
-		path = "/" + name
-	}
 
 	out["rules"] = append(rules, object{"match": object{"path": object{"prefix": path}}, "component": object{"name": name}})
 
@@ -440,6 +448,31 @@ func (m *Managed) environment(d *model.Deployment, s model.Service, kinds map[st
 		}
 	}
 
+	if m.Name() == "render" {
+		for start := range values {
+			if start == "FORGE_CONFIG_OVERLAY_YAML" {
+				continue
+			}
+
+			seen := map[string]bool{}
+
+			key := start
+			for {
+				match := envVariable.FindStringSubmatch(values[key])
+				if len(match) != 2 || values[key] != "${"+match[1]+"}" || match[1] == key {
+					break
+				}
+
+				if seen[key] {
+					return nil, errors.New("Render environment aliases contain a cycle")
+				}
+
+				seen[key] = true
+				key = match[1]
+			}
+		}
+	}
+
 	keys := make([]string, 0, len(values)+len(refs))
 	for k := range values {
 		keys = append(keys, k)
@@ -465,6 +498,17 @@ func (m *Managed) environment(d *model.Deployment, s model.Service, kinds map[st
 				if m.Name() == "render" {
 					out = append(out, object{"key": k, "sync": false})
 				}
+
+				continue
+			}
+
+			if m.Name() == "render" && k != "FORGE_CONFIG_OVERLAY_YAML" && strings.Contains(v, "${") {
+				match := envVariable.FindStringSubmatch(v)
+				if len(match) != 2 || v != "${"+match[1]+"}" {
+					return nil, errors.New("Render cannot interpolate environment expressions; use a Forge configuration overlay")
+				}
+
+				out = append(out, object{"key": k, "fromService": object{"type": serviceType(s), "name": s.Name, "envVarKey": match[1]}})
 
 				continue
 			}
