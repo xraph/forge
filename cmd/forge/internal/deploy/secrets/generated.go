@@ -29,6 +29,11 @@ func Generate(d *model.Deployment, st *state.Store, external map[string]string) 
 		return nil, err
 	}
 
+	snapshot, err := st.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+
 	for _, r := range d.Resources {
 		switch r.Lifecycle {
 		case spec.LifecycleContainer:
@@ -45,6 +50,10 @@ func Generate(d *model.Deployment, st *state.Store, external map[string]string) 
 			}
 
 			if pass == "" {
+				if _, recorded := snapshot.Resources[r.Name]; recorded {
+					return nil, fmt.Errorf("resource %s has recorded data but its private credentials are missing; restore its credential file before applying", r.Name)
+				}
+
 				token := make([]byte, 24)
 				if _, err := rand.Read(token); err != nil {
 					return nil, err

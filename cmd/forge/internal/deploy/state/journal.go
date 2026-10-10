@@ -2,7 +2,10 @@ package state
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"slices"
 
@@ -29,7 +32,57 @@ type fileJournal struct {
 	path string
 }
 
-func (s *Store) Journal() Journal { return &fileJournal{root: s.root, path: "journal.jsonl"} }
+func (s *Store) Journal() Journal {
+	if s.db != nil {
+		return &sqlJournal{store: s}
+	}
+
+	return &fileJournal{root: s.root, path: "journal.jsonl"}
+}
+
+type sqlJournal struct{ store *Store }
+
+func (j *sqlJournal) Record(ev Event) error {
+	if err := j.store.checkAuthority(); err != nil {
+		return err
+	}
+
+	if j.store.lease == nil {
+		return ErrLocked
+	}
+
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return j.store.lease.Append(ctx, "journal.jsonl", append(raw, '\n'))
+}
+func (j *sqlJournal) Events() ([]Event, error) {
+	raw, err := j.store.ReadFile("journal.jsonl")
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeEvents(bytes.NewReader(raw))
+}
+func (j *sqlJournal) Completed(key string) (Event, bool) {
+	events, _ := j.Events()
+	for _, event := range slices.Backward(events) {
+		if event.IdempotencyKey == key && (event.Status == StatusAccepted || event.Status == StatusHealthy) {
+			return event, true
+		}
+	}
+
+	return Event{}, false
+}
 
 func (j *fileJournal) Record(ev Event) error {
 	f, err := j.root.OpenFile(j.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -61,9 +114,12 @@ func (j *fileJournal) Events() ([]Event, error) {
 	}
 	defer f.Close()
 
+	return decodeEvents(f)
+}
+func decodeEvents(reader io.Reader) ([]Event, error) {
 	var out []Event
 
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(reader)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	for sc.Scan() {

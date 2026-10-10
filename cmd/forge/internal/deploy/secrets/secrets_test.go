@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xraph/forge/cmd/forge/internal/deploy/catalog"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/state"
 )
 
 func TestEnvVarName(t *testing.T) {
@@ -101,5 +104,24 @@ func TestSecretFileErrorRedactsContent(t *testing.T) {
 	_, err := r.(*FileResolver).ValuesForApply(context.Background())
 	if err == nil || strings.Contains(err.Error(), "top-secret-value") {
 		t.Fatalf("secret leaked: %v", err)
+	}
+}
+
+func TestRecordedBackendCannotRegenerateLostCredentials(t *testing.T) {
+	root := t.TempDir()
+
+	st, err := state.Open(root, "local", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.SaveSnapshot(state.Snapshot{Resources: map[string]state.ResourceState{"primary": {Name: "primary", Lifecycle: spec.LifecycleContainer}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &model.Deployment{Project: "atlas", Resources: []model.Resource{{Name: "primary", Lifecycle: spec.LifecycleContainer, Secret: model.SecretRef{EnvVar: "ATLAS_PRIMARY_DSN"}, RuntimeRecipe: &catalog.Recipe{Port: 5432, DSN: "postgres://USER:PASSWORD@primary:5432/atlas"}}}}
+	if _, err := Generate(d, st, nil); err == nil {
+		t.Fatal("running database credential silently replaced")
 	}
 }

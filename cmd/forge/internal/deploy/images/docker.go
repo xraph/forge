@@ -20,7 +20,7 @@ func PrepareDocker(ctx context.Context, runner execx.Runner, rootPath string, d 
 		return nil
 	}
 
-	lock, err := state.Open(rootPath, "registry-contexts", registryConnectionName(d))
+	lock, err := state.OpenPrivate(rootPath, "registry-contexts", registryConnectionName(d))
 	if err != nil {
 		return err
 	}
