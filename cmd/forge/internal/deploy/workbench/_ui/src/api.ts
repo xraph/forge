@@ -133,19 +133,21 @@ export type Settings = {
   files: { path: string; hash: string; content: string }[];
   deploy: Deploy | null;
 };
+export type Suggestion = {
+  kind: string;
+  path: string;
+  value: unknown;
+  source: string;
+  confidence: string;
+  question?: string;
+  options?: string[];
+};
 export type Project = {
   name: string;
   settings: Settings;
   apps: { name: string; config_paths?: string[] }[];
-  suggestions: {
-    kind: string;
-    path: string;
-    value: unknown;
-    source: string;
-    confidence: string;
-    question?: string;
-    options?: string[];
-  }[];
+  suggestions: Suggestion[];
+  decisions: Suggestion[];
   diagnostics: Diagnostic[];
   providers: { name: string; level: string }[];
 };

@@ -60,6 +60,7 @@ function normalizeProject(p: Project): Project {
     ...p,
     apps: p.apps ?? [],
     suggestions: p.suggestions ?? [],
+    decisions: p.decisions ?? [],
     diagnostics: p.diagnostics ?? [],
     providers: p.providers ?? [],
     settings: {

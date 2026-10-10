@@ -693,43 +693,69 @@ export function providerName(name: string) {
 
 function InitialConfiguration({ w }: { w: Workspace }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const decisions = (w.project?.suggestions ?? []).filter(
-    (s) => s.kind === "decision",
+  const decisions = w.project?.decisions ?? [];
+  const resourceChoices = new Set(
+    decisions.filter((d) => d.kind === "resource").map((d) => d.path),
   );
+  const activeDecisions = decisions.filter((decision) => {
+    const resource = decision.path.match(/^(deploy\.resources\.[^.]+)\./)?.[1];
+    return (
+      !resource ||
+      !resourceChoices.has(resource) ||
+      answers[resource] === "include"
+    );
+  });
+  const remaining = activeDecisions.filter((decision) => {
+    const answer = answers[decision.path];
+    return (
+      !answer ||
+      (decision.options?.length && !decision.options.includes(answer))
+    );
+  }).length;
   return (
     <Panel
       title="Discover deployment settings"
       description="Review the project's declared applications and answer open deployment choices before creating targets."
     >
       <div className="space-y-4">
-        {decisions.map((decision, i) => (
-          <div key={i} className="space-y-1">
-            {decision.options?.length ? (
-              <SelectField
-                label={decision.question || decision.path}
-                value={answers[decision.path] ?? ""}
-                onChange={(value) =>
-                  setAnswers({ ...answers, [decision.path]: value })
-                }
-                options={[
-                  { value: "", label: "Choose an answer" },
-                  ...decision.options.map((value) => ({ value, label: value })),
-                ]}
-              />
-            ) : (
-              <TextField
-                label={decision.question || decision.path}
-                value={answers[decision.path] ?? ""}
-                onChange={(value) =>
-                  setAnswers({ ...answers, [decision.path]: value })
-                }
-              />
-            )}
-            <p className="text-[11px] text-muted-foreground">
-              {decision.source} · {decision.confidence}
-            </p>
-          </div>
-        ))}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {activeDecisions.map((decision) => (
+            <div key={decision.path} className="min-w-0 space-y-1">
+              {decision.options?.length ? (
+                <SelectField
+                  label={decision.question || decision.path}
+                  value={answers[decision.path] ?? ""}
+                  onChange={(value) =>
+                    setAnswers({ ...answers, [decision.path]: value })
+                  }
+                  options={[
+                    { value: "", label: "Choose an answer" },
+                    ...decision.options.map((value) => ({
+                      value,
+                      label:
+                        value === "include"
+                          ? "Include resource"
+                          : value === "skip"
+                            ? "Skip resource"
+                            : value,
+                    })),
+                  ]}
+                />
+              ) : (
+                <TextField
+                  label={decision.question || decision.path}
+                  value={answers[decision.path] ?? ""}
+                  onChange={(value) =>
+                    setAnswers({ ...answers, [decision.path]: value })
+                  }
+                />
+              )}
+              <p className="break-all text-[11px] text-muted-foreground">
+                {decision.source} · {decision.confidence}
+              </p>
+            </div>
+          ))}
+        </div>
         {!decisions.length && (
           <p className="text-sm text-muted-foreground">
             Forge found {w.project?.apps?.length ?? 0} declared applications.
@@ -737,19 +763,32 @@ function InitialConfiguration({ w }: { w: Workspace }) {
             resource placement.
           </p>
         )}
-        <Button
-          size="sm"
-          disabled={w.busy}
-          onClick={() =>
-            void w.act(async () => {
-              await w.api.request("init", { answers, force: false });
-              await w.load();
-            })
-          }
-        >
-          <FileCode2 />
-          Initialize deployment
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            disabled={w.busy || remaining > 0}
+            onClick={() =>
+              void w.act(async () => {
+                await w.api.request("init", {
+                  answers: Object.fromEntries(
+                    activeDecisions.map((d) => [d.path, answers[d.path]]),
+                  ),
+                  force: false,
+                });
+                await w.load();
+              })
+            }
+          >
+            <FileCode2 />
+            Initialize deployment
+          </Button>
+          {remaining > 0 && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Answer {remaining} remaining{" "}
+              {remaining === 1 ? "choice" : "choices"} to initialize.
+            </p>
+          )}
+        </div>
       </div>
     </Panel>
   );

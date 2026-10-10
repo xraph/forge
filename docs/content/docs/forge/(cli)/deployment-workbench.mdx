@@ -123,6 +123,27 @@ to review an older block, then `forge deploy migrate --yes` to save it with a
 backup. Saving checks the source hashes again and writes the exact proposal
 you reviewed. If those files changed, review a new proposal first.
 
+The page shows Include resource and Skip resource for each dependency found only
+through imports. Choose Include when your deployed services need that backend.
+A transitive import can bring in drivers you don't use, so check your runtime
+config before including every suggestion. If you skip Redis, its JSON and search
+question is hidden. Initialize deployment becomes available after you've answered
+the remaining choices and writes the resulting deployment config.
+
+In scripts, supply the same choices with `--answer`:
+
+```bash
+forge deploy init --non-interactive --yes \
+  --answer deploy.resources.mongodb=skip \
+  --answer deploy.resources.nats=include \
+  --answer deploy.resources.postgres=include \
+  --answer deploy.resources.redis=include \
+  --answer deploy.resources.redis.features=none
+```
+
+These are example choices. Use the resource paths shown by your own inspection
+and include only the backends your selected services need.
+
 Offline inspection checks local secret references and leaves cluster references
 unverified. It does not contact Kubernetes. Use online `doctor` to check those
 references before you apply.

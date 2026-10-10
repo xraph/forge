@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/xraph/forge/cmd/forge/internal/deploy/discover"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/engine"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
@@ -34,6 +35,7 @@ func errorData(err error) *APIError {
 
 	var typed *output.Error
 	if errors.As(err, &typed) {
+		data.Message = typed.Error()
 		data.Code = typed.Code
 		data.Diagnostics = typed.Diagnostics
 	}
@@ -162,7 +164,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		success(w, map[string]any{"name": res.Project, "settings": publicSettings(view), "apps": res.Discovery.Apps, "suggestions": res.Discovery.Suggestions, "diagnostics": res.Diagnostics, "providers": s.engine.Providers(ctx)})
+		_, decisions := discover.Block(res.Discovery.Suggestions, spec.Defaults{})
+
+		success(w, map[string]any{"name": res.Project, "settings": publicSettings(view), "apps": res.Discovery.Apps, "suggestions": res.Discovery.Suggestions, "decisions": decisions, "diagnostics": res.Diagnostics, "providers": s.engine.Providers(ctx)})
 	case "GET /api/files":
 		view, err := s.engine.Files(ctx)
 		if err != nil {

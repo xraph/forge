@@ -55,6 +55,7 @@ const base: Project = {
   },
   apps: [{ name: "api" }, { name: "worker" }],
   suggestions: [],
+  decisions: [],
   diagnostics: [],
   providers: [
     { name: "compose", level: "apply" },
@@ -410,6 +411,163 @@ it("initializes deployment settings for an existing Forge project", async () => 
     await screen.findByRole("button", { name: "Select local" }),
   ).toBeVisible();
   expect(f.calls).toHaveBeenCalledWith("init", { answers: {}, force: false });
+});
+
+function importedResourceProject() {
+  const initial = structuredClone(base);
+  initial.settings.deploy = null;
+  initial.decisions = [
+    {
+      kind: "decision",
+      path: "deploy.services.worker.health",
+      value: null,
+      source: "cmd/worker/.forge.yaml",
+      confidence: "medium",
+      question: "How should worker health be observed?",
+      options: ["heartbeat", "none"],
+    },
+    ...["mongodb", "nats", "postgres", "redis"].map((name) => ({
+      kind: "resource",
+      path: `deploy.resources.${name}`,
+      value: { type: name },
+      source: `go list: example.com/drivers/${name}`,
+      confidence: "low",
+      question: `Add ${name} detected through imports?`,
+      options: ["include", "skip"],
+    })),
+    {
+      kind: "decision",
+      path: "deploy.resources.redis.features",
+      value: null,
+      source: "go list: example.com/drivers/redis",
+      confidence: "medium",
+      question: "Does the app use Redis JSON or search?",
+      options: ["json,search", "none"],
+    },
+  ];
+  return initial;
+}
+
+it("collects imported resource choices before initialization", async () => {
+  const f = fixture(importedResourceProject());
+  const user = userEvent.setup();
+  render(<Workbench api={f.api} />);
+  const initialize = await screen.findByRole("button", {
+    name: "Initialize deployment",
+  });
+  expect(initialize).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("5 remaining choices");
+  expect(
+    screen.queryByRole("combobox", {
+      name: "Does the app use Redis JSON or search?",
+    }),
+  ).not.toBeInTheDocument();
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "How should worker health be observed?",
+    }),
+    "none",
+  );
+  for (const name of ["mongodb", "nats", "postgres", "redis"]) {
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: `Add ${name} detected through imports?`,
+      }),
+      name === "mongodb" ? "skip" : "include",
+    );
+  }
+  expect(initialize).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("1 remaining choice");
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "Does the app use Redis JSON or search?",
+    }),
+    "none",
+  );
+  expect(initialize).toBeEnabled();
+  expect(f.calls.mock.calls.some(([path]) => path === "init")).toBe(false);
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "Add postgres detected through imports?",
+    }),
+    "",
+  );
+  expect(initialize).toBeDisabled();
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "Add postgres detected through imports?",
+    }),
+    "include",
+  );
+  await user.click(initialize);
+  expect(
+    await screen.findByRole("button", { name: "Select local" }),
+  ).toBeVisible();
+  expect(f.calls).toHaveBeenCalledWith("init", {
+    answers: {
+      "deploy.services.worker.health": "none",
+      "deploy.resources.mongodb": "skip",
+      "deploy.resources.nats": "include",
+      "deploy.resources.postgres": "include",
+      "deploy.resources.redis": "include",
+      "deploy.resources.redis.features": "none",
+    },
+    force: false,
+  });
+});
+
+it("omits Redis follow-up answers when the resource is skipped", async () => {
+  const f = fixture(importedResourceProject());
+  const user = userEvent.setup();
+  render(<Workbench api={f.api} />);
+  const initialize = await screen.findByRole("button", {
+    name: "Initialize deployment",
+  });
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "How should worker health be observed?",
+    }),
+    "none",
+  );
+  for (const name of ["mongodb", "nats", "postgres"]) {
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: `Add ${name} detected through imports?`,
+      }),
+      "skip",
+    );
+  }
+  const redis = screen.getByRole("combobox", {
+    name: "Add redis detected through imports?",
+  });
+  await user.selectOptions(redis, "include");
+  await user.selectOptions(
+    screen.getByRole("combobox", {
+      name: "Does the app use Redis JSON or search?",
+    }),
+    "json,search",
+  );
+  await user.selectOptions(redis, "skip");
+  expect(
+    screen.queryByRole("combobox", {
+      name: "Does the app use Redis JSON or search?",
+    }),
+  ).not.toBeInTheDocument();
+  expect(initialize).toBeEnabled();
+  await user.click(initialize);
+  expect(
+    await screen.findByRole("button", { name: "Select local" }),
+  ).toBeVisible();
+  expect(f.calls).toHaveBeenCalledWith("init", {
+    answers: {
+      "deploy.services.worker.health": "none",
+      "deploy.resources.mongodb": "skip",
+      "deploy.resources.nats": "skip",
+      "deploy.resources.postgres": "skip",
+      "deploy.resources.redis": "skip",
+    },
+    force: false,
+  });
 });
 
 it("revokes approval when the server rejects a stale plan", async () => {
