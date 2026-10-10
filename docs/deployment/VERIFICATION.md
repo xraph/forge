@@ -181,3 +181,11 @@ qualification. Actual managed accounts, controller sync, native Fly/Railway
 imports, VM setup and hosted provisioning remain unverified. Broader lint still
 fails in 20 baseline modules (19 pass); full docs lint retains 100 errors,
 39 warnings and 113 informational findings outside the changed guides.
+
+The final plan review reproduced four Important findings. Regression tests now
+bound real inherited stdout/stderr pipes, suppress timeout output and verify
+Unix descendant cleanup. Discovery consumes the logical service alias and pod
+instance ID before configured defaults, with a container-hostname instance for
+Compose and the existing fallback outside deployments. Hosted exports reject
+unmapped image architecture and public exposure/hostname/TLS/path requests.
+Windows descendant cleanup remains unqualified; its pipe wait is bounded.

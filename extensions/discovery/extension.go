@@ -612,8 +612,12 @@ func (e *Extension) createBackend() (Backend, error) {
 
 // createServiceInstance creates a service instance from config.
 func (e *Extension) createServiceInstance() *ServiceInstance {
-	// Use configured values or fallback to app values
-	serviceName := e.config.Service.Name
+	// Deployment identity overrides application defaults. The logical service
+	// name and the replica registration ID remain independent.
+	serviceName := os.Getenv("FORGE_SERVICE_ID")
+	if serviceName == "" {
+		serviceName = e.config.Service.Name
+	}
 	if serviceName == "" && e.App() != nil {
 		serviceName = e.App().Name()
 	}
@@ -655,7 +659,14 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	serviceAddress = advertisedAddress(serviceAddress)
 
 	// Generate ID
-	id := e.config.Service.ID
+	id := os.Getenv("FORGE_INSTANCE_ID")
+	if id == "" && os.Getenv("FORGE_SERVICE_ID") != "" {
+		if host, err := os.Hostname(); err == nil && host != "" {
+			id = serviceName + "-" + host
+		}
+	} else if id == "" {
+		id = e.config.Service.ID
+	}
 	if id == "" {
 		id = fmt.Sprintf("%s-%d", serviceName, time.Now().UnixNano())
 	}

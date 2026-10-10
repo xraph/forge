@@ -60,6 +60,14 @@ func (p *Hosted) Validate(ctx context.Context, d *model.Deployment) output.Diagn
 		fail("hosted export requires existing or CI registry images")
 	}
 
+	if len(d.Target.Build.Platforms) > 0 {
+		fail("hosted image platform scheduling requires an account-side mapping")
+	}
+
+	if len(d.Routes) > 0 {
+		fail("hosted public hostname, TLS and path routing require an account-side mapping")
+	}
+
 	if d.Target.Release.Mode == "gitops" || d.Target.NetworkPolicy || d.Target.GatewayAPI || d.Target.Gateway != "" {
 		fail("hosted networking and controller settings require an account-side mapping")
 	}
@@ -121,6 +129,10 @@ func (p *Hosted) Validate(ctx context.Context, d *model.Deployment) output.Diagn
 		}
 
 		for _, port := range s.Ports {
+			if port.Exposure == spec.ExposurePublic {
+				fail("hosted public port exposure requires an account-side routing mapping")
+			}
+
 			if port.Port < 1 || port.Port > 65535 || (port.Protocol != "" && port.Protocol != "http" && port.Protocol != "https" && port.Protocol != "tcp" && port.Protocol != "udp") {
 				fail("hosted ports require a supported transport and valid container port")
 			}

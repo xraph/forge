@@ -280,7 +280,10 @@ several gateways. Selecting a caller while excluding its gateway requires an
 
 `FORGE_SERVICE_ID` is the declared logical service name. Kubernetes supplies
 `FORGE_INSTANCE_ID` from the pod UID; Compose containers keep their distinct
-hostnames. Provider-owned identity fields cannot be overwritten in service env.
+hostnames. Discovery consumes deployment identity before application defaults.
+When Compose supplies only the logical ID, discovery derives its instance ID from
+that service name and the container hostname. Provider-owned identity fields
+cannot be overwritten in service env.
 The gateway binary must already implement the FARP protocol. A workload kind
 does not add Bastion handlers to your application.
 
@@ -364,7 +367,10 @@ func (e *BillingExtension) InfraRequirements() []forge.InfraRequirement {
 The CLI returns `data.runtime` reports with schema `forge.infra/v1`, the app name
 and each requirement's extension, kind, instance, config key and optional flag.
 Reports are bounded to 1 MiB and 4,096 requirements, and malformed output fails
-without echoing raw subprocess output. A custom App implementation or an entry
+without echoing raw subprocess output. Cancellation terminates the owned Unix
+process group and bounds output-pipe waiting. Other platforms bound the wait and
+terminate the direct child; descendant cleanup needs separate qualification.
+A custom App implementation or an entry
 point that calls Start directly needs its own compatible reporting mode.
 
 These requirements are inspection metadata. You still choose the resource,
@@ -427,7 +433,9 @@ authorizes those keys and injects values at each binding's environment variable.
 Laptop credentials are not required or exported.
 
 The hosted contract currently accepts immutable registry images and existing
-external data services. Explicit external URLs are required for service edges.
+external data services. Explicit image platform selection and public exposure,
+hostname, TLS or path routing are rejected until an account mapping exists.
+Explicit external URLs are required for service edges.
 Discovery, migrations, arbitrary mounts, private image pulls and native routing
 remain account-side qualification gates. Readiness maps to the contract's health
 check; liveness and startup paths remain annotations for account-side probes.

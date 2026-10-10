@@ -72,6 +72,10 @@ func (system) LookPath(name string) (string, error) { return exec.LookPath(name)
 func (system) build(ctx context.Context, cmd Command) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer) {
 	// #nosec G204 -- The runner accepts structured commands from trusted adapters, never shell text from the workbench.
 	c := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
+	// A descendant may inherit an output pipe after the direct child exits.
+	// Bound pipe draining as well as process termination after cancellation.
+	c.WaitDelay = 250 * time.Millisecond
+	configureProcessGroup(c)
 	c.Dir = cmd.Dir
 	c.Env = append(os.Environ(), cmd.Env...)
 	c.Stdin = cmd.Stdin
@@ -98,6 +102,16 @@ func (s system) Run(ctx context.Context, cmd Command) (Result, error) {
 	start := time.Now()
 	err := c.Run()
 	res := Result{Stdout: out.String(), Stderr: errb.String(), Duration: time.Since(start)}
+
+	if ctx.Err() != nil || errors.Is(err, exec.ErrWaitDelay) {
+		if c.Process != nil {
+			_ = c.Cancel()
+		}
+
+		if ctx.Err() != nil {
+			return res, ctx.Err()
+		}
+	}
 
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -135,7 +149,7 @@ func (p *process) Wait() (Result, error) {
 	return res, err
 }
 
-func (p *process) Kill() error { return p.c.Process.Kill() }
+func (p *process) Kill() error { return p.c.Cancel() }
 
 func (s system) Start(ctx context.Context, cmd Command) (Process, error) {
 	c, out, errb := s.build(ctx, cmd)

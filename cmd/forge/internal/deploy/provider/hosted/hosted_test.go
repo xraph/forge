@@ -75,3 +75,32 @@ func TestHostedComputeUsesCtrlplaneBinaryMemory(t *testing.T) {
 		t.Fatal(r, e)
 	}
 }
+
+func TestHostedRejectsUnmappedImagePlatforms(t *testing.T) {
+	d := fixture()
+
+	d.Target.Build.Platforms = []string{"linux/arm64"}
+	if _, err := New(t.TempDir()).Render(t.Context(), d); err == nil {
+		t.Fatal("architecture request dropped")
+	}
+}
+
+func TestHostedRejectsUnmappedPublicRouting(t *testing.T) {
+	for _, change := range []func(*model.Deployment){
+		func(d *model.Deployment) { d.Services[0].Ports[0].Exposure = spec.ExposurePublic },
+		func(d *model.Deployment) {
+			d.Routes = []model.Route{{Service: "api", Port: "http", Host: "api.example.com"}}
+		},
+		func(d *model.Deployment) {
+			d.Routes = []model.Route{{Service: "api", Port: "http", TLS: "issuer-prod"}}
+		},
+		func(d *model.Deployment) { d.Routes = []model.Route{{Service: "api", Port: "http", Path: "/billing"}} },
+	} {
+		d := fixture()
+		change(d)
+
+		if _, err := New(t.TempDir()).Render(t.Context(), d); err == nil {
+			t.Fatal("public routing request dropped")
+		}
+	}
+}

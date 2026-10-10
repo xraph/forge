@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -140,5 +141,45 @@ func TestRuntimeExecutionDeadline(t *testing.T) {
 
 	if _, e := ExecuteRuntime(ctx, root, []App{{Name: "api", Dir: root}}, "", deadlineRunner{f}); !errors.Is(e, context.DeadlineExceeded) {
 		t.Fatal(e)
+	}
+}
+
+type inheritedPipeRunner struct{ execx.Runner }
+
+func (r inheritedPipeRunner) Run(ctx context.Context, c execx.Command) (execx.Result, error) {
+	if c.Name == "go" {
+		return execx.Result{}, nil
+	}
+
+	c.Name = "sh"
+	c.Args = []string{"-c", "printf private; sleep 2 >&2 & exit 0"}
+
+	return execx.System().Run(ctx, c)
+}
+func TestRuntimeRealDeadlineSuppressesDescendantOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	f := execx.NewFake(t)
+	f.Available["go"] = true
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := ExecuteRuntime(ctx, root, []App{{Name: "api", Dir: root}}, "api", inheritedPipeRunner{f})
+
+	if elapsed := time.Since(start); elapsed > 750*time.Millisecond {
+		t.Fatalf("runtime exceeded deadline: %s", elapsed)
+	}
+
+	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "private") {
+		t.Fatalf("unsanitized timeout: %v", err)
 	}
 }
