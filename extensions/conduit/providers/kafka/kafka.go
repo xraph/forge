@@ -216,20 +216,46 @@ func (p *Provider) produce(ctx context.Context, topic string, data []byte) (uint
 		return 0, err
 	}
 
-	result, err := c.Produce(ctx, &broker.ProduceRequest{Topic: topic, Partition: 0, RequiredAcks: broker.RequireAll, Records: broker.NewRecordReader(broker.Record{Value: broker.NewBytes(data), Time: time.Now()})})
-	if err != nil {
-		return 0, core.ErrOutcomeUnknown
-	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
-	if result.Error != nil {
-		return 0, errors.New("conduit/kafka: publication rejected")
-	}
+	for {
+		result, err := c.Produce(ctx, &broker.ProduceRequest{Topic: topic, Partition: 0, RequiredAcks: broker.RequireAll, Records: broker.NewRecordReader(broker.Record{Value: broker.NewBytes(data), Time: time.Now()})})
+		if err != nil {
+			return 0, core.ErrOutcomeUnknown
+		}
 
-	if result.BaseOffset < 0 {
-		return 0, core.ErrOutcomeUnknown
-	}
+		if result.Error == nil {
+			if result.BaseOffset < 0 {
+				return 0, core.ErrOutcomeUnknown
+			}
 
-	return uint64(result.BaseOffset) + 1, nil
+			return uint64(result.BaseOffset) + 1, nil
+		}
+
+		if !rejectedBeforeAppend(result.Error) {
+			if errors.Is(result.Error, broker.NotEnoughReplicasAfterAppend) || errors.Is(result.Error, broker.RequestTimedOut) || errors.Is(result.Error, broker.NetworkException) || errors.Is(result.Error, broker.KafkaStorageError) {
+				return 0, core.ErrOutcomeUnknown
+			}
+
+			return 0, errors.New("conduit/kafka: publication rejected")
+		}
+
+		// These broker responses confirm that this attempt did not append a record.
+		// Topic leadership can still be propagating immediately after creation.
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return 0, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func rejectedBeforeAppend(err error) bool {
+	return errors.Is(err, broker.UnknownTopicOrPartition) || errors.Is(err, broker.LeaderNotAvailable) || errors.Is(err, broker.NotLeaderForPartition) || errors.Is(err, broker.NotEnoughReplicas)
 }
 func (p *Provider) reader(topic string) *broker.Reader {
 	return broker.NewReader(broker.ReaderConfig{Brokers: p.options.Brokers, Topic: topic, Partition: 0, Dialer: p.options.Dialer, MinBytes: 1, MaxBytes: 16 << 20, MaxWait: 250 * time.Millisecond, ReadBackoffMin: 50 * time.Millisecond, ReadBackoffMax: 250 * time.Millisecond})
