@@ -1,0 +1,67 @@
+---
+title: Broker providers
+description: Choose NATS JetStream, Redis Streams or Kafka with explicit durability and recovery guarantees
+---
+
+You can supply a provider in Go or choose its type in Forge configuration. Your event handlers keep the same API.
+
+| Provider       | Durable acceptance                     | Event cursors                           | Dead letters            | Broker RPC                 | Pause and backfill     |
+| -------------- | -------------------------------------- | --------------------------------------- | ----------------------- | -------------------------- | ---------------------- |
+| NATS JetStream | File store with configured replicas    | Native stream sequence                  | Persisted KV records    | Native request/reply       | Supported              |
+| Redis Streams  | Confirmed local and replica AOF writes | Per-stream sequence and consumer groups | Persisted Redis records | Unsupported                | Unsupported            |
+| Kafka          | All configured in-sync replicas        | One-based offsets in one partition      | Retained failure log    | Unsupported                | Unsupported            |
+| Memory         | Process memory                         | Process-local retained records          | Process-local records   | Development implementation | Process-local controls |
+
+All providers support competing and broadcast subscriptions. None promises ordered business processing by message key.
+
+## NATS JetStream
+
+```go
+broker := jetstream.New(jetstream.Options{
+    URL: "nats://localhost:4222",
+    DeadLetterReplicas: 3,
+})
+```
+
+Set stream `Replicas` to your required replication factor. Stream settings are verified on startup. You can use native `NATS` options for authentication and TLS. JetStream also supplies leased service discovery records.
+
+## Redis Streams
+
+```go
+broker := redisstreams.New(redisstreams.Options{
+    URL: "redis://localhost:6379",
+})
+```
+
+You'll need Redis 7.2 or later with AOF enabled. Publication uses `WAITAOF` on the same connection as the write. `Replicas` counts the primary plus the required AOF-confirming replicas. Missing replica confirmation returns `ErrOutcomeUnknown`. `PersistenceTimeout` defaults to five seconds and accepts values up to one minute. Your caller context can set a shorter deadline.
+
+The adapter supports age and message-count retention. Competing replicas share a consumer group; durable broadcast has a group per stable subscriber. Pending messages can be claimed after the handler timeout plus five seconds. Retry delays use the same broker-owned pending entries.
+
+Publication IDs are deduplicated for 24 hours by default. Set `DeduplicationWindow` to change that window. Native `redis.Options` lets you configure TLS and authentication. This adapter targets a primary/replica Redis deployment; it does not create a Redis Cluster or Sentinel client.
+
+## Kafka
+
+```go
+broker := kafka.New(kafka.Options{
+    Brokers: []string{"kafka-1:9092", "kafka-2:9092"},
+    DeadLetterReplicas: 3,
+})
+```
+
+Each Conduit stream has one partition. A competing group therefore has one active replica, with other replicas available for failover. Broadcast groups have independent offsets. The adapter settles one event before fetching the next, preventing a later commit from skipping an earlier failure.
+
+Set stream `Replicas` to the topic replication factor. The adapter requires the same `min.insync.replicas` and uses all-replica acknowledgements. Age retention is supported; `MaxMessages` returns `ErrUnsupported` because Kafka has no equivalent message-count retention guarantee. Physical log cleanup follows the broker's segment retention schedule, and consumers skip expired records.
+
+Topology declarations are stored in immutable companion topics. If a process creates a declaration topic and crashes before writing its declaration, startup fails closed. Repair that empty declaration topic before retrying. Subscriber and declaration topics need an operator cleanup policy when you retire services or ephemeral instances.
+
+Use native `Transport` or `Dialer` options for TLS and SASL. Kafka does not deduplicate stable application message IDs, and retries can restart their attempt count after a rebalance. Use the PostgreSQL inbox for effects that must survive duplicate deliveries.
+
+Dead letter listings fold a retained service-specific failure log. Listing cost grows with that log. Concurrent replay commands can produce duplicates, with the original message ID preserved.
+
+## Add a provider
+
+Implement `core.Provider`, then report only guarantees your adapter provides through `Capabilities`. Add `core.Management` for inspection and dead letter recovery, `core.Registry` for discovery, `core.RPCProvider` for request/reply, or `core.Operations` for consumer controls and backfill.
+
+Run `providers/conformance.Run` against a factory that creates connections to the same real broker. The suite checks competing replicas, broadcast, namespace isolation, restart cursors, unsettled takeover, retries, targeted recovery, topology conflicts, sequence starts and age retention.
+
+Redis and Kafka conformance tests run in the required Conduit integration CI job. You can run them locally with `CONDUIT_TEST_REDIS` and `CONDUIT_TEST_KAFKA`; `CONDUIT_REQUIRE_PROVIDERS=1` makes missing broker configuration fail the check.

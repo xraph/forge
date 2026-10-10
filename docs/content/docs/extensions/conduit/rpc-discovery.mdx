@@ -1,0 +1,36 @@
+---
+title: RPC and discovery
+description: Call typed procedures and discover ready service instances by logical service name
+---
+
+You address the service name. Conduit keeps the instance selection and endpoint lookup in the resolver.
+
+## Typed broker RPC
+
+```go
+var Lookup = conduit.Procedure[LookupRequest, LookupResponse]("billing.lookup.v1")
+
+err := conduit.Handle(ext.Runtime(), Lookup,
+    func(ctx context.Context, request conduit.Request[LookupRequest]) (LookupResponse, error) {
+        return billing.Lookup(ctx, request.Data.ID)
+    })
+
+result, err := conduit.Call(ctx, ext.Runtime(), "billing", Lookup,
+    LookupRequest{ID: "customer-42"})
+```
+
+Broker RPC is available with JetStream and the development memory provider. Requests use transient subjects, separate from durable event streams. A service queue group selects one handler replica.
+
+Configure the provider, timeout, concurrency and maximum in-flight requests under `rpc`. The default deadline is five seconds. Errors use `BAD_REQUEST`, `NOT_FOUND`, `PERMISSION_DENIED`, `CONFLICT`, `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `CANCELED` and `INTERNAL` codes. Arbitrary handler errors and panic details are hidden.
+
+Cancellation is best effort. A canceled call may already have caused an effect, and Conduit never retries a mutation automatically. Source metadata is informational; it does not authenticate the caller.
+
+## Discovery-backed clients
+
+Create `transport.Services{Resolver: runtime.Resolver(), Identity: runtime.Identity()}`. Use `services.HTTP("billing", http.DefaultTransport)` for HTTP calls and `services.GRPC("billing", creds, opts...)` to connect your generated gRPC client. Both resolve ready members in the configured namespace. You supply transport authentication and any endpoint compatibility requirements.
+
+Conduit reuses Forge discovery when that extension is installed and enabled. Set `discovery` to `forge`, a named registry provider or `none`; `auto` chooses Forge or the sole registry-capable broker. Multiple broker registries require an explicit choice. A programmatic `WithRegistry` wins.
+
+The Forge bridge registers and removes only its own instance record. Its lease and crash-expiry guarantees come from the installed discovery backend. JetStream registry records have a 45-second lease, renewed every ten seconds.
+
+Redis Streams and Kafka supply event transport. Use Forge discovery or a separate registry with those providers. Their native broker RPC capability remains disabled, while named HTTP and gRPC clients remain available.

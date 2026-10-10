@@ -4,43 +4,53 @@ description: Detailed documentation for every Forge extension module
 icon: Puzzle
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Cards, Card } from "fumadocs-ui/components/card";
 
 This section documents every extension package in `extensions/*` with module-specific details.
 
 ## Start Here
 
 <Cards>
-<Card title="Core Patterns" href="/docs/extensions/core-patterns">
-How extensions register services, load config, and integrate with Vessel and app lifecycle.
-</Card>
-<Card title="Complete Catalog" href="/docs/extensions/complete-catalog">
-All extension packages and import paths in one reference.
-</Card>
+  <Card title="Core Patterns" href="/docs/extensions/core-patterns">
+    How extensions register services, load config, and integrate with Vessel and
+    app lifecycle.
+  </Card>
+  <Card title="Complete Catalog" href="/docs/extensions/complete-catalog">
+    All extension packages and import paths in one reference.
+  </Card>
 </Cards>
 
 ## By Category
 
 <Cards>
-<Card title="Data and Storage" href="/docs/extensions/cache">
-Cache and search. Use [Grove](https://github.com/xraph/grove) for databases and [Trove](https://github.com/xraph/trove) for object storage. The Database and Storage extensions have been removed.
-</Card>
-<Card title="Messaging" href="/docs/extensions/events">
-Events, queue workers, Kafka, and MQTT.
-</Card>
-<Card title="Transport and RPC" href="/docs/extensions/grpc">
-gRPC, GraphQL, oRPC, and MCP transport surfaces.
-</Card>
-<Card title="Realtime and Media" href="/docs/extensions/streaming">
-Streaming, WebRTC, and HLS for real-time systems.
-</Card>
-<Card title="Platform and Infrastructure" href="/docs/extensions/discovery">
-Discovery, operations UI, and consensus. Use [Bastion](https://github.com/xraph/bastion) for the API gateway and [Dispatch](https://github.com/xraph/dispatch) for scheduling. The Gateway and Cron extensions have been removed.
-</Card>
-<Card title="Security and Access" href="/docs/extensions/auth">
-Authentication, security controls, and feature flags.
-</Card>
-<Card title="AI" href="/docs/extensions/ai">
-Use [Cortex](https://github.com/xraph/cortex), [Shield](https://github.com/xraph/shield), [Sentinel](https://github.com/xraph/sentinel), [Weave](https://github.com/xraph/weave) and [Nexus](https://github.com/xraph/nexus). The AI extension has been removed.
-</Card>
+  <Card title="Data and Storage" href="/docs/extensions/cache">
+    Cache and search. Use [Grove](https://github.com/xraph/grove) for databases
+    and [Trove](https://github.com/xraph/trove) for object storage. The Database
+    and Storage extensions have been removed.
+  </Card>
+  <Card title="Messaging" href="/docs/extensions/conduit">
+    Conduit service messaging, events, queue workers, Kafka, and MQTT.
+  </Card>
+  <Card title="Transport and RPC" href="/docs/extensions/grpc">
+    gRPC, GraphQL, oRPC, and MCP transport surfaces.
+  </Card>
+  <Card title="Realtime and Media" href="/docs/extensions/streaming">
+    Streaming, WebRTC, and HLS for real-time systems.
+  </Card>
+  <Card title="Platform and Infrastructure" href="/docs/extensions/discovery">
+    Discovery, operations UI, and consensus. Use
+    [Bastion](https://github.com/xraph/bastion) for the API gateway and
+    [Dispatch](https://github.com/xraph/dispatch) for scheduling. The Gateway
+    and Cron extensions have been removed.
+  </Card>
+  <Card title="Security and Access" href="/docs/extensions/auth">
+    Authentication, security controls, and feature flags.
+  </Card>
+  <Card title="AI" href="/docs/extensions/ai">
+    Use [Cortex](https://github.com/xraph/cortex),
+    [Shield](https://github.com/xraph/shield),
+    [Sentinel](https://github.com/xraph/sentinel),
+    [Weave](https://github.com/xraph/weave) and
+    [Nexus](https://github.com/xraph/nexus). The AI extension has been removed.
+  </Card>
 </Cards>

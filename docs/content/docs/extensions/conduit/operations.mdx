@@ -1,0 +1,35 @@
+---
+title: Dashboard and recovery
+description: Inspect service messaging and recover failures through the Forge dashboard
+---
+
+When the Forge dashboard extension is present, Conduit contributes its typed dashboard contract automatically. Install `@forge-go/dashboard-plugin-conduit` in your dashboard host and register `conduitPlugin`.
+
+The plugin has five routes: overview, consumers, services, dead letters and hooks. It shows provider guarantees, streams, subscription policies, service replicas, RPC counters and the latest 100 hook outcomes. Dead letter lists exclude payloads, headers and arbitrary handler error text.
+
+## Consumer controls
+
+JetStream supports broker-backed pause/resume, pending and unacknowledged counts, and controlled backfill. Competing pause affects the logical service group; broadcast pause affects the selected subscriber. The memory provider supplies development equivalents. Redis and Kafka report these optional capabilities as unsupported.
+
+Processing and delivery latency summarize this instance's count, average and maximum. They are not cluster percentiles.
+
+A backfill selects at most 100 inclusive stream sequences and uses a stable operation ID. Its checkpoint follows confirmed publication, and interrupted runs can resume with that same ID. Changing the range, message type, stream or consumer for an existing operation returns a conflict.
+
+Recovery publications preserve the original message ID and target only the original consumer. Your inbox remains responsible for preventing repeated business effects beyond the broker's deduplication window.
+
+## Scoped access
+
+Dashboard namespace and service claims, when supplied, must match the runtime. Malformed claims are denied. Without those claims, the contract uses the runtime's explicitly configured scope. The dashboard's authentication, CSRF, command idempotency and audit adapters control transport access.
+
+## Shutdown
+
+Conduit stops intake before draining accepted handlers. It keeps the provider connection open while handlers finish, acknowledge events and publish derived messages. The shutdown deadline cancels unfinished work and closes the provider with bounded cleanup.
+
+## Run the demo
+
+```sh
+cd extensions/conduit
+GOWORK=off go run ./cmd/demo
+```
+
+The demo listens on `127.0.0.1:8098` and runs two memory-backed service instances. Set `CONDUIT_DEMO_NATS` to use JetStream. Start forge-dashboard with `FORGE_DASHBOARD_BACKEND=http://127.0.0.1:8098` and open `/@conduit/`.

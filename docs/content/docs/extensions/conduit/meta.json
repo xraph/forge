@@ -1,0 +1,11 @@
+{
+  "title": "Conduit",
+  "pages": [
+    "index",
+    "configuration",
+    "events",
+    "providers",
+    "rpc-discovery",
+    "operations"
+  ]
+}

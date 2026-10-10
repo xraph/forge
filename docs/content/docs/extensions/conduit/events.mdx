@@ -1,0 +1,55 @@
+---
+title: Events and hooks
+description: Publish typed envelopes, handle retries and attach event lifecycle hooks
+---
+
+Declare your event once and share it with publishers and subscribers.
+
+```go
+var OrderPlacedV1 = conduit.Event[OrderPlaced]("orders.placed.v1")
+
+receipt, err := conduit.Publish(ctx, ext.Runtime(), OrderPlacedV1,
+    OrderPlaced{OrderID: "order-42"},
+    conduit.MessageID("order-42-placed"),
+    conduit.Correlation("checkout-42"),
+)
+```
+
+A receipt confirms broker acceptance. `Persisted` reports durable acceptance; it does not mean that a handler finished. If you receive `conduit.ErrOutcomeUnknown`, retry with the same message ID. Your broker may have accepted the first attempt before the acknowledgement was lost.
+
+JetStream and Redis deduplicate publication within finite windows. Kafka preserves your event ID but does not deduplicate repeated application publications. The transactional inbox protects your business effect across all providers.
+
+Return `conduit.Permanent(err)` for a terminal failure. Other errors use the subscription's retry policy, then enter its broker's dead letter store. The original delivery remains eligible for redelivery if failure storage fails. Kafka attempt counts restart after group reassignment; the inbox marker remains shared across replicas.
+
+## Hooks and middleware
+
+```go
+conduit.WithHooks(conduit.HookFuncs{
+    HookName: "trace-and-policy",
+    OnPublish: func(ctx context.Context, draft *conduit.Envelope) error {
+        if draft.Headers == nil { draft.Headers = map[string]string{} }
+        draft.Headers["traceparent"] = traceHeader(ctx)
+        return nil
+    },
+    OnHandle: func(ctx context.Context, msg conduit.Envelope, info conduit.DeliveryInfo) error {
+        return validateEvent(ctx, msg.Type, info.ConsumerID)
+    },
+    OnEvent: func(ctx context.Context, event conduit.HookEvent) {
+        recordOutcome(ctx, event.Stage, event.Delivery)
+    },
+})
+```
+
+Publish hooks can enrich metadata or reject a draft. They cannot change the message ID, type or source. Handle hooks run before your handler. `AroundHandle` wraps a subscription with middleware in outermost-first order.
+
+Observers receive copied outcomes for startup, connections, publication, handling, acknowledgement, retries, dead letters and replay. Their queue is bounded, and observer panics are isolated. `ObserverDrops` exposes dropped observations under backpressure. Put mandatory policy in control hooks and mandatory audit writes in your business transaction.
+
+Hooks receive the logical service, handling instance, subscription, consumer identity and attempt. Handler success and confirmed acknowledgement are separate outcomes.
+
+## PostgreSQL transactions
+
+Create `transaction.Store{DB: db}` with your database, then call `store.Migrate(ctx)`. `store.Enqueue` writes an outbox record in your business transaction. `store.FlushOne(ctx, runtime)` claims a pending row and removes it only after durable publication succeeds. `store.Relay` runs the relay loop.
+
+Bind `store.Inbox(handler)` through `Runtime.Bind`. Your handler receives the same SQL transaction as the inbox marker. The key includes namespace, service, subscription and message ID, so competing replicas share protection while independent services each receive their own effect.
+
+Keep inbox rows longer than the events you may replay. External side effects need their own idempotency keys.

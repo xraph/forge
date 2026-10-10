@@ -1,0 +1,69 @@
+---
+title: Conduit
+description: Typed service events, durable broker streams and calls by service name
+---
+
+Conduit connects your Forge services through events and RPC. You choose the broker, and your handlers keep the same API.
+
+```sh
+go get github.com/xraph/forge/extensions/conduit@v1.0.0
+```
+
+## Start a service
+
+```go
+import (
+    "context"
+
+    "github.com/xraph/forge/extensions/conduit"
+    "github.com/xraph/forge/extensions/conduit/providers/jetstream"
+)
+
+type OrderPlaced struct {
+    OrderID string `json:"orderID"`
+}
+
+var OrderPlacedV1 = conduit.Event[OrderPlaced]("orders.placed.v1")
+
+ext, err := conduit.NewExtension(
+    conduit.WithProvider("events", jetstream.New(jetstream.Options{
+        URL: "nats://localhost:4222",
+    })),
+    conduit.WithConfig(conduit.Config{
+        Streams: map[string]conduit.StreamConfig{
+            "orders": {Provider: "events", Subjects: []string{"orders.>"}},
+        },
+        Subscriptions: map[string]conduit.SubscriptionConfig{
+            "create-invoice": {Stream: "orders", Durable: true},
+        },
+    }),
+)
+if err != nil { return err }
+
+err = conduit.Subscribe(ext.Runtime(), OrderPlacedV1,
+    func(ctx context.Context, msg conduit.Message[OrderPlaced]) error {
+        return createInvoice(ctx, msg.Data.OrderID, msg.Envelope.ID)
+    }, conduit.Consumer("create-invoice"))
+if err != nil { return err }
+
+// Register ext with app.RegisterExtension before starting Forge.
+```
+
+You can also call `conduit.NewExtension()` and load the topology from YAML. Forge supplies missing service identity, application version and the HTTP endpoint. Bind your handlers before registering the extension.
+
+## Replicas and delivery
+
+`ServiceID` identifies your logical service. Each running process has a different `InstanceID`.
+
+| Subscription mode | Consumer identity                               | Delivery                            |
+| ----------------- | ----------------------------------------------- | ----------------------------------- |
+| `competing`       | Namespace, service and subscription             | One replica handles each attempt    |
+| `broadcast`       | Namespace, service, subscription and subscriber | Every subscriber has its own cursor |
+
+The publisher emits once. Billing can distribute work across its replicas while analytics maintains its own subscription to the same event.
+
+Durable broadcast requires a stable `BroadcastID` for each intended subscriber. A replacement process can then resume that cursor. Ephemeral broadcast starts with new events and follows the running instance.
+
+Delivery is at least once. Use a stable message ID and an idempotent handler. The PostgreSQL inbox adapter commits your business changes and the deduplication marker in the same transaction.
+
+Continue with [configuration](/docs/extensions/conduit/configuration), [events and hooks](/docs/extensions/conduit/events), or [broker guarantees](/docs/extensions/conduit/providers).

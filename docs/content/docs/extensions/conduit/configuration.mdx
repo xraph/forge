@@ -1,0 +1,68 @@
+---
+title: Configuration
+description: Load providers, streams and service-specific subscriptions from Forge configuration
+---
+
+You can keep the same message contracts across services while giving each service its own worker counts, delivery mode and retry policy.
+
+```yaml
+extensions:
+  conduit:
+    providers:
+      events:
+        type: jetstream
+        url: ${NATS_URL}
+        dead_letter_replicas: 3
+    streams:
+      orders:
+        provider: events
+        subjects: [orders.>]
+        max_age: 168h
+        replicas: 3
+    subscriptions:
+      create-invoice:
+        stream: orders
+        delivery: competing
+        durable: true
+        concurrency: 4
+        max_in_flight: 16
+        timeout: 30s
+        max_attempts: 5
+        retry_delay: 1s
+      refresh-cache:
+        stream: orders
+        delivery: broadcast
+        concurrency: 1
+```
+
+Construct the extension with `conduit.NewExtension()`, bind handlers with `conduit.Consumer("create-invoice")`, then register it with Forge. The extension loads `extensions.conduit`; the legacy `conduit` key also works.
+
+## Inferred metadata
+
+Identity, version and endpoints are optional in the Forge extension. Conduit reads `.forge.yaml` or `.forge.yml`, then fills missing fields from the running application.
+
+| Field         | Manifest source                | Application fallback    |
+| ------------- | ------------------------------ | ----------------------- |
+| Service ID    | `app.name`                     | Application name        |
+| Version       | `app.version`                  | Application version     |
+| Namespace     | `app.namespace`                | Application environment |
+| HTTP listener | `dev.host`, `dev.port`         | Forge HTTP listener     |
+| Instance ID   | Explicit Conduit configuration | Generated process ID    |
+
+The advertised host follows discovery configuration, `FORGE_ADVERTISE_ADDR`, `POD_IP`, the manifest host and the machine hostname. Wildcard addresses are never advertised. Set an explicit endpoint or discovery scheme when your TLS proxy exposes a different public address. gRPC endpoints need explicit configuration.
+
+Explicit nonzero Go values win over loaded configuration. `conduit.New` remains strict when you run without Forge.
+
+## Environment overrides
+
+You can set `CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL`. Provider names use uppercase environment keys. Explicit Go values still win.
+
+Provider types are `jetstream` (also `nats` or `nats-jetstream`), `redis-streams` (also `redis`), `kafka` and `memory`. Kafka's URL value is a comma-separated list of `host:port` broker addresses. Use native Go options for TLS or SASL.
+
+## Shared declarations
+
+Services using a stream must agree on its subjects, retention and replica count. Replicas in a competing subscription must agree on message type, timeout, retry policy and in-flight limit. `Concurrency` controls each replica's workers.
+
+Set `start_at` to `all`, `new` or `sequence`. Sequence replay also needs `start_sequence`. Kafka sequences are one-based partition offsets. Redis uses a monotonic per-stream sequence, and JetStream uses its native stream sequence.
+
+See [provider limits](/docs/extensions/conduit/providers) before choosing retention settings.
