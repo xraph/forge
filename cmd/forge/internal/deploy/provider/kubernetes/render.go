@@ -273,6 +273,10 @@ func (k *Kubernetes) render(ctx context.Context, d *model.Deployment, buildFiles
 
 	b.Add("kustomization.yaml", raw)
 
+	if err := gitOpsHandoff(d, b); err != nil {
+		return nil, err
+	}
+
 	return b, nil
 }
 func serviceOverlay(d *model.Deployment, s model.Service) ([]byte, error) {

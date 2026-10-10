@@ -2,13 +2,14 @@ package kubernetes
 
 import (
 	"context"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
-	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/spec"
 )
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -211,6 +212,8 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 	if d.Target.LocalCluster != "" && d.Target.Context != "kind-"+d.Target.LocalCluster {
 		fail("local_cluster", "local image delivery requires context kind-"+d.Target.LocalCluster)
 	}
+
+	ds = append(ds, validateGitOps(d)...)
 
 	return ds
 }

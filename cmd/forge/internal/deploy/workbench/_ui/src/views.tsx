@@ -723,6 +723,21 @@ function ResourceDialog({
               placeholder="primary-dsn"
               help="Reference a secret in your configured resolver. Credential values stay private."
             />
+            {w.target?.provider === "digitalocean" &&
+              placement.lifecycle === "managed" && (
+                <TextField
+                  label="Existing database cluster"
+                  value={w.target.managed_databases?.[name] ?? ""}
+                  onChange={(cluster) =>
+                    w.edit(`deploy.targets.${w.profile}.managed_databases`, {
+                      ...w.target?.managed_databases,
+                      [name]: cluster,
+                    })
+                  }
+                  placeholder="atlas-pg"
+                  help="App Platform attaches a provisioned production database. Forge does not create this cluster."
+                />
+              )}
             <TextField
               label="Container recipe"
               value={placement.recipe ?? ""}
@@ -1165,61 +1180,98 @@ export function ImagesView({ w }: { w: Workspace }) {
           </div>
         </Panel>
       )}
-      <Panel
-        title="GitOps release"
-        description="Export deployment artifacts for a repository and controller workflow."
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField
-            label="Release mode"
-            value={w.target?.release?.mode ?? "direct"}
-            onChange={(mode) =>
-              w.edit(`deploy.targets.${w.profile}.release`, {
-                ...w.target?.release,
-                mode,
-              })
-            }
-            options={[
-              { value: "direct", label: "Apply directly" },
-              { value: "gitops", label: "GitOps export / handoff" },
-            ]}
-          />
+      {w.target?.provider === "kubernetes" ? (
+        <Panel
+          title="GitOps release"
+          description="Export deployment artifacts for a repository and controller workflow."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SelectField
+              label="Release mode"
+              value={w.target?.release?.mode ?? "direct"}
+              onChange={(mode) =>
+                w.edit(`deploy.targets.${w.profile}.release`, {
+                  ...w.target?.release,
+                  mode,
+                })
+              }
+              options={[
+                { value: "direct", label: "Apply directly" },
+                { value: "gitops", label: "GitOps export / handoff" },
+              ]}
+            />
+            {w.target?.release?.mode === "gitops" && (
+              <>
+                <SelectField
+                  label="GitOps controller"
+                  value={w.target.release.controller ?? "generic"}
+                  onChange={(controller) =>
+                    w.edit(`deploy.targets.${w.profile}.release`, {
+                      ...w.target?.release,
+                      controller,
+                      approval: "manual",
+                    })
+                  }
+                  options={[
+                    { value: "generic", label: "Existing controller" },
+                    { value: "argo-cd", label: "Argo CD" },
+                    { value: "flux", label: "Flux" },
+                  ]}
+                />
+                <TextField
+                  label="Release repository"
+                  value={w.target.release.repo ?? ""}
+                  onChange={(repo) =>
+                    w.edit(`deploy.targets.${w.profile}.release`, {
+                      ...w.target?.release,
+                      repo,
+                    })
+                  }
+                />
+                <TextField
+                  label="Release branch"
+                  value={w.target.release.branch ?? "main"}
+                  onChange={(branch) =>
+                    w.edit(`deploy.targets.${w.profile}.release`, {
+                      ...w.target?.release,
+                      branch,
+                    })
+                  }
+                />
+                <TextField
+                  label="Artifact path"
+                  value={w.target.release.path ?? ""}
+                  onChange={(path) =>
+                    w.edit(`deploy.targets.${w.profile}.release`, {
+                      ...w.target?.release,
+                      path,
+                    })
+                  }
+                />
+              </>
+            )}
+          </div>
           {w.target?.release?.mode === "gitops" && (
-            <>
-              <TextField
-                label="Release repository"
-                value={w.target.release.repo ?? ""}
-                onChange={(repo) =>
-                  w.edit(`deploy.targets.${w.profile}.release`, {
-                    ...w.target?.release,
-                    repo,
-                  })
-                }
-              />
-              <TextField
-                label="Release branch"
-                value={w.target.release.branch ?? "main"}
-                onChange={(branch) =>
-                  w.edit(`deploy.targets.${w.profile}.release`, {
-                    ...w.target?.release,
-                    branch,
-                  })
-                }
-              />
-              <TextField
-                label="Artifact path"
-                value={w.target.release.path ?? ""}
-                onChange={(path) =>
-                  w.edit(`deploy.targets.${w.profile}.release`, {
-                    ...w.target?.release,
-                    path,
-                  })
-                }
-              />
-            </>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Use immutable registry images and existing data services. Export
+              includes required Secret names and keys. Review a manual sync in
+              your controller with pruning disabled. Migrations and one-off jobs
+              require direct deployment.
+            </p>
           )}
-        </div>
-      </Panel>
+        </Panel>
+      ) : (
+        <Panel
+          title="Release handoff"
+          description="Provider Git builds use the source repository and deploy trigger above."
+        >
+          <p className="text-xs text-muted-foreground">
+            Export the reviewed files, then deploy through your provider.
+            Platform build triggers are separate from a Kubernetes controller
+            watching manifests.
+          </p>
+        </Panel>
+      )}
       <RegistryDialog
         w={w}
         open={registryOpen}
@@ -1836,7 +1888,9 @@ export function ReviewPane({ w }: { w: Workspace }) {
                       ? "Apply approved plan"
                       : w.providerLevel === "unavailable"
                         ? "Adapter unavailable"
-                        : "Export and hand off"}
+                        : w.target?.release?.mode === "gitops"
+                          ? "Sync through your controller"
+                          : "Export and hand off"}
                   </span>
                 </div>
               </>

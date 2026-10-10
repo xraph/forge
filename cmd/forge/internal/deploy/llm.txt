@@ -13,3 +13,6 @@ Destroy retains persistent data unless --delete-data is explicit. Service select
 For registry delivery, approve publication separately before handing images to a managed platform:
   forge deploy publish --plan <data.hash> --approve-plan <data.hash> --non-interactive --output json
 The publication response gives data.images keyed by service, with repository and immutable digest. It does not create a release or change workloads. Save these refs in build.images with source: existing and delivery: registry, then create and approve a new plan.
+
+Render and DigitalOcean are schema-validated export adapters, not live apply adapters. Use forge deploy export --plan <hash> --out <directory> and read HANDOFF.md. Provider Git builds track a branch; use immutable registry images for fixed revisions. DigitalOcean managed_databases maps resource names to existing production database clusters.
+Kubernetes release.mode: gitops exports Kustomize plus gitops-handoff.json and GITOPS.md. Use existing immutable images, external resources and existing Secrets. Direct apply exits 4, controller sync/prune is not managed by Forge, and migrations/one-off jobs require direct deployment.

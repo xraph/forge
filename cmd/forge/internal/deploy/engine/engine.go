@@ -162,7 +162,13 @@ func (e *Engine) resolveInto(ctx context.Context, res *InspectResult, target, en
 	}
 
 	res.Target, res.Environment = target, env
+
 	t := sp.Targets[target]
+	if t.Release.Mode == "gitops" && t.Provider != "kubernetes" {
+		res.Diagnostics = append(res.Diagnostics, output.Diagnostic{Code: output.CodeUnsupportedCommand, Severity: output.SeverityError, Message: "controller GitOps requires a Kubernetes target; platform Git builds use build.source: git"})
+
+		return
+	}
 
 	sec, err := secrets.New(sp.Secrets, e.cfg.RootDir, e.runner, t, res.Config.Project.Name)
 	if err != nil {

@@ -79,6 +79,7 @@ export type Target = {
   local_cluster?: string;
   network_policy?: boolean;
   ingress_class?: string;
+  managed_databases?: Record<string, string>;
   build?: Build;
   release?: {
     mode?: string;

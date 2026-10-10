@@ -196,6 +196,10 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 		return output.Fail(output.ExitConflict, "approved hash does not match the plan")
 	}
 
+	if p.Target.Release.Mode == "gitops" {
+		return output.Unsupported("direct apply for GitOps", "export the reviewed handoff and sync through your controller")
+	}
+
 	res, err := e.load(ctx)
 	if err != nil {
 		return err

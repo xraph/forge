@@ -211,12 +211,36 @@ not contact Kubernetes and reports remote secret references as unverified.
 
 ## Other platforms and legacy commands
 
-The shared typed engine applies Compose and Kubernetes targets. Managed
-platform adapters expose their qualification level before apply is offered. Until they land, you can export draft files
-with `forge infra k8s export`, `forge infra render export` or
-`forge infra do export`, then validate and deploy through the provider's tools.
-Those legacy exports do not generate the complete version 2 resource graph.
-`forge infra docker export` forwards version 2 projects to the shared engine.
+The shared engine applies Compose and Kubernetes targets. Render and DigitalOcean
+App Platform exports are validated against pinned upstream schemas. Their adapters
+remain export-only until a disposable account passes live qualification. Apply,
+status, logs, rollback and destroy return exit 4 for these providers.
+
+Render exports `render.yaml` with service references, PostgreSQL and Redis bindings.
+DigitalOcean exports `app.yaml`; its managed database placement requires an existing
+production cluster name in `targets.<target>.managed_databases.<resource>`.
+Redis JSON/search, object storage and messaging brokers need an existing service or
+a companion Compose or Kubernetes deployment. The compiler rejects unsupported
+placements before generating files.
+
+Provider Git builds track a branch. Choose `source: git`, `delivery: git`, a
+credential-free HTTPS repository and a manual, commit or supported checks-passed
+trigger. Generated Dockerfiles must be committed at the paths in `HANDOFF.md`.
+Commit pinning is not qualified for these provider builds; use immutable registry
+images when you need a fixed source revision. Render private images reference a
+credential already saved in Render through `build.registry.pull_secret`.
+DigitalOcean private-image credential submission remains unqualified.
+
+```bash
+forge deploy plan --target render --env preview --output json
+forge deploy export --plan <hash> --output-dir ./deployments/render/preview
+```
+
+Review `HANDOFF.md` for required provider environment variables and prerequisites.
+Secret values are omitted from generated artifacts. Schema validation checks the
+export's shape; it does not provision an account or establish service health.
+Legacy platform exports remain available, but version 2 deployments should use
+the shared engine to retain resource and service-selection checks.
 
 For legacy Kubernetes exports, render your selected Kustomize overlay, verify
 the context and namespace, and use server-side dry-run before apply. Legacy
@@ -309,7 +333,8 @@ The fixture's host loopback registry route on Docker Desktop remains unqualified
 
 You can plan and export the same service selection to Kubernetes. Set an explicit
 context and namespace, then review the generated Kustomize bundle before applying
-it. This adapter currently generates manifests; live apply is the next slice.
+it. Apply performs server-side dry-run, migrations and observed rollout checks.
+The disposable kind fixture qualifies the lifecycle, persistence and network policy paths.
 
 ```yaml
 deploy:
@@ -349,3 +374,46 @@ backends or excluded services, provide `external_cidrs.<name>`. Discovery needs
 `api_server_cidrs` and gets a namespace-scoped Role that can read Services.
 Check these addresses against your CNI's translation behavior. Policy enforcement
 requires a compatible CNI and must be tested on your cluster.
+
+## GitOps controller handoff
+
+A Kubernetes profile can export a reviewed Kustomize bundle for an existing controller.
+This mode requires immutable existing or CI registry images, externally provisioned
+resources and existing Secrets. Migration and one-off job ordering is unqualified
+for controller delivery, so use direct deployment when you need those operations.
+
+```yaml
+deploy:
+  targets:
+    gitops:
+      provider: kubernetes
+      context: production
+      namespace: atlas
+      build:
+        source: existing
+        delivery: registry
+        images:
+          api: ghcr.io/your-org/api@sha256:<64-hex-digest>
+        registry:
+          visibility: private
+          pull_secret: ghcr-pull
+      release:
+        mode: gitops
+        repo: https://github.com/your-org/atlas-manifests
+        branch: main
+        path: environments/production
+        controller: argo-cd
+        approval: manual
+```
+
+Export adds `gitops-handoff.json` and `GITOPS.md`. The handoff lists Secret names
+and keys, the destination path and the pull Secret. Commit the complete bundle,
+configure your existing Argo CD, Flux or generic controller, and review its diff
+before a manual sync. Keep pruning and automatic sync disabled: selecting some
+services does not authorize removal of other workloads or persistent data.
+Forge cannot enforce an external controller's policies through an export.
+
+CLI and page apply reject GitOps profiles before provider mutation. Forge does
+not write to your manifest repository, create controller resources or record a
+controller sync as a healthy release. Render's source Git deployment is configured
+under `build`; it does not use this manifest controller handoff.

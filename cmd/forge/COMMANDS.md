@@ -854,3 +854,5 @@ forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
 ---
 
 For more information, see the [README.md](./README.md) or [QUICK_START.md](./QUICK_START.md).
+
+Kubernetes `release.mode: gitops` exports a controller handoff and rejects direct apply. Render and DigitalOcean expose schema-validated exports only. Use `deploy export --plan <hash> --output-dir <directory>` and review the generated handoff before using provider tools.

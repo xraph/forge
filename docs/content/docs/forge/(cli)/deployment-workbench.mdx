@@ -90,11 +90,18 @@ required package permissions. Publishing access and target pull access are
 separate. Kubernetes needs its own pull Secret, and managed platforms need a
 provider credential reference.
 
-Git builds use the source repository, branch and reviewed commit, with a manual,
-commit or checks-passed trigger. Manifest delivery to an existing GitOps
-controller has a separate repository and path. The provider's capability level
-controls whether you can export or apply; saving these fields does not establish
-a provider connection or a completed deployment.
+Provider Git builds track a source branch with a manual, commit or supported
+checks-passed trigger. Use immutable registry images for a fixed revision.
+Kubernetes controller delivery has a separate manifest repository, path and
+controller selector. Its page offers export and handoff; direct apply is disabled.
+Export lists existing Secret requirements and calls for a manual sync without
+pruning. Saving these fields does not connect your provider or controller.
+
+Render and DigitalOcean exports pass pinned schema validation and remain
+export-only. DigitalOcean managed placement asks for a provisioned database cluster.
+The page does not request live workload status for an export adapter or controller
+handoff. Publish reviewed images produces immutable references; choose Use published
+images, save the draft and build a new plan before export.
 
 ## Inspect and configure your project
 

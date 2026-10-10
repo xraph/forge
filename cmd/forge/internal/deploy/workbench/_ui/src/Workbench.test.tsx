@@ -99,10 +99,12 @@ function fixture(initial = base) {
         return {
           plan: {
             hash: "a".repeat(64),
-            target: "local",
-            environment: "dev",
+            target: (body as { target: string }).target,
+            environment: (body as { env: string }).env,
             target_spec: structuredClone(
-              project.settings.deploy!.targets.local,
+              project.settings.deploy!.targets[
+                (body as { target: string }).target
+              ],
             ),
             operations: [
               {
@@ -170,6 +172,80 @@ async function selectLocal(api: API) {
   return user;
 }
 describe("deployment workspace", () => {
+  it("keeps controller releases export-only and does not observe them", async () => {
+    const initial = structuredClone(base);
+    initial.settings.deploy!.targets.production.release = {
+      mode: "gitops",
+      repo: "https://github.com/acme/manifests",
+      path: "environments/prod",
+      controller: "argo-cd",
+    };
+    const f = fixture(initial);
+    const user = userEvent.setup();
+    render(<Workbench api={f.api} />);
+    await user.click(
+      await screen.findByRole("button", { name: /Select production/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Build plan" }));
+    expect(
+      await screen.findByRole("button", { name: "Apply plan" }),
+    ).toBeDisabled();
+    expect(screen.getByText("Sync through your controller")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    await waitFor(() =>
+      expect(f.calls).toHaveBeenCalledWith("runs", undefined),
+    );
+    expect(f.calls.mock.calls.some(([path]) => path.startsWith("status"))).toBe(
+      false,
+    );
+  });
+  it("does not request live status for a validated export adapter", async () => {
+    const f = fixture();
+    const user = userEvent.setup();
+    render(<Workbench api={f.api} />);
+    await user.click(
+      await screen.findByRole("button", { name: /Select render/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Activity" }));
+    await waitFor(() =>
+      expect(f.calls).toHaveBeenCalledWith("runs", undefined),
+    );
+    expect(f.calls.mock.calls.some(([path]) => path.startsWith("status"))).toBe(
+      false,
+    );
+  });
+  it("persists a DigitalOcean database cluster mapping from the resource inspector", async () => {
+    const initial = structuredClone(base);
+    initial.settings.deploy!.targets.local.provider = "digitalocean";
+    initial.settings.deploy!.environments.dev.resources!.primary.lifecycle =
+      "managed";
+    const f = fixture(initial);
+    const user = await selectLocal(f.api);
+    await user.click(screen.getByRole("button", { name: "Data & messaging" }));
+    await user.click(screen.getByRole("button", { name: "Configure primary" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Existing database cluster" }),
+      "atlas-pg",
+    );
+    await user.keyboard("{Escape}");
+    await user.click(
+      screen.getByRole("button", { name: "Save configuration" }),
+    );
+    await waitFor(() =>
+      expect(f.calls).toHaveBeenCalledWith(
+        "files",
+        expect.objectContaining({
+          ops: expect.arrayContaining([
+            {
+              path: "deploy.targets.local.managed_databases",
+              value: { primary: "atlas-pg" },
+            },
+          ]),
+        }),
+      ),
+    );
+  });
+
   it("clears a recovered status error after deployment completes", async () => {
     const f = fixture();
     let deployed = false;

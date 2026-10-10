@@ -285,12 +285,20 @@ export function useWorkbench(api: API) {
         name,
       );
   };
+  const providerLevel =
+    project?.providers.find((p) => p.name === draft?.targets[profile]?.provider)
+      ?.level ?? "unavailable";
+  const canApply =
+    ["apply", "live-qualified"].includes(providerLevel) &&
+    draft?.targets[profile]?.release?.mode !== "gitops";
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
     if (!profile || !environment) return;
     const query = `?target=${encodeURIComponent(profile)}&env=${encodeURIComponent(environment)}`;
     const settled = await Promise.allSettled([
-      api.request<Status>("status" + query),
+      canApply
+        ? api.request<Status>("status" + query)
+        : Promise.resolve(undefined),
       api.request<History>("history" + query),
       api.request<Run[]>("runs"),
     ]);
@@ -303,7 +311,7 @@ export function useWorkbench(api: API) {
     } else statusError.current = report(settled[0].reason);
     if (settled[1].status === "fulfilled") setHistory(settled[1].value);
     if (settled[2].status === "fulfilled") setRuns(settled[2].value);
-  }, [api, profile, environment, report]);
+  }, [api, profile, environment, report, canApply]);
   useEffect(() => {
     const abort = new AbortController();
     api
@@ -333,10 +341,7 @@ export function useWorkbench(api: API) {
   const selected = target?.resource_only
     ? []
     : (env?.services ?? Object.keys(draft?.services ?? {}));
-  const providerLevel =
-    project?.providers.find((p) => p.name === target?.provider)?.level ??
-    "unavailable";
-  const canApply = ["apply", "live-qualified"].includes(providerLevel);
+
   const canPublish = Boolean(
     plan?.plan.target_spec.build?.delivery === "registry" &&
     plan.plan.target_spec.build?.source !== "git",
@@ -408,8 +413,8 @@ export function useWorkbench(api: API) {
     });
   const apply = () =>
     act(async () => {
-      if (!plan || !approved || dirty)
-        throw new Error("Review and approve the current plan");
+      if (!plan || !approved || dirty || !canApply)
+        throw new Error("Review and approve a direct deployment plan");
       const run = await api.request<Run>("apply", {
         hash: plan.plan.hash,
         approval: plan.plan.hash,
