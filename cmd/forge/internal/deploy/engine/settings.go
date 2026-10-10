@@ -266,3 +266,14 @@ func (e *Engine) savePlan(ctx context.Context, p *plan.Plan, st *state.Store) er
 
 	return st.WritePlan(ctx, filepath.Base(e.PlanPath(p)), raw)
 }
+
+func (e *Engine) Root() string { return e.cfg.RootDir }
+func (e *Engine) History(ctx context.Context, target, env string) (state.Snapshot, error) {
+	_, st, _, _, err := e.metadata(ctx, target, env) //nolint:dogsled // This read only needs the selected store.
+	if err != nil {
+		return state.Snapshot{}, err
+	}
+	defer st.Close()
+
+	return st.Snapshot()
+}

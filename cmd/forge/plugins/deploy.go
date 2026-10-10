@@ -61,9 +61,10 @@ var planned = []struct{ name, desc string }{
 }
 
 func (p *DeployPlugin) Commands() []cli.Command {
-	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", p.help)
+	deployCmd := cli.NewCommand("deploy", "Describe, plan and apply deployments", deployOutputHandler("deploy", p.help), append(deployFlags(), startFlags()...)...)
 
-	handlers := map[string]cli.CommandHandler{"migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor, "plan": p.plan, "export": p.export, "apply": p.apply, "up": p.up, "status": p.status, "logs": p.logs, "rollback": p.rollback, "destroy": p.destroy, "providers": p.providers, "catalog": p.catalog}
+	handlers := map[string]cli.CommandHandler{"start": p.start, "migrate": p.migrate, "schema": p.schema, "inspect": p.inspect, "init": p.init, "doctor": p.doctor, "plan": p.plan, "export": p.export, "apply": p.apply, "up": p.up, "status": p.status, "logs": p.logs, "rollback": p.rollback, "destroy": p.destroy, "providers": p.providers, "catalog": p.catalog}
+
 	for _, c := range planned {
 		name := c.name
 
@@ -82,6 +83,8 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		}
 
 		switch name {
+		case "start":
+			opts = append(opts, startFlags()...)
 		case "plan":
 			opts = append(opts, cli.WithFlag(cli.NewStringFlag("out", "", "Write a copy of the plan JSON", "")))
 		case "export":
@@ -95,6 +98,7 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		case "destroy":
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("delete-data", "", "Also remove selected persistent data", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Confirm removal", false)))
 		}
+
 		if name == "init" {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("force", "", "Add missing deployment keys without replacing existing values", false)))
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write without confirming", false)), cli.WithFlag(cli.NewStringSliceFlag("answer", "", "Answer a decision as path=value", nil)))
@@ -103,6 +107,7 @@ func (p *DeployPlugin) Commands() []cli.Command {
 		if name == "doctor" {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("offline", "", "Skip target checks", false)))
 		}
+
 		if name == "migrate" {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Preview changes", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write the migration", false)))
 		}
@@ -130,10 +135,12 @@ func deployOutputHandler(name string, handler cli.CommandHandler) cli.CommandHan
 		var deployErr *output.Error
 
 		var diagnostics output.Diagnostics
+
 		if errors.As(err, &deployErr) {
 			if deployErr.Emitted {
 				return err
 			}
+
 			diagnostics = deployErr.Diagnostics
 		}
 
@@ -152,6 +159,10 @@ func deployOutputHandler(name string, handler cli.CommandHandler) cli.CommandHan
 func (p *DeployPlugin) help(ctx cli.CommandContext) error {
 	if ctx.NArgs() != 0 {
 		return output.Fail(output.ExitInvalidInput, "unknown deploy command: "+ctx.Arg(0))
+	}
+
+	if !ctx.Bool("non-interactive") && ctx.String("output") != "json" && deploymentTTY() {
+		return p.start(ctx)
 	}
 
 	ctx.Info("forge deploy: describe, plan and apply deployments\n")

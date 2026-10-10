@@ -429,7 +429,10 @@ func (e *Engine) Logs(ctx context.Context, target, env, service string, opts pro
 
 	return adapter.Logs(ctx, provider.ServiceRef{Target: target, Env: env, Service: service}, opts)
 }
-func (e *Engine) Rollback(ctx context.Context, target, env, release string) (resultErr error) {
+func (e *Engine) Rollback(ctx context.Context, target, env, release string) error {
+	return e.rollback(ctx, target, env, release, "")
+}
+func (e *Engine) rollback(ctx context.Context, target, env, release, approval string) (resultErr error) {
 	adapter, st, target, env, err := e.metadata(ctx, target, env)
 	if err != nil {
 		return err
@@ -443,6 +446,11 @@ func (e *Engine) Rollback(ctx context.Context, target, env, release string) (res
 	defer unlock()
 
 	ctx = st.Context(ctx)
+	if approval != "" {
+		if err := e.verifyLifecycle(ctx, st, target, env, approval); err != nil {
+			return err
+		}
+	}
 	defer func() {
 		if errors.Is(context.Cause(ctx), persistence.ErrLeaseLost) {
 			resultErr = output.Fail(output.ExitConflict, "deployment authority was lost; inspect state before resuming")
@@ -477,8 +485,11 @@ func (e *Engine) Rollback(ctx context.Context, target, env, release string) (res
 
 	return adapter.Rollback(ctx, provider.EnvRef{Target: target, Env: env}, st, release)
 }
-func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData bool) (resultErr error) {
-	adapter, st, _, _, err := e.metadata(ctx, target, env)
+func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData bool) error {
+	return e.destroy(ctx, target, env, deleteData, "")
+}
+func (e *Engine) destroy(ctx context.Context, target, env string, deleteData bool, approval string) (resultErr error) {
+	adapter, st, target, env, err := e.metadata(ctx, target, env)
 	if err != nil {
 		return err
 	}
@@ -491,6 +502,11 @@ func (e *Engine) Destroy(ctx context.Context, target, env string, deleteData boo
 	defer unlock()
 
 	ctx = st.Context(ctx)
+	if approval != "" {
+		if err := e.verifyLifecycle(ctx, st, target, env, approval); err != nil {
+			return err
+		}
+	}
 	defer func() {
 		if errors.Is(context.Cause(ctx), persistence.ErrLeaseLost) {
 			resultErr = output.Fail(output.ExitConflict, "deployment authority was lost; inspect state before resuming")

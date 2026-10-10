@@ -19,9 +19,9 @@ import (
 var ErrConflict = errors.New("file changed since it was read")
 
 type Op struct {
-	Path   string
-	Value  any
-	Delete bool
+	Path   string `json:"path"`
+	Value  any    `json:"value,omitempty"`
+	Delete bool   `json:"delete,omitempty"`
 }
 
 // preferredOrder lists keys in the order a reader expects; everything else
