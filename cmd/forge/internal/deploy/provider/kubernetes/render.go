@@ -410,7 +410,7 @@ func environment(d *model.Deployment, values map[string]string) []any {
 }
 func applicationPod(d *model.Deployment, s model.Service, configName string, overlay []byte) object {
 	port := healthPort(s)
-	env := map[string]string{"PORT": strconv.Itoa(port), "FORGE_HTTP_PORT": strconv.Itoa(port)}
+	env := map[string]string{"FORGE_SERVICE_ID": s.Name, "PORT": strconv.Itoa(port), "FORGE_HTTP_PORT": strconv.Itoa(port)}
 
 	mount := "/etc/forge/overlay.yaml"
 	if d.Overlay == model.OverlayFallback {
@@ -455,7 +455,7 @@ func applicationPod(d *model.Deployment, s model.Service, configName string, ove
 	}
 
 	pod := object{"serviceAccountName": identity(d) + "-" + s.Name, "automountServiceAccountToken": s.Discovery, "securityContext": object{"seccompProfile": object{"type": "RuntimeDefault"}}, "terminationGracePeriodSeconds": 30, "containers": []any{container}, "volumes": []any{object{"name": "config", "configMap": object{"name": configName}}}}
-	container["env"] = append(container["env"].([]any), object{"name": "POD_IP", "valueFrom": object{"fieldRef": object{"fieldPath": "status.podIP"}}})
+	container["env"] = append(container["env"].([]any), object{"name": "FORGE_INSTANCE_ID", "valueFrom": object{"fieldRef": object{"fieldPath": "metadata.uid"}}}, object{"name": "POD_IP", "valueFrom": object{"fieldRef": object{"fieldPath": "status.podIP"}}})
 
 	if secret := d.Target.Build.Registry.PullSecret; secret != "" {
 		pod["imagePullSecrets"] = []any{object{"name": secret}}

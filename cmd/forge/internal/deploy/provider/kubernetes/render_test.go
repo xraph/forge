@@ -375,3 +375,29 @@ func TestKubernetesRevisionNamesJobsAndKeepsPriorConfig(t *testing.T) {
 		t.Fatal("prior Job reused")
 	}
 }
+
+func TestKubernetesReplicaIdentity(t *testing.T) {
+	k, d := fixture(t)
+
+	b, e := k.Render(t.Context(), d)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	found := false
+
+	for _, f := range b.Files {
+		if strings.Contains(string(f.Content), "name: FORGE_INSTANCE_ID") && strings.Contains(string(f.Content), "fieldPath: metadata.uid") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatal("missing replica identity")
+	}
+
+	d.Services[0].Env = map[string]string{"FORGE_SERVICE_ID": "wrong"}
+	if !k.Validate(t.Context(), d).HasErrors() {
+		t.Fatal("logical identity override accepted")
+	}
+}

@@ -84,7 +84,14 @@ func (m *Managed) Validate(_ context.Context, d *model.Deployment) output.Diagno
 	}
 
 	names := map[string]bool{}
+
 	for _, s := range d.Services {
+		for _, key := range []string{"FORGE_SERVICE_ID", "FORGE_INSTANCE_ID"} {
+			if _, ok := s.Env[key]; ok {
+				add("service identity fields are supplied by the deployment authority")
+			}
+		}
+
 		if names[s.Name] {
 			add("duplicate component name: " + s.Name)
 		}

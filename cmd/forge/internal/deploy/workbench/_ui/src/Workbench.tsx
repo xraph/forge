@@ -566,8 +566,21 @@ function TargetDialog({
             { value: "kubernetes", label: "Kubernetes" },
             { value: "render", label: "Render" },
             { value: "digitalocean", label: "DigitalOcean App Platform" },
+            { value: "vm", label: "Virtual machine handoff" },
+            { value: "fly", label: "Fly.io portable handoff" },
+            { value: "railway", label: "Railway portable handoff" },
+            { value: "hosted", label: "Hosted control-plane contract" },
           ]}
         />
+        {["vm", "fly", "railway", "hosted"].includes(provider) && (
+          <p className="text-xs text-muted-foreground">
+            {provider === "vm"
+              ? "Export for an existing virtual machine with Docker Compose. No machine is created."
+              : provider === "hosted"
+                ? "Export workload contracts and vault references for import through your hosted authority."
+                : "Export a portable Compose graph. Native platform configuration needs manual translation."}
+          </p>
+        )}
         {provider === "kubernetes" && (
           <>
             <TextField
@@ -595,6 +608,9 @@ function TargetDialog({
             onClick={async () => {
               const value: Target = {
                 provider,
+                ...(["vm", "fly", "railway", "hosted"].includes(provider)
+                  ? { build: { source: "existing", delivery: "registry" } }
+                  : {}),
                 ...(context ? { context } : {}),
                 ...(namespace ? { namespace } : {}),
                 ...(region ? { region } : {}),
@@ -666,6 +682,10 @@ export function providerName(name: string) {
         kubernetes: "Kubernetes",
         render: "Render",
         digitalocean: "DigitalOcean",
+        vm: "Virtual machine",
+        fly: "Fly.io handoff",
+        railway: "Railway handoff",
+        hosted: "Hosted contract",
       } as Record<string, string>
     )[name] ?? name
   );

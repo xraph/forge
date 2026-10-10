@@ -37,6 +37,10 @@ func EnvVarName(project, name string) string {
 }
 
 func New(cfg spec.Secrets, projectRoot string, runner execx.Runner, target spec.Target, project string) (Resolver, error) {
+	if target.Provider == "hosted" {
+		return &HostedResolver{Project: project, Keys: target.SecretKeys}, nil
+	}
+
 	switch cfg.Resolver {
 	case "", "env":
 		return &EnvResolver{Project: project}, nil
@@ -252,4 +256,24 @@ func (r Deferred) Check(ctx context.Context, name string) (Status, error) {
 	}
 
 	return Status{Unverified: true, Where: r.Name() + " (unverified offline)"}, nil
+}
+
+// HostedResolver reports explicit vault mappings without reading laptop credentials.
+type HostedResolver struct {
+	Project string
+	Keys    map[string]string
+}
+
+func (r *HostedResolver) Name() string              { return "hosted-vault" }
+func (r *HostedResolver) EnvVar(name string) string { return EnvVarName(r.Project, name) }
+func (r *HostedResolver) Check(ctx context.Context, name string) (Status, error) {
+	if e := ctx.Err(); e != nil {
+		return Status{}, e
+	}
+
+	if r.Keys[name] == "" {
+		return Status{Where: "hosted vault mapping is missing"}, nil
+	}
+
+	return Status{Unverified: true, Where: "hosted vault reference requires account authorization"}, nil
 }

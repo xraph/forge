@@ -343,6 +343,7 @@ function ServiceSheet({
   onClose: () => void;
 }) {
   const [kind, setKind] = useState(service.kind);
+  const [discovery, setDiscovery] = useState(service.discovery ?? false);
   const [health, setHealth] = useState(
     JSON.stringify(service.health ?? {}, null, 2),
   );
@@ -371,10 +372,12 @@ function ServiceSheet({
             label="Workload kind"
             value={kind}
             onChange={setKind}
-            options={["web", "worker", "cron"].map((value) => ({
-              value,
-              label: value,
-            }))}
+            options={["web", "worker", "job", "cron", "gateway"].map(
+              (value) => ({
+                value,
+                label: value,
+              }),
+            )}
           />
           <TextField
             label="Calls these services"
@@ -382,6 +385,14 @@ function ServiceSheet({
             onChange={setCalls}
             help="Comma-separated logical service names. Replicas keep their own instance identity."
           />
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox
+              checked={discovery}
+              onCheckedChange={(value) => setDiscovery(value === true)}
+              aria-label="Enable service discovery"
+            />
+            Enable service discovery
+          </label>
           <TextField
             label="Migration entry point"
             value={migrate}
@@ -429,6 +440,7 @@ function ServiceSheet({
                 w.edit(`deploy.services.${name}`, {
                   ...service,
                   kind,
+                  discovery,
                   health: healthValue,
                   bindings: bindingValue,
                   calls: calls
@@ -723,6 +735,20 @@ function ResourceDialog({
               placeholder="primary-dsn"
               help="Reference a secret in your configured resolver. Credential values stay private."
             />
+            {w.target?.provider === "hosted" && placement.secret && (
+              <TextField
+                label="Hosted vault key"
+                value={w.target.secret_keys?.[placement.secret] ?? ""}
+                onChange={(key) =>
+                  w.edit(`deploy.targets.${w.profile}.secret_keys`, {
+                    ...w.target?.secret_keys,
+                    [placement.secret!]: key,
+                  })
+                }
+                placeholder="vault-primary"
+                help="Existing vault key authorized by your hosted account. Export stores this reference without its value."
+              />
+            )}
             {w.target?.provider === "digitalocean" &&
               placement.lifecycle === "managed" && (
                 <TextField
@@ -847,6 +873,28 @@ export function ConnectionsView({ w }: { w: Workspace }) {
   return (
     <>
       <ConnectionsSummary w={w} />
+      {Object.values(w.draft?.services ?? {}).some(
+        (s) => s.kind === "gateway",
+      ) && (
+        <Panel
+          title="Discovery gateway"
+          description="Discovery-enabled services receive a FARP gateway URL. An excluded gateway needs an external endpoint."
+        >
+          <SelectField
+            label="Gateway service"
+            value={w.target?.gateway ?? ""}
+            onChange={(gateway) =>
+              w.edit(`deploy.targets.${w.profile}.gateway`, gateway)
+            }
+            options={[
+              { value: "", label: "Automatic (one gateway)" },
+              ...Object.entries(w.draft?.services ?? {})
+                .filter(([, s]) => s.kind === "gateway")
+                .map(([value]) => ({ value, label: value })),
+            ]}
+          />
+        </Panel>
+      )}
       <Panel
         title="Connection overrides"
         description="Configure ports, runtime URL keys, timeouts and retry limits between logical services."
@@ -1263,12 +1311,26 @@ export function ImagesView({ w }: { w: Workspace }) {
       ) : (
         <Panel
           title="Release handoff"
-          description="Provider Git builds use the source repository and deploy trigger above."
+          description={
+            w.target?.provider === "compose"
+              ? "Apply your reviewed plan through the selected Docker context."
+              : w.target?.provider === "hosted"
+                ? "Import workload contracts and authorize vault bindings through your hosted authority."
+                : ["vm", "fly", "railway"].includes(w.target?.provider ?? "")
+                  ? "Export a portable Compose graph and follow HANDOFF.md."
+                  : "Import the reviewed provider specification. Git source uses the repository and trigger above."
+          }
         >
           <p className="text-xs text-muted-foreground">
-            Export the reviewed files, then deploy through your provider.
-            Platform build triggers are separate from a Kubernetes controller
-            watching manifests.
+            {w.target?.provider === "compose"
+              ? "Forge builds or verifies the selected images, runs required initialization and migrations, then checks application health."
+              : w.target?.provider === "vm"
+                ? "Use an existing VM. Supply private runtime values and registry pull credentials, validate Compose, then follow the initialization and migration sequence."
+                : ["fly", "railway"].includes(w.target?.provider ?? "")
+                  ? "Translate the portable graph into native platform configuration. This export does not create native workloads or report live status."
+                  : w.target?.provider === "hosted"
+                    ? "The account supplies tenant and instance identity and resolves vault values. Service routing and remote lifecycle operations require hosted qualification."
+                    : "Platform build triggers are separate from a Kubernetes controller watching manifests. Forge exports files for provider import."}
           </p>
         </Panel>
       )}

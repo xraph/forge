@@ -525,6 +525,13 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "secret_keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Hosted secret reference names mapped to existing vault keys."
         }
       },
       "required": [

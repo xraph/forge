@@ -677,3 +677,61 @@ it("publishes an approved plan and explicitly adopts immutable images", async ()
     screen.queryByRole("checkbox", { name: "Approve this exact plan" }),
   ).not.toBeInTheDocument();
 });
+
+it("persists a hosted vault mapping from the resource inspector", async () => {
+  const initial = structuredClone(base);
+  initial.settings.deploy!.targets.local.provider = "hosted";
+  initial.settings.deploy!.environments.dev.resources!.primary = {
+    lifecycle: "external",
+    secret: "primary-dsn",
+  };
+  const f = fixture(initial);
+  const user = await selectLocal(f.api);
+  await user.click(screen.getByRole("button", { name: "Data & messaging" }));
+  await user.click(screen.getByRole("button", { name: "Configure primary" }));
+  await user.type(
+    await screen.findByRole("textbox", { name: "Hosted vault key" }),
+    "vault-primary",
+  );
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  await waitFor(() =>
+    expect(f.calls).toHaveBeenCalledWith(
+      "files",
+      expect.objectContaining({
+        ops: expect.arrayContaining([
+          {
+            path: "deploy.targets.local.secret_keys",
+            value: { "primary-dsn": "vault-primary" },
+          },
+        ]),
+      }),
+    ),
+  );
+});
+it("creates a portable target with immutable image defaults", async () => {
+  const f = fixture();
+  const user = await selectLocal(f.api);
+  await user.click(screen.getByRole("button", { name: "Manage targets" }));
+  await user.click(screen.getByRole("button", { name: "Create target" }));
+  await user.type(screen.getByLabelText("Target name"), "vm-prod");
+  await user.selectOptions(screen.getByLabelText("Provider"), "vm");
+  expect(screen.getByText(/existing virtual machine/i)).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Save target" }));
+  await waitFor(() =>
+    expect(f.calls).toHaveBeenCalledWith(
+      "files",
+      expect.objectContaining({
+        ops: expect.arrayContaining([
+          {
+            path: "deploy.targets.vm-prod",
+            value: expect.objectContaining({
+              provider: "vm",
+              build: { source: "existing", delivery: "registry" },
+            }),
+          },
+        ]),
+      }),
+    ),
+  );
+});

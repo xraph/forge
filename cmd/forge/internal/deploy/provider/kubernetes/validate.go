@@ -107,6 +107,10 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 		}
 
 		for key := range s.Env {
+			if key == "FORGE_SERVICE_ID" || key == "FORGE_INSTANCE_ID" {
+				fail(s.Name, "service identity fields are supplied by the deployment authority")
+			}
+
 			if key == "POD_IP" {
 				fail(s.Name, "POD_IP is supplied by the Kubernetes Downward API")
 			}

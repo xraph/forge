@@ -232,7 +232,7 @@ func healthcheck(test []string) map[string]any {
 	return map[string]any{"test": test, "interval": "3s", "timeout": "3s", "retries": 40, "start_period": "10s"}
 }
 func serviceEnv(d *model.Deployment, s model.Service) map[string]string {
-	env := map[string]string{"PORT": strconv.Itoa(firstPort(s)), "FORGE_HTTP_PORT": strconv.Itoa(firstPort(s))}
+	env := map[string]string{"FORGE_SERVICE_ID": s.Name, "PORT": strconv.Itoa(firstPort(s)), "FORGE_HTTP_PORT": strconv.Itoa(firstPort(s))}
 	if d.Overlay != model.OverlayFallback {
 		env["FORGE_CONFIG_OVERLAY"] = "/etc/forge/overlay.yaml"
 	}

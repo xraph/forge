@@ -16,6 +16,7 @@ export type Service = {
     { port: number; exposure?: string; protocol?: string }
   >;
   calls?: string[];
+  discovery?: boolean;
   bindings?: {
     resource: string;
     extension: string;
@@ -80,6 +81,8 @@ export type Target = {
   network_policy?: boolean;
   ingress_class?: string;
   managed_databases?: Record<string, string>;
+  secret_keys?: Record<string, string>;
+  gateway?: string;
   build?: Build;
   release?: {
     mode?: string;

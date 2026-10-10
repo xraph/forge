@@ -23,3 +23,23 @@ func TestExportOnlyReturnsUnsupported(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRegistryRejectsDuplicate(t *testing.T) {
+	r := NewRegistry(nil, "", func(execx.Runner, string) Provider { return ExportOnly{ProviderName: "compose"} })
+	if e := r.Register(ExportOnly{ProviderName: "compose"}); e == nil {
+		t.Fatal("duplicate accepted")
+	}
+
+	if e := r.Register(nil); e == nil {
+		t.Fatal("nil provider accepted")
+	}
+}
+
+func TestRegistryRejectsTypedNil(t *testing.T) {
+	r := NewRegistry(nil, "")
+
+	var p *ExportOnly
+	if e := r.Register(p); e == nil {
+		t.Fatal("typed nil accepted")
+	}
+}

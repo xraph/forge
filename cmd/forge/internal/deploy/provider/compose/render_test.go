@@ -147,3 +147,22 @@ func TestExistingImagesRequireImmutableDigests(t *testing.T) {
 		t.Fatal("valid immutable images rejected")
 	}
 }
+
+func TestComposeLogicalIdentity(t *testing.T) {
+	d := atlasDev(t)
+	c := New(execx.NewFake(t), testdata.Root("atlas-v2"))
+
+	b, e := c.Render(t.Context(), d)
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	if !strings.Contains(string(b.Files["compose.yaml"].Content), "FORGE_SERVICE_ID: api") {
+		t.Fatal("missing logical service identity")
+	}
+
+	d.Services[0].Env = map[string]string{"FORGE_INSTANCE_ID": "shared"}
+	if !c.Validate(t.Context(), d).HasErrors() {
+		t.Fatal("fixed replica identity accepted")
+	}
+}

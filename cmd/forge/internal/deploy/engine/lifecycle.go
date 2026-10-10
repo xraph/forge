@@ -200,6 +200,20 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 		return output.Unsupported("direct apply for GitOps", "export the reviewed handoff and sync through your controller")
 	}
 
+	adapter, ok := e.registry.Get(p.Target.Provider)
+	if !ok {
+		return output.Unsupported("apply for "+p.Target.Provider, "")
+	}
+
+	caps, err := adapter.Capabilities(ctx, p.Target)
+	if err != nil {
+		return err
+	}
+
+	if caps.Level != model.LevelApply && caps.Level != model.LevelLiveQualified {
+		return output.Unsupported("apply for "+p.Target.Provider, "export the reviewed provider handoff")
+	}
+
 	res, err := e.load(ctx)
 	if err != nil {
 		return err
@@ -218,20 +232,6 @@ func (e *Engine) Apply(ctx context.Context, p *plan.Plan, approve string, allowD
 		if op.Destructive && !allowDestructive {
 			return output.Fail(output.ExitInvalidInput, "destructive operation requires --allow-destructive")
 		}
-	}
-
-	adapter, ok := e.registry.Get(p.Target.Provider)
-	if !ok {
-		return output.Unsupported("apply for "+p.Target.Provider, "")
-	}
-
-	caps, err := adapter.Capabilities(ctx, p.Target)
-	if err != nil {
-		return err
-	}
-
-	if caps.Level != model.LevelApply && caps.Level != model.LevelLiveQualified {
-		return output.Unsupported("apply for "+p.Target.Provider, "export the reviewed provider handoff")
 	}
 
 	st, err := state.Open(e.cfg.RootDir, p.TargetName, p.Environment)

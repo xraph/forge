@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/execx"
 )
@@ -87,5 +88,57 @@ func TestRuntimeRejectsAppEscape(t *testing.T) {
 	f := execx.NewFake(t)
 	if _, err := ExecuteRuntime(t.Context(), root, []App{{Name: "api", Dir: link}}, "", f); err == nil || len(f.Calls) > 0 {
 		t.Fatal("escaped root", err)
+	}
+}
+
+func TestRuntimeExecutionOutputBound(t *testing.T) {
+	root := t.TempDir()
+	if e := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/api\ngo 1.26.0\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+
+	f := execx.NewFake(t)
+	f.Available["go"] = true
+	f.Script("go build", execx.Result{})
+	f.Script(os.TempDir(), execx.Result{Stdout: strings.Repeat("private", runtimeLimit)})
+
+	if _, e := ExecuteRuntime(t.Context(), root, []App{{Name: "api", Dir: root}}, "", f); e == nil || strings.Contains(e.Error(), "private") {
+		t.Fatal("oversized subprocess report accepted or leaked", e)
+	}
+
+	var w boundedReport
+
+	_, _ = w.Write([]byte(strings.Repeat("x", 2*runtimeLimit)))
+	if w.Len() != runtimeLimit || !w.oversized {
+		t.Fatal("unbounded writer")
+	}
+}
+
+type deadlineRunner struct{ execx.Runner }
+
+func (r deadlineRunner) Run(ctx context.Context, c execx.Command) (execx.Result, error) {
+	if c.Name == "go" {
+		return r.Runner.Run(ctx, c)
+	}
+
+	<-ctx.Done()
+
+	return execx.Result{}, ctx.Err()
+}
+func TestRuntimeExecutionDeadline(t *testing.T) {
+	root := t.TempDir()
+	if e := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/api\ngo 1.26.0\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+
+	f := execx.NewFake(t)
+	f.Available["go"] = true
+	f.Script("go build", execx.Result{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+
+	if _, e := ExecuteRuntime(ctx, root, []App{{Name: "api", Dir: root}}, "", deadlineRunner{f}); !errors.Is(e, context.DeadlineExceeded) {
+		t.Fatal(e)
 	}
 }

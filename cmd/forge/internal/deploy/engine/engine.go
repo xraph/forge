@@ -14,6 +14,8 @@ import (
 	"github.com/xraph/forge/cmd/forge/internal/deploy/persistence"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/compose"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/handoff"
+	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/hosted"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/kubernetes"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/provider/managed"
 	"github.com/xraph/forge/cmd/forge/internal/deploy/resolve"
@@ -22,9 +24,10 @@ import (
 )
 
 type Options struct {
-	Config *config.ForgeConfig
-	Runner execx.Runner
-	Mode   output.Mode
+	ProviderFactories []provider.Factory
+	Config            *config.ForgeConfig
+	Runner            execx.Runner
+	Mode              output.Mode
 }
 
 type Engine struct {
@@ -44,7 +47,18 @@ func New(opts Options) (*Engine, error) {
 		r = execx.System()
 	}
 
-	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: provider.NewRegistry(r, opts.Config.RootDir, compose.Factory, kubernetes.Factory, managed.RenderFactory, managed.DigitalOceanFactory)}, nil
+	registry := provider.NewRegistry(r, opts.Config.RootDir, compose.Factory, kubernetes.Factory, managed.RenderFactory, managed.DigitalOceanFactory, handoff.VMFactory, handoff.FlyFactory, handoff.RailwayFactory, hosted.Factory)
+	for _, factory := range opts.ProviderFactories {
+		if factory == nil {
+			return nil, errors.New("provider factory is required")
+		}
+
+		if err := registry.Register(factory(r, opts.Config.RootDir)); err != nil {
+			return nil, err
+		}
+	}
+
+	return &Engine{cfg: opts.Config, runner: r, mode: opts.Mode, registry: registry}, nil
 }
 
 type InspectResult struct {

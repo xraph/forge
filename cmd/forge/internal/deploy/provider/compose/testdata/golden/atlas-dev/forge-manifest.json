@@ -8,7 +8,7 @@
     "api/Dockerfile": "fb9ba3619491bf9a5487d383fea69f7e1d5370ebb61b5ca62debf946c9a4b464",
     "api/Dockerfile.dockerignore": "c6b13efa8b0b37e5c8d2edacf1a1cacfcd74d9fd1fe0ff6807b03072e373ce46",
     "api/forge.overlay.yaml": "eefb41916bb784869cbefb5edd1eef3d9e8bec4153a261d33edf2c57dfc4aa20",
-    "compose.yaml": "7e6b067095640c8534e493755733e95ad0604668e3e777493c512bd50730a546",
+    "compose.yaml": "8e9fceee08c9bf011926112782b0371632cfcffb9fbd5040abe1e43a0acc4a30",
     "gateway/Dockerfile": "32ccce0134060e2142507ec03444e9d145746b182a82fa1093361addc00f3e88",
     "gateway/Dockerfile.dockerignore": "c6b13efa8b0b37e5c8d2edacf1a1cacfcd74d9fd1fe0ff6807b03072e373ce46",
     "gateway/forge.overlay.yaml": "0c43516d69400b6eb9ed5dc06589745487d01d47a4f1e82e18952519eb310387",

@@ -491,6 +491,10 @@ func Resolve(ctx context.Context, in Input) (*model.Deployment, output.Diagnosti
 		d.Connections = append(d.Connections, connection(c.From, c.To, c))
 	}
 
+	gatewayEdges, gatewayDiags := gatewayConnections(sp, d)
+	d.Connections = append(d.Connections, gatewayEdges...)
+	diags = append(diags, gatewayDiags...)
+
 	for i := range d.Connections {
 		c := &d.Connections[i]
 		if !selectedMap[c.From] {

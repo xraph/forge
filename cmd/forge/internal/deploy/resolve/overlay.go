@@ -64,6 +64,14 @@ func Overlay(d *model.Deployment, s *model.Service) ([]byte, error) {
 			return nil, err
 		}
 
+		if c.ConfigKey == "extensions.discovery.farp.gateway_url" {
+			for _, key := range []string{"extensions.discovery.enabled", "extensions.discovery.farp.enabled"} {
+				if err := set(root, key, true); err != nil {
+					return nil, err
+				}
+			}
+		}
+
 		prefix := strings.TrimSuffix(c.ConfigKey, ".url")
 		if c.Timeout > 0 {
 			if err := set(root, prefix+".timeout", c.Timeout.String()); err != nil {
@@ -96,7 +104,7 @@ func Overlay(d *model.Deployment, s *model.Service) ([]byte, error) {
 
 // set writes value at a dotted path, where a segment "list[name]" selects or
 // creates the item of list whose "name" field equals name.
-func set(root map[string]any, path, value string) error {
+func set(root map[string]any, path string, value any) error {
 	parts := strings.Split(path, ".")
 	cur := root
 

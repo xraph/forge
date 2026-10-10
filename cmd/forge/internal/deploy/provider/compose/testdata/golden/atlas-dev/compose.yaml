@@ -29,6 +29,7 @@ services:
             ATLAS_PRIMARY_DSN: ${ATLAS_PRIMARY_DSN}
             ATLAS_UPLOADS_DSN: ${ATLAS_UPLOADS_DSN}
             FORGE_HTTP_PORT: "8080"
+            FORGE_SERVICE_ID: api
             PORT: "8080"
         healthcheck:
             interval: 3s
@@ -56,6 +57,7 @@ services:
             ATLAS_PRIMARY_DSN: ${ATLAS_PRIMARY_DSN}
             ATLAS_UPLOADS_DSN: ${ATLAS_UPLOADS_DSN}
             FORGE_HTTP_PORT: "8080"
+            FORGE_SERVICE_ID: api
             PORT: "8080"
         image: ghcr.io/example/atlas-api:latest
         networks:
@@ -91,6 +93,7 @@ services:
         environment:
             API_URL: http://api:8080
             FORGE_HTTP_PORT: "8080"
+            FORGE_SERVICE_ID: gateway
             PORT: "8080"
         healthcheck:
             interval: 3s
@@ -187,6 +190,7 @@ services:
             ATLAS_CACHE_DSN: ${ATLAS_CACHE_DSN}
             ATLAS_PRIMARY_DSN: ${ATLAS_PRIMARY_DSN}
             FORGE_HTTP_PORT: "8080"
+            FORGE_SERVICE_ID: worker
             PORT: "8080"
         healthcheck:
             interval: 3s

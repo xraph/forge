@@ -52,6 +52,12 @@ func (c *Compose) Validate(_ context.Context, d *model.Deployment) output.Diagno
 	ports := map[int]string{}
 
 	for _, s := range d.Services {
+		for _, key := range []string{"FORGE_SERVICE_ID", "FORGE_INSTANCE_ID"} {
+			if _, ok := s.Env[key]; ok {
+				fail("service identity fields are supplied by the deployment authority", "deploy.services."+s.Name+".env."+key)
+			}
+		}
+
 		if s.Kind == spec.KindCron {
 			fail("Compose cron services require a configured scheduler", "deploy.services."+s.Name+".schedule")
 		}

@@ -308,8 +308,14 @@ spec:
               name: forge-cdb06a460410b5b6
         - name: FORGE_HTTP_PORT
           value: "8080"
+        - name: FORGE_SERVICE_ID
+          value: api
         - name: PORT
           value: "8080"
+        - name: FORGE_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -402,8 +408,14 @@ spec:
           value: http://api.atlas-dev.svc.cluster.local:8080
         - name: FORGE_HTTP_PORT
           value: "8080"
+        - name: FORGE_SERVICE_ID
+          value: gateway
         - name: PORT
           value: "8080"
+        - name: FORGE_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -504,8 +516,14 @@ spec:
               name: forge-cdb06a460410b5b6
         - name: FORGE_HTTP_PORT
           value: "8080"
+        - name: FORGE_SERVICE_ID
+          value: worker
         - name: PORT
           value: "8080"
+        - name: FORGE_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -937,8 +955,14 @@ spec:
               name: forge-cdb06a460410b5b6
         - name: FORGE_HTTP_PORT
           value: "8080"
+        - name: FORGE_SERVICE_ID
+          value: api
         - name: PORT
           value: "8080"
+        - name: FORGE_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
         - name: POD_IP
           valueFrom:
             fieldRef:
