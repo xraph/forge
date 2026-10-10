@@ -557,6 +557,13 @@ func TestClaim_QueriesAndKeylessCommandsDoNotClaim(t *testing.T) {
 
 	query := mintRequest()
 	query.Kind = contract.KindQuery
+	query.Intent = "keys.list"
+
+	if err := RegisterQuery(g.d, "keysmith", "keys.list", 1, func(context.Context, mintIn, contract.Principal) (mintOut, error) {
+		return mintOut{}, nil
+	}); err != nil {
+		t.Fatalf("register query: %v", err)
+	}
 
 	for _, req := range []contract.Request{keyless, query} {
 		if _, _, err := g.d.Dispatch(context.Background(), req, alice()); err != nil {

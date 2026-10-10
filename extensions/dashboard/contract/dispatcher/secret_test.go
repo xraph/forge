@@ -199,8 +199,7 @@ func TestSecretCommand_NeverFallsThroughOnAnOddEntry(t *testing.T) {
 }
 
 // A tombstone answers CONFLICT even when the command is not registered as
-// secret here, say after a restart that dropped the option, or on a host that
-// forwards the command to a remote contributor.
+// secret here, say after a restart that dropped the option.
 func TestTombstone_AnswersConflictForAnyRegistration(t *testing.T) {
 	store := newStubStore()
 	store.hits["k1|alice:keys.create"] = IdempotencyCached{Status: TombstoneStatus, StoredAt: time.Now(), TTL: time.Hour}
@@ -214,7 +213,7 @@ func TestTombstone_AnswersConflictForAnyRegistration(t *testing.T) {
 	}
 }
 
-func TestTombstone_AnswersConflictOnTheRemotePath(t *testing.T) {
+func TestTombstone_RemotePathLeavesLocalCacheUntouched(t *testing.T) {
 	store := newStubStore()
 	store.hits["k1|alice:keys.create"] = IdempotencyCached{Status: TombstoneStatus}
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
@@ -223,10 +222,12 @@ func TestTombstone_AnswersConflictOnTheRemotePath(t *testing.T) {
 	d.SetRemoteDispatcher(remote)
 
 	_, _, err := d.Dispatch(context.Background(), mintRequest(), alice())
-	requireSecretConflict(t, err)
+	if err != nil {
+		t.Fatalf("forwarding: %v", err)
+	}
 
-	if atomic.LoadInt64(&remote.calls) != 0 {
-		t.Errorf("remote ran %d times, want 0", remote.calls)
+	if atomic.LoadInt64(&remote.calls) != 1 || atomic.LoadInt64(&store.gets) != 0 {
+		t.Errorf("remote calls=%d local lookups=%d, want 1 and 0", remote.calls, store.gets)
 	}
 }
 

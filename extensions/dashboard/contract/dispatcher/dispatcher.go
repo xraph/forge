@@ -59,14 +59,62 @@ type handlerKey struct {
 // handlerEntry is one registered query or command handler with the options
 // it was registered under.
 type handlerEntry struct {
-	h      Handler
-	secret bool
+	h                 Handler
+	secret            bool
+	requiredKind      contract.Kind
+	bypassIdempotency bool
+	beforeDispatch    []func(context.Context, contract.Request, contract.Principal) error
+	registrationErr   error
 }
 
-// RegisterOption configures one handler registration. Register and
-// RegisterCommand take any number of them, so a call without options keeps
-// compiling and behaving as before.
+// RegisterOption configures one handler registration. Register, RegisterQuery and
+// RegisterCommand take any number of them. Existing calls without options
+// keep compiling.
 type RegisterOption func(*handlerEntry)
+
+// RequireKind restricts a local handler to query or command requests. Raw
+// Register leaves kind unrestricted unless you supply this option. The last valid
+// RequireKind wins, except that typed helpers always enforce their own kind.
+// An invalid kind makes registration fail even if a later option overrides it.
+func RequireKind(kind contract.Kind) RegisterOption {
+	return func(e *handlerEntry) {
+		if kind != contract.KindQuery && kind != contract.KindCommand {
+			e.registrationErr = fmt.Errorf("dispatcher: invalid required kind %q: expected query or command", kind)
+
+			return
+		}
+
+		e.requiredKind = kind
+	}
+}
+
+// BypassIdempotency skips every generic cache operation for this handler,
+// including lookup, claim, storage and release. Use it when your handler owns
+// durable receipt semantics. It still runs admission and kind checks.
+func BypassIdempotency() RegisterOption {
+	return func(e *handlerEntry) { e.bypassIdempotency = true }
+}
+
+// BeforeDispatch attaches caller-specific admission to a local handler. These
+// options do not authorize requests by themselves: you supply the policy.
+// Callbacks run in registration order, outside dispatcher locks, with the
+// original request and principal before any cache access. The first error
+// stops dispatch and uses the same public error mapping as a handler error.
+//
+// Admission runs again after each successful Claim, including immediate claims,
+// before replay or execution. Your callbacks must be safe to repeat and must
+// not perform the domain mutation. A nil callback makes registration fail.
+func BeforeDispatch(fn func(context.Context, contract.Request, contract.Principal) error) RegisterOption {
+	return func(e *handlerEntry) {
+		if fn == nil {
+			e.registrationErr = errors.New("dispatcher: nil BeforeDispatch callback")
+
+			return
+		}
+
+		e.beforeDispatch = append(e.beforeDispatch, fn)
+	}
+}
 
 // SecretResponse marks a command whose response carries a secret the caller
 // sees once, such as a freshly minted API key. The dispatcher never keeps
@@ -252,6 +300,7 @@ func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 	if metrics == nil {
 		metrics = NoopMetricsEmitter{}
 	}
+
 	d := &Dispatcher{
 		metrics:       metrics,
 		claimWait:     DefaultIdempotencyWait,
@@ -261,6 +310,7 @@ func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 	for _, opt := range opts {
 		opt(d)
 	}
+
 	return d
 }
 
@@ -270,6 +320,7 @@ func NewWithOptions(metrics MetricsEmitter, opts ...Option) *Dispatcher {
 func (d *Dispatcher) SetRemoteDispatcher(rd RemoteDispatcher) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
 	d.remote = rd
 }
 
@@ -282,13 +333,24 @@ func (d *Dispatcher) Register(contributor, intent string, version int, h Handler
 	}
 
 	entry := handlerEntry{h: h}
+
 	for _, opt := range opts {
+		if opt == nil {
+			return errors.New("dispatcher: nil registration option")
+		}
+
 		opt(&entry)
 	}
 
+	if entry.registrationErr != nil {
+		return entry.registrationErr
+	}
+
 	k := handlerKey{contributor, intent, version}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
 	if _, exists := d.handlers[k]; exists {
 		return fmt.Errorf("dispatcher: handler %s/%s@%d already registered", contributor, intent, version)
 	}
@@ -304,7 +366,9 @@ func (d *Dispatcher) Register(contributor, intent string, version int, h Handler
 func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
 	if d.tracer != nil {
 		var span trace.Span
+
 		spanName := fmt.Sprintf("dispatch:%s/%s@%d", req.Contributor, req.Intent, req.IntentVersion)
+
 		ctx, span = d.tracer.Start(ctx, spanName,
 			trace.WithAttributes(
 				attribute.String("forge.contract.contributor", req.Contributor),
@@ -314,6 +378,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 			),
 		)
 		defer span.End()
+
 		data, meta, err := d.dispatchInner(ctx, req, p)
 		if err != nil {
 			var ce *contract.Error
@@ -326,8 +391,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 		} else {
 			span.SetStatus(codes.Ok, "")
 		}
+
 		return data, meta, err
 	}
+
 	return d.dispatchInner(ctx, req, p)
 }
 
@@ -342,6 +409,45 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	remote := d.remote
 	d.mu.RUnlock()
 
+	if !ok {
+		// No local handler: forward the original request to the remote dispatcher
+		// if wired. Forwarding inherits the dispatcher's metrics;
+		// latency is measured around the remote call too so the
+		// host sees the round-trip cost.
+		if remote != nil {
+			t0 := time.Now()
+			data, meta, rErr := remote.Dispatch(ctx, req, p)
+			latency := time.Since(t0)
+			errCode := contract.ErrorCode("")
+
+			if rErr != nil {
+				var ce *contract.Error
+				if errors.As(rErr, &ce) {
+					errCode = ce.Code
+				}
+
+				d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
+
+				return nil, contract.ResponseMeta{}, rErr
+			}
+
+			d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
+
+			return data, meta, nil
+		}
+
+		err := &contract.Error{Code: contract.CodeNotFound, Message: fmt.Sprintf("handler %s/%s@%d not registered", req.Contributor, req.Intent, req.IntentVersion)}
+		d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, 0, err.Code)
+
+		return nil, contract.ResponseMeta{}, err
+	}
+
+	if err := d.admit(ctx, req, p, entry); err != nil {
+		return nil, contract.ResponseMeta{}, err
+	}
+
+	useIdempotency := !entry.bypassIdempotency && req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != ""
+
 	// end, when set, ends the claim this dispatch holds on its idempotency
 	// key. remember stores the entry through it; until then the deferred call
 	// below gives the key back, on a failed handler and on a panic alike, so
@@ -355,15 +461,19 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	}()
 
 	// Idempotency wrap (commands only, requires store + key).
-	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
+	if useIdempotency {
 		identity := principalIdentity(p, req.Intent)
 
-		// Claim only for a local handler: a forwarded or unknown command
-		// stores nothing here, so a claim would hold the key for nothing.
 		claimer, canClaim := d.store.(IdempotencyClaimer)
-		if canClaim && ok {
+		if canClaim {
 			claim, err := d.claim(ctx, claimer, req.IdempotencyKey, identity)
 			if err != nil {
+				return nil, contract.ResponseMeta{}, err
+			}
+
+			end = claim.End
+
+			if err := d.admit(ctx, req, p, entry); err != nil {
 				return nil, contract.ResponseMeta{}, err
 			}
 
@@ -374,8 +484,6 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 				// Cached but undecodable. Run afresh with no claim, as the
 				// Lookup path below does, and overwrite the entry with Store.
 			}
-
-			end = claim.End
 		} else if cached, hit := d.store.Lookup(ctx, req.IdempotencyKey, identity); hit {
 			if data, meta, answered, err := answerCached(entry, cached); answered {
 				return data, meta, err
@@ -384,44 +492,20 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 		}
 	}
 
-	if !ok {
-		// Slice (m): no local handler — fall through to the remote dispatcher
-		// if wired. Forwarding inherits the dispatcher's metrics + dedup
-		// pipeline; latency is measured around the remote call too so the
-		// host sees the round-trip cost.
-		if remote != nil {
-			t0 := time.Now()
-			data, meta, rErr := remote.Dispatch(ctx, req, p)
-			latency := time.Since(t0)
-			errCode := contract.ErrorCode("")
-			if rErr != nil {
-				var ce *contract.Error
-				if errors.As(rErr, &ce) {
-					errCode = ce.Code
-				}
-				d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
-				return nil, contract.ResponseMeta{}, rErr
-			}
-			d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
-			return data, meta, nil
-		}
-		err := &contract.Error{Code: contract.CodeNotFound, Message: fmt.Sprintf("handler %s/%s@%d not registered", req.Contributor, req.Intent, req.IntentVersion)}
-		d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, 0, err.Code)
-		return nil, contract.ResponseMeta{}, err
-	}
-
 	t0 := time.Now()
 	res, handlerErr := entry.h(ctx, req.Payload, req.Params, p)
 	latency := time.Since(t0)
 
 	wireErr := mapDispatchError(handlerErr)
 	errCode := contract.ErrorCode("")
+
 	if wireErr != nil {
 		var ce *contract.Error
 		if errors.As(wireErr, &ce) {
 			errCode = ce.Code
 		}
 	}
+
 	d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
 
 	if wireErr != nil {
@@ -440,19 +524,47 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 		if len(res.ExtraInvalidates) > 0 {
 			meta.Invalidates = append(meta.Invalidates, res.ExtraInvalidates...)
 		}
+
 		if res.CacheOverride != nil {
 			meta.CacheControl = res.CacheOverride
 		}
+
 		data = res.Data
 	}
 
 	// Capture for next time on successful command dispatch.
-	if req.Kind == contract.KindCommand && d.store != nil && req.IdempotencyKey != "" {
+	if useIdempotency {
 		d.remember(ctx, req, p, entry.secret, data, meta, end)
 		end = nil // remember ended the claim
 	}
 
 	return data, meta, nil
+}
+
+// admit checks local registration policy before cache access or execution.
+func (d *Dispatcher) admit(ctx context.Context, req contract.Request, p contract.Principal, entry handlerEntry) error {
+	started := time.Now()
+
+	var err error
+	if entry.requiredKind != "" && req.Kind != entry.requiredKind {
+		err = &contract.Error{Code: contract.CodeBadRequest, Message: fmt.Sprintf("handler requires kind %q", entry.requiredKind)}
+	} else {
+		for _, before := range entry.beforeDispatch {
+			if err = before(ctx, req, p); err != nil {
+				break
+			}
+		}
+	}
+
+	wireErr := mapDispatchError(err)
+	if wireErr != nil {
+		var ce *contract.Error
+		if errors.As(wireErr, &ce) {
+			d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, time.Since(started), ce.Code)
+		}
+	}
+
+	return wireErr
 }
 
 // claim takes the command's idempotency key through claimer, waiting at most
@@ -570,6 +682,7 @@ func principalIdentity(p contract.Principal, intent string) string {
 	if p.User != nil {
 		user = p.User.Subject
 	}
+
 	return user + ":" + intent
 }
 
@@ -581,14 +694,18 @@ func mapDispatchError(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	var ce *contract.Error
 	if errors.As(err, &ce) {
 		return ce
 	}
+
 	if errors.Is(err, context.Canceled) {
 		return &contract.Error{Code: contract.CodeUnavailable, Message: "request cancelled", Retryable: true}
 	}
+
 	log.Printf("dispatcher: unmapped handler error: %v", err)
+
 	return &contract.Error{Code: contract.CodeInternal, Message: "internal error"}
 }
 
