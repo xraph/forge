@@ -65,6 +65,7 @@ type handlerEntry struct {
 	bypassIdempotency bool
 	beforeDispatch    []func(context.Context, contract.Request, contract.Principal) error
 	registrationErr   error
+	idempotencyScopes []func(context.Context, contract.Request, contract.Principal) ([]byte, error)
 }
 
 // RegisterOption configures one handler registration. Register, RegisterQuery and
@@ -127,9 +128,9 @@ func SecretResponse() RegisterOption {
 }
 
 // TombstoneStatus is the Status of the idempotency entry a SecretResponse
-// command leaves behind. The entry has no WireBody. Any entry with this
-// status answers CONFLICT on lookup, whatever the handler's current
-// registration says, so a tombstone never falls through to a fresh dispatch.
+// command leaves behind. The entry has no WireBody. Bound ordinary responses
+// also use this status with a versioned body so older readers refuse them.
+// Only a matching bound response can replay.
 const TombstoneStatus = http.StatusConflict
 
 // idempotencyTTL is how long a command's idempotency entry, tombstone or
@@ -161,7 +162,7 @@ const (
 func errSecretNotKept() *contract.Error {
 	return &contract.Error{
 		Code:    contract.CodeConflict,
-		Message: "command already ran and its response held a secret that is not kept; send a new idempotency key to run it again",
+		Message: "command already ran and its response is not kept (secret or consumed response)",
 		Details: map[string]any{ReasonDetail: ReasonAlreadyRan},
 	}
 }
@@ -238,16 +239,16 @@ type IdempotencyStore interface {
 // store passed to WithIdempotencyStore. With one, a command with an
 // idempotency key claims (key, identity) before its handler runs and holds
 // the claim until its entry is stored or the handler fails, so two
-// overlapping dispatches never both run it. Without one, the dispatcher only
-// looks the key up before the handler and stores the entry after it.
+// overlapping dispatches cannot both execute while the claim remains live.
+// Without one, only matching bound hits replay; a miss refuses execution.
 //
 // A Claim that fails for any reason other than the key being held (a backend
 // error, say) answers a retryable UNAVAILABLE and the handler does not run,
 // since nothing would stop a duplicate from running beside it.
 //
 // When End reports ErrIdempotencyClaimLost, the claim's lease lapsed while the
-// handler ran. The dispatcher then writes the entry with Store, so a secret
-// command still leaves its tombstone.
+// handler ran. The dispatcher logs the completion failure without publishing
+// through Store, because the former owner cannot overwrite a successor.
 type IdempotencyClaimer interface {
 	IdempotencyStore
 
@@ -452,7 +453,10 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	// key. remember stores the entry through it; until then the deferred call
 	// below gives the key back, on a failed handler and on a panic alike, so
 	// the next dispatch with the key runs the handler again.
-	var end func(context.Context, *IdempotencyCached) error
+	var (
+		end     func(context.Context, *IdempotencyCached) error
+		binding string
+	)
 
 	defer func() {
 		if end != nil {
@@ -462,6 +466,13 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 
 	// Idempotency wrap (commands only, requires store + key).
 	if useIdempotency {
+		var err error
+
+		binding, err = requestBinding(ctx, req, p, entry)
+		if err != nil {
+			return nil, contract.ResponseMeta{}, err
+		}
+
 		identity := principalIdentity(p, req.Intent)
 
 		claimer, canClaim := d.store.(IdempotencyClaimer)
@@ -477,18 +488,24 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 				return nil, contract.ResponseMeta{}, err
 			}
 
+			current, err := requestBinding(ctx, req, p, entry)
+			if err != nil {
+				return nil, contract.ResponseMeta{}, err
+			}
+
+			if current != binding {
+				return nil, contract.ResponseMeta{}, errBindingConflict()
+			}
+
 			if claim.Cached != nil {
-				if data, meta, answered, err := answerCached(entry, claim.Cached); answered {
-					return data, meta, err
-				}
-				// Cached but undecodable. Run afresh with no claim, as the
-				// Lookup path below does, and overwrite the entry with Store.
+				return answerCached(entry, claim.Cached, req, binding)
 			}
-		} else if cached, hit := d.store.Lookup(ctx, req.IdempotencyKey, identity); hit {
-			if data, meta, answered, err := answerCached(entry, cached); answered {
-				return data, meta, err
+		} else {
+			if cached, hit := d.store.Lookup(ctx, req.IdempotencyKey, identity); hit {
+				return answerCached(entry, cached, req, binding)
 			}
-			// Cached but undecodable; fall through to fresh dispatch.
+
+			return nil, contract.ResponseMeta{}, errClaimRequired()
 		}
 	}
 
@@ -534,7 +551,7 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 
 	// Capture for next time on successful command dispatch.
 	if useIdempotency {
-		d.remember(ctx, req, p, entry.secret, data, meta, end)
+		d.remember(ctx, req, binding, entry.secret, data, meta, end)
 		end = nil // remember ended the claim
 	}
 
@@ -584,8 +601,8 @@ func (d *Dispatcher) claim(ctx context.Context, claimer IdempotencyClaimer, key,
 		log.Printf("dispatcher: claiming idempotency key: %v", err)
 
 		return IdempotencyClaim{}, errClaimFailed()
-	case claim.Cached == nil && claim.End == nil:
-		log.Printf("dispatcher: idempotency claimer returned neither an entry nor a claim")
+	case (claim.Cached == nil) == (claim.End == nil):
+		log.Printf("dispatcher: idempotency claimer returned an invalid entry/claim union")
 
 		return IdempotencyClaim{}, errClaimFailed()
 	}
@@ -593,83 +610,23 @@ func (d *Dispatcher) claim(ctx context.Context, claimer IdempotencyClaimer, key,
 	return claim, nil
 }
 
-// answerCached answers a command from the idempotency entry stored for its
-// key. answered is false when the entry is a non-secret one that does not
-// decode, and then the caller runs the handler afresh.
-func answerCached(entry handlerEntry, cached *IdempotencyCached) (json.RawMessage, contract.ResponseMeta, bool, error) {
-	// A tombstone, or any entry at all for a secret command, means the
-	// command already ran and its answer is gone. Running it again would mint
-	// a second secret, so refuse before the caller's fallthrough can.
-	if entry.secret || cached.Status == TombstoneStatus {
-		return nil, contract.ResponseMeta{}, true, errSecretNotKept()
-	}
+// remember completes only the acquired claim. Lost ownership never permits an
+// unconditional write over a successor. A successful but unencodable response
+// consumes the key with a no-body tombstone, since the mutation already happened.
+func (d *Dispatcher) remember(ctx context.Context, req contract.Request, binding string, secret bool, data json.RawMessage, meta contract.ResponseMeta, end func(context.Context, *IdempotencyCached) error) {
+	cached := &IdempotencyCached{Status: TombstoneStatus, StoredAt: time.Now(), TTL: idempotencyTTL}
 
-	// Decode the cached envelope back into (data, meta).
-	var resp contract.Response
-	if err := json.Unmarshal(cached.WireBody, &resp); err == nil && resp.OK {
-		return resp.Data, resp.Meta, true, nil
-	}
-
-	return nil, contract.ResponseMeta{}, false, nil
-}
-
-// remember stores the idempotency entry for a command that succeeded. A
-// secret command leaves a tombstone: TombstoneStatus and no body, so the
-// secret its response carries never reaches the store. Any other command
-// leaves its full success envelope for replay.
-//
-// With end set, the dispatch holds a claim on the key: the entry is stored
-// through end, which ends the claim, and end runs even when there is no entry
-// to store, so the key is given back. If the claim lapsed while the handler
-// ran, end stores nothing, so the entry goes through Store as it does without
-// a claim. A tombstone is always safe to write that way, and so is a response:
-// Store never overwrites a live claim, and a duplicate that took the key
-// writes its own entry when it finishes.
-func (d *Dispatcher) remember(ctx context.Context, req contract.Request, p contract.Principal, secret bool, data json.RawMessage, meta contract.ResponseMeta, end func(context.Context, *IdempotencyCached) error) {
-	// TTL: 24h hardcoded. Phase 6 will surface this via Extension config.
-	cached := &IdempotencyCached{StoredAt: time.Now(), TTL: idempotencyTTL}
-
-	if secret {
-		cached.Status = TombstoneStatus
-	} else {
-		body, err := json.Marshal(contract.Response{OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta})
+	if !secret {
+		body, err := json.Marshal(boundResponse{Format: bindingFormat, Version: bindingVersion, Binding: binding, Response: contract.Response{OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta}})
 		if err != nil {
-			// Nothing worth replaying. The old code stored the empty body,
-			// which a replay could not decode and ran afresh anyway.
-			cached = nil
+			log.Printf("dispatcher: encoding idempotency response for %s/%s@%d: %v", req.Contributor, req.Intent, req.IntentVersion, err)
 		} else {
-			cached.Status = http.StatusOK
 			cached.WireBody = body
 		}
 	}
 
-	identity := principalIdentity(p, req.Intent)
-
-	if end != nil {
-		// The response is already on its way, so a client gone by now must
-		// not cost the entry, nor leave the key held.
-		ctx = context.WithoutCancel(ctx)
-
-		err := end(ctx, cached)
-		if err == nil {
-			return
-		}
-
-		if cached == nil || !errors.Is(err, ErrIdempotencyClaimLost) {
-			log.Printf("dispatcher: ending the idempotency claim for %s/%s@%d: %v", req.Contributor, req.Intent, req.IntentVersion, err)
-
-			return
-		}
-
-		log.Printf("dispatcher: idempotency claim for %s/%s@%d lapsed while the handler ran; storing its entry without the claim", req.Contributor, req.Intent, req.IntentVersion)
-	}
-
-	if cached == nil {
-		return
-	}
-
-	if err := d.store.Store(ctx, req.IdempotencyKey, identity, *cached); err != nil && end != nil {
-		log.Printf("dispatcher: storing the idempotency entry for %s/%s@%d after its claim lapsed: %v", req.Contributor, req.Intent, req.IntentVersion, err)
+	if err := end(context.WithoutCancel(ctx), cached); err != nil {
+		log.Printf("dispatcher: ending the idempotency claim for %s/%s@%d: %v", req.Contributor, req.Intent, req.IntentVersion, err)
 	}
 }
 

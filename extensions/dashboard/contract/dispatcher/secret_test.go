@@ -73,7 +73,7 @@ func requireSecretConflict(t *testing.T, err error) {
 }
 
 func TestSecretCommand_FirstDispatchReturnsTheSecret(t *testing.T) {
-	d, calls := mintCommand(t, newStubStore(), SecretResponse())
+	d, calls := mintCommand(t, newSequentialClaimStore(), SecretResponse())
 
 	data, _, err := d.Dispatch(context.Background(), mintRequest(), alice())
 	if err != nil {
@@ -95,7 +95,7 @@ func TestSecretCommand_FirstDispatchReturnsTheSecret(t *testing.T) {
 }
 
 func TestSecretCommand_StoresATombstoneWithNoBody(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	d, _ := mintCommand(t, store, SecretResponse())
 
 	if _, _, err := d.Dispatch(context.Background(), mintRequest(), alice()); err != nil {
@@ -131,7 +131,7 @@ func TestSecretCommand_StoresATombstoneWithNoBody(t *testing.T) {
 }
 
 func TestSecretCommand_ReplayAnswersConflictWithoutRunning(t *testing.T) {
-	d, calls := mintCommand(t, newStubStore(), SecretResponse())
+	d, calls := mintCommand(t, newSequentialClaimStore(), SecretResponse())
 
 	if _, _, err := d.Dispatch(context.Background(), mintRequest(), alice()); err != nil {
 		t.Fatalf("first dispatch: %v", err)
@@ -150,7 +150,7 @@ func TestSecretCommand_ReplayAnswersConflictWithoutRunning(t *testing.T) {
 }
 
 func TestSecretCommand_AnotherUserIsNotBlocked(t *testing.T) {
-	d, calls := mintCommand(t, newStubStore(), SecretResponse())
+	d, calls := mintCommand(t, newSequentialClaimStore(), SecretResponse())
 
 	if _, _, err := d.Dispatch(context.Background(), mintRequest(), alice()); err != nil {
 		t.Fatalf("alice: %v", err)
@@ -180,7 +180,7 @@ func TestSecretCommand_NeverFallsThroughOnAnOddEntry(t *testing.T) {
 
 	for name, entry := range cases {
 		t.Run(name, func(t *testing.T) {
-			store := newStubStore()
+			store := newSequentialClaimStore()
 			store.hits["k1|alice:keys.create"] = entry
 			d, calls := mintCommand(t, store, SecretResponse())
 
@@ -201,7 +201,7 @@ func TestSecretCommand_NeverFallsThroughOnAnOddEntry(t *testing.T) {
 // A tombstone answers CONFLICT even when the command is not registered as
 // secret here, say after a restart that dropped the option.
 func TestTombstone_AnswersConflictForAnyRegistration(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	store.hits["k1|alice:keys.create"] = IdempotencyCached{Status: TombstoneStatus, StoredAt: time.Now(), TTL: time.Hour}
 	d, calls := mintCommand(t, store)
 
@@ -214,7 +214,7 @@ func TestTombstone_AnswersConflictForAnyRegistration(t *testing.T) {
 }
 
 func TestTombstone_RemotePathLeavesLocalCacheUntouched(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	store.hits["k1|alice:keys.create"] = IdempotencyCached{Status: TombstoneStatus}
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
 
@@ -240,7 +240,7 @@ func (r *countingRemote) Dispatch(context.Context, contract.Request, contract.Pr
 }
 
 func TestSecretCommand_FailureStoresNothing(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
 
 	err := RegisterCommand(d, "keysmith", "keys.create", 1, func(context.Context, mintIn, contract.Principal) (mintOut, error) {
@@ -260,7 +260,7 @@ func TestSecretCommand_FailureStoresNothing(t *testing.T) {
 }
 
 func TestNonSecretCommand_ReplayStillReturnsTheCachedData(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	d, calls := mintCommand(t, store)
 
 	first, _, err := d.Dispatch(context.Background(), mintRequest(), alice())
@@ -269,8 +269,8 @@ func TestNonSecretCommand_ReplayStillReturnsTheCachedData(t *testing.T) {
 	}
 
 	entry := store.hits["k1|alice:keys.create"]
-	if entry.Status != 200 || entry.TTL != 24*time.Hour {
-		t.Errorf("entry status %d TTL %s, want 200 and 24h", entry.Status, entry.TTL)
+	if entry.Status != TombstoneStatus || entry.TTL != 24*time.Hour {
+		t.Errorf("entry status %d TTL %s, want 409 and 24h", entry.Status, entry.TTL)
 	}
 
 	if !strings.Contains(string(entry.WireBody), `"id":"key_1"`) {
@@ -292,7 +292,7 @@ func TestNonSecretCommand_ReplayStillReturnsTheCachedData(t *testing.T) {
 }
 
 func TestRegister_SecretResponseOnTheRawPath(t *testing.T) {
-	store := newStubStore()
+	store := newSequentialClaimStore()
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
 	calls := int64(0)
 

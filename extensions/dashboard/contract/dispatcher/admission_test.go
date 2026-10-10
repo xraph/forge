@@ -180,6 +180,10 @@ func TestAdmission_CachedPermissionRevocation(t *testing.T) {
 
 				return nil
 			}))
+			if !claiming {
+				observed.IdempotencyStore.(*stubStore).hits["k1|alice:keys.create"] = bindingRecord(t, mintRequest(), alice())
+			}
+
 			for range 2 {
 				if _, _, err := d.Dispatch(context.Background(), mintRequest(), alice()); err != nil {
 					t.Fatal(err)
@@ -191,7 +195,12 @@ func TestAdmission_CachedPermissionRevocation(t *testing.T) {
 				expectedChecks = 4
 			}
 
-			if *calls != 1 || checks != expectedChecks {
+			expectedCalls := int64(0)
+			if claiming {
+				expectedCalls = 1
+			}
+
+			if *calls != expectedCalls || checks != expectedChecks {
 				t.Fatalf("handler=%d admission=%d", *calls, checks)
 			}
 
@@ -200,7 +209,7 @@ func TestAdmission_CachedPermissionRevocation(t *testing.T) {
 			data, _, err := d.Dispatch(context.Background(), mintRequest(), alice())
 			requireAdmissionCode(t, err, contract.CodePermissionDenied)
 
-			if data != nil || *calls != 1 || observed.counts() != before {
+			if data != nil || *calls != expectedCalls || observed.counts() != before {
 				t.Fatalf("denial accessed data, handler or cache: %s %d %v", data, *calls, observed.counts())
 			}
 		})

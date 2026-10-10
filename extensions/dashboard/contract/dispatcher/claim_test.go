@@ -501,25 +501,17 @@ func TestClaim_EmptyClaimAnswersUnavailableWithoutRunning(t *testing.T) {
 	}
 }
 
-func TestClaim_UndecodableEntryRunsAfreshAndOverwrites(t *testing.T) {
+func TestClaim_UndecodableEntryRefusesWithoutOverwrite(t *testing.T) {
 	store := newClaimStore()
 	store.entries["k1|alice:keys.create"] = IdempotencyCached{Status: 200, WireBody: json.RawMessage(`not json`)}
-
 	g := newGatedCommand(t, store, nil)
 	close(g.gate)
-
-	r := recv(t, g.dispatch(context.Background()), "the dispatch")
-	if r.err != nil {
-		t.Fatalf("dispatch: %v", r.err)
-	}
-
-	if n := g.calls.Load(); n != 1 {
-		t.Fatalf("handler ran %d times, want 1", n)
-	}
+	r := recv(t, g.dispatch(context.Background()), "dispatch")
+	requireBindingReason(t, r.err, ReasonBindingConflict)
 
 	got, ok := store.Lookup(context.Background(), "k1", "alice:keys.create")
-	if !ok || !strings.Contains(string(got.WireBody), `"key_1"`) {
-		t.Fatalf("entry = %+v, want the fresh response stored over the undecodable one", got)
+	if !ok || string(got.WireBody) != "not json" || g.calls.Load() != 0 {
+		t.Fatalf("unsafe malformed replay: %+v", got)
 	}
 }
 
@@ -576,51 +568,35 @@ func TestClaim_QueriesAndKeylessCommandsDoNotClaim(t *testing.T) {
 	}
 }
 
-// A secret command whose claim lapsed while its handler ran must still leave
-// its tombstone, or a replay with the same key would mint a second secret.
-func TestClaim_LapsedClaimStillLeavesTheTombstone(t *testing.T) {
-	store := newClaimStore()
-	store.endErr = fmt.Errorf("%w: lease lapsed", ErrIdempotencyClaimLost)
+// Lease loss can leave no receipt. It never authorizes a stale fallback write.
+func TestClaim_LapsedClaimDoesNotPublishWithoutOwnership(t *testing.T) {
+	for _, secret := range []bool{false, true} {
+		store := newClaimStore()
+		store.endErr = fmt.Errorf("%w: lease lapsed", ErrIdempotencyClaimLost)
 
-	g := newGatedCommand(t, store, nil, SecretResponse())
-	close(g.gate)
+		var opts []RegisterOption
+		if secret {
+			opts = append(opts, SecretResponse())
+		}
 
-	first := recv(t, g.dispatch(context.Background()), "the first dispatch")
-	if first.err != nil || !strings.Contains(string(first.data), rawKey) {
-		t.Fatalf("first answer = %s, %v; want the raw key", first.data, first.err)
-	}
+		g := newGatedCommand(t, store, nil, opts...)
+		close(g.gate)
 
-	entry, ok := store.Lookup(context.Background(), "k1", "alice:keys.create")
-	if !ok || entry.Status != TombstoneStatus || len(entry.WireBody) != 0 {
-		t.Fatalf("entry = %+v, %v; want a tombstone written through Store", entry, ok)
-	}
+		if first := recv(t, g.dispatch(context.Background()), "first"); first.err != nil {
+			t.Fatal(first.err)
+		}
 
-	requireSecretConflict(t, recv(t, g.dispatch(context.Background()), "the replay").err)
+		if _, hit := store.Lookup(context.Background(), "k1", "alice:keys.create"); hit {
+			t.Fatal("stale holder published")
+		}
 
-	if n := g.calls.Load(); n != 1 {
-		t.Fatalf("handler ran %d times, want 1", n)
-	}
-}
+		if second := recv(t, g.dispatch(context.Background()), "second"); second.err != nil {
+			t.Fatal(second.err)
+		}
 
-func TestClaim_LapsedClaimStillLeavesTheResponse(t *testing.T) {
-	store := newClaimStore()
-	store.endErr = fmt.Errorf("%w: lease lapsed", ErrIdempotencyClaimLost)
-
-	g := newGatedCommand(t, store, nil)
-	close(g.gate)
-
-	first := recv(t, g.dispatch(context.Background()), "the first dispatch")
-	if first.err != nil {
-		t.Fatalf("first dispatch: %v", first.err)
-	}
-
-	second := recv(t, g.dispatch(context.Background()), "the replay")
-	if second.err != nil || string(second.data) != string(first.data) {
-		t.Fatalf("replay = %s, %v; want the first response", second.data, second.err)
-	}
-
-	if n := g.calls.Load(); n != 1 {
-		t.Fatalf("handler ran %d times, want 1", n)
+		if g.calls.Load() != 2 {
+			t.Fatal("test must expose missing-receipt limitation")
+		}
 	}
 }
 

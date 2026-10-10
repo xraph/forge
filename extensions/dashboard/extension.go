@@ -951,8 +951,8 @@ func (a *claimingIdempotencyAdapter) Claim(ctx context.Context, key, identity st
 // shape between the two types.
 func (a *idempotencyAdapter) Lookup(ctx context.Context, key, identity string) (*dispatcher.IdempotencyCached, bool) {
 	c, ok := a.inner.Lookup(ctx, key, identity)
-	if !ok {
-		return nil, false
+	if !ok || c == nil {
+		return nil, ok
 	}
 	return &dispatcher.IdempotencyCached{
 		Status:   c.Status,

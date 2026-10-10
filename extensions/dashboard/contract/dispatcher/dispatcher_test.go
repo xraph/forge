@@ -6,7 +6,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
 	"github.com/xraph/forge/extensions/dashboard/contract"
@@ -123,12 +122,6 @@ func (s *stubStore) Store(_ context.Context, key, identity string, c Idempotency
 
 func TestDispatcher_IdempotencyHitReturnsCached(t *testing.T) {
 	store := newStubStore()
-	store.hits["k|alice:i"] = IdempotencyCached{
-		Status:   200,
-		WireBody: json.RawMessage(`{"ok":true,"envelope":"v1","kind":"command","data":{"cached":true},"meta":{}}`),
-		StoredAt: time.Now(),
-		TTL:      time.Hour,
-	}
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
 	called := int64(0)
 	_ = d.Register("c", "i", 1, func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
@@ -141,6 +134,7 @@ func TestDispatcher_IdempotencyHitReturnsCached(t *testing.T) {
 		IdempotencyKey: "k",
 	}
 	p := contract.PrincipalFor(&dashauth.UserInfo{Subject: "alice"})
+	store.hits["k|alice:i"] = bindingRecord(t, req, p)
 	data, _, err := d.Dispatch(context.Background(), req, p)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -153,7 +147,7 @@ func TestDispatcher_IdempotencyHitReturnsCached(t *testing.T) {
 	}
 }
 
-func TestDispatcher_IdempotencyMissCallsHandlerAndStores(t *testing.T) {
+func TestDispatcher_IdempotencyMissRequiresClaims(t *testing.T) {
 	store := newStubStore()
 	d := NewWithOptions(NoopMetricsEmitter{}, WithIdempotencyStore(store))
 	_ = d.Register("c", "i", 1, func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
@@ -165,9 +159,11 @@ func TestDispatcher_IdempotencyMissCallsHandlerAndStores(t *testing.T) {
 		IdempotencyKey: "k",
 	}
 	p := contract.PrincipalFor(&dashauth.UserInfo{Subject: "alice"})
-	_, _, _ = d.Dispatch(context.Background(), req, p)
-	if atomic.LoadInt64(&store.puts) != 1 {
-		t.Errorf("expected 1 store write, got %d", store.puts)
+	_, _, err := d.Dispatch(context.Background(), req, p)
+	requireBindingReason(t, err, ReasonClaimRequired)
+
+	if atomic.LoadInt64(&store.puts) != 0 {
+		t.Errorf("expected no store write, got %d", store.puts)
 	}
 }
 

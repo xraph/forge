@@ -82,3 +82,48 @@ func (s *mapStore) Store(_ context.Context, key, identity string, c idempotency.
 
 	return nil
 }
+
+func TestAdaptIdempotencyStore_BoundRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	body := []byte(`{"format":"forge.dashboard.idempotency","version":1,"binding":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","response":{"ok":true,"envelope":"v1","kind":"command","data":{"kept":true},"meta":{"intentVersion":1}}}`)
+
+	for _, claiming := range []bool{false, true} {
+		store := dashboard.AdaptIdempotencyStore(idempotency.NewInMemoryStore())
+
+		in := dispatcher.IdempotencyCached{Status: dispatcher.TombstoneStatus, WireBody: body, StoredAt: time.Now(), TTL: time.Hour}
+		if claiming {
+			claim, err := store.(dispatcher.IdempotencyClaimer).Claim(ctx, "k", "u")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := claim.End(ctx, &in); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := store.Store(ctx, "k", "u", in); err != nil {
+			t.Fatal(err)
+		}
+
+		out, hit := store.Lookup(ctx, "k", "u")
+		if !hit || out.Status != in.Status || string(out.WireBody) != string(body) || !out.StoredAt.Equal(in.StoredAt) || out.TTL != in.TTL {
+			t.Fatalf("lookup=%+v", out)
+		}
+
+		replay, err := store.(dispatcher.IdempotencyClaimer).Claim(ctx, "k", "u")
+		if err != nil || replay.End != nil || replay.Cached == nil || string(replay.Cached.WireBody) != string(body) || replay.Cached.Status != in.Status || !replay.Cached.StoredAt.Equal(in.StoredAt) || replay.Cached.TTL != in.TTL {
+			t.Fatalf("claim=%+v err=%v", replay, err)
+		}
+	}
+}
+
+type nilRecordStore struct{ *mapStore }
+
+func (s nilRecordStore) Lookup(context.Context, string, string) (*idempotency.Cached, bool) {
+	return nil, true
+}
+func TestAdaptIdempotencyStore_PreservesNilHit(t *testing.T) {
+	got, hit := dashboard.AdaptIdempotencyStore(nilRecordStore{&mapStore{}}).Lookup(context.Background(), "k", "u")
+	if got != nil || !hit {
+		t.Fatal("nil hit became a miss")
+	}
+}

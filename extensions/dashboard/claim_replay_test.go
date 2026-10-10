@@ -291,10 +291,9 @@ func TestSecretCommand_SharedStoreDuplicateWaitsOnTheClaim(t *testing.T) {
 	}
 }
 
-// A secret command whose handler outlives its claim's lease, while another
-// Begin sweeps the lapsed claim, must still leave its tombstone through the
-// production store, so a replay answers CONFLICT and mints nothing.
-func TestSecretCommand_ProductionStoreKeepsTheTombstoneWhenTheClaimLapses(t *testing.T) {
+// A lost lease can leave no receipt. The stale handler must not publish without
+// ownership, even for a secret response. A later execution remains possible.
+func TestSecretCommand_ProductionStoreLostLeaseHasNoReceipt(t *testing.T) {
 	var (
 		mu  sync.Mutex
 		now = time.Now()
@@ -334,12 +333,8 @@ func TestSecretCommand_ProductionStoreKeepsTheTombstoneWhenTheClaimLapses(t *tes
 		t.Fatalf("first answer = %s, %v; want the raw key", a.data, a.err)
 	}
 
-	a := await(t, r.dispatch(), "the replay")
-	if msg := conflictMessage(t, a.err); !strings.Contains(msg, "already ran") {
-		t.Fatalf("replay message = %q, want the tombstone's CONFLICT", msg)
-	}
-
-	if n := r.calls.Load(); n != 1 {
-		t.Fatalf("handler ran %d times, want 1", n)
+	a := await(t, r.dispatch(), "the later execution")
+	if a.err != nil || r.calls.Load() != 2 {
+		t.Fatalf("missing-receipt limit: calls=%d err=%v", r.calls.Load(), a.err)
 	}
 }

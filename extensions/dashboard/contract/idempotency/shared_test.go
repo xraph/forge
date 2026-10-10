@@ -441,3 +441,23 @@ func TestSharedStoreLookupReleasesEvenWhenTheRequestIsCancelled(t *testing.T) {
 		t.Fatal("a cancelled request leaked Lookup's claim: Release was refused")
 	}
 }
+
+func TestSharedStoreBoundResponseConversion(t *testing.T) {
+	for _, ttl := range []time.Duration{0, time.Hour} {
+		in := Cached{Status: 409, WireBody: json.RawMessage(`{"format":"forge.dashboard.idempotency","version":1}`), StoredAt: time.Now(), TTL: ttl}
+		wire := toResponse(in)
+
+		got := fromResponse(wire)
+		if got.Status != in.Status || string(got.WireBody) != string(in.WireBody) || !got.StoredAt.Equal(in.StoredAt) || got.TTL != ttl {
+			t.Fatalf("round trip=%+v", got)
+		}
+
+		if ttl == 0 && !wire.ExpiresAt.IsZero() {
+			t.Fatal("nonexpiring entry gained expiry")
+		}
+
+		if ttl > 0 && !wire.ExpiresAt.Equal(in.StoredAt.Add(ttl)) {
+			t.Fatal("expiry changed")
+		}
+	}
+}
