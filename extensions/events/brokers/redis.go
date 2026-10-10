@@ -388,8 +388,42 @@ func (rb *RedisBroker) Publish(ctx context.Context, topic string, event core.Eve
 	return nil
 }
 
-// Subscribe starts an ephemeral listener or a durable group for this logical handler.
+// DurableCapabilities reports the configured Streams delivery guarantees.
+func (rb *RedisBroker) DurableCapabilities() (core.DurableBrokerCapabilities, error) {
+	if rb == nil {
+		return core.DurableBrokerCapabilities{}, core.ErrDurableDeliveryUnavailable
+	}
+
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+
+	if !rb.config.EnableStreams {
+		return core.DurableBrokerCapabilities{}, core.ErrDurableDeliveryUnavailable
+	}
+
+	return core.DurableBrokerCapabilities{
+		Ordering: rb.config.StreamOrdering, MaxInFlight: 1,
+		AcknowledgeAfterHandler: true, PendingRecovery: true,
+		ConsumerGroup: rb.config.ConsumerGroup, ReplicaID: rb.config.ConsumerName,
+	}, nil
+}
+
+// SubscribeDurable requires Streams delivery and uses ctx for its lifetime.
+func (rb *RedisBroker) SubscribeDurable(ctx context.Context, topic string, handler core.EventHandler) error {
+	if _, err := rb.DurableCapabilities(); err != nil {
+		return err
+	}
+
+	return rb.Subscribe(ctx, topic, handler)
+}
+
+// Subscribe starts the configured listener. Pub/Sub uses ctx only for setup;
+// its listener lasts until Unsubscribe or Close. Streams uses ctx for its lifetime.
 func (rb *RedisBroker) Subscribe(ctx context.Context, topic string, handler core.EventHandler) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
@@ -418,7 +452,7 @@ func (rb *RedisBroker) Subscribe(ctx context.Context, topic string, handler core
 			return err
 		}
 
-		subCtx, cancel := context.WithCancel(ctx)
+		subCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		sub := &RedisSubscription{pubsub: pubsub, channel: topic, cancel: cancel, broker: rb}
 		rb.subscriptions[topic] = sub
 		rb.stats.Subscriptions++

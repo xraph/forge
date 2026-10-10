@@ -194,6 +194,16 @@ func streamPause(ctx context.Context, duration time.Duration) bool {
 
 func (rb *RedisBroker) listenStream(ctx context.Context, client redis.UniversalClient, sub *RedisSubscription) {
 	defer rb.wg.Done()
+	defer func() {
+		rb.mu.Lock()
+		defer rb.mu.Unlock()
+
+		key := streamSubscriptionKey(sub.channel, sub.handler.Name())
+		if rb.subscriptions[key] == sub {
+			delete(rb.subscriptions, key)
+			rb.stats.Subscriptions--
+		}
+	}()
 
 	key := streamLockKey(sub.channel, sub.group)
 

@@ -71,3 +71,26 @@ type MessageBroker interface {
 	// GetStats returns broker statistics
 	GetStats() map[string]any
 }
+
+// DurableBrokerCapabilities describes the guarantees of a configured route.
+// Acknowledgement follows a successful handler return; handlers must commit their
+// effects before returning nil. Replay can redeliver committed events.
+type DurableBrokerCapabilities struct {
+	Ordering                string
+	MaxInFlight             int
+	AcknowledgeAfterHandler bool
+	PendingRecovery         bool
+	ConsumerGroup           string
+	ReplicaID               string
+}
+
+// DurableMessageBroker is an optional capability for persistent delivery.
+// Ordinary MessageBroker implementations can remain ephemeral.
+type DurableMessageBroker interface {
+	MessageBroker
+	// DurableCapabilities fails when persistent delivery is not configured.
+	DurableCapabilities() (DurableBrokerCapabilities, error)
+	// SubscribeDurable requires persistent delivery. The context controls the
+	// subscription lifetime, including in-flight handler cancellation.
+	SubscribeDurable(ctx context.Context, topic string, handler EventHandler) error
+}

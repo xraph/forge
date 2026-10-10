@@ -145,6 +145,40 @@ brokers:
       stream_lease_duration: "10s"
 ```
 
+Before you wire a critical route, call `core.RequireDurableBroker` on the selected
+`core.MessageBroker`. Memory and Redis Pub/Sub return
+`core.ErrDurableDeliveryUnavailable`. Redis Streams implements the optional
+`core.DurableMessageBroker` interface and reports topic ordering, one in-flight
+handler, acknowledgement after handler success, pending recovery, its consumer
+group namespace and replica identity.
+
+```go
+func subscribeCommitted(
+    ctx context.Context,
+    bus core.EventBus,
+    handler core.EventHandler,
+) error {
+    broker, err := bus.GetBroker("market-events")
+    if err != nil {
+        return err
+    }
+    durable, err := core.RequireDurableBroker(broker)
+    if err != nil {
+        return err
+    }
+    return durable.SubscribeDurable(ctx, "market.price", handler)
+}
+```
+
+`SubscribeDurable` uses its context for the subscription lifetime. Cancellation
+stops delivery, cancels the in-flight handler and leaves uncommitted work pending
+for recovery. After the listener exits, you can subscribe the same logical handler
+again. If you use `bus.Subscribe`, the bus manages subscription restoration across
+its own stop/start cycle; check the selected broker's capability before wiring it.
+
+Pub/Sub `Subscribe` uses its context for setup. Canceling that context after setup
+succeeds keeps the listener active until `Unsubscribe` or broker `Close`.
+
 Give every logical handler a stable, non-anonymous `Name()`. The broker creates a
 separate group for each name. Replicas of that handler share its name and use
 unique `consumer_name` values, generated automatically when omitted. One leased
@@ -181,3 +215,14 @@ or remove brokers while the bus is stopped. You can change the default route whi
 it is running. Shutdown stops admission, cancels active operations, and drains
 them before closing brokers. If the caller's deadline expires, cleanup continues;
 a new start is rejected until that cleanup finishes.
+
+## Retrying subscription removal
+
+When a bus unsubscribe succeeds on one broker and fails on another, you receive
+the failure and can retry the same event type and handler name. The bus retries
+only unfinished destinations. While removals remain pending, `HealthCheck`
+returns an error and `GetStats` exposes `pending_subscription_removals`.
+
+Successful broker shutdown completes its outstanding removals. If a broker fails
+to close, the removal stays visible and restart skips restoring that handler.
+This keeps already removed handlers from returning while you finish cleanup.

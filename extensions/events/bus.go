@@ -51,9 +51,15 @@ type EventBusImpl struct {
 	active          sync.WaitGroup
 	lifecycleMu     sync.Mutex
 	subscriptionMu  sync.Mutex
+	pendingRemovals map[subscriptionKey]map[string]bool
 	stopping        bool
 	mu              sync.RWMutex
 	wg              sync.WaitGroup
+}
+
+type subscriptionKey struct {
+	eventType   string
+	handlerName string
 }
 
 type busShutdown struct {
@@ -201,6 +207,14 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 
 	for topic, handlers := range eb.handlerRegistry.GetAllHandlers() {
 		for _, handler := range handlers {
+			eb.mu.RLock()
+			_, removing := eb.pendingRemovals[subscriptionKey{topic, handler.Name()}]
+			eb.mu.RUnlock()
+
+			if removing {
+				continue
+			}
+
 			for _, name := range names {
 				if err := brokers[name].Subscribe(runCtx, topic, handler); err != nil {
 					return fail(fmt.Errorf("failed to restore subscription on broker %s: %w", name, err))
@@ -285,6 +299,8 @@ func (eb *EventBusImpl) finishStop(ctx context.Context) {
 	for _, name := range brokerNames(brokers) {
 		if err := brokers[name].Close(ctx); err != nil {
 			stopErr = stderrors.Join(stopErr, fmt.Errorf("failed to close broker %s: %w", name, err))
+		} else {
+			stopErr = stderrors.Join(stopErr, eb.finishBrokerRemovals(name))
 		}
 	}
 
@@ -346,6 +362,14 @@ func (eb *EventBusImpl) HealthCheck(ctx context.Context) error {
 		return err
 	}
 	defer done()
+
+	eb.mu.RLock()
+	pending := len(eb.pendingRemovals)
+	eb.mu.RUnlock()
+
+	if pending > 0 {
+		return fmt.Errorf("%d subscription removals remain incomplete", pending)
+	}
 
 	for _, name := range brokerNames(brokers) {
 		if err := brokers[name].HealthCheck(opCtx); err != nil {
@@ -507,11 +531,53 @@ func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error 
 	eb.subscriptionMu.Lock()
 	defer eb.subscriptionMu.Unlock()
 
+	registered := false
+
+	for _, handler := range eb.handlerRegistry.GetHandlers(eventType) {
+		if handler.Name() == handlerName {
+			registered = true
+
+			break
+		}
+	}
+
+	if !registered {
+		return fmt.Errorf("handler %s is not registered for %s", handlerName, eventType)
+	}
+
+	key := subscriptionKey{eventType, handlerName}
+
+	eb.mu.Lock()
+	if eb.pendingRemovals == nil {
+		eb.pendingRemovals = make(map[subscriptionKey]map[string]bool)
+	}
+
+	pending, exists := eb.pendingRemovals[key]
+	if !exists {
+		pending = make(map[string]bool, len(brokers))
+		for name := range brokers {
+			pending[name] = true
+		}
+
+		eb.pendingRemovals[key] = pending
+	}
+
+	names := make([]string, 0, len(pending))
+	for name := range pending {
+		names = append(names, name)
+	}
+	eb.mu.Unlock()
+	sort.Strings(names)
+
 	var result error
 
-	for _, name := range brokerNames(brokers) {
+	for _, name := range names {
 		if err := brokers[name].Unsubscribe(opCtx, eventType, handlerName); err != nil {
 			result = stderrors.Join(result, fmt.Errorf("failed to unsubscribe from broker %s: %w", name, err))
+		} else {
+			eb.mu.Lock()
+			delete(pending, name)
+			eb.mu.Unlock()
 		}
 	}
 
@@ -519,7 +585,48 @@ func (eb *EventBusImpl) Unsubscribe(eventType string, handlerName string) error 
 		return result
 	}
 
-	return eb.handlerRegistry.Unregister(eventType, handlerName)
+	if err := eb.handlerRegistry.Unregister(eventType, handlerName); err != nil {
+		return err
+	}
+
+	eb.mu.Lock()
+	delete(eb.pendingRemovals, key)
+	eb.mu.Unlock()
+
+	return nil
+}
+
+// finishBrokerRemovals completes pending intent after a successful broker Close.
+// Shutdown has drained all subscription operations before calling this helper.
+func (eb *EventBusImpl) finishBrokerRemovals(brokerName string) error {
+	eb.mu.Lock()
+
+	var complete []subscriptionKey
+
+	for key, pending := range eb.pendingRemovals {
+		delete(pending, brokerName)
+
+		if len(pending) == 0 {
+			complete = append(complete, key)
+		}
+	}
+	eb.mu.Unlock()
+
+	var result error
+
+	for _, key := range complete {
+		if err := eb.handlerRegistry.Unregister(key.eventType, key.handlerName); err != nil {
+			result = stderrors.Join(result, err)
+
+			continue
+		}
+
+		eb.mu.Lock()
+		delete(eb.pendingRemovals, key)
+		eb.mu.Unlock()
+	}
+
+	return result
 }
 
 // RegisterBroker implements EventBus.
@@ -566,6 +673,12 @@ func (eb *EventBusImpl) UnregisterBroker(name string) error {
 
 	if _, exists := eb.brokers[name]; !exists {
 		return fmt.Errorf("broker %s not found", name)
+	}
+
+	for _, pending := range eb.pendingRemovals {
+		if pending[name] {
+			return fmt.Errorf("broker %s has incomplete subscription removals", name)
+		}
 	}
 
 	delete(eb.brokers, name)
@@ -628,6 +741,7 @@ func (eb *EventBusImpl) GetStats() map[string]any {
 		"name": eb.name, "started": eb.started, "stopping": eb.stopping,
 		"brokers_count": len(eb.brokers), "default_broker": eb.defaultBroker,
 		"workers_count": len(eb.workers), "buffer_size": eb.config.BufferSize,
+		"pending_subscription_removals": len(eb.pendingRemovals),
 	}
 	brokers := make(map[string]core.MessageBroker)
 	maps.Copy(brokers, eb.brokers)

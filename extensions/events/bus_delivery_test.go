@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xraph/forge/extensions/events/brokers"
 	"github.com/xraph/forge/extensions/events/core"
 	"github.com/xraph/forge/extensions/events/stores"
 )
@@ -422,4 +423,84 @@ func TestServiceBorrowedStoreHealthFailureDoesNotCloseStore(t *testing.T) {
 	service := NewEventService(DefaultConfig(), nil, nil, WithEventStore(store))
 	require.ErrorIs(t, service.Start(context.Background()), failure)
 	require.Zero(t, store.closes)
+}
+
+type transientUnsubscriber struct {
+	deliveryBroker
+
+	attempts int
+}
+
+func (b *transientUnsubscriber) Unsubscribe(context.Context, string, string) error {
+	b.attempts++
+	if b.attempts == 1 {
+		return errors.New("transient unsubscribe failure")
+	}
+
+	return nil
+}
+
+func TestBusPartialUnsubscribeRetryDoesNotRepeatCompletedRemoval(t *testing.T) {
+	bus := testDeliveryBus(t, EventBusConfig{})
+	memory := brokers.NewMemoryBroker(nil, nil)
+	flaky := &transientUnsubscriber{}
+
+	require.NoError(t, bus.RegisterBroker("a-memory", memory))
+	require.NoError(t, bus.RegisterBroker("b-transient", flaky))
+	require.NoError(t, bus.Start(context.Background()))
+
+	handler := core.NewTypedEventHandler("logical", []string{"test"}, func(context.Context, *core.Event) error { return nil })
+	require.NoError(t, bus.Subscribe("test", handler))
+	require.ErrorContains(t, bus.Unsubscribe("test", "logical"), "b-transient")
+	require.ErrorContains(t, bus.HealthCheck(context.Background()), "removals remain incomplete")
+	require.Equal(t, 1, bus.GetStats()["pending_subscription_removals"])
+	require.NoError(t, bus.Unsubscribe("test", "logical"))
+	require.Empty(t, bus.handlerRegistry.GetHandlers("test"))
+	require.NoError(t, bus.HealthCheck(context.Background()))
+	require.Equal(t, 0, bus.GetStats()["pending_subscription_removals"])
+	require.NoError(t, bus.Stop(context.Background()))
+
+	previousSubscriptions := flaky.subscriptions
+
+	require.NoError(t, bus.Start(context.Background()))
+	require.Equal(t, previousSubscriptions, flaky.subscriptions, "removed intent must not restore on restart")
+	require.NoError(t, bus.Stop(context.Background()))
+}
+
+func TestBusPartialUnsubscribeCompletesOnSuccessfulShutdown(t *testing.T) {
+	bus := testDeliveryBus(t, EventBusConfig{})
+	flaky := &transientUnsubscriber{}
+
+	require.NoError(t, bus.RegisterBroker("a-memory", brokers.NewMemoryBroker(nil, nil)))
+	require.NoError(t, bus.RegisterBroker("b-transient", flaky))
+	require.NoError(t, bus.Start(context.Background()))
+	require.NoError(t, bus.Subscribe("test", core.NewTypedEventHandler("logical", []string{"test"}, func(context.Context, *core.Event) error { return nil })))
+	require.Error(t, bus.Unsubscribe("test", "logical"))
+	require.NoError(t, bus.Stop(context.Background()))
+	require.Empty(t, bus.handlerRegistry.GetHandlers("test"))
+	require.Equal(t, 0, bus.GetStats()["pending_subscription_removals"])
+	require.NoError(t, bus.Start(context.Background()))
+	require.Equal(t, 1, flaky.subscriptions, "stopped subscriptions must not revive")
+	require.NoError(t, bus.Stop(context.Background()))
+}
+
+func TestBusPartialUnsubscribeFailedCloseDoesNotRestoreRemovedHandlers(t *testing.T) {
+	bus := testDeliveryBus(t, EventBusConfig{})
+	flaky := &transientUnsubscriber{deliveryBroker: deliveryBroker{closeErr: errors.New("close failed")}}
+
+	require.NoError(t, bus.RegisterBroker("a-memory", brokers.NewMemoryBroker(nil, nil)))
+	require.NoError(t, bus.RegisterBroker("b-transient", flaky))
+	require.NoError(t, bus.Start(context.Background()))
+	require.NoError(t, bus.Subscribe("test", core.NewTypedEventHandler("logical", []string{"test"}, func(context.Context, *core.Event) error { return nil })))
+	require.Error(t, bus.Unsubscribe("test", "logical"))
+	require.ErrorContains(t, bus.Stop(context.Background()), "close failed")
+	require.ErrorContains(t, bus.UnregisterBroker("b-transient"), "incomplete subscription removals")
+	require.NoError(t, bus.Start(context.Background()))
+	require.Equal(t, 1, flaky.subscriptions)
+	require.ErrorContains(t, bus.HealthCheck(context.Background()), "removals remain incomplete")
+	require.NoError(t, bus.Unsubscribe("test", "logical"))
+
+	flaky.closeErr = nil
+
+	require.NoError(t, bus.Stop(context.Background()))
 }
