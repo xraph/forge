@@ -241,3 +241,66 @@ func TestTypedOutputFailureLostLeaseHasNoFallback(t *testing.T) {
 		t.Fatalf("lease-loss limitation or ownership changed: hit=%t calls=%d store=%+v", hit, calls, store)
 	}
 }
+
+type matchingDomainError struct{ isCalls *int }
+
+func (matchingDomainError) Error() string { return "domain failure" }
+
+func (err matchingDomainError) Is(error) bool {
+	*err.isCalls++
+
+	return true
+}
+
+func TestTypedOutputFailureDomainIsDoesNotConsume(t *testing.T) {
+	for _, secret := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "secret"}[secret], func(t *testing.T) {
+			store := &outputEncodingStore{IdempotencyStore: AdaptIdempotencyStore(idempotency.NewInMemoryStore())}
+			d := dispatcher.NewWithOptions(nil, dispatcher.WithIdempotencyStore(store))
+			req, p := bindingRequest(), bindingPrincipal()
+			calls, isCalls := 0, 0
+
+			var opts []dispatcher.RegisterOption
+			if secret {
+				opts = append(opts, dispatcher.SecretResponse())
+			}
+
+			if err := dispatcher.RegisterCommand(d, req.Contributor, req.Intent, req.IntentVersion, func(context.Context, struct{}, contract.Principal) (any, error) {
+				calls++
+
+				return nil, matchingDomainError{isCalls: &isCalls}
+			}, opts...); err != nil {
+				t.Fatal(err)
+			}
+
+			var results []error
+
+			for range 2 {
+				data, meta, err := d.Dispatch(context.Background(), req, p)
+				results = append(results, err)
+
+				if data != nil || !reflect.DeepEqual(meta, contract.ResponseMeta{}) {
+					t.Fatal("failed domain call returned data or metadata")
+				}
+			}
+
+			record, hit := store.Lookup(context.Background(), req.IdempotencyKey, "operator:run.cancel")
+			if calls != 2 || store.releases != 2 || store.completions != 0 || store.stores != 0 || hit {
+				t.Fatalf("domain error consumed: calls=%d releases=%d completions=%d stores=%d hit=%t record=%+v", calls, store.releases, store.completions, store.stores, hit, record)
+			}
+
+			// The existing public mapper still classifies this broad Is match as
+			// cancellation. Only the private post-success phase check must bypass Is.
+			for _, err := range results {
+				var ce *contract.Error
+				if !errors.As(err, &ce) || ce.Code != contract.CodeUnavailable || ce.Message != "request cancelled" || !ce.Retryable {
+					t.Fatalf("public error mapping changed: %v", err)
+				}
+			}
+
+			if isCalls != 2 {
+				t.Fatalf("Is calls=%d; want one public classification per failed attempt", isCalls)
+			}
+		})
+	}
+}

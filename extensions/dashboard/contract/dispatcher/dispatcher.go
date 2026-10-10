@@ -526,7 +526,7 @@ func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p 
 	d.metrics.RecordDispatch(ctx, req.Contributor, req.Intent, req.IntentVersion, req.Kind, latency, errCode)
 
 	if wireErr != nil {
-		if useIdempotency && errors.Is(handlerErr, errTypedOutputEncoding) {
+		if useIdempotency && handlerErr == errTypedOutputEncoding { //nolint:errorlint // Exact private phase identity must not invoke domain-controlled Is methods.
 			// The typed domain handler succeeded. Consume its owned claim even
 			// though output serialization failed, without retaining output bytes.
 			d.remember(ctx, req, binding, true, nil, contract.ResponseMeta{}, end)
