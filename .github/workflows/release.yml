@@ -396,7 +396,10 @@ jobs:
           cd ${{ needs.detect.outputs.module_path }}
           go mod download
           go list ./... | grep -v '/bk/' > "$RUNNER_TEMP/release-packages.txt"
-          mapfile -t packages < "$RUNNER_TEMP/release-packages.txt"
+          packages=()
+          while IFS= read -r package; do
+            packages+=("$package")
+          done < "$RUNNER_TEMP/release-packages.txt"
           go test -v -race -timeout=15m "${packages[@]}"
 
   # -------------------------------------------------------------------
@@ -490,12 +493,12 @@ jobs:
             ### Installation
 
             ```bash
-            go get ${{ needs.detect.outputs.module_import }}@${{ needs.detect.outputs.tag }}
+            go get ${{ needs.detect.outputs.module_import }}@v${{ needs.detect.outputs.version }}
             ```
 
             ### Documentation
 
-            - [pkg.go.dev](https://pkg.go.dev/${{ needs.detect.outputs.module_import }}@${{ needs.detect.outputs.tag }})
+            - [pkg.go.dev](https://pkg.go.dev/${{ needs.detect.outputs.module_import }}@v${{ needs.detect.outputs.version }})
           draft: false
           make_latest: ${{ needs.detect.outputs.module_type == 'library' && 'false' || 'legacy' }}
           prerelease: ${{ needs.detect.outputs.is_prerelease == 'true' }}
@@ -505,7 +508,7 @@ jobs:
       - name: Notify Go proxy
         run: |
           MODULE="${{ needs.detect.outputs.module_import }}"
-          TAG="${{ needs.detect.outputs.tag }}"
+          TAG="v${{ needs.detect.outputs.version }}"
           echo "Requesting Go proxy to cache $MODULE@$TAG"
           sleep 5
           curl -sf "https://proxy.golang.org/${MODULE}/@v/${TAG}.info" || \

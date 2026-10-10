@@ -208,6 +208,21 @@ class CreateTest(TagTest):
 
 
 class WiringTest(unittest.TestCase):
+    def test_test_package_loop_works_with_macos_bash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_go = os.path.join(directory, "go")
+            args_file = os.path.join(directory, "args")
+            with open(fake_go, "w", encoding="utf-8") as f:
+                f.write('#!/bin/bash\ncase "$1" in\nlist) printf "example/a\\nexample/b\\n";;\ntest) printf "%s\\n" "$@" > "$RELEASE_TEST_ARGS";;\nesac\n')
+            os.chmod(fake_go, 0o755)
+            block = run_block(job(read(RELEASE), "test"), "Run tests")
+            block = block.replace("${{ needs.detect.outputs.module_path }}", ".")
+            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
+                       RUNNER_TEMP=directory, RELEASE_TEST_ARGS=args_file)
+            subprocess.run(["/bin/bash", "-e", "-o", "pipefail", "-c", block],
+                           cwd=directory, env=env, check=True)
+            self.assertEqual(read(args_file).splitlines()[-2:], ["example/a", "example/b"])
+
     def test_release_checkouts_share_the_pinned_source(self):
         workflow = read(RELEASE)
         self.assertIn("source_commit:", workflow)
