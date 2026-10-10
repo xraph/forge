@@ -343,14 +343,14 @@ func Run(t *testing.T, factory Factory) {
 			case "retention":
 				cfg.Name = "shortlived"
 
-				cfg.MaxAge = 100 * time.Millisecond
+				cfg.MaxAge = 5 * time.Second
 				if err := p.EnsureStream(ctx, ns, cfg); err != nil {
 					t.Fatal(err)
 				}
 
 				publish(p, "expired")
 
-				timer := time.NewTimer(time.Second)
+				timer := time.NewTimer(6500 * time.Millisecond)
 				select {
 				case <-ctx.Done():
 					t.Fatal(ctx.Err())

@@ -23,6 +23,7 @@ type Options struct {
 	URL                 string
 	Redis               *redis.Options
 	DeduplicationWindow time.Duration
+	PersistenceTimeout  time.Duration
 }
 
 // Provider owns a dedicated Redis connection pool.
@@ -34,6 +35,10 @@ type Provider struct {
 
 // New prepares a provider whose connection lifecycle belongs to Conduit.
 func New(options Options) *Provider {
+	if options.PersistenceTimeout == 0 {
+		options.PersistenceTimeout = 5 * time.Second
+	}
+
 	if options.DeduplicationWindow == 0 {
 		options.DeduplicationWindow = 24 * time.Hour
 	}
@@ -55,6 +60,10 @@ func (p *Provider) Connect(ctx context.Context) error {
 	defer p.mu.Unlock()
 
 	if p.conn != nil {
+		return core.ErrConflict
+	}
+
+	if p.options.DeduplicationWindow < time.Millisecond || p.options.PersistenceTimeout < time.Millisecond || p.options.PersistenceTimeout > time.Minute {
 		return core.ErrConflict
 	}
 
@@ -83,15 +92,9 @@ func (p *Provider) Connect(ctx context.Context) error {
 		return fail()
 	}
 
-	probe := redis.NewSliceCmd(ctx, "WAITAOF", 1, 0, 1000)
+	probe := redis.NewSliceCmd(ctx, "WAITAOF", 1, 0, p.options.PersistenceTimeout.Milliseconds())
 	if err := c.Process(ctx, probe); err != nil {
 		return fail()
-	}
-
-	if p.options.DeduplicationWindow < time.Millisecond {
-		_ = c.Close()
-
-		return core.ErrConflict
 	}
 
 	p.conn = c
@@ -159,7 +162,7 @@ func (p *Provider) persisted(ctx context.Context, replicas int, write func(*redi
 		return err
 	}
 
-	command := redis.NewSliceCmd(ctx, "WAITAOF", 1, max(0, replicas-1), 1000)
+	command := redis.NewSliceCmd(ctx, "WAITAOF", 1, max(0, replicas-1), p.options.PersistenceTimeout.Milliseconds())
 	if err := conn.Process(ctx, command); err != nil {
 		return core.ErrOutcomeUnknown
 	}
@@ -302,6 +305,10 @@ func (p *Provider) Subscribe(ctx context.Context, b core.Binding) (core.Subscrip
 		return conn.Eval(ctx, `local old=redis.call('GET',KEYS[2]); if old and old~=ARGV[1] then return redis.error_reply('CONDUIT_CONFLICT') end; redis.call('SET',KEYS[2],ARGV[1]); local r=redis.pcall('XGROUP','CREATE',KEYS[1],ARGV[2],ARGV[3],'MKSTREAM'); if type(r)=='table' and r.err and not string.find(r.err,'BUSYGROUP') then return redis.error_reply(r.err) end; return 1`, []string{key, key + ":group:" + b.ConsumerID()}, string(data), b.ConsumerID(), start).Err()
 	})
 	if err != nil {
+		if errors.Is(err, core.ErrOutcomeUnknown) {
+			return nil, err
+		}
+
 		if strings.Contains(err.Error(), "CONDUIT_CONFLICT") {
 			return nil, core.ErrConflict
 		}
@@ -356,6 +363,10 @@ func (s *subscription) Next(ctx context.Context) (core.Delivery, error) {
 		s.mu.Unlock()
 
 		if readErr != nil && !errors.Is(readErr, redis.Nil) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
 			return nil, errors.New("conduit/redis: consumer read failed")
 		}
 
