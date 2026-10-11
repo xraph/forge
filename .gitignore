@@ -122,6 +122,7 @@ METRICS_DEADLOCK_FIX.md
 !dart-packages/*/CHANGELOG.md
 !**/README.md
 !/CONTRIBUTING.md
+!/AGENTS.md
 !docs/**/*.md
 !extensions/dashboard/contract/*.md
 /**/*.disabled
