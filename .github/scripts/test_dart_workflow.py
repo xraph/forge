@@ -49,6 +49,16 @@ def job(name):
     return "\n".join(out)
 
 
+def scalars(key, body):
+    """Return every value of `key:` in body, however YAML quotes it.
+
+    A YAML formatter can swap single quotes for double quotes without changing
+    a value, and the pins must still match when it does.
+    """
+    pattern = rf"""^\s*{re.escape(key)}: (['"]?)(.+?)\1\s*$"""
+    return {value for _, value in re.findall(pattern, body, re.M)}
+
+
 def filters(event):
     """Return the paths: globs listed under on.<event> in the workflow."""
     lines = text().split("\n")
@@ -214,13 +224,13 @@ class WorkflowToolchainTest(unittest.TestCase):
         # into a failure, and without tsc the TypeScript type check fatals.
         with open(GO_WORKFLOW, encoding="utf-8") as f:
             go = f.read()
-        pins = set(re.findall(r"npm-global-packages: '([^']+)'", go))
+        pins = scalars("npm-global-packages", go)
         self.assertEqual(len(pins), 1, pins)
-        node = set(re.findall(r"node-version: '([^']+)'", go))
+        node = scalars("node-version", go)
         self.assertEqual(len(node), 1, node)
         generator = job("generator")
         self.assertIn("uses: actions/setup-node@", generator)
-        self.assertIn(f"node-version: '{node.pop()}'", generator)
+        self.assertEqual(scalars("node-version", generator), node)
         self.assertIn(f"run: npm install -g {pins.pop()}\n", generator + "\n")
 
 
