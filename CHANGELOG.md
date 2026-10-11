@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.12.7](https://github.com/xraph/forge/compare/v1.12.6...v1.12.7) (2026-10-11)
+
+
+### Bug Fixes
+
+* **dart:** port nullable referenced field codecs from TypeScript ([368bd844](https://github.com/xraph/forge/commit/368bd844))
+* preserve nullable referenced API fields in generated clients ([ca116770](https://github.com/xraph/forge/commit/ca116770))
+
+
+### Maintenance
+
+* **dart:** match go.yml toolchain pins whatever the YAML quoting ([ba1aca19](https://github.com/xraph/forge/commit/ba1aca19))
+* ship nullable API repair in Forge CLI ([a2625abb](https://github.com/xraph/forge/commit/a2625abb))
+* **changelog:** update CHANGELOG.md for v1.12.6 ([34be6dd7](https://github.com/xraph/forge/commit/34be6dd7))
+
 ## [1.12.6](https://github.com/xraph/forge/compare/v1.12.5...v1.12.6) (2026-10-10)
 
 
