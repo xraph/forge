@@ -546,7 +546,12 @@ components:
                 children:
                     type: array
                     items:
-                        $ref: '#/components/schemas/goldenTreeNode'
+                        oneOf:
+                            - $ref: '#/components/schemas/goldenTreeNode'
+                            - type: object
+                              nullable: true
+                              enum:
+                                - null
                 label:
                     type: string
                 parent:

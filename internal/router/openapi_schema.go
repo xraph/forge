@@ -121,9 +121,18 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 	case reflect.Slice, reflect.Array:
 		schema.Type = "array"
 
-		itemsSchema, err := g.generateSchemaFromType(typ.Elem())
+		elemType := typ.Elem()
+		for elemType.Kind() == reflect.Pointer {
+			elemType = elemType.Elem()
+		}
+
+		itemsSchema, err := g.generateSchemaFromType(elemType)
 		if err != nil {
 			return nil, err
+		}
+
+		if typ.Elem().Kind() == reflect.Pointer {
+			itemsSchema = g.nullableArrayItem(itemsSchema)
 		}
 
 		schema.Items = itemsSchema
@@ -490,17 +499,27 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 	// Handle slices/arrays of named types
 	if fieldType.Kind() == reflect.Slice || fieldType.Kind() == reflect.Array {
 		elemType := fieldType.Elem()
-		if elemType.Kind() == reflect.Ptr {
+		for elemType.Kind() == reflect.Pointer {
 			elemType = elemType.Elem()
 		}
 
 		// Check for enum arrays first
 		if g.shouldBeEnumComponentRef(elemType, field) {
-			return g.createArrayWithEnumComponentRef(elemType, field)
+			arraySchema, err := g.createArrayWithEnumComponentRef(elemType, field)
+			if err == nil && fieldType.Elem().Kind() == reflect.Pointer {
+				arraySchema.Items = g.nullableArrayItem(arraySchema.Items)
+			}
+
+			return arraySchema, err
 		}
 
 		if g.shouldBeComponentRef(elemType) {
-			return g.createArrayWithComponentRef(elemType, field)
+			arraySchema, err := g.createArrayWithComponentRef(elemType, field)
+			if err == nil && fieldType.Elem().Kind() == reflect.Pointer {
+				arraySchema.Items = g.nullableArrayItem(arraySchema.Items)
+			}
+
+			return arraySchema, err
 		}
 	}
 
@@ -513,6 +532,20 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 	g.applyStructTags(schema, field)
 
 	return schema, nil
+}
+
+func (g *schemaGenerator) nullableArrayItem(item *Schema) *Schema {
+	if item.Ref != "" {
+		wrapper := &Schema{OneOf: []Schema{*item, {Type: "object", Nullable: true, Enum: []any{nil}}}}
+		g.trackRef(strings.TrimPrefix(item.Ref, "#/components/schemas/"), &wrapper.OneOf[0])
+
+		return wrapper
+	}
+
+	nullable := *item
+	nullable.Nullable = true
+
+	return &nullable
 }
 
 // shouldBeComponentRef determines if a type should be extracted as a component.

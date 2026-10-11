@@ -1385,12 +1385,12 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec, 
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			itemType := g.schemaToTSType(schema.Items, spec, nsID+".items", config)
+			arrayType := tsArrayType(g.schemaToTSType(schema.Items, spec, nsID+".items", config))
 			if schema.Nullable {
-				return itemType + "[] | null"
+				return arrayType + " | null"
 			}
 
-			return itemType + "[]"
+			return arrayType
 		}
 
 		if schema.Nullable {

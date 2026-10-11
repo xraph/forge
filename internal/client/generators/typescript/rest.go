@@ -1095,7 +1095,7 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			return r.schemaToTSType(schema.Items, spec) + "[]"
+			return tsArrayType(r.schemaToTSType(schema.Items, spec))
 		}
 
 		return "any[]"
