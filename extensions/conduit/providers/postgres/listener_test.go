@@ -67,3 +67,60 @@ func TestInvalidListenerURLFailsConnect(t *testing.T) {
 		t.Fatal("an unparsable listener URL was accepted")
 	}
 }
+
+func signalled(signal <-chan struct{}) bool {
+	select {
+	case <-signal:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestReplyWakesOnlyItsCaller covers many calls waiting on one provider's reply channel:
+// each reply must wake the call it answers, not every caller.
+func TestReplyWakesOnlyItsCaller(t *testing.T) {
+	l := newListener(nil)
+
+	first, unwatchFirst := l.watchID("fcp_reply", "first")
+	defer unwatchFirst()
+
+	second, unwatchSecond := l.watchID("fcp_reply", "second")
+	defer unwatchSecond()
+
+	stream, unwatchStream := l.watch("fc_stream")
+	defer unwatchStream()
+
+	l.notify("fcp_reply", "first")
+
+	if !signalled(first) {
+		t.Fatal("the reply did not wake its caller")
+	}
+
+	if signalled(second) {
+		t.Fatal("a reply woke a caller it does not belong to")
+	}
+
+	if signalled(stream) {
+		t.Fatal("a reply woke a watcher on another channel")
+	}
+
+	// Watchers on the channel alone still hear every notification on it.
+	l.notify("fc_stream", "")
+	l.notify("fc_stream", "anything")
+
+	if !signalled(stream) {
+		t.Fatal("a stream watcher missed a notification")
+	}
+
+	if got := l.channels(); len(got) != 2 {
+		t.Fatalf("listening on %v, want each channel once", got)
+	}
+
+	// A reconnect still wakes everyone.
+	l.notifyAll()
+
+	if !signalled(first) || !signalled(second) || !signalled(stream) {
+		t.Fatal("a reconnect did not wake every watcher")
+	}
+}

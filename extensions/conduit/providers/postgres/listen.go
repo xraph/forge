@@ -16,48 +16,61 @@ import (
 type listener struct {
 	config    *pgx.ConnConfig
 	mu        sync.Mutex
-	waiters   map[string]map[chan struct{}]struct{}
+	waiters   map[watchKey]map[chan struct{}]struct{}
 	connected atomic.Bool
 }
 
+// watchKey is a channel alone, or a channel and the one payload a watcher waits for.
+type watchKey struct{ channel, id string }
+
 func newListener(config *pgx.ConnConfig) *listener {
-	return &listener{config: config, waiters: map[string]map[chan struct{}]struct{}{}}
+	return &listener{config: config, waiters: map[watchKey]map[chan struct{}]struct{}{}}
 }
 
 func listenerName(owner string) string { return "forge-conduit-listener-" + owner }
 
 // watch returns a signal for each notification on channel, and for every reconnect.
 func (l *listener) watch(channel string) (<-chan struct{}, func()) {
+	return l.add(watchKey{channel: channel})
+}
+
+// watchID returns a signal for each notification on channel whose payload is id, and for
+// every reconnect.
+func (l *listener) watchID(channel, id string) (<-chan struct{}, func()) {
+	return l.add(watchKey{channel: channel, id: id})
+}
+
+func (l *listener) add(key watchKey) (<-chan struct{}, func()) {
 	signal := make(chan struct{}, 1)
 
 	l.mu.Lock()
-	if l.waiters[channel] == nil {
-		l.waiters[channel] = map[chan struct{}]struct{}{}
+	if l.waiters[key] == nil {
+		l.waiters[key] = map[chan struct{}]struct{}{}
 	}
 
-	l.waiters[channel][signal] = struct{}{}
+	l.waiters[key][signal] = struct{}{}
 	l.mu.Unlock()
 
 	return signal, func() {
 		l.mu.Lock()
-		delete(l.waiters[channel], signal)
+		delete(l.waiters[key], signal)
 
-		if len(l.waiters[channel]) == 0 {
-			delete(l.waiters, channel)
+		if len(l.waiters[key]) == 0 {
+			delete(l.waiters, key)
 		}
 		l.mu.Unlock()
 	}
 }
 
-func (l *listener) notify(channel string) {
+// notify wakes the channel's watchers, and the watchers waiting for this payload.
+func (l *listener) notify(channel, payload string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	for signal := range l.waiters[channel] {
-		select {
-		case signal <- struct{}{}:
-		default:
-		}
+	wake(l.waiters[watchKey{channel: channel}])
+
+	if payload != "" {
+		wake(l.waiters[watchKey{channel: channel, id: payload}])
 	}
 }
 
@@ -66,11 +79,15 @@ func (l *listener) notifyAll() {
 	defer l.mu.Unlock()
 
 	for _, set := range l.waiters {
-		for signal := range set {
-			select {
-			case signal <- struct{}{}:
-			default:
-			}
+		wake(set)
+	}
+}
+
+func wake(set map[chan struct{}]struct{}) {
+	for signal := range set {
+		select {
+		case signal <- struct{}{}:
+		default:
 		}
 	}
 }
@@ -79,9 +96,14 @@ func (l *listener) channels() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	seen := make(map[string]bool, len(l.waiters))
 	channels := make([]string, 0, len(l.waiters))
-	for channel := range l.waiters {
-		channels = append(channels, channel)
+
+	for key := range l.waiters {
+		if !seen[key.channel] {
+			seen[key.channel] = true
+			channels = append(channels, key.channel)
+		}
 	}
 
 	return channels
@@ -145,7 +167,7 @@ func (l *listener) serve(ctx context.Context, conn *pgx.Conn) {
 
 		if err == nil {
 			if notification != nil {
-				l.notify(notification.Channel)
+				l.notify(notification.Channel, notification.Payload)
 			}
 
 			continue

@@ -198,6 +198,19 @@ func (p *Provider) watch(channel string) (<-chan struct{}, func()) {
 	return l.watch(channel)
 }
 
+// watchID subscribes to wakeups on channel for the one payload id, the way watch does.
+func (p *Provider) watchID(channel, id string) (<-chan struct{}, func()) {
+	p.mu.RLock()
+	l := p.listener
+	p.mu.RUnlock()
+
+	if l == nil {
+		return nil, func() {}
+	}
+
+	return l.watchID(channel, id)
+}
+
 // ListenerConnected reports whether wakeups arrive by notification. While it is false,
 // delivery continues by polling at Options.PollInterval.
 func (p *Provider) ListenerConnected() bool {

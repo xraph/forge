@@ -14,8 +14,9 @@ import (
 	"github.com/xraph/forge/extensions/conduit/core"
 )
 
-// rpcChannel and replyChannel stay under the 63-byte identifier limit. NOTIFY carries only
-// request IDs, so payloads never meet its 8KB cap.
+// rpcChannel and replyChannel stay under the 63-byte identifier limit. A request's NOTIFY
+// carries no payload and a reply's carries only the request ID, so payloads never meet the
+// 8KB cap, and each reply wakes only the call it answers.
 func rpcChannel(namespace, service, method string) string {
 	return "fcr_" + hash(namespace, service, method)
 }
@@ -42,7 +43,7 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 	id := hash(identity.Namespace, identity.ServiceID, identity.InstanceID, request.Envelope.ID)
 	channel := rpcChannel(identity.Namespace, request.Service, request.Method)
 
-	signal, unwatch := p.watch(p.replyChannel())
+	signal, unwatch := p.watchID(p.replyChannel(), id)
 	defer unwatch()
 
 	tx, err := pool.Begin(ctx)
@@ -332,7 +333,7 @@ ON CONFLICT (id) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUD
 		return
 	}
 
-	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, '')`, reply); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, $2)`, reply, id); err != nil {
 		return
 	}
 
