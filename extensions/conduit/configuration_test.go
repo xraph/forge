@@ -319,3 +319,23 @@ func TestAutomaticRPCProviderPrefersJetStream(t *testing.T) {
 		t.Fatalf("expected RPC to use the JetStream provider, got %q", got)
 	}
 }
+
+// TestAutomaticRPCProviderIgnoresTheMemoryProvider covers a config that worked before Redis
+// and PostgreSQL could serve RPC: the memory provider cannot reach other processes, so
+// it never makes the RPC choice ambiguous.
+func TestAutomaticRPCProviderIgnoresTheMemoryProvider(t *testing.T) {
+	ext, err := registerFromYAML(t, "    providers:\n      events: {type: redis, url: \"redis://localhost:6379\"}\n      local: {type: memory}\n", func(ext *conduit.Extension) {
+		if err := conduit.Handle(ext.Runtime(), double, func(_ context.Context, request conduit.Request[rpcInput]) (rpcOutput, error) {
+			return rpcOutput{Value: request.Data.Value * 2}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ext.Runtime().Configuration().RPC.Provider; got != "events" {
+		t.Fatalf("expected RPC to use the Redis provider, got %q", got)
+	}
+}

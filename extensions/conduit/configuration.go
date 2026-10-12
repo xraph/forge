@@ -180,11 +180,15 @@ func automaticRegistry(providers map[string]Provider) (registry Registry, ambigu
 	}
 }
 
-// automaticRPCProvider names the JetStream provider when several providers can
-// serve RPC and exactly one of them is JetStream. Otherwise it returns "" and the
-// runtime decides as it always has.
+// automaticRPCProvider names the RPC provider when several providers can serve RPC
+// and the choice is obvious, mirroring automaticRegistry: the memory provider never
+// counts because it cannot reach other processes, and among several others JetStream
+// wins if it is the only one of them. Otherwise it returns "" and the runtime decides
+// as it always has.
 func automaticRPCProvider(providers map[string]Provider) string {
-	capable, selected, jetstreams := 0, "", 0
+	capable := 0
+
+	var candidates, jetstreams []string
 
 	for name, provider := range providers {
 		if _, ok := provider.(core.RPCProvider); !ok {
@@ -193,17 +197,26 @@ func automaticRPCProvider(providers map[string]Provider) string {
 
 		capable++
 
+		if provider.Name() == "memory" {
+			continue
+		}
+
+		candidates = append(candidates, name)
 		if provider.Name() == jetstreamName {
-			selected = name
-			jetstreams++
+			jetstreams = append(jetstreams, name)
 		}
 	}
 
-	if capable < 2 || jetstreams != 1 {
+	switch {
+	case capable < 2:
+		return ""
+	case len(candidates) == 1:
+		return candidates[0]
+	case len(jetstreams) == 1:
+		return jetstreams[0]
+	default:
 		return ""
 	}
-
-	return selected
 }
 
 type appManifest struct {
