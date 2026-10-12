@@ -158,3 +158,39 @@ func TestPauseStopsEveryReplica(t *testing.T) {
 		t.Fatalf("resume delivered %d of 200", got)
 	}
 }
+
+func TestReplacementKeepsRegistration(t *testing.T) {
+	ctx := t.Context()
+	old := connect(t, redisstreams.Options{})
+
+	time.Sleep(5 * time.Millisecond) // the replacement process starts later
+
+	replacement := connect(t, redisstreams.Options{})
+	ns := "restart-" + core.NewID()
+	instance := core.Instance{Identity: core.Identity{Namespace: ns, ServiceID: "billing", InstanceID: "pod-0"}, Version: "1", Ready: true}
+
+	if err := old.Register(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replacement.Register(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+
+	// The old process shuts down after its replacement registered under the same name.
+	stopping := instance
+	stopping.Ready = false
+
+	if err := old.Register(ctx, stopping); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := old.Deregister(ctx, instance.Identity); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := replacement.Resolve(ctx, ns, "billing")
+	if err != nil || len(resolved) != 1 || !resolved[0].Ready {
+		t.Fatalf("the old process removed its replacement: %+v %v", resolved, err)
+	}
+}

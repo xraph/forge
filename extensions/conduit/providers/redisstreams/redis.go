@@ -24,6 +24,8 @@ type Options struct {
 	Redis               *redis.Options
 	DeduplicationWindow time.Duration
 	PersistenceTimeout  time.Duration
+	// LeaseTTL is how long a registered instance stays listed without renewal. Default 45s.
+	LeaseTTL time.Duration
 }
 
 // Provider owns a dedicated Redis connection pool.
@@ -31,6 +33,10 @@ type Provider struct {
 	mu      sync.RWMutex
 	options Options
 	conn    *redis.Client
+	// owner and generation identify this process. A newer process wins a registration
+	// that an older one still renews, and only the owner can deregister it.
+	owner      string
+	generation int64
 }
 
 // New prepares a provider whose connection lifecycle belongs to Conduit.
@@ -43,7 +49,11 @@ func New(options Options) *Provider {
 		options.DeduplicationWindow = 24 * time.Hour
 	}
 
-	return &Provider{options: options}
+	if options.LeaseTTL == 0 {
+		options.LeaseTTL = 45 * time.Second
+	}
+
+	return &Provider{options: options, owner: core.NewID(), generation: time.Now().UnixMilli()}
 }
 
 // Name returns the broker type.

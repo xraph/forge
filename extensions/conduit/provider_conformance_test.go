@@ -44,11 +44,11 @@ func TestProviderConformance(t *testing.T) {
 
 			conformance.Run(t, func() core.Provider {
 				if name == "redis" {
-					return redisstreams.New(redisstreams.Options{URL: address})
+					return redisstreams.New(redisstreams.Options{URL: address, LeaseTTL: lease})
 				}
 
 				return kafka.New(kafka.Options{Brokers: strings.Split(address, ",")})
-			})
+			}, conformance.WithLeaseTTL(lease))
 		})
 	}
 }
