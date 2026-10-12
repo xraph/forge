@@ -143,6 +143,9 @@ func (p *Provider) start(pool *pgxpool.Pool) {
 	}
 
 	config.RuntimeParams["application_name"] = listenerName(p.owner)
+	// With a handler set, pgx hands notifications to it and WaitForNotification returns
+	// nothing. The listener must read them itself, and the app's handler is not meant for ours.
+	config.OnNotification = nil
 
 	background, stop := context.WithCancel(context.Background())
 	p.stop = stop

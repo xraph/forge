@@ -144,7 +144,9 @@ func (l *listener) serve(ctx context.Context, conn *pgx.Conn) {
 		cancel()
 
 		if err == nil {
-			l.notify(notification.Channel)
+			if notification != nil {
+				l.notify(notification.Channel)
+			}
 
 			continue
 		}

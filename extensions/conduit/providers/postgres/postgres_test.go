@@ -6,10 +6,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xraph/forge/extensions/conduit/core"
 )
@@ -331,5 +333,57 @@ func TestSharedPoolIsLeftOpen(t *testing.T) {
 
 	if err := pool.Ping(t.Context()); err != nil {
 		t.Fatalf("closing the provider closed your pool: %v", err)
+	}
+}
+
+func TestListenerIgnoresTheAppsNotificationHandler(t *testing.T) {
+	dsn := os.Getenv("CONDUIT_TEST_POSTGRES")
+	if dsn == "" {
+		t.Skip("set CONDUIT_TEST_POSTGRES to run PostgreSQL provider tests")
+	}
+
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var seen atomic.Int64
+
+	config.ConnConfig.OnNotification = func(*pgconn.PgConn, *pgconn.Notification) { seen.Add(1) }
+
+	pool, err := pgxpool.NewWithConfig(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	p := New(Options{Pool: pool, AutoMigrate: true, PollInterval: 100 * time.Millisecond})
+	if err := p.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = p.Close(context.WithoutCancel(t.Context())) })
+
+	ns, cfg := newStream(t, p)
+
+	waitFor(t, "listener", p.ListenerConnected)
+
+	signal, unwatch := p.watch(streamChannel(streamKey(ns, cfg.Name)))
+	defer unwatch()
+
+	time.Sleep(400 * time.Millisecond) // the listener issues LISTEN on its next 250ms turn
+
+	if _, err := p.Publish(t.Context(), ns, cfg, envelope(ns, "wake", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no wakeup when the pool config carries an OnNotification handler")
+	}
+
+	if n := seen.Load(); n != 0 {
+		t.Fatalf("the app's handler saw %d conduit notifications", n)
 	}
 }
