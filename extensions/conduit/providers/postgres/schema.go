@@ -11,12 +11,9 @@ import (
 
 // Migrations returns the provider's schema as ordered, idempotent statements, for an
 // application that runs every migration through one central runner. The schema name must
-// be a lowercase identifier.
+// be a lowercase identifier; Migrations panics on any other name.
 func Migrations(schema string) []string {
-	if schema == "" {
-		schema = "public"
-	}
-
+	schema = migrationSchema(schema)
 	t := newTables(schema)
 	quoted := pgx.Identifier{schema}.Sanitize()
 
@@ -63,9 +60,37 @@ func Migrations(schema string) []string {
 	}
 }
 
+func migrationSchema(schema string) string {
+	if schema == "" {
+		schema = "public"
+	}
+
+	if !validSchema.MatchString(schema) {
+		panic(fmt.Sprintf("conduit/postgres: schema %q must be a lowercase identifier", schema))
+	}
+
+	return schema
+}
+
+// migrationRelations lists every table and index Migrations creates, schema-qualified
+// and quoted for to_regclass.
+func migrationRelations(schema string) []string {
+	t := newTables(schema)
+	index := func(name string) string { return pgx.Identifier{schema, name}.Sanitize() }
+
+	return []string{
+		t.streams, t.messages, t.consumers, t.claims, t.deadLetters, t.backfills, t.instances, t.rpcRequests, t.rpcResponses,
+		index("forge_conduit_messages_cursor"), index("forge_conduit_messages_age"), index("forge_conduit_rpc_pending"),
+	}
+}
+
 // migrate applies Migrations under an advisory lock, so replicas starting together don't
-// race each other's CREATE statements.
+// race each other's CREATE statements. When everything already exists it runs no DDL at
+// all: CREATE INDEX IF NOT EXISTS locks the table even when it has nothing to do, and
+// would queue behind every open publishing transaction.
 func migrate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	schema = migrationSchema(schema)
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -74,6 +99,21 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('forge_conduit_migrate'))`); err != nil {
 		return err
+	}
+
+	var current bool
+	if err := tx.QueryRow(ctx, `SELECT to_regnamespace($1) IS NOT NULL AND
+ (SELECT bool_and(to_regclass(relation) IS NOT NULL) FROM unnest($2::text[]) AS relation)`,
+		pgx.Identifier{schema}.Sanitize(), migrationRelations(schema)).Scan(&current); err != nil {
+		return fmt.Errorf("conduit/postgres: migrate: %w", err)
+	}
+
+	if current {
+		return tx.Commit(ctx)
+	}
+
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s'`); err != nil {
+		return fmt.Errorf("conduit/postgres: migrate: %w", err)
 	}
 
 	for _, statement := range Migrations(schema) {

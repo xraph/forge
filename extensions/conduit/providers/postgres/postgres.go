@@ -334,8 +334,17 @@ func (p *Provider) ensureStream(ctx context.Context, pool *pgxpool.Pool, namespa
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	if _, err := tx.Exec(ctx, "CREATE SEQUENCE IF NOT EXISTS "+p.sequence(key)); err != nil {
+	// CREATE SEQUENCE IF NOT EXISTS needs CREATE on the schema even when the sequence is
+	// there, so a runtime role without it can still declare a stream that already exists.
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, p.sequence(key)).Scan(&exists); err != nil {
 		return err
+	}
+
+	if !exists {
+		if _, err := tx.Exec(ctx, "CREATE SEQUENCE IF NOT EXISTS "+p.sequence(key)); err != nil {
+			return err
+		}
 	}
 
 	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (stream_key, namespace, name, config, max_age_ms, max_messages)
