@@ -154,6 +154,7 @@ func (p *Provider) start(pool *pgxpool.Pool) {
 	l := p.listener
 
 	p.background.Go(func() { l.run(background) })
+	p.background.Go(func() { p.maintain(background) })
 }
 
 // watch subscribes to wakeups on channel. After Close it returns a nil channel, and the
