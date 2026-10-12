@@ -215,12 +215,24 @@ func (p *Provider) maintain(ctx context.Context) {
 	}
 }
 
-// sweep deletes aged-out messages in batches, the claims they leave behind, and expired
-// leases and RPC rows. A failed statement only delays cleanup until the next sweep.
+// sweepBatch is how many aged-out messages one DELETE removes.
+const sweepBatch = 1000
+
+// sweep deletes aged-out messages in batches until a batch comes back short, then the
+// claims they leave behind, and expired leases and RPC rows. A failed statement only
+// delays cleanup until the next sweep.
 func (p *Provider) sweep(ctx context.Context, pool *pgxpool.Pool) {
+	expired := fmt.Sprintf(`DELETE FROM %[1]s WHERE ctid IN (SELECT m.ctid FROM %[1]s m JOIN %[2]s s ON s.stream_key = m.stream_key
+ WHERE s.max_age_ms > 0 AND m.accepted_at <= clock_timestamp() - s.max_age_ms * interval '1 millisecond' LIMIT %[3]d)`, p.t.messages, p.t.streams, sweepBatch)
+
+	for ctx.Err() == nil {
+		tag, err := pool.Exec(ctx, expired)
+		if err != nil || tag.RowsAffected() < sweepBatch {
+			break
+		}
+	}
+
 	statements := []string{
-		fmt.Sprintf(`DELETE FROM %[1]s WHERE ctid IN (SELECT m.ctid FROM %[1]s m JOIN %[2]s s ON s.stream_key = m.stream_key
- WHERE s.max_age_ms > 0 AND m.accepted_at <= clock_timestamp() - s.max_age_ms * interval '1 millisecond' LIMIT 1000)`, p.t.messages, p.t.streams),
 		fmt.Sprintf(`DELETE FROM %s c WHERE NOT EXISTS (SELECT 1 FROM %s m WHERE m.stream_key = c.stream_key AND m.seq = c.seq)`, p.t.claims, p.t.messages),
 		fmt.Sprintf(`DELETE FROM %s WHERE expires_at <= clock_timestamp()`, p.t.instances),
 		fmt.Sprintf(`DELETE FROM %s WHERE deadline <= clock_timestamp()`, p.t.rpcRequests),

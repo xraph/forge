@@ -705,3 +705,49 @@ func TestCloseRemovesANonDurableBroadcastConsumer(t *testing.T) {
 		t.Fatalf("Close left %d consumers and %d claims", c, l)
 	}
 }
+
+func TestSweepClearsEveryAgedOutMessageInOnePass(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+
+	ns := "pg-" + core.NewID()
+	cfg := core.StreamConfig{Name: "orders", Subjects: []string{"orders.>"}, Replicas: 1, MaxAge: time.Second}
+
+	if err := p.EnsureStream(ctx, ns, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, _ := p.db()
+
+	const total, perTx = 2500, 500
+
+	for batch := range total / perTx {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for i := range perTx {
+			if _, err := p.PublishTx(ctx, tx, ns, cfg, envelope(ns, "m-"+strconv.Itoa(batch*perTx+i), placed)); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	time.Sleep(1200 * time.Millisecond)
+
+	p.sweep(ctx, pool)
+
+	var rows int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+p.t.messages+" WHERE stream_key = $1", streamKey(ns, cfg.Name)).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows != 0 {
+		t.Fatalf("%d aged-out messages remain after one sweep", rows)
+	}
+}
