@@ -57,12 +57,12 @@ Explicit nonzero Go values win over loaded configuration. `conduit.New` remains 
 
 You can set `CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL`. Provider names use uppercase environment keys. Explicit Go values still win.
 
-Provider types are `jetstream` (also `nats` or `nats-jetstream`), `redis-streams` (also `redis`), `postgres` (also `postgresql`), `kafka` and `memory`. Kafka's URL value is a comma-separated list of `host:port` broker addresses. Use native Go options for TLS or SASL. A configured PostgreSQL provider creates its own tables when it connects, so the role in its URL has to own the `forge_conduit_` tables.
+Provider types are `jetstream` (also `nats` or `nats-jetstream`), `redis-streams` (also `redis`), `postgres` (also `postgresql`), `kafka` and `memory`. Kafka's URL value is a comma-separated list of `host:port` broker addresses. Use native Go options for TLS or SASL. A configured PostgreSQL provider creates any missing tables when it connects and does nothing when they're current. The role in its URL needs to create them on the first deploy, and after that only needs the runtime grants listed under [PostgreSQL](/docs/extensions/conduit/providers#postgresql).
 
 ## Shared declarations
 
 Services using a stream must agree on its subjects, retention and replica count. Replicas in a competing subscription must agree on message type, timeout, retry policy and in-flight limit. `Concurrency` controls each replica's workers.
 
-Set `start_at` to `all`, `new` or `sequence`. Sequence replay also needs `start_sequence`. Kafka sequences are one-based partition offsets. Redis uses a monotonic per-stream sequence, and JetStream uses its native stream sequence.
+Set `start_at` to `all`, `new` or `sequence`. Sequence replay also needs `start_sequence`. Kafka sequences are one-based partition offsets. Redis uses a monotonic per-stream sequence, and JetStream uses its native stream sequence. PostgreSQL gives each stream its own sequence. Numbers rise for each publisher, but delivery follows commit order, so with several publishers a consumer can see 42 before 41.
 
 See [provider limits](/docs/extensions/conduit/providers) before choosing retention settings.

@@ -15,7 +15,7 @@ You can supply a provider in Go or choose its type in Forge configuration. Your 
 
 All providers support competing and broadcast subscriptions. None promises ordered business processing by message key.
 
-JetStream, Redis Streams and PostgreSQL report the same capabilities and pass the same conformance groups, so you can choose by what you already run. JetStream handles the most traffic and clusters natively. Redis Streams suits you if Redis is already in your stack. PostgreSQL adds no infrastructure at all and lets you publish in the same transaction as your business write, at a few thousand events per second.
+JetStream, Redis Streams and PostgreSQL report the same capabilities and pass the same conformance groups, so you can choose by what you already run. JetStream handles the most traffic and clusters natively. Redis Streams suits you if Redis is already in your stack. PostgreSQL adds no infrastructure at all and lets you publish in the same transaction as your business write.
 
 ## NATS JetStream
 
@@ -46,7 +46,7 @@ Publication IDs are deduplicated for 24 hours by default. Set `DeduplicationWind
 
 Pause, backfill progress, discovery leases and RPC requests use the same Redis server. RPC requests and replies skip `WAITAOF`: they're transient, so a failover can drop an in-flight call and its caller then sees `DEADLINE_EXCEEDED`. A call to a procedure nobody serves also ends at its deadline.
 
-Replies are routed by a token that belongs to each call. A caller built from this release won't receive replies from server replicas built before it, so upgrade your servers before your callers, or upgrade them together.
+Size the connection pool for RPC. Each procedure you serve keeps one pooled connection blocked in `XREADGROUP`, and a provider that calls procedures keeps one more waiting for replies. Set `PoolSize` in `Options.Redis` (or `pool_size` in the URL) to at least the number of procedures you serve plus the concurrency you'd normally need.
 
 ## PostgreSQL
 
@@ -58,17 +58,32 @@ broker := postgres.New(postgres.Options{
 
 You'll need PostgreSQL 13 or later. Pass `Pool` instead of `URL` to share your application's pool; closing the provider leaves it open. `Migrate` creates the `forge_conduit_` tables, and `Migrations(schema)` returns the same statements for a central migration runner. Set `AutoMigrate` to run `Migrate` on connect. Providers built from Forge configuration (`type: postgres`) do this for you.
 
-Run `Migrate` or `Migrations` as the role that owns the `forge_conduit_` tables. `CREATE INDEX IF NOT EXISTS` needs table ownership even when the index is already there, so a second role that merely has access will fail on a database you've already migrated. Creating the schema itself needs no database-level `CREATE` privilege when the schema already exists.
+`Migrate` and `AutoMigrate` create whatever is missing and do nothing when the schema is current, so they don't take table locks on a database that's already migrated. Only the first deploy, or a release that adds tables or indexes, needs a role that can create and own the `forge_conduit_` tables. Your runtime role needs:
+
+- `USAGE` on the schema
+- `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the `forge_conduit_` tables
+- `USAGE` and `UPDATE` on the `forge_conduit_seq_` sequences, one per stream
+
+`ALTER DEFAULT PRIVILEGES` saves you granting the sequences one by one. Declaring a new stream creates its sequence, which needs `CREATE` on the schema, so either give the runtime role that or declare the stream once as the owner. Creating the schema needs no database-level `CREATE` privilege when the schema already exists.
 
 Use `PublishTx` to publish inside your own transaction. Subscribers see the message, and wake for it, only when you commit. A rollback leaves nothing behind. `SQLTx` adapts a `database/sql` transaction.
 
 A stream with `MaxMessages` trims its old rows inside each publish. A long-running `PublishTx` on a capped stream therefore makes other publishers to that stream wait for your commit, so keep those transactions short. Rolled-back and duplicate publishes leave gaps in the sequence, and the cap counts sequence numbers, so the stream keeps slightly fewer rows than you configured.
 
-The provider keeps one dedicated connection for `LISTEN`, so it works behind PgBouncer as long as that one connection reaches PostgreSQL directly. When the listener is down, delivery carries on by polling every `PollInterval` (one second by default) and `ListenerConnected` reports `false`.
+The provider keeps one dedicated connection for `LISTEN`. PgBouncer in transaction mode loses `LISTEN` registrations, so if your `Pool` goes through it, set `URL` as well and point it straight at PostgreSQL: with `Pool` set, `URL` is only used for the listener. Hooks on your pool, such as `BeforeConnect` for IAM tokens, don't apply to the listener. When the listener is down, delivery carries on by polling every `PollInterval` (one second by default) and `ListenerConnected` reports `false`.
 
-Delivery takes an advisory lock per consumer group. It holds no row locks, and an idle subscriber doesn't use a transaction ID. An idle subscriber polls at `PollInterval`. After an unrelated transaction ends, delivery can lag by up to 50ms (not `PollInterval`), because the provider re-polls quickly while committed rows wait behind the oldest open transaction.
+Delivery takes an advisory lock per consumer group. It holds no row locks, and an idle subscriber doesn't use a transaction ID. An idle subscriber polls at `PollInterval`. While committed rows wait behind the oldest open transaction, the provider re-polls after 50ms, then doubles the wait each time up to `PollInterval`. After that transaction ends, delivery lags by at most the current wait, so a short transaction costs you about 50ms and a long one up to `PollInterval`.
+
+Plan for the load on your database. Every publish sends a `NOTIFY` that wakes each worker calling `Next` on that stream, and each worker holds a pooled connection while it takes a message. An idle worker runs one short read-only transaction per `PollInterval`. PostgreSQL also serializes the commits of transactions that sent a `NOTIFY`, across the whole database, so publishing commits queue behind each other. Size the pool for `Concurrency` times your subscriptions, plus what your application needs.
 
 Two behaviours differ from JetStream. Sequence numbers rise for each publisher, but with several publishers delivery follows commit order, so a consumer can see 42 before 41. And a transaction left open anywhere in the cluster holds delivery back until it ends, because a consumer never reads past the oldest open transaction. `VisibilityLag` tells you how long the oldest one has been open. It reads `pg_stat_activity`, so the role needs `pg_read_all_stats` (or `pg_monitor`) to see other roles' transactions, and prepared transactions aren't counted. RPC costs about two commits per call, and a call to a procedure nobody serves ends at its deadline.
+
+Cursors store transaction IDs from the cluster that wrote them. `pg_upgrade` keeps those IDs, but a dump and restore, logical replication or a Blue/Green major upgrade can start the new cluster from lower ones, and new messages would then sit behind every cursor. `Subscribe` refuses with "consumer cursor is ahead of this cluster's transaction IDs" when that happens. To repair it, stop your subscribers and reset the IDs on the copy. Retained messages get delivered again, so your handlers have to tolerate duplicates:
+
+```sql
+UPDATE forge_conduit_messages SET txid = '0'::xid8;
+UPDATE forge_conduit_consumers SET cursor_txid = '0'::xid8, cursor_seq = 0, start_snapshot = NULL;
+```
 
 ## Kafka
 
