@@ -28,6 +28,7 @@ func MustGetCache(c forge.Container) Cache {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get cache service: %v", err))
 	}
+
 	return cache
 }
 
@@ -37,6 +38,7 @@ func GetCacheFromApp(app forge.App) (Cache, error) {
 	if app == nil {
 		return nil, fmt.Errorf("app is nil")
 	}
+
 	return GetCache(app.Container())
 }
 
@@ -46,5 +48,6 @@ func MustGetCacheFromApp(app forge.App) Cache {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetCache(app.Container())
 }

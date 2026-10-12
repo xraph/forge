@@ -92,6 +92,7 @@ func (s *CacheService) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("cache service stopped")
+
 	return nil
 }
 

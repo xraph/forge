@@ -119,6 +119,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -132,6 +133,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
