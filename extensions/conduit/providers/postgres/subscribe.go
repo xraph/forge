@@ -149,8 +149,10 @@ func (s *subscription) take(ctx context.Context) (*delivery, time.Duration, erro
 	}
 }
 
-// takeOnce runs one short transaction. Locking the consumer row serializes the group's
-// replicas, so pause, MaxInFlight and the cursor are always checked and moved together.
+// takeOnce runs one short transaction. An advisory lock on the consumer serializes the
+// group's replicas, so pause, MaxInFlight and the cursor are always checked and moved
+// together. The lock, unlike a row lock, assigns no transaction id, so an idle poll
+// writes nothing and does not hold the cluster's horizon back.
 func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, error) {
 	p := s.provider
 
@@ -165,10 +167,20 @@ func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, 
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	if err := lockConsumer(ctx, tx, s.consumer); err != nil {
+		return nil, 0, err
+	}
+
 	sub := s.binding.Subscription
 	maxAge := s.binding.Stream.MaxAge.Milliseconds()
 	visibility := (sub.Timeout + claimGrace).Milliseconds()
 	token := core.NewID()
+
+	// Read the horizon once, after the lock, so every statement below agrees on it.
+	var horizon string
+	if err := tx.QueryRow(ctx, `SELECT pg_snapshot_xmin(pg_current_snapshot())::text`).Scan(&horizon); err != nil {
+		return nil, 0, err
+	}
 
 	var (
 		paused            bool
@@ -177,7 +189,7 @@ func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, 
 		snapshot          *string
 	)
 
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT paused, cursor_txid::text, cursor_seq, min_seq, start_snapshot::text FROM %s WHERE consumer_id = $1 FOR UPDATE`, p.t.consumers), s.consumer).
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT paused, cursor_txid::text, cursor_seq, min_seq, start_snapshot::text FROM %s WHERE consumer_id = $1`, p.t.consumers), s.consumer).
 		Scan(&paused, &cursorTxid, &cursorSeq, &minSeq, &snapshot)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, 0, core.ErrNotFound
@@ -191,7 +203,8 @@ func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, 
 		return nil, p.options.PollInterval, tx.Commit(ctx)
 	}
 
-	// Claims on messages that retention removed can never be delivered.
+	// Claims on messages that retention removed can never be delivered. A DELETE that
+	// matches nothing assigns no transaction id.
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s c WHERE c.consumer_id = $1 AND NOT EXISTS (SELECT 1 FROM %s m WHERE m.stream_key = c.stream_key AND m.seq = c.seq)`, p.t.claims, p.t.messages), s.consumer); err != nil {
 		return nil, 0, err
 	}
@@ -251,77 +264,59 @@ RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at 
 	// Walk the log in (txid, seq) order and stop at the oldest open transaction. Every
 	// transaction below that horizon has finished, and any later commit lands above it,
 	// so no row can appear behind the cursor once the cursor has passed.
-	for {
-		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT txid::text, seq, message_type, target_consumer, envelope::text,
- ($5::bigint > 0 AND accepted_at <= clock_timestamp() - $5::bigint * interval '1 millisecond')
-FROM %s
-WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3)
- AND txid < pg_snapshot_xmin(pg_current_snapshot())
- AND ($4::text IS NULL OR NOT pg_visible_in_snapshot(txid, $4::text::pg_snapshot))
-ORDER BY txid, seq LIMIT 100`, p.t.messages), s.key, cursorTxid, cursorSeq, snapshot, maxAge)
+	//
+	// The filters run in SQL, so a backlog of other message types is skipped by the
+	// database and only the one matching envelope is read.
+	var (
+		txid, raw string
+		seq       int64
+	)
+
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq, envelope::text FROM %s
+WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
+ AND message_type = $5 AND (target_consumer = '' OR target_consumer = $6) AND seq >= $7
+ AND ($8::bigint = 0 OR accepted_at > clock_timestamp() - $8::bigint * interval '1 millisecond')
+ AND ($9::text IS NULL OR NOT pg_visible_in_snapshot(txid, $9::text::pg_snapshot))
+ORDER BY txid, seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot).
+		Scan(&txid, &seq, &raw)
+
+	switch {
+	case err == nil:
+		found, err := s.delivery(seq, 1, token, []byte(raw))
 		if err != nil {
 			return nil, 0, err
 		}
 
-		var found *delivery
-
-		scanned := 0
-
-		for rows.Next() {
-			var (
-				txid, kind, target string
-				seq                int64
-				raw                []byte
-				expired            bool
-			)
-
-			if err := rows.Scan(&txid, &seq, &kind, &target, &raw, &expired); err != nil {
-				rows.Close()
-
-				return nil, 0, err
-			}
-
-			scanned++
-			cursorTxid, cursorSeq = txid, seq
-
-			if seq < minSeq || expired || kind != sub.MessageType || target != "" && target != s.consumer {
-				continue
-			}
-
-			found, err = s.delivery(seq, 1, token, raw)
-			if err != nil {
-				rows.Close()
-
-				return nil, 0, err
-			}
-
-			break
-		}
-
-		rows.Close()
-
-		if err := rows.Err(); err != nil {
+		if err := s.moveCursor(ctx, tx, txid, seq); err != nil {
 			return nil, 0, err
 		}
 
-		if scanned > 0 {
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET cursor_txid = $2::text::xid8, cursor_seq = $3 WHERE consumer_id = $1`, p.t.consumers), s.consumer, cursorTxid, cursorSeq); err != nil {
-				return nil, 0, err
-			}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (consumer_id, seq, stream_key, token, attempt, visible_at)
+VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisecond')`, p.t.claims), s.consumer, seq, s.key, token, visibility); err != nil {
+			return nil, 0, err
 		}
 
-		if found != nil {
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (consumer_id, seq, stream_key, token, attempt, visible_at)
-VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisecond')`, p.t.claims), s.consumer, found.seq, s.key, token, visibility); err != nil {
-				return nil, 0, err
-			}
+		return found, 0, tx.Commit(ctx)
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return nil, 0, err
+	}
 
-			return found, 0, tx.Commit(ctx)
+	// Nothing matches below the horizon, so step over everything that was scanned.
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq FROM %s
+WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
+ORDER BY txid DESC, seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&txid, &seq)
+
+	switch {
+	case err == nil:
+		if err := s.moveCursor(ctx, tx, txid, seq); err != nil {
+			return nil, 0, err
 		}
 
-		if scanned < 100 {
-			break
-		}
+		cursorTxid, cursorSeq = txid, seq
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return nil, 0, err
 	}
 
 	wait, err := s.wait(ctx, tx)
@@ -329,7 +324,32 @@ VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisec
 		return nil, 0, err
 	}
 
+	// Rows committed above the horizon become deliverable when an unrelated transaction
+	// ends, and that sends no notification, so look again soon.
+	var pending bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid >= $4::text::xid8)`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&pending); err != nil {
+		return nil, 0, err
+	}
+
+	if pending {
+		wait = min(wait, 50*time.Millisecond)
+	}
+
 	return nil, wait, tx.Commit(ctx)
+}
+
+func (s *subscription) moveCursor(ctx context.Context, tx pgx.Tx, txid string, seq int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET cursor_txid = $2::text::xid8, cursor_seq = $3 WHERE consumer_id = $1`, s.provider.t.consumers), s.consumer, txid, seq)
+
+	return err
+}
+
+// lockConsumer serializes everything that changes one consumer's state until the
+// transaction ends. It assigns no transaction id.
+func lockConsumer(ctx context.Context, tx pgx.Tx, consumer string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, consumer)
+
+	return err
 }
 
 // wait is how long to sleep before trying again: until the next claim becomes visible,
@@ -337,7 +357,7 @@ VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisec
 func (s *subscription) wait(ctx context.Context, tx pgx.Tx) (time.Duration, error) {
 	var ms *int64
 
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM min(visible_at) - clock_timestamp()) * 1000))::bigint FROM %s WHERE consumer_id = $1`, s.provider.t.claims), s.consumer).Scan(&ms)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT CEIL(EXTRACT(EPOCH FROM min(visible_at) - clock_timestamp()) * 1000)::bigint FROM %s WHERE consumer_id = $1`, s.provider.t.claims), s.consumer).Scan(&ms)
 	if err != nil {
 		return 0, err
 	}
@@ -372,9 +392,27 @@ func (s *subscription) Close(ctx context.Context) error {
 		return err
 	}
 
-	_, err = pool.Exec(ctx, fmt.Sprintf(`WITH gone AS (DELETE FROM %s WHERE consumer_id = $1) DELETE FROM %s WHERE consumer_id = $1`, s.provider.t.consumers, s.provider.t.claims), s.consumer)
+	// Take the same lock as takeOnce, then delete the consumer before its claims, so a
+	// take in flight cannot add a claim after the cleanup.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	return err
+	if err := lockConsumer(ctx, tx, s.consumer); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE consumer_id = $1`, s.provider.t.consumers), s.consumer); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE consumer_id = $1`, s.provider.t.claims), s.consumer); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 type delivery struct {

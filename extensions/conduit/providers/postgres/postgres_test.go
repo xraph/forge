@@ -573,3 +573,135 @@ func TestDeliveryContinuesWhenTheListenerDrops(t *testing.T) {
 
 	waitFor(t, "listener reconnect", p.ListenerConnected)
 }
+
+func TestIdleWaitIsThePollInterval(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{PollInterval: time.Second})
+	ns, cfg := newStream(t, p)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "idle", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, wait, err := s.(*subscription).take(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d != nil {
+		t.Fatalf("unexpected delivery %s", d.envelope.ID)
+	}
+
+	if wait != time.Second {
+		t.Fatalf("an idle subscription waits %s, want the poll interval", wait)
+	}
+}
+
+func TestRowsAboveTheHorizonRepollQuickly(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{PollInterval: time.Second})
+	ns, cfg := newStream(t, p)
+	pool, _ := p.db()
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "horizon", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub := s.(*subscription)
+
+	hold, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := hold.Exec(ctx, `SELECT pg_current_xact_id()`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "behind-the-horizon", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	d, wait, err := sub.take(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d != nil {
+		t.Fatalf("delivered %s past an open transaction", d.envelope.ID)
+	}
+
+	if wait > 50*time.Millisecond {
+		t.Fatalf("rows above the horizon wait %s, want at most 50ms", wait)
+	}
+
+	if err := hold.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Other tests may hold transactions of their own, so give the horizon time to clear.
+	var got *delivery
+
+	waitFor(t, "the row to pass the horizon", func() bool {
+		var err error
+
+		got, _, err = sub.take(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return got != nil
+	})
+
+	if got.envelope.ID != "behind-the-horizon" {
+		t.Fatalf("delivered %s", got.envelope.ID)
+	}
+}
+
+func TestCloseRemovesANonDurableBroadcastConsumer(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+	pool, _ := p.db()
+
+	b := binding(ns, cfg, core.Broadcast, "ephemeral", "all")
+	b.Subscription.Durable = false
+
+	s, err := p.Subscribe(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "claimed", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	d := next(t, s, 5*time.Second)
+	if d.Message().ID != "claimed" {
+		t.Fatalf("delivered %s", d.Message().ID)
+	}
+
+	count := func(table string) int {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE consumer_id = $1`, b.ConsumerID()).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+
+		return n
+	}
+
+	if count(p.t.consumers) != 1 || count(p.t.claims) != 1 {
+		t.Fatal("expected a consumer and a claim before Close")
+	}
+
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if c, l := count(p.t.consumers), count(p.t.claims); c != 0 || l != 0 {
+		t.Fatalf("Close left %d consumers and %d claims", c, l)
+	}
+}
