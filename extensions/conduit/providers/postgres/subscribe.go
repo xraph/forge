@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,9 @@ import (
 // claimGrace keeps a slow acknowledgement from racing a redelivery, as in the Redis provider.
 const claimGrace = 5 * time.Second
 
+// firstRepoll is the first quick re-poll while committed rows wait above the horizon.
+const firstRepoll = 50 * time.Millisecond
+
 type subscription struct {
 	provider *Provider
 	binding  core.Binding
@@ -23,6 +27,10 @@ type subscription struct {
 	consumer string
 	closed   chan struct{}
 	once     sync.Once
+	// repoll is the next above-horizon re-poll. It doubles up to PollInterval while the
+	// horizon stays put, and returns to firstRepoll once a take delivers or finds nothing
+	// waiting above the horizon.
+	repoll atomic.Int64
 }
 
 // Subscribe creates the logical consumer on first use, and refuses a replica whose
@@ -95,7 +103,10 @@ ON CONFLICT (consumer_id) DO NOTHING`, p.t.consumers, p.t.streams),
 		return nil, errors.New("conduit/postgres: consumer cursor is ahead of this cluster's transaction IDs (was the database restored from a dump?)")
 	}
 
-	return &subscription{provider: p, binding: b, key: key, consumer: consumer, closed: make(chan struct{})}, nil
+	s := &subscription{provider: p, binding: b, key: key, consumer: consumer, closed: make(chan struct{})}
+	s.repoll.Store(int64(firstRepoll))
+
+	return s, nil
 }
 
 func (s *subscription) Next(ctx context.Context) (core.Delivery, error) {
@@ -255,6 +266,8 @@ RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at 
 			return nil, 0, err
 		}
 
+		s.repoll.Store(int64(firstRepoll))
+
 		return d, 0, tx.Commit(ctx)
 	}
 
@@ -307,6 +320,8 @@ VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisec
 			return nil, 0, err
 		}
 
+		s.repoll.Store(int64(firstRepoll))
+
 		return found, 0, tx.Commit(ctx)
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
@@ -336,14 +351,19 @@ ORDER BY txid DESC, seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorS
 	}
 
 	// Rows committed above the horizon become deliverable when an unrelated transaction
-	// ends, and that sends no notification, so look again soon.
+	// ends, and that sends no notification, so look again soon. A transaction that stays
+	// open would make that a steady load, so each further look waits twice as long.
 	var pending bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid >= $4::text::xid8)`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&pending); err != nil {
 		return nil, 0, err
 	}
 
 	if pending {
-		wait = min(wait, 50*time.Millisecond)
+		repoll := time.Duration(s.repoll.Load())
+		s.repoll.Store(int64(min(repoll*2, p.options.PollInterval)))
+		wait = min(wait, repoll)
+	} else {
+		s.repoll.Store(int64(firstRepoll))
 	}
 
 	return nil, wait, tx.Commit(ctx)

@@ -993,3 +993,86 @@ func TestCursorAheadOfTheClusterFailsSubscribe(t *testing.T) {
 		t.Fatalf("a cursor ahead of the cluster was accepted: %v", err)
 	}
 }
+
+// TestAboveHorizonRepollsBackOff covers a transaction left open for a long time: the
+// quick re-poll must back off to PollInterval, not hit the database every 50ms.
+func TestAboveHorizonRepollsBackOff(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{PollInterval: time.Second})
+	ns, cfg := newStream(t, p)
+	pool, _ := p.db()
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "backoff", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub := s.(*subscription)
+
+	holdHorizon := func(id string) pgx.Tx {
+		hold, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() { _ = hold.Rollback(context.WithoutCancel(ctx)) })
+
+		if _, err := hold.Exec(ctx, `SELECT pg_current_xact_id()`); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := p.Publish(ctx, ns, cfg, envelope(ns, id, placed)); err != nil {
+			t.Fatal(err)
+		}
+
+		return hold
+	}
+
+	take := func() time.Duration {
+		d, wait, err := sub.take(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if d != nil {
+			t.Fatalf("delivered %s past an open transaction", d.envelope.ID)
+		}
+
+		return wait
+	}
+
+	hold := holdHorizon("held")
+
+	for _, ms := range []int64{50, 100, 200, 400, 800, 1000, 1000} {
+		if got, want := take(), time.Duration(ms)*time.Millisecond; got != want {
+			t.Fatalf("re-poll waited %s, want %s", got, want)
+		}
+	}
+
+	if err := hold.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, "the held row to be delivered", func() bool {
+		d, _, err := sub.take(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if d == nil {
+			return false
+		}
+
+		if err := d.Ack(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		return true
+	})
+
+	holdHorizon("held-again")
+
+	if got := take(); got != 50*time.Millisecond {
+		t.Fatalf("after a delivery the re-poll waited %s, want it reset to 50ms", got)
+	}
+}
