@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -462,4 +463,230 @@ func runBackfill(t *testing.T, factory Factory, _ settings) {
 		t.Fatalf("backfill history leaked across services: %+v %v", rows, err)
 	}
 }
-func runRPC(t *testing.T, _ Factory, _ settings) { t.Fatal("rpc group not written yet") }
+func runRPC(t *testing.T, factory Factory, _ settings) {
+	h := newHarness(t, factory)
+	serverA, serverB, caller := h.provider(), h.provider(), h.provider()
+
+	rpcOf := func(p core.Provider) core.RPCProvider {
+		t.Helper()
+
+		r, ok := p.(core.RPCProvider)
+		if !ok {
+			t.Fatal("RPC requires core.RPCProvider")
+		}
+
+		return r
+	}
+	pricing := func(instance string) core.Identity {
+		return core.Identity{Namespace: h.ns, ServiceID: "pricing", InstanceID: instance}
+	}
+	serve := func(p core.Provider, instance, method string, concurrency, inFlight int, handler func(context.Context, core.RPCRequest) core.RPCResponse) core.RPCServer {
+		t.Helper()
+
+		binding := core.RPCBinding{Identity: pricing(instance), Method: method, Config: core.RPCConfig{Timeout: 5 * time.Second, Concurrency: concurrency, MaxInFlight: inFlight}, MaxPayloadBytes: 1 << 20}
+
+		server, err := rpcOf(p).ServeRPC(h.ctx, binding, handler)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() { _ = server.Close(context.WithoutCancel(t.Context())) })
+
+		return server
+	}
+	reply := func(instance string, request core.RPCRequest, data string) core.RPCResponse {
+		return core.RPCResponse{ID: request.Envelope.ID, Source: pricing(instance), Data: []byte(data)}
+	}
+	callerID := core.Identity{Namespace: h.ns, ServiceID: "web", InstanceID: "caller"}
+	call := func(identity core.Identity, method string, within time.Duration) (core.RPCResponse, error) {
+		ctx, cancel := context.WithTimeout(h.ctx, within)
+		defer cancel()
+
+		deadline, _ := ctx.Deadline()
+		envelope := core.Envelope{ID: core.NewID(), Type: method, Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()}
+
+		response, err := rpcOf(caller).RequestRPC(ctx, identity, core.RPCRequest{Service: "pricing", Method: method, Envelope: envelope, Deadline: deadline})
+		if err == nil && response.ID != envelope.ID {
+			t.Fatalf("response %s answers request %s", response.ID, envelope.ID)
+		}
+
+		return response, err
+	}
+	codeOf := func(response core.RPCResponse, err error) core.RPCCode {
+		var public *core.RPCError
+		if errors.As(err, &public) {
+			return public.Code
+		}
+
+		if err != nil {
+			return core.PublicRPCError(err).Code
+		}
+
+		if response.Error != nil {
+			return response.Error.Code
+		}
+
+		return ""
+	}
+
+	// Two replicas share one procedure, and each request runs once.
+	var mu sync.Mutex
+
+	handled := map[string]int{}
+	byReplica := map[string]int{}
+	echo := func(instance string) func(context.Context, core.RPCRequest) core.RPCResponse {
+		return func(_ context.Context, request core.RPCRequest) core.RPCResponse {
+			mu.Lock()
+			handled[request.Envelope.ID]++
+			byReplica[instance]++
+			mu.Unlock()
+
+			return reply(instance, request, `{"ok":true}`)
+		}
+	}
+
+	serve(serverA, "a", "quote", 2, 8, echo("a"))
+	serve(serverB, "b", "quote", 2, 8, echo("b"))
+
+	for range 32 {
+		response, err := call(callerID, "quote", 5*time.Second)
+		if err != nil || response.Error != nil || string(response.Data) != `{"ok":true}` || response.Source.ServiceID != "pricing" {
+			t.Fatalf("call failed: %+v %v", response, err)
+		}
+	}
+
+	mu.Lock()
+	for id, count := range handled {
+		if count != 1 {
+			t.Fatalf("request %s ran %d times", id, count)
+		}
+	}
+
+	if len(handled) != 32 || byReplica["a"] == 0 || byReplica["b"] == 0 {
+		t.Fatalf("replicas did not share requests: %v", byReplica)
+	}
+
+	before := len(handled)
+	mu.Unlock()
+
+	// The caller's deadline reaches the handler.
+	seen := make(chan time.Time, 1)
+
+	serve(serverA, "a", "deadline", 1, 1, func(ctx context.Context, request core.RPCRequest) core.RPCResponse {
+		deadline, _ := ctx.Deadline()
+		seen <- deadline
+
+		return reply("a", request, `{}`)
+	})
+
+	started := time.Now()
+
+	if _, err := call(callerID, "deadline", 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	if deadline := <-seen; deadline.IsZero() || deadline.After(started.Add(2*time.Second+250*time.Millisecond)) {
+		t.Fatalf("caller deadline did not reach the handler: %v", deadline)
+	}
+
+	// A replica at MaxInFlight refuses instead of queueing.
+	release, entered := make(chan struct{}), make(chan struct{}, 1)
+
+	serve(serverA, "a", "slow", 1, 1, func(ctx context.Context, request core.RPCRequest) core.RPCResponse {
+		entered <- struct{}{}
+
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+
+		return reply("a", request, `{}`)
+	})
+
+	firstDone := make(chan error, 1)
+
+	go func() {
+		_, err := call(callerID, "slow", 5*time.Second)
+		firstDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-h.ctx.Done():
+		t.Fatal(h.ctx.Err())
+	}
+
+	if code := codeOf(call(callerID, "slow", 2*time.Second)); code != core.RPCUnavailable {
+		t.Fatalf("overloaded replica returned %q", code)
+	}
+
+	close(release)
+
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+
+	// A handler's public error comes back unchanged.
+	serve(serverA, "a", "refuse", 1, 1, func(_ context.Context, request core.RPCRequest) core.RPCResponse {
+		response := reply("a", request, "")
+		response.Data = nil
+		response.Error = &core.RPCError{Code: core.RPCConflict, Message: "quote expired"}
+
+		return response
+	})
+
+	response, err := call(callerID, "refuse", 2*time.Second)
+	if err != nil || response.Error == nil || response.Error.Code != core.RPCConflict || response.Error.Message != "quote expired" {
+		t.Fatalf("public error lost: %+v %v", response, err)
+	}
+
+	// Close finishes work it already accepted.
+	draining := make(chan struct{}, 1)
+	drainServer := serve(serverB, "b", "drain", 1, 1, func(_ context.Context, request core.RPCRequest) core.RPCResponse {
+		draining <- struct{}{}
+
+		time.Sleep(200 * time.Millisecond)
+
+		return reply("b", request, `{}`)
+	})
+	result := make(chan error, 1)
+
+	go func() {
+		response, err := call(callerID, "drain", 5*time.Second)
+		if err == nil && response.Error != nil {
+			err = response.Error
+		}
+
+		result <- err
+	}()
+
+	select {
+	case <-draining:
+	case <-h.ctx.Done():
+		t.Fatal(h.ctx.Err())
+	}
+
+	closeCtx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+	defer cancel()
+
+	if err := drainServer.Close(closeCtx); err != nil {
+		t.Fatalf("close did not drain: %v", err)
+	}
+
+	if err := <-result; err != nil {
+		t.Fatalf("accepted call lost while draining: %v", err)
+	}
+
+	// Requests never cross namespaces.
+	foreign := core.Identity{Namespace: h.ns + "-other", ServiceID: "web", InstanceID: "caller"}
+	if code := codeOf(call(foreign, "quote", 400*time.Millisecond)); code == "" {
+		t.Fatal("request crossed namespaces")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(handled) != before {
+		t.Fatal("a foreign namespace reached a handler")
+	}
+}
