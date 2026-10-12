@@ -118,13 +118,9 @@ func (p *Provider) RunBackfill(ctx context.Context, binding core.Binding, in cor
 		return core.Backfill{}, err
 	}
 
-	job, err := p.claimBackfill(ctx, ns, service, in.ID, string(data))
+	job, err := p.claimBackfill(ctx, ns, service, initial, string(data))
 	if err != nil {
 		return job, err
-	}
-
-	if job.Input != in || job.ConsumerID != binding.ConsumerID() || job.Stream != binding.Stream.Name || job.MessageType != binding.Subscription.MessageType {
-		return job, core.ErrConflict
 	}
 
 	if job.State == "complete" {
@@ -174,9 +170,13 @@ WHERE namespace = $1 AND service_id = $2 AND id = $3`, p.t.backfills), ns, servi
 	return core.ExecuteBackfill(ctx, binding, job, read, publish, save)
 }
 
-// claimBackfill records the operation on first use and claims it for this run. A claim
-// younger than a minute belongs to a run still in progress.
-func (p *Provider) claimBackfill(ctx context.Context, ns, service, id, initial string) (core.Backfill, error) {
+// claimBackfill records the operation on first use and claims it for this run. It checks,
+// in order, that the request matches the stored operation, whether it is already complete,
+// and whether another run holds it (a claim younger than a minute). Only then does it stamp
+// the claim, so a conflicting request never locks out the operation's real owner.
+func (p *Provider) claimBackfill(ctx context.Context, ns, service string, want core.Backfill, initial string) (core.Backfill, error) {
+	id := want.Input.ID
+
 	pool, err := p.db()
 	if err != nil {
 		return core.Backfill{}, err
@@ -206,6 +206,10 @@ WHERE namespace = $1 AND service_id = $2 AND id = $3 FOR UPDATE`, p.t.backfills)
 
 	if err := json.Unmarshal(raw, &job); err != nil {
 		return core.Backfill{}, err
+	}
+
+	if job.Input != want.Input || job.ConsumerID != want.ConsumerID || job.Stream != want.Stream || job.MessageType != want.MessageType {
+		return job, core.ErrConflict
 	}
 
 	if job.State == "complete" {

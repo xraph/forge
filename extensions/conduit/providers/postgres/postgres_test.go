@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"slices"
@@ -772,5 +774,41 @@ func TestVisibilityLagReportsAnOpenTransaction(t *testing.T) {
 	lag, err := p.VisibilityLag(ctx)
 	if err != nil || lag < 300*time.Millisecond {
 		t.Fatalf("lag %v while a transaction has been open for 300ms: %v", lag, err)
+	}
+}
+
+func TestConflictingBackfillDoesNotLockOutTheOriginalRun(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	pool, _ := p.db()
+
+	ns, cfg := newStream(t, p)
+	b := binding(ns, cfg, core.Competing, "sub", "new")
+	original := core.BackfillInput{ID: "fill-1", Subscription: "sub", Start: 1, End: 5}
+
+	// An interrupted run: stored, not complete, and not claimed.
+	seed, err := json.Marshal(core.Backfill{
+		MessageType: placed, Input: original, ConsumerID: b.ConsumerID(), Stream: cfg.Name, Provider: cfg.Provider,
+		Next: original.Start, State: "failed", UpdatedAt: time.Now().UTC(), Persisted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (namespace, service_id, id, job) VALUES ($1, $2, $3, $4)`, p.t.backfills),
+		ns, b.Identity.ServiceID, original.ID, string(seed)); err != nil {
+		t.Fatal(err)
+	}
+
+	reused := original
+	reused.End = 9
+
+	if _, err := p.RunBackfill(ctx, b, reused); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("reusing the ID with another range: %v, want ErrConflict", err)
+	}
+
+	job, err := p.RunBackfill(ctx, b, original)
+	if err != nil || job.State != "complete" {
+		t.Fatalf("resume with the original range after a conflicting request: state %q, %v", job.State, err)
 	}
 }
