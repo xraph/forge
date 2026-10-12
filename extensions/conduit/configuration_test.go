@@ -174,3 +174,51 @@ func TestPartialExplicitIdentityPreservesLoadedNamespace(t *testing.T) {
 		t.Fatalf("partial identity lost loaded fields: %+v", got)
 	}
 }
+
+func TestExtensionBuildsPostgresProviderFromConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("FORGE_ADVERTISE_ADDR", "billing.internal")
+
+	if err := os.WriteFile(filepath.Join(dir, ".forge.yml"), []byte("app:\n  name: billing\n  version: 2.4.0\n  namespace: production\ndev:\n  port: 8093\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`extensions:
+  conduit:
+    providers:
+      events: {type: postgresql, url: "postgres://localhost:5432/billing"}
+    streams:
+      orders: {provider: events, subjects: ["orders.>"]}
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := confy.New()
+
+	source, err := sources.NewFileSource(path, sources.FileSourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.LoadFrom(source); err != nil {
+		t.Fatal(err)
+	}
+
+	app := forge.New(forge.WithAppConfigManager(manager), forge.WithAppLogger(forge.NewNoopLogger()), forge.WithAppMetrics(forge.NewNoOpMetrics()))
+
+	ext, err := conduit.NewExtension()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ext.Register(app); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := ext.Runtime().Providers()["events"]
+	if provider == nil || provider.Name() != "postgres" {
+		t.Fatalf("expected a postgres provider, got %v", provider)
+	}
+}

@@ -1,18 +1,21 @@
 ---
 title: Broker providers
-description: Choose NATS JetStream, Redis Streams or Kafka with explicit durability and recovery guarantees
+description: Choose NATS JetStream, Redis Streams, PostgreSQL or Kafka with explicit durability and recovery guarantees
 ---
 
 You can supply a provider in Go or choose its type in Forge configuration. Your event handlers keep the same API.
 
-| Provider       | Durable acceptance                     | Event cursors                           | Dead letters            | Broker RPC                 | Pause and backfill     |
-| -------------- | -------------------------------------- | --------------------------------------- | ----------------------- | -------------------------- | ---------------------- |
-| NATS JetStream | File store with configured replicas    | Native stream sequence                  | Persisted KV records    | Native request/reply       | Supported              |
-| Redis Streams  | Confirmed local and replica AOF writes | Per-stream sequence and consumer groups | Persisted Redis records | Unsupported                | Unsupported            |
-| Kafka          | All configured in-sync replicas        | One-based offsets in one partition      | Retained failure log    | Unsupported                | Unsupported            |
-| Memory         | Process memory                         | Process-local retained records          | Process-local records   | Development implementation | Process-local controls |
+| Provider       | Durable acceptance                     | Event cursors                                  | Dead letters            | Broker RPC                 | Pause and backfill     | Discovery              |
+| -------------- | -------------------------------------- | ---------------------------------------------- | ----------------------- | -------------------------- | ---------------------- | ---------------------- |
+| NATS JetStream | File store with configured replicas    | Native stream sequence                         | Persisted KV records    | Native request/reply       | Supported              | Leased KV records      |
+| Redis Streams  | Confirmed local and replica AOF writes | Per-stream sequence and consumer groups        | Persisted Redis records | Request and reply streams  | Supported              | Leased keys            |
+| PostgreSQL     | Committed transaction                  | Per-stream sequence, read in commit-safe order | Rows                    | Request rows with NOTIFY   | Supported              | Leased rows            |
+| Kafka          | All configured in-sync replicas        | One-based offsets in one partition             | Retained failure log    | Unsupported                | Unsupported            | Use Forge discovery    |
+| Memory         | Process memory                         | Process-local retained records                 | Process-local records   | Development implementation | Process-local controls | Process-local leases   |
 
 All providers support competing and broadcast subscriptions. None promises ordered business processing by message key.
+
+JetStream, Redis Streams and PostgreSQL report the same capabilities and pass the same conformance groups, so you can choose by what you already run. JetStream handles the most traffic and clusters natively. Redis Streams suits you if Redis is already in your stack. PostgreSQL adds no infrastructure at all and lets you publish in the same transaction as your business write, at a few thousand events per second.
 
 ## NATS JetStream
 
@@ -24,6 +27,8 @@ broker := jetstream.New(jetstream.Options{
 ```
 
 Set stream `Replicas` to your required replication factor. Stream settings are verified on startup. You can use native `NATS` options for authentication and TLS. JetStream also supplies leased service discovery records.
+
+`Options.LeaseTTL` has to match the TTL of a discovery bucket that already exists (`FC_DISC_*`). A different value returns a conflict from every registry call, so check the bucket before you change the lease.
 
 ## Redis Streams
 
@@ -38,6 +43,32 @@ You'll need Redis 7.2 or later with AOF enabled. Publication uses `WAITAOF` on t
 The adapter supports age and message-count retention. Competing replicas share a consumer group; durable broadcast has a group per stable subscriber. Pending messages can be claimed after the handler timeout plus five seconds. Retry delays use the same broker-owned pending entries.
 
 Publication IDs are deduplicated for 24 hours by default. Set `DeduplicationWindow` to change that window. Native `redis.Options` lets you configure TLS and authentication. This adapter targets a primary/replica Redis deployment; it does not create a Redis Cluster or Sentinel client.
+
+Pause, backfill progress, discovery leases and RPC requests use the same Redis server. RPC requests and replies skip `WAITAOF`: they're transient, so a failover can drop an in-flight call and its caller then sees `DEADLINE_EXCEEDED`. A call to a procedure nobody serves also ends at its deadline.
+
+Replies are routed by a token that belongs to each call. A caller built from this release won't receive replies from server replicas built before it, so upgrade your servers before your callers, or upgrade them together.
+
+## PostgreSQL
+
+```go
+broker := postgres.New(postgres.Options{
+    URL: "postgres://localhost:5432/billing",
+})
+```
+
+You'll need PostgreSQL 13 or later. Pass `Pool` instead of `URL` to share your application's pool; closing the provider leaves it open. `Migrate` creates the `forge_conduit_` tables, and `Migrations(schema)` returns the same statements for a central migration runner. Set `AutoMigrate` to run `Migrate` on connect. Providers built from Forge configuration (`type: postgres`) do this for you.
+
+Run `Migrate` or `Migrations` as the role that owns the `forge_conduit_` tables. `CREATE INDEX IF NOT EXISTS` needs table ownership even when the index is already there, so a second role that merely has access will fail on a database you've already migrated. Creating the schema itself needs no database-level `CREATE` privilege when the schema already exists.
+
+Use `PublishTx` to publish inside your own transaction. Subscribers see the message, and wake for it, only when you commit. A rollback leaves nothing behind. `SQLTx` adapts a `database/sql` transaction.
+
+A stream with `MaxMessages` trims its old rows inside each publish. A long-running `PublishTx` on a capped stream therefore makes other publishers to that stream wait for your commit, so keep those transactions short. Rolled-back and duplicate publishes leave gaps in the sequence, and the cap counts sequence numbers, so the stream keeps slightly fewer rows than you configured.
+
+The provider keeps one dedicated connection for `LISTEN`, so it works behind PgBouncer as long as that one connection reaches PostgreSQL directly. When the listener is down, delivery carries on by polling every `PollInterval` (one second by default) and `ListenerConnected` reports `false`.
+
+Delivery takes an advisory lock per consumer group. It holds no row locks, and an idle subscriber doesn't use a transaction ID. An idle subscriber polls at `PollInterval`. After an unrelated transaction ends, delivery can lag by up to 50ms (not `PollInterval`), because the provider re-polls quickly while committed rows wait behind the oldest open transaction.
+
+Two behaviours differ from JetStream. Sequence numbers rise for each publisher, but with several publishers delivery follows commit order, so a consumer can see 42 before 41. And a transaction left open anywhere in the cluster holds delivery back until it ends, because a consumer never reads past the oldest open transaction. `VisibilityLag` tells you how long the oldest one has been open. It reads `pg_stat_activity`, so the role needs `pg_read_all_stats` (or `pg_monitor`) to see other roles' transactions, and prepared transactions aren't counted. RPC costs about two commits per call, and a call to a procedure nobody serves ends at its deadline.
 
 ## Kafka
 
@@ -62,6 +93,6 @@ Dead letter listings fold a retained service-specific failure log. Listing cost 
 
 Implement `core.Provider`, then report only guarantees your adapter provides through `Capabilities`. Add `core.Management` for inspection and dead letter recovery, `core.Registry` for discovery, `core.RPCProvider` for request/reply, or `core.Operations` for consumer controls and backfill.
 
-Run `providers/conformance.Run` against a factory that creates connections to the same real broker. The suite checks competing replicas, broadcast, namespace isolation, restart cursors, unsettled takeover, retries, targeted recovery, topology conflicts, sequence starts and age retention.
+Run `providers/conformance.Run` against a factory that creates connections to the same real broker. The suite checks competing replicas, broadcast, namespace isolation, restart cursors, unsettled takeover, retries, targeted recovery, topology conflicts, sequence starts and age retention. It then runs a group for each capability you claim: `operations` for consumer controls, `backfill`, `rpc`, and `registry` when you implement `core.Registry`. Pass `conformance.WithLeaseTTL` with the lease your factory's providers use. The `operations` group doesn't assume a retried message comes back before newer ones, so your provider can redeliver it later.
 
-Redis and Kafka conformance tests run in the required Conduit integration CI job. You can run them locally with `CONDUIT_TEST_REDIS` and `CONDUIT_TEST_KAFKA`; `CONDUIT_REQUIRE_PROVIDERS=1` makes missing broker configuration fail the check.
+Redis, PostgreSQL and Kafka conformance tests run in the required Conduit integration CI job. You can run them locally with `CONDUIT_TEST_REDIS`, `CONDUIT_TEST_POSTGRES` and `CONDUIT_TEST_KAFKA`; `CONDUIT_REQUIRE_PROVIDERS=1` makes missing broker configuration fail the check.

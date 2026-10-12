@@ -19,7 +19,7 @@ result, err := conduit.Call(ctx, ext.Runtime(), "billing", Lookup,
     LookupRequest{ID: "customer-42"})
 ```
 
-Broker RPC is available with JetStream and the development memory provider. Requests use transient subjects, separate from durable event streams. A service queue group selects one handler replica.
+Broker RPC is available with JetStream, Redis Streams, PostgreSQL and the development memory provider. Requests travel separately from durable event streams, and one handler replica takes each request.
 
 Configure the provider, timeout, concurrency and maximum in-flight requests under `rpc`. The default deadline is five seconds. Errors use `BAD_REQUEST`, `NOT_FOUND`, `PERMISSION_DENIED`, `CONFLICT`, `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `CANCELED` and `INTERNAL` codes. Arbitrary handler errors and panic details are hidden.
 
@@ -33,4 +33,4 @@ Conduit reuses Forge discovery when that extension is installed and enabled. Set
 
 The Forge bridge registers and removes only its own instance record. Its lease and crash-expiry guarantees come from the installed discovery backend. JetStream registry records have a 45-second lease, renewed every ten seconds.
 
-Redis Streams and Kafka supply event transport. Use Forge discovery or a separate registry with those providers. Their native broker RPC capability remains disabled, while named HTTP and gRPC clients remain available.
+JetStream, Redis Streams and PostgreSQL also act as registries. Each keeps a lease per instance, 45 seconds by default and renewed every ten seconds, and a replacement process that registers under the same instance name keeps its record when the old process shuts down. Kafka supplies event transport only: use Forge discovery or a separate registry with it, while named HTTP and gRPC clients stay available.

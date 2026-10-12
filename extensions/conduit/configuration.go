@@ -16,6 +16,7 @@ import (
 	"github.com/xraph/forge/extensions/conduit/providers/jetstream"
 	"github.com/xraph/forge/extensions/conduit/providers/kafka"
 	"github.com/xraph/forge/extensions/conduit/providers/memory"
+	"github.com/xraph/forge/extensions/conduit/providers/postgres"
 	"github.com/xraph/forge/extensions/conduit/providers/redisstreams"
 	discoveryext "github.com/xraph/forge/extensions/discovery"
 	"github.com/xraph/forge/extensions/discovery/backends"
@@ -67,6 +68,14 @@ func (e *Extension) configure(app forge.App) error {
 			}
 
 			provider = kafka.New(kafka.Options{Brokers: strings.Split(connection.URL, ","), DeadLetterReplicas: connection.DeadLetterReplicas})
+		case "postgres", "postgresql":
+			if connection.URL == "" {
+				return fmt.Errorf("conduit: provider %s requires a URL", name)
+			}
+
+			// Configured providers migrate their own tables. Build the provider in Go with
+			// postgres.Options{Pool: yourPool} to share a pool or run Migrations centrally.
+			provider = postgres.New(postgres.Options{URL: connection.URL, AutoMigrate: true})
 		case "memory":
 			provider = memory.New()
 		default:
