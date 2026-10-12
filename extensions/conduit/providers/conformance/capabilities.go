@@ -337,31 +337,67 @@ func runOperations(t *testing.T, factory Factory, _ settings) {
 
 	expect("three pending", 3, 0, 0, false)
 
-	d := h.next(s)
+	first := h.next(s)
+	delivered := map[string]bool{first.Message().ID: true}
 
 	expect("one delivered", 2, 1, 0, false)
 
-	if err := d.Retry(h.ctx, time.Millisecond); err != nil {
+	if err := first.Retry(h.ctx, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
-	// Let the retry come due so it is delivered ahead of the messages still pending.
-	time.Sleep(100 * time.Millisecond)
+	// Providers differ on whether a due retry comes before or after newer messages.
+	// Hold anything else that arrives, unsettled, until the retried message returns.
+	var (
+		held      []core.Delivery
+		redeliver core.Delivery
+	)
 
-	d = h.next(s)
-	if d.Info().Attempt < 2 {
-		t.Fatal("retry did not redeliver")
+	for redeliver == nil {
+		d := h.next(s)
+		if d.Message().ID == first.Message().ID {
+			if d.Info().Attempt < 2 {
+				t.Fatal("retry did not redeliver")
+			}
+
+			redeliver = d
+
+			continue
+		}
+
+		delivered[d.Message().ID] = true
+		held = append(held, d)
 	}
 
-	expect("one redelivered", 2, 1, 1, false)
-	h.ack(d)
-	expect("first settled", 2, 0, 0, false)
+	undelivered := uint64(2 - len(held)) //nolint:gosec // At most two.
+
+	expect("one redelivered", undelivered, 1+uint64(len(held)), 1, false)
+
+	h.ack(redeliver)
+
+	for _, d := range held {
+		h.ack(d)
+	}
+
+	expect("first settled", undelivered, 0, 0, false)
 
 	if err := ops.PauseConsumer(h.ctx, b, true); err != nil {
 		t.Fatal(err)
 	}
 
-	expect("paused", 2, 0, 0, true)
+	// Messages published while paused must also wait for the resume.
+	h.publish(p, "paused-0")
+	h.publish(p, "paused-1")
+
+	want := map[string]bool{"paused-0": true, "paused-1": true}
+
+	for i := range 3 {
+		if id := fmt.Sprintf("inspect-%d", i); !delivered[id] {
+			want[id] = true
+		}
+	}
+
+	expect("paused", uint64(len(want)), 0, 0, true)
 
 	// A second replica of the same group must be held by the pause too.
 	other := b
@@ -377,14 +413,16 @@ func runOperations(t *testing.T, factory Factory, _ settings) {
 
 	seen := map[string]bool{}
 
-	for range 2 {
+	for range len(want) {
 		d := h.next(s)
 		seen[d.Message().ID] = true
 		h.ack(d)
 	}
 
-	if !seen["inspect-1"] || !seen["inspect-2"] {
-		t.Fatalf("backlog lost while paused: %v", seen)
+	for id := range want {
+		if !seen[id] {
+			t.Fatalf("backlog lost while paused: want %v, saw %v", want, seen)
+		}
 	}
 
 	expect("drained", 0, 0, 0, false)
