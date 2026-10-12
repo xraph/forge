@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -304,6 +305,88 @@ func runRegistry(t *testing.T, factory Factory, cfg settings) {
 
 // Stubs for groups that later tasks fill in. Each starts as a failing test so a provider
 // claiming the capability can't pass silently while the group is unwritten.
-func runOperations(t *testing.T, _ Factory, _ settings) { t.Fatal("operations group not written yet") }
-func runBackfill(t *testing.T, _ Factory, _ settings)   { t.Fatal("backfill group not written yet") }
-func runRPC(t *testing.T, _ Factory, _ settings)        { t.Fatal("rpc group not written yet") }
+func runOperations(t *testing.T, factory Factory, _ settings) {
+	h := newHarness(t, factory)
+	p := h.provider()
+
+	ops, ok := p.(core.Operations)
+	if !ok {
+		t.Fatal("ConsumerControls requires core.Operations")
+	}
+
+	b := h.binding(p, "a", core.Competing, "inspect")
+	s := h.subscribe(p, b)
+
+	for i := range 3 {
+		h.publish(p, fmt.Sprintf("inspect-%d", i))
+	}
+
+	expect := func(what string, pending, ackPending, redelivered uint64, paused bool) {
+		t.Helper()
+
+		h.eventually(what, func() (bool, error) {
+			info, err := ops.InspectConsumer(h.ctx, b)
+			if err != nil {
+				return false, err
+			}
+
+			return info.ConsumerID == b.ConsumerID() && info.Pending == pending && info.AckPending == ackPending && info.Redelivered == redelivered && info.Paused == paused, nil
+		})
+	}
+
+	expect("three pending", 3, 0, 0, false)
+
+	d := h.next(s)
+
+	expect("one delivered", 2, 1, 0, false)
+
+	if err := d.Retry(h.ctx, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the retry come due so it is delivered ahead of the messages still pending.
+	time.Sleep(100 * time.Millisecond)
+
+	d = h.next(s)
+	if d.Info().Attempt < 2 {
+		t.Fatal("retry did not redeliver")
+	}
+
+	expect("one redelivered", 2, 1, 1, false)
+	h.ack(d)
+	expect("first settled", 2, 0, 0, false)
+
+	if err := ops.PauseConsumer(h.ctx, b, true); err != nil {
+		t.Fatal(err)
+	}
+
+	expect("paused", 2, 0, 0, true)
+
+	// A second replica of the same group must be held by the pause too.
+	other := b
+	other.Identity.InstanceID = "b"
+	s2 := h.subscribe(h.provider(), other)
+
+	h.quiet(s)
+	h.quiet(s2)
+
+	if err := ops.PauseConsumer(h.ctx, b, false); err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]bool{}
+
+	for range 2 {
+		d := h.next(s)
+		seen[d.Message().ID] = true
+		h.ack(d)
+	}
+
+	if !seen["inspect-1"] || !seen["inspect-2"] {
+		t.Fatalf("backlog lost while paused: %v", seen)
+	}
+
+	expect("drained", 0, 0, 0, false)
+}
+func runBackfill(t *testing.T, _ Factory, _ settings) { t.Fatal("backfill group not written yet") }
+func runRPC(t *testing.T, _ Factory, _ settings)      { t.Fatal("rpc group not written yet") }
