@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/conduit/core"
 	adapter "github.com/xraph/forge/extensions/conduit/discovery"
 	"github.com/xraph/forge/extensions/conduit/providers/jetstream"
 	"github.com/xraph/forge/extensions/conduit/providers/kafka"
@@ -124,15 +125,12 @@ func (e *Extension) configure(app forge.App) error {
 
 			registry = candidate
 		default:
-			for _, provider := range existing {
-				if candidate, ok := provider.(Registry); ok {
-					if registry != nil {
-						return errors.New("conduit: select a discovery provider explicitly")
-					}
-
-					registry = candidate
-				}
+			candidate, ambiguous := automaticRegistry(existing)
+			if ambiguous {
+				return errors.New("conduit: select a discovery provider explicitly")
 			}
+
+			registry = candidate
 		}
 
 		if registry != nil {
@@ -140,7 +138,72 @@ func (e *Extension) configure(app forge.App) error {
 		}
 	}
 
+	if cfg.RPC.Provider == "" {
+		cfg.RPC.Provider = automaticRPCProvider(existing)
+	}
+
 	return e.runtime.Configure(cfg, extra...)
+}
+
+// jetstreamName is the provider type that served discovery and RPC before other
+// providers gained them, so automatic choices keep picking it on upgrade.
+const jetstreamName = "nats-jetstream"
+
+// automaticRegistry picks the discovery registry when none is configured, and
+// reports ambiguous when the choice has to be explicit. The memory provider never
+// counts because it cannot see other processes. When several providers qualify,
+// JetStream wins if it is the only one of them.
+func automaticRegistry(providers map[string]Provider) (registry Registry, ambiguous bool) {
+	var candidates, jetstreams []Registry
+
+	for _, provider := range providers {
+		candidate, ok := provider.(Registry)
+		if !ok || provider.Name() == "memory" {
+			continue
+		}
+
+		candidates = append(candidates, candidate)
+		if provider.Name() == jetstreamName {
+			jetstreams = append(jetstreams, candidate)
+		}
+	}
+
+	switch {
+	case len(candidates) == 0:
+		return nil, false
+	case len(candidates) == 1:
+		return candidates[0], false
+	case len(jetstreams) == 1:
+		return jetstreams[0], false
+	default:
+		return nil, true
+	}
+}
+
+// automaticRPCProvider names the JetStream provider when several providers can
+// serve RPC and exactly one of them is JetStream. Otherwise it returns "" and the
+// runtime decides as it always has.
+func automaticRPCProvider(providers map[string]Provider) string {
+	capable, selected, jetstreams := 0, "", 0
+
+	for name, provider := range providers {
+		if _, ok := provider.(core.RPCProvider); !ok {
+			continue
+		}
+
+		capable++
+
+		if provider.Name() == jetstreamName {
+			selected = name
+			jetstreams++
+		}
+	}
+
+	if capable < 2 || jetstreams != 1 {
+		return ""
+	}
+
+	return selected
 }
 
 type appManifest struct {
