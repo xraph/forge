@@ -74,15 +74,16 @@ The provider keeps one dedicated connection for `LISTEN`. PgBouncer in transacti
 
 Delivery takes an advisory lock per consumer group. It holds no row locks, and an idle subscriber doesn't use a transaction ID. An idle subscriber polls at `PollInterval`. While committed rows wait behind the oldest open transaction, the provider re-polls after 50ms, then doubles the wait each time up to `PollInterval`. After that transaction ends, delivery lags by at most the current wait, so a short transaction costs you about 50ms and a long one up to `PollInterval`.
 
-Plan for the load on your database. Every publish sends a `NOTIFY` that wakes each worker calling `Next` on that stream, and each worker holds a pooled connection while it takes a message. An idle worker runs one short read-only transaction per `PollInterval`. PostgreSQL also serializes the commits of transactions that sent a `NOTIFY`, across the whole database, so publishing commits queue behind each other. Size the pool for `Concurrency` times your subscriptions, plus what your application needs.
+Plan for the load on your database. Every publish sends a `NOTIFY` that wakes each worker calling `Next` on that stream, and each worker holds a pooled connection while it takes a message. An idle worker runs one short read-only transaction per `PollInterval`. PostgreSQL also serializes the commits of transactions that sent a `NOTIFY` across every database in the cluster, so publishing commits queue behind each other, and behind any other application on that cluster that uses `NOTIFY`. Size the pool for `Concurrency` times your subscriptions, plus what your application needs.
 
 Two behaviours differ from JetStream. Sequence numbers rise for each publisher, but with several publishers delivery follows commit order, so a consumer can see 42 before 41. And a transaction left open anywhere in the cluster holds delivery back until it ends, because a consumer never reads past the oldest open transaction. `VisibilityLag` tells you how long the oldest one has been open. It reads `pg_stat_activity`, so the role needs `pg_read_all_stats` (or `pg_monitor`) to see other roles' transactions, and prepared transactions aren't counted. RPC costs about two commits per call, and a call to a procedure nobody serves ends at its deadline.
 
-Cursors store transaction IDs from the cluster that wrote them. `pg_upgrade` keeps those IDs, but a dump and restore, logical replication or a Blue/Green major upgrade can start the new cluster from lower ones, and new messages would then sit behind every cursor. `Subscribe` refuses with "consumer cursor is ahead of this cluster's transaction IDs" when that happens. To repair it, stop your subscribers and reset the IDs on the copy. Retained messages get delivered again, so your handlers have to tolerate duplicates:
+Cursors store transaction IDs from the cluster that wrote them. `pg_upgrade` keeps those IDs, but a dump and restore, logical replication or a Blue/Green major upgrade can start the new cluster from lower ones, and new messages would then sit behind every cursor. `Subscribe` refuses with "consumer cursor is ahead of this cluster's transaction IDs" when that happens. To repair it, stop your subscribers and reset the IDs on the copy. The tables live in the schema you configured, so qualify the names below if you set `Schema`. Retained messages get delivered again, including ones that were in flight, so your handlers have to tolerate duplicates:
 
 ```sql
 UPDATE forge_conduit_messages SET txid = '0'::xid8;
 UPDATE forge_conduit_consumers SET cursor_txid = '0'::xid8, cursor_seq = 0, start_snapshot = NULL;
+DELETE FROM forge_conduit_claims;
 ```
 
 ## Kafka
