@@ -422,6 +422,14 @@ func (s *subscription) Next(ctx context.Context) (core.Delivery, error) {
 				return nil, ctx.Err()
 			}
 
+			// The socket read can time out a moment before ctx reports Done. That is the
+			// caller's deadline, not a broker failure.
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 50*time.Millisecond {
+				<-ctx.Done()
+
+				return nil, ctx.Err()
+			}
+
 			return nil, errors.New("conduit/redis: consumer read failed")
 		}
 
