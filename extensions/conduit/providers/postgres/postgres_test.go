@@ -751,3 +751,26 @@ func TestSweepClearsEveryAgedOutMessageInOnePass(t *testing.T) {
 		t.Fatalf("%d aged-out messages remain after one sweep", rows)
 	}
 }
+
+func TestVisibilityLagReportsAnOpenTransaction(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	pool, _ := p.db()
+
+	hold, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := hold.Exec(ctx, `SELECT pg_current_xact_id()`); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	lag, err := p.VisibilityLag(ctx)
+	if err != nil || lag < 300*time.Millisecond {
+		t.Fatalf("lag %v while a transaction has been open for 300ms: %v", lag, err)
+	}
+}

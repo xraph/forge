@@ -96,9 +96,9 @@ func New(options Options) *Provider {
 // Name returns the provider type.
 func (p *Provider) Name() string { return "postgres" }
 
-// Capabilities reports persisted events and targeted dead letter recovery.
+// Capabilities reports persisted events, recovery, consumer controls and backfill.
 func (p *Provider) Capabilities() core.Capabilities {
-	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true}
+	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, ConsumerControls: true, Backfill: true}
 }
 
 // Connect opens or adopts the pool and checks the server version.
