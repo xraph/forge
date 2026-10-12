@@ -49,9 +49,9 @@ func New(options Options) *Provider {
 // Name returns the broker type.
 func (p *Provider) Name() string { return "redis-streams" }
 
-// Capabilities reports persisted events and targeted dead letter recovery.
+// Capabilities reports persisted events, recovery, consumer controls and backfill.
 func (p *Provider) Capabilities() core.Capabilities {
-	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true}
+	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, ConsumerControls: true, Backfill: true}
 }
 
 // Connect verifies persistence before accepting event traffic.
@@ -224,8 +224,51 @@ redis.call('XADD',KEYS[1],id,'envelope',ARGV[3]); redis.call('ZADD',KEYS[2],ms,i
 redis.call('SET',KEYS[4],tostring(seq),'PX',ARGV[4]); return {tostring(seq),0}
 `
 
+// claimScript and readScript check the pause flag inside Redis, so a pause lands between
+// reads on every replica with no window where a replica has checked but not yet read.
+const claimScript = `if redis.call('EXISTS',KEYS[2])==1 then return {ARGV[4],{}} end
+return redis.call('XAUTOCLAIM',KEYS[1],ARGV[1],ARGV[2],ARGV[3],ARGV[4],'COUNT',1)`
+
+const readScript = `if redis.call('EXISTS',KEYS[2])==1 then return {} end
+local pending=redis.call('XPENDING',KEYS[1],ARGV[1]); if pending[1]>=tonumber(ARGV[3]) then return {} end
+return redis.call('XREADGROUP','GROUP',ARGV[1],ARGV[2],'COUNT',1,'STREAMS',KEYS[1],'>') or {}`
+
+func pausedKey(key, consumerID string) string { return key + ":group:" + consumerID + ":paused" }
+
+// streamEntries reads the entry list of an XAUTOCLAIM or XREADGROUP reply.
+func streamEntries(raw any) []redis.XMessage {
+	entries, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	msgs := make([]redis.XMessage, 0, len(entries))
+
+	for _, item := range entries {
+		entry, ok := item.([]any)
+		if !ok || len(entry) != 2 {
+			continue
+		}
+
+		id, idOK := entry[0].(string)
+
+		fields, fieldsOK := entry[1].([]any)
+		if idOK && fieldsOK && len(fields) == 2 {
+			msgs = append(msgs, redis.XMessage{ID: id, Values: map[string]any{"envelope": fields[1]}})
+		}
+	}
+
+	return msgs
+}
+
 // Publish confirms local and configured replica AOF persistence, with bounded ID deduplication.
 func (p *Provider) Publish(ctx context.Context, ns string, cfg core.StreamConfig, msg core.Envelope) (core.Receipt, error) {
+	return p.publish(ctx, ns, cfg, msg, hash(msg.ID, msg.TargetConsumer))
+}
+
+// publish deduplicates on an explicit key. Backfill passes its operation-scoped ID so a new
+// operation can republish a message an earlier one already sent.
+func (p *Provider) publish(ctx context.Context, ns string, cfg core.StreamConfig, msg core.Envelope, dedup string) (core.Receipt, error) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return core.Receipt{}, err
@@ -235,7 +278,7 @@ func (p *Provider) Publish(ctx context.Context, ns string, cfg core.StreamConfig
 	receipt := core.Receipt{MessageID: msg.ID, Persisted: true}
 
 	err = p.persisted(ctx, cfg.Replicas, func(c *redis.Conn) error {
-		values, err := c.Eval(ctx, pruneScript+publishScript, []string{key, key + ":age", key + ":seq", key + ":dedup:" + hash(msg.ID, msg.TargetConsumer)}, cfg.MaxAge.Milliseconds(), cfg.MaxMessages, string(data), p.options.DeduplicationWindow.Milliseconds()).Slice()
+		values, err := c.Eval(ctx, pruneScript+publishScript, []string{key, key + ":age", key + ":seq", key + ":dedup:" + dedup}, cfg.MaxAge.Milliseconds(), cfg.MaxMessages, string(data), p.options.DeduplicationWindow.Milliseconds()).Slice()
 		if err != nil {
 			return core.ErrOutcomeUnknown
 		}
@@ -335,28 +378,26 @@ func (s *subscription) Next(ctx context.Context) (core.Delivery, error) {
 		}
 
 		s.mu.Lock()
-		msgs, next, readErr := c.XAutoClaim(ctx, &redis.XAutoClaimArgs{Stream: s.key, Group: s.binding.ConsumerID(), Consumer: s.member, MinIdle: s.binding.Subscription.Timeout + 5*time.Second, Start: s.claimCursor, Count: 1}).Result()
+		keys := []string{s.key, pausedKey(s.key, s.binding.ConsumerID())}
 
-		s.claimCursor = next
+		var msgs []redis.XMessage
+
+		claimed, readErr := c.Eval(ctx, claimScript, keys, s.binding.ConsumerID(), s.member, (s.binding.Subscription.Timeout + 5*time.Second).Milliseconds(), s.claimCursor).Slice()
+		if readErr == nil && len(claimed) >= 2 {
+			if next, ok := claimed[0].(string); ok {
+				s.claimCursor = next
+			}
+
+			msgs = streamEntries(claimed[1])
+		}
+
 		if readErr == nil && len(msgs) == 0 {
-			result, e := c.Eval(ctx, `local pending=redis.call('XPENDING',KEYS[1],ARGV[1]); if pending[1]>=tonumber(ARGV[3]) then return {} end; return redis.call('XREADGROUP','GROUP',ARGV[1],ARGV[2],'COUNT',1,'STREAMS',KEYS[1],'>') or {}`, []string{s.key}, s.binding.ConsumerID(), s.member, s.binding.Subscription.MaxInFlight).Slice()
+			result, e := c.Eval(ctx, readScript, keys, s.binding.ConsumerID(), s.member, s.binding.Subscription.MaxInFlight).Slice()
 
 			readErr = e
 			if e == nil && len(result) > 0 {
-				stream, ok := result[0].([]any)
-				if ok && len(stream) == 2 {
-					entries, ok := stream[1].([]any)
-					if ok && len(entries) > 0 {
-						entry, ok := entries[0].([]any)
-						if ok && len(entry) == 2 {
-							id, idOK := entry[0].(string)
-
-							fields, fieldsOK := entry[1].([]any)
-							if idOK && fieldsOK && len(fields) == 2 {
-								msgs = []redis.XMessage{{ID: id, Values: map[string]any{"envelope": fields[1]}}}
-							}
-						}
-					}
+				if stream, ok := result[0].([]any); ok && len(stream) == 2 {
+					msgs = streamEntries(stream[1])
 				}
 			}
 		}
@@ -456,7 +497,7 @@ func (s *subscription) Close(ctx context.Context) error {
 			return err
 		}
 
-		return c.Del(ctx, s.key+":group:"+s.binding.ConsumerID()).Err()
+		return c.Del(ctx, s.key+":group:"+s.binding.ConsumerID(), pausedKey(s.key, s.binding.ConsumerID())).Err()
 	}
 
 	return nil
