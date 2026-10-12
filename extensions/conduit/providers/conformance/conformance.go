@@ -15,10 +15,27 @@ import (
 // Factory returns a connection to the same broker for each simulated service instance.
 type Factory func() core.Provider
 
-// Run checks competing groups, broadcast, namespace isolation, restart cursors and recovery.
-// It uses real broker connections supplied by the caller, with no simulated wire responses.
-func Run(t *testing.T, factory Factory) {
+// Option tunes the suite for the provider under test.
+type Option func(*settings)
+
+// WithLeaseTTL tells the registry group the lease the factory's providers were built with.
+// It is required for providers that implement core.Registry.
+func WithLeaseTTL(ttl time.Duration) Option {
+	return func(s *settings) { s.leaseTTL = ttl }
+}
+
+// Run checks competing groups, broadcast, namespace isolation, restart cursors and recovery,
+// then every capability group the provider claims. It uses real broker connections supplied
+// by the caller, with no simulated wire responses.
+func Run(t *testing.T, factory Factory, options ...Option) {
 	t.Helper()
+
+	var cfg settings
+	for _, option := range options {
+		option(&cfg)
+	}
+
+	defer runCapabilities(t, factory, cfg)
 
 	for _, name := range []string{"replicas", "restart", "retry-and-recovery", "topology", "unsettled-restart", "sequence", "retention"} {
 		t.Run(name, func(t *testing.T) {

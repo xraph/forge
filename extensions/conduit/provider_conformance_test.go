@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xraph/forge/extensions/conduit/core"
 	"github.com/xraph/forge/extensions/conduit/providers/conformance"
@@ -14,10 +15,15 @@ import (
 )
 
 func TestProviderConformance(t *testing.T) {
-	t.Run("memory", func(t *testing.T) { b := memory.New(); conformance.Run(t, func() core.Provider { return b }) })
+	const lease = 2 * time.Second
+
+	t.Run("memory", func(t *testing.T) {
+		b := memory.NewWithOptions(memory.Options{LeaseTTL: lease})
+		conformance.Run(t, func() core.Provider { return b }, conformance.WithLeaseTTL(lease))
+	})
 	t.Run("jetstream", func(t *testing.T) {
 		srv := brokerServer(t, t.TempDir(), -1)
-		conformance.Run(t, func() core.Provider { return jetstream.New(jetstream.Options{URL: srv.ClientURL()}) })
+		conformance.Run(t, func() core.Provider { return jetstream.New(jetstream.Options{URL: srv.ClientURL(), LeaseTTL: lease}) }, conformance.WithLeaseTTL(lease))
 	})
 
 	for _, name := range []string{"redis", "kafka"} {
