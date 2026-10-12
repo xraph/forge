@@ -96,3 +96,55 @@ func TestLargeNonMatchingBacklogIsWalkedInWindows(t *testing.T) {
 		t.Fatalf("delivered %s", d.Message().ID)
 	}
 }
+
+// TestIdleSubscriberAssignsNoTransactionIDs covers an idle subscriber's polls: a take that
+// finds nothing must not lock or rewrite its consumer row. Either would assign a
+// transaction id on every poll and hold the cluster's horizon back for nothing.
+//
+// The database is shared with other tests, so the cluster's xid counter is too noisy to
+// assert on. The consumer row is not: a row lock records the locker in xmax, and a
+// rewrite gives the row a new xmin, so both staying put shows the takes wrote nothing.
+func TestIdleSubscriberAssignsNoTransactionIDs(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{PollInterval: 100 * time.Millisecond})
+	ns, cfg := newStream(t, p)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "idle", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := p.db()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub := s.(*subscription)
+	version := func() string {
+		t.Helper()
+
+		var xmin, xmax string
+		if err := pool.QueryRow(ctx, "SELECT xmin::text, xmax::text FROM "+p.t.consumers+" WHERE consumer_id = $1", sub.consumer).Scan(&xmin, &xmax); err != nil {
+			t.Fatal(err)
+		}
+
+		return xmin + "/" + xmax
+	}
+
+	before := version()
+
+	for range 20 {
+		d, _, err := sub.take(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if d != nil {
+			t.Fatalf("an idle subscription delivered %s", d.Message().ID)
+		}
+	}
+
+	if after := version(); after != before {
+		t.Fatalf("idle takes wrote the consumer row (xmin/xmax %s, then %s)", before, after)
+	}
+}
