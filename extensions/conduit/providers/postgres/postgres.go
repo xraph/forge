@@ -148,16 +148,17 @@ func (p *Provider) Connect(ctx context.Context) error {
 
 // listenerConfig builds the LISTEN connection's settings. Beside a shared pool, URL wins
 // when it is set: the pool may go through PgBouncer, which loses LISTEN registrations.
+// URL is parsed as a pool DSN so pool_* parameters are taken out, not sent to the server.
 func (p *Provider) listenerConfig(pool *pgxpool.Pool) (*pgx.ConnConfig, error) {
 	config := pool.Config().ConnConfig.Copy()
 
 	if p.options.Pool != nil && p.options.URL != "" {
-		parsed, err := pgx.ParseConfig(p.options.URL)
+		parsed, err := pgxpool.ParseConfig(p.options.URL)
 		if err != nil {
 			return nil, errors.New("conduit/postgres: invalid listener URL")
 		}
 
-		config = parsed
+		config = parsed.ConnConfig
 	}
 
 	if config.RuntimeParams == nil {

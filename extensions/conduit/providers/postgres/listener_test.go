@@ -53,6 +53,41 @@ func TestListenerUsesTheURLBesideASharedPool(t *testing.T) {
 	waitFor(t, "listener connected through URL", p.ListenerConnected)
 }
 
+// TestListenerURLMayCarryPoolSettings covers a listener URL shared with the app's pool
+// config: pgxpool-only parameters such as pool_max_conns are not server settings, and
+// sending them to PostgreSQL would keep the listener from ever connecting.
+func TestListenerURLMayCarryPoolSettings(t *testing.T) {
+	dsn := testDSN(t)
+
+	pool, err := pgxpool.New(t.Context(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	withPool, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := withPool.Query()
+	query.Set("pool_max_conns", "4")
+	withPool.RawQuery = query.Encode()
+
+	p := New(Options{Pool: pool, URL: withPool.String(), AutoMigrate: true, PollInterval: 100 * time.Millisecond})
+	if err := p.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = p.Close(context.WithoutCancel(t.Context())) })
+
+	if _, ok := p.listener.config.RuntimeParams["pool_max_conns"]; ok {
+		t.Fatal("the listener sends pool_max_conns to the server")
+	}
+
+	waitFor(t, "listener connected through a URL with pool settings", p.ListenerConnected)
+}
+
 func TestInvalidListenerURLFailsConnect(t *testing.T) {
 	pool, err := pgxpool.New(t.Context(), testDSN(t))
 	if err != nil {
