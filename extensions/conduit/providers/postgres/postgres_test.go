@@ -197,3 +197,139 @@ func TestMigratesWithoutTheDatabaseCreatePrivilege(t *testing.T) {
 		t.Fatalf("migrating a second time failed: %v", err)
 	}
 }
+
+func TestPublishDeduplicatesConcurrentDuplicates(t *testing.T) {
+	ctx := t.Context()
+	p, q := connect(t, Options{}), connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	start := make(chan struct{})
+	receipts := make(chan core.Receipt, 2)
+	errs := make(chan error, 2)
+
+	for _, provider := range []*Provider{p, q} {
+		go func() {
+			<-start
+
+			r, err := provider.Publish(ctx, ns, cfg, envelope(ns, "same", placed))
+			if err != nil {
+				errs <- err
+
+				return
+			}
+
+			receipts <- r
+		}()
+	}
+
+	close(start)
+
+	var got []core.Receipt
+
+	for range 2 {
+		select {
+		case err := <-errs:
+			t.Fatal(err)
+		case r := <-receipts:
+			got = append(got, r)
+		}
+	}
+
+	if got[0].Sequence != got[1].Sequence || got[0].Duplicate == got[1].Duplicate {
+		t.Fatalf("duplicate publication not collapsed: %+v", got)
+	}
+
+	pool, _ := p.db()
+
+	var rows int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+p.t.messages+" WHERE stream_key = $1", streamKey(ns, cfg.Name)).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("stored %d rows: %v", rows, err)
+	}
+}
+
+func TestPublishTxWakesSubscribersOnlyOnCommit(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	waitFor(t, "listener", p.ListenerConnected)
+
+	signal, unwatch := p.watch(streamChannel(streamKey(ns, cfg.Name)))
+	defer unwatch()
+
+	time.Sleep(400 * time.Millisecond) // the listener issues LISTEN on its next 250ms turn
+
+	pool, _ := p.db()
+
+	rolled, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.PublishTx(ctx, rolled, ns, cfg, envelope(ns, "rolled-back", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rolled.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receipt, err := p.PublishTx(ctx, tx, ns, cfg, envelope(ns, "committed", placed))
+	if err != nil || receipt.Sequence == 0 || !receipt.Persisted {
+		t.Fatalf("receipt %+v %v", receipt, err)
+	}
+
+	select {
+	case <-signal:
+		t.Fatal("a subscriber woke before the commit")
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no wakeup after the commit")
+	}
+
+	var rows int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+p.t.messages+" WHERE stream_key = $1", streamKey(ns, cfg.Name)).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("stored %d rows: %v", rows, err)
+	}
+}
+
+func TestSharedPoolIsLeftOpen(t *testing.T) {
+	dsn := os.Getenv("CONDUIT_TEST_POSTGRES")
+	if dsn == "" {
+		t.Skip("set CONDUIT_TEST_POSTGRES to run PostgreSQL provider tests")
+	}
+
+	pool, err := pgxpool.New(t.Context(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	p := New(Options{Pool: pool, AutoMigrate: true, PollInterval: 100 * time.Millisecond})
+	if err := p.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, "listener built from the pool's settings", p.ListenerConnected)
+
+	if err := p.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pool.Ping(t.Context()); err != nil {
+		t.Fatalf("closing the provider closed your pool: %v", err)
+	}
+}

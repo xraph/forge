@@ -66,6 +66,10 @@ type Provider struct {
 	// that an older one still renews, and only the owner can deregister it.
 	owner      string
 	generation int64
+
+	listener   *listener
+	stop       context.CancelFunc
+	background sync.WaitGroup
 }
 
 // New prepares a provider. It does no I/O.
@@ -126,8 +130,51 @@ func (p *Provider) Connect(ctx context.Context) error {
 	}
 
 	p.pool, p.ownsPool = pool, owns
+	p.start(pool)
 
 	return nil
+}
+
+// start launches the provider's background work. Called with p.mu held.
+func (p *Provider) start(pool *pgxpool.Pool) {
+	config := pool.Config().ConnConfig.Copy()
+	if config.RuntimeParams == nil {
+		config.RuntimeParams = map[string]string{}
+	}
+
+	config.RuntimeParams["application_name"] = listenerName(p.owner)
+
+	background, stop := context.WithCancel(context.Background())
+	p.stop = stop
+	p.listener = newListener(config)
+
+	l := p.listener
+
+	p.background.Go(func() { l.run(background) })
+}
+
+// watch subscribes to wakeups on channel. After Close it returns a nil channel, and the
+// caller's poll timer carries on alone.
+func (p *Provider) watch(channel string) (<-chan struct{}, func()) {
+	p.mu.RLock()
+	l := p.listener
+	p.mu.RUnlock()
+
+	if l == nil {
+		return nil, func() {}
+	}
+
+	return l.watch(channel)
+}
+
+// ListenerConnected reports whether wakeups arrive by notification. While it is false,
+// delivery continues by polling at Options.PollInterval.
+func (p *Provider) ListenerConnected() bool {
+	p.mu.RLock()
+	l := p.listener
+	p.mu.RUnlock()
+
+	return l != nil && l.connected.Load()
 }
 
 func (p *Provider) open(ctx context.Context) (*pgxpool.Pool, bool, error) {
@@ -166,14 +213,22 @@ func (p *Provider) open(ctx context.Context) (*pgxpool.Pool, bool, error) {
 	return pool, owns, nil
 }
 
-// Close releases the provider's own connections. A pool you passed in stays open.
+// Close stops background work and releases the provider's own connections. A pool you
+// passed in stays open.
 func (p *Provider) Close(context.Context) error {
 	p.mu.Lock()
-	pool, owns := p.pool, p.ownsPool
-	p.pool = nil
+	pool, owns, stop := p.pool, p.ownsPool, p.stop
+	p.pool, p.stop, p.listener = nil, nil, nil
 	p.mu.Unlock()
 
-	if pool != nil && owns {
+	if pool == nil {
+		return nil
+	}
+
+	stop()
+	p.background.Wait()
+
+	if owns {
 		pool.Close()
 	}
 
