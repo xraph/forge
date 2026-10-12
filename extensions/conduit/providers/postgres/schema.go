@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,9 +18,14 @@ func Migrations(schema string) []string {
 	}
 
 	t := newTables(schema)
+	quoted := pgx.Identifier{schema}.Sanitize()
 
 	return []string{
-		"CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{schema}.Sanitize(),
+		// CREATE SCHEMA IF NOT EXISTS checks the database CREATE privilege before it checks
+		// whether the schema exists, so a least-privilege role would fail on a schema that is
+		// already there. Create it only when it is missing.
+		fmt.Sprintf(`DO $$ BEGIN IF to_regnamespace('%s') IS NULL THEN CREATE SCHEMA %s; END IF; END $$`,
+			strings.ReplaceAll(quoted, "'", "''"), quoted),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
  stream_key TEXT PRIMARY KEY, namespace TEXT NOT NULL, name TEXT NOT NULL,
  config JSONB NOT NULL, max_age_ms BIGINT NOT NULL, max_messages BIGINT NOT NULL)`, t.streams),

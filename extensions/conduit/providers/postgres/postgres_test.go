@@ -3,10 +3,14 @@ package postgres
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xraph/forge/extensions/conduit/core"
 )
 
@@ -117,5 +121,79 @@ func TestEnsureStreamAgreesAcrossProviders(t *testing.T) {
 
 	if err := p.EnsureStream(ctx, ns, changed); !errors.Is(err, core.ErrConflict) {
 		t.Fatalf("a conflicting declaration was accepted: %v", err)
+	}
+}
+
+// TestMigratesWithoutTheDatabaseCreatePrivilege covers a least-privilege role: the schema
+// exists, so migrating must not ask for the database-level CREATE that CREATE SCHEMA IF NOT
+// EXISTS demands even when it has nothing to create.
+func TestMigratesWithoutTheDatabaseCreatePrivilege(t *testing.T) {
+	ctx := t.Context()
+
+	dsn := os.Getenv("CONDUIT_TEST_POSTGRES")
+	if dsn == "" {
+		if os.Getenv("CONDUIT_REQUIRE_PROVIDERS") == "1" {
+			t.Fatal("CONDUIT_TEST_POSTGRES is required")
+		}
+
+		t.Skip("set CONDUIT_TEST_POSTGRES to run PostgreSQL provider tests")
+	}
+
+	admin, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(admin.Close)
+
+	suffix := strings.ReplaceAll(strings.ToLower(core.NewID()), "-", "")
+	role, schema, password := "conduit_lp_"+suffix, "conduit_lp_"+suffix, "pw"+suffix
+	roleID, schemaID := pgx.Identifier{role}.Sanitize(), pgx.Identifier{schema}.Sanitize()
+
+	t.Cleanup(func() {
+		cleanup := context.WithoutCancel(ctx)
+		_, _ = admin.Exec(cleanup, "DROP SCHEMA IF EXISTS "+schemaID+" CASCADE")
+		_, _ = admin.Exec(cleanup, "DROP OWNED BY "+roleID)
+		_, _ = admin.Exec(cleanup, "DROP ROLE IF EXISTS "+roleID)
+	})
+
+	// The role can use and create in the schema but holds no CREATE on the database. The
+	// schema is its own rather than public: tables other tests created in public belong to
+	// another user, and CREATE INDEX IF NOT EXISTS needs ownership even when it is a no-op.
+	for _, statement := range []string{
+		"CREATE ROLE " + roleID + " LOGIN PASSWORD '" + password + "' NOCREATEDB NOCREATEROLE NOSUPERUSER",
+		"CREATE SCHEMA " + schemaID,
+		"GRANT USAGE, CREATE ON SCHEMA " + schemaID + " TO " + roleID,
+	} {
+		if _, err := admin.Exec(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+
+	var hasCreate bool
+	if err := admin.QueryRow(ctx, `SELECT has_database_privilege($1, current_database(), 'CREATE')`, role).Scan(&hasCreate); err != nil {
+		t.Fatal(err)
+	}
+
+	if hasCreate {
+		t.Fatal("the test role unexpectedly holds CREATE on the database")
+	}
+
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	u.User = url.UserPassword(role, password)
+
+	p := New(Options{URL: u.String(), Schema: schema, AutoMigrate: true})
+	if err := p.Connect(ctx); err != nil {
+		t.Fatalf("a role without CREATE on the database could not migrate an existing schema: %v", err)
+	}
+
+	t.Cleanup(func() { _ = p.Close(context.WithoutCancel(ctx)) })
+
+	if err := p.Migrate(ctx); err != nil {
+		t.Fatalf("migrating a second time failed: %v", err)
 	}
 }
