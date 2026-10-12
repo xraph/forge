@@ -847,3 +847,46 @@ func TestReplacementKeepsRegistration(t *testing.T) {
 		t.Fatalf("the old process removed its replacement: %+v %v", resolved, err)
 	}
 }
+
+func TestAbandonedCallIsWithdrawn(t *testing.T) {
+	caller, server := connect(t, Options{}), connect(t, Options{})
+	ns := "pg-" + core.NewID()
+	identity := core.Identity{Namespace: ns, ServiceID: "web", InstanceID: "caller"}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	// The request itself would stay valid for a minute; only withdrawal stops it running.
+	request := core.RPCRequest{
+		Service: "pricing", Method: "quote", Deadline: time.Now().Add(time.Minute),
+		Envelope: core.Envelope{ID: core.NewID(), Type: "quote", Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()},
+	}
+
+	if _, err := caller.RequestRPC(ctx, identity, request); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the caller to time out: %v", err)
+	}
+
+	var ran atomic.Int64
+
+	binding := core.RPCBinding{
+		Identity: core.Identity{Namespace: ns, ServiceID: "pricing", InstanceID: "a"}, Method: "quote",
+		Config: core.RPCConfig{Timeout: 5 * time.Second, Concurrency: 1, MaxInFlight: 1}, MaxPayloadBytes: 1 << 20,
+	}
+
+	srv, err := server.ServeRPC(t.Context(), binding, func(_ context.Context, r core.RPCRequest) core.RPCResponse {
+		ran.Add(1)
+
+		return core.RPCResponse{ID: r.Envelope.ID, Source: binding.Identity}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = srv.Close(context.WithoutCancel(t.Context())) }()
+
+	time.Sleep(time.Second)
+
+	if ran.Load() != 0 {
+		t.Fatal("a request its caller abandoned still ran")
+	}
+}

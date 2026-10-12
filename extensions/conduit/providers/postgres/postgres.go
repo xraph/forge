@@ -96,9 +96,10 @@ func New(options Options) *Provider {
 // Name returns the provider type.
 func (p *Provider) Name() string { return "postgres" }
 
-// Capabilities reports persisted events, recovery, consumer controls and backfill.
+// Capabilities reports the same guarantees as JetStream: persisted events, recovery,
+// consumer controls, backfill and request/reply.
 func (p *Provider) Capabilities() core.Capabilities {
-	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, ConsumerControls: true, Backfill: true}
+	return core.Capabilities{Durable: true, Replay: true, DeadLetters: true, RPC: true, ConsumerControls: true, Backfill: true}
 }
 
 // Connect opens or adopts the pool and checks the server version.
