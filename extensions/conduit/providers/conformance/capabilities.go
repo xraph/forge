@@ -53,6 +53,15 @@ type harness struct {
 	stream  core.StreamConfig
 }
 
+// cleanupTimeout bounds each Close a group registers, so a provider that can't shut
+// down fails its test and doesn't hang the run.
+const cleanupTimeout = 10 * time.Second
+
+// closing returns a context for a cleanup Close, bounded by cleanupTimeout.
+func closing(t *testing.T) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(t.Context()), cleanupTimeout)
+}
+
 func newHarness(t *testing.T, factory Factory) *harness {
 	t.Helper()
 
@@ -77,7 +86,10 @@ func (h *harness) provider() core.Provider {
 	}
 
 	h.t.Cleanup(func() {
-		if err := p.Close(context.WithoutCancel(h.t.Context())); err != nil {
+		ctx, cancel := closing(h.t)
+		defer cancel()
+
+		if err := p.Close(ctx); err != nil {
 			h.t.Error(err)
 		}
 	})
@@ -110,7 +122,10 @@ func (h *harness) subscribe(p core.Provider, b core.Binding) core.Subscription {
 	}
 
 	h.t.Cleanup(func() {
-		if err := s.Close(context.WithoutCancel(h.t.Context())); err != nil {
+		ctx, cancel := closing(h.t)
+		defer cancel()
+
+		if err := s.Close(ctx); err != nil {
 			h.t.Error(err)
 		}
 	})
@@ -304,8 +319,7 @@ func runRegistry(t *testing.T, factory Factory, cfg settings) {
 	expect("expired lease disappears", listed, err, "billing/b", "orders/x")
 }
 
-// Stubs for groups that later tasks fill in. Each starts as a failing test so a provider
-// claiming the capability can't pass silently while the group is unwritten.
+// runOperations checks consumer inspection, redelivery counts, and pause and resume.
 func runOperations(t *testing.T, factory Factory, _ settings) {
 	h := newHarness(t, factory)
 	p := h.provider()
@@ -528,7 +542,12 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 			t.Fatal(err)
 		}
 
-		t.Cleanup(func() { _ = server.Close(context.WithoutCancel(t.Context())) })
+		t.Cleanup(func() {
+			ctx, cancel := closing(t)
+			defer cancel()
+
+			_ = server.Close(ctx)
+		})
 
 		return server
 	}
@@ -543,9 +562,11 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 		deadline, _ := ctx.Deadline()
 		envelope := core.Envelope{ID: core.NewID(), Type: method, Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()}
 
+		// call runs on other goroutines too, where t.Fatalf can't stop the test, so a
+		// mismatched reply comes back as an error for the caller to assert on.
 		response, err := rpcOf(caller).RequestRPC(ctx, identity, core.RPCRequest{Service: "pricing", Method: method, Envelope: envelope, Deadline: deadline})
 		if err == nil && response.ID != envelope.ID {
-			t.Fatalf("response %s answers request %s", response.ID, envelope.ID)
+			return response, fmt.Errorf("response %s answers request %s", response.ID, envelope.ID)
 		}
 
 		return response, err
@@ -629,6 +650,9 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 
 	// A replica at MaxInFlight refuses instead of queueing.
 	release, entered := make(chan struct{}), make(chan struct{}, 1)
+	releaseSlow := sync.OnceFunc(func() { close(release) })
+
+	defer releaseSlow()
 
 	serve(serverA, "a", "slow", 1, 1, func(ctx context.Context, request core.RPCRequest) core.RPCResponse {
 		entered <- struct{}{}
@@ -658,10 +682,15 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 		t.Fatalf("overloaded replica returned %q", code)
 	}
 
-	close(release)
+	releaseSlow()
 
-	if err := <-firstDone; err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-h.ctx.Done():
+		t.Fatal(h.ctx.Err())
 	}
 
 	// A handler's public error comes back unchanged.
@@ -711,8 +740,13 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 		t.Fatalf("close did not drain: %v", err)
 	}
 
-	if err := <-result; err != nil {
-		t.Fatalf("accepted call lost while draining: %v", err)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("accepted call lost while draining: %v", err)
+		}
+	case <-h.ctx.Done():
+		t.Fatal(h.ctx.Err())
 	}
 
 	// Requests never cross namespaces.
