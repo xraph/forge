@@ -57,7 +57,7 @@ Explicit nonzero Go values win over loaded configuration. `conduit.New` remains 
 
 You can set `CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL`. Provider names use uppercase environment keys. Explicit Go values still win.
 
-Provider types are `jetstream` (also `nats` or `nats-jetstream`), `redis-streams` (also `redis`), `kafka` and `memory`. Kafka's URL value is a comma-separated list of `host:port` broker addresses. Use native Go options for TLS or SASL.
+Provider types are `jetstream` (also `nats` or `nats-jetstream`), `redis-streams` (also `redis`), `postgres` (also `postgresql`), `kafka` and `memory`. Kafka's URL value is a comma-separated list of `host:port` broker addresses. Use native Go options for TLS or SASL. A configured PostgreSQL provider creates its own tables when it connects, so the role in its URL has to own the `forge_conduit_` tables.
 
 ## Shared declarations
 
