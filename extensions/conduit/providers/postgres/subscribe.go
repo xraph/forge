@@ -69,9 +69,16 @@ ON CONFLICT (consumer_id) DO NOTHING`, p.t.consumers, p.t.streams),
 		return nil, err
 	}
 
-	var stored string
+	var (
+		stored string
+		ahead  bool
+	)
 
-	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT fingerprint FROM %s WHERE consumer_id = $1`, p.t.consumers), consumer).Scan(&stored)
+	// Cursors hold transaction IDs from the cluster that wrote them. A database restored
+	// from a dump, or copied by logical replication, can start from lower IDs, and every
+	// new row would then sit behind the cursor and never be delivered.
+	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT fingerprint, cursor_txid > pg_snapshot_xmax(pg_current_snapshot()) FROM %s WHERE consumer_id = $1`, p.t.consumers), consumer).
+		Scan(&stored, &ahead)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, core.ErrNotFound
 	}
@@ -82,6 +89,10 @@ ON CONFLICT (consumer_id) DO NOTHING`, p.t.consumers, p.t.streams),
 
 	if stored != fingerprint {
 		return nil, fmt.Errorf("%w: consumer %s", core.ErrConflict, consumer)
+	}
+
+	if ahead {
+		return nil, errors.New("conduit/postgres: consumer cursor is ahead of this cluster's transaction IDs (was the database restored from a dump?)")
 	}
 
 	return &subscription{provider: p, binding: b, key: key, consumer: consumer, closed: make(chan struct{})}, nil

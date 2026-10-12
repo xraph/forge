@@ -968,3 +968,28 @@ func TestRetryWithTheSameIDGetsItsOwnReply(t *testing.T) {
 		t.Fatalf("the retry received %s instead of its own reply", response.Data)
 	}
 }
+
+// TestCursorAheadOfTheClusterFailsSubscribe covers a database restored from a dump into
+// a cluster whose transaction IDs are lower: new rows would sit behind every cursor and
+// never be delivered, so subscribing must say so.
+func TestCursorAheadOfTheClusterFailsSubscribe(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+	b := binding(ns, cfg, core.Competing, "restored", "all")
+
+	if _, err := p.Subscribe(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, _ := p.db()
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s SET cursor_txid = (pg_current_xact_id()::text::bigint + 1000000000)::text::xid8 WHERE consumer_id = $1`, p.t.consumers), b.ConsumerID()); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := p.Subscribe(ctx, b)
+	if err == nil || !strings.Contains(err.Error(), "ahead of this cluster's transaction IDs") {
+		t.Fatalf("a cursor ahead of the cluster was accepted: %v", err)
+	}
+}
