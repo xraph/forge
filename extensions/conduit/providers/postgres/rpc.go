@@ -61,6 +61,13 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 		return core.RPCResponse{}, &core.RPCError{Code: core.RPCConflict, Message: "Request is already in progress"}
 	}
 
+	// No request with this ID is in flight, and a server commits its reply in the same
+	// transaction that removes the request. Any reply still stored answers an earlier
+	// attempt that reused the ID, so this call must not take it.
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, p.t.rpcResponses), id); err != nil {
+		return core.RPCResponse{}, err
+	}
+
 	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, '')`, channel); err != nil {
 		return core.RPCResponse{}, err
 	}

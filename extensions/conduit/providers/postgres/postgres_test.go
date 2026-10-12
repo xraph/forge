@@ -890,3 +890,81 @@ func TestAbandonedCallIsWithdrawn(t *testing.T) {
 		t.Fatal("a request its caller abandoned still ran")
 	}
 }
+
+func TestRetryWithTheSameIDGetsItsOwnReply(t *testing.T) {
+	caller, server := connect(t, Options{}), connect(t, Options{})
+	ns := "pg-" + core.NewID()
+	identity := core.Identity{Namespace: ns, ServiceID: "web", InstanceID: "caller"}
+
+	var (
+		calls    atomic.Int64
+		finished = make(chan struct{})
+	)
+
+	binding := core.RPCBinding{
+		Identity: core.Identity{Namespace: ns, ServiceID: "pricing", InstanceID: "a"}, Method: "quote",
+		Config: core.RPCConfig{Timeout: 5 * time.Second, Concurrency: 2, MaxInFlight: 2}, MaxPayloadBytes: 1 << 20,
+	}
+
+	srv, err := server.ServeRPC(t.Context(), binding, func(_ context.Context, r core.RPCRequest) core.RPCResponse {
+		attempt := calls.Add(1)
+		if attempt == 1 {
+			time.Sleep(800 * time.Millisecond) // answers after its caller has given up
+
+			defer close(finished)
+		}
+
+		return core.RPCResponse{ID: r.Envelope.ID, Source: binding.Identity, Data: fmt.Appendf(nil, `{"attempt":%d}`, attempt)}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = srv.Close(context.WithoutCancel(t.Context())) }()
+
+	request := core.RPCRequest{
+		Service: "pricing", Method: "quote", Deadline: time.Now().Add(time.Minute),
+		Envelope: core.Envelope{ID: core.NewID(), Type: "quote", Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()},
+	}
+
+	first, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	if _, err := caller.RequestRPC(first, identity, request); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the first attempt to time out: %v", err)
+	}
+
+	<-finished
+
+	// The late reply is committed by the time the handler's response transaction ends.
+	pool, err := caller.db()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for range 50 {
+		var stored int
+		if err := pool.QueryRow(t.Context(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE id = $1`, caller.t.rpcResponses),
+			hash(identity.Namespace, identity.ServiceID, identity.InstanceID, request.Envelope.ID)).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+
+		if stored > 0 {
+			break
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	second, cancelSecond := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancelSecond()
+
+	response, err := caller.RequestRPC(second, identity, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(response.Data) != `{"attempt":2}` {
+		t.Fatalf("the retry received %s instead of its own reply", response.Data)
+	}
+}
