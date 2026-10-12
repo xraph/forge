@@ -23,7 +23,8 @@ import (
 
 // Options configures the provider.
 type Options struct {
-	// URL opens a pool the provider owns. With Pool set, URL is ignored.
+	// URL opens a pool the provider owns. With Pool set, URL is optional and only used for
+	// the LISTEN connection; point it straight at PostgreSQL when the pool goes through PgBouncer.
 	URL string
 	// Pool shares your application's pool. Closing the provider leaves it open.
 	Pool *pgxpool.Pool
@@ -120,6 +121,15 @@ func (p *Provider) Connect(ctx context.Context) error {
 		return err
 	}
 
+	config, err := p.listenerConfig(pool)
+	if err != nil {
+		if owns {
+			pool.Close()
+		}
+
+		return err
+	}
+
 	if p.options.AutoMigrate {
 		if err := migrate(ctx, pool, p.options.Schema); err != nil {
 			if owns {
@@ -131,14 +141,25 @@ func (p *Provider) Connect(ctx context.Context) error {
 	}
 
 	p.pool, p.ownsPool = pool, owns
-	p.start(pool)
+	p.start(config)
 
 	return nil
 }
 
-// start launches the provider's background work. Called with p.mu held.
-func (p *Provider) start(pool *pgxpool.Pool) {
+// listenerConfig builds the LISTEN connection's settings. Beside a shared pool, URL wins
+// when it is set: the pool may go through PgBouncer, which loses LISTEN registrations.
+func (p *Provider) listenerConfig(pool *pgxpool.Pool) (*pgx.ConnConfig, error) {
 	config := pool.Config().ConnConfig.Copy()
+
+	if p.options.Pool != nil && p.options.URL != "" {
+		parsed, err := pgx.ParseConfig(p.options.URL)
+		if err != nil {
+			return nil, errors.New("conduit/postgres: invalid listener URL")
+		}
+
+		config = parsed
+	}
+
 	if config.RuntimeParams == nil {
 		config.RuntimeParams = map[string]string{}
 	}
@@ -148,6 +169,11 @@ func (p *Provider) start(pool *pgxpool.Pool) {
 	// nothing. The listener must read them itself, and the app's handler is not meant for ours.
 	config.OnNotification = nil
 
+	return config, nil
+}
+
+// start launches the provider's background work. Called with p.mu held.
+func (p *Provider) start(config *pgx.ConnConfig) {
 	background, stop := context.WithCancel(context.Background())
 	p.stop = stop
 	p.listener = newListener(config)
