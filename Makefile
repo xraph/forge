@@ -46,7 +46,10 @@ TEST_DIRS := $(shell go list ./... 2>/dev/null | grep -v '/bk/')
 LINT_DIRS := ./...
 
 # Tools
-GOLANGCI_LINT := golangci-lint
+GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT_TOOLCHAIN := go1.26.9
+GOLANGCI_LINT_BIN_DIR ?= $(if $(GOBIN),$(GOBIN),$(shell $(GOCMD) env GOPATH)/bin)
+GOLANGCI_LINT := $(GOLANGCI_LINT_BIN_DIR)/golangci-lint
 GOFUMPT := gofumpt
 GOIMPORTS := goimports
 
@@ -263,7 +266,7 @@ bench-compare:
 ## lint: Run golangci-lint on all modules
 lint:
 	@echo "$(COLOR_GREEN)Running linter on all modules...$(COLOR_RESET)"
-	@if ! command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
+	@if ! command -v "$(GOLANGCI_LINT)" >/dev/null 2>&1; then \
 		echo "$(COLOR_RED)Error: golangci-lint not found. Run 'make install-tools' to install$(COLOR_RESET)"; \
 		exit 1; \
 	fi
@@ -272,7 +275,7 @@ lint:
 	for modfile in $$(find . -name "go.mod" -type f | grep -v -e "/vendor/" -e "/testdata/" | sort); do \
 		dir=$$(dirname $$modfile); \
 		echo "  Linting $$dir..."; \
-		if cd "$$ROOT_DIR/$$dir" && $(GOLANGCI_LINT) run ./... --timeout=5m; then \
+		if cd "$$ROOT_DIR/$$dir" && "$(GOLANGCI_LINT)" run ./... --timeout=5m; then \
 			COUNT=$$((COUNT + 1)); \
 		else \
 			FAILED=$$((FAILED + 1)); \
@@ -290,7 +293,7 @@ lint:
 ## lint-fix: Run golangci-lint with auto-fix
 lint-fix:
 	@echo "$(COLOR_GREEN)Running linter with auto-fix...$(COLOR_RESET)"
-	@$(GOLANGCI_LINT) run $(LINT_DIRS) --fix --timeout=5m
+	@"$(GOLANGCI_LINT)" run $(LINT_DIRS) --fix --timeout=5m
 
 .PHONY: fmt
 ## fmt: Format Go code in all modules
@@ -524,12 +527,18 @@ hooks:
 	@echo "  commit-msg now checks the same rules as the PR Conventional Commits workflow."
 	@echo "  Run 'git config --unset core.hooksPath' to undo."
 
+.PHONY: install-lint
+## install-lint: Build the pinned linter with Go 1.26.9
+install-lint:
+	@GOWORK=off GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) GOBIN="$(GOLANGCI_LINT_BIN_DIR)" \
+		$(GOINSTALL) github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
 .PHONY: install-tools
 ## install-tools: Install development tools
 install-tools:
 	@echo "$(COLOR_GREEN)Installing development tools...$(COLOR_RESET)"
 	@echo "  Installing golangci-lint..."
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@$(MAKE) install-lint
 	@echo "  Installing gosec..."
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "  Installing govulncheck..."

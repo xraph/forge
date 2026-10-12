@@ -18,10 +18,12 @@ var (
 )
 
 func main() {
+	meta := currentBuildMeta()
+
 	// Create CLI application
 	app := cli.New(cli.Config{
 		Name:        "forge",
-		Version:     version,
+		Version:     meta.Version,
 		Description: "Forge - Enterprise-grade backend framework toolkit",
 	})
 
@@ -64,9 +66,9 @@ func main() {
 		"version",
 		"Show version information",
 		func(ctx cli.CommandContext) error {
-			ctx.Println("Forge v" + version)
-			ctx.Println("Commit: " + commit)
-			ctx.Println("Built: " + buildDate)
+			ctx.Println("Forge v" + meta.Version)
+			ctx.Println("Commit: " + meta.Commit)
+			ctx.Println("Built: " + meta.Date)
 
 			return nil
 		},

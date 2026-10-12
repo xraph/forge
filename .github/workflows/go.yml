@@ -176,7 +176,9 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
+    env:
+      GOWORK: 'off'
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -184,17 +186,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          check-latest: true
+          go-version: '1.26.9'
           cache-dependency-path: |
             **/go.sum
 
+      - name: Install golangci-lint
+        run: make install-lint GOLANGCI_LINT_BIN_DIR="$RUNNER_TEMP/forge-lint-bin"
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m --exclude-dirs=bk
-        continue-on-error: true
+        run: make l GOLANGCI_LINT="$RUNNER_TEMP/forge-lint-bin/golangci-lint"
 
       # bk/ no longer exists, so the old `grep -v '/bk/'` filter was a no-op.
       - name: Run go vet
