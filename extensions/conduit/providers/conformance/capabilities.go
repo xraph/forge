@@ -515,6 +515,10 @@ func runBackfill(t *testing.T, factory Factory, _ settings) {
 		t.Fatalf("backfill history leaked across services: %+v %v", rows, err)
 	}
 }
+
+// errMismatch marks a reply that answers some other request.
+var errMismatch = errors.New("reply answers another request")
+
 func runRPC(t *testing.T, factory Factory, _ settings) {
 	h := newHarness(t, factory)
 	serverA, serverB, caller := h.provider(), h.provider(), h.provider()
@@ -566,12 +570,20 @@ func runRPC(t *testing.T, factory Factory, _ settings) {
 		// mismatched reply comes back as an error for the caller to assert on.
 		response, err := rpcOf(caller).RequestRPC(ctx, identity, core.RPCRequest{Service: "pricing", Method: method, Envelope: envelope, Deadline: deadline})
 		if err == nil && response.ID != envelope.ID {
-			return response, fmt.Errorf("response %s answers request %s", response.ID, envelope.ID)
+			return response, fmt.Errorf("%w: response %s answers request %s", errMismatch, response.ID, envelope.ID)
 		}
 
 		return response, err
 	}
+	// codeOf runs on the test goroutine only. A reply to another request is never a
+	// refusal, so it fails the test before any check can read it as one.
 	codeOf := func(response core.RPCResponse, err error) core.RPCCode {
+		t.Helper()
+
+		if errors.Is(err, errMismatch) {
+			t.Fatalf("crossed reply: %v", err)
+		}
+
 		var public *core.RPCError
 		if errors.As(err, &public) {
 			return public.Code
