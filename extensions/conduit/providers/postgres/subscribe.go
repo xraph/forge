@@ -20,6 +20,11 @@ const claimGrace = 5 * time.Second
 // firstRepoll is the first quick re-poll while committed rows wait above the horizon.
 const firstRepoll = 50 * time.Millisecond
 
+// scanWindow is how many rows past the cursor one take may walk. A huge backlog of other
+// message types is then crossed in several short statements, none of which can run into
+// statement_timeout and leave the cursor stuck.
+const scanWindow = 10_000
+
 type subscription struct {
 	provider *Provider
 	binding  core.Binding
@@ -290,18 +295,30 @@ RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at 
 	// so no row can appear behind the cursor once the cursor has passed.
 	//
 	// The filters run in SQL, so a backlog of other message types is skipped by the
-	// database and only the one matching envelope is read.
+	// database and only the one matching envelope is read. The walk stops at the window
+	// end, the scanWindow-th row past the cursor, when there is one.
 	var (
 		txid, raw string
 		seq       int64
+		endTxid   *string
+		endSeq    *int64
 	)
+
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq FROM %s
+WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
+ORDER BY txid, seq OFFSET $5 LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, scanWindow-1).
+		Scan(&endTxid, &endSeq)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, err
+	}
 
 	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq, envelope::text FROM %s
 WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
  AND message_type = $5 AND (target_consumer = '' OR target_consumer = $6) AND seq >= $7
  AND ($8::bigint = 0 OR accepted_at > clock_timestamp() - $8::bigint * interval '1 millisecond')
  AND ($9::text IS NULL OR NOT pg_visible_in_snapshot(txid, $9::text::pg_snapshot))
-ORDER BY txid, seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot).
+ AND ($10::text IS NULL OR (txid, seq) <= ($10::text::xid8, $11::bigint))
+ORDER BY txid, seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot, endTxid, endSeq).
 		Scan(&txid, &seq, &raw)
 
 	switch {
@@ -326,6 +343,15 @@ VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisec
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
 		return nil, 0, err
+	}
+
+	// Nothing in the window matches. Step over it, and walk the next window straight away.
+	if endTxid != nil && endSeq != nil {
+		if err := s.moveCursor(ctx, tx, *endTxid, *endSeq); err != nil {
+			return nil, 0, err
+		}
+
+		return nil, 0, tx.Commit(ctx)
 	}
 
 	// Nothing matches below the horizon, so step over everything that was scanned.
