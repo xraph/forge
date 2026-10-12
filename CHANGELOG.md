@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.8](https://github.com/xraph/forge/compare/v1.12.7...v1.12.8) (2026-10-12)
+
+
+### Bug Fixes
+
+* **client:** preserve nullable array item types ([70db6cfd](https://github.com/xraph/forge/commit/70db6cfd))
+
+
+### Maintenance
+
+* updated agwnts.md ([3db9f67b](https://github.com/xraph/forge/commit/3db9f67b))
+* **changelog:** update CHANGELOG.md for v1.12.7 ([ff8300fd](https://github.com/xraph/forge/commit/ff8300fd))
+
 ## [1.12.7](https://github.com/xraph/forge/compare/v1.12.6...v1.12.7) (2026-10-11)
 
 
