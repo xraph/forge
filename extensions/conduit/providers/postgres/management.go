@@ -158,7 +158,13 @@ func (p *Provider) ReplayDeadLetter(ctx context.Context, identity core.Identity,
 	}
 
 	var config []byte
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT config::text FROM %s WHERE stream_key = $1`, p.t.streams), streamKey(identity.Namespace, letter.Delivery.Stream)).Scan(&config); err != nil {
+
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT config::text FROM %s WHERE stream_key = $1`, p.t.streams), streamKey(identity.Namespace, letter.Delivery.Stream)).Scan(&config)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Receipt{}, core.ErrNotFound
+	}
+
+	if err != nil {
 		return core.Receipt{}, classify(err)
 	}
 

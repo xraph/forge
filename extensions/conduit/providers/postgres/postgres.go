@@ -346,7 +346,12 @@ func (p *Provider) EnsureStream(ctx context.Context, namespace string, cfg core.
 		return err
 	}
 
+	// A nil and an empty subject list declare the same stream, so store them the same way.
 	cfg.Subjects = slices.Clone(cfg.Subjects)
+	if len(cfg.Subjects) == 0 {
+		cfg.Subjects = nil
+	}
+
 	slices.Sort(cfg.Subjects)
 
 	data, err := json.Marshal(cfg)

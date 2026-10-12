@@ -1076,3 +1076,89 @@ func TestAboveHorizonRepollsBackOff(t *testing.T) {
 		t.Fatalf("after a delivery the re-poll waited %s, want it reset to 50ms", got)
 	}
 }
+
+func TestReplayForAMissingStreamIsNotFound(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns := "pg-" + core.NewID()
+	identity := core.Identity{Namespace: ns, ServiceID: "billing", InstanceID: "a"}
+
+	letter, err := json.Marshal(core.DeadLetter{
+		ID: "lost", Message: envelope(ns, "lost", placed),
+		Delivery: core.DeliveryInfo{Stream: "retired", ConsumerID: "consumer", SubscriptionID: "process"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, _ := p.db()
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (namespace, service_id, subscription_id, id, letter) VALUES ($1, $2, $3, $4, $5)`, p.t.deadLetters),
+		ns, identity.ServiceID, "process", "lost", string(letter)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.ReplayDeadLetter(ctx, identity, "process", "lost"); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("replaying into a missing stream returned %v, want ErrNotFound", err)
+	}
+}
+
+// TestStaleHandlerDoesNotAnswerARetry covers a request swept after its deadline and
+// stored again, unclaimed, by a retry with the same ID: the handler still working on the
+// first copy must not answer or remove the second.
+func TestStaleHandlerDoesNotAnswerARetry(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	pool, _ := p.db()
+	s := &rpcServer{provider: p, base: ctx, claimant: "server-" + core.NewID()}
+
+	store := func(id string, claimedBy any) {
+		t.Helper()
+
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (id, channel, request, reply_channel, deadline, claimed_by) VALUES ($1, 'fcr_test', '{}', $2, $3, $4)`, p.t.rpcRequests),
+			id, p.replyChannel(), time.Now().Add(time.Minute), claimedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	count := func(table, id string) int {
+		t.Helper()
+
+		var n int
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE id = $1`, table), id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+
+		return n
+	}
+
+	retried := core.NewID()
+	store(retried, nil)
+	s.respond(retried, p.replyChannel(), time.Now().Add(time.Minute), core.RPCResponse{ID: retried})
+
+	if count(p.t.rpcRequests, retried) != 1 || count(p.t.rpcResponses, retried) != 0 {
+		t.Fatal("a stale handler answered a request it no longer holds")
+	}
+
+	held := core.NewID()
+	store(held, s.claimant)
+	s.respond(held, p.replyChannel(), time.Now().Add(time.Minute), core.RPCResponse{ID: held})
+
+	if count(p.t.rpcRequests, held) != 0 || count(p.t.rpcResponses, held) != 1 {
+		t.Fatal("the handler holding the request could not answer it")
+	}
+}
+
+func TestEmptyAndNilSubjectsAgree(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns := "pg-" + core.NewID()
+
+	if err := p.EnsureStream(ctx, ns, core.StreamConfig{Name: "orders", Replicas: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.EnsureStream(ctx, ns, core.StreamConfig{Name: "orders", Subjects: []string{}, Replicas: 1}); err != nil {
+		t.Fatalf("an empty subject list conflicted with a nil one: %v", err)
+	}
+}

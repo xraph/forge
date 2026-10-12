@@ -303,7 +303,9 @@ func (s *rpcServer) refuse(id, reply string, deadline time.Time, request core.RP
 	s.respond(id, reply, deadline, core.RPCResponse{ID: request.Envelope.ID, Source: s.binding.Identity, Error: &core.RPCError{Code: code, Message: message}})
 }
 
-// respond stores the reply, removes the request and wakes the caller in one transaction.
+// respond removes the request, stores the reply and wakes the caller in one transaction.
+// It answers only a request this server still holds: one swept after its deadline and
+// stored again by a retry belongs to whoever claims the new copy.
 func (s *rpcServer) respond(id, reply string, deadline time.Time, response core.RPCResponse) {
 	data, err := json.Marshal(response)
 	if err != nil {
@@ -324,12 +326,13 @@ func (s *rpcServer) respond(id, reply string, deadline time.Time, response core.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (id, response, expires_at) VALUES ($1, $2, $3)
-ON CONFLICT (id) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at`, s.provider.t.rpcResponses), id, string(data), deadline.Add(time.Minute)); err != nil {
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND claimed_by = $2`, s.provider.t.rpcRequests), id, s.claimant)
+	if err != nil || tag.RowsAffected() == 0 {
 		return
 	}
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, s.provider.t.rpcRequests), id); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (id, response, expires_at) VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at`, s.provider.t.rpcResponses), id, string(data), deadline.Add(time.Minute)); err != nil {
 		return
 	}
 
