@@ -111,6 +111,10 @@ func (p *Provider) Connect(ctx context.Context) error {
 
 	p.conn = c
 
+	p.calls.mu.Lock()
+	p.calls.client = c
+	p.calls.mu.Unlock()
+
 	return nil
 }
 

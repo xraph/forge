@@ -40,6 +40,9 @@ type rpcCalls struct {
 	pending map[string]struct{}
 	stop    context.CancelFunc
 	done    chan struct{}
+	// client is the connection a reply reader may use. Connect sets it, and stopReplies
+	// clears it before Close closes that connection.
+	client *redis.Client
 }
 
 // RequestRPC sends once and waits for the reply or the caller's deadline. A server that
@@ -53,26 +56,9 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 	id, call := request.Envelope.ID, core.NewID()
 	reply := make(chan core.RPCResponse, 1)
 
-	p.calls.mu.Lock()
-	if p.calls.waiting == nil {
-		p.calls.waiting, p.calls.pending = map[string]chan core.RPCResponse{}, map[string]struct{}{}
+	if err := p.await(c, id, call, reply); err != nil {
+		return core.RPCResponse{}, err
 	}
-
-	if _, busy := p.calls.pending[id]; busy {
-		p.calls.mu.Unlock()
-
-		return core.RPCResponse{}, &core.RPCError{Code: core.RPCConflict, Message: "Request is already in progress"}
-	}
-
-	p.calls.pending[id], p.calls.waiting[call] = struct{}{}, reply
-
-	if p.calls.done == nil {
-		readCtx, stop := context.WithCancel(context.Background())
-		p.calls.stop, p.calls.done = stop, make(chan struct{})
-
-		go p.readReplies(readCtx, c, p.calls.done)
-	}
-	p.calls.mu.Unlock()
 
 	defer func() {
 		p.calls.mu.Lock()
@@ -101,6 +87,37 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 	case <-ctx.Done():
 		return core.RPCResponse{}, ctx.Err()
 	}
+}
+
+// await registers a call's reply channel, and starts the reply reader on c if none runs.
+// A call that fetched c just before Close gets ErrNotRunning: a reader on a closed
+// client would retry forever, and would take the place of the next connection's reader.
+func (p *Provider) await(c *redis.Client, id, call string, reply chan core.RPCResponse) error {
+	p.calls.mu.Lock()
+	defer p.calls.mu.Unlock()
+
+	if c == nil || c != p.calls.client {
+		return core.ErrNotRunning
+	}
+
+	if p.calls.waiting == nil {
+		p.calls.waiting, p.calls.pending = map[string]chan core.RPCResponse{}, map[string]struct{}{}
+	}
+
+	if _, busy := p.calls.pending[id]; busy {
+		return &core.RPCError{Code: core.RPCConflict, Message: "Request is already in progress"}
+	}
+
+	p.calls.pending[id], p.calls.waiting[call] = struct{}{}, reply
+
+	if p.calls.done == nil {
+		readCtx, stop := context.WithCancel(context.Background())
+		p.calls.stop, p.calls.done = stop, make(chan struct{})
+
+		go p.readReplies(readCtx, c, p.calls.done)
+	}
+
+	return nil
 }
 
 // readReplies reads this process's reply stream from the start. The key is unique to the
@@ -161,7 +178,7 @@ func (p *Provider) readReplies(ctx context.Context, c *redis.Client, done chan s
 func (p *Provider) stopReplies() {
 	p.calls.mu.Lock()
 	stop, done := p.calls.stop, p.calls.done
-	p.calls.stop, p.calls.done = nil, nil
+	p.calls.stop, p.calls.done, p.calls.client = nil, nil, nil
 	p.calls.mu.Unlock()
 
 	if stop != nil {
