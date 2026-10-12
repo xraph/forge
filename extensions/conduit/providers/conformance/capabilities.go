@@ -388,5 +388,78 @@ func runOperations(t *testing.T, factory Factory, _ settings) {
 
 	expect("drained", 0, 0, 0, false)
 }
-func runBackfill(t *testing.T, _ Factory, _ settings) { t.Fatal("backfill group not written yet") }
-func runRPC(t *testing.T, _ Factory, _ settings)      { t.Fatal("rpc group not written yet") }
+func runBackfill(t *testing.T, factory Factory, _ settings) {
+	h := newHarness(t, factory)
+	p := h.provider()
+
+	ops, ok := p.(core.Operations)
+	if !ok {
+		t.Fatal("Backfill requires core.Operations")
+	}
+
+	b := h.binding(p, "bf", core.Competing, "backfill-target")
+	s := h.subscribe(p, b)
+	other := h.subscribe(p, h.binding(p, "observer", core.Broadcast, "backfill-other"))
+
+	first := h.publish(p, "backfill-1")
+	last := h.publish(p, "backfill-2")
+
+	for _, sub := range []core.Subscription{s, other} {
+		for range 2 {
+			h.ack(h.next(sub))
+		}
+	}
+
+	in := core.BackfillInput{ID: "op-" + core.NewID(), Subscription: b.Subscription.ID, Start: first.Sequence, End: last.Sequence}
+
+	job, err := ops.RunBackfill(h.ctx, b, in)
+	if err != nil || job.State != "complete" || job.Published != 2 {
+		t.Fatalf("backfill did not complete: %+v %v", job, err)
+	}
+
+	got := map[string]bool{}
+
+	for range 2 {
+		d := h.next(s)
+		if d.Message().TargetConsumer != b.ConsumerID() {
+			t.Fatal("backfill is not consumer-scoped")
+		}
+
+		got[d.Message().ID] = true
+		h.ack(d)
+	}
+
+	if !got["backfill-1"] || !got["backfill-2"] {
+		t.Fatalf("backfill republished the wrong messages: %v", got)
+	}
+
+	h.quiet(other)
+
+	again, err := ops.RunBackfill(h.ctx, b, in)
+	if err != nil || again.State != "complete" || again.Published != 2 {
+		t.Fatalf("rerun did not return the finished job: %+v %v", again, err)
+	}
+
+	h.quiet(s)
+
+	changed := in
+	changed.End = in.Start
+
+	if _, err := ops.RunBackfill(h.ctx, b, changed); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("reused operation ID accepted a new range: %v", err)
+	}
+
+	rows, _, err := ops.ListBackfills(h.ctx, b.Identity, "", 10)
+	if err != nil || len(rows) != 1 || rows[0].Input.ID != in.ID {
+		t.Fatalf("backfill history missing: %+v %v", rows, err)
+	}
+
+	foreign := b.Identity
+	foreign.ServiceID = "another"
+
+	rows, _, err = ops.ListBackfills(h.ctx, foreign, "", 10)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("backfill history leaked across services: %+v %v", rows, err)
+	}
+}
+func runRPC(t *testing.T, _ Factory, _ settings) { t.Fatal("rpc group not written yet") }
