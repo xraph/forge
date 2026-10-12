@@ -812,3 +812,38 @@ func TestConflictingBackfillDoesNotLockOutTheOriginalRun(t *testing.T) {
 		t.Fatalf("resume with the original range after a conflicting request: state %q, %v", job.State, err)
 	}
 }
+
+func TestReplacementKeepsRegistration(t *testing.T) {
+	ctx := t.Context()
+	old := connect(t, Options{})
+
+	time.Sleep(5 * time.Millisecond) // the replacement process starts later
+
+	replacement := connect(t, Options{})
+	ns := "pg-" + core.NewID()
+	instance := core.Instance{Identity: core.Identity{Namespace: ns, ServiceID: "billing", InstanceID: "pod-0"}, Version: "1", Ready: true}
+
+	if err := old.Register(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replacement.Register(ctx, instance); err != nil {
+		t.Fatal(err)
+	}
+
+	stopping := instance
+	stopping.Ready = false
+
+	if err := old.Register(ctx, stopping); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := old.Deregister(ctx, instance.Identity); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := replacement.Resolve(ctx, ns, "billing")
+	if err != nil || len(resolved) != 1 || !resolved[0].Ready {
+		t.Fatalf("the old process removed its replacement: %+v %v", resolved, err)
+	}
+}
