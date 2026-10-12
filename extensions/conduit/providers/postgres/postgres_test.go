@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -386,4 +388,188 @@ func TestListenerIgnoresTheAppsNotificationHandler(t *testing.T) {
 	if n := seen.Load(); n != 0 {
 		t.Fatalf("the app's handler saw %d conduit notifications", n)
 	}
+}
+
+func next(t *testing.T, s core.Subscription, within time.Duration) core.Delivery {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), within)
+	defer cancel()
+
+	d, err := s.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return d
+}
+
+func quiet(t *testing.T, s core.Subscription) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	if d, err := s.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		if err == nil {
+			t.Fatalf("unexpected delivery %s", d.Message().ID)
+		}
+
+		t.Fatal(err)
+	}
+}
+
+func TestLateCommitIsNotSkipped(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Broadcast, "late", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, _ := p.db()
+
+	slow, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = slow.Rollback(context.WithoutCancel(ctx)) }()
+
+	first, err := p.PublishTx(ctx, slow, ns, cfg, envelope(ns, "first", placed))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := p.Publish(ctx, ns, cfg, envelope(ns, "second", placed))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Sequence >= second.Sequence {
+		t.Fatalf("expected the open transaction to hold the lower sequence: %d, %d", first.Sequence, second.Sequence)
+	}
+
+	// The open transaction holds the horizon, so the committed row waits behind it.
+	quiet(t, s)
+
+	if err := slow.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+
+	for range 2 {
+		d := next(t, s, 5*time.Second)
+		got = append(got, d.Message().ID)
+
+		if err := d.Ack(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if !slices.Contains(got, "first") || !slices.Contains(got, "second") {
+		t.Fatalf("a late commit was skipped: %v", got)
+	}
+}
+
+func TestStartAtNewIgnoresCommittedMessagesWhileATransactionIsOpen(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+	pool, _ := p.db()
+
+	hold, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := hold.Exec(ctx, `SELECT pg_current_xact_id()`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "before", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Broadcast, "fresh", "new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "after", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := hold.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	d := next(t, s, 5*time.Second)
+	if d.Message().ID != "after" {
+		t.Fatalf("a new subscriber received %s", d.Message().ID)
+	}
+
+	if err := d.Ack(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	quiet(t, s)
+}
+
+func TestNonMatchingBacklogDoesNotStall(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	for i := range 250 {
+		if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "other-"+strconv.Itoa(i), "orders.cancelled.v1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "wanted", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "picky", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d := next(t, s, 5*time.Second); d.Message().ID != "wanted" {
+		t.Fatalf("delivered %s", d.Message().ID)
+	}
+}
+
+func TestDeliveryContinuesWhenTheListenerDrops(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{PollInterval: 200 * time.Millisecond})
+	ns, cfg := newStream(t, p)
+
+	waitFor(t, "listener", p.ListenerConnected)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "drop", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, _ := p.db()
+
+	var killed int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1) AS terminated`, listenerName(p.owner)).Scan(&killed); err != nil || killed != 1 {
+		t.Fatalf("terminated %d listeners: %v", killed, err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "after-drop", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	if d := next(t, s, 3*time.Second); d.Message().ID != "after-drop" {
+		t.Fatalf("delivered %s", d.Message().ID)
+	}
+
+	waitFor(t, "listener reconnect", p.ListenerConnected)
 }
