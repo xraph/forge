@@ -2,6 +2,7 @@ package redisstreams_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -192,5 +193,73 @@ func TestReplacementKeepsRegistration(t *testing.T) {
 	resolved, err := replacement.Resolve(ctx, ns, "billing")
 	if err != nil || len(resolved) != 1 || !resolved[0].Ready {
 		t.Fatalf("the old process removed its replacement: %+v %v", resolved, err)
+	}
+}
+
+func TestRetryWithTheSameIDGetsItsOwnReply(t *testing.T) {
+	caller := connect(t, redisstreams.Options{})
+	ns := "rs-" + core.NewID()
+	identity := core.Identity{Namespace: ns, ServiceID: "web", InstanceID: "caller"}
+
+	binding := func(instance string) core.RPCBinding {
+		return core.RPCBinding{
+			Identity: core.Identity{Namespace: ns, ServiceID: "pricing", InstanceID: instance}, Method: "quote",
+			Config: core.RPCConfig{Timeout: 10 * time.Second, Concurrency: 1, MaxInFlight: 1}, MaxPayloadBytes: 1 << 20,
+		}
+	}
+
+	var calls atomic.Int64
+
+	handler := func(delay time.Duration) func(context.Context, core.RPCRequest) core.RPCResponse {
+		return func(_ context.Context, r core.RPCRequest) core.RPCResponse {
+			attempt := calls.Add(1)
+
+			time.Sleep(delay)
+
+			return core.RPCResponse{ID: r.Envelope.ID, Source: core.Identity{Namespace: ns, ServiceID: "pricing"}, Data: fmt.Appendf(nil, `{"attempt":%d}`, attempt)}
+		}
+	}
+
+	// The first replica answers after its caller has given up, and stops taking new work.
+	slow := connect(t, redisstreams.Options{})
+
+	first, err := slow.ServeRPC(t.Context(), binding("a"), handler(1500*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := core.RPCRequest{
+		Service: "pricing", Method: "quote", Deadline: time.Now().Add(time.Minute),
+		Envelope: core.Envelope{ID: core.NewID(), Type: "quote", Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()},
+	}
+
+	timedOut, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	if _, err := caller.RequestRPC(timedOut, identity, request); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the first attempt to time out: %v", err)
+	}
+
+	go func() { _ = first.Close(context.WithoutCancel(t.Context())) }()
+
+	time.Sleep(500 * time.Millisecond) // its reader has stopped; its handler is still running
+
+	second, err := connect(t, redisstreams.Options{}).ServeRPC(t.Context(), binding("b"), handler(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = second.Close(context.WithoutCancel(t.Context())) }()
+
+	retry, cancelRetry := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancelRetry()
+
+	response, err := caller.RequestRPC(retry, identity, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(response.Data) != `{"attempt":2}` {
+		t.Fatalf("the retry received %s instead of its own reply", response.Data)
 	}
 }

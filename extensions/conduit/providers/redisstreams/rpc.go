@@ -28,12 +28,16 @@ func validReplyKey(key string) bool {
 type rpcMessage struct {
 	Request core.RPCRequest `json:"request"`
 	Reply   string          `json:"reply"`
+	Call    string          `json:"call"`
 }
 
-// rpcCalls routes replies from this process's reply stream to waiting callers.
+// rpcCalls routes replies from this process's reply stream to waiting callers. Replies are
+// matched by a token minted per call, so a late reply to an abandoned attempt can never
+// answer a retry that reuses the envelope ID. pending holds the envelope IDs in flight.
 type rpcCalls struct {
 	mu      sync.Mutex
 	waiting map[string]chan core.RPCResponse
+	pending map[string]struct{}
 	stop    context.CancelFunc
 	done    chan struct{}
 }
@@ -46,21 +50,21 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 		return core.RPCResponse{}, err
 	}
 
-	id := request.Envelope.ID
+	id, call := request.Envelope.ID, core.NewID()
 	reply := make(chan core.RPCResponse, 1)
 
 	p.calls.mu.Lock()
 	if p.calls.waiting == nil {
-		p.calls.waiting = map[string]chan core.RPCResponse{}
+		p.calls.waiting, p.calls.pending = map[string]chan core.RPCResponse{}, map[string]struct{}{}
 	}
 
-	if p.calls.waiting[id] != nil {
+	if _, busy := p.calls.pending[id]; busy {
 		p.calls.mu.Unlock()
 
 		return core.RPCResponse{}, &core.RPCError{Code: core.RPCConflict, Message: "Request is already in progress"}
 	}
 
-	p.calls.waiting[id] = reply
+	p.calls.pending[id], p.calls.waiting[call] = struct{}{}, reply
 
 	if p.calls.done == nil {
 		readCtx, stop := context.WithCancel(context.Background())
@@ -72,11 +76,12 @@ func (p *Provider) RequestRPC(ctx context.Context, identity core.Identity, reque
 
 	defer func() {
 		p.calls.mu.Lock()
-		delete(p.calls.waiting, id)
+		delete(p.calls.waiting, call)
+		delete(p.calls.pending, id)
 		p.calls.mu.Unlock()
 	}()
 
-	data, err := json.Marshal(rpcMessage{Request: request, Reply: p.replyKey()})
+	data, err := json.Marshal(rpcMessage{Request: request, Reply: p.replyKey(), Call: call})
 	if err != nil {
 		return core.RPCResponse{}, err
 	}
@@ -126,7 +131,9 @@ func (p *Provider) readReplies(ctx context.Context, c *redis.Client, done chan s
 				last = msg.ID
 
 				raw, ok := msg.Values["response"].(string)
-				if !ok {
+				call, _ := msg.Values["call"].(string)
+
+				if !ok || call == "" {
 					continue
 				}
 
@@ -136,7 +143,7 @@ func (p *Provider) readReplies(ctx context.Context, c *redis.Client, done chan s
 				}
 
 				p.calls.mu.Lock()
-				waiter := p.calls.waiting[response.ID]
+				waiter := p.calls.waiting[call]
 				p.calls.mu.Unlock()
 
 				if waiter != nil {
@@ -166,6 +173,7 @@ func (p *Provider) stopReplies() {
 type rpcWork struct {
 	request core.RPCRequest
 	reply   string
+	call    string
 	ctx     context.Context //nolint:containedctx // Accepted work keeps its own deadline and cancel function.
 	cancel  context.CancelFunc
 }
@@ -266,7 +274,7 @@ func (s *rpcServer) accept(ctx context.Context, msg redis.XMessage) {
 
 	request := message.Request
 	if request.Deadline.IsZero() || request.Service != s.binding.Identity.ServiceID || request.Method != s.binding.Method || request.Envelope.Source.Namespace != s.binding.Identity.Namespace || request.Envelope.Source.Validate() != nil || core.ValidateMessageID(request.Envelope.ID) != nil {
-		s.refuse(message.Reply, request, core.RPCBadRequest, "Invalid RPC request")
+		s.refuse(message.Reply, message.Call, request, core.RPCBadRequest, "Invalid RPC request")
 
 		return
 	}
@@ -281,7 +289,7 @@ func (s *rpcServer) accept(ctx context.Context, msg redis.XMessage) {
 	}
 
 	workCtx, cancel := context.WithDeadline(s.base, deadline)
-	work := &rpcWork{request: request, reply: message.Reply, ctx: workCtx, cancel: cancel}
+	work := &rpcWork{request: request, reply: message.Reply, call: message.Call, ctx: workCtx, cancel: cancel}
 	key := workKey(request.Envelope)
 
 	s.mu.Lock()
@@ -289,19 +297,19 @@ func (s *rpcServer) accept(ctx context.Context, msg redis.XMessage) {
 	case s.closing:
 		s.mu.Unlock()
 		cancel()
-		s.refuse(message.Reply, request, core.RPCUnavailable, "Service is draining")
+		s.refuse(message.Reply, message.Call, request, core.RPCUnavailable, "Service is draining")
 
 		return
 	case s.active[key] != nil:
 		s.mu.Unlock()
 		cancel()
-		s.refuse(message.Reply, request, core.RPCConflict, "Request is already in progress")
+		s.refuse(message.Reply, message.Call, request, core.RPCConflict, "Request is already in progress")
 
 		return
 	case len(s.active) >= s.binding.Config.MaxInFlight:
 		s.mu.Unlock()
 		cancel()
-		s.refuse(message.Reply, request, core.RPCUnavailable, "Service concurrency limit reached")
+		s.refuse(message.Reply, message.Call, request, core.RPCUnavailable, "Service concurrency limit reached")
 
 		return
 	}
@@ -311,12 +319,12 @@ func (s *rpcServer) accept(ctx context.Context, msg redis.XMessage) {
 	s.mu.Unlock()
 }
 
-func (s *rpcServer) refuse(reply string, request core.RPCRequest, code core.RPCCode, message string) {
-	s.respond(reply, request.Deadline, core.RPCResponse{ID: request.Envelope.ID, Source: s.binding.Identity, Error: &core.RPCError{Code: code, Message: message}})
+func (s *rpcServer) refuse(reply, call string, request core.RPCRequest, code core.RPCCode, message string) {
+	s.respond(reply, call, request.Deadline, core.RPCResponse{ID: request.Envelope.ID, Source: s.binding.Identity, Error: &core.RPCError{Code: code, Message: message}})
 }
 
 // respond skips WAITAOF: RPC is transient, and waiting on an fsync would only add latency.
-func (s *rpcServer) respond(reply string, deadline time.Time, response core.RPCResponse) {
+func (s *rpcServer) respond(reply, call string, deadline time.Time, response core.RPCResponse) {
 	data, err := json.Marshal(response)
 	if err != nil {
 		return
@@ -326,7 +334,7 @@ func (s *rpcServer) respond(reply string, deadline time.Time, response core.RPCR
 	defer cancel()
 
 	pipe := s.client.TxPipeline()
-	pipe.XAdd(ctx, &redis.XAddArgs{Stream: reply, MaxLen: 1000, Approx: true, Values: map[string]any{"response": string(data)}})
+	pipe.XAdd(ctx, &redis.XAddArgs{Stream: reply, MaxLen: 1000, Approx: true, Values: map[string]any{"response": string(data), "call": call}})
 	pipe.PExpire(ctx, reply, max(time.Minute, time.Until(deadline)+time.Minute))
 	_, _ = pipe.Exec(ctx)
 }
@@ -342,7 +350,7 @@ func (s *rpcServer) run() {
 			response = s.handler(work.ctx, work.request)
 		}
 
-		s.respond(work.reply, work.request.Deadline, response)
+		s.respond(work.reply, work.call, work.request.Deadline, response)
 		work.cancel()
 
 		s.mu.Lock()
