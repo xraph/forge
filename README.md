@@ -1,247 +1,383 @@
-# Forge
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge, a modular Go backend framework for APIs, microservices and real-time services" width="100%">
+</p>
 
-A Go framework for backend services, with dependency injection, an extension system, and observability built in.
+# Forge: Go backend framework for APIs and microservices
 
-Forge™ is a backend framework, and Forge Cloud™ is its AI cloud offering, maintained by XRAPH™.
+Forge is an open-source Go framework for building REST APIs, microservices and real-time backends. You get HTTP routing, dependency injection, configuration, health checks, Prometheus metrics, OpenAPI and AsyncAPI specs, and generated TypeScript, Dart and Go clients, all running inside one application lifecycle. When you need more, you add extensions: gRPC, GraphQL, Kafka, MQTT, WebRTC, Raft consensus, MCP, or any of the eighteen [forgery libraries](#the-forgery-stack) for auth, billing, audit trails, webhooks, background jobs and AI.
 
-[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Go Report Card](https://goreportcard.com/badge/github.com/xraph/forge)](https://goreportcard.com/report/github.com/xraph/forge)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/xraph/forge)](https://github.com/xraph/forge)
-[![CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge.svg)](https://pkg.go.dev/github.com/xraph/forge) [![Release](https://img.shields.io/github/v/release/xraph/forge)](https://github.com/xraph/forge/releases) [![GitHub Stars](https://img.shields.io/github/stars/xraph/forge?style=flat)](https://github.com/xraph/forge/stargazers) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+[Documentation](https://www.xraph.com/docs/forge) · [Quick start](#quick-start) · [CLI](#develop-with-the-forge-cli) · [Client SDKs](#generate-typescript-dart-and-go-clients) · [Dashboard](#forge-dashboard) · [Extensions](#extensions) · [Forgery stack](#the-forgery-stack) · [Examples](#examples) · [FAQ](#faq)
 
 ## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/). Start with a plain Go module:
+
+```bash
+mkdir hello-forge
+cd hello-forge
+go mod init example.com/hello-forge
+go get github.com/xraph/forge@latest
+```
+
+Save this as `main.go`:
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/xraph/forge"
+)
+
+func main() {
+	app := forge.NewApp(forge.AppConfig{
+		Name:          "hello-forge",
+		HTTPAddress:   ":8080",
+		HealthConfig:  forge.DefaultHealthConfig(),
+		MetricsConfig: forge.DefaultMetricsConfig(),
+	})
+
+	err := app.Router().GET("/hello", func(ctx forge.Context) error {
+		return ctx.JSON(http.StatusOK, map[string]string{
+			"message": "Hello, Forge!",
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Run it:
+
+```bash
+go mod tidy
+go run .
+```
+
+Then, from another terminal:
+
+```bash
+curl http://localhost:8080/hello
+# {"message":"Hello, Forge!"}
+
+curl http://localhost:8080/_/health
+```
+
+That's a running service. You also get application metadata at `/_/info`, Prometheus metrics at `/_/metrics`, and liveness and readiness probes at `/_/health/live` and `/_/health/ready`, so a Kubernetes deployment can point its probes straight at them. Press Ctrl+C and the app shuts down gracefully, stopping extensions in reverse dependency order.
+
+From here, follow the [first application guide](docs/content/docs/forge/first-app.mdx), or let the [CLI](#develop-with-the-forge-cli) scaffold a project for you.
+
+## Why Forge?
+
+Most Go routers stop at routing. Forge is for when you also want configuration, background components, observability and shutdown to follow the same conventions across every service you run. You can start with one endpoint and keep the same application model as you add a database, a queue, a second service and a mobile client.
+
+| You need | Forge gives you |
+| --- | --- |
+| REST APIs with real contracts | HTTP routing, request binding and validation, middleware, and OpenAPI 3.1 schemas generated from your Go types |
+| Services with dependencies | Generic registration and resolution through [Vessel](https://github.com/xraph/vessel), constructor injection, and managed service lifetimes |
+| Predictable startup and shutdown | Extension dependency ordering, lifecycle hooks, health checks, and graceful shutdown |
+| Configuration across environments | [Confy](https://github.com/xraph/confy), with YAML, JSON, TOML, environment variables, and app-scoped configuration |
+| Visibility into a running service | Structured logs, Prometheus metrics, and OpenTelemetry tracing |
+| Web, mobile and service clients | TypeScript, Dart and Go client generation from OpenAPI and AsyncAPI |
+| Real-time and distributed services | WebSocket, SSE and WebTransport in the core, plus extensions for gRPC, GraphQL, brokers and service discovery |
+| A path to production | `forge deploy` with a local workbench, Docker Compose and Kubernetes targets |
+
+The [architecture guide](docs/content/docs/forge/architecture.mdx) explains how the router, the container and the extension lifecycle fit together. Already have an HTTP stack you like? Look at the [Chi, BunRouter and HttpRouter adapters](extras/README.md).
+
+## Develop with the Forge CLI
+
+The CLI installs separately from the framework:
 
 ```bash
 go install github.com/xraph/forge/cmd/forge@latest
 forge --version
 ```
 
+If your shell can't find `forge`, add your Go binary directory to `PATH` (usually `$(go env GOPATH)/bin`, or your `GOBIN`). Prebuilt binaries are on [GitHub Releases](https://github.com/xraph/forge/releases), and you can install through Homebrew or Scoop too.
+
+Create a project in its own directory:
+
 ```bash
-forge init my-app
+mkdir my-service
+cd my-service
+forge init --name my-service --module example.com/my-service --layout single-module
+forge generate app --name api
+go mod tidy
 forge dev
 ```
 
-A minimal service:
+`forge init` configures the current directory and asks you to confirm the settings. `forge generate app` creates the runnable application, and `go mod tidy` resolves its imports. The dev server watches your files and reloads on change. Use `forge dev --port 8080` if you want another port.
 
-```go
-package main
+| Task | Command |
+| --- | --- |
+| Generate a service | `forge generate service --name orders` |
+| Generate a controller | `forge generate controller --name orders --app api` |
+| Check your environment | `forge doctor` |
+| Build your application | `forge build` |
+| Inspect deployment configuration | `forge deploy inspect` |
+| Open the deployment workbench | `forge deploy start` |
 
-import "github.com/xraph/forge"
+`forge --help` and `<command> --help` list every option. The [CLI guide](docs/content/docs/forge/%28cli%29/cli.mdx) and [deployment workbench guide](docs/content/docs/forge/%28cli%29/deployment-workbench.mdx) cover the full workflows and which providers are supported.
 
-func main() {
-    app := forge.NewApp(forge.AppConfig{
-        Name:        "my-app",
-        Version:     "1.0.0",
-        Environment: "development",
-        HTTPAddress: ":8080",
-    })
+## Generate TypeScript, Dart and Go clients
 
-    router := app.Router()
-    router.GET("/", func(ctx forge.Context) error {
-        return ctx.JSON(200, map[string]string{
-            "message": "Hello, Forge!",
-        })
-    })
+Describe request and response types on your routes, turn on [OpenAPI](docs/content/docs/forge/openapi.mdx) or [AsyncAPI](docs/content/docs/forge/asyncapi.mdx), then generate a typed client from the exported spec:
 
-    // Blocks until SIGINT or SIGTERM.
-    app.Run()
-}
+```bash
+forge client generate \
+  --from-spec ./openapi.json \
+  --language typescript \
+  --output ./clients/web \
+  --package "@acme/api-client" \
+  --hooks
 ```
 
-Every app serves three endpoints without configuration: `/_/info` for application
-metadata, `/_/metrics` for Prometheus, and `/_/health` for health checks.
+Swap in `--language dart` for a Dart package or `--language go` for a Go client. If your API has both HTTP and streaming endpoints, pass the OpenAPI and AsyncAPI files together. `--hooks` adds an operation manifest and typed hook facades over the client runtime, which the React, Vue, Angular, Flutter and Riverpod adapters build on.
 
-## What you get
+| Client stack | Start here |
+| --- | --- |
+| TypeScript, React, Vue or Angular | [Web client guide](docs/content/docs/web-client/getting-started.mdx), [`@forge-go/client-core`](packages/client-core/), [framework adapters](docs/content/docs/web-client/adapters.mdx) |
+| Dart, Flutter or Riverpod | [Dart client guide](docs/content/docs/dart-client/getting-started.mdx), [Flutter adapter](dart-packages/forge_client_flutter/), [Riverpod adapter](dart-packages/forge_client_riverpod/), [offline support](dart-packages/forge_client_offline/) |
+| Go | [Client generator usage](internal/client/README.md#usage) |
+| VS Code | the [Forge DevTools extension](vscode-forge/) |
 
-The core framework handles the parts most services need before they can do
-anything interesting:
+`forge client watch` regenerates clients while you work, and `forge client check` fails CI when a committed client drifts from its spec. The [client CLI reference](docs/content/docs/web-client/cli.mdx) documents shared flags, configuration and exit codes. The [web](docs/content/docs/web-client/not-yet-shipped.mdx) and [Dart](docs/content/docs/dart-client/not-yet-shipped.mdx) notes list what isn't shipped yet.
 
-- A type-safe dependency injection container with service lifecycles
-- An HTTP router with trie-based path matching and middleware support
-- Middleware for auth, CORS, logging and rate limiting
-- Configuration from YAML, JSON or TOML, overridable by environment variables
-- Structured logging, Prometheus metrics and distributed tracing
-- Health checks that discover and report themselves
-- Graceful startup and shutdown, so SIGTERM cleans up rather than drops work
+## Forge Dashboard
 
-The CLI scaffolds projects, generates handlers and services, runs migrations,
-and serves your app with hot reload. See [cli/README.md](cli/README.md) and the
-[commands reference](cmd/forge/COMMANDS.md).
+Give your Forge application and its extensions a shared admin UI. [Forge Dashboard](https://github.com/xraph/forge-dashboard) combines an application overview, services and health, metrics, traces and extension pages in a React shell with scope switching, search, light and dark themes, and responsive navigation.
+
+![Forge Dashboard showing services and health from a running Go application](assets/screenshots/dashboard-overview.jpg)
+
+The Go dashboard extension serves the contract API. The React shell renders it, and each extension supplies its own scoped pages, navigation and actions. Installed plugins share the shell while keeping their queries and commands tied to their Go contributor and server-side permissions.
+
+| In the dashboard | What you can do |
+| --- | --- |
+| Application operations | Inspect registered services, health checks, metrics and request traces |
+| Extension workspaces | Switch to an extension's own navigation, settings, tables and detail pages |
+| Capability-aware setup | See setup instructions and version mismatches before loading a plugin |
+| Custom extensions | Register a Go contract contributor and a React plugin with `definePlugin` |
+| Distributed services | Connect remote contributors explicitly or through service discovery |
+
+<details>
+<summary>More dashboard screenshots: Conduit and Nexus</summary>
+
+### Conduit: messaging and service communication
+
+![Conduit dashboard showing providers, streams, subscriptions and delivery counters](assets/screenshots/dashboard-conduit.jpg)
+
+### Nexus: AI gateway usage
+
+![Nexus dashboard showing spend, requests, cache hit rate, latency and usage charts](assets/screenshots/dashboard-nexus.jpg)
+
+These screenshots show the current React plugins using development fixture data. The application overview above connects to a running Go application. Demo counters and accounts are illustrative.
+
+</details>
+
+To enable the data API, import `github.com/xraph/forge/extensions/dashboard` and add `dashboard.NewExtension()` to your application's `Extensions` list. With the default base path, the contract endpoint is `/dashboard/api/dashboard/v1`.
+
+Scaffold the UI with the CLI:
+
+```bash
+forge dashboard new my-dashboard
+# Use --target next to scaffold a Next.js integration.
+```
+
+Follow the scaffold's instructions to install the dashboard packages, add your extension plugins and connect the UI to your Forge server. See the [dashboard integration guide](extensions/dashboard/README.md), [dashboard documentation](https://www.xraph.com/docs/forge/extensions/dashboard/features) and [React dashboard repository](https://github.com/xraph/forge-dashboard) for setup and plugin development.
 
 ## Extensions
 
-Extensions are modules you compose into an app. Most are production ready; three
-are still being built.
+You add capabilities to a Forge app through extensions. Each one registers its services in the container, reads its settings from `extensions.<name>` in your config, and joins the app's start, health and stop lifecycle. To add caching, for example:
 
-| Extension | What it does |
-|---|---|
-| [auth](extensions/auth/README.md) | Multi-provider authentication (OAuth, JWT, SAML) |
-| cache | Multi-backend caching (Redis, Memcached, in-memory) |
-| [consensus](extensions/consensus/README.md) | Raft consensus for distributed systems |
-| [dashboard](extensions/dashboard/README.md) | Data API for admin dashboards built with the React dashboard plugins |
-| [discovery](extensions/discovery/README.md) | Service discovery and registry |
-| events | Event bus and event sourcing |
-| [features](extensions/features/README.md) | Feature flags and A/B testing |
-| [graphql](extensions/graphql/README.md) | GraphQL server with schema generation |
-| [grpc](extensions/grpc/README.md) | gRPC server with reflection |
-| [hls](extensions/hls/README.md) | HTTP Live Streaming |
-| [kafka](extensions/kafka/README.md) | Apache Kafka integration |
-| [mcp](extensions/mcp/README.md) | Model Context Protocol |
-| [mqtt](extensions/mqtt/README.md) | MQTT broker and client |
-| [security](extensions/security/README.md) | Security hardening for production apps |
-| [streaming](extensions/streaming/README.md) | WebSocket and SSE |
-| [webrtc](extensions/webrtc/README.md) | Peer-to-peer real-time communication |
-| [orpc](extensions/orpc/README.md) | ORPC transport protocol (in progress) |
-| [queue](extensions/queue/README.md) | Message queue management (in progress) |
-| search | Full-text search, Elasticsearch and Typesense (in progress) |
-
-The [complete catalog](docs/content/docs/extensions/complete-catalog.mdx) covers
-configuration for each one.
-
-Five extensions have been removed. What is left at
-[ai](extensions/ai/README.md), [cron](extensions/cron/README.md),
-[database](extensions/database/README.md),
-[gateway](extensions/gateway/README.md) and
-[storage](extensions/storage/README.md) is a migration note, not code. Use
-[grove](https://github.com/xraph/grove) for databases,
-[bastion](https://github.com/xraph/bastion) for the API gateway,
-[trove](https://github.com/xraph/trove) for object storage,
-[dispatch](https://github.com/xraph/dispatch) for scheduled and background
-work, and [cortex](https://github.com/xraph/cortex) and its siblings for AI.
-
-## Composing an application
-
-Extensions are declared in the app config. Services register against the
-container, and handlers resolve them from it:
-
-```go
-app := forge.NewApp(forge.AppConfig{
-    Name:        "my-service",
-    Version:     "1.0.0",
-    Environment: "production",
-
-    Extensions: []forge.Extension{
-        auth.NewExtension(auth.Config{
-            Provider: "oauth2",
-        }),
-    },
-})
-
-db, err := grove.Open("postgres://localhost/mydb", grove.WithPoolSize(25))
-if err != nil {
-    return err
-}
-
-forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
-    logger := forge.Must[forge.Logger](c, "logger")
-    return NewUserService(db, logger), nil
-})
-
-router := app.Router()
-router.GET("/users/:id", getUserHandler)
-router.POST("/users", createUserHandler)
-
-app.Run()
+```bash
+go get github.com/xraph/forge/extensions/cache@latest
 ```
 
-Switching a backend is a DSN change rather than a code change. Grove picks the
-driver from the scheme, so the same `grove.Open` call works whether it points at
-Postgres or SQLite.
+```go
+import "github.com/xraph/forge/extensions/cache"
+
+app := forge.NewApp(forge.AppConfig{
+	Name: "orders",
+	Extensions: []forge.Extension{
+		cache.NewExtension(cache.WithDriver("inmemory")),
+	},
+})
+```
+
+Forge registers every extension before starting any of them, and stops them in reverse dependency order. These live in this repository:
+
+| Extension and docs | What you get |
+| --- | --- |
+| [auth](extensions/auth/) · [Docs](https://www.xraph.com/docs/forge/extensions/auth/features) | Authentication providers |
+| [cache](extensions/cache/) · [Docs](https://www.xraph.com/docs/forge/extensions/cache/features) | In-memory, Redis and Memcached caching |
+| [conduit](extensions/conduit/) · [Docs](https://www.xraph.com/docs/forge/extensions/conduit/configuration) | Typed events, durable streams and HTTP/gRPC service clients |
+| [consensus](extensions/consensus/) · [Docs](https://www.xraph.com/docs/forge/extensions/consensus/features) | Raft consensus and distributed coordination |
+| [dashboard](extensions/dashboard/) · [Docs](https://www.xraph.com/docs/forge/extensions/dashboard/features) | Dashboard contract API, included in the root module |
+| [discovery](extensions/discovery/) · [Docs](https://www.xraph.com/docs/forge/extensions/discovery/features) | Service registration and discovery |
+| [events](extensions/events/) · [Docs](https://www.xraph.com/docs/forge/extensions/events/features) | Event buses and broker integrations |
+| [features](extensions/features/) · [Docs](https://www.xraph.com/docs/forge/extensions/features/features) | Feature flags and experiments |
+| [graphql](extensions/graphql/) · [Docs](https://www.xraph.com/docs/forge/extensions/graphql/features) | GraphQL server integration |
+| [grpc](extensions/grpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/grpc/features) | gRPC servers and reflection |
+| [hls](extensions/hls/) · [Docs](https://www.xraph.com/docs/forge/extensions/hls/features) | HTTP Live Streaming |
+| [kafka](extensions/kafka/) · [Docs](https://www.xraph.com/docs/forge/extensions/kafka/features) | Apache Kafka integration |
+| [mcp](extensions/mcp/) · [Docs](https://www.xraph.com/docs/forge/extensions/mcp/features) | Model Context Protocol servers |
+| [mqtt](extensions/mqtt/) · [Docs](https://www.xraph.com/docs/forge/extensions/mqtt/features) | MQTT messaging |
+| [orpc](extensions/orpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/orpc/features) | oRPC transport integration |
+| [queue](extensions/queue/) · [Docs](https://www.xraph.com/docs/forge/extensions/queue/features) | NATS, Redis and RabbitMQ queues |
+| [search](extensions/search/) · [Docs](https://www.xraph.com/docs/forge/extensions/search/features) | Full-text search integrations |
+| [security](extensions/security/) · [Docs](https://www.xraph.com/docs/forge/extensions/security/features) | Application security hardening |
+| [streaming](extensions/streaming/) · [Docs](https://www.xraph.com/docs/forge/extensions/streaming/features) | WebSocket and server-sent events |
+| [webrtc](extensions/webrtc/) · [Docs](https://www.xraph.com/docs/forge/extensions/webrtc/features) | Peer-to-peer communication |
+
+Apart from the dashboard, each of these is its own Go module, so importing the root framework doesn't pull them in. To write your own, start with the [extension system guide](docs/content/docs/forge/extensions-system.mdx) and the [simple extension example](examples/simple-extension/).
+
+## The forgery stack
+
+Forgery is the family of Go libraries built on Forge. Each one is a library rather than a hosted service: you import it, bring your own database, and it runs inside your process. Many work standalone, and they ship Forge integration packages (`extension`, or `forgeext` in Fabriq) that wire config, DI registration and health checks into your app.
+
+| Library and docs | What it does |
+| --- | --- |
+| [Grove](https://github.com/xraph/grove) · [Docs](https://www.xraph.com/docs/grove) | Polyglot ORM that writes each database's native query syntax, with migrations and CRDT sync |
+| [Fabriq](https://github.com/xraph/fabriq) · [Docs](https://www.xraph.com/docs/fabriq) | Data fabric: one transactional write that fans out to relational, time-series, vector, graph and search engines |
+| [Trove](https://github.com/xraph/trove) · [Docs](https://www.xraph.com/docs/trove) | Object storage over local disk, S3, GCS, Azure and SFTP, with middleware for encryption, compression and scanning |
+| [Authsome](https://github.com/xraph/authsome) · [Docs](https://www.xraph.com/docs/authsome) | Plugin-driven authentication and identity: sign-in, sessions, organizations, OAuth |
+| [Warden](https://github.com/xraph/warden) · [Docs](https://www.xraph.com/docs/warden) | Authorization engine with RBAC, ABAC and ReBAC behind one check API |
+| [Keysmith](https://github.com/xraph/keysmith) · [Docs](https://www.xraph.com/docs/keysmith) | API key lifecycle: generation, hashed storage, rotation, revocation and usage analytics |
+| [Vault](https://github.com/xraph/vault) · [Docs](https://www.xraph.com/docs/vault) | Encrypted secrets, rule-based feature flags and hot-reloadable runtime config |
+| [Chronicle](https://github.com/xraph/chronicle) · [Docs](https://www.xraph.com/docs/chronicle) | Tamper-evident audit trail on a SHA-256 hash chain, for SOC 2, HIPAA and GDPR work |
+| [Ledger](https://github.com/xraph/ledger) · [Docs](https://www.xraph.com/docs/ledger) | Usage-based billing: metering, entitlements, plans, subscriptions and invoices |
+| [Relay](https://github.com/xraph/relay) · [Docs](https://www.xraph.com/docs/relay) | Webhook delivery with tenant-scoped endpoints, signatures, retries and replay |
+| [Herald](https://github.com/xraph/herald) · [Docs](https://www.xraph.com/docs/herald) | Notifications over email, SMS, push and in-app, with templates and i18n |
+| [Dispatch](https://github.com/xraph/dispatch) · [Docs](https://www.xraph.com/docs/dispatch) | Durable execution: background jobs, workflows, cron schedules and distributed workers |
+| [Bastion](https://github.com/xraph/bastion) · [Docs](https://www.xraph.com/docs/bastion) | API gateway that turns a Forge app into a reverse proxy for HTTP, WebSocket, SSE and gRPC |
+| [Nexus](https://github.com/xraph/nexus) · [Docs](https://www.xraph.com/docs/nexus) | AI gateway that routes, caches, guards and observes LLM traffic |
+| [Weave](https://github.com/xraph/weave) · [Docs](https://www.xraph.com/docs/weave) | RAG pipeline: ingestion, chunking, embeddings, vector storage, retrieval and prompt assembly |
+| [Cortex](https://github.com/xraph/cortex) · [Docs](https://www.xraph.com/docs/cortex) | Agent orchestration with skills, traits, behaviors and personas |
+| [Sentinel](https://github.com/xraph/sentinel) · [Docs](https://www.xraph.com/docs/sentinel) | LLM evaluation with scoring, baseline regression detection and red-team tests |
+| [Shield](https://github.com/xraph/shield) · [Docs](https://www.xraph.com/docs/shield) | Layered AI safety for prompts and outputs |
+
+Putting several of them in one app looks like this. Each extension finds its settings under `extensions.<name>` in your config file and resolves its dependencies (Grove's database, usually) from the container:
+
+```go
+import (
+	authsome "github.com/xraph/authsome/extension"
+	chronicle "github.com/xraph/chronicle/extension"
+	dispatch "github.com/xraph/dispatch/extension"
+	grove "github.com/xraph/grove/extension"
+	warden "github.com/xraph/warden/extension"
+)
+
+app := forge.NewApp(forge.AppConfig{
+	Name: "billing-api",
+	Extensions: []forge.Extension{
+		grove.New(),     // database access, configured under extensions.grove
+		authsome.New(),  // users, sessions and organizations
+		warden.New(),    // permission checks
+		chronicle.New(), // audit trail for every change
+		dispatch.New(),  // background jobs and scheduled work
+	},
+})
+```
+
+Read each library's README for its options and storage backends. After every Forge release the forgery repos re-pin to it in dependency order, Grove first and Cortex last.
+
+### Building blocks
+
+These libraries support Forge and the wider ecosystem, and you can also use them on their own:
+
+| Library | What it provides |
+| --- | --- |
+| [Vessel](https://github.com/xraph/vessel) | The dependency injection container, with constructor injection and typed service keys |
+| [Confy](https://github.com/xraph/confy) | Configuration loading from files, environment variables and remote sources |
+| [go-utils](https://github.com/xraph/go-utils) | Structured errors, the logger and metrics primitives |
+| [FARP](https://github.com/xraph/farp) | The service manifest and schema discovery protocol gateways read |
+| [ForgeUI](https://github.com/xraph/forgeui) | Server-rendered UI components in Go, built on templ |
+| [AI SDK](https://github.com/xraph/ai-sdk) | LLM SDK for Go, and the replacement for the old `ai` extension |
+
+The old `ai`, `cron`, `database`, `gateway` and `storage` directories under `extensions/` only hold a README now. Each one points at its replacement (AI SDK, Dispatch, Grove plus [`models`](models/), Bastion and Trove). Follow those notes if you're upgrading an app that still imports them.
 
 ## Documentation
 
-- [Installation](docs/content/docs/forge/installation.mdx)
-- [Quick start](docs/content/docs/forge/quick-start.mdx)
-- [Architecture](docs/content/docs/forge/architecture.mdx)
-- [Application lifecycle](docs/content/docs/forge/lifecycle.mdx)
-- [Dependency injection](docs/content/docs/forge/dependency-injection.mdx)
-- [Routing](docs/content/docs/forge/%28router%29/router.mdx) and [middleware](docs/content/docs/forge/%28router%29/middleware.mdx)
-- [Configuration](docs/content/docs/forge/configuration.mdx)
-- [Observability](docs/content/docs/forge/observability.mdx)
+Browse [Forge documentation on xraph.com](https://www.xraph.com/docs/forge), or read the versioned guides in this repository:
 
-Full docs are at [forge.dev](https://forge.dev). Questions and ideas go in
-[Discussions](https://github.com/xraph/forge/discussions); bugs go in
-[Issues](https://github.com/xraph/forge/issues).
+| What you want to do | Guide |
+| --- | --- |
+| Install Forge and build your first service | [Installation](docs/content/docs/forge/installation.mdx), [first app](docs/content/docs/forge/first-app.mdx) |
+| Register dependencies and manage startup | [Dependency injection](docs/content/docs/forge/dependency-injection.mdx), [application lifecycle](docs/content/docs/forge/lifecycle.mdx) |
+| Define routes, middleware and errors | [Routing](docs/content/docs/forge/%28router%29/router.mdx), [middleware](docs/content/docs/forge/%28router%29/middleware.mdx), [error handling](docs/content/docs/forge/error-handling.mdx) |
+| Configure a service per environment | [Configuration](docs/content/docs/forge/configuration.mdx), [`.forge.yaml`](docs/content/docs/forge/forge-yaml.mdx) |
+| Document and stream your API | [OpenAPI](docs/content/docs/forge/openapi.mdx), [AsyncAPI](docs/content/docs/forge/asyncapi.mdx), [streaming](docs/content/docs/forge/%28streaming%29/streaming.mdx) |
+| Add operational checks | [Health checks](docs/content/docs/forge/health.mdx), [metrics](docs/content/docs/forge/metrics.mdx), [observability](docs/content/docs/forge/observability.mdx) |
+
+The exported Go API is on [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge). If you work with a coding agent, point it at [AGENTS.md](AGENTS.md) for repository conventions and [llm.txt](llm.txt) for a map of the framework packages. Many packages carry their own `llm.txt` as well.
 
 ## Examples
 
-The [examples](examples/) directory has runnable services. Some worth starting
-with:
+Read the code before you pick a pattern:
 
-- [di-patterns](examples/di-patterns/) for container registration
-- [lifecycle-hooks](examples/lifecycle-hooks/) for startup and shutdown ordering
-- [observability](examples/observability/) for metrics, logging and tracing
-- [simple-extension](examples/simple-extension/) and [runnable-extension](examples/runnable-extension/) for writing your own
-- [openapi-demo](examples/openapi-demo/) for generated API specs
-- [sse-streaming](examples/sse-streaming/) and [webtransport](examples/webtransport/) for streaming transports
-- [auth](extensions/auth/examples/auth_example/) and [graphql](extensions/graphql/examples/graphql-basic/) for those extensions
+| Example | What you'll learn |
+| --- | --- |
+| [DI patterns](examples/di-patterns/) | Container registration and dependency resolution |
+| [Lifecycle hooks](examples/lifecycle-hooks/) | Startup and shutdown hooks |
+| [Config autodiscovery](examples/config-autodiscovery/) | How an app finds its config files |
+| [Observability](examples/observability/) | Logs, metrics and tracing |
+| [OpenAPI](examples/openapi-demo/) | API schema generation from Go types |
+| [File upload](examples/file_upload/) | Multipart uploads with typed binding |
+| [SSE streaming](examples/sse-streaming/) | Server-sent events |
+| [WebTransport](examples/webtransport/) | Streams and datagrams over HTTP/3 |
+| [FARP discovery](examples/farp-discovery-example/) | Publishing a service manifest for gateways |
+| [Runnable extension](examples/runnable-extension/) | A background component the app manages |
 
-## Development
+Many examples have their own `go.mod`. Run them from their directory with `GOWORK=off`, and check their README for the services they expect. There are [more examples](examples/), and most extensions keep their own under `extensions/<name>/examples/`.
 
-You need Go 1.24 or later. Make is optional but the targets below assume it.
+## FAQ
 
-```bash
-make build          # build the CLI
-make build-debug    # build with debug symbols
-make release        # build for all platforms
-```
+### How is Forge different from Gin, Echo, Fiber or Chi?
 
-```bash
-make test           # all tests
-make test-coverage  # with coverage
-go test ./extensions/graphql/...
-```
+Forge combines an HTTP router with a DI container, configuration, lifecycle management, health and metrics endpoints, spec generation and client generation. If you already use Chi's router, you can keep it through the [adapters](extras/README.md).
 
-```bash
-make fmt            # format
-make lint           # lint
-make lint-fix       # lint and fix
-make security-scan  # security scan
-make vuln-check     # check dependencies for known vulnerabilities
-make ci             # everything CI runs
-```
+### Is Forge production-ready?
 
-The dev server takes `--watch` for hot reload and `--port` to override the
-address:
+Forge is on its 1.x line and runs the eighteen forgery libraries above, which re-pin to each release. Check [GitHub Releases](https://github.com/xraph/forge/releases) for the current version and [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-```bash
-forge dev --watch --port 3000
-```
+### Do I have to use every part of it?
+
+No. An app with one route and no extensions is a valid Forge app. Extensions and forgery libraries are separate Go modules, so you only download what you import.
+
+### Can my frontend or mobile app call a Forge API with types?
+
+Yes. Generate a TypeScript or Dart client from the OpenAPI spec, and use the React, Vue, Angular, Flutter or Riverpod adapters on top of it.
 
 ## Contributing
 
-Fork, branch, and open a pull request. Run `make install-tools` once, then
-`make ci` before you push.
+Bug reports, doc fixes and focused pull requests are welcome. Open an [issue](https://github.com/xraph/forge/issues) with a reproduction, or start a [discussion](https://github.com/xraph/forge/discussions) for questions and design ideas.
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/),
-which the release tooling reads to decide the version bump. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
+To work on the root module:
 
-## Releases
+```bash
+git clone https://github.com/xraph/forge.git
+cd forge
+GOWORK=off go test -race ./...
+make install-lint
+GOWORK=off make f
+GOWORK=off make l
+```
 
-Releases run through [Release Please](https://github.com/googleapis/release-please)
-and a GitHub Actions workflow.
+Root tests stop at Go module boundaries, so test a changed extension from its own directory. The CLI needs a temporary workspace to test against your local root module. [AGENTS.md](AGENTS.md) has the exact commands, toolchain versions and integration-test prerequisites, and [CONTRIBUTING.md](CONTRIBUTING.md) has the contribution guidelines. Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
 
-Push to `main` with conventional commits and Release Please opens a PR carrying
-the version bumps and changelog. Merging that PR creates a tag, and the tag
-triggers the release pipeline. For a release you need to cut by hand, go to
-[Actions > Release](../../actions/workflows/release.yml) and run the workflow
-against a chosen module and version.
+Releases go out through the [Release workflow](https://github.com/xraph/forge/actions/workflows/release.yml), never a hand-pushed tag. [AGENTS.md](AGENTS.md#releasing) explains module tags and the dry-run step.
 
-The pipeline builds cross-platform binaries and Docker images for the main
-module and CLI and publishes them to Homebrew, Scoop and NFPM through
-GoReleaser. Extension modules get a GitHub release and a notification to the Go
-module proxy. Dry-run mode validates the whole pipeline without publishing, and
-tests can be skipped for a hotfix that CI has already verified.
+## License and credits
 
-## License
+Forge is available under the [Apache License 2.0](LICENSE). Forge™ and Forge Cloud™ are trademarks of XRAPH™. See [TRADEMARKS](TRADEMARKS).
 
-Apache License 2.0. See [LICENSE](LICENSE).
-
-## Acknowledgments
-
-Built by [Rex Raphael](https://github.com/juicycleff), with thanks to
-[Bun](https://github.com/uptrace/bun) for the SQL ORM,
-[Uptrace](https://github.com/uptrace/uptrace) for observability, and
-[Chi](https://github.com/go-chi/chi), whose router shaped the design of this one.
+Built by [Rex Raphael](https://github.com/juicycleff) and [contributors](https://github.com/xraph/forge/graphs/contributors). Thanks to [Chi](https://github.com/go-chi/chi) for its influence on the router, and to [Bun](https://github.com/uptrace/bun) and [Uptrace](https://github.com/uptrace/uptrace).
