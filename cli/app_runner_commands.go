@@ -19,6 +19,33 @@ func collectMigratableExtensions(app forge.App) []forge.MigratableExtension {
 	return migratables
 }
 
+// centralMigrationStatus reports every migration group when central
+// migrations are on.
+//
+// It asks the CentralMigrator when one is in the container. When none is, it
+// asks each MigratableExtension instead. That is the grove case: grove provides
+// its MigrationRegistry under its own type, so the container lookup for the
+// interface misses it, but each grove extension still reports the status of
+// the groups it contributed, read from the same migration tables.
+func centralMigrationStatus(ctx CommandContext, app forge.App) ([]*forge.MigrationGroupInfo, error) {
+	if cm, ok := app.CentralMigrator(); ok {
+		return cm.StatusAll(ctx.Context())
+	}
+
+	var groups []*forge.MigrationGroupInfo
+
+	for _, m := range collectMigratableExtensions(app) {
+		extGroups, err := m.MigrationStatus(ctx.Context())
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", m.Name(), err)
+		}
+
+		groups = append(groups, extGroups...)
+	}
+
+	return groups, nil
+}
+
 // buildServeCommand creates the serve/start/run command that starts the forge app.
 // The app is resolved from ctx.App() at execution time.
 func buildServeCommand(autoMigrate bool) Command {
@@ -121,15 +148,16 @@ func buildMigrateUpCommand() Command {
 		defer app.Stop(ctx.Context()) //nolint:errcheck // best-effort cleanup
 
 		if app.CentralMigrationsEnabled() {
-			cm, ok := app.CentralMigrator()
-			if !ok {
-				ctx.Info("migrations applied during startup; no CentralMigrator registered for status reporting")
-				return nil
-			}
-
-			groups, err := cm.StatusAll(ctx.Context())
+			// Startup has already applied the migrations; this reports them.
+			groups, err := centralMigrationStatus(ctx, app)
 			if err != nil {
 				return fmt.Errorf("failed to get migration status: %w", err)
+			}
+
+			if len(groups) == 0 {
+				ctx.Info("No migrations registered")
+
+				return nil
 			}
 
 			totalApplied := 0
@@ -204,8 +232,11 @@ func buildMigrateDownCommand() Command {
 		if app.CentralMigrationsEnabled() {
 			cm, ok := app.CentralMigrator()
 			if !ok {
-				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
-				return nil
+				// Rolling back per extension is not an option here: an
+				// extension that contributed to a central registry no longer
+				// owns its migrations. Say so rather than report nothing.
+				return NewError("central migrations are on, but no forge.CentralMigrator is in the container, so there is nothing that can roll back the shared set; "+
+					"provide your migration registry as one, for example vessel.ProvideValue[forge.CentralMigrator](app.Container(), registry)", ExitError)
 			}
 
 			// Confirmation prompt unless --force is set.
@@ -334,13 +365,7 @@ func buildMigrateStatusCommand() Command {
 		defer app.Stop(ctx.Context()) //nolint:errcheck // best-effort cleanup
 
 		if app.CentralMigrationsEnabled() {
-			cm, ok := app.CentralMigrator()
-			if !ok {
-				ctx.Info("CentralMigrations is enabled but no CentralMigrator was contributed to the container (is grove registered?)")
-				return nil
-			}
-
-			groups, err := cm.StatusAll(ctx.Context())
+			groups, err := centralMigrationStatus(ctx, app)
 			if err != nil {
 				return fmt.Errorf("failed to get central migration status: %w", err)
 			}
