@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -496,15 +497,39 @@ func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, err
 		return nil, fmt.Errorf("failed to get disk stats for %s: %w", path, err)
 	}
 
-	// Calculate disk usage
-	total := stat.Blocks * uint64(stat.Bsize)
-	available := stat.Bavail * uint64(stat.Bsize)
+	stats, err := diskStatsFromStat(path, &stat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get disk stats for %s: %w", path, err)
+	}
+
+	return stats, nil
+}
+
+// diskStatsFromStat validates filesystem counters before calculating disk usage.
+func diskStatsFromStat(path string, stat *syscall.Statfs_t) (*DiskStats, error) {
+	size := stat.Bsize
+	if size <= 0 {
+		return nil, errors.New("invalid disk stats: block size must be positive")
+	}
+
+	if stat.Blocks == 0 {
+		return nil, errors.New("invalid disk stats: total blocks must be positive")
+	}
+
+	if stat.Bavail > stat.Blocks {
+		return nil, errors.New("invalid disk stats: available blocks exceed total blocks")
+	}
+
+	blockSize := uint64(size)
+	if stat.Blocks > math.MaxUint64/blockSize {
+		return nil, errors.New("invalid disk stats: disk byte count overflows uint64")
+	}
+
+	total := stat.Blocks * blockSize
+	available := stat.Bavail * blockSize
 	used := total - available
 
-	usedPercent := float64(0)
-	if total > 0 {
-		usedPercent = float64(used) / float64(total) * 100
-	}
+	usedPercent := float64(used) / float64(total) * 100
 
 	return &DiskStats{
 		MountPoint:  path,

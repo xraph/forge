@@ -6,7 +6,9 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,8 @@ import (
 
 	health "github.com/xraph/forge/internal/health/internal"
 )
+
+var errInvalidDiskStats = errors.New("invalid disk stats")
 
 // DiskHealthCheck performs health checks on disk usage.
 type DiskHealthCheck struct {
@@ -93,6 +97,10 @@ func NewDiskHealthCheck(config *DiskHealthCheckConfig) *DiskHealthCheck {
 
 // Check performs the disk health check.
 func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
+	return dhc.checkPaths(ctx, dhc.checkPath)
+}
+
+func (dhc *DiskHealthCheck) checkPaths(ctx context.Context, checkPath func(string) (map[string]any, error)) *health.HealthResult {
 	start := time.Now()
 
 	result := health.NewHealthResult(dhc.Name(), health.HealthStatusHealthy, "disk usage is normal").
@@ -103,6 +111,7 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 		maxUsagePercent float64
 		criticalPaths   []string
 		warningPaths    []string
+		invalidPaths    []string
 	)
 
 	pathStats := make(map[string]any)
@@ -115,9 +124,13 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 		default:
 		}
 
-		pathInfo, err := dhc.checkPath(path)
+		pathInfo, err := checkPath(path)
 		if err != nil {
 			result.WithDetail("path_error_"+sanitizePath(path), err.Error())
+
+			if errors.Is(err, errInvalidDiskStats) {
+				invalidPaths = append(invalidPaths, path)
+			}
 
 			continue
 		}
@@ -153,10 +166,16 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	// Determine health status
-	if len(criticalPaths) > 0 {
+	switch {
+	case len(criticalPaths) > 0:
 		result = result.WithError(fmt.Errorf("disk usage exceeds critical threshold on paths: %v", criticalPaths)).
 			WithDetail("critical_paths", criticalPaths)
-	} else if len(warningPaths) > 0 {
+	case len(invalidPaths) > 0:
+		statsErr := fmt.Errorf("%w on paths: %v", errInvalidDiskStats, invalidPaths)
+		result.Message = statsErr.Error()
+		result.WithError(statsErr).
+			WithDetail("invalid_paths", invalidPaths)
+	case len(warningPaths) > 0:
 		result.Status = health.HealthStatusDegraded
 		result.Message = fmt.Sprintf("disk usage exceeds warning threshold on paths: %v", warningPaths)
 		result.WithDetail("warning_paths", warningPaths)
@@ -184,8 +203,11 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]any, error) {
 	}
 
 	// Calculate disk usage
-	totalBytes := stat.Blocks * uint64(stat.Bsize)
-	freeBytes := stat.Bfree * uint64(stat.Bsize)
+	totalBytes, freeBytes, err := diskUsageBytes(stat)
+	if err != nil {
+		return nil, err
+	}
+
 	usedBytes := totalBytes - freeBytes
 	usagePercent := float64(usedBytes) / float64(totalBytes) * 100.0
 
@@ -218,6 +240,29 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]any, error) {
 	}
 
 	return pathInfo, nil
+}
+
+// diskUsageBytes validates filesystem counters before calculating byte counts.
+func diskUsageBytes(stat *syscall.Statfs_t) (uint64, uint64, error) {
+	size := stat.Bsize
+	if size <= 0 {
+		return 0, 0, fmt.Errorf("%w: block size must be positive", errInvalidDiskStats)
+	}
+
+	if stat.Blocks == 0 {
+		return 0, 0, fmt.Errorf("%w: total blocks must be positive", errInvalidDiskStats)
+	}
+
+	if stat.Bfree > stat.Blocks {
+		return 0, 0, fmt.Errorf("%w: free blocks exceed total blocks", errInvalidDiskStats)
+	}
+
+	blockSize := uint64(size)
+	if stat.Blocks > math.MaxUint64/blockSize {
+		return 0, 0, fmt.Errorf("%w: disk byte count overflows uint64", errInvalidDiskStats)
+	}
+
+	return stat.Blocks * blockSize, stat.Bfree * blockSize, nil
 }
 
 // getIOStats returns disk I/O statistics.
