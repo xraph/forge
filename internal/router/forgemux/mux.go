@@ -84,7 +84,14 @@ func (m *Mux) Handle(method, path string, handler http.Handler) {
 func (m *Mux) Mount(path string, handler http.Handler) {
 	base := strings.TrimSuffix(path, "/")
 
-	if exact, err := pathspec.Parse(base); err == nil {
+	// Mounting at "/" trims to an empty base. The exact route is then the
+	// root itself, which the wildcard below does not match on its own.
+	exactPath := base
+	if exactPath == "" {
+		exactPath = "/"
+	}
+
+	if exact, err := pathspec.Parse(exactPath); err == nil {
 		_ = m.HandleRoute(shared.RouteSpec{Pattern: exact, Handler: handler})
 	}
 

@@ -1100,6 +1100,25 @@ func TestRouter_Handle_HTTPHandler(t *testing.T) {
 	}
 }
 
+// Handle("/") is the catch-all mount a proxy or SPA uses, so it has to serve
+// the root path as well as everything below it.
+func TestRouter_Handle_RootServesRoot(t *testing.T) {
+	router := NewRouter()
+
+	err := router.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("root: " + r.URL.Path))
+	}))
+	require.NoError(t, err)
+
+	for _, path := range []string{"/", "/docs", "/a/b"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+
+		assert.Equal(t, http.StatusOK, rec.Code, path)
+		assert.Equal(t, "root: "+path, rec.Body.String())
+	}
+}
+
 func TestRouter_Handle_FileServer(t *testing.T) {
 	router := NewRouter()
 
