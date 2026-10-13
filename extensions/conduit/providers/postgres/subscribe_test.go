@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xraph/forge/extensions/conduit/core"
 )
 
@@ -171,6 +172,31 @@ func insertAt(t *testing.T, p *Provider, ns string, cfg core.StreamConfig, txid 
 	}
 }
 
+// ensureXIDAbove spends transaction IDs until the cluster's horizon is above the given ID, so rows
+// inserted with an explicit txid up to that ID are committed history and deliverable. A fresh
+// cluster starts near 732, below the IDs these tests place.
+func ensureXIDAbove(t *testing.T, pool *pgxpool.Pool, above uint64) {
+	t.Helper()
+
+	for range 10_000 {
+		var horizon uint64
+		if err := pool.QueryRow(t.Context(), "SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint").Scan(&horizon); err != nil {
+			t.Fatal(err)
+		}
+
+		if horizon > above {
+			return
+		}
+
+		// Each autocommit statement that asks for its ID uses one up.
+		if _, err := pool.Exec(t.Context(), "SELECT pg_current_xact_id()"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Fatalf("the cluster's horizon did not pass transaction ID %d; is a transaction held open?", above)
+}
+
 // TestTextOrderDoesNotSkipAMessage covers transaction IDs on either side of a power of
 // ten. As text, 1000 sorts before 999, and a take that delivered 1000 first would move
 // the cursor past 999 for good.
@@ -178,6 +204,13 @@ func TestTextOrderDoesNotSkipAMessage(t *testing.T) {
 	ctx := t.Context()
 	p := connect(t, Options{})
 	ns, cfg := newStream(t, p)
+
+	pool, err := p.db()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ensureXIDAbove(t, pool, 1100)
 
 	insertAt(t, p, ns, cfg, "999", 1, "at-999", placed)
 	insertAt(t, p, ns, cfg, "1000", 2, "at-1000", placed)
@@ -214,8 +247,9 @@ func TestBacklogWindowFollowsTransactionOrder(t *testing.T) {
 	}
 
 	// 30,000 rows of another type, a thousand per transaction ID from 990 to 1019, then
-	// the one matching row at 1020. Every ID is far below the horizon of a cluster that
-	// has run this suite.
+	// the one matching row at 1020. Every ID has to be below the horizon to be delivered.
+	ensureXIDAbove(t, pool, 1100)
+
 	if _, err := pool.Exec(ctx, "INSERT INTO "+p.t.messages+` (stream_key, seq, txid, dedup_key, message_type, target_consumer, envelope)
 SELECT $1, i + 1, (990 + i / 1000)::text::xid8, 'other-' || i, 'orders.cancelled.v1', '', '{}'::json FROM generate_series(0, 29999) AS i`, key); err != nil {
 		t.Fatal(err)
