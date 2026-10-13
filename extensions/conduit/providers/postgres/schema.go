@@ -26,6 +26,11 @@ func Migrations(schema string) []string {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
  stream_key TEXT PRIMARY KEY, namespace TEXT NOT NULL, name TEXT NOT NULL,
  config JSONB NOT NULL, max_age_ms BIGINT NOT NULL, max_messages BIGINT NOT NULL)`, t.streams),
+		// The prune watermark: the highest (txid, seq) any retention path has deleted from
+		// the stream. NULL means nothing was ever pruned. ReadAfter compares a reader's
+		// position with it to tell whether messages after that position may be gone.
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN IF NOT EXISTS pruned_txid XID8`, t.streams),
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN IF NOT EXISTS pruned_seq BIGINT`, t.streams),
 		// Envelopes are json, not jsonb, so the bytes you publish are the bytes you read.
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
  stream_key TEXT NOT NULL, seq BIGINT NOT NULL, txid XID8 NOT NULL DEFAULT pg_current_xact_id(),
@@ -101,10 +106,12 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 		return err
 	}
 
+	// A schema created before the prune watermark has every relation but not its columns.
 	var current bool
 	if err := tx.QueryRow(ctx, `SELECT to_regnamespace($1) IS NOT NULL AND
- (SELECT bool_and(to_regclass(relation) IS NOT NULL) FROM unnest($2::text[]) AS relation)`,
-		pgx.Identifier{schema}.Sanitize(), migrationRelations(schema)).Scan(&current); err != nil {
+ (SELECT bool_and(to_regclass(relation) IS NOT NULL) FROM unnest($2::text[]) AS relation) AND
+ (SELECT count(*) FROM pg_attribute WHERE attrelid = to_regclass($3) AND attname IN ('pruned_txid', 'pruned_seq') AND NOT attisdropped) = 2`,
+		pgx.Identifier{schema}.Sanitize(), migrationRelations(schema), newTables(schema).streams).Scan(&current); err != nil {
 		return fmt.Errorf("conduit/postgres: migrate: %w", err)
 	}
 

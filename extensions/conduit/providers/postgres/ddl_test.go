@@ -157,3 +157,33 @@ func TestLeastPrivilegeRoleRunsAnExistingStream(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestMigrateAddsThePruneWatermarkToAnOlderSchema covers a database migrated before the
+// watermark existed: every relation is there, so only the missing columns say it needs work.
+func TestMigrateAddsThePruneWatermarkToAnOlderSchema(t *testing.T) {
+	ctx := t.Context()
+	schema := "conduit_old_" + strings.ReplaceAll(strings.ToLower(core.NewID()), "-", "")
+	schemaID := pgx.Identifier{schema}.Sanitize()
+
+	p := connect(t, Options{Schema: schema})
+	pool, _ := p.db()
+
+	t.Cleanup(func() { _, _ = pool.Exec(context.WithoutCancel(ctx), "DROP SCHEMA IF EXISTS "+schemaID+" CASCADE") })
+
+	if _, err := pool.Exec(ctx, "ALTER TABLE "+p.t.streams+" DROP COLUMN pruned_txid, DROP COLUMN pruned_seq"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var columns int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM pg_attribute WHERE attrelid = $1::regclass AND attname IN ('pruned_txid', 'pruned_seq') AND NOT attisdropped", p.t.streams).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+
+	if columns != 2 {
+		t.Fatalf("%d watermark columns after migrating, want 2", columns)
+	}
+}

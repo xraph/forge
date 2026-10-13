@@ -228,12 +228,19 @@ const sweepBatch = 1000
 // claims they leave behind, and expired leases and RPC rows. A failed statement only
 // delays cleanup until the next sweep.
 func (p *Provider) sweep(ctx context.Context, pool *pgxpool.Pool) {
-	expired := fmt.Sprintf(`DELETE FROM %[1]s WHERE ctid IN (SELECT m.ctid FROM %[1]s m JOIN %[2]s s ON s.stream_key = m.stream_key
- WHERE s.max_age_ms > 0 AND m.accepted_at <= clock_timestamp() - s.max_age_ms * interval '1 millisecond' LIMIT %[3]d)`, p.t.messages, p.t.streams, sweepBatch)
+	// Each batch raises every touched stream's prune watermark to the highest (txid, seq)
+	// it removed, in the same statement. The result is the number of messages deleted.
+	expired := fmt.Sprintf(`WITH gone AS (DELETE FROM %[1]s WHERE ctid IN (SELECT m.ctid FROM %[1]s m JOIN %[2]s s ON s.stream_key = m.stream_key
+ WHERE s.max_age_ms > 0 AND m.accepted_at <= clock_timestamp() - s.max_age_ms * interval '1 millisecond' LIMIT %[3]d)
+ RETURNING stream_key, txid, seq),
+top AS (SELECT DISTINCT ON (stream_key) stream_key, txid, seq FROM gone ORDER BY stream_key, txid DESC, seq DESC),
+raised AS (UPDATE %[2]s s SET pruned_txid = top.txid, pruned_seq = top.seq FROM top
+ WHERE s.stream_key = top.stream_key AND (s.pruned_txid IS NULL OR (top.txid, top.seq) > (s.pruned_txid, s.pruned_seq)) RETURNING 1)
+SELECT (SELECT count(*) FROM gone), (SELECT count(*) FROM raised)`, p.t.messages, p.t.streams, sweepBatch)
 
 	for ctx.Err() == nil {
-		tag, err := pool.Exec(ctx, expired)
-		if err != nil || tag.RowsAffected() < sweepBatch {
+		var deleted, raised int64
+		if err := pool.QueryRow(ctx, expired).Scan(&deleted, &raised); err != nil || deleted < sweepBatch {
 			break
 		}
 	}

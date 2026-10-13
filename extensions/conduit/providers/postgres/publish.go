@@ -119,7 +119,12 @@ VALUES ($1, nextval('%s'), $2, $3, $4, $5) ON CONFLICT (stream_key, dedup_key) D
 	}
 
 	if cfg.MaxMessages > 0 {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE stream_key = $1 AND seq <= $2`, p.t.messages), key, seq-cfg.MaxMessages); err != nil {
+		// The trim removes by seq, which is not position order, so the watermark rises to
+		// the highest (txid, seq) it removed, in the same statement.
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`WITH gone AS (DELETE FROM %[1]s WHERE stream_key = $1 AND seq <= $2 RETURNING txid, seq)
+UPDATE %[2]s s SET pruned_txid = g.txid, pruned_seq = g.seq
+FROM (SELECT txid, seq FROM gone ORDER BY txid DESC, seq DESC LIMIT 1) g
+WHERE s.stream_key = $1 AND (s.pruned_txid IS NULL OR (g.txid, g.seq) > (s.pruned_txid, s.pruned_seq))`, p.t.messages, p.t.streams), key, seq-cfg.MaxMessages); err != nil {
 			return core.Receipt{}, err
 		}
 	}

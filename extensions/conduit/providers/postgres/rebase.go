@@ -54,6 +54,17 @@ SELECT coalesce(array_agg(DISTINCT stream_key), '{}') FROM moved`, p.t.messages)
 		return err
 	}
 
+	// A prune watermark taken under the old counter would sit above every ID this cluster
+	// hands out: reads would call every position unresumable and Head would start readers
+	// beyond anything to come. Positions in moved rows are now (0, seq), so the watermark
+	// becomes (0, seq) too, no lower than just below the oldest retained row at ID 0. That
+	// can mark a retained position unresumable, never one whose later messages are gone.
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s s SET pruned_txid = '0'::xid8,
+ pruned_seq = greatest(s.pruned_seq, coalesce((SELECT min(m.seq) - 1 FROM %[2]s m WHERE m.stream_key = s.stream_key AND m.txid = '0'::xid8), 0))
+WHERE s.pruned_txid > pg_snapshot_xmax(pg_current_snapshot())`, p.t.streams, p.t.messages)); err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`WITH reset AS (
  UPDATE %s SET cursor_txid = '0'::xid8, cursor_seq = 0, start_snapshot = NULL
  WHERE cursor_txid > pg_snapshot_xmax(pg_current_snapshot()) OR (stream_key = ANY($1) AND cursor_txid > '0'::xid8)
