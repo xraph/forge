@@ -289,6 +289,8 @@ github.com/xraph/forge v1.12.7-0.20261010221529-ca116770eb6e h1:YSs0xAnqmtWqeeQW
 github.com/xraph/forge v1.12.7-0.20261010221529-ca116770eb6e/go.mod h1:O1JOH9fxDhKRyvBbIl2UpZ+aFCjv7vO/IbNfAwnYSEI=
 github.com/xraph/forge v1.12.9-0.20261012043317-2314a6ba593a h1:hvdoZfxWtq3TWYUFB+9ygbZz18M6IsiNfdyoAo148+o=
 github.com/xraph/forge v1.12.9-0.20261012043317-2314a6ba593a/go.mod h1:O1JOH9fxDhKRyvBbIl2UpZ+aFCjv7vO/IbNfAwnYSEI=
+github.com/xraph/forge v1.12.9-0.20261013234306-a52b18c93e8e h1:FerUHfrEYDTvHZTHAZ6ZykIYVj9DVrl1Ha+JFGVQdt8=
+github.com/xraph/forge v1.12.9-0.20261013234306-a52b18c93e8e/go.mod h1:O1JOH9fxDhKRyvBbIl2UpZ+aFCjv7vO/IbNfAwnYSEI=
 github.com/xraph/go-utils v1.3.0 h1:bMZxwH9Xi/6UqhHSotKHB3a+/FnqnlUnEKf+aHZaw5c=
 github.com/xraph/go-utils v1.3.0/go.mod h1:NfSn00r74ZjcIhVujIDPdKV25Ktghy2yz0DQmIKEARk=
 github.com/xraph/vessel v1.0.4 h1:YVG80hm7bAKTwogwLXZMlp46tMHHJThUcvCUOWao9Yk=
