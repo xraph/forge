@@ -1,8 +1,13 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"net"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,7 +120,7 @@ func signalled(signal <-chan struct{}) bool {
 // TestReplyWakesOnlyItsCaller covers many calls waiting on one provider's reply channel:
 // each reply must wake the call it answers, not every caller.
 func TestReplyWakesOnlyItsCaller(t *testing.T) {
-	l := newListener(nil)
+	l := newListener(nil, nil)
 
 	first, unwatchFirst := l.watchID("fcp_reply", "first")
 	defer unwatchFirst()
@@ -158,4 +163,132 @@ func TestReplyWakesOnlyItsCaller(t *testing.T) {
 	if !signalled(first) || !signalled(second) || !signalled(stream) {
 		t.Fatal("a reconnect did not wake every watcher")
 	}
+}
+
+// logBuffer collects log output from the listener's goroutine for the test to read.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+func (b *logBuffer) logger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(b, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+func TestListenerLogsAFailedConnect(t *testing.T) {
+	dsn := testDSN(t)
+
+	pool, err := pgxpool.New(t.Context(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(pool.Close)
+
+	// A port that was free a moment ago refuses the listener's connection.
+	closed, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := closed.Addr().String()
+	_ = closed.Close()
+
+	unreachable, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unreachable.Host = address
+
+	var logs logBuffer
+
+	p := New(Options{Pool: pool, URL: unreachable.String(), Logger: logs.logger()})
+	if err := p.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = p.Close(context.WithoutCancel(t.Context())) })
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(logs.String(), "level=WARN") {
+		if time.Now().After(deadline) {
+			t.Fatalf("no warning within 2s of an unreachable listener: %q", logs.String())
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if password, ok := unreachable.User.Password(); ok && strings.Contains(logs.String(), password) {
+		t.Fatalf("the log carries the password: %q", logs.String())
+	}
+
+	t.Log(logs.String())
+}
+
+// TestConnectWarningsAreRateLimited covers a database that stays down: the backoff stops
+// growing at five seconds, and a warning every attempt would then fill the log.
+func TestConnectWarningsAreRateLimited(t *testing.T) {
+	var limit warnLimit
+
+	start := time.Now()
+	steps := []struct {
+		after   time.Duration
+		backoff time.Duration
+		warn    bool
+	}{
+		{0, 100 * time.Millisecond, true},
+		{100 * time.Millisecond, 200 * time.Millisecond, true},
+		{300 * time.Millisecond, 400 * time.Millisecond, true},
+		{5 * time.Second, 5 * time.Second, true},
+		{10 * time.Second, 5 * time.Second, false},
+		{30 * time.Second, 5 * time.Second, false},
+		{35 * time.Second, 5 * time.Second, true},
+		{40 * time.Second, 5 * time.Second, false},
+	}
+
+	for i, step := range steps {
+		if got := limit.allow(start.Add(step.after), step.backoff); got != step.warn {
+			t.Fatalf("step %d (%v at %v backoff): warn=%v, want %v", i, step.after, step.backoff, got, step.warn)
+		}
+	}
+
+	// A connection that comes up starts the next outage afresh.
+	limit = warnLimit{}
+	if !limit.allow(start.Add(41*time.Second), 5*time.Second) {
+		t.Fatal("the first failure of a new outage was not logged")
+	}
+}
+
+func TestListenerLogsADropAndTheReconnect(t *testing.T) {
+	var logs logBuffer
+
+	p := connect(t, Options{Logger: logs.logger()})
+
+	waitFor(t, "listener", p.ListenerConnected)
+
+	pool, _ := p.db()
+
+	var killed int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM (SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1) AS terminated`, listenerName(p.owner)).Scan(&killed); err != nil || killed != 1 {
+		t.Fatalf("terminated %d listeners: %v", killed, err)
+	}
+
+	waitFor(t, "a dropped-connection warning", func() bool { return strings.Contains(logs.String(), "level=WARN") })
+	waitFor(t, "a reconnect record", func() bool { return strings.Contains(logs.String(), "level=INFO") })
+	t.Log(logs.String())
 }

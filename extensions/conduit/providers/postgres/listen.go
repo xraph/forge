@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 // PgBouncer in transaction mode would drop the registration between statements.
 type listener struct {
 	config    *pgx.ConnConfig
+	logger    *slog.Logger
 	mu        sync.Mutex
 	waiters   map[watchKey]map[chan struct{}]struct{}
 	connected atomic.Bool
@@ -23,8 +25,13 @@ type listener struct {
 // watchKey is a channel alone, or a channel and the one payload a watcher waits for.
 type watchKey struct{ channel, id string }
 
-func newListener(config *pgx.ConnConfig) *listener {
-	return &listener{config: config, waiters: map[watchKey]map[chan struct{}]struct{}{}}
+// newListener takes a nil logger to log nothing.
+func newListener(config *pgx.ConnConfig, logger *slog.Logger) *listener {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
+	return &listener{config: config, logger: logger, waiters: map[watchKey]map[chan struct{}]struct{}{}}
 }
 
 func listenerName(owner string) string { return "forge-conduit-listener-" + owner }
@@ -111,12 +118,32 @@ func (l *listener) channels() []string {
 
 // run keeps a listening connection open until ctx ends, reconnecting with backoff.
 // While it is down, subscribers keep delivering by polling.
+//
+// Outages are logged with the error alone. pgx connect errors name the host, user and
+// database but never the password, so nothing here can leak it.
 func (l *listener) run(ctx context.Context) {
+	var (
+		limit warnLimit
+		down  time.Time // when the current outage began; zero while connected
+	)
+
 	backoff := 100 * time.Millisecond
 
 	for ctx.Err() == nil {
 		conn, err := pgx.ConnectConfig(ctx, l.config)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			if down.IsZero() {
+				down = time.Now()
+			}
+
+			if limit.allow(time.Now(), backoff) {
+				l.logger.WarnContext(ctx, "conduit/postgres: listener cannot connect; delivery continues by polling", "error", err, "retry", backoff)
+			}
+
 			select {
 			case <-ctx.Done():
 				return
@@ -128,21 +155,32 @@ func (l *listener) run(ctx context.Context) {
 			continue
 		}
 
-		backoff = 100 * time.Millisecond
+		if !down.IsZero() {
+			l.logger.InfoContext(ctx, "conduit/postgres: listener reconnected", "down", time.Since(down).Round(time.Millisecond))
+		}
+
+		backoff, limit, down = 100*time.Millisecond, warnLimit{}, time.Time{}
 
 		l.connected.Store(true)
 		l.notifyAll() // anything published while disconnected is found by the next read
-		l.serve(ctx, conn)
+		err = l.serve(ctx, conn)
 		l.connected.Store(false)
 
 		closing, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		_ = conn.Close(closing)
 
 		cancel()
+
+		if ctx.Err() == nil {
+			down = time.Now()
+
+			l.logger.WarnContext(ctx, "conduit/postgres: listener connection dropped; delivery continues by polling", "error", err)
+		}
 	}
 }
 
-func (l *listener) serve(ctx context.Context, conn *pgx.Conn) {
+// serve listens on conn until ctx ends or the connection fails, and returns the failure.
+func (l *listener) serve(ctx context.Context, conn *pgx.Conn) error {
 	listening := map[string]bool{}
 
 	for ctx.Err() == nil {
@@ -154,7 +192,7 @@ func (l *listener) serve(ctx context.Context, conn *pgx.Conn) {
 			}
 
 			if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
-				return
+				return err
 			}
 
 			listening[channel] = true
@@ -174,7 +212,30 @@ func (l *listener) serve(ctx context.Context, conn *pgx.Conn) {
 		}
 
 		if ctx.Err() != nil || conn.IsClosed() || (!errors.Is(err, context.DeadlineExceeded) && !pgconn.Timeout(err)) {
-			return
+			return err
 		}
 	}
+
+	return ctx.Err()
+}
+
+// warnInterval is how often a database that stays down is warned about once the backoff
+// has stopped growing.
+const warnInterval = 30 * time.Second
+
+// warnLimit decides which failed connect attempts get a warning: one for each new
+// backoff step, then one per warnInterval.
+type warnLimit struct {
+	last    time.Time
+	backoff time.Duration
+}
+
+func (w *warnLimit) allow(now time.Time, backoff time.Duration) bool {
+	if backoff == w.backoff && now.Sub(w.last) < warnInterval {
+		return false
+	}
+
+	w.last, w.backoff = now, backoff
+
+	return true
 }

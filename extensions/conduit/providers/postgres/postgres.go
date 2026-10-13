@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"regexp"
 	"slices"
@@ -38,6 +39,9 @@ type Options struct {
 	RetentionInterval time.Duration
 	// AutoMigrate runs Migrate during Connect. Leave it off when a central runner applies Migrations.
 	AutoMigrate bool
+	// Logger receives listener outages: a failed connect or a dropped connection at Warn,
+	// and the reconnect at Info. Nil logs nothing.
+	Logger *slog.Logger
 }
 
 var validSchema = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
@@ -177,7 +181,7 @@ func (p *Provider) listenerConfig(pool *pgxpool.Pool) (*pgx.ConnConfig, error) {
 func (p *Provider) start(config *pgx.ConnConfig) {
 	background, stop := context.WithCancel(context.Background())
 	p.stop = stop
-	p.listener = newListener(config)
+	p.listener = newListener(config, p.options.Logger)
 
 	l := p.listener
 
