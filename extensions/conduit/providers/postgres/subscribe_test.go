@@ -57,7 +57,7 @@ func TestLargeNonMatchingBacklogIsWalkedInWindows(t *testing.T) {
 	})
 
 	var windowEnd int64
-	if err := pool.QueryRow(ctx, "SELECT seq FROM "+p.t.messages+" WHERE stream_key = $1 ORDER BY txid, seq OFFSET 9999 LIMIT 1", key).Scan(&windowEnd); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT m.seq FROM "+p.t.messages+" m WHERE m.stream_key = $1 ORDER BY m.txid, m.seq OFFSET 9999 LIMIT 1", key).Scan(&windowEnd); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,5 +196,77 @@ func TestTextOrderDoesNotSkipAMessage(t *testing.T) {
 		if err := d.Ack(ctx); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestBacklogWindowFollowsTransactionOrder covers a backlog whose transaction IDs cross a
+// power of ten: each take stops at the 10,000th row in transaction order, never at a row
+// picked by sorting the IDs as text.
+func TestBacklogWindowFollowsTransactionOrder(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+	key := streamKey(ns, cfg.Name)
+
+	pool, err := p.db()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 30,000 rows of another type, a thousand per transaction ID from 990 to 1019, then
+	// the one matching row at 1020. Every ID is far below the horizon of a cluster that
+	// has run this suite.
+	if _, err := pool.Exec(ctx, "INSERT INTO "+p.t.messages+` (stream_key, seq, txid, dedup_key, message_type, target_consumer, envelope)
+SELECT $1, i + 1, (990 + i / 1000)::text::xid8, 'other-' || i, 'orders.cancelled.v1', '', '{}'::json FROM generate_series(0, 29999) AS i`, key); err != nil {
+		t.Fatal(err)
+	}
+
+	insertAt(t, p, ns, cfg, "1020", 30_001, "wanted", placed)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "windows", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub := s.(*subscription)
+	cursor := func() (txid string, seq int64) {
+		t.Helper()
+
+		if err := pool.QueryRow(ctx, "SELECT cursor_txid::text, cursor_seq FROM "+p.t.consumers+" WHERE consumer_id = $1", sub.consumer).Scan(&txid, &seq); err != nil {
+			t.Fatal(err)
+		}
+
+		return txid, seq
+	}
+
+	for _, want := range []struct {
+		txid string
+		seq  int64
+	}{{"999", 10_000}, {"1009", 20_000}, {"1019", 30_000}} {
+		d, wait, err := sub.take(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if d != nil {
+			t.Fatalf("a take walked past its window and delivered %s", d.Message().ID)
+		}
+
+		if txid, seq := cursor(); txid != want.txid || seq != want.seq {
+			t.Fatalf("cursor at (%s, %d), want the window end (%s, %d)", txid, seq, want.txid, want.seq)
+		}
+
+		if wait != 0 {
+			t.Fatalf("a take that stopped at its window end waits %v before the next", wait)
+		}
+	}
+
+	d, _, err := sub.take(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d == nil || d.Message().ID != "wanted" {
+		t.Fatalf("the fourth take delivered %v, want the matching row", d)
 	}
 }

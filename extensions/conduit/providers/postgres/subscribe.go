@@ -295,80 +295,73 @@ RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at 
 	// so no row can appear behind the cursor once the cursor has passed.
 	//
 	// The filters run in SQL, so a backlog of other message types is skipped by the
-	// database and only the one matching envelope is read. The walk stops at the window
-	// end, the scanWindow-th row past the cursor, when there is one.
+	// database and only the one matching envelope is read.
+	//
+	// One take walks at most scanWindow rows, so a huge backlog of other types never
+	// becomes one statement long enough to hit statement_timeout. The bound is the last
+	// row of the walk: the scanWindow-th row past the cursor, or the last row below the
+	// horizon when fewer remain. Both statements are range scans on the cursor index that
+	// stop at it. They order by the xid8 column itself: a bare "txid" would name the text
+	// output column, where 1000 sorts before 999.
 	var (
-		txid, raw string
-		seq       int64
-		endTxid   *string
-		endSeq    *int64
+		endTxid, txid, raw string
+		endSeq, seq        int64
+		walked             int64
 	)
 
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq FROM %s
-WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
-ORDER BY txid, seq OFFSET $5 LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, scanWindow-1).
-		Scan(&endTxid, &endSeq)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, 0, err
-	}
-
-	// Order by the xid8 column itself. A bare "txid" would name the text output column,
-	// where 1000 sorts before 999.
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq, m.envelope::text FROM %s m
-WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND m.txid < $4::text::xid8
- AND m.message_type = $5 AND (m.target_consumer = '' OR m.target_consumer = $6) AND m.seq >= $7
- AND ($8::bigint = 0 OR m.accepted_at > clock_timestamp() - $8::bigint * interval '1 millisecond')
- AND ($9::text IS NULL OR NOT pg_visible_in_snapshot(m.txid, $9::text::pg_snapshot))
- AND ($10::text IS NULL OR (m.txid, m.seq) <= ($10::text::xid8, $11::bigint))
-ORDER BY m.txid, m.seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot, endTxid, endSeq).
-		Scan(&txid, &seq, &raw)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT w.txid::text AS txid_text, w.seq, count(*) OVER () FROM (
+ SELECT m.txid, m.seq FROM %s m
+ WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND m.txid < $4::text::xid8
+ ORDER BY m.txid, m.seq LIMIT $5) w
+ORDER BY w.txid DESC, w.seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, scanWindow).
+		Scan(&endTxid, &endSeq, &walked)
 
 	switch {
 	case err == nil:
-		found, err := s.delivery(seq, 1, token, []byte(raw))
-		if err != nil {
-			return nil, 0, err
-		}
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq, m.envelope::text FROM %s m
+WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND (m.txid, m.seq) <= ($4::text::xid8, $5)
+ AND m.message_type = $6 AND (m.target_consumer = '' OR m.target_consumer = $7) AND m.seq >= $8
+ AND ($9::bigint = 0 OR m.accepted_at > clock_timestamp() - $9::bigint * interval '1 millisecond')
+ AND ($10::text IS NULL OR NOT pg_visible_in_snapshot(m.txid, $10::text::pg_snapshot))
+ORDER BY m.txid, m.seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, endTxid, endSeq, sub.MessageType, s.consumer, minSeq, maxAge, snapshot).
+			Scan(&txid, &seq, &raw)
+		if err == nil {
+			found, err := s.delivery(seq, 1, token, []byte(raw))
+			if err != nil {
+				return nil, 0, err
+			}
 
-		if err := s.moveCursor(ctx, tx, txid, seq); err != nil {
-			return nil, 0, err
-		}
+			if err := s.moveCursor(ctx, tx, txid, seq); err != nil {
+				return nil, 0, err
+			}
 
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (consumer_id, seq, stream_key, token, attempt, visible_at)
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (consumer_id, seq, stream_key, token, attempt, visible_at)
 VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisecond')`, p.t.claims), s.consumer, seq, s.key, token, visibility); err != nil {
+				return nil, 0, err
+			}
+
+			s.repoll.Store(int64(firstRepoll))
+
+			return found, 0, tx.Commit(ctx)
+		}
+
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, 0, err
 		}
 
-		s.repoll.Store(int64(firstRepoll))
+		// Nothing in the walk matches, so step over it. A full window may have more
+		// behind it, so the next take starts straight away.
+		if err := s.moveCursor(ctx, tx, endTxid, endSeq); err != nil {
+			return nil, 0, err
+		}
 
-		return found, 0, tx.Commit(ctx)
+		if walked >= scanWindow {
+			return nil, 0, tx.Commit(ctx)
+		}
+
+		cursorTxid, cursorSeq = endTxid, endSeq
 	case errors.Is(err, pgx.ErrNoRows):
-	default:
-		return nil, 0, err
-	}
-
-	// Nothing in the window matches. Step over it, and walk the next window straight away.
-	if endTxid != nil && endSeq != nil {
-		if err := s.moveCursor(ctx, tx, *endTxid, *endSeq); err != nil {
-			return nil, 0, err
-		}
-
-		return nil, 0, tx.Commit(ctx)
-	}
-
-	// Nothing matches below the horizon, so step over everything that was scanned.
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq FROM %s m
-WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND m.txid < $4::text::xid8
-ORDER BY m.txid DESC, m.seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&txid, &seq)
-
-	switch {
-	case err == nil:
-		if err := s.moveCursor(ctx, tx, txid, seq); err != nil {
-			return nil, 0, err
-		}
-
-		cursorTxid, cursorSeq = txid, seq
-	case errors.Is(err, pgx.ErrNoRows):
+		// Nothing below the horizon is past the cursor.
 	default:
 		return nil, 0, err
 	}
