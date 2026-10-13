@@ -303,7 +303,8 @@ func TestServingProceduresLeavesThePoolFree(t *testing.T) {
 	}
 
 	// Inspect waits on nothing but the pool. Publish also waits for an AOF fsync, which
-	// takes up to a second on appendfsync everysec, so it gets that second on top.
+	// can take over a second on appendfsync everysec when one is already in flight, so it
+	// gets a looser bound.
 	for i := range 5 {
 		started := time.Now()
 
@@ -325,7 +326,7 @@ func TestServingProceduresLeavesThePoolFree(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if took := time.Since(started); took > 1200*time.Millisecond {
+		if took := time.Since(started); took > 3*time.Second {
 			t.Fatalf("Publish and Inspect %d took %v while serving", i, took)
 		}
 	}

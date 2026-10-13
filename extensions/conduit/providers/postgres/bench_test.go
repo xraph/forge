@@ -16,7 +16,9 @@ import (
 //
 //	CONDUIT_TEST_POSTGRES=postgres://... go test -run '^$' -bench . -benchtime=2000x ./providers/postgres
 //
-// Every publish commits and sends a NOTIFY, so the numbers follow your commit latency.
+// They create the forge_conduit_ tables and leave their rows behind, so point them at a
+// scratch database. Every publish commits and sends a NOTIFY, so the numbers follow your
+// commit latency.
 
 func benchProvider(b *testing.B) *Provider {
 	b.Helper()

@@ -16,6 +16,10 @@ import (
 // and loses its claims, so it receives its retained messages again. A StartAt "new"
 // consumer whose start snapshot came from the old cluster loses that snapshot too. On a
 // healthy database nothing is ahead and Rebase changes nothing.
+//
+// Rebase takes every consumer's delivery lock in one transaction, so with thousands of
+// consumers raise max_locks_per_transaction first. It can fail on a deadlock with the
+// retention sweep. A failed Rebase changes nothing, so it is safe to run again.
 func (p *Provider) Rebase(ctx context.Context) error {
 	pool, err := p.db()
 	if err != nil {
