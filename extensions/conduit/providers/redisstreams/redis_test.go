@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge/extensions/conduit/core"
 	"github.com/xraph/forge/extensions/conduit/providers/redisstreams"
 )
@@ -261,5 +262,90 @@ func TestRetryWithTheSameIDGetsItsOwnReply(t *testing.T) {
 
 	if string(response.Data) != `{"attempt":2}` {
 		t.Fatalf("the retry received %s instead of its own reply", response.Data)
+	}
+}
+
+// TestServingProceduresLeavesThePoolFree serves more procedures than the pool has
+// connections. Serving must not pin a connection per procedure, or every other command
+// queues behind the blocked reads.
+func TestServingProceduresLeavesThePoolFree(t *testing.T) {
+	caller := connect(t, redisstreams.Options{})
+
+	options, err := redis.ParseURL(os.Getenv("CONDUIT_TEST_REDIS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	options.PoolSize = 3
+	server := connect(t, redisstreams.Options{Redis: options})
+	ns := "pool-" + core.NewID()
+	identity := core.Identity{Namespace: ns, ServiceID: "web", InstanceID: "caller"}
+
+	for i := range 6 {
+		method := fmt.Sprintf("m%d", i)
+		binding := core.RPCBinding{
+			Identity: core.Identity{Namespace: ns, ServiceID: "pricing", InstanceID: "a"}, Method: method,
+			Config: core.RPCConfig{Timeout: 5 * time.Second, Concurrency: 1, MaxInFlight: 1}, MaxPayloadBytes: 1 << 20,
+		}
+
+		served, err := server.ServeRPC(t.Context(), binding, func(_ context.Context, r core.RPCRequest) core.RPCResponse {
+			return core.RPCResponse{ID: r.Envelope.ID, Source: binding.Identity, Data: []byte(`"` + method + `"`)}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() { _ = served.Close(context.WithoutCancel(t.Context())) })
+	}
+
+	if err := server.EnsureStream(t.Context(), ns, orders); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inspect waits on nothing but the pool. Publish also waits for an AOF fsync, which
+	// takes up to a second on appendfsync everysec, so it gets that second on top.
+	for i := range 5 {
+		started := time.Now()
+
+		if _, err := server.Inspect(t.Context(), ns, orders); err != nil {
+			t.Fatal(err)
+		}
+
+		if took := time.Since(started); took > 200*time.Millisecond {
+			t.Fatalf("Inspect %d took %v while serving", i, took)
+		}
+
+		started = time.Now()
+
+		if _, err := server.Publish(t.Context(), ns, orders, envelope(ns, core.NewID())); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := server.Inspect(t.Context(), ns, orders); err != nil {
+			t.Fatal(err)
+		}
+
+		if took := time.Since(started); took > 1200*time.Millisecond {
+			t.Fatalf("Publish and Inspect %d took %v while serving", i, took)
+		}
+	}
+
+	for i := range 6 {
+		method := fmt.Sprintf("m%d", i)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		deadline, _ := ctx.Deadline()
+		request := core.RPCRequest{
+			Service: "pricing", Method: method, Deadline: deadline,
+			Envelope: core.Envelope{ID: core.NewID(), Type: method, Source: identity, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()},
+		}
+
+		response, err := caller.RequestRPC(ctx, identity, request)
+
+		cancel()
+
+		if err != nil || response.Error != nil || string(response.Data) != `"`+method+`"` {
+			t.Fatalf("%s answered %+v %v", method, response, err)
+		}
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -200,17 +202,30 @@ type rpcServer struct {
 	binding core.RPCBinding
 	handler func(context.Context, core.RPCRequest) core.RPCResponse
 	key     string
-	member  string
 	base    context.Context //nolint:containedctx // The owning runtime cancels the server's lifetime after draining.
 	mu      sync.Mutex
 	active  map[string]*rpcWork
 	closing bool
 	jobs    chan *rpcWork
-	stop    context.CancelFunc
-	reading chan struct{}
+	// leave stops intake: it unregisters the server from the provider's reader, then
+	// closes jobs. Close calls it, and so does the end of ServeRPC's context.
+	leave   func()
+	unwatch func() bool
 	workers sync.WaitGroup
-	once    sync.Once
 	done    chan struct{}
+}
+
+// rpcServing is the provider's one request reader. It reads every served method's stream
+// in a single XREADGROUP, so serving any number of procedures holds one blocking
+// connection.
+type rpcServing struct {
+	mu      sync.Mutex
+	servers map[string][]*rpcServer
+	turn    int
+	stop    context.CancelFunc
+	done    chan struct{}
+	// client is the connection the reader may use, guarded like rpcCalls.client.
+	client *redis.Client
 }
 
 func workKey(msg core.Envelope) string {
@@ -230,12 +245,26 @@ func (p *Provider) ServeRPC(ctx context.Context, binding core.RPCBinding, handle
 		return nil, err
 	}
 
-	readCtx, stop := context.WithCancel(ctx) //nolint:gosec // The server stores stop and calls it from Close.
 	s := &rpcServer{
-		client: c, binding: binding, handler: handler, key: key, member: hash(binding.Identity.InstanceID, core.NewID()), base: ctx,
-		active: map[string]*rpcWork{}, jobs: make(chan *rpcWork, binding.Config.MaxInFlight), stop: stop,
-		reading: make(chan struct{}), done: make(chan struct{}),
+		client: c, binding: binding, handler: handler, key: key, base: ctx,
+		active: map[string]*rpcWork{}, jobs: make(chan *rpcWork, binding.Config.MaxInFlight), done: make(chan struct{}),
 	}
+
+	if err := p.register(c, s); err != nil {
+		return nil, err
+	}
+
+	left := make(chan struct{})
+	s.leave = sync.OnceFunc(func() {
+		p.unregister(s)
+
+		s.mu.Lock()
+		s.closing = true
+		close(s.jobs)
+		s.mu.Unlock()
+		close(left)
+	})
+	s.unwatch = context.AfterFunc(ctx, s.leave)
 
 	for range binding.Config.Concurrency {
 		s.workers.Add(1)
@@ -243,18 +272,107 @@ func (p *Provider) ServeRPC(ctx context.Context, binding core.RPCBinding, handle
 		go s.run()
 	}
 
-	go s.read(readCtx)
-	go func() { <-s.reading; s.workers.Wait(); close(s.done) }()
+	go func() { <-left; s.workers.Wait(); close(s.done) }()
 
 	return s, nil
 }
 
-func (s *rpcServer) read(ctx context.Context) {
-	defer close(s.reading)
-	defer func() { s.mu.Lock(); s.closing = true; close(s.jobs); s.mu.Unlock() }()
+// register adds a server to the provider's reader, starting the reader if none runs. A
+// server whose client was closed by Close gets ErrNotRunning, as await does for calls.
+func (p *Provider) register(c *redis.Client, s *rpcServer) error {
+	p.serving.mu.Lock()
+	defer p.serving.mu.Unlock()
+
+	if c == nil || c != p.serving.client {
+		return core.ErrNotRunning
+	}
+
+	if p.serving.servers == nil {
+		p.serving.servers = map[string][]*rpcServer{}
+	}
+
+	p.serving.servers[s.key] = append(p.serving.servers[s.key], s)
+
+	if p.serving.done == nil {
+		readCtx, stop := context.WithCancel(context.Background())
+		p.serving.stop, p.serving.done = stop, make(chan struct{})
+
+		go p.readRequests(readCtx, c, p.serving.done)
+	}
+
+	return nil
+}
+
+func (p *Provider) unregister(s *rpcServer) {
+	p.serving.mu.Lock()
+	defer p.serving.mu.Unlock()
+
+	servers := slices.DeleteFunc(p.serving.servers[s.key], func(other *rpcServer) bool { return other == s })
+	if len(servers) == 0 {
+		delete(p.serving.servers, s.key)
+	} else {
+		p.serving.servers[s.key] = servers
+	}
+}
+
+// requestBatch returns the keys to read this turn and the servers registered for them. A
+// reader with nothing to serve ends, and the next ServeRPC starts another.
+func (p *Provider) requestBatch(done chan struct{}) ([]string, map[string][]*rpcServer, bool) {
+	p.serving.mu.Lock()
+	defer p.serving.mu.Unlock()
+
+	if len(p.serving.servers) == 0 {
+		// stopServing may have taken this reader's place already.
+		if p.serving.done == done {
+			p.serving.stop()
+			p.serving.stop, p.serving.done = nil, nil
+		}
+
+		return nil, nil, false
+	}
+
+	servers := make(map[string][]*rpcServer, len(p.serving.servers))
+	for key, registered := range p.serving.servers {
+		servers[key] = slices.Clone(registered)
+	}
+
+	keys := slices.Sorted(maps.Keys(servers))
+
+	return keys, servers, true
+}
+
+// pick shares a method's requests between the servers one provider runs for it.
+func (p *Provider) pick(servers []*rpcServer) *rpcServer {
+	p.serving.mu.Lock()
+	defer p.serving.mu.Unlock()
+
+	p.serving.turn++
+
+	return servers[p.serving.turn%len(servers)]
+}
+
+// readRequests reads at most one request per served method each turn, as each server's
+// own reader did, so one replica never takes a burst it has to refuse. Keys registered
+// since the last turn join the next one, within one BLOCK interval.
+func (p *Provider) readRequests(ctx context.Context, c *redis.Client, done chan struct{}) {
+	defer close(done)
+
+	member := hash("rpc", p.owner)
 
 	for ctx.Err() == nil {
-		streams, err := s.client.XReadGroup(ctx, &redis.XReadGroupArgs{Group: rpcGroup, Consumer: s.member, Streams: []string{s.key, ">"}, Count: 1, Block: 250 * time.Millisecond}).Result()
+		keys, servers, ok := p.requestBatch(done)
+		if !ok {
+			return
+		}
+
+		streams := make([]string, 0, 2*len(keys))
+		streams = append(streams, keys...)
+
+		for range keys {
+			streams = append(streams, ">")
+		}
+
+		read, err := c.XReadGroup(ctx, &redis.XReadGroupArgs{Group: rpcGroup, Consumer: member, Streams: streams, Count: 1, Block: 250 * time.Millisecond}).Result()
 		if errors.Is(err, redis.Nil) {
 			continue
 		}
@@ -264,24 +382,63 @@ func (s *rpcServer) read(ctx context.Context) {
 				return
 			}
 
+			// One method's stream lost its group (a flush or an eviction) and the read
+			// fails for every method. Recreating the groups keeps the others serving.
+			if strings.Contains(err.Error(), "NOGROUP") {
+				for _, key := range keys {
+					_ = c.XGroupCreateMkStream(ctx, key, rpcGroup, "$").Err()
+				}
+			}
+
 			time.Sleep(50 * time.Millisecond)
 
 			continue
 		}
 
-		for _, stream := range streams {
+		// Every request leaves the group before any work starts, so no replica can
+		// claim it again.
+		pipe := c.Pipeline()
+
+		for _, stream := range read {
 			for _, msg := range stream.Messages {
-				s.accept(ctx, msg)
+				pipe.XAck(ctx, stream.Stream, rpcGroup, msg.ID)
+				pipe.XDel(ctx, stream.Stream, msg.ID)
+			}
+		}
+
+		_, _ = pipe.Exec(ctx)
+
+		for _, stream := range read {
+			// A server that unregistered during the read is still in this turn's batch.
+			// Its accept sees it closing and refuses, so the caller hears back.
+			registered := servers[stream.Stream]
+			if len(registered) == 0 {
+				continue
+			}
+
+			for _, msg := range stream.Messages {
+				p.pick(registered).accept(msg)
 			}
 		}
 	}
 }
 
-func (s *rpcServer) accept(ctx context.Context, msg redis.XMessage) {
-	// The request leaves the group before any work starts, so no replica can claim it again.
-	_ = s.client.XAck(ctx, s.key, rpcGroup, msg.ID).Err()
-	_ = s.client.XDel(ctx, s.key, msg.ID).Err()
+// stopServing ends the request reader before the client closes.
+func (p *Provider) stopServing() {
+	p.serving.mu.Lock()
+	stop, done := p.serving.stop, p.serving.done
+	// Servers left registered belong to the closed client. A reader started after the
+	// next Connect must not serve them.
+	p.serving.stop, p.serving.done, p.serving.client, p.serving.servers = nil, nil, nil, nil
+	p.serving.mu.Unlock()
 
+	if stop != nil {
+		stop()
+		<-done
+	}
+}
+
+func (s *rpcServer) accept(msg redis.XMessage) {
 	raw, _ := msg.Values["request"].(string)
 
 	var message rpcMessage
@@ -378,7 +535,8 @@ func (s *rpcServer) run() {
 
 // Close stops intake and drains accepted work until ctx ends.
 func (s *rpcServer) Close(ctx context.Context) error {
-	s.once.Do(s.stop)
+	s.unwatch()
+	s.leave()
 
 	select {
 	case <-s.done:

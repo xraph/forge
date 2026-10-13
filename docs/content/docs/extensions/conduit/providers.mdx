@@ -46,7 +46,7 @@ Publication IDs are deduplicated for 24 hours by default. Set `DeduplicationWind
 
 Pause, backfill progress, discovery leases and RPC requests use the same Redis server. RPC requests and replies skip `WAITAOF`: they're transient, so a failover can drop an in-flight call and its caller then sees `DEADLINE_EXCEEDED`. A call to a procedure nobody serves also ends at its deadline.
 
-Size the connection pool for RPC. Each procedure you serve keeps one pooled connection blocked in `XREADGROUP`, and a provider that calls procedures keeps one more waiting for replies. Set `PoolSize` in `Options.Redis` (or `pool_size` in the URL) to at least the number of procedures you serve plus the concurrency you'd normally need.
+RPC takes two pooled connections at most, however many procedures you serve. The provider holds one blocked in `XREADGROUP` for serving, which reads every procedure's requests at once, and a provider that calls procedures holds one more waiting for replies. Leave room for both when you set `PoolSize` in `Options.Redis` (or `pool_size` in the URL). A procedure you start serving joins that read within a quarter of a second. When you close a server, a request the reader picked up in that last quarter second gets `UNAVAILABLE`, so your caller can retry it on another replica.
 
 ## PostgreSQL
 

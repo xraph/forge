@@ -38,6 +38,7 @@ type Provider struct {
 	owner      string
 	generation int64
 	calls      rpcCalls
+	serving    rpcServing
 }
 
 // New prepares a provider whose connection lifecycle belongs to Conduit.
@@ -115,12 +116,17 @@ func (p *Provider) Connect(ctx context.Context) error {
 	p.calls.client = c
 	p.calls.mu.Unlock()
 
+	p.serving.mu.Lock()
+	p.serving.client = c
+	p.serving.mu.Unlock()
+
 	return nil
 }
 
 // Close releases the pool without deleting durable group progress.
 func (p *Provider) Close(context.Context) error {
 	p.stopReplies()
+	p.stopServing()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
