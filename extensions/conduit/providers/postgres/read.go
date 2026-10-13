@@ -38,7 +38,8 @@ var ErrInvalidPosition = errors.New("conduit/postgres: invalid position")
 // (txid, seq) any retention path has deleted, is above it. A caller that must
 // not miss a message resynchronises instead of trusting the result. A message
 // past the stream's MaxAge that the sweeper hasn't removed yet is hidden from
-// the rows, so it counts as pruned too. "0:0" is resumable exactly when nothing
+// the rows, so it counts as pruned too, and a position in the future (a
+// transaction that hasn't started) is never resumable. "0:0" is resumable exactly when nothing
 // was ever pruned. The watermark and the rows
 // are read in one snapshot, so a prune can't land between them. Each returned
 // envelope carries its PositionHeader.
@@ -87,8 +88,17 @@ func (p *Provider) ReadAfter(ctx context.Context, namespace string, stream core.
 	// One cutoff for both statements, so a message can't age out between the check and
 	// the read. A message past MaxAge that the sweeper hasn't removed yet is hidden from
 	// the result, so it counts as pruned too.
-	var cutoff time.Time
-	if err := tx.QueryRow(ctx, `SELECT clock_timestamp() - $1::bigint * interval '1 millisecond'`, maxAge).Scan(&cutoff); err != nil {
+	//
+	// A position at or past the snapshot's xmax names a transaction that hasn't started.
+	// Nothing legitimate hands one out, but a client can hold one from before a Rebase,
+	// so it is not resumable.
+	var (
+		cutoff time.Time
+		future bool
+	)
+
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp() - $1::bigint * interval '1 millisecond', $2::text::xid8 >= pg_snapshot_xmax(pg_current_snapshot())`,
+		maxAge, txid).Scan(&cutoff, &future); err != nil {
 		return nil, false, err
 	}
 
@@ -103,6 +113,8 @@ FROM %s s WHERE s.stream_key = $1`, p.t.messages, p.t.streams), key, txid, seq, 
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, err
 	}
+
+	resumable = resumable && !future
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq, m.envelope::text FROM %s m
 WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3)

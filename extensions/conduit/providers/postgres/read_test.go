@@ -391,3 +391,113 @@ func ids(envelopes []core.Envelope) string {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// TestTrimLeavesRowsAboveTheHorizon is the open-transaction race: while T0 is open, a trim
+// that removed T1's committed row would raise the watermark above T0, and T0's row,
+// committing behind it, would be lost to a reader that started at Head.
+func TestTrimLeavesRowsAboveTheHorizon(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := streamWith(t, p, core.StreamConfig{MaxMessages: 1})
+
+	t0, err := p.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = t0.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := p.PublishTx(ctx, t0, ns, cfg, envelope(ns, "t0", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	// T1 and T2 commit while T0 is open; T2's trim would delete T1's row.
+	for _, id := range []string{"t1", "t2"} {
+		if _, err := p.Publish(ctx, ns, cfg, envelope(ns, id, placed)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var rows int
+	if err := p.pool.QueryRow(ctx, "SELECT count(*) FROM "+p.t.messages+" WHERE stream_key = $1", streamKey(ns, cfg.Name)).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows != 2 {
+		t.Fatalf("%d committed rows retained while a transaction is open, want both", rows)
+	}
+
+	head, err := p.Head(ctx, ns, cfg)
+	if err != nil || head != "0:0" {
+		t.Fatalf("head %q while the horizon is held, want 0:0 (%v)", head, err)
+	}
+
+	if err := t0.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	got, resumable, err := p.ReadAfter(ctx, ns, cfg, head, ReadFilter{})
+	if err != nil || !resumable || ids(got) != "t0,t1,t2" {
+		t.Fatalf("from the head read earlier: %s resumable=%v %v", ids(got), resumable, err)
+	}
+
+	// With nothing open, the next trim catches up.
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "t3", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, resumable, err = p.ReadAfter(ctx, ns, cfg, "0:0", ReadFilter{})
+	if err != nil || resumable || ids(got) != "t3" {
+		t.Fatalf("after the trim caught up: %s resumable=%v %v", ids(got), resumable, err)
+	}
+}
+
+func TestSweepLeavesRowsAboveTheHorizon(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := streamWith(t, p, core.StreamConfig{MaxAge: 300 * time.Millisecond})
+
+	hold, err := p.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := p.PublishTx(ctx, hold, ns, cfg, envelope(ns, "held", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.Publish(ctx, ns, cfg, envelope(ns, "behind", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	p.sweep(ctx, p.pool)
+
+	var rows int
+	if err := p.pool.QueryRow(ctx, "SELECT count(*) FROM "+p.t.messages+" WHERE stream_key = $1", streamKey(ns, cfg.Name)).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows != 1 {
+		t.Fatalf("%d rows after a sweep with a transaction open, want the one above the horizon", rows)
+	}
+
+	head, err := p.Head(ctx, ns, cfg)
+	if err != nil || head != "0:0" {
+		t.Fatalf("head %q, want 0:0 (%v)", head, err)
+	}
+}
+
+func TestReadAfterRefusesAFuturePosition(t *testing.T) {
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	if _, err := p.Publish(t.Context(), ns, cfg, envelope(ns, "now", placed)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, resumable, err := p.ReadAfter(t.Context(), ns, cfg, "999999999999:1", ReadFilter{})
+	if err != nil || resumable || len(got) != 0 {
+		t.Fatalf("a future position: %d resumable=%v %v", len(got), resumable, err)
+	}
+}

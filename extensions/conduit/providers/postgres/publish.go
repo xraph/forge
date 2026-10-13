@@ -42,6 +42,8 @@ func (p *Provider) Publish(ctx context.Context, namespace string, cfg core.Strea
 // PublishTx stores a prepared message in your transaction. Subscribers see it, and wake
 // for it, only when you commit; a rollback leaves no trace. Fill the envelope's ID, type,
 // source, content type and creation time yourself: this path skips the runtime's hooks.
+// Keep transactions that publish to a capped stream (MaxMessages) short: the trim takes
+// the stream row's lock until you commit, and publishers to that stream queue behind it.
 func (p *Provider) PublishTx(ctx context.Context, tx Tx, namespace string, cfg core.StreamConfig, msg core.Envelope) (core.Receipt, error) {
 	if tx == nil {
 		return core.Receipt{}, errors.New("conduit/postgres: transaction is required")
@@ -120,8 +122,11 @@ VALUES ($1, nextval('%s'), $2, $3, $4, $5) ON CONFLICT (stream_key, dedup_key) D
 
 	if cfg.MaxMessages > 0 {
 		// The trim removes by seq, which is not position order, so the watermark rises to
-		// the highest (txid, seq) it removed, in the same statement.
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`WITH gone AS (DELETE FROM %[1]s WHERE stream_key = $1 AND seq <= $2 RETURNING txid, seq)
+		// the highest (txid, seq) it removed, in the same statement. It removes only rows
+		// below the visibility horizon: a watermark above it would let a transaction that is
+		// still open commit behind a reader's position. While an old transaction is open
+		// the stream can briefly exceed MaxMessages, and the next trim catches up.
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`WITH gone AS (DELETE FROM %[1]s WHERE stream_key = $1 AND seq <= $2 AND txid < pg_snapshot_xmin(pg_current_snapshot()) RETURNING txid, seq)
 UPDATE %[2]s s SET pruned_txid = g.txid, pruned_seq = g.seq
 FROM (SELECT txid, seq FROM gone ORDER BY txid DESC, seq DESC LIMIT 1) g
 WHERE s.stream_key = $1 AND (s.pruned_txid IS NULL OR (g.txid, g.seq) > (s.pruned_txid, s.pruned_seq))`, p.t.messages, p.t.streams), key, seq-cfg.MaxMessages); err != nil {

@@ -19,7 +19,8 @@ import (
 //
 // Rebase takes every consumer's delivery lock in one transaction, so with thousands of
 // consumers raise max_locks_per_transaction first. It can fail on a deadlock with the
-// retention sweep. A failed Rebase changes nothing, so it is safe to run again.
+// retention sweep, and it can wait on a sweep that is deleting. A failed Rebase changes
+// nothing, so it is safe to run again.
 func (p *Provider) Rebase(ctx context.Context) error {
 	pool, err := p.db()
 	if err != nil {
@@ -58,7 +59,8 @@ SELECT coalesce(array_agg(DISTINCT stream_key), '{}') FROM moved`, p.t.messages)
 	// hands out: reads would call every position unresumable and Head would start readers
 	// beyond anything to come. Positions in moved rows are now (0, seq), so the watermark
 	// becomes (0, seq) too, no lower than just below the oldest retained row at ID 0. That
-	// can mark a retained position unresumable, never one whose later messages are gone.
+	// covers the normal case, where every deleted seq is below every retained seq. It
+	// can mark a retained position unresumable that lost nothing, which is the safe side.
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s s SET pruned_txid = '0'::xid8,
  pruned_seq = greatest(s.pruned_seq, coalesce((SELECT min(m.seq) - 1 FROM %[2]s m WHERE m.stream_key = s.stream_key AND m.txid = '0'::xid8), 0))
 WHERE s.pruned_txid > pg_snapshot_xmax(pg_current_snapshot())`, p.t.streams, p.t.messages)); err != nil {
