@@ -132,7 +132,7 @@ const stableAfter = time.Second
 func (l *listener) run(ctx context.Context) {
 	var (
 		limit    warnLimit
-		down     time.Time // when the current outage began
+		down     time.Time // when the outage began; kept until a connection outlasts stableAfter
 		reported bool      // a warning went out during the current outage
 	)
 
@@ -203,9 +203,14 @@ func (l *listener) run(ctx context.Context) {
 			backoff, limit = 100*time.Millisecond, warnLimit{}
 		}
 
-		down = time.Now()
+		// A connection that died young is part of the same outage, so the reconnect
+		// reports the outage from its start.
+		now := time.Now()
+		if stable || down.IsZero() {
+			down = now
+		}
 
-		if limit.allow(down, backoff) {
+		if limit.allow(now, backoff) {
 			reported = true
 
 			l.logger.WarnContext(ctx, "conduit/postgres: listener connection dropped; delivery continues by polling", "error", err, "retry", backoff)

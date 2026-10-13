@@ -306,6 +306,15 @@ func TestListenerBacksOffAConnectionThatKeepsDropping(t *testing.T) {
 
 	t.Cleanup(pool.Close)
 
+	var version int
+	if err := pool.QueryRow(t.Context(), `SELECT current_setting('server_version_num')::int`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+
+	if version < 140000 {
+		t.Skipf("idle_session_timeout needs PostgreSQL 14 or later, and this server is %d", version)
+	}
+
 	short, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -334,5 +343,48 @@ func TestListenerBacksOffAConnectionThatKeepsDropping(t *testing.T) {
 		t.Fatalf("the dropping connection was never reported: %q", logs.String())
 	}
 
-	t.Logf("%d attempts, %d records:\n%s", attempts, records, logs.String())
+	// The last reconnect reports the outage from its start, so it covers every backoff
+	// sleep announced before it.
+	lines := strings.Split(logs.String(), "\n")
+
+	last := -1
+
+	for i, line := range lines {
+		if strings.Contains(line, "level=INFO") {
+			last = i
+		}
+	}
+
+	if last < 0 {
+		t.Fatalf("no reconnect was logged:\n%s", logs.String())
+	}
+
+	var slept time.Duration
+
+	for _, line := range lines[:last] {
+		if value, ok := logValue(line, "retry="); ok && strings.Contains(line, "level=WARN") {
+			slept += value
+		}
+	}
+
+	down, ok := logValue(lines[last], "down=")
+	if !ok || down < slept {
+		t.Fatalf("the last reconnect reported %v down, but %v of backoff was slept before it:\n%s", down, slept, logs.String())
+	}
+
+	t.Logf("%d attempts, %d records, %v slept, %v reported:\n%s", attempts, records, slept, down, logs.String())
+}
+
+// logValue reads one duration attribute from a slog text line.
+func logValue(line, name string) (time.Duration, bool) {
+	_, after, ok := strings.Cut(line, " "+name)
+	if !ok {
+		return 0, false
+	}
+
+	field, _, _ := strings.Cut(strings.TrimSpace(after), " ")
+
+	value, err := time.ParseDuration(field)
+
+	return value, err == nil
 }
