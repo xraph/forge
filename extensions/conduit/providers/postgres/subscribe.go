@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/xraph/forge/extensions/conduit/core"
 )
+
+// PositionHeader names the header that carries a delivered envelope's position in
+// its stream: "<txid>:<seq>", the same order deliveries and ReadAfter follow.
+const PositionHeader = "conduit-position"
+
+func position(txid string, seq int64) string { return txid + ":" + strconv.FormatInt(seq, 10) }
 
 // claimGrace keeps a slow acknowledgement from racing a redelivery, as in the Redis provider.
 const claimGrace = 5 * time.Second
@@ -239,6 +246,7 @@ func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, 
 	// Redeliver a claim whose visibility ran out: a due retry, or a delivery whose worker went away.
 	for {
 		var (
+			txid         string
 			seq, attempt int64
 			raw          []byte
 			expired      bool
@@ -248,8 +256,8 @@ func (s *subscription) takeOnce(ctx context.Context) (*delivery, time.Duration, 
 FROM %[2]s m
 WHERE c.consumer_id = $1 AND m.stream_key = c.stream_key AND m.seq = c.seq
  AND c.seq = (SELECT c2.seq FROM %[1]s c2 WHERE c2.consumer_id = $1 AND c2.visible_at <= clock_timestamp() ORDER BY c2.visible_at, c2.seq LIMIT 1)
-RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at <= clock_timestamp() - $4::bigint * interval '1 millisecond')`, p.t.claims, p.t.messages),
-			s.consumer, token, visibility, maxAge).Scan(&seq, &attempt, &raw, &expired)
+RETURNING m.txid::text, c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at <= clock_timestamp() - $4::bigint * interval '1 millisecond')`, p.t.claims, p.t.messages),
+			s.consumer, token, visibility, maxAge).Scan(&txid, &seq, &attempt, &raw, &expired)
 		if errors.Is(err, pgx.ErrNoRows) {
 			break
 		}
@@ -266,7 +274,7 @@ RETURNING c.seq, c.attempt, m.envelope::text, ($4::bigint > 0 AND m.accepted_at 
 			continue
 		}
 
-		d, err := s.delivery(seq, attempt, token, raw)
+		d, err := s.delivery(txid, seq, attempt, token, raw)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -326,7 +334,7 @@ WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND (m.txid, 
 ORDER BY m.txid, m.seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, endTxid, endSeq, sub.MessageType, s.consumer, minSeq, maxAge, snapshot).
 			Scan(&txid, &seq, &raw)
 		if err == nil {
-			found, err := s.delivery(seq, 1, token, []byte(raw))
+			found, err := s.delivery(txid, seq, 1, token, []byte(raw))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -422,11 +430,17 @@ func (s *subscription) wait(ctx context.Context, tx pgx.Tx) (time.Duration, erro
 	return wait, nil
 }
 
-func (s *subscription) delivery(seq, attempt int64, token string, raw []byte) (*delivery, error) {
+func (s *subscription) delivery(txid string, seq, attempt int64, token string, raw []byte) (*delivery, error) {
 	var envelope core.Envelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, errors.New("conduit/postgres: invalid retained envelope")
 	}
+
+	if envelope.Headers == nil {
+		envelope.Headers = map[string]string{}
+	}
+
+	envelope.Headers[PositionHeader] = position(txid, seq)
 
 	return &delivery{sub: s, seq: seq, attempt: uint64(attempt), token: token, envelope: envelope}, nil //nolint:gosec // Attempts are positive.
 }
