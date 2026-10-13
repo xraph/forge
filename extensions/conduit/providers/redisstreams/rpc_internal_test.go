@@ -2,11 +2,13 @@ package redisstreams
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge/extensions/conduit/core"
 )
 
@@ -171,5 +173,107 @@ func TestLostGroupDoesNotStopOtherProcedures(t *testing.T) {
 		if err != nil || response.Error != nil {
 			t.Fatalf("%s after the lost group: %+v %v", method, response, err)
 		}
+	}
+}
+
+// TestRequestForAClosingServerGoesToAnotherOne covers one provider serving a method twice.
+// The reader read a request for the server that then started closing; the other server
+// for that method takes it, and only with none left does the caller hear UNAVAILABLE.
+func TestRequestForAClosingServerGoesToAnotherOne(t *testing.T) {
+	p := New(Options{URL: testURL(t)})
+	if err := p.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = p.Close(context.WithoutCancel(t.Context())) })
+
+	c, err := p.client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ns := "rr-" + core.NewID()
+	key := rpcRequestKey(ns, "pricing", "quote")
+	caller := core.Identity{Namespace: ns, ServiceID: "web", InstanceID: "caller"}
+
+	serve := func(instance string) *rpcServer {
+		binding := core.RPCBinding{
+			Identity: core.Identity{Namespace: ns, ServiceID: "pricing", InstanceID: instance}, Method: "quote",
+			Config: core.RPCConfig{Timeout: 5 * time.Second, Concurrency: 1, MaxInFlight: 1}, MaxPayloadBytes: 1 << 20,
+		}
+
+		served, err := p.ServeRPC(t.Context(), binding, func(_ context.Context, r core.RPCRequest) core.RPCResponse {
+			return core.RPCResponse{ID: r.Envelope.ID, Source: binding.Identity, Data: []byte(`"` + instance + `"`)}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() { _ = served.Close(context.WithoutCancel(t.Context())) })
+
+		server, ok := served.(*rpcServer)
+		if !ok {
+			t.Fatalf("ServeRPC returned %T", served)
+		}
+
+		return server
+	}
+
+	// call hands the reader's entry to server, as a read that began before it closed would.
+	call := func(server *rpcServer) core.RPCResponse {
+		t.Helper()
+
+		id, token := core.NewID(), core.NewID()
+		reply := make(chan core.RPCResponse, 1)
+
+		if err := p.await(c, id, token, reply); err != nil {
+			t.Fatal(err)
+		}
+
+		defer func() {
+			p.calls.mu.Lock()
+			delete(p.calls.waiting, token)
+			delete(p.calls.pending, id)
+			p.calls.mu.Unlock()
+		}()
+
+		request := core.RPCRequest{
+			Service: "pricing", Method: "quote", Deadline: time.Now().Add(5 * time.Second),
+			Envelope: core.Envelope{ID: id, Type: "quote", Source: caller, ContentType: "application/json", Data: []byte(`{}`), CreatedAt: time.Now()},
+		}
+
+		data, err := json.Marshal(rpcMessage{Request: request, Reply: p.replyKey(), Call: token})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		p.dispatch(key, server, redis.XMessage{ID: "0-1", Values: map[string]any{"request": string(data)}})
+
+		select {
+		case response := <-reply:
+			return response
+		case <-time.After(3 * time.Second):
+			t.Fatal("no reply")
+
+			return core.RPCResponse{}
+		}
+	}
+
+	closing, other := serve("a"), serve("b")
+
+	if err := closing.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if response := call(closing); response.Error != nil || string(response.Data) != `"b"` {
+		t.Fatalf("the request for a closing server got %+v, want the other server's answer", response)
+	}
+
+	if err := other.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if response := call(closing); response.Error == nil || response.Error.Code != core.RPCUnavailable {
+		t.Fatalf("with every server closed the request got %+v, want UNAVAILABLE", response)
 	}
 }

@@ -410,17 +410,37 @@ func (p *Provider) readRequests(ctx context.Context, c *redis.Client, done chan 
 
 		for _, stream := range read {
 			// A server that unregistered during the read is still in this turn's batch.
-			// Its accept sees it closing and refuses, so the caller hears back.
 			registered := servers[stream.Stream]
 			if len(registered) == 0 {
 				continue
 			}
 
 			for _, msg := range stream.Messages {
-				p.pick(registered).accept(msg)
+				p.dispatch(stream.Stream, p.pick(registered), msg)
 			}
 		}
 	}
+}
+
+// dispatch hands one request to server. A server that started closing after this turn's
+// read began passes it to another live server for the same key, and the caller hears
+// UNAVAILABLE only when none is left.
+func (p *Provider) dispatch(key string, server *rpcServer, msg redis.XMessage) {
+	if server.accept(msg) {
+		return
+	}
+
+	p.serving.mu.Lock()
+	live := slices.Clone(p.serving.servers[key])
+	p.serving.mu.Unlock()
+
+	for _, other := range live {
+		if other != server && other.accept(msg) {
+			return
+		}
+	}
+
+	server.refuseClosing(msg)
 }
 
 // stopServing ends the request reader before the client closes.
@@ -438,24 +458,36 @@ func (p *Provider) stopServing() {
 	}
 }
 
-func (s *rpcServer) accept(msg redis.XMessage) {
+// decode reads a request entry. It refuses a malformed request from a valid caller, and
+// reports false for anything that needs no further work.
+func (s *rpcServer) decode(msg redis.XMessage) (rpcMessage, bool) {
 	raw, _ := msg.Values["request"].(string)
 
 	var message rpcMessage
 	if len(raw) > s.binding.MaxPayloadBytes+64*1024 || json.Unmarshal([]byte(raw), &message) != nil || !validReplyKey(message.Reply) {
-		return
+		return message, false
 	}
 
 	request := message.Request
 	if request.Deadline.IsZero() || request.Service != s.binding.Identity.ServiceID || request.Method != s.binding.Method || request.Envelope.Source.Namespace != s.binding.Identity.Namespace || request.Envelope.Source.Validate() != nil || core.ValidateMessageID(request.Envelope.ID) != nil {
 		s.refuse(message.Reply, message.Call, request, core.RPCBadRequest, "Invalid RPC request")
 
-		return
+		return message, false
 	}
 
-	if !time.Now().Before(request.Deadline) {
-		return // the caller has already given up
+	// A caller that has already given up gets no reply.
+	return message, time.Now().Before(request.Deadline)
+}
+
+// accept starts the request, refuses it or drops it, and reports true. A closing server
+// does none of that and reports false, so the reader can hand the request on.
+func (s *rpcServer) accept(msg redis.XMessage) bool {
+	message, ok := s.decode(msg)
+	if !ok {
+		return true
 	}
+
+	request := message.Request
 
 	deadline := request.Deadline
 	if limit := time.Now().Add(s.binding.Config.Timeout); limit.Before(deadline) {
@@ -471,26 +503,34 @@ func (s *rpcServer) accept(msg redis.XMessage) {
 	case s.closing:
 		s.mu.Unlock()
 		cancel()
-		s.refuse(message.Reply, message.Call, request, core.RPCUnavailable, "Service is draining")
 
-		return
+		return false
 	case s.active[key] != nil:
 		s.mu.Unlock()
 		cancel()
 		s.refuse(message.Reply, message.Call, request, core.RPCConflict, "Request is already in progress")
 
-		return
+		return true
 	case len(s.active) >= s.binding.Config.MaxInFlight:
 		s.mu.Unlock()
 		cancel()
 		s.refuse(message.Reply, message.Call, request, core.RPCUnavailable, "Service concurrency limit reached")
 
-		return
+		return true
 	}
 
 	s.active[key] = work
 	s.jobs <- work
 	s.mu.Unlock()
+
+	return true
+}
+
+// refuseClosing answers a request no live server could take.
+func (s *rpcServer) refuseClosing(msg redis.XMessage) {
+	if message, ok := s.decode(msg); ok {
+		s.refuse(message.Reply, message.Call, message.Request, core.RPCUnavailable, "Service is draining")
+	}
 }
 
 func (s *rpcServer) refuse(reply, call string, request core.RPCRequest, code core.RPCCode, message string) {

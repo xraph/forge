@@ -223,3 +223,38 @@ func TestRebaseLeavesAHealthyDatabaseAlone(t *testing.T) {
 		t.Fatalf("delivered %s after Rebase, want m-3", d.Message().ID)
 	}
 }
+
+// TestRebaseClearsAStartSnapshotFromTheOldCluster covers a StartAt "new" consumer whose
+// snapshot came from the old cluster. Every ID this cluster hands out is below that
+// snapshot, so every new row looks committed before the subscription and is filtered
+// out, though the cursor itself is valid here.
+func TestRebaseClearsAStartSnapshotFromTheOldCluster(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+	b := binding(ns, cfg, core.Competing, "new", "new")
+
+	s, err := p.Subscribe(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = s.Close(context.WithoutCancel(ctx)) }()
+
+	pool, _ := p.db()
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s SET start_snapshot = (x || ':' || x || ':')::pg_snapshot
+FROM (SELECT (pg_snapshot_xmax(pg_current_snapshot())::text::bigint + 1000000)::text AS x) AS old WHERE consumer_id = $1`, p.t.consumers), b.ConsumerID()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Rebase(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	publishN(t, p, ns, cfg, "after", 1)
+
+	if d := next(t, s, 3*time.Second); d.Message().ID != "after-1" {
+		t.Fatalf("delivered %s, want after-1", d.Message().ID)
+	}
+}

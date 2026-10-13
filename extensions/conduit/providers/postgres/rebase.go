@@ -13,8 +13,9 @@ import (
 // Rows written under the old cluster's counter move to transaction ID 0, so they sort
 // before anything written since. Every consumer whose cursor is ahead of this cluster,
 // or that has unread rows among the moved ones, goes back to the oldest retained message
-// and loses its claims, so it receives its retained messages again. On a healthy database
-// nothing is ahead and Rebase changes nothing.
+// and loses its claims, so it receives its retained messages again. A StartAt "new"
+// consumer whose start snapshot came from the old cluster loses that snapshot too. On a
+// healthy database nothing is ahead and Rebase changes nothing.
 func (p *Provider) Rebase(ctx context.Context) error {
 	pool, err := p.db()
 	if err != nil {
@@ -54,6 +55,14 @@ SELECT coalesce(array_agg(DISTINCT stream_key), '{}') FROM moved`, p.t.messages)
  WHERE cursor_txid > pg_snapshot_xmax(pg_current_snapshot()) OR (stream_key = ANY($1) AND cursor_txid > '0'::xid8)
  RETURNING consumer_id)
 DELETE FROM %s WHERE consumer_id IN (SELECT consumer_id FROM reset)`, p.t.consumers, p.t.claims), moved); err != nil {
+		return err
+	}
+
+	// A StartAt "new" consumer keeps the snapshot it subscribed under. One taken on the old
+	// cluster is above every ID this cluster hands out, so it would hide every new row
+	// even where the cursor itself is valid here.
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET start_snapshot = NULL
+WHERE pg_snapshot_xmax(start_snapshot) > pg_snapshot_xmax(pg_current_snapshot())`, p.t.consumers)); err != nil {
 		return err
 	}
 
