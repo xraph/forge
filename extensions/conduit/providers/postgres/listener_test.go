@@ -292,3 +292,47 @@ func TestListenerLogsADropAndTheReconnect(t *testing.T) {
 	waitFor(t, "a reconnect record", func() bool { return strings.Contains(logs.String(), "level=INFO") })
 	t.Log(logs.String())
 }
+
+// TestListenerBacksOffAConnectionThatKeepsDropping covers a connection that opens and
+// then dies straight away, as on a hot standby where LISTEN fails. Reconnecting at once
+// would spin, logging two records and waking every subscriber each time.
+func TestListenerBacksOffAConnectionThatKeepsDropping(t *testing.T) {
+	dsn := testDSN(t)
+
+	pool, err := pgxpool.New(t.Context(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(pool.Close)
+
+	short, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := short.Query()
+	query.Set("idle_session_timeout", "20") // the server ends the idle listener after 20ms
+	short.RawQuery = query.Encode()
+
+	var logs logBuffer
+
+	p := connect(t, Options{Pool: pool, URL: short.String(), Logger: logs.logger()})
+
+	time.Sleep(2 * time.Second)
+
+	p.mu.RLock()
+	attempts := p.listener.attempts.Load()
+	p.mu.RUnlock()
+
+	records := strings.Count(logs.String(), "level=")
+	if attempts > 8 || records > 12 {
+		t.Fatalf("%d connection attempts and %d log records in 2s:\n%s", attempts, records, logs.String())
+	}
+
+	if !strings.Contains(logs.String(), "level=WARN") {
+		t.Fatalf("the dropping connection was never reported: %q", logs.String())
+	}
+
+	t.Logf("%d attempts, %d records:\n%s", attempts, records, logs.String())
+}

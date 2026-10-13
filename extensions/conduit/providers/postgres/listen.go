@@ -20,6 +20,8 @@ type listener struct {
 	mu        sync.Mutex
 	waiters   map[watchKey]map[chan struct{}]struct{}
 	connected atomic.Bool
+	// attempts counts connection attempts, so a test can see the loop back off.
+	attempts atomic.Int64
 }
 
 // watchKey is a channel alone, or a channel and the one payload a watcher waits for.
@@ -116,20 +118,42 @@ func (l *listener) channels() []string {
 	return channels
 }
 
+// stableAfter is how long a connection must stay up before a drop counts as a new
+// outage. A connection that dies sooner is retried on the growing backoff, so one that
+// keeps opening and failing (LISTEN on a hot standby, say) can't spin.
+const stableAfter = time.Second
+
 // run keeps a listening connection open until ctx ends, reconnecting with backoff.
 // While it is down, subscribers keep delivering by polling.
 //
 // Outages are logged with the error alone. pgx connect errors name the host, user and
-// database but never the password, so nothing here can leak it.
+// database but never the password, so nothing here can leak it. Failed connects and
+// drops share one rate limit, and a reconnect is logged only after a logged failure.
 func (l *listener) run(ctx context.Context) {
 	var (
-		limit warnLimit
-		down  time.Time // when the current outage began; zero while connected
+		limit    warnLimit
+		down     time.Time // when the current outage began
+		reported bool      // a warning went out during the current outage
 	)
 
 	backoff := 100 * time.Millisecond
 
+	// retry waits out the backoff and grows it. It reports false when ctx ends.
+	retry := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(backoff):
+		}
+
+		backoff = min(backoff*2, 5*time.Second)
+
+		return true
+	}
+
 	for ctx.Err() == nil {
+		l.attempts.Add(1)
+
 		conn, err := pgx.ConnectConfig(ctx, l.config)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -141,25 +165,24 @@ func (l *listener) run(ctx context.Context) {
 			}
 
 			if limit.allow(time.Now(), backoff) {
+				reported = true
+
 				l.logger.WarnContext(ctx, "conduit/postgres: listener cannot connect; delivery continues by polling", "error", err, "retry", backoff)
 			}
 
-			select {
-			case <-ctx.Done():
+			if !retry() {
 				return
-			case <-time.After(backoff):
 			}
-
-			backoff = min(backoff*2, 5*time.Second)
 
 			continue
 		}
 
-		if !down.IsZero() {
+		if reported {
 			l.logger.InfoContext(ctx, "conduit/postgres: listener reconnected", "down", time.Since(down).Round(time.Millisecond))
 		}
 
-		backoff, limit, down = 100*time.Millisecond, warnLimit{}, time.Time{}
+		reported = false
+		opened := time.Now()
 
 		l.connected.Store(true)
 		l.notifyAll() // anything published while disconnected is found by the next read
@@ -171,10 +194,26 @@ func (l *listener) run(ctx context.Context) {
 
 		cancel()
 
-		if ctx.Err() == nil {
-			down = time.Now()
+		if ctx.Err() != nil {
+			return
+		}
 
-			l.logger.WarnContext(ctx, "conduit/postgres: listener connection dropped; delivery continues by polling", "error", err)
+		stable := time.Since(opened) >= stableAfter
+		if stable {
+			backoff, limit = 100*time.Millisecond, warnLimit{}
+		}
+
+		down = time.Now()
+
+		if limit.allow(down, backoff) {
+			reported = true
+
+			l.logger.WarnContext(ctx, "conduit/postgres: listener connection dropped; delivery continues by polling", "error", err, "retry", backoff)
+		}
+
+		// A connection that stayed up reconnects at once. One that died young waits.
+		if !stable && !retry() {
+			return
 		}
 	}
 }
