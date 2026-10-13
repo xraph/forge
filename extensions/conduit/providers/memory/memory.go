@@ -45,11 +45,26 @@ type Broker struct {
 	rpcCursor      int
 	backfills      map[string]core.Backfill
 	backfillActive map[string]bool
+	instances      map[string]lease
+	leaseTTL       time.Duration
+}
+
+// Options configures a development broker.
+type Options struct {
+	// LeaseTTL is how long a registered instance stays listed without renewal. Default 45s.
+	LeaseTTL time.Duration
 }
 
 // New creates a broker whose state lasts for this process only.
-func New() *Broker {
-	return &Broker{streams: make(map[string]*stream), letters: make(map[string]core.DeadLetter)}
+func New() *Broker { return NewWithOptions(Options{}) }
+
+// NewWithOptions creates a broker with explicit settings.
+func NewWithOptions(options Options) *Broker {
+	if options.LeaseTTL == 0 {
+		options.LeaseTTL = 45 * time.Second
+	}
+
+	return &Broker{streams: make(map[string]*stream), letters: make(map[string]core.DeadLetter), instances: make(map[string]lease), leaseTTL: options.LeaseTTL}
 }
 
 // Name returns the provider type.

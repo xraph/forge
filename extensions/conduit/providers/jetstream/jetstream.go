@@ -26,6 +26,8 @@ type Options struct {
 	URL                string
 	NATS               []nats.Option
 	DeadLetterReplicas int
+	// LeaseTTL is how long a registered instance stays listed without renewal. Default 45s.
+	LeaseTTL time.Duration
 }
 
 // Provider owns one service instance's connection.
@@ -40,6 +42,10 @@ type Provider struct {
 func New(options Options) *Provider {
 	if options.DeadLetterReplicas == 0 {
 		options.DeadLetterReplicas = 1
+	}
+
+	if options.LeaseTTL == 0 {
+		options.LeaseTTL = 45 * time.Second
 	}
 
 	return &Provider{options: options}

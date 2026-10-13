@@ -17,7 +17,7 @@ receipt, err := conduit.Publish(ctx, ext.Runtime(), OrderPlacedV1,
 
 A receipt confirms broker acceptance. `Persisted` reports durable acceptance; it does not mean that a handler finished. If you receive `conduit.ErrOutcomeUnknown`, retry with the same message ID. Your broker may have accepted the first attempt before the acknowledgement was lost.
 
-JetStream and Redis deduplicate publication within finite windows. Kafka preserves your event ID but does not deduplicate repeated application publications. The transactional inbox protects your business effect across all providers.
+JetStream and Redis deduplicate publication within finite windows. PostgreSQL deduplicates on message ID for as long as the original row is retained. Kafka preserves your event ID but does not deduplicate repeated application publications. The transactional inbox protects your business effect across all providers.
 
 Return `conduit.Permanent(err)` for a terminal failure. Other errors use the subscription's retry policy, then enter its broker's dead letter store. The original delivery remains eligible for redelivery if failure storage fails. Kafka attempt counts restart after group reassignment; the inbox marker remains shared across replicas.
 

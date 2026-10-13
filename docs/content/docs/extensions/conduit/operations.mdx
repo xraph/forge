@@ -9,7 +9,7 @@ The plugin has five routes: overview, consumers, services, dead letters and hook
 
 ## Consumer controls
 
-JetStream supports broker-backed pause/resume, pending and unacknowledged counts, and controlled backfill. Competing pause affects the logical service group; broadcast pause affects the selected subscriber. The memory provider supplies development equivalents. Redis and Kafka report these optional capabilities as unsupported.
+JetStream, Redis Streams and PostgreSQL support broker-backed pause/resume, pending and unacknowledged counts, and controlled backfill. Competing pause affects the logical service group; broadcast pause affects the selected subscriber. The memory provider supplies development equivalents. Kafka reports these optional capabilities as unsupported.
 
 Processing and delivery latency summarize this instance's count, average and maximum. They are not cluster percentiles.
 

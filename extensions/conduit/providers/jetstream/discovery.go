@@ -6,7 +6,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	js "github.com/nats-io/nats.go/jetstream"
 	"github.com/xraph/forge/extensions/conduit/core"
@@ -18,10 +17,10 @@ func (p *Provider) discoveryBucket(ctx context.Context, namespace string) (js.Ke
 		return nil, err
 	}
 
-	return p.ensureBucket(ctx, client, js.KeyValueConfig{Bucket: "FC_DISC_" + hash(namespace), Storage: js.FileStorage, TTL: 45 * time.Second, Replicas: p.options.DeadLetterReplicas, History: 1})
+	return p.ensureBucket(ctx, client, js.KeyValueConfig{Bucket: "FC_DISC_" + hash(namespace), Storage: js.FileStorage, TTL: p.options.LeaseTTL, Replicas: p.options.DeadLetterReplicas, History: 1})
 }
 
-// Register renews a lease for exactly one instance. Crashed members expire after 45 seconds.
+// Register renews a lease for exactly one instance. Crashed members expire after Options.LeaseTTL.
 func (p *Provider) Register(ctx context.Context, instance core.Instance) error {
 	if err := instance.Validate(); err != nil {
 		return err

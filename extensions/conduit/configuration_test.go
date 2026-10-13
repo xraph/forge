@@ -174,3 +174,168 @@ func TestPartialExplicitIdentityPreservesLoadedNamespace(t *testing.T) {
 		t.Fatalf("partial identity lost loaded fields: %+v", got)
 	}
 }
+
+func TestExtensionBuildsPostgresProviderFromConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("FORGE_ADVERTISE_ADDR", "billing.internal")
+
+	if err := os.WriteFile(filepath.Join(dir, ".forge.yml"), []byte("app:\n  name: billing\n  version: 2.4.0\n  namespace: production\ndev:\n  port: 8093\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`extensions:
+  conduit:
+    providers:
+      events: {type: postgresql, url: "postgres://localhost:5432/billing"}
+    streams:
+      orders: {provider: events, subjects: ["orders.>"]}
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := confy.New()
+
+	source, err := sources.NewFileSource(path, sources.FileSourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.LoadFrom(source); err != nil {
+		t.Fatal(err)
+	}
+
+	app := forge.New(forge.WithAppConfigManager(manager), forge.WithAppLogger(forge.NewNoopLogger()), forge.WithAppMetrics(forge.NewNoOpMetrics()))
+
+	ext, err := conduit.NewExtension()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ext.Register(app); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := ext.Runtime().Providers()["events"]
+	if provider == nil || provider.Name() != "postgres" {
+		t.Fatalf("expected a postgres provider, got %v", provider)
+	}
+}
+
+// registerFromYAML builds the extension from a YAML conduit section the way an
+// upgraded application would, with no Forge discovery extension installed.
+func registerFromYAML(t *testing.T, conduitSection string, prepare func(*conduit.Extension)) (*conduit.Extension, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("FORGE_ADVERTISE_ADDR", "billing.internal")
+
+	if err := os.WriteFile(filepath.Join(dir, ".forge.yml"), []byte("app:\n  name: billing\n  version: 2.4.0\n  namespace: production\ndev:\n  port: 8093\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("extensions:\n  conduit:\n"+conduitSection), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := confy.New()
+
+	source, err := sources.NewFileSource(path, sources.FileSourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.LoadFrom(source); err != nil {
+		t.Fatal(err)
+	}
+
+	app := forge.New(forge.WithAppConfigManager(manager), forge.WithAppLogger(forge.NewNoopLogger()), forge.WithAppMetrics(forge.NewNoOpMetrics()))
+
+	ext, err := conduit.NewExtension()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if prepare != nil {
+		prepare(ext)
+	}
+
+	return ext, ext.Register(app)
+}
+
+func TestAutomaticDiscoveryPrefersJetStreamAmongRegistries(t *testing.T) {
+	for name, second := range map[string]string{
+		"redis":  `cache: {type: redis, url: "redis://localhost:6379"}`,
+		"memory": `cache: {type: memory}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ext, err := registerFromYAML(t, "    providers:\n      events: {type: jetstream, url: \"nats://localhost:4222\"}\n      "+second+"\n", nil)
+			if err != nil {
+				t.Fatalf("an upgraded JetStream plus %s configuration failed to register: %v", name, err)
+			}
+
+			resolver, events := ext.Runtime().Resolver(), ext.Runtime().Providers()["events"]
+			if resolver == nil || any(resolver) != any(events) {
+				t.Fatalf("expected the JetStream provider to serve discovery, got %v", resolver)
+			}
+		})
+	}
+}
+
+func TestAutomaticDiscoveryIgnoresTheMemoryProvider(t *testing.T) {
+	ext, err := registerFromYAML(t, "    providers:\n      events: {type: redis, url: \"redis://localhost:6379\"}\n      local: {type: memory}\n", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolver := ext.Runtime().Resolver(); resolver == nil || any(resolver) != any(ext.Runtime().Providers()["events"]) {
+		t.Fatalf("expected the Redis provider to serve discovery, got %v", resolver)
+	}
+}
+
+func TestAutomaticDiscoveryStillAsksWhenNoChoiceIsObvious(t *testing.T) {
+	_, err := registerFromYAML(t, "    providers:\n      events: {type: redis, url: \"redis://localhost:6379\"}\n      store: {type: postgres, url: \"postgres://localhost:5432/billing\"}\n", nil)
+	if err == nil || !strings.Contains(err.Error(), "select a discovery provider explicitly") {
+		t.Fatalf("expected an explicit discovery choice to be required, got %v", err)
+	}
+}
+
+func TestAutomaticRPCProviderPrefersJetStream(t *testing.T) {
+	ext, err := registerFromYAML(t, "    providers:\n      events: {type: jetstream, url: \"nats://localhost:4222\"}\n      cache: {type: redis, url: \"redis://localhost:6379\"}\n", func(ext *conduit.Extension) {
+		if err := conduit.Handle(ext.Runtime(), double, func(_ context.Context, request conduit.Request[rpcInput]) (rpcOutput, error) {
+			return rpcOutput{Value: request.Data.Value * 2}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ext.Runtime().Configuration().RPC.Provider; got != "events" {
+		t.Fatalf("expected RPC to use the JetStream provider, got %q", got)
+	}
+}
+
+// TestAutomaticRPCProviderIgnoresTheMemoryProvider covers a config that worked before Redis
+// and PostgreSQL could serve RPC: the memory provider cannot reach other processes, so
+// it never makes the RPC choice ambiguous.
+func TestAutomaticRPCProviderIgnoresTheMemoryProvider(t *testing.T) {
+	ext, err := registerFromYAML(t, "    providers:\n      events: {type: redis, url: \"redis://localhost:6379\"}\n      local: {type: memory}\n", func(ext *conduit.Extension) {
+		if err := conduit.Handle(ext.Runtime(), double, func(_ context.Context, request conduit.Request[rpcInput]) (rpcOutput, error) {
+			return rpcOutput{Value: request.Data.Value * 2}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ext.Runtime().Configuration().RPC.Provider; got != "events" {
+		t.Fatalf("expected RPC to use the Redis provider, got %q", got)
+	}
+}
