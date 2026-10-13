@@ -312,13 +312,15 @@ ORDER BY txid, seq OFFSET $5 LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorS
 		return nil, 0, err
 	}
 
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq, envelope::text FROM %s
-WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
- AND message_type = $5 AND (target_consumer = '' OR target_consumer = $6) AND seq >= $7
- AND ($8::bigint = 0 OR accepted_at > clock_timestamp() - $8::bigint * interval '1 millisecond')
- AND ($9::text IS NULL OR NOT pg_visible_in_snapshot(txid, $9::text::pg_snapshot))
- AND ($10::text IS NULL OR (txid, seq) <= ($10::text::xid8, $11::bigint))
-ORDER BY txid, seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot, endTxid, endSeq).
+	// Order by the xid8 column itself. A bare "txid" would name the text output column,
+	// where 1000 sorts before 999.
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq, m.envelope::text FROM %s m
+WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND m.txid < $4::text::xid8
+ AND m.message_type = $5 AND (m.target_consumer = '' OR m.target_consumer = $6) AND m.seq >= $7
+ AND ($8::bigint = 0 OR m.accepted_at > clock_timestamp() - $8::bigint * interval '1 millisecond')
+ AND ($9::text IS NULL OR NOT pg_visible_in_snapshot(m.txid, $9::text::pg_snapshot))
+ AND ($10::text IS NULL OR (m.txid, m.seq) <= ($10::text::xid8, $11::bigint))
+ORDER BY m.txid, m.seq LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon, sub.MessageType, s.consumer, minSeq, maxAge, snapshot, endTxid, endSeq).
 		Scan(&txid, &seq, &raw)
 
 	switch {
@@ -355,9 +357,9 @@ VALUES ($1, $2, $3, $4, 1, clock_timestamp() + $5::bigint * interval '1 millisec
 	}
 
 	// Nothing matches below the horizon, so step over everything that was scanned.
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT txid::text, seq FROM %s
-WHERE stream_key = $1 AND (txid, seq) > ($2::text::xid8, $3) AND txid < $4::text::xid8
-ORDER BY txid DESC, seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&txid, &seq)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT m.txid::text AS txid_text, m.seq FROM %s m
+WHERE m.stream_key = $1 AND (m.txid, m.seq) > ($2::text::xid8, $3) AND m.txid < $4::text::xid8
+ORDER BY m.txid DESC, m.seq DESC LIMIT 1`, p.t.messages), s.key, cursorTxid, cursorSeq, horizon).Scan(&txid, &seq)
 
 	switch {
 	case err == nil:

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
@@ -146,5 +147,54 @@ func TestIdleSubscriberAssignsNoTransactionIDs(t *testing.T) {
 
 	if after := version(); after != before {
 		t.Fatalf("idle takes wrote the consumer row (xmin/xmax %s, then %s)", before, after)
+	}
+}
+
+// insertAt stores a message with a chosen transaction ID, so a test can place rows on
+// either side of a power of ten without running thousands of transactions.
+func insertAt(t *testing.T, p *Provider, ns string, cfg core.StreamConfig, txid string, seq int64, id, messageType string) {
+	t.Helper()
+
+	data, err := json.Marshal(envelope(ns, id, messageType))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := p.db()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(t.Context(), "INSERT INTO "+p.t.messages+" (stream_key, seq, txid, dedup_key, message_type, target_consumer, envelope) VALUES ($1, $2, $3::text::xid8, $4, $5, '', $6)",
+		streamKey(ns, cfg.Name), seq, txid, id, messageType, string(data)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTextOrderDoesNotSkipAMessage covers transaction IDs on either side of a power of
+// ten. As text, 1000 sorts before 999, and a take that delivered 1000 first would move
+// the cursor past 999 for good.
+func TestTextOrderDoesNotSkipAMessage(t *testing.T) {
+	ctx := t.Context()
+	p := connect(t, Options{})
+	ns, cfg := newStream(t, p)
+
+	insertAt(t, p, ns, cfg, "999", 1, "at-999", placed)
+	insertAt(t, p, ns, cfg, "1000", 2, "at-1000", placed)
+
+	s, err := p.Subscribe(ctx, binding(ns, cfg, core.Competing, "ordered", "all"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"at-999", "at-1000"} {
+		d := next(t, s, 5*time.Second)
+		if d.Message().ID != want {
+			t.Fatalf("delivered %s, want %s", d.Message().ID, want)
+		}
+
+		if err := d.Ack(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
