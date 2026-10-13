@@ -418,6 +418,13 @@ func (r *router) UseGlobal(middleware ...Middleware) {
 		return
 	}
 
+	// UseGlobal has no error to return, and a nil entry would otherwise
+	// panic deep inside the adapter while it composes the chain. Fail here,
+	// at the caller, with a message that says what went wrong.
+	if err := checkMiddleware(middleware); err != nil {
+		panic(fmt.Sprintf("router: UseGlobal: %v", err))
+	}
+
 	// A router built by hand rather than through newRouter has no chain; give
 	// it one so UseGlobal still works.
 	if r.globalChain == nil {
@@ -635,6 +642,10 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	fullPath := r.prefix + path
 
+	if err := checkMiddleware(combinedMiddleware); err != nil {
+		return fmt.Errorf("route %s %s: %w", method, fullPath, err)
+	}
+
 	if err := validateSyncDefs(method, fullPath, cfg); err != nil {
 		return err
 	}
@@ -829,6 +840,22 @@ func hasConstraint(p pathspec.Pattern) bool {
 //	forge.NewRouter(forge.WithAdapter(extras.NewBunRouterAdapter()))
 func newDefaultAdapter() RouterAdapter {
 	return defaultAdapterFactory()
+}
+
+// checkMiddleware reports the first nil entry in a middleware chain.
+//
+// A nil middleware is usually one that was read before whatever builds it had
+// run, such as a library that creates its middleware only once it starts.
+// Calling it panics while the chain is composed, far from the code that
+// registered it, so registration refuses it instead.
+func checkMiddleware(middleware []Middleware) error {
+	for i, mw := range middleware {
+		if mw == nil {
+			return fmt.Errorf("middleware %d of %d is nil; make sure it is built before you register it", i+1, len(middleware))
+		}
+	}
+
+	return nil
 }
 
 func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {

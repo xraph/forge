@@ -77,13 +77,21 @@ func (gc *globalChain) recomposeLocked() {
 	gc.composed.Store(&h)
 }
 
+// install records the adapter's downstream handler and composes the chain
+// over it. The unlock is deferred so a panic while composing cannot leave the
+// chain locked, which would hang the next UseGlobal instead of failing it.
+func (gc *globalChain) install(next http.Handler) {
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+
+	gc.terminal = next
+	gc.recomposeLocked()
+}
+
 // httpMiddleware returns the single adapter-level wrapper for the whole chain.
 func (gc *globalChain) httpMiddleware(container vessel.Vessel, errorHandler ErrorHandler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		gc.mu.Lock()
-		gc.terminal = next
-		gc.recomposeLocked()
-		gc.mu.Unlock()
+		gc.install(next)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			composed := gc.composed.Load()

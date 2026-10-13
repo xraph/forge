@@ -1266,6 +1266,16 @@ func (a *app) applyExtensionMiddlewares() error {
 		// Check if extension implements MiddlewareExtension
 		if mwExt, ok := ext.(MiddlewareExtension); ok {
 			middlewares := mwExt.Middlewares()
+
+			// A nil entry would panic while the global chain is composed.
+			// Refusing it here names the extension that supplied it.
+			for i, mw := range middlewares {
+				if mw == nil {
+					return fmt.Errorf("extension %s: middleware %d of %d is nil; make sure it is built before Middlewares returns it",
+						ext.Name(), i+1, len(middlewares))
+				}
+			}
+
 			if len(middlewares) > 0 {
 				a.logger.Info("applying middlewares from extension",
 					F("extension", ext.Name()),
