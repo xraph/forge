@@ -145,7 +145,7 @@ func TestManager_PerUserConnectionLimit(t *testing.T) {
 
 			accepted := 0
 
-			for i := 0; i < tt.registers; i++ {
+			for i := range tt.registers {
 				err := h.mgr.Register(newTestConn(fmt.Sprintf("c%d", i), tt.userID))
 				if err == nil {
 					accepted++
@@ -364,7 +364,7 @@ func TestManager_BroadcastToRoomConcurrentPath(t *testing.T) {
 
 	conns := make([]*testConn, 0, members)
 
-	for i := 0; i < members; i++ {
+	for i := range members {
 		c := newTestConn(fmt.Sprintf("c%d", i), fmt.Sprintf("u%d", i))
 		conns = append(conns, c)
 	}
@@ -684,7 +684,7 @@ func TestManager_FilterChainBlocksPerRecipient(t *testing.T) {
 	chain.Add(filters.NewSimpleFilter("block-bob", 10,
 		func(ctx context.Context, msg *streaming.Message, recipient streaming.EnhancedConnection) (*streaming.Message, error) {
 			if recipient.GetUserID() == "bob" {
-				return nil, nil
+				return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message
 			}
 
 			return msg, nil
@@ -934,7 +934,6 @@ func TestManager_JoinRoomIsIdempotent(t *testing.T) {
 	assertNoError(t, h.mgr.JoinRoom(context.Background(), "c1", "room-1"))
 }
 func TestManager_JoinRoomAddsMemberToStore(t *testing.T) {
-
 	h := newTestManager(t, testConfig())
 
 	conn := newTestConn("c1", "u1")
@@ -1018,7 +1017,6 @@ func TestManager_RoomLimitDoesNotBlockRejoiningAnExistingRoom(t *testing.T) {
 	assertNoError(t, h.mgr.JoinRoom(context.Background(), "c1", "room-1"))
 }
 func TestManager_MaxRoomsPerUserLimitsJoins(t *testing.T) {
-
 	cfg := testConfig()
 	cfg.MaxRoomsPerUser = 2
 
@@ -1153,7 +1151,6 @@ func TestManager_MaxChannelsPerUserTriggersFromSubscribes(t *testing.T) {
 	}
 }
 func TestManager_MaxChannelsPerUserLimitsSubscribes(t *testing.T) {
-
 	cfg := testConfig()
 	cfg.MaxChannelsPerUser = 2
 
@@ -1706,7 +1703,7 @@ func TestManager_ConcurrentRegisterUnregisterBroadcast(t *testing.T) {
 	)
 
 	// A stable set of connections so broadcasts always have recipients.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		conn := newTestConn(fmt.Sprintf("stable-%d", i), fmt.Sprintf("stable-user-%d", i))
 		conn.AddRoom("room-1")
 		conn.AddSubscription("chan-1")
@@ -1716,13 +1713,13 @@ func TestManager_ConcurrentRegisterUnregisterBroadcast(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Churn: register and unregister short-lived connections.
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 
 		go func(w int) {
 			defer wg.Done()
 
-			for i := 0; i < iterations; i++ {
+			for i := range iterations {
 				id := fmt.Sprintf("churn-%d-%d", w, i)
 
 				conn := newTestConn(id, fmt.Sprintf("churn-user-%d", w))
@@ -1748,7 +1745,7 @@ func TestManager_ConcurrentRegisterUnregisterBroadcast(t *testing.T) {
 	}
 
 	// Fan-out: broadcast across every path while the registry churns.
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 
 		go func(w int) {
@@ -1756,7 +1753,7 @@ func TestManager_ConcurrentRegisterUnregisterBroadcast(t *testing.T) {
 
 			ctx := context.Background()
 
-			for i := 0; i < iterations; i++ {
+			for i := range iterations {
 				msg := &Message{ID: fmt.Sprintf("m-%d-%d", w, i), Data: "x"}
 
 				_ = h.mgr.Broadcast(ctx, msg)
@@ -1780,7 +1777,7 @@ func TestManager_ConcurrentRoomAndChannelMutation(t *testing.T) {
 
 	conns := make([]*testConn, 0, 6)
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		c := newTestConn(fmt.Sprintf("c%d", i), fmt.Sprintf("u%d", i))
 		conns = append(conns, c)
 		h.register(t, c)
@@ -1796,7 +1793,7 @@ func TestManager_ConcurrentRoomAndChannelMutation(t *testing.T) {
 		go func(c *testConn) {
 			defer wg.Done()
 
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				roomID := fmt.Sprintf("room-%d", i%3)
 
 				_ = h.mgr.JoinRoom(ctx, c.ID(), roomID)
@@ -1807,18 +1804,14 @@ func TestManager_ConcurrentRoomAndChannelMutation(t *testing.T) {
 		}(c)
 	}
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		for i := 0; i < 300; i++ {
+	wg.Go(func() {
+		for i := range 300 {
 			msg := &Message{ID: fmt.Sprintf("m%d", i)}
 
 			_ = h.mgr.BroadcastToRoom(ctx, "room-0", msg)
 			_ = h.mgr.BroadcastToChannel(ctx, "chan-1", msg)
 		}
-	}()
+	})
 
 	wg.Wait()
 }

@@ -85,7 +85,7 @@ func (fc *filterChain) Apply(ctx context.Context, msg *streaming.Message, recipi
 
 		// Nil means block the message
 		if filtered == nil {
-			return nil, nil
+			return nil, nil //nolint:nilnil // FilterChain passes the MessageFilter block signal through unchanged
 		}
 
 		currentMsg = filtered

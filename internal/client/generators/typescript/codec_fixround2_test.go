@@ -78,6 +78,7 @@ main().catch((err) => { console.error(err); process.exit(1); });
 
 	_, hadUnrenamedTag := result.SentBody["kindOfDog"]
 	assert.False(t, hadUnrenamedTag, "the TS-cased key must not survive encoding onto the wire")
+
 	_, hadUnrenamedField := result.SentBody["barkVolume"]
 	assert.False(t, hadUnrenamedField, "the TS-cased key must not survive encoding onto the wire")
 }
@@ -97,11 +98,13 @@ func TestFixRound2WarnsOnDiscriminatorTagNameDisagreement(t *testing.T) {
 	_, warnings := NewCodecGenerator().Generate(spec, cfg)
 
 	found := false
+
 	for _, w := range warnings {
 		if strings.Contains(w, "Pet") && strings.Contains(w, "pet_kind") {
 			found = true
 		}
 	}
+
 	assert.True(t, found, "expected a warning naming schema %q and discriminator property %q; got: %v", "Pet", "pet_kind", warnings)
 }
 
@@ -167,11 +170,13 @@ func TestFixRound2NoMemberDeclaresDiscriminatorPropertyWarnsAndStillDecodes(t *t
 	require.NoError(t, err)
 
 	foundWarning := false
+
 	for _, w := range out.Warnings {
 		if strings.Contains(w, "APet") && strings.Contains(w, "pet_kind") {
 			foundWarning = true
 		}
 	}
+
 	assert.True(t, foundWarning,
 		"expected a generation-time warning naming schema %q and discriminator property %q (declared by no member); got: %v",
 		"APet", "pet_kind", out.Warnings)

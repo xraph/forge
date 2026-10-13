@@ -33,6 +33,7 @@ func TestPilotRegister_RegistersAllIntents(t *testing.T) {
 	// Dispatcher has each intent.
 	for _, intentName := range []string{"extensions.list", "services.list", "services.detail"} {
 		req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "core-contract", Intent: intentName, IntentVersion: 1, Payload: json.RawMessage(`{}`)}
+
 		_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
 		if err != nil && intentName != "services.detail" {
 			t.Errorf("%s dispatch: %v", intentName, err)
@@ -44,6 +45,7 @@ func TestPilotRegister_DefaultsMetricsInterval(t *testing.T) {
 	d := dispatcher.New(dispatcher.NoopMetricsEmitter{})
 	reg := contract.NewRegistry()
 	wreg := contract.NewWardenRegistry()
+
 	deps := Deps{
 		Extensions: stubExtensions{},
 		Services:   &stubServices{},

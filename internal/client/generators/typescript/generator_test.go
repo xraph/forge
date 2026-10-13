@@ -705,14 +705,14 @@ func opBlock(t *testing.T, ops, key string) string {
 		t.Fatalf("no module declares the %q operation\n\n%s", key, ops)
 	}
 
-	const close = "\n} as const satisfies OperationMeta;\n"
+	const closing = "\n} as const satisfies OperationMeta;\n"
 
-	end := strings.Index(ops[start:], close)
+	end := strings.Index(ops[start:], closing)
 	if end < 0 {
 		t.Fatalf("the %q operation module is unterminated\n\n%s", key, ops)
 	}
 
-	return ops[start : start+end+len(close)]
+	return ops[start : start+end+len(closing)]
 }
 
 // specWithCookieAuthTS returns a spec declaring a cookie-based apiKey scheme

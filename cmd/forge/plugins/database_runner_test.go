@@ -144,6 +144,7 @@ func TestGenerateMigrationRunnerHandlesEverySubcommand(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	for _, command := range []string{"migrate", "rollback", "status", "init", "lock", "unlock", "mark-applied"} {
@@ -159,6 +160,7 @@ func TestGenerateMigrationRunnerEmitsAdopt(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, `case "adopt"`)
@@ -187,6 +189,7 @@ func TestGenerateMigrationRunnerAdoptHandlesBareBunTimestamps(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	// The all-digits branch, and the synthesized display name it produces.
@@ -202,6 +205,7 @@ func TestAdoptIsRegisteredAsASubcommand(t *testing.T) {
 	p := &DatabasePlugin{}
 
 	var found bool
+
 	for _, cmd := range p.Commands() {
 		for _, sub := range cmd.Subcommands() {
 			if sub.Name() == "adopt" {
@@ -227,6 +231,7 @@ func TestGenerateMigrationRunnerAdoptKeysKnownByVersionAndGroup(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, "type versionGroup struct")
@@ -247,6 +252,7 @@ func TestGenerateMigrationRunnerAdoptDryRunSkipsTableCreation(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	// The "init" case earlier in the switch also calls EnsureMigrationTable
@@ -284,6 +290,7 @@ func TestGenerateMigrationRunnerAdoptChecksRowsErr(t *testing.T) {
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, "rows.Err()")
@@ -318,6 +325,7 @@ func TestGenerateMigrationRunnerAdoptDryRunTreatsListAppliedFailureAsNoState(t *
 
 	src, err := os.ReadFile(out)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	adoptIdx := strings.Index(content, `case "adopt":`)

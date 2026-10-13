@@ -270,7 +270,7 @@ func (s *server) generateParamsFromReflection(requestType any, route forge.Route
 		return s.autoGenerateParamsSchema(route)
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -297,8 +297,7 @@ func (s *server) generateParamsFromReflection(requestType any, route forge.Route
 	// Parse struct fields
 	bodyProps := make(map[string]*PropertySchema)
 
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
+	for field := range rt.Fields() {
 		if !field.IsExported() {
 			continue
 		}
@@ -631,8 +630,8 @@ func (s *server) executeWithInterceptors(ctx context.Context, req *Request, meth
 	handler := method.Handler
 
 	// Wrap with interceptors in reverse order
-	for i := len(s.interceptors) - 1; i >= 0; i-- {
-		interceptor := s.interceptors[i]
+	for _, v := range slices.Backward(s.interceptors) {
+		interceptor := v
 		currentHandler := handler
 		handler = func(ctx any, params any) (any, error) {
 			return interceptor(ctx.(context.Context), req, currentHandler)

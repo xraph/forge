@@ -420,6 +420,7 @@ func TestHookRegistry_AllHooksFire(t *testing.T) {
 	for i, n := range names {
 		if got[i] != n {
 			t.Errorf("fired hooks = %v, want %v (as a set)", got, names)
+
 			break
 		}
 	}
@@ -928,29 +929,21 @@ func TestHookRegistry_ConcurrentAddAndFire(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		for i := 0; i < 200; i++ {
+	wg.Go(func() {
+		for range 200 {
 			r.Add(&connHook{baseHook: baseHook{name: "churn"}})
 			r.Remove("churn")
 		}
-	}()
+	})
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		for i := 0; i < 200; i++ {
+	wg.Go(func() {
+		for range 200 {
 			_ = r.FireOnConnect(context.Background(), conn)
 			r.FireOnDisconnect(context.Background(), conn)
 			_, _ = r.FireOnMessageReceived(context.Background(), conn, &Message{ID: "m"})
 			_ = r.List()
 		}
-	}()
+	})
 
 	wg.Wait()
 }

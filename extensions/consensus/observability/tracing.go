@@ -11,6 +11,17 @@ import (
 	"github.com/xraph/forge"
 )
 
+// tracingContextKey is unexported so no other package can collide with or
+// overwrite the trace state stored in a context.
+type tracingContextKey int
+
+const (
+	traceIDContextKey tracingContextKey = iota
+	traceContextKey
+	spanContextKey
+	spanIDContextKey
+)
+
 // TracingManager manages distributed tracing for consensus operations.
 type TracingManager struct {
 	nodeID string
@@ -157,8 +168,8 @@ func (tm *TracingManager) StartTrace(ctx context.Context, operation string) (*Tr
 	tm.tracesMu.Unlock()
 
 	// Store trace in context
-	ctx = context.WithValue(ctx, "trace_id", traceID)
-	ctx = context.WithValue(ctx, "trace", trace)
+	ctx = context.WithValue(ctx, traceIDContextKey, traceID)
+	ctx = context.WithValue(ctx, traceContextKey, trace)
 
 	tm.logger.Debug("trace started",
 		forge.F("trace_id", traceID),
@@ -194,7 +205,7 @@ func (tm *TracingManager) EndTrace(trace *Trace, err error) {
 
 	// Update average duration
 	if tm.stats.CompletedTraces > 0 {
-		totalDuration := time.Duration(tm.stats.AverageDuration.Nanoseconds() * int64(tm.stats.CompletedTraces-1))
+		totalDuration := time.Duration(tm.stats.AverageDuration.Nanoseconds() * (tm.stats.CompletedTraces - 1))
 		totalDuration += trace.Duration
 		tm.stats.AverageDuration = totalDuration / time.Duration(tm.stats.CompletedTraces)
 	}
@@ -217,14 +228,14 @@ func (tm *TracingManager) StartSpan(ctx context.Context, operation string) (*Spa
 	}
 
 	// Get trace from context
-	trace, ok := ctx.Value("trace").(*Trace)
+	trace, ok := ctx.Value(traceContextKey).(*Trace)
 	if !ok || trace == nil {
 		return nil, ctx
 	}
 
 	// Get parent span if exists
 	parentSpanID := ""
-	if parentSpan, ok := ctx.Value("span").(*Span); ok {
+	if parentSpan, ok := ctx.Value(spanContextKey).(*Span); ok {
 		parentSpanID = parentSpan.SpanID
 	}
 
@@ -251,8 +262,8 @@ func (tm *TracingManager) StartSpan(ctx context.Context, operation string) (*Spa
 	trace.mu.Unlock()
 
 	// Store span in context
-	ctx = context.WithValue(ctx, "span", span)
-	ctx = context.WithValue(ctx, "span_id", spanID)
+	ctx = context.WithValue(ctx, spanContextKey, span)
+	ctx = context.WithValue(ctx, spanIDContextKey, spanID)
 
 	return span, ctx
 }
@@ -449,14 +460,14 @@ func (tm *TracingManager) generateSpanID() string {
 
 // GetTraceContext retrieves trace context from context.Context.
 func GetTraceContext(ctx context.Context) (string, bool) {
-	traceID, ok := ctx.Value("trace_id").(string)
+	traceID, ok := ctx.Value(traceIDContextKey).(string)
 
 	return traceID, ok
 }
 
 // GetSpanContext retrieves span context from context.Context.
 func GetSpanContext(ctx context.Context) (string, bool) {
-	spanID, ok := ctx.Value("span_id").(string)
+	spanID, ok := ctx.Value(spanIDContextKey).(string)
 
 	return spanID, ok
 }

@@ -409,6 +409,7 @@ main().catch((err) => {
 	// --- 1. camelCase input put snake_case ON THE WIRE. ---
 	wireJSON, err := json.Marshal(result.WireBody)
 	require.NoError(t, err)
+
 	wireStr := string(wireJSON)
 
 	assert.Equal(t, "ord_1", result.WireBody["order_id"], "wire body:\n%s", wireStr)

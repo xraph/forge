@@ -95,6 +95,7 @@ func (s *sseStream) setWriteDeadline() func() {
 	if s.rc != nil {
 		_ = s.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 	}
+
 	return func() {
 		if s.rc != nil {
 			_ = s.rc.SetWriteDeadline(time.Time{})

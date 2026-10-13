@@ -2,6 +2,7 @@ package hls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -14,16 +15,17 @@ import (
 	"github.com/xraph/vessel"
 )
 
-// Extension implements forge.Extension for HLS functionality
+// Extension implements forge.Extension for HLS functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config      Config
 	manager     HLS
 	backend     *storage.TroveBackend
 	coordinator *distributed.Coordinator
 }
 
-// NewExtension creates a new HLS extension
+// NewExtension creates a new HLS extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -31,18 +33,19 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("hls", "2.0.0", "HTTP Live Streaming with adaptive bitrate, transcoding, and distributed support")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
 	}
 }
 
-// NewExtensionWithConfig creates a new HLS extension with a complete config
+// NewExtensionWithConfig creates a new HLS extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the HLS extension with the app
+// Register registers the HLS extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -51,15 +54,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Load config from ConfigManager
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("hls", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("hls: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("hls: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -98,6 +104,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Initialize distributed coordinator if enabled
 	var coordinator *distributed.Coordinator
+
 	if e.config.EnableDistributed {
 		consensusSvc, err := forge.Inject[consensus.ConsensusService](app.Container())
 		if err != nil {
@@ -118,6 +125,7 @@ func (e *Extension) Register(app forge.App) error {
 		if err := coordinator.Start(); err != nil {
 			return fmt.Errorf("failed to start distributed coordinator: %w", err)
 		}
+
 		e.coordinator = coordinator
 
 		e.Logger().Info("distributed mode enabled",
@@ -131,11 +139,13 @@ func (e *Extension) Register(app forge.App) error {
 	if err != nil {
 		return fmt.Errorf("failed to create HLS manager: %w", err)
 	}
+
 	e.manager = manager
 
 	// Register HLS service in DI container
 	hlsManager := e.manager
-	if err := vessel.ProvideConstructor(app.Container(), func() HLS {
+
+	if err := vessel.Provide(app.Container(), func() HLS {
 		return hlsManager
 	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register hls service: %w", err)
@@ -148,77 +158,82 @@ func (e *Extension) Register(app forge.App) error {
 	// Leadership checks can be done in handlers using coordinator.IsLeader()
 	// Cluster headers can be added using coordinator's helper methods
 
-	// Master playlist endpoint
-	router.GET(e.config.BasePath+"/:streamID/master.m3u8", e.handleMasterPlaylist,
-		forge.WithName("hls-master-playlist"),
-		forge.WithTags("hls", "streaming"),
-		forge.WithSummary("Get HLS master playlist"),
-	)
+	routeErr := errors.Join(
+		// Master playlist endpoint
+		router.GET(e.config.BasePath+"/:streamID/master.m3u8", e.handleMasterPlaylist,
+			forge.WithName("hls-master-playlist"),
+			forge.WithTags("hls", "streaming"),
+			forge.WithSummary("Get HLS master playlist"),
+		),
 
-	// Media playlist endpoint
-	router.GET(e.config.BasePath+"/:streamID/variants/:variantID/playlist.m3u8", e.handleMediaPlaylist,
-		forge.WithName("hls-media-playlist"),
-		forge.WithTags("hls", "streaming"),
-		forge.WithSummary("Get HLS media playlist"),
-	)
+		// Media playlist endpoint
+		router.GET(e.config.BasePath+"/:streamID/variants/:variantID/playlist.m3u8", e.handleMediaPlaylist,
+			forge.WithName("hls-media-playlist"),
+			forge.WithTags("hls", "streaming"),
+			forge.WithSummary("Get HLS media playlist"),
+		),
 
-	// Segment endpoint
-	router.GET(e.config.BasePath+"/:streamID/variants/:variantID/segment_:segmentNum.ts", e.handleSegment,
-		forge.WithName("hls-segment"),
-		forge.WithTags("hls", "streaming"),
-		forge.WithSummary("Get HLS segment"),
-	)
+		// Segment endpoint
+		router.GET(e.config.BasePath+"/:streamID/variants/:variantID/segment_:segmentNum.ts", e.handleSegment,
+			forge.WithName("hls-segment"),
+			forge.WithTags("hls", "streaming"),
+			forge.WithSummary("Get HLS segment"),
+		),
 
-	// Stream management endpoints
-	router.POST(e.config.BasePath+"/streams", e.handleCreateStream,
-		forge.WithName("hls-create-stream"),
-		forge.WithTags("hls", "streaming", "management"),
-		forge.WithSummary("Create a new HLS stream"),
-	)
+		// Stream management endpoints
+		router.POST(e.config.BasePath+"/streams", e.handleCreateStream,
+			forge.WithName("hls-create-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Create a new HLS stream"),
+		),
 
-	router.GET(e.config.BasePath+"/streams/:streamID", e.handleGetStream,
-		forge.WithName("hls-get-stream"),
-		forge.WithTags("hls", "streaming", "management"),
-		forge.WithSummary("Get HLS stream details"),
-	)
+		router.GET(e.config.BasePath+"/streams/:streamID", e.handleGetStream,
+			forge.WithName("hls-get-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Get HLS stream details"),
+		),
 
-	router.DELETE(e.config.BasePath+"/streams/:streamID", e.handleDeleteStream,
-		forge.WithName("hls-delete-stream"),
-		forge.WithTags("hls", "streaming", "management"),
-		forge.WithSummary("Delete an HLS stream"),
-	)
+		router.DELETE(e.config.BasePath+"/streams/:streamID", e.handleDeleteStream,
+			forge.WithName("hls-delete-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Delete an HLS stream"),
+		),
 
-	router.GET(e.config.BasePath+"/streams", e.handleListStreams,
-		forge.WithName("hls-list-streams"),
-		forge.WithTags("hls", "streaming", "management"),
-		forge.WithSummary("List all HLS streams"),
-	)
+		router.GET(e.config.BasePath+"/streams", e.handleListStreams,
+			forge.WithName("hls-list-streams"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("List all HLS streams"),
+		),
 
-	// Live streaming endpoints
-	router.POST(e.config.BasePath+"/streams/:streamID/start", e.handleStartLiveStream,
-		forge.WithName("hls-start-live"),
-		forge.WithTags("hls", "streaming", "live"),
-		forge.WithSummary("Start a live stream"),
-	)
+		// Live streaming endpoints
+		router.POST(e.config.BasePath+"/streams/:streamID/start", e.handleStartLiveStream,
+			forge.WithName("hls-start-live"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Start a live stream"),
+		),
 
-	router.POST(e.config.BasePath+"/streams/:streamID/stop", e.handleStopLiveStream,
-		forge.WithName("hls-stop-live"),
-		forge.WithTags("hls", "streaming", "live"),
-		forge.WithSummary("Stop a live stream"),
-	)
+		router.POST(e.config.BasePath+"/streams/:streamID/stop", e.handleStopLiveStream,
+			forge.WithName("hls-stop-live"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Stop a live stream"),
+		),
 
-	router.POST(e.config.BasePath+"/streams/:streamID/ingest", e.handleIngestSegment,
-		forge.WithName("hls-ingest-segment"),
-		forge.WithTags("hls", "streaming", "live"),
-		forge.WithSummary("Ingest a segment for live streaming"),
-	)
+		router.POST(e.config.BasePath+"/streams/:streamID/ingest", e.handleIngestSegment,
+			forge.WithName("hls-ingest-segment"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Ingest a segment for live streaming"),
+		),
 
-	// Stats endpoint
-	router.GET(e.config.BasePath+"/streams/:streamID/stats", e.handleGetStats,
-		forge.WithName("hls-stream-stats"),
-		forge.WithTags("hls", "streaming", "stats"),
-		forge.WithSummary("Get stream statistics"),
+		// Stats endpoint
+		router.GET(e.config.BasePath+"/streams/:streamID/stats", e.handleGetStats,
+			forge.WithName("hls-stream-stats"),
+			forge.WithTags("hls", "streaming", "stats"),
+			forge.WithSummary("Get stream statistics"),
+		),
 	)
+	if routeErr != nil {
+		return fmt.Errorf("failed to register hls routes: %w", routeErr)
+	}
 
 	e.Logger().Info("hls extension registered",
 		forge.F("base_path", e.config.BasePath),
@@ -231,7 +246,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the HLS extension
+// Start starts the HLS extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting hls extension")
 
@@ -242,7 +257,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the HLS extension
+// Stop stops the HLS extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping hls extension")
 
@@ -263,7 +278,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health returns the health status of the HLS extension
+// Health returns the health status of the HLS extension.
 func (e *Extension) Health(ctx context.Context) error {
 	// TODO: Implement proper health checks
 	return nil
@@ -280,6 +295,7 @@ func (e *Extension) handleMasterPlaylist(ctx forge.Context) error {
 	}
 
 	ctx.Response().Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+
 	if e.config.EnableCORS {
 		e.setCORSHeaders(ctx)
 	}
@@ -297,6 +313,7 @@ func (e *Extension) handleMediaPlaylist(ctx forge.Context) error {
 	}
 
 	ctx.Response().Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+
 	if e.config.EnableCORS {
 		e.setCORSHeaders(ctx)
 	}
@@ -307,8 +324,11 @@ func (e *Extension) handleMediaPlaylist(ctx forge.Context) error {
 func (e *Extension) handleSegment(ctx forge.Context) error {
 	streamID := ctx.Param("streamID")
 	variantID := ctx.Param("variantID")
+
 	segmentNum := 0
-	fmt.Sscanf(ctx.Param("segmentNum"), "%d", &segmentNum)
+	if _, err := fmt.Sscanf(ctx.Param("segmentNum"), "%d", &segmentNum); err != nil {
+		return forge.NewHTTPError(400, fmt.Sprintf("invalid segment number: %v", err))
+	}
 
 	// Get segment from manager
 	reader, err := e.manager.GetSegment(ctx.Request().Context(), streamID, variantID, segmentNum)
@@ -320,12 +340,14 @@ func (e *Extension) handleSegment(ctx forge.Context) error {
 	// Set headers
 	ctx.Response().Header().Set("Content-Type", "video/MP2T")
 	ctx.Response().Header().Set("Cache-Control", "max-age=3600")
+
 	if e.config.EnableCORS {
 		e.setCORSHeaders(ctx)
 	}
 
 	// Stream segment to response
 	ctx.Response().WriteHeader(200)
+
 	if _, err := io.Copy(ctx.Response(), reader); err != nil {
 		e.Logger().Error("failed to stream segment",
 			forge.F("stream_id", streamID),
@@ -333,6 +355,7 @@ func (e *Extension) handleSegment(ctx forge.Context) error {
 			forge.F("segment_num", segmentNum),
 			forge.F("error", err.Error()),
 		)
+
 		return err
 	}
 
@@ -380,7 +403,7 @@ func (e *Extension) handleListStreams(ctx forge.Context) error {
 		return forge.InternalError(fmt.Errorf("failed to list streams: %w", err))
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"streams": streams,
 		"count":   len(streams),
 	})
@@ -449,6 +472,7 @@ func (e *Extension) setCORSHeaders(ctx forge.Context) {
 			ctx.Response().Header().Set("Access-Control-Allow-Origin", origin)
 		}
 	}
+
 	ctx.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	ctx.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }

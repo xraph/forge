@@ -37,7 +37,7 @@ func benchScrape(b *testing.B, groups int, streaming bool) {
 	if streaming {
 		bridge = exporters.NewStreamingPrometheusBridge(c.streamMetrics, cfg)
 	} else {
-		bridge = exporters.NewPrometheusBridge(c.GetMetrics, cfg)
+		bridge = exporters.NewPrometheusBridge(c.GetMetrics, cfg) //nolint:staticcheck // the snapshot bridge is the baseline this benchmark measures streaming against
 	}
 
 	b.ReportAllocs()

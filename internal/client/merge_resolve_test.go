@@ -12,10 +12,12 @@ import (
 // writeSpec writes content to a temp file with the given name and returns its path.
 func writeSpec(t *testing.T, name, content string) string {
 	t.Helper()
+
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
+
 	return path
 }
 
@@ -105,9 +107,11 @@ func TestParseFileUnresolvedLeavesRoutingTypesUnbuilt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFileUnresolved: %v", err)
 	}
+
 	if spec.RoutingTypes != nil {
 		t.Errorf("RoutingTypes = %v, want nil before resolution", spec.RoutingTypes)
 	}
+
 	if spec.Kind != client.SourceOpenAPI {
 		t.Errorf("Kind = %v, want SourceOpenAPI", spec.Kind)
 	}
@@ -121,9 +125,11 @@ func TestParseFileStillResolves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
+
 	if spec.Entities["Order"] == nil {
 		t.Fatalf("Entities[Order] missing after ParseFile")
 	}
+
 	if spec.Kind != client.SourceOpenAPI {
 		t.Errorf("Kind = %v, want SourceOpenAPI", spec.Kind)
 	}
@@ -156,6 +162,7 @@ func TestUnresolvedParseThenMergeResolvesCrossDocumentEntityEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse rest: %v", err)
 	}
+
 	stream, err := p.ParseFileUnresolved(context.Background(), streamPath)
 	if err != nil {
 		t.Fatalf("parse stream: %v", err)
@@ -167,6 +174,7 @@ func TestUnresolvedParseThenMergeResolvesCrossDocumentEntityEdge(t *testing.T) {
 	if len(merged.Endpoints) == 0 {
 		t.Errorf("merged spec lost its REST endpoints")
 	}
+
 	if len(merged.WebSockets) == 0 {
 		t.Errorf("merged spec lost its stream endpoints")
 	}
@@ -175,9 +183,11 @@ func TestUnresolvedParseThenMergeResolvesCrossDocumentEntityEdge(t *testing.T) {
 	if order == nil {
 		t.Fatalf("merged spec missing Entities[Order]")
 	}
+
 	if merged.Entities["Customer"] == nil {
 		t.Fatalf("merged spec missing Entities[Customer] -- the stream-binding registration was lost in the merge")
 	}
+
 	if got := order.Fields["customer"]; got != "Customer" {
 		t.Errorf(`Entities["Order"].Fields["customer"] = %q, want "Customer" -- this edge only survives`+
 			" resolution that runs once over the merged whole; resolving restDoc alone cannot see Customer"+

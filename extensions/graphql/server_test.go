@@ -60,7 +60,7 @@ func TestGraphQLServer_PlaygroundHandler(t *testing.T) {
 	}
 
 	// Test playground renders HTML
-	req := httptest.NewRequest("GET", "/playground", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/playground", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -89,8 +89,9 @@ func TestGraphQLServer_Query(t *testing.T) {
 
 	// Test hello query
 	query := `{"query":"{ hello(name: \"World\") }"}`
-	req := httptest.NewRequest("POST", "/graphql", strings.NewReader(query))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/graphql", strings.NewReader(query))
 	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)

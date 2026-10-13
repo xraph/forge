@@ -21,6 +21,7 @@ func TestPredicate_AllRequires(t *testing.T) {
 	if !p.Allow(u([]string{"admin"}, []string{"users.write"}), nil) {
 		t.Error("admin+users.write should pass all")
 	}
+
 	if p.Allow(u([]string{"admin"}, nil), nil) {
 		t.Error("missing scope should fail all")
 	}
@@ -31,6 +32,7 @@ func TestPredicate_AnyRequires(t *testing.T) {
 	if !p.Allow(u([]string{"owner"}, nil), nil) {
 		t.Error("owner alone should pass any")
 	}
+
 	if p.Allow(u([]string{"viewer"}, nil), nil) {
 		t.Error("neither admin nor owner should fail any")
 	}
@@ -41,6 +43,7 @@ func TestPredicate_NotForbids(t *testing.T) {
 	if !p.Allow(u([]string{"admin"}, nil), nil) {
 		t.Error("admin should pass not-guest")
 	}
+
 	if p.Allow(u([]string{"guest"}, nil), nil) {
 		t.Error("guest should fail not-guest")
 	}
@@ -53,9 +56,11 @@ func TestPredicate_AllAndAny_Combined(t *testing.T) {
 	}
 	pass := u([]string{"owner"}, []string{"users.read"})
 	fail := u([]string{"owner"}, nil)
+
 	if !p.Allow(pass, nil) {
 		t.Error("pass case failed")
 	}
+
 	if p.Allow(fail, nil) {
 		t.Error("fail case allowed")
 	}

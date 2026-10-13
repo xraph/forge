@@ -28,7 +28,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 		return components, nil
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -49,8 +49,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 	hasHeaderFields := false
 	hasBodyUnwrapTag := false
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
+	for field := range rt.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -85,9 +84,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 
 	var bodyRequired []string
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -139,7 +136,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 				required = false
 			} else if field.Tag.Get("required") == "false" {
 				required = false
-			} else if field.Type.Kind() == reflect.Ptr {
+			} else if field.Type.Kind() == reflect.Pointer {
 				required = false
 			}
 
@@ -167,7 +164,7 @@ func extractUnifiedResponseComponents(schemaGen *schemaGenerator, schemaType any
 
 				// Check if this should be registered as a component
 				fieldType := field.Type
-				if fieldType.Kind() == reflect.Ptr {
+				if fieldType.Kind() == reflect.Pointer {
 					fieldType = fieldType.Elem()
 				}
 
@@ -248,7 +245,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 	}
 
 	fieldType := field.Type
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 
@@ -256,9 +253,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 		return components, nil
 	}
 
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -299,7 +294,7 @@ func extractEmbeddedResponseComponents(schemaGen *schemaGenerator, field reflect
 				required = false
 			} else if embeddedField.Tag.Get("required") == "false" {
 				required = false
-			} else if embeddedField.Type.Kind() == reflect.Ptr {
+			} else if embeddedField.Type.Kind() == reflect.Pointer {
 				required = false
 			}
 

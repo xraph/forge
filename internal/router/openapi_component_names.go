@@ -105,7 +105,7 @@ func (g *schemaGenerator) noteComponent(componentName string, typ reflect.Type, 
 		return
 	}
 
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -165,7 +165,7 @@ func (g *schemaGenerator) registerComponent(typ reflect.Type, suffix string, sch
 		return schema
 	}
 
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -242,7 +242,7 @@ func (g *schemaGenerator) pinComponentName(componentName string, typ reflect.Typ
 		return
 	}
 
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 

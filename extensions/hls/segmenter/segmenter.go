@@ -11,13 +11,13 @@ import (
 	"sync"
 )
 
-// Segmenter handles video segmentation for HLS
+// Segmenter handles video segmentation for HLS.
 type Segmenter struct {
 	config Config
 	mu     sync.Mutex
 }
 
-// Config holds segmenter configuration
+// Config holds segmenter configuration.
 type Config struct {
 	FFmpegPath     string
 	TargetDuration int     // Segment duration in seconds
@@ -25,7 +25,7 @@ type Config struct {
 	InitialOffset  float64 // Initial time offset
 }
 
-// SegmentResult represents the output of segmentation
+// SegmentResult represents the output of segmentation.
 type SegmentResult struct {
 	Segments  []Segment
 	Duration  float64
@@ -33,7 +33,7 @@ type SegmentResult struct {
 	VideoInfo VideoInfo
 }
 
-// Segment represents a single video segment
+// Segment represents a single video segment.
 type Segment struct {
 	Index    int
 	Duration float64
@@ -41,7 +41,7 @@ type Segment struct {
 	Size     int64
 }
 
-// VideoInfo contains video metadata
+// VideoInfo contains video metadata.
 type VideoInfo struct {
 	Duration   float64
 	Width      int
@@ -53,14 +53,16 @@ type VideoInfo struct {
 	Format     string
 }
 
-// NewSegmenter creates a new segmenter
+// NewSegmenter creates a new segmenter.
 func NewSegmenter(config Config) *Segmenter {
 	if config.FFmpegPath == "" {
 		config.FFmpegPath = "ffmpeg"
 	}
+
 	if config.TargetDuration == 0 {
 		config.TargetDuration = 6
 	}
+
 	if config.SegmentPrefix == "" {
 		config.SegmentPrefix = "segment"
 	}
@@ -70,7 +72,7 @@ func NewSegmenter(config Config) *Segmenter {
 	}
 }
 
-// SegmentFile segments a video file into HLS segments
+// SegmentFile segments a video file into HLS segments.
 func (s *Segmenter) SegmentFile(ctx context.Context, inputPath string) (*SegmentResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,9 +99,10 @@ func (s *Segmenter) SegmentFile(ctx context.Context, inputPath string) (*Segment
 
 	// Note: For production, you'd want to output segments to files
 	// or memory buffers. This is a simplified version.
-	cmd := exec.CommandContext(ctx, s.config.FFmpegPath, args...)
+	cmd := exec.CommandContext(ctx, s.config.FFmpegPath, args...) //nolint:gosec // G204: ffmpeg path comes from operator config; args are built here and passed without a shell
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -119,7 +122,7 @@ func (s *Segmenter) SegmentFile(ctx context.Context, inputPath string) (*Segment
 	return result, nil
 }
 
-// SegmentStream segments a live video stream
+// SegmentStream segments a live video stream.
 func (s *Segmenter) SegmentStream(ctx context.Context, input io.Reader, output chan<- Segment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -137,10 +140,11 @@ func (s *Segmenter) SegmentStream(ctx context.Context, input io.Reader, output c
 		"-",
 	}
 
-	cmd := exec.CommandContext(ctx, s.config.FFmpegPath, args...)
+	cmd := exec.CommandContext(ctx, s.config.FFmpegPath, args...) //nolint:gosec // G204: ffmpeg path comes from operator config; args are built here and passed without a shell
 	cmd.Stdin = input
 
 	var stderr bytes.Buffer
+
 	cmd.Stderr = &stderr
 
 	stdout, err := cmd.StdoutPipe()
@@ -155,6 +159,7 @@ func (s *Segmenter) SegmentStream(ctx context.Context, input io.Reader, output c
 	// Read segments from stdout
 	go func() {
 		defer close(output)
+
 		segmentIndex := 0
 
 		// In real implementation, you'd parse the MPEG-TS stream
@@ -166,6 +171,7 @@ func (s *Segmenter) SegmentStream(ctx context.Context, input io.Reader, output c
 				if err != io.EOF {
 					// Log error
 				}
+
 				break
 			}
 
@@ -195,7 +201,7 @@ func (s *Segmenter) SegmentStream(ctx context.Context, input io.Reader, output c
 	return nil
 }
 
-// probeVideo uses ffprobe to get video information
+// probeVideo uses ffprobe to get video information.
 func (s *Segmenter) probeVideo(ctx context.Context, inputPath string) (*VideoInfo, error) {
 	// Use ffprobe to get video metadata
 	ffprobePath := strings.Replace(s.config.FFmpegPath, "ffmpeg", "ffprobe", 1)
@@ -210,6 +216,7 @@ func (s *Segmenter) probeVideo(ctx context.Context, inputPath string) (*VideoInf
 	cmd := exec.CommandContext(ctx, ffprobePath, args...)
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -222,35 +229,36 @@ func (s *Segmenter) probeVideo(ctx context.Context, inputPath string) (*VideoInf
 		Format: "mp4", // Default
 	}
 
-	lines := strings.Split(stdout.String(), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "duration=") {
-			if d, err := strconv.ParseFloat(strings.TrimPrefix(line, "duration="), 64); err == nil {
+	lines := strings.SplitSeq(stdout.String(), "\n")
+	for line := range lines {
+		if after, ok := strings.CutPrefix(line, "duration="); ok {
+			if d, err := strconv.ParseFloat(after, 64); err == nil {
 				info.Duration = d
 			}
-		} else if strings.HasPrefix(line, "bit_rate=") {
-			if b, err := strconv.ParseInt(strings.TrimPrefix(line, "bit_rate="), 10, 64); err == nil {
+		} else if after, ok := strings.CutPrefix(line, "bit_rate="); ok {
+			if b, err := strconv.ParseInt(after, 10, 64); err == nil {
 				info.Bitrate = b
 			}
-		} else if strings.HasPrefix(line, "width=") {
-			if w, err := strconv.Atoi(strings.TrimPrefix(line, "width=")); err == nil {
+		} else if after, ok := strings.CutPrefix(line, "width="); ok {
+			if w, err := strconv.Atoi(after); err == nil {
 				info.Width = w
 			}
-		} else if strings.HasPrefix(line, "height=") {
-			if h, err := strconv.Atoi(strings.TrimPrefix(line, "height=")); err == nil {
+		} else if after, ok := strings.CutPrefix(line, "height="); ok {
+			if h, err := strconv.Atoi(after); err == nil {
 				info.Height = h
 			}
-		} else if strings.HasPrefix(line, "codec_name=") {
-			codec := strings.TrimPrefix(line, "codec_name=")
+		} else if after, ok := strings.CutPrefix(line, "codec_name="); ok {
+			codec := after
 			if info.VideoCodec == "" {
 				info.VideoCodec = codec
 			} else if info.AudioCodec == "" {
 				info.AudioCodec = codec
 			}
-		} else if strings.HasPrefix(line, "r_frame_rate=") {
-			frameRateStr := strings.TrimPrefix(line, "r_frame_rate=")
+		} else if after, ok := strings.CutPrefix(line, "r_frame_rate="); ok {
+			frameRateStr := after
 			if parts := strings.Split(frameRateStr, "/"); len(parts) == 2 {
 				num, _ := strconv.ParseFloat(parts[0], 64)
+
 				den, _ := strconv.ParseFloat(parts[1], 64)
 				if den != 0 {
 					info.FrameRate = num / den
@@ -262,7 +270,7 @@ func (s *Segmenter) probeVideo(ctx context.Context, inputPath string) (*VideoInf
 	return info, nil
 }
 
-// GetVideoInfo returns video information without segmenting
+// GetVideoInfo returns video information without segmenting.
 func (s *Segmenter) GetVideoInfo(ctx context.Context, inputPath string) (*VideoInfo, error) {
 	return s.probeVideo(ctx, inputPath)
 }

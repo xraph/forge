@@ -39,7 +39,7 @@ func newHealthTestApp(t *testing.T) (App, func()) {
 func get(t *testing.T, a App, path string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
 	a.Router().ServeHTTP(w, req)
 

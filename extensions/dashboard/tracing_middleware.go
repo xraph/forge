@@ -27,11 +27,13 @@ type replayBody struct {
 
 func safeTraceHeaders(headers http.Header, names ...string) map[string]string {
 	out := make(map[string]string)
+
 	for _, name := range names {
 		if value := headers.Get(name); value != "" {
 			out[http.CanonicalHeaderKey(name)] = truncateAttr(value, maxAttrValueLen)
 		}
 	}
+
 	return out
 }
 
@@ -51,6 +53,7 @@ func redactTraceJSON(value any) any {
 			data[i] = redactTraceJSON(child)
 		}
 	}
+
 	return value
 }
 
@@ -58,39 +61,45 @@ func captureRequestJSON(req *http.Request) string {
 	if req.Body == nil || req.ContentLength <= 0 || req.ContentLength > maxTraceBodyBytes || !strings.Contains(strings.ToLower(req.Header.Get("Content-Type")), "application/json") {
 		return ""
 	}
+
 	original := req.Body
 	raw, err := io.ReadAll(io.LimitReader(original, maxTraceBodyBytes+1))
+
 	req.Body = &replayBody{Reader: io.MultiReader(bytes.NewReader(raw), original), Closer: original}
 	if err != nil || len(raw) > maxTraceBodyBytes {
 		return ""
 	}
+
 	var value any
 	if json.Unmarshal(raw, &value) != nil {
 		return ""
 	}
+
 	encoded, err := json.Marshal(redactTraceJSON(value))
 	if err != nil || len(encoded) > maxTraceBodyBytes {
 		return ""
 	}
+
 	return string(encoded)
 }
 
-// truncateAttr shortens s to at most max bytes, ending on a rune boundary and
+// truncateAttr shortens s to at most limit bytes, ending on a rune boundary and
 // marking the cut. Values already within the limit are returned unchanged.
-func truncateAttr(s string, max int) string {
-	if len(s) <= max {
+func truncateAttr(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
 
 	const marker = "..."
-	if max <= len(marker) {
-		if max <= 0 {
+	if limit <= len(marker) {
+		if limit <= 0 {
 			return ""
 		}
-		return marker[:max]
+
+		return marker[:limit]
 	}
 
-	cut := max - len(marker)
+	cut := limit - len(marker)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
@@ -158,6 +167,7 @@ func TracingMiddleware(store *collector.TraceStore, basePath string, captureRequ
 
 			// Determine protocol from request/path.
 			protocol := inferRequestProtocol(req.Header.Get("Upgrade"), path)
+
 			httpExchange := &collector.HTTPExchange{
 				Request: collector.HTTPMessage{Headers: safeTraceHeaders(req.Header, "Accept", "Content-Type", "Content-Length", "User-Agent", "X-Request-ID", "Traceparent")},
 			}
@@ -189,9 +199,11 @@ func TracingMiddleware(store *collector.TraceStore, basePath string, captureRequ
 			if req.URL.RawQuery != "" {
 				attrs["http.query"] = truncateAttr(req.URL.RawQuery, maxAttrValueLen)
 			}
+
 			if ua := req.UserAgent(); ua != "" {
 				attrs["http.user_agent"] = truncateAttr(ua, maxAttrValueLen)
 			}
+
 			if err != nil {
 				attrs["error"] = truncateAttr(err.Error(), maxAttrValueLen)
 			}
@@ -222,8 +234,10 @@ func inferRequestProtocol(upgradeHeader, path string) string {
 	if strings.EqualFold(upgradeHeader, "websocket") {
 		return "WS"
 	}
+
 	if strings.Contains(path, "/sse") || strings.Contains(path, "/events") {
 		return "SSE"
 	}
+
 	return "REST"
 }

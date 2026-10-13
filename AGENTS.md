@@ -64,7 +64,7 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py'      # after touc
 | `make test` | `go test -v -race -timeout=5m ./...` in every module, examples included (CI uses `-short` for sub-modules) |
 | `make test-short` / `make test-integration` | root module packages with `-short`, or with `-tags=integration` |
 | `make test-cli` | `cmd/forge` and `cli/` |
-| `make lint` | golangci-lint in every module; expect existing findings in modules you didn't touch |
+| `make lint` | golangci-lint in every module, the same loop the Lint job runs. Run `make install-lint` first so you get the pinned version, because another version reports different findings |
 | `make lint-fix` | golangci-lint `--fix`, root module only |
 | `make fmt` / `make vet` / `make tidy` | `go fmt`, `go vet` or `go mod tidy` in every module |
 | `make build` | the CLI into `bin/forge` |
@@ -77,6 +77,7 @@ Some targets don't do what their names say:
 
 - `make fmt-check` runs `go fmt -l`, which go fmt rejects. The rejected command prints nothing on stdout, `test -z` passes, and the target can't fail, so the format check inside `make verify` and `make ci` passes no matter what. Use `gofmt -l .`.
 - `make tidy-check` runs `go mod tidy` on the root before it diffs, so it rewrites go.mod and go.sum.
+- `make lint-fix` (and `golangci-lint --fix` in general) writes some wrong code here. Read every line of the diff before you keep it. The modernize fix can give two nested loops the same variable, so a comparison turns into `v == v`. errorlint rewrites `ce, ok := err.(*T); !ok || ce.Code != X` into a bare `errors.As` and drops the code check. A fix that spans files can land in the wrong one, and perfsprint swaps in `errors.New` without adding the import. Whitespace-only linters (wsl_v5, whitespace, nlreturn, godot) are safe to auto-fix.
 - `make test-extensions` runs `go test ./...` from `extensions/`. That reaches the root-module packages there (the dashboard) and none of the extension modules.
 - `make release-main`, `make release-all` and `make release-extensions` call `scripts/release-modules.sh`, which creates tags on your machine and pushes them. Never use them. The `modules-*` targets hardcode five of the nineteen extensions.
 
@@ -89,7 +90,7 @@ Some targets don't do what their names say:
 | Test (ubuntu, macOS) | `xraph/workflows` go-ci.yml: `go test -race ./...` on the root module only, with Node and the pinned typescript and esbuild installed | yes |
 | Test (windows) | the same, without coverage | no |
 | Build All Modules | build and vet every module, then `go test -short -count=1 -timeout=5m ./...` in every module except the root | yes |
-| Lint | golangci-lint with `continue-on-error: true`, then `go vet ./...` on the root | only the vet |
+| Lint | `make install-lint` builds golangci-lint v2.12.2 with Go 1.26.9, `make l` lints every module, then `go vet ./...` on the root | yes |
 | Security Scan | gosec (`\|\| true`) and govulncheck (`continue-on-error`) | not on findings |
 | Build CLI | `go work init . ./cmd/forge` on the runner, build, `./forge --version` | yes |
 | Deploy Compose Lifecycle, Deploy Kubernetes Lifecycle | `-tags integration` deploy tests in `cmd/forge` against Docker and kind | yes |

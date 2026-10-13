@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
@@ -166,9 +167,7 @@ func (c *sseConnection) Cursor() replayCursor {
 	defer c.mu.Unlock()
 
 	cp := make(replayCursor, len(c.cursor))
-	for room, seq := range c.cursor {
-		cp[room] = seq
-	}
+	maps.Copy(cp, c.cursor)
 
 	return cp
 }

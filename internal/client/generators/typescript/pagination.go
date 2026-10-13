@@ -183,25 +183,25 @@ func (p *PaginationGenerator) GeneratePaginatedMethods(endpoint client.Endpoint,
 	methodName := p.generateMethodName(endpoint)
 	returnType := p.getArrayItemType(endpoint, spec)
 
-	buf.WriteString(fmt.Sprintf("  /**\n   * Paginated version of %s - returns async iterator\n   */\n", methodName))
-	buf.WriteString(fmt.Sprintf("  async *%sPaginated(\n", methodName))
+	fmt.Fprintf(&buf, "  /**\n   * Paginated version of %s - returns async iterator\n   */\n", methodName)
+	fmt.Fprintf(&buf, "  async *%sPaginated(\n", methodName)
 	buf.WriteString("    params: PaginationParams = {},\n")
 	buf.WriteString("    options?: { signal?: AbortSignal }\n")
-	buf.WriteString(fmt.Sprintf("  ): AsyncGenerator<%s, void, undefined> {\n", returnType))
+	fmt.Fprintf(&buf, "  ): AsyncGenerator<%s, void, undefined> {\n", returnType)
 	buf.WriteString("    yield* paginateAll(\n")
-	buf.WriteString(fmt.Sprintf("      (p) => this.%s({ ...params, ...p }, options),\n", methodName))
+	fmt.Fprintf(&buf, "      (p) => this.%s({ ...params, ...p }, options),\n", methodName)
 	buf.WriteString("      params\n")
 	buf.WriteString("    );\n")
 	buf.WriteString("  }\n\n")
 
-	buf.WriteString(fmt.Sprintf("  /**\n   * Collect all items from %s\n   */\n", methodName))
-	buf.WriteString(fmt.Sprintf("  async %sAll(\n", methodName))
+	fmt.Fprintf(&buf, "  /**\n   * Collect all items from %s\n   */\n", methodName)
+	fmt.Fprintf(&buf, "  async %sAll(\n", methodName)
 	buf.WriteString("    params: PaginationParams = {},\n")
 	buf.WriteString("    maxItems?: number,\n")
 	buf.WriteString("    options?: { signal?: AbortSignal }\n")
-	buf.WriteString(fmt.Sprintf("  ): Promise<%s[]> {\n", returnType))
+	fmt.Fprintf(&buf, "  ): Promise<%s[]> {\n", returnType)
 	buf.WriteString("    return collectAll(\n")
-	buf.WriteString(fmt.Sprintf("      (p) => this.%s({ ...params, ...p }, options),\n", methodName))
+	fmt.Fprintf(&buf, "      (p) => this.%s({ ...params, ...p }, options),\n", methodName)
 	buf.WriteString("      params,\n")
 	buf.WriteString("      maxItems\n")
 	buf.WriteString("    );\n")
@@ -237,6 +237,7 @@ func (p *PaginationGenerator) getArrayItemType(endpoint client.Endpoint, spec *c
 				// return type) is deterministic when multiple match.
 				for _, propName := range sortedKeys(media.Schema.Properties) {
 					prop := media.Schema.Properties[propName]
+
 					nameLower := strings.ToLower(propName)
 					if (nameLower == "data" || nameLower == "items" || nameLower == "results") &&
 						prop.Type == "array" && prop.Items != nil {

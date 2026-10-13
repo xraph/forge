@@ -1,4 +1,5 @@
-// v2/cmd/forge/config/loader.go
+// Package config reads and validates the .forge.yaml project file and the
+// per-app .forge.yaml files the CLI commands run against.
 package config
 
 import (
@@ -16,6 +17,7 @@ func LoadForgeConfig() (*ForgeConfig, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
 	for {
 		cfg, err := LoadForgeConfigFrom(dir)
 		if err == nil {
@@ -115,6 +117,7 @@ func tryLoadConfig(path string) (*ForgeConfig, error) {
 			break
 		}
 	}
+
 	config := DefaultConfig()
 	if err := document.Decode(config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)

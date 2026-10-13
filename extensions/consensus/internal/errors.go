@@ -149,6 +149,7 @@ func NewNotLeaderError(nodeID string, leaderID string) *errors.ForgeError {
 	}
 
 	result := err.WithContext("node_id", nodeID).WithContext("leader_id", leaderID)
+
 	return result.(*errors.ForgeError)
 }
 
@@ -173,6 +174,7 @@ func NewNoQuorumError(required, available int) *errors.ForgeError {
 	}
 
 	result := err.WithContext("required", required).WithContext("available", available)
+
 	return result.(*errors.ForgeError)
 }
 
@@ -184,6 +186,7 @@ func NewStaleTermError(current, received uint64) *errors.ForgeError {
 	}
 
 	result := err.WithContext("current_term", current).WithContext("received_term", received)
+
 	return result.(*errors.ForgeError)
 }
 

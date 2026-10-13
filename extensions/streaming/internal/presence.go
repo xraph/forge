@@ -184,7 +184,7 @@ type ActivityInfo struct {
 	Name      string         `json:"name"`
 	Details   string         `json:"details,omitempty"`
 	State     string         `json:"state,omitempty"`
-	StartTime time.Time      `json:"start_time,omitempty"`
+	StartTime time.Time      `json:"start_time"`
 	EndTime   *time.Time     `json:"end_time,omitempty"`
 	Assets    map[string]any `json:"assets,omitempty"` // Images, icons, etc.
 	Metadata  map[string]any `json:"metadata,omitempty"`
@@ -224,7 +224,7 @@ type UserPresenceStats struct {
 type PresenceFilters struct {
 	Status        []string  `json:"status,omitempty"`
 	Online        bool      `json:"online,omitempty"`
-	SinceActivity time.Time `json:"since_activity,omitempty"`
+	SinceActivity time.Time `json:"since_activity"`
 	RoomID        string    `json:"room_id,omitempty"`
 	DeviceType    string    `json:"device_type,omitempty"`
 }

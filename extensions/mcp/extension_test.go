@@ -151,7 +151,7 @@ func TestMCPServerInfo(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to MCP info endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/info", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/info", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -209,7 +209,7 @@ func TestMCPListTools(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to list tools endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/tools", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/tools", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -277,7 +277,7 @@ func TestMCPCallTool(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// First, verify the tool was registered
-	listReq := httptest.NewRequest(http.MethodGet, "/_/mcp/tools", nil)
+	listReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/tools", nil)
 	listRec := httptest.NewRecorder()
 	app.Router().ServeHTTP(listRec, listReq)
 
@@ -308,7 +308,7 @@ func TestMCPCallTool(t *testing.T) {
 	// Now call the tool - note that actual tool execution is a placeholder
 	// We're just testing that the endpoint exists and responds
 	reqBody := `{"name": "create_users", "arguments": {"name": "John"}}`
-	req := httptest.NewRequest(http.MethodPost, "/_/mcp/tools/create_users", strings.NewReader(reqBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/_/mcp/tools/create_users", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -455,7 +455,7 @@ func TestMCPToolPrefix(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to list tools endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/tools", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/tools", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -504,7 +504,7 @@ func TestMCPDisabled(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Try to access MCP endpoint - should not exist
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/info", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/info", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -537,7 +537,7 @@ func TestMCPResources(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to list resources endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/resources", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/resources", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -579,7 +579,7 @@ func TestMCPPrompts(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to list prompts endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/prompts", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/prompts", nil)
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -745,7 +745,7 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 
 	// Verify programmatic override by checking endpoint path
 	router := app.Router()
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/custom/info", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/custom/info", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -929,7 +929,7 @@ func TestMCPExtension_NewExtensionWithConfig(t *testing.T) {
 
 	// Verify extension works
 	router := app.Router()
-	req := httptest.NewRequest(http.MethodGet, "/_/mcp/info", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/mcp/info", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

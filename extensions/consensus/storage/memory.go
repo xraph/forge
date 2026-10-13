@@ -17,7 +17,7 @@ type MemoryStorage struct {
 	mu      sync.RWMutex
 	logger  forge.Logger
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 }
 

@@ -197,9 +197,9 @@ func WithVHost(vhost string) ConfigOption {
 }
 
 // WithMaxConnections sets max connections.
-func WithMaxConnections(max int) ConfigOption {
+func WithMaxConnections(maxConns int) ConfigOption {
 	return func(c *Config) {
-		c.MaxConnections = max
+		c.MaxConnections = maxConns
 	}
 }
 

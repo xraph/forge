@@ -164,12 +164,12 @@ func (g *OpsManifestGenerator) GenerateModules(
 		// Only this operation's codecs, by name, so the module carries about a
 		// kilobyte of the document's 333 rather than all of it.
 		for _, codecID := range operationCodecIDs(&spec.Endpoints[i], needsCodecs) {
-			buf.WriteString(fmt.Sprintf("import { %s } from '../codecs/%s';\n",
-				codecConstName(codecID), opFileStem(codecID)))
+			fmt.Fprintf(&buf, "import { %s } from '../codecs/%s';\n",
+				codecConstName(codecID), opFileStem(codecID))
 		}
 
 		buf.WriteString("\n")
-		buf.WriteString(fmt.Sprintf("export const %s = {\n", naming.consts[i]))
+		fmt.Fprintf(&buf, "export const %s = {\n", naming.consts[i])
 		writeOperationFields(&buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "  ", codecConstName)
 		buf.WriteString("} as const satisfies OperationMeta;\n")
 
@@ -482,22 +482,22 @@ func (g *OpsManifestGenerator) writeSecuritySchemes(buf *strings.Builder, spec *
 	buf.WriteString("export const securitySchemes = {\n")
 
 	for _, s := range spec.Security {
-		buf.WriteString(fmt.Sprintf("  %s: { type: %s", tsKey(s.Key), tsString(s.Type)))
+		fmt.Fprintf(buf, "  %s: { type: %s", tsKey(s.Key), tsString(s.Type))
 
 		// in/name are meaningless for http and oauth2 schemes, and scheme is
 		// meaningless for apiKey -- each is emitted only when the document
 		// actually populated it, so a bearer scheme reads as `{ type: 'http',
 		// scheme: 'bearer' }` rather than trailing empty-string fields.
 		if s.In != "" {
-			buf.WriteString(fmt.Sprintf(", in: %s", tsString(s.In)))
+			fmt.Fprintf(buf, ", in: %s", tsString(s.In))
 		}
 
 		if s.ParamName != "" {
-			buf.WriteString(fmt.Sprintf(", name: %s", tsString(s.ParamName)))
+			fmt.Fprintf(buf, ", name: %s", tsString(s.ParamName))
 		}
 
 		if s.Scheme != "" {
-			buf.WriteString(fmt.Sprintf(", scheme: %s", tsString(s.Scheme)))
+			fmt.Fprintf(buf, ", scheme: %s", tsString(s.Scheme))
 		}
 
 		buf.WriteString(" },\n")
@@ -555,7 +555,7 @@ func (g *OpsManifestGenerator) writeOps(
 	keys := operationKeys(spec.Endpoints)
 
 	for i := range spec.Endpoints {
-		buf.WriteString(fmt.Sprintf("  %s: {\n", tsKey(keys[i])))
+		fmt.Fprintf(buf, "  %s: {\n", tsKey(keys[i]))
 		writeOperationFields(buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "    ", tableCodecRef)
 		buf.WriteString("  },\n")
 	}
@@ -576,15 +576,15 @@ func writeOperationFields(
 ) {
 	row := operationRow(ep, spec, config, known, needsCodecs)
 
-	buf.WriteString(fmt.Sprintf("%smethod: %s,\n", indent, tsString(row.Method)))
-	buf.WriteString(fmt.Sprintf("%spath: %s,\n", indent, tsString(row.Path)))
+	fmt.Fprintf(buf, "%smethod: %s,\n", indent, tsString(row.Method))
+	fmt.Fprintf(buf, "%spath: %s,\n", indent, tsString(row.Path))
 
 	if row.Entity != "" {
-		buf.WriteString(fmt.Sprintf("%sentity: %s,\n", indent, tsString(row.Entity)))
+		fmt.Fprintf(buf, "%sentity: %s,\n", indent, tsString(row.Entity))
 	}
 
 	if row.RootType != "" {
-		buf.WriteString(fmt.Sprintf("%srootType: %s,\n", indent, tsString(row.RootType)))
+		fmt.Fprintf(buf, "%srootType: %s,\n", indent, tsString(row.RootType))
 	}
 
 	fmt.Fprintf(buf, "%sprovides: %s,\n", indent, tsStringArray(row.Provides))
@@ -595,7 +595,7 @@ func writeOperationFields(
 	// weight for a lookup an AuthProvider would run and find empty on
 	// every one of the (usually many) unauthenticated operations.
 	if len(row.Security) > 0 {
-		buf.WriteString(fmt.Sprintf("%ssecurity: %s,\n", indent, tsStringArray(row.Security)))
+		fmt.Fprintf(buf, "%ssecurity: %s,\n", indent, tsStringArray(row.Security))
 	}
 
 	// Dropped when undeclared, following `security` rather than
@@ -603,24 +603,24 @@ func writeOperationFields(
 	// declares nothing must produce the bytes it produced before this field
 	// existed, because CI byte-diffs ops.ts.
 	if row.StaleTime > 0 {
-		buf.WriteString(fmt.Sprintf("%sstaleTime: %d,\n", indent, row.StaleTime))
+		fmt.Fprintf(buf, "%sstaleTime: %d,\n", indent, row.StaleTime)
 	}
 
 	// Dropped when false for the same reason as staleTime: an operation that
 	// is not behind the idempotency middleware emits the bytes it always did.
 	if row.Idempotent {
-		buf.WriteString(fmt.Sprintf("%sidempotent: true,\n", indent))
+		fmt.Fprintf(buf, "%sidempotent: true,\n", indent)
 	}
 
 	// The codec itself, not its id. fetch.ts reads this straight off the
 	// request config now, because the runtime it imports has no table to
 	// resolve an id against.
 	if row.BodyCodec != "" {
-		buf.WriteString(fmt.Sprintf("%sbodyCodec: %s,\n", indent, codecRef(row.BodyCodec)))
+		fmt.Fprintf(buf, "%sbodyCodec: %s,\n", indent, codecRef(row.BodyCodec))
 	}
 
 	if row.ResponseCodec != "" {
-		buf.WriteString(fmt.Sprintf("%sresponseCodec: %s,\n", indent, codecRef(row.ResponseCodec)))
+		fmt.Fprintf(buf, "%sresponseCodec: %s,\n", indent, codecRef(row.ResponseCodec))
 	}
 }
 
@@ -699,7 +699,7 @@ func (g *OpsManifestGenerator) writeEntities(buf *strings.Builder, rows []entity
 	buf.WriteString("export const entities = {\n")
 
 	for _, row := range rows {
-		buf.WriteString(fmt.Sprintf("  %s: {", tsKey(row.name)))
+		fmt.Fprintf(buf, "  %s: {", tsKey(row.name))
 
 		parts := make([]string, 0, 2)
 		if row.idField != "" {
@@ -784,23 +784,23 @@ func (g *OpsManifestGenerator) writeStreams(buf *strings.Builder, spec *client.A
 
 	for _, row := range streamRows(spec, decode) {
 		buf.WriteString("  {\n")
-		buf.WriteString(fmt.Sprintf("    kind: %s,\n", tsString(row.Kind)))
-		buf.WriteString(fmt.Sprintf("    channel: %s,\n", tsString(row.Channel)))
+		fmt.Fprintf(buf, "    kind: %s,\n", tsString(row.Kind))
+		fmt.Fprintf(buf, "    channel: %s,\n", tsString(row.Channel))
 
 		if row.Kind == "duplex" {
 			// A duplex channel: the client speaks on it and no entity stands
 			// behind it.
-			buf.WriteString(fmt.Sprintf("    send: %s,\n", tsString(row.Send)))
-			buf.WriteString(fmt.Sprintf("    receive: %s,\n", tsString(row.Receive)))
+			fmt.Fprintf(buf, "    send: %s,\n", tsString(row.Send))
+			fmt.Fprintf(buf, "    receive: %s,\n", tsString(row.Receive))
 			buf.WriteString("  },\n")
 
 			continue
 		}
 
-		buf.WriteString(fmt.Sprintf("    message: %s,\n", tsString(row.Message)))
-		buf.WriteString(fmt.Sprintf("    entity: %s,\n", tsString(row.Entity)))
-		buf.WriteString(fmt.Sprintf("    intent: %s,\n", tsString(row.Intent)))
-		buf.WriteString(fmt.Sprintf("    invalidates: %s,\n", tsStringArray(row.Invalidates)))
+		fmt.Fprintf(buf, "    message: %s,\n", tsString(row.Message))
+		fmt.Fprintf(buf, "    entity: %s,\n", tsString(row.Entity))
+		fmt.Fprintf(buf, "    intent: %s,\n", tsString(row.Intent))
+		fmt.Fprintf(buf, "    invalidates: %s,\n", tsStringArray(row.Invalidates))
 
 		if row.Decode != "" {
 			// Typed, because the table is `as const` with no contextual

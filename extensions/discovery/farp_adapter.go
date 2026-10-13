@@ -3,7 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/xraph/farp"
@@ -49,6 +49,7 @@ func (a *backendToDiscovery) Watch(ctx context.Context, serviceName string, hand
 
 func (a *backendToDiscovery) Register(ctx context.Context, instance farpdiscovery.ServiceInstance) error {
 	forgeInst := farpInstanceToForge(instance)
+
 	return a.backend.Register(ctx, forgeInst)
 }
 
@@ -73,6 +74,7 @@ func (a *backendToDiscovery) Health(ctx context.Context) error {
 // forgeInstanceToFARP converts a forge ServiceInstance to FARP's ServiceInstance.
 func forgeInstanceToFARP(inst *ServiceInstance) farpdiscovery.ServiceInstance {
 	status := farp.InstanceStatusHealthy
+
 	switch inst.Status {
 	case HealthStatusWarning:
 		status = farp.InstanceStatusDegraded
@@ -97,6 +99,7 @@ func forgeInstanceToFARP(inst *ServiceInstance) farpdiscovery.ServiceInstance {
 // farpInstanceToForge converts a FARP ServiceInstance to forge's ServiceInstance.
 func farpInstanceToForge(inst farpdiscovery.ServiceInstance) *ServiceInstance {
 	status := HealthStatusPassing
+
 	switch inst.Status {
 	case farp.InstanceStatusDegraded:
 		status = HealthStatusWarning
@@ -211,33 +214,20 @@ func (p *forgeOpenAPIProvider) Validate(schema any) error { return nil }
 func (p *forgeOpenAPIProvider) Generate(_ context.Context, _ farp.Application) (any, error) {
 	spec := p.app.OpenAPISpec()
 	if spec == nil {
-		return nil, fmt.Errorf("OpenAPI spec not available")
+		return nil, errors.New("OpenAPI spec not available")
 	}
 
 	if len(p.pathRules) == 0 {
 		return spec, nil
 	}
 
-	// Marshal to map so we can filter paths before FARP stores the schema.
-	data, err := json.Marshal(spec)
-	if err != nil {
+	// Filter paths before FARP stores the schema.
+	filtered, ok := filterSpecSection(spec, "paths", p.pathRules)
+	if !ok {
 		return spec, nil // fall back to unfiltered
 	}
 
-	var specMap map[string]any
-	if err := json.Unmarshal(data, &specMap); err != nil {
-		return spec, nil
-	}
-
-	if paths, ok := specMap["paths"].(map[string]any); ok {
-		for path := range paths {
-			if !farp.ShouldIncludePath(path, p.pathRules) {
-				delete(paths, path)
-			}
-		}
-	}
-
-	return specMap, nil
+	return filtered, nil
 }
 
 func (p *forgeOpenAPIProvider) Hash(schema any) (string, error) {
@@ -267,7 +257,7 @@ func (p *forgeAsyncAPIProvider) Validate(schema any) error { return nil }
 func (p *forgeAsyncAPIProvider) Generate(_ context.Context, _ farp.Application) (any, error) {
 	spec := p.app.AsyncAPISpec()
 	if spec == nil {
-		return nil, fmt.Errorf("AsyncAPI spec not available")
+		return nil, errors.New("AsyncAPI spec not available")
 	}
 
 	if len(p.pathRules) == 0 {
@@ -275,25 +265,12 @@ func (p *forgeAsyncAPIProvider) Generate(_ context.Context, _ farp.Application) 
 	}
 
 	// Filter channels based on path rules
-	data, err := json.Marshal(spec)
-	if err != nil {
-		return spec, nil
+	filtered, ok := filterSpecSection(spec, "channels", p.pathRules)
+	if !ok {
+		return spec, nil // fall back to unfiltered
 	}
 
-	var specMap map[string]any
-	if err := json.Unmarshal(data, &specMap); err != nil {
-		return spec, nil
-	}
-
-	if channels, ok := specMap["channels"].(map[string]any); ok {
-		for ch := range channels {
-			if !farp.ShouldIncludePath(ch, p.pathRules) {
-				delete(channels, ch)
-			}
-		}
-	}
-
-	return specMap, nil
+	return filtered, nil
 }
 
 func (p *forgeAsyncAPIProvider) Hash(schema any) (string, error) {
@@ -304,6 +281,32 @@ func (p *forgeAsyncAPIProvider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
+// filterSpecSection round-trips spec through JSON and drops the entries of
+// section (OpenAPI "paths", AsyncAPI "channels") that the path rules exclude.
+// It reports false when the spec can't be round-tripped. Filtering is best
+// effort, so callers serve the unfiltered spec rather than none at all.
+func filterSpecSection(spec any, section string, rules []farp.PathRule) (map[string]any, bool) {
+	data, err := json.Marshal(spec)
+	if err != nil {
+		return nil, false
+	}
+
+	var specMap map[string]any
+	if err := json.Unmarshal(data, &specMap); err != nil {
+		return nil, false
+	}
+
+	if entries, ok := specMap[section].(map[string]any); ok {
+		for key := range entries {
+			if !farp.ShouldIncludePath(key, rules) {
+				delete(entries, key)
+			}
+		}
+	}
+
+	return specMap, true
+}
+
 // forgeRoutesToRouteDescriptors converts forge RouteInfo entries into FARP RouteDescriptors.
 // Paths are filtered using the provided path rules.
 func forgeRoutesToRouteDescriptors(routes []forge.RouteInfo, pathRules []farp.PathRule) []farp.RouteDescriptor {
@@ -312,6 +315,7 @@ func forgeRoutesToRouteDescriptors(routes []forge.RouteInfo, pathRules []farp.Pa
 	}
 
 	var descriptors []farp.RouteDescriptor
+
 	for _, route := range routes {
 		// Apply path rules
 		if len(pathRules) > 0 && !farp.ShouldIncludePath(route.Path, pathRules) {
@@ -347,21 +351,27 @@ func forgeRoutesToRouteDescriptors(routes []forge.RouteInfo, pathRules []farp.Pa
 		var metadata map[string]any
 		if route.Summary != "" || route.Description != "" || len(route.Tags) > 0 || len(route.Metadata) > 0 {
 			metadata = make(map[string]any)
+
 			for k, v := range route.Metadata {
 				if k == "protocol" || k == "public" {
 					continue // already handled as dedicated fields
 				}
+
 				metadata[k] = v
 			}
+
 			if route.Summary != "" {
 				metadata["summary"] = route.Summary
 			}
+
 			if route.Description != "" {
 				metadata["description"] = route.Description
 			}
+
 			if len(route.Tags) > 0 {
 				metadata["tags"] = route.Tags
 			}
+
 			if len(metadata) == 0 {
 				metadata = nil
 			}
@@ -385,5 +395,6 @@ func forgeRoutesToRouteDescriptors(routes []forge.RouteInfo, pathRules []farp.Pa
 	if len(descriptors) == 0 {
 		return nil
 	}
+
 	return descriptors
 }

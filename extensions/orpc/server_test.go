@@ -45,7 +45,7 @@ func TestServer_RegisterMethod_EmptyName(t *testing.T) {
 
 	method := &Method{
 		Name:    "",
-		Handler: func(ctx any, params any) (any, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return "ok", nil },
 	}
 
 	if err := server.RegisterMethod(method); !errors.Is(err, ErrInvalidMethodName) {
@@ -67,11 +67,11 @@ func TestServer_ListMethods(t *testing.T) {
 
 	method1 := &Method{
 		Name:    "method1",
-		Handler: func(ctx any, params any) (any, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return "ok", nil },
 	}
 	method2 := &Method{
 		Name:    "method2",
-		Handler: func(ctx any, params any) (any, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return "ok", nil },
 	}
 
 	server.RegisterMethod(method1)

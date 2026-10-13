@@ -1,4 +1,3 @@
-// v2/cmd/forge/config/types.go
 package config
 
 import "time"
@@ -349,6 +348,7 @@ func (d *DatabaseConfig) GetMigrationsPath() string {
 	if d.MigrationsPath != "" {
 		return d.MigrationsPath
 	}
+
 	return "./database/migrations"
 }
 
@@ -357,6 +357,7 @@ func (d *DatabaseConfig) GetSeedsPath() string {
 	if d.SeedsPath != "" {
 		return d.SeedsPath
 	}
+
 	return "./database/seeds"
 }
 
@@ -365,6 +366,7 @@ func (d *DatabaseConfig) GetModelsOutput() string {
 	if d.ModelsOutput != "" {
 		return d.ModelsOutput
 	}
+
 	return "./database/models"
 }
 
@@ -373,6 +375,7 @@ func (b *BuildConfig) GetOutputDir() string {
 	if b.OutputDir != "" {
 		return b.OutputDir
 	}
+
 	return "./bin"
 }
 
@@ -381,6 +384,7 @@ func (b *BuildConfig) GetCmdDir() string {
 	if b.CmdDir != "" {
 		return b.CmdDir
 	}
+
 	return "./cmd"
 }
 
@@ -395,5 +399,6 @@ func (g *GenerateConfig) GetTemplatesPath() string {
 	if g.TemplatesPath != "" {
 		return g.TemplatesPath
 	}
+
 	return "./templates"
 }

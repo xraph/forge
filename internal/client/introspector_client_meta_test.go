@@ -559,7 +559,7 @@ func TestIntrospectorSortsSecuritySchemes(t *testing.T) {
 
 	// A map range is unordered, so one Introspect proves nothing. Repeat it,
 	// same as the parser test does.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		spec, err := NewIntrospector(specOnlyRouter{openAPI: openAPI}).Introspect(context.Background())
 		if err != nil {
 			t.Fatalf("Introspect: %v", err)
@@ -638,6 +638,7 @@ func TestIntrospectorWarnsOnAnUnknownParameterLocation(t *testing.T) {
 	}
 
 	var found bool
+
 	for _, w := range spec.Warnings {
 		if strings.Contains(w, "telepathy") && strings.Contains(w, "weird") {
 			found = true

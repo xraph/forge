@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -111,7 +112,12 @@ func (q *NATSQueue) Disconnect(ctx context.Context) error {
 	// Stop all consumers
 	for _, c := range q.consumers {
 		if c.sub != nil {
-			c.sub.Unsubscribe()
+			if err := c.sub.Unsubscribe(); err != nil {
+				q.logger.Warn("failed to unsubscribe nats consumer during disconnect",
+					forge.F("stream", c.queue),
+					forge.F("error", err),
+				)
+			}
 		}
 
 		if c.cancel != nil {
@@ -161,7 +167,7 @@ func (q *NATSQueue) DeclareQueue(ctx context.Context, name string, opts QueueOpt
 	}
 
 	if opts.MaxLength > 0 {
-		streamConfig.MaxMsgs = int64(opts.MaxLength)
+		streamConfig.MaxMsgs = opts.MaxLength
 	}
 
 	if opts.MessageTTL > 0 {
@@ -232,7 +238,7 @@ func (q *NATSQueue) GetQueueInfo(ctx context.Context, name string) (*QueueInfo, 
 
 	return &QueueInfo{
 		Name:       info.Config.Name,
-		Messages:   int64(info.State.Msgs),
+		Messages:   saturatingInt64(info.State.Msgs),
 		Consumers:  info.State.Consumers,
 		Durable:    info.Config.Storage == nats.FileStorage,
 		AutoDelete: false,
@@ -321,12 +327,15 @@ func (q *NATSQueue) PublishDelayed(ctx context.Context, queueName string, messag
 		return ErrNotConnected
 	}
 
-	// NATS doesn't have native delayed messages
-	// We'll need to use a separate goroutine to delay publishing
+	// NATS doesn't have native delayed messages, so a goroutine sleeps and
+	// publishes later. It has to outlive the caller, so drop the cancellation
+	// but keep the context values.
+	publishCtx := context.WithoutCancel(ctx)
+
 	go func() {
 		time.Sleep(delay)
 
-		if err := q.Publish(context.Background(), queueName, message); err != nil {
+		if err := q.Publish(publishCtx, queueName, message); err != nil {
 			q.logger.Error("failed to publish delayed message",
 				forge.F("queue", queueName),
 				forge.F("error", err),
@@ -371,7 +380,13 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 			q.logger.Error("failed to unmarshal message",
 				forge.F("error", err),
 			)
-			msg.Nak()
+
+			if nakErr := msg.Nak(); nakErr != nil {
+				q.logger.Error("failed to nak unparseable message",
+					forge.F("stream", queueName),
+					forge.F("error", nakErr),
+				)
+			}
 
 			return
 		}
@@ -401,14 +416,27 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 
 			// Nack with requeue based on retry logic
 			if queueMsg.Retries < queueMsg.MaxRetries {
-				msg.NakWithDelay(time.Second * time.Duration(queueMsg.Retries+1))
-			} else {
-				msg.Term() // Terminate message (move to dead letter if configured)
+				if nakErr := msg.NakWithDelay(time.Second * time.Duration(queueMsg.Retries+1)); nakErr != nil {
+					q.logger.Error("failed to nak message for retry",
+						forge.F("stream", queueName),
+						forge.F("msg_id", queueMsg.ID),
+						forge.F("error", nakErr),
+					)
+				}
+			} else if termErr := msg.Term(); termErr != nil { // Terminate message (move to dead letter if configured)
+				q.logger.Error("failed to terminate message",
+					forge.F("stream", queueName),
+					forge.F("msg_id", queueMsg.ID),
+					forge.F("error", termErr),
+				)
 			}
-		} else {
-			// Ack message
-			if !opts.AutoAck {
-				msg.Ack()
+		} else if !opts.AutoAck {
+			if ackErr := msg.Ack(); ackErr != nil {
+				q.logger.Error("failed to ack message",
+					forge.F("stream", queueName),
+					forge.F("msg_id", queueMsg.ID),
+					forge.F("error", ackErr),
+				)
 			}
 		}
 	}, nats.Durable(consumerName), nats.ManualAck())
@@ -441,7 +469,13 @@ func (q *NATSQueue) StopConsuming(ctx context.Context, queueName string) error {
 	for id, c := range q.consumers {
 		if c.queue == queueName && c.active {
 			if c.sub != nil {
-				c.sub.Unsubscribe()
+				if err := c.sub.Unsubscribe(); err != nil {
+					q.logger.Warn("failed to unsubscribe nats consumer",
+						forge.F("stream", queueName),
+						forge.F("consumer", id),
+						forge.F("error", err),
+					)
+				}
 			}
 
 			if c.cancel != nil {
@@ -530,7 +564,7 @@ func (q *NATSQueue) Stats(ctx context.Context) (*QueueStats, error) {
 			continue
 		}
 
-		totalMessages += int64(info.State.Msgs)
+		totalMessages += saturatingInt64(info.State.Msgs)
 	}
 
 	uptime := time.Duration(0)
@@ -546,4 +580,14 @@ func (q *NATSQueue) Stats(ctx context.Context) (*QueueStats, error) {
 		Version:         "nats-2.10.0",
 		ConnectionCount: 1,
 	}, nil
+}
+
+// saturatingInt64 converts a JetStream counter (uint64) to the int64 the Queue
+// API reports, pinning it at MaxInt64 instead of wrapping negative.
+func saturatingInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+
+	return int64(v)
 }

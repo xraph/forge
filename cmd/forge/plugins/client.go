@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/client.go
 package plugins
 
 import (
@@ -42,7 +41,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 	)
 
 	// Add subcommands
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"generate",
 		"Generate a client from API specification",
 		p.generateClient,
@@ -53,7 +52,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 	// that resolves its configuration even slightly differently from generate
 	// reports drift that does not exist, and a gate that cries wolf gets
 	// deleted within a week.
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"check",
 		"Verify the committed client matches what the current spec generates",
 		p.checkClient,
@@ -64,7 +63,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 	// runs generate's resolution on a loop, and a watch that regenerated into a
 	// different directory, or with different options, than the generate a
 	// developer runs by hand would be worse than no watch at all.
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"watch",
 		"Regenerate the client whenever the API specification changes",
 		p.watchClient,
@@ -80,7 +79,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		}, clientGenerationFlags()...)...,
 	))
 
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"diff",
 		"Classify what changed between two API specifications",
 		p.diffSpecs,
@@ -88,7 +87,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("format", "f", "Output format: text or json", "text")),
 	))
 
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"list",
 		"List endpoints from specification",
 		p.listEndpoints,
@@ -97,7 +96,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
 	))
 
-	clientCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(clientCmd, cli.NewCommand(
 		"init",
 		"Initialize client generation configuration",
 		p.initConfig,
@@ -558,6 +557,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		ctx.Warning("--react-query / react_query is deprecated and will be removed; use --hooks / hooks instead")
 		ctx.Warning("  it no longer generates TanStack Query hooks -- it emits src/ops.ts and src/hooks.ts over @forge-go/client-core")
 	}
+
 	includePaths := ctx.StringSlice("include")
 	excludePaths := ctx.StringSlice("exclude")
 
@@ -1462,12 +1462,12 @@ func resolveHooks(hooksFlag, reactQueryFlag, reactQueryFlagSet, cfgHooks, cfgRea
 func parseFieldOverrides(raw string) (map[string]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a nil map is a valid "no overrides"; omitting the flag is the common case
 	}
 
 	overrides := make(map[string]string)
 
-	for _, pair := range strings.Split(raw, ",") {
+	for pair := range strings.SplitSeq(raw, ",") {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
 			continue

@@ -3,6 +3,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func keysUnder(t *testing.T, b storage.Backend, prefix string) []string {
 func writeSegments(t *testing.T, s *storage.HLSStorage, streamID, variantID string, n int) {
 	t.Helper()
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := s.SaveSegment(context.Background(), streamID, variantID, i, []byte("x")); err != nil {
 			t.Fatalf("save segment %d: %v", i, err)
 		}
@@ -181,11 +182,5 @@ func TestCleanupIgnoresUnrecognisedSegmentKeys(t *testing.T) {
 }
 
 func contains(keys []string, want string) bool {
-	for _, k := range keys {
-		if k == want {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(keys, want)
 }

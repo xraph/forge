@@ -32,7 +32,7 @@ func NewStreamingGenerator() *StreamingGenerator {
 func (s *StreamingGenerator) Generate(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	// time's only users here are the reconnect helpers below, so the import
 	// block goes away entirely along with them -- an unused import is a

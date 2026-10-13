@@ -21,10 +21,11 @@ func registerN(t *testing.T, s ORPC, n int) {
 
 	for i := range n {
 		name := fmt.Sprintf("svc.method%02d", (i*7)%n)
+
 		err := s.RegisterMethod(&Method{
 			Name:        name,
 			Description: "d",
-			Handler:     func(ctx any, params any) (any, error) { return nil, nil },
+			Handler:     func(ctx any, params any) (any, error) { return "ok", nil },
 		})
 		if err != nil {
 			t.Fatalf("RegisterMethod(%q): %v", name, err)

@@ -2,6 +2,7 @@ package pilot
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -45,10 +46,12 @@ func TestOverviewHandler(t *testing.T) {
 		Version: "v1", Environment: "dev",
 	}}
 	h := overviewHandler(p)
+
 	got, err := h(context.Background(), struct{}{}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("overview: %v", err)
 	}
+
 	if got.OverallHealth != "healthy" || got.TotalServices != 5 || got.HealthyServices != 4 || got.UptimeSeconds != 90 {
 		t.Errorf("projection wrong: %+v", got)
 	}
@@ -56,7 +59,9 @@ func TestOverviewHandler(t *testing.T) {
 
 func TestOverviewHandler_NilProviderIsUnavailable(t *testing.T) {
 	_, err := overviewHandler(nil)(context.Background(), struct{}{}, contract.Principal{})
-	if ce, ok := err.(*contract.Error); !ok || ce.Code != contract.CodeUnavailable {
+
+	ce := &contract.Error{}
+	if !errors.As(err, &ce) || ce.Code != contract.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable, got %v", err)
 	}
 }
@@ -71,16 +76,20 @@ func TestHealthHandler_FlattensServicesMap(t *testing.T) {
 		Summary: collector.HealthSummary{Healthy: 1, Degraded: 1, Total: 2},
 	}}
 	h := healthHandler(p)
+
 	got, err := h(context.Background(), struct{}{}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("health: %v", err)
 	}
+
 	if got.OverallStatus != "degraded" || got.Total != 2 || got.HealthySummary != 1 {
 		t.Errorf("summary wrong: %+v", got)
 	}
+
 	if len(got.Services) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(got.Services))
 	}
+
 	for _, e := range got.Services {
 		if e.Name == "cache" {
 			if e.DurationMs != 200 || !e.Critical || e.Message != "slow" {
@@ -102,13 +111,16 @@ func TestMetricsReportHandler(t *testing.T) {
 		},
 	}}
 	h := metricsReportHandler(p)
+
 	got, err := h(context.Background(), struct{}{}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("metrics-report: %v", err)
 	}
+
 	if got.TotalMetrics != 3 || len(got.Collectors) != 1 || len(got.TopMetrics) != 1 {
 		t.Errorf("projection wrong: %+v", got)
 	}
+
 	if got.Collectors[0].LastCollection == "" {
 		t.Errorf("LastCollection should be RFC3339 formatted, got empty")
 	}
@@ -123,13 +135,16 @@ func TestTracesListHandler(t *testing.T) {
 		stats: collector.TraceStats{TotalTraces: 2},
 	}
 	h := tracesListHandler(p)
+
 	got, err := h(context.Background(), struct{}{}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("traces.list: %v", err)
 	}
+
 	if len(got.Traces) != 2 || got.Total != 2 {
 		t.Errorf("projection wrong: %+v", got)
 	}
+
 	if got.Traces[0].DurationMs != 25 {
 		t.Errorf("duration projection wrong: %+v", got.Traces[0])
 	}
@@ -140,10 +155,12 @@ func TestTraceDetailHandler_Found(t *testing.T) {
 		"t1": {TraceID: "t1", SpanCount: 3},
 	}}
 	h := traceDetailHandler(p)
+
 	got, err := h(context.Background(), TraceDetailInput{ID: "t1"}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("trace.detail: %v", err)
 	}
+
 	if got == nil || got.TraceID != "t1" {
 		t.Errorf("expected detail for t1, got %+v", got)
 	}
@@ -152,16 +169,22 @@ func TestTraceDetailHandler_Found(t *testing.T) {
 func TestTraceDetailHandler_NotFound(t *testing.T) {
 	p := &stubTraces{byID: map[string]*collector.TraceDetail{}}
 	h := traceDetailHandler(p)
+
 	_, err := h(context.Background(), TraceDetailInput{ID: "missing"}, contract.Principal{})
-	if ce, ok := err.(*contract.Error); !ok || ce.Code != contract.CodeNotFound {
+
+	ce := &contract.Error{}
+	if !errors.As(err, &ce) || ce.Code != contract.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %v", err)
 	}
 }
 
 func TestTraceDetailHandler_BadRequestOnEmptyID(t *testing.T) {
 	p := &stubTraces{}
+
 	_, err := traceDetailHandler(p)(context.Background(), TraceDetailInput{ID: ""}, contract.Principal{})
-	if ce, ok := err.(*contract.Error); !ok || ce.Code != contract.CodeBadRequest {
+
+	ce := &contract.Error{}
+	if !errors.As(err, &ce) || ce.Code != contract.CodeBadRequest {
 		t.Errorf("expected CodeBadRequest, got %v", err)
 	}
 }

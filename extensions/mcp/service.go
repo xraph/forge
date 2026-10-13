@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -49,6 +50,7 @@ func (s *MCPService) Start(ctx context.Context) error {
 
 	// MCP server doesn't have explicit Start, it's always ready after construction
 	s.logger.Info("mcp service started")
+
 	return nil
 }
 
@@ -58,13 +60,14 @@ func (s *MCPService) Stop(ctx context.Context) error {
 	s.logger.Info("stopping mcp service")
 	// MCP server cleanup happens automatically
 	s.logger.Info("mcp service stopped")
+
 	return nil
 }
 
 // Health checks if the MCP service is healthy.
 func (s *MCPService) Health(ctx context.Context) error {
 	if s.server == nil {
-		return fmt.Errorf("mcp server not initialized")
+		return errors.New("mcp server not initialized")
 	}
 	// MCP doesn't have explicit health check, check if server exists
 	return nil

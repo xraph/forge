@@ -1,4 +1,3 @@
-// stream.go
 package transport
 
 import (
@@ -59,8 +58,10 @@ func (b *StreamBroker) ServeStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "stream unsupported", http.StatusInternalServerError)
+
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -71,8 +72,10 @@ func (b *StreamBroker) ServeStream(w http.ResponseWriter, r *http.Request) {
 		user: dashauth.UserFromContext(r.Context()),
 		subs: map[string]subscription{},
 	}
+
 	b.mu.Lock()
 	b.streams[id] = conn
+
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
@@ -111,10 +114,12 @@ func (b *StreamBroker) ConnectionCount() int {
 func (b *StreamBroker) SnapshotIDs() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	out := make([]string, 0, len(b.streams))
 	for id := range b.streams {
 		out = append(out, id)
 	}
+
 	return out
 }
 
@@ -123,11 +128,15 @@ func (b *StreamBroker) writeEvent(conn *streamConn, subID string, ev contract.St
 	if err != nil {
 		return err
 	}
+
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+
 	if _, err := fmt.Fprintf(conn.w, "event: %s\ndata: %s\n\n", subID, payload); err != nil {
 		return err
 	}
+
 	conn.flusher.Flush()
+
 	return nil
 }

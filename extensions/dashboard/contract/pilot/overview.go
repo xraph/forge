@@ -19,10 +19,12 @@ func overviewHandler(p OverviewProvider) func(ctx context.Context, _ struct{}, _
 		if p == nil {
 			return OverviewResponse{}, &contract.Error{Code: contract.CodeUnavailable, Message: "overview provider not configured"}
 		}
+
 		data := p.CollectOverview(ctx)
 		if data == nil {
 			return OverviewResponse{}, nil
 		}
+
 		return OverviewResponse{
 			OverallHealth:   data.OverallHealth,
 			TotalServices:   data.TotalServices,

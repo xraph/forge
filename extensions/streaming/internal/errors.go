@@ -5,15 +5,16 @@ import (
 	"fmt"
 )
 
-// Common errors.
+// Connection errors.
 var (
-	// Connection errors.
 	ErrConnectionNotFound     = errors.New("connection not found")
 	ErrConnectionClosed       = errors.New("connection closed")
 	ErrConnectionLimitReached = errors.New("connection limit reached")
 	ErrInvalidConnection      = errors.New("invalid connection")
+)
 
-	// Room errors.
+// Room errors.
+var (
 	ErrRoomNotFound      = errors.New("room not found")
 	ErrRoomAlreadyExists = errors.New("room already exists")
 	ErrRoomFull          = errors.New("room is full")
@@ -21,65 +22,85 @@ var (
 	ErrAlreadyRoomMember = errors.New("already a member of the room")
 	ErrInvalidRoom       = errors.New("invalid room")
 	ErrRoomLimitReached  = errors.New("room limit reached")
+)
 
-	// Channel errors.
+// Channel errors.
+var (
 	ErrChannelNotFound      = errors.New("channel not found")
 	ErrChannelAlreadyExists = errors.New("channel already exists")
 	ErrNotSubscribed        = errors.New("not subscribed to channel")
 	ErrAlreadySubscribed    = errors.New("already subscribed to channel")
 	ErrInvalidChannel       = errors.New("invalid channel")
 	ErrChannelLimitReached  = errors.New("channel limit reached")
+)
 
-	// Permission errors.
+// Permission errors.
+var (
 	ErrPermissionDenied  = errors.New("permission denied")
 	ErrInvalidPermission = errors.New("invalid permission")
 	ErrInsufficientRole  = errors.New("insufficient role")
+)
 
-	// Authorization errors. Distinct from ErrPermissionDenied so a caller can
-	// tell "you may not enter this room" from "you may not perform this action",
-	// and so a client can render the two differently.
+// Authorization errors. Distinct from ErrPermissionDenied so a caller can
+// tell "you may not enter this room" from "you may not perform this action",
+// and so a client can render the two differently.
+var (
 	ErrRoomAccessDenied    = errors.New("room access denied")
 	ErrChannelAccessDenied = errors.New("channel access denied")
 	ErrSendDenied          = errors.New("not permitted to send to this target")
 	ErrUserMuted           = errors.New("user is muted in this room")
 	ErrUserBanned          = errors.New("user is banned from this room")
 	ErrSessionNotOwned     = errors.New("session belongs to a different user")
+)
 
-	// Feature-flag errors. Returned when an operation targets a subsystem the
-	// configuration has switched off. Typed rather than ad-hoc strings so a
-	// caller can branch on "disabled" instead of matching error text.
+// Feature-flag errors. Returned when an operation targets a subsystem the
+// configuration has switched off. Typed rather than ad-hoc strings so a
+// caller can branch on "disabled" instead of matching error text.
+var (
 	ErrRoomsDisabled    = errors.New("rooms are disabled")
 	ErrChannelsDisabled = errors.New("channels are disabled")
 	ErrHistoryDisabled  = errors.New("message history is disabled")
 	ErrPresenceDisabled = errors.New("presence tracking is disabled")
 	ErrTypingDisabled   = errors.New("typing indicators are disabled")
+)
 
-	// Rate limiting.
-	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+// ErrRateLimitExceeded is returned when a connection exceeds its rate limit.
+var ErrRateLimitExceeded = errors.New("rate limit exceeded")
 
-	// Message errors.
+// Message errors.
+var (
 	ErrMessageTooLarge = errors.New("message too large")
 	ErrInvalidMessage  = errors.New("invalid message")
 	ErrMessageNotFound = errors.New("message not found")
+)
 
-	// Presence errors.
+// Presence errors.
+var (
 	ErrPresenceNotFound = errors.New("presence not found")
 	ErrInvalidStatus    = errors.New("invalid status")
+)
 
-	// Invite errors.
+// Invite errors.
+var (
 	ErrInviteNotFound = errors.New("invite not found")
 	ErrInviteExpired  = errors.New("invite expired")
+)
 
-	// Backend errors.
+// Backend errors.
+var (
 	ErrBackendNotConnected = errors.New("backend not connected")
 	ErrBackendTimeout      = errors.New("backend operation timeout")
 	ErrBackendUnavailable  = errors.New("backend unavailable")
+)
 
-	// Configuration errors.
+// Configuration errors.
+var (
 	ErrInvalidConfig = errors.New("invalid configuration")
 	ErrMissingConfig = errors.New("missing required configuration")
+)
 
-	// Distributed errors.
+// Distributed errors.
+var (
 	ErrNodeNotFound          = errors.New("node not found")
 	ErrLockAcquisitionFailed = errors.New("failed to acquire lock")
 	ErrLockNotHeld           = errors.New("lock not held")

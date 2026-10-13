@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"maps"
 	"strconv"
 	"time"
 
@@ -46,9 +47,7 @@ func (e *PrometheusMetricsEmitter) RecordDispatch(_ context.Context, contributor
 	}
 
 	counterLabels := make(map[string]string, len(labels)+1)
-	for k, v := range labels {
-		counterLabels[k] = v
-	}
+	maps.Copy(counterLabels, labels)
 	// error_code is empty on success — Prometheus is fine with empty label values.
 	counterLabels["error_code"] = string(errCode)
 

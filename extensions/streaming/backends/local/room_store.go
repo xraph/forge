@@ -750,7 +750,7 @@ func (s *RoomStore) addModerationEvent(roomID string, event *streaming.Moderatio
 	s.moderationLogs[roomID] = append(s.moderationLogs[roomID], event)
 }
 
-// Room implements streaming.Room for local backend.
+// LocalRoom implements streaming.Room for the local backend.
 type LocalRoom struct {
 	mu          sync.RWMutex
 	id          string
@@ -1021,11 +1021,11 @@ func (r *LocalRoom) GetMaxMembers() int {
 	return r.maxMembers
 }
 
-func (r *LocalRoom) SetMaxMembers(ctx context.Context, max int) error {
+func (r *LocalRoom) SetMaxMembers(ctx context.Context, maxMembers int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.maxMembers = max
+	r.maxMembers = maxMembers
 	r.updated = time.Now()
 
 	return nil

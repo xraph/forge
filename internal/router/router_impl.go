@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -799,24 +800,24 @@ var defaultAdapterFactory = func() RouterAdapter { return forgemux.New() }
 // Only forge can detect that: it holds both parsed Patterns, and by the time
 // the backend sees a path the constraint is already gone.
 func erasedShape(p pathspec.Pattern) string {
-	out := ""
+	var out strings.Builder
 
 	for _, seg := range p.Segments {
 		switch seg.Kind {
 		case pathspec.KindStatic:
-			out += "/" + seg.Literal
+			out.WriteString("/" + seg.Literal)
 		case pathspec.KindParam:
-			out += "/:"
+			out.WriteString("/:")
 		case pathspec.KindWildcard:
-			out += "/*"
+			out.WriteString("/*")
 		}
 	}
 
-	if out == "" {
+	if out.String() == "" {
 		return "/"
 	}
 
-	return out
+	return out.String()
 }
 
 // hasConstraint reports whether any segment carries one, which is what makes
@@ -867,8 +868,8 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.V
 	}
 
 	// Apply middleware chain
-	for i := len(middleware) - 1; i >= 0; i-- {
-		forgeHandler = middleware[i](forgeHandler)
+	for _, v := range slices.Backward(middleware) {
+		forgeHandler = v(forgeHandler)
 	}
 
 	// Convert back to http.Handler
@@ -951,8 +952,8 @@ func applyMiddlewareAndInterceptors(
 	}
 
 	// Apply middleware chain (middleware wraps the handler + interceptors)
-	for i := len(middleware) - 1; i >= 0; i-- {
-		forgeHandler = middleware[i](forgeHandler)
+	for _, v := range slices.Backward(middleware) {
+		forgeHandler = v(forgeHandler)
 	}
 
 	// A long-lived route bypasses the per-handler timeout. The string
@@ -983,6 +984,7 @@ func applyMiddlewareAndInterceptors(
 		if !isStreaming && routeInfo.Timeout > 0 {
 			timeoutCtx, cancel := context.WithTimeout(r.Context(), routeInfo.Timeout)
 			defer cancel()
+
 			r = r.WithContext(timeoutCtx)
 		}
 

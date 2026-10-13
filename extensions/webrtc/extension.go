@@ -517,7 +517,15 @@ func (e *Extension) handleSignaling(fctx forge.Context, roomID, userID string, c
 	if err != nil {
 		return err
 	}
-	defer room.Leave(ctx, userID)
+	defer func() {
+		if err := room.Leave(ctx, userID); err != nil {
+			e.logger.Warn("failed to leave call room after signaling ended",
+				forge.F("room_id", roomID),
+				forge.F("user_id", userID),
+				forge.F("error", err),
+			)
+		}
+	}()
 
 	// Handle signaling messages via connection
 	return e.handleSignalingLoop(ctx, roomID, userID, peer, conn)

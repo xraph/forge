@@ -27,6 +27,7 @@ func (p *DeployPlugin) newEngine(ctx cli.CommandContext) (*engine.Engine, output
 		if name := filepath.Base(path); name != ".forge.yml" && name != ".forge.yaml" {
 			return nil, output.Mode{}, output.Fail(output.ExitInvalidInput, "--config must reference .forge.yml or .forge.yaml")
 		}
+
 		root, err := filepath.Abs(filepath.Dir(path))
 		if err != nil {
 			return nil, output.Mode{}, err
@@ -69,6 +70,7 @@ func (p *DeployPlugin) inspect(ctx cli.CommandContext) error {
 
 	timeout, cancel := p.timeoutContext(ctx)
 	defer cancel()
+
 	res, err := e.InspectWithOptions(timeout, ctx.String("target"), ctx.String("env"), engine.InspectOptions{Execute: ctx.Bool("exec"), App: ctx.String("app")})
 	if err != nil {
 		return err

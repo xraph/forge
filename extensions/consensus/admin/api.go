@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"time"
 
 	"github.com/xraph/forge"
@@ -317,29 +318,54 @@ func (a *API) HandleReadQuery(ctx forge.Context) error {
 }
 
 // RegisterRoutes registers all admin API routes.
+//
+// The method has no error return, so a route the router rejects is logged and
+// the remaining routes are still registered.
 func (a *API) RegisterRoutes(router forge.Router, prefix string) {
-	// Health endpoints
-	router.GET(prefix+"/health", a.HandleHealth)
-	router.GET(prefix+"/health/detailed", a.HandleDetailedHealth)
+	routes := []struct {
+		register func(path string, handler any, opts ...forge.RouteOption) error
+		method   string
+		path     string
+		handler  func(forge.Context) error
+	}{
+		// Health endpoints
+		{router.GET, http.MethodGet, "/health", a.HandleHealth},
+		{router.GET, http.MethodGet, "/health/detailed", a.HandleDetailedHealth},
 
-	// Status endpoints
-	router.GET(prefix+"/status", a.HandleStatus)
-	router.GET(prefix+"/metrics", a.HandleMetrics)
-	router.GET(prefix+"/leader", a.HandleGetLeader)
-	router.GET(prefix+"/nodes", a.HandleListNodes)
+		// Status endpoints
+		{router.GET, http.MethodGet, "/status", a.HandleStatus},
+		{router.GET, http.MethodGet, "/metrics", a.HandleMetrics},
+		{router.GET, http.MethodGet, "/leader", a.HandleGetLeader},
+		{router.GET, http.MethodGet, "/nodes", a.HandleListNodes},
 
-	// Management endpoints (require leadership)
-	router.POST(prefix+"/leadership/transfer", a.HandleTransferLeadership)
-	router.POST(prefix+"/leadership/stepdown", a.HandleStepDown)
-	router.POST(prefix+"/snapshot", a.HandleSnapshot)
-	router.POST(prefix+"/nodes/add", a.HandleAddNode)
-	router.POST(prefix+"/nodes/remove", a.HandleRemoveNode)
+		// Management endpoints (require leadership)
+		{router.POST, http.MethodPost, "/leadership/transfer", a.HandleTransferLeadership},
+		{router.POST, http.MethodPost, "/leadership/stepdown", a.HandleStepDown},
+		{router.POST, http.MethodPost, "/snapshot", a.HandleSnapshot},
+		{router.POST, http.MethodPost, "/nodes/add", a.HandleAddNode},
+		{router.POST, http.MethodPost, "/nodes/remove", a.HandleRemoveNode},
 
-	// Data endpoints
-	router.POST(prefix+"/apply", a.HandleApplyCommand)
-	router.POST(prefix+"/read", a.HandleReadQuery)
+		// Data endpoints
+		{router.POST, http.MethodPost, "/apply", a.HandleApplyCommand},
+		{router.POST, http.MethodPost, "/read", a.HandleReadQuery},
+	}
+
+	failed := 0
+
+	for _, route := range routes {
+		if err := route.register(prefix+route.path, route.handler); err != nil {
+			failed++
+
+			a.logger.Error("failed to register admin API route",
+				forge.F("method", route.method),
+				forge.F("path", prefix+route.path),
+				forge.F("error", err),
+			)
+		}
+	}
 
 	a.logger.Info("admin API routes registered",
 		forge.F("prefix", prefix),
+		forge.F("failed", failed),
 	)
 }

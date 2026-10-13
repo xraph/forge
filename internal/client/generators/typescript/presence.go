@@ -128,7 +128,7 @@ func (p *PresenceGenerator) generateTypes(spec *client.APISpec, config client.Ge
 	buf.WriteString("export enum PresenceStatus {\n")
 
 	for _, status := range statuses {
-		buf.WriteString(fmt.Sprintf("  %s = '%s',\n", strings.ToUpper(status), status))
+		fmt.Fprintf(&buf, "  %s = '%s',\n", strings.ToUpper(status), status)
 	}
 
 	buf.WriteString("}\n\n")
@@ -234,8 +234,8 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 	buf.WriteString("    super();\n")
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
-	buf.WriteString(fmt.Sprintf("      heartbeatIntervalMs: %d,\n", config.Streaming.PresenceConfig.HeartbeatIntervalMs))
-	buf.WriteString(fmt.Sprintf("      idleTimeoutMs: %d,\n", config.Streaming.PresenceConfig.IdleTimeoutMs))
+	fmt.Fprintf(&buf, "      heartbeatIntervalMs: %d,\n", config.Streaming.PresenceConfig.HeartbeatIntervalMs)
+	fmt.Fprintf(&buf, "      idleTimeoutMs: %d,\n", config.Streaming.PresenceConfig.IdleTimeoutMs)
 
 	if config.Features.Reconnection {
 		buf.WriteString("      maxReconnectAttempts: 10,\n")
@@ -268,7 +268,7 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 		wsPath = spec.Streaming.Presence.Path
 	}
 
-	buf.WriteString(fmt.Sprintf("      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath))
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
 
 	if config.IncludeAuth {
 		buf.WriteString("      // Add auth to URL for browser compatibility\n")

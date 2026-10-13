@@ -255,6 +255,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	// wireDecodeExpr below no-ops -- exactly the raw JSON.stringify/
 	// JSON.parse casts that shipped before this fix.
 	var biSendCodecID, biReceiveCodecID string
+
 	if needsCodecs && wt.BiStreamSchema != nil {
 		var warning string
 
@@ -270,6 +271,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	}
 
 	var uniSendCodecID, uniReceiveCodecID string
+
 	if needsCodecs && wt.UniStreamSchema != nil {
 		var warning string
 
@@ -285,6 +287,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	}
 
 	var datagramCodecID string
+
 	if needsCodecs && wt.DatagramSchema != nil {
 		var warning string
 
@@ -314,10 +317,10 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	}
 
 	// Class documentation
-	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if wt.Description != "" {
-		buf.WriteString(fmt.Sprintf(" * %s\n", wt.Description))
+		fmt.Fprintf(&buf, " * %s\n", wt.Description)
 	}
 
 	buf.WriteString(" * \n")
@@ -336,7 +339,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString(" */\n")
 
 	// Class definition
-	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
+	fmt.Fprintf(&buf, "export class %s extends EventEmitter {\n", className)
 	buf.WriteString("  private transport: WebTransport | null = null;\n")
 	buf.WriteString("  private config: Required<Pick<WebTransportClientConfig, 'baseURL'>> & WebTransportClientConfig;\n")
 	buf.WriteString("  private state: WebTransportState = WebTransportState.DISCONNECTED;\n")
@@ -378,7 +381,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Connect method with timeout
 	buf.WriteString("  /**\n")
-	buf.WriteString(fmt.Sprintf("   * Connect to WebTransport endpoint %s\n", wt.Path))
+	fmt.Fprintf(&buf, "   * Connect to WebTransport endpoint %s\n", wt.Path)
 	buf.WriteString("   * @returns Promise that resolves when connected\n")
 	buf.WriteString("   * @throws Error if connection fails or times out\n")
 	buf.WriteString("   */\n")
@@ -390,7 +393,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("    this.setState(WebTransportState.CONNECTING);\n")
 	buf.WriteString("    this.closed = false;\n\n")
 
-	buf.WriteString(fmt.Sprintf("    let wtURL = this.config.baseURL.replace(/^http/, 'https') + '%s';\n\n", wt.Path))
+	fmt.Fprintf(&buf, "    let wtURL = this.config.baseURL.replace(/^http/, 'https') + '%s';\n\n", wt.Path)
 
 	// Add auth to URL. Gated on config.IncludeAuth for the same reason the
 	// WebTransportClientConfig.auth field declaration itself is: referencing
@@ -627,10 +630,10 @@ func (w *WebTransportGenerator) generateOpenBidiStreamMethod(className string) s
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new bidirectional stream.\n")
-	buf.WriteString(fmt.Sprintf("   * @returns Promise resolving to a %s instance\n", biDiStreamName))
+	fmt.Fprintf(&buf, "   * @returns Promise resolving to a %s instance\n", biDiStreamName)
 	buf.WriteString("   * @throws Error if not connected or operation times out\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async openBidiStream(): Promise<%s> {\n", biDiStreamName))
+	fmt.Fprintf(&buf, "  async openBidiStream(): Promise<%s> {\n", biDiStreamName)
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -642,7 +645,7 @@ func (w *WebTransportGenerator) generateOpenBidiStreamMethod(className string) s
 	buf.WriteString("        setTimeout(() => reject(new Error('Stream creation timeout')), timeout)\n")
 	buf.WriteString("      ),\n")
 	buf.WriteString("    ]);\n")
-	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", biDiStreamName))
+	fmt.Fprintf(&buf, "    return new %s(stream);\n", biDiStreamName)
 	buf.WriteString("  }\n\n")
 
 	return buf.String()
@@ -777,10 +780,10 @@ func (w *WebTransportGenerator) generateOpenUniStreamMethod(className string) st
 
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Open a new unidirectional stream for sending.\n")
-	buf.WriteString(fmt.Sprintf("   * @returns Promise resolving to a %s instance\n", uniStreamName))
+	fmt.Fprintf(&buf, "   * @returns Promise resolving to a %s instance\n", uniStreamName)
 	buf.WriteString("   * @throws Error if not connected or operation times out\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async openUniStream(): Promise<%s> {\n", uniStreamName))
+	fmt.Fprintf(&buf, "  async openUniStream(): Promise<%s> {\n", uniStreamName)
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -792,7 +795,7 @@ func (w *WebTransportGenerator) generateOpenUniStreamMethod(className string) st
 	buf.WriteString("        setTimeout(() => reject(new Error('Stream creation timeout')), timeout)\n")
 	buf.WriteString("      ),\n")
 	buf.WriteString("    ]);\n")
-	buf.WriteString(fmt.Sprintf("    return new %s(stream);\n", uniStreamName))
+	fmt.Fprintf(&buf, "    return new %s(stream);\n", uniStreamName)
 	buf.WriteString("  }\n\n")
 
 	return buf.String()
@@ -868,14 +871,14 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	typeName := w.getSchemaTypeName(schema, spec)
 
 	buf.WriteString("  /**\n")
-	buf.WriteString(fmt.Sprintf("   * Send a %s as an unreliable datagram.\n", typeName))
+	fmt.Fprintf(&buf, "   * Send a %s as an unreliable datagram.\n", typeName)
 	buf.WriteString("   * If offline and queue enabled, queues for later.\n")
 	buf.WriteString("   * @param msg - The message to send\n")
 	buf.WriteString("   * @returns Promise that resolves when sent (or queued)\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async sendDatagram(msg: %s): Promise<void> {\n", typeName))
+	fmt.Fprintf(&buf, "  async sendDatagram(msg: %s): Promise<void> {\n", typeName)
 	buf.WriteString("    const encoder = new TextEncoder();\n")
-	buf.WriteString(fmt.Sprintf("    const data = encoder.encode(JSON.stringify(%s));\n\n", wireEncodeExpr(codecID, "msg")))
+	fmt.Fprintf(&buf, "    const data = encoder.encode(JSON.stringify(%s));\n\n", wireEncodeExpr(codecID, "msg"))
 
 	buf.WriteString("    if (this.transport && this.state === WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      const writer = this.transport.datagrams.writable.getWriter();\n")
@@ -908,16 +911,16 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("  }\n\n")
 
 	buf.WriteString("  /**\n")
-	buf.WriteString(fmt.Sprintf("   * Send a %s immediately. Throws if not connected.\n", typeName))
+	fmt.Fprintf(&buf, "   * Send a %s immediately. Throws if not connected.\n", typeName)
 	buf.WriteString("   * @param msg - The message to send\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async sendDatagramSync(msg: %s): Promise<void> {\n", typeName))
+	fmt.Fprintf(&buf, "  async sendDatagramSync(msg: %s): Promise<void> {\n", typeName)
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
 
 	buf.WriteString("    const encoder = new TextEncoder();\n")
-	buf.WriteString(fmt.Sprintf("    const data = encoder.encode(JSON.stringify(%s));\n", wireEncodeExpr(codecID, "msg")))
+	fmt.Fprintf(&buf, "    const data = encoder.encode(JSON.stringify(%s));\n", wireEncodeExpr(codecID, "msg"))
 	buf.WriteString("    const writer = this.transport.datagrams.writable.getWriter();\n")
 	buf.WriteString("    try {\n")
 	buf.WriteString("      await writer.write(data);\n")
@@ -927,10 +930,10 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("  }\n\n")
 
 	buf.WriteString("  /**\n")
-	buf.WriteString(fmt.Sprintf("   * Receive a %s datagram.\n", typeName))
+	fmt.Fprintf(&buf, "   * Receive a %s datagram.\n", typeName)
 	buf.WriteString("   * @returns Promise resolving to the received datagram\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async receiveDatagram(): Promise<%s> {\n", typeName))
+	fmt.Fprintf(&buf, "  async receiveDatagram(): Promise<%s> {\n", typeName)
 	buf.WriteString("    if (!this.transport || this.state !== WebTransportState.CONNECTED) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -940,7 +943,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("      const { value } = await reader.read();\n")
 	buf.WriteString("      const decoder = new TextDecoder();\n")
 	buf.WriteString("      const text = decoder.decode(value);\n")
-	buf.WriteString(fmt.Sprintf("      return %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)")))
+	fmt.Fprintf(&buf, "      return %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)"))
 	buf.WriteString("    } finally {\n")
 	buf.WriteString("      reader.releaseLock();\n")
 	buf.WriteString("    }\n")
@@ -949,7 +952,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("  /**\n")
 	buf.WriteString("   * Receive datagrams as an async iterator.\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async *receiveDatagrams(): AsyncGenerator<%s> {\n", typeName))
+	fmt.Fprintf(&buf, "  async *receiveDatagrams(): AsyncGenerator<%s> {\n", typeName)
 	buf.WriteString("    if (!this.transport) {\n")
 	buf.WriteString("      throw new Error('Not connected');\n")
 	buf.WriteString("    }\n\n")
@@ -962,7 +965,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(schema *client.Schema, s
 	buf.WriteString("        const { done, value } = await reader.read();\n")
 	buf.WriteString("        if (done) break;\n")
 	buf.WriteString("        const text = decoder.decode(value);\n")
-	buf.WriteString(fmt.Sprintf("        yield %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)")))
+	fmt.Fprintf(&buf, "        yield %s;\n", wireDecodeExpr(codecID, "JSON.parse(text)"))
 	buf.WriteString("      }\n")
 	buf.WriteString("    } finally {\n")
 	buf.WriteString("      reader.releaseLock();\n")

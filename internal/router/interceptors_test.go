@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,7 +18,7 @@ import (
 func newInterceptorTestContext() Context {
 	return forge_http.NewContext(
 		httptest.NewRecorder(),
-		httptest.NewRequest(http.MethodGet, "/", nil),
+		httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil),
 		nil,
 	)
 }

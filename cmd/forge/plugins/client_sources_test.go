@@ -10,6 +10,7 @@ func TestSourceEntriesFromScalarPath(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("Entries() returned %d entries, want 1", len(got))
 	}
+
 	if got[0].Path != "openapi.json" || got[0].Type != "file" {
 		t.Errorf("Entries()[0] = %+v, want the scalar path as one file entry", got[0])
 	}
@@ -40,6 +41,7 @@ func TestSourceEntriesPrefersExplicitList(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("Entries() returned %d entries, want 2", len(got))
 	}
+
 	if got[0].Path != "openapi.json" || got[1].Path != "asyncapi.json" {
 		t.Errorf("Entries() = %+v, want list order preserved", got)
 	}

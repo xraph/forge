@@ -3,6 +3,7 @@ package grpc
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// loadTLSCredentials loads TLS credentials from files
+// loadTLSCredentials loads TLS credentials from files.
 func (s *grpcServer) loadTLSCredentials() (credentials.TransportCredentials, error) {
 	// Load server certificate and key
 	serverCert, err := tls.LoadX509KeyPair(s.config.TLSCertFile, s.config.TLSKeyFile)
@@ -26,17 +27,18 @@ func (s *grpcServer) loadTLSCredentials() (credentials.TransportCredentials, err
 	// If client authentication is required, load CA
 	if s.config.ClientAuth {
 		if s.config.TLSCAFile == "" {
-			return nil, fmt.Errorf("client auth enabled but no CA file provided")
+			return nil, errors.New("client auth enabled but no CA file provided")
 		}
 
 		certPool := x509.NewCertPool()
+
 		ca, err := os.ReadFile(s.config.TLSCAFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA file: %w", err)
 		}
 
 		if !certPool.AppendCertsFromPEM(ca) {
-			return nil, fmt.Errorf("failed to append CA cert")
+			return nil, errors.New("failed to append CA cert")
 		}
 
 		config.ClientAuth = tls.RequireAndVerifyClientCert

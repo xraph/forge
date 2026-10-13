@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -191,7 +192,7 @@ func (q *RabbitMQQueue) DeclareQueue(ctx context.Context, name string, opts Queu
 	// Build arguments
 	args := amqp.Table{}
 	if opts.MessageTTL > 0 {
-		args["x-message-ttl"] = int64(opts.MessageTTL.Milliseconds())
+		args["x-message-ttl"] = opts.MessageTTL.Milliseconds()
 	}
 
 	if opts.MaxLength > 0 {
@@ -265,7 +266,7 @@ func (q *RabbitMQQueue) GetQueueInfo(ctx context.Context, name string) (*QueueIn
 	}
 
 	// Passive declare to get queue info
-	queue, err := q.channel.QueueInspect(name)
+	queue, err := q.channel.QueueDeclarePassive(name, false, false, false, false, nil)
 	if err != nil {
 		return nil, ErrQueueNotFound
 	}
@@ -326,8 +327,12 @@ func (q *RabbitMQQueue) Publish(ctx context.Context, queueName string, message M
 		Timestamp:    time.Now(),
 	}
 
+	// AMQP priority is a single octet. Clamp rather than let 256 wrap to 0.
 	if message.Priority > 0 {
-		publishing.Priority = uint8(message.Priority)
+		publishing.Priority = math.MaxUint8
+		if message.Priority < math.MaxUint8 {
+			publishing.Priority = uint8(message.Priority)
+		}
 	}
 
 	if message.Expiration > 0 {
@@ -447,7 +452,14 @@ func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler M
 					q.logger.Error("failed to unmarshal message",
 						forge.F("error", err),
 					)
-					delivery.Nack(false, false)
+
+					if nackErr := delivery.Nack(false, false); nackErr != nil {
+						q.logger.Error("failed to nack unparseable message",
+							forge.F("queue", queueName),
+							forge.F("delivery_tag", delivery.DeliveryTag),
+							forge.F("error", nackErr),
+						)
+					}
 
 					continue
 				}
@@ -473,11 +485,21 @@ func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler M
 
 					// Nack with requeue based on retry logic
 					shouldRequeue := msg.Retries < msg.MaxRetries
-					delivery.Nack(false, shouldRequeue)
-				} else {
-					// Ack message
-					if !opts.AutoAck {
-						delivery.Ack(false)
+					if nackErr := delivery.Nack(false, shouldRequeue); nackErr != nil {
+						q.logger.Error("failed to nack message",
+							forge.F("queue", queueName),
+							forge.F("msg_id", msg.ID),
+							forge.F("requeue", shouldRequeue),
+							forge.F("error", nackErr),
+						)
+					}
+				} else if !opts.AutoAck {
+					if ackErr := delivery.Ack(false); ackErr != nil {
+						q.logger.Error("failed to ack message",
+							forge.F("queue", queueName),
+							forge.F("msg_id", msg.ID),
+							forge.F("error", ackErr),
+						)
 					}
 				}
 			}
@@ -501,7 +523,13 @@ func (q *RabbitMQQueue) StopConsuming(ctx context.Context, queueName string) err
 
 			// Cancel the consumer on the channel
 			if q.channel != nil {
-				q.channel.Cancel(id, false)
+				if err := q.channel.Cancel(id, false); err != nil {
+					q.logger.Warn("failed to cancel rabbitmq consumer",
+						forge.F("queue", queueName),
+						forge.F("consumer", id),
+						forge.F("error", err),
+					)
+				}
 			}
 
 			c.active = false

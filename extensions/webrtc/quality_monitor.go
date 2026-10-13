@@ -327,11 +327,14 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 		score -= rttScore
 	}
 
-	// Deduct points for low bitrate
-	if sample.Bitrate < uint64(q.config.MinBitrate*1024) {
-		bitrateDef := uint64(q.config.MinBitrate*1024) - sample.Bitrate
-		bitrateScore := int(bitrateDef / (50 * 1024))
-		score -= bitrateScore
+	// Deduct points for low bitrate. A negative MinBitrate used to wrap into a
+	// huge threshold and zero the score, so treat it as "no minimum" instead.
+	if q.config.MinBitrate > 0 {
+		minBitrate := uint64(q.config.MinBitrate) * 1024
+		if sample.Bitrate < minBitrate {
+			bitrateDef := minBitrate - sample.Bitrate
+			score -= saturatingInt(bitrateDef / (50 * 1024))
+		}
 	}
 
 	// Clamp score
@@ -348,7 +351,7 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 		PacketLoss:  sample.PacketLoss,
 		Jitter:      sample.Jitter,
 		Latency:     sample.RTT,
-		BitrateKbps: int(sample.Bitrate / 1024),
+		BitrateKbps: saturatingInt(sample.Bitrate / 1024),
 		Warnings:    []string{},
 		LastUpdated: time.Now(),
 	}

@@ -31,7 +31,7 @@ type HTTPBackend struct {
 	watchers map[string][]func([]*ServiceInstance)
 
 	mu     sync.RWMutex
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // backend's own lifecycle context, cancelled in Close
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -159,16 +159,16 @@ func (b *HTTPBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 	// Collect from polled services
 	if instances, ok := b.services[serviceName]; ok {
 		for _, inst := range instances {
-			copy := *inst
-			result = append(result, &copy)
+			instCopy := *inst
+			result = append(result, &instCopy)
 		}
 	}
 
 	// Collect from local services
 	if instances, ok := b.localServices[serviceName]; ok {
 		for _, inst := range instances {
-			copy := *inst
-			result = append(result, &copy)
+			instCopy := *inst
+			result = append(result, &instCopy)
 		}
 	}
 
@@ -252,6 +252,7 @@ func (b *HTTPBackend) Health(ctx context.Context) error {
 	}
 
 	b.mu.RLock()
+
 	totalInstances := 0
 
 	for _, instances := range b.services {
@@ -484,15 +485,15 @@ func (b *HTTPBackend) getInstancesLocked(serviceName string) []*ServiceInstance 
 
 	if instances, ok := b.services[serviceName]; ok {
 		for _, inst := range instances {
-			copy := *inst
-			result = append(result, &copy)
+			instCopy := *inst
+			result = append(result, &instCopy)
 		}
 	}
 
 	if instances, ok := b.localServices[serviceName]; ok {
 		for _, inst := range instances {
-			copy := *inst
-			result = append(result, &copy)
+			instCopy := *inst
+			result = append(result, &instCopy)
 		}
 	}
 

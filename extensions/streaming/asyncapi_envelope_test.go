@@ -25,9 +25,9 @@ func envelopeFields(t *testing.T) map[string]bool {
 
 	fields := make(map[string]bool)
 
-	typ := reflect.TypeOf(internal.Message{})
-	for i := range typ.NumField() {
-		tag := typ.Field(i).Tag.Get("json")
+	typ := reflect.TypeFor[internal.Message]()
+	for field := range typ.Fields() {
+		tag := field.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}

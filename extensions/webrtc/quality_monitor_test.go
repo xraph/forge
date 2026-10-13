@@ -72,7 +72,7 @@ func TestQualityMonitor(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Check that quality is still being tracked
-	quality, err = monitor.GetQuality("test-peer")
+	_, err = monitor.GetQuality("test-peer")
 	if err != nil {
 		t.Errorf("failed to get quality during monitoring: %v", err)
 	}

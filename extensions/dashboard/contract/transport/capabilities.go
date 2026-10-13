@@ -1,8 +1,6 @@
-// capabilities.go
 package transport
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/xraph/forge/extensions/dashboard/contract"
@@ -72,8 +70,10 @@ type capabilitiesHandler struct {
 func (h *capabilitiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+
 		return
 	}
+
 	resp := CapabilitiesResponse{ShellEnvelopes: h.shellEnvelopes}
 	for _, m := range h.reg.All() {
 		c := ContributorCapability{Name: m.Contributor.Name, Envelopes: m.Contributor.Envelope.Supports}
@@ -82,27 +82,33 @@ func (h *capabilitiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		// reported as ready, not as needing setup. bool's zero value is the
 		// wrong way round here, so it is set explicitly.
 		st := ContributorStatus{Configured: true}
+
 		if h.status != nil {
 			if s, ok := h.status(m.Contributor.Name); ok {
 				st = s
 			}
 		}
+
 		c.Version, c.Configured, c.Message = st.Version, st.Configured, st.Message
 		// Group intents by name; collect versions.
 		byName := map[string][]IntentVersionStatus{}
+
 		for _, in := range m.Intents {
 			s := IntentVersionStatus{N: in.Version, Status: "active"}
 			if in.Deprecated != nil {
 				s.Status = "deprecated"
 				s.RemoveAfter = in.Deprecated.RemoveAfter
 			}
+
 			byName[in.Name] = append(byName[in.Name], s)
 		}
+
 		for name, versions := range byName {
 			c.Intents = append(c.Intents, IntentCapability{Name: name, Versions: versions})
 		}
+
 		resp.Contributors = append(resp.Contributors, c)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+
+	writePlainJSON(w, resp)
 }

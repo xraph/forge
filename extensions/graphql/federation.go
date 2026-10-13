@@ -5,7 +5,7 @@ import (
 )
 
 // enableFederation configures Apollo Federation support for the GraphQL server
-// Federation allows multiple GraphQL services to be composed into a single graph
+// Federation allows multiple GraphQL services to be composed into a single graph.
 func enableFederation(srv *handler.Server, config Config) {
 	// Federation is configured in gqlgen.yml via the federation section
 	// The generated code includes federation support automatically when enabled
@@ -21,7 +21,7 @@ func enableFederation(srv *handler.Server, config Config) {
 	// Advanced features like custom entity resolvers can be added here
 }
 
-// FederationConfig holds federation-specific configuration
+// FederationConfig holds federation-specific configuration.
 type FederationConfig struct {
 	// Enable federation support
 	Enabled bool
@@ -29,7 +29,7 @@ type FederationConfig struct {
 	Version int
 }
 
-// DefaultFederationConfig returns default federation configuration
+// DefaultFederationConfig returns default federation configuration.
 func DefaultFederationConfig() FederationConfig {
 	return FederationConfig{
 		Enabled: false,

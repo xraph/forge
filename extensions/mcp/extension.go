@@ -86,6 +86,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("mcp extension disabled")
+
 		return nil
 	}
 
@@ -128,7 +129,9 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	// Register MCP endpoints
-	e.registerEndpoints(mcpService)
+	if err := e.registerEndpoints(mcpService); err != nil {
+		return fmt.Errorf("failed to register mcp endpoints: %w", err)
+	}
 
 	// Auto-expose routes as MCP tools
 	if e.config.AutoExposeRoutes {
@@ -151,6 +154,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -166,32 +170,51 @@ func (e *Extension) Health(ctx context.Context) error {
 }
 
 // registerEndpoints registers MCP HTTP endpoints.
-func (e *Extension) registerEndpoints(mcpService *MCPService) {
+func (e *Extension) registerEndpoints(mcpService *MCPService) error {
 	router := e.App().Router()
 	basePath := e.config.BasePath
 
 	// Server info endpoint
-	router.GET(basePath+"/info", e.handleInfo)
+	if err := router.GET(basePath+"/info", e.handleInfo); err != nil {
+		return fmt.Errorf("GET %s/info: %w", basePath, err)
+	}
 
 	// Tools endpoints
-	router.GET(basePath+"/tools", e.handleListTools)
-	router.POST(basePath+"/tools/:name", e.handleCallTool)
+	if err := router.GET(basePath+"/tools", e.handleListTools); err != nil {
+		return fmt.Errorf("GET %s/tools: %w", basePath, err)
+	}
+
+	if err := router.POST(basePath+"/tools/:name", e.handleCallTool); err != nil {
+		return fmt.Errorf("POST %s/tools/:name: %w", basePath, err)
+	}
 
 	// Resources endpoints (if enabled)
 	if e.config.EnableResources {
-		router.GET(basePath+"/resources", e.handleListResources)
-		router.POST(basePath+"/resources/read", e.handleReadResource)
+		if err := router.GET(basePath+"/resources", e.handleListResources); err != nil {
+			return fmt.Errorf("GET %s/resources: %w", basePath, err)
+		}
+
+		if err := router.POST(basePath+"/resources/read", e.handleReadResource); err != nil {
+			return fmt.Errorf("POST %s/resources/read: %w", basePath, err)
+		}
 	}
 
 	// Prompts endpoints (if enabled)
 	if e.config.EnablePrompts {
-		router.GET(basePath+"/prompts", e.handleListPrompts)
-		router.POST(basePath+"/prompts/:name", e.handleGetPrompt)
+		if err := router.GET(basePath+"/prompts", e.handleListPrompts); err != nil {
+			return fmt.Errorf("GET %s/prompts: %w", basePath, err)
+		}
+
+		if err := router.POST(basePath+"/prompts/:name", e.handleGetPrompt); err != nil {
+			return fmt.Errorf("POST %s/prompts/:name: %w", basePath, err)
+		}
 	}
 
 	e.Logger().Debug("mcp: endpoints registered",
 		forge.F("base_path", basePath),
 	)
+
+	return nil
 }
 
 // exposeRoutesAsTools automatically exposes Forge routes as MCP tools.

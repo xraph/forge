@@ -114,14 +114,14 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	className := w.generateClassName(wt)
 
 	// Client documentation
-	buf.WriteString(fmt.Sprintf("// %s is a WebTransport client for %s\n", className, wt.Path))
+	fmt.Fprintf(&buf, "// %s is a WebTransport client for %s\n", className, wt.Path)
 
 	if wt.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s\n", wt.Description))
+		fmt.Fprintf(&buf, "// %s\n", wt.Description)
 	}
 
 	// Client struct
-	buf.WriteString(fmt.Sprintf("type %s struct {\n", className))
+	fmt.Fprintf(&buf, "type %s struct {\n", className)
 	buf.WriteString("\tsession *webtransport.Session\n")
 	buf.WriteString("\tbaseURL string\n")
 
@@ -151,15 +151,15 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("}\n\n")
 
 	// Constructor
-	buf.WriteString(fmt.Sprintf("// New%s creates a new WebTransport client\n", className))
+	fmt.Fprintf(&buf, "// New%s creates a new WebTransport client\n", className)
 
 	if needsAuth {
-		buf.WriteString(fmt.Sprintf("func New%s(baseURL string, auth *AuthConfig) *%s {\n", className, className))
+		fmt.Fprintf(&buf, "func New%s(baseURL string, auth *AuthConfig) *%s {\n", className, className)
 	} else {
-		buf.WriteString(fmt.Sprintf("func New%s(baseURL string) *%s {\n", className, className))
+		fmt.Fprintf(&buf, "func New%s(baseURL string) *%s {\n", className, className)
 	}
 
-	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", className))
+	fmt.Fprintf(&buf, "\treturn &%s{\n", className)
 	buf.WriteString("\t\tbaseURL: baseURL,\n")
 
 	if needsAuth {
@@ -178,15 +178,15 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("}\n\n")
 
 	// Connect method
-	buf.WriteString(fmt.Sprintf("// Connect establishes a WebTransport connection to %s\n", wt.Path))
-	buf.WriteString(fmt.Sprintf("func (c *%s) Connect(ctx context.Context) error {\n", className))
+	fmt.Fprintf(&buf, "// Connect establishes a WebTransport connection to %s\n", wt.Path)
+	fmt.Fprintf(&buf, "func (c *%s) Connect(ctx context.Context) error {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n\n")
 
 	buf.WriteString("\tc.setState(WebTransportStateConnecting)\n\n")
 
 	buf.WriteString("\t// Build WebTransport URL\n")
-	buf.WriteString(fmt.Sprintf("\twtURL := c.baseURL + \"%s\"\n\n", wt.Path))
+	fmt.Fprintf(&buf, "\twtURL := c.baseURL + \"%s\"\n\n", wt.Path)
 
 	// dialHeader stays nil when no scheme is declared: client.go never
 	// declares AuthConfig in that case (see needsAuthConfig), so c.auth
@@ -219,7 +219,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	// v0.12.0, verified against client.go and transport.go in the local
 	// module cache. The response is discarded, matching what this line did
 	// before the swap: it never used the discarded value either.
-	buf.WriteString(fmt.Sprintf("\t// Dial WebTransport\n\t_, session, err := transport.Dial(ctx, wtURL, %s)\n", dialHeader))
+	fmt.Fprintf(&buf, "\t// Dial WebTransport\n\t_, session, err := transport.Dial(ctx, wtURL, %s)\n", dialHeader)
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\tc.setState(WebTransportStateError)\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to connect: %w\", err)\n")
@@ -271,7 +271,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Close method
 	buf.WriteString("// Close closes the WebTransport connection\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) Close() error {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) Close() error {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n\n")
 
@@ -287,14 +287,14 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Get state method
 	buf.WriteString("// GetState returns the current connection state\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) GetState() WebTransportState {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) GetState() WebTransportState {\n", className)
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tdefer c.mu.RUnlock()\n")
 	buf.WriteString("\treturn c.state\n")
 	buf.WriteString("}\n\n")
 
 	// setState helper
-	buf.WriteString(fmt.Sprintf("func (c *%s) setState(state WebTransportState) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) setState(state WebTransportState) {\n", className)
 	buf.WriteString("\tc.state = state\n")
 
 	if config.Features.StateManagement {
@@ -316,7 +316,7 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	receiveType := w.getSchemaTypeName(schema.ReceiveSchema, spec)
 
 	buf.WriteString("// OpenBidiStream opens a new bidirectional stream\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) OpenBidiStream(ctx context.Context) (*BiDiStream, error) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) OpenBidiStream(ctx context.Context) (*BiDiStream, error) {\n", className)
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
 	buf.WriteString("\tc.mu.RUnlock()\n\n")
@@ -339,8 +339,8 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	buf.WriteString("\tstream *webtransport.Stream\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Send sends a %s on the stream\n", docTypeName(sendType)))
-	buf.WriteString(fmt.Sprintf("func (s *BiDiStream) Send(msg %s) error {\n", sendType))
+	fmt.Fprintf(&buf, "// Send sends a %s on the stream\n", docTypeName(sendType))
+	fmt.Fprintf(&buf, "func (s *BiDiStream) Send(msg %s) error {\n", sendType)
 	buf.WriteString("\tdata, err := json.Marshal(msg)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to marshal message: %w\", err)\n")
@@ -350,14 +350,14 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	buf.WriteString("\treturn err\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Receive receives a %s from the stream\n", docTypeName(receiveType)))
-	buf.WriteString(fmt.Sprintf("func (s *BiDiStream) Receive() (*%s, error) {\n", receiveType))
+	fmt.Fprintf(&buf, "// Receive receives a %s from the stream\n", docTypeName(receiveType))
+	fmt.Fprintf(&buf, "func (s *BiDiStream) Receive() (*%s, error) {\n", receiveType)
 	buf.WriteString("\tdata, err := io.ReadAll(s.stream)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn nil, fmt.Errorf(\"failed to read from stream: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
 
-	buf.WriteString(fmt.Sprintf("\tvar msg %s\n", receiveType))
+	fmt.Fprintf(&buf, "\tvar msg %s\n", receiveType)
 	buf.WriteString("\tif err := json.Unmarshal(data, &msg); err != nil {\n")
 	buf.WriteString("\t\treturn nil, fmt.Errorf(\"failed to unmarshal message: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
@@ -380,7 +380,7 @@ func (w *WebTransportGenerator) generateUniStreamMethods(className string, schem
 	sendType := w.getSchemaTypeName(schema.SendSchema, spec)
 
 	buf.WriteString("// OpenUniStream opens a new unidirectional stream for sending\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) OpenUniStream(ctx context.Context) (*UniStream, error) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) OpenUniStream(ctx context.Context) (*UniStream, error) {\n", className)
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
 	buf.WriteString("\tc.mu.RUnlock()\n\n")
@@ -403,8 +403,8 @@ func (w *WebTransportGenerator) generateUniStreamMethods(className string, schem
 	buf.WriteString("\tstream *webtransport.SendStream\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// Send sends a %s on the stream\n", docTypeName(sendType)))
-	buf.WriteString(fmt.Sprintf("func (s *UniStream) Send(msg %s) error {\n", sendType))
+	fmt.Fprintf(&buf, "// Send sends a %s on the stream\n", docTypeName(sendType))
+	fmt.Fprintf(&buf, "func (s *UniStream) Send(msg %s) error {\n", sendType)
 	buf.WriteString("\tdata, err := json.Marshal(msg)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn fmt.Errorf(\"failed to marshal message: %w\", err)\n")
@@ -428,8 +428,8 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 
 	typeName := w.getSchemaTypeName(schema, spec)
 
-	buf.WriteString(fmt.Sprintf("// SendDatagram sends a %s as an unreliable datagram\n", docTypeName(typeName)))
-	buf.WriteString(fmt.Sprintf("func (c *%s) SendDatagram(msg %s) error {\n", className, typeName))
+	fmt.Fprintf(&buf, "// SendDatagram sends a %s as an unreliable datagram\n", docTypeName(typeName))
+	fmt.Fprintf(&buf, "func (c *%s) SendDatagram(msg %s) error {\n", className, typeName)
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
 	buf.WriteString("\tc.mu.RUnlock()\n\n")
@@ -446,8 +446,8 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 	buf.WriteString("\treturn session.SendDatagram(data)\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("// ReceiveDatagram receives a %s datagram\n", docTypeName(typeName)))
-	buf.WriteString(fmt.Sprintf("func (c *%s) ReceiveDatagram(ctx context.Context) (*%s, error) {\n", className, typeName))
+	fmt.Fprintf(&buf, "// ReceiveDatagram receives a %s datagram\n", docTypeName(typeName))
+	fmt.Fprintf(&buf, "func (c *%s) ReceiveDatagram(ctx context.Context) (*%s, error) {\n", className, typeName)
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tsession := c.session\n")
 	buf.WriteString("\tc.mu.RUnlock()\n\n")
@@ -461,7 +461,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 	buf.WriteString("\t\treturn nil, fmt.Errorf(\"failed to receive datagram: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
 
-	buf.WriteString(fmt.Sprintf("\tvar msg %s\n", typeName))
+	fmt.Fprintf(&buf, "\tvar msg %s\n", typeName)
 	buf.WriteString("\tif err := json.Unmarshal(data, &msg); err != nil {\n")
 	buf.WriteString("\t\treturn nil, fmt.Errorf(\"failed to unmarshal datagram: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
@@ -476,7 +476,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 func (w *WebTransportGenerator) generateIncomingStreamHandler(className string, wt client.WebTransportEndpoint, spec *client.APISpec) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("func (c *%s) handleIncomingStreams(ctx context.Context) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) handleIncomingStreams(ctx context.Context) {\n", className)
 	buf.WriteString("\tfor {\n")
 	buf.WriteString("\t\tselect {\n")
 	buf.WriteString("\t\tcase <-ctx.Done():\n")
@@ -504,7 +504,7 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler(className string, 
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("func (c *%s) handleStream(ctx context.Context, stream *webtransport.Stream) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) handleStream(ctx context.Context, stream *webtransport.Stream) {\n", className)
 	buf.WriteString("\tdefer stream.Close()\n\n")
 
 	buf.WriteString("\t// Read stream data\n")
@@ -526,7 +526,7 @@ func (w *WebTransportGenerator) generateStateManagement(className string) string
 	var buf strings.Builder
 
 	buf.WriteString("// OnStateChange registers a handler for state changes\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) OnStateChange(handler func(WebTransportState)) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) OnStateChange(handler func(WebTransportState)) {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n")
 	buf.WriteString("\tc.stateHandlers = append(c.stateHandlers, handler)\n")
@@ -540,13 +540,13 @@ func (w *WebTransportGenerator) generateErrorHandling(className string) string {
 	var buf strings.Builder
 
 	buf.WriteString("// OnError registers an error handler\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) OnError(handler func(error)) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) OnError(handler func(error)) {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n")
 	buf.WriteString("\tc.errorHandlers = append(c.errorHandlers, handler)\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("func (c *%s) handleError(err error) {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) handleError(err error) {\n", className)
 	buf.WriteString("\tif err == nil {\n")
 	buf.WriteString("\t\treturn\n")
 	buf.WriteString("\t}\n\n")
@@ -569,7 +569,7 @@ func (w *WebTransportGenerator) generateReconnection(className string) string {
 	var buf strings.Builder
 
 	buf.WriteString("// Reconnect attempts to reconnect to the WebTransport server\n")
-	buf.WriteString(fmt.Sprintf("func (c *%s) Reconnect(ctx context.Context) error {\n", className))
+	fmt.Fprintf(&buf, "func (c *%s) Reconnect(ctx context.Context) error {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tif c.reconnectAttempts >= c.maxReconnectAttempts {\n")
 	buf.WriteString("\t\tc.mu.Unlock()\n")
@@ -655,18 +655,13 @@ func toPascalCase(s string) string {
 		return r == '_' || r == '-' || r == ' ' || r == '/'
 	})
 
-	var (
-		result      string
-		resultSb555 strings.Builder
-	)
+	var words strings.Builder
 
 	for _, part := range parts {
 		if len(part) > 0 {
-			resultSb555.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
+			words.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
 
-	result += resultSb555.String()
-
-	return result
+	return words.String()
 }

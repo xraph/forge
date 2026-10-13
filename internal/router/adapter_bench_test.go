@@ -24,7 +24,7 @@ func benchAdapter(b *testing.B, a shared.RouterAdapter) shared.RouterAdapter {
 func benchServe(b *testing.B, a shared.RouterAdapter, path string) {
 	b.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
 
 	b.ReportAllocs()

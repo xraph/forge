@@ -1012,6 +1012,7 @@ main().catch((err) => { console.error(err); process.exit(1); });
 		"capping a caller's explicit maxAttempts:5 down to 1 must warn, or the caller has no way to discover it")
 
 	assert.Equal(t, `{"a":1}`, result.PlainObject.Body, "positive control: a plain object must still be JSON-serialized")
+
 	if assert.NotNil(t, result.PlainObject.ContentType) {
 		assert.Equal(t, "application/json", *result.PlainObject.ContentType)
 	}

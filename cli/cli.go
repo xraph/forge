@@ -160,6 +160,7 @@ func (c *cli) Run(args []string) error {
 	// Inject global flags into command before parsing
 	for _, gf := range c.globalFlags {
 		exists := false
+
 		for _, ef := range cmd.Flags() {
 			if ef.Name() == gf.Name() {
 				exists = true

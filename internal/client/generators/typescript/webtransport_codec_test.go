@@ -670,6 +670,7 @@ func TestTypeScriptGeneratorWebTransport(t *testing.T) {
 	// stream's send and receive schemas, the unidirectional stream's send
 	// schema, and the datagram schema.
 	assert.Len(t, out.Warnings, 4, "expected exactly one warning per unresolvable inline schema; got: %v", out.Warnings)
+
 	for _, want := range []string{
 		`webtransport endpoint "data": bidirectional-stream send message schema is not a direct $ref`,
 		`webtransport endpoint "data": bidirectional-stream receive message schema is not a direct $ref`,
@@ -677,12 +678,15 @@ func TestTypeScriptGeneratorWebTransport(t *testing.T) {
 		`webtransport endpoint "data": datagram schema is not a direct $ref`,
 	} {
 		found := false
+
 		for _, w := range out.Warnings {
 			if strings.Contains(w, want) {
 				found = true
+
 				break
 			}
 		}
+
 		assert.True(t, found, "expected a warning containing %q, got: %v", want, out.Warnings)
 	}
 

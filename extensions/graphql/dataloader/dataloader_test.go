@@ -9,7 +9,7 @@ import (
 
 func TestNewLoader(t *testing.T) {
 	config := DefaultLoaderConfig()
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
 		return keys, make([]error, len(keys))
 	}
 
@@ -23,12 +23,14 @@ func TestLoader_Load(t *testing.T) {
 	config := DefaultLoaderConfig()
 	config.Wait = 10 * time.Millisecond
 
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
-		values := make([]interface{}, len(keys))
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
+		values := make([]any, len(keys))
+
 		errs := make([]error, len(keys))
 		for i, key := range keys {
 			values[i] = key.(int) * 2
 		}
+
 		return values, errs
 	}
 
@@ -50,12 +52,14 @@ func TestLoader_LoadMany(t *testing.T) {
 	config := DefaultLoaderConfig()
 	config.Wait = 10 * time.Millisecond
 
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
-		values := make([]interface{}, len(keys))
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
+		values := make([]any, len(keys))
+
 		errs := make([]error, len(keys))
 		for i, key := range keys {
 			values[i] = key.(int) * 2
 		}
+
 		return values, errs
 	}
 
@@ -63,13 +67,14 @@ func TestLoader_LoadMany(t *testing.T) {
 	ctx := context.Background()
 
 	// Load multiple values
-	keys := []interface{}{1, 2, 3}
+	keys := []any{1, 2, 3}
+
 	values, err := loader.LoadMany(ctx, keys)
 	if err != nil {
 		t.Fatalf("LoadMany failed: %v", err)
 	}
 
-	expected := []interface{}{2, 4, 6}
+	expected := []any{2, 4, 6}
 	for i, val := range values {
 		if val != expected[i] {
 			t.Errorf("expected %v, got %v at index %d", expected[i], val, i)
@@ -79,7 +84,7 @@ func TestLoader_LoadMany(t *testing.T) {
 
 func TestLoader_Prime(t *testing.T) {
 	config := DefaultLoaderConfig()
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
 		return keys, make([]error, len(keys))
 	}
 
@@ -102,7 +107,7 @@ func TestLoader_Prime(t *testing.T) {
 
 func TestLoader_Clear(t *testing.T) {
 	config := DefaultLoaderConfig()
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
 		return keys, make([]error, len(keys))
 	}
 
@@ -124,7 +129,7 @@ func TestLoader_Clear(t *testing.T) {
 
 func TestLoader_ClearAll(t *testing.T) {
 	config := DefaultLoaderConfig()
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
 		return keys, make([]error, len(keys))
 	}
 
@@ -153,12 +158,14 @@ func TestLoader_WithErrors(t *testing.T) {
 	config.Wait = 10 * time.Millisecond
 
 	testErr := errors.New("batch error")
-	batchFunc := func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
-		values := make([]interface{}, len(keys))
+	batchFunc := func(ctx context.Context, keys []any) ([]any, []error) {
+		values := make([]any, len(keys))
+
 		errs := make([]error, len(keys))
 		for i := range keys {
 			errs[i] = testErr
 		}
+
 		return values, errs
 	}
 
@@ -167,7 +174,7 @@ func TestLoader_WithErrors(t *testing.T) {
 
 	// Load should return error
 	_, err := loader.Load(ctx, 5)
-	if err != testErr {
+	if !errors.Is(err, testErr) {
 		t.Errorf("expected test error, got %v", err)
 	}
 }

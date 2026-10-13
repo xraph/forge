@@ -270,6 +270,7 @@ func TestTypingTracker_CleanupLoopRunsAndStops(t *testing.T) {
 
 	// After Stop the loop must quiesce.
 	settled := store.cleanupCount()
+
 	time.Sleep(60 * time.Millisecond)
 
 	if got := store.cleanupCount(); got > settled+1 {

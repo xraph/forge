@@ -66,6 +66,7 @@ func NewForwardingDispatcher(reg contract.Registry, opts ...Option) *ForwardingD
 	for _, o := range opts {
 		o(f)
 	}
+
 	return f
 }
 
@@ -82,6 +83,7 @@ func (f *ForwardingDispatcher) Dispatch(
 	if f.reg == nil {
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "forwarding dispatcher: nil registry"}
 	}
+
 	endpoint, ok := f.reg.Remote(req.Contributor)
 	if !ok {
 		return nil, contract.ResponseMeta{}, &contract.Error{
@@ -96,10 +98,12 @@ func (f *ForwardingDispatcher) Dispatch(
 	}
 
 	url := strings.TrimRight(endpoint.BaseURL, "/") + f.dispatchPath
+
 	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "build request: " + err.Error()}
 	}
+
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Accept", "application/json")
 
@@ -109,6 +113,7 @@ func (f *ForwardingDispatcher) Dispatch(
 		if auth := in.Header.Get("Authorization"); auth != "" {
 			hr.Header.Set("X-Forwarded-Authorization", auth)
 		}
+
 		if cookie := in.Header.Get("Cookie"); cookie != "" {
 			hr.Header.Set("X-Forwarded-Cookie", cookie)
 		}
@@ -159,11 +164,13 @@ func (f *ForwardingDispatcher) Dispatch(
 	if jsonErr := json.Unmarshal(rb, &ok2); jsonErr == nil && ok2.OK {
 		return ok2.Data, ok2.Meta, nil
 	}
+
 	var er contract.ErrorResponse
 	if jsonErr := json.Unmarshal(rb, &er); jsonErr == nil && er.Error != nil {
 		// Surface upstream error code/message verbatim.
 		return nil, contract.ResponseMeta{}, er.Error
 	}
+
 	return nil, contract.ResponseMeta{}, &contract.Error{
 		Code:    contract.CodeInternal,
 		Message: fmt.Sprintf("upstream %s returned %d with undecodable body", req.Contributor, resp.StatusCode),

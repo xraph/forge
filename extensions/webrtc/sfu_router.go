@@ -563,8 +563,6 @@ func (s *sfuRouter) forwardTrack(ctx context.Context, track *sfuTrack, peer Peer
 		return fmt.Errorf("failed to create local track: %w", err)
 	}
 
-	fmt.Println("pionTrack", pionTrack)
-
 	// Add track to subscriber's peer connection
 	// Note: This requires casting peer to *peerConnection to access the underlying webrtc.PeerConnection
 	// In production, you'd want a more elegant way to do this
@@ -572,6 +570,7 @@ func (s *sfuRouter) forwardTrack(ctx context.Context, track *sfuTrack, peer Peer
 	s.logger.Debug("forwarding track to subscriber",
 		forge.F("track_id", track.id),
 		forge.F("kind", track.kind),
+		forge.F("local_track_id", pionTrack.ID()),
 	)
 
 	// TODO: Start packet forwarding from publisher's track to this local track
@@ -600,7 +599,7 @@ func (s *sfuRouter) Close() error {
 	return nil
 }
 
-// Helper types for SFU stats.
+// TrackInfo describes a published track in SFU stats.
 type TrackInfo struct {
 	TrackID     string
 	PublisherID string

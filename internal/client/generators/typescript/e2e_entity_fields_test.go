@@ -119,7 +119,7 @@ func TestGenerateFromSpecFileEntityFieldMapIsDeterministic(t *testing.T) {
 
 	first := ClientManifestText(generateFromSpecFile(t, path))
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if got := ClientManifestText(generateFromSpecFile(t, path)); got != first {
 			t.Fatalf("ops.ts differs between runs\n\nfirst:\n%s\n\nlater:\n%s", first, got)
 		}

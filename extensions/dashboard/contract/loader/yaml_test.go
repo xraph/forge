@@ -1,4 +1,3 @@
-// yaml_test.go
 package loader
 
 import (
@@ -22,9 +21,11 @@ func TestLoad_OK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+
 	if m.Contributor.Name != "users" {
 		t.Errorf("name = %q", m.Contributor.Name)
 	}
+
 	_ = contract.IntentKindQuery // ensure import retained
 }
 

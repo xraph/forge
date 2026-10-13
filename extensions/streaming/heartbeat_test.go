@@ -72,8 +72,7 @@ func TestHeartbeat_ClosesConnectionWithNoInboundActivity(t *testing.T) {
 	ext := newHeartbeatExtension(t, ping, pong)
 	conn := newTestConn("idle-1", "user-1")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go ext.heartbeat(ctx, conn, conn)
 
@@ -95,8 +94,7 @@ func TestHeartbeat_InboundActivityKeepsConnectionOpen(t *testing.T) {
 	ext := newHeartbeatExtension(t, ping, pong)
 	conn := newTestConn("busy-1", "user-1")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go ext.heartbeat(ctx, conn, conn)
 
@@ -132,8 +130,7 @@ func TestHeartbeat_SendsPingOnTheConfiguredInterval(t *testing.T) {
 	ext := newHeartbeatExtension(t, ping, pong)
 	conn := newTestConn("pinged-1", "user-1")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Kept alive so the run is about what gets written, not about the close.
 	stop := make(chan struct{})
@@ -183,8 +180,7 @@ func TestHeartbeat_DisabledWhenIntervalNotPositive(t *testing.T) {
 	ext := newHeartbeatExtension(t, 0, 10*time.Millisecond)
 	conn := newTestConn("disabled-1", "user-1")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go ext.heartbeat(ctx, conn, conn)
 

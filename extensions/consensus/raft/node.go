@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -55,7 +56,7 @@ type Node struct {
 	leaderLock sync.RWMutex
 
 	// Lifecycle
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -66,9 +67,9 @@ type Node struct {
 	heartbeatTimeout time.Duration
 
 	// Metrics
-	electionCount    int64
-	appendCount      int64
-	snapshotCount    int64
+	electionCount    atomic.Int64
+	appendCount      atomic.Int64
+	snapshotCount    atomic.Int64
 	lastHeartbeat    time.Time
 	lastHeartbeatMux sync.RWMutex
 
@@ -336,7 +337,7 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 		n.currentTerm = req.Term
 		n.votedFor = ""
 		n.setRole(internal.RoleFollower)
-		n.persistState()
+		n.persistStateOrLog("append entries from newer term")
 	}
 
 	// Reset election timer on valid AppendEntries
@@ -359,10 +360,24 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 		existing, err := n.log.Get(entry.Index)
 		if err == nil && existing.Term != entry.Term {
 			// Delete conflicting entry and all that follow
-			n.log.TruncateAfter(entry.Index - 1)
+			if err := n.log.TruncateAfter(entry.Index - 1); err != nil {
+				n.logger.Warn("failed to truncate conflicting log entries",
+					forge.F("node_id", n.id),
+					forge.F("index", entry.Index),
+					forge.F("error", err),
+				)
+			}
 		}
-		// Append new entry
-		n.log.Append(entry)
+		// Append keeps the entry in memory even when the storage write fails,
+		// so the reply still reports success and only the durability gap is logged.
+		if err := n.log.Append(entry); err != nil {
+			n.logger.Error("failed to persist appended log entry",
+				forge.F("node_id", n.id),
+				forge.F("index", entry.Index),
+				forge.F("term", entry.Term),
+				forge.F("error", err),
+			)
+		}
 	}
 
 	// If leaderCommit > commitIndex, set commitIndex =
@@ -404,7 +419,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 		n.currentTerm = req.Term
 		n.votedFor = ""
 		n.setRole(internal.RoleFollower)
-		n.persistState()
+		n.persistStateOrLog("install snapshot from newer term")
 	}
 
 	// Reset election timer
@@ -559,11 +574,26 @@ func (n *Node) persistState() error {
 	return nil
 }
 
+// persistStateOrLog persists term and vote for RPC paths that have no error
+// return. A failure here means the in-memory term or vote may be lost on
+// restart, so it is logged loudly instead of being dropped.
+func (n *Node) persistStateOrLog(reason string) {
+	if err := n.persistState(); err != nil {
+		n.logger.Error("failed to persist raft state",
+			forge.F("node_id", n.id),
+			forge.F("term", n.currentTerm),
+			forge.F("voted_for", n.votedFor),
+			forge.F("reason", reason),
+			forge.F("error", err),
+		)
+	}
+}
+
 // randomElectionTimeout returns a random election timeout.
 func (n *Node) randomElectionTimeout() time.Duration {
-	min := n.config.ElectionTimeoutMin.Milliseconds()
-	max := n.config.ElectionTimeoutMax.Milliseconds()
-	timeout := min + rand.Int63n(max-min+1)
+	minTimeout := n.config.ElectionTimeoutMin.Milliseconds()
+	maxTimeout := n.config.ElectionTimeoutMax.Milliseconds()
+	timeout := minTimeout + rand.Int63n(maxTimeout-minTimeout+1) //nolint:gosec // G404: election jitter only needs to desynchronise nodes, not be unpredictable
 
 	return time.Duration(timeout) * time.Millisecond
 }
@@ -601,9 +631,7 @@ func (n *Node) setRole(role internal.NodeRole) {
 // Helper functions for byte conversion.
 func uint64ToBytes(v uint64) []byte {
 	b := make([]byte, 8)
-	for i := range 8 {
-		b[i] = byte(v >> (56 - uint(i)*8))
-	}
+	binary.BigEndian.PutUint64(b, v)
 
 	return b
 }

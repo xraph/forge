@@ -395,6 +395,7 @@ func parseSessionDescription(data any) (*SessionDescription, error) {
 	}
 
 	var sdp SessionDescription
+	//nolint:musttag // SessionDescription is exported untagged; json matches the client's keys case-insensitively, and tagging it would change how callers marshal it
 	if err := json.Unmarshal(jsonData, &sdp); err != nil {
 		return nil, err
 	}
@@ -410,6 +411,7 @@ func parseICECandidate(data any) (*ICECandidate, error) {
 	}
 
 	var candidate ICECandidate
+	//nolint:musttag // ICECandidate is exported untagged; json matches the client's keys case-insensitively, and tagging it would change how callers marshal it
 	if err := json.Unmarshal(jsonData, &candidate); err != nil {
 		return nil, err
 	}

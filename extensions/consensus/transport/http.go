@@ -28,7 +28,7 @@ type HTTPTransport struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	mu      sync.RWMutex
@@ -111,9 +111,12 @@ func (ht *HTTPTransport) Start(ctx context.Context) error {
 	mux.HandleFunc("/raft/message", ht.handleMessage)
 	mux.HandleFunc("/health", ht.handleHealth)
 
+	// Peers give up on a request after the client timeout, so headers that
+	// take longer than that come from a caller that has already gone away.
 	ht.server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", ht.address, ht.port),
-		Handler: mux,
+		Addr:              fmt.Sprintf("%s:%d", ht.address, ht.port),
+		Handler:           mux,
+		ReadHeaderTimeout: ht.client.Timeout,
 	}
 
 	// Start server in goroutine
@@ -326,8 +329,12 @@ func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 func (ht *HTTPTransport) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{
+
+	// The status line is already sent, so a failed body write can only be logged.
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status":  "healthy",
 		"node_id": ht.id,
-	})
+	}); err != nil {
+		ht.logger.Debug("failed to write health response", forge.F("error", err))
+	}
 }

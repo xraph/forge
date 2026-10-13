@@ -67,7 +67,7 @@ func (g *schemaGenerator) GenerateSchema(t any) (*Schema, error) {
 	typ := reflect.TypeOf(t)
 
 	// Handle pointer types
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -139,7 +139,7 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 	case reflect.Map:
 		schema.Type = "object"
 		schema.AdditionalProperties = true
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return g.generateSchemaFromType(typ.Elem())
 	case reflect.Interface:
 		// Generic interface - allow any type
@@ -167,9 +167,7 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 
 	var required []string
 
-	for i := range typ.NumField() {
-		field := typ.Field(i)
-
+	for field := range typ.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -238,7 +236,7 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) (*Schema, error
 			required = append(required, jsonName)
 		} else if field.Tag.Get("default") != "" {
 			// Fields with default values are implicitly optional
-		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
+		} else if !omitempty && field.Type.Kind() != reflect.Pointer {
 			required = append(required, jsonName)
 		}
 	}
@@ -408,9 +406,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField, visit
 	var required []string
 
 	// Recursively process embedded struct fields
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -469,7 +465,7 @@ func (g *schemaGenerator) flattenEmbeddedStruct(field reflect.StructField, visit
 			required = append(required, jsonName)
 		} else if embeddedField.Tag.Get("default") != "" {
 			// Fields with default values are implicitly optional
-		} else if !omitempty && embeddedField.Type.Kind() != reflect.Ptr {
+		} else if !omitempty && embeddedField.Type.Kind() != reflect.Pointer {
 			required = append(required, jsonName)
 		}
 	}
@@ -481,7 +477,7 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) (*Schem
 	fieldType := field.Type
 
 	// Handle pointer types
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 
@@ -1024,7 +1020,7 @@ func skipStructField(field reflect.StructField) bool {
 	}
 
 	fieldType := field.Type
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 
@@ -1077,7 +1073,7 @@ func parseExample(example, schemaType string) any {
 // GetTypeName returns a qualified type name for schema references.
 func GetTypeName(t reflect.Type) string {
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -1188,9 +1184,7 @@ func cleanTypeParam(param string) string {
 	param = strings.TrimSpace(param)
 
 	// Strip pointer prefix — not meaningful in schema names
-	if strings.HasPrefix(param, "*") {
-		param = param[1:]
-	}
+	param = strings.TrimPrefix(param, "*")
 
 	// Find the last dot (type name separator)
 	lastDot := strings.LastIndex(param, ".")
@@ -1213,7 +1207,7 @@ func cleanTypeParam(param string) string {
 // getQualifiedTypeName returns the full qualified type name (package path + type name).
 func getQualifiedTypeName(t reflect.Type) string {
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -1264,6 +1258,7 @@ func buildNamespacedCandidates(pkgPath, typeName string) []string {
 
 	// Extract meaningful segments (skip domain parts containing dots like "github.com")
 	var meaningful []string
+
 	for _, p := range parts {
 		if !strings.Contains(p, ".") {
 			meaningful = append(meaningful, p)
@@ -1321,7 +1316,7 @@ func (g *schemaGenerator) resolveComponentName(typ reflect.Type) string {
 // mid-generation. finalizeComponentNames assigns the names that reach the
 // document, once the whole set of types is known.
 func (g *schemaGenerator) resolveComponentNameWithSuffix(typ reflect.Type, suffix string) string {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -1400,7 +1395,7 @@ func implementsSchemaFormatter(typ reflect.Type) bool {
 // It first checks if the type implements SchemaFormatter, then falls back to
 // auto-detection based on well-known type names and package paths.
 func detectSchemaFormat(typ reflect.Type) string {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 

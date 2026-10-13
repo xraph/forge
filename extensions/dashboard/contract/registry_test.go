@@ -1,4 +1,3 @@
-// registry_test.go
 package contract
 
 import (
@@ -13,15 +12,18 @@ func unmarshalForTest(b []byte, v any) error { return yaml.Unmarshal(b, v) }
 
 func mustManifest(t *testing.T, src string) *ContractManifest {
 	t.Helper()
+
 	var m ContractManifest
 	if err := unmarshalForTest([]byte(src), &m); err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
+
 	return &m
 }
 
 func TestRegistry_RegisterAndLookup(t *testing.T) {
 	r := NewRegistry()
+
 	m := mustManifest(t, `
 schemaVersion: 1
 contributor: { name: users, envelope: { supports: [v1], preferred: v1 } }
@@ -31,6 +33,7 @@ intents:
 	if err := r.Register(m); err != nil {
 		t.Fatalf("register: %v", err)
 	}
+
 	intent, ok := r.Intent("users", "users.list", 1)
 	if !ok || intent.Name != "users.list" {
 		t.Errorf("lookup failed: ok=%v intent=%+v", ok, intent)
@@ -44,6 +47,7 @@ schemaVersion: 1
 contributor: { name: users, envelope: { supports: [v1], preferred: v1 } }
 intents: []
 `)
+
 	_ = r.Register(m)
 	if err := r.Register(m); err == nil {
 		t.Error("expected duplicate-contributor error")
@@ -52,6 +56,7 @@ intents: []
 
 func TestRegistry_HighestActiveIntentVersion(t *testing.T) {
 	r := NewRegistry()
+
 	m := mustManifest(t, `
 schemaVersion: 1
 contributor: { name: users, envelope: { supports: [v1], preferred: v1 } }
@@ -63,6 +68,7 @@ intents:
 	if err := r.Register(m); err != nil {
 		t.Fatalf("register: %v", err)
 	}
+
 	got, ok := r.HighestVersion("users", "user.disable")
 	if !ok || got != 2 {
 		t.Errorf("HighestVersion = %d, ok=%v", got, ok)

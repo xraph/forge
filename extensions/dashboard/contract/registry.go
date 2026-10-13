@@ -1,7 +1,7 @@
-// registry.go
 package contract
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -90,6 +90,7 @@ type registry struct {
 func (r *registry) Register(m *ContractManifest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	return r.registerLocked(m)
 }
 
@@ -97,21 +98,26 @@ func (r *registry) Register(m *ContractManifest) error {
 // Caller must hold r.mu for writes.
 func (r *registry) registerLocked(m *ContractManifest) error {
 	if m == nil {
-		return fmt.Errorf("nil manifest")
+		return errors.New("nil manifest")
 	}
+
 	name := m.Contributor.Name
 	if name == "" {
-		return fmt.Errorf("manifest missing contributor.name")
+		return errors.New("manifest missing contributor.name")
 	}
+
 	if _, exists := r.contributors[name]; exists {
 		return fmt.Errorf("contributor %q already registered", name)
 	}
+
 	for _, in := range m.Intents {
 		k := intentKey{name, in.Name, in.Version}
 		if _, dup := r.intents[k]; dup {
 			return fmt.Errorf("contributor %q intent %q version %d declared twice", name, in.Name, in.Version)
 		}
+
 		r.intents[k] = in
+
 		hk := name + ":" + in.Name
 		if in.Deprecated == nil {
 			if r.highest[hk] < in.Version {
@@ -122,7 +128,9 @@ func (r *registry) registerLocked(m *ContractManifest) error {
 			r.highest[hk] = in.Version
 		}
 	}
+
 	r.contributors[name] = m
+
 	return nil
 }
 
@@ -133,17 +141,22 @@ func (r *registry) registerLocked(m *ContractManifest) error {
 // at dispatch time. Slice (m) added this.
 func (r *registry) RegisterRemote(m *ContractManifest, endpoint RemoteEndpoint) error {
 	if m == nil {
-		return fmt.Errorf("authsome/contract: nil remote manifest")
+		return errors.New("authsome/contract: nil remote manifest")
 	}
+
 	if endpoint.BaseURL == "" {
-		return fmt.Errorf("authsome/contract: RemoteEndpoint.BaseURL is required")
+		return errors.New("authsome/contract: RemoteEndpoint.BaseURL is required")
 	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if err := r.registerLocked(m); err != nil {
 		return err
 	}
+
 	r.remotes[m.Contributor.Name] = endpoint
+
 	return nil
 }
 
@@ -152,7 +165,9 @@ func (r *registry) RegisterRemote(m *ContractManifest, endpoint RemoteEndpoint) 
 func (r *registry) IsRemote(contributor string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	_, ok := r.remotes[contributor]
+
 	return ok
 }
 
@@ -161,7 +176,9 @@ func (r *registry) IsRemote(contributor string) bool {
 func (r *registry) Remote(contributor string) (RemoteEndpoint, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	ep, ok := r.remotes[contributor]
+
 	return ep, ok
 }
 
@@ -171,13 +188,16 @@ func (r *registry) Remote(contributor string) (RemoteEndpoint, bool) {
 func (r *registry) Unregister(contributor string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.contributors, contributor)
 	delete(r.remotes, contributor)
+
 	for k := range r.intents {
 		if k.contributor == contributor {
 			delete(r.intents, k)
 		}
 	}
+
 	prefix := contributor + ":"
 	for hk := range r.highest {
 		if strings.HasPrefix(hk, prefix) {
@@ -189,30 +209,38 @@ func (r *registry) Unregister(contributor string) {
 func (r *registry) Contributor(name string) (*ContractManifest, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	m, ok := r.contributors[name]
+
 	return m, ok
 }
 
 func (r *registry) Intent(contributor, intent string, version int) (Intent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	in, ok := r.intents[intentKey{contributor, intent, version}]
+
 	return in, ok
 }
 
 func (r *registry) HighestVersion(contributor, intent string) (int, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	v, ok := r.highest[contributor+":"+intent]
+
 	return v, ok
 }
 
 func (r *registry) All() []*ContractManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	out := make([]*ContractManifest, 0, len(r.contributors))
 	for _, m := range r.contributors {
 		out = append(out, m)
 	}
+
 	return out
 }

@@ -64,7 +64,7 @@ func (sf *sizeFilter) Filter(ctx context.Context, msg *streaming.Message, recipi
 			msg = truncated
 			size, _ = sf.calculateSize(msg)
 		} else {
-			return nil, nil // Block oversized message
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (oversized)
 		}
 	}
 
@@ -72,8 +72,9 @@ func (sf *sizeFilter) Filter(ctx context.Context, msg *streaming.Message, recipi
 	if sf.config.EnableCompression && size > sf.config.CompressionThreshold {
 		compressed, err := sf.compressMessage(msg)
 		if err != nil {
-			// Compression failed, use original
-			return msg, nil
+			// Compression is an optimisation. If it fails the original message
+			// is still deliverable, so fall back to it instead of failing.
+			return msg, nil //nolint:nilerr // compression failure falls back to the uncompressed message
 		}
 
 		compressedSize, _ := sf.calculateSize(compressed)

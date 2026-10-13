@@ -25,10 +25,12 @@ func servicesDetailHandler(p ServicesProvider) func(ctx context.Context, in Serv
 		if in.Name == "" {
 			return nil, &contract.Error{Code: contract.CodeBadRequest, Message: "name is required"}
 		}
+
 		d := p.CollectServiceDetail(ctx, in.Name)
 		if d == nil {
 			return nil, &contract.Error{Code: contract.CodeNotFound, Message: "service " + in.Name + " not found"}
 		}
+
 		return d, nil
 	}
 }

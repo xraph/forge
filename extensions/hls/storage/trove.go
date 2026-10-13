@@ -25,6 +25,7 @@ func NewTroveBackend(t *trove.Trove, bucket string) *TroveBackend {
 	if bucket == "" {
 		bucket = DefaultBucket
 	}
+
 	return &TroveBackend{trove: t, bucket: bucket}
 }
 
@@ -54,6 +55,7 @@ func (b *TroveBackend) Put(ctx context.Context, key string, r io.Reader, content
 	}
 
 	_, err := b.trove.Put(ctx, b.bucket, key, r, opts...)
+
 	return err
 }
 
@@ -90,6 +92,7 @@ func (b *TroveBackend) Exists(ctx context.Context, key string) (bool, error) {
 		if errors.Is(err, driver.ErrNotFound) {
 			return false, nil
 		}
+
 		return false, err
 	}
 
@@ -105,6 +108,7 @@ func (b *TroveBackend) List(ctx context.Context, prefix string) ([]Object, error
 		if errors.Is(err, driver.ErrNotFound) {
 			return nil, nil
 		}
+
 		return nil, err
 	}
 	defer iter.Close()

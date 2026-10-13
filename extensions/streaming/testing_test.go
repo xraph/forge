@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -593,10 +594,8 @@ func (s *fakeChannelStore) AddSubscription(ctx context.Context, channelID string
 	s.subs[channelID] = append(s.subs[channelID], sub)
 
 	userID := sub.GetUserID()
-	for _, existing := range s.userChannels[userID] {
-		if existing == channelID {
-			return nil
-		}
+	if slices.Contains(s.userChannels[userID], channelID) {
+		return nil
 	}
 
 	s.userChannels[userID] = append(s.userChannels[userID], channelID)
@@ -707,9 +706,9 @@ func (s *fakeChannelStore) seedUserChannels(userID string, channelIDs ...string)
 // --- MessageStore fake -----------------------------------------------------
 
 type fakeMessageStore struct {
-	roomSeq map[string]int64
-
 	streaming.MessageStore
+
+	roomSeq map[string]int64
 
 	mu       sync.Mutex
 	saved    []*Message
@@ -1024,10 +1023,8 @@ func (tt *fakeTypingTracker) IsTyping(ctx context.Context, userID, roomID string
 	tt.mu.Lock()
 	defer tt.mu.Unlock()
 
-	for _, u := range tt.byRoom[roomID] {
-		if u == userID {
-			return true, nil
-		}
+	if slices.Contains(tt.byRoom[roomID], userID) {
+		return true, nil
 	}
 
 	return false, nil

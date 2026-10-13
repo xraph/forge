@@ -30,7 +30,7 @@ type GRPCTransport struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	mu      sync.RWMutex
@@ -339,7 +339,9 @@ func (gt *GRPCTransport) getPeerConn(nodeID string) (*grpcPeerConn, error) {
 		ctx, cancel := context.WithTimeout(gt.ctx, 10*time.Second)
 		defer cancel()
 
-		conn, err := grpc.DialContext(ctx, target, dialOpts...)
+		// NewClient is not a drop-in swap: it resolves through dns instead of
+		// passthrough and ignores this dial context.
+		conn, err := grpc.DialContext(ctx, target, dialOpts...) //nolint:staticcheck // SA1019: NewClient changes resolver and dial semantics, migrate deliberately
 		if err != nil {
 			return nil, fmt.Errorf("failed to dial peer: %w", err)
 		}

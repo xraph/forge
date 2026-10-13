@@ -5,53 +5,67 @@ import "time"
 // ConsensusEventType represents the type of consensus event.
 type ConsensusEventType string
 
+// Node lifecycle events.
 const (
-	// Node lifecycle events.
 	ConsensusEventNodeStarted   ConsensusEventType = "consensus.node.started"
 	ConsensusEventNodeStopped   ConsensusEventType = "consensus.node.stopped"
 	ConsensusEventNodeJoined    ConsensusEventType = "consensus.node.joined"
 	ConsensusEventNodeLeft      ConsensusEventType = "consensus.node.left"
 	ConsensusEventNodeFailed    ConsensusEventType = "consensus.node.failed"
 	ConsensusEventNodeRecovered ConsensusEventType = "consensus.node.recovered"
+)
 
-	// Leadership events.
+// Leadership events.
+const (
 	ConsensusEventLeaderElected  ConsensusEventType = "consensus.leader.elected"
 	ConsensusEventLeaderStepDown ConsensusEventType = "consensus.leader.stepdown"
 	ConsensusEventLeaderTransfer ConsensusEventType = "consensus.leader.transfer"
 	ConsensusEventLeaderLost     ConsensusEventType = "consensus.leader.lost"
+)
 
-	// Role change events.
+// Role change events.
+const (
 	ConsensusEventRoleChanged     ConsensusEventType = "consensus.role.changed"
 	ConsensusEventBecameFollower  ConsensusEventType = "consensus.role.follower"
 	ConsensusEventBecameCandidate ConsensusEventType = "consensus.role.candidate"
 	ConsensusEventBecameLeader    ConsensusEventType = "consensus.role.leader"
+)
 
-	// Cluster events.
+// Cluster events.
+const (
 	ConsensusEventClusterFormed     ConsensusEventType = "consensus.cluster.formed"
 	ConsensusEventClusterUpdated    ConsensusEventType = "consensus.cluster.updated"
 	ConsensusEventQuorumAchieved    ConsensusEventType = "consensus.cluster.quorum.achieved"
 	ConsensusEventQuorumLost        ConsensusEventType = "consensus.cluster.quorum.lost"
 	ConsensusEventMembershipChanged ConsensusEventType = "consensus.cluster.membership.changed"
+)
 
-	// Log events.
+// Log events.
+const (
 	ConsensusEventLogAppended  ConsensusEventType = "consensus.log.appended"
 	ConsensusEventLogCommitted ConsensusEventType = "consensus.log.committed"
 	ConsensusEventLogCompacted ConsensusEventType = "consensus.log.compacted"
 	ConsensusEventLogTruncated ConsensusEventType = "consensus.log.truncated"
+)
 
-	// Snapshot events.
+// Snapshot events.
+const (
 	ConsensusEventSnapshotStarted   ConsensusEventType = "consensus.snapshot.started"
 	ConsensusEventSnapshotCompleted ConsensusEventType = "consensus.snapshot.completed"
 	ConsensusEventSnapshotFailed    ConsensusEventType = "consensus.snapshot.failed"
 	ConsensusEventSnapshotRestored  ConsensusEventType = "consensus.snapshot.restored"
+)
 
-	// Health events.
+// Health events.
+const (
 	ConsensusEventHealthy    ConsensusEventType = "consensus.health.healthy"
 	ConsensusEventUnhealthy  ConsensusEventType = "consensus.health.unhealthy"
 	ConsensusEventDegraded   ConsensusEventType = "consensus.health.degraded"
 	ConsensusEventRecovering ConsensusEventType = "consensus.health.recovering"
+)
 
-	// Configuration events.
+// Configuration events.
+const (
 	ConsensusEventConfigUpdated  ConsensusEventType = "consensus.config.updated"
 	ConsensusEventConfigReloaded ConsensusEventType = "consensus.config.reloaded"
 )

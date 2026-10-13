@@ -35,6 +35,7 @@ func TestHandler_CommandInvalidation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reg := contract.NewRegistry()
+
 			manifest := &contract.ContractManifest{}
 			if err := contract.UnmarshalManifestForTest([]byte(`
 schemaVersion: 1
@@ -44,20 +45,25 @@ intents:
 `), manifest); err != nil {
 				t.Fatal(err)
 			}
+
 			if err := reg.Register(manifest); err != nil {
 				t.Fatal(err)
 			}
+
 			handler := NewHandler(reg, contract.NewWardenRegistry(), invalidationDispatcher{test.extra, test.err}, nil)
-			request := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", strings.NewReader(`{"envelope":"v1","kind":"command","contributor":"auth","intent":"auth.toggleFeature","csrf":"test","idempotencyKey":"test"}`))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", strings.NewReader(`{"envelope":"v1","kind":"command","contributor":"auth","intent":"auth.toggleFeature","csrf":"test","idempotencyKey":"test"}`))
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			var envelope contract.Response
 			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
 				t.Fatal(err)
 			}
+
 			if envelope.OK != (test.err == nil) {
 				t.Fatalf("unexpected response: %s", response.Body)
 			}
+
 			if !reflect.DeepEqual(envelope.Meta.Invalidates, test.want) {
 				t.Fatalf("invalidates = %v, want %v", envelope.Meta.Invalidates, test.want)
 			}

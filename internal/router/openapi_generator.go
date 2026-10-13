@@ -1050,7 +1050,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 
 					// Try to store in components if it's a named struct type
 					if rt := reflect.TypeOf(respDef.Schema); rt != nil {
-						if rt.Kind() == reflect.Ptr {
+						if rt.Kind() == reflect.Pointer {
 							rt = rt.Elem()
 						}
 
@@ -1088,7 +1088,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 
 					// Try to store in components
 					if rt := reflect.TypeOf(respDef.Schema); rt != nil {
-						if rt.Kind() == reflect.Ptr {
+						if rt.Kind() == reflect.Pointer {
 							rt = rt.Elem()
 						}
 

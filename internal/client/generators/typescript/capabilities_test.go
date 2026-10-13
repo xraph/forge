@@ -3,6 +3,7 @@ package typescript
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -150,12 +151,8 @@ func TestCapabilityExportsIncludeRolesAndPermissions(t *testing.T) {
 	for _, want := range []string{"Role", "Permission", "hasRole", "hasPermission", "setPrincipal", "requiredAuthorization"} {
 		var found bool
 
-		for _, name := range names {
-			if name == want {
-				found = true
-
-				break
-			}
+		if slices.Contains(names, want) {
+			found = true
 		}
 
 		if !found {

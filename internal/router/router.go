@@ -204,7 +204,8 @@ type RouteInfo struct {
 	// OperationID is the OpenAPI operation identifier for this route.
 	OperationID string
 
-	// Deprecated indicates this route is deprecated.
+	// When true, the route is marked deprecated in the generated OpenAPI
+	// document.
 	Deprecated bool
 
 	// Timeout is the per-route handler timeout. Zero means use the default.

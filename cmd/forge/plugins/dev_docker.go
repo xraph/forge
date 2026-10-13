@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/dev_docker.go
 package plugins
 
 import (
@@ -83,7 +82,7 @@ func (dw *dockerAppWatcher) Start(ctx cli.CommandContext) error {
 
 	// Stop existing container if running.
 	if dw.running {
-		dw.stopContainer()
+		dw.stopContainer(ctx.Context())
 	}
 
 	// Build dev image.
@@ -104,7 +103,7 @@ func (dw *dockerAppWatcher) Start(ctx cli.CommandContext) error {
 	ctx.Success(fmt.Sprintf("Container %s is running", dw.containerName))
 
 	// Stream logs in background.
-	go dw.streamLogs()
+	go dw.streamLogs(ctx.Context())
 
 	return nil
 }
@@ -120,7 +119,7 @@ func (dw *dockerAppWatcher) Restart(ctx cli.CommandContext) error {
 
 	ctx.Info(fmt.Sprintf("Restarting container %s...", dw.containerName))
 
-	cmd := exec.Command("docker", "restart", dw.containerName)
+	cmd := dockerCommand(ctx.Context(), "restart", dw.containerName)
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker restart failed: %s: %w", strings.TrimSpace(string(output)), err)
@@ -141,7 +140,7 @@ func (dw *dockerAppWatcher) Stop(ctx cli.CommandContext) {
 	}
 
 	ctx.Info(fmt.Sprintf("Stopping container %s...", dw.containerName))
-	dw.stopContainer()
+	dw.stopContainer(ctx.Context())
 	ctx.Success(fmt.Sprintf("Container %s stopped and removed", dw.containerName))
 }
 
@@ -234,7 +233,7 @@ func (dw *dockerAppWatcher) buildDevImage(ctx cli.CommandContext) error {
 
 	args = append(args, dw.config.RootDir)
 
-	cmd := exec.Command("docker", args...)
+	cmd := dockerCommand(ctx.Context(), args...)
 	cmd.Dir = dw.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -282,7 +281,7 @@ func (dw *dockerAppWatcher) generateDevDockerfile() (string, error) {
 	}
 
 	buf.WriteString("COPY . .\n")
-	buf.WriteString(fmt.Sprintf("CMD [\"go\", \"run\", \"./%s\"]\n", mainDir))
+	fmt.Fprintf(&buf, "CMD [\"go\", \"run\", \"./%s\"]\n", mainDir)
 
 	// Write to a temporary file in the project root.
 	tmpFile, err := os.CreateTemp(dw.config.RootDir, ".forge-dev-Dockerfile-*")
@@ -375,7 +374,7 @@ func (dw *dockerAppWatcher) discoverConfigCopyLines() string {
 // runContainer starts the Docker container with bind mounts and port forwarding.
 func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 	// Remove any stale container from a previous crash.
-	removeCmd := exec.Command("docker", "rm", "-f", dw.containerName)
+	removeCmd := dockerCommand(ctx.Context(), "rm", "-f", dw.containerName)
 	_ = removeCmd.Run()
 
 	args := []string{
@@ -424,7 +423,7 @@ func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 
 	args = append(args, dw.imageName)
 
-	cmd := exec.Command("docker", args...)
+	cmd := dockerCommand(ctx.Context(), args...)
 	cmd.Dir = dw.config.RootDir
 
 	ctx.Info("  $ docker " + strings.Join(args, " "))
@@ -440,13 +439,13 @@ func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 }
 
 // stopContainer stops and removes the container.
-func (dw *dockerAppWatcher) stopContainer() {
+func (dw *dockerAppWatcher) stopContainer(ctx context.Context) {
 	// Stop container gracefully (5 second timeout).
-	stopCmd := exec.Command("docker", "stop", "-t", "5", dw.containerName)
+	stopCmd := dockerCommand(ctx, "stop", "-t", "5", dw.containerName)
 	_ = stopCmd.Run()
 
 	// Remove container.
-	rmCmd := exec.Command("docker", "rm", "-f", dw.containerName)
+	rmCmd := dockerCommand(ctx, "rm", "-f", dw.containerName)
 	_ = rmCmd.Run()
 
 	dw.running = false
@@ -454,11 +453,17 @@ func (dw *dockerAppWatcher) stopContainer() {
 }
 
 // streamLogs streams container stdout/stderr to the terminal.
-func (dw *dockerAppWatcher) streamLogs() {
-	cmd := exec.Command("docker", "logs", "-f", dw.containerName)
+func (dw *dockerAppWatcher) streamLogs(ctx context.Context) {
+	cmd := dockerCommand(ctx, "logs", "-f", dw.containerName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	// Ignore errors — container may have been removed.
 	_ = cmd.Run()
+}
+
+// dockerCommand builds a docker CLI invocation. Every argument comes from the
+// project's own .forge.yaml and app layout, never from a remote source.
+func dockerCommand(ctx context.Context, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, "docker", args...)
 }

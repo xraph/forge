@@ -19,7 +19,7 @@ func NewErrorGenerator() *ErrorGenerator {
 func (e *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"encoding/json\"\n")
@@ -77,19 +77,19 @@ func (e *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	}
 
 	for _, et := range errorTypes {
-		buf.WriteString(fmt.Sprintf("// %s represents a %d error.\n", et.name, et.statusCode))
-		buf.WriteString(fmt.Sprintf("type %s struct {\n", et.name))
+		fmt.Fprintf(&buf, "// %s represents a %d error.\n", et.name, et.statusCode)
+		fmt.Fprintf(&buf, "type %s struct {\n", et.name)
 		buf.WriteString("\t*APIError\n")
 		buf.WriteString("}\n\n")
 
-		buf.WriteString(fmt.Sprintf("// New%s creates a new %s.\n", et.name, et.name))
-		buf.WriteString(fmt.Sprintf("func New%s(message string, code string, details map[string]interface{}) *%s {\n", et.name, et.name))
+		fmt.Fprintf(&buf, "// New%s creates a new %s.\n", et.name, et.name)
+		fmt.Fprintf(&buf, "func New%s(message string, code string, details map[string]interface{}) *%s {\n", et.name, et.name)
 		buf.WriteString("\tif message == \"\" {\n")
-		buf.WriteString(fmt.Sprintf("\t\tmessage = \"%s\"\n", et.message))
+		fmt.Fprintf(&buf, "\t\tmessage = \"%s\"\n", et.message)
 		buf.WriteString("\t}\n")
-		buf.WriteString(fmt.Sprintf("\treturn &%s{\n", et.name))
+		fmt.Fprintf(&buf, "\treturn &%s{\n", et.name)
 		buf.WriteString("\t\tAPIError: &APIError{\n")
-		buf.WriteString(fmt.Sprintf("\t\t\tStatusCode: %d,\n", et.statusCode))
+		fmt.Fprintf(&buf, "\t\t\tStatusCode: %d,\n", et.statusCode)
 		buf.WriteString("\t\t\tMessage:    message,\n")
 		buf.WriteString("\t\t\tCode:       code,\n")
 		buf.WriteString("\t\t\tDetails:    details,\n")
@@ -104,8 +104,8 @@ func (e *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("\tswitch statusCode {\n")
 
 	for _, et := range errorTypes {
-		buf.WriteString(fmt.Sprintf("\tcase %d:\n", et.statusCode))
-		buf.WriteString(fmt.Sprintf("\t\treturn New%s(message, code, details)\n", et.name))
+		fmt.Fprintf(&buf, "\tcase %d:\n", et.statusCode)
+		fmt.Fprintf(&buf, "\t\treturn New%s(message, code, details)\n", et.name)
 	}
 
 	buf.WriteString("\tdefault:\n")

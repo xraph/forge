@@ -15,6 +15,9 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
+// tcpKeepAlivePeriod is how often idle peer connections are probed.
+const tcpKeepAlivePeriod = 30 * time.Second
+
 // TCPTransport implements TCP-based network transport.
 type TCPTransport struct {
 	id       string
@@ -28,7 +31,7 @@ type TCPTransport struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	mu      sync.RWMutex
@@ -105,7 +108,9 @@ func (tt *TCPTransport) Start(ctx context.Context) error {
 	// Start listener
 	listenAddr := fmt.Sprintf("%s:%d", tt.address, tt.port)
 
-	listener, err := net.Listen("tcp", listenAddr)
+	var listenConfig net.ListenConfig
+
+	listener, err := listenConfig.Listen(ctx, "tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start TCP listener: %w", err)
 	}
@@ -305,6 +310,24 @@ func (tt *TCPTransport) acceptLoop() {
 	}
 }
 
+// enableKeepAlive turns on TCP keep-alive. The connection still works without
+// it, so a failure is only logged; dead peers are then caught by RPC timeouts.
+func (tt *TCPTransport) enableKeepAlive(conn *net.TCPConn) {
+	if err := conn.SetKeepAlive(true); err != nil {
+		tt.logger.Debug("failed to enable TCP keep-alive",
+			forge.F("remote", conn.RemoteAddr()),
+			forge.F("error", err),
+		)
+	}
+
+	if err := conn.SetKeepAlivePeriod(tcpKeepAlivePeriod); err != nil {
+		tt.logger.Debug("failed to set TCP keep-alive period",
+			forge.F("remote", conn.RemoteAddr()),
+			forge.F("error", err),
+		)
+	}
+}
+
 // handleConnection handles an incoming connection.
 func (tt *TCPTransport) handleConnection(conn net.Conn) {
 	defer tt.wg.Done()
@@ -312,8 +335,7 @@ func (tt *TCPTransport) handleConnection(conn net.Conn) {
 
 	// Set TCP keep-alive
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(30 * time.Second)
+		tt.enableKeepAlive(tcpConn)
 	}
 
 	decoder := gob.NewDecoder(bufio.NewReader(conn))
@@ -383,8 +405,7 @@ func (tt *TCPTransport) getPeerConn(nodeID string) (*tcpPeerConn, error) {
 
 		// Set TCP keep-alive
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			tcpConn.SetKeepAlive(true)
-			tcpConn.SetKeepAlivePeriod(30 * time.Second)
+			tt.enableKeepAlive(tcpConn)
 		}
 
 		peer.conn = conn

@@ -6,205 +6,254 @@ import (
 )
 
 // Core interfaces.
-type Manager = internal.Manager
-type Room = internal.Room
-type Channel = internal.Channel
-type Member = internal.Member
-type UserPresence = internal.UserPresence
-type Connection = internal.EnhancedConnection
+type (
+	Manager      = internal.Manager
+	Room         = internal.Room
+	Channel      = internal.Channel
+	Member       = internal.Member
+	UserPresence = internal.UserPresence
+	Connection   = internal.EnhancedConnection
+)
 
 // Store interfaces.
-type RoomStore = internal.RoomStore
-type ChannelStore = internal.ChannelStore
-type MessageStore = internal.MessageStore
-type PresenceStore = internal.PresenceStore
-type TypingStore = internal.TypingStore
+type (
+	RoomStore     = internal.RoomStore
+	ChannelStore  = internal.ChannelStore
+	MessageStore  = internal.MessageStore
+	PresenceStore = internal.PresenceStore
+	TypingStore   = internal.TypingStore
+)
 
 // Tracker interfaces.
-type PresenceTracker = internal.PresenceTracker
-type TypingTracker = internal.TypingTracker
+type (
+	PresenceTracker = internal.PresenceTracker
+	TypingTracker   = internal.TypingTracker
+)
 
 // Distributed backend.
-type DistributedBackend = internal.DistributedBackend
-type Lock = internal.Lock
-type NodeInfo = internal.NodeInfo
-type NodeChangeHandler = internal.NodeChangeHandler
-type MessageHandler = internal.MessageHandler
-type NodeChangeEvent = internal.NodeChangeEvent
+type (
+	DistributedBackend = internal.DistributedBackend
+	Lock               = internal.Lock
+	NodeInfo           = internal.NodeInfo
+	NodeChangeHandler  = internal.NodeChangeHandler
+	MessageHandler     = internal.MessageHandler
+	NodeChangeEvent    = internal.NodeChangeEvent
+)
 
 // Message types.
-type Message = internal.Message
-type MessageReaction = internal.MessageReaction
-type MessageEdit = internal.MessageEdit
+type (
+	Message         = internal.Message
+	MessageReaction = internal.MessageReaction
+	MessageEdit     = internal.MessageEdit
+)
 
 // Room types.
-type Invite = internal.Invite
-type InviteOptions = internal.InviteOptions
-type RoomBan = internal.RoomBan
-type ModerationEvent = internal.ModerationEvent
-type RoomEvent = internal.RoomEvent
-type RoomOptions = internal.RoomOptions
-type MemberOptions = internal.MemberOptions
+type (
+	Invite          = internal.Invite
+	InviteOptions   = internal.InviteOptions
+	RoomBan         = internal.RoomBan
+	ModerationEvent = internal.ModerationEvent
+	RoomEvent       = internal.RoomEvent
+	RoomOptions     = internal.RoomOptions
+	MemberOptions   = internal.MemberOptions
+)
 
-// Connection types.
+// ConnectionInfo provides detailed information about a connection.
 type ConnectionInfo = internal.ConnectionInfo
 
-// Statistics types.
+// RoomStats provides statistics for a specific room.
 type RoomStats = internal.RoomStats
 
-// Room creation (local backend).
-type LocalRoom = *local.LocalRoom
-type UserStats = internal.UserStats
-type ManagerStats = internal.ManagerStats
-type OnlineStats = internal.OnlineStats
-type UserPresenceStats = internal.UserPresenceStats
+// Room creation (local backend) and statistics types.
+type (
+	LocalRoom         = *local.LocalRoom
+	UserStats         = internal.UserStats
+	ManagerStats      = internal.ManagerStats
+	OnlineStats       = internal.OnlineStats
+	UserPresenceStats = internal.UserPresenceStats
+)
 
 // Presence types.
-type PresenceEvent = internal.PresenceEvent
-type PresenceOptions = internal.PresenceOptions
-type PresenceFilters = internal.PresenceFilters
-type DeviceInfo = internal.DeviceInfo
-type ActivityInfo = internal.ActivityInfo
-type Availability = internal.Availability
+type (
+	PresenceEvent   = internal.PresenceEvent
+	PresenceOptions = internal.PresenceOptions
+	PresenceFilters = internal.PresenceFilters
+	DeviceInfo      = internal.DeviceInfo
+	ActivityInfo    = internal.ActivityInfo
+	Availability    = internal.Availability
+)
 
-// Rate limiting.
+// RateLimitStatus represents rate limiting status for a user.
 type RateLimitStatus = internal.RateLimitStatus
 
 // Query types.
-type HistoryQuery = internal.HistoryQuery
-type MessageSearchQuery = internal.MessageSearchQuery
-type AnalyticsQuery = internal.AnalyticsQuery
-type FileQuery = internal.FileQuery
+type (
+	HistoryQuery       = internal.HistoryQuery
+	MessageSearchQuery = internal.MessageSearchQuery
+	AnalyticsQuery     = internal.AnalyticsQuery
+	FileQuery          = internal.FileQuery
+)
 
 // Analytics types.
-type AnalyticsResult = internal.AnalyticsResult
-type AnalyticsEvent = internal.AnalyticsEvent
+type (
+	AnalyticsResult = internal.AnalyticsResult
+	AnalyticsEvent  = internal.AnalyticsEvent
+)
 
 // File types.
-type FileUpload = internal.FileUpload
-type FileInfo = internal.FileInfo
+type (
+	FileUpload = internal.FileUpload
+	FileInfo   = internal.FileInfo
+)
 
-// Webhook types.
+// WebhookConfig represents webhook configuration.
 type WebhookConfig = internal.WebhookConfig
 
-// Moderation types.
+// ModerationStatus represents the status of a moderation action.
 type ModerationStatus = internal.ModerationStatus
 
 // Configuration.
-type Config = internal.Config
-type ConfigOption = internal.ConfigOption
-type DistributedBackendOptions = internal.DistributedBackendOptions
+type (
+	Config                    = internal.Config
+	ConfigOption              = internal.ConfigOption
+	DistributedBackendOptions = internal.DistributedBackendOptions
+)
 
-// Typing.
+// TypingOptions contains configuration for typing indicators.
 type TypingOptions = internal.TypingOptions
 
-// Backend error.
+// BackendError wraps backend-related errors with context.
 type BackendError = internal.BackendError
 
-var ErrInvalidConfig = internal.ErrInvalidConfig
-var ErrBackendNotFound = internal.ErrBackendNotConnected
-var ErrBackendTimeout = internal.ErrBackendTimeout
-var ErrBackendUnavailable = internal.ErrBackendUnavailable
-var ErrLockAcquisitionFailed = internal.ErrLockAcquisitionFailed
-var ErrLockNotHeld = internal.ErrLockNotHeld
-var ErrNodeNotFound = internal.ErrNodeNotFound
-var ErrInvalidChannel = internal.ErrInvalidChannel
-var ErrInvalidRoom = internal.ErrInvalidRoom
-var ErrInvalidMessage = internal.ErrInvalidMessage
-var ErrPresenceNotFound = internal.ErrPresenceNotFound
-var ErrInvalidStatus = internal.ErrInvalidStatus
-var ErrInvalidPermission = internal.ErrInvalidPermission
-var ErrInsufficientRole = internal.ErrInsufficientRole
-var ErrMessageTooLarge = internal.ErrMessageTooLarge
-var ErrMessageNotFound = internal.ErrMessageNotFound
+// Backend, validation and lookup errors.
+var (
+	ErrInvalidConfig         = internal.ErrInvalidConfig
+	ErrBackendNotFound       = internal.ErrBackendNotConnected
+	ErrBackendTimeout        = internal.ErrBackendTimeout
+	ErrBackendUnavailable    = internal.ErrBackendUnavailable
+	ErrLockAcquisitionFailed = internal.ErrLockAcquisitionFailed
+	ErrLockNotHeld           = internal.ErrLockNotHeld
+	ErrNodeNotFound          = internal.ErrNodeNotFound
+	ErrInvalidChannel        = internal.ErrInvalidChannel
+	ErrInvalidRoom           = internal.ErrInvalidRoom
+	ErrInvalidMessage        = internal.ErrInvalidMessage
+	ErrPresenceNotFound      = internal.ErrPresenceNotFound
+	ErrInvalidStatus         = internal.ErrInvalidStatus
+	ErrInvalidPermission     = internal.ErrInvalidPermission
+	ErrInsufficientRole      = internal.ErrInsufficientRole
+	ErrMessageTooLarge       = internal.ErrMessageTooLarge
+	ErrMessageNotFound       = internal.ErrMessageNotFound
+)
 
 // Connection errors.
-var ErrConnectionNotFound = internal.ErrConnectionNotFound
-var ErrConnectionClosed = internal.ErrConnectionClosed
-var ErrConnectionLimitReached = internal.ErrConnectionLimitReached
-var ErrInvalidConnection = internal.ErrInvalidConnection
+var (
+	ErrConnectionNotFound     = internal.ErrConnectionNotFound
+	ErrConnectionClosed       = internal.ErrConnectionClosed
+	ErrConnectionLimitReached = internal.ErrConnectionLimitReached
+	ErrInvalidConnection      = internal.ErrInvalidConnection
+)
 
 // Room errors.
-var ErrRoomNotFound = internal.ErrRoomNotFound
-var ErrRoomAlreadyExists = internal.ErrRoomAlreadyExists
-var ErrRoomFull = internal.ErrRoomFull
-var ErrNotRoomMember = internal.ErrNotRoomMember
-var ErrAlreadyRoomMember = internal.ErrAlreadyRoomMember
-var ErrRoomLimitReached = internal.ErrRoomLimitReached
+var (
+	ErrRoomNotFound      = internal.ErrRoomNotFound
+	ErrRoomAlreadyExists = internal.ErrRoomAlreadyExists
+	ErrRoomFull          = internal.ErrRoomFull
+	ErrNotRoomMember     = internal.ErrNotRoomMember
+	ErrAlreadyRoomMember = internal.ErrAlreadyRoomMember
+	ErrRoomLimitReached  = internal.ErrRoomLimitReached
+)
 
 // Channel errors.
-var ErrChannelNotFound = internal.ErrChannelNotFound
-var ErrChannelAlreadyExists = internal.ErrChannelAlreadyExists
-var ErrNotSubscribed = internal.ErrNotSubscribed
-var ErrAlreadySubscribed = internal.ErrAlreadySubscribed
-var ErrChannelLimitReached = internal.ErrChannelLimitReached
+var (
+	ErrChannelNotFound      = internal.ErrChannelNotFound
+	ErrChannelAlreadyExists = internal.ErrChannelAlreadyExists
+	ErrNotSubscribed        = internal.ErrNotSubscribed
+	ErrAlreadySubscribed    = internal.ErrAlreadySubscribed
+	ErrChannelLimitReached  = internal.ErrChannelLimitReached
+)
 
-// Permission errors.
+// ErrPermissionDenied is returned when the caller may not perform an action.
 var ErrPermissionDenied = internal.ErrPermissionDenied
 
 // Authorization errors.
-var ErrRoomAccessDenied = internal.ErrRoomAccessDenied
-var ErrChannelAccessDenied = internal.ErrChannelAccessDenied
-var ErrSendDenied = internal.ErrSendDenied
-var ErrUserMuted = internal.ErrUserMuted
-var ErrUserBanned = internal.ErrUserBanned
-var ErrSessionNotOwned = internal.ErrSessionNotOwned
+var (
+	ErrRoomAccessDenied    = internal.ErrRoomAccessDenied
+	ErrChannelAccessDenied = internal.ErrChannelAccessDenied
+	ErrSendDenied          = internal.ErrSendDenied
+	ErrUserMuted           = internal.ErrUserMuted
+	ErrUserBanned          = internal.ErrUserBanned
+	ErrSessionNotOwned     = internal.ErrSessionNotOwned
+)
 
 // Feature-flag errors.
-var ErrRoomsDisabled = internal.ErrRoomsDisabled
-var ErrChannelsDisabled = internal.ErrChannelsDisabled
-var ErrHistoryDisabled = internal.ErrHistoryDisabled
-var ErrPresenceDisabled = internal.ErrPresenceDisabled
-var ErrTypingDisabled = internal.ErrTypingDisabled
+var (
+	ErrRoomsDisabled    = internal.ErrRoomsDisabled
+	ErrChannelsDisabled = internal.ErrChannelsDisabled
+	ErrHistoryDisabled  = internal.ErrHistoryDisabled
+	ErrPresenceDisabled = internal.ErrPresenceDisabled
+	ErrTypingDisabled   = internal.ErrTypingDisabled
+)
 
-// Rate limiting.
+// ErrRateLimitExceeded is returned when a connection exceeds its rate limit.
 var ErrRateLimitExceeded = internal.ErrRateLimitExceeded
 
 // Invite errors.
-var ErrInviteNotFound = internal.ErrInviteNotFound
-var ErrInviteExpired = internal.ErrInviteExpired
+var (
+	ErrInviteNotFound = internal.ErrInviteNotFound
+	ErrInviteExpired  = internal.ErrInviteExpired
+)
 
 // Error constructors.
-var NewConnectionError = internal.NewConnectionError
-var NewRoomError = internal.NewRoomError
-var NewChannelError = internal.NewChannelError
-var NewMessageError = internal.NewMessageError
-var NewBackendError = internal.NewBackendError
+var (
+	NewConnectionError = internal.NewConnectionError
+	NewRoomError       = internal.NewRoomError
+	NewChannelError    = internal.NewChannelError
+	NewMessageError    = internal.NewMessageError
+	NewBackendError    = internal.NewBackendError
+)
 
-// Room creation.
+// NewLocalRoom creates a room backed by the in-process local store.
 func NewLocalRoom(opts RoomOptions) *local.LocalRoom {
 	return local.NewRoom(opts)
 }
 
 // Status constants.
-const StatusOnline = internal.StatusOnline
-const StatusAway = internal.StatusAway
-const StatusBusy = internal.StatusBusy
-const StatusOffline = internal.StatusOffline
+const (
+	StatusOnline  = internal.StatusOnline
+	StatusAway    = internal.StatusAway
+	StatusBusy    = internal.StatusBusy
+	StatusOffline = internal.StatusOffline
+)
 
 // Message type constants.
 //
 // All seven kinds `internal` declares, deliberately: `TransportKinds` needs the
 // complete set, and a reserved set that silently listed only some of them would
-// be wrong in the direction that matters -- a kind missing from it is a frame
+// be wrong in the direction that matters. A kind missing from it is a frame
 // the client reports as an unknown message forever. Exporting them all also
 // spares a caller outside this package spelling any value of `Message.Type` as
 // a string literal.
-const MessageTypeMessage = internal.MessageTypeMessage
-const MessageTypeJoin = internal.MessageTypeJoin
-const MessageTypeLeave = internal.MessageTypeLeave
-const MessageTypeTyping = internal.MessageTypeTyping
-const MessageTypePresence = internal.MessageTypePresence
-const MessageTypeSystem = internal.MessageTypeSystem
-const MessageTypeError = internal.MessageTypeError
+const (
+	MessageTypeMessage  = internal.MessageTypeMessage
+	MessageTypeJoin     = internal.MessageTypeJoin
+	MessageTypeLeave    = internal.MessageTypeLeave
+	MessageTypeTyping   = internal.MessageTypeTyping
+	MessageTypePresence = internal.MessageTypePresence
+	MessageTypeSystem   = internal.MessageTypeSystem
+	MessageTypeError    = internal.MessageTypeError
+)
 
 // Content type constants.
-const ContentTypeJSON = internal.ContentTypeJSON
-const ContentTypeBinary = internal.ContentTypeBinary
-const ContentTypeText = internal.ContentTypeText
-const ContentTypeMsgPack = internal.ContentTypeMsgPack
-const ContentTypeProtobuf = internal.ContentTypeProtobuf
+const (
+	ContentTypeJSON     = internal.ContentTypeJSON
+	ContentTypeBinary   = internal.ContentTypeBinary
+	ContentTypeText     = internal.ContentTypeText
+	ContentTypeMsgPack  = internal.ContentTypeMsgPack
+	ContentTypeProtobuf = internal.ContentTypeProtobuf
+)
 
 // Default option functions.
-var DefaultPresenceOptions = internal.DefaultPresenceOptions
-var DefaultTypingOptions = internal.DefaultTypingOptions
+var (
+	DefaultPresenceOptions = internal.DefaultPresenceOptions
+	DefaultTypingOptions   = internal.DefaultTypingOptions
+)

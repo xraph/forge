@@ -458,15 +458,15 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 	doc.WriteString("This API supports the following authentication methods:\n\n")
 
 	for _, scheme := range schemes {
-		doc.WriteString(fmt.Sprintf("### %s\n\n", scheme.Key))
-		doc.WriteString(fmt.Sprintf("- **Type**: %s\n", scheme.Type))
+		fmt.Fprintf(&doc, "### %s\n\n", scheme.Key)
+		fmt.Fprintf(&doc, "- **Type**: %s\n", scheme.Type)
 
 		switch scheme.Type {
 		case "http":
-			doc.WriteString(fmt.Sprintf("- **Scheme**: %s\n", scheme.Scheme))
+			fmt.Fprintf(&doc, "- **Scheme**: %s\n", scheme.Scheme)
 
 			if scheme.BearerFormat != "" {
-				doc.WriteString(fmt.Sprintf("- **Bearer Format**: %s\n", scheme.BearerFormat))
+				fmt.Fprintf(&doc, "- **Bearer Format**: %s\n", scheme.BearerFormat)
 			}
 
 			switch scheme.Scheme {
@@ -477,15 +477,15 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 			}
 
 		case "apiKey":
-			doc.WriteString(fmt.Sprintf("- **Location**: %s\n", scheme.In))
+			fmt.Fprintf(&doc, "- **Location**: %s\n", scheme.In)
 
 			switch scheme.In {
 			case "header":
-				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.ParamName))
+				fmt.Fprintf(&doc, "- **Header Name**: %s\n", scheme.ParamName)
 			case "query":
-				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.ParamName))
+				fmt.Fprintf(&doc, "- **Query Parameter**: %s\n", scheme.ParamName)
 			case "cookie":
-				doc.WriteString(fmt.Sprintf("- **Cookie Name**: %s\n", scheme.ParamName))
+				fmt.Fprintf(&doc, "- **Cookie Name**: %s\n", scheme.ParamName)
 			}
 
 		case "oauth2":

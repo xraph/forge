@@ -100,12 +100,14 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 				out.Servers = append(out.Servers, srv)
 			}
 		}
+
 		for _, tag := range s.Tags {
 			if !seenTag[tag.Name] {
 				seenTag[tag.Name] = true
 				out.Tags = append(out.Tags, tag)
 			}
 		}
+
 		for _, sec := range s.Security {
 			if !seenScheme[sec.Key] {
 				seenScheme[sec.Key] = true
@@ -124,14 +126,17 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 			if !taken {
 				out.Schemas[name] = schema
 				schemaKind[name] = s.Kind
+
 				continue
 			}
+
 			if !sameSchemaShape(existing, schema) {
 				out.Warnings = append(out.Warnings, fmt.Sprintf(
 					"schema %q is declared differently in two sources; keeping the %s definition (type %q) and ignoring the %s one (type %q)",
 					name, kindName(schemaKind[name]), schemaType(existing), kindName(s.Kind), schemaType(schema)))
 			}
 		}
+
 		for _, name := range sortedKeys(s.Entities) {
 			ent := s.Entities[name]
 
@@ -139,8 +144,10 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 			if !taken {
 				out.Entities[name] = ent
 				entityKind[name] = s.Kind
+
 				continue
 			}
+
 			if existing.IDField != ent.IDField {
 				out.Warnings = append(out.Warnings, fmt.Sprintf(
 					"entity %q has id field %q in the %s source and %q in the %s source; keeping %q",
@@ -245,39 +252,50 @@ func sameSchemaShape(a, b *Schema) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
+
 	if a.Type != b.Type || a.Format != b.Format || a.Nullable != b.Nullable || a.Ref != b.Ref {
 		return false
 	}
+
 	if len(a.Properties) != len(b.Properties) {
 		return false
 	}
+
 	for name, av := range a.Properties {
 		bv, ok := b.Properties[name]
 		if !ok || !sameSchemaShape(av, bv) {
 			return false
 		}
 	}
+
 	if !sameRequired(a.Required, b.Required) {
 		return false
 	}
+
 	if !sameSchemaShape(a.Items, b.Items) {
 		return false
 	}
+
 	if !sameEnum(a.Enum, b.Enum) {
 		return false
 	}
+
 	if !sameAdditionalProperties(a.AdditionalProperties, b.AdditionalProperties) {
 		return false
 	}
+
 	if !sameSchemaSlice(a.OneOf, b.OneOf) {
 		return false
 	}
+
 	if !sameSchemaSlice(a.AnyOf, b.AnyOf) {
 		return false
 	}
+
 	if !sameSchemaSlice(a.AllOf, b.AllOf) {
 		return false
 	}
+
 	return sameDiscriminator(a.Discriminator, b.Discriminator)
 }
 
@@ -289,18 +307,22 @@ func sameRequired(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	counts := make(map[string]int, len(a))
 	for _, r := range a {
 		counts[r]++
 	}
+
 	for _, r := range b {
 		counts[r]--
 	}
+
 	for _, c := range counts {
 		if c != 0 {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -315,11 +337,13 @@ func sameEnum(a, b []any) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if !sameScalar(a[i], b[i]) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -332,6 +356,7 @@ func sameScalar(a, b any) (eq bool) {
 			eq = false
 		}
 	}()
+
 	return a == b
 }
 
@@ -343,13 +368,17 @@ func sameAdditionalProperties(a, b any) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
+
 	aSchema, aIsSchema := a.(*Schema)
+
 	bSchema, bIsSchema := b.(*Schema)
 	if aIsSchema || bIsSchema {
 		return aIsSchema && bIsSchema && sameSchemaShape(aSchema, bSchema)
 	}
+
 	aBool, aIsBool := a.(bool)
 	bBool, bIsBool := b.(bool)
+
 	return aIsBool && bIsBool && aBool == bBool
 }
 
@@ -359,11 +388,13 @@ func sameSchemaSlice(a, b []*Schema) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if !sameSchemaShape(a[i], b[i]) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -373,17 +404,21 @@ func sameDiscriminator(a, b *Discriminator) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
+
 	if a.PropertyName != b.PropertyName {
 		return false
 	}
+
 	if len(a.Mapping) != len(b.Mapping) {
 		return false
 	}
+
 	for k, v := range a.Mapping {
 		if bv, ok := b.Mapping[k]; !ok || bv != v {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -391,6 +426,7 @@ func schemaType(s *Schema) string {
 	if s == nil {
 		return "<nil>"
 	}
+
 	return s.Type
 }
 

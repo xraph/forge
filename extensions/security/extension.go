@@ -111,7 +111,8 @@ func (e *Extension) Register(app forge.App) error {
 
 		// Register session store with DI container
 		sessionStore := e.sessionStore
-		if err := vessel.ProvideConstructor(app.Container(), func() SessionStore {
+
+		if err := vessel.Provide(app.Container(), func() SessionStore {
 			return sessionStore
 		}, vessel.WithAliases(SessionStoreKey, SessionStoreKeyLegacy)); err != nil {
 			return fmt.Errorf("failed to register session store: %w", err)
@@ -129,7 +130,8 @@ func (e *Extension) Register(app forge.App) error {
 
 		// Register cookie manager with DI container
 		cookieManager := e.cookieManager
-		if err := vessel.ProvideConstructor(app.Container(), func() *CookieManager {
+
+		if err := vessel.Provide(app.Container(), func() *CookieManager {
 			return cookieManager
 		}, vessel.WithAliases(CookieManagerKey, CookieManagerKeyLegacy)); err != nil {
 			return fmt.Errorf("failed to register cookie manager: %w", err)
@@ -439,14 +441,15 @@ func (e *Extension) initSecurityManagers() error {
 	return nil
 }
 
-// registerWithDI registers all managers with the DI container using vessel.ProvideConstructor.
+// registerWithDI registers all managers with the DI container using vessel.Provide.
 func (e *Extension) registerWithDI(app forge.App) error {
 	container := app.Container()
 
 	// Register CSRF protection
 	if e.csrfProtection != nil {
 		csrf := e.csrfProtection
-		if err := vessel.ProvideConstructor(container, func() *CSRFProtection {
+
+		if err := vessel.Provide(container, func() *CSRFProtection {
 			return csrf
 		}, vessel.WithAliases(CSRFProtectionKey)); err != nil {
 			return fmt.Errorf("failed to register CSRF protection: %w", err)
@@ -456,7 +459,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register rate limiter
 	if e.rateLimiter != nil {
 		limiter := e.rateLimiter
-		if err := vessel.ProvideConstructor(container, func() *MemoryRateLimiter {
+
+		if err := vessel.Provide(container, func() *MemoryRateLimiter {
 			return limiter
 		}, vessel.WithAliases(RateLimiterKey)); err != nil {
 			return fmt.Errorf("failed to register rate limiter: %w", err)
@@ -466,7 +470,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register security headers manager
 	if e.securityHeaders != nil {
 		headers := e.securityHeaders
-		if err := vessel.ProvideConstructor(container, func() *SecurityHeadersManager {
+
+		if err := vessel.Provide(container, func() *SecurityHeadersManager {
 			return headers
 		}, vessel.WithAliases(SecurityHeadersKey)); err != nil {
 			return fmt.Errorf("failed to register security headers manager: %w", err)
@@ -476,7 +481,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register password hasher
 	if e.passwordHasher != nil {
 		hasher := e.passwordHasher
-		if err := vessel.ProvideConstructor(container, func() *PasswordHasher {
+
+		if err := vessel.Provide(container, func() *PasswordHasher {
 			return hasher
 		}, vessel.WithAliases(PasswordHasherKey)); err != nil {
 			return fmt.Errorf("failed to register password hasher: %w", err)
@@ -486,7 +492,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register JWT manager
 	if e.jwtManager != nil {
 		jwt := e.jwtManager
-		if err := vessel.ProvideConstructor(container, func() *JWTManager {
+
+		if err := vessel.Provide(container, func() *JWTManager {
 			return jwt
 		}, vessel.WithAliases(JWTManagerKey)); err != nil {
 			return fmt.Errorf("failed to register JWT manager: %w", err)
@@ -496,7 +503,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register CORS manager
 	if e.corsManager != nil {
 		cors := e.corsManager
-		if err := vessel.ProvideConstructor(container, func() *CORSManager {
+
+		if err := vessel.Provide(container, func() *CORSManager {
 			return cors
 		}, vessel.WithAliases(CORSManagerKey)); err != nil {
 			return fmt.Errorf("failed to register CORS manager: %w", err)
@@ -506,7 +514,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register API key manager
 	if e.apiKeyManager != nil {
 		apiKey := e.apiKeyManager
-		if err := vessel.ProvideConstructor(container, func() *APIKeyManager {
+
+		if err := vessel.Provide(container, func() *APIKeyManager {
 			return apiKey
 		}, vessel.WithAliases(APIKeyManagerKey)); err != nil {
 			return fmt.Errorf("failed to register API key manager: %w", err)
@@ -516,7 +525,8 @@ func (e *Extension) registerWithDI(app forge.App) error {
 	// Register audit logger
 	if e.auditLogger != nil {
 		audit := e.auditLogger
-		if err := vessel.ProvideConstructor(container, func() *AuditLogger {
+
+		if err := vessel.Provide(container, func() *AuditLogger {
 			return audit
 		}, vessel.WithAliases(AuditLoggerKey)); err != nil {
 			return fmt.Errorf("failed to register audit logger: %w", err)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -46,10 +47,38 @@ func TestMux_ServesAMatchedRouteWithParams(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "42", rec.Body.String())
+}
+
+// A parameter that starts past 64 KiB used to wrap the capture offsets and
+// panic on an inverted slice. Such a path fits comfortably under net/http's
+// default 1 MiB header limit, so any client could send one.
+func TestMux_ParamOffsetsPastSixtyFourKiB(t *testing.T) {
+	m := New()
+
+	require.NoError(t, m.HandleRoute(shared.RouteSpec{
+		Method:  http.MethodGet,
+		Pattern: mustParse(t, "/a/{x}/{y}"),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rp, ok := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
+			require.True(t, ok)
+
+			v, found := rp.Get("y")
+			require.True(t, found)
+
+			_, _ = w.Write([]byte(v))
+		}),
+	}))
+
+	path := "/a/" + strings.Repeat("x", 65530) + "/tail"
+	rec := httptest.NewRecorder()
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "tail", rec.Body.String())
 }
 
 func TestMux_ConstraintMissFallsThrough(t *testing.T) {
@@ -65,11 +94,11 @@ func TestMux_ConstraintMissFallsThrough(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/me", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/me", nil))
 	assert.Equal(t, "me", rec.Body.String())
 
 	rec = httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 	assert.Equal(t, "byID", rec.Body.String())
 }
 
@@ -83,7 +112,7 @@ func TestMux_MethodNotAllowedSetsAllow(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/users", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/users", nil))
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	assert.Equal(t, "GET, POST", rec.Header().Get("Allow"))
@@ -93,7 +122,7 @@ func TestMux_NotFound(t *testing.T) {
 	m := New()
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -111,12 +140,13 @@ func TestMux_DoesNotPoolParamsForALongLivedRoute(t *testing.T) {
 		Kind:    shared.KindSSE,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			held, _ = r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
+
 			w.WriteHeader(http.StatusOK)
 		}),
 	}))
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events/lobby", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events/lobby", nil))
 
 	require.NotNil(t, held)
 
@@ -126,7 +156,7 @@ func TestMux_DoesNotPoolParamsForALongLivedRoute(t *testing.T) {
 		Method: http.MethodGet, Pattern: mustParse(t, "/other/{x}"), Handler: namedHandler("other"),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/other/zzz", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/other/zzz", nil))
 
 	v, ok := held.Get("room")
 	assert.True(t, ok, "a streaming handler's parameters must survive later requests")
@@ -154,7 +184,7 @@ func TestMux_BothSpellingsReachTheSameHandler(t *testing.T) {
 
 	for _, path := range []string{"/dashboard", "/dashboard/"} {
 		rec := httptest.NewRecorder()
-		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		assert.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
 		assert.Equal(t, "dash", rec.Body.String())
@@ -175,7 +205,7 @@ func TestMux_LenientDoesNotMutateTheRequestPath(t *testing.T) {
 		}),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dashboard/", nil))
 
 	assert.Equal(t, "/dashboard/", seen, "the handler must see the path the client sent")
 }
@@ -191,7 +221,7 @@ func TestMux_BothSpellingsAreTheSameRoute(t *testing.T) {
 
 	for _, path := range []string{"/dashboard", "/dashboard/"} {
 		rec := httptest.NewRecorder()
-		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		assert.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
 	}
@@ -213,12 +243,13 @@ func TestMux_NeverRedirectsAPost(t *testing.T) {
 		Method: http.MethodPost, Pattern: mustParse(t, "/submit"),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sawMethod = r.Method
+
 			w.WriteHeader(http.StatusOK)
 		}),
 	}))
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/submit/", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/submit/", nil))
 
 	assert.Equal(t, http.StatusOK, rec.Code, "a trailing slash must not produce a redirect")
 	assert.Equal(t, http.MethodPost, sawMethod, "the method must survive intact")
@@ -235,7 +266,7 @@ func TestMux_UpgradeRouteIsReachedOnBothSpellings(t *testing.T) {
 
 	for _, path := range []string{"/ws", "/ws/"} {
 		rec := httptest.NewRecorder()
-		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		assert.Equalf(t, http.StatusOK, rec.Code, "path %s must not be redirected", path)
 		assert.Equal(t, "ws", rec.Body.String())
@@ -287,7 +318,7 @@ func TestMux_NoCrossRequestParamBleedUnderConcurrency(t *testing.T) {
 				value := strconv.Itoa(worker*iterations + i)
 				path := "/tenants/" + value + "/users/" + value
 
-				m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+				m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 			}
 		}(w)
 	}
@@ -318,7 +349,7 @@ func TestMux_StreamingCarrierSurvivesConcurrentTraffic(t *testing.T) {
 		Method: http.MethodGet, Pattern: mustParse(t, "/plain/{x}"), Handler: namedHandler("plain"),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/events/lobby", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events/lobby", nil))
 
 	carrier := <-held
 	require.NotNil(t, carrier)
@@ -333,7 +364,7 @@ func TestMux_StreamingCarrierSurvivesConcurrentTraffic(t *testing.T) {
 
 			for i := range 200 {
 				path := "/plain/" + strconv.Itoa(worker*1000+i)
-				m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+				m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 			}
 		}(w)
 	}
@@ -359,11 +390,12 @@ func TestMux_WildcardIsAlsoReachableAsStar(t *testing.T) {
 			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
 			star, _ = rp.Get("*")
 			named, _ = rp.Get("filepath")
+
 			w.WriteHeader(http.StatusOK)
 		}),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/css/app.css", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/static/css/app.css", nil))
 
 	assert.Equal(t, "css/app.css", star, `the wildcard must be reachable as "*"`)
 	assert.Equal(t, "css/app.css", named, "and under its own name")
@@ -381,11 +413,12 @@ func TestMux_NamedWildcardIsAlsoReachableAsStar(t *testing.T) {
 			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
 			star, _ = rp.Get("*")
 			named, _ = rp.Get("assetPath")
+
 			w.WriteHeader(http.StatusOK)
 		}),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/static/js/app.js", nil))
 
 	assert.Equal(t, "js/app.js", star)
 	assert.Equal(t, "js/app.js", named)
@@ -401,7 +434,7 @@ func TestMux_RootPathMatches(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "root", rec.Body.String())
@@ -441,7 +474,7 @@ func TestMux_CollapsesRepeatedSlashes(t *testing.T) {
 		"//users//42//posts": "posts",
 	} {
 		rec := httptest.NewRecorder()
-		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		m.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		assert.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
 		assert.Equalf(t, want, rec.Body.String(), "path %s", path)
@@ -460,11 +493,12 @@ func TestMux_CollapsingKeepsParamValuesIntact(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rp, _ := r.Context().Value(forge_http.RouteParamsKey).(*forge_http.RouteParams)
 			got, _ = rp.Get("id")
+
 			w.WriteHeader(http.StatusOK)
 		}),
 	}))
 
-	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/users//42", nil))
+	m.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users//42", nil))
 
 	assert.Equal(t, "42", got, "the collapsed slash must not leak into the captured value")
 }

@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -530,13 +531,14 @@ func (b *diffBuilder) diffFieldSets(subject, where, category string, oldFields, 
 
 		switch {
 		case !inOld:
-			if isRequest && newField.Required {
+			switch {
+			case isRequest && newField.Required:
 				b.add(ChangeBreakingAPI, category, subject,
 					fmt.Sprintf("added required %s field %q", where, path))
-			} else if isRequest {
+			case isRequest:
 				b.add(ChangeCompatible, category, subject,
 					fmt.Sprintf("added optional %s field %q", where, path))
-			} else {
+			default:
 				b.add(ChangeCompatible, category, subject,
 					fmt.Sprintf("added %s field %q", where, path))
 			}
@@ -636,17 +638,17 @@ func (b *diffBuilder) diffStaleTime(subject string, oldMS, newMS int64) {
 	case oldMS == 0:
 		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
 			fmt.Sprintf("staleTime declared: %dms (previously undeclared)", newMS),
-			"", fmt.Sprintf("%d", newMS))
+			"", strconv.FormatInt(newMS, 10))
 
 	case newMS == 0:
 		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
 			fmt.Sprintf("staleTime removed: was %dms, now undeclared", oldMS),
-			fmt.Sprintf("%d", oldMS), "")
+			strconv.FormatInt(oldMS, 10), "")
 
 	default:
 		b.addValues(ChangeCompatible, CategoryEndpoint, subject,
 			fmt.Sprintf("staleTime changed %dms -> %dms", oldMS, newMS),
-			fmt.Sprintf("%d", oldMS), fmt.Sprintf("%d", newMS))
+			strconv.FormatInt(oldMS, 10), strconv.FormatInt(newMS, 10))
 	}
 }
 

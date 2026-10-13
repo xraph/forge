@@ -72,7 +72,7 @@ func TestOAuthFlowExample(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make request with path params in URL
-	req := httptest.NewRequest(
+	req := httptest.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/github/initiate",
 		bytes.NewReader(bodyBytes),
@@ -126,7 +126,7 @@ func TestOAuthFlowWithMissingPathParam(t *testing.T) {
 	bodyBytes, marshalErr := json.Marshal(bodyData)
 	require.NoError(t, marshalErr)
 
-	req := httptest.NewRequest(
+	req := httptest.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/initiate",
 		bytes.NewReader(bodyBytes),
@@ -169,7 +169,7 @@ func TestOAuthFlowWithMissingBodyField(t *testing.T) {
 	bodyBytes, marshalErr := json.Marshal(bodyData)
 	require.NoError(t, marshalErr)
 
-	req := httptest.NewRequest(
+	req := httptest.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		"/workspaces/ws_xyz789/auth/oauth/github/initiate",
 		bytes.NewReader(bodyBytes),

@@ -233,19 +233,19 @@ func entitiesTable(t *testing.T, ops string) string {
 
 	const open = "export const entities = {"
 
-	const close = "} as const satisfies Record<string, EntityMeta>;"
+	const closing = "} as const satisfies Record<string, EntityMeta>;"
 
 	start := strings.Index(ops, open)
 	if start < 0 {
 		t.Fatalf("ops.ts has no entities table\n\n%s", ops)
 	}
 
-	end := strings.Index(ops[start:], close)
+	end := strings.Index(ops[start:], closing)
 	if end < 0 {
 		t.Fatalf("ops.ts entities table is unterminated\n\n%s", ops)
 	}
 
-	return ops[start : start+end+len(close)]
+	return ops[start : start+end+len(closing)]
 }
 
 // The decision the policy turns on, stated as a test -- and the direction it
@@ -319,7 +319,7 @@ func TestGenerateFromSpecFileEnvelopeTableIsDeterministic(t *testing.T) {
 
 	first := ClientManifestText(generateFromSpecFile(t, path))
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if got := ClientManifestText(generateFromSpecFile(t, path)); got != first {
 			t.Fatalf("ops.ts differs between runs\n\nfirst:\n%s\n\nlater:\n%s", first, got)
 		}

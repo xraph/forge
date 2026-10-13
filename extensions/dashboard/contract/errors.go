@@ -46,9 +46,11 @@ func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
+
 	if e.Message == "" {
 		return string(e.Code)
 	}
+
 	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
@@ -57,5 +59,6 @@ func (e *Error) Is(target error) bool {
 	if t, ok := target.(*Error); ok {
 		return t.Code == e.Code
 	}
+
 	return false
 }

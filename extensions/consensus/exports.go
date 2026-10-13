@@ -20,70 +20,76 @@ const (
 )
 
 // Type exports.
-type NodeRole = internal.NodeRole
-type NodeStatus = internal.NodeStatus
-type NodeInfo = internal.NodeInfo
-type ClusterInfo = internal.ClusterInfo
-type ConsensusStats = internal.ConsensusStats
-type HealthStatus = internal.HealthStatus
-type HealthCheck = internal.HealthCheck
-type LogEntry = internal.LogEntry
-type EntryType = internal.EntryType
-type Snapshot = internal.Snapshot
-type Command = internal.Command
-type ConsensusService = internal.ConsensusService
-type RaftNode = internal.RaftNode
-type RaftStats = internal.RaftStats
-type AppendEntriesRequest = internal.AppendEntriesRequest
-type AppendEntriesResponse = internal.AppendEntriesResponse
-type RequestVoteRequest = internal.RequestVoteRequest
-type RequestVoteResponse = internal.RequestVoteResponse
-type InstallSnapshotRequest = internal.InstallSnapshotRequest
-type InstallSnapshotResponse = internal.InstallSnapshotResponse
-type StateMachine = internal.StateMachine
-type ClusterManager = internal.ClusterManager
-type Transport = internal.Transport
-type Message = internal.Message
-type MessageType = internal.MessageType
-type Discovery = internal.Discovery
-type NodeChangeEvent = internal.NodeChangeEvent
-type NodeChangeType = internal.NodeChangeType
-type Storage = internal.Storage
-type BatchOp = internal.BatchOp
-type BatchOpType = internal.BatchOpType
-type KeyValue = internal.KeyValue
+type (
+	NodeRole                = internal.NodeRole
+	NodeStatus              = internal.NodeStatus
+	NodeInfo                = internal.NodeInfo
+	ClusterInfo             = internal.ClusterInfo
+	ConsensusStats          = internal.ConsensusStats
+	HealthStatus            = internal.HealthStatus
+	HealthCheck             = internal.HealthCheck
+	LogEntry                = internal.LogEntry
+	EntryType               = internal.EntryType
+	Snapshot                = internal.Snapshot
+	Command                 = internal.Command
+	ConsensusService        = internal.ConsensusService
+	RaftNode                = internal.RaftNode
+	RaftStats               = internal.RaftStats
+	AppendEntriesRequest    = internal.AppendEntriesRequest
+	AppendEntriesResponse   = internal.AppendEntriesResponse
+	RequestVoteRequest      = internal.RequestVoteRequest
+	RequestVoteResponse     = internal.RequestVoteResponse
+	InstallSnapshotRequest  = internal.InstallSnapshotRequest
+	InstallSnapshotResponse = internal.InstallSnapshotResponse
+	StateMachine            = internal.StateMachine
+	ClusterManager          = internal.ClusterManager
+	Transport               = internal.Transport
+	Message                 = internal.Message
+	MessageType             = internal.MessageType
+	Discovery               = internal.Discovery
+	NodeChangeEvent         = internal.NodeChangeEvent
+	NodeChangeType          = internal.NodeChangeType
+	Storage                 = internal.Storage
+	BatchOp                 = internal.BatchOp
+	BatchOpType             = internal.BatchOpType
+	KeyValue                = internal.KeyValue
+)
 
 // Config exports.
-type Config = internal.Config
-type PeerConfig = internal.PeerConfig
-type RaftConfig = internal.RaftConfig
-type TransportConfig = internal.TransportConfig
-type DiscoveryConfig = internal.DiscoveryConfig
-type StorageConfig = internal.StorageConfig
-type BadgerOptions = internal.BadgerOptions
-type BoltOptions = internal.BoltOptions
-type ElectionConfig = internal.ElectionConfig
-type HealthConfig = internal.HealthConfig
-type ObservabilityConfig = internal.ObservabilityConfig
-type MetricsConfig = internal.MetricsConfig
-type TracingConfig = internal.TracingConfig
-type LoggingConfig = internal.LoggingConfig
-type SecurityConfig = internal.SecurityConfig
-type ResilienceConfig = internal.ResilienceConfig
-type AdminAPIConfig = internal.AdminAPIConfig
-type EventsConfig = internal.EventsConfig
-type AdvancedConfig = internal.AdvancedConfig
-type ConfigOption = internal.ConfigOption
+type (
+	Config              = internal.Config
+	PeerConfig          = internal.PeerConfig
+	RaftConfig          = internal.RaftConfig
+	TransportConfig     = internal.TransportConfig
+	DiscoveryConfig     = internal.DiscoveryConfig
+	StorageConfig       = internal.StorageConfig
+	BadgerOptions       = internal.BadgerOptions
+	BoltOptions         = internal.BoltOptions
+	ElectionConfig      = internal.ElectionConfig
+	HealthConfig        = internal.HealthConfig
+	ObservabilityConfig = internal.ObservabilityConfig
+	MetricsConfig       = internal.MetricsConfig
+	TracingConfig       = internal.TracingConfig
+	LoggingConfig       = internal.LoggingConfig
+	SecurityConfig      = internal.SecurityConfig
+	ResilienceConfig    = internal.ResilienceConfig
+	AdminAPIConfig      = internal.AdminAPIConfig
+	EventsConfig        = internal.EventsConfig
+	AdvancedConfig      = internal.AdvancedConfig
+	ConfigOption        = internal.ConfigOption
+)
 
 // Event exports.
-type ConsensusEventType = internal.ConsensusEventType
-type ConsensusEvent = internal.ConsensusEvent
-type LeaderElectedEvent = internal.LeaderElectedEvent
-type RoleChangedEvent = internal.RoleChangedEvent
-type MembershipChangedEvent = internal.MembershipChangedEvent
-type QuorumStatusEvent = internal.QuorumStatusEvent
-type SnapshotEvent = internal.SnapshotEvent
-type HealthStatusEvent = internal.HealthStatusEvent
+type (
+	ConsensusEventType     = internal.ConsensusEventType
+	ConsensusEvent         = internal.ConsensusEvent
+	LeaderElectedEvent     = internal.LeaderElectedEvent
+	RoleChangedEvent       = internal.RoleChangedEvent
+	MembershipChangedEvent = internal.MembershipChangedEvent
+	QuorumStatusEvent      = internal.QuorumStatusEvent
+	SnapshotEvent          = internal.SnapshotEvent
+	HealthStatusEvent      = internal.HealthStatusEvent
+)
 
 // Constants - Node Roles.
 const (

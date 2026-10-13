@@ -196,7 +196,7 @@ func (ls *localStore) Get(ctx context.Context, key string) (*StoreData, error) {
 
 	data, ok := ls.data[key]
 	if !ok {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Store contract: a key with no data yet returns no error and a nil value, and the limiters branch on data == nil
 	}
 
 	return data, nil

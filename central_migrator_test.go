@@ -41,16 +41,19 @@ func newFakeCentralMigrator() *fakeCentralMigrator {
 
 func (f *fakeCentralMigrator) RunAll(_ context.Context) (*MigrationResult, error) {
 	f.runAllCalled = true
+
 	return f.runAllResult, nil
 }
 
 func (f *fakeCentralMigrator) RollbackAll(_ context.Context) (*MigrationResult, error) {
 	f.rollbackAllCalled = true
+
 	return f.rollbackAllResult, nil
 }
 
 func (f *fakeCentralMigrator) StatusAll(_ context.Context) ([]*MigrationGroupInfo, error) {
 	f.statusAllCalled = true
+
 	return f.statusAllResult, nil
 }
 

@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/dev_test.go
 package plugins
 
 import (
@@ -151,10 +150,7 @@ func TestShouldReload(t *testing.T) {
 
 func TestAddWatchRecursive(t *testing.T) {
 	// Create temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create test directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "cmd", "app"), 0755))
@@ -213,10 +209,7 @@ func TestAddWatchRecursive(t *testing.T) {
 
 func TestFindMainFile(t *testing.T) {
 	// Create temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	tests := []struct {
 		name        string
@@ -288,10 +281,7 @@ func main() {}`
 
 func TestDiscoverApps(t *testing.T) {
 	// Create temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create cmd directory with apps
 	cmdDir := filepath.Join(tmpDir, "cmd")

@@ -91,7 +91,7 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	if needsTime {
 		buf.WriteString("import (\n")
@@ -122,9 +122,9 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 
 	// Add description as comment
 	if schema.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
 	} else {
-		buf.WriteString(fmt.Sprintf("// %s represents a %s\n", name, name))
+		fmt.Fprintf(&buf, "// %s represents a %s\n", name, name)
 	}
 
 	// Handle polymorphic types
@@ -142,7 +142,7 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 
 	switch schema.Type {
 	case "object":
-		buf.WriteString(fmt.Sprintf("type %s struct {\n", name))
+		fmt.Fprintf(&buf, "type %s struct {\n", name)
 
 		// Sort properties for consistent output
 		propNames := make([]string, 0, len(schema.Properties))
@@ -170,8 +170,8 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 				comment = " // " + prop.Description
 			}
 
-			buf.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`%s\n",
-				fieldName, goType, jsonTag, comment))
+			fmt.Fprintf(&buf, "\t%s %s `json:\"%s\"`%s\n",
+				fieldName, goType, jsonTag, comment)
 		}
 
 		buf.WriteString("}\n")
@@ -180,13 +180,13 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 		// For top-level arrays, create a type alias
 		if schema.Items != nil {
 			itemType := t.schemaToGoType(schema.Items, spec)
-			buf.WriteString(fmt.Sprintf("type %s []%s\n", name, itemType))
+			fmt.Fprintf(&buf, "type %s []%s\n", name, itemType)
 		}
 
 	default:
 		// For primitive types, create a type alias
 		goType := t.schemaToGoType(schema, spec)
-		buf.WriteString(fmt.Sprintf("type %s %s\n", name, goType))
+		fmt.Fprintf(&buf, "type %s %s\n", name, goType)
 	}
 
 	return buf.String()
@@ -303,7 +303,7 @@ func (t *TypesGenerator) generateAnonymousStruct(schema *client.Schema, spec *cl
 			jsonTag += ",omitempty"
 		}
 
-		buf.WriteString(fmt.Sprintf("\t\t%s %s `json:\"%s\"`\n", fieldName, goType, jsonTag))
+		fmt.Fprintf(&buf, "\t\t%s %s `json:\"%s\"`\n", fieldName, goType, jsonTag)
 	}
 
 	buf.WriteString("\t}")
@@ -318,18 +318,15 @@ func (t *TypesGenerator) toGoFieldName(name string) string {
 		return r == '_' || r == '-'
 	})
 
-	var (
-		result      string
-		resultSb278 strings.Builder
-	)
+	var words strings.Builder
 
 	for _, part := range parts {
 		if len(part) > 0 {
-			resultSb278.WriteString(strings.ToUpper(part[:1]) + part[1:])
+			words.WriteString(strings.ToUpper(part[:1]) + part[1:])
 		}
 	}
 
-	result += resultSb278.String()
+	result := words.String()
 
 	// If empty, return the original name capitalized
 	if result == "" {
@@ -395,13 +392,13 @@ func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, s
 
 	// Generate interface
 	if schema.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
 	} else {
-		buf.WriteString(fmt.Sprintf("// %s is a union type (oneOf)\n", name))
+		fmt.Fprintf(&buf, "// %s is a union type (oneOf)\n", name)
 	}
 
-	buf.WriteString(fmt.Sprintf("type %s interface {\n", name))
-	buf.WriteString(fmt.Sprintf("\tis%s()\n", name))
+	fmt.Fprintf(&buf, "type %s interface {\n", name)
+	fmt.Fprintf(&buf, "\tis%s()\n", name)
 	buf.WriteString("}\n\n")
 
 	// Generate concrete types for each option
@@ -411,18 +408,18 @@ func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, s
 		// If the option has a ref, use that name instead
 		if option.Ref != "" {
 			refName := t.extractRefName(option.Ref)
-			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", refName, name))
+			fmt.Fprintf(&buf, "func (%s) is%s() {}\n\n", refName, name)
 		} else {
 			// Generate a concrete struct for inline schemas
 			typeCode := t.generateType(typeName, option, spec)
 			buf.WriteString(typeCode)
-			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", typeName, name))
+			fmt.Fprintf(&buf, "func (%s) is%s() {}\n\n", typeName, name)
 		}
 	}
 
 	// Add discriminator support if present
 	if schema.Discriminator != nil && schema.Discriminator.PropertyName != "" {
-		buf.WriteString(fmt.Sprintf("// Discriminator field: %s\n", schema.Discriminator.PropertyName))
+		fmt.Fprintf(&buf, "// Discriminator field: %s\n", schema.Discriminator.PropertyName)
 	}
 
 	return buf.String()
@@ -434,13 +431,13 @@ func (t *TypesGenerator) generateAnyOfType(name string, schema *client.Schema, s
 
 	// AnyOf is similar to oneOf in Go - use interface
 	if schema.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
 	} else {
-		buf.WriteString(fmt.Sprintf("// %s is a union type (anyOf)\n", name))
+		fmt.Fprintf(&buf, "// %s is a union type (anyOf)\n", name)
 	}
 
-	buf.WriteString(fmt.Sprintf("type %s interface {\n", name))
-	buf.WriteString(fmt.Sprintf("\tis%s()\n", name))
+	fmt.Fprintf(&buf, "type %s interface {\n", name)
+	fmt.Fprintf(&buf, "\tis%s()\n", name)
 	buf.WriteString("}\n\n")
 
 	// Generate concrete types for each option
@@ -449,11 +446,11 @@ func (t *TypesGenerator) generateAnyOfType(name string, schema *client.Schema, s
 
 		if option.Ref != "" {
 			refName := t.extractRefName(option.Ref)
-			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", refName, name))
+			fmt.Fprintf(&buf, "func (%s) is%s() {}\n\n", refName, name)
 		} else {
 			typeCode := t.generateType(typeName, option, spec)
 			buf.WriteString(typeCode)
-			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", typeName, name))
+			fmt.Fprintf(&buf, "func (%s) is%s() {}\n\n", typeName, name)
 		}
 	}
 
@@ -465,19 +462,19 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 	var buf strings.Builder
 
 	if schema.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
 	} else {
-		buf.WriteString(fmt.Sprintf("// %s is a composition type (allOf)\n", name))
+		fmt.Fprintf(&buf, "// %s is a composition type (allOf)\n", name)
 	}
 
-	buf.WriteString(fmt.Sprintf("type %s struct {\n", name))
+	fmt.Fprintf(&buf, "type %s struct {\n", name)
 
 	// Embed all schemas
 	for i, allOfSchema := range schema.AllOf {
 		if allOfSchema.Ref != "" { //nolint:gocritic // ifElseChain: schema type handling clearer with if-else
 			// Embed the referenced type
 			refName := t.extractRefName(allOfSchema.Ref)
-			buf.WriteString(fmt.Sprintf("\t%s\n", refName))
+			fmt.Fprintf(&buf, "\t%s\n", refName)
 		} else if allOfSchema.Type == "object" && len(allOfSchema.Properties) > 0 {
 			// Inline properties
 			propNames := make([]string, 0, len(allOfSchema.Properties))
@@ -503,15 +500,15 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 					comment = " // " + prop.Description
 				}
 
-				buf.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`%s\n",
-					fieldName, goType, jsonTag, comment))
+				fmt.Fprintf(&buf, "\t%s %s `json:\"%s\"`%s\n",
+					fieldName, goType, jsonTag, comment)
 			}
 		} else {
 			// Create an embedded inline struct
 			inlineName := fmt.Sprintf("%sComposed%d", name, i+1)
 			typeCode := t.generateType(inlineName, allOfSchema, spec)
 			buf.WriteString(typeCode)
-			buf.WriteString(fmt.Sprintf("\t%s\n", inlineName))
+			fmt.Fprintf(&buf, "\t%s\n", inlineName)
 		}
 	}
 

@@ -997,7 +997,7 @@ func TestGoGeneratorGeneratedModuleBuilds(t *testing.T) {
 				}
 			}
 
-			cmd := exec.Command(goBin, "build", "./...")
+			cmd := exec.CommandContext(t.Context(), goBin, "build", "./...")
 			cmd.Dir = dir
 			// GOPROXY=off keeps the test off the network: everything has to
 			// come from the local module cache or the build does not happen

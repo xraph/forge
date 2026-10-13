@@ -108,7 +108,9 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 		// Initialize cluster with peers
 		for _, peer := range peers {
 			if peer.ID != nodeID {
-				clusterMgr.AddNode(peer.ID, peer.Address, peer.Port)
+				if err := clusterMgr.AddNode(peer.ID, peer.Address, peer.Port); err != nil {
+					return fmt.Errorf("add peer %s to cluster manager of %s: %w", peer.ID, nodeID, err)
+				}
 			}
 		}
 

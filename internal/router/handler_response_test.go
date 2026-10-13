@@ -66,7 +66,7 @@ func TestResponseBodyUnwrap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/workspaces", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/workspaces", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -115,7 +115,7 @@ func TestResponseBodyUnwrapWithHeaders(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/workspaces-with-headers", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/workspaces-with-headers", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -149,7 +149,7 @@ func TestResponseTraditionalNoUnwrap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/traditional", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/traditional", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -194,7 +194,7 @@ func TestResponseBodyUnwrapPOST(t *testing.T) {
 	body, marshalErr := json.Marshal(reqBody)
 	require.NoError(t, marshalErr)
 
-	req := httptest.NewRequest(http.MethodPost, "/workspaces", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/workspaces", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -244,7 +244,7 @@ func TestResponseOptionalHeaderNotSet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/optional-header", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/optional-header", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -279,7 +279,7 @@ func TestContextJSON_BodyUnwrap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/ctx-json", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ctx-json", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -322,7 +322,7 @@ func TestContextJSON_HeadersAndBodyUnwrap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/ctx-json-headers", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ctx-json-headers", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

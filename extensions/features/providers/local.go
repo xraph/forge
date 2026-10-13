@@ -2,7 +2,7 @@ package providers
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: md5 only buckets users for percentage rollouts, nothing secret depends on it
 	"encoding/binary"
 	"slices"
 	"sync"
@@ -366,7 +366,7 @@ func (p *LocalProvider) evaluateRollout(rollout *RolloutConfig, userCtx *UserCon
 	}
 
 	// Consistent hashing to determine if user is in rollout
-	hash := md5.Sum([]byte(attrValue))
+	hash := md5.Sum([]byte(attrValue)) //nolint:gosec // G401: rollout bucketing needs a stable spread, not collision resistance
 	bucket := binary.BigEndian.Uint32(hash[:4]) % 100
 
 	return int(bucket) < rollout.Percentage

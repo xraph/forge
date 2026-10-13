@@ -18,40 +18,49 @@ func TestTracingMiddleware_HTTPInspection(t *testing.T) {
 	for _, captureBody := range []bool{false, true} {
 		store := collector.NewTraceStore(10, time.Hour)
 		body := `{"name":"Ada","password":"private","nested":{"api_key":"private"}}`
-		req := httptest.NewRequest("POST", "/api/users", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/users", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer private")
 		req.Header.Set("X-Request-ID", "req_42")
 		ctx := forge_http.NewContext(httptest.NewRecorder(), req, nil)
+
 		handler := TracingMiddleware(store, "/dashboard", captureBody)(func(ctx forge.Context) error {
 			got, err := io.ReadAll(ctx.Request().Body)
 			if err != nil || string(got) != body {
 				t.Errorf("handler received body %q, error %v", got, err)
 			}
+
 			ctx.Response().Header().Set("Content-Type", "application/json")
 			ctx.Response().Header().Set("Set-Cookie", "session=private")
+
 			return nil
 		})
 		if err := handler(ctx); err != nil {
 			t.Fatal(err)
 		}
+
 		summaries, _ := store.ListTraces(collector.TraceFilter{})
 		if len(summaries) != 1 {
 			t.Fatalf("got %d traces, want 1", len(summaries))
 		}
+
 		span := store.GetTrace(summaries[0].TraceID).Spans[0]
 		if span.HTTP == nil {
 			t.Fatal("HTTP exchange missing")
 		}
+
 		if span.HTTP.Request.Headers["X-Request-Id"] != "req_42" || span.HTTP.Response.Headers["Content-Type"] != "application/json" {
 			t.Errorf("headers missing: %+v", span.HTTP)
 		}
+
 		if _, ok := span.HTTP.Request.Headers[http.CanonicalHeaderKey("Authorization")]; ok {
 			t.Error("authorization header was retained")
 		}
+
 		if _, ok := span.HTTP.Response.Headers[http.CanonicalHeaderKey("Set-Cookie")]; ok {
 			t.Error("cookie header was retained")
 		}
+
 		if captureBody {
 			if strings.Contains(span.HTTP.Request.Body, "private") || !strings.Contains(span.HTTP.Request.Body, "[redacted]") {
 				t.Errorf("body not redacted: %q", span.HTTP.Request.Body)
@@ -64,11 +73,13 @@ func TestTracingMiddleware_HTTPInspection(t *testing.T) {
 
 func TestCaptureRequestJSON_SkipsExpandedBody(t *testing.T) {
 	body := `{"value":"` + strings.Repeat("<", 1000) + `"}`
-	req := httptest.NewRequest("POST", "/api/users", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	if captured := captureRequestJSON(req); captured != "" {
 		t.Errorf("captured %d bytes after JSON encoding exceeded the limit", len(captured))
 	}
+
 	replayed, err := io.ReadAll(req.Body)
 	if err != nil || string(replayed) != body {
 		t.Errorf("request body was not replayed: %v", err)
@@ -87,6 +98,7 @@ func TestTruncateAttr_CutsLongValuesAndMarksThem(t *testing.T) {
 	if len(got) > 256 {
 		t.Errorf("truncateAttr returned %d bytes, want at most 256", len(got))
 	}
+
 	if !strings.HasSuffix(got, "...") {
 		t.Errorf("truncated value %q does not end in an ellipsis marker", got[len(got)-10:])
 	}
@@ -100,6 +112,7 @@ func TestTruncateAttr_DoesNotSplitRunes(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Errorf("truncation produced invalid UTF-8: %q", got[len(got)-8:])
 	}
+
 	if len(got) > 258 {
 		t.Errorf("truncateAttr returned %d bytes, want at most 258", len(got))
 	}
@@ -188,7 +201,7 @@ func TestTracingMiddleware_StampsAccessOnDashboardRequests(t *testing.T) {
 			// Fresh store per case so the cases cannot contaminate each other.
 			store := collector.NewTraceStore(10, time.Hour)
 
-			req := httptest.NewRequest("GET", c.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, c.path, nil)
 			w := httptest.NewRecorder()
 			ctx := forge_http.NewContext(w, req, nil)
 
@@ -232,9 +245,10 @@ func TestTracingMiddleware_TruncatesStoredAttributes(t *testing.T) {
 	longPath := "/" + strings.Repeat("p", 5000)
 	longHost := strings.Repeat("h", 5000) + ".example.com"
 
-	req := httptest.NewRequest("GET", longPath+"?"+longQuery, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, longPath+"?"+longQuery, nil)
 	req.Host = longHost
 	req.Header.Set("User-Agent", longUA)
+
 	w := httptest.NewRecorder()
 	ctx := forge_http.NewContext(w, req, nil)
 
@@ -251,12 +265,14 @@ func TestTracingMiddleware_TruncatesStoredAttributes(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("store has %d traces after one traced request, want 1", len(summaries))
 	}
+
 	traceID := summaries[0].TraceID
 
 	detail := store.GetTrace(traceID)
 	if detail == nil {
 		t.Fatalf("GetTrace(%q) returned nil", traceID)
 	}
+
 	if len(detail.Spans) != 1 {
 		t.Fatalf("trace has %d spans, want 1", len(detail.Spans))
 	}
@@ -277,6 +293,7 @@ func TestTracingMiddleware_TruncatesStoredAttributes(t *testing.T) {
 	if got := len(span.Attributes["http.path"]); got > maxAttrValueLen {
 		t.Errorf("http.path attribute is %d bytes, want at most %d", got, maxAttrValueLen)
 	}
+
 	if got := len(span.Attributes["http.host"]); got > maxAttrValueLen {
 		t.Errorf("http.host attribute is %d bytes, want at most %d", got, maxAttrValueLen)
 	}

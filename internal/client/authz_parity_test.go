@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"testing"
 
@@ -101,9 +102,7 @@ func parsedEndpointForTest(t *testing.T, ext map[string]any) *Endpoint {
 	// Merge the same extension keys the live-router side receives directly,
 	// rather than hard-coding the extension name here -- both helpers must
 	// carry the identical raw ext into their respective builder.
-	for k, v := range ext {
-		operation[k] = v
-	}
+	maps.Copy(operation, ext)
 
 	path := writeYAMLSpec(t, "openapi.yaml", map[string]any{
 		"openapi": "3.0.0",

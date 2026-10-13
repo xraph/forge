@@ -14,10 +14,14 @@ import (
 // requireService skips the test if the given TCP address is not reachable.
 func requireService(t *testing.T, addr, name string) {
 	t.Helper()
-	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+
+	dialer := &net.Dialer{Timeout: 500 * time.Millisecond}
+
+	conn, err := dialer.DialContext(t.Context(), "tcp", addr)
 	if err != nil {
 		t.Skipf("skipping: %s not available at %s", name, addr)
 	}
+
 	conn.Close()
 }
 
@@ -487,6 +491,7 @@ func TestExtension_Queue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueue() error = %v", err)
 	}
+
 	if queue == nil {
 		t.Error("GetQueue() returned nil")
 	}
@@ -519,6 +524,7 @@ func TestExtension_StopWithError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueue() error = %v", err)
 	}
+
 	queue.Disconnect(ctx)
 
 	// Stop should not fail even if disconnect fails

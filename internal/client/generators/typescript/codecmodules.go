@@ -131,7 +131,7 @@ func codecRefs(entry codecEntry) []string {
 // Map keys are sorted for the reason every other table here is: Go randomises
 // map iteration and CI byte-diffs the output.
 func renderCodecEntry(entry codecEntry, ref func(string) string) string {
-	parts := []string{fmt.Sprintf("\"kind\": %s", jsonString(entry.Kind))}
+	parts := []string{"\"kind\": " + jsonString(entry.Kind)}
 
 	if len(entry.Fields) > 0 {
 		wires := make([]string, 0, len(entry.Fields))
@@ -146,9 +146,9 @@ func renderCodecEntry(entry codecEntry, ref func(string) string) string {
 		for _, wire := range wires {
 			field := entry.Fields[wire]
 
-			inner := fmt.Sprintf("\"ts\": %s", jsonString(field.TS))
+			inner := "\"ts\": " + jsonString(field.TS)
 			if field.Codec != "" {
-				inner += fmt.Sprintf(", \"codec\": %s", ref(field.Codec))
+				inner += ", \"codec\": " + ref(field.Codec)
 			}
 
 			rendered = append(rendered, fmt.Sprintf("%s: {%s}", codecKey(wire), inner))
@@ -255,16 +255,16 @@ func (g *CodecGenerator) GenerateModules(
 				continue
 			}
 
-			buf.WriteString(fmt.Sprintf("import { %s } from './%s';\n",
-				naming.consts[dep], naming.files[dep]))
+			fmt.Fprintf(&buf, "import { %s } from './%s';\n",
+				naming.consts[dep], naming.files[dep])
 		}
 
 		buf.WriteString("\n")
-		buf.WriteString(fmt.Sprintf("export const %s: Codec = %s;\n",
+		fmt.Fprintf(&buf, "export const %s: Codec = %s;\n",
 			naming.consts[id],
 			renderCodecEntry(entry, func(dep string) string {
 				return "() => " + naming.consts[dep]
-			})))
+			}))
 
 		files["src/codecs/"+naming.files[id]+".ts"] = buf.String()
 	}

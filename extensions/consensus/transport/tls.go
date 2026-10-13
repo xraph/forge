@@ -87,7 +87,7 @@ func (tm *TLSManager) loadTLSConfig() error {
 		MinVersion:         tm.config.MinVersion,
 		MaxVersion:         tm.config.MaxVersion,
 		ServerName:         tm.config.ServerName,
-		InsecureSkipVerify: tm.config.InsecureSkipVerify,
+		InsecureSkipVerify: tm.config.InsecureSkipVerify, //nolint:gosec // G402: explicit config opt-in, false unless the operator sets it
 	}
 
 	// Set default versions if not specified

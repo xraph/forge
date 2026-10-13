@@ -73,7 +73,7 @@ func TestRouter_RegisterController(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -89,7 +89,7 @@ func TestRouter_RegisterController_WithPrefix(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -105,7 +105,7 @@ func TestRouter_RegisterController_WithMiddleware(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

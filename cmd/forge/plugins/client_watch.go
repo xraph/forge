@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/client_watch.go
 package plugins
 
 import (
@@ -459,7 +458,7 @@ func (w *specWatcher) shutdown() {
 	}
 
 	w.mu.Lock()
-	w.mu.Unlock()
+	w.mu.Unlock() //nolint:staticcheck // SA2001: deliberate barrier that waits out an in-flight cycle, see above
 }
 
 // Run generates once, then keeps generating on every change to any source
@@ -743,6 +742,7 @@ func (w *specWatcher) cycle(ctx context.Context, out watchReporter, i int, trigg
 	// with what was just fetched -- so generation reads a file laid out
 	// exactly as `forge client generate --from-url` would have left it.
 	if w.sources[i].url != "" {
+		//nolint:gosec // G703: for a URL source this path is the temp file the plan created, not user input.
 		if err := os.WriteFile(w.plan.specPaths[i], content, 0o600); err != nil {
 			out.Println(watchLine(trigger, cli.Red("cannot stage fetched spec: "+err.Error())))
 

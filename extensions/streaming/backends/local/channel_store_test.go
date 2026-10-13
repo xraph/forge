@@ -188,17 +188,29 @@ func TestChannelStore_SubscriptionErrors(t *testing.T) {
 		},
 		{
 			name: "list subscriptions of a missing channel",
-			call: func() error { _, err := s.GetSubscriptions(ctx, "nope"); return err },
+			call: func() error {
+				_, err := s.GetSubscriptions(ctx, "nope")
+
+				return err
+			},
 			want: streaming.ErrChannelNotFound,
 		},
 		{
 			name: "count subscribers of a missing channel",
-			call: func() error { _, err := s.GetSubscriberCount(ctx, "nope"); return err },
+			call: func() error {
+				_, err := s.GetSubscriberCount(ctx, "nope")
+
+				return err
+			},
 			want: streaming.ErrChannelNotFound,
 		},
 		{
 			name: "is-subscribed on a missing channel",
-			call: func() error { _, err := s.IsSubscribed(ctx, "nope", "c1"); return err },
+			call: func() error {
+				_, err := s.IsSubscribed(ctx, "nope", "c1")
+
+				return err
+			},
 			want: streaming.ErrChannelNotFound,
 		},
 		{
@@ -305,9 +317,21 @@ func TestLocalChannel_MethodsAreDelegatedToTheStore(t *testing.T) {
 	}{
 		{"Subscribe", func() error { return ch.Subscribe(ctx, subscription("c1", "alice", nil)) }},
 		{"Unsubscribe", func() error { return ch.Unsubscribe(ctx, "c1") }},
-		{"GetSubscribers", func() error { _, err := ch.GetSubscribers(ctx); return err }},
-		{"GetSubscriberCount", func() error { _, err := ch.GetSubscriberCount(ctx); return err }},
-		{"IsSubscribed", func() error { _, err := ch.IsSubscribed(ctx, "c1"); return err }},
+		{"GetSubscribers", func() error {
+			_, err := ch.GetSubscribers(ctx)
+
+			return err
+		}},
+		{"GetSubscriberCount", func() error {
+			_, err := ch.GetSubscriberCount(ctx)
+
+			return err
+		}},
+		{"IsSubscribed", func() error {
+			_, err := ch.IsSubscribed(ctx, "c1")
+
+			return err
+		}},
 		{"Publish", func() error { return ch.Publish(ctx, &streaming.Message{}) }},
 		{"Delete", func() error { return ch.Delete(ctx) }},
 	}

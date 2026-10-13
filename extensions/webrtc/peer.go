@@ -3,6 +3,7 @@ package webrtc
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -288,10 +289,16 @@ func (p *peerConnection) SetRemoteDescription(ctx context.Context, sdp *SessionD
 
 // AddICECandidate adds an ICE candidate.
 func (p *peerConnection) AddICECandidate(ctx context.Context, candidate *ICECandidate) error {
+	// pion takes a uint16 index, so anything outside that range would wrap
+	// around to a different m-line instead of failing.
+	if candidate.SDPMLineIndex < 0 || candidate.SDPMLineIndex > math.MaxUint16 {
+		return fmt.Errorf("%w: sdp m-line index %d out of range", ErrInvalidCandidate, candidate.SDPMLineIndex)
+	}
+
 	iceCandidate := webrtc.ICECandidateInit{
 		Candidate:        candidate.Candidate,
 		SDPMid:           &candidate.SDPMid,
-		SDPMLineIndex:    uint16Ptr(uint16(candidate.SDPMLineIndex)),
+		SDPMLineIndex:    new(uint16(candidate.SDPMLineIndex)),
 		UsernameFragment: &candidate.UsernameFragment,
 	}
 
@@ -487,8 +494,4 @@ func convertToWebRTCSDPType(sdpType SessionDescriptionType) webrtc.SDPType {
 	default:
 		return webrtc.SDPTypeOffer
 	}
-}
-
-func uint16Ptr(v uint16) *uint16 {
-	return &v
 }

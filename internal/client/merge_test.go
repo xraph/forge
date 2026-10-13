@@ -34,6 +34,7 @@ func TestMergeSpecsNilAndEmpty(t *testing.T) {
 	if got := client.MergeSpecs(); got != nil {
 		t.Fatalf("MergeSpecs() with no specs = %v, want nil", got)
 	}
+
 	if got := client.MergeSpecs(nil, nil); got != nil {
 		t.Fatalf("MergeSpecs(nil, nil) = %v, want nil", got)
 	}
@@ -41,6 +42,7 @@ func TestMergeSpecsNilAndEmpty(t *testing.T) {
 
 func TestMergeSpecsSingleSpecIsIdentity(t *testing.T) {
 	in := restSpec()
+
 	got := client.MergeSpecs(in)
 	if got != in {
 		t.Fatalf("MergeSpecs(one) must return that same spec unchanged")
@@ -53,21 +55,27 @@ func TestMergeSpecsUnionsEndpointsAndStreams(t *testing.T) {
 	if len(got.Endpoints) != 1 || got.Endpoints[0].OperationID != "listOrders" {
 		t.Errorf("Endpoints = %v, want the one REST endpoint", got.Endpoints)
 	}
+
 	if len(got.WebSockets) != 1 || got.WebSockets[0].Path != "/ws/orders" {
 		t.Errorf("WebSockets = %v, want the one stream endpoint", got.WebSockets)
 	}
+
 	if len(got.Schemas) != 2 {
 		t.Errorf("Schemas has %d entries, want 2 (Order, OrderEvent)", len(got.Schemas))
 	}
+
 	if len(got.Servers) != 2 {
 		t.Errorf("Servers has %d entries, want 2 distinct URLs", len(got.Servers))
 	}
+
 	if len(got.Tags) != 1 {
 		t.Errorf("Tags has %d entries, want 1 after dedup by name", len(got.Tags))
 	}
+
 	if got.Info.Title != "Orders" {
 		t.Errorf("Info.Title = %q, want the OpenAPI document's title", got.Info.Title)
 	}
+
 	if got.RoutingTypes != nil {
 		t.Errorf("RoutingTypes must be nil after merge; resolveEntityFields rebuilds it")
 	}
@@ -80,9 +88,11 @@ func TestMergeSpecsOrdersByDocumentKindNotArgumentOrder(t *testing.T) {
 	if forward.Info.Title != reverse.Info.Title {
 		t.Errorf("Info.Title differs by argument order: %q vs %q", forward.Info.Title, reverse.Info.Title)
 	}
+
 	if len(forward.Endpoints) != len(reverse.Endpoints) {
 		t.Errorf("Endpoints count differs by argument order")
 	}
+
 	if forward.Servers[0].URL != reverse.Servers[0].URL {
 		t.Errorf("Servers order differs by argument order: %q vs %q",
 			forward.Servers[0].URL, reverse.Servers[0].URL)
@@ -109,6 +119,7 @@ func TestMergeSpecsSameKindPrecedenceFollowsArgumentOrder(t *testing.T) {
 	if forward.Schemas["Order"].Type != "object" {
 		t.Errorf("first-passed source must win: got %q, want %q", forward.Schemas["Order"].Type, "object")
 	}
+
 	if forward.Info.Title != "First" {
 		t.Errorf("Info.Title = %q, want %q", forward.Info.Title, "First")
 	}
@@ -160,6 +171,7 @@ func TestMergeSpecsWarnsOnDifferingSchemaShape(t *testing.T) {
 		t.Errorf("Schemas[Order].Type = %q, want the OpenAPI shape %q",
 			got.Schemas["Order"].Type, "object")
 	}
+
 	if !hasWarningContaining(got.Warnings, "Order") {
 		t.Errorf("differing schema shape must warn, got %v", got.Warnings)
 	}
@@ -178,6 +190,7 @@ func TestMergeSpecsWarnsOnDifferingEntityIDField(t *testing.T) {
 		t.Errorf("Entities[Order].IDField = %q, want the OpenAPI value %q",
 			got.Entities["Order"].IDField, "id")
 	}
+
 	if !hasWarningContaining(got.Warnings, "orderId") {
 		t.Errorf("differing IDField must warn naming both values, got %v", got.Warnings)
 	}
@@ -211,6 +224,7 @@ func TestMergeSpecsDropsDuplicateRoutes(t *testing.T) {
 		t.Fatalf("Endpoints has %d entries, want 1 -- the duplicate route must be dropped, got %+v",
 			len(got.Endpoints), got.Endpoints)
 	}
+
 	if got.Endpoints[0].OperationID != "listOrders" {
 		t.Errorf("kept endpoint is %q, want the first source's %q",
 			got.Endpoints[0].OperationID, "listOrders")
@@ -239,9 +253,11 @@ func TestMergeSpecsDropsDuplicateStreamEndpoints(t *testing.T) {
 	if len(got.WebSockets) != 1 || got.WebSockets[0].Path != "/ws/orders" {
 		t.Errorf("WebSockets = %+v, want only the first declaration", got.WebSockets)
 	}
+
 	if len(got.SSEs) != 1 || got.SSEs[0].Path != "/sse/orders" {
 		t.Errorf("SSEs = %+v, want only the first declaration", got.SSEs)
 	}
+
 	if len(got.WebTransports) != 1 || got.WebTransports[0].Path != "/wt/orders" {
 		t.Errorf("WebTransports = %+v, want only the first declaration", got.WebTransports)
 	}
@@ -261,6 +277,7 @@ func TestMergeSpecsDropsDuplicateUnnamedStreamEndpoints(t *testing.T) {
 	if len(got.WebSockets) != 1 {
 		t.Fatalf("WebSockets has %d entries, want 1, got %+v", len(got.WebSockets), got.WebSockets)
 	}
+
 	if !hasWarningContaining(got.Warnings, "/ws/orders") {
 		t.Errorf("dropping an unnamed duplicate channel must warn, got %v", got.Warnings)
 	}
@@ -306,6 +323,7 @@ func TestMergeSpecsWarningNamesTheSourceTheKeptSchemaCameFrom(t *testing.T) {
 	if warning == "" {
 		t.Fatalf("differing Feed schema must warn, got %v", got.Warnings)
 	}
+
 	if !strings.Contains(warning, "keeping the AsyncAPI definition") {
 		t.Errorf("warning = %q, want it to name AsyncAPI as the source of the kept definition", warning)
 	}
@@ -328,6 +346,7 @@ func TestMergeSpecsWarningNamesTheSourceTheKeptEntityCameFrom(t *testing.T) {
 	if warning == "" {
 		t.Fatalf("differing Feed id field must warn, got %v", got.Warnings)
 	}
+
 	if !strings.Contains(warning, `"id" in the AsyncAPI source`) {
 		t.Errorf("warning = %q, want it to attribute the kept id field to the AsyncAPI source", warning)
 	}

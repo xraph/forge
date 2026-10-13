@@ -104,6 +104,7 @@ func (s *SearchService) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("search service stopped")
+
 	return nil
 }
 

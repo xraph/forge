@@ -24,7 +24,7 @@ func NewSSEGenerator() *SSEGenerator {
 func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	// Imports
 	buf.WriteString("import (\n")
@@ -80,13 +80,13 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	clientName := client.GenerateSSEClientName(sse)
 
 	// Client struct
-	buf.WriteString(fmt.Sprintf("// %s is an SSE client for %s\n", clientName, sse.Path))
+	fmt.Fprintf(&buf, "// %s is an SSE client for %s\n", clientName, sse.Path)
 
 	if sse.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s\n", sse.Description))
+		fmt.Fprintf(&buf, "// %s\n", sse.Description)
 	}
 
-	buf.WriteString(fmt.Sprintf("type %s struct {\n", clientName))
+	fmt.Fprintf(&buf, "type %s struct {\n", clientName)
 	buf.WriteString("\tclient *Client\n")
 	buf.WriteString("\tresp   *http.Response\n")
 	buf.WriteString("\tmu     sync.RWMutex\n\n")
@@ -108,9 +108,9 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("}\n\n")
 
 	// Constructor
-	buf.WriteString(fmt.Sprintf("// New%s creates a new SSE client\n", clientName))
-	buf.WriteString(fmt.Sprintf("func (c *Client) New%s() *%s {\n", clientName, clientName))
-	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", clientName))
+	fmt.Fprintf(&buf, "// New%s creates a new SSE client\n", clientName)
+	fmt.Fprintf(&buf, "func (c *Client) New%s() *%s {\n", clientName, clientName)
+	fmt.Fprintf(&buf, "\treturn &%s{\n", clientName)
 	buf.WriteString("\t\tclient:    c,\n")
 	buf.WriteString("\t\thandlers:  make(map[string][]func(interface{})),\n")
 	buf.WriteString("\t\tcloseChan: make(chan struct{}),\n")
@@ -159,7 +159,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	var buf strings.Builder
 
 	buf.WriteString("// Connect connects to the SSE endpoint and starts receiving events\n")
-	buf.WriteString(fmt.Sprintf("func (sse *%s) Connect(ctx context.Context) error {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) Connect(ctx context.Context) error {\n", clientName)
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
 
@@ -167,7 +167,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 		buf.WriteString("\tsse.setState(ConnectionStateConnecting)\n\n")
 	}
 
-	buf.WriteString(fmt.Sprintf("\turl := sse.client.buildURL(\"%s\")\n\n", sse.Path))
+	fmt.Fprintf(&buf, "\turl := sse.client.buildURL(\"%s\")\n\n", sse.Path)
 
 	buf.WriteString("\treq, err := http.NewRequestWithContext(ctx, \"GET\", url, nil)\n")
 	buf.WriteString("\tif err != nil {\n")
@@ -228,7 +228,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	buf.WriteString("}\n\n")
 
 	// Generate readEvents method
-	buf.WriteString(fmt.Sprintf("func (sse *%s) readEvents() {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) readEvents() {\n", clientName)
 	buf.WriteString("\tdefer func() {\n")
 	buf.WriteString("\t\tif sse.resp != nil {\n")
 	buf.WriteString("\t\t\tsse.resp.Body.Close()\n")
@@ -312,7 +312,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	buf.WriteString("}\n\n")
 
 	// Generate dispatchEvent method
-	buf.WriteString(fmt.Sprintf("func (sse *%s) dispatchEvent(event SSEEvent) {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) dispatchEvent(event SSEEvent) {\n", clientName)
 	buf.WriteString("\tsse.mu.RLock()\n")
 	buf.WriteString("\thandlers, ok := sse.handlers[event.Event]\n")
 	buf.WriteString("\tsse.mu.RUnlock()\n\n")
@@ -335,7 +335,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 
 	// Generate reconnect method if enabled
 	if config.Features.Reconnection {
-		buf.WriteString(fmt.Sprintf("func (sse *%s) reconnect() {\n", clientName))
+		fmt.Fprintf(&buf, "func (sse *%s) reconnect() {\n", clientName)
 		buf.WriteString("\tsse.mu.Lock()\n")
 		buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
 
@@ -369,13 +369,13 @@ func (s *SSEGenerator) generateOnEventMethod(clientName, eventName string, sse c
 	schema := sse.EventSchemas[eventName]
 	typeName := s.getSchemaTypeName(schema, spec)
 
-	buf.WriteString(fmt.Sprintf("// On%s registers a handler for %s events\n", methodName, eventName))
-	buf.WriteString(fmt.Sprintf("func (sse *%s) On%s(handler func(%s)) {\n", clientName, methodName, typeName))
+	fmt.Fprintf(&buf, "// On%s registers a handler for %s events\n", methodName, eventName)
+	fmt.Fprintf(&buf, "func (sse *%s) On%s(handler func(%s)) {\n", clientName, methodName, typeName)
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
 
-	buf.WriteString(fmt.Sprintf("\tsse.handlers[\"%s\"] = append(sse.handlers[\"%s\"], func(data interface{}) {\n", eventName, eventName))
-	buf.WriteString(fmt.Sprintf("\t\tif typed, ok := data.(%s); ok {\n", typeName))
+	fmt.Fprintf(&buf, "\tsse.handlers[\"%s\"] = append(sse.handlers[\"%s\"], func(data interface{}) {\n", eventName, eventName)
+	fmt.Fprintf(&buf, "\t\tif typed, ok := data.(%s); ok {\n", typeName)
 	buf.WriteString("\t\t\thandler(typed)\n")
 	buf.WriteString("\t\t}\n")
 	buf.WriteString("\t})\n")
@@ -389,7 +389,7 @@ func (s *SSEGenerator) generateSSECloseMethod(clientName string, config client.G
 	var buf strings.Builder
 
 	buf.WriteString("// Close closes the SSE connection\n")
-	buf.WriteString(fmt.Sprintf("func (sse *%s) Close() error {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) Close() error {\n", clientName)
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
 
@@ -419,13 +419,13 @@ func (s *SSEGenerator) generateSSEOnStateChangeMethod(clientName string) string 
 	var buf strings.Builder
 
 	buf.WriteString("// OnStateChange registers a callback for state changes\n")
-	buf.WriteString(fmt.Sprintf("func (sse *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName)
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n")
 	buf.WriteString("\tsse.stateChange = handler\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("func (sse *%s) setState(state ConnectionState) {\n", clientName))
+	fmt.Fprintf(&buf, "func (sse *%s) setState(state ConnectionState) {\n", clientName)
 	buf.WriteString("\tsse.state = state\n")
 	buf.WriteString("\tif sse.stateChange != nil {\n")
 	buf.WriteString("\t\tgo sse.stateChange(state)\n")

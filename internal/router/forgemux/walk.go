@@ -20,22 +20,26 @@ const captureInline = 8
 // It holds offsets rather than strings on purpose: nothing is turned into a
 // value until a route is confirmed, so an abandoned branch costs nothing, and
 // the walk allocates zero times.
+//
+// The offsets are full ints. They were uint16 once, and a path longer than
+// 64 KiB (well inside net/http's default header limit) wrapped them, which
+// bound the wrong bytes or panicked on an inverted slice.
 type capture struct {
-	starts, ends [captureInline]uint16
+	starts, ends [captureInline]int
 	n            int
-	spill        [][2]uint16
+	spill        [][2]int
 }
 
 func (c *capture) push(start, end int) {
 	if c.n < captureInline {
-		c.starts[c.n] = uint16(start)
-		c.ends[c.n] = uint16(end)
+		c.starts[c.n] = start
+		c.ends[c.n] = end
 		c.n++
 
 		return
 	}
 
-	c.spill = append(c.spill, [2]uint16{uint16(start), uint16(end)})
+	c.spill = append(c.spill, [2]int{start, end})
 	c.n++
 }
 
@@ -55,12 +59,12 @@ func (c *capture) len() int { return c.n }
 
 func (c *capture) at(i int) (start, end int) {
 	if i < captureInline {
-		return int(c.starts[i]), int(c.ends[i])
+		return c.starts[i], c.ends[i]
 	}
 
 	pair := c.spill[i-captureInline]
 
-	return int(pair[0]), int(pair[1])
+	return pair[0], pair[1]
 }
 
 // lookup walks the trie for one request.

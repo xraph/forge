@@ -42,7 +42,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 	)
 
 	// Add subcommands
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"init",
 		"Initialize migration tables",
 		p.initMigrations,
@@ -54,7 +54,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"migrate",
 		"Run pending migrations",
 		p.runMigrations,
@@ -65,7 +65,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"rollback",
 		"Rollback last migration group",
 		p.rollbackMigrations,
@@ -76,7 +76,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"status",
 		"Show migration status",
 		p.migrationStatus,
@@ -86,7 +86,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"reset",
 		"Reset database (rollback all and rerun)",
 		p.resetDatabase,
@@ -98,7 +98,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"create-sql",
 		"Create up and down SQL migration files",
 		p.createSQLMigration,
@@ -106,14 +106,14 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-scoped migration", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"create-go",
 		"Create Go migration file",
 		p.createGoMigration,
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-scoped migration", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"lock",
 		"Lock migrations (prevent concurrent runs)",
 		p.lockMigrations,
@@ -123,7 +123,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"unlock",
 		"Unlock migrations",
 		p.unlockMigrations,
@@ -133,7 +133,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"mark-applied",
 		"Mark migrations as applied without running them",
 		p.markApplied,
@@ -143,7 +143,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
-	dbCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dbCmd, cli.NewCommand(
 		"adopt",
 		"Carry migration state from the old bun tables into grove, once, after upgrading",
 		p.adoptMigrations,
@@ -201,14 +201,14 @@ func isLegacyMigrationsScaffold(src string) bool {
 func (p *DatabasePlugin) checkLegacyMigrationsScaffold(appName string) error {
 	migrationPath, err := p.getMigrationPathForApp(appName)
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // diagnostic only; downstream commands report path errors with better context
 	}
 
 	migrationsGoPath := filepath.Join(migrationPath, "migrations.go")
 
 	src, err := os.ReadFile(migrationsGoPath)
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // no readable migrations.go is the normal pre-init state, not a legacy scaffold
 	}
 
 	if !isLegacyMigrationsScaffold(string(src)) {
@@ -218,7 +218,7 @@ func (p *DatabasePlugin) checkLegacyMigrationsScaffold(appName string) error {
 	return fmt.Errorf(
 		"%s still registers migrations with the removed database extension, so the migration runner cannot be built.\n\n"+
 			"Run 'forge db init%s' to rewrite it against grove. Your migration files are not touched.\n"+
-			"If this database already has migrations applied, run 'forge db adopt%s' next, before 'forge db migrate%s'.",
+			"If this database already has migrations applied, run 'forge db adopt%s' next, before 'forge db migrate%s'",
 		migrationsGoPath, appFlagHint(appName), appFlagHint(appName), appFlagHint(appName),
 	)
 }
@@ -298,15 +298,17 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 	}
 
 	ctx.Println("")
+
 	if appName != "" {
 		ctx.Info(fmt.Sprintf("📚 Next steps for app '%s':", appName))
-		ctx.Info(fmt.Sprintf("   1. Create migrations with: forge db create-sql <name> --app %s", appName))
-		ctx.Info(fmt.Sprintf("   2. Run migrations with: forge db migrate --app %s", appName))
+		ctx.Info("   1. Create migrations with: forge db create-sql <name> --app " + appName)
+		ctx.Info("   2. Run migrations with: forge db migrate --app " + appName)
 	} else {
 		ctx.Info("📚 Next steps:")
 		ctx.Info("   1. Create migrations with: forge db create-sql <name>")
 		ctx.Info("   2. Run migrations with: forge db migrate")
 	}
+
 	ctx.Println("")
 
 	return nil
@@ -354,7 +356,7 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	if err != nil || !confirm {
 		ctx.Info("Rollback cancelled")
 
-		return nil
+		return nil //nolint:nilerr // no readable answer (EOF, closed stdin) declines the destructive operation
 	}
 
 	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), dbName, appName)
@@ -414,7 +416,7 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 		if err != nil || !confirm {
 			ctx.Info("Reset cancelled")
 
-			return nil
+			return nil //nolint:nilerr // no readable answer (EOF, closed stdin) declines the destructive operation
 		}
 	}
 
@@ -467,6 +469,7 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 	if appName != "" {
 		label = fmt.Sprintf("%s (app: %s)", name, appName)
 	}
+
 	spinner := ctx.Spinner(fmt.Sprintf("Creating SQL migration '%s'...", label))
 
 	up, down, goFile, err := writeSQLMigrationFiles(migrationPath, name, useTx)
@@ -578,6 +581,7 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	if appName != "" {
 		label = fmt.Sprintf("%s (app: %s)", name, appName)
 	}
+
 	spinner := ctx.Spinner(fmt.Sprintf("Creating Go migration '%s'...", label))
 
 	path, err := writeGoMigrationFile(migrationPath, name)
@@ -691,7 +695,7 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	if err != nil || !confirm {
 		ctx.Info("Operation cancelled")
 
-		return nil
+		return nil //nolint:nilerr // no readable answer (EOF, closed stdin) declines the destructive operation
 	}
 
 	dsn, err := p.resolveDSNFrom(ctx.String("dsn"), ctx.String("database"), appName)
@@ -773,6 +777,7 @@ func (p *DatabasePlugin) countMigrationFilesForApp(appName string) (int, error) 
 	}
 
 	count := 0
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -792,6 +797,7 @@ func appFlagHint(appName string) string {
 	if appName == "" {
 		return ""
 	}
+
 	return " --app " + appName
 }
 
@@ -854,9 +860,11 @@ func (p *DatabasePlugin) getAppScopedMigrationPath(appName string) (string, erro
 			if !filepath.IsAbs(overridePath) {
 				overridePath = filepath.Join(appDir, overridePath)
 			}
+
 			if err := os.MkdirAll(overridePath, 0755); err != nil {
 				return "", fmt.Errorf("failed to create app migrations directory %s: %w", overridePath, err)
 			}
+
 			return overridePath, nil
 		}
 	}
@@ -1018,6 +1026,7 @@ func (p *DatabasePlugin) resolveConfigYamlDSN(dbName string) (dsn string, tried 
 	configNames := []string{"config.yaml", "config.yml", "config.local.yaml", "config.local.yml"}
 
 	var configFiles []string
+
 	for _, dir := range searchDirs {
 		for _, name := range configNames {
 			path := filepath.Join(dir, name)
@@ -1078,8 +1087,10 @@ func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (string, error) {
 
 	// Map database name to connection
 	// Support "default" as alias for first connection or "dev" connection
-	var connConfig config.ConnectionConfig
-	var found bool
+	var (
+		connConfig config.ConnectionConfig
+		found      bool
+	)
 
 	if dbName == "default" {
 		// Try "dev" first, then "default", then first available
@@ -1094,6 +1105,7 @@ func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (string, error) {
 			for _, conn := range p.config.Database.Connections {
 				connConfig = conn
 				found = true
+
 				break
 			}
 		}
@@ -1113,7 +1125,7 @@ func (p *DatabasePlugin) loadFromForgeYaml(dbName string) (string, error) {
 	return os.ExpandEnv(connConfig.URL), nil
 }
 
-// getForgeYamlConnectionNames returns list of connection names from .forge.yaml
+// getForgeYamlConnectionNames returns list of connection names from .forge.yaml.
 func (p *DatabasePlugin) getForgeYamlConnectionNames() []string {
 	if p.config == nil {
 		return nil
@@ -1123,6 +1135,7 @@ func (p *DatabasePlugin) getForgeYamlConnectionNames() []string {
 	for name := range p.config.Database.Connections {
 		names = append(names, name)
 	}
+
 	return names
 }
 
@@ -1135,6 +1148,7 @@ func (p *DatabasePlugin) buildConfigNotFoundError(dbName string, triedSources []
 	msg.WriteString("'\n\n")
 
 	msg.WriteString("Checked sources:\n")
+
 	for _, source := range triedSources {
 		msg.WriteString("  • ")
 		msg.WriteString(source)
@@ -1169,6 +1183,7 @@ func (p *DatabasePlugin) buildConfigNotFoundError(dbName string, triedSources []
 	// Show available connections if they exist
 	if p.config != nil && len(p.config.Database.Connections) > 0 {
 		msg.WriteString("\n\nNote: Found connections in .forge.yaml: ")
+
 		names := p.getForgeYamlConnectionNames()
 		msg.WriteString(strings.Join(names, ", "))
 		msg.WriteString("\nUse one of these names or add a new connection.")
@@ -1216,6 +1231,7 @@ func (p *DatabasePlugin) loadEnvFiles() {
 
 	// Load each file that exists
 	for _, envFile := range envFiles {
+		//nolint:gosec // G703: .env names come from the developer's own FORGE_ENV/GO_ENV under their project root.
 		if _, err := os.Stat(envFile); err == nil {
 			// Load without overriding existing env vars (godotenv.Load would override)
 			// We use Overload to ensure later files take precedence
@@ -1241,6 +1257,7 @@ func sanitizeAppName(name string) string {
 	for strings.Contains(s, "__") {
 		s = strings.ReplaceAll(s, "__", "_")
 	}
+
 	return strings.Trim(s, "_")
 }
 
@@ -1249,6 +1266,7 @@ func migrationTableName(appName string) string {
 	if appName == "" {
 		return "bun_migrations"
 	}
+
 	return "bun_migrations_" + sanitizeAppName(appName)
 }
 
@@ -1257,6 +1275,7 @@ func migrationLocksTableName(appName string) string {
 	if appName == "" {
 		return "bun_migration_locks"
 	}
+
 	return "bun_migration_locks_" + sanitizeAppName(appName)
 }
 

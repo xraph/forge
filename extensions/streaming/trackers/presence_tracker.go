@@ -262,10 +262,12 @@ func (pt *presenceTracker) BroadcastPresence(ctx context.Context, roomID, userID
 
 	// Notify event subscribers
 	pt.subscriptionsMu.RLock()
+
 	subs := make([]func(*streaming.PresenceEvent), 0, len(pt.subscriptions))
 	for _, cb := range pt.subscriptions {
 		subs = append(subs, cb)
 	}
+
 	pt.subscriptionsMu.RUnlock()
 
 	if len(subs) > 0 {
@@ -560,7 +562,7 @@ func (pt *presenceTracker) GetActivity(ctx context.Context, userID string) (*str
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // PresenceTracker contract: a user with no activity set gets a nil value, not an error
 }
 
 // Availability.
@@ -681,9 +683,11 @@ func (pt *presenceTracker) UnwatchPresence(ctx context.Context, userID string) e
 // notifyPresenceWatchers invokes registered callbacks for a user's presence change.
 func (pt *presenceTracker) notifyPresenceWatchers(userID string, presence *streaming.UserPresence) {
 	pt.presenceCallbacksMu.RLock()
+
 	callbacks := pt.presenceCallbacks[userID]
 	if len(callbacks) == 0 {
 		pt.presenceCallbacksMu.RUnlock()
+
 		return
 	}
 
@@ -692,6 +696,7 @@ func (pt *presenceTracker) notifyPresenceWatchers(userID string, presence *strea
 	for _, cb := range callbacks {
 		cbs = append(cbs, cb)
 	}
+
 	pt.presenceCallbacksMu.RUnlock()
 
 	for _, cb := range cbs {

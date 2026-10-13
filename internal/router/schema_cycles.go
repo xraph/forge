@@ -65,7 +65,7 @@ type visitedTypes map[reflect.Type]struct{}
 // beginning. Seeding the root is what makes the first arrival back at it a
 // back edge rather than one redundant lap.
 func newVisitedTypes(root reflect.Type) visitedTypes {
-	if root.Kind() == reflect.Ptr {
+	if root.Kind() == reflect.Pointer {
 		root = root.Elem()
 	}
 
@@ -85,7 +85,7 @@ func newVisitedTypes(root reflect.Type) visitedTypes {
 // returned release must be called when the walk of that type finishes, which
 // is what keeps the set path-scoped; it is a no-op when ok is false.
 func (v visitedTypes) enter(typ reflect.Type) (structType reflect.Type, release func(), ok bool) {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -106,7 +106,7 @@ func (v visitedTypes) enter(typ reflect.Type) (structType reflect.Type, release 
 // Used by walks that only ask a yes/no question about a type and so have no
 // walk to release.
 func (v visitedTypes) seen(typ reflect.Type) bool {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -118,7 +118,7 @@ func (v visitedTypes) seen(typ reflect.Type) bool {
 // mark places typ on the current path and returns the release that takes it
 // off again.
 func (v visitedTypes) mark(typ reflect.Type) func() {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 

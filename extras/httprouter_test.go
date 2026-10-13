@@ -18,7 +18,7 @@ func TestHTTPRouterAdapter_BasicRoute(t *testing.T) {
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -38,7 +38,7 @@ func TestHTTPRouterAdapter_PathParams(t *testing.T) {
 	// HTTPRouter uses :param format
 	adapter.Handle("GET", "/users/:id", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/123", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -56,7 +56,7 @@ func TestHTTPRouterAdapter_Mount(t *testing.T) {
 
 	adapter.Mount("/api", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -68,7 +68,7 @@ func TestHTTPRouterAdapter_Mount(t *testing.T) {
 func TestHTTPRouterAdapter_NotFound(t *testing.T) {
 	adapter := NewHTTPRouterAdapter()
 
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)

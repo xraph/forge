@@ -9,6 +9,7 @@ func TestParameterKeywords(t *testing.T) {
 			t.Errorf("parameter %q becomes %q", keyword, got)
 		}
 	}
+
 	if got := generator.toTSParamName("asset_class"); got != "assetClass" {
 		t.Errorf("ordinary parameter becomes %q", got)
 	}

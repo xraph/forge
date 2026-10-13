@@ -50,7 +50,7 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 	if mf.config.FilterByRoom && msg.RoomID != "" {
 		// Check if recipient is in room
 		if !recipient.IsInRoom(msg.RoomID) {
-			return nil, nil // Not in room, block message
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (recipient not in room)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 	if mf.config.FilterByChannel && msg.ChannelID != "" {
 		// Check if recipient is subscribed to channel
 		if !recipient.IsSubscribed(msg.ChannelID) {
-			return nil, nil // Not subscribed, block message
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (recipient not subscribed)
 		}
 	}
 
@@ -66,7 +66,7 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 	if mf.config.FilterByType {
 		// Check blocked types
 		if slices.Contains(mf.config.BlockedTypes, msg.Type) {
-			return nil, nil // Blocked type
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (blocked type)
 		}
 
 		// Check allowed types
@@ -74,7 +74,7 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 			allowed := slices.Contains(mf.config.AllowedTypes, msg.Type)
 
 			if !allowed {
-				return nil, nil // Not in allowed list
+				return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (type not allowed)
 			}
 		}
 	}
@@ -89,7 +89,7 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 
 			msg.Metadata["filtered_by"] = name
 
-			return nil, nil // Custom condition failed
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (custom condition failed)
 		}
 	}
 

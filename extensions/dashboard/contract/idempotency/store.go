@@ -33,5 +33,6 @@ func (c Cached) Expired(now time.Time) bool {
 	if c.TTL <= 0 {
 		return false
 	}
+
 	return now.After(c.StoredAt.Add(c.TTL))
 }

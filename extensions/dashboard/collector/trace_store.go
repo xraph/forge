@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -88,9 +89,11 @@ func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOpt
 	if maxTraces <= 0 {
 		maxTraces = 1000
 	}
+
 	if retention <= 0 {
 		retention = time.Hour
 	}
+
 	ts := &TraceStore{
 		maxTraces:        maxTraces,
 		maxSpansPerTrace: defaultMaxSpansPerTrace,
@@ -103,6 +106,7 @@ func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOpt
 	for _, opt := range opts {
 		opt(ts)
 	}
+
 	return ts
 }
 
@@ -128,6 +132,7 @@ func (ts *TraceStore) SetOnTraceAdded(fn OnTraceAddedFunc) {
 func (ts *TraceStore) SetIngestGate(fn IngestGateFunc) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+
 	ts.ingestGate = fn
 }
 
@@ -144,6 +149,7 @@ func (ts *TraceStore) LastAccessed() time.Time {
 	if ns == 0 {
 		return time.Time{}
 	}
+
 	return time.Unix(0, ns)
 }
 
@@ -158,6 +164,7 @@ func (ts *TraceStore) drainNotifications() {
 			ts.mu.RLock()
 			cb := ts.onTraceAdded
 			ts.mu.RUnlock()
+
 			if cb != nil {
 				cb(n.traceID, n.spanCount)
 			}
@@ -206,8 +213,10 @@ func (ts *TraceStore) AddSpan(span *SpanView) {
 		ts.evict()
 		ts.mu.Unlock()
 		ts.droppedSpans.Add(1)
+
 		return
 	}
+
 	ts.traces[span.TraceID] = append(existing, span)
 
 	// Evict old traces.
@@ -240,11 +249,14 @@ func (ts *TraceStore) ListTraces(filter TraceFilter) ([]TraceSummary, TraceStats
 
 	// Build summaries for all traces (newest first).
 	summaries := make([]TraceSummary, 0, len(ts.traces))
+
 	var totalDuration time.Duration
+
 	errorCount := 0
 
-	for i := len(ts.order) - 1; i >= 0; i-- {
-		traceID := ts.order[i]
+	for _, v := range slices.Backward(ts.order) {
+		traceID := v
+
 		spans := ts.traces[traceID]
 		if len(spans) == 0 {
 			continue
@@ -258,6 +270,7 @@ func (ts *TraceStore) ListTraces(filter TraceFilter) ([]TraceSummary, TraceStats
 		}
 
 		summaries = append(summaries, summary)
+
 		totalDuration += summary.Duration
 		if summary.Status == SpanStatusError {
 			errorCount++
@@ -275,19 +288,19 @@ func (ts *TraceStore) ListTraces(filter TraceFilter) ([]TraceSummary, TraceStats
 	}
 
 	// Apply pagination.
-	offset := filter.Offset
-	if offset > len(summaries) {
-		offset = len(summaries)
-	}
+	offset := min(filter.Offset, len(summaries))
+
 	summaries = summaries[offset:]
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
+
 	if limit > len(summaries) {
 		limit = len(summaries)
 	}
+
 	summaries = summaries[:limit]
 
 	return summaries, stats
@@ -324,12 +337,15 @@ func (ts *TraceStore) buildSummary(traceID string, spans []*SpanView) TraceSumma
 			rootName = s.Name
 			protocol = s.Attributes["protocol"]
 		}
+
 		if s.StartTime.Before(earliest) {
 			earliest = s.StartTime
 		}
+
 		if s.EndTime.After(latest) {
 			latest = s.EndTime
 		}
+
 		if s.Status == SpanStatusError {
 			status = SpanStatusError
 		} else if s.Status == SpanStatusOK && status != SpanStatusError {
@@ -340,6 +356,7 @@ func (ts *TraceStore) buildSummary(traceID string, spans []*SpanView) TraceSumma
 	if rootName == "" {
 		rootName = spans[0].Name
 	}
+
 	if protocol == "" {
 		protocol = inferProtocol(spans)
 	}
@@ -377,14 +394,17 @@ func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *Trace
 		if s.StartTime.Before(earliest) {
 			earliest = s.StartTime
 		}
+
 		if s.EndTime.After(latest) {
 			latest = s.EndTime
 		}
+
 		if s.Status == SpanStatusError {
 			status = SpanStatusError
 		} else if s.Status == SpanStatusOK && status != SpanStatusError {
 			status = SpanStatusOK
 		}
+
 		if s.ParentSpanID == "" {
 			root = s
 			protocol = s.Attributes["protocol"]
@@ -394,6 +414,7 @@ func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *Trace
 	if root == nil {
 		root = sorted[0]
 	}
+
 	if protocol == "" {
 		protocol = inferProtocol(sorted)
 	}
@@ -402,6 +423,7 @@ func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *Trace
 
 	// Build parent → children index for depth computation.
 	children := make(map[string][]string)
+
 	spanByID := make(map[string]*SpanView, len(sorted))
 	for _, s := range sorted {
 		spanByID[s.SpanID] = s
@@ -413,18 +435,23 @@ func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *Trace
 		spanID string
 		depth  int
 	}
+
 	queue := []entry{{spanID: root.SpanID, depth: 0}}
 	visited := make(map[string]bool)
+
 	for len(queue) > 0 {
 		e := queue[0]
 		queue = queue[1:]
+
 		if visited[e.spanID] {
 			continue
 		}
+
 		visited[e.spanID] = true
 		if s, ok := spanByID[e.spanID]; ok {
 			s.Depth = e.depth
 		}
+
 		for _, childID := range children[e.spanID] {
 			queue = append(queue, entry{spanID: childID, depth: e.depth + 1})
 		}
@@ -441,6 +468,7 @@ func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *Trace
 	if totalDuration > 0 {
 		for _, s := range sorted {
 			s.OffsetPercent = float64(s.StartTime.Sub(earliest)) / float64(totalDuration) * 100
+
 			s.WidthPercent = float64(s.Duration) / float64(totalDuration) * 100
 			if s.WidthPercent < 0.5 {
 				s.WidthPercent = 0.5 // minimum visible width
@@ -470,6 +498,7 @@ func (ts *TraceStore) matchesFilter(s TraceSummary, f TraceFilter) bool {
 			return false
 		}
 	}
+
 	if f.Status != "" && f.Status != "all" {
 		switch f.Status {
 		case "ok":
@@ -482,14 +511,17 @@ func (ts *TraceStore) matchesFilter(s TraceSummary, f TraceFilter) bool {
 			}
 		}
 	}
+
 	if f.Protocol != "" && f.Protocol != "all" {
 		if !strings.EqualFold(s.Protocol, f.Protocol) {
 			return false
 		}
 	}
+
 	if f.MinDuration > 0 && s.Duration < f.MinDuration {
 		return false
 	}
+
 	return true
 }
 
@@ -502,9 +534,11 @@ func (ts *TraceStore) evict() {
 	newStart := 0
 	for newStart < len(ts.order) {
 		traceID := ts.order[newStart]
+
 		spans := ts.traces[traceID]
 		if len(spans) == 0 || spans[0].StartTime.Before(cutoff) {
 			delete(ts.traces, traceID)
+
 			newStart++
 		} else {
 			break
@@ -516,6 +550,7 @@ func (ts *TraceStore) evict() {
 	for remaining > ts.maxTraces {
 		traceID := ts.order[newStart]
 		delete(ts.traces, traceID)
+
 		newStart++
 		remaining--
 	}
@@ -534,18 +569,23 @@ func inferProtocol(spans []*SpanView) string {
 		if p, ok := s.Attributes["protocol"]; ok && p != "" {
 			return p
 		}
+
 		if _, ok := s.Attributes["http.method"]; ok {
 			return "REST"
 		}
+
 		if _, ok := s.Attributes["ws.type"]; ok {
 			return "WS"
 		}
+
 		if _, ok := s.Attributes["sse.event"]; ok {
 			return "SSE"
 		}
+
 		if _, ok := s.Attributes["event.type"]; ok {
 			return "Event"
 		}
 	}
+
 	return "Internal"
 }

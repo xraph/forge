@@ -20,9 +20,11 @@ func metricsSummarySub(p MetricsProvider, interval time.Duration) func(ctx conte
 	return func(ctx context.Context, _ struct{}, _ contract.Principal) (<-chan MetricsSummary, func(), error) {
 		out := make(chan MetricsSummary, 4)
 		ticker := time.NewTicker(interval)
+
 		go func() {
 			defer close(out)
 			defer ticker.Stop()
+
 			for {
 				select {
 				case <-ctx.Done():
@@ -32,6 +34,7 @@ func metricsSummarySub(p MetricsProvider, interval time.Duration) func(ctx conte
 					if data == nil {
 						continue
 					}
+
 					ev := MetricsSummary{
 						TotalMetrics: data.Stats.TotalMetrics,
 						Counters:     data.Stats.Counters,
@@ -47,6 +50,7 @@ func metricsSummarySub(p MetricsProvider, interval time.Duration) func(ctx conte
 				}
 			}
 		}()
+
 		return out, func() {}, nil
 	}
 }

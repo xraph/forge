@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// kafkaClient implements Kafka interface
+// kafkaClient implements Kafka interface.
 type kafkaClient struct {
 	config        Config
 	logger        forge.Logger
@@ -29,7 +30,7 @@ type kafkaClient struct {
 	cancelConsume context.CancelFunc
 }
 
-// NewKafkaClient creates a new Kafka client
+// NewKafkaClient creates a new Kafka client.
 func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (Kafka, error) {
 	saramaConfig, err := config.ToSaramaConfig()
 	if err != nil {
@@ -42,6 +43,7 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to build TLS config: %w", err)
 		}
+
 		saramaConfig.Net.TLS.Enable = true
 		saramaConfig.Net.TLS.Config = tlsConfig
 	}
@@ -90,8 +92,10 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 		producer, err := sarama.NewSyncProducerFromClient(client)
 		if err != nil {
 			client.Close()
+
 			return nil, fmt.Errorf("failed to create producer: %w", err)
 		}
+
 		kc.producer = producer
 		kc.stats.ActiveProducers++
 
@@ -99,8 +103,10 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 		if err != nil {
 			producer.Close()
 			client.Close()
+
 			return nil, fmt.Errorf("failed to create async producer: %w", err)
 		}
+
 		kc.asyncProducer = asyncProducer
 
 		// Handle async producer errors
@@ -114,12 +120,16 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 			if kc.producer != nil {
 				kc.producer.Close()
 			}
+
 			if kc.asyncProducer != nil {
 				kc.asyncProducer.Close()
 			}
+
 			client.Close()
+
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
+
 		kc.consumer = consumer
 		kc.stats.ActiveConsumers++
 	}
@@ -134,7 +144,7 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 
 func (c *kafkaClient) SendMessage(topic string, key, value []byte) error {
 	if c.producer == nil {
-		return fmt.Errorf("producer not enabled")
+		return errors.New("producer not enabled")
 	}
 
 	msg := &sarama.ProducerMessage{
@@ -180,7 +190,7 @@ func (c *kafkaClient) SendMessage(topic string, key, value []byte) error {
 
 func (c *kafkaClient) SendMessageAsync(topic string, key, value []byte) error {
 	if c.asyncProducer == nil {
-		return fmt.Errorf("async producer not enabled")
+		return errors.New("async producer not enabled")
 	}
 
 	msg := &sarama.ProducerMessage{
@@ -205,7 +215,7 @@ func (c *kafkaClient) SendMessageAsync(topic string, key, value []byte) error {
 
 func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
 	if c.producer == nil {
-		return fmt.Errorf("producer not enabled")
+		return errors.New("producer not enabled")
 	}
 
 	saramaMessages := make([]*sarama.ProducerMessage, len(messages))
@@ -238,10 +248,11 @@ func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
 
 func (c *kafkaClient) Consume(ctx context.Context, topics []string, handler MessageHandler) error {
 	if c.consumer == nil {
-		return fmt.Errorf("consumer not enabled")
+		return errors.New("consumer not enabled")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
+
 	c.mu.Lock()
 	c.cancelConsume = cancel
 	c.mu.Unlock()
@@ -263,12 +274,13 @@ func (c *kafkaClient) Consume(ctx context.Context, topics []string, handler Mess
 	}
 
 	c.logger.Info("kafka consumer started", forge.F("topics", topics))
+
 	return nil
 }
 
 func (c *kafkaClient) ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error {
 	if c.consumer == nil {
-		return fmt.Errorf("consumer not enabled")
+		return errors.New("consumer not enabled")
 	}
 
 	pc, err := c.consumer.ConsumePartition(topic, partition, offset)
@@ -338,12 +350,13 @@ func (c *kafkaClient) StopConsume() error {
 	}
 
 	c.logger.Info("kafka consumer stopped")
+
 	return nil
 }
 
 func (c *kafkaClient) JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error {
 	if c.consumerGroup != nil {
-		return fmt.Errorf("already in consumer group")
+		return errors.New("already in consumer group")
 	}
 
 	saramaConfig, err := c.config.ToSaramaConfig()
@@ -364,6 +377,7 @@ func (c *kafkaClient) JoinConsumerGroup(ctx context.Context, groupID string, top
 		for {
 			if err := cg.Consume(ctx, topics, handler); err != nil {
 				c.logger.Error("kafka consumer group error", forge.F("error", err))
+
 				return
 			}
 
@@ -388,7 +402,7 @@ func (c *kafkaClient) LeaveConsumerGroup(ctx context.Context) error {
 	c.mu.Unlock()
 
 	if cg == nil {
-		return fmt.Errorf("not in consumer group")
+		return errors.New("not in consumer group")
 	}
 
 	if err := cg.Close(); err != nil {
@@ -396,6 +410,7 @@ func (c *kafkaClient) LeaveConsumerGroup(ctx context.Context) error {
 	}
 
 	c.logger.Info("kafka consumer group left")
+
 	return nil
 }
 
@@ -426,6 +441,7 @@ func (c *kafkaClient) CreateTopic(topic string, config TopicConfig) error {
 	}
 
 	c.logger.Info("kafka topic created", forge.F("topic", topic))
+
 	return nil
 }
 
@@ -451,6 +467,7 @@ func (c *kafkaClient) DeleteTopic(topic string) error {
 	}
 
 	c.logger.Info("kafka topic deleted", forge.F("topic", topic))
+
 	return nil
 }
 
@@ -506,36 +523,42 @@ func (c *kafkaClient) GetOffset(topic string, partition int32, time int64) (int6
 func (c *kafkaClient) GetProducer() sarama.SyncProducer {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.producer
 }
 
 func (c *kafkaClient) GetAsyncProducer() sarama.AsyncProducer {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.asyncProducer
 }
 
 func (c *kafkaClient) GetConsumer() sarama.Consumer {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.consumer
 }
 
 func (c *kafkaClient) GetConsumerGroup() sarama.ConsumerGroup {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.consumerGroup
 }
 
 func (c *kafkaClient) GetClient() sarama.Client {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.client
 }
 
 func (c *kafkaClient) GetStats() ClientStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.stats
 }
 
@@ -580,12 +603,13 @@ func (c *kafkaClient) Close() error {
 	}
 
 	c.logger.Info("kafka client closed")
+
 	return nil
 }
 
 func (c *kafkaClient) Ping(ctx context.Context) error {
 	if c.client.Closed() {
-		return fmt.Errorf("client is closed")
+		return errors.New("client is closed")
 	}
 
 	topics, err := c.client.Topics()
@@ -594,7 +618,7 @@ func (c *kafkaClient) Ping(ctx context.Context) error {
 	}
 
 	if topics == nil {
-		return fmt.Errorf("no topics available")
+		return errors.New("no topics available")
 	}
 
 	return nil
@@ -612,7 +636,7 @@ func (c *kafkaClient) handleAsyncProducerErrors() {
 	}
 }
 
-// Metrics recording methods
+// Metrics recording methods.
 func (c *kafkaClient) recordSendMetric(topic string, size int) {
 	if c.metrics == nil {
 		return
@@ -631,10 +655,10 @@ func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
 	c.metrics.Gauge("kafka.bytes.received", forge.WithLabel("topic", topic)).Set(float64(size))
 }
 
-// buildTLSConfig creates TLS configuration
+// buildTLSConfig creates TLS configuration.
 func buildTLSConfig(config Config) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: config.TLSSkipVerify,
+		InsecureSkipVerify: config.TLSSkipVerify, //nolint:gosec // G402: opt-in through the tls_skip_verify config option, off by default
 	}
 
 	if config.TLSCertFile != "" && config.TLSKeyFile != "" {
@@ -642,6 +666,7 @@ func buildTLSConfig(config Config) (*tls.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client cert: %w", err)
 		}
+
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
@@ -653,7 +678,7 @@ func buildTLSConfig(config Config) (*tls.Config, error) {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to append CA cert")
+			return nil, errors.New("failed to append CA cert")
 		}
 
 		tlsConfig.RootCAs = caCertPool

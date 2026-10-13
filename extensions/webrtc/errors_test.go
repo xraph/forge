@@ -193,8 +193,10 @@ func TestPeerConnection_InvalidOperations(t *testing.T) {
 		SDP:  "invalid sdp content",
 	}
 
-	err = peer.SetRemoteDescription(ctx, invalidSDP)
 	// This might not error immediately, but should be tested
+	if err := peer.SetRemoteDescription(ctx, invalidSDP); err != nil {
+		t.Logf("SetRemoteDescription rejected invalid SDP: %v", err)
+	}
 
 	// Test adding ICE candidate with invalid data
 	invalidCandidate := &ICECandidate{
@@ -203,8 +205,10 @@ func TestPeerConnection_InvalidOperations(t *testing.T) {
 		SDPMLineIndex: -1,
 	}
 
-	err = peer.AddICECandidate(ctx, invalidCandidate)
 	// This might not error immediately
+	if err := peer.AddICECandidate(ctx, invalidCandidate); err != nil {
+		t.Logf("AddICECandidate rejected invalid candidate: %v", err)
+	}
 
 	// Test creating offer twice without proper flow
 	_, err = peer.CreateOffer(ctx)

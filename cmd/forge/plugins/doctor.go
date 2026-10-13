@@ -1,7 +1,8 @@
-// v2/cmd/forge/plugins/doctor.go
 package plugins
 
 import (
+	"context"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -57,7 +58,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	table.SetHeader([]string{"Check", "Status", "Version/Details"})
 
 	// Go version
-	goVersion, goOk := p.checkGo()
+	goVersion, goOk := p.checkGo(ctx.Context())
 	if goOk {
 		table.AppendRow([]string{"Go", cli.Green("✓ OK"), goVersion})
 	} else {
@@ -65,7 +66,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	}
 
 	// Git
-	gitVersion, gitOk := p.checkGit()
+	gitVersion, gitOk := p.checkGit(ctx.Context())
 	if gitOk {
 		table.AppendRow([]string{"Git", cli.Green("✓ OK"), gitVersion})
 	} else {
@@ -73,7 +74,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	}
 
 	// Docker
-	dockerVersion, dockerOk := p.checkDocker()
+	dockerVersion, dockerOk := p.checkDocker(ctx.Context())
 	if dockerOk {
 		table.AppendRow([]string{"Docker", cli.Green("✓ OK"), dockerVersion})
 	} else {
@@ -81,7 +82,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	}
 
 	// Docker Compose
-	composeVersion, composeOk := p.checkDockerCompose()
+	composeVersion, composeOk := p.checkDockerCompose(ctx.Context())
 	if composeOk {
 		table.AppendRow([]string{"Docker Compose", cli.Green("✓ OK"), composeVersion})
 	} else {
@@ -89,7 +90,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	}
 
 	// Kubectl
-	kubectlVersion, kubectlOk := p.checkKubectl()
+	kubectlVersion, kubectlOk := p.checkKubectl(ctx.Context())
 	if kubectlOk {
 		table.AppendRow([]string{"kubectl", cli.Green("✓ OK"), kubectlVersion})
 	} else {
@@ -163,8 +164,8 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	return nil
 }
 
-func (p *DoctorPlugin) checkGo() (string, bool) {
-	cmd := exec.Command("go", "version")
+func (p *DoctorPlugin) checkGo(ctx context.Context) (string, bool) {
+	cmd := exec.CommandContext(ctx, "go", "version")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -174,8 +175,8 @@ func (p *DoctorPlugin) checkGo() (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
-func (p *DoctorPlugin) checkGit() (string, bool) {
-	cmd := exec.Command("git", "--version")
+func (p *DoctorPlugin) checkGit(ctx context.Context) (string, bool) {
+	cmd := exec.CommandContext(ctx, "git", "--version")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -185,8 +186,8 @@ func (p *DoctorPlugin) checkGit() (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
-func (p *DoctorPlugin) checkDocker() (string, bool) {
-	cmd := exec.Command("docker", "--version")
+func (p *DoctorPlugin) checkDocker(ctx context.Context) (string, bool) {
+	cmd := exec.CommandContext(ctx, "docker", "--version")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -196,13 +197,13 @@ func (p *DoctorPlugin) checkDocker() (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
-func (p *DoctorPlugin) checkDockerCompose() (string, bool) {
-	cmd := exec.Command("docker", "compose", "version")
+func (p *DoctorPlugin) checkDockerCompose(ctx context.Context) (string, bool) {
+	cmd := exec.CommandContext(ctx, "docker", "compose", "version")
 
 	output, err := cmd.Output()
 	if err != nil {
 		// Try old docker-compose
-		cmd = exec.Command("docker-compose", "--version")
+		cmd = exec.CommandContext(ctx, "docker-compose", "--version")
 
 		output, err = cmd.Output()
 		if err != nil {
@@ -213,8 +214,8 @@ func (p *DoctorPlugin) checkDockerCompose() (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
-func (p *DoctorPlugin) checkKubectl() (string, bool) {
-	cmd := exec.Command("kubectl", "version", "--client", "--short")
+func (p *DoctorPlugin) checkKubectl(ctx context.Context) (string, bool) {
+	cmd := exec.CommandContext(ctx, "kubectl", "version", "--client", "--short")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -234,7 +235,7 @@ func (p *DoctorPlugin) checkDirectory(table cli.TableWriter, name, path string) 
 }
 
 func (p *DoctorPlugin) directoryExists(path string) bool {
-	cmd := exec.Command("test", "-d", path)
+	info, err := os.Stat(path)
 
-	return cmd.Run() == nil
+	return err == nil && info.IsDir()
 }

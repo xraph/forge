@@ -1,8 +1,10 @@
-// main.go
+// Command dashboard-contract-probe posts one contract envelope to a dashboard
+// and prints the HTTP status and body it gets back.
 package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +23,7 @@ func main() {
 	payload := flag.String("payload", "{}", "JSON payload")
 	csrf := flag.String("csrf", "", "CSRF token (required for command)")
 	idem := flag.String("idem", "", "idempotency key (required for command)")
+
 	flag.Parse()
 
 	req := contract.Request{
@@ -29,13 +32,30 @@ func main() {
 		Payload: json.RawMessage(*payload),
 		CSRF:    *csrf, IdempotencyKey: *idem,
 	}
-	body, _ := json.Marshal(req)
-	resp, err := http.Post(*base+"/api/dashboard/v1", "application/json", bytes.NewReader(body))
+	// An invalid -payload makes the RawMessage fail to marshal. Say so rather
+	// than posting an empty body and printing whatever the server makes of it.
+	body, err := json.Marshal(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "encode request:", err)
+		os.Exit(1)
+	}
+
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		*base+"/api/dashboard/v1", bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "build request:", err)
+		os.Exit(1)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "request:", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+
 	out, _ := io.ReadAll(resp.Body)
-	fmt.Printf("HTTP %d\n%s\n", resp.StatusCode, out)
+	fmt.Fprintf(os.Stdout, "HTTP %d\n%s\n", resp.StatusCode, out)
 }

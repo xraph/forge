@@ -46,7 +46,7 @@ func TestFacadesAreDeterministic(t *testing.T) {
 	gen := NewFacadeGenerator()
 
 	first := gen.Generate(manifestSpec(), client.GeneratorConfig{})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if got := gen.Generate(manifestSpec(), client.GeneratorConfig{}); got != first {
 			t.Fatal("hooks.ts differs between runs")
 		}
@@ -154,7 +154,7 @@ func TestDeprecatedReactQueryFieldMatchesHooks(t *testing.T) {
 	hooksCfg.Hooks = true
 
 	aliasCfg := baseConfig()
-	aliasCfg.ReactQuery = true
+	aliasCfg.ReactQuery = true //nolint:staticcheck // the deprecated alias is exactly what this test pins to Hooks
 
 	viaHooks, err := NewGenerator().Generate(context.Background(), manifestSpec(), hooksCfg)
 	if err != nil {

@@ -31,7 +31,7 @@ func TestCompress_WithGzipSupport(t *testing.T) {
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 
 	rec := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestCompress_WithoutGzipSupport(t *testing.T) {
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	httpHandler(rec, req)
@@ -99,7 +99,7 @@ func TestCompressDefault(t *testing.T) {
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 
 	rec := httptest.NewRecorder()
@@ -128,7 +128,7 @@ func TestCompress_InvalidLevel(t *testing.T) {
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 
 	rec := httptest.NewRecorder()

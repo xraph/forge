@@ -1,7 +1,6 @@
 package typescript
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -126,9 +125,7 @@ func wireEncodeExpr(codecID, expr string) string {
 		return expr
 	}
 
-	literal, _ := json.Marshal(codecID)
-
-	return fmt.Sprintf("encode(%s, %s)", expr, literal)
+	return fmt.Sprintf("encode(%s, %s)", expr, jsonString(codecID))
 }
 
 // wireDecodeExpr wraps expr in a decode() call when codecID is non-empty, so
@@ -142,9 +139,7 @@ func wireDecodeExpr(codecID, expr string) string {
 		return expr
 	}
 
-	literal, _ := json.Marshal(codecID)
-
-	return fmt.Sprintf("decode(%s, %s)", expr, literal)
+	return fmt.Sprintf("decode(%s, %s)", expr, jsonString(codecID))
 }
 
 // generatePolyfillSetup generates the browser/Node.js compatibility layer.
@@ -306,10 +301,10 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	}
 
 	// Class definition
-	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if ws.Description != "" {
-		buf.WriteString(fmt.Sprintf(" * %s\n", ws.Description))
+		fmt.Fprintf(&buf, " * %s\n", ws.Description)
 	}
 
 	buf.WriteString(" * \n")
@@ -328,7 +323,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	buf.WriteString(" */\n")
 
-	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
+	fmt.Fprintf(&buf, "export class %s extends EventEmitter {\n", className)
 
 	// Private fields
 	buf.WriteString("  private ws: WebSocket | null = null;\n")
@@ -388,7 +383,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("      this.setState(ConnectionState.CONNECTING);\n")
 	buf.WriteString("      this.closed = false;\n\n")
 
-	buf.WriteString(fmt.Sprintf("      const wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", ws.Path))
+	fmt.Fprintf(&buf, "      const wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", ws.Path)
 
 	buf.WriteString("      // Setup connection timeout\n")
 	buf.WriteString("      this.connectionTimeoutId = setTimeout(() => {\n")
@@ -460,7 +455,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	// promises, via decode() -- when receiveCodecID resolved to something
 	// (see messageCodecRef); otherwise wireDecodeExpr is a no-op and this is
 	// exactly the raw JSON.parse(data) cast that shipped before this fix.
-	buf.WriteString(fmt.Sprintf("            const message: %s = %s;\n", receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(data)")))
+	fmt.Fprintf(&buf, "            const message: %s = %s;\n", receiveType, wireDecodeExpr(receiveCodecID, "JSON.parse(data)"))
 	buf.WriteString("            this.emit('message', message);\n")
 	buf.WriteString("          } catch (error) {\n")
 	buf.WriteString("            this.emit('error', error);\n")
@@ -511,7 +506,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("   * @param message - The message to send\n")
 	buf.WriteString("   * @returns Promise that resolves when sent (or queued)\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  async send(message: %s): Promise<void> {\n", sendType))
+	fmt.Fprintf(&buf, "  async send(message: %s): Promise<void> {\n", sendType)
 	buf.WriteString("    const OPEN = 1; // WebSocket.OPEN\n")
 	buf.WriteString("    \n")
 	buf.WriteString("    if (this.ws && this.ws.readyState === OPEN) {\n")
@@ -519,7 +514,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	// via encode() -- when sendCodecID resolved to something; otherwise a
 	// no-op, exactly the raw JSON.stringify(message) that shipped before
 	// this fix.
-	buf.WriteString(fmt.Sprintf("      this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "message")))
+	fmt.Fprintf(&buf, "      this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "message"))
 	buf.WriteString("      return;\n")
 	buf.WriteString("    }\n\n")
 
@@ -548,12 +543,12 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("   * Send a message immediately. Throws if not connected.\n")
 	buf.WriteString("   * @param message - The message to send\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  sendSync(message: %s): void {\n", sendType))
+	fmt.Fprintf(&buf, "  sendSync(message: %s): void {\n", sendType)
 	buf.WriteString("    const OPEN = 1; // WebSocket.OPEN\n")
 	buf.WriteString("    if (!this.ws || this.ws.readyState !== OPEN) {\n")
 	buf.WriteString("      throw new Error('WebSocket is not connected');\n")
 	buf.WriteString("    }\n")
-	buf.WriteString(fmt.Sprintf("    this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "message")))
+	fmt.Fprintf(&buf, "    this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "message"))
 	buf.WriteString("  }\n\n")
 
 	// Queue management methods
@@ -599,7 +594,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	// above -- it stores `message` as-is, TypeScript-shaped), so it must be
 	// encoded here at actual send time, exactly like the immediate-send and
 	// sendSync paths above.
-	buf.WriteString(fmt.Sprintf("        this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "msg.data")))
+	fmt.Fprintf(&buf, "        this.ws.send(JSON.stringify(%s));\n", wireEncodeExpr(sendCodecID, "msg.data"))
 	buf.WriteString("        this.messageQueue.shift();\n")
 	buf.WriteString("        msg.resolve();\n")
 	buf.WriteString("      } catch (error) {\n")
@@ -614,7 +609,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("   * Register a handler for incoming messages.\n")
 	buf.WriteString("   * @param handler - Function to call when a message is received\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  onMessage(handler: (message: %s) => void): void {\n", receiveType))
+	fmt.Fprintf(&buf, "  onMessage(handler: (message: %s) => void): void {\n", receiveType)
 	buf.WriteString("    this.on('message', handler);\n")
 	buf.WriteString("  }\n\n")
 
@@ -623,7 +618,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("   * Remove a message handler.\n")
 	buf.WriteString("   * @param handler - The handler to remove\n")
 	buf.WriteString("   */\n")
-	buf.WriteString(fmt.Sprintf("  offMessage(handler: (message: %s) => void): void {\n", receiveType))
+	fmt.Fprintf(&buf, "  offMessage(handler: (message: %s) => void): void {\n", receiveType)
 	buf.WriteString("    this.off('message', handler);\n")
 	buf.WriteString("  }\n\n")
 

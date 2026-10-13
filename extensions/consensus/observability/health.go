@@ -289,8 +289,14 @@ func (hc *HealthChecker) checkStorage(ctx context.Context) internal.HealthCheck 
 		}
 	}
 
-	// Clean up test key
-	hc.storage.Delete(testKey)
+	// Clean up test key. Read and write already worked, so a failed delete
+	// leaves a stray key behind but doesn't make storage unhealthy.
+	if err := hc.storage.Delete(testKey); err != nil {
+		hc.logger.Warn("failed to delete storage health check key",
+			forge.F("key", string(testKey)),
+			forge.F("error", err),
+		)
+	}
 
 	return internal.HealthCheck{
 		Name:      "storage",

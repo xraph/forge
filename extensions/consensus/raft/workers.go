@@ -3,7 +3,7 @@ package raft
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
+	"math"
 	"time"
 
 	"github.com/xraph/forge"
@@ -215,7 +215,7 @@ func (n *Node) runSnapshotManager() {
 			n.mu.RLock()
 			logSize := n.log.Count()
 			lastApplied := n.lastApplied
-			snapshotThreshold := int(n.config.SnapshotThreshold)
+			snapshotThreshold := snapshotThresholdAsInt(n.config.SnapshotThreshold)
 			n.mu.RUnlock()
 
 			if logSize > snapshotThreshold {
@@ -300,7 +300,7 @@ func (n *Node) createSnapshot(index uint64) error {
 
 	n.mu.Unlock()
 
-	atomic.AddInt64(&n.snapshotCount, 1)
+	n.snapshotCount.Add(1)
 
 	n.logger.Info("snapshot created successfully",
 		forge.F("index", index),
@@ -485,4 +485,14 @@ func (n *Node) StepDown(ctx context.Context) error {
 	n.stepDown(n.GetTerm())
 
 	return nil
+}
+
+// snapshotThresholdAsInt clamps the configured threshold to the int range so a
+// huge value can't wrap negative and trigger a snapshot on every tick.
+func snapshotThresholdAsInt(threshold uint64) int {
+	if threshold > math.MaxInt {
+		return math.MaxInt
+	}
+
+	return int(threshold)
 }

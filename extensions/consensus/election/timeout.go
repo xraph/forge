@@ -39,7 +39,7 @@ type TimeoutManager struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	mu      sync.RWMutex
 }
@@ -242,7 +242,7 @@ func (tm *TimeoutManager) getCurrentTimeout() time.Duration {
 // randomTimeout generates a random timeout between min and max.
 func (tm *TimeoutManager) randomTimeout() time.Duration {
 	diff := tm.maxTimeout - tm.minTimeout
-	random := time.Duration(rand.Int63n(int64(diff)))
+	random := time.Duration(rand.Int63n(int64(diff))) //nolint:gosec // G404: election jitter only needs to desynchronise nodes, not be unpredictable
 
 	return tm.minTimeout + random
 }
@@ -273,7 +273,7 @@ func (tm *TimeoutManager) calculateAdaptiveTimeout() time.Duration {
 
 	// Add randomization (±10%)
 	variance := time.Duration(float64(adaptive) * 0.1)
-	random := time.Duration(rand.Int63n(int64(variance*2))) - variance
+	random := time.Duration(rand.Int63n(int64(variance*2))) - variance //nolint:gosec // G404: election jitter only needs to desynchronise nodes, not be unpredictable
 	adaptive += random
 
 	tm.logger.Debug("calculated adaptive timeout",
@@ -313,16 +313,16 @@ func (tm *TimeoutManager) GetCurrentTimeout() time.Duration {
 }
 
 // SetTimeoutRange updates the timeout range.
-func (tm *TimeoutManager) SetTimeoutRange(min, max time.Duration) {
+func (tm *TimeoutManager) SetTimeoutRange(minTimeout, maxTimeout time.Duration) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	tm.minTimeout = min
-	tm.maxTimeout = max
+	tm.minTimeout = minTimeout
+	tm.maxTimeout = maxTimeout
 
 	tm.logger.Info("timeout range updated",
-		forge.F("min", min),
-		forge.F("max", max),
+		forge.F("min", minTimeout),
+		forge.F("max", maxTimeout),
 	)
 }
 

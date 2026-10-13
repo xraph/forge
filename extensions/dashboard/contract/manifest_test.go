@@ -1,4 +1,3 @@
-// manifest_test.go
 package contract
 
 import (
@@ -40,18 +39,23 @@ func TestManifest_YAML_RoundTrip(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(sampleManifestYAML), &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+
 	if m.SchemaVersion != 1 {
 		t.Errorf("SchemaVersion = %d", m.SchemaVersion)
 	}
+
 	if m.Contributor.Name != "users" {
 		t.Errorf("contributor name = %q", m.Contributor.Name)
 	}
+
 	if got := len(m.Intents); got != 2 {
 		t.Fatalf("intents count = %d", got)
 	}
+
 	if m.Intents[0].Kind != IntentKindQuery || m.Intents[1].Kind != IntentKindCommand {
 		t.Errorf("intent kinds = %v, %v", m.Intents[0].Kind, m.Intents[1].Kind)
 	}
+
 	if m.Intents[1].Requires.Warden != "tenantOwner" {
 		t.Errorf("warden ref = %q", m.Intents[1].Requires.Warden)
 	}
@@ -75,13 +79,16 @@ func TestParamSource_Shorthand(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(paramShorthandYAML), &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+
 	q := m.Queries["q1"]
 	if q.Params["shorthand"].From != "route.tenant" {
 		t.Errorf("shorthand not parsed: %+v", q.Params["shorthand"])
 	}
+
 	if q.Params["explicit"].From != "parent.id" {
 		t.Errorf("explicit form lost data: %+v", q.Params["explicit"])
 	}
+
 	if v, ok := q.Params["literal"].Value.(int); !ok || v != 5 {
 		t.Errorf("literal value wrong: %+v", q.Params["literal"].Value)
 	}

@@ -40,6 +40,7 @@ func TestIsOriginAllowed_NoWildcard(t *testing.T) {
 	if m.isOriginAllowed("https://foo.example.com") {
 		t.Fatal("subdomain must not be allowed without a wildcard entry")
 	}
+
 	if !m.isOriginAllowed("https://app.example.com") {
 		t.Fatal("exact origin must be allowed")
 	}

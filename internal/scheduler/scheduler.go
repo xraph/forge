@@ -36,7 +36,6 @@ type Scheduler struct {
 	wake    chan struct{}
 
 	stop   context.CancelFunc
-	ctx    context.Context
 	done   chan struct{}
 	timer  *time.Timer
 	inWork sync.WaitGroup
@@ -104,11 +103,15 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// Detached from the caller's cancellation: the scheduler lives until Stop,
+	// however short-lived the context that started it.
+	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+
 	s.started = true
-	s.ctx, s.stop = context.WithCancel(context.WithoutCancel(ctx))
+	s.stop = stop
 	s.mu.Unlock()
 
-	go s.loop()
+	go s.loop(runCtx)
 
 	return nil
 }
@@ -172,6 +175,7 @@ func (s *Scheduler) cancel(id uint64) {
 			// A run dispatched for this job but not yet started checks this
 			// before calling into the job, so cancel lands even mid-dispatch.
 			j.cancelled = true
+
 			heap.Remove(&s.jobs, i)
 
 			break
@@ -184,7 +188,7 @@ func (s *Scheduler) cancel(id uint64) {
 
 // loop is the single goroutine. It sleeps until the earliest job is due, runs
 // everything that has come due, and sleeps again.
-func (s *Scheduler) loop() {
+func (s *Scheduler) loop(ctx context.Context) {
 	defer close(s.done)
 
 	// One timer for the whole scheduler, rearmed rather than recreated.
@@ -197,7 +201,7 @@ func (s *Scheduler) loop() {
 		if !ok {
 			// Nothing registered: sleep until a job shows up or we stop.
 			select {
-			case <-s.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-s.wake:
 				continue
@@ -207,7 +211,7 @@ func (s *Scheduler) loop() {
 		s.timer.Reset(wait)
 
 		select {
-		case <-s.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-s.wake:
 			// A job was added or removed; recompute the wait.
@@ -218,7 +222,7 @@ func (s *Scheduler) loop() {
 				}
 			}
 		case <-s.timer.C:
-			s.runDue()
+			s.runDue(ctx)
 		}
 	}
 }
@@ -237,7 +241,7 @@ func (s *Scheduler) untilNext() (time.Duration, bool) {
 }
 
 // runDue starts every job whose time has come and schedules its next run.
-func (s *Scheduler) runDue() {
+func (s *Scheduler) runDue(ctx context.Context) {
 	now := time.Now()
 
 	s.mu.Lock()
@@ -251,6 +255,7 @@ func (s *Scheduler) runDue() {
 		// runs long or a process that was descheduled does not come back to a
 		// backlog of overdue runs.
 		j.next = now.Add(j.interval)
+
 		heap.Fix(&s.jobs, 0)
 
 		if j.running {
@@ -291,7 +296,7 @@ func (s *Scheduler) runDue() {
 				return
 			}
 
-			j.run(s.ctx)
+			j.run(ctx)
 		}(j)
 	}
 }
@@ -311,10 +316,17 @@ type job struct {
 // jobHeap orders jobs by next run time.
 type jobHeap []*job
 
-func (h jobHeap) Len() int           { return len(h) }
-func (h jobHeap) Less(i, j int) bool { return h[i].next.Before(h[j].next) }
-func (h *jobHeap) Push(x any)        { j := x.(*job); j.index = len(*h); *h = append(*h, j) }
-func (h jobHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i]; h[i].index, h[j].index = i, j }
+// Every method takes a pointer, even the read-only ones: container/heap is
+// always handed &s.jobs, and one receiver kind keeps the method set whole.
+func (h *jobHeap) Len() int           { return len(*h) }
+func (h *jobHeap) Less(i, j int) bool { return (*h)[i].next.Before((*h)[j].next) }
+func (h *jobHeap) Push(x any)         { j := x.(*job); j.index = len(*h); *h = append(*h, j) }
+
+func (h *jobHeap) Swap(i, j int) {
+	q := *h
+	q[i], q[j] = q[j], q[i]
+	q[i].index, q[j].index = i, j
+}
 
 func (h *jobHeap) Pop() any {
 	old := *h

@@ -150,7 +150,7 @@ func TestGenerateLiveMediaPlaylist(t *testing.T) {
 
 	// Simulate 10 segments (should only include last 5 for DVR)
 	segments := make([]*SegmentInfo, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		segments[i] = &SegmentInfo{
 			Index:    i,
 			Duration: 6.0,
@@ -210,6 +210,7 @@ func TestParseResolution(t *testing.T) {
 		if (err != nil) != tt.wantErr {
 			t.Errorf("ParseResolution(%s) error = %v, wantErr %v",
 				tt.resolution, err, tt.wantErr)
+
 			continue
 		}
 

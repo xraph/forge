@@ -74,7 +74,7 @@ func TestRouter_ConcurrentGroupAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/test1", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/test1", nil)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 		}()

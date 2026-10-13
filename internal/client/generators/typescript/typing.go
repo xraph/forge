@@ -200,7 +200,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
 	buf.WriteString("  private closed: boolean = false;\n")
 	buf.WriteString("  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;\n")
-	buf.WriteString("  private typingUsers: Map<string, Map<string, TypingUser>> = new Map(); // roomId -> (userId -> TypingUser)\n")
+	buf.WriteString("  private typingUsers: Map<string, Map<string, TypingUser>> = new Map(); // roomId -> (userId -> TypingUser)\n") //nolint:dupword // a nested TypeScript Map type, not a typo
 	buf.WriteString("  private typingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // roomId -> timer\n")
 	buf.WriteString("  private startHandlers: Map<string, Set<TypingHandler>> = new Map();\n")
@@ -229,8 +229,8 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 	buf.WriteString("    super();\n")
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
-	buf.WriteString(fmt.Sprintf("      timeoutMs: %d,\n", timeoutMs))
-	buf.WriteString(fmt.Sprintf("      debounceMs: %d,\n", debounceMs))
+	fmt.Fprintf(&buf, "      timeoutMs: %d,\n", timeoutMs)
+	fmt.Fprintf(&buf, "      debounceMs: %d,\n", debounceMs)
 
 	if config.Features.Reconnection {
 		buf.WriteString("      maxReconnectAttempts: 10,\n")
@@ -263,7 +263,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 		wsPath = spec.Streaming.Typing.Path
 	}
 
-	buf.WriteString(fmt.Sprintf("      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath))
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
 
 	if config.IncludeAuth {
 		buf.WriteString("      // Add auth to URL for browser compatibility\n")

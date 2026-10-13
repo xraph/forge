@@ -1,4 +1,3 @@
-// cmd/forge/plugins/dashboard.go
 package plugins
 
 import (
@@ -40,7 +39,7 @@ func (p *DashboardPlugin) Commands() []cli.Command {
 		nil, // No handler, requires subcommand
 	)
 
-	dashboardCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dashboardCmd, cli.NewCommand(
 		"new",
 		"Scaffold a standalone dashboard shell (Vite or Next.js)",
 		p.newDashboard,
@@ -58,11 +57,13 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 	targetArg := ctx.Arg(0)
 	if targetArg == "" {
 		var err error
+
 		targetArg, err = ctx.Prompt("Target directory:")
 		if err != nil {
 			return err
 		}
 	}
+
 	if targetArg == "" {
 		return errors.New("target directory is required")
 	}
@@ -84,6 +85,7 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 	skipped, err := p.scaffoldDashboard(targetDir, name, target)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -97,9 +99,11 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 		// happened" rather than "this one file is yours, untouched."
 		ctx.Println("")
 		ctx.Println(cli.Yellow(fmt.Sprintf("⚠ %d file(s) already existed and were left untouched:", len(skipped))))
+
 		for _, rel := range skipped {
 			ctx.Println("  - " + rel)
 		}
+
 		if target == "next" {
 			ctx.Println("  Merge the @forge-go/dashboard-* entries from the scaffold's package.json")
 			ctx.Println("  dependencies into your own by hand.")
@@ -108,7 +112,8 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Success("Next steps:")
-	ctx.Println(fmt.Sprintf("  1. cd %s", relPath(cwd, targetDir)))
+	ctx.Println("  1. cd " + relPath(cwd, targetDir))
+
 	if target == "next" {
 		ctx.Println("  2. pnpm install")
 		ctx.Println("  3. Add plugins to the `plugins` array in app/admin/[[...slug]]/page.tsx")
@@ -122,12 +127,14 @@ func (p *DashboardPlugin) newDashboard(ctx cli.CommandContext) error {
 		ctx.Println("  4. pnpm build")
 		ctx.Println("  5. Serve dist/ yourself. Forge serves the data at {BasePath}/api/dashboard/v1 and no pages")
 	}
+
 	ctx.Println("")
 	// Said here and not only in the source comments, because the person who
 	// hits it is standing at step 2 with a registry error and no idea whether
 	// they typed something wrong. The @forge-go packages are not published yet.
 	ctx.Println("Note: the @forge-go/dashboard-* packages this depends on are not")
 	ctx.Println("published to npm yet, so step 2 will fail to resolve them until they are.")
+
 	if target != "next" {
 		ctx.Println("")
 		ctx.Println("See README.md in the scaffolded directory for details.")
@@ -237,6 +244,7 @@ func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName, target string) (
 	}
 
 	var skipped []string
+
 	for _, f := range files {
 		dest := filepath.Join(targetDir, f.rel)
 		// Next's App Router paths nest ("app/admin/[[...slug]]/page.tsx"), so
@@ -245,12 +253,15 @@ func (p *DashboardPlugin) scaffoldDashboard(targetDir, rawName, target string) (
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			return skipped, err
 		}
+
 		if _, statErr := os.Stat(dest); statErr == nil {
 			skipped = append(skipped, f.rel)
+
 			continue
 		} else if !os.IsNotExist(statErr) {
 			return skipped, statErr
 		}
+
 		if err := writeTemplate(dest, f.tmpl, data); err != nil {
 			return skipped, err
 		}
@@ -271,9 +282,11 @@ func npmPackageName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	s = npmPackageNamePattern.ReplaceAllString(s, "-")
 	s = strings.TrimLeft(s, "._-")
+
 	s = strings.Trim(s, "-")
 	if s == "" {
 		return "dashboard"
 	}
+
 	return s
 }

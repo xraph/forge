@@ -28,6 +28,7 @@ func TestIntrospectionRanksWithOpenAPI(t *testing.T) {
 	if got.Info.Title != "Live" {
 		t.Errorf("Info.Title = %q, want the introspected title", got.Info.Title)
 	}
+
 	if got.Schemas["Order"].Type != "object" {
 		t.Errorf("Schemas[Order].Type = %q, want the introspected shape", got.Schemas["Order"].Type)
 	}

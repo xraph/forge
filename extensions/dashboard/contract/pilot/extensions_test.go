@@ -19,17 +19,21 @@ func TestExtensionsListHandler_ReturnsRegisteredExtensions(t *testing.T) {
 	}
 
 	h := extensionsListHandler(p)
+
 	res, err := h(context.Background(), struct{}{}, contract.Principal{})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
 	}
+
 	if len(res.Extensions) != 2 {
 		t.Fatalf("got %d, want 2", len(res.Extensions))
 	}
+
 	for _, e := range res.Extensions {
 		if e.Name == "cron" && e.DisplayName != "cron" {
 			t.Errorf("cron display name fallback = %q", e.DisplayName)
 		}
+
 		if e.Name == "auth" && e.DisplayName != "Authentication" {
 			t.Errorf("auth display name = %q, want it kept", e.DisplayName)
 		}

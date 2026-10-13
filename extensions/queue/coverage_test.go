@@ -379,10 +379,10 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 		}
 	}
 
-	var received int32
+	var received atomic.Int32
 
 	handler := func(ctx context.Context, msg Message) error {
-		atomic.AddInt32(&received, 1)
+		received.Add(1)
 
 		return nil
 	}
@@ -407,7 +407,7 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 		t.Errorf("StopConsuming() error = %v", err)
 	}
 
-	receivedCount := atomic.LoadInt32(&received)
+	receivedCount := received.Load()
 	if receivedCount != 5 {
 		t.Errorf("received %d messages, want 5", receivedCount)
 	}

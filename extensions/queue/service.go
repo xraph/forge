@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,13 +67,14 @@ func (s *QueueService) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("queue service stopped")
+
 	return nil
 }
 
 // Health checks if the queue service is healthy.
 func (s *QueueService) Health(ctx context.Context) error {
 	if s.queue == nil {
-		return fmt.Errorf("queue not initialized")
+		return errors.New("queue not initialized")
 	}
 
 	if err := s.queue.Ping(ctx); err != nil {

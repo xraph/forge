@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -12,11 +13,12 @@ import (
 // The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	// No longer storing server - Vessel manages it
 }
 
-// NewExtension creates a new GraphQL extension
+// NewExtension creates a new GraphQL extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -24,13 +26,14 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("graphql", "2.0.0", "GraphQL API with automatic schema generation")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
 	}
 }
 
-// NewExtensionWithConfig creates a new GraphQL extension with a complete config
+// NewExtensionWithConfig creates a new GraphQL extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
@@ -43,13 +46,16 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("graphql", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("graphql: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("graphql: using default/programmatic config", forge.F("error", err.Error()))
 	}
+
 	e.config = finalConfig
 
 	// Validate config before registering constructor
@@ -101,6 +107,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	// GraphQL endpoint (POST for queries/mutations, GET for introspection)
 	if err := router.POST(e.config.Endpoint, func(c forge.Context) error {
 		graphqlService.HTTPHandler().ServeHTTP(c.Response(), c.Request())
+
 		return nil
 	},
 		forge.WithName("graphql"),
@@ -112,6 +119,7 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	if err := router.GET(e.config.Endpoint, func(c forge.Context) error {
 		graphqlService.HTTPHandler().ServeHTTP(c.Response(), c.Request())
+
 		return nil
 	},
 		forge.WithName("graphql-get"),
@@ -124,6 +132,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	if e.config.EnablePlayground {
 		if err := router.GET(e.config.PlaygroundEndpoint, func(c forge.Context) error {
 			graphqlService.PlaygroundHandler().ServeHTTP(c.Response(), c.Request())
+
 			return nil
 		},
 			forge.WithName("graphql-playground"),
@@ -139,6 +148,7 @@ func (e *Extension) Start(ctx context.Context) error {
 		forge.F("endpoint", e.config.Endpoint),
 		forge.F("playground", e.config.EnablePlayground),
 	)
+
 	return nil
 }
 
@@ -152,13 +162,14 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
 // Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.IsStarted() {
-		return fmt.Errorf("graphql extension not started")
+		return errors.New("graphql extension not started")
 	}
 
 	return nil

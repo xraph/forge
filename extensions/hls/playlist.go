@@ -5,19 +5,19 @@ import (
 	"strings"
 )
 
-// PlaylistGenerator generates HLS playlists
+// PlaylistGenerator generates HLS playlists.
 type PlaylistGenerator struct {
 	baseURL string
 }
 
-// NewPlaylistGenerator creates a new playlist generator
+// NewPlaylistGenerator creates a new playlist generator.
 func NewPlaylistGenerator(baseURL string) *PlaylistGenerator {
 	return &PlaylistGenerator{
 		baseURL: baseURL,
 	}
 }
 
-// GenerateMasterPlaylist generates a master playlist
+// GenerateMasterPlaylist generates a master playlist.
 func (g *PlaylistGenerator) GenerateMasterPlaylist(stream *Stream) string {
 	var b strings.Builder
 
@@ -29,18 +29,18 @@ func (g *PlaylistGenerator) GenerateMasterPlaylist(stream *Stream) string {
 	// Add variants
 	for _, variant := range stream.Variants {
 		// Stream info
-		b.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d", variant.Bandwidth))
+		fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d", variant.Bandwidth)
 
 		if variant.Resolution != "" {
-			b.WriteString(fmt.Sprintf(",RESOLUTION=%s", variant.Resolution))
+			fmt.Fprintf(&b, ",RESOLUTION=%s", variant.Resolution)
 		}
 
 		if variant.Codecs != "" {
-			b.WriteString(fmt.Sprintf(",CODECS=\"%s\"", variant.Codecs))
+			fmt.Fprintf(&b, ",CODECS=\"%s\"", variant.Codecs)
 		}
 
 		if variant.FrameRate > 0 {
-			b.WriteString(fmt.Sprintf(",FRAME-RATE=%.3f", variant.FrameRate))
+			fmt.Fprintf(&b, ",FRAME-RATE=%.3f", variant.FrameRate)
 		}
 
 		b.WriteString("\n")
@@ -54,21 +54,22 @@ func (g *PlaylistGenerator) GenerateMasterPlaylist(stream *Stream) string {
 	return b.String()
 }
 
-// GenerateMediaPlaylist generates a media playlist for a variant
+// GenerateMediaPlaylist generates a media playlist for a variant.
 func (g *PlaylistGenerator) GenerateMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo, ended bool) string {
 	var b strings.Builder
 
 	// Header
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n")
-	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", stream.TargetDuration))
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", stream.TargetDuration)
 
 	// Media sequence (first segment number)
 	mediaSequence := 0
 	if len(segments) > 0 {
 		mediaSequence = segments[0].Index
 	}
-	b.WriteString(fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence))
+
+	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence)
 
 	// Playlist type
 	switch stream.Type {
@@ -85,7 +86,7 @@ func (g *PlaylistGenerator) GenerateMediaPlaylist(stream *Stream, variant *Varia
 	// Add segments
 	for _, segment := range segments {
 		// Segment duration
-		b.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", segment.Duration))
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n", segment.Duration)
 
 		// Segment URL
 		segmentURL := fmt.Sprintf("%s/%s/variants/%s/segment_%d.ts",
@@ -101,14 +102,14 @@ func (g *PlaylistGenerator) GenerateMediaPlaylist(stream *Stream, variant *Varia
 	return b.String()
 }
 
-// GenerateLiveMediaPlaylist generates a media playlist for live streaming
+// GenerateLiveMediaPlaylist generates a media playlist for live streaming.
 func (g *PlaylistGenerator) GenerateLiveMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo) string {
 	var b strings.Builder
 
 	// Header
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n")
-	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", stream.TargetDuration))
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", stream.TargetDuration)
 
 	// Add segments (only last N segments based on DVR window)
 	startIdx := 0
@@ -121,7 +122,8 @@ func (g *PlaylistGenerator) GenerateLiveMediaPlaylist(stream *Stream, variant *V
 	if len(segments) > 0 {
 		mediaSequence = segments[startIdx].Index
 	}
-	b.WriteString(fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence))
+
+	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence)
 
 	b.WriteString("\n")
 
@@ -129,7 +131,7 @@ func (g *PlaylistGenerator) GenerateLiveMediaPlaylist(stream *Stream, variant *V
 		segment := segments[i]
 
 		// Segment duration
-		b.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", segment.Duration))
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n", segment.Duration)
 
 		// Segment URL
 		segmentURL := fmt.Sprintf("%s/%s/variants/%s/segment_%d.ts",
@@ -140,13 +142,14 @@ func (g *PlaylistGenerator) GenerateLiveMediaPlaylist(stream *Stream, variant *V
 	return b.String()
 }
 
-// GenerateVODMediaPlaylist generates a media playlist for VOD content
+// GenerateVODMediaPlaylist generates a media playlist for VOD content.
 func (g *PlaylistGenerator) GenerateVODMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo) string {
 	playlist := g.GenerateMediaPlaylist(stream, variant, segments, true)
+
 	return playlist
 }
 
-// ParseResolution parses a resolution string (e.g., "1920x1080") into width and height
+// ParseResolution parses a resolution string (e.g., "1920x1080") into width and height.
 func ParseResolution(resolution string) (width, height int, err error) {
 	parts := strings.Split(resolution, "x")
 	if len(parts) != 2 {
@@ -166,12 +169,12 @@ func ParseResolution(resolution string) (width, height int, err error) {
 	return width, height, nil
 }
 
-// FormatResolution formats width and height into a resolution string
+// FormatResolution formats width and height into a resolution string.
 func FormatResolution(width, height int) string {
 	return fmt.Sprintf("%dx%d", width, height)
 }
 
-// GenerateCodecsString generates a codecs string for HLS
+// GenerateCodecsString generates a codecs string for HLS.
 func GenerateCodecsString(videoCodec, audioCodec string) string {
 	var codecs []string
 
@@ -182,8 +185,7 @@ func GenerateCodecsString(videoCodec, audioCodec string) string {
 		codecs = append(codecs, "hev1.1.6.L93.B0") // H.265 Main Profile
 	}
 
-	switch audioCodec {
-	case "aac":
+	if audioCodec == "aac" {
 		codecs = append(codecs, "mp4a.40.2") // AAC-LC
 	}
 

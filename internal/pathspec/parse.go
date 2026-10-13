@@ -1,6 +1,7 @@
 package pathspec
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // reachable instead of dead.
 func Parse(raw string) (Pattern, error) {
 	if raw == "" {
-		return Pattern{}, fmt.Errorf("pathspec: empty path")
+		return Pattern{}, errors.New("pathspec: empty path")
 	}
 
 	if raw[0] != '/' {
@@ -120,10 +121,8 @@ func parseConstraint(spec, raw string) (Constraint, []string, error) {
 		}
 
 		values := strings.Split(body, "|")
-		for _, v := range values {
-			if v == "" {
-				return ConstraintNone, nil, fmt.Errorf("pathspec: path %q has an empty enum value", raw)
-			}
+		if slices.Contains(values, "") {
+			return ConstraintNone, nil, fmt.Errorf("pathspec: path %q has an empty enum value", raw)
 		}
 
 		return ConstraintEnum, values, nil

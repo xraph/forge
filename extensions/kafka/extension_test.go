@@ -95,6 +95,7 @@ func TestExtensionRegisterRequireConfigFails(t *testing.T) {
 func TestExtensionClient(t *testing.T) {
 	// Before registration, resolving from container should fail
 	app := createTestApp(t)
+
 	_, err := forge.Inject[Kafka](app.Container())
 	if err == nil {
 		t.Error("expected error resolving kafka client before registration")
@@ -117,6 +118,7 @@ func TestExtensionVersion(t *testing.T) {
 
 func TestExtensionDescription(t *testing.T) {
 	ext := NewExtension()
+
 	expected := "Kafka client with producer and consumer support"
 	if ext.Description() != expected {
 		t.Errorf("expected extension description '%s', got %s", expected, ext.Description())
@@ -148,13 +150,14 @@ func TestExtensionHealthNotInitialized(t *testing.T) {
 	ext := NewExtension().(*Extension)
 
 	ctx := context.Background()
+
 	err := ext.Health(ctx)
 	if err == nil {
 		t.Error("expected health check to fail when client not initialized")
 	}
 }
 
-// Helper function to create a test app
+// Helper function to create a test app.
 func createTestApp(t *testing.T) forge.App {
 	t.Helper()
 

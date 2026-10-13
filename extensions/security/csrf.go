@@ -75,7 +75,7 @@ type CSRFConfig struct {
 
 // DefaultCSRFConfig returns the default CSRF configuration.
 func DefaultCSRFConfig() CSRFConfig {
-	return CSRFConfig{
+	return CSRFConfig{ //nolint:gosec // G101: "csrf_token" and the token lookup are cookie and header names, not credentials
 		Enabled:             true,
 		TokenLength:         32,
 		TokenLookup:         "header:X-CSRF-Token",

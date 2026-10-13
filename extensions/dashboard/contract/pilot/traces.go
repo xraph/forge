@@ -30,7 +30,9 @@ func tracesListHandler(p TracesProvider) func(ctx context.Context, _ struct{}, _
 		if p == nil {
 			return TracesList{}, &contract.Error{Code: contract.CodeUnavailable, Message: "traces provider not configured"}
 		}
+
 		summaries, stats := p.ListTraces(collector.TraceFilter{Limit: 200})
+
 		out := make([]TraceSummaryDTO, 0, len(summaries))
 		for _, s := range summaries {
 			out = append(out, TraceSummaryDTO{
@@ -43,6 +45,7 @@ func tracesListHandler(p TracesProvider) func(ctx context.Context, _ struct{}, _
 				Protocol:     s.Protocol,
 			})
 		}
+
 		return TracesList{Traces: out, Total: stats.TotalTraces}, nil
 	}
 }
@@ -52,13 +55,16 @@ func traceDetailHandler(p TracesProvider) func(ctx context.Context, in TraceDeta
 		if in.ID == "" {
 			return nil, &contract.Error{Code: contract.CodeBadRequest, Message: "id is required"}
 		}
+
 		if p == nil {
 			return nil, &contract.Error{Code: contract.CodeUnavailable, Message: "traces provider not configured"}
 		}
+
 		detail := p.GetTrace(in.ID)
 		if detail == nil {
 			return nil, &contract.Error{Code: contract.CodeNotFound, Message: "trace " + in.ID + " not found"}
 		}
+
 		return detail, nil
 	}
 }

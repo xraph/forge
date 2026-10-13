@@ -38,6 +38,7 @@ func TestObservabilityMiddleware(t *testing.T) {
 	called := false
 	handler := mw(ctx, func(ctx context.Context) graphql.ResponseHandler {
 		called = true
+
 		return func(ctx context.Context) *graphql.Response {
 			return &graphql.Response{}
 		}

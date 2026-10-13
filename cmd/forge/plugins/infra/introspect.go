@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/infra/introspect.go
 package infra
 
 import (

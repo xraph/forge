@@ -52,7 +52,7 @@ type Room interface {
 	IsPrivate() bool
 	SetPrivate(ctx context.Context, private bool) error
 	GetMaxMembers() int
-	SetMaxMembers(ctx context.Context, max int) error
+	SetMaxMembers(ctx context.Context, maxMembers int) error
 	IsArchived() bool
 	Archive(ctx context.Context) error
 	Unarchive(ctx context.Context) error

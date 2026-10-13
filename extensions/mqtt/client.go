@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// mqttClient implements MQTT interface
+// mqttClient implements MQTT interface.
 type mqttClient struct {
 	config        Config
 	logger        forge.Logger
@@ -31,7 +32,7 @@ type subscription struct {
 	Handler MessageHandler
 }
 
-// NewMQTTClient creates a new MQTT client
+// NewMQTTClient creates a new MQTT client.
 func NewMQTTClient(config Config, logger forge.Logger, metrics forge.Metrics) MQTT {
 	return &mqttClient{
 		config:        config,
@@ -57,6 +58,7 @@ func (c *mqttClient) Connect(ctx context.Context) error {
 	if c.config.Username != "" {
 		opts.SetUsername(c.config.Username)
 	}
+
 	if c.config.Password != "" {
 		opts.SetPassword(c.config.Password)
 	}
@@ -78,6 +80,7 @@ func (c *mqttClient) Connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to build TLS config: %w", err)
 		}
+
 		opts.SetTLSConfig(tlsConfig)
 	}
 
@@ -140,7 +143,7 @@ func (c *mqttClient) Connect(ctx context.Context) error {
 
 	token := c.client.Connect()
 	if !token.WaitTimeout(c.config.ConnectTimeout) {
-		return fmt.Errorf("connection timeout")
+		return errors.New("connection timeout")
 	}
 
 	if err := token.Error(); err != nil {
@@ -151,6 +154,7 @@ func (c *mqttClient) Connect(ctx context.Context) error {
 	c.stats.ConnectTime = time.Now()
 
 	c.logger.Info("mqtt client connected", forge.F("broker", c.config.Broker))
+
 	return nil
 }
 
@@ -159,13 +163,14 @@ func (c *mqttClient) Disconnect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.client == nil || !c.client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	c.client.Disconnect(250) // 250ms quiesce period
 	c.stats.Connected = false
 
 	c.logger.Info("mqtt client disconnected")
+
 	return nil
 }
 
@@ -181,12 +186,12 @@ func (c *mqttClient) Reconnect() error {
 	defer c.mu.Unlock()
 
 	if c.client == nil {
-		return fmt.Errorf("client not initialized")
+		return errors.New("client not initialized")
 	}
 
 	token := c.client.Connect()
 	if !token.WaitTimeout(c.config.ConnectTimeout) {
-		return fmt.Errorf("reconnection timeout")
+		return errors.New("reconnection timeout")
 	}
 
 	if err := token.Error(); err != nil {
@@ -196,17 +201,18 @@ func (c *mqttClient) Reconnect() error {
 	return nil
 }
 
-func (c *mqttClient) Publish(topic string, qos byte, retained bool, payload interface{}) error {
+func (c *mqttClient) Publish(topic string, qos byte, retained bool, payload any) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
 
 	if client == nil || !client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	// Convert payload to bytes
 	var data []byte
+
 	switch v := payload.(type) {
 	case []byte:
 		data = v
@@ -214,6 +220,7 @@ func (c *mqttClient) Publish(topic string, qos byte, retained bool, payload inte
 		data = []byte(v)
 	default:
 		var err error
+
 		data, err = json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal payload: %w", err)
@@ -225,6 +232,7 @@ func (c *mqttClient) Publish(topic string, qos byte, retained bool, payload inte
 
 	if err := token.Error(); err != nil {
 		c.logger.Error("mqtt publish failed", forge.F("topic", topic), forge.F("error", err))
+
 		return fmt.Errorf("publish failed: %w", err)
 	}
 
@@ -243,17 +251,18 @@ func (c *mqttClient) Publish(topic string, qos byte, retained bool, payload inte
 	return nil
 }
 
-func (c *mqttClient) PublishAsync(topic string, qos byte, retained bool, payload interface{}) error {
+func (c *mqttClient) PublishAsync(topic string, qos byte, retained bool, payload any) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
 
 	if client == nil || !client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	// Convert payload to bytes
 	var data []byte
+
 	switch v := payload.(type) {
 	case []byte:
 		data = v
@@ -261,6 +270,7 @@ func (c *mqttClient) PublishAsync(topic string, qos byte, retained bool, payload
 		data = []byte(v)
 	default:
 		var err error
+
 		data, err = json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal payload: %w", err)
@@ -272,6 +282,7 @@ func (c *mqttClient) PublishAsync(topic string, qos byte, retained bool, payload
 	// Handle result in background
 	go func() {
 		token.Wait()
+
 		if err := token.Error(); err != nil {
 			c.logger.Error("mqtt async publish failed", forge.F("topic", topic), forge.F("error", err))
 		} else {
@@ -293,7 +304,7 @@ func (c *mqttClient) Subscribe(topic string, qos byte, handler MessageHandler) e
 	defer c.mu.Unlock()
 
 	if c.client == nil || !c.client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	// Wrap handler to track stats
@@ -326,6 +337,7 @@ func (c *mqttClient) Subscribe(topic string, qos byte, handler MessageHandler) e
 	c.stats.Subscriptions = len(c.subscriptions)
 
 	c.logger.Info("mqtt subscribed", forge.F("topic", topic), forge.F("qos", qos))
+
 	return nil
 }
 
@@ -334,7 +346,7 @@ func (c *mqttClient) SubscribeMultiple(filters map[string]byte, handler MessageH
 	defer c.mu.Unlock()
 
 	if c.client == nil || !c.client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	// Wrap handler to track stats
@@ -369,6 +381,7 @@ func (c *mqttClient) SubscribeMultiple(filters map[string]byte, handler MessageH
 	c.stats.Subscriptions = len(c.subscriptions)
 
 	c.logger.Info("mqtt subscribed to multiple topics", forge.F("count", len(filters)))
+
 	return nil
 }
 
@@ -377,7 +390,7 @@ func (c *mqttClient) Unsubscribe(topics ...string) error {
 	defer c.mu.Unlock()
 
 	if c.client == nil || !c.client.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	token := c.client.Unsubscribe(topics...)
@@ -394,6 +407,7 @@ func (c *mqttClient) Unsubscribe(topics ...string) error {
 	c.stats.Subscriptions = len(c.subscriptions)
 
 	c.logger.Info("mqtt unsubscribed", forge.F("topics", topics))
+
 	return nil
 }
 
@@ -460,16 +474,16 @@ func (c *mqttClient) GetSubscriptions() []SubscriptionInfo {
 
 func (c *mqttClient) Ping(ctx context.Context) error {
 	if !c.IsConnected() {
-		return fmt.Errorf("not connected")
+		return errors.New("not connected")
 	}
 
 	return nil
 }
 
-// buildTLSConfig creates TLS configuration
+// buildTLSConfig creates TLS configuration.
 func (c *mqttClient) buildTLSConfig() (*tls.Config, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: c.config.TLSSkipVerify,
+		InsecureSkipVerify: c.config.TLSSkipVerify, //nolint:gosec // G402: opt-in through the tls_skip_verify config option, off by default
 	}
 
 	if c.config.TLSCertFile != "" && c.config.TLSKeyFile != "" {
@@ -477,6 +491,7 @@ func (c *mqttClient) buildTLSConfig() (*tls.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client cert: %w", err)
 		}
+
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
@@ -488,7 +503,7 @@ func (c *mqttClient) buildTLSConfig() (*tls.Config, error) {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to append CA cert")
+			return nil, errors.New("failed to append CA cert")
 		}
 
 		tlsConfig.RootCAs = caCertPool
@@ -497,7 +512,7 @@ func (c *mqttClient) buildTLSConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// Metrics recording methods
+// Metrics recording methods.
 func (c *mqttClient) recordConnectionMetric(connected bool) {
 	if c.metrics == nil {
 		return

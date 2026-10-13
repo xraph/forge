@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,11 +19,13 @@ import (
 // when all we care about is the Remote() lookup.
 type remoteRegistry struct {
 	contract.Registry
+
 	endpoints map[string]contract.RemoteEndpoint
 }
 
 func (r *remoteRegistry) Remote(name string) (contract.RemoteEndpoint, bool) {
 	ep, ok := r.endpoints[name]
+
 	return ep, ok
 }
 
@@ -30,7 +33,10 @@ func TestForwardingDispatcher_NotFoundWhenNoRemote(t *testing.T) {
 	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{}}
 	f := NewForwardingDispatcher(reg)
 	_, _, err := f.Dispatch(context.Background(), contract.Request{Contributor: "missing"}, contract.Principal{})
-	ce, ok := err.(*contract.Error)
+
+	ce := &contract.Error{}
+
+	ok := errors.As(err, &ce)
 	if !ok || ce.Code != contract.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %v", err)
 	}
@@ -61,7 +67,7 @@ func TestForwardingDispatcher_PropagatesUpstreamCookies(t *testing.T) {
 	// Mimic the host transport's wiring: stash the live ResponseWriter on ctx
 	// via dashauth.WithHTTP so the forwarding dispatcher can find it.
 	rec := httptest.NewRecorder()
-	hostReq := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", strings.NewReader(""))
+	hostReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", strings.NewReader(""))
 	ctx := dashauth.WithHTTP(context.Background(), rec, hostReq)
 
 	_, _, err := f.Dispatch(ctx, contract.Request{
@@ -72,13 +78,16 @@ func TestForwardingDispatcher_PropagatesUpstreamCookies(t *testing.T) {
 	}
 
 	got := rec.Result().Cookies()
+
 	names := map[string]string{}
 	for _, c := range got {
 		names[c.Name] = c.Value
 	}
+
 	if names["auth_token"] != "tkn_xyz" {
 		t.Errorf("auth_token cookie not propagated: %v", names)
 	}
+
 	if names["csrf_token"] != "abc" {
 		t.Errorf("csrf_token cookie not propagated: %v", names)
 	}
@@ -114,11 +123,14 @@ func TestForwardingDispatcher_CookiesWithoutHostWriter(t *testing.T) {
 func TestForwardingDispatcher_RoundTripsSuccessEnvelope(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req contract.Request
+
 		body, _ := io.ReadAll(r.Body)
+
 		_ = json.Unmarshal(body, &req)
 		if req.Intent != "things.list" {
 			t.Errorf("upstream got intent=%q, want things.list", req.Intent)
 		}
+
 		_ = json.NewEncoder(w).Encode(contract.Response{
 			OK:       true,
 			Envelope: "v1",
@@ -144,9 +156,11 @@ func TestForwardingDispatcher_RoundTripsSuccessEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
+
 	if string(data) != `{"items":["a","b"]}` {
 		t.Errorf("data = %s", data)
 	}
+
 	if meta.IntentVersion != 1 {
 		t.Errorf("meta.IntentVersion = %d", meta.IntentVersion)
 	}
@@ -169,7 +183,10 @@ func TestForwardingDispatcher_SurfacesUpstreamError(t *testing.T) {
 	}}
 	f := NewForwardingDispatcher(reg)
 	_, _, err := f.Dispatch(context.Background(), contract.Request{Contributor: "things", Intent: "x"}, contract.Principal{})
-	ce, ok := err.(*contract.Error)
+
+	ce := &contract.Error{}
+
+	ok := errors.As(err, &ce)
 	if !ok || ce.Code != contract.CodeBadRequest || !strings.Contains(ce.Message, "upstream-said-no") {
 		t.Errorf("expected upstream error to surface verbatim, got %v", err)
 	}
@@ -177,6 +194,7 @@ func TestForwardingDispatcher_SurfacesUpstreamError(t *testing.T) {
 
 func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
 	var sawAuthz, sawCookie, sawAPIKey string
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawAuthz = r.Header.Get("X-Forwarded-Authorization")
 		sawCookie = r.Header.Get("X-Forwarded-Cookie")
@@ -191,7 +209,7 @@ func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
 	f := NewForwardingDispatcher(reg)
 
 	// Build an inbound request carrying user auth + cookie.
-	inbound := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", nil)
+	inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", nil)
 	inbound.Header.Set("Authorization", "Bearer user-token")
 	inbound.Header.Set("Cookie", "session=abc")
 	ctx := dashauth.WithHTTP(context.Background(), httptest.NewRecorder(), inbound)
@@ -200,12 +218,15 @@ func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
+
 	if sawAuthz != "Bearer user-token" {
 		t.Errorf("upstream did not see forwarded user auth, got %q", sawAuthz)
 	}
+
 	if sawCookie != "session=abc" {
 		t.Errorf("upstream did not see forwarded cookie, got %q", sawCookie)
 	}
+
 	if sawAPIKey != "Bearer dashboard-secret" {
 		t.Errorf("upstream did not see dashboard API key, got %q", sawAPIKey)
 	}
@@ -217,10 +238,15 @@ func TestForwardingDispatcher_NetworkErrorMapsToCodeUnavailable(t *testing.T) {
 		"things": {BaseURL: "http://198.51.100.1:65535"},
 	}}
 	f := NewForwardingDispatcher(reg)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 50*1000*1000) // 50ms
 	defer cancel()
+
 	_, _, err := f.Dispatch(ctx, contract.Request{Contributor: "things", Intent: "x"}, contract.Principal{})
-	ce, ok := err.(*contract.Error)
+
+	ce := &contract.Error{}
+
+	ok := errors.As(err, &ce)
 	if !ok || ce.Code != contract.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable, got %v", err)
 	}
@@ -239,6 +265,7 @@ func TestFetchManifest_DecodesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
+
 	if m.Contributor.Name != "things" {
 		t.Errorf("manifest name = %q", m.Contributor.Name)
 	}
@@ -250,6 +277,7 @@ func TestFetchManifest_Non2xx(t *testing.T) {
 		_, _ = w.Write([]byte("no manifest here"))
 	}))
 	defer upstream.Close()
+
 	_, err := FetchManifest(context.Background(), upstream.URL, "", nil)
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("expected 404 surfaced in error, got %v", err)
@@ -261,6 +289,7 @@ func TestFetchManifest_MissingContributorName(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(contract.ContractManifest{SchemaVersion: 1})
 	}))
 	defer upstream.Close()
+
 	_, err := FetchManifest(context.Background(), upstream.URL, "", nil)
 	if err == nil || !strings.Contains(err.Error(), "missing contributor.name") {
 		t.Errorf("expected missing-name error, got %v", err)

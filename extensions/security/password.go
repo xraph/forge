@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -244,7 +245,12 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 		return nil, nil, nil, ErrInvalidHash
 	}
 
-	params.SaltLength = uint32(len(salt))
+	// Widen to uint64 so the comparison also compiles where int is 32 bits.
+	if uint64(len(salt)) > math.MaxUint32 {
+		return nil, nil, nil, ErrInvalidHash
+	}
+
+	params.SaltLength = uint32(len(salt)) //nolint:gosec // G115: bounded by the MaxUint32 check above; gosec can't see through the uint64 widening
 
 	// Decode hash
 	hash, err := base64.RawStdEncoding.DecodeString(parts[5])
@@ -252,7 +258,11 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 		return nil, nil, nil, ErrInvalidHash
 	}
 
-	params.KeyLength = uint32(len(hash))
+	if uint64(len(hash)) > math.MaxUint32 {
+		return nil, nil, nil, ErrInvalidHash
+	}
+
+	params.KeyLength = uint32(len(hash)) //nolint:gosec // G115: bounded by the MaxUint32 check above; gosec can't see through the uint64 widening
 
 	return params, salt, hash, nil
 }

@@ -17,14 +17,16 @@ func TestTraceStore_RetainedHeapIsBounded(t *testing.T) {
 	ts := NewTraceStore(50, time.Hour, WithMaxSpansPerTrace(20))
 
 	runtime.GC()
+
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	for i := 0; i < 200000; i++ {
+	for range 200000 {
 		ts.AddSpan(span("trace-a", "span"))
 	}
 
 	runtime.GC()
+
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
 
@@ -46,14 +48,16 @@ func TestTraceStore_ClosedGateRetainsNothing(t *testing.T) {
 	ts.SetIngestGate(func() bool { return false })
 
 	runtime.GC()
+
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	for i := 0; i < 200000; i++ {
+	for i := range 200000 {
 		ts.AddSpan(span(fmt.Sprintf("trace-%d", i%1000), "span"))
 	}
 
 	runtime.GC()
+
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
 

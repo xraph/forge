@@ -1,8 +1,8 @@
 package typescript
 
 import (
-	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -210,11 +210,9 @@ func tsPropertyKey(name string) string {
 		return name
 	}
 
-	// json.Marshal never errors on a Go string: strings are always valid
-	// UTF-8-marshalable values (invalid UTF-8 bytes are replaced, not rejected).
-	b, _ := json.Marshal(name)
-
-	return string(b)
+	// jsonString is json.Marshal with the (unreachable, for a string) error
+	// handled, so the escaping is exactly what it always was.
+	return jsonString(name)
 }
 
 // generateTreeNode recursively generates TypeScript object literals.
@@ -372,8 +370,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		// about renaming machinery that isn't running at all.
 		if codecsNeeded(config) {
 			if codecID, warning := requestBodyCodecRef(endpoint); codecID != "" {
-				literal, _ := json.Marshal(codecID)
-				fmt.Fprintf(buf, "%s  bodyCodec: CODECS[%s],\n", indentStr, literal)
+				fmt.Fprintf(buf, "%s  bodyCodec: CODECS[%s],\n", indentStr, jsonString(codecID))
 			} else if warning != "" {
 				r.warnings = append(r.warnings, warning)
 			}
@@ -426,8 +423,7 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 	// FieldOverrides.
 	if codecsNeeded(config) {
 		if codecID, warning := responseCodecRef(endpoint); codecID != "" {
-			literal, _ := json.Marshal(codecID)
-			fmt.Fprintf(buf, "%s  responseCodec: CODECS[%s],\n", indentStr, literal)
+			fmt.Fprintf(buf, "%s  responseCodec: CODECS[%s],\n", indentStr, jsonString(codecID))
 		} else if warning != "" {
 			r.warnings = append(r.warnings, warning)
 		}
@@ -614,6 +610,7 @@ func (r *RESTGenerator) requestBodyParamType(endpoint *client.Endpoint, spec *cl
 		return ""
 	case isJSONMediaType(contentType):
 		media := endpoint.RequestBody.Content[contentType]
+
 		return r.getSchemaTypeName(media.Schema, spec)
 	case contentType == "multipart/form-data":
 		return "FormData"
@@ -790,6 +787,7 @@ func responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
 	sort.Ints(codes)
 
 	var ref string
+
 	sawJSON := false
 
 	for _, code := range codes {
@@ -1015,10 +1013,8 @@ func (r *RESTGenerator) responseBodyType(resp *client.Response, spec *client.API
 		return "any"
 	}
 
-	for _, contentType := range sortedKeys(resp.Content) {
-		if isTextMediaType(contentType) {
-			return "string"
-		}
+	if slices.ContainsFunc(sortedKeys(resp.Content), isTextMediaType) {
+		return "string"
 	}
 
 	return "Blob"

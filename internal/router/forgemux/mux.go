@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -108,8 +109,8 @@ func (m *Mux) UseGlobal(middleware func(http.Handler) http.Handler) {
 
 	// Compose in reverse so the first registered middleware is outermost.
 	handler := http.Handler(http.HandlerFunc(m.dispatch))
-	for i := len(m.global) - 1; i >= 0; i-- {
-		handler = m.global[i](handler)
+	for _, v := range slices.Backward(m.global) {
+		handler = v(handler)
 	}
 
 	m.chain.Store(&handler)

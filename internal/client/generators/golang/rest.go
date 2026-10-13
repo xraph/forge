@@ -44,7 +44,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	// Imports
 	buf.WriteString("import (\n")
@@ -131,10 +131,10 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	methodName := r.generateMethodName(endpoint)
 
 	// Generate method signature
-	buf.WriteString(fmt.Sprintf("// %s %s\n", methodName, endpoint.Summary))
+	fmt.Fprintf(&buf, "// %s %s\n", methodName, endpoint.Summary)
 
 	if endpoint.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s\n", endpoint.Description))
+		fmt.Fprintf(&buf, "// %s\n", endpoint.Description)
 	}
 
 	if endpoint.Deprecated {
@@ -145,7 +145,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	params := r.generateParameters(endpoint, spec)
 	returnType := r.generateReturnType(endpoint, spec)
 
-	buf.WriteString(fmt.Sprintf("func (c *Client) %s(ctx context.Context", methodName))
+	fmt.Fprintf(&buf, "func (c *Client) %s(ctx context.Context", methodName)
 
 	if params != "" {
 		buf.WriteString(", " + params)
@@ -154,7 +154,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	buf.WriteString(") ")
 
 	if returnType != "" {
-		buf.WriteString(fmt.Sprintf("(*%s, error) {\n", returnType))
+		fmt.Fprintf(&buf, "(*%s, error) {\n", returnType)
 	} else {
 		buf.WriteString("error {\n")
 	}
@@ -163,7 +163,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 
 	// Build path with path parameters
 	pathExpr := r.generatePathExpression(endpoint)
-	buf.WriteString(fmt.Sprintf("\tpath := %s\n\n", pathExpr))
+	fmt.Fprintf(&buf, "\tpath := %s\n\n", pathExpr)
 
 	// Add query parameters
 	if len(endpoint.QueryParams) > 0 {
@@ -172,10 +172,10 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toGoParamName(param.Name)
 			if param.Required {
-				buf.WriteString(fmt.Sprintf("\tq.Set(\"%s\", fmt.Sprint(%s))\n", param.Name, paramName))
+				fmt.Fprintf(&buf, "\tq.Set(\"%s\", fmt.Sprint(%s))\n", param.Name, paramName)
 			} else {
-				buf.WriteString(fmt.Sprintf("\tif %s != nil {\n", paramName))
-				buf.WriteString(fmt.Sprintf("\t\tq.Set(\"%s\", fmt.Sprint(*%s))\n", param.Name, paramName))
+				fmt.Fprintf(&buf, "\tif %s != nil {\n", paramName)
+				fmt.Fprintf(&buf, "\t\tq.Set(\"%s\", fmt.Sprint(*%s))\n", param.Name, paramName)
 				buf.WriteString("\t}\n")
 			}
 		}
@@ -198,14 +198,14 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	if returnType != "" {
 		resultVar = "&result"
 
-		buf.WriteString(fmt.Sprintf("\tvar result %s\n", returnType))
+		fmt.Fprintf(&buf, "\tvar result %s\n", returnType)
 	}
 
 	// Make the request
-	buf.WriteString(fmt.Sprintf("\terr := c.doRequest(ctx, \"%s\", path, %s, %s)\n",
+	fmt.Fprintf(&buf, "\terr := c.doRequest(ctx, \"%s\", path, %s, %s)\n",
 		endpoint.Method,
 		r.orNil(requestVar),
-		r.orNil(resultVar)))
+		r.orNil(resultVar))
 
 	buf.WriteString("\tif err != nil {\n")
 
@@ -332,19 +332,17 @@ func (r *RESTGenerator) toGoParamName(name string) string {
 		return name
 	}
 
-	result := strings.ToLower(parts[0])
+	var result strings.Builder
 
-	var resultSb303 strings.Builder
+	result.WriteString(strings.ToLower(parts[0]))
 
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
-			resultSb303.WriteString(strings.ToUpper(parts[i][:1]) + parts[i][1:])
+			result.WriteString(strings.ToUpper(parts[i][:1]) + parts[i][1:])
 		}
 	}
 
-	result += resultSb303.String()
-
-	return result
+	return result.String()
 }
 
 // orNil returns the variable name or "nil".

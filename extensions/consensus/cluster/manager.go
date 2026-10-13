@@ -24,7 +24,7 @@ type Manager struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	mu      sync.RWMutex
@@ -476,11 +476,12 @@ func (m *Manager) checkNodeHealth() {
 			state.FailureCount++
 
 			// Update status based on failure count
-			if state.FailureCount >= 3 {
+			switch {
+			case state.FailureCount >= 3:
 				state.Info.Status = internal.StatusFailed
-			} else if state.FailureCount >= 2 {
+			case state.FailureCount >= 2:
 				state.Info.Status = internal.StatusSuspected
-			} else {
+			default:
 				state.Info.Status = internal.StatusInactive
 			}
 		}

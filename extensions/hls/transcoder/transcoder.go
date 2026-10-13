@@ -3,6 +3,7 @@ package transcoder
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"sync"
 )
 
-// Transcoder handles video transcoding for HLS
+// Transcoder handles video transcoding for HLS.
 type Transcoder struct {
 	config       Config
 	activeJobs   map[string]*Job
@@ -20,7 +21,7 @@ type Transcoder struct {
 	semaphore    chan struct{} // Limits concurrent transcodes
 }
 
-// Config holds transcoder configuration
+// Config holds transcoder configuration.
 type Config struct {
 	FFmpegPath          string
 	FFprobePath         string
@@ -30,7 +31,7 @@ type Config struct {
 	HardwareAccelType   string // "cuda", "qsv", "videotoolbox", etc.
 }
 
-// Profile defines a transcoding profile
+// Profile defines a transcoding profile.
 type Profile struct {
 	Name       string
 	Width      int
@@ -43,7 +44,7 @@ type Profile struct {
 	CRF        int    // Constant Rate Factor (quality): 18-28 for h264
 }
 
-// Job represents a transcoding job
+// Job represents a transcoding job.
 type Job struct {
 	ID         string
 	InputPath  string
@@ -56,7 +57,7 @@ type Job struct {
 	mu         sync.RWMutex
 }
 
-// JobStatus represents the status of a transcoding job
+// JobStatus represents the status of a transcoding job.
 type JobStatus string
 
 const (
@@ -67,7 +68,7 @@ const (
 	JobStatusCancelled JobStatus = "cancelled"
 )
 
-// TranscodeResult represents the result of transcoding
+// TranscodeResult represents the result of transcoding.
 type TranscodeResult struct {
 	OutputPath string
 	Duration   float64
@@ -75,17 +76,20 @@ type TranscodeResult struct {
 	Bitrate    int64
 }
 
-// NewTranscoder creates a new transcoder
+// NewTranscoder creates a new transcoder.
 func NewTranscoder(config Config) *Transcoder {
 	if config.FFmpegPath == "" {
 		config.FFmpegPath = "ffmpeg"
 	}
+
 	if config.FFprobePath == "" {
 		config.FFprobePath = "ffprobe"
 	}
+
 	if config.MaxConcurrentJobs <= 0 {
 		config.MaxConcurrentJobs = 4
 	}
+
 	if config.TempDir == "" {
 		config.TempDir = os.TempDir()
 	}
@@ -97,7 +101,7 @@ func NewTranscoder(config Config) *Transcoder {
 	}
 }
 
-// TranscodeFile transcodes a video file to a specific profile
+// TranscodeFile transcodes a video file to a specific profile.
 func (t *Transcoder) TranscodeFile(ctx context.Context, inputPath string, profile Profile) (*TranscodeResult, error) {
 	// Acquire semaphore to limit concurrency
 	select {
@@ -118,9 +122,10 @@ func (t *Transcoder) TranscodeFile(ctx context.Context, inputPath string, profil
 	// Build FFmpeg command
 	args := t.buildTranscodeArgs(inputPath, outputPath, profile)
 
-	cmd := exec.CommandContext(ctx, t.config.FFmpegPath, args...)
+	cmd := exec.CommandContext(ctx, t.config.FFmpegPath, args...) //nolint:gosec // G204: ffmpeg path comes from operator config; args are built here and passed without a shell
 
 	var stderr bytes.Buffer
+
 	cmd.Stderr = &stderr
 
 	// Run transcoding
@@ -142,7 +147,7 @@ func (t *Transcoder) TranscodeFile(ctx context.Context, inputPath string, profil
 	return result, nil
 }
 
-// TranscodeStream transcodes a live stream
+// TranscodeStream transcodes a live stream.
 func (t *Transcoder) TranscodeStream(ctx context.Context, input io.Reader, output io.Writer, profile Profile) error {
 	// Acquire semaphore
 	select {
@@ -162,11 +167,12 @@ func (t *Transcoder) TranscodeStream(ctx context.Context, input io.Reader, outpu
 	args = append(args, t.buildProfileArgs(profile)...)
 	args = append(args, "pipe:1") // Output to stdout
 
-	cmd := exec.CommandContext(ctx, t.config.FFmpegPath, args...)
+	cmd := exec.CommandContext(ctx, t.config.FFmpegPath, args...) //nolint:gosec // G204: ffmpeg path comes from operator config; args are built here and passed without a shell
 	cmd.Stdin = input
 	cmd.Stdout = output
 
 	var stderr bytes.Buffer
+
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
@@ -176,7 +182,7 @@ func (t *Transcoder) TranscodeStream(ctx context.Context, input io.Reader, outpu
 	return nil
 }
 
-// StartJob starts a transcoding job asynchronously
+// StartJob starts a transcoding job asynchronously.
 func (t *Transcoder) StartJob(ctx context.Context, jobID, inputPath, outputPath string, profile Profile) (*Job, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -198,7 +204,7 @@ func (t *Transcoder) StartJob(ctx context.Context, jobID, inputPath, outputPath 
 	return job, nil
 }
 
-// runJob executes a transcoding job
+// runJob executes a transcoding job.
 func (t *Transcoder) runJob(ctx context.Context, job *Job) {
 	defer func() {
 		t.activeJobsMu.Lock()
@@ -231,36 +237,38 @@ func (t *Transcoder) runJob(ctx context.Context, job *Job) {
 	job.mu.Unlock()
 }
 
-// GetJob returns a transcoding job by ID
+// GetJob returns a transcoding job by ID.
 func (t *Transcoder) GetJob(jobID string) (*Job, bool) {
 	t.activeJobsMu.RLock()
 	defer t.activeJobsMu.RUnlock()
 
 	job, exists := t.activeJobs[jobID]
+
 	return job, exists
 }
 
-// CancelJob cancels a transcoding job
+// CancelJob cancels a transcoding job.
 func (t *Transcoder) CancelJob(jobID string) error {
 	t.activeJobsMu.RLock()
 	job, exists := t.activeJobs[jobID]
 	t.activeJobsMu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("job not found")
+		return errors.New("job not found")
 	}
 
 	job.mu.Lock()
 	if job.cancel != nil {
 		job.cancel()
 	}
+
 	job.Status = JobStatusCancelled
 	job.mu.Unlock()
 
 	return nil
 }
 
-// buildTranscodeArgs builds FFmpeg arguments for transcoding
+// buildTranscodeArgs builds FFmpeg arguments for transcoding.
 func (t *Transcoder) buildTranscodeArgs(inputPath, outputPath string, profile Profile) []string {
 	args := []string{
 		"-i", inputPath,
@@ -288,7 +296,7 @@ func (t *Transcoder) buildTranscodeArgs(inputPath, outputPath string, profile Pr
 	return args
 }
 
-// buildProfileArgs builds profile-specific FFmpeg arguments
+// buildProfileArgs builds profile-specific FFmpeg arguments.
 func (t *Transcoder) buildProfileArgs(profile Profile) []string {
 	args := []string{}
 
@@ -379,7 +387,7 @@ func (t *Transcoder) buildProfileArgs(profile Profile) []string {
 	return args
 }
 
-// Stop stops all active transcoding jobs
+// Stop stops all active transcoding jobs.
 func (t *Transcoder) Stop() {
 	t.activeJobsMu.Lock()
 	defer t.activeJobsMu.Unlock()

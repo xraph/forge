@@ -116,6 +116,7 @@ func TestOptionalTagInEmbeddedStruct(t *testing.T) {
 
 	// Check that all fields are NOT required
 	notRequiredFields := []string{"search", "filter", "offset", "limit"}
+
 	requiredMap := make(map[string]bool)
 	for _, r := range schema.Required {
 		requiredMap[r] = true
@@ -262,16 +263,16 @@ func TestOptionalTagPrecedence(t *testing.T) {
 func TestDefaultTagImplicitlyOptional(t *testing.T) {
 	type RequestParams struct {
 		// Non-pointer with default tag - should NOT be required
-		Page string `json:"page" default:"1"`
+		Page string `default:"1" json:"page"`
 
 		// Non-pointer without default or optional - should be required
 		Name string `json:"name"`
 
 		// Default + required:"true" - required should win
-		Status string `json:"status" default:"active" required:"true"`
+		Status string `default:"active" json:"status" required:"true"`
 
 		// Default + optional:"true" - should NOT be required
-		Sort string `json:"sort" default:"created_at" optional:"true"`
+		Sort string `default:"created_at" json:"sort" optional:"true"`
 	}
 
 	gen := newSchemaGenerator(make(map[string]*Schema), nil)
@@ -309,8 +310,8 @@ func TestDefaultTagImplicitlyOptional(t *testing.T) {
 // TestDefaultTagWithQueryParams tests that default tag makes query params optional.
 func TestDefaultTagWithQueryParams(t *testing.T) {
 	type QueryParams struct {
-		Page   int    `default:"1"  query:"page"`
-		Limit  int    `default:"10" query:"limit"`
+		Page   int    `default:"1"    query:"page"`
+		Limit  int    `default:"10"   query:"limit"`
 		Search string `query:"search"` // No default - required
 	}
 

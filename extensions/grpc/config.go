@@ -1,7 +1,7 @@
 package grpc
 
 import (
-	"fmt"
+	"errors"
 	"time"
 )
 
@@ -11,48 +11,48 @@ const (
 	ServiceKey = "grpc"
 )
 
-// Config contains configuration for the gRPC extension
+// Config contains configuration for the gRPC extension.
 type Config struct {
 	// Server settings
-	Address              string          `json:"address" yaml:"address" mapstructure:"address"`
-	MaxRecvMsgSize       int             `json:"max_recv_msg_size" yaml:"max_recv_msg_size" mapstructure:"max_recv_msg_size"`
-	MaxSendMsgSize       int             `json:"max_send_msg_size" yaml:"max_send_msg_size" mapstructure:"max_send_msg_size"`
-	MaxConcurrentStreams uint32          `json:"max_concurrent_streams" yaml:"max_concurrent_streams" mapstructure:"max_concurrent_streams"`
-	ConnectionTimeout    time.Duration   `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
-	Keepalive            KeepaliveConfig `json:"keepalive" yaml:"keepalive" mapstructure:"keepalive"`
+	Address              string          `json:"address"                mapstructure:"address"                yaml:"address"`
+	MaxRecvMsgSize       int             `json:"max_recv_msg_size"      mapstructure:"max_recv_msg_size"      yaml:"max_recv_msg_size"`
+	MaxSendMsgSize       int             `json:"max_send_msg_size"      mapstructure:"max_send_msg_size"      yaml:"max_send_msg_size"`
+	MaxConcurrentStreams uint32          `json:"max_concurrent_streams" mapstructure:"max_concurrent_streams" yaml:"max_concurrent_streams"`
+	ConnectionTimeout    time.Duration   `json:"connection_timeout"     mapstructure:"connection_timeout"     yaml:"connection_timeout"`
+	Keepalive            KeepaliveConfig `json:"keepalive"              mapstructure:"keepalive"              yaml:"keepalive"`
 
 	// TLS/mTLS
-	EnableTLS   bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
-	TLSCertFile string `json:"tls_cert_file,omitempty" yaml:"tls_cert_file,omitempty" mapstructure:"tls_cert_file"`
-	TLSKeyFile  string `json:"tls_key_file,omitempty" yaml:"tls_key_file,omitempty" mapstructure:"tls_key_file"`
-	TLSCAFile   string `json:"tls_ca_file,omitempty" yaml:"tls_ca_file,omitempty" mapstructure:"tls_ca_file"`
-	ClientAuth  bool   `json:"client_auth" yaml:"client_auth" mapstructure:"client_auth"` // Require client cert
+	EnableTLS   bool   `json:"enable_tls"              mapstructure:"enable_tls"    yaml:"enable_tls"`
+	TLSCertFile string `json:"tls_cert_file,omitempty" mapstructure:"tls_cert_file" yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile  string `json:"tls_key_file,omitempty"  mapstructure:"tls_key_file"  yaml:"tls_key_file,omitempty"`
+	TLSCAFile   string `json:"tls_ca_file,omitempty"   mapstructure:"tls_ca_file"   yaml:"tls_ca_file,omitempty"`
+	ClientAuth  bool   `json:"client_auth"             mapstructure:"client_auth"   yaml:"client_auth"` // Require client cert
 
 	// Health checking
-	EnableHealthCheck bool `json:"enable_health_check" yaml:"enable_health_check" mapstructure:"enable_health_check"`
+	EnableHealthCheck bool `json:"enable_health_check" mapstructure:"enable_health_check" yaml:"enable_health_check"`
 
 	// Reflection
-	EnableReflection bool `json:"enable_reflection" yaml:"enable_reflection" mapstructure:"enable_reflection"`
+	EnableReflection bool `json:"enable_reflection" mapstructure:"enable_reflection" yaml:"enable_reflection"`
 
 	// Observability
-	EnableMetrics bool `json:"enable_metrics" yaml:"enable_metrics" mapstructure:"enable_metrics"`
-	EnableTracing bool `json:"enable_tracing" yaml:"enable_tracing" mapstructure:"enable_tracing"`
-	EnableLogging bool `json:"enable_logging" yaml:"enable_logging" mapstructure:"enable_logging"`
+	EnableMetrics bool `json:"enable_metrics" mapstructure:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing bool `json:"enable_tracing" mapstructure:"enable_tracing" yaml:"enable_tracing"`
+	EnableLogging bool `json:"enable_logging" mapstructure:"enable_logging" yaml:"enable_logging"`
 
 	// Config loading flags
-	RequireConfig bool `json:"-" yaml:"-" mapstructure:"-"`
+	RequireConfig bool `json:"-" mapstructure:"-" yaml:"-"`
 }
 
-// KeepaliveConfig contains keepalive settings
+// KeepaliveConfig contains keepalive settings.
 type KeepaliveConfig struct {
-	Time                time.Duration `json:"time" yaml:"time" mapstructure:"time"`
-	Timeout             time.Duration `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-	EnforcementPolicy   bool          `json:"enforcement_policy" yaml:"enforcement_policy" mapstructure:"enforcement_policy"`
-	MinTime             time.Duration `json:"min_time" yaml:"min_time" mapstructure:"min_time"`
-	PermitWithoutStream bool          `json:"permit_without_stream" yaml:"permit_without_stream" mapstructure:"permit_without_stream"`
+	Time                time.Duration `json:"time"                  mapstructure:"time"                  yaml:"time"`
+	Timeout             time.Duration `json:"timeout"               mapstructure:"timeout"               yaml:"timeout"`
+	EnforcementPolicy   bool          `json:"enforcement_policy"    mapstructure:"enforcement_policy"    yaml:"enforcement_policy"`
+	MinTime             time.Duration `json:"min_time"              mapstructure:"min_time"              yaml:"min_time"`
+	PermitWithoutStream bool          `json:"permit_without_stream" mapstructure:"permit_without_stream" yaml:"permit_without_stream"`
 }
 
-// DefaultConfig returns default gRPC configuration
+// DefaultConfig returns default gRPC configuration.
 func DefaultConfig() Config {
 	return Config{
 		Address:              ":50051",
@@ -78,34 +78,34 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if c.Address == "" {
-		return fmt.Errorf("address is required")
+		return errors.New("address is required")
 	}
 
 	if c.MaxRecvMsgSize < 0 {
-		return fmt.Errorf("max_recv_msg_size must be non-negative")
+		return errors.New("max_recv_msg_size must be non-negative")
 	}
 
 	if c.MaxSendMsgSize < 0 {
-		return fmt.Errorf("max_send_msg_size must be non-negative")
+		return errors.New("max_send_msg_size must be non-negative")
 	}
 
 	if c.EnableTLS {
 		if c.TLSCertFile == "" || c.TLSKeyFile == "" {
-			return fmt.Errorf("tls requires cert_file and key_file")
+			return errors.New("tls requires cert_file and key_file")
 		}
 
 		if c.ClientAuth && c.TLSCAFile == "" {
-			return fmt.Errorf("client_auth requires ca_file")
+			return errors.New("client_auth requires ca_file")
 		}
 	}
 
 	return nil
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
 func WithAddress(addr string) ConfigOption {
@@ -119,8 +119,8 @@ func WithMaxMessageSize(size int) ConfigOption {
 	}
 }
 
-func WithMaxConcurrentStreams(max uint32) ConfigOption {
-	return func(c *Config) { c.MaxConcurrentStreams = max }
+func WithMaxConcurrentStreams(maxStreams uint32) ConfigOption {
+	return func(c *Config) { c.MaxConcurrentStreams = maxStreams }
 }
 
 func WithTLS(certFile, keyFile, caFile string) ConfigOption {

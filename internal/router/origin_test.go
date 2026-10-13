@@ -1,13 +1,14 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func originRequest(host, origin string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws", nil)
 	r.Host = host
 
 	if origin != "" {

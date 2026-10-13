@@ -975,7 +975,7 @@ func TestValidateRefsWarnsInsideAnUnreachedComponent(t *testing.T) {
 			// Reached by nothing. Shipped anyway, with a pointer at a name
 			// the document never declares.
 			"AuditRecord": {Type: "object", Properties: map[string]*client.Schema{
-				"actor": {Ref: "#/components/schemas/Principl"},
+				"actor": {Ref: "#/components/schemas/Principals"},
 			}},
 		},
 	}
@@ -986,7 +986,7 @@ func TestValidateRefsWarnsInsideAnUnreachedComponent(t *testing.T) {
 		t.Fatalf("Warnings = %v, want one: an orphan component still ships its pointers", spec.Warnings)
 	}
 
-	for _, want := range []string{"#/components/schemas/Principl", `component schema "AuditRecord"`} {
+	for _, want := range []string{"#/components/schemas/Principals", `component schema "AuditRecord"`} {
 		if !strings.Contains(spec.Warnings[0], want) {
 			t.Errorf("warning %q does not name %q", spec.Warnings[0], want)
 		}

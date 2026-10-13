@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// Simple test service (no proto required for basic tests)
+// Simple test service (no proto required for basic tests).
 const bufSize = 1024 * 1024
 
 var _ *bufconn.Listener // Unused but satisfies import
@@ -31,8 +31,7 @@ func TestGRPCServer_StartStop(t *testing.T) {
 	server := NewGRPCServer(config, logger, metrics)
 
 	// Start server
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -73,8 +72,7 @@ func TestGRPCServer_HealthCheck(t *testing.T) {
 	metrics := forge.NewNoOpMetrics()
 	server := NewGRPCServer(config, logger, metrics)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -89,7 +87,7 @@ func TestGRPCServer_HealthCheck(t *testing.T) {
 	addr := impl.listener.Addr().String()
 
 	// Create client
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("failed to dial: %v", err)
 	}
@@ -97,13 +95,14 @@ func TestGRPCServer_HealthCheck(t *testing.T) {
 
 	// Check health
 	healthClient := grpc_health_v1.NewHealthClient(conn)
+
 	healthResp, err := healthClient.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
 	if err != nil {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	if healthResp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-		t.Errorf("expected SERVING status, got %v", healthResp.Status)
+	if healthResp.GetStatus() != grpc_health_v1.HealthCheckResponse_SERVING {
+		t.Errorf("expected SERVING status, got %v", healthResp.GetStatus())
 	}
 }
 
@@ -120,8 +119,7 @@ func TestGRPCServer_CustomHealthChecker(t *testing.T) {
 	checker := &mockHealthChecker{healthy: true}
 	server.RegisterHealthChecker("test-service", checker)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -136,7 +134,7 @@ func TestGRPCServer_CustomHealthChecker(t *testing.T) {
 	addr := impl.listener.Addr().String()
 
 	// Create client
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("failed to dial: %v", err)
 	}
@@ -144,6 +142,7 @@ func TestGRPCServer_CustomHealthChecker(t *testing.T) {
 
 	// Check health for specific service
 	healthClient := grpc_health_v1.NewHealthClient(conn)
+
 	healthResp, err := healthClient.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{
 		Service: "test-service",
 	})
@@ -151,8 +150,8 @@ func TestGRPCServer_CustomHealthChecker(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	if healthResp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-		t.Errorf("expected SERVING status, got %v", healthResp.Status)
+	if healthResp.GetStatus() != grpc_health_v1.HealthCheckResponse_SERVING {
+		t.Errorf("expected SERVING status, got %v", healthResp.GetStatus())
 	}
 
 	// Mark checker as unhealthy
@@ -165,8 +164,8 @@ func TestGRPCServer_CustomHealthChecker(t *testing.T) {
 		t.Fatalf("health check failed: %v", err)
 	}
 
-	if healthResp.Status != grpc_health_v1.HealthCheckResponse_NOT_SERVING {
-		t.Errorf("expected NOT_SERVING status, got %v", healthResp.Status)
+	if healthResp.GetStatus() != grpc_health_v1.HealthCheckResponse_NOT_SERVING {
+		t.Errorf("expected NOT_SERVING status, got %v", healthResp.GetStatus())
 	}
 }
 
@@ -181,12 +180,11 @@ func TestGRPCServer_CustomInterceptor(t *testing.T) {
 	server := NewGRPCServer(config, logger, metrics)
 
 	// Add custom interceptor
-	server.AddUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	server.AddUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		return handler(ctx, req)
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -211,8 +209,7 @@ func TestGRPCServer_ServerStats(t *testing.T) {
 	metrics := forge.NewNoOpMetrics()
 	server := NewGRPCServer(config, logger, metrics)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -243,8 +240,7 @@ func TestGRPCServer_GetServices(t *testing.T) {
 	metrics := forge.NewNoOpMetrics()
 	server := NewGRPCServer(config, logger, metrics)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -265,6 +261,7 @@ func TestGRPCServer_GetServices(t *testing.T) {
 	for _, svc := range services {
 		if svc.Name == "grpc.health.v1.Health" {
 			foundHealth = true
+
 			if len(svc.Methods) == 0 {
 				t.Error("expected health service to have methods")
 			}
@@ -284,8 +281,7 @@ func TestGRPCServer_GracefulStop(t *testing.T) {
 	metrics := forge.NewNoOpMetrics()
 	server := NewGRPCServer(config, logger, metrics)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -320,8 +316,7 @@ func TestGRPCServer_MessageSizeLimits(t *testing.T) {
 	metrics := forge.NewNoOpMetrics()
 	server := NewGRPCServer(config, logger, metrics)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := server.Start(ctx, config.Address)
 	if err != nil {
@@ -352,10 +347,10 @@ func TestGRPCServer_NoDeadlockOnStartWithInterceptors(t *testing.T) {
 	server := NewGRPCServer(config, logger, metrics)
 
 	// Add custom interceptors before starting
-	server.AddUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	server.AddUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		return handler(ctx, req)
 	})
-	server.AddStreamInterceptor(func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	server.AddStreamInterceptor(func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		return handler(srv, ss)
 	})
 

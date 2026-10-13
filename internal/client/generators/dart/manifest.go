@@ -477,6 +477,7 @@ func responseCodecRef(endpoint *client.Endpoint) (id string, warning string) {
 	sort.Ints(codes)
 
 	var ref string
+
 	sawJSON := false
 
 	for _, code := range codes {

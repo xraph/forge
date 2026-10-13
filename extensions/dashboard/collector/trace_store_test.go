@@ -9,6 +9,7 @@ import (
 
 func span(traceID, spanID string) *SpanView {
 	now := time.Now()
+
 	return &SpanView{
 		SpanID:     spanID,
 		TraceID:    traceID,
@@ -28,7 +29,7 @@ func span(traceID, spanID string) *SpanView {
 func TestTraceStore_CapsSpansWithinOneTrace(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour, WithMaxSpansPerTrace(5))
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		ts.AddSpan(span("trace-a", "span"))
 	}
 
@@ -39,6 +40,7 @@ func TestTraceStore_CapsSpansWithinOneTrace(t *testing.T) {
 	if got != 5 {
 		t.Errorf("kept %d spans in one trace, want the cap of 5", got)
 	}
+
 	if dropped := ts.DroppedSpans(); dropped != 95 {
 		t.Errorf("counted %d dropped spans, want 95", dropped)
 	}
@@ -48,7 +50,7 @@ func TestTraceStore_CapsSpansWithinOneTrace(t *testing.T) {
 func TestTraceStore_CapIsPerTraceNotGlobal(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour, WithMaxSpansPerTrace(5))
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ts.AddSpan(span("trace-a", "span"))
 		ts.AddSpan(span("trace-b", "span"))
 	}
@@ -60,6 +62,7 @@ func TestTraceStore_CapIsPerTraceNotGlobal(t *testing.T) {
 	if a != 4 || b != 4 {
 		t.Errorf("kept %d and %d spans, want 4 and 4", a, b)
 	}
+
 	if dropped := ts.DroppedSpans(); dropped != 0 {
 		t.Errorf("dropped %d spans while under the cap, want 0", dropped)
 	}
@@ -85,7 +88,9 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 	ts := NewTraceStore(1000, time.Hour, WithMaxSpansPerTrace(10000))
 
 	var mu sync.Mutex
+
 	seen := 0
+
 	ts.SetOnTraceAdded(func(traceID string, spanCount int) {
 		time.Sleep(time.Millisecond)
 		mu.Lock()
@@ -97,11 +102,13 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 	// Let the drain goroutine reach its parked state before measuring.
 	time.Sleep(50 * time.Millisecond)
 	runtime.GC()
+
 	before := runtime.NumGoroutine()
 	peak := before
 
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		ts.AddSpan(span("trace-a", "span"))
+
 		if i%100 == 0 {
 			if n := runtime.NumGoroutine(); n > peak {
 				peak = n
@@ -123,11 +130,14 @@ func TestTraceStore_NotificationDoesNotSpawnGoroutinePerSpan(t *testing.T) {
 		mu.Lock()
 		n := seen
 		mu.Unlock()
+
 		if n > 0 {
 			return
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	t.Error("callback never fired for any span")
 }
 
@@ -136,14 +146,18 @@ func TestTraceStore_SlowCallbackDropsRatherThanBlocks(t *testing.T) {
 	ts := NewTraceStore(1000, time.Hour, WithMaxSpansPerTrace(10000))
 
 	release := make(chan struct{})
+
 	ts.SetOnTraceAdded(func(traceID string, spanCount int) { <-release })
+
 	defer func() { close(release); ts.Close() }()
 
 	done := make(chan struct{})
+
 	go func() {
-		for i := 0; i < 5000; i++ {
+		for range 5000 {
 			ts.AddSpan(span("trace-a", "span"))
 		}
+
 		close(done)
 	}()
 
@@ -172,7 +186,7 @@ func TestTraceStore_ClosedGateRejectsSpans(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour)
 	ts.SetIngestGate(func() bool { return false })
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		ts.AddSpan(span("trace-a", "span"))
 	}
 
@@ -222,7 +236,7 @@ func TestTraceStore_GateRejectionIsNotCountedAsDroppedSpan(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour)
 	ts.SetIngestGate(func() bool { return false })
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		ts.AddSpan(span("trace-a", "span"))
 	}
 
@@ -245,7 +259,9 @@ func TestTraceStore_MarkAccessedRecordsTheTime(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour)
 
 	before := time.Now()
+
 	ts.MarkAccessed()
+
 	after := time.Now()
 
 	got := ts.LastAccessed()
@@ -260,6 +276,7 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour)
 
 	const ttl = 50 * time.Millisecond
+
 	gate := func() bool { return time.Since(ts.LastAccessed()) < ttl }
 	ts.SetIngestGate(gate)
 
@@ -267,6 +284,7 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 	ts.mu.RLock()
 	n := len(ts.traces)
 	ts.mu.RUnlock()
+
 	if n != 0 {
 		t.Errorf("stored %d traces before any dashboard access, want 0", n)
 	}
@@ -276,6 +294,7 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 	ts.mu.RLock()
 	n = len(ts.traces)
 	ts.mu.RUnlock()
+
 	if n != 1 {
 		t.Errorf("stored %d traces just after access, want 1", n)
 	}
@@ -285,6 +304,7 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 	ts.mu.RLock()
 	n = len(ts.traces)
 	ts.mu.RUnlock()
+
 	if n != 1 {
 		t.Errorf("stored %d traces after the window lapsed, want the original 1", n)
 	}
@@ -313,20 +333,23 @@ func TestTraceStore_TTLGateOpensOnAccessAndLapses(t *testing.T) {
 // the first non-expired trace — "hot" is fresh, so if it came first, evict()
 // would never even look at "old".
 func TestTraceStore_EvictsExpiredTraceEvenWhileAnotherTraceIsSaturated(t *testing.T) {
-	const retention = 200 * time.Millisecond
-	const spanCap = 3
+	const (
+		retention = 200 * time.Millisecond
+		spanCap   = 3
+	)
 
 	ts := NewTraceStore(10, retention, WithMaxSpansPerTrace(spanCap))
 
 	// Saturate "hot" first, before "old" exists, so nothing here can
 	// accidentally evict "old".
-	for i := 0; i < spanCap; i++ {
+	for range spanCap {
 		ts.AddSpan(span("hot", "span"))
 	}
 
 	ts.mu.RLock()
 	hotCount := len(ts.traces["hot"])
 	ts.mu.RUnlock()
+
 	if hotCount != spanCap {
 		t.Fatalf("trace \"hot\" has %d spans after saturating, want %d", hotCount, spanCap)
 	}
@@ -344,6 +367,7 @@ func TestTraceStore_EvictsExpiredTraceEvenWhileAnotherTraceIsSaturated(t *testin
 		Attributes: map[string]string{},
 		Events:     []SpanEventView{},
 	}
+
 	ts.mu.Lock()
 	ts.traces["old"] = []*SpanView{oldSpan}
 	ts.order = append([]string{"old"}, ts.order...)
@@ -353,7 +377,7 @@ func TestTraceStore_EvictsExpiredTraceEvenWhileAnotherTraceIsSaturated(t *testin
 	// exclusively (its span count is already at the cap and no insert can
 	// ever succeed again). That branch's evict() call is the only thing
 	// that can still reclaim "old".
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		ts.AddSpan(span("hot", "span"))
 
 		ts.mu.RLock()
@@ -374,15 +398,14 @@ func TestTraceStore_MarkAccessedIsRaceFree(t *testing.T) {
 	ts.SetIngestGate(func() bool { return !ts.LastAccessed().IsZero() })
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 200; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 200 {
 				ts.MarkAccessed()
 				ts.AddSpan(span("trace-a", "span"))
 			}
-		}()
+		})
 	}
+
 	wg.Wait()
 }

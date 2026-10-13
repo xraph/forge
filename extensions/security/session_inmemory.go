@@ -224,7 +224,8 @@ func (s *InMemorySessionStore) Connect(ctx context.Context) error {
 	// Start background cleanup goroutine
 	s.wg.Add(1)
 
-	go s.cleanupLoop()
+	// The loop outlives Connect's context on purpose; Disconnect ends it through stopCh.
+	go s.cleanupLoop() //nolint:gosec // G118: background sweeper is stopped by Disconnect, not by Connect's context
 
 	return nil
 }

@@ -56,7 +56,7 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	// Imports
 	buf.WriteString("import (\n")
@@ -106,13 +106,13 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	clientName := client.GenerateWebSocketClientName(ws)
 
 	// Client struct
-	buf.WriteString(fmt.Sprintf("// %s is a WebSocket client for %s\n", clientName, ws.Path))
+	fmt.Fprintf(&buf, "// %s is a WebSocket client for %s\n", clientName, ws.Path)
 
 	if ws.Description != "" {
-		buf.WriteString(fmt.Sprintf("// %s\n", ws.Description))
+		fmt.Fprintf(&buf, "// %s\n", ws.Description)
 	}
 
-	buf.WriteString(fmt.Sprintf("type %s struct {\n", clientName))
+	fmt.Fprintf(&buf, "type %s struct {\n", clientName)
 	buf.WriteString("\tclient *Client\n")
 	buf.WriteString("\tconn   *websocket.Conn\n")
 	buf.WriteString("\tmu     sync.RWMutex\n\n")
@@ -137,9 +137,9 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("}\n\n")
 
 	// Constructor
-	buf.WriteString(fmt.Sprintf("// New%s creates a new WebSocket client\n", clientName))
-	buf.WriteString(fmt.Sprintf("func (c *Client) New%s() *%s {\n", clientName, clientName))
-	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", clientName))
+	fmt.Fprintf(&buf, "// New%s creates a new WebSocket client\n", clientName)
+	fmt.Fprintf(&buf, "func (c *Client) New%s() *%s {\n", clientName, clientName)
+	fmt.Fprintf(&buf, "\treturn &%s{\n", clientName)
 	buf.WriteString("\t\tclient:    c,\n")
 	buf.WriteString("\t\tcloseChan: make(chan struct{}),\n")
 
@@ -187,7 +187,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	var buf strings.Builder
 
 	buf.WriteString("// Connect connects to the WebSocket endpoint\n")
-	buf.WriteString(fmt.Sprintf("func (ws *%s) Connect(ctx context.Context) error {\n", clientName))
+	fmt.Fprintf(&buf, "func (ws *%s) Connect(ctx context.Context) error {\n", clientName)
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
 
@@ -197,7 +197,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 
 	// Named endpoint, not url: a local named url would shadow the net/url
 	// package import this function now needs to parse the handshake target.
-	buf.WriteString(fmt.Sprintf("\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path))
+	fmt.Fprintf(&buf, "\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path)
 	buf.WriteString("\tendpoint = \"ws\" + endpoint[4:] // Convert http(s) to ws(s)\n\n")
 
 	// dialHeader stays http.Header(nil) when no scheme is declared: client.go
@@ -247,7 +247,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	buf.WriteString("\tdialer := *websocket.DefaultDialer\n")
 	buf.WriteString("\tdialer.Jar = ws.client.httpClient.Jar\n\n")
 
-	buf.WriteString(fmt.Sprintf("\tconn, _, err := dialer.DialContext(ctx, endpoint, %s)\n", dialHeader))
+	fmt.Fprintf(&buf, "\tconn, _, err := dialer.DialContext(ctx, endpoint, %s)\n", dialHeader)
 	buf.WriteString("\tif err != nil {\n")
 
 	if config.Features.StateManagement {
@@ -277,7 +277,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 
 	// Add heartbeat method if enabled
 	if config.Features.Heartbeat {
-		buf.WriteString(fmt.Sprintf("func (ws *%s) startHeartbeat() {\n", clientName))
+		fmt.Fprintf(&buf, "func (ws *%s) startHeartbeat() {\n", clientName)
 		buf.WriteString("\tws.heartbeatTicker = time.NewTicker(ws.heartbeatInterval)\n")
 		buf.WriteString("\tgo func() {\n")
 		buf.WriteString("\t\tfor {\n")
@@ -306,7 +306,7 @@ func (w *WebSocketGenerator) generateSendMethod(clientName string, ws client.Web
 	typeName := w.getSchemaTypeName(ws.SendSchema, spec)
 
 	buf.WriteString("// Send sends a message to the WebSocket\n")
-	buf.WriteString(fmt.Sprintf("func (ws *%s) Send(msg %s) error {\n", clientName, typeName))
+	fmt.Fprintf(&buf, "func (ws *%s) Send(msg %s) error {\n", clientName, typeName)
 	buf.WriteString("\tws.mu.RLock()\n")
 	buf.WriteString("\tdefer ws.mu.RUnlock()\n\n")
 
@@ -332,7 +332,7 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 	typeName := w.getSchemaTypeName(ws.ReceiveSchema, spec)
 
 	buf.WriteString("// OnMessage registers a handler for incoming messages\n")
-	buf.WriteString(fmt.Sprintf("func (ws *%s) OnMessage(handler func(%s)) {\n", clientName, typeName))
+	fmt.Fprintf(&buf, "func (ws *%s) OnMessage(handler func(%s)) {\n", clientName, typeName)
 	buf.WriteString("\tgo func() {\n")
 	buf.WriteString("\t\tfor {\n")
 	buf.WriteString("\t\t\tselect {\n")
@@ -359,7 +359,7 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 	buf.WriteString("\t\t\t\t\tcontinue\n")
 	buf.WriteString("\t\t\t\t}\n\n")
 
-	buf.WriteString(fmt.Sprintf("\t\t\t\tvar msg %s\n", typeName))
+	fmt.Fprintf(&buf, "\t\t\t\tvar msg %s\n", typeName)
 	buf.WriteString("\t\t\t\tif err := json.Unmarshal(data, &msg); err != nil {\n")
 	buf.WriteString("\t\t\t\t\tcontinue\n")
 	buf.WriteString("\t\t\t\t}\n\n")
@@ -372,7 +372,7 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 
 	// Add reconnect method if enabled
 	if config.Features.Reconnection {
-		buf.WriteString(fmt.Sprintf("func (ws *%s) reconnect() {\n", clientName))
+		fmt.Fprintf(&buf, "func (ws *%s) reconnect() {\n", clientName)
 		buf.WriteString("\tws.mu.Lock()\n")
 		buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
 
@@ -403,7 +403,7 @@ func (w *WebSocketGenerator) generateCloseMethod(clientName string, config clien
 	var buf strings.Builder
 
 	buf.WriteString("// Close closes the WebSocket connection\n")
-	buf.WriteString(fmt.Sprintf("func (ws *%s) Close() error {\n", clientName))
+	fmt.Fprintf(&buf, "func (ws *%s) Close() error {\n", clientName)
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
 
@@ -439,13 +439,13 @@ func (w *WebSocketGenerator) generateOnStateChangeMethod(clientName string) stri
 	var buf strings.Builder
 
 	buf.WriteString("// OnStateChange registers a callback for state changes\n")
-	buf.WriteString(fmt.Sprintf("func (ws *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName))
+	fmt.Fprintf(&buf, "func (ws *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName)
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n")
 	buf.WriteString("\tws.stateChange = handler\n")
 	buf.WriteString("}\n\n")
 
-	buf.WriteString(fmt.Sprintf("func (ws *%s) setState(state ConnectionState) {\n", clientName))
+	fmt.Fprintf(&buf, "func (ws *%s) setState(state ConnectionState) {\n", clientName)
 	buf.WriteString("\tws.state = state\n")
 	buf.WriteString("\tif ws.stateChange != nil {\n")
 	buf.WriteString("\t\tgo ws.stateChange(state)\n")

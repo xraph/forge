@@ -1,4 +1,3 @@
-// cmd/forge/plugins/dashboard_templates.go
 package plugins
 
 // dashboardPackageJSONTemplate is the package.json for a scaffolded external

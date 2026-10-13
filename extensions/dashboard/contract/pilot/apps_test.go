@@ -2,6 +2,7 @@ package pilot
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -58,9 +59,11 @@ intents: []
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
+
 		if err := loader.Validate(m, wreg); err != nil {
 			t.Fatalf("validate: %v", err)
 		}
+
 		if err := reg.Register(m); err != nil {
 			t.Fatalf("register: %v", err)
 		}
@@ -70,9 +73,11 @@ intents: []
 	if err != nil {
 		t.Fatalf("apps.list: %v", err)
 	}
+
 	if len(resp.Apps) != 3 {
 		t.Fatalf("apps count = %d, want 3 (lib-helper must be filtered)", len(resp.Apps))
 	}
+
 	wantOrder := []string{"core-contract", "auth", "chronicle"}
 	for i, w := range wantOrder {
 		if resp.Apps[i].Contributor != w {
@@ -84,7 +89,10 @@ intents: []
 
 func TestAppsListHandler_NilRegistry(t *testing.T) {
 	_, err := appsListHandler(nil)(context.Background(), struct{}{}, contract.Principal{})
-	ce, ok := err.(*contract.Error)
+
+	ce := &contract.Error{}
+
+	ok := errors.As(err, &ce)
 	if !ok || ce.Code != contract.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable, got %v", err)
 	}

@@ -358,8 +358,6 @@ func TestJSONYAMLTagParity(t *testing.T) {
 	}
 
 	for _, f := range fields {
-		f := f
-
 		t.Run(f.structName+"."+f.fieldName, func(t *testing.T) {
 			runTagParityCheck(t, f)
 		})
@@ -389,6 +387,7 @@ func TestSchemaRefFromYAML(t *testing.T) {
 	const doc = `
 $ref: "#/components/schemas/Widget"
 `
+
 	s := unmarshalYAML[Schema](t, doc)
 
 	if s.Ref != "#/components/schemas/Widget" {
@@ -410,6 +409,7 @@ anyOf:
 allOf:
   - type: boolean
 `
+
 	s := unmarshalYAML[Schema](t, doc)
 
 	if len(s.OneOf) != 1 || s.OneOf[0].Type != "string" {
@@ -433,6 +433,7 @@ func TestSchemaReadOnlyWriteOnlyFromYAML(t *testing.T) {
 readOnly: true
 writeOnly: true
 `
+
 	s := unmarshalYAML[Schema](t, doc)
 
 	if !s.ReadOnly {
@@ -452,6 +453,7 @@ func TestSchemaAdditionalPropertiesStaysWorkingFromYAML(t *testing.T) {
 additionalProperties:
   type: string
 `
+
 	s := unmarshalYAML[Schema](t, doc)
 
 	m, ok := s.AdditionalProperties.(map[string]any)
@@ -478,6 +480,7 @@ externalDocs:
   description: More info
   url: https://example.com/docs
 `
+
 	s := unmarshalYAML[OpenAPISpec](t, doc)
 
 	if s.ExternalDocs == nil {
@@ -498,6 +501,7 @@ title: Test
 version: 1.0.0
 termsOfService: https://example.com/terms
 `
+
 	info := unmarshalYAML[Info](t, doc)
 
 	if info.TermsOfService != "https://example.com/terms" {
@@ -512,6 +516,7 @@ func TestDiscriminatorPropertyNameFromYAML(t *testing.T) {
 	const doc = `
 propertyName: petType
 `
+
 	d := unmarshalYAML[Discriminator](t, doc)
 
 	if d.PropertyName != "petType" {
@@ -526,6 +531,7 @@ func TestAsyncAPIMessageIDFromYAML(t *testing.T) {
 	const doc = `
 messageId: userSignedUp
 `
+
 	m := unmarshalYAML[AsyncAPIMessage](t, doc)
 
 	if m.MessageID != "userSignedUp" {
@@ -544,6 +550,7 @@ securitySchemes:
     name: X-API-Key
     in: header
 `
+
 	c := unmarshalYAML[AsyncAPIComponents](t, doc)
 
 	scheme, ok := c.SecuritySchemes["apiKey"]
@@ -566,6 +573,7 @@ version: 1.0.0
 externalDocs:
   url: https://example.com/docs
 `
+
 	info := unmarshalYAML[AsyncAPIInfo](t, doc)
 
 	if info.ExternalDocs == nil {
@@ -585,6 +593,7 @@ func TestAsyncAPIServerProtocolVersionFromYAML(t *testing.T) {
 protocol: wss
 protocolVersion: "1.0"
 `
+
 	s := unmarshalYAML[AsyncAPIServer](t, doc)
 
 	if s.ProtocolVersion != "1.0" {
@@ -615,6 +624,7 @@ authorizationCode:
   authorizationUrl: https://example.com/authorize
   tokenUrl: https://example.com/authorization-code-token
 `
+
 	f := unmarshalYAML[OAuthFlows](t, doc)
 
 	if f.ClientCredentials == nil {
@@ -711,6 +721,7 @@ type SyntheticSpecStruct struct {
 	Bar string ` + "`json:\"bar\"`" + `
 }
 `
+
 	fields := parseStructFieldsFromSource(t, "synthetic.go", src)
 
 	var found bool

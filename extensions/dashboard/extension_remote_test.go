@@ -72,15 +72,20 @@ intents:
 func dispatchReportsList(t *testing.T, e *Extension) (int, contract.Response, string) {
 	t.Helper()
 
-	body, _ := json.Marshal(contract.Request{
+	body, err := json.Marshal(contract.Request{
 		Envelope: "v1", Kind: contract.KindQuery,
 		Contributor: "reports", Intent: "reports.list", IntentVersion: 1,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/api/dashboard/v1", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/dashboard/api/dashboard/v1", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	e.handleContractPOST()(w, req)
 
 	var resp contract.Response
+
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 	return w.Code, resp, w.Body.String()
@@ -171,8 +176,7 @@ func TestRemoteContractContributor_DiscoveredServiceServesDispatch(t *testing.T)
 	disc.set(instanceFor(t, upstream))
 	e.SetDiscoveryService(disc)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	e.startDiscovery(ctx)
 	defer e.discoveryInteg.Stop()

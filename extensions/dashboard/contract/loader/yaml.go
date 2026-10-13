@@ -1,4 +1,3 @@
-// yaml.go
 package loader
 
 import (
@@ -22,12 +21,15 @@ func Load(r io.Reader, source string) (*contract.ContractManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", source, err)
 	}
+
 	var m contract.ContractManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", source, err)
 	}
+
 	if m.SchemaVersion != SupportedSchemaVersion {
 		return nil, fmt.Errorf("%s: schemaVersion=%d unsupported, want %d", source, m.SchemaVersion, SupportedSchemaVersion)
 	}
+
 	return &m, nil
 }

@@ -52,7 +52,7 @@ func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType strin
 
 	// Extract name and description from type if available
 	typ := reflect.TypeOf(t)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -75,7 +75,7 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 	}
 
 	typ := reflect.TypeOf(t)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -95,9 +95,7 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 
 	var required []string
 
-	for i := range typ.NumField() {
-		field := typ.Field(i)
-
+	for field := range typ.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -175,9 +173,7 @@ func (g *asyncAPISchemaGenerator) flattenEmbeddedHeaders(field reflect.StructFie
 
 	var required []string
 
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -241,7 +237,7 @@ func (g *asyncAPISchemaGenerator) ExtractMessageMetadata(t any) (name, title, su
 	}
 
 	typ := reflect.TypeOf(t)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -267,7 +263,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 	}
 
 	typ := reflect.TypeOf(t)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -292,9 +288,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 	// back to typ by a self-embedding type. See schema_cycles.go.
 	visited := newVisitedTypes(typ)
 
-	for i := range typ.NumField() {
-		field := typ.Field(i)
-
+	for field := range typ.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -364,7 +358,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema
 			// Explicitly marked as optional, skip adding to required
 		} else if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
 			required = append(required, jsonName)
-		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
+		} else if !omitempty && field.Type.Kind() != reflect.Pointer {
 			required = append(required, jsonName)
 		}
 	}

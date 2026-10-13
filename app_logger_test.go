@@ -20,10 +20,12 @@ func TestUnknownEnvironmentStillGetsARealLogger(t *testing.T) {
 	for _, env := range []string{"staging", "qa", "preview", "", "Production", "DEVELOPMENT"} {
 		t.Run(env, func(t *testing.T) {
 			app := NewApp(AppConfig{Name: "t", Environment: env})
+
 			l := app.Logger()
 			if l == nil {
 				t.Fatal("Logger() returned nil")
 			}
+
 			if l == NewNoopLogger() {
 				t.Errorf("environment %q got a noop logger", env)
 			}

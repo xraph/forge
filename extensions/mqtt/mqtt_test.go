@@ -12,34 +12,50 @@ func TestMQTTInterface(t *testing.T) {
 }
 
 func TestMessageHandlerType(t *testing.T) {
-	handler := func(client mqttclient.Client, msg mqttclient.Message) {}
+	called := false
 
-	if handler == nil {
-		t.Error("handler should not be nil")
+	var handler MessageHandler = func(client mqttclient.Client, msg mqttclient.Message) { called = true }
+
+	handler(nil, nil)
+
+	if !called {
+		t.Error("handler was not invoked")
 	}
 }
 
 func TestConnectHandlerType(t *testing.T) {
-	handler := func(client mqttclient.Client) {}
+	called := false
 
-	if handler == nil {
-		t.Error("handler should not be nil")
+	var handler ConnectHandler = func(client mqttclient.Client) { called = true }
+
+	handler(nil)
+
+	if !called {
+		t.Error("handler was not invoked")
 	}
 }
 
 func TestConnectionLostHandlerType(t *testing.T) {
-	handler := func(client mqttclient.Client, err error) {}
+	called := false
 
-	if handler == nil {
-		t.Error("handler should not be nil")
+	var handler ConnectionLostHandler = func(client mqttclient.Client, err error) { called = true }
+
+	handler(nil, nil)
+
+	if !called {
+		t.Error("handler was not invoked")
 	}
 }
 
 func TestReconnectingHandlerType(t *testing.T) {
-	handler := func(client mqttclient.Client, options *mqttclient.ClientOptions) {}
+	called := false
 
-	if handler == nil {
-		t.Error("handler should not be nil")
+	var handler ReconnectingHandler = func(client mqttclient.Client, options *mqttclient.ClientOptions) { called = true }
+
+	handler(nil, nil)
+
+	if !called {
+		t.Error("handler was not invoked")
 	}
 }
 

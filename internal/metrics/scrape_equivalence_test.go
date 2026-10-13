@@ -33,7 +33,7 @@ func TestScrape_StreamingMatchesSnapshot(t *testing.T) {
 
 	cfg := exporters.PrometheusConfig{Namespace: "forge"}
 
-	snapshot, err := exporters.NewPrometheusBridge(c.GetMetrics, cfg).GatherText()
+	snapshot, err := exporters.NewPrometheusBridge(c.GetMetrics, cfg).GatherText() //nolint:staticcheck // the deprecated snapshot bridge is the reference output streaming must match
 	if err != nil {
 		t.Fatalf("snapshot GatherText: %v", err)
 	}

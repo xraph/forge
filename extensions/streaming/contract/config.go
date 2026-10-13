@@ -10,6 +10,7 @@ import (
 func configHandler(cfg ConfigProvider) func(ctx context.Context, _ struct{}, _ contract.Principal) (ConfigSummary, error) {
 	return func(_ context.Context, _ struct{}, _ contract.Principal) (ConfigSummary, error) {
 		c := cfg()
+
 		return projectConfig(c), nil
 	}
 }

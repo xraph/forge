@@ -113,6 +113,7 @@ func (c *FARPConfig) ShouldExcludeInternalPaths() bool {
 	if c.ExcludeInternalPaths == nil {
 		return true // default: exclude
 	}
+
 	return *c.ExcludeInternalPaths
 }
 

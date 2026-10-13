@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -78,6 +79,7 @@ func (b *KubernetesBackend) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("kubernetes discovery: clientset: %w", err)
 	}
+
 	return b.start(ctx, clientset)
 }
 
@@ -94,6 +96,7 @@ func (b *KubernetesBackend) start(ctx context.Context, clientset kubernetes.Inte
 	if b.cfg.Namespace != "" {
 		opts = append(opts, informers.WithNamespace(b.cfg.Namespace))
 	}
+
 	if sel := b.cfg.LabelSelector; sel != "" {
 		opts = append(opts, informers.WithTweakListOptions(func(o *metav1.ListOptions) {
 			o.LabelSelector = sel
@@ -119,9 +122,11 @@ func (b *KubernetesBackend) start(ctx context.Context, clientset kubernetes.Inte
 	}
 
 	b.factory.Start(b.stopCh)
+
 	if !cache.WaitForCacheSync(ctx.Done(), b.informer.HasSynced) {
 		return errors.New("kubernetes discovery: informer cache sync failed")
 	}
+
 	return nil
 }
 
@@ -143,6 +148,7 @@ func (b *KubernetesBackend) Discover(ctx context.Context, serviceName string) ([
 	}
 
 	result := make([]*ServiceInstance, 0, 1)
+
 	for _, svc := range svcs {
 		if svc.Name == serviceName {
 			if inst := serviceToInstance(svc); inst != nil {
@@ -152,6 +158,7 @@ func (b *KubernetesBackend) Discover(ctx context.Context, serviceName string) ([
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
 	return result, nil
 }
 
@@ -162,6 +169,7 @@ func (b *KubernetesBackend) DiscoverWithTags(ctx context.Context, serviceName st
 	if err != nil {
 		return nil, err
 	}
+
 	if len(tags) == 0 {
 		return instances, nil
 	}
@@ -172,6 +180,7 @@ func (b *KubernetesBackend) DiscoverWithTags(ctx context.Context, serviceName st
 			filtered = append(filtered, inst)
 		}
 	}
+
 	return filtered, nil
 }
 
@@ -186,7 +195,9 @@ func (b *KubernetesBackend) Watch(ctx context.Context, serviceName string, onCha
 	if err != nil {
 		return err
 	}
+
 	go onChange(instances)
+
 	return nil
 }
 
@@ -198,15 +209,19 @@ func (b *KubernetesBackend) ListServices(ctx context.Context) ([]string, error) 
 	}
 
 	seen := make(map[string]struct{}, len(svcs))
+
 	names := make([]string, 0, len(svcs))
 	for _, svc := range svcs {
 		if _, ok := seen[svc.Name]; ok {
 			continue
 		}
+
 		seen[svc.Name] = struct{}{}
 		names = append(names, svc.Name)
 	}
+
 	sort.Strings(names)
+
 	return names, nil
 }
 
@@ -215,16 +230,19 @@ func (b *KubernetesBackend) Health(ctx context.Context) error {
 	if b.clientset == nil {
 		return errors.New("kubernetes discovery: not initialized")
 	}
+
 	_, err := b.clientset.CoreV1().Services(b.cfg.Namespace).List(ctx, metav1.ListOptions{
 		Limit:         1,
 		LabelSelector: b.cfg.LabelSelector,
 	})
+
 	return err
 }
 
 // Close stops the informer.
 func (b *KubernetesBackend) Close() error {
 	b.stopOnce.Do(func() { close(b.stopCh) })
+
 	return nil
 }
 
@@ -234,9 +252,11 @@ func (b *KubernetesBackend) listServices() ([]*corev1.Service, error) {
 	if b.lister == nil {
 		return nil, errors.New("kubernetes discovery: not initialized")
 	}
+
 	if b.cfg.Namespace != "" {
 		return b.lister.Services(b.cfg.Namespace).List(labels.Everything())
 	}
+
 	return b.lister.List(labels.Everything())
 }
 
@@ -245,6 +265,7 @@ func (b *KubernetesBackend) notify(serviceName string) {
 	b.mu.RLock()
 	ws := append([]func([]*ServiceInstance){}, b.watchers[serviceName]...)
 	b.mu.RUnlock()
+
 	if len(ws) == 0 {
 		return
 	}
@@ -253,6 +274,7 @@ func (b *KubernetesBackend) notify(serviceName string) {
 	if err != nil {
 		return
 	}
+
 	for _, w := range ws {
 		go w(instances)
 	}
@@ -264,16 +286,19 @@ func (b *KubernetesBackend) restConfig() (*rest.Config, error) {
 	if b.cfg.InCluster {
 		return rest.InClusterConfig()
 	}
+
 	if b.cfg.KubeconfigPath == "" {
 		// Try in-cluster first; fall back to the default kubeconfig loading rules.
 		if cfg, err := rest.InClusterConfig(); err == nil {
 			return cfg, nil
 		}
 	}
+
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if b.cfg.KubeconfigPath != "" {
 		rules.ExplicitPath = b.cfg.KubeconfigPath
 	}
+
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{}).ClientConfig()
 }
 
@@ -285,14 +310,14 @@ func serviceToInstance(svc *corev1.Service) *ServiceInstance {
 	}
 
 	port := pickServicePort(svc.Spec.Ports)
+
 	metadata := make(map[string]string, len(svc.Labels))
-	for k, v := range svc.Labels {
-		metadata[k] = v
-	}
+	maps.Copy(metadata, svc.Labels)
 
 	var tags []string
+
 	if raw, ok := svc.Annotations[tagsAnnotation]; ok {
-		for _, t := range strings.Split(raw, ",") {
+		for t := range strings.SplitSeq(raw, ",") {
 			if t = strings.TrimSpace(t); t != "" {
 				tags = append(tags, t)
 			}
@@ -319,6 +344,7 @@ func pickServicePort(ports []corev1.ServicePort) int {
 			return int(p.Port)
 		}
 	}
+
 	return int(ports[0].Port)
 }
 
@@ -327,5 +353,6 @@ func inClusterNamespace() string {
 	if data, err := os.ReadFile(serviceAccountNamespaceFile); err == nil {
 		return strings.TrimSpace(string(data))
 	}
+
 	return ""
 }

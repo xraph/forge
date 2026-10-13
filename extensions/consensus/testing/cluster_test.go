@@ -109,11 +109,12 @@ func TestNetworkPartition(t *testing.T) {
 	node2, _ := harness.GetNode("node-2")
 	node3, _ := harness.GetNode("node-3")
 
-	if node1.ID != leaderID {
+	switch {
+	case node1.ID != leaderID:
 		followerID = node1.ID
-	} else if node2.ID != leaderID {
+	case node2.ID != leaderID:
 		followerID = node2.ID
-	} else {
+	default:
 		followerID = node3.ID
 	}
 

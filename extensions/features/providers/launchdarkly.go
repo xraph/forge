@@ -300,7 +300,9 @@ func (p *LaunchDarklyProvider) Track(ctx context.Context, userID string, event s
 	ldCtx := ldcontext.New(userID)
 
 	// TrackEvent in v7 doesn't take data parameter directly
-	p.client.TrackEvent(event, ldCtx)
+	if err := p.client.TrackEvent(event, ldCtx); err != nil {
+		return fmt.Errorf("track LaunchDarkly event %q: %w", event, err)
+	}
 
 	return nil
 }

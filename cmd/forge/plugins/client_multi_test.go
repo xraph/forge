@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/client_multi_test.go
 package plugins
 
 import (

@@ -99,7 +99,7 @@ func TestRouteInfo_ConstructorsAgreeFieldForField(t *testing.T) {
 
 	// Drive a request so the interceptor sees the RouteInfo register() built.
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widgets/42", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/widgets/42", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotNil(t, intercepted, "interceptor never ran; it cannot vouch for register()'s RouteInfo")
 
@@ -121,7 +121,7 @@ func TestRouteInfo_ConstructorsAgreeFieldForField(t *testing.T) {
 
 	// Guard the guard: a RouteInfo whose fields all rendered empty would make
 	// every comparison below pass vacuously.
-	require.Equal(t, reflect.TypeOf(RouteInfo{}).NumField(), len(want))
+	require.Equal(t, reflect.TypeFor[RouteInfo]().NumField(), len(want))
 	require.Equal(t, "getWidget", want["OperationID"])
 	require.Equal(t, "true", want["Deprecated"])
 

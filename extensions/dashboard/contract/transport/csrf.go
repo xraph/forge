@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -29,13 +28,15 @@ type csrfHandler struct {
 func (h *csrfHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+
 		return
 	}
+
 	tok := h.mgr.GenerateToken()
 	resp := CSRFTokenResponse{
 		Token:     tok,
 		ExpiresAt: time.Now().Add(h.ttl),
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+
+	writePlainJSON(w, resp)
 }

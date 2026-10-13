@@ -56,7 +56,7 @@ func capabilitiesNeeded(spec *client.APISpec) bool {
 func capabilityIdent(value string) string {
 	var out strings.Builder
 
-	for _, part := range strings.Split(value, ":") {
+	for part := range strings.SplitSeq(value, ":") {
 		out.WriteString(goFieldName(part))
 	}
 
@@ -143,7 +143,7 @@ func (g *CapabilitiesGenerator) Generate(spec *client.APISpec, config client.Gen
 
 	hasOperations := len(spec.Endpoints) > 0
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 	buf.WriteString(capabilitiesFileHeader(hasOperations))
 
 	warnings = append(warnings, g.writeUnion(&buf, "Capability", "capability",
@@ -284,7 +284,7 @@ func (g *CapabilitiesGenerator) generateRequirementTable(spec *client.APISpec, k
 			continue
 		}
 
-		buf.WriteString(fmt.Sprintf("\t%s: {\n", strconv.Quote(keys[i])))
+		fmt.Fprintf(&buf, "\t%s: {\n", strconv.Quote(keys[i]))
 
 		if len(entry.capabilities) > 0 {
 			rendered := make([]string, 0, len(entry.capabilities))
@@ -292,15 +292,15 @@ func (g *CapabilitiesGenerator) generateRequirementTable(spec *client.APISpec, k
 				rendered = append(rendered, goTypedStringSlice("Capability", alternative))
 			}
 
-			buf.WriteString(fmt.Sprintf("\t\tCapabilities: [][]Capability{%s},\n", strings.Join(rendered, ", ")))
+			fmt.Fprintf(&buf, "\t\tCapabilities: [][]Capability{%s},\n", strings.Join(rendered, ", "))
 		}
 
 		if len(entry.roles) > 0 {
-			buf.WriteString(fmt.Sprintf("\t\tRoles: %s,\n", goTypedStringSlice("Role", entry.roles)))
+			fmt.Fprintf(&buf, "\t\tRoles: %s,\n", goTypedStringSlice("Role", entry.roles))
 		}
 
 		if len(entry.permissions) > 0 {
-			buf.WriteString(fmt.Sprintf("\t\tPermissions: %s,\n", goTypedStringSlice("Permission", entry.permissions)))
+			fmt.Fprintf(&buf, "\t\tPermissions: %s,\n", goTypedStringSlice("Permission", entry.permissions))
 		}
 
 		buf.WriteString("\t},\n")
@@ -478,7 +478,7 @@ func capabilitiesFileHeader(hasOperations bool) string {
 // put in one.
 func (g *CapabilitiesGenerator) writeUnion(buf *strings.Builder, typeName, kind, doc string, values []string) []string {
 	buf.WriteString(doc)
-	buf.WriteString(fmt.Sprintf("type %s string\n\n", typeName))
+	fmt.Fprintf(buf, "type %s string\n\n", typeName)
 
 	consts, warnings := resolveCapabilityConsts(kind, values)
 	if len(consts) == 0 {
@@ -488,7 +488,7 @@ func (g *CapabilitiesGenerator) writeUnion(buf *strings.Builder, typeName, kind,
 	buf.WriteString("const (\n")
 
 	for _, c := range consts {
-		buf.WriteString(fmt.Sprintf("\t%s%s %s = %q\n", typeName, c.ident, typeName, c.value))
+		fmt.Fprintf(buf, "\t%s%s %s = %q\n", typeName, c.ident, typeName, c.value)
 	}
 
 	buf.WriteString(")\n\n")

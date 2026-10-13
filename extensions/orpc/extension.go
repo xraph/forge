@@ -89,6 +89,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("orpc extension disabled")
+
 		return nil
 	}
 
@@ -134,7 +135,9 @@ func (e *Extension) Start(ctx context.Context) error {
 	orpcService.Server().SetRouter(e.App().Router())
 
 	// Register oRPC endpoints
-	e.registerEndpoints(orpcService)
+	if err := e.registerEndpoints(orpcService); err != nil {
+		return fmt.Errorf("failed to register orpc endpoints: %w", err)
+	}
 
 	// Auto-expose routes as JSON-RPC methods
 	if e.config.AutoExposeRoutes {
@@ -157,6 +160,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -172,34 +176,40 @@ func (e *Extension) Health(ctx context.Context) error {
 }
 
 // registerEndpoints registers oRPC HTTP endpoints.
-func (e *Extension) registerEndpoints(orpcService *ORPCService) {
+func (e *Extension) registerEndpoints(orpcService *ORPCService) error {
 	router := e.App().Router()
 
 	// Main JSON-RPC endpoint (handles both single & batch)
-	router.POST(e.config.Endpoint, e.handleJSONRPC,
+	if err := router.POST(e.config.Endpoint, e.handleJSONRPC,
 		forge.WithName("orpc-endpoint"),
 		forge.WithTags("api", "rpc"),
 		forge.WithSummary("JSON-RPC 2.0 endpoint"),
 		forge.WithDescription("Handles JSON-RPC 2.0 requests (both single and batch)"),
-	)
+	); err != nil {
+		return fmt.Errorf("POST %s: %w", e.config.Endpoint, err)
+	}
 
 	// OpenRPC schema endpoint
 	if e.config.EnableOpenRPC {
-		router.GET(e.config.OpenRPCEndpoint, e.handleOpenRPCSchema,
+		if err := router.GET(e.config.OpenRPCEndpoint, e.handleOpenRPCSchema,
 			forge.WithName("orpc-schema"),
 			forge.WithTags("api", "rpc", "schema"),
 			forge.WithSummary("OpenRPC schema document"),
 			forge.WithDescription("Returns the OpenRPC schema for available RPC methods"),
-		)
+		); err != nil {
+			return fmt.Errorf("GET %s: %w", e.config.OpenRPCEndpoint, err)
+		}
 	}
 
 	// Method discovery endpoint (optional)
 	if e.config.EnableDiscovery {
-		router.GET(e.config.Endpoint+"/methods", e.handleListMethods,
+		if err := router.GET(e.config.Endpoint+"/methods", e.handleListMethods,
 			forge.WithName("orpc-methods"),
 			forge.WithTags("api", "rpc"),
 			forge.WithSummary("List available RPC methods"),
-		)
+		); err != nil {
+			return fmt.Errorf("GET %s/methods: %w", e.config.Endpoint, err)
+		}
 	}
 
 	e.Logger().Debug("orpc: endpoints registered",
@@ -207,6 +217,8 @@ func (e *Extension) registerEndpoints(orpcService *ORPCService) {
 		forge.F("openrpc", e.config.EnableOpenRPC),
 		forge.F("discovery", e.config.EnableDiscovery),
 	)
+
+	return nil
 }
 
 // exposeRoutesAsMethods automatically exposes Forge routes as JSON-RPC methods.
@@ -346,6 +358,7 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 		orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
 		if err != nil {
 			response := NewErrorResponse(nil, ErrServerError, "Service not available")
+
 			return ctx.JSON(http.StatusInternalServerError, response)
 		}
 
@@ -366,6 +379,7 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 		orpcService, err := forge.InjectType[*ORPCService](e.App().Container())
 		if err != nil {
 			response := NewErrorResponse(nil, ErrServerError, "Service not available")
+
 			return ctx.JSON(http.StatusInternalServerError, response)
 		}
 
@@ -447,5 +461,6 @@ func (e *Extension) Server() ORPC {
 	if svc != nil {
 		return svc
 	}
+
 	return nil
 }

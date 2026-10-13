@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -251,8 +252,8 @@ func (r *recorder) GetStats(ctx context.Context) (*RecordingStats, error) {
 		FileSize:    r.fileSize,
 		Bitrate:     r.bitrate,
 		FrameRate:   r.frameRate,
-		AudioTracks: int(r.audioCount),
-		VideoTracks: int(r.frameCount),
+		AudioTracks: saturatingInt(r.audioCount),
+		VideoTracks: saturatingInt(r.frameCount),
 		StartTime:   r.startTime,
 		EndTime:     time.Now(),
 	}, nil
@@ -276,7 +277,7 @@ func (r *recorder) GetStatus(roomID string) (*RecordingStatus, error) {
 		Paused:     false,
 		StartedAt:  r.startTime,
 		Duration:   r.duration,
-		FileSize:   int64(r.fileSize),
+		FileSize:   saturatingInt64(r.fileSize),
 		OutputPath: "", // TODO: Set actual output path
 	}, nil
 }
@@ -302,7 +303,7 @@ func (r *recorder) WriteAudioSample(sample media.Sample) error {
 	}
 
 	if err := oggWriter.WriteRTP(&rtp.Packet{
-		Header:  rtp.Header{Timestamp: uint32(sample.Duration.Milliseconds())},
+		Header:  rtp.Header{Timestamp: uint32(sample.Duration.Milliseconds())}, //nolint:gosec // G115: RTP timestamps are 32-bit and wrap by design (RFC 3550)
 		Payload: sample.Data,
 	}); err != nil {
 		return fmt.Errorf("failed to write audio sample: %w", err)
@@ -334,7 +335,7 @@ func (r *recorder) WriteVideoSample(sample media.Sample) error {
 	}
 
 	if err := ivfWriter.WriteRTP(&rtp.Packet{
-		Header:  rtp.Header{Timestamp: uint32(sample.Duration.Milliseconds())},
+		Header:  rtp.Header{Timestamp: uint32(sample.Duration.Milliseconds())}, //nolint:gosec // G115: RTP timestamps are 32-bit and wrap by design (RFC 3550)
 		Payload: sample.Data,
 	}); err != nil {
 		return fmt.Errorf("failed to write video sample: %w", err)
@@ -374,4 +375,23 @@ func (w *writeCloserWrapper) Write(p []byte) (n int, err error) {
 func (w *writeCloserWrapper) Close() error {
 	// This is a placeholder - the actual implementation would depend on the specific writer
 	return nil
+}
+
+// saturatingInt converts a counter to int, pinning it at MaxInt rather than
+// wrapping negative on 32-bit platforms.
+func saturatingInt(v uint64) int {
+	if v > math.MaxInt {
+		return math.MaxInt
+	}
+
+	return int(v)
+}
+
+// saturatingInt64 is saturatingInt for int64 fields such as file sizes.
+func saturatingInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+
+	return int64(v)
 }

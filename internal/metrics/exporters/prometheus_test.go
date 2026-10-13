@@ -36,11 +36,13 @@ func TestBridge_GatherTextHasNoTimestamps(t *testing.T) {
 		return map[string]any{"queue_depth": float64(3)}
 	}
 	b := NewPrometheusBridge(snapshot, PrometheusConfig{})
+
 	out, err := b.GatherText()
 	if err != nil {
 		t.Fatalf("GatherText: %v", err)
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if strings.HasPrefix(line, "queue_depth") {
 			// "queue_depth 3" -> exactly 2 fields; a trailing timestamp would make 3.
 			if fields := strings.Fields(line); len(fields) != 2 {

@@ -27,7 +27,7 @@ func TestErrorWrappersUnwrap(t *testing.T) {
 				t.Errorf("errors.Is(%v, sentinel) = false, want true", tt.err)
 			}
 
-			if errors.Unwrap(tt.err) != sentinel {
+			if !errors.Is(errors.Unwrap(tt.err), sentinel) {
 				t.Errorf("Unwrap = %v, want the underlying error", errors.Unwrap(tt.err))
 			}
 		})

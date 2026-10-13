@@ -423,11 +423,11 @@ func (sn *SlackNotifier) formatMessage(alert *Alert) string {
 	// Add mentions for critical alerts
 	if alert.Severity == AlertSeverityCritical {
 		for _, user := range sn.config.MentionUsers {
-			message.WriteString(fmt.Sprintf("<@%s> ", user))
+			fmt.Fprintf(&message, "<@%s> ", user)
 		}
 
 		for _, channel := range sn.config.MentionChannels {
-			message.WriteString(fmt.Sprintf("<!channel|%s> ", channel))
+			fmt.Fprintf(&message, "<!channel|%s> ", channel)
 		}
 	}
 
@@ -444,7 +444,7 @@ func (sn *SlackNotifier) formatMessage(alert *Alert) string {
 	}
 
 	// Add title and message
-	message.WriteString(fmt.Sprintf("*%s*\n", alert.Title))
+	fmt.Fprintf(&message, "*%s*\n", alert.Title)
 	message.WriteString(alert.Message)
 
 	// Truncate if too long

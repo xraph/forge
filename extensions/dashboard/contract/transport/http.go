@@ -352,6 +352,23 @@ func writeOK(w http.ResponseWriter, r contract.Response) {
 	}
 }
 
+// writePlainJSON writes v as a bare JSON body for the endpoints that sit
+// outside the envelope (capabilities, csrf). Marshalling first means a value
+// that can't be encoded becomes a 500 rather than a 200 with no body.
+func writePlainJSON(w http.ResponseWriter, v any) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// The trailing newline keeps the body byte-identical to json.Encoder's.
+	_, _ = w.Write(append(body, '\n'))
+}
+
 func writeBodyTooLarge(w http.ResponseWriter, limit int64) {
 	writeError(w, http.StatusRequestEntityTooLarge, &contract.Error{
 		Code:    contract.CodeBadRequest,

@@ -230,7 +230,7 @@ func (vm *VoteManager) ClearOldVotes(keepTerms int) {
 	vm.historyMu.RUnlock()
 
 	minTerm := uint64(0)
-	if currentTerm > uint64(keepTerms) {
+	if keepTerms >= 0 && currentTerm > uint64(keepTerms) {
 		minTerm = currentTerm - uint64(keepTerms)
 	}
 

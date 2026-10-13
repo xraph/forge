@@ -40,7 +40,7 @@ func (pf *permissionFilter) Filter(ctx context.Context, msg *streaming.Message, 
 	}
 
 	if !hasPermission {
-		return nil, nil // Block message
+		return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (no permission)
 	}
 
 	return msg, nil

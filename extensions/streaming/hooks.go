@@ -116,7 +116,9 @@ type HookRegistry struct {
 
 // deliveryJob is one batch of delivery hooks to run for a single recipient.
 type deliveryJob struct {
-	ctx   context.Context
+	// The job crosses the delivery queue to a worker goroutine, so the ctx has to
+	// travel with it. It is detached with WithoutCancel at enqueue.
+	ctx   context.Context //nolint:containedctx // carried across the delivery queue, see above
 	conn  streaming.EnhancedConnection
 	msg   *streaming.Message
 	hooks []MessageHook
@@ -154,18 +156,11 @@ func (r *HookRegistry) ensureDeliveryPool() {
 	r.deliveryOnce.Do(func() {
 		r.deliveryQueue = make(chan deliveryJob, deliveryQueueSize)
 
-		workers := runtime.NumCPU()
-		if workers < 1 {
-			workers = 1
-		}
-
-		if workers > maxDeliveryWorkers {
-			workers = maxDeliveryWorkers
-		}
+		workers := min(max(runtime.NumCPU(), 1), maxDeliveryWorkers)
 
 		r.deliveryWG.Add(workers)
 
-		for i := 0; i < workers; i++ {
+		for range workers {
 			go r.deliveryWorker()
 		}
 	})
@@ -392,7 +387,7 @@ func (r *HookRegistry) FireOnMessageReceived(ctx context.Context, conn streaming
 		}
 
 		if result == nil {
-			return nil, nil // message blocked
+			return nil, nil //nolint:nilnil // documented contract: a nil message with no error means a hook blocked it
 		}
 
 		current = result

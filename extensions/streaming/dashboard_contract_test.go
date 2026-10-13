@@ -54,7 +54,7 @@ func TestDashboardDiscovery_PublishesStreamingContract(t *testing.T) {
 		}
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/api/dashboard/v1/capabilities", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dashboard/api/dashboard/v1/capabilities", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 

@@ -229,10 +229,10 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	className := s.generateClassName(sse)
 
 	// Class definition
-	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if sse.Description != "" {
-		buf.WriteString(fmt.Sprintf(" * %s\n", sse.Description))
+		fmt.Fprintf(&buf, " * %s\n", sse.Description)
 	}
 
 	buf.WriteString(" * \n")
@@ -247,7 +247,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	buf.WriteString(" */\n")
 
-	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
+	fmt.Fprintf(&buf, "export class %s extends EventEmitter {\n", className)
 
 	// Private fields
 	buf.WriteString("  private eventSource: EventSource | null = null;\n")
@@ -297,7 +297,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("      this.closed = false;\n\n")
 
 	// Build URL with query parameters for auth in browser
-	buf.WriteString(fmt.Sprintf("      let url = this.config.baseURL + '%s';\n", sse.Path))
+	fmt.Fprintf(&buf, "      let url = this.config.baseURL + '%s';\n", sse.Path)
 	buf.WriteString("      \n")
 	buf.WriteString("      // In browser, add auth as query params since EventSource doesn't support custom headers\n")
 	buf.WriteString("      if (isBrowser) {\n")
@@ -421,7 +421,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			}
 		}
 
-		buf.WriteString(fmt.Sprintf("        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName))
+		fmt.Fprintf(&buf, "        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName)
 		buf.WriteString("          try {\n")
 
 		if config.Features.Reconnection {
@@ -430,8 +430,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			buf.WriteString("            }\n")
 		}
 
-		buf.WriteString(fmt.Sprintf("            const data: %s = %s;\n", typeName, wireDecodeExpr(codecID, "JSON.parse(event.data)")))
-		buf.WriteString(fmt.Sprintf("            this.emit('%s', data);\n", eventName))
+		fmt.Fprintf(&buf, "            const data: %s = %s;\n", typeName, wireDecodeExpr(codecID, "JSON.parse(event.data)"))
+		fmt.Fprintf(&buf, "            this.emit('%s', data);\n", eventName)
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")
 		buf.WriteString("          }\n")
@@ -459,7 +459,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			continue
 		}
 
-		buf.WriteString(fmt.Sprintf("        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName))
+		fmt.Fprintf(&buf, "        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName)
 		buf.WriteString("          try {\n")
 
 		if config.Features.Reconnection {
@@ -469,7 +469,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		}
 
 		buf.WriteString("            const data: unknown = JSON.parse(event.data);\n")
-		buf.WriteString(fmt.Sprintf("            this.emit('%s', data);\n", eventName))
+		fmt.Fprintf(&buf, "            this.emit('%s', data);\n", eventName)
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")
 		buf.WriteString("          }\n")
@@ -503,18 +503,18 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		typeName := s.getSchemaTypeName(schema, spec)
 		methodName := s.toPascalCase(eventName)
 
-		buf.WriteString(fmt.Sprintf("  /**\n   * Register a handler for %s events.\n", eventName))
-		buf.WriteString(fmt.Sprintf("   * @param handler - Function to call when %s event is received\n", eventName))
+		fmt.Fprintf(&buf, "  /**\n   * Register a handler for %s events.\n", eventName)
+		fmt.Fprintf(&buf, "   * @param handler - Function to call when %s event is received\n", eventName)
 		buf.WriteString("   */\n")
-		buf.WriteString(fmt.Sprintf("  on%s(handler: (data: %s) => void): void {\n", methodName, typeName))
-		buf.WriteString(fmt.Sprintf("    this.on('%s', handler);\n", eventName))
+		fmt.Fprintf(&buf, "  on%s(handler: (data: %s) => void): void {\n", methodName, typeName)
+		fmt.Fprintf(&buf, "    this.on('%s', handler);\n", eventName)
 		buf.WriteString("  }\n\n")
 
-		buf.WriteString(fmt.Sprintf("  /**\n   * Remove a handler for %s events.\n", eventName))
+		fmt.Fprintf(&buf, "  /**\n   * Remove a handler for %s events.\n", eventName)
 		buf.WriteString("   * @param handler - The handler to remove\n")
 		buf.WriteString("   */\n")
-		buf.WriteString(fmt.Sprintf("  off%s(handler: (data: %s) => void): void {\n", methodName, typeName))
-		buf.WriteString(fmt.Sprintf("    this.off('%s', handler);\n", eventName))
+		fmt.Fprintf(&buf, "  off%s(handler: (data: %s) => void): void {\n", methodName, typeName)
+		fmt.Fprintf(&buf, "    this.off('%s', handler);\n", eventName)
 		buf.WriteString("  }\n\n")
 	}
 

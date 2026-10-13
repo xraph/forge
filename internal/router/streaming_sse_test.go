@@ -13,7 +13,7 @@ import (
 
 func TestNewSSEStream(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 3000)
 	require.NoError(t, err)
@@ -33,7 +33,7 @@ func TestNewSSEStream(t *testing.T) {
 func TestNewSSEStream_NoFlusher(t *testing.T) {
 	// Create a ResponseWriter that doesn't support flushing
 	w := &nonFlusherWriter{}
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 3000)
 	assert.Error(t, err)
@@ -57,7 +57,7 @@ func (w *nonFlusherWriter) WriteHeader(statusCode int) {}
 
 func TestSSEStream_Send(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestSSEStream_Send(t *testing.T) {
 
 func TestSSEStream_SendJSON(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestSSEStream_SendJSON(t *testing.T) {
 
 func TestSSEStream_SendNoEvent(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestSSEStream_SendNoEvent(t *testing.T) {
 
 func TestSSEStream_SetRetry(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestSSEStream_SetRetry(t *testing.T) {
 
 func TestSSEStream_SendComment(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestSSEStream_SendComment(t *testing.T) {
 
 func TestSSEStream_Flush(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestSSEStream_Flush(t *testing.T) {
 
 func TestSSEStream_Close(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestSSEStream_Close(t *testing.T) {
 
 func TestSSEStream_Context(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestSSEStream_Context(t *testing.T) {
 
 func TestSSEStream_SendAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestSSEStream_SendAfterClose(t *testing.T) {
 
 func TestSSEStream_FlushAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestSSEStream_FlushAfterClose(t *testing.T) {
 
 func TestSSEStream_SetRetryAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestSSEStream_SetRetryAfterClose(t *testing.T) {
 
 func TestSSEStream_SendCommentAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestSSEStream_SendCommentAfterClose(t *testing.T) {
 
 func TestSSEStream_SendWithID(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -264,7 +264,7 @@ func TestSSEStream_SendWithID(t *testing.T) {
 
 func TestSSEStream_SendWithEmptyID(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestSSEStream_SendWithEmptyID(t *testing.T) {
 // Send must keep emitting no id at all, so existing consumers are unchanged.
 func TestSSEStream_SendEmitsNoID(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -292,7 +292,7 @@ func TestSSEStream_SendEmitsNoID(t *testing.T) {
 
 func TestSSEStream_SendJSONWithID(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestSSEStream_SendWithIDRejectsNewline(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/events", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 			stream, err := newSSEStream(w, req, 0)
 			require.NoError(t, err)
@@ -340,7 +340,7 @@ func TestSSEStream_SendWithIDRejectsNewline(t *testing.T) {
 
 func TestSSEStream_SendJSONWithIDRejectsNewline(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestSSEStream_SendJSONWithIDRejectsNewline(t *testing.T) {
 
 func TestSSEStream_SendWithIDRejectsNewlineInEvent(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestSSEStream_SendWithIDRejectsNewlineInEvent(t *testing.T) {
 
 func TestSSEStream_SendWithIDAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestSSEStream_SendWithIDAfterClose(t *testing.T) {
 
 func TestSSEStream_LastEventID(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req.Header.Set("Last-Event-ID", "42")
 
 	stream, err := newSSEStream(w, req, 0)
@@ -391,7 +391,7 @@ func TestSSEStream_LastEventID(t *testing.T) {
 
 func TestSSEStream_LastEventIDAbsent(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -404,7 +404,7 @@ func TestSSEStream_LastEventIDAbsent(t *testing.T) {
 // client, which is most of them.
 func TestSSEStream_LastEventIDFromQueryParameter(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events?lastEventId=epoch-7", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events?lastEventId=epoch-7", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestSSEStream_LastEventIDFromQueryParameter(t *testing.T) {
 // controls deliberately per-reconnect.
 func TestSSEStream_LastEventIDHeaderBeatsQueryParameter(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events?lastEventId=from-query", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events?lastEventId=from-query", nil)
 	req.Header.Set("Last-Event-ID", "from-header")
 
 	stream, err := newSSEStream(w, req, 0)
@@ -429,7 +429,7 @@ func TestSSEStream_LastEventIDHeaderBeatsQueryParameter(t *testing.T) {
 // The id survives Close, so a handler can still report where the client was.
 func TestSSEStream_LastEventIDAfterClose(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req.Header.Set("Last-Event-ID", "seq-9")
 
 	stream, err := newSSEStream(w, req, 0)
@@ -443,7 +443,7 @@ func TestSSEStream_LastEventIDAfterClose(t *testing.T) {
 // on the next, which is the whole point of carrying them.
 func TestSSEStream_IDRoundTrip(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)
@@ -457,7 +457,7 @@ func TestSSEStream_IDRoundTrip(t *testing.T) {
 
 	// Client reconnects echoing the last id it saw.
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req2.Header.Set("Last-Event-ID", "2")
 
 	resumed, err := newSSEStream(w2, req2, 0)
@@ -468,7 +468,7 @@ func TestSSEStream_IDRoundTrip(t *testing.T) {
 
 func TestSSEStream_MultipleMessages(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	stream, err := newSSEStream(w, req, 0)
 	require.NoError(t, err)

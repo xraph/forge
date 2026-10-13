@@ -1,4 +1,3 @@
-// cmd/forge/main.go
 package main
 
 import (
@@ -27,16 +26,10 @@ func main() {
 		Description: "Forge - Enterprise-grade backend framework toolkit",
 	})
 
-	// Try to load .forge.yaml (searches up directory tree)
-	// This is non-fatal as some commands don't require it
-	forgeConfig, configPath, err := config.LoadForgeConfig()
-	if err != nil {
-		// Config loading failed - this is okay for some commands
-		_ = configPath // Config path not used when loading fails
-	} else {
-		// Config loaded successfully
-		_ = configPath // Can be used for debugging if needed
-	}
+	// Try to load .forge.yaml (searches up directory tree). Failing here is
+	// not fatal: init, version and doctor run outside a project, and the
+	// commands that need a project check for the nil config themselves.
+	forgeConfig, _, _ := config.LoadForgeConfig()
 
 	// Register all plugins
 	pluginList := []cli.Plugin{
@@ -62,7 +55,7 @@ func main() {
 	}
 
 	// Add version command
-	app.AddCommand(cli.NewCommand(
+	versionCmd := cli.NewCommand(
 		"version",
 		"Show version information",
 		func(ctx cli.CommandContext) error {
@@ -72,7 +65,11 @@ func main() {
 
 			return nil
 		},
-	))
+	)
+	if err := app.AddCommand(versionCmd); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to register version command: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Run CLI
 	if err := app.Run(os.Args); err != nil {

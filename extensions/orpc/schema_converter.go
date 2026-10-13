@@ -199,7 +199,7 @@ func generateResultSchemaFromType(schemaType any, description string) *ResultSch
 		return result
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -247,9 +247,7 @@ func generateResultSchemaFromType(schemaType any, description string) *ResultSch
 func generatePropertiesFromStruct(rt reflect.Type) map[string]*PropertySchema {
 	props := make(map[string]*PropertySchema)
 
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		if !field.IsExported() {
 			continue
 		}
@@ -285,7 +283,7 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 	}
 
 	// Handle pointer types
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -303,7 +301,7 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 	// Handle arrays/slices of structs
 	if rt.Kind() == reflect.Slice || rt.Kind() == reflect.Array {
 		elemType := rt.Elem()
-		if elemType.Kind() == reflect.Ptr {
+		if elemType.Kind() == reflect.Pointer {
 			elemType = elemType.Elem()
 		}
 
@@ -321,7 +319,7 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 
 // getJSONTypeFromReflectType maps Go types to JSON Schema types.
 func getJSONTypeFromReflectType(rt reflect.Type) string {
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -403,7 +401,7 @@ func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema any, route forge
 		return schema
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -422,9 +420,7 @@ func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema any, route forge
 	headerProps := make(map[string]*PropertySchema)
 	bodyProps := make(map[string]*PropertySchema)
 
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		if !field.IsExported() {
 			continue
 		}

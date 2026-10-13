@@ -80,12 +80,12 @@ func heartbeatBody(t *testing.T, code string) string {
 
 	rest := code[start:]
 
-	end := strings.Index(rest, "private stopHeartbeat")
-	if end < 0 {
+	before, _, ok := strings.Cut(rest, "private stopHeartbeat")
+	if !ok {
 		return rest
 	}
 
-	return rest[:end]
+	return before
 }
 
 func TestGeneratedHeartbeat_SendsAnApplicationMessage(t *testing.T) {

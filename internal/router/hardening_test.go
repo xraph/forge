@@ -28,7 +28,7 @@ func TestRequestBodyIsCapped(t *testing.T) {
 	body := `{"blob":"` + strings.Repeat("A", 64*1024) + `"}`
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/echo", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 
@@ -47,7 +47,7 @@ func TestRequestBodyUnderCapSucceeds(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"blob":"small"}`))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/echo", strings.NewReader(`{"blob":"small"}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 
@@ -140,7 +140,7 @@ func newTestSSEStream(t *testing.T) (*sseStream, *httptest.ResponseRecorder) {
 
 	rec := httptest.NewRecorder()
 
-	stream, err := newSSEStream(rec, httptest.NewRequest(http.MethodGet, "/events", nil), 0)
+	stream, err := newSSEStream(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestInternalErrorDetailIsGatedByEnvironment(t *testing.T) {
 		}
 
 		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/boom", nil))
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom", nil))
 
 		return rec.Body.String()
 	}

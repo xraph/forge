@@ -67,7 +67,7 @@ func (m *mockFilter) Name() string  { return m.name }
 func (m *mockFilter) Priority() int { return m.priority }
 func (m *mockFilter) Filter(ctx context.Context, msg *streaming.Message, recipient streaming.EnhancedConnection) (*streaming.Message, error) {
 	if m.shouldBlock {
-		return nil, nil
+		return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message
 	}
 
 	return msg, nil
@@ -173,7 +173,7 @@ func TestSimpleFilter(t *testing.T) {
 		// Block messages containing "spam"
 		if text, ok := msg.Data.(string); ok {
 			if text == "spam" {
-				return nil, nil
+				return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message
 			}
 		}
 
@@ -198,6 +198,43 @@ func TestSimpleFilter(t *testing.T) {
 
 	if result != nil {
 		t.Error("expected message to be blocked")
+	}
+}
+
+// The repeated-character check used to build a backreference regexp, which RE2
+// rejects, so any message reaching it panicked.
+func TestContentFilter_repeatedChars(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		wantBlock bool
+	}{
+		{name: "under the limit", text: "heyyy", wantBlock: false},
+		{name: "at the limit", text: "heyyyy", wantBlock: true},
+		{name: "multibyte run", text: "ok ééééé", wantBlock: true},
+		{name: "newlines do not count", text: "a\n\n\n\n\nb", wantBlock: false},
+		{name: "short runs only", text: "aabbccdd", wantBlock: false},
+	}
+
+	filter := NewContentFilter(ContentFilterConfig{
+		EnableSpamDetection: true,
+		MaxRepeatedChars:    3,
+	})
+	conn := &mockConnection{id: "conn1", userID: "user1"}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := &streaming.Message{ID: "msg1", Type: "text", Data: tt.text}
+
+			result, err := filter.Filter(context.Background(), msg, conn)
+			if err != nil {
+				t.Fatalf("Filter() error = %v", err)
+			}
+
+			if blocked := result == nil; blocked != tt.wantBlock {
+				t.Errorf("blocked = %v, want %v", blocked, tt.wantBlock)
+			}
+		})
 	}
 }
 

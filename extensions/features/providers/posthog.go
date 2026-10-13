@@ -226,7 +226,7 @@ func (p *PostHogProvider) evaluateRemote(ctx context.Context, key string, userCt
 		PersonProperties: p.buildPersonProperties(userCtx),
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	jsonData, err := json.Marshal(reqBody) //nolint:gosec // G117: PostHog's /decide endpoint takes the project API key in the request body
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -315,7 +315,7 @@ func (p *PostHogProvider) GetAllFlags(ctx context.Context, userCtx *UserContext)
 		PersonProperties: p.buildPersonProperties(userCtx),
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	jsonData, err := json.Marshal(reqBody) //nolint:gosec // G117: PostHog's /decide endpoint takes the project API key in the request body
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -418,7 +418,8 @@ func (p *PostHogProvider) Start(ctx context.Context) error {
 		return nil
 	}
 
-	go p.pollingLoop()
+	// The loop outlives Start's context on purpose; Stop ends it through stopCh.
+	go p.pollingLoop() //nolint:gosec // G118: poller is stopped by Stop, not by Start's context; each refresh gets its own timeout
 
 	p.logger.Info("PostHog provider started with local evaluation")
 

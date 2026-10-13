@@ -21,8 +21,8 @@ func parseFlag(arg string) (name, value string, hasValue bool) {
 	arg = strings.TrimLeft(arg, "-")
 
 	// Check for = separator
-	if idx := strings.Index(arg, "="); idx != -1 {
-		return arg[:idx], arg[idx+1:], true
+	if before, after, ok := strings.Cut(arg, "="); ok {
+		return before, after, true
 	}
 
 	// No value included in the argument

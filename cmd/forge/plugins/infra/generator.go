@@ -1,4 +1,5 @@
-// v2/cmd/forge/plugins/infra/generator.go
+// Package infra discovers the apps in a Forge project and generates Docker
+// Compose, Kubernetes, DigitalOcean and Render deployment files for them.
 package infra
 
 import (
@@ -121,11 +122,11 @@ services:
 `, environment)
 	}
 
-	var contentSb121 strings.Builder
+	var serviceBlocks strings.Builder
 
 	for _, app := range apps {
 		if environment == "base" {
-			fmt.Fprintf(&contentSb121, `  %s:
+			fmt.Fprintf(&serviceBlocks, `  %s:
     build:
       context: .
       dockerfile: Dockerfile.%s
@@ -146,7 +147,7 @@ services:
 				replicas = "3"
 			}
 
-			fmt.Fprintf(&contentSb121, `  %s:
+			fmt.Fprintf(&serviceBlocks, `  %s:
     deploy:
       replicas: %s
       resources:
@@ -161,7 +162,7 @@ services:
 		}
 	}
 
-	content += contentSb121.String()
+	content += serviceBlocks.String()
 
 	if environment == "base" {
 		content += `networks:
@@ -174,11 +175,6 @@ services:
 }
 
 func (g *Generator) generateDockerfile(app AppInfo) string {
-	modulePath := g.config.Project.Module
-	if modulePath == "" {
-		modulePath = "github.com/example/project"
-	}
-
 	return fmt.Sprintf(`# Build stage
 FROM golang:1.22-alpine AS builder
 
@@ -223,13 +219,14 @@ LOG_LEVEL=info
 # Service Ports
 `
 
-	var contentSb218 strings.Builder
+	var portVars strings.Builder
 	for _, app := range apps {
-		contentSb218.WriteString(normalizeEnvVar(app.Name) + "_PORT=8080\n")
+		portVars.WriteString(normalizeEnvVar(app.Name) + "_PORT=8080\n")
 	}
 
-	content += contentSb218.String()
+	content += portVars.String()
 
+	//nolint:gosec // G101: placeholder credentials in a generated .env.example template.
 	content += `
 # Database (if needed)
 DATABASE_URL=postgres://user:password@postgres:5432/dbname
@@ -317,11 +314,11 @@ func (g *Generator) ExportK8s(outputDir string) error {
 func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 	content := ""
 
-	var contentSb308 strings.Builder
+	var manifests strings.Builder
 
 	for i, app := range apps {
 		if i > 0 {
-			contentSb308.WriteString("---\n")
+			manifests.WriteString("---\n")
 		}
 
 		registryImage := "registry.example.com"
@@ -329,7 +326,7 @@ func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 			registryImage = g.config.Deploy.Registry
 		}
 
-		fmt.Fprintf(&contentSb308, `apiVersion: apps/v1
+		fmt.Fprintf(&manifests, `apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: %s
@@ -378,7 +375,7 @@ spec:
 `, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name)
 	}
 
-	content += contentSb308.String()
+	content += manifests.String()
 
 	return content
 }
@@ -386,14 +383,14 @@ spec:
 func (g *Generator) generateK8sService(apps []AppInfo) string {
 	content := ""
 
-	var contentSb373 strings.Builder
+	var manifests strings.Builder
 
 	for i, app := range apps {
 		if i > 0 {
-			contentSb373.WriteString("---\n")
+			manifests.WriteString("---\n")
 		}
 
-		fmt.Fprintf(&contentSb373, `apiVersion: v1
+		fmt.Fprintf(&manifests, `apiVersion: v1
 kind: Service
 metadata:
   name: %s
@@ -411,7 +408,7 @@ spec:
 `, app.Name, app.Name, app.Name)
 	}
 
-	content += contentSb373.String()
+	content += manifests.String()
 
 	return content
 }
@@ -448,14 +445,14 @@ namePrefix: %s-
 replicas:
 `, env)
 
-	var contentSb430 strings.Builder
+	var replicaEntries strings.Builder
 	for _, app := range apps {
-		fmt.Fprintf(&contentSb430, `  - name: %s
+		fmt.Fprintf(&replicaEntries, `  - name: %s
     count: %d
 `, app.Name, replicas)
 	}
 
-	content += contentSb430.String()
+	content += replicaEntries.String()
 
 	content += `
 commonLabels:
@@ -519,9 +516,9 @@ region: %s
 services:
 `, g.config.Project.Name, region)
 
-	var contentSb516 strings.Builder
+	var serviceEntries strings.Builder
 	for _, app := range apps {
-		fmt.Fprintf(&contentSb516, `  - name: %s
+		fmt.Fprintf(&serviceEntries, `  - name: %s
     github:
       repo: %s
       branch: %s
@@ -545,7 +542,7 @@ services:
 `, app.Name, gitRepo, gitBranch, deployOnPush, app.Name)
 	}
 
-	content += contentSb516.String()
+	content += serviceEntries.String()
 
 	return content
 }
@@ -648,9 +645,9 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
 	content := `services:
 `
 
-	var contentSb659 strings.Builder
+	var serviceEntries strings.Builder
 	for _, app := range apps {
-		fmt.Fprintf(&contentSb659, `  - type: web
+		fmt.Fprintf(&serviceEntries, `  - type: web
     name: %s
     env: go
     repo: https://github.com/%s
@@ -670,7 +667,7 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
 `, app.Name, gitRepo, gitBranch, app.MainPath)
 	}
 
-	content += contentSb659.String()
+	content += serviceEntries.String()
 
 	return content
 }
@@ -746,17 +743,17 @@ func normalizeEnvVar(name string) string {
 	// e.g., "api-service" -> "API_SERVICE"
 	result := ""
 
-	var resultSb751 strings.Builder
+	var normalized strings.Builder
 
 	for _, c := range name {
 		if c == '-' {
-			resultSb751.WriteString("_")
+			normalized.WriteString("_")
 		} else {
-			resultSb751.WriteRune(c)
+			normalized.WriteRune(c)
 		}
 	}
 
-	result += resultSb751.String()
+	result += normalized.String()
 
 	return result
 }

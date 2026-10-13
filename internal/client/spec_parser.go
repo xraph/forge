@@ -143,12 +143,10 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var openAPISpec shared.OpenAPISpec
 
 	if isYAML {
-		//nolint:musttag // OpenAPISpec has yaml tags defined in shared package
 		if err := yaml.Unmarshal(data, &openAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal OpenAPI YAML: %w", err)
 		}
 	} else {
-		//nolint:musttag // OpenAPISpec has json tags defined in shared package
 		if err := json.Unmarshal(data, &openAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal OpenAPI JSON: %w", err)
 		}
@@ -272,7 +270,6 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var asyncAPISpec shared.AsyncAPISpec
 
 	if isYAML {
-		//nolint:musttag // AsyncAPISpec has yaml tags defined in shared package
 		if err := yaml.Unmarshal(data, &asyncAPISpec); err != nil {
 			return nil, fmt.Errorf("unmarshal AsyncAPI YAML: %w", err)
 		}
@@ -738,12 +735,14 @@ func normalizeAdditionalProperties(v any) any {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		log.Printf("client: additionalProperties: marshal %T: %v", v, err)
+
 		return v
 	}
 
 	var nested shared.Schema
 	if err := json.Unmarshal(raw, &nested); err != nil {
 		log.Printf("client: additionalProperties: decode as schema: %v", err)
+
 		return v
 	}
 

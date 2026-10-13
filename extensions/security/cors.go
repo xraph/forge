@@ -163,6 +163,7 @@ func originHost(origin string) string {
 	if err != nil {
 		return ""
 	}
+
 	return strings.ToLower(u.Hostname())
 }
 
@@ -428,9 +429,11 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 	// Set allowed headers - use the validated list or wildcard
 	var allowHeadersValue string
-	if len(allowedHeadersList) == 1 && allowedHeadersList[0] == "*" {
+
+	switch {
+	case len(allowedHeadersList) == 1 && allowedHeadersList[0] == "*":
 		allowHeadersValue = "*"
-	} else if len(allowedHeadersList) == 0 {
+	case len(allowedHeadersList) == 0:
 		// No headers matched - this shouldn't happen, but log it
 		m.logger.Warn("cors no headers matched, returning empty list",
 			forge.F("requested", requestHeadersStr),
@@ -439,7 +442,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		)
 
 		allowHeadersValue = ""
-	} else {
+	default:
 		allowHeadersValue = strings.Join(allowedHeadersList, ", ")
 	}
 

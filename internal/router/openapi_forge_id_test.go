@@ -3,7 +3,7 @@ package router
 import "testing"
 
 type taggedOrder struct {
-	OrderNumber string `json:"order_number" forge:"id"`
+	OrderNumber string `forge:"id"   json:"order_number"`
 	Total       int    `json:"total"`
 }
 
@@ -47,7 +47,7 @@ func TestForgeIDTagBecomesExtension(t *testing.T) {
 // false, which causes the generator to skip the field entirely before
 // it ever reaches the flatten branch.
 type TaggedIdentity struct {
-	ItemID string `json:"item_id" forge:"id"`
+	ItemID string `forge:"id" json:"item_id"`
 }
 
 type embeddingItem struct {

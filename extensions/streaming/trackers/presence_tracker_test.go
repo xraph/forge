@@ -747,6 +747,7 @@ func TestPresenceTracker_CleanupLoopRunsAndStops(t *testing.T) {
 	}
 
 	settled := store.cleanupCount()
+
 	time.Sleep(60 * time.Millisecond)
 
 	if got := store.cleanupCount(); got > settled+1 {

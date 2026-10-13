@@ -64,6 +64,7 @@ func auditListHandler(p AuditProvider) func(ctx context.Context, in AuditListInp
 		if p == nil {
 			return AuditListResponse{}, &contract.Error{Code: contract.CodeUnavailable, Message: "audit store not configured"}
 		}
+
 		recs := p.List(contract.AuditFilter{
 			Limit:       in.Limit,
 			Contributor: in.Contributor,
@@ -71,10 +72,12 @@ func auditListHandler(p AuditProvider) func(ctx context.Context, in AuditListInp
 			User:        in.User,
 			Result:      in.Result,
 		})
+
 		out := make([]AuditRecordDTO, 0, len(recs))
 		for _, r := range recs {
 			out = append(out, projectRecord(r))
 		}
+
 		return AuditListResponse{Records: out, Total: len(out)}, nil
 	}
 }
@@ -87,13 +90,16 @@ func auditTailSub(p AuditProvider) func(ctx context.Context, _ struct{}, _ contr
 		if p == nil {
 			return nil, nil, &contract.Error{Code: contract.CodeUnavailable, Message: "audit store not configured"}
 		}
+
 		src, cancel := p.Subscribe()
 		out := make(chan AuditRecordDTO, 16)
 		stop := func() {
 			cancel()
 		}
+
 		go func() {
 			defer close(out)
+
 			for {
 				select {
 				case <-ctx.Done():
@@ -102,6 +108,7 @@ func auditTailSub(p AuditProvider) func(ctx context.Context, _ struct{}, _ contr
 					if !ok {
 						return
 					}
+
 					select {
 					case out <- projectRecord(rec):
 					case <-ctx.Done():
@@ -110,6 +117,7 @@ func auditTailSub(p AuditProvider) func(ctx context.Context, _ struct{}, _ contr
 				}
 			}
 		}()
+
 		return out, stop, nil
 	}
 }

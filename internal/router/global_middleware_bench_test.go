@@ -35,7 +35,7 @@ func benchGlobalMiddleware(b *testing.B, n int, global bool) {
 
 	_ = r.GET("/test", func(ctx Context) error { return ctx.String(200, "ok") })
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()

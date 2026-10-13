@@ -33,13 +33,16 @@ func beforeWriteRouter(t *testing.T, mw Middleware, status int, body string) Rou
 	if mw != nil {
 		router.Use(mw)
 	}
+
 	if err := router.GET("/test", func(ctx Context) error {
 		ctx.Response().WriteHeader(status)
 		_, err := ctx.Response().Write([]byte(body))
+
 		return err
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
 	}
+
 	return router
 }
 
@@ -55,21 +58,30 @@ func beforeWriteRouter(t *testing.T, mw Middleware, status int, body string) Rou
 //
 // Closing the channel after ServeHTTP returns gives every test in this file one
 // edge to rely on, rather than each having to synchronise its own captures.
-func getOverTheWire(t *testing.T, h http.Handler) *http.Response {
+//
+// The body is read and closed here, after that wait, so callers get a plain
+// value and never have to remember to close anything.
+func getOverTheWire(t *testing.T, h http.Handler) wireResponse {
 	t.Helper()
 
 	done := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer close(done)
+
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
-	resp, err := srv.Client().Get(srv.URL + "/test")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/test", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	t.Cleanup(func() { _ = resp.Body.Close() })
+	defer resp.Body.Close()
 
 	select {
 	case <-done:
@@ -78,7 +90,27 @@ func getOverTheWire(t *testing.T, h http.Handler) *http.Response {
 		// returns would otherwise hang here until the whole package times out.
 		t.Fatal("server handler did not return; nothing captured inside it is safe to read")
 	}
-	return resp
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	return wireResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header,
+		Cookies:    resp.Cookies(),
+		Body:       body,
+	}
+}
+
+// wireResponse is what a client actually received, captured before the
+// connection was released.
+type wireResponse struct {
+	StatusCode int
+	Header     http.Header
+	Cookies    []*http.Cookie
+	Body       []byte
 }
 
 // TestBeforeWrite_HeaderSetAfterHandlerIsDelivered is the point of the whole
@@ -93,6 +125,7 @@ func TestBeforeWrite_HeaderSetAfterHandlerIsDelivered(t *testing.T) {
 			}) {
 				t.Error("BeforeWrite should have registered")
 			}
+
 			return next(ctx)
 		}
 	}
@@ -102,7 +135,8 @@ func TestBeforeWrite_HeaderSetAfterHandlerIsDelivered(t *testing.T) {
 	if got := resp.Header.Get("X-Late"); got != "delivered" {
 		t.Errorf("X-Late = %q, want delivered", got)
 	}
-	cookies := resp.Cookies()
+
+	cookies := resp.Cookies
 	if len(cookies) != 1 || cookies[0].Value != "cookie" {
 		t.Errorf("cookies = %v, want one 'late=cookie'", cookies)
 	}
@@ -117,14 +151,17 @@ func TestBeforeWrite_CallbackSeesHandlerOutcome(t *testing.T) {
 				// Set from a value the handler put on the response.
 				ctx.Response().Header().Set("X-Echo", ctx.Response().Header().Get("X-From-Handler"))
 			})
+
 			return next(ctx)
 		}
 	}
 
 	router := NewRouter()
 	router.Use(mw)
+
 	if err := router.GET("/test", func(ctx Context) error {
 		ctx.Response().Header().Set("X-From-Handler", "handler-value")
+
 		return ctx.NoContent(http.StatusOK)
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -139,11 +176,13 @@ func TestBeforeWrite_CallbackSeesHandlerOutcome(t *testing.T) {
 
 func TestBeforeWrite_CallbacksRunInRegistrationOrder(t *testing.T) {
 	var order []string
+
 	mw := func(next Handler) Handler {
 		return func(ctx Context) error {
 			BeforeWrite(ctx, func() { order = append(order, "first") })
 			BeforeWrite(ctx, func() { order = append(order, "second") })
 			BeforeWrite(ctx, func() { order = append(order, "third") })
+
 			return next(ctx)
 		}
 	}
@@ -160,13 +199,16 @@ func TestBeforeWrite_CallbacksRunInRegistrationOrder(t *testing.T) {
 // not pretend to work. That report is the only way a caller can tell a
 // delivered header from a lost one.
 func TestBeforeWrite_ReportsFalseOnceCommitted(t *testing.T) {
-	var registeredLate bool
-	var ranLate bool
+	var (
+		registeredLate bool
+		ranLate        bool
+	)
 
 	mw := func(next Handler) Handler {
 		return func(ctx Context) error {
 			err := next(ctx) // handler commits the response
 			registeredLate = BeforeWrite(ctx, func() { ranLate = true })
+
 			return err
 		}
 	}
@@ -176,6 +218,7 @@ func TestBeforeWrite_ReportsFalseOnceCommitted(t *testing.T) {
 	if registeredLate {
 		t.Error("BeforeWrite must report false after the headers are committed")
 	}
+
 	if ranLate {
 		t.Error("a callback registered too late must not run")
 	}
@@ -189,6 +232,7 @@ func TestResponseWritten_TracksCommit(t *testing.T) {
 			beforeHandler = ResponseWritten(ctx)
 			err := next(ctx)
 			afterHandler = ResponseWritten(ctx)
+
 			return err
 		}
 	}
@@ -198,6 +242,7 @@ func TestResponseWritten_TracksCommit(t *testing.T) {
 	if beforeHandler {
 		t.Error("ResponseWritten should be false before the handler writes")
 	}
+
 	if !afterHandler {
 		t.Error("ResponseWritten should be true after the handler writes")
 	}
@@ -210,15 +255,18 @@ func TestBeforeWrite_NoWriteNeverRunsCallback(t *testing.T) {
 	mw := func(next Handler) Handler {
 		return func(ctx Context) error {
 			BeforeWrite(ctx, func() { ran = true })
+
 			return next(ctx)
 		}
 	}
 
 	router := NewRouter()
 	router.Use(mw)
+
 	if err := router.GET("/test", func(_ Context) error { return nil }); err != nil {
 		t.Fatalf("register route: %v", err)
 	}
+
 	getOverTheWire(t, router)
 
 	// Forge itself may commit a response for a handler that wrote nothing; the
@@ -235,9 +283,11 @@ func TestBeforeWrite_NoWriteNeverRunsCallback(t *testing.T) {
 // wrapper exposing Flush is what keeps streaming alive.
 func TestBeforeWrite_PreservesFlusher(t *testing.T) {
 	var sawFlusher bool
+
 	router := NewRouter()
 	if err := router.GET("/test", func(ctx Context) error {
 		_, sawFlusher = ctx.Response().(http.Flusher)
+
 		return ctx.NoContent(http.StatusOK)
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -259,17 +309,22 @@ func TestBeforeWrite_FlushRunsCallbacks(t *testing.T) {
 			BeforeWrite(ctx, func() {
 				ctx.Response().Header().Set("X-Stream", "flushed")
 			})
+
 			return next(ctx)
 		}
 	}
 	router.Use(mw)
+
 	if err := router.GET("/test", func(ctx Context) error {
 		w := ctx.Response()
 		w.Header().Set("Content-Type", "text/event-stream")
+
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
+
 		_, err := fmt.Fprint(w, "data: hello\n\n")
+
 		return err
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -280,9 +335,9 @@ func TestBeforeWrite_FlushRunsCallbacks(t *testing.T) {
 	if got := resp.Header.Get("X-Stream"); got != "flushed" {
 		t.Errorf("X-Stream = %q, want flushed — callbacks must run on flush", got)
 	}
-	body, _ := io.ReadAll(resp.Body) //nolint:errcheck // body content is the assertion below
-	if !strings.Contains(string(body), "data: hello") {
-		t.Errorf("body = %q, want the streamed payload", body)
+
+	if !strings.Contains(string(resp.Body), "data: hello") {
+		t.Errorf("body = %q, want the streamed payload", resp.Body)
 	}
 }
 
@@ -293,15 +348,20 @@ func TestBeforeWrite_PreservesHijacker(t *testing.T) {
 		h, ok := ctx.Response().(http.Hijacker)
 		if !ok {
 			t.Error("the wrapped writer must satisfy http.Hijacker or WebSocket upgrades break")
+
 			return ctx.NoContent(http.StatusInternalServerError)
 		}
+
 		conn, buf, err := h.Hijack()
 		if err != nil {
 			t.Errorf("hijack: %v", err)
+
 			return nil
 		}
 		defer conn.Close()
+
 		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nX-Hijacked: yes\r\nContent-Length: 0\r\n\r\n")
+
 		return buf.Flush()
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -318,9 +378,11 @@ func TestBeforeWrite_PreservesHijacker(t *testing.T) {
 // controls; without Unwrap they are silently unavailable.
 func TestBeforeWrite_SupportsResponseController(t *testing.T) {
 	var flushErr error
+
 	router := NewRouter()
 	if err := router.GET("/test", func(ctx Context) error {
 		flushErr = http.NewResponseController(ctx.Response()).Flush()
+
 		return nil
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -345,6 +407,7 @@ func TestWrapBeforeWrite_IsIdempotent(t *testing.T) {
 	if first != second {
 		t.Error("re-wrapping must return the same writer so nested routers share one hook list")
 	}
+
 	if _, ok := first.(BeforeWriter); !ok {
 		t.Error("wrapped writer must satisfy BeforeWriter")
 	}
@@ -379,6 +442,7 @@ func TestBeforeWrite_HijackDropsPendingCallbacks(t *testing.T) {
 	if !bw.Before(func() { ran = true }) {
 		t.Fatal("expected the callback to register")
 	}
+
 	if _, _, err := bw.(http.Hijacker).Hijack(); err != nil {
 		t.Fatalf("hijack: %v", err)
 	}
@@ -386,9 +450,11 @@ func TestBeforeWrite_HijackDropsPendingCallbacks(t *testing.T) {
 	if ran {
 		t.Error("a hijacked connection must not run header callbacks")
 	}
+
 	if !bw.Written() {
 		t.Error("a hijacked writer must report itself as committed")
 	}
+
 	if bw.Before(func() {}) {
 		t.Error("registration after a hijack must report false")
 	}
@@ -402,6 +468,7 @@ type hijackableRecorder struct {
 func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	client, server := net.Pipe()
 	_ = server.Close()
+
 	return client, bufio.NewReadWriter(bufio.NewReader(client), bufio.NewWriter(client)), nil
 }
 
@@ -411,20 +478,24 @@ func TestBeforeWrite_CallbackRunsOnce(t *testing.T) {
 	mw := func(next Handler) Handler {
 		return func(ctx Context) error {
 			BeforeWrite(ctx, func() { count++ })
+
 			return next(ctx)
 		}
 	}
 
 	router := NewRouter()
 	router.Use(mw)
+
 	if err := router.GET("/test", func(ctx Context) error {
 		w := ctx.Response()
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("one"))
+
 		_, _ = w.Write([]byte("two"))
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
+
 		return nil
 	}); err != nil {
 		t.Fatalf("register route: %v", err)
@@ -447,8 +518,10 @@ func TestBeforeWrite_ReentrantRegistrationTerminates(t *testing.T) {
 				if BeforeWrite(ctx, func() { t.Error("re-entrant callback must not run") }) {
 					t.Error("re-entrant registration must report false")
 				}
+
 				ctx.Response().Header().Set("X-Reentrant", "ok")
 			})
+
 			return next(ctx)
 		}
 	}
@@ -467,11 +540,8 @@ func TestBeforeWrite_TransparentToStatusAndBody(t *testing.T) {
 	if resp.StatusCode != http.StatusTeapot {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusTeapot)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-	if string(body) != "hello" {
-		t.Errorf("body = %q, want hello", body)
+
+	if string(resp.Body) != "hello" {
+		t.Errorf("body = %q, want hello", resp.Body)
 	}
 }

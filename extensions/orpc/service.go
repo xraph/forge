@@ -2,6 +2,7 @@ package orpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -48,6 +49,7 @@ func (s *ORPCService) Start(_ context.Context) error {
 	)
 
 	s.logger.Info("orpc service started")
+
 	return nil
 }
 
@@ -56,14 +58,16 @@ func (s *ORPCService) Start(_ context.Context) error {
 func (s *ORPCService) Stop(_ context.Context) error {
 	s.logger.Info("stopping orpc service")
 	s.logger.Info("orpc service stopped")
+
 	return nil
 }
 
 // Health checks if the oRPC service is healthy.
 func (s *ORPCService) Health(_ context.Context) error {
 	if s.server == nil {
-		return fmt.Errorf("orpc server not initialized")
+		return errors.New("orpc server not initialized")
 	}
+
 	return nil
 }
 

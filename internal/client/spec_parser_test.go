@@ -950,7 +950,7 @@ func TestParserSortsSecuritySchemes(t *testing.T) {
 	// emitted AuthConfig's field order is source order, and a generator whose
 	// output moves between runs produces a spurious diff in every repository
 	// that regenerates.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		spec := parseDoc(t, doc)
 
 		var keys []string
@@ -999,6 +999,7 @@ func TestParserWarnsOnAnUnknownParameterLocation(t *testing.T) {
 
 	// Silently dropping it is how the cookie case went unnoticed for so long.
 	var found bool
+
 	for _, w := range spec.Warnings {
 		if strings.Contains(w, "telepathy") && strings.Contains(w, "weird") {
 			found = true

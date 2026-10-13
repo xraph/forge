@@ -6,10 +6,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-// GRPC represents a unified gRPC server interface
+// GRPC represents a unified gRPC server interface.
 type GRPC interface {
 	// Service registration
-	RegisterService(desc *grpc.ServiceDesc, impl interface{}) error
+	RegisterService(desc *grpc.ServiceDesc, impl any) error
 
 	// Server management
 	Start(ctx context.Context, addr string) error
@@ -33,19 +33,19 @@ type GRPC interface {
 	Ping(ctx context.Context) error
 }
 
-// HealthChecker checks service health
+// HealthChecker checks service health.
 type HealthChecker interface {
 	Check(ctx context.Context) error
 }
 
-// ServiceInfo contains service metadata
+// ServiceInfo contains service metadata.
 type ServiceInfo struct {
 	Name        string
 	Methods     []MethodInfo
 	Description string
 }
 
-// MethodInfo contains method metadata
+// MethodInfo contains method metadata.
 type MethodInfo struct {
 	Name           string
 	IsClientStream bool
@@ -54,7 +54,7 @@ type MethodInfo struct {
 	OutputType     string
 }
 
-// ServerStats contains server statistics
+// ServerStats contains server statistics.
 type ServerStats struct {
 	StartTime        int64
 	TotalConnections int64

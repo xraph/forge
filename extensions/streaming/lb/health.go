@@ -184,7 +184,9 @@ func (hc *healthChecker) checkNode(ctx context.Context, nh *nodeHealth) {
 			nh.node.FailureCount++
 
 			// Update in balancer (method doesn't return error)
-			if updater, ok := hc.balancer.(interface{ UpdateNodeHealth(string, bool) }); ok {
+			if updater, ok := hc.balancer.(interface {
+				UpdateNodeHealth(nodeID string, healthy bool)
+			}); ok {
 				updater.UpdateNodeHealth(nh.node.ID, false)
 			}
 		}
@@ -199,7 +201,9 @@ func (hc *healthChecker) checkNode(ctx context.Context, nh *nodeHealth) {
 			nh.node.FailureCount = 0
 
 			// Update in balancer (method doesn't return error)
-			if updater, ok := hc.balancer.(interface{ UpdateNodeHealth(string, bool) }); ok {
+			if updater, ok := hc.balancer.(interface {
+				UpdateNodeHealth(nodeID string, healthy bool)
+			}); ok {
 				updater.UpdateNodeHealth(nh.node.ID, true)
 			}
 		}

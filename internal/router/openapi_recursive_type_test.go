@@ -209,12 +209,10 @@ func jsonPromotedFieldNames(typ reflect.Type) []string {
 
 			seen[t] = true
 
-			for i := range t.NumField() {
-				field := t.Field(i)
-
+			for field := range t.Fields() {
 				if field.Anonymous {
 					ft := field.Type
-					if ft.Kind() == reflect.Ptr {
+					if ft.Kind() == reflect.Pointer {
 						ft = ft.Elem()
 					}
 

@@ -1,4 +1,3 @@
-// envelope.go
 package contract
 
 import "encoding/json"
@@ -51,9 +50,13 @@ type ResponseMeta struct {
 }
 
 // Deprecation surfaces a "this version will be removed" hint to the shell.
+//
+// The yaml keys are lowercase because that is what yaml.v3 matched before the
+// tags were spelled out. A manifest that writes intentVersion or removeAfter,
+// the way the JSON names read, leaves both fields empty.
 type Deprecation struct {
-	IntentVersion int    `json:"intentVersion"`
-	RemoveAfter   string `json:"removeAfter"`
+	IntentVersion int    `json:"intentVersion" yaml:"intentversion"`
+	RemoveAfter   string `json:"removeAfter"   yaml:"removeafter"`
 }
 
 // CacheHint communicates how long the shell can serve stale data for a query.

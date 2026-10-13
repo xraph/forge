@@ -396,9 +396,15 @@ func (l *Log) evictCache() {
 	if len(l.entries) > 0 {
 		lastIndex := l.entries[len(l.entries)-1].Index
 
+		// A non-positive cache size keeps nothing older than the newest entry.
+		var keep uint64
+		if l.cacheSize > 0 {
+			keep = uint64(l.cacheSize)
+		}
+
 		minIndex := lastIndex
-		if uint64(l.cacheSize) < lastIndex {
-			minIndex = lastIndex - uint64(l.cacheSize)
+		if keep < lastIndex {
+			minIndex = lastIndex - keep
 		}
 
 		for index := range l.cache {
@@ -456,9 +462,9 @@ func (l *Log) String() string {
 	defer l.mu.RUnlock()
 
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("Log[snapshot=%d:%d, entries=%d, first=%d, last=%d]",
+	fmt.Fprintf(&buf, "Log[snapshot=%d:%d, entries=%d, first=%d, last=%d]",
 		l.snapshotIndex, l.snapshotTerm, len(l.entries),
-		l.FirstIndex(), l.LastIndex()))
+		l.FirstIndex(), l.LastIndex())
 
 	return buf.String()
 }

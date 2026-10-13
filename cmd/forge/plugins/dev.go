@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/dev.go
 package plugins
 
 import (
@@ -51,14 +50,14 @@ func (p *DevPlugin) Commands() []cli.Command {
 	)
 
 	// Add subcommands
-	devCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(devCmd, cli.NewCommand(
 		"list",
 		"List available apps",
 		p.listApps,
 		cli.WithAliases("ls"),
 	))
 
-	devCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(devCmd, cli.NewCommand(
 		"build",
 		"Build app for development",
 		p.buildDev,
@@ -207,7 +206,8 @@ func (p *DevPlugin) buildDev(ctx cli.CommandContext) error {
 
 	spinner := ctx.Spinner(fmt.Sprintf("Building %s...", appName))
 
-	cmd := exec.Command("go", "build", "-o", filepath.Join("bin", appName), app.Path)
+	//nolint:gosec // G204: app name and path come from the project's own layout, matched against --app.
+	cmd := exec.CommandContext(ctx.Context(), "go", "build", "-o", filepath.Join("bin", appName), app.Path)
 	cmd.Dir = p.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -331,11 +331,12 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 		return err
 	}
 
-	cmd := exec.Command("go", "run", "-tags", "forge_debug", mainPath)
+	cmd := exec.CommandContext(ctx.Context(), "go", "run", "-tags", "forge_debug", mainPath)
 	cmd.Dir = p.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+
 	cmd.Env = append(os.Environ(),
 		"FORGE_DEV=true",
 		"FORGE_DEBUG_PORT="+resolveDebugPort(os.Getenv("PORT")),
@@ -391,7 +392,7 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 
 func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bool, port int, network string) error {
 	// Check Docker is available.
-	if err := checkDockerAvailable(); err != nil {
+	if err := checkDockerAvailable(ctx.Context()); err != nil {
 		return err
 	}
 
@@ -516,14 +517,14 @@ func (p *DevPlugin) resolveDockerConfig(app *AppInfo, networkFlag string) *confi
 }
 
 // checkDockerAvailable verifies that Docker is installed and the daemon is running.
-func checkDockerAvailable() error {
+func checkDockerAvailable(ctx context.Context) error {
 	// Check if docker binary exists.
 	if _, err := exec.LookPath("docker"); err != nil {
 		return errors.New("docker not found in PATH. Install Docker: https://docs.docker.com/get-docker/")
 	}
 
 	// Check if daemon is running.
-	cmd := exec.Command("docker", "info")
+	cmd := exec.CommandContext(ctx, "docker", "info")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
@@ -634,7 +635,7 @@ func newAppWatcher(cfg *config.ForgeConfig, app *AppInfo) (*appWatcher, error) {
 // the project's .forge/dev directory. We rebuild in place each time so the
 // path stays predictable (helpful for debuggers and codesigning) and old
 // artifacts don't accumulate in the OS temp dir.
-func (aw *appWatcher) buildApp() (string, error) {
+func (aw *appWatcher) buildApp(ctx context.Context) (string, error) {
 	buildDir := filepath.Join(aw.config.RootDir, ".forge", "dev")
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
 		return "", fmt.Errorf("create build dir: %w", err)
@@ -644,18 +645,22 @@ func (aw *appWatcher) buildApp() (string, error) {
 	if binName == "" {
 		binName = "app"
 	}
+
 	if runtime.GOOS == "windows" {
 		binName += ".exe"
 	}
+
 	binPath := filepath.Join(buildDir, binName)
 
-	cmd := exec.Command("go", "build", "-tags", "forge_debug", "-o", binPath, aw.mainFile)
+	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "forge_debug", "-o", binPath, aw.mainFile)
 	cmd.Dir = aw.config.RootDir
 	cmd.Stdout = os.Stdout
+
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("go build: %w", err)
 	}
+
 	return binPath, nil
 }
 
@@ -678,10 +683,10 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	// Check if port is available (if PORT env var is set)
 	if portStr := os.Getenv("PORT"); portStr != "" {
-		if !isPortAvailable(portStr) {
+		if !isPortAvailable(ctx.Context(), portStr) {
 			ctx.Warning(fmt.Sprintf("Port %s is still in use, waiting for release...", portStr))
 
-			if err := waitForPort(portStr, 5*time.Second); err != nil {
+			if err := waitForPort(ctx.Context(), portStr, 5*time.Second); err != nil {
 				return fmt.Errorf("port %s is not available: %w", portStr, err)
 			}
 		}
@@ -696,12 +701,15 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	// loops still hammering the database. Building once and exec'ing the
 	// binary directly means there's exactly one process to track and
 	// killProcessGroup reliably reaches it.
-	binPath, err := aw.buildApp()
+	binPath, err := aw.buildApp(ctx.Context())
 	if err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
 
-	cmd := exec.Command(binPath)
+	// The app outlives any one command context: killProcessGroup stops it
+	// gracefully on reload and shutdown, and a context cancel would SIGKILL
+	// it before it could drain.
+	cmd := exec.CommandContext(context.WithoutCancel(ctx.Context()), binPath)
 	cmd.Dir = aw.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -917,7 +925,11 @@ func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
 	done := make(chan struct{})
 
 	go func() {
-		cmd.Process.Wait()
+		// Start's monitor goroutine usually reaps the process first, so this
+		// Wait often returns "no child processes". Either way the process is
+		// gone, which is all this function needs to know.
+		_, _ = cmd.Process.Wait()
+
 		close(done)
 	}()
 
@@ -925,17 +937,20 @@ func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
 	case <-done:
 		// Process terminated successfully
 	case <-time.After(timeout):
-		// Timeout - force kill
-		cmd.Process.Kill()
+		// Timeout - force kill. If this fails the process most likely exited
+		// in the gap, and there is no stronger signal left to send.
+		_ = cmd.Process.Kill()
 	}
 }
 
 // isPortAvailable checks if a port is available for binding.
-func isPortAvailable(port string) bool {
+func isPortAvailable(ctx context.Context, port string) bool {
 	// Try to bind to the port using lsof
 	// This is more reliable than trying to bind since we want to detect
-	// ports in TIME_WAIT state as well
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -i :%s -sTCP:LISTEN", port))
+	// ports in TIME_WAIT state as well. The port comes from $PORT, so it goes
+	// to lsof as a single argument rather than through a shell.
+	//nolint:gosec // G204: fixed binary, and port is one argv entry that no shell interprets.
+	cmd := exec.CommandContext(ctx, "lsof", "-i", ":"+port, "-sTCP:LISTEN")
 	output, err := cmd.CombinedOutput()
 
 	// If lsof returns nothing or errors, port is available
@@ -943,14 +958,14 @@ func isPortAvailable(port string) bool {
 }
 
 // waitForPort waits for a port to become available.
-func waitForPort(port string, timeout time.Duration) error {
+func waitForPort(ctx context.Context, port string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for time.Now().Before(deadline) {
-		if isPortAvailable(port) {
+		if isPortAvailable(ctx, port) {
 			return nil
 		}
 
@@ -968,5 +983,6 @@ func resolveDebugPort(appPort string) string {
 	if n, err := strconv.Atoi(p); err == nil && n > 0 {
 		return strconv.Itoa(n + 1000)
 	}
+
 	return "9080"
 }

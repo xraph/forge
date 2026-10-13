@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/client_diff_test.go
 package plugins
 
 import (
@@ -240,7 +239,7 @@ func TestClientDiffOutputIsStableAcrossRuns(t *testing.T) {
 
 	first, _ := runClientCLI(t, "client", "diff", oldPath, newPath)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		again, _ := runClientCLI(t, "client", "diff", oldPath, newPath)
 		if again != first {
 			t.Fatalf("run %d differs:\n--- first ---\n%s--- again ---\n%s", i, first, again)

@@ -63,7 +63,7 @@ func TestFARPManifestEndpoint(t *testing.T) {
 	}
 
 	// Create test HTTP request to manifest endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_farp/manifest", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_farp/manifest", nil)
 	rec := httptest.NewRecorder()
 
 	// Get router and serve request
@@ -155,7 +155,7 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	defer discExt.Stop(context.Background())
 
 	// Create test HTTP request to discovery endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_farp/discovery", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_farp/discovery", nil)
 	rec := httptest.NewRecorder()
 
 	// Get router and serve request
@@ -246,7 +246,7 @@ func TestFARPEndpointsWithoutService(t *testing.T) {
 	}
 
 	// Test manifest endpoint
-	req := httptest.NewRequest(http.MethodGet, "/_farp/manifest", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_farp/manifest", nil)
 	rec := httptest.NewRecorder()
 
 	router := app.Router()

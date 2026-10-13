@@ -3,6 +3,7 @@ package pilot
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,14 +48,17 @@ type Deps struct {
 // registration error from the second call.
 func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg contract.WardenRegistry, deps Deps) error {
 	if deps.Extensions == nil {
-		return fmt.Errorf("pilot: Extensions is required")
+		return errors.New("pilot: Extensions is required")
 	}
+
 	if deps.Services == nil {
-		return fmt.Errorf("pilot: Services is required")
+		return errors.New("pilot: Services is required")
 	}
+
 	if deps.Metrics == nil {
-		return fmt.Errorf("pilot: Metrics is required")
+		return errors.New("pilot: Metrics is required")
 	}
+
 	interval := deps.MetricsInterval
 	if interval <= 0 {
 		interval = DefaultMetricsInterval
@@ -64,9 +68,11 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err != nil {
 		return fmt.Errorf("pilot: loading manifest: %w", err)
 	}
+
 	if err := loader.Validate(m, wreg); err != nil {
 		return fmt.Errorf("pilot: validating manifest: %w", err)
 	}
+
 	if err := contractReg.Register(m); err != nil {
 		return fmt.Errorf("pilot: contract registry: %w", err)
 	}
@@ -75,12 +81,15 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterQuery(d, c, "extensions.list", 1, extensionsListHandler(deps.Extensions)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "services.list", 1, servicesListHandler(deps.Services)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "services.detail", 1, servicesDetailHandler(deps.Services)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterSubscription(d, c, "metrics.summary", 1, metricsSummarySub(deps.Metrics, interval)); err != nil {
 		return err
 	}
@@ -90,15 +99,19 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterQuery(d, c, "overview", 1, overviewHandler(deps.Overview)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "health", 1, healthHandler(deps.Health)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "metrics-report", 1, metricsReportHandler(deps.MetricsReport)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "traces.list", 1, tracesListHandler(deps.Traces)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterQuery(d, c, "traces.detail", 1, traceDetailHandler(deps.Traces)); err != nil {
 		return err
 	}
@@ -108,6 +121,7 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterQuery(d, c, "audit.list", 1, auditListHandler(deps.Audit)); err != nil {
 		return err
 	}
+
 	if err := dispatcher.RegisterSubscription(d, c, "audit.tail", 1, auditTailSub(deps.Audit)); err != nil {
 		return err
 	}
@@ -119,5 +133,6 @@ func Register(d *dispatcher.Dispatcher, contractReg contract.Registry, wreg cont
 	if err := dispatcher.RegisterQuery(d, c, "apps.list", 1, appsListHandler(contractReg)); err != nil {
 		return err
 	}
+
 	return nil
 }

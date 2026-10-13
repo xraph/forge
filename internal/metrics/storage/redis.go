@@ -345,7 +345,7 @@ func (rs *RedisStorage) Start(ctx context.Context) error {
 	go rs.cleanupLoop()
 
 	// Start stats collection goroutine
-	go rs.statsLoop()
+	go rs.statsLoop() //nolint:gosec // G118: the loop must outlive Start's ctx; it stops on stopCh, not on cancellation
 
 	return nil
 }

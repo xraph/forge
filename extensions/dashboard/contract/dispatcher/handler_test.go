@@ -20,6 +20,7 @@ func TestResult_HoldsData(t *testing.T) {
 	if string(r.Data) != `{"ok":true}` {
 		t.Errorf("data lost")
 	}
+
 	if r.ExtraInvalidates[0] != "x" {
 		t.Errorf("invalidates lost")
 	}
@@ -30,5 +31,6 @@ func TestHandlerSignature_Compiles(t *testing.T) {
 	var h Handler = func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
 		return &Result{Data: json.RawMessage(`null`)}, nil
 	}
+
 	_ = h
 }

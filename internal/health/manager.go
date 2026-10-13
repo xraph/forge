@@ -165,6 +165,7 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 
 	if hc.started {
 		hc.mu.Unlock()
+
 		return nil // idempotent
 	}
 
@@ -290,6 +291,7 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 
 	// Wait for all background goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		hc.wg.Wait()
 		close(done)
@@ -361,7 +363,7 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 		hc.mu.Unlock()
 
 		return errors.ErrInvalidConfig("health_check_name",
-			fmt.Errorf("health check name cannot be empty"))
+			errors.New("health check name cannot be empty"))
 	}
 
 	if _, exists := hc.checks[name]; exists {
@@ -400,7 +402,7 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 func (hc *ManagerImpl) RegisterFn(name string, checkFn healthinternal.HealthCheckFunc) error {
 	if name == "" {
 		return errors.ErrInvalidConfig("health_check_name",
-			fmt.Errorf("health check name cannot be empty"))
+			errors.New("health check name cannot be empty"))
 	}
 
 	config := &healthinternal.HealthCheckConfig{
@@ -852,19 +854,15 @@ func (hc *ManagerImpl) notifySubscribers(result *healthinternal.HealthResult) {
 	}
 
 	// Use bounded concurrency: min(len(subscribers), 10)
-	workerCount := len(subscribers)
-	if workerCount > 10 {
-		workerCount = 10
-	}
+	workerCount := min(len(subscribers), 10)
 
 	var wg sync.WaitGroup
+
 	work := make(chan healthinternal.HealthCallback, len(subscribers))
 
 	// Start workers
 	for range workerCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for cb := range work {
 				func() {
 					defer func() {
@@ -876,16 +874,18 @@ func (hc *ManagerImpl) notifySubscribers(result *healthinternal.HealthResult) {
 							}
 						}
 					}()
+
 					cb(result)
 				}()
 			}
-		}()
+		})
 	}
 
 	// Send work
 	for _, cb := range subscribers {
 		work <- cb
 	}
+
 	close(work)
 
 	wg.Wait()

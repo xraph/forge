@@ -206,7 +206,7 @@ func (ca *ClusterAPI) ValidateResilience(ctx forge.Context) error {
 	})
 }
 
-// GetClusterSize recommendations.
+// GetClusterSizeRecommendations returns recommended cluster sizes.
 func (ca *ClusterAPI) GetClusterSizeRecommendations(ctx forge.Context) error {
 	recommendations := ca.quorum.RecommendClusterSize()
 

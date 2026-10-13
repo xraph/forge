@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -79,9 +80,8 @@ func TestDiscriminatedUnionNarrows(t *testing.T) {
 	// Positive proof: narrowing via `if` and `switch` on the discriminant
 	// must type-check cleanly.
 	goodFiles := make(map[string]string, len(out.Files)+1)
-	for k, v := range out.Files {
-		goodFiles[k] = v
-	}
+	maps.Copy(goodFiles, out.Files)
+
 	goodFiles["src/consumer.ts"] = `import { Pet } from './types';
 
 export function describeIf(pet: Pet): string {
@@ -112,9 +112,8 @@ export function describeSwitch(pet: Pet): string {
 	// This rules out the union having accidentally widened to something
 	// that makes every member field accessible unconditionally.
 	badFiles := make(map[string]string, len(out.Files)+1)
-	for k, v := range out.Files {
-		badFiles[k] = v
-	}
+	maps.Copy(badFiles, out.Files)
+
 	badFiles["src/unnarrowed.ts"] = `import { Pet } from './types';
 
 export function bad(pet: Pet): boolean {
@@ -208,9 +207,8 @@ func TestOneOfInlineObjectMembersRenderAsObjectLiterals(t *testing.T) {
 	assert.NotContains(t, types, "Shape = Record<string, any> | Record<string, any>")
 
 	files := make(map[string]string, len(out.Files)+1)
-	for k, v := range out.Files {
-		files[k] = v
-	}
+	maps.Copy(files, out.Files)
+
 	files["src/consumer.ts"] = `import { Shape } from './types';
 
 export function area(shape: Shape): number {
@@ -255,9 +253,11 @@ func generateWithTimeout(t *testing.T, spec *client.APISpec, cfg client.Generato
 	select {
 	case result := <-done:
 		require.NoError(t, result.err)
+
 		return result.files
 	case <-time.After(timeout):
 		t.Fatalf("Generate did not return within %s; suspected infinite loop", timeout)
+
 		return nil
 	}
 }

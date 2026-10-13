@@ -257,7 +257,7 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 	buf.WriteString("    super();\n")
 	buf.WriteString("    this.config = {\n")
 	buf.WriteString("      connectionTimeout: 30000,\n")
-	buf.WriteString(fmt.Sprintf("      maxChannelsPerUser: %d,\n", maxChannels))
+	fmt.Fprintf(&buf, "      maxChannelsPerUser: %d,\n", maxChannels)
 	buf.WriteString("      enableOfflineQueue: true,\n")
 	buf.WriteString("      maxQueueSize: 1000,\n")
 	buf.WriteString("      queueMessageTTL: 300000,\n")
@@ -293,7 +293,7 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 		wsPath = spec.Streaming.Channels.Path
 	}
 
-	buf.WriteString(fmt.Sprintf("      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath))
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
 
 	// Add auth to URL
 	if config.IncludeAuth {

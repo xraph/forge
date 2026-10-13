@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -28,6 +29,7 @@ func MustGetSearch(c forge.Container) Search {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get search service: %v", err))
 	}
+
 	return search
 }
 
@@ -35,8 +37,9 @@ func MustGetSearch(c forge.Container) Search {
 // Returns error if not found or type assertion fails.
 func GetSearchFromApp(app forge.App) (Search, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
+
 	return GetSearch(app.Container())
 }
 
@@ -46,5 +49,6 @@ func MustGetSearchFromApp(app forge.App) Search {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetSearch(app.Container())
 }

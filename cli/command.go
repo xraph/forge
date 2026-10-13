@@ -81,13 +81,13 @@ func (c *command) Run(ctx CommandContext) error {
 	handler := c.handler
 
 	// Apply after middleware (in reverse order)
-	for i := len(c.after) - 1; i >= 0; i-- {
-		handler = c.after[i](handler)
+	for _, v := range slices.Backward(c.after) {
+		handler = v(handler)
 	}
 
 	// Apply before middleware (in order)
-	for i := len(c.before) - 1; i >= 0; i-- {
-		handler = c.before[i](handler)
+	for _, v := range slices.Backward(c.before) {
+		handler = v(handler)
 	}
 
 	return handler(ctx)

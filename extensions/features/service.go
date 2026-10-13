@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -52,10 +53,12 @@ func (s *Service) Start(ctx context.Context) error {
 	// Start periodic refresh if configured
 	if s.refreshInterval > 0 {
 		s.wg.Add(1)
-		go s.refreshLoop()
+		// The loop outlives Start's context on purpose; Stop ends it through stopCh.
+		go s.refreshLoop() //nolint:gosec // G118: refresher is stopped by Stop, not by Start's context; each refresh gets its own timeout
 	}
 
 	s.logger.Info("features service started")
+
 	return nil
 }
 
@@ -68,6 +71,7 @@ func (s *Service) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		s.wg.Wait()
 		close(done)
@@ -93,8 +97,9 @@ func (s *Service) Stop(ctx context.Context) error {
 // Health checks the service health.
 func (s *Service) Health(ctx context.Context) error {
 	if s.provider == nil {
-		return fmt.Errorf("feature flags provider is nil")
+		return errors.New("feature flags provider is nil")
 	}
+
 	return s.provider.Health(ctx)
 }
 
@@ -116,6 +121,7 @@ func (s *Service) refreshLoop() {
 			} else {
 				s.logger.Debug("feature flags refreshed")
 			}
+
 			cancel()
 
 		case <-s.stopCh:

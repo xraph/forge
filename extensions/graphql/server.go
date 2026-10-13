@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
@@ -15,7 +16,7 @@ import (
 	"github.com/xraph/forge/extensions/graphql/generated"
 )
 
-// graphqlImpl wraps gqlgen server to implement GraphQL interface
+// graphqlImpl wraps gqlgen server to implement GraphQL interface.
 type graphqlImpl struct {
 	server   *handler.Server
 	schema   graphql.ExecutableSchema
@@ -25,7 +26,7 @@ type graphqlImpl struct {
 	resolver *Resolver
 }
 
-// NewGraphQLServer creates a new GraphQL server with gqlgen
+// NewGraphQLServer creates a new GraphQL server with gqlgen.
 func NewGraphQLServer(config Config, logger forge.Logger, metrics forge.Metrics, container forge.Container) (GraphQL, error) {
 	// Create resolver with DI
 	resolver := NewResolver(container, logger, metrics, config)
@@ -84,27 +85,31 @@ func NewGraphQLServer(config Config, logger forge.Logger, metrics forge.Metrics,
 
 // Implement GraphQL interface methods
 
-func (g *graphqlImpl) RegisterType(name string, obj interface{}) error {
+func (g *graphqlImpl) RegisterType(name string, obj any) error {
 	// Types are handled by schema generation in gqlgen
 	g.logger.Debug("type registration handled by gqlgen", forge.F("name", name))
+
 	return nil
 }
 
 func (g *graphqlImpl) RegisterQuery(name string, resolver FieldResolverFunc) error {
 	// Queries are defined in schema, not registered dynamically
 	g.logger.Debug("query registration handled by schema", forge.F("name", name))
+
 	return nil
 }
 
 func (g *graphqlImpl) RegisterMutation(name string, resolver FieldResolverFunc) error {
 	// Mutations are defined in schema, not registered dynamically
 	g.logger.Debug("mutation registration handled by schema", forge.F("name", name))
+
 	return nil
 }
 
 func (g *graphqlImpl) RegisterSubscription(name string, resolver SubscriptionResolverFunc) error {
 	// Subscriptions are defined in schema, not registered dynamically
 	g.logger.Debug("subscription registration handled by schema", forge.F("name", name))
+
 	return nil
 }
 
@@ -118,17 +123,27 @@ func (g *graphqlImpl) GenerateSchema() (string, error) {
 
 	if astSchema.Query != nil {
 		sdl += "type Query {\n"
+
+		var queryFields strings.Builder
 		for _, field := range astSchema.Query.Fields {
-			sdl += "  " + field.Name + ": " + field.Type.String() + "\n"
+			queryFields.WriteString("  " + field.Name + ": " + field.Type.String() + "\n")
 		}
+
+		sdl += queryFields.String()
+
 		sdl += "}\n\n"
 	}
 
 	if astSchema.Mutation != nil {
 		sdl += "type Mutation {\n"
+
+		var mutationFields strings.Builder
 		for _, field := range astSchema.Mutation.Fields {
-			sdl += "  " + field.Name + ": " + field.Type.String() + "\n"
+			mutationFields.WriteString("  " + field.Name + ": " + field.Type.String() + "\n")
 		}
+
+		sdl += mutationFields.String()
+
 		sdl += "}\n\n"
 	}
 
@@ -180,7 +195,7 @@ func (g *graphqlImpl) GetSchema() *GraphQLSchema {
 	return schema
 }
 
-func (g *graphqlImpl) ExecuteQuery(ctx context.Context, query string, variables map[string]interface{}) (*Response, error) {
+func (g *graphqlImpl) ExecuteQuery(ctx context.Context, query string, variables map[string]any) (*Response, error) {
 	// For direct programmatic execution, use the HTTP handler with in-memory request
 	// This is simpler than dealing with gqlgen's internal APIs
 

@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-// grpcServer implements GRPC interface
+// grpcServer implements GRPC interface.
 type grpcServer struct {
 	config                   Config
 	logger                   forge.Logger
@@ -29,7 +29,7 @@ type grpcServer struct {
 	mu                       sync.RWMutex
 }
 
-// NewGRPCServer creates a new gRPC server
+// NewGRPCServer creates a new gRPC server.
 func NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GRPC {
 	return &grpcServer{
 		config:         config,
@@ -39,7 +39,7 @@ func NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GR
 	}
 }
 
-func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl interface{}) error {
+func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -49,6 +49,7 @@ func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl interface{}) e
 
 	s.server.RegisterService(desc, impl)
 	s.logger.Info("registered grpc service", forge.F("service", desc.ServiceName))
+
 	return nil
 }
 
@@ -56,10 +57,13 @@ func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl interface{}) e
 func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	// Check if already running
 	s.mu.RLock()
+
 	if s.running {
 		s.mu.RUnlock()
+
 		return nil
 	}
+
 	s.mu.RUnlock()
 
 	// Build server options from config (without holding lock to avoid deadlock)
@@ -91,7 +95,7 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	}
 
 	// Listen on address
-	lis, err := net.Listen("tcp", addr)
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
@@ -102,6 +106,7 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	// Start server in background
 	go func() {
 		s.logger.Info("grpc server listening", forge.F("address", addr))
+
 		if err := s.server.Serve(lis); err != nil {
 			s.logger.Error("grpc server error", forge.F("error", err))
 		}
@@ -123,6 +128,7 @@ func (s *grpcServer) Stop(ctx context.Context) error {
 	}
 
 	s.running = false
+
 	return nil
 }
 
@@ -139,6 +145,7 @@ func (s *grpcServer) GracefulStop(ctx context.Context) error {
 	}
 
 	s.running = false
+
 	return nil
 }
 
@@ -184,10 +191,11 @@ func (s *grpcServer) Ping(ctx context.Context) error {
 	if !s.IsRunning() {
 		return ErrNotStarted
 	}
+
 	return nil
 }
 
-// GetStats returns current server statistics
+// GetStats returns current server statistics.
 func (s *grpcServer) GetStats() ServerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -195,7 +203,7 @@ func (s *grpcServer) GetStats() ServerStats {
 	return s.stats
 }
 
-// GetServices returns information about registered services
+// GetServices returns information about registered services.
 func (s *grpcServer) GetServices() []ServiceInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -205,6 +213,7 @@ func (s *grpcServer) GetServices() []ServiceInfo {
 	}
 
 	services := []ServiceInfo{}
+
 	for name, info := range s.server.GetServiceInfo() {
 		methods := make([]MethodInfo, 0, len(info.Methods))
 		for _, method := range info.Methods {
@@ -224,7 +233,7 @@ func (s *grpcServer) GetServices() []ServiceInfo {
 	return services
 }
 
-// buildServerOptions creates gRPC server options from config
+// buildServerOptions creates gRPC server options from config.
 func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
@@ -232,6 +241,7 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 	if s.config.MaxRecvMsgSize > 0 {
 		opts = append(opts, grpc.MaxRecvMsgSize(s.config.MaxRecvMsgSize))
 	}
+
 	if s.config.MaxSendMsgSize > 0 {
 		opts = append(opts, grpc.MaxSendMsgSize(s.config.MaxSendMsgSize))
 	}
@@ -270,6 +280,7 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 			s.logger.Error("failed to load TLS credentials", forge.F("error", err))
 		} else {
 			opts = append(opts, grpc.Creds(creds))
+
 			s.logger.Info("grpc TLS enabled")
 		}
 	}
@@ -282,6 +293,7 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 		if len(unaryInterceptors) > 0 {
 			opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
 		}
+
 		if len(streamInterceptors) > 0 {
 			opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 		}
@@ -290,7 +302,7 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 	return opts
 }
 
-// healthServer implements grpc_health_v1.HealthServer
+// healthServer implements grpc_health_v1.HealthServer.
 type healthServer struct {
 	s *grpcServer
 }
@@ -302,17 +314,14 @@ func (h *healthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 	checker, exists := h.s.healthCheckers[service]
 	h.s.mu.RUnlock()
 
-	if service != "" && exists {
-		if err := checker.Check(ctx); err != nil {
-			return &grpc_health_v1.HealthCheckResponse{
-				Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-			}, nil
-		}
+	// A failing checker is a health result, not an RPC failure: the client
+	// learns about it through the NOT_SERVING status.
+	status := grpc_health_v1.HealthCheckResponse_SERVING
+	if service != "" && exists && checker.Check(ctx) != nil {
+		status = grpc_health_v1.HealthCheckResponse_NOT_SERVING
 	}
 
-	return &grpc_health_v1.HealthCheckResponse{
-		Status: grpc_health_v1.HealthCheckResponse_SERVING,
-	}, nil
+	return &grpc_health_v1.HealthCheckResponse{Status: status}, nil
 }
 
 func (h *healthServer) Watch(req *grpc_health_v1.HealthCheckRequest, stream grpc_health_v1.Health_WatchServer) error {

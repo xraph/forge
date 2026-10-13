@@ -1,4 +1,3 @@
-// internal/client/generators/typescript/opsmanifest_test.go
 package typescript
 
 import (
@@ -61,7 +60,7 @@ func TestOpsManifestIsDeterministic(t *testing.T) {
 	gen := NewOpsManifestGenerator()
 
 	first := gen.Generate(manifestSpec(), client.GeneratorConfig{})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if got := gen.Generate(manifestSpec(), client.GeneratorConfig{}); got != first {
 			t.Fatal("ops.ts differs between runs: a map is being iterated unsorted")
 		}
@@ -121,7 +120,7 @@ func TestOpsManifestFieldMapIsDeterministic(t *testing.T) {
 	gen := NewOpsManifestGenerator()
 
 	first := gen.Generate(fieldMapSpec(), client.GeneratorConfig{})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if got := gen.Generate(fieldMapSpec(), client.GeneratorConfig{}); got != first {
 			t.Fatal("ops.ts differs between runs: EntityRef.Fields is being iterated unsorted")
 		}
@@ -162,6 +161,7 @@ func TestStaleTimeReachesThePerOperationModule(t *testing.T) {
 	files := NewOpsManifestGenerator().GenerateModules(spec, client.GeneratorConfig{})
 
 	var found bool
+
 	for name, content := range files {
 		if strings.HasPrefix(name, "src/ops/") && strings.Contains(content, "staleTime: 30000,") {
 			found = true

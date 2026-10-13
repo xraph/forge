@@ -87,7 +87,7 @@ func typeCheck(t *testing.T, dir string) []string {
 	argv := findTSC(t)
 	argv = append(argv, "--noEmit", "-p", "tsconfig.json")
 
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...)
 	cmd.Dir = dir
 
 	out, err := cmd.CombinedOutput()
@@ -97,7 +97,7 @@ func typeCheck(t *testing.T, dir string) []string {
 
 	var errs []string
 
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if strings.Contains(line, "error TS") {
 			errs = append(errs, strings.TrimSpace(line))
 		}

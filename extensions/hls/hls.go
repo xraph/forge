@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// HLS represents the core HLS streaming interface
+// HLS represents the core HLS streaming interface.
 type HLS interface {
 	// Stream Management
 	CreateStream(ctx context.Context, opts StreamOptions) (*Stream, error)
@@ -36,7 +36,7 @@ type HLS interface {
 	GetActiveViewers(ctx context.Context, streamID string) (int, error)
 }
 
-// Stream represents an HLS stream
+// Stream represents an HLS stream.
 type Stream struct {
 	ID          string
 	Type        StreamType
@@ -64,7 +64,7 @@ type Stream struct {
 	TotalBandwidth int64
 }
 
-// Variant represents a quality variant of the stream
+// Variant represents a quality variant of the stream.
 type Variant struct {
 	ID         string
 	Bandwidth  int    // Bits per second
@@ -78,7 +78,7 @@ type Variant struct {
 	LastSegment  int
 }
 
-// Segment represents an HLS segment
+// Segment represents an HLS segment.
 type Segment struct {
 	StreamID    string
 	VariantID   string
@@ -90,14 +90,14 @@ type Segment struct {
 	CreatedAt   time.Time
 }
 
-// MasterPlaylist represents an HLS master playlist
+// MasterPlaylist represents an HLS master playlist.
 type MasterPlaylist struct {
 	StreamID string
 	Variants []*VariantInfo
 	Content  string // M3U8 content
 }
 
-// VariantInfo contains information about a variant in the master playlist
+// VariantInfo contains information about a variant in the master playlist.
 type VariantInfo struct {
 	Bandwidth  int
 	Resolution string
@@ -106,7 +106,7 @@ type VariantInfo struct {
 	URI        string
 }
 
-// MediaPlaylist represents an HLS media playlist
+// MediaPlaylist represents an HLS media playlist.
 type MediaPlaylist struct {
 	StreamID       string
 	VariantID      string
@@ -117,14 +117,14 @@ type MediaPlaylist struct {
 	Content        string // M3U8 content
 }
 
-// SegmentInfo contains information about a segment in the media playlist
+// SegmentInfo contains information about a segment in the media playlist.
 type SegmentInfo struct {
 	Duration float64
 	URI      string
 	Index    int
 }
 
-// StreamStats contains statistics about a stream
+// StreamStats contains statistics about a stream.
 type StreamStats struct {
 	StreamID       string
 	CurrentViewers int
@@ -138,7 +138,7 @@ type StreamStats struct {
 	VariantStats map[string]*VariantStats
 }
 
-// VariantStats contains statistics about a specific variant
+// VariantStats contains statistics about a specific variant.
 type VariantStats struct {
 	VariantID      string
 	RequestCount   int64
@@ -147,7 +147,7 @@ type VariantStats struct {
 	AverageLatency time.Duration
 }
 
-// StreamOptions contains options for creating a stream
+// StreamOptions contains options for creating a stream.
 type StreamOptions struct {
 	Title          string
 	Description    string
@@ -163,7 +163,7 @@ type StreamOptions struct {
 	StoragePath    string
 }
 
-// VODOptions contains options for creating VOD content
+// VODOptions contains options for creating VOD content.
 type VODOptions struct {
 	Title          string
 	Description    string
@@ -177,7 +177,7 @@ type VODOptions struct {
 	StoragePath    string
 }
 
-// TranscodeProfile defines a transcoding profile
+// TranscodeProfile defines a transcoding profile.
 type TranscodeProfile struct {
 	Name       string
 	Width      int
@@ -189,7 +189,7 @@ type TranscodeProfile struct {
 	Preset     string // e.g., "fast", "medium", "slow"
 }
 
-// StreamType represents the type of stream
+// StreamType represents the type of stream.
 type StreamType string
 
 const (
@@ -198,7 +198,7 @@ const (
 	StreamTypeEvent StreamType = "event" // Live stream that becomes VOD
 )
 
-// StreamStatus represents the status of a stream
+// StreamStatus represents the status of a stream.
 type StreamStatus string
 
 const (
@@ -209,9 +209,9 @@ const (
 	StreamStatusEnded   StreamStatus = "ended"
 )
 
-// Common transcoding profiles
+// Common transcoding profiles.
 var (
-	// Mobile profiles
+	// Profile360p is a mobile profile.
 	Profile360p = TranscodeProfile{
 		Name:       "360p",
 		Width:      640,
@@ -223,6 +223,7 @@ var (
 		Preset:     "fast",
 	}
 
+	// Profile480p is a mobile profile.
 	Profile480p = TranscodeProfile{
 		Name:       "480p",
 		Width:      854,
@@ -234,7 +235,7 @@ var (
 		Preset:     "medium",
 	}
 
-	// HD profiles
+	// Profile720p is an HD profile.
 	Profile720p = TranscodeProfile{
 		Name:       "720p",
 		Width:      1280,
@@ -246,6 +247,7 @@ var (
 		Preset:     "medium",
 	}
 
+	// Profile1080p is an HD profile.
 	Profile1080p = TranscodeProfile{
 		Name:       "1080p",
 		Width:      1920,
@@ -257,7 +259,7 @@ var (
 		Preset:     "medium",
 	}
 
-	// 4K profile
+	// Profile4K is the 4K UHD profile.
 	Profile4K = TranscodeProfile{
 		Name:       "4K",
 		Width:      3840,
@@ -270,7 +272,7 @@ var (
 	}
 )
 
-// DefaultProfiles returns common transcoding profiles
+// DefaultProfiles returns common transcoding profiles.
 func DefaultProfiles() []TranscodeProfile {
 	return []TranscodeProfile{
 		Profile360p,

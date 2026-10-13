@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +32,7 @@ func newJSONBufferLogger(buf *bytes.Buffer) *jsonBufferLogger {
 func (l *jsonBufferLogger) writeFields(level, msg string, fields []forge.Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
 	row := map[string]any{
 		"level": level,
 		"msg":   msg,
@@ -38,8 +40,13 @@ func (l *jsonBufferLogger) writeFields(level, msg string, fields []forge.Field) 
 	for _, f := range fields {
 		row[f.Key()] = f.Value()
 	}
+
 	enc := json.NewEncoder(l.buf)
-	_ = enc.Encode(row)
+	if err := enc.Encode(row); err != nil {
+		// No *testing.T reaches a logger, so leave the failure in the buffer
+		// where the test's assertions will trip over it.
+		fmt.Fprintf(l.buf, "{\"level\":%q,\"msg\":%q,\"encode_error\":%q}\n", level, msg, err.Error())
+	}
 }
 
 func (l *jsonBufferLogger) Debug(msg string, fields ...forge.Field) {
@@ -74,6 +81,7 @@ func (l *jsonBufferLogger) Sync() error                 { return nil }
 
 func TestLoggerAuditEmitter_EmitsStructuredFields(t *testing.T) {
 	var buf bytes.Buffer
+
 	logger := newJSONBufferLogger(&buf)
 	em := NewLoggerAuditEmitter(logger)
 

@@ -420,12 +420,12 @@ func isError(t reflect.Type) bool {
 }
 
 func isPointer(t reflect.Type) bool {
-	return t.Kind() == reflect.Ptr
+	return t.Kind() == reflect.Pointer
 }
 
 func getServiceName(t reflect.Type) string {
 	// Remove pointer if present
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -501,7 +501,7 @@ func handleError(ctx Context, err error) {
 // - Falls back to full struct serialization if no special tags found.
 // - Cleans sensitive fields if enabled for the route.
 func processResponse(ctx Context, resp reflect.Value) any {
-	if resp.Kind() == reflect.Ptr && resp.IsNil() {
+	if resp.Kind() == reflect.Pointer && resp.IsNil() {
 		return nil
 	}
 

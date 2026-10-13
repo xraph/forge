@@ -212,13 +212,9 @@ func (s *MessageStore) Delete(ctx context.Context, messageID string) error {
 func (s *MessageStore) GetHistory(ctx context.Context, roomID string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
 	streamKey := fmt.Sprintf("%s:%s", s.prefix, roomID)
 
-	// Read from stream (newest first)
-	count := int64(query.Limit)
-	if count == 0 {
-		count = 100
-	}
-
-	// Read messages from stream
+	// Read the whole stream newest first. query.Limit is applied after the
+	// filters below, so capping the read here would drop matches that sit
+	// behind filtered-out entries.
 	results, err := s.client.XRevRange(ctx, streamKey, "+", "-").Result()
 	if err != nil {
 		return nil, err

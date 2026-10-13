@@ -207,21 +207,7 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 			ctx.Properties["group"] = userCtx.Groups[0]
 		}
 		// Store all groups as comma-separated
-		groupsStr := ""
-
-		var groupsStrSb203 strings.Builder
-
-		for i, g := range userCtx.Groups {
-			if i > 0 {
-				groupsStrSb203.WriteString(",")
-			}
-
-			groupsStrSb203.WriteString(g)
-		}
-
-		groupsStr += groupsStrSb203.String()
-
-		ctx.Properties["groups"] = groupsStr
+		ctx.Properties["groups"] = strings.Join(userCtx.Groups, ",")
 	}
 
 	// Add custom attributes

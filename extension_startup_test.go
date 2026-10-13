@@ -91,6 +91,7 @@ func TestExtensionStartup_RespectsDependencyOrder(t *testing.T) {
 
 			record := func(name string) {
 				mu.Lock()
+
 				order = append(order, name)
 				mu.Unlock()
 			}
@@ -125,7 +126,7 @@ func TestExtensionStartup_RespectsDependencyOrder(t *testing.T) {
 			ib := slices.Index(order, "b")
 			ic := slices.Index(order, "c")
 
-			if !(ia < ib && ib < ic) {
+			if ia >= ib || ib >= ic {
 				t.Errorf("dependency order violated: %v", order)
 			}
 		})
@@ -149,6 +150,7 @@ func TestExtensionStartup_IndependentExtensionsOverlap(t *testing.T) {
 			e := newStartupExt(fmt.Sprintf("ext-%d", i), nil)
 			e.onStart = func(string) {
 				now := inFlight.Add(1)
+
 				for {
 					high := peak.Load()
 					if now <= high || peak.CompareAndSwap(high, now) {
@@ -194,6 +196,7 @@ func TestExtensionStartup_ParallelPropagatesFailure(t *testing.T) {
 	err := app.Start(context.Background())
 	if err == nil {
 		_ = app.Stop(context.Background())
+
 		t.Fatal("Start succeeded despite a failing extension")
 	}
 
@@ -214,6 +217,7 @@ func TestExtensionStartup_ParallelRecoversPanic(t *testing.T) {
 	err := app.Start(context.Background())
 	if err == nil {
 		_ = app.Stop(context.Background())
+
 		t.Fatal("Start succeeded despite a panicking extension")
 	}
 

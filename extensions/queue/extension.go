@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -117,6 +118,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -130,13 +132,14 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
 // Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.IsStarted() {
-		return fmt.Errorf("queue extension not started")
+		return errors.New("queue extension not started")
 	}
 
 	return nil

@@ -36,7 +36,7 @@ func wildcardParam(r *http.Request) string {
 		}
 	}
 
-	if m, ok := r.Context().Value("forge:params").(map[string]string); ok { //nolint:staticcheck // legacy contract
+	if m, ok := r.Context().Value("forge:params").(map[string]string); ok {
 		return m["*"]
 	}
 
@@ -68,7 +68,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/users", handler("users"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users", nil))
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "users", rec.Body.String())
@@ -79,7 +79,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/users/:id", handler("byID"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
@@ -89,7 +89,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/users/{id}", handler("byID"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
@@ -100,7 +100,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/users/me", handler("me"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/me", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/me", nil))
 
 		assert.Equal(t, "me", rec.Body.String(), "a static segment must win regardless of registration order")
 	})
@@ -110,7 +110,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/files/*", handler("files"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/files/a/b/c.txt", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/a/b/c.txt", nil))
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
@@ -124,10 +124,11 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 			// Both adapters publish params through the request context; read
 			// through the same accessor a forge handler would.
 			star = wildcardParam(r)
+
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/static/css/app.css", nil))
+		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/static/css/app.css", nil))
 
 		assert.Equal(t, "css/app.css", star, `every adapter must expose the wildcard as "*"`)
 	})
@@ -138,7 +139,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 
 		for _, path := range []string{"/dashboard", "/dashboard/"} {
 			rec := httptest.NewRecorder()
-			a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 			assert.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
 			assert.Equalf(t, "dash", rec.Body.String(), "path %s", path)
@@ -150,7 +151,7 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a.Handle(http.MethodGet, "/users", handler("users"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil))
 
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
@@ -159,15 +160,17 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a := factory()
 
 		ran := false
+
 		a.UseGlobal(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ran = true
+
 				next.ServeHTTP(w, r)
 			})
 		})
 
 		a.Handle(http.MethodGet, "/users", handler("users"))
-		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/users", nil))
+		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users", nil))
 
 		assert.True(t, ran)
 	})
@@ -176,14 +179,16 @@ func runFloor(t *testing.T, factory func() shared.RouterAdapter) {
 		a := factory()
 
 		ran := false
+
 		a.UseGlobal(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ran = true
+
 				next.ServeHTTP(w, r)
 			})
 		})
 
-		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodOptions, "/nope", nil))
+		a.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/nope", nil))
 
 		assert.True(t, ran, "CORS preflight depends on this")
 	})
@@ -210,7 +215,7 @@ func runWide(t *testing.T, name string, caps shared.Capabilities, factory func()
 		a.Handle(http.MethodPost, "/users", handler("post"))
 
 		rec := httptest.NewRecorder()
-		a.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/users", nil))
+		a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/users", nil))
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 		assert.Equal(t, "GET, POST", rec.Header().Get("Allow"))
@@ -227,7 +232,7 @@ func runWide(t *testing.T, name string, caps shared.Capabilities, factory func()
 
 		for path, want := range map[string]string{"/x/42": "int", "/x/abc": "alpha"} {
 			rec := httptest.NewRecorder()
-			a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 			assert.Equalf(t, want, rec.Body.String(), "path %s", path)
 		}
@@ -267,7 +272,7 @@ func runWide(t *testing.T, name string, caps shared.Capabilities, factory func()
 
 		for _, method := range []string{http.MethodGet, "PROPFIND"} {
 			rec := httptest.NewRecorder()
-			a.ServeHTTP(rec, httptest.NewRequest(method, "/mounted/x", nil))
+			a.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), method, "/mounted/x", nil))
 
 			assert.Equalf(t, "mount", rec.Body.String(), "method %s", method)
 		}

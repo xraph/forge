@@ -6,7 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/xraph/forge/cli"
 )
+
+// mustAddSubcommand attaches sub to parent and panics if the cli rejects it.
+// Plugin Commands() methods have no error return, and the only way
+// AddSubcommand fails is a duplicate name or alias. With static command names
+// that is a programming error, and panicking makes every test that builds the
+// command tree catch it instead of the subcommand silently going missing.
+func mustAddSubcommand(parent, sub cli.Command) {
+	if err := parent.AddSubcommand(sub); err != nil {
+		panic(fmt.Sprintf("register %q under %q: %v", sub.Name(), parent.Name(), err))
+	}
+}
 
 // writeTemplate renders a Go text/template string and writes the result to a file.
 func writeTemplate(path string, tmplStr string, data any) error {
@@ -34,6 +47,7 @@ func toDisplayName(name string) string {
 			words[i] = strings.ToUpper(w[:1]) + w[1:]
 		}
 	}
+
 	return strings.Join(words, " ")
 }
 
@@ -43,5 +57,6 @@ func relPath(base, target string) string {
 	if err != nil {
 		return target
 	}
+
 	return rel
 }

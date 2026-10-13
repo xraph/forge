@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -101,9 +102,7 @@ func (m *basicMember) GetMetadata() map[string]any {
 	defer m.mu.RUnlock()
 
 	cp := make(map[string]any, len(m.metadata))
-	for k, v := range m.metadata {
-		cp[k] = v
-	}
+	maps.Copy(cp, m.metadata)
 
 	return cp
 }
@@ -151,9 +150,7 @@ func (s *basicSubscription) GetFilters() map[string]any {
 	defer s.mu.RUnlock()
 
 	cp := make(map[string]any, len(s.filters))
-	for k, v := range s.filters {
-		cp[k] = v
-	}
+	maps.Copy(cp, s.filters)
 
 	return cp
 }

@@ -33,7 +33,7 @@ func TestConnectionDeliversFramesInOrder(t *testing.T) {
 			continue
 		}
 
-		if err := conn.Write([]byte(fmt.Sprintf(`{"id":"f%d"}`, i))); err != nil {
+		if err := conn.Write(fmt.Appendf(nil, `{"id":"f%d"}`, i)); err != nil {
 			t.Fatalf("Write %d: %v", i, err)
 		}
 	}
@@ -128,7 +128,7 @@ func TestConnectionBinaryFramesAreQueued(t *testing.T) {
 
 	t.Cleanup(func() { _ = conn.Close() })
 
-	binary, ok := conn.(interface{ WriteBinary([]byte) error })
+	binary, ok := conn.(interface{ WriteBinary(data []byte) error })
 	if !ok {
 		t.Fatal("connection does not expose WriteBinary")
 	}
@@ -157,7 +157,9 @@ func TestConnectionFlushAwaitsDelivery(t *testing.T) {
 
 	t.Cleanup(func() { _ = conn.Close() })
 
-	flusher, ok := conn.(interface{ Flush(context.Context) error })
+	flusher, ok := conn.(interface {
+		Flush(ctx context.Context) error
+	})
 	if !ok {
 		t.Fatal("connection does not expose Flush")
 	}
@@ -190,7 +192,9 @@ func TestConnectionFlushHonoursContext(t *testing.T) {
 
 	t.Cleanup(func() { _ = conn.Close() })
 
-	flusher, ok := conn.(interface{ Flush(context.Context) error })
+	flusher, ok := conn.(interface {
+		Flush(ctx context.Context) error
+	})
 	if !ok {
 		t.Fatal("connection does not expose Flush")
 	}
@@ -226,7 +230,9 @@ func TestConnectionFlushOnClosedConnection(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	flusher, ok := conn.(interface{ Flush(context.Context) error })
+	flusher, ok := conn.(interface {
+		Flush(ctx context.Context) error
+	})
 	if !ok {
 		t.Fatal("connection does not expose Flush")
 	}
@@ -261,7 +267,9 @@ func TestWriteFrameKeepsTypeAcrossTheEncodeBoundary(t *testing.T) {
 
 			t.Cleanup(func() { _ = conn.Close() })
 
-			writer, ok := conn.(interface{ WriteFrame(OutboundFrame) error })
+			writer, ok := conn.(interface {
+				WriteFrame(frame OutboundFrame) error
+			})
 			if !ok {
 				t.Fatal("connection does not expose WriteFrame")
 			}
@@ -327,7 +335,9 @@ func TestWriteFrameRoutesBinaryAndText(t *testing.T) {
 
 	t.Cleanup(func() { _ = conn.Close() })
 
-	writer, ok := conn.(interface{ WriteFrame(OutboundFrame) error })
+	writer, ok := conn.(interface {
+		WriteFrame(frame OutboundFrame) error
+	})
 	if !ok {
 		t.Fatal("connection does not expose WriteFrame")
 	}

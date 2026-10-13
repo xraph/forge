@@ -66,7 +66,7 @@ func TestCallbackRequest_EchoStyle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -124,7 +124,7 @@ func TestCallbackRequest_ChiStyle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -168,7 +168,7 @@ func TestCallbackRequest_MixedStyles(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Echo-style route
-	req1 := httptest.NewRequest(http.MethodGet, "/auth/callback/google?state=abc&code=123", nil)
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/auth/callback/google?state=abc&code=123", nil)
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, req1)
 	assert.Equal(t, 200, rec1.Code)
@@ -176,7 +176,7 @@ func TestCallbackRequest_MixedStyles(t *testing.T) {
 	assert.Contains(t, rec1.Body.String(), `"provider":"google"`)
 
 	// Test Chi-style route
-	req2 := httptest.NewRequest(http.MethodGet, "/oauth/callback/github?state=xyz&code=456", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback/github?state=xyz&code=456", nil)
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
 	assert.Equal(t, 200, rec2.Code)
@@ -223,7 +223,7 @@ func TestPathConversion_ComplexRoutes(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			req := httptest.NewRequest(http.MethodGet, tt.request, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.request, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -315,7 +315,7 @@ func TestPathConversion_OAuthRealWorld(t *testing.T) {
 				path += "?" + tt.queryParams
 			}
 
-			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -403,7 +403,7 @@ func TestPathParamValidation_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Success case
-	req := httptest.NewRequest(http.MethodPost, "/orgs/acme/resources/res-123?action=update", strings.NewReader("{}"))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/orgs/acme/resources/res-123?action=update", strings.NewReader("{}"))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()

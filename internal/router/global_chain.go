@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -70,8 +71,8 @@ func (gc *globalChain) recomposeLocked() {
 		return nil
 	})
 
-	for i := len(gc.middleware) - 1; i >= 0; i-- {
-		h = gc.middleware[i](h)
+	for _, v := range slices.Backward(gc.middleware) {
+		h = v(h)
 	}
 
 	gc.composed.Store(&h)

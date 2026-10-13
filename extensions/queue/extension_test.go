@@ -246,6 +246,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueue failed: %v", err)
 	}
+
 	if queue == nil {
 		t.Fatal("expected non-nil queue instance")
 	}
@@ -542,6 +543,7 @@ func TestExtensionQueueMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueue failed: %v", err)
 	}
+
 	if q == nil {
 		t.Fatal("expected non-nil queue from GetQueue")
 	}

@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 		// The default assigned in router_impl.go.
 
 	case "bunrouter":
-		defaultAdapterFactory = func() RouterAdapter { return NewBunRouterAdapter() }
+		defaultAdapterFactory = NewBunRouterAdapter
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown FORGE_TEST_ADAPTER %q\n", adapter)

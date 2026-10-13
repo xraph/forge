@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/generate_test.go
 package plugins
 
 import (
@@ -16,10 +15,7 @@ import (
 
 func TestDiscoverServiceDirs(t *testing.T) {
 	// Create temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create standard directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pkg"), 0755))
@@ -51,10 +47,7 @@ func TestDiscoverServiceDirs(t *testing.T) {
 
 func TestDiscoverServiceDirsMinimal(t *testing.T) {
 	// Create temporary directory with only pkg
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pkg"), 0755))
 
@@ -73,10 +66,7 @@ func TestDiscoverServiceDirsMinimal(t *testing.T) {
 
 func TestDiscoverServiceDirsNone(t *testing.T) {
 	// Create temporary directory with no service directories
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	plugin := &GeneratePlugin{
 		config: &config.ForgeConfig{
@@ -92,10 +82,7 @@ func TestDiscoverServiceDirsNone(t *testing.T) {
 
 func TestDiscoverTargets(t *testing.T) {
 	// Create temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create cmd directory with apps
 	cmdDir := filepath.Join(tmpDir, "cmd")
@@ -151,10 +138,7 @@ func TestDiscoverTargets(t *testing.T) {
 
 func TestDiscoverTargetsNoApps(t *testing.T) {
 	// Create temporary directory with only extensions
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create extensions
 	extDir := filepath.Join(tmpDir, "extensions")
@@ -207,10 +191,7 @@ func TestTargetInfoProperties(t *testing.T) {
 
 // TestControllerPaths verifies controller directory structure.
 func TestControllerPaths(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "forge-test-*")
-	require.NoError(t, err)
-
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create extension structure
 	extDir := filepath.Join(tmpDir, "extensions", "cache")

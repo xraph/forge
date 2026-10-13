@@ -2,6 +2,7 @@ package forgemux
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,10 +76,7 @@ func TestTree_InsertRejectsTwoAnyMethodRoutesOnOneNode(t *testing.T) {
 
 // Without a cap, a deeply nested path exhausts the stack during the walk.
 func TestTree_InsertRejectsTooManySegments(t *testing.T) {
-	raw := ""
-	for range maxSegments + 1 {
-		raw += "/a"
-	}
+	raw := strings.Repeat("/a", maxSegments+1)
 
 	err := newTree().insert(http.MethodGet, mustParse(t, raw), noopHandler(), shared.KindHTTP)
 	require.Error(t, err)

@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/infra.go
 package plugins
 
 import (
@@ -54,7 +53,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		"Docker infrastructure commands",
 		p.showDockerHelp,
 	)
-	dockerCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dockerCmd, cli.NewCommand(
 		"deploy",
 		"Deploy using Docker",
 		p.dockerDeploy,
@@ -62,7 +61,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
 		cli.WithFlag(cli.NewBoolFlag("build", "b", "Force rebuild images", false)),
 	))
-	dockerCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(dockerCmd, cli.NewCommand(
 		"export",
 		"Export Docker configuration to deployments folder",
 		p.dockerExport,
@@ -77,7 +76,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		p.showK8sHelp,
 		cli.WithAliases("kubernetes"),
 	)
-	k8sCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(k8sCmd, cli.NewCommand(
 		"deploy",
 		"Deploy to Kubernetes",
 		p.k8sDeploy,
@@ -86,7 +85,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("namespace", "n", "Kubernetes namespace", "")),
 		cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Perform a dry run", false)),
 	))
-	k8sCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(k8sCmd, cli.NewCommand(
 		"export",
 		"Export Kubernetes manifests to deployments folder",
 		p.k8sExport,
@@ -103,7 +102,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		p.showDOHelp,
 		cli.WithAliases("digitalocean"),
 	)
-	doCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(doCmd, cli.NewCommand(
 		"deploy",
 		"Deploy to Digital Ocean",
 		p.doDeploy,
@@ -111,7 +110,7 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
 		cli.WithFlag(cli.NewStringFlag("region", "r", "Digital Ocean region", "")),
 	))
-	doCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(doCmd, cli.NewCommand(
 		"export",
 		"Export Digital Ocean configuration",
 		p.doExport,
@@ -125,14 +124,14 @@ func (p *InfraPlugin) Commands() []cli.Command {
 		"Render.com infrastructure commands",
 		p.showRenderHelp,
 	)
-	renderCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(renderCmd, cli.NewCommand(
 		"deploy",
 		"Deploy to Render.com",
 		p.renderDeploy,
 		cli.WithFlag(cli.NewStringFlag("service", "s", "Service to deploy (default: all)", "")),
 		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
 	))
-	renderCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(renderCmd, cli.NewCommand(
 		"export",
 		"Export Render.com configuration",
 		p.renderExport,
@@ -141,10 +140,10 @@ func (p *InfraPlugin) Commands() []cli.Command {
 	))
 
 	// Add all provider commands to infra
-	infraCmd.AddSubcommand(dockerCmd)
-	infraCmd.AddSubcommand(k8sCmd)
-	infraCmd.AddSubcommand(doCmd)
-	infraCmd.AddSubcommand(renderCmd)
+	mustAddSubcommand(infraCmd, dockerCmd)
+	mustAddSubcommand(infraCmd, k8sCmd)
+	mustAddSubcommand(infraCmd, doCmd)
+	mustAddSubcommand(infraCmd, renderCmd)
 
 	return []cli.Command{infraCmd}
 }
@@ -856,7 +855,9 @@ func (p *InfraPlugin) copyDockerfilesToRoot(ctx cli.CommandContext, deployDir st
 			return fmt.Errorf("failed to read %s: %w", srcFile, err)
 		}
 
-		// Write to destination
+		// Write to destination. dstFile is the base name of a Dockerfile.* this
+		// command globbed from its own deploy directory, joined to the root.
+		//nolint:gosec // G703: filepath.Base strips any directory part, so it cannot leave RootDir.
 		if err := os.WriteFile(dstFile, content, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", dstFile, err)
 		}

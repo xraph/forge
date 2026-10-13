@@ -10,9 +10,7 @@ import (
 )
 
 func TestConformance(t *testing.T) {
-	routertest.RunConformance(t, "bunrouter", func() shared.RouterAdapter {
-		return router.NewBunRouterAdapter()
-	})
+	routertest.RunConformance(t, "bunrouter", router.NewBunRouterAdapter)
 
 	routertest.RunConformance(t, "forgemux", func() shared.RouterAdapter {
 		return forgemux.New()

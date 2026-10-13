@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
@@ -43,14 +44,22 @@ func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleH
 func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error {
 	return nil
 }
-func (m *mockApp) GetExtension(name string) (forge.Extension, error)       { return nil, nil }
-func (m *mockApp) GetExtensionByType(extType any) (forge.Extension, error) { return nil, nil }
-func (m *mockApp) Environment() string                                     { return "test" }
-func (m *mockApp) StartTime() time.Time                                    { return time.Now() }
-func (m *mockApp) Uptime() time.Duration                                   { return time.Since(time.Now()) }
-func (m *mockApp) Extensions() []forge.Extension                           { return nil }
-func (m *mockApp) HealthManager() forge.HealthManager                      { return nil }
-func (m *mockApp) MigrationsDisabled() bool                                { return false }
-func (m *mockApp) SetMigrationsDisabled(_ bool)                            {}
-func (m *mockApp) CentralMigrationsEnabled() bool                          { return false }
-func (m *mockApp) CentralMigrator() (forge.CentralMigrator, bool)          { return nil, false }
+
+// The mock registers no extensions, so lookups fail the same way the real
+// app does for an unknown extension.
+func (m *mockApp) GetExtension(name string) (forge.Extension, error) {
+	return nil, fmt.Errorf("extension %s not found", name)
+}
+
+func (m *mockApp) GetExtensionByType(extType any) (forge.Extension, error) {
+	return nil, fmt.Errorf("extension of type %T not found", extType)
+}
+func (m *mockApp) Environment() string                            { return "test" }
+func (m *mockApp) StartTime() time.Time                           { return time.Now() }
+func (m *mockApp) Uptime() time.Duration                          { return time.Since(time.Now()) }
+func (m *mockApp) Extensions() []forge.Extension                  { return nil }
+func (m *mockApp) HealthManager() forge.HealthManager             { return nil }
+func (m *mockApp) MigrationsDisabled() bool                       { return false }
+func (m *mockApp) SetMigrationsDisabled(_ bool)                   {}
+func (m *mockApp) CentralMigrationsEnabled() bool                 { return false }
+func (m *mockApp) CentralMigrator() (forge.CentralMigrator, bool) { return nil, false }

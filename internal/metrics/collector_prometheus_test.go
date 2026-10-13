@@ -29,6 +29,7 @@ func TestCollector_ExportPrometheusParses(t *testing.T) {
 	if _, err := parser.TextToMetricFamilies(strings.NewReader(string(out))); err != nil {
 		t.Fatalf("output is not valid prometheus text: %v", err)
 	}
+
 	if !strings.Contains(string(out), "widget_built_total") {
 		t.Fatalf("expected widget_built_total in output, got:\n%s", out)
 	}

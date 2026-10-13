@@ -18,11 +18,14 @@ func TestDispatcher_RegisterAndDispatch(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
+
 	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "users", Intent: "users.list", IntentVersion: 1}
+
 	data, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
+
 	if string(data) != `{"users":[]}` {
 		t.Errorf("data = %s", data)
 	}
@@ -33,6 +36,7 @@ func TestDispatcher_DuplicateRegister(t *testing.T) {
 	h := func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
 		return &Result{}, nil
 	}
+
 	_ = d.Register("c", "i", 1, h)
 	if err := d.Register("c", "i", 1, h); err == nil {
 		t.Error("duplicate register should fail")
@@ -42,10 +46,12 @@ func TestDispatcher_DuplicateRegister(t *testing.T) {
 func TestDispatcher_NotFound(t *testing.T) {
 	d := New(NoopMetricsEmitter{})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "x", Intent: "y", IntentVersion: 1}
+
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
+
 	var ce *contract.Error
 	if !errors.As(err, &ce) || ce.Code != contract.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %v", err)
@@ -59,6 +65,7 @@ func TestDispatcher_ContractErrorPassesThrough(t *testing.T) {
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindCommand, Contributor: "c", Intent: "i", IntentVersion: 1}
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+
 	var ce *contract.Error
 	if !errors.As(err, &ce) || ce.Code != contract.CodeConflict {
 		t.Errorf("expected CodeConflict pass-through, got %v", err)
@@ -72,6 +79,7 @@ func TestDispatcher_PlainErrorWrappedAsInternal(t *testing.T) {
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindCommand, Contributor: "c", Intent: "i", IntentVersion: 1}
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+
 	var ce *contract.Error
 	if !errors.As(err, &ce) || ce.Code != contract.CodeInternal {
 		t.Errorf("expected CodeInternal wrap, got %v", err)
@@ -85,10 +93,12 @@ func TestDispatcher_ContextCanceledMappedToUnavailable(t *testing.T) {
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "c", Intent: "i", IntentVersion: 1}
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+
 	var ce *contract.Error
 	if !errors.As(err, &ce) || ce.Code != contract.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable for canceled, got %v", err)
 	}
+
 	if !ce.Retryable {
 		t.Error("canceled errors should be retryable")
 	}
@@ -106,17 +116,21 @@ func newStubStore() *stubStore { return &stubStore{hits: map[string]IdempotencyC
 
 func (s *stubStore) Lookup(_ context.Context, key, identity string) (*IdempotencyCached, bool) {
 	atomic.AddInt64(&s.gets, 1)
+
 	c, ok := s.hits[key+"|"+identity]
 	if !ok {
 		return nil, false
 	}
+
 	cc := c
+
 	return &cc, true
 }
 
 func (s *stubStore) Store(_ context.Context, key, identity string, c IdempotencyCached) error {
 	atomic.AddInt64(&s.puts, 1)
 	s.hits[key+"|"+identity] = c
+
 	return nil
 }
 
@@ -126,6 +140,7 @@ func TestDispatcher_IdempotencyHitReturnsCached(t *testing.T) {
 	called := int64(0)
 	_ = d.Register("c", "i", 1, func(_ context.Context, _ json.RawMessage, _ map[string]any, _ contract.Principal) (*Result, error) {
 		atomic.AddInt64(&called, 1)
+
 		return &Result{Data: json.RawMessage(`{"fresh":true}`)}, nil
 	})
 	req := contract.Request{
@@ -135,13 +150,16 @@ func TestDispatcher_IdempotencyHitReturnsCached(t *testing.T) {
 	}
 	p := contract.PrincipalFor(&dashauth.UserInfo{Subject: "alice"})
 	store.hits["k|alice:i"] = bindingRecord(t, req, p)
+
 	data, _, err := d.Dispatch(context.Background(), req, p)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
+
 	if string(data) != `{"cached":true}` {
 		t.Errorf("expected cached body, got %s", data)
 	}
+
 	if atomic.LoadInt64(&called) != 0 {
 		t.Errorf("handler should not have been called on cache hit")
 	}
@@ -178,7 +196,8 @@ func TestDispatcher_IdempotencyOnlyAppliesToCommands(t *testing.T) {
 		Contributor: "c", Intent: "i", IntentVersion: 1,
 		IdempotencyKey: "k",
 	}
-	_, _, _ = d.Dispatch(context.Background(), req, contract.Principal{})
+	_ = dispatchErr(d, req)
+
 	if atomic.LoadInt64(&store.gets) != 0 {
 		t.Errorf("query should not consult store, gets=%d", store.gets)
 	}
@@ -196,8 +215,18 @@ func TestDispatcher_IdempotencyMissingKeyBypassesStore(t *testing.T) {
 		// IdempotencyKey intentionally empty — slice (a)'s presence check is
 		// the gate; when missing, the dispatcher bypasses dedup entirely.
 	}
-	_, _, _ = d.Dispatch(context.Background(), req, contract.Principal{})
+	_ = dispatchErr(d, req)
+
 	if atomic.LoadInt64(&store.gets) != 0 {
 		t.Errorf("missing key should bypass store, gets=%d", store.gets)
 	}
+}
+
+// dispatchErr runs a dispatch and keeps only the error. The tests that use it
+// assert on what the dispatch left behind (store traffic, metrics, spans), not
+// on the response, and some of them dispatch requests that are meant to fail.
+func dispatchErr(d *Dispatcher, req contract.Request) error {
+	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
+
+	return err
 }

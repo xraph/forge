@@ -55,6 +55,7 @@ func BeforeWrite(ctx Context, fn func()) bool {
 	if ctx == nil || fn == nil {
 		return false
 	}
+
 	return shared.BeforeWrite(ctx.Response(), fn)
 }
 
@@ -67,10 +68,12 @@ func ResponseWritten(ctx Context) bool {
 	if ctx == nil {
 		return false
 	}
+
 	bw, ok := ctx.Response().(BeforeWriter)
 	if !ok {
 		return false
 	}
+
 	return bw.Written()
 }
 

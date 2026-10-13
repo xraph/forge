@@ -8,7 +8,6 @@ import (
 
 	"github.com/xraph/farp"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -82,9 +81,9 @@ func (p *Provider) generateFromProtoFiles(ctx context.Context, app farp.Applicat
 	fds := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{
-				Name:    proto.String(app.Name() + ".proto"),
-				Package: proto.String(app.Name()),
-				Syntax:  proto.String(p.specVersion),
+				Name:    new(app.Name() + ".proto"),
+				Package: new(app.Name()),
+				Syntax:  new(p.specVersion),
 			},
 		},
 	}
@@ -105,12 +104,12 @@ func (p *Provider) generateFromReflection(ctx context.Context, app farp.Applicat
 	fds := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{
-				Name:    proto.String(app.Name() + ".proto"),
-				Package: proto.String(app.Name()),
-				Syntax:  proto.String(p.specVersion),
+				Name:    new(app.Name() + ".proto"),
+				Package: new(app.Name()),
+				Syntax:  new(p.specVersion),
 				Service: []*descriptorpb.ServiceDescriptorProto{
 					{
-						Name: proto.String(app.Name() + "Service"),
+						Name: new(app.Name() + "Service"),
 					},
 				},
 			},

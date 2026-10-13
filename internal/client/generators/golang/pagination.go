@@ -19,7 +19,7 @@ func NewPaginationGenerator() *PaginationGenerator {
 func (p *PaginationGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"context\"\n")

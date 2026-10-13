@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -141,7 +142,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 // This delegates to the CacheService health check managed by Vessel.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.IsStarted() {
-		return fmt.Errorf("cache extension not started")
+		return errors.New("cache extension not started")
 	}
 
 	return nil

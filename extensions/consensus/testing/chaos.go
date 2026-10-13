@@ -14,7 +14,7 @@ import (
 type ChaosMonkey struct {
 	cluster *TestCluster
 	logger  forge.Logger
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	config  ChaosConfig
 }
@@ -96,22 +96,22 @@ func (cm *ChaosMonkey) run() {
 // applyChoas applies random chaos to the cluster.
 func (cm *ChaosMonkey) applyChoas() {
 	// Randomly fail nodes
-	if rand.Float64() < cm.config.NodeFailureProbability {
+	if rand.Float64() < cm.config.NodeFailureProbability { //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 		cm.failRandomNode()
 	}
 
 	// Randomly create partitions
-	if rand.Float64() < cm.config.PartitionProbability {
+	if rand.Float64() < cm.config.PartitionProbability { //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 		cm.createRandomPartition()
 	}
 
 	// Randomly inject latency
-	if rand.Float64() < cm.config.LatencyProbability {
+	if rand.Float64() < cm.config.LatencyProbability { //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 		cm.injectRandomLatency()
 	}
 
 	// Randomly drop messages
-	if rand.Float64() < cm.config.MessageDropProbability {
+	if rand.Float64() < cm.config.MessageDropProbability { //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 		cm.dropRandomMessages()
 	}
 }
@@ -130,23 +130,27 @@ func (cm *ChaosMonkey) failRandomNode() {
 	}
 
 	// Pick random node
-	node := nodes[rand.Intn(len(nodes))]
+	node := nodes[rand.Intn(len(nodes))] //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
 	cm.logger.Warn("chaos: failing node",
 		forge.F("node_id", node.ID),
 	)
 
-	cm.cluster.StopNode(context.Background(), node.ID)
+	if err := cm.cluster.StopNode(context.Background(), node.ID); err != nil {
+		cm.logger.Warn("chaos: failed to stop node", forge.F("node_id", node.ID), forge.F("error", err))
+	}
 
 	// Schedule recovery
 	go func() {
-		time.Sleep(time.Duration(rand.Intn(30)) * time.Second)
+		time.Sleep(time.Duration(rand.Intn(30)) * time.Second) //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
 		cm.logger.Info("chaos: recovering node",
 			forge.F("node_id", node.ID),
 		)
 
-		cm.cluster.StartNode(context.Background(), node.ID)
+		if err := cm.cluster.StartNode(context.Background(), node.ID); err != nil {
+			cm.logger.Warn("chaos: failed to recover node", forge.F("node_id", node.ID), forge.F("error", err))
+		}
 	}()
 }
 
@@ -158,29 +162,33 @@ func (cm *ChaosMonkey) createRandomPartition() {
 	}
 
 	// Partition 1-2 nodes
-	partitionSize := rand.Intn(2) + 1
+	partitionSize := rand.Intn(2) + 1 //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 	if partitionSize >= len(nodes) {
 		partitionSize = len(nodes) - 1
 	}
 
 	partitionNodes := make([]string, partitionSize)
 	for i := range partitionSize {
-		partitionNodes[i] = nodes[rand.Intn(len(nodes))].ID
+		partitionNodes[i] = nodes[rand.Intn(len(nodes))].ID //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 	}
 
 	cm.logger.Warn("chaos: creating partition",
 		forge.F("nodes", partitionNodes),
 	)
 
-	cm.cluster.CreatePartition(partitionNodes)
+	if err := cm.cluster.CreatePartition(partitionNodes); err != nil {
+		cm.logger.Warn("chaos: failed to create partition", forge.F("nodes", partitionNodes), forge.F("error", err))
+	}
 
 	// Schedule heal
 	go func() {
-		time.Sleep(time.Duration(rand.Intn(20)) * time.Second)
+		time.Sleep(time.Duration(rand.Intn(20)) * time.Second) //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
 		cm.logger.Info("chaos: healing partition")
 
-		cm.cluster.HealAllPartitions()
+		if err := cm.cluster.HealAllPartitions(); err != nil {
+			cm.logger.Warn("chaos: failed to heal partitions", forge.F("error", err))
+		}
 	}()
 }
 
@@ -191,22 +199,27 @@ func (cm *ChaosMonkey) injectRandomLatency() {
 		return
 	}
 
-	node := nodes[rand.Intn(len(nodes))]
+	node := nodes[rand.Intn(len(nodes))] //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
 	latency := cm.config.MinLatency +
-		time.Duration(rand.Int63n(int64(cm.config.MaxLatency-cm.config.MinLatency)))
+		time.Duration(rand.Int63n(int64(cm.config.MaxLatency-cm.config.MinLatency))) //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
 	cm.logger.Debug("chaos: injecting latency",
 		forge.F("node_id", node.ID),
 		forge.F("latency", latency),
 	)
 
-	cm.cluster.InjectLatency(node.ID, latency)
+	if err := cm.cluster.InjectLatency(node.ID, latency); err != nil {
+		cm.logger.Warn("chaos: failed to inject latency", forge.F("node_id", node.ID), forge.F("error", err))
+	}
 
 	// Schedule removal
 	go func() {
-		time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
-		cm.cluster.RemoveLatency(node.ID)
+		time.Sleep(time.Duration(rand.Intn(10)) * time.Second) //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
+
+		if err := cm.cluster.RemoveLatency(node.ID); err != nil {
+			cm.logger.Warn("chaos: failed to remove latency", forge.F("node_id", node.ID), forge.F("error", err))
+		}
 	}()
 }
 
@@ -217,9 +230,9 @@ func (cm *ChaosMonkey) dropRandomMessages() {
 		return
 	}
 
-	node := nodes[rand.Intn(len(nodes))]
+	node := nodes[rand.Intn(len(nodes))] //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness
 
-	dropRate := rand.Float64() * 0.5 // 0-50% drop rate
+	dropRate := rand.Float64() * 0.5 //nolint:gosec // G404: chaos injection only needs variety, not unpredictable randomness (0-50% drop rate)
 
 	cm.logger.Debug("chaos: dropping messages",
 		forge.F("node_id", node.ID),
@@ -250,7 +263,10 @@ var PredefinedScenarios = []ChaosScenario{
 			if err != nil {
 				return nil
 			}
-			cluster.StopNode(context.Background(), leaderID)
+
+			if err := cluster.StopNode(context.Background(), leaderID); err != nil {
+				return fmt.Errorf("stop leader %s: %w", leaderID, err)
+			}
 
 			return nil
 		},
@@ -273,7 +289,9 @@ var PredefinedScenarios = []ChaosScenario{
 				return nil
 			}
 			// Partition 1 node
-			cluster.CreatePartition([]string{nodes[0].ID})
+			if err := cluster.CreatePartition([]string{nodes[0].ID}); err != nil {
+				return fmt.Errorf("partition node %s: %w", nodes[0].ID, err)
+			}
 
 			return nil
 		},
@@ -298,11 +316,15 @@ var PredefinedScenarios = []ChaosScenario{
 			}
 			// Partition majority
 			partitionSize := (len(nodes) / 2) + 1
+
 			partitionNodes := make([]string, partitionSize)
 			for i := range partitionSize {
 				partitionNodes[i] = nodes[i].ID
 			}
-			cluster.CreatePartition(partitionNodes)
+
+			if err := cluster.CreatePartition(partitionNodes); err != nil {
+				return fmt.Errorf("partition majority: %w", err)
+			}
 
 			return nil
 		},
@@ -325,7 +347,10 @@ var PredefinedScenarios = []ChaosScenario{
 
 			// Fail nodes one by one
 			for i := range len(nodes) - 2 {
-				cluster.StopNode(context.Background(), nodes[i].ID)
+				if err := cluster.StopNode(context.Background(), nodes[i].ID); err != nil {
+					return fmt.Errorf("stop node %s: %w", nodes[i].ID, err)
+				}
+
 				time.Sleep(2 * time.Second)
 			}
 
@@ -354,9 +379,16 @@ var PredefinedScenarios = []ChaosScenario{
 			node := nodes[0]
 
 			for range 5 {
-				cluster.StopNode(context.Background(), node.ID)
+				if err := cluster.StopNode(context.Background(), node.ID); err != nil {
+					return fmt.Errorf("stop node %s: %w", node.ID, err)
+				}
+
 				time.Sleep(1 * time.Second)
-				cluster.StartNode(context.Background(), node.ID)
+
+				if err := cluster.StartNode(context.Background(), node.ID); err != nil {
+					return fmt.Errorf("start node %s: %w", node.ID, err)
+				}
+
 				time.Sleep(1 * time.Second)
 			}
 

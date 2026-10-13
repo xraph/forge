@@ -1,4 +1,3 @@
-// internal/router/client_meta_test.go
 package router
 
 import "testing"

@@ -43,30 +43,30 @@ type Queue interface {
 
 // Message represents a queue message.
 type Message struct {
-	ID          string                 `json:"id"`
-	Queue       string                 `json:"queue"`
-	Body        []byte                 `json:"body"`
-	Headers     map[string]string      `json:"headers,omitempty"`
-	Priority    int                    `json:"priority,omitempty"`    // 0-9, higher = more priority
-	Delay       time.Duration          `json:"delay,omitempty"`       // Delay before processing
-	Expiration  time.Duration          `json:"expiration,omitempty"`  // Message TTL
-	Retries     int                    `json:"retries,omitempty"`     // Current retry count
-	MaxRetries  int                    `json:"max_retries,omitempty"` // Maximum retry attempts
-	PublishedAt time.Time              `json:"published_at"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ID          string            `json:"id"`
+	Queue       string            `json:"queue"`
+	Body        []byte            `json:"body"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Priority    int               `json:"priority,omitempty"`    // 0-9, higher = more priority
+	Delay       time.Duration     `json:"delay,omitempty"`       // Delay before processing
+	Expiration  time.Duration     `json:"expiration,omitempty"`  // Message TTL
+	Retries     int               `json:"retries,omitempty"`     // Current retry count
+	MaxRetries  int               `json:"max_retries,omitempty"` // Maximum retry attempts
+	PublishedAt time.Time         `json:"published_at"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
 }
 
 // QueueOptions contains queue configuration.
 type QueueOptions struct {
-	Durable         bool                   `json:"durable"`           // Survives broker restart
-	AutoDelete      bool                   `json:"auto_delete"`       // Deleted when no consumers
-	Exclusive       bool                   `json:"exclusive"`         // Used by only one connection
-	MaxLength       int64                  `json:"max_length"`        // Maximum number of messages
-	MaxLengthBytes  int64                  `json:"max_length_bytes"`  // Maximum total message bytes
-	MessageTTL      time.Duration          `json:"message_ttl"`       // Message time-to-live
-	MaxPriority     int                    `json:"max_priority"`      // Maximum priority (0-255)
-	DeadLetterQueue string                 `json:"dead_letter_queue"` // DLQ for failed messages
-	Arguments       map[string]interface{} `json:"arguments,omitempty"`
+	Durable         bool           `json:"durable"`           // Survives broker restart
+	AutoDelete      bool           `json:"auto_delete"`       // Deleted when no consumers
+	Exclusive       bool           `json:"exclusive"`         // Used by only one connection
+	MaxLength       int64          `json:"max_length"`        // Maximum number of messages
+	MaxLengthBytes  int64          `json:"max_length_bytes"`  // Maximum total message bytes
+	MessageTTL      time.Duration  `json:"message_ttl"`       // Message time-to-live
+	MaxPriority     int            `json:"max_priority"`      // Maximum priority (0-255)
+	DeadLetterQueue string         `json:"dead_letter_queue"` // DLQ for failed messages
+	Arguments       map[string]any `json:"arguments,omitempty"`
 }
 
 // QueueInfo contains queue metadata.
@@ -81,7 +81,7 @@ type QueueInfo struct {
 	Durable       bool      `json:"durable"`
 	AutoDelete    bool      `json:"auto_delete"`
 	CreatedAt     time.Time `json:"created_at"`
-	LastMessageAt time.Time `json:"last_message_at,omitempty"`
+	LastMessageAt time.Time `json:"last_message_at"`
 }
 
 // MessageHandler is called for each received message.
@@ -89,15 +89,15 @@ type MessageHandler func(ctx context.Context, msg Message) error
 
 // ConsumeOptions contains consumer configuration.
 type ConsumeOptions struct {
-	ConsumerTag   string                 `json:"consumer_tag,omitempty"`
-	AutoAck       bool                   `json:"auto_ack"`           // Auto-acknowledge messages
-	Exclusive     bool                   `json:"exclusive"`          // Exclusive consumer
-	PrefetchCount int                    `json:"prefetch_count"`     // Number of messages to prefetch
-	Priority      int                    `json:"priority,omitempty"` // Consumer priority
-	Concurrency   int                    `json:"concurrency"`        // Number of concurrent workers
-	RetryStrategy RetryStrategy          `json:"retry_strategy"`     // Retry configuration
-	Timeout       time.Duration          `json:"timeout,omitempty"`  // Message processing timeout
-	Arguments     map[string]interface{} `json:"arguments,omitempty"`
+	ConsumerTag   string         `json:"consumer_tag,omitempty"`
+	AutoAck       bool           `json:"auto_ack"`           // Auto-acknowledge messages
+	Exclusive     bool           `json:"exclusive"`          // Exclusive consumer
+	PrefetchCount int            `json:"prefetch_count"`     // Number of messages to prefetch
+	Priority      int            `json:"priority,omitempty"` // Consumer priority
+	Concurrency   int            `json:"concurrency"`        // Number of concurrent workers
+	RetryStrategy RetryStrategy  `json:"retry_strategy"`     // Retry configuration
+	Timeout       time.Duration  `json:"timeout,omitempty"`  // Message processing timeout
+	Arguments     map[string]any `json:"arguments,omitempty"`
 }
 
 // RetryStrategy defines retry behavior.
@@ -110,19 +110,19 @@ type RetryStrategy struct {
 
 // QueueStats contains queue system statistics.
 type QueueStats struct {
-	QueueCount      int64                  `json:"queue_count"`
-	TotalMessages   int64                  `json:"total_messages"`
-	TotalConsumers  int                    `json:"total_consumers"`
-	PublishRate     float64                `json:"publish_rate"`
-	DeliverRate     float64                `json:"deliver_rate"`
-	AckRate         float64                `json:"ack_rate"`
-	UnackedMessages int64                  `json:"unacked_messages"`
-	ReadyMessages   int64                  `json:"ready_messages"`
-	Uptime          time.Duration          `json:"uptime"`
-	MemoryUsed      int64                  `json:"memory_used"`
-	ConnectionCount int                    `json:"connection_count"`
-	Version         string                 `json:"version"`
-	Extra           map[string]interface{} `json:"extra,omitempty"`
+	QueueCount      int64          `json:"queue_count"`
+	TotalMessages   int64          `json:"total_messages"`
+	TotalConsumers  int            `json:"total_consumers"`
+	PublishRate     float64        `json:"publish_rate"`
+	DeliverRate     float64        `json:"deliver_rate"`
+	AckRate         float64        `json:"ack_rate"`
+	UnackedMessages int64          `json:"unacked_messages"`
+	ReadyMessages   int64          `json:"ready_messages"`
+	Uptime          time.Duration  `json:"uptime"`
+	MemoryUsed      int64          `json:"memory_used"`
+	ConnectionCount int            `json:"connection_count"`
+	Version         string         `json:"version"`
+	Extra           map[string]any `json:"extra,omitempty"`
 }
 
 // DefaultQueueOptions returns default queue options.

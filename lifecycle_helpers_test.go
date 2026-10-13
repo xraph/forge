@@ -2,6 +2,7 @@ package forge
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,8 +14,10 @@ func TestOnStarted(t *testing.T) {
 	app := newMockAppWithLifecycle(lm)
 
 	called := false
+
 	err := OnStarted(app, "test-started", func(_ context.Context, _ App) error {
 		called = true
+
 		return nil
 	})
 	if err != nil {
@@ -25,12 +28,14 @@ func TestOnStarted(t *testing.T) {
 	if len(hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(hooks))
 	}
+
 	if hooks[0].Name != "test-started" {
 		t.Errorf("expected hook name 'test-started', got '%s'", hooks[0].Name)
 	}
 
 	// Execute to verify function runs
 	_ = lm.ExecuteHooks(context.Background(), PhaseAfterStart, app)
+
 	if !called {
 		t.Error("OnStarted hook was not called")
 	}
@@ -41,8 +46,10 @@ func TestOnClose(t *testing.T) {
 	app := newMockAppWithLifecycle(lm)
 
 	called := false
+
 	err := OnClose(app, "test-close", func(_ context.Context, _ App) error {
 		called = true
+
 		return nil
 	})
 	if err != nil {
@@ -53,11 +60,13 @@ func TestOnClose(t *testing.T) {
 	if len(hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(hooks))
 	}
+
 	if hooks[0].Name != "test-close" {
 		t.Errorf("expected hook name 'test-close', got '%s'", hooks[0].Name)
 	}
 
 	_ = lm.ExecuteHooks(context.Background(), PhaseBeforeStop, app)
+
 	if !called {
 		t.Error("OnClose hook was not called")
 	}
@@ -78,6 +87,7 @@ func TestOnBeforeRun(t *testing.T) {
 	if len(hooks) != 1 {
 		t.Fatalf("expected 1 hook at PhaseBeforeRun, got %d", len(hooks))
 	}
+
 	if hooks[0].Name != "test-before-run" {
 		t.Errorf("expected 'test-before-run', got '%s'", hooks[0].Name)
 	}
@@ -166,13 +176,16 @@ func (m *mockAppForLifecycle) RegisterExtension(_ Extension) error   { return ni
 func (m *mockAppForLifecycle) RegisterHook(_ LifecyclePhase, _ LifecycleHook, _ LifecycleHookOptions) error {
 	return nil
 }
-func (m *mockAppForLifecycle) Name() string                             { return "test-app" }
-func (m *mockAppForLifecycle) Version() string                          { return "1.0.0" }
-func (m *mockAppForLifecycle) Environment() string                      { return "test" }
-func (m *mockAppForLifecycle) StartTime() time.Time                     { return time.Time{} }
-func (m *mockAppForLifecycle) Uptime() time.Duration                    { return 0 }
-func (m *mockAppForLifecycle) Extensions() []Extension                  { return nil }
-func (m *mockAppForLifecycle) GetExtension(_ string) (Extension, error) { return nil, nil }
+func (m *mockAppForLifecycle) Name() string            { return "test-app" }
+func (m *mockAppForLifecycle) Version() string         { return "1.0.0" }
+func (m *mockAppForLifecycle) Environment() string     { return "test" }
+func (m *mockAppForLifecycle) StartTime() time.Time    { return time.Time{} }
+func (m *mockAppForLifecycle) Uptime() time.Duration   { return 0 }
+func (m *mockAppForLifecycle) Extensions() []Extension { return nil }
+func (m *mockAppForLifecycle) GetExtension(name string) (Extension, error) {
+	// Same answer the real app gives when nothing by that name is registered.
+	return nil, fmt.Errorf("extension %s not found", name)
+}
 func (m *mockAppForLifecycle) MigrationsDisabled() bool                 { return false }
 func (m *mockAppForLifecycle) SetMigrationsDisabled(_ bool)             {}
 func (m *mockAppForLifecycle) CentralMigrationsEnabled() bool           { return false }

@@ -154,12 +154,13 @@ func TestExtension_JSONRPCRequest(t *testing.T) {
 		"method":  "get.test",
 		"id":      1,
 	}
+
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -197,7 +198,7 @@ func TestExtension_OpenRPCSchema(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/schema", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/rpc/schema", nil)
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -266,12 +267,13 @@ func TestExtension_BatchRequest(t *testing.T) {
 		{"jsonrpc": "2.0", "method": "get.test", "id": 1},
 		{"jsonrpc": "2.0", "method": "get.test", "id": 2},
 	}
+
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -305,7 +307,7 @@ func TestExtension_ListMethods(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/methods", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/rpc/methods", nil)
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -447,14 +449,14 @@ func TestExtension_ErrorCases(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	// Test with read error (invalid body)
-	req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", nil)
 	req.Body = &errorReader{}
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
 	// Test with invalid request type
 	body := []byte(`"just a string"`)
-	req = httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec = httptest.NewRecorder()
@@ -484,8 +486,13 @@ func TestExtension_ErrorCases(t *testing.T) {
 	reqBody := []map[string]any{
 		{"jsonrpc": "2.0", "method": "test", "id": 1},
 	}
-	body, _ = json.Marshal(reqBody)
-	req = httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal batch request: %v", err)
+	}
+
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec = httptest.NewRecorder()
@@ -596,12 +603,13 @@ func TestExtension_NonJSONResponse(t *testing.T) {
 		"method":  "get.text",
 		"id":      1,
 	}
+
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()

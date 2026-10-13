@@ -49,6 +49,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	s.logger.Info("discovery service started")
+
 	return nil
 }
 
@@ -61,6 +62,7 @@ func (s *Service) Stop(ctx context.Context) error {
 
 	// Wait for background processes
 	done := make(chan struct{})
+
 	go func() {
 		s.wg.Wait()
 		close(done)
@@ -251,12 +253,14 @@ func (s *Service) GetServiceURL(ctx context.Context, serviceName string, scheme 
 func (s *Service) selectRoundRobin(instances []*ServiceInstance) *ServiceInstance {
 	index := s.roundRobinIndex.Add(1) - 1
 
-	return instances[int(index)%len(instances)]
+	// Take the modulo in uint64 so the counter can't wrap negative on its way
+	// to an index. The result is below len(instances), so it fits in an int.
+	return instances[int(index%uint64(len(instances)))] //nolint:gosec // G115: bounded by len(instances)
 }
 
 // selectRandom selects a random instance.
 func (s *Service) selectRandom(instances []*ServiceInstance) *ServiceInstance {
-	return instances[rand.Intn(len(instances))]
+	return instances[rand.Intn(len(instances))] //nolint:gosec // G404: load-balancing pick, not security-sensitive
 }
 
 // Health checks backend health.

@@ -90,10 +90,11 @@ func (b *EtcdBackend) Initialize(ctx context.Context) error {
 
 	b.leaseID = lease.ID
 
-	// Start lease keep-alive
+	// Start lease keep-alive. It runs until Close, so it must not inherit
+	// the caller's cancellation.
 	b.wg.Add(1)
 
-	go b.keepAliveLease()
+	go b.keepAliveLease(context.WithoutCancel(ctx))
 
 	return nil
 }
@@ -226,20 +227,21 @@ func (b *EtcdBackend) Watch(ctx context.Context, serviceName string, onChange fu
 		onChange(instances)
 	}
 
-	// Start watch goroutine
+	// Start watch goroutine. It runs until Close, so it must not inherit the
+	// caller's cancellation.
 	b.wg.Add(1)
 
-	go b.watchService(serviceName)
+	go b.watchService(context.WithoutCancel(ctx), serviceName)
 
 	return nil
 }
 
 // watchService watches a service for changes using etcd watch.
-func (b *EtcdBackend) watchService(serviceName string) {
+func (b *EtcdBackend) watchService(ctx context.Context, serviceName string) {
 	defer b.wg.Done()
 
 	prefix := b.buildServicePrefix(serviceName)
-	watchChan := b.client.Watch(context.Background(), prefix, clientv3.WithPrefix())
+	watchChan := b.client.Watch(ctx, prefix, clientv3.WithPrefix())
 
 	for {
 		select {
@@ -251,7 +253,7 @@ func (b *EtcdBackend) watchService(serviceName string) {
 			}
 
 			// Service changed, fetch current state
-			instances, err := b.Discover(context.Background(), serviceName)
+			instances, err := b.Discover(ctx, serviceName)
 			if err != nil {
 				continue
 			}
@@ -312,22 +314,27 @@ func (b *EtcdBackend) Close() error {
 	close(b.stopCh)
 	b.wg.Wait()
 
-	// Revoke lease
+	// Revoke lease. A failed revoke still closes the client; the lease then
+	// just expires on its TTL.
+	var revokeErr error
+
 	if b.leaseID != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		b.client.Revoke(ctx, b.leaseID)
+		if _, err := b.client.Revoke(ctx, b.leaseID); err != nil {
+			revokeErr = fmt.Errorf("failed to revoke etcd lease: %w", err)
+		}
 	}
 
-	return b.client.Close()
+	return errors.Join(revokeErr, b.client.Close())
 }
 
 // keepAliveLease keeps the lease alive.
-func (b *EtcdBackend) keepAliveLease() {
+func (b *EtcdBackend) keepAliveLease(ctx context.Context) {
 	defer b.wg.Done()
 
-	keepAliveChan, err := b.client.KeepAlive(context.Background(), b.leaseID)
+	keepAliveChan, err := b.client.KeepAlive(ctx, b.leaseID)
 	if err != nil {
 		return
 	}
@@ -339,7 +346,7 @@ func (b *EtcdBackend) keepAliveLease() {
 		case _, ok := <-keepAliveChan:
 			if !ok {
 				// Lease expired, recreate
-				lease, err := b.client.Grant(context.Background(), b.leaseTTL)
+				lease, err := b.client.Grant(ctx, b.leaseTTL)
 				if err != nil {
 					continue
 				}
@@ -347,7 +354,7 @@ func (b *EtcdBackend) keepAliveLease() {
 				b.leaseID = lease.ID
 
 				// Restart keep-alive
-				keepAliveChan, err = b.client.KeepAlive(context.Background(), b.leaseID)
+				keepAliveChan, err = b.client.KeepAlive(ctx, b.leaseID)
 				if err != nil {
 					continue
 				}

@@ -120,11 +120,11 @@ func (g *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	// Generate specific error classes, from the package-level table that
 	// ReservedIdentifiers also reads.
 	for _, ec := range errorClasses {
-		buf.WriteString(fmt.Sprintf("export class %s extends APIError {\n", ec.name))
+		fmt.Fprintf(&buf, "export class %s extends APIError {\n", ec.name)
 		buf.WriteString("  constructor(message?: string, code?: string, details?: Record<string, any>) {\n")
-		buf.WriteString(fmt.Sprintf("    super(%d, message || '%s', code, details);\n", ec.statusCode, ec.message))
-		buf.WriteString(fmt.Sprintf("    this.name = '%s';\n", ec.name))
-		buf.WriteString(fmt.Sprintf("    Object.setPrototypeOf(this, %s.prototype);\n", ec.name))
+		fmt.Fprintf(&buf, "    super(%d, message || '%s', code, details);\n", ec.statusCode, ec.message)
+		fmt.Fprintf(&buf, "    this.name = '%s';\n", ec.name)
+		fmt.Fprintf(&buf, "    Object.setPrototypeOf(this, %s.prototype);\n", ec.name)
 		buf.WriteString("  }\n")
 		buf.WriteString("}\n\n")
 	}
@@ -142,8 +142,8 @@ func (g *ErrorGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	buf.WriteString("  switch (statusCode) {\n")
 
 	for _, ec := range errorClasses {
-		buf.WriteString(fmt.Sprintf("    case %d:\n", ec.statusCode))
-		buf.WriteString(fmt.Sprintf("      return new %s(message, code, details);\n", ec.name))
+		fmt.Fprintf(&buf, "    case %d:\n", ec.statusCode)
+		fmt.Fprintf(&buf, "      return new %s(message, code, details);\n", ec.name)
 	}
 
 	buf.WriteString("    default:\n")

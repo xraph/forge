@@ -1,4 +1,3 @@
-// v2/cmd/forge/config/validation.go
 package config
 
 import (
@@ -149,6 +148,7 @@ func FormatValidationErrors(errs []ValidationError) string {
 
 	// Group by level
 	var errors, warnings []ValidationError
+
 	for _, err := range errs {
 		if err.Level == "error" {
 			errors = append(errors, err)
@@ -159,21 +159,26 @@ func FormatValidationErrors(errs []ValidationError) string {
 
 	if len(errors) > 0 {
 		sb.WriteString("Configuration Errors:\n")
+
 		for _, err := range errors {
-			sb.WriteString(fmt.Sprintf("  ✗ %s: %s\n", err.Field, err.Message))
+			fmt.Fprintf(&sb, "  ✗ %s: %s\n", err.Field, err.Message)
+
 			if err.Suggestion != "" {
-				sb.WriteString(fmt.Sprintf("    → %s\n", err.Suggestion))
+				fmt.Fprintf(&sb, "    → %s\n", err.Suggestion)
 			}
 		}
+
 		sb.WriteString("\n")
 	}
 
 	if len(warnings) > 0 {
 		sb.WriteString("Configuration Warnings:\n")
+
 		for _, warn := range warnings {
-			sb.WriteString(fmt.Sprintf("  ⚠ %s: %s\n", warn.Field, warn.Message))
+			fmt.Fprintf(&sb, "  ⚠ %s: %s\n", warn.Field, warn.Message)
+
 			if warn.Suggestion != "" {
-				sb.WriteString(fmt.Sprintf("    → %s\n", warn.Suggestion))
+				fmt.Fprintf(&sb, "    → %s\n", warn.Suggestion)
 			}
 		}
 	}

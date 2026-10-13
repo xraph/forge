@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/build.go
 package plugins
 
 import (
@@ -158,7 +157,7 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 	args = append(args, app.Cmd)
 
 	// Create command
-	cmd := exec.Command("go", args...)
+	cmd := exec.CommandContext(ctx.Context(), "go", args...)
 	cmd.Dir = p.config.RootDir
 
 	// Set GOOS and GOARCH if platform specified
@@ -169,7 +168,6 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 				"GOOS="+parts[0],
 				"GOARCH="+parts[1],
 			)
-			outputPath = fmt.Sprintf("%s-%s-%s", outputPath, parts[0], parts[1])
 		}
 	}
 

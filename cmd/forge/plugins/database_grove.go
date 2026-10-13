@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -67,7 +68,7 @@ func resolveGroveDriver(dsn string) (groveDriver, error) {
 	}
 
 	if scheme == "elasticsearch" {
-		return groveDriver{}, fmt.Errorf("elasticsearch has no migration support: grove ships an elasticsearch driver but no migrate executor for it")
+		return groveDriver{}, errors.New("elasticsearch has no migration support: grove ships an elasticsearch driver but no migrate executor for it")
 	}
 
 	drv, ok := groveDrivers[scheme]

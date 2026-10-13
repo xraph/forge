@@ -2,7 +2,7 @@ package graphql
 
 import "errors"
 
-// Common GraphQL errors
+// Common GraphQL errors.
 var (
 	ErrNotInitialized     = errors.New("graphql: not initialized")
 	ErrInvalidQuery       = errors.New("graphql: invalid query")

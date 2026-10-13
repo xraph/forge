@@ -48,6 +48,7 @@ func TestBaseModelStampsTimestamps(t *testing.T) {
 	}
 
 	first := m.UpdatedAt
+
 	time.Sleep(time.Millisecond)
 
 	if err := m.BeforeUpdate(context.Background(), nil); err != nil {

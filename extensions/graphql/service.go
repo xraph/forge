@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -54,6 +55,7 @@ func (s *GraphQLService) Start(ctx context.Context) error {
 
 	// GraphQL server doesn't have explicit Start, it's always ready after construction
 	s.logger.Info("graphql service started")
+
 	return nil
 }
 
@@ -63,13 +65,14 @@ func (s *GraphQLService) Stop(ctx context.Context) error {
 	s.logger.Info("stopping graphql service")
 	// GraphQL server cleanup happens automatically
 	s.logger.Info("graphql service stopped")
+
 	return nil
 }
 
 // Health checks if the GraphQL service is healthy.
 func (s *GraphQLService) Health(ctx context.Context) error {
 	if s.server == nil {
-		return fmt.Errorf("graphql server not initialized")
+		return errors.New("graphql server not initialized")
 	}
 
 	if err := s.server.Ping(ctx); err != nil {
@@ -86,7 +89,7 @@ func (s *GraphQLService) Server() GraphQL {
 
 // Ensure GraphQLService implements GraphQL interface for convenience
 
-func (s *GraphQLService) RegisterType(name string, obj interface{}) error {
+func (s *GraphQLService) RegisterType(name string, obj any) error {
 	return s.server.RegisterType(name, obj)
 }
 
@@ -110,7 +113,7 @@ func (s *GraphQLService) GetSchema() *GraphQLSchema {
 	return s.server.GetSchema()
 }
 
-func (s *GraphQLService) ExecuteQuery(ctx context.Context, query string, variables map[string]interface{}) (*Response, error) {
+func (s *GraphQLService) ExecuteQuery(ctx context.Context, query string, variables map[string]any) (*Response, error) {
 	return s.server.ExecuteQuery(ctx, query, variables)
 }
 

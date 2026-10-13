@@ -132,6 +132,7 @@ func (m *sqMockConn) Close() error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.closes++
 
 	return nil
@@ -478,7 +479,7 @@ func TestUntypedFrameOverflowDisconnects(t *testing.T) {
 	sqParkWriter(t, conn, mock, "parked")
 
 	for i := range capacity {
-		if err := conn.Write([]byte(fmt.Sprintf(`{"id":"b%d"}`, i))); err != nil {
+		if err := conn.Write(fmt.Appendf(nil, `{"id":"b%d"}`, i)); err != nil {
 			t.Fatalf("filling queue at %d: %v", i, err)
 		}
 	}
@@ -600,13 +601,9 @@ func TestConcurrentEnqueueAndClose(t *testing.T) {
 		}
 
 		for range 3 {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
+			wg.Go(func() {
 				_ = conn.Close()
-			}()
+			})
 		}
 
 		wg.Wait()

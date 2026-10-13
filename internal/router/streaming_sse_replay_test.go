@@ -17,7 +17,7 @@ func replayTestStream(t *testing.T, lastEventID string) (*sseStream, *httptest.R
 	t.Helper()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 
 	if lastEventID != "" {
 		req.Header.Set("Last-Event-ID", lastEventID)
@@ -268,7 +268,7 @@ func TestLoggedStream_IDConflictWarnsExactlyOnce(t *testing.T) {
 	captured := &countingWarnLogger{Logger: logger.NewNoopLogger()}
 	logged := &loggedStream{Stream: stream, log: log, channel: "orders", logger: captured}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.ErrorIs(t, logged.SendWithID("caller-chosen-id", "created", []byte("a")), ErrEventIDAssignedByLog)
 		require.ErrorIs(t, logged.SendJSONWithID("caller-chosen-id", "created", map[string]string{"a": "b"}), ErrEventIDAssignedByLog)
 	}
@@ -332,7 +332,7 @@ func TestEventStream_ReplayFailureStillRunsHandler(t *testing.T) {
 	}, WithEventLog(log, func(Context) string { return "orders" })))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req.Header.Set("Last-Event-ID", "someepoch-1")
 
 	r.ServeHTTP(w, req)
@@ -354,7 +354,7 @@ func TestEventStream_WithoutEventLogIsUnchanged(t *testing.T) {
 	}))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req.Header.Set("Last-Event-ID", "someepoch-1")
 
 	r.ServeHTTP(w, req)
@@ -375,7 +375,7 @@ func TestEventStream_WithEventLogReplaysOnReconnect(t *testing.T) {
 
 	// First client: records one event and learns its id.
 	first := httptest.NewRecorder()
-	r.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/events", nil))
+	r.ServeHTTP(first, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil))
 
 	body := first.Body.String()
 	require.Contains(t, body, "id: ")
@@ -388,7 +388,7 @@ func TestEventStream_WithEventLogReplaysOnReconnect(t *testing.T) {
 	require.Len(t, events, 1)
 
 	second := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	req.Header.Set("Last-Event-ID", formatEventID(log.epoch, 0))
 
 	r.ServeHTTP(second, req)

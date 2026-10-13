@@ -1,4 +1,3 @@
-// v2/cmd/forge/config/app_config.go
 package config
 
 import (
@@ -73,6 +72,7 @@ func LoadAppConfig(appDir string) (*AppConfig, error) {
 	if config, err := tryLoadAppConfig(configPath); err == nil {
 		config.AppDir = appDir
 		config.ConfigPath = configPath
+
 		return config, nil
 	}
 
@@ -81,6 +81,7 @@ func LoadAppConfig(appDir string) (*AppConfig, error) {
 	if config, err := tryLoadAppConfig(configPath); err == nil {
 		config.AppDir = appDir
 		config.ConfigPath = configPath
+
 		return config, nil
 	}
 
@@ -119,5 +120,6 @@ func (d *AppDevConfig) GetHost() string {
 	if d.Host != "" {
 		return d.Host
 	}
+
 	return "localhost"
 }

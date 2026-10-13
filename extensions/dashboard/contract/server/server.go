@@ -78,6 +78,7 @@ func New(
 	}
 
 	s.dispatch = transport.NewHandler(reg, wreg, disp, audit, s.handler...)
+
 	return s
 }
 
@@ -119,18 +120,25 @@ func (s *Server) HandleDispatch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+
 		return
 	}
+
 	contributor := r.URL.Query().Get("contributor")
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
+
 	if contributor != "" {
 		m, ok := s.reg.Contributor(contributor)
 		if !ok {
 			http.Error(w, "contributor not registered", http.StatusNotFound)
+
 			return
 		}
-		_ = json.NewEncoder(w).Encode(m)
+
+		writeManifestJSON(w, m)
+
 		return
 	}
 	// No ?contributor: when the service hosts exactly one contributor,
@@ -142,10 +150,25 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	case 0:
 		http.Error(w, "no contributors registered", http.StatusNotFound)
 	case 1:
-		_ = json.NewEncoder(w).Encode(all[0])
+		writeManifestJSON(w, all[0])
 	default:
-		_ = json.NewEncoder(w).Encode(struct {
+		writeManifestJSON(w, struct {
 			Manifests []*contract.ContractManifest `json:"manifests"`
 		}{Manifests: all})
 	}
+}
+
+// writeManifestJSON marshals before writing, so a manifest that can't be
+// encoded (an unencodable value in a schema map, say) becomes a 500 instead of
+// a 200 with an empty body.
+func writeManifestJSON(w http.ResponseWriter, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "encode manifest", http.StatusInternalServerError)
+
+		return
+	}
+
+	// The trailing newline keeps the body byte-identical to json.Encoder's.
+	_, _ = w.Write(append(data, '\n'))
 }

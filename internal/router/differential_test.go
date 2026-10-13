@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,10 +47,10 @@ func buildBoth(t *testing.T) (shared.RouterAdapter, shared.RouterAdapter) {
 	return bun, mux
 }
 
-func serve(a shared.RouterAdapter, path string) (int, string) {
+func serve(ctx context.Context, a shared.RouterAdapter, path string) (int, string) {
 	rec := httptest.NewRecorder()
 
-	req, err := http.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.test"+path, nil)
 	if err != nil {
 		return -1, ""
 	}
@@ -106,8 +107,8 @@ func FuzzDifferentialAgainstBunRouter(f *testing.F) {
 
 		bun, mux := buildBoth(t)
 
-		bunCode, bunBody := serve(bun, path)
-		muxCode, muxBody := serve(mux, path)
+		bunCode, bunBody := serve(t.Context(), bun, path)
+		muxCode, muxBody := serve(t.Context(), mux, path)
 
 		if bunCode == -1 || muxCode == -1 {
 			return

@@ -1,5 +1,7 @@
 package pathspec
 
+import "slices"
+
 // The Constraint vocabulary is closed by design: there is no regex form and no
 // registration hook. A constraint runs on the matcher's hot path, and the
 // OpenAPI generator has to infer a schema from it, neither of which survives
@@ -116,13 +118,7 @@ func (c Constraint) Match(value string, enum []string) bool {
 		return isUUID(value)
 
 	case ConstraintEnum:
-		for _, candidate := range enum {
-			if value == candidate {
-				return true
-			}
-		}
-
-		return false
+		return slices.Contains(enum, value)
 	}
 
 	return false
@@ -165,7 +161,7 @@ func isUUID(s string) bool {
 			pos++
 		}
 
-		for j := 0; j < size; j++ {
+		for j := range size {
 			if !isHex(s[pos+j]) {
 				return false
 			}

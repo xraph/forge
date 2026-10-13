@@ -67,6 +67,7 @@ const (
 func WithHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) context.Context {
 	ctx = context.WithValue(ctx, respWriterContextKey, w)
 	ctx = context.WithValue(ctx, requestContextKey, r)
+
 	return ctx
 }
 
@@ -75,6 +76,7 @@ func WithHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) conte
 // jobs, tests).
 func ResponseWriterFromContext(ctx context.Context) http.ResponseWriter {
 	w, _ := ctx.Value(respWriterContextKey).(http.ResponseWriter)
+
 	return w
 }
 
@@ -82,5 +84,6 @@ func ResponseWriterFromContext(ctx context.Context) http.ResponseWriter {
 // nil outside an HTTP-served dispatch.
 func RequestFromContext(ctx context.Context) *http.Request {
 	r, _ := ctx.Value(requestContextKey).(*http.Request)
+
 	return r
 }

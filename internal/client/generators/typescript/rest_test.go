@@ -3,6 +3,7 @@ package typescript
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -623,9 +624,9 @@ main().catch((err) => {
 // the driver only emitting one JSON line) doesn't break json.Unmarshal.
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.TrimSpace(lines[i]) != "" {
-			return lines[i]
+	for _, v := range slices.Backward(lines) {
+		if strings.TrimSpace(v) != "" {
+			return v
 		}
 	}
 
@@ -985,6 +986,7 @@ func requestConfigBlock(t *testing.T, code, pathMarker string) string {
 	require.NotEqual(t, -1, braceStart)
 
 	depth := 0
+
 	for i := braceStart; i < len(tail); i++ {
 		switch tail[i] {
 		case '{':

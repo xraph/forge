@@ -72,6 +72,7 @@ func TestCheck_RespectsMaxConcurrentChecks(t *testing.T) {
 		name := fmt.Sprintf("ext-%d", i)
 		if err := m.RegisterFn(name, func(ctx context.Context) *healthinternal.HealthResult {
 			now := inFlight.Add(1)
+
 			for {
 				high := peak.Load()
 				if now <= high || peak.CompareAndSwap(high, now) {
@@ -178,8 +179,7 @@ func TestNew_FillsPartialConfig(t *testing.T) {
 func TestStart_WithPartialConfigDoesNotPanic(t *testing.T) {
 	m := New(&HealthConfig{Enabled: true}, nil, nil, nil).(*ManagerImpl)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := m.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -235,8 +235,7 @@ func TestStart_ServiceDiscoveryIsOptIn(t *testing.T) {
 
 		m := New(cfg, nil, nil, container).(*ManagerImpl)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		if err := m.Start(ctx); err != nil {
 			t.Fatalf("Start: %v", err)
@@ -262,8 +261,7 @@ func TestStart_ServiceDiscoveryIsOptIn(t *testing.T) {
 
 		m := New(cfg, nil, nil, container).(*ManagerImpl)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		if err := m.Start(ctx); err != nil {
 			t.Fatalf("Start: %v", err)

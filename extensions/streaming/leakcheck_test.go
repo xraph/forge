@@ -17,6 +17,7 @@ func waitForGoroutineCount(target int) int {
 	n := runtime.NumGoroutine()
 	for n > target && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
+
 		n = runtime.NumGoroutine()
 	}
 

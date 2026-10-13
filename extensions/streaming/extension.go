@@ -165,6 +165,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Build manager options for message pipeline
 	var managerOpts []ManagerOption
+
 	managerOpts = append(managerOpts, WithHookRegistry(e.hooks))
 	managerOpts = append(managerOpts, WithCodecRegistry(e.codecs))
 
@@ -217,6 +218,7 @@ func (e *Extension) Register(app forge.App) error {
 			coord := coordinator.NewRedisCoordinator(redisClient, e.config.NodeID)
 			managerOpts = append(managerOpts, WithCoordinator(coord))
 		}
+
 		managerOpts = append(managerOpts, WithManagerNodeID(e.config.NodeID))
 	}
 
@@ -247,6 +249,7 @@ func (e *Extension) Register(app forge.App) error {
 	if e.config.EnableSessionResumption {
 		sessionStore := NewInMemorySessionStore()
 		managerOpts = append(managerOpts, WithSessionStore(sessionStore))
+
 		e.Logger().Info("session resumption enabled",
 			forge.F("ttl", e.config.SessionResumptionTTL),
 		)
@@ -268,7 +271,8 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register manager with DI container for backward compatibility
 	manager := e.manager
-	if err := vessel.ProvideConstructor(app.Container(), func() Manager {
+
+	if err := vessel.Provide(app.Container(), func() Manager {
 		return manager
 	}, vessel.WithAliases(ManagerKey)); err != nil {
 		return fmt.Errorf("failed to register streaming manager: %w", err)
@@ -442,7 +446,14 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 		return err
 	}
 	defer func() {
-		e.manager.Unregister(conn.ID())
+		// A kick or idle sweep may have unregistered the connection already,
+		// so not-found is the expected case here, not a failure.
+		if err := e.manager.Unregister(conn.ID()); err != nil && !errors.Is(err, ErrConnectionNotFound) {
+			e.Logger().Warn("failed to unregister connection",
+				forge.F("conn_id", conn.ID()),
+				forge.F("error", err),
+			)
+		}
 
 		// Fire disconnect hooks (after unregistration)
 		if e.hooks != nil {
@@ -461,7 +472,7 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 	// Apply the configured inbound message cap to this socket. The router
 	// defaults to 1 MiB; MaxMessageSize was never pushed down to it, so the
 	// configured value (64 KB by default) did nothing.
-	if limiter, ok := conn.(interface{ SetReadLimit(int64) }); ok && e.config.MaxMessageSize > 0 {
+	if limiter, ok := conn.(interface{ SetReadLimit(limit int64) }); ok && e.config.MaxMessageSize > 0 {
 		limiter.SetReadLimit(int64(e.config.MaxMessageSize))
 	}
 
@@ -749,6 +760,7 @@ func (e *Extension) heartbeat(ctx context.Context, conn Connection, enhanced Con
 func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 	// Get user ID from context (set by auth middleware)
 	var userID string
+
 	if uid := ctx.Get("user_id"); uid != nil {
 		if uidStr, ok := uid.(string); ok {
 			userID = uidStr
@@ -763,10 +775,12 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 
 	// Create SSE connection adapter
 	remoteAddr := ctx.Request().RemoteAddr
+
 	localAddr := ""
 	if ctx.Request().TLS != nil {
 		localAddr = ctx.Request().Host
 	}
+
 	sseConn := NewSSEConnection(stream, remoteAddr, localAddr)
 
 	// Wrap in enhanced connection with SSE transport type
@@ -780,9 +794,19 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 			forge.F("conn_id", sseConn.ID()),
 			forge.F("error", err),
 		)
+
 		return err
 	}
-	defer e.manager.Unregister(sseConn.ID())
+	defer func() {
+		// A kick or idle sweep may have unregistered the connection already,
+		// so not-found is the expected case here, not a failure.
+		if err := e.manager.Unregister(sseConn.ID()); err != nil && !errors.Is(err, ErrConnectionNotFound) {
+			e.Logger().Warn("failed to unregister SSE connection",
+				forge.F("conn_id", sseConn.ID()),
+				forge.F("error", err),
+			)
+		}
+	}()
 
 	// Attempt session resumption
 	resumed, _ := e.manager.ResumeSession(ctx.Request().Context(), sseConn.ID(), sessionID)
@@ -801,7 +825,7 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 	// (resumed sessions already have their rooms/channels restored)
 	if !resumed {
 		if roomsParam := ctx.Request().URL.Query().Get("rooms"); roomsParam != "" {
-			for _, roomID := range strings.Split(roomsParam, ",") {
+			for roomID := range strings.SplitSeq(roomsParam, ",") {
 				roomID = strings.TrimSpace(roomID)
 				if roomID != "" {
 					if err := e.manager.JoinRoom(ctx.Request().Context(), sseConn.ID(), roomID); err != nil {
@@ -815,7 +839,7 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 		}
 
 		if channelsParam := ctx.Request().URL.Query().Get("channels"); channelsParam != "" {
-			for _, channelID := range strings.Split(channelsParam, ",") {
+			for channelID := range strings.SplitSeq(channelsParam, ",") {
 				channelID = strings.TrimSpace(channelID)
 				if channelID != "" {
 					if err := e.manager.Subscribe(ctx.Request().Context(), sseConn.ID(), channelID, nil); err != nil {
@@ -865,7 +889,14 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 	// Set user online
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
-		defer e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline)
+		defer func() {
+			if err := e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline); err != nil {
+				e.Logger().Warn("failed to mark SSE user offline",
+					forge.F("user_id", userID),
+					forge.F("error", err),
+				)
+			}
+		}()
 	}
 
 	e.Logger().Debug("SSE connection established",
@@ -934,6 +965,7 @@ func (e *Extension) authorizeConnAccess(ctx forge.Context, connID string) (Conne
 	}
 
 	var callerID string
+
 	if uid := ctx.Get("user_id"); uid != nil {
 		if uidStr, ok := uid.(string); ok {
 			callerID = uidStr
@@ -972,6 +1004,7 @@ func (e *Extension) handleSSESubscribe(ctx forge.Context) error {
 	}
 
 	reqCtx := ctx.Request().Context()
+
 	var errs []string
 
 	for _, roomID := range req.Rooms {
@@ -1105,13 +1138,16 @@ func createLoadBalancer(config Config) lb.LoadBalancer {
 		if replicas <= 0 {
 			replicas = 150
 		}
+
 		return lb.NewConsistentHashBalancer(replicas, nil)
 	case "sticky":
 		ttl := config.StickySessionTTL
 		if ttl <= 0 {
 			ttl = time.Hour
 		}
+
 		fallback := lb.NewLeastConnectionsBalancer(nil)
+
 		return lb.NewStickyLoadBalancer(ttl, fallback, lb.NewInMemorySessionStore())
 	default: // "round_robin" or unknown
 		return lb.NewLeastConnectionsBalancer(nil)

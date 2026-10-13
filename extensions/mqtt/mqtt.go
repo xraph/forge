@@ -7,7 +7,7 @@ import (
 	mqttclient "github.com/eclipse/paho.mqtt.golang"
 )
 
-// MQTT represents a unified MQTT client interface
+// MQTT represents a unified MQTT client interface.
 type MQTT interface {
 	// Connection management
 	Connect(ctx context.Context) error
@@ -16,8 +16,8 @@ type MQTT interface {
 	Reconnect() error
 
 	// Publishing
-	Publish(topic string, qos byte, retained bool, payload interface{}) error
-	PublishAsync(topic string, qos byte, retained bool, payload interface{}) error
+	Publish(topic string, qos byte, retained bool, payload any) error
+	PublishAsync(topic string, qos byte, retained bool, payload any) error
 
 	// Subscribing
 	Subscribe(topic string, qos byte, handler MessageHandler) error
@@ -41,26 +41,26 @@ type MQTT interface {
 }
 
 // MessageHandler processes incoming MQTT messages
-// This is an alias to the paho MQTT MessageHandler for compatibility
+// This is an alias to the paho MQTT MessageHandler for compatibility.
 type MessageHandler = mqttclient.MessageHandler
 
-// ConnectHandler is called when connection is established
+// ConnectHandler is called when connection is established.
 type ConnectHandler = mqttclient.OnConnectHandler
 
-// ConnectionLostHandler is called when connection is lost
+// ConnectionLostHandler is called when connection is lost.
 type ConnectionLostHandler = mqttclient.ConnectionLostHandler
 
-// ReconnectingHandler is called when client is reconnecting
+// ReconnectingHandler is called when client is reconnecting.
 type ReconnectingHandler = mqttclient.ReconnectHandler
 
-// SubscriptionInfo contains subscription metadata
+// SubscriptionInfo contains subscription metadata.
 type SubscriptionInfo struct {
 	Topic   string
 	QoS     byte
 	Handler string // Handler function name
 }
 
-// ClientStats contains client statistics
+// ClientStats contains client statistics.
 type ClientStats struct {
 	Connected        bool
 	ConnectTime      time.Time

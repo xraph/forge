@@ -35,6 +35,7 @@ func TestCreateMigrationsGoFileEmitsGroveRegistry(t *testing.T) {
 
 	src, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, `"github.com/xraph/grove/migrate"`)
@@ -60,6 +61,7 @@ func TestCreateMigrationsGoFileUsesAppNameAsGroup(t *testing.T) {
 
 	src, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, `migrate.NewGroup("billing")`)
@@ -82,6 +84,7 @@ func TestCreateSQLMigrationWritesAnEmbeddingGoFile(t *testing.T) {
 
 	src, err := os.ReadFile(goFile)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	// The embed directives must name the files this same call wrote. A stale
@@ -122,6 +125,7 @@ func TestCreateGoMigrationEmitsGroveMigration(t *testing.T) {
 
 	src, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	content := string(src)
 
 	assert.Contains(t, content, `"github.com/xraph/grove/migrate"`)

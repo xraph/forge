@@ -534,5 +534,6 @@ func sanitizeForSQL(s string) string {
 			result = append(result, c)
 		}
 	}
+
 	return string(result)
 }

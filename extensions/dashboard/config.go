@@ -30,8 +30,8 @@ type Config struct {
 	MaxDataPoints   int           `json:"max_data_points"  yaml:"max_data_points"`
 
 	// Tracing
-	TraceMaxCount  int           `json:"trace_max_count"  yaml:"trace_max_count"`
-	TraceRetention time.Duration `json:"trace_retention"  yaml:"trace_retention"`
+	TraceMaxCount  int           `json:"trace_max_count" yaml:"trace_max_count"`
+	TraceRetention time.Duration `json:"trace_retention" yaml:"trace_retention"`
 	// TraceMaxSpansPerTrace caps how many spans one trace retains. A single
 	// long-lived trace, such as a websocket, would otherwise grow unbounded.
 	TraceMaxSpansPerTrace int `json:"trace_max_spans_per_trace" yaml:"trace_max_spans_per_trace"`

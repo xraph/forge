@@ -732,7 +732,7 @@ func TestDiffOutputIsDeterministic(t *testing.T) {
 
 	first := formatReport(diffFiles(t, ordersDoc(), newDoc))
 
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		again := formatReport(diffFiles(t, ordersDoc(), newDoc))
 		if again != first {
 			t.Fatalf("run %d differs from the first:\n--- first ---\n%s--- again ---\n%s", i, first, again)

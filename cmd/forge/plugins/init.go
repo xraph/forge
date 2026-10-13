@@ -1,7 +1,7 @@
-// v2/cmd/forge/plugins/init.go
 package plugins
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -148,7 +148,7 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	}
 
 	// Initialize go module
-	if err := p.initGoModule(cwd, modulePath, layout); err != nil {
+	if err := p.initGoModule(ctx.Context(), cwd, modulePath, layout); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 
 		return fmt.Errorf("failed to initialize go module: %w", err)
@@ -259,11 +259,11 @@ func (p *InitPlugin) createDirectoryStructure(root string, layout string) error 
 	return nil
 }
 
-func (p *InitPlugin) initGoModule(root, module string, layout string) error {
+func (p *InitPlugin) initGoModule(ctx context.Context, root, module string, layout string) error {
 	if layout == "single-module" {
 		// Create single go.mod
 		goModPath := filepath.Join(root, "go.mod")
-		version := getLatestForgeVersion()
+		version := getLatestForgeVersion(ctx)
 		content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", module, version)
 
 		return os.WriteFile(goModPath, []byte(content), 0644)

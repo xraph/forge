@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -46,6 +47,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("features extension disabled")
+
 		return nil
 	}
 
@@ -81,6 +83,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -92,6 +95,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -102,7 +106,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	}
 
 	if e.BaseExtension == nil || !e.IsStarted() {
-		return fmt.Errorf("features extension not started")
+		return errors.New("features extension not started")
 	}
 
 	return nil

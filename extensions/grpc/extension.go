@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -12,11 +13,12 @@ import (
 // The extension is now a lightweight facade that loads config and registers services.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	// No longer storing server - Vessel manages it
 }
 
-// NewExtension creates a new gRPC extension
+// NewExtension creates a new gRPC extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -24,13 +26,14 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("grpc", "2.0.0", "gRPC server with interceptors and streaming")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
 	}
 }
 
-// NewExtensionWithConfig creates a new gRPC extension with a complete config
+// NewExtensionWithConfig creates a new gRPC extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
@@ -43,13 +46,16 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("grpc", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("grpc: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("grpc: using default/programmatic config", forge.F("error", err.Error()))
 	}
+
 	e.config = finalConfig
 
 	// Validate config before registering constructor
@@ -91,6 +97,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -104,13 +111,14 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
 // Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.IsStarted() {
-		return fmt.Errorf("grpc extension not started")
+		return errors.New("grpc extension not started")
 	}
 
 	return nil

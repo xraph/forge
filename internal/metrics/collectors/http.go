@@ -349,6 +349,7 @@ func (w *httpResponseWrapper) WriteHeader(code int) {
 	if w.wroteHeader {
 		return
 	}
+
 	w.wroteHeader = true
 	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
@@ -359,6 +360,7 @@ func (w *httpResponseWrapper) Write(b []byte) (int, error) {
 		w.wroteHeader = true
 		w.ResponseWriter.WriteHeader(w.statusCode)
 	}
+
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += n
 
@@ -372,6 +374,7 @@ func (w *httpResponseWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
 		return hijacker.Hijack()
 	}
+
 	return nil, nil, http.ErrNotSupported
 }
 
@@ -388,6 +391,7 @@ func (w *httpResponseWrapper) Push(target string, opts *http.PushOptions) error 
 	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
 		return pusher.Push(target, opts)
 	}
+
 	return http.ErrNotSupported
 }
 

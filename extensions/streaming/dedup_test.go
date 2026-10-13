@@ -54,7 +54,7 @@ func TestMessageDedup_EmptyIDIsNeverDuplicate(t *testing.T) {
 	// rather than collapsing every unidentified message into one.
 	d := newMessageDedup(10000, time.Minute)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if d.IsDuplicate("") {
 			t.Fatalf("IsDuplicate(\"\") = true on call %d, want false", i)
 		}
@@ -201,29 +201,25 @@ func TestMessageDedup_ConcurrentIsDuplicate(t *testing.T) {
 		ids[i] = fmt.Sprintf("msg-%d", i)
 	}
 
-	var firstSightings int64
+	var firstSightings atomic.Int64
 
 	var wg sync.WaitGroup
 
-	for g := 0; g < goroutines; g++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+	for range goroutines {
+		wg.Go(func() {
 			for _, id := range ids {
 				if !d.IsDuplicate(id) {
-					atomic.AddInt64(&firstSightings, 1)
+					firstSightings.Add(1)
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
 
 	// Every ID must be admitted exactly once across all goroutines; anything
 	// else means the shard lock is not serializing check-and-record.
-	if got := atomic.LoadInt64(&firstSightings); got != uniqueIDs {
+	if got := firstSightings.Load(); got != uniqueIDs {
 		t.Errorf("admitted %d messages, want exactly %d (one per unique ID)", got, uniqueIDs)
 	}
 }
@@ -233,13 +229,13 @@ func TestMessageDedup_ConcurrentDistinctShards(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for g := 0; g < 16; g++ {
+	for g := range 16 {
 		wg.Add(1)
 
 		go func(g int) {
 			defer wg.Done()
 
-			for i := 0; i < 500; i++ {
+			for i := range 500 {
 				d.IsDuplicate(fmt.Sprintf("g%d-msg-%d", g, i))
 			}
 		}(g)

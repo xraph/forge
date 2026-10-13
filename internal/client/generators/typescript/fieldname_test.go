@@ -174,7 +174,6 @@ func collisionConfig() client.GeneratorConfig {
 // FieldOverrides key that resolves it, and produce no files at all.
 func TestGenerateFailsOnFieldNameCollision(t *testing.T) {
 	out, err := NewGenerator().Generate(context.Background(), collisionSpec(), collisionConfig())
-
 	if err == nil {
 		t.Fatal("expected an error for colliding field names, got nil")
 	}
@@ -394,7 +393,6 @@ func TestGenerateFailsOnNestedInlineObjectFieldCollision(t *testing.T) {
 	}
 
 	out, err := NewGenerator().Generate(context.Background(), spec, collisionConfig())
-
 	if err == nil {
 		t.Fatal("expected an error for a field-name collision inside a nested inline object")
 	}
@@ -868,19 +866,19 @@ func extractFieldOverrideKey(t *testing.T, msg string) string {
 
 	const marker = `FieldOverrides["`
 
-	idx := strings.Index(msg, marker)
-	if idx == -1 {
+	_, after, ok := strings.Cut(msg, marker)
+	if !ok {
 		t.Fatalf("no FieldOverrides key found in message: %s", msg)
 	}
 
-	rest := msg[idx+len(marker):]
+	rest := after
 
-	end := strings.Index(rest, `"]`)
-	if end == -1 {
+	before0, _, ok0 := strings.Cut(rest, `"]`)
+	if !ok0 {
 		t.Fatalf("malformed FieldOverrides key in message: %s", msg)
 	}
 
-	return rest[:end]
+	return before0
 }
 
 // TestGenerateFailsOnAllOfNestedInlineObjectCollision is FINDING 1's

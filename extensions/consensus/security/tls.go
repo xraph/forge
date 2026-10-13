@@ -218,7 +218,7 @@ func CreateClientTLSConfig(certFile, keyFile, caFile string, insecureSkipVerify 
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
-		InsecureSkipVerify: insecureSkipVerify,
+		InsecureSkipVerify: insecureSkipVerify, //nolint:gosec // G402: explicit caller opt-in, verification stays on unless they pass true
 		MinVersion:         tls.VersionTLS12,
 	}, nil
 }

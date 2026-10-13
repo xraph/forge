@@ -2,6 +2,7 @@ package distributed
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus"
 )
 
-// HLSStateMachine implements the state machine for distributed HLS operations
+// HLSStateMachine implements the state machine for distributed HLS operations.
 type HLSStateMachine struct {
 	logger forge.Logger
 
@@ -24,7 +25,7 @@ type HLSStateMachine struct {
 	appliedTerm  uint64
 }
 
-// NewHLSStateMachine creates a new HLS state machine
+// NewHLSStateMachine creates a new HLS state machine.
 func NewHLSStateMachine(logger forge.Logger) *HLSStateMachine {
 	return &HLSStateMachine{
 		logger:  logger,
@@ -33,8 +34,8 @@ func NewHLSStateMachine(logger forge.Logger) *HLSStateMachine {
 	}
 }
 
-// Apply applies a log entry to the state machine
-func (sm *HLSStateMachine) Apply(entry *consensus.LogEntry) interface{} {
+// Apply applies a log entry to the state machine.
+func (sm *HLSStateMachine) Apply(entry *consensus.LogEntry) any {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -49,6 +50,7 @@ func (sm *HLSStateMachine) Apply(entry *consensus.LogEntry) interface{} {
 			forge.F("error", err),
 			forge.F("index", entry.Index),
 		)
+
 		return fmt.Errorf("failed to unmarshal command: %w", err)
 	}
 
@@ -73,15 +75,16 @@ func (sm *HLSStateMachine) Apply(entry *consensus.LogEntry) interface{} {
 			forge.F("type", cmd.Type),
 			forge.F("index", entry.Index),
 		)
+
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
 	}
 }
 
-// applyCreateStream applies a create stream command
-func (sm *HLSStateMachine) applyCreateStream(cmd consensus.Command) interface{} {
+// applyCreateStream applies a create stream command.
+func (sm *HLSStateMachine) applyCreateStream(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	dataBytes, ok := cmd.Payload["data"].([]byte)
@@ -90,7 +93,7 @@ func (sm *HLSStateMachine) applyCreateStream(cmd consensus.Command) interface{} 
 		if data, ok := cmd.Payload["data"].(string); ok {
 			dataBytes = []byte(data)
 		} else {
-			return fmt.Errorf("invalid data in payload")
+			return errors.New("invalid data in payload")
 		}
 	}
 
@@ -110,11 +113,11 @@ func (sm *HLSStateMachine) applyCreateStream(cmd consensus.Command) interface{} 
 	return nil
 }
 
-// applyDeleteStream applies a delete stream command
-func (sm *HLSStateMachine) applyDeleteStream(cmd consensus.Command) interface{} {
+// applyDeleteStream applies a delete stream command.
+func (sm *HLSStateMachine) applyDeleteStream(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	delete(sm.streams, streamID)
@@ -126,11 +129,11 @@ func (sm *HLSStateMachine) applyDeleteStream(cmd consensus.Command) interface{} 
 	return nil
 }
 
-// applyUpdateStream applies an update stream command
-func (sm *HLSStateMachine) applyUpdateStream(cmd consensus.Command) interface{} {
+// applyUpdateStream applies an update stream command.
+func (sm *HLSStateMachine) applyUpdateStream(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	dataBytes, ok := cmd.Payload["data"].([]byte)
@@ -138,7 +141,7 @@ func (sm *HLSStateMachine) applyUpdateStream(cmd consensus.Command) interface{} 
 		if data, ok := cmd.Payload["data"].(string); ok {
 			dataBytes = []byte(data)
 		} else {
-			return fmt.Errorf("invalid data in payload")
+			return errors.New("invalid data in payload")
 		}
 	}
 
@@ -157,11 +160,11 @@ func (sm *HLSStateMachine) applyUpdateStream(cmd consensus.Command) interface{} 
 	return nil
 }
 
-// applyStartStream applies a start stream command
-func (sm *HLSStateMachine) applyStartStream(cmd consensus.Command) interface{} {
+// applyStartStream applies a start stream command.
+func (sm *HLSStateMachine) applyStartStream(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	if stream, exists := sm.streams[streamID]; exists {
@@ -176,11 +179,11 @@ func (sm *HLSStateMachine) applyStartStream(cmd consensus.Command) interface{} {
 	return nil
 }
 
-// applyStopStream applies a stop stream command
-func (sm *HLSStateMachine) applyStopStream(cmd consensus.Command) interface{} {
+// applyStopStream applies a stop stream command.
+func (sm *HLSStateMachine) applyStopStream(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	if stream, exists := sm.streams[streamID]; exists {
@@ -195,11 +198,11 @@ func (sm *HLSStateMachine) applyStopStream(cmd consensus.Command) interface{} {
 	return nil
 }
 
-// applyUpdateNode applies an update node command
-func (sm *HLSStateMachine) applyUpdateNode(cmd consensus.Command) interface{} {
+// applyUpdateNode applies an update node command.
+func (sm *HLSStateMachine) applyUpdateNode(cmd consensus.Command) any {
 	nodeID, ok := cmd.Payload["node_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid node_id in payload")
+		return errors.New("invalid node_id in payload")
 	}
 
 	dataBytes, ok := cmd.Payload["data"].([]byte)
@@ -207,7 +210,7 @@ func (sm *HLSStateMachine) applyUpdateNode(cmd consensus.Command) interface{} {
 		if data, ok := cmd.Payload["data"].(string); ok {
 			dataBytes = []byte(data)
 		} else {
-			return fmt.Errorf("invalid data in payload")
+			return errors.New("invalid data in payload")
 		}
 	}
 
@@ -222,16 +225,16 @@ func (sm *HLSStateMachine) applyUpdateNode(cmd consensus.Command) interface{} {
 	return nil
 }
 
-// applyStreamOwner applies a stream owner change command
-func (sm *HLSStateMachine) applyStreamOwner(cmd consensus.Command) interface{} {
+// applyStreamOwner applies a stream owner change command.
+func (sm *HLSStateMachine) applyStreamOwner(cmd consensus.Command) any {
 	streamID, ok := cmd.Payload["stream_id"].(string)
 	if !ok {
-		return fmt.Errorf("invalid stream_id in payload")
+		return errors.New("invalid stream_id in payload")
 	}
 
 	newOwner, ok := cmd.Payload["owner"].(string)
 	if !ok {
-		return fmt.Errorf("invalid owner in payload")
+		return errors.New("invalid owner in payload")
 	}
 
 	if stream, exists := sm.streams[streamID]; exists {
@@ -247,7 +250,7 @@ func (sm *HLSStateMachine) applyStreamOwner(cmd consensus.Command) interface{} {
 	return nil
 }
 
-// Snapshot creates a snapshot of the current state
+// Snapshot creates a snapshot of the current state.
 func (sm *HLSStateMachine) Snapshot() ([]byte, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -278,7 +281,7 @@ func (sm *HLSStateMachine) Snapshot() ([]byte, error) {
 	return data, nil
 }
 
-// Restore restores state from a snapshot
+// Restore restores state from a snapshot.
 func (sm *HLSStateMachine) Restore(data []byte) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -309,8 +312,8 @@ func (sm *HLSStateMachine) Restore(data []byte) error {
 	return nil
 }
 
-// Query performs a read-only query on the state machine
-func (sm *HLSStateMachine) Query(query interface{}) (interface{}, error) {
+// Query performs a read-only query on the state machine.
+func (sm *HLSStateMachine) Query(query any) (any, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -321,24 +324,27 @@ func (sm *HLSStateMachine) Query(query interface{}) (interface{}, error) {
 		if stream, exists := sm.streams[q]; exists {
 			return stream, nil
 		}
+
 		return nil, fmt.Errorf("stream not found: %s", q)
 
-	case map[string]interface{}:
+	case map[string]any:
 		// Structured query
 		queryType, ok := q["type"].(string)
 		if !ok {
-			return nil, fmt.Errorf("query type not specified")
+			return nil, errors.New("query type not specified")
 		}
 
 		switch queryType {
 		case "get_stream":
 			streamID, ok := q["stream_id"].(string)
 			if !ok {
-				return nil, fmt.Errorf("stream_id not specified")
+				return nil, errors.New("stream_id not specified")
 			}
+
 			if stream, exists := sm.streams[streamID]; exists {
 				return stream, nil
 			}
+
 			return nil, fmt.Errorf("stream not found: %s", streamID)
 
 		case "list_streams":
@@ -347,11 +353,13 @@ func (sm *HLSStateMachine) Query(query interface{}) (interface{}, error) {
 		case "get_node":
 			nodeID, ok := q["node_id"].(string)
 			if !ok {
-				return nil, fmt.Errorf("node_id not specified")
+				return nil, errors.New("node_id not specified")
 			}
+
 			if node, exists := sm.nodes[nodeID]; exists {
 				return node, nil
 			}
+
 			return nil, fmt.Errorf("node not found: %s", nodeID)
 
 		case "list_nodes":
@@ -366,12 +374,12 @@ func (sm *HLSStateMachine) Query(query interface{}) (interface{}, error) {
 	}
 }
 
-// GetStats returns state machine statistics
-func (sm *HLSStateMachine) GetStats() map[string]interface{} {
+// GetStats returns state machine statistics.
+func (sm *HLSStateMachine) GetStats() map[string]any {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"streams_count": len(sm.streams),
 		"nodes_count":   len(sm.nodes),
 		"applied_index": sm.appliedIndex,

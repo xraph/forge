@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/shared"
@@ -67,24 +68,24 @@ func newTree() *tree { return &tree{root: newNode()} }
 // names but keeping kind and constraint. Two routes with the same shape on
 // the same method are ambiguous and cannot both be registered.
 func shapeOf(p pathspec.Pattern) string {
-	out := ""
+	var out strings.Builder
 
 	for _, seg := range p.Segments {
 		switch seg.Kind {
 		case pathspec.KindStatic:
-			out += "/" + seg.Literal
+			out.WriteString("/" + seg.Literal)
 		case pathspec.KindParam:
-			out += "/:" + strconv.Itoa(int(seg.Constraint))
+			out.WriteString("/:" + strconv.Itoa(int(seg.Constraint)))
 		case pathspec.KindWildcard:
-			out += "/*"
+			out.WriteString("/*")
 		}
 	}
 
-	if out == "" {
+	if out.String() == "" {
 		return "/"
 	}
 
-	return out
+	return out.String()
 }
 
 // insert adds a route. An empty method means every method.

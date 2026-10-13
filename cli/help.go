@@ -11,7 +11,7 @@ func generateHelp(cli CLI, cmd Command) string {
 
 	if cmd == nil {
 		// Generate main CLI help
-		sb.WriteString(fmt.Sprintf("%s v%s\n", Bold(cli.Name()), cli.Version()))
+		fmt.Fprintf(&sb, "%s v%s\n", Bold(cli.Name()), cli.Version())
 
 		if cli.Description() != "" {
 			sb.WriteString(cli.Description() + "\n")
@@ -21,14 +21,14 @@ func generateHelp(cli CLI, cmd Command) string {
 
 		// Usage
 		sb.WriteString(Bold("USAGE:\n"))
-		sb.WriteString(fmt.Sprintf("  %s [command] [flags]\n\n", cli.Name()))
+		fmt.Fprintf(&sb, "  %s [command] [flags]\n\n", cli.Name())
 
 		// Commands
 		if len(cli.Commands()) > 0 {
 			sb.WriteString(Bold("COMMANDS:\n"))
 
 			for _, c := range cli.Commands() {
-				sb.WriteString(fmt.Sprintf("  %-15s %s\n", c.Name(), c.Description()))
+				fmt.Fprintf(&sb, "  %-15s %s\n", c.Name(), c.Description())
 			}
 
 			sb.WriteString("\n")
@@ -40,7 +40,7 @@ func generateHelp(cli CLI, cmd Command) string {
 		sb.WriteString("  -v, --version   Show version\n")
 
 		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("Use \"%s [command] --help\" for more information about a command.\n", cli.Name()))
+		fmt.Fprintf(&sb, "Use \"%s [command] --help\" for more information about a command.\n", cli.Name())
 	} else {
 		// Generate command help
 		sb.WriteString(Bold(cmd.Description()) + "\n")
@@ -53,12 +53,12 @@ func generateHelp(cli CLI, cmd Command) string {
 
 		// Usage
 		sb.WriteString(Bold("USAGE:\n"))
-		sb.WriteString(fmt.Sprintf("  %s %s\n\n", cli.Name(), cmd.Usage()))
+		fmt.Fprintf(&sb, "  %s %s\n\n", cli.Name(), cmd.Usage())
 
 		// Aliases
 		if len(cmd.Aliases()) > 0 {
 			sb.WriteString(Bold("ALIASES:\n"))
-			sb.WriteString(fmt.Sprintf("  %s\n\n", strings.Join(cmd.Aliases(), ", ")))
+			fmt.Fprintf(&sb, "  %s\n\n", strings.Join(cmd.Aliases(), ", "))
 		}
 
 		// Subcommands
@@ -66,7 +66,7 @@ func generateHelp(cli CLI, cmd Command) string {
 			sb.WriteString(Bold("SUBCOMMANDS:\n"))
 
 			for _, sub := range cmd.Subcommands() {
-				sb.WriteString(fmt.Sprintf("  %-15s %s\n", sub.Name(), sub.Description()))
+				fmt.Fprintf(&sb, "  %-15s %s\n", sub.Name(), sub.Description())
 			}
 
 			sb.WriteString("\n")
@@ -100,7 +100,7 @@ func formatFlagHelp(flag Flag) string {
 
 	// Short name
 	if flag.ShortName() != "" {
-		sb.WriteString(fmt.Sprintf("-%s, ", flag.ShortName()))
+		fmt.Fprintf(&sb, "-%s, ", flag.ShortName())
 	} else {
 		sb.WriteString("    ")
 	}
@@ -132,7 +132,7 @@ func formatFlagHelp(flag Flag) string {
 
 	// Default value
 	if flag.DefaultValue() != nil && flag.DefaultValue() != "" && flag.DefaultValue() != 0 && flag.DefaultValue() != false {
-		sb.WriteString(fmt.Sprintf(" (default: %v)", flag.DefaultValue()))
+		fmt.Fprintf(&sb, " (default: %v)", flag.DefaultValue())
 	}
 
 	// Required marker

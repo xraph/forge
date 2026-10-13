@@ -1,4 +1,3 @@
-// validate.go
 package loader
 
 import (
@@ -16,12 +15,15 @@ func Validate(m *contract.ContractManifest, wardens contract.WardenRegistry) err
 		if _, dup := intentByName[in.Name]; dup {
 			return fmt.Errorf("intent %q declared twice", in.Name)
 		}
+
 		if err := validateKindCapability(in); err != nil {
 			return err
 		}
+
 		if err := validateWarden(in.Requires, wardens); err != nil {
 			return fmt.Errorf("intent %q: %w", in.Name, err)
 		}
+
 		intentByName[in.Name] = in
 	}
 	// Validate query refs
@@ -35,6 +37,7 @@ func Validate(m *contract.ContractManifest, wardens contract.WardenRegistry) err
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -47,6 +50,7 @@ func validateKindCapability(in contract.Intent) error {
 	if w, ok := want[in.Kind]; ok && in.Capability != w {
 		return fmt.Errorf("intent %q: kind=%s requires capability=%s, got %s", in.Name, in.Kind, w, in.Capability)
 	}
+
 	return nil
 }
 
@@ -54,18 +58,21 @@ func validateWarden(p contract.Predicate, wardens contract.WardenRegistry) error
 	if p.Warden == "" {
 		return nil
 	}
+
 	if _, ok := wardens.Get(p.Warden); !ok {
 		return fmt.Errorf("references unknown warden %q", p.Warden)
 	}
+
 	return nil
 }
 
 func looksCrossContributor(intentName, ownContributor string) bool {
 	// Convention: "auth.linkedAccount" — first dotted segment is contributor name.
-	for i := 0; i < len(intentName); i++ {
+	for i := range len(intentName) {
 		if intentName[i] == '.' {
 			return intentName[:i] != ownContributor
 		}
 	}
+
 	return false
 }

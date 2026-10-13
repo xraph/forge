@@ -79,7 +79,9 @@ func (cm *CookieManager) SetCookie(w http.ResponseWriter, name, value string, op
 		opts = &cm.defaults
 	}
 
-	cookie := &http.Cookie{
+	// Secure, HttpOnly and SameSite come from the caller's options or the
+	// manager defaults, so the flags are whatever the application configured.
+	cookie := &http.Cookie{ //nolint:gosec // G124: attributes are config-driven through CookieOptions
 		Name:     name,
 		Value:    value,
 		Path:     cm.getOrDefault(opts.Path, cm.defaults.Path),
@@ -117,7 +119,7 @@ func (cm *CookieManager) DeleteCookie(w http.ResponseWriter, name string, opts *
 		opts = &cm.defaults
 	}
 
-	cookie := &http.Cookie{
+	cookie := &http.Cookie{ //nolint:gosec // G124: attributes mirror the configured CookieOptions defaults
 		Name:     name,
 		Value:    "",
 		Path:     cm.getOrDefault(opts.Path, cm.defaults.Path),

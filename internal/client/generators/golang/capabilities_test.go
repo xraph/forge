@@ -127,7 +127,7 @@ func TestGoGeneratorWarnsOnUnusableCapabilityIdentifier(t *testing.T) {
 	}
 
 	// The punctuation-only role must not surface as a bare-prefix constant.
-	if strings.Contains(src, "Role Role = ") {
+	if strings.Contains(src, "Role Role = ") { //nolint:dupword // the doubled word is the Go declaration being asserted absent
 		t.Errorf("capabilities.go declares a bare-prefix Role constant\n%s", src)
 	}
 

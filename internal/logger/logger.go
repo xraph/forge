@@ -33,10 +33,19 @@ func New(cfg Config) Logger { return log.New(cfg) }
 func NewLogger(config LoggingConfig) Logger { return log.NewLogger(config) }
 
 // NewDevelopmentLogger creates a pretty logger at debug level.
-func NewDevelopmentLogger() Logger { return log.NewDevelopmentLogger() }
+//
+// The Config spelled out here is exactly what go-utils' deprecated
+// NewDevelopmentLogger builds, so the output is unchanged.
+func NewDevelopmentLogger() Logger {
+	return log.New(Config{Format: FormatPretty, Level: LevelDebug, AddCaller: true})
+}
 
 // NewProductionLogger creates a JSON logger.
-func NewProductionLogger() Logger { return log.NewProductionLogger() }
+//
+// Mirrors go-utils' deprecated NewProductionLogger field for field.
+func NewProductionLogger() Logger {
+	return log.New(Config{Format: FormatJSON, Level: LevelInfo, AddCaller: true})
+}
 
 // NewNoopLogger creates a logger that discards everything.
 func NewNoopLogger() Logger { return log.NewNoopLogger() }

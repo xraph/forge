@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// observabilityMiddleware adds logging and metrics to GraphQL operations
+// observabilityMiddleware adds logging and metrics to GraphQL operations.
 func observabilityMiddleware(logger forge.Logger, metrics forge.Metrics, config Config) graphql.OperationMiddleware {
 	return func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
 		start := time.Now()
@@ -49,7 +49,7 @@ func observabilityMiddleware(logger forge.Logger, metrics forge.Metrics, config 
 	}
 }
 
-// responseMiddleware processes GraphQL responses (e.g., logging slow queries)
+// responseMiddleware processes GraphQL responses (e.g., logging slow queries).
 func responseMiddleware(config Config, logger forge.Logger) graphql.ResponseMiddleware {
 	return func(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
 		resp := next(ctx)
@@ -57,6 +57,7 @@ func responseMiddleware(config Config, logger forge.Logger) graphql.ResponseMidd
 		// Log slow queries
 		if config.LogSlowQueries {
 			oc := graphql.GetOperationContext(ctx)
+
 			duration := time.Since(oc.Stats.OperationStart)
 			if duration > config.SlowQueryThreshold {
 				logger.Warn("slow query detected",

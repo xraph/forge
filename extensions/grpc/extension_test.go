@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -49,7 +50,6 @@ func TestNewExtensionWithOptions(t *testing.T) {
 }
 
 func TestExtensionRegister(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -97,7 +97,6 @@ func TestExtensionRegisterInvalidConfig(t *testing.T) {
 }
 
 func TestExtensionRegisterWithTLS(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -120,7 +119,6 @@ func TestExtensionRegisterWithTLS(t *testing.T) {
 }
 
 func TestExtensionStart(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -151,11 +149,11 @@ func TestExtensionStart(t *testing.T) {
 	// Stop the server
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
 	defer stopCancel()
+
 	_ = ext.Stop(stopCtx)
 }
 
 func TestExtensionStop(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -189,7 +187,6 @@ func TestExtensionStop(t *testing.T) {
 }
 
 func TestExtensionHealth(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -221,6 +218,7 @@ func TestExtensionHealth(t *testing.T) {
 	// Cleanup
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
 	defer stopCancel()
+
 	_ = ext.Stop(stopCtx)
 }
 
@@ -228,6 +226,7 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 	ext := NewExtension()
 
 	ctx := context.Background()
+
 	err := ext.Health(ctx)
 	if err == nil {
 		t.Fatal("expected error for health check on non-started extension")
@@ -235,7 +234,6 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 }
 
 func TestExtensionLifecycle(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -272,6 +270,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	if resolveErr != nil {
 		t.Fatalf("failed to resolve grpc service: %v", resolveErr)
 	}
+
 	if srv == nil {
 		t.Fatal("expected non-nil grpc instance")
 	}
@@ -279,6 +278,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	// Stop
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
 	defer stopCancel()
+
 	err = ext.Stop(stopCtx)
 	if err != nil {
 		t.Fatalf("failed to stop: %v", err)
@@ -287,6 +287,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 func TestExtensionDependencies(t *testing.T) {
 	ext := NewExtension()
+
 	deps := ext.Dependencies()
 	if len(deps) != 0 {
 		t.Errorf("expected 0 dependencies, got %d", len(deps))
@@ -315,6 +316,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestConfigValidate_Valid(t *testing.T) {
 	config := DefaultConfig()
+
 	err := config.Validate()
 	if err != nil {
 		t.Fatalf("valid config should not error: %v", err)
@@ -324,6 +326,7 @@ func TestConfigValidate_Valid(t *testing.T) {
 func TestConfigValidate_MissingAddress(t *testing.T) {
 	config := DefaultConfig()
 	config.Address = ""
+
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for missing address")
@@ -333,6 +336,7 @@ func TestConfigValidate_MissingAddress(t *testing.T) {
 func TestConfigValidate_InvalidMaxRecvMsgSize(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxRecvMsgSize = -1
+
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for max_recv_msg_size < 0")
@@ -342,6 +346,7 @@ func TestConfigValidate_InvalidMaxRecvMsgSize(t *testing.T) {
 func TestConfigValidate_InvalidMaxSendMsgSize(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxSendMsgSize = -1
+
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for max_send_msg_size < 0")
@@ -353,6 +358,7 @@ func TestConfigValidate_TLSMissingCert(t *testing.T) {
 	config.EnableTLS = true
 	config.TLSCertFile = ""
 	config.TLSKeyFile = ""
+
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for TLS without cert files")
@@ -366,6 +372,7 @@ func TestConfigValidate_ClientAuthMissingCA(t *testing.T) {
 	config.TLSKeyFile = "key.pem"
 	config.ClientAuth = true
 	config.TLSCAFile = ""
+
 	err := config.Validate()
 	if err == nil {
 		t.Fatal("expected error for client auth without CA file")
@@ -394,30 +401,39 @@ func TestConfigOptions_MultipleOptions(t *testing.T) {
 	if config.Address != ":9090" {
 		t.Error("address not set")
 	}
+
 	if config.MaxRecvMsgSize != 8*1024*1024 {
 		t.Error("max message size not set")
 	}
+
 	if config.MaxConcurrentStreams != 100 {
 		t.Error("max concurrent streams not set")
 	}
+
 	if !config.EnableTLS {
 		t.Error("TLS should be enabled")
 	}
+
 	if config.TLSCertFile != "cert.pem" {
 		t.Error("cert file not set")
 	}
+
 	if !config.ClientAuth {
 		t.Error("client auth should be enabled")
 	}
+
 	if config.EnableHealthCheck {
 		t.Error("health check should be disabled")
 	}
+
 	if config.EnableReflection {
 		t.Error("reflection should be disabled")
 	}
+
 	if config.EnableMetrics {
 		t.Error("metrics should be disabled")
 	}
+
 	if config.EnableTracing {
 		t.Error("tracing should be disabled")
 	}
@@ -429,6 +445,7 @@ func TestConfigOption_WithConfig(t *testing.T) {
 	}
 	config := DefaultConfig()
 	WithConfig(originalConfig)(&config)
+
 	if config.Address != ":8080" {
 		t.Errorf("expected address ':8080', got '%s'", config.Address)
 	}
@@ -437,12 +454,13 @@ func TestConfigOption_WithConfig(t *testing.T) {
 func TestConfigOption_WithRequireConfig(t *testing.T) {
 	config := DefaultConfig()
 	WithRequireConfig(true)(&config)
+
 	if !config.RequireConfig {
 		t.Error("expected require_config enabled")
 	}
 }
 
-// Mock health checker for testing
+// Mock health checker for testing.
 type mockHealthChecker struct {
 	healthy bool
 }
@@ -451,6 +469,7 @@ func (m *mockHealthChecker) Check(ctx context.Context) error {
 	if !m.healthy {
 		return ErrHealthCheckFailed
 	}
+
 	return nil
 }
 
@@ -470,13 +489,13 @@ func TestGRPCServer_AddInterceptors(t *testing.T) {
 	server := NewGRPCServer(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics()).(*grpcServer)
 
 	// Add unary interceptor
-	unaryInt := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	unaryInt := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		return handler(ctx, req)
 	}
 	server.AddUnaryInterceptor(unaryInt)
 
 	// Add stream interceptor
-	streamInt := func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	streamInt := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		return handler(srv, ss)
 	}
 	server.AddStreamInterceptor(streamInt)
@@ -504,7 +523,7 @@ func TestGRPCServer_Ping(t *testing.T) {
 	server := NewGRPCServer(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics()).(*grpcServer)
 
 	err := server.Ping(context.Background())
-	if err != ErrNotStarted {
+	if !errors.Is(err, ErrNotStarted) {
 		t.Errorf("expected ErrNotStarted, got %v", err)
 	}
 }

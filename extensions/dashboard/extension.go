@@ -126,6 +126,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	// dispatcher (see registerRoutes — the broker-bound stream/control routes
 	// activate now that streamBroker is non-nil).
 	ext.streamBroker = transport.NewStreamBroker(ext.contractRegistry, ext.wardenRegistry, ext.dispatcher)
+
 	return ext
 }
 
@@ -165,6 +166,7 @@ func (e *Extension) Register(app forge.App) error {
 	if tp, ok := app.Metrics().(internalmetrics.TimeSeriesQueryProvider); ok {
 		tsProvider = tp
 	}
+
 	e.history = collector.NewDataHistory(e.config.MaxDataPoints, e.config.HistoryDuration, tsProvider)
 
 	// Initialize data collector
@@ -195,6 +197,7 @@ func (e *Extension) Register(app forge.App) error {
 			if b := e.streamBroker; b != nil && b.ConnectionCount() > 0 {
 				return true
 			}
+
 			return time.Since(ts.LastAccessed()) < ttl
 		})
 	}
@@ -215,6 +218,7 @@ func (e *Extension) Register(app forge.App) error {
 	if app != nil && app.Metrics() != nil {
 		metricsEmitter = dispatcher.NewPrometheusMetricsEmitter(app.Metrics())
 	}
+
 	var dispOpts []dispatcher.Option
 	if e.config.EnableContractSecurity {
 		dispOpts = append(dispOpts,
@@ -222,9 +226,10 @@ func (e *Extension) Register(app forge.App) error {
 			dispatcher.WithIdempotencyStore(AdaptIdempotencyStore(idempotency.NewInMemoryStore())),
 		)
 	}
+
 	e.dispatcher = dispatcher.NewWithOptions(metricsEmitter, dispOpts...)
 
-	var inner contract.AuditEmitter = contract.NewLogAuditEmitter(os.Stdout)
+	var inner = contract.NewLogAuditEmitter(os.Stdout)
 	if app != nil && app.Logger() != nil {
 		inner = dispatcher.NewLoggerAuditEmitter(app.Logger())
 	}
@@ -372,6 +377,7 @@ func (e *Extension) discoverExtensionContributors() {
 			if statusRec != nil {
 				reg = &recordingRegistry{Registry: e.contractRegistry, rec: statusRec}
 			}
+
 			if err := cca.RegisterContractContributor(e.dispatcher, reg, e.wardenRegistry); err != nil {
 				e.Logger().Error("failed to register contract contributor",
 					forge.F("extension", ext.Name()),
@@ -422,6 +428,7 @@ func (r *contributorStatusRecorder) record(name string) {
 	if r == nil || r.ext == nil || name == "" {
 		return
 	}
+
 	r.host.attributeContributorStatus(name, r.ext)
 	r.mu.Lock()
 	r.count++
@@ -433,6 +440,7 @@ func (r *contributorStatusRecorder) attributed() int {
 	if r == nil {
 		return 0
 	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -454,6 +462,7 @@ func (r *recordingRegistry) Register(m *contract.ContractManifest) error {
 	if err := r.Registry.Register(m); err != nil {
 		return err
 	}
+
 	if m != nil {
 		r.rec.record(m.Contributor.Name)
 	}
@@ -465,6 +474,7 @@ func (r *recordingRegistry) RegisterRemote(m *contract.ContractManifest, endpoin
 	if err := r.Registry.RegisterRemote(m, endpoint); err != nil {
 		return err
 	}
+
 	if m != nil {
 		r.rec.record(m.Contributor.Name)
 	}
@@ -480,6 +490,7 @@ func (r *recordingRegistry) RegisterRemote(m *contract.ContractManifest, endpoin
 // two routes that free a name.
 func (r *recordingRegistry) Unregister(contributor string) {
 	r.Registry.Unregister(contributor)
+
 	if r.rec != nil && r.rec.host != nil {
 		r.rec.host.forgetContributorStatus(contributor)
 	}
@@ -491,11 +502,14 @@ func (e *Extension) attributeContributorStatus(name string, sa DashboardStatusAw
 	if sa == nil || name == "" {
 		return
 	}
+
 	e.contributorStatusMu.Lock()
 	defer e.contributorStatusMu.Unlock()
+
 	if e.contributorStatus == nil {
 		e.contributorStatus = make(map[string]DashboardStatusAware)
 	}
+
 	e.contributorStatus[name] = sa
 }
 
@@ -506,6 +520,7 @@ func (e *Extension) attributeContributorStatus(name string, sa DashboardStatusAw
 func (e *Extension) forgetContributorStatus(name string) {
 	e.contributorStatusMu.Lock()
 	defer e.contributorStatusMu.Unlock()
+
 	delete(e.contributorStatus, name)
 }
 
@@ -517,10 +532,13 @@ func (e *Extension) contributorStatusFor(name string) (transport.ContributorStat
 	e.contributorStatusMu.Lock()
 	sa, ok := e.contributorStatus[name]
 	e.contributorStatusMu.Unlock()
+
 	if !ok {
 		return transport.ContributorStatus{}, false
 	}
+
 	st := sa.DashboardStatus()
+
 	return transport.ContributorStatus{
 		Version:    st.Version,
 		Configured: st.Configured,
@@ -597,8 +615,9 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // and X-Forwarded-Cookie.
 func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseURL, apiKey string) error {
 	if e.contractRegistry == nil {
-		return fmt.Errorf("dashboard: contract registry not initialised")
+		return errors.New("dashboard: contract registry not initialised")
 	}
+
 	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
 	if err != nil {
 		return fmt.Errorf("dashboard: fetch remote manifest: %w", err)
@@ -613,7 +632,7 @@ func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseU
 // here, so a discovered contributor is held to exactly the same checks.
 func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
 	if e.contractRegistry == nil {
-		return fmt.Errorf("dashboard: contract registry not initialised")
+		return errors.New("dashboard: contract registry not initialised")
 	}
 
 	if err := loader.Validate(m, e.wardenRegistry); err != nil {
@@ -632,6 +651,7 @@ func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoin
 		forge.F("contributor", m.Contributor.Name),
 		forge.F("base_url", endpoint.BaseURL),
 	)
+
 	return nil
 }
 
@@ -673,6 +693,7 @@ func (e *Extension) UnregisterRemoteContractContributor(name string) {
 	if e.contractRegistry != nil {
 		e.contractRegistry.Unregister(name)
 	}
+
 	e.forgetContributorStatus(name)
 }
 
@@ -683,12 +704,15 @@ func (e *Extension) UnregisterRemoteContractContributor(name string) {
 func (e *Extension) installForwardingDispatcherOnce() {
 	e.forwardingMu.Lock()
 	defer e.forwardingMu.Unlock()
+
 	if e.forwardingInstalled {
 		return
 	}
+
 	if e.dispatcher == nil || e.contractRegistry == nil {
 		return
 	}
+
 	e.dispatcher.SetRemoteDispatcher(contractremote.NewForwardingDispatcher(e.contractRegistry))
 	e.forwardingInstalled = true
 }
@@ -777,6 +801,7 @@ func (e *Extension) registerRoutes() {
 	if e.config.EnableAuth && e.authChecker != nil {
 		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
 	}
+
 	if e.tenantResolver != nil {
 		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
 	}
@@ -793,6 +818,7 @@ func (e *Extension) registerRoutes() {
 	if e.contractRegistry != nil {
 		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST(), routeOpts...))
 		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities(), routeOpts...))
+
 		if e.streamBroker != nil {
 			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream), routeOpts...))
 			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl), routeOpts...))
@@ -856,6 +882,7 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 
 	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr,
 		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes))
+
 	return h.ServeHTTP
 }
 
@@ -954,6 +981,7 @@ func (a *idempotencyAdapter) Lookup(ctx context.Context, key, identity string) (
 	if !ok || c == nil {
 		return nil, ok
 	}
+
 	return &dispatcher.IdempotencyCached{
 		Status:   c.Status,
 		WireBody: c.WireBody,

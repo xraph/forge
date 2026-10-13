@@ -67,6 +67,7 @@ func TestStreamOnlyClientStillGetsItsManifest(t *testing.T) {
 	}
 
 	_, ok := out.Files["src/ops.ts"]
+
 	ops := ClientManifestText(out.Files)
 	if !ok {
 		t.Fatalf("no src/ops.ts; a client of channels has cache metadata too. files: %v", fileNames(out.Files))

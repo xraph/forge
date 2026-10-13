@@ -7,7 +7,7 @@ import (
 	"github.com/IBM/sarama"
 )
 
-// Kafka represents a unified Kafka client interface
+// Kafka represents a unified Kafka client interface.
 type Kafka interface {
 	// Producer operations
 	SendMessage(topic string, key, value []byte) error
@@ -46,17 +46,17 @@ type Kafka interface {
 	Ping(ctx context.Context) error
 }
 
-// MessageHandler processes incoming Kafka messages
+// MessageHandler processes incoming Kafka messages.
 type MessageHandler func(message *sarama.ConsumerMessage) error
 
-// ConsumerGroupHandler handles consumer group messages
+// ConsumerGroupHandler handles consumer group messages.
 type ConsumerGroupHandler interface {
-	Setup(sarama.ConsumerGroupSession) error
-	Cleanup(sarama.ConsumerGroupSession) error
-	ConsumeClaim(sarama.ConsumerGroupSession, sarama.ConsumerGroupClaim) error
+	Setup(session sarama.ConsumerGroupSession) error
+	Cleanup(session sarama.ConsumerGroupSession) error
+	ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error
 }
 
-// ProducerMessage represents a message to be produced
+// ProducerMessage represents a message to be produced.
 type ProducerMessage struct {
 	Topic     string
 	Key       []byte
@@ -67,27 +67,27 @@ type ProducerMessage struct {
 	Timestamp time.Time
 }
 
-// MessageHeader represents a Kafka message header
+// MessageHeader represents a Kafka message header.
 type MessageHeader struct {
 	Key   string
 	Value []byte
 }
 
-// TopicConfig contains topic configuration
+// TopicConfig contains topic configuration.
 type TopicConfig struct {
 	NumPartitions     int32
 	ReplicationFactor int16
 	ConfigEntries     map[string]*string
 }
 
-// TopicMetadata contains topic metadata
+// TopicMetadata contains topic metadata.
 type TopicMetadata struct {
 	Name       string
 	Partitions []PartitionMetadata
 	Config     map[string]string
 }
 
-// PartitionMetadata contains partition metadata
+// PartitionMetadata contains partition metadata.
 type PartitionMetadata struct {
 	ID       int32
 	Leader   int32
@@ -95,7 +95,7 @@ type PartitionMetadata struct {
 	Isr      []int32
 }
 
-// ClientStats contains client statistics
+// ClientStats contains client statistics.
 type ClientStats struct {
 	Connected        bool
 	ConnectTime      time.Time

@@ -84,8 +84,12 @@ func (w *recordingWriter) Header() http.Header {
 	return w.hdr
 }
 
-func (w *recordingWriter) Write(b []byte) (int, error) { w.body += string(b); return len(b), nil }
-func (w *recordingWriter) WriteHeader(int)             {}
+func (w *recordingWriter) Write(b []byte) (int, error) {
+	w.body += string(b)
+
+	return len(b), nil
+}
+func (w *recordingWriter) WriteHeader(int) {}
 
 func TestLookup_StaticBeatsParam(t *testing.T) {
 	tr := buildTree(t, map[string]string{
@@ -173,8 +177,9 @@ func TestLookup_MethodNotAllowedCarriesASortedAllowList(t *testing.T) {
 	require.Equal(t, resultMethodNotAllowed, res)
 	assert.Equal(t, []string{http.MethodGet, http.MethodPost}, allowed)
 
-	_, _, res, _ = bind(t, tr, http.MethodGet, "/nope")
+	_, _, res, allowed = bind(t, tr, http.MethodGet, "/nope")
 	assert.Equal(t, resultNotFound, res)
+	assert.Empty(t, allowed, "a path no route claims has no allow list")
 }
 
 func TestLookup_AnyMethodMatchesCustomVerbs(t *testing.T) {

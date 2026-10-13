@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/xraph/forge/errors"
@@ -125,8 +126,8 @@ func (c *Config) Validate() error {
 	// Recommended: heartbeat interval should be 1/10 of election timeout
 	recommendedHeartbeat := c.ElectionTimeoutMin / 10
 	if c.HeartbeatInterval > recommendedHeartbeat {
-		// This is a warning, not an error
-		fmt.Printf("WARNING: heartbeat interval (%v) should be <= %v for optimal performance\n",
+		// This is a warning, not an error. Validate has no logger, so it goes to stderr.
+		fmt.Fprintf(os.Stderr, "WARNING: heartbeat interval (%v) should be <= %v for optimal performance\n",
 			c.HeartbeatInterval, recommendedHeartbeat)
 	}
 
@@ -203,9 +204,9 @@ func (c *Config) WithNodeID(nodeID string) *Config {
 }
 
 // WithElectionTimeout sets the election timeout range.
-func (c *Config) WithElectionTimeout(min, max time.Duration) *Config {
-	c.ElectionTimeoutMin = min
-	c.ElectionTimeoutMax = max
+func (c *Config) WithElectionTimeout(minTimeout, maxTimeout time.Duration) *Config {
+	c.ElectionTimeoutMin = minTimeout
+	c.ElectionTimeoutMax = maxTimeout
 
 	return c
 }

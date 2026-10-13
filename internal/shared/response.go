@@ -74,7 +74,7 @@ func CleanSensitiveFields(v any) any {
 // cleanSensitiveValue recursively cleans sensitive fields from a reflect.Value.
 func cleanSensitiveValue(rv reflect.Value) reflect.Value {
 	// Handle pointers
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return rv
 		}
@@ -208,7 +208,7 @@ func applySensitiveCleaning(fieldVal reflect.Value, fieldType reflect.Type, conf
 // getRedactedValue returns the "[REDACTED]" value for supported types.
 func getRedactedValue(fieldType reflect.Type) reflect.Value {
 	// Handle pointers
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		elemType := fieldType.Elem()
 		if elemType.Kind() == reflect.String {
 			s := "[REDACTED]"
@@ -233,7 +233,7 @@ func getRedactedValue(fieldType reflect.Type) reflect.Value {
 // getMaskedValue returns the custom masked value for supported types.
 func getMaskedValue(fieldType reflect.Type, mask string) reflect.Value {
 	// Handle pointers
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		elemType := fieldType.Elem()
 		if elemType.Kind() == reflect.String {
 			result := reflect.New(elemType)
@@ -281,7 +281,7 @@ func (p *ResponseProcessor) ProcessResponse(v any) any {
 	rv := reflect.ValueOf(v)
 
 	// Handle pointer
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil
 		}

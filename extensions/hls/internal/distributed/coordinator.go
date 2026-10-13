@@ -3,6 +3,7 @@ package distributed
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus"
 )
 
-// Coordinator manages distributed HLS operations using consensus
+// Coordinator manages distributed HLS operations using consensus.
 type Coordinator struct {
 	nodeID       string
 	consensus    consensus.ConsensusService
@@ -28,12 +29,12 @@ type Coordinator struct {
 	leaderMu sync.RWMutex
 
 	// Background workers
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // coordinator's own lifecycle context, cancelled in Stop
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-// StreamState represents distributed stream state
+// StreamState represents distributed stream state.
 type StreamState struct {
 	StreamID  string            `json:"stream_id"`
 	OwnerNode string            `json:"owner_node"`
@@ -45,7 +46,7 @@ type StreamState struct {
 	Variants  []string          `json:"variants"`
 }
 
-// NodeState represents the state of an HLS node
+// NodeState represents the state of an HLS node.
 type NodeState struct {
 	NodeID        string    `json:"node_id"`
 	ActiveStreams int       `json:"active_streams"`
@@ -55,7 +56,7 @@ type NodeState struct {
 	Healthy       bool      `json:"healthy"`
 }
 
-// Command types for consensus
+// Command types for consensus.
 const (
 	CommandCreateStream = "hls:create_stream"
 	CommandDeleteStream = "hls:delete_stream"
@@ -66,7 +67,7 @@ const (
 	CommandStreamOwner  = "hls:stream_owner"
 )
 
-// NewCoordinator creates a new distributed coordinator
+// NewCoordinator creates a new distributed coordinator.
 func NewCoordinator(nodeID string, consensusSvc consensus.ConsensusService, logger forge.Logger) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -84,7 +85,7 @@ func NewCoordinator(nodeID string, consensusSvc consensus.ConsensusService, logg
 	}
 }
 
-// Start starts the distributed coordinator
+// Start starts the distributed coordinator.
 func (c *Coordinator) Start() error {
 	c.logger.Info("starting distributed HLS coordinator",
 		forge.F("node_id", c.nodeID),
@@ -105,29 +106,32 @@ func (c *Coordinator) Start() error {
 	return nil
 }
 
-// Stop stops the coordinator
+// Stop stops the coordinator.
 func (c *Coordinator) Stop() error {
 	c.logger.Info("stopping distributed HLS coordinator")
 	c.cancel()
 	c.wg.Wait()
+
 	return nil
 }
 
-// IsLeader returns true if this node is the consensus leader
+// IsLeader returns true if this node is the consensus leader.
 func (c *Coordinator) IsLeader() bool {
 	c.leaderMu.RLock()
 	defer c.leaderMu.RUnlock()
+
 	return c.isLeader
 }
 
-// GetLeader returns the current leader node ID
+// GetLeader returns the current leader node ID.
 func (c *Coordinator) GetLeader() string {
 	c.leaderMu.RLock()
 	defer c.leaderMu.RUnlock()
+
 	return c.leaderID
 }
 
-// CreateStream registers a new stream in the distributed system
+// CreateStream registers a new stream in the distributed system.
 func (c *Coordinator) CreateStream(ctx context.Context, streamID, streamType string, metadata map[string]string) error {
 	state := &StreamState{
 		StreamID:  streamID,
@@ -147,7 +151,7 @@ func (c *Coordinator) CreateStream(ctx context.Context, streamID, streamType str
 
 	cmd := consensus.Command{
 		Type: CommandCreateStream,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"stream_id": streamID,
 			"data":      data,
 		},
@@ -171,11 +175,11 @@ func (c *Coordinator) CreateStream(ctx context.Context, streamID, streamType str
 	return nil
 }
 
-// DeleteStream removes a stream from the distributed system
+// DeleteStream removes a stream from the distributed system.
 func (c *Coordinator) DeleteStream(ctx context.Context, streamID string) error {
 	cmd := consensus.Command{
 		Type: CommandDeleteStream,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"stream_id": streamID,
 		},
 	}
@@ -196,8 +200,8 @@ func (c *Coordinator) DeleteStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
-// UpdateStream updates stream state in the distributed system
-func (c *Coordinator) UpdateStream(ctx context.Context, streamID string, updates map[string]interface{}) error {
+// UpdateStream updates stream state in the distributed system.
+func (c *Coordinator) UpdateStream(ctx context.Context, streamID string, updates map[string]any) error {
 	c.streamsMu.RLock()
 	state, exists := c.streams[streamID]
 	c.streamsMu.RUnlock()
@@ -210,9 +214,11 @@ func (c *Coordinator) UpdateStream(ctx context.Context, streamID string, updates
 	if status, ok := updates["status"].(string); ok {
 		state.Status = status
 	}
+
 	if variants, ok := updates["variants"].([]string); ok {
 		state.Variants = variants
 	}
+
 	state.UpdatedAt = time.Now()
 
 	data, err := json.Marshal(state)
@@ -222,7 +228,7 @@ func (c *Coordinator) UpdateStream(ctx context.Context, streamID string, updates
 
 	cmd := consensus.Command{
 		Type: CommandUpdateStream,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"stream_id": streamID,
 			"data":      data,
 		},
@@ -240,18 +246,21 @@ func (c *Coordinator) UpdateStream(ctx context.Context, streamID string, updates
 	return nil
 }
 
-// GetStream retrieves stream state from the distributed system
+// GetStream retrieves stream state from the distributed system.
 func (c *Coordinator) GetStream(ctx context.Context, streamID string) (*StreamState, error) {
 	// Check local cache first
 	c.streamsMu.RLock()
+
 	if state, exists := c.streams[streamID]; exists {
 		c.streamsMu.RUnlock()
+
 		return state, nil
 	}
+
 	c.streamsMu.RUnlock()
 
 	// Perform consistent read from consensus using state machine query
-	query := map[string]interface{}{
+	query := map[string]any{
 		"type":      "get_stream",
 		"stream_id": streamID,
 	}
@@ -268,7 +277,7 @@ func (c *Coordinator) GetStream(ctx context.Context, streamID string) (*StreamSt
 	// Type assert the result
 	state, ok := result.(*StreamState)
 	if !ok {
-		return nil, fmt.Errorf("unexpected result type from state machine")
+		return nil, errors.New("unexpected result type from state machine")
 	}
 
 	// Update cache
@@ -279,10 +288,10 @@ func (c *Coordinator) GetStream(ctx context.Context, streamID string) (*StreamSt
 	return state, nil
 }
 
-// ListStreams returns all streams in the distributed system
+// ListStreams returns all streams in the distributed system.
 func (c *Coordinator) ListStreams(ctx context.Context) ([]*StreamState, error) {
 	// Query from state machine for consistency
-	query := map[string]interface{}{
+	query := map[string]any{
 		"type": "list_streams",
 	}
 
@@ -296,13 +305,14 @@ func (c *Coordinator) ListStreams(ctx context.Context) ([]*StreamState, error) {
 		for _, state := range c.streams {
 			streams = append(streams, state)
 		}
+
 		return streams, nil
 	}
 
 	// Type assert result
 	streamMap, ok := result.(map[string]*StreamState)
 	if !ok {
-		return nil, fmt.Errorf("unexpected result type from state machine")
+		return nil, errors.New("unexpected result type from state machine")
 	}
 
 	streams := make([]*StreamState, 0, len(streamMap))
@@ -313,7 +323,7 @@ func (c *Coordinator) ListStreams(ctx context.Context) ([]*StreamState, error) {
 	return streams, nil
 }
 
-// GetStreamOwner returns the node that owns the stream
+// GetStreamOwner returns the node that owns the stream.
 func (c *Coordinator) GetStreamOwner(ctx context.Context, streamID string) (string, error) {
 	state, err := c.GetStream(ctx, streamID)
 	if err != nil {
@@ -323,7 +333,7 @@ func (c *Coordinator) GetStreamOwner(ctx context.Context, streamID string) (stri
 	return state.OwnerNode, nil
 }
 
-// IsStreamOwner checks if this node owns the stream
+// IsStreamOwner checks if this node owns the stream.
 func (c *Coordinator) IsStreamOwner(ctx context.Context, streamID string) (bool, error) {
 	owner, err := c.GetStreamOwner(ctx, streamID)
 	if err != nil {
@@ -333,20 +343,21 @@ func (c *Coordinator) IsStreamOwner(ctx context.Context, streamID string) (bool,
 	return owner == c.nodeID, nil
 }
 
-// TransferStreamOwnership transfers stream ownership to another node
+// TransferStreamOwnership transfers stream ownership to another node.
 func (c *Coordinator) TransferStreamOwnership(ctx context.Context, streamID, newOwner string) error {
-	return c.UpdateStream(ctx, streamID, map[string]interface{}{
+	return c.UpdateStream(ctx, streamID, map[string]any{
 		"owner": newOwner,
 	})
 }
 
-// GetClusterNodes returns all active nodes in the cluster
+// GetClusterNodes returns all active nodes in the cluster.
 func (c *Coordinator) GetClusterNodes(ctx context.Context) ([]consensus.NodeInfo, error) {
 	clusterInfo := c.consensus.GetClusterInfo()
+
 	return clusterInfo.Nodes, nil
 }
 
-// GetClusterStats returns aggregated statistics across the cluster
+// GetClusterStats returns aggregated statistics across the cluster.
 func (c *Coordinator) GetClusterStats(ctx context.Context) (*ClusterStats, error) {
 	nodes, err := c.GetClusterNodes(ctx)
 	if err != nil {
@@ -372,7 +383,7 @@ func (c *Coordinator) GetClusterStats(ctx context.Context) (*ClusterStats, error
 	return stats, nil
 }
 
-// monitorLeadership monitors leadership changes
+// monitorLeadership monitors leadership changes.
 func (c *Coordinator) monitorLeadership() {
 	defer c.wg.Done()
 
@@ -403,7 +414,7 @@ func (c *Coordinator) monitorLeadership() {
 	}
 }
 
-// onBecameLeader handles becoming leader
+// onBecameLeader handles becoming leader.
 func (c *Coordinator) onBecameLeader() {
 	c.logger.Info("node became HLS cluster leader",
 		forge.F("node_id", c.nodeID),
@@ -415,14 +426,14 @@ func (c *Coordinator) onBecameLeader() {
 	// - Initiate failover if needed
 }
 
-// onLostLeadership handles losing leadership
+// onLostLeadership handles losing leadership.
 func (c *Coordinator) onLostLeadership() {
 	c.logger.Info("node lost HLS cluster leadership",
 		forge.F("node_id", c.nodeID),
 	)
 }
 
-// sendHeartbeats sends periodic heartbeats to the cluster
+// sendHeartbeats sends periodic heartbeats to the cluster.
 func (c *Coordinator) sendHeartbeats() {
 	defer c.wg.Done()
 
@@ -439,7 +450,7 @@ func (c *Coordinator) sendHeartbeats() {
 	}
 }
 
-// sendHeartbeat sends a single heartbeat
+// sendHeartbeat sends a single heartbeat.
 func (c *Coordinator) sendHeartbeat() {
 	ctx, cancel := context.WithTimeout(c.ctx, 2*time.Second)
 	defer cancel()
@@ -458,12 +469,13 @@ func (c *Coordinator) sendHeartbeat() {
 	data, err := json.Marshal(nodeState)
 	if err != nil {
 		c.logger.Error("failed to marshal node state", forge.F("error", err))
+
 		return
 	}
 
 	cmd := consensus.Command{
 		Type: CommandUpdateNode,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"node_id": c.nodeID,
 			"data":    data,
 		},
@@ -474,7 +486,7 @@ func (c *Coordinator) sendHeartbeat() {
 	}
 }
 
-// synchronizeState synchronizes local state with consensus
+// synchronizeState synchronizes local state with consensus.
 func (c *Coordinator) synchronizeState() {
 	defer c.wg.Done()
 
@@ -491,7 +503,7 @@ func (c *Coordinator) synchronizeState() {
 	}
 }
 
-// syncStreams synchronizes stream state
+// syncStreams synchronizes stream state.
 func (c *Coordinator) syncStreams() {
 	// TODO: Query all stream keys from consensus
 	// TODO: Update local cache
@@ -501,14 +513,14 @@ func (c *Coordinator) syncStreams() {
 // Helper functions
 
 func streamKey(streamID string) string {
-	return fmt.Sprintf("hls:stream:%s", streamID)
+	return "hls:stream:" + streamID
 }
 
 func nodeKey(nodeID string) string {
-	return fmt.Sprintf("hls:node:%s", nodeID)
+	return "hls:node:" + nodeID
 }
 
-// ClusterStats represents cluster-wide statistics
+// ClusterStats represents cluster-wide statistics.
 type ClusterStats struct {
 	TotalNodes     int   `json:"total_nodes"`
 	HealthyNodes   int   `json:"healthy_nodes"`

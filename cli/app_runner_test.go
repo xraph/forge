@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 func TestWithAutoMigrate(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithAutoMigrate()(r)
+
 	if !r.autoMigrateOnServe {
 		t.Error("expected autoMigrateOnServe to be true")
 	}
@@ -24,9 +26,11 @@ func TestWithExtraCommands(t *testing.T) {
 	r := NewAppRunner(nil)
 	cmd := NewCommand("test", "Test", nil)
 	WithExtraCommands(cmd)(r)
+
 	if len(r.extraCommands) != 1 {
 		t.Fatalf("expected 1 extra command, got %d", len(r.extraCommands))
 	}
+
 	if r.extraCommands[0].Name() != "test" {
 		t.Errorf("expected command name 'test', got '%s'", r.extraCommands[0].Name())
 	}
@@ -35,6 +39,7 @@ func TestWithExtraCommands(t *testing.T) {
 func TestWithDisableMigrationCommands(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithDisableMigrationCommands()(r)
+
 	if !r.disableMigrationCommands {
 		t.Error("expected disableMigrationCommands to be true")
 	}
@@ -43,6 +48,7 @@ func TestWithDisableMigrationCommands(t *testing.T) {
 func TestWithDisableServeCommand(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithDisableServeCommand()(r)
+
 	if !r.disableServeCommand {
 		t.Error("expected disableServeCommand to be true")
 	}
@@ -51,6 +57,7 @@ func TestWithDisableServeCommand(t *testing.T) {
 func TestWithCLIName(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithCLIName("my-app")(r)
+
 	if r.name != "my-app" {
 		t.Errorf("expected name 'my-app', got '%s'", r.name)
 	}
@@ -59,6 +66,7 @@ func TestWithCLIName(t *testing.T) {
 func TestWithCLIVersion(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithCLIVersion("2.0.0")(r)
+
 	if r.version != "2.0.0" {
 		t.Errorf("expected version '2.0.0', got '%s'", r.version)
 	}
@@ -67,6 +75,7 @@ func TestWithCLIVersion(t *testing.T) {
 func TestWithCLIDescription(t *testing.T) {
 	r := NewAppRunner(nil)
 	WithCLIDescription("My cool app")(r)
+
 	if r.description != "My cool app" {
 		t.Errorf("expected description 'My cool app', got '%s'", r.description)
 	}
@@ -78,9 +87,11 @@ func TestWithGlobalFlags(t *testing.T) {
 		NewStringFlag("port", "p", "port", "8080"),
 		NewStringFlag("env", "e", "env", "dev"),
 	)(r)
+
 	if len(r.globalFlags) != 2 {
 		t.Fatalf("expected 2 global flags, got %d", len(r.globalFlags))
 	}
+
 	if r.globalFlags[0].Name() != "port" {
 		t.Errorf("expected first flag 'port', got '%s'", r.globalFlags[0].Name())
 	}
@@ -102,24 +113,31 @@ func TestNewAppRunner_Methods(t *testing.T) {
 	if r.name != "test" {
 		t.Errorf("expected name 'test', got '%s'", r.name)
 	}
+
 	if r.version != "2.0.0" {
 		t.Errorf("expected version '2.0.0', got '%s'", r.version)
 	}
+
 	if r.description != "desc" {
 		t.Errorf("expected description 'desc', got '%s'", r.description)
 	}
+
 	if !r.autoMigrateOnServe {
 		t.Error("expected autoMigrateOnServe")
 	}
+
 	if !r.disableMigrationCommands {
 		t.Error("expected disableMigrationCommands")
 	}
+
 	if !r.disableServeCommand {
 		t.Error("expected disableServeCommand")
 	}
+
 	if len(r.globalFlags) != 1 {
 		t.Errorf("expected 1 global flag, got %d", len(r.globalFlags))
 	}
+
 	if len(r.extraCommands) != 1 {
 		t.Errorf("expected 1 extra command, got %d", len(r.extraCommands))
 	}
@@ -159,9 +177,11 @@ func TestCollectMigratableExtensions_MixedExtensions(t *testing.T) {
 	// Verify we got the right ones
 	ext0 := result[0].(forge.Extension)
 	ext1 := result[1].(forge.Extension)
+
 	if ext0.Name() != "grove" {
 		t.Errorf("expected first migratable to be 'grove', got '%s'", ext0.Name())
 	}
+
 	if ext1.Name() != "custom-db" {
 		t.Errorf("expected second migratable to be 'custom-db', got '%s'", ext1.Name())
 	}
@@ -169,6 +189,7 @@ func TestCollectMigratableExtensions_MixedExtensions(t *testing.T) {
 
 func TestCollectMigratableExtensions_Empty(t *testing.T) {
 	app := &mockApp{extensions: nil}
+
 	result := collectMigratableExtensions(app)
 	if len(result) != 0 {
 		t.Errorf("expected 0, got %d", len(result))
@@ -188,16 +209,20 @@ func TestBuildServeCommand_Basic(t *testing.T) {
 	if len(aliases) != 2 {
 		t.Fatalf("expected 2 aliases, got %d", len(aliases))
 	}
+
 	hasStart := false
 	hasRun := false
+
 	for _, a := range aliases {
 		if a == "start" {
 			hasStart = true
 		}
+
 		if a == "run" {
 			hasRun = true
 		}
 	}
+
 	if !hasStart || !hasRun {
 		t.Errorf("expected aliases 'start' and 'run', got %v", aliases)
 	}
@@ -239,12 +264,15 @@ func TestBuildMigrateCommand_DownHasForceFlag(t *testing.T) {
 
 	flags := down.Flags()
 	found := false
+
 	for _, f := range flags {
 		if f.Name() == "force" {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Error("expected 'force' flag on 'down' command")
 	}
@@ -271,6 +299,7 @@ func TestRegisterExtensionCommands(t *testing.T) {
 	registerExtensionCommands(c, app)
 
 	cmds := c.Commands()
+
 	names := map[string]bool{}
 	for _, cmd := range cmds {
 		names[cmd.Name()] = true
@@ -279,6 +308,7 @@ func TestRegisterExtensionCommands(t *testing.T) {
 	if !names["seed"] {
 		t.Error("expected 'seed' command from extension")
 	}
+
 	if !names["dump"] {
 		t.Error("expected 'dump' command from extension")
 	}
@@ -311,13 +341,16 @@ func TestLazyAppResolution(t *testing.T) {
 		Name: "test",
 		AppProvider: func(ctx CommandContext) (forge.App, error) {
 			setupCalled = true
+
 			return testApp, nil
 		},
 	})
 
 	var capturedApp forge.App
+
 	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
 		capturedApp = ctx.App()
+
 		return nil
 	}))
 
@@ -325,12 +358,15 @@ func TestLazyAppResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !setupCalled {
 		t.Error("expected setup to be called")
 	}
+
 	if capturedApp == nil {
 		t.Error("expected app to be set on context")
 	}
+
 	if capturedApp.Name() != "lazy-app" {
 		t.Errorf("expected app name 'lazy-app', got '%s'", capturedApp.Name())
 	}
@@ -352,8 +388,10 @@ func TestGlobalFlagInjection(t *testing.T) {
 	)
 
 	var capturedPort string
+
 	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
 		capturedPort = ctx.String("port")
+
 		return nil
 	}))
 
@@ -361,6 +399,7 @@ func TestGlobalFlagInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if capturedPort != "9000" {
 		t.Errorf("expected port '9000', got '%s'", capturedPort)
 	}
@@ -382,8 +421,10 @@ func TestGlobalFlagDefault(t *testing.T) {
 	)
 
 	var capturedPort string
+
 	_ = c.AddCommand(NewCommand("check", "test", func(ctx CommandContext) error {
 		capturedPort = ctx.String("port")
+
 		return nil
 	}))
 
@@ -391,6 +432,7 @@ func TestGlobalFlagDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if capturedPort != "8080" {
 		t.Errorf("expected port default '8080', got '%s'", capturedPort)
 	}
@@ -413,12 +455,14 @@ func (a *mockApp) Name() string {
 	if a.name == "" {
 		return "mock-app"
 	}
+
 	return a.name
 }
 func (a *mockApp) Version() string {
 	if a.version == "" {
 		return "1.0.0"
 	}
+
 	return a.version
 }
 func (a *mockApp) Environment() string         { return "test" }
@@ -432,6 +476,7 @@ func (a *mockApp) Logger() forge.Logger {
 	if a.logger != nil {
 		return a.logger
 	}
+
 	return forge.NewNoopLogger()
 }
 func (a *mockApp) Metrics() forge.Metrics             { return nil }
@@ -440,6 +485,7 @@ func (a *mockApp) LifecycleManager() forge.LifecycleManager {
 	if a.lm != nil {
 		return a.lm
 	}
+
 	return forge.NewLifecycleManager(nil)
 }
 func (a *mockApp) Start(_ context.Context) error { return a.startErr }
@@ -454,12 +500,14 @@ func (a *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleH
 	if a.lm != nil {
 		return a.lm.RegisterHook(phase, hook, opts)
 	}
+
 	return nil
 }
 func (a *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error {
 	if a.lm != nil {
 		return a.lm.RegisterHookFn(phase, name, hook)
 	}
+
 	return nil
 }
 func (a *mockApp) Extensions() []forge.Extension {
@@ -471,7 +519,8 @@ func (a *mockApp) GetExtension(name string) (forge.Extension, error) {
 			return ext, nil
 		}
 	}
-	return nil, nil
+
+	return nil, fmt.Errorf("extension %s not found", name)
 }
 func (a *mockApp) MigrationsDisabled() bool                       { return false }
 func (a *mockApp) SetMigrationsDisabled(_ bool)                   {}
@@ -543,6 +592,7 @@ type callEvent struct {
 // verify suppression happens before startup.
 type centralMockApp struct {
 	mockApp
+
 	mu     sync.Mutex
 	events []callEvent
 	fakeCM forge.CentralMigrator
@@ -554,6 +604,7 @@ func (a *centralMockApp) CentralMigrationsEnabled() bool { return true }
 func (a *centralMockApp) SetMigrationsDisabled(v bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	if v {
 		a.events = append(a.events, callEvent{"SetMigrationsDisabled"})
 	}
@@ -562,7 +613,9 @@ func (a *centralMockApp) SetMigrationsDisabled(v bool) {
 func (a *centralMockApp) Start(_ context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	a.events = append(a.events, callEvent{"Start"})
+
 	return a.startErr
 }
 
@@ -583,27 +636,33 @@ type fakeCentralMigrator struct {
 func (f *fakeCentralMigrator) RunAll(_ context.Context) (*forge.MigrationResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	f.calledRunAll = true
+
 	return &forge.MigrationResult{}, nil
 }
 
 func (f *fakeCentralMigrator) RollbackAll(_ context.Context) (*forge.MigrationResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	f.calledRollback = true
 	if f.rollbackResult != nil {
 		return f.rollbackResult, nil
 	}
+
 	return &forge.MigrationResult{RolledBack: 1, Names: []string{"001_init"}}, nil
 }
 
 func (f *fakeCentralMigrator) StatusAll(_ context.Context) ([]*forge.MigrationGroupInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	f.calledStatus = true
 	if f.statusGroups != nil {
 		return f.statusGroups, nil
 	}
+
 	return []*forge.MigrationGroupInfo{
 		{
 			Name:    "default",
@@ -623,8 +682,10 @@ func newCentralCLI(app *centralMockApp, out *bytes.Buffer) CLI {
 	if out != nil {
 		c.SetOutput(out)
 	}
+
 	migrateCmd := buildMigrateCommand()
 	_ = c.AddCommand(migrateCmd)
+
 	return c
 }
 
@@ -642,6 +703,7 @@ func TestCentralMigrateDown_SuppressionBeforeStart(t *testing.T) {
 	}
 
 	var out bytes.Buffer
+
 	c := newCentralCLI(app, &out)
 
 	// Use --force to skip the interactive confirmation prompt.
@@ -663,20 +725,25 @@ func TestCentralMigrateDown_SuppressionBeforeStart(t *testing.T) {
 	// SetMigrationsDisabled must come before Start.
 	suppressIdx := -1
 	startIdx := -1
+
 	for i, ev := range events {
 		if ev.method == "SetMigrationsDisabled" && suppressIdx == -1 {
 			suppressIdx = i
 		}
+
 		if ev.method == "Start" && startIdx == -1 {
 			startIdx = i
 		}
 	}
+
 	if suppressIdx == -1 {
 		t.Error("SetMigrationsDisabled(true) was never called")
 	}
+
 	if startIdx == -1 {
 		t.Error("Start was never called")
 	}
+
 	if suppressIdx != -1 && startIdx != -1 && suppressIdx >= startIdx {
 		t.Errorf("expected SetMigrationsDisabled before Start, got indices suppress=%d start=%d", suppressIdx, startIdx)
 	}
@@ -685,6 +752,7 @@ func TestCentralMigrateDown_SuppressionBeforeStart(t *testing.T) {
 	fakeCM.mu.Lock()
 	rolledBack := fakeCM.calledRollback
 	fakeCM.mu.Unlock()
+
 	if !rolledBack {
 		t.Error("expected fakeCentralMigrator.RollbackAll to be called")
 	}
@@ -702,9 +770,10 @@ func TestCentralMigrateStatus_SuppressionBeforeStart(t *testing.T) {
 		// Also register a migratable extension so we can confirm it is NOT used.
 		// (extensions field is on the embedded mockApp)
 	}
-	app.mockApp.extensions = []forge.Extension{&migratableExt{name: "some-ext"}}
+	app.extensions = []forge.Extension{&migratableExt{name: "some-ext"}}
 
 	var out bytes.Buffer
+
 	c := newCentralCLI(app, &out)
 
 	err := c.Run([]string{"testapp", "migrate", "status"})
@@ -719,20 +788,25 @@ func TestCentralMigrateStatus_SuppressionBeforeStart(t *testing.T) {
 
 	suppressIdx := -1
 	startIdx := -1
+
 	for i, ev := range events {
 		if ev.method == "SetMigrationsDisabled" && suppressIdx == -1 {
 			suppressIdx = i
 		}
+
 		if ev.method == "Start" && startIdx == -1 {
 			startIdx = i
 		}
 	}
+
 	if suppressIdx == -1 {
 		t.Error("SetMigrationsDisabled(true) was never called for status")
 	}
+
 	if startIdx == -1 {
 		t.Error("Start was never called for status")
 	}
+
 	if suppressIdx != -1 && startIdx != -1 && suppressIdx >= startIdx {
 		t.Errorf("suppression must precede Start: suppress=%d start=%d", suppressIdx, startIdx)
 	}
@@ -741,6 +815,7 @@ func TestCentralMigrateStatus_SuppressionBeforeStart(t *testing.T) {
 	fakeCM.mu.Lock()
 	statusCalled := fakeCM.calledStatus
 	fakeCM.mu.Unlock()
+
 	if !statusCalled {
 		t.Error("expected fakeCentralMigrator.StatusAll to be called")
 	}

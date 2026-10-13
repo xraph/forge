@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/IBM/sarama"
@@ -58,6 +59,7 @@ func (s *KafkaService) Start(ctx context.Context) error {
 	}
 
 	s.logger.Info("kafka service started")
+
 	return nil
 }
 
@@ -73,13 +75,14 @@ func (s *KafkaService) Stop(_ context.Context) error {
 	}
 
 	s.logger.Info("kafka service stopped")
+
 	return nil
 }
 
 // Health checks if the Kafka service is healthy.
 func (s *KafkaService) Health(ctx context.Context) error {
 	if s.client == nil {
-		return fmt.Errorf("kafka client not initialized")
+		return errors.New("kafka client not initialized")
 	}
 
 	if err := s.client.Ping(ctx); err != nil {

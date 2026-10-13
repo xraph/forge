@@ -345,6 +345,7 @@ components:
 
 	_, ok := out.Files["src/ops.ts"]
 	ops := ClientManifestText(out.Files)
+
 	if !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}

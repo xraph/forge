@@ -139,8 +139,10 @@ func (ha *HealthAggregator) Aggregate(results map[string]*HealthResult) *HealthR
 		if result.Name == "" {
 			result.Name = name
 		}
+
 		report.Services[name] = result
 	}
+
 	report.CalculateStats()
 
 	// Calculate overall status

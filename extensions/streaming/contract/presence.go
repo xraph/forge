@@ -16,16 +16,20 @@ func presenceListHandler(mgr ManagerProvider) func(ctx context.Context, _ struct
 		if m == nil {
 			return PresenceList{}, &contract.Error{Code: contract.CodeUnavailable, Message: "streaming manager not running"}
 		}
+
 		seen := make(map[string]struct{})
 		uids := make([]string, 0)
+
 		for _, c := range m.GetAllConnections() {
 			uid := c.GetUserID()
 			if uid == "" {
 				continue
 			}
+
 			if _, ok := seen[uid]; ok {
 				continue
 			}
+
 			seen[uid] = struct{}{}
 			uids = append(uids, uid)
 		}
@@ -36,6 +40,7 @@ func presenceListHandler(mgr ManagerProvider) func(ctx context.Context, _ struct
 			if err != nil || p == nil {
 				continue
 			}
+
 			out = append(out, PresenceInfo{
 				UserID:       p.UserID,
 				Status:       p.Status,
@@ -47,6 +52,7 @@ func presenceListHandler(mgr ManagerProvider) func(ctx context.Context, _ struct
 				Rooms: append([]string{}, p.Connections...),
 			})
 		}
+
 		return PresenceList{Presence: out}, nil
 	}
 }
@@ -56,13 +62,16 @@ func setPresenceHandler(mgr ManagerProvider) func(ctx context.Context, in SetPre
 		if in.UserID == "" || in.Status == "" {
 			return CommandResult{}, &contract.Error{Code: contract.CodeBadRequest, Message: "userID and status are required"}
 		}
+
 		m := mgr()
 		if m == nil {
 			return CommandResult{}, &contract.Error{Code: contract.CodeUnavailable, Message: "streaming manager not running"}
 		}
+
 		if err := m.SetPresence(ctx, in.UserID, in.Status); err != nil {
 			return CommandResult{}, &contract.Error{Code: contract.CodeInternal, Message: err.Error()}
 		}
+
 		return CommandResult{OK: true, Message: "presence updated"}, nil
 	}
 }

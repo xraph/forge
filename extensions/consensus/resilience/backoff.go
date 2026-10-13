@@ -39,7 +39,7 @@ func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
 	// Add jitter if enabled (±25%)
 	if eb.Jitter {
 		jitter := delay * 0.25
-		delay += (rand.Float64()*2 - 1) * jitter
+		delay += (rand.Float64()*2 - 1) * jitter //nolint:gosec // G404: backoff jitter only spreads retries out, it needs no unpredictability
 	}
 
 	return time.Duration(delay)
@@ -135,7 +135,7 @@ func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
 	// Random between base and 3x previous delay
 	maxNext := min(djb.previousDelay*3, djb.MaxDelay)
 
-	delay := djb.BaseDelay + time.Duration(rand.Int63n(int64(maxNext-djb.BaseDelay)))
+	delay := djb.BaseDelay + time.Duration(rand.Int63n(int64(maxNext-djb.BaseDelay))) //nolint:gosec // G404: backoff jitter only spreads retries out, it needs no unpredictability
 	djb.previousDelay = delay
 
 	return delay

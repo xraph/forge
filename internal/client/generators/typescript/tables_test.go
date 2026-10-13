@@ -3,6 +3,7 @@ package typescript
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -96,7 +97,7 @@ func TestTablesJSONCarriesTheRenderedOpsRows(t *testing.T) {
 	}
 
 	get := tables.Ops["users.get"]
-	if get.Method != "GET" || get.RootType != "User" || get.StaleTime != 30000 {
+	if get.Method != http.MethodGet || get.RootType != "User" || get.StaleTime != 30000 {
 		t.Errorf("users.get row = %+v", get)
 	}
 

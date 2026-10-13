@@ -80,7 +80,7 @@ func TestRouterWithForgeMux(t *testing.T) {
 
 	for path, want := range map[string]string{"/users/42": "42", "/users/me": "me"} {
 		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		require.Equalf(t, http.StatusOK, rec.Code, "path %s", path)
 		assert.Equal(t, want, rec.Body.String())

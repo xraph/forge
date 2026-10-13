@@ -82,7 +82,7 @@ type ScopeTenantResolver struct{}
 func (s ScopeTenantResolver) ResolveTenant(ctx context.Context, _ *http.Request) (*TenantInfo, error) {
 	scope, ok := forge.ScopeFrom(ctx)
 	if !ok || scope.IsZero() {
-		return nil, nil // no scope, no tenant
+		return nil, nil //nolint:nilnil // no scope means no tenant; callers check HasTenant, which is nil-safe
 	}
 
 	tenantType := TenantTypeApp

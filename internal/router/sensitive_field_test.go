@@ -35,7 +35,7 @@ func TestWithSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -92,7 +92,7 @@ func TestWithoutSensitiveFieldCleaning_ContextHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -151,7 +151,7 @@ func TestWithSensitiveFieldCleaning_OpinionatedHandler(t *testing.T) {
 	}
 
 	// Make request
-	req := httptest.NewRequest(http.MethodGet, "/users/456", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/456", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -212,7 +212,7 @@ func TestWithSensitiveFieldCleaning_NestedResponse(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -254,7 +254,7 @@ func TestWithSensitiveFieldCleaning_SliceResponse(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/tokens", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/tokens", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -296,7 +296,7 @@ func TestWithSensitiveFieldCleaning_StatusBuilder(t *testing.T) {
 		t.Fatalf("Failed to register route: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/user", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/user", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

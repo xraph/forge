@@ -33,10 +33,7 @@ func newMessageDedup(maxSize int, ttl time.Duration) *messageDedup {
 		stop:    make(chan struct{}),
 	}
 
-	perShard := maxSize / dedupShardCount
-	if perShard < 64 {
-		perShard = 64
-	}
+	perShard := max(maxSize/dedupShardCount, 64)
 
 	for i := range d.shards {
 		d.shards[i].seen = make(map[string]time.Time, perShard)
@@ -107,6 +104,7 @@ func evictShard(shard *dedupShard, ttl time.Duration) {
 
 		for id := range shard.seen {
 			delete(shard.seen, id)
+
 			count++
 
 			if count >= target {

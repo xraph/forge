@@ -813,7 +813,7 @@ func (r *redisRoom) GetMaxMembers() int {
 	return 0 // Default implementation
 }
 
-func (r *redisRoom) SetMaxMembers(ctx context.Context, max int) error {
+func (r *redisRoom) SetMaxMembers(ctx context.Context, maxMembers int) error {
 	return streaming.ErrInvalidRoom
 }
 

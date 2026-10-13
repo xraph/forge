@@ -138,6 +138,7 @@ func TestConsumeNotEnabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err := client.Consume(ctx, []string{"test-topic"}, nil)
 	if err == nil {
 		t.Error("expected error when consumer not enabled")
@@ -158,6 +159,7 @@ func TestConsumePartitionNotEnabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err := client.ConsumePartition(ctx, "test-topic", 0, 0, nil)
 	if err == nil {
 		t.Error("expected error when consumer not enabled")
@@ -227,6 +229,7 @@ func TestJoinConsumerGroupAlreadyInGroup(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err := client.JoinConsumerGroup(ctx, "group", []string{"topic"}, &testConsumerGroupHandler{})
 	if err == nil {
 		t.Error("expected error when already in consumer group")
@@ -246,6 +249,7 @@ func TestLeaveConsumerGroupNotInGroup(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err := client.LeaveConsumerGroup(ctx)
 	if err == nil {
 		t.Error("expected error when not in consumer group")
@@ -426,7 +430,7 @@ func TestMetricRecordingDisabled(t *testing.T) {
 	client.recordReceiveMetric("test-topic", 200)
 }
 
-// Mock types for testing
+// Mock types for testing.
 type mockConsumerGroup struct{}
 
 func (m *mockConsumerGroup) Close() error {

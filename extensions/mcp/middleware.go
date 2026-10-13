@@ -3,6 +3,7 @@ package mcp
 import (
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -108,7 +109,7 @@ func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metri
 					metrics.Counter("mcp_rate_limit_exceeded_total").Inc()
 				}
 
-				w.Header().Set("X-Ratelimit-Limit", string(rune(config.RateLimitPerMinute)))
+				w.Header().Set("X-Ratelimit-Limit", strconv.Itoa(config.RateLimitPerMinute))
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 
@@ -118,9 +119,9 @@ func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metri
 			// Set rate limit headers
 			info := limiter.GetInfo(clientID)
 			if info != nil {
-				w.Header().Set("X-Ratelimit-Limit", string(rune(config.RateLimitPerMinute)))
-				w.Header().Set("X-Ratelimit-Remaining", string(rune(config.RateLimitPerMinute-info.count)))
-				w.Header().Set("X-Ratelimit-Reset", string(rune(info.resetTime.Unix())))
+				w.Header().Set("X-Ratelimit-Limit", strconv.Itoa(config.RateLimitPerMinute))
+				w.Header().Set("X-Ratelimit-Remaining", strconv.Itoa(config.RateLimitPerMinute-info.count))
+				w.Header().Set("X-Ratelimit-Reset", strconv.FormatInt(info.resetTime.Unix(), 10))
 			}
 
 			next.ServeHTTP(w, r)

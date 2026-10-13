@@ -283,8 +283,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 
 		case 27: // ESC sequence
 			// Arrow keys send ESC [ A/B/C/D
-			if n >= 3 && buf[1] == '[' { //nolint:gosec // G602: bounds checked with n >= 3
-				switch buf[2] { //nolint:gosec // G602: bounds checked with n >= 3
+			if n >= 3 && buf[1] == '[' {
+				switch buf[2] {
 				case 'A': // Up arrow
 					if cursor > 0 {
 						cursor--

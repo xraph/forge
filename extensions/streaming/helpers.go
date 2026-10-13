@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -28,6 +29,7 @@ func MustGetManager(c forge.Container) Manager {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get streaming manager: %v", err))
 	}
+
 	return mgr
 }
 
@@ -35,8 +37,9 @@ func MustGetManager(c forge.Container) Manager {
 // Returns error if not found or type assertion fails.
 func GetManagerFromApp(app forge.App) (Manager, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
+
 	return GetManager(app.Container())
 }
 
@@ -46,5 +49,6 @@ func MustGetManagerFromApp(app forge.App) Manager {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetManager(app.Container())
 }

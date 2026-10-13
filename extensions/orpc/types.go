@@ -215,7 +215,7 @@ type ServerStats struct {
 	AverageLatency float64
 }
 
-// String returns a string representation of the error.
+// Error returns a string representation of the error.
 func (e *Error) Error() string {
 	if e.Data != nil {
 		return fmt.Sprintf("JSON-RPC error %d: %s (data: %v)", e.Code, e.Message, e.Data)

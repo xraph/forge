@@ -84,6 +84,7 @@ h1{font-size:1.5rem;margin-bottom:.25rem;color:#f8fafc}
 
 	for _, p := range profiles {
 		name := p.Name()
+
 		desc := descriptions[name]
 		if desc == "" {
 			desc = "Profile data"

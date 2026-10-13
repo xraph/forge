@@ -59,6 +59,7 @@ func NewDataCollector(
 func (dc *DataCollector) SetCacheTTL(ttl time.Duration) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
+
 	dc.cacheTTL = ttl
 }
 
@@ -66,6 +67,7 @@ func (dc *DataCollector) SetCacheTTL(ttl time.Duration) {
 func (dc *DataCollector) SetOnCollect(fn OnCollectFunc) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
+
 	dc.onCollect = fn
 }
 
@@ -111,11 +113,14 @@ func (dc *DataCollector) Stop() {
 // avoid redundant allocations across page renders, API calls, and bridge requests.
 func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	dc.mu.RLock()
+
 	if dc.cachedOverview != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
 		cached := dc.cachedOverview
 		dc.mu.RUnlock()
+
 		return cached
 	}
+
 	dc.mu.RUnlock()
 
 	return dc.collectOverviewFresh()
@@ -126,11 +131,14 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 // without registered health checks still appear (as "unknown" status).
 func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	dc.mu.RLock()
+
 	if dc.cachedHealth != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
 		cached := dc.cachedHealth
 		dc.mu.RUnlock()
+
 		return cached
 	}
+
 	dc.mu.RUnlock()
 
 	return dc.collectHealthFresh()
@@ -139,11 +147,14 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 // CollectMetrics returns current metrics, using a short-lived cache.
 func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
 	dc.mu.RLock()
+
 	if dc.cachedMetrics != nil && time.Since(dc.cachedAt) < dc.cacheTTL {
 		cached := dc.cachedMetrics
 		dc.mu.RUnlock()
+
 		return cached
 	}
+
 	dc.mu.RUnlock()
 
 	return dc.collectMetricsFresh()
@@ -286,6 +297,7 @@ func (dc *DataCollector) collectMetricsFresh() *MetricsData {
 	metrics := dc.metrics.ListMetrics()
 
 	var counters, gauges, histograms int
+
 	for name := range metrics {
 		switch inferMetricType(name) {
 		case "counter":
@@ -332,6 +344,7 @@ func (dc *DataCollector) CollectServices(_ context.Context) []ServiceInfo {
 
 		// Use DI container metadata for service type
 		svcType := "service"
+
 		info := dc.container.Inspect(name)
 		if info.Lifecycle != "" {
 			svcType = info.Lifecycle
@@ -435,6 +448,7 @@ func (dc *DataCollector) CollectServiceDetail(_ context.Context, serviceName str
 
 	// Use DI container metadata for service type and dependencies
 	svcType := "service"
+
 	var deps []string
 
 	info := dc.container.Inspect(serviceName)
@@ -463,9 +477,11 @@ func (dc *DataCollector) CollectServiceDetail(_ context.Context, serviceName str
 func (dc *DataCollector) CollectMetricsReport(_ context.Context) *MetricsReport {
 	stats := dc.metrics.Stats()
 
-	var metricsByType map[string]int
-	var topMetrics []MetricEntry
-	var totalMetrics int
+	var (
+		metricsByType map[string]int
+		topMetrics    []MetricEntry
+		totalMetrics  int
+	)
 
 	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
 		metricsByType = qp.MetricCountsByType()
@@ -474,11 +490,13 @@ func (dc *DataCollector) CollectMetricsReport(_ context.Context) *MetricsReport 
 
 		topMetrics = make([]MetricEntry, 0, len(names))
 		now := time.Now()
+
 		for _, name := range names {
 			var val any
 			if v, ok := qp.MetricValue(name); ok {
 				val = v
 			}
+
 			topMetrics = append(topMetrics, MetricEntry{
 				Name:      name,
 				Type:      inferMetricType(name),
@@ -497,6 +515,7 @@ func (dc *DataCollector) CollectMetricsReport(_ context.Context) *MetricsReport 
 		metricsByType["timer"] = countMetricsByTypeFromMap(allMetrics, "_duration", "_latency")
 
 		topMetrics = make([]MetricEntry, 0, len(allMetrics))
+
 		now := time.Now()
 		for name, value := range allMetrics {
 			topMetrics = append(topMetrics, MetricEntry{
@@ -573,18 +592,22 @@ func (dc *DataCollector) CollectCollectorDetail(_ context.Context, collectorName
 func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName string) *MetricDetail {
 	// Prefer MetricQueryProvider for zero-allocation access.
 	var value any
+
 	if qp, ok := dc.metrics.(internalmetrics.MetricQueryProvider); ok {
 		v, exists := qp.MetricValue(metricName)
 		if !exists {
 			return nil
 		}
+
 		value = v
 	} else {
 		allMetrics := dc.metrics.ListMetrics()
+
 		v, exists := allMetrics[metricName]
 		if !exists {
 			return nil
 		}
+
 		value = v
 	}
 
@@ -620,6 +643,7 @@ func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName strin
 		detail.Updated = md.Updated
 
 		exemplars := m.Exemplars()
+
 		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
 		for _, e := range exemplars {
 			exemplarInfos = append(exemplarInfos, ExemplarInfo{
@@ -666,12 +690,14 @@ func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName strin
 
 		// Convert bucket keys to strings for JSON compatibility
 		rawBuckets := m.Buckets()
+
 		buckets := make(map[string]uint64, len(rawBuckets))
 		for bound, count := range rawBuckets {
 			buckets[fmt.Sprintf("%.6f", bound)] = count
 		}
 
 		exemplars := m.Exemplars()
+
 		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
 		for _, e := range exemplars {
 			exemplarInfos = append(exemplarInfos, ExemplarInfo{
@@ -711,6 +737,7 @@ func (dc *DataCollector) CollectMetricDetail(_ context.Context, metricName strin
 		detail.Updated = md.Updated
 
 		exemplars := m.Exemplars()
+
 		exemplarInfos := make([]ExemplarInfo, 0, len(exemplars))
 		for _, e := range exemplars {
 			exemplarInfos = append(exemplarInfos, ExemplarInfo{

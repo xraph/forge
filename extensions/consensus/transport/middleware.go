@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -39,8 +40,8 @@ func (mc *MiddlewareChain) Use(middleware TransportMiddleware) {
 // Execute executes the middleware chain.
 func (mc *MiddlewareChain) Execute(handler TransportHandler) TransportHandler {
 	// Build chain in reverse order
-	for i := len(mc.middlewares) - 1; i >= 0; i-- {
-		handler = mc.middlewares[i](handler)
+	for _, v := range slices.Backward(mc.middlewares) {
+		handler = v(handler)
 	}
 
 	return handler
@@ -354,16 +355,14 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 						forge.F("failures", circuit.failures),
 					)
 				}
-			} else {
-				// Success - close circuit
-				if circuit.state == "half-open" {
-					circuit.state = "closed"
-					circuit.failures = 0
+			} else if circuit.state == "half-open" {
+				// Success closes a half-open circuit
+				circuit.state = "closed"
+				circuit.failures = 0
 
-					logger.Info("circuit breaker closed",
-						forge.F("peer", peerID),
-					)
-				}
+				logger.Info("circuit breaker closed",
+					forge.F("peer", peerID),
+				)
 			}
 
 			return err

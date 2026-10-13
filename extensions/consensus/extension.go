@@ -244,33 +244,34 @@ func (e *Extension) registerServices(app forge.App) error {
 
 	// Register consensus service with aliases for backward compatibility
 	service := e.service
-	if err := vessel.ProvideConstructor(container, func() *Service {
+
+	if err := vessel.Provide(container, func() *Service {
 		return service
 	}, vessel.WithAliases(ServiceKey, ServiceKeyLegacy)); err != nil {
 		return err
 	}
 
 	// Register derived services as separate constructors with dependencies
-	if err := vessel.ProvideConstructor(container, func(svc *Service) (ClusterManager, error) {
+	if err := vessel.Provide(container, func(svc *Service) (ClusterManager, error) {
 		return svc.GetClusterManager(), nil
 	}, vessel.WithAliases(ClusterManagerKey)); err != nil {
 		return err
 	}
 
-	if err := vessel.ProvideConstructor(container, func(svc *Service) (RaftNode, error) {
+	if err := vessel.Provide(container, func(svc *Service) (RaftNode, error) {
 		return svc.GetRaftNode(), nil
 	}, vessel.WithAliases(RaftNodeKey)); err != nil {
 		return err
 	}
 
-	if err := vessel.ProvideConstructor(container, func(svc *Service) (StateMachine, error) {
+	if err := vessel.Provide(container, func(svc *Service) (StateMachine, error) {
 		return svc.GetStateMachine(), nil
 	}, vessel.WithAliases(StateMachineKey)); err != nil {
 		return err
 	}
 
 	// Register leadership checker as constructor with dependency
-	if err := vessel.ProvideConstructor(container, func(svc *Service) (*LeadershipChecker, error) {
+	if err := vessel.Provide(container, func(svc *Service) (*LeadershipChecker, error) {
 		return NewLeadershipChecker(svc), nil
 	}, vessel.WithAliases(LeadershipCheckerKey)); err != nil {
 		return err

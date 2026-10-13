@@ -35,17 +35,23 @@ func TestSecurityE2E_CSRFRequired(t *testing.T) {
 	mgr := security.NewCSRFManager()
 	h := transport.NewHandlerWithCSRF(reg, wreg, disp, contract.NoopAuditEmitter{}, mgr)
 
-	body, _ := json.Marshal(contract.Request{
+	body, err := json.Marshal(contract.Request{
 		Envelope: "v1", Kind: contract.KindCommand,
 		Contributor: "test", Intent: "do.thing", IntentVersion: 1,
 		CSRF: "wrong", IdempotencyKey: "k1",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
+
 	if w.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d body=%s", w.Code, w.Body)
 	}
+
 	if !strings.Contains(w.Body.String(), "UNAUTHENTICATED") {
 		t.Errorf("expected UNAUTHENTICATED in response, got %s", w.Body.String())
 	}
@@ -63,15 +69,20 @@ func TestSecurityE2E_IdempotencyDedup(t *testing.T) {
 	h := transport.NewHandlerWithCSRF(reg, wreg, disp, contract.NoopAuditEmitter{}, mgr)
 
 	build := func() *http.Request {
-		body, _ := json.Marshal(contract.Request{
+		body, err := json.Marshal(contract.Request{
 			Envelope: "v1", Kind: contract.KindCommand,
 			Contributor: "test", Intent: "do.thing", IntentVersion: 1,
 			CSRF: tok, IdempotencyKey: "ik_e2e",
 		})
-		return httptest.NewRequest(http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
 	}
 	w1 := httptest.NewRecorder()
 	h.ServeHTTP(w1, build())
+
 	w2 := httptest.NewRecorder()
 	h.ServeHTTP(w2, build())
 
@@ -86,6 +97,7 @@ func TestSecurityE2E_IdempotencyDedup(t *testing.T) {
 // minimum viable command handler — returns OK:true with no work.
 func setupSecurityEnv(t *testing.T, store idempotency.Store) (contract.Registry, contract.WardenRegistry, *dispatcher.Dispatcher) {
 	t.Helper()
+
 	reg := contract.NewRegistry()
 	src := `
 schemaVersion: 1
@@ -93,14 +105,18 @@ contributor: { name: test, envelope: { supports: [v1], preferred: v1 } }
 intents:
   - { name: do.thing, kind: command, version: 1, capability: write }
 `
+
 	var m contract.ContractManifest
 	if err := contract.UnmarshalManifestForTest([]byte(src), &m); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := reg.Register(&m); err != nil {
 		t.Fatal(err)
 	}
+
 	wreg := contract.NewWardenRegistry()
+
 	disp := dispatcher.NewWithOptions(dispatcher.NoopMetricsEmitter{},
 		dispatcher.WithIdempotencyStore(adaptStore(store)))
 	if err := dispatcher.RegisterCommand(disp, "test", "do.thing", 1,
@@ -109,6 +125,7 @@ intents:
 		}); err != nil {
 		t.Fatalf("RegisterCommand: %v", err)
 	}
+
 	return reg, wreg, disp
 }
 
@@ -127,6 +144,7 @@ func (a *adapter) Lookup(ctx context.Context, k, id string) (*dispatcher.Idempot
 	if !ok {
 		return nil, false
 	}
+
 	return &dispatcher.IdempotencyCached{
 		Status: c.Status, WireBody: c.WireBody,
 		StoredAt: c.StoredAt, TTL: c.TTL,

@@ -59,7 +59,7 @@ func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			adapter.ServeHTTP(rec, req)
@@ -122,7 +122,7 @@ func TestBunRouterAdapter_WildcardWithGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -157,7 +157,7 @@ func TestBunRouterAdapter_NamedParameters(t *testing.T) {
 	// Register route with named parameters
 	adapter.Handle("GET", "/users/:id/posts/:postId", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123/posts/456", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/123/posts/456", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -183,7 +183,7 @@ func TestBunRouterAdapter_MixedParameters(t *testing.T) {
 	// Register route with both named param and wildcard
 	adapter.Handle("GET", "/users/:userId/files/*", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/john/files/docs/report.pdf", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/john/files/docs/report.pdf", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)

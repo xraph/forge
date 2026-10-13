@@ -21,6 +21,7 @@ func (f *fakeContributor) Subscriptions() map[IntentRef]SubscriptionHandler { re
 
 func TestRegisterContributor_RegistersAllTables(t *testing.T) {
 	d := New(NoopMetricsEmitter{})
+
 	c := &fakeContributor{
 		name: "users",
 		q: map[IntentRef]Handler{
@@ -42,6 +43,7 @@ func TestRegisterContributor_RegistersAllTables(t *testing.T) {
 	if _, _, err := d.Dispatch(context.Background(), req, contract.Principal{}); err != nil {
 		t.Errorf("dispatch query: %v", err)
 	}
+
 	intent := contract.Intent{Name: "users.events", Kind: contract.IntentKindSubscription, Version: 1, Capability: contract.CapRead}
 	if _, _, err := d.Subscribe(context.Background(), contract.Principal{}, "users", intent, nil); err != nil {
 		t.Errorf("subscribe: %v", err)
@@ -50,6 +52,7 @@ func TestRegisterContributor_RegistersAllTables(t *testing.T) {
 
 func TestRegisterContributor_NameRequired(t *testing.T) {
 	d := New(NoopMetricsEmitter{})
+
 	c := &fakeContributor{name: "", q: map[IntentRef]Handler{}, s: map[IntentRef]SubscriptionHandler{}}
 	if err := d.RegisterContributor(c); err == nil {
 		t.Error("expected name-required error")
@@ -76,6 +79,7 @@ func TestRegisterContributor_PartialFailureIsAtomic(t *testing.T) {
 		},
 		s: nil,
 	}
+
 	err := d.RegisterContributor(c)
 	if err == nil {
 		t.Fatal("expected conflict error")

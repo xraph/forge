@@ -1,4 +1,3 @@
-// manifest.go
 package contract
 
 import (
@@ -29,10 +28,10 @@ const (
 
 // ContractManifest is the top-level YAML each contributor publishes.
 type ContractManifest struct {
-	SchemaVersion int              `yaml:"schemaVersion" json:"schemaVersion"`
-	Contributor   Contributor      `yaml:"contributor"   json:"contributor"`
-	Queries       map[string]Query `yaml:"queries,omitempty" json:"queries,omitempty"`
-	Intents       []Intent         `yaml:"intents"       json:"intents"`
+	SchemaVersion int              `json:"schemaVersion"     yaml:"schemaVersion"`
+	Contributor   Contributor      `json:"contributor"       yaml:"contributor"`
+	Queries       map[string]Query `json:"queries,omitempty" yaml:"queries,omitempty"`
+	Intents       []Intent         `json:"intents"           yaml:"intents"`
 }
 
 // Contributor names a single contributor and declares its supported envelope versions.
@@ -44,10 +43,10 @@ type ContractManifest struct {
 // first-class apps; helper contributors (e.g. a future shared "design
 // system" contributor) can stay invisible.
 type Contributor struct {
-	Name         string          `yaml:"name"         json:"name"`
-	Envelope     EnvelopeSupport `yaml:"envelope"     json:"envelope"`
-	Capabilities []string        `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
-	App          *AppInfo        `yaml:"app,omitempty"          json:"app,omitempty"`
+	Name         string          `json:"name"                   yaml:"name"`
+	Envelope     EnvelopeSupport `json:"envelope"               yaml:"envelope"`
+	Capabilities []string        `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	App          *AppInfo        `json:"app,omitempty"          yaml:"app,omitempty"`
 }
 
 // AppInfo describes how a contributor presents itself in the app switcher.
@@ -90,12 +89,12 @@ type Contributor struct {
 // adopts the /@<slug> prefix and this projection becomes real, or the
 // projection is dropped.
 type AppInfo struct {
-	DisplayName string `yaml:"displayName" json:"displayName"`
-	Slug        string `yaml:"slug,omitempty" json:"slug,omitempty"`
-	Root        bool   `yaml:"root,omitempty" json:"root,omitempty"`
-	Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	Priority    int    `yaml:"priority,omitempty" json:"priority,omitempty"`
-	Home        string `yaml:"home,omitempty" json:"home,omitempty"`
+	DisplayName string `json:"displayName"        yaml:"displayName"`
+	Slug        string `json:"slug,omitempty"     yaml:"slug,omitempty"`
+	Root        bool   `json:"root,omitempty"     yaml:"root,omitempty"`
+	Icon        string `json:"icon,omitempty"     yaml:"icon,omitempty"`
+	Priority    int    `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Home        string `json:"home,omitempty"     yaml:"home,omitempty"`
 }
 
 // ResolvedSlug returns the slug that should be used for URL prefixing,
@@ -107,37 +106,39 @@ func (a *AppInfo) ResolvedSlug(contributorName string) string {
 	if a == nil || a.Root {
 		return ""
 	}
+
 	if a.Slug != "" {
 		return a.Slug
 	}
+
 	return contributorName
 }
 
 // EnvelopeSupport declares which envelope versions this contributor can speak.
 type EnvelopeSupport struct {
-	Supports  []string `yaml:"supports"  json:"supports"`
-	Preferred string   `yaml:"preferred" json:"preferred"`
+	Supports  []string `json:"supports"  yaml:"supports"`
+	Preferred string   `json:"preferred" yaml:"preferred"`
 }
 
 // Intent declares a single named operation and its security/version metadata.
 type Intent struct {
-	Name        string           `yaml:"name"        json:"name"`
-	Kind        IntentKind       `yaml:"kind"        json:"kind"`
-	Version     int              `yaml:"version"     json:"version"`
-	Capability  Capability       `yaml:"capability"  json:"capability"`
-	Requires    Predicate        `yaml:"requires,omitempty" json:"requires,omitempty"`
-	Schema      IntentSchema     `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Mode        SubscriptionMode `yaml:"mode,omitempty" json:"mode,omitempty"`               // subscription only
-	Invalidates []string         `yaml:"invalidates,omitempty" json:"invalidates,omitempty"` // command only
-	Audit       *bool            `yaml:"audit,omitempty"       json:"audit,omitempty"`       // default true for commands
-	Deprecated  *Deprecation     `yaml:"deprecated,omitempty" json:"deprecated,omitempty"`
+	Name        string           `json:"name"                  yaml:"name"`
+	Kind        IntentKind       `json:"kind"                  yaml:"kind"`
+	Version     int              `json:"version"               yaml:"version"`
+	Capability  Capability       `json:"capability"            yaml:"capability"`
+	Requires    Predicate        `json:"requires"              yaml:"requires,omitempty"`
+	Schema      IntentSchema     `json:"schema"                yaml:"schema,omitempty"`
+	Mode        SubscriptionMode `json:"mode,omitempty"        yaml:"mode,omitempty"`        // subscription only
+	Invalidates []string         `json:"invalidates,omitempty" yaml:"invalidates,omitempty"` // command only
+	Audit       *bool            `json:"audit,omitempty"       yaml:"audit,omitempty"`       // default true for commands
+	Deprecated  *Deprecation     `json:"deprecated,omitempty"  yaml:"deprecated,omitempty"`
 }
 
 // IntentSchema is loose by design: contributors describe their input/output shapes;
 // validation against this is opt-in (slice (b) wires it).
 type IntentSchema struct {
-	Input  map[string]any `yaml:"input,omitempty"  json:"input,omitempty"`
-	Output any            `yaml:"output,omitempty" json:"output,omitempty"`
+	Input  map[string]any `json:"input,omitempty"  yaml:"input,omitempty"`
+	Output any            `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // Query is a named binding of an intent plus its parameters. It is parsed from
@@ -148,16 +149,16 @@ type IntentSchema struct {
 // parsed and read by nobody. Retained deliberately so the manifest schema stays
 // stable; do not build on it until something actually reads it.
 type Query struct {
-	Intent string                 `yaml:"intent" json:"intent"`
-	Params map[string]ParamSource `yaml:"params,omitempty" json:"params,omitempty"`
-	Cache  *QueryCache            `yaml:"cache,omitempty"  json:"cache,omitempty"`
+	Intent string                 `json:"intent"           yaml:"intent"`
+	Params map[string]ParamSource `json:"params,omitempty" yaml:"params,omitempty"`
+	Cache  *QueryCache            `json:"cache,omitempty"  yaml:"cache,omitempty"`
 }
 
 // ParamSource describes where a parameter value comes from.
 // Exactly one of Value/From is set; YAML uses { from: route.tenant } or a literal.
 type ParamSource struct {
-	Value any    `yaml:"value,omitempty" json:"value,omitempty"`
-	From  string `yaml:"from,omitempty"  json:"from,omitempty"` // route.X | parent.X | state.X | session.X
+	Value any    `json:"value,omitempty" yaml:"value,omitempty"`
+	From  string `json:"from,omitempty"  yaml:"from,omitempty"` // route.X | parent.X | state.X | session.X
 }
 
 // UnmarshalYAML accepts either a scalar (treated as the From source) or a
@@ -166,14 +167,18 @@ func (p *ParamSource) UnmarshalYAML(value *yaml.Node) error {
 	switch value.Kind {
 	case yaml.ScalarNode:
 		p.From = value.Value
+
 		return nil
 	case yaml.MappingNode:
 		type alias ParamSource
+
 		var a alias
 		if err := value.Decode(&a); err != nil {
 			return err
 		}
+
 		*p = ParamSource(a)
+
 		return nil
 	default:
 		return fmt.Errorf("param: expected scalar or mapping, got kind=%d", value.Kind)
@@ -182,14 +187,14 @@ func (p *ParamSource) UnmarshalYAML(value *yaml.Node) error {
 
 // QueryCache declares per-query staleness for the client.
 type QueryCache struct {
-	StaleTime string `yaml:"staleTime,omitempty" json:"staleTime,omitempty"`
+	StaleTime string `json:"staleTime,omitempty" yaml:"staleTime,omitempty"`
 }
 
 // Predicate is the boolean access expression: any of all/any/not, plus an optional
 // named Warden delegate. An empty Predicate evaluates to allow.
 type Predicate struct {
-	All    []string `yaml:"all,omitempty"    json:"all,omitempty"`
-	Any    []string `yaml:"any,omitempty"    json:"any,omitempty"`
-	Not    []string `yaml:"not,omitempty"    json:"not,omitempty"`
-	Warden string   `yaml:"warden,omitempty" json:"warden,omitempty"`
+	All    []string `json:"all,omitempty"    yaml:"all,omitempty"`
+	Any    []string `json:"any,omitempty"    yaml:"any,omitempty"`
+	Not    []string `json:"not,omitempty"    yaml:"not,omitempty"`
+	Warden string   `json:"warden,omitempty" yaml:"warden,omitempty"`
 }

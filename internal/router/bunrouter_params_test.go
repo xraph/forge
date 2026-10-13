@@ -24,13 +24,13 @@ func TestBunRouterAdapter_PublishesTheTypedCarrier(t *testing.T) {
 			typedID, typedOK = rp.Get("id")
 		}
 
-		_, legacySet = r.Context().Value("forge:params").(map[string]string) //nolint:staticcheck // asserting its absence
+		_, legacySet = r.Context().Value("forge:params").(map[string]string)
 
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	rec := httptest.NewRecorder()
-	adapter.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+	adapter.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.True(t, typedOK, "the typed carrier must be published")
@@ -48,7 +48,7 @@ func TestRouter_ParamReachesTheHandlerThroughTheCarrier(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/42", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "42", rec.Body.String())

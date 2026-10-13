@@ -22,13 +22,13 @@ type MDNSBackend struct {
 	services map[string]*registeredService // service ID -> registered service
 	watchers map[string]*serviceWatcher    // service name -> watcher
 	mu       sync.RWMutex
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // backend's own lifecycle context, cancelled in Close
 	cancel   context.CancelFunc
 	logger   MDNSLogger
 }
 
-// log emits a diagnostic message via the configured logger (if any).
-func (b *MDNSBackend) log(format string, args ...any) {
+// logf emits a diagnostic message via the configured logger (if any).
+func (b *MDNSBackend) logf(format string, args ...any) {
 	if b.logger != nil {
 		b.logger(format, args...)
 	}
@@ -278,6 +278,7 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 				filtered = append(filtered, inst)
 			}
 		}
+
 		return filtered, nil
 	}
 
@@ -286,7 +287,7 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 
 // discoverByServiceType discovers services by specific mDNS service type.
 func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, serviceType string) ([]*ServiceInstance, error) {
-	b.log("[mdns] browse: type=%s domain=%s timeout=%s", serviceType, b.config.Domain, b.config.BrowseTimeout)
+	b.logf("[mdns] browse: type=%s domain=%s timeout=%s", serviceType, b.config.Domain, b.config.BrowseTimeout)
 
 	// Create resolver
 	resolver, err := zeroconf.NewResolver(nil)
@@ -322,13 +323,13 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			b.log("[mdns] browse timed out for %s (found %d entries)", serviceType, len(instanceMap))
+			b.logf("[mdns] browse timed out for %s (found %d entries)", serviceType, len(instanceMap))
 		} else {
 			return nil, fmt.Errorf("failed to browse services: %w", err)
 		}
 	}
 
-	b.log("[mdns] browse complete: type=%s found=%d", serviceType, len(instanceMap))
+	b.logf("[mdns] browse complete: type=%s found=%d", serviceType, len(instanceMap))
 
 	// Convert map to slice
 	for _, instance := range instanceMap {
@@ -523,21 +524,23 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 
 	// Include locally registered services
 	b.mu.RLock()
+
 	localCount := len(b.services)
 	for _, registered := range b.services {
 		services[registered.instance.Name] = true
 	}
+
 	b.mu.RUnlock()
 
-	b.log("[mdns] ListServices: %d local services, ServiceTypes=%v", localCount, b.config.ServiceTypes)
+	b.logf("[mdns] ListServices: %d local services, ServiceTypes=%v", localCount, b.config.ServiceTypes)
 
 	// Browse the network for remote services when ServiceTypes are configured
 	if len(b.config.ServiceTypes) > 0 {
 		if err := b.browseServiceNames(ctx, services); err != nil {
-			b.log("[mdns] ListServices: browseServiceNames failed: %v", err)
+			b.logf("[mdns] ListServices: browseServiceNames failed: %v", err)
 		}
 	} else {
-		b.log("[mdns] ListServices: no ServiceTypes configured, skipping network browse")
+		b.logf("[mdns] ListServices: no ServiceTypes configured, skipping network browse")
 	}
 
 	result := make([]string, 0, len(services))
@@ -545,7 +548,7 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 		result = append(result, name)
 	}
 
-	b.log("[mdns] ListServices: returning %d services: %v", len(result), result)
+	b.logf("[mdns] ListServices: returning %d services: %v", len(result), result)
 
 	return result, nil
 }
@@ -554,6 +557,7 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 // and adds discovered service names to the provided map.
 func (b *MDNSBackend) browseServiceNames(ctx context.Context, services map[string]bool) error {
 	var lastErr error
+
 	networkFound := 0
 
 	for _, serviceType := range b.config.ServiceTypes {
@@ -561,32 +565,38 @@ func (b *MDNSBackend) browseServiceNames(ctx context.Context, services map[strin
 
 		browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
 		instances, err := b.discoverByServiceType(browseCtx, serviceName, serviceType)
+
 		cancel()
 
 		if err != nil {
-			b.log("[mdns] browseServiceNames: browse failed for %s: %v", serviceType, err)
+			b.logf("[mdns] browseServiceNames: browse failed for %s: %v", serviceType, err)
 			lastErr = err
+
 			continue
 		}
 
 		if len(instances) == 0 {
-			b.log("[mdns] browseServiceNames: no instances found for %s, retrying once...", serviceType)
+			b.logf("[mdns] browseServiceNames: no instances found for %s, retrying once...", serviceType)
 			// Retry once with a fresh context — helps with intermittent mDNS timing
 			retryCtx, retryCancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
 			instances, err = b.discoverByServiceType(retryCtx, serviceName, serviceType)
+
 			retryCancel()
 
 			if err != nil {
-				b.log("[mdns] browseServiceNames: retry failed for %s: %v", serviceType, err)
+				b.logf("[mdns] browseServiceNames: retry failed for %s: %v", serviceType, err)
 				lastErr = err
+
 				continue
 			}
 		}
 
-		b.log("[mdns] browseServiceNames: found %d instances for %s", len(instances), serviceType)
+		b.logf("[mdns] browseServiceNames: found %d instances for %s", len(instances), serviceType)
+
 		for _, inst := range instances {
 			services[inst.Name] = true
 		}
+
 		networkFound += len(instances)
 	}
 

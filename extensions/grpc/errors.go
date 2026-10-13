@@ -2,7 +2,7 @@ package grpc
 
 import "errors"
 
-// Common gRPC errors
+// Common gRPC errors.
 var (
 	ErrNotStarted        = errors.New("grpc: server not started")
 	ErrAlreadyStarted    = errors.New("grpc: server already started")

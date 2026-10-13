@@ -26,6 +26,7 @@ func (e *LoggerAuditEmitter) Emit(_ context.Context, rec contract.AuditRecord) {
 	if e.logger == nil {
 		return
 	}
+
 	e.logger.Info("dashboard contract audit",
 		forge.Bool("audit", true),
 		forge.String("contributor", rec.Contributor),

@@ -14,8 +14,10 @@ import (
 
 func TestDispatcher_OpensSpanPerDispatch(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
+
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	defer func() { _ = tp.Shutdown(context.Background()) }()
+
 	otel.SetTracerProvider(tp)
 	tracer := tp.Tracer("test")
 
@@ -24,12 +26,13 @@ func TestDispatcher_OpensSpanPerDispatch(t *testing.T) {
 		return &Result{Data: json.RawMessage(`null`)}, nil
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "c", Intent: "i", IntentVersion: 1}
-	_, _, _ = d.Dispatch(context.Background(), req, contract.Principal{})
+	_ = dispatchErr(d, req)
 
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
+
 	s := spans[0]
 	if s.Name != "dispatch:c/i@1" {
 		t.Errorf("span name = %q", s.Name)
@@ -38,8 +41,10 @@ func TestDispatcher_OpensSpanPerDispatch(t *testing.T) {
 
 func TestDispatcher_SpanRecordsErrorCode(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
+
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	defer func() { _ = tp.Shutdown(context.Background()) }()
+
 	tracer := tp.Tracer("test")
 
 	d := NewWithOptions(NoopMetricsEmitter{}, WithTracer(tracer))
@@ -47,19 +52,23 @@ func TestDispatcher_SpanRecordsErrorCode(t *testing.T) {
 		return nil, &contract.Error{Code: contract.CodeConflict}
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindCommand, Contributor: "c", Intent: "i", IntentVersion: 1}
-	_, _, _ = d.Dispatch(context.Background(), req, contract.Principal{})
+	_ = dispatchErr(d, req)
 
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span")
 	}
+
 	found := false
+
 	for _, attr := range spans[0].Attributes {
 		if string(attr.Key) == "forge.contract.error_code" && attr.Value.AsString() == "CONFLICT" {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Errorf("expected error_code attribute, got attrs=%+v", spans[0].Attributes)
 	}
@@ -71,6 +80,7 @@ func TestDispatcher_NilTracerIsNoop(t *testing.T) {
 		return &Result{Data: json.RawMessage(`null`)}, nil
 	})
 	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "c", Intent: "i", IntentVersion: 1}
+
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
 	if err != nil {
 		t.Errorf("nil tracer should not affect dispatch: %v", err)

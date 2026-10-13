@@ -19,7 +19,7 @@ func TestBunRouterAdapter_BasicRoute(t *testing.T) {
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -39,7 +39,7 @@ func TestBunRouterAdapter_PathParams(t *testing.T) {
 
 	adapter.Handle("GET", "/users/:id", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/123", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -58,21 +58,21 @@ func TestBunRouterAdapter_Mount(t *testing.T) {
 	adapter.Mount("/api", handler)
 
 	// Test exact path
-	req1 := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api", nil)
 	rec1 := httptest.NewRecorder()
 	adapter.ServeHTTP(rec1, req1)
 	assert.Equal(t, 200, rec1.Code)
 	assert.Contains(t, rec1.Body.String(), "mounted")
 
 	// Test sub-path
-	req2 := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/users", nil)
 	rec2 := httptest.NewRecorder()
 	adapter.ServeHTTP(rec2, req2)
 	assert.Equal(t, 200, rec2.Code)
 	assert.Contains(t, rec2.Body.String(), "mounted")
 
 	// Test with POST method
-	req3 := httptest.NewRequest(http.MethodPost, "/api/data", nil)
+	req3 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/data", nil)
 	rec3 := httptest.NewRecorder()
 	adapter.ServeHTTP(rec3, req3)
 	assert.Equal(t, 200, rec3.Code)
@@ -89,7 +89,7 @@ func TestBunRouterAdapter_MountWithWildcard(t *testing.T) {
 	adapter.Mount("/files/*", handler)
 
 	// Test wildcard path
-	req := httptest.NewRequest(http.MethodGet, "/files/test.txt", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/test.txt", nil)
 	rec := httptest.NewRecorder()
 	adapter.ServeHTTP(rec, req)
 	assert.Equal(t, 200, rec.Code)
@@ -99,7 +99,7 @@ func TestBunRouterAdapter_MountWithWildcard(t *testing.T) {
 func TestBunRouterAdapter_NotFound(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -125,7 +125,7 @@ func TestBunRouterAdapter_WildcardRoute(t *testing.T) {
 	// Test unnamed wildcard - should be auto-converted
 	adapter.Handle("GET", "/static/*", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/static/css/style.css", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/static/css/style.css", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -156,7 +156,7 @@ func TestBunRouterAdapter_ComplexWildcardRoute(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 		rec := httptest.NewRecorder()
 
 		adapter.ServeHTTP(rec, req)
@@ -222,12 +222,13 @@ func TestBunRouterAdapter_TrailingSlashNormalization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			adapter.ServeHTTP(rec, req)
 
 			assert.Equal(t, tt.expectCode, rec.Code, "status code for %s %s", tt.method, tt.path)
+
 			if tt.expectBody != "" {
 				assert.Equal(t, tt.expectBody, rec.Body.String())
 			}
@@ -239,6 +240,7 @@ func TestBunRouterAdapter_TrailingSlashWithGlobalMiddleware(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	var observedPath string
+
 	middleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			observedPath = r.URL.Path
@@ -254,7 +256,7 @@ func TestBunRouterAdapter_TrailingSlashWithGlobalMiddleware(t *testing.T) {
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test/", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -273,7 +275,7 @@ func TestBunRouterAdapter_TrailingSlashRootPreserved(t *testing.T) {
 
 	adapter.Handle("GET", "/", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -303,7 +305,7 @@ func TestBunRouterAdapter_EchoStyleParams(t *testing.T) {
 	// Echo-style :provider syntax
 	adapter.Handle("GET", "/callback/:provider", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/callback/google", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback/google", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -333,7 +335,7 @@ func TestBunRouterAdapter_ChiStyleParams(t *testing.T) {
 	// Chi/Gorilla-style {provider} syntax
 	adapter.Handle("GET", "/callback/{provider}", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/callback/github", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback/github", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -364,7 +366,7 @@ func TestBunRouterAdapter_MultipleParamStyles(t *testing.T) {
 	// Mixed style - both should work
 	adapter.Handle("GET", "/users/{userId}/posts/{postId}", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123/posts/456", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/123/posts/456", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)

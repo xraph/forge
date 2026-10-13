@@ -27,7 +27,7 @@ func TestCORS_RegularRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	// No Origin header - not a CORS request
 	rec := httptest.NewRecorder()
 	ctx := forge_http.NewContext(rec, req, nil)
@@ -70,7 +70,7 @@ func TestCORS_PreflightRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "Content-Type, Authorization")
@@ -101,7 +101,7 @@ func TestCORS_PreflightWithDisallowedMethod(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "DELETE") // Not allowed
 
@@ -127,7 +127,7 @@ func TestCORS_PreflightWithDisallowedHeader(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "X-Custom-Header") // Not allowed
@@ -150,7 +150,7 @@ func TestCORS_NonPreflightOptions(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 	// No Access-Control-Request-Method header - not a CORS preflight
 	rec := httptest.NewRecorder()
@@ -177,7 +177,7 @@ func TestCORS_WithCredentials(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -222,7 +222,7 @@ func TestCORS_SpecificOriginAllowed(t *testing.T) {
 	})
 
 	// Test allowed origin
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -250,7 +250,7 @@ func TestCORS_SpecificOriginDenied(t *testing.T) {
 	})
 
 	// Test disallowed origin
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://evil.com")
 
 	rec := httptest.NewRecorder()
@@ -278,7 +278,7 @@ func TestCORS_WildcardSubdomain(t *testing.T) {
 	})
 
 	// Test matching subdomain
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://app.example.com")
 
 	rec := httptest.NewRecorder()
@@ -291,7 +291,7 @@ func TestCORS_WildcardSubdomain(t *testing.T) {
 	assert.Equal(t, "https://app.example.com", rec.Header().Get("Access-Control-Allow-Origin"))
 
 	// Test non-matching origin
-	req2 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req2.Header.Set("Origin", "https://evil.com")
 
 	rec2 := httptest.NewRecorder()
@@ -327,7 +327,7 @@ func TestCORS_VaryHeader(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -354,7 +354,7 @@ func TestCORS_EmptyOriginsList(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -381,7 +381,7 @@ func TestCORS_CaseInsensitiveHeaders(t *testing.T) {
 	})
 
 	// Test preflight with different header casing
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/test", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "content-type, AUTHORIZATION") // Different casing

@@ -98,6 +98,7 @@ type JWTClaims struct {
 	Email    string         `json:"email,omitempty"`
 	Roles    []string       `json:"roles,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+	//nolint:embeddedstructfieldcheck // moving it reorders an exported struct and breaks callers' unkeyed literals
 	jwt.RegisteredClaims
 }
 

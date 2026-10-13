@@ -309,9 +309,11 @@ func (t *codecTable) codecIDFor(parentID, prop string, schema *client.Schema, sp
 	switch {
 	case schema.Type == "array" && schema.Items != nil:
 		t.add(synthetic, spec, schema)
+
 		return synthetic
 	case len(schema.Properties) > 0:
 		t.add(synthetic, spec, schema)
+
 		return synthetic
 	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0:
 		// AllOf included alongside OneOf/AnyOf (Gap 2): a property whose
@@ -320,11 +322,13 @@ func (t *codecTable) codecIDFor(parentID, prop string, schema *client.Schema, sp
 		// return "" (no codec), leaving it unwalked even though it renders
 		// as a real object (an intersection type) on the TypeScript side.
 		t.add(synthetic, spec, schema)
+
 		return synthetic
 	}
 
 	if _, ok := additionalPropsSchema(schema.AdditionalProperties); ok {
 		t.add(synthetic, spec, schema)
+
 		return synthetic
 	}
 
@@ -359,10 +363,12 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 	switch {
 	case len(schema.OneOf) > 0 || len(schema.AnyOf) > 0:
 		t.entries[id] = t.unionEntry(id, schema, spec)
+
 		return
 
 	case len(schema.AllOf) > 0:
 		t.entries[id] = t.allOfEntry(id, schema, spec)
+
 		return
 
 	case schema.Type == "array" && schema.Items != nil:
@@ -442,6 +448,7 @@ func (t *codecTable) add(id string, spec *client.APISpec, schema *client.Schema)
 func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.APISpec) codecEntry {
 	members := schema.OneOf
 	token := "oneOf"
+
 	if len(members) == 0 {
 		members = schema.AnyOf
 		token = "anyOf"
@@ -466,6 +473,7 @@ func (t *codecTable) unionEntry(id string, schema *client.Schema, spec *client.A
 			// or later -- so calling it eagerly here is always safe.
 			t.add(name, spec, spec.Schemas[name])
 			memberIDs = append(memberIDs, name)
+
 			continue
 		}
 
@@ -607,6 +615,7 @@ func (t *codecTable) checkDiscriminatorNameAgreement(id, wire string, memberIDs 
 		for name := range names {
 			sorted = append(sorted, name)
 		}
+
 		sort.Strings(sorted)
 
 		t.warnings = append(t.warnings, fmt.Sprintf(
@@ -895,6 +904,7 @@ func (t *codecTable) allOfEntry(id string, schema *client.Schema, spec *client.A
 	fields := map[string]codecField{}
 	fieldCodec := map[string]string{}
 	conflicts := map[string]bool{}
+
 	var required []string
 
 	for _, layer := range layers {

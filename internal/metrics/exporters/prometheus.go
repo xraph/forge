@@ -67,6 +67,7 @@ func newBridge(fc *forgeCollector, cfg PrometheusConfig) *PrometheusBridge {
 	if cfg.EnableGoCollector {
 		reg.MustRegister(collectors.NewGoCollector())
 	}
+
 	if cfg.EnableProcessCollector {
 		reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	}
@@ -87,6 +88,7 @@ func (b *PrometheusBridge) GatherText() ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
+
 	enc := expfmt.NewEncoder(&buf, expfmt.NewFormat(expfmt.TypeTextPlain))
 	for _, mf := range mfs {
 		if err := enc.Encode(mf); err != nil {
@@ -191,15 +193,20 @@ func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
 		// signature overwrites an earlier one, preventing duplicate-metric errors
 		// from client_golang's Gather while honouring the documented contract.
 		unique := make(map[string]series)
+
 		var order []string
+
 		for _, s := range list {
 			vals := alignValues(keys, s.labels)
+
 			sig := strings.Join(vals, "\x1f")
 			if _, exists := unique[sig]; !exists {
 				order = append(order, sig)
 			}
+
 			unique[sig] = s // last assignment wins
 		}
+
 		for _, sig := range order {
 			s := unique[sig]
 			vals := alignValues(keys, s.labels)
@@ -252,6 +259,7 @@ func scalarValueType(fqName string) (prometheus.ValueType, string) {
 	if strings.HasSuffix(fqName, "_total") {
 		return prometheus.CounterValue, "counter"
 	}
+
 	return prometheus.GaugeValue, "gauge"
 }
 
@@ -367,6 +375,7 @@ func toUint64(v any) (uint64, bool) {
 			return uint64(n), true
 		}
 	}
+
 	return 0, false
 }
 
@@ -377,21 +386,23 @@ func toUint64(v any) (uint64, bool) {
 // parseMetricKey splits `name{tag="v",...}` into the base name and label map.
 // Keys without a brace (dotted custom-collector keys) return no labels.
 func parseMetricKey(key string) (string, map[string]string) {
-	brace := strings.Index(key, "{")
-	if brace == -1 {
+	before, after, ok := strings.Cut(key, "{")
+	if !ok {
 		return key, nil
 	}
 
-	name := key[:brace]
-	tagsStr := strings.TrimSuffix(key[brace+1:], "}")
+	name := before
+	tagsStr := strings.TrimSuffix(after, "}")
 	labels := make(map[string]string)
 
-	for _, pair := range strings.Split(tagsStr, ",") {
+	for pair := range strings.SplitSeq(tagsStr, ",") {
 		kv := strings.SplitN(pair, "=", 2)
 		if len(kv) != 2 {
 			continue
 		}
+
 		k := strings.TrimSpace(kv[0])
+
 		val := strings.Trim(strings.TrimSpace(kv[1]), `"`)
 		if k != "" {
 			labels[k] = val
@@ -407,12 +418,14 @@ func buildFQName(namespace, name string) string {
 	if namespace == "" {
 		return n
 	}
+
 	return sanitizeName(namespace) + "_" + n
 }
 
 // sanitizeName replaces characters invalid in Prometheus names with underscore.
 func sanitizeName(s string) string {
 	var b strings.Builder
+
 	for i, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == ':':
@@ -423,22 +436,27 @@ func sanitizeName(s string) string {
 			b.WriteRune('_')
 		}
 	}
+
 	return b.String()
 }
 
 // unionKeys returns the sanitized, sorted union of label keys across all series.
 func unionKeys(list []series) []string {
 	set := make(map[string]struct{})
+
 	for _, s := range list {
 		for k := range s.labels {
 			set[sanitizeName(k)] = struct{}{}
 		}
 	}
+
 	keys := make([]string, 0, len(set))
 	for k := range set {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
+
 	return keys
 }
 
@@ -448,10 +466,12 @@ func alignValues(keys []string, labels map[string]string) []string {
 	for k, v := range labels {
 		sanitized[sanitizeName(k)] = v
 	}
+
 	vals := make([]string, len(keys))
 	for i, k := range keys {
 		vals[i] = sanitized[k]
 	}
+
 	return vals
 }
 

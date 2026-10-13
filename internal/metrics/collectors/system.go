@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"runtime"
 	"strconv"
@@ -147,9 +148,8 @@ func (sc *SystemCollector) Collect() map[string]any {
 
 	if !sc.enabled {
 		result := make(map[string]any, len(sc.metrics))
-		for k, v := range sc.metrics {
-			result[k] = v
-		}
+		maps.Copy(result, sc.metrics)
+
 		return result
 	}
 
@@ -158,9 +158,8 @@ func (sc *SystemCollector) Collect() map[string]any {
 	// Only collect if enough time has passed
 	if !sc.lastCollectionTime.IsZero() && now.Sub(sc.lastCollectionTime) < sc.interval {
 		result := make(map[string]any, len(sc.metrics))
-		for k, v := range sc.metrics {
-			result[k] = v
-		}
+		maps.Copy(result, sc.metrics)
+
 		return result
 	}
 
@@ -193,9 +192,8 @@ func (sc *SystemCollector) Collect() map[string]any {
 
 	// Return a copy to prevent concurrent access to the internal map
 	result := make(map[string]any, len(sc.metrics))
-	for k, v := range sc.metrics {
-		result[k] = v
-	}
+	maps.Copy(result, sc.metrics)
+
 	return result
 }
 

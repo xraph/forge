@@ -341,7 +341,7 @@ func WithValidationErrorResponse() RouteOption {
 func GetSchemaFromType(t reflect.Type) *Schema {
 	gen := newSchemaGenerator(nil, nil) // Inline schema generation
 
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 

@@ -132,6 +132,7 @@ func TestCodecTableHandlesSelfReference(t *testing.T) {
 	}
 
 	done := make(chan string, 1)
+
 	go func() {
 		code := codecLayerText(spec, baseConfig())
 		done <- code
@@ -1063,6 +1064,7 @@ func TestCodecTableAllOfWithPolymorphicMemberWarnsWithoutEmptyingFields(t *testi
 		"OwnBase's fields must still be present -- this is a warn-and-degrade case, not an empty-fields one")
 
 	var polyWarning string
+
 	for _, w := range warnings {
 		if strings.Contains(w, `"AllOfWithOneOf"`) && strings.Contains(w, `"UnionMember"`) {
 			polyWarning = w
@@ -1247,6 +1249,7 @@ func TestCodecTableUnionCycleEvidenceFreeWarningNamesCycleNotPassthrough(t *test
 	spec.Schemas["UB"] = &client.Schema{OneOf: []*client.Schema{{Ref: "#/components/schemas/UA"}}}
 
 	done := make(chan []string, 1)
+
 	go func() {
 		_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
 		done <- warnings
@@ -1260,6 +1263,7 @@ func TestCodecTableUnionCycleEvidenceFreeWarningNamesCycleNotPassthrough(t *test
 	}
 
 	var cyclicWarning string
+
 	for _, w := range warnings {
 		if strings.Contains(w, "cyclic reference back to a schema still being built") {
 			cyclicWarning = w
@@ -1312,6 +1316,7 @@ func TestCodecTableAllOfWithPolymorphicMemberWarningStatesCollisionLimitation(t 
 	_, warnings := NewCodecGenerator().Generate(spec, baseConfig())
 
 	var polyWarning string
+
 	for _, w := range warnings {
 		if strings.Contains(w, `"Addr"`) && strings.Contains(w, `"Poly"`) {
 			polyWarning = w

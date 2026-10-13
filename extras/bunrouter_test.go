@@ -18,7 +18,7 @@ func TestBunRouterAdapter_BasicRoute(t *testing.T) {
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -38,7 +38,7 @@ func TestBunRouterAdapter_PathParams(t *testing.T) {
 
 	adapter.Handle("GET", "/users/:id", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/123", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -64,7 +64,7 @@ func TestBunRouterAdapter_Mount(t *testing.T) {
 func TestBunRouterAdapter_NotFound(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -101,11 +101,11 @@ func TestBunRouterAdapter_RendersForgePathsIntoBunRouterSyntax(t *testing.T) {
 func TestBunRouterAdapter_BraceParameterCaptures(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 	adapter.Handle("GET", "/users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 
 	rec := httptest.NewRecorder()
-	adapter.ServeHTTP(rec, httptest.NewRequest("GET", "/users/42", nil))
+	adapter.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil))
 
 	assert.Equal(t, 200, rec.Code, "a brace parameter must capture a real segment")
 }

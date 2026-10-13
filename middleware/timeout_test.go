@@ -17,7 +17,7 @@ func TestTimeout_NoTimeout(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -34,7 +34,7 @@ func TestTimeout_WithTimeout(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -51,7 +51,7 @@ func TestTimeout_NilLogger(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

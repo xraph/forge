@@ -205,6 +205,13 @@ linters:
           - errcheck
           - dupl
           - gosec
+      # The forge CLI writes scaffolded project files: source, configs, compose
+      # and k8s manifests, READMEs. Other people and container builds read
+      # those, so 0644 is the right mode for them.
+      - path: ^cmd/forge/
+        linters:
+          - gosec
+        text: "G306:"
       # Exclude some `staticcheck` messages.
       - linters:
           - staticcheck

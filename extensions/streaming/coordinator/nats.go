@@ -290,6 +290,7 @@ func (nc *natsCoordinator) SyncRoomState(ctx context.Context, roomID string, sta
 	if err != nil {
 		return fmt.Errorf("failed to marshal room state: %w", err)
 	}
+
 	if _, err := kv.Put(roomID, stateData); err != nil {
 		return fmt.Errorf("failed to store room state: %w", err)
 	}
@@ -384,6 +385,7 @@ func (nc *natsCoordinator) RegisterNode(ctx context.Context, nodeID string, meta
 	if err != nil {
 		return fmt.Errorf("failed to marshal coordinator message: %w", err)
 	}
+
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
 
 	return err
@@ -412,6 +414,7 @@ func (nc *natsCoordinator) UnregisterNode(ctx context.Context, nodeID string) er
 	if marshalErr != nil {
 		return fmt.Errorf("failed to marshal coordinator message: %w", marshalErr)
 	}
+
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
 
 	return err
@@ -424,23 +427,26 @@ func (nc *natsCoordinator) Subscribe(ctx context.Context, handler MessageHandler
 	return nil
 }
 
+// messageHandler drops Ack and Nak errors on purpose. There is no logger here
+// and no recovery path: if a settle call is lost, JetStream redelivers the
+// message once AckWait expires, which is the outcome a retry would give anyway.
 func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 	if nc.handler == nil {
-		msg.Ack()
+		_ = msg.Ack()
 
 		return
 	}
 
 	var coordMsg CoordinatorMessage
 	if err := json.Unmarshal(msg.Data, &coordMsg); err != nil {
-		msg.Nak()
+		_ = msg.Nak()
 
 		return
 	}
 
 	// Skip messages from this node
 	if coordMsg.NodeID == nc.nodeID {
-		msg.Ack()
+		_ = msg.Ack()
 
 		return
 	}
@@ -448,10 +454,10 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 	// Call handler
 	ctx := context.Background()
 	if err := nc.handler(ctx, &coordMsg); err != nil {
-		msg.Nak()
+		_ = msg.Nak()
 
 		return
 	}
 
-	msg.Ack()
+	_ = msg.Ack()
 }

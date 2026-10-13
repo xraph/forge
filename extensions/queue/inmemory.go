@@ -337,13 +337,9 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 						}
 
 						mq.mu.Unlock()
-					} else {
-						// Success - auto-ack if enabled
-						if opts.AutoAck {
-							// Message successfully processed, no further action needed
-						}
-						// If not AutoAck, message stays in inflight for manual Ack/Nack
 					}
+					// On success there's nothing to do here: with AutoAck the message
+					// is already gone, otherwise it waits in inflight for Ack/Nack.
 				}
 			}
 		}()

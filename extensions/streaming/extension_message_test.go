@@ -401,7 +401,6 @@ func TestExtension_HandleMessageUsesConnectionUserForTypingAndPresence(t *testin
 }
 
 func TestExtension_HandleMessageOverwritesClientUserID(t *testing.T) {
-
 	mgr := &recordingManager{}
 	ext := newTestExtension(testConfig(), mgr)
 

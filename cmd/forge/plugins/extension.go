@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/extension.go
 package plugins
 
 import (
@@ -35,14 +34,14 @@ func (p *ExtensionPlugin) Commands() []cli.Command {
 	)
 
 	// Add subcommands
-	extensionCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(extensionCmd, cli.NewCommand(
 		"list",
 		"List available Forge extensions",
 		p.listExtensions,
 		cli.WithAliases("ls"),
 	))
 
-	extensionCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(extensionCmd, cli.NewCommand(
 		"info",
 		"Show extension information",
 		p.extensionInfo,

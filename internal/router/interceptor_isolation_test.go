@@ -62,7 +62,7 @@ func TestGroupInterceptorsAreNotSharedBetweenRoutes(t *testing.T) {
 	mu.Unlock()
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/private", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/private", nil))
 
 	mu.Lock()
 
@@ -91,7 +91,7 @@ func TestBorrowedValuesMapIsNotReturnedToThePool(t *testing.T) {
 	newCtx := func() Context {
 		return forge_http.NewContext(
 			httptest.NewRecorder(),
-			httptest.NewRequest(http.MethodGet, "/", nil),
+			httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil),
 			nil,
 		)
 	}
@@ -126,7 +126,7 @@ func TestBorrowedValuesMapIsNotReturnedToThePool(t *testing.T) {
 func TestParallelInterceptorsDoNotRaceOnContext(t *testing.T) {
 	ctx := forge_http.NewContext(
 		httptest.NewRecorder(),
-		httptest.NewRequest(http.MethodGet, "/dashboard", nil),
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dashboard", nil),
 		nil,
 	)
 
@@ -157,7 +157,7 @@ func TestParallelInterceptorsDoNotRaceOnContext(t *testing.T) {
 func TestDetachedSyncContextStopsWriting(t *testing.T) {
 	inner := forge_http.NewContext(
 		httptest.NewRecorder(),
-		httptest.NewRequest(http.MethodGet, "/", nil),
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil),
 		nil,
 	)
 	inner.Set("owner", "request-1")

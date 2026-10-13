@@ -97,6 +97,7 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 	// Parse redis:// or rediss:// URLs via go-redis's ParseURL
 	if strings.HasPrefix(addr, "redis://") || strings.HasPrefix(addr, "rediss://") {
 		var err error
+
 		opts, err = redis.ParseURL(addr)
 		if err != nil {
 			return fmt.Errorf("failed to parse redis URL: %w", redactURLError(err))
@@ -111,24 +112,31 @@ func (q *RedisQueue) Connect(ctx context.Context) error {
 	if q.config.Password != "" {
 		opts.Password = q.config.Password
 	}
+
 	if q.config.Username != "" {
 		opts.Username = q.config.Username
 	}
+
 	if q.config.MaxRetries > 0 {
 		opts.MaxRetries = q.config.MaxRetries
 	}
+
 	if q.config.ConnectTimeout > 0 {
 		opts.DialTimeout = q.config.ConnectTimeout
 	}
+
 	if q.config.ReadTimeout > 0 {
 		opts.ReadTimeout = q.config.ReadTimeout
 	}
+
 	if q.config.WriteTimeout > 0 {
 		opts.WriteTimeout = q.config.WriteTimeout
 	}
+
 	if q.config.MaxConnections > 0 {
 		opts.PoolSize = q.config.MaxConnections
 	}
+
 	if q.config.MaxIdleConnections > 0 {
 		opts.MinIdleConns = q.config.MaxIdleConnections
 	}

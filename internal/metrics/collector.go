@@ -557,6 +557,7 @@ func (c *collector) QueryMetricRange(name string, start, end time.Time) []TimeSe
 	}
 
 	var points []TimeSeriesDataPoint
+
 	for _, series := range result.Data {
 		for _, p := range series.Points {
 			points = append(points, TimeSeriesDataPoint{
@@ -670,6 +671,7 @@ func (c *collector) PrometheusHandler() http.Handler {
 	if c.promBridge == nil {
 		return http.NotFoundHandler()
 	}
+
 	return c.promBridge.Handler()
 }
 

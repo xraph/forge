@@ -36,8 +36,10 @@ func (m *mockMigratableExtension) MigrationStatus(_ context.Context) ([]*Migrati
 
 func TestMigratableExtension_InterfaceCompliance(t *testing.T) {
 	// Verify that mockMigratableExtension satisfies both interfaces.
-	var _ Extension = (*mockMigratableExtension)(nil)
-	var _ MigratableExtension = (*mockMigratableExtension)(nil)
+	var (
+		_ Extension           = (*mockMigratableExtension)(nil)
+		_ MigratableExtension = (*mockMigratableExtension)(nil)
+	)
 }
 
 func TestMigratableExtension_TypeAssertion(t *testing.T) {
@@ -45,6 +47,7 @@ func TestMigratableExtension_TypeAssertion(t *testing.T) {
 
 	// MigratableExtension embeds Extension, so type assertion should work both ways.
 	var e Extension = ext
+
 	m, ok := e.(MigratableExtension)
 	if !ok {
 		t.Fatal("expected Extension to be assertable to MigratableExtension")
@@ -60,6 +63,7 @@ func TestMigratableExtension_NonMigratableTypeAssertion(t *testing.T) {
 	ext := &plainExtension{name: "plain"}
 
 	var e Extension = ext
+
 	_, ok := e.(MigratableExtension)
 	if ok {
 		t.Fatal("expected plain Extension to NOT be assertable to MigratableExtension")
@@ -71,9 +75,11 @@ func TestMigrationResult_ZeroValue(t *testing.T) {
 	if result.Applied != 0 {
 		t.Errorf("expected Applied to be 0, got %d", result.Applied)
 	}
+
 	if result.RolledBack != 0 {
 		t.Errorf("expected RolledBack to be 0, got %d", result.RolledBack)
 	}
+
 	if result.Names != nil {
 		t.Errorf("expected Names to be nil, got %v", result.Names)
 	}
@@ -93,18 +99,23 @@ func TestMigrationGroupInfo_Structure(t *testing.T) {
 	if info.Name != "core" {
 		t.Errorf("expected name 'core', got '%s'", info.Name)
 	}
+
 	if len(info.Applied) != 1 {
 		t.Fatalf("expected 1 applied, got %d", len(info.Applied))
 	}
+
 	if len(info.Pending) != 1 {
 		t.Fatalf("expected 1 pending, got %d", len(info.Pending))
 	}
+
 	if info.Applied[0].Name != "create_users" {
 		t.Errorf("expected applied name 'create_users', got '%s'", info.Applied[0].Name)
 	}
+
 	if info.Applied[0].Applied != true {
 		t.Error("expected Applied to be true")
 	}
+
 	if info.Pending[0].AppliedAt != "" {
 		t.Errorf("expected empty AppliedAt for pending, got '%s'", info.Pending[0].AppliedAt)
 	}

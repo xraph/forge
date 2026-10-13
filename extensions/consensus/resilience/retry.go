@@ -272,11 +272,12 @@ func (rm *RetryManager) collectStatistics() {
 		}
 
 		// Categorize by operation type
-		if len(event.Operation) > 4 && event.Operation[:3] == "rpc" {
+		switch {
+		case len(event.Operation) > 4 && event.Operation[:3] == "rpc":
 			rm.stats.RPCRetries++
-		} else if len(event.Operation) > 11 && event.Operation[:11] == "replication" {
+		case len(event.Operation) > 11 && event.Operation[:11] == "replication":
 			rm.stats.ReplicationRetries++
-		} else if len(event.Operation) > 8 && event.Operation[:8] == "snapshot" {
+		case len(event.Operation) > 8 && event.Operation[:8] == "snapshot":
 			rm.stats.SnapshotRetries++
 		}
 	}
@@ -292,7 +293,7 @@ func (rm *RetryManager) Close() {
 	close(rm.statsChan)
 }
 
-// IsRetryable determines if an error is retryable.
+// IsRetryableError determines if an error is retryable.
 func IsRetryableError(err error) bool {
 	if err == nil {
 		return false

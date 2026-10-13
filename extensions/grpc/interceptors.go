@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// buildUnaryInterceptors creates chain of unary interceptors
+// buildUnaryInterceptors creates chain of unary interceptors.
 func (s *grpcServer) buildUnaryInterceptors() []grpc.UnaryServerInterceptor {
 	var interceptors []grpc.UnaryServerInterceptor
 
@@ -36,7 +36,7 @@ func (s *grpcServer) buildUnaryInterceptors() []grpc.UnaryServerInterceptor {
 	return interceptors
 }
 
-// buildStreamInterceptors creates chain of stream interceptors
+// buildStreamInterceptors creates chain of stream interceptors.
 func (s *grpcServer) buildStreamInterceptors() []grpc.StreamServerInterceptor {
 	var interceptors []grpc.StreamServerInterceptor
 
@@ -63,9 +63,9 @@ func (s *grpcServer) buildStreamInterceptors() []grpc.StreamServerInterceptor {
 	return interceptors
 }
 
-// loggingUnaryInterceptor logs all unary RPC calls
+// loggingUnaryInterceptor logs all unary RPC calls.
 func (s *grpcServer) loggingUnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
 		s.logger.Debug("grpc unary call start",
@@ -93,9 +93,9 @@ func (s *grpcServer) loggingUnaryInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// metricsUnaryInterceptor records metrics for unary RPCs
+// metricsUnaryInterceptor records metrics for unary RPCs.
 func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
 		// Increment started counter
@@ -149,9 +149,9 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// tracingUnaryInterceptor adds tracing to unary RPCs
+// tracingUnaryInterceptor adds tracing to unary RPCs.
 func (s *grpcServer) tracingUnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		// Extract trace context from metadata
 		// Add trace span
 		// TODO: Integrate with Forge's tracing system when available
@@ -161,9 +161,9 @@ func (s *grpcServer) tracingUnaryInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// loggingStreamInterceptor logs stream RPCs
+// loggingStreamInterceptor logs stream RPCs.
 func (s *grpcServer) loggingStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 
 		s.logger.Debug("grpc stream call start",
@@ -193,9 +193,9 @@ func (s *grpcServer) loggingStreamInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-// metricsStreamInterceptor records metrics for stream RPCs
+// metricsStreamInterceptor records metrics for stream RPCs.
 func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 
 		// Track active streams
@@ -241,11 +241,12 @@ func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-// tracingStreamInterceptor adds tracing to stream RPCs
+// tracingStreamInterceptor adds tracing to stream RPCs.
 func (s *grpcServer) tracingStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		// TODO: Integrate with Forge's tracing system
 		s.logger.Debug("grpc stream tracing", forge.F("method", info.FullMethod))
+
 		return handler(srv, ss)
 	}
 }

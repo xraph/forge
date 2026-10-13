@@ -34,7 +34,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any)
 		return components, nil
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -60,9 +60,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType any)
 
 	var bodyRequired []string
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -213,9 +211,7 @@ func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructF
 	defer release()
 
 	// Recursively process embedded struct fields
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -397,7 +393,7 @@ func isFieldRequired(field reflect.StructField) bool {
 	}
 
 	// Non-pointer types without omitempty are required
-	if field.Type.Kind() != reflect.Ptr {
+	if field.Type.Kind() != reflect.Pointer {
 		return true
 	}
 
@@ -435,7 +431,7 @@ func hasUnifiedTags(schemaType any) bool {
 // function exists to prevent. The visited set distinguishes the two cases, so
 // the gate now agrees with extractUnifiedRequestComponents at every depth.
 func typeHasUnifiedTags(rt reflect.Type, visited visitedTypes) bool {
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -443,9 +439,7 @@ func typeHasUnifiedTags(rt reflect.Type, visited visitedTypes) bool {
 		return false
 	}
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		// Check for unified tags
 		if field.Tag.Get("path") != "" ||
 			field.Tag.Get("query") != "" ||
@@ -486,7 +480,7 @@ func inferRequestComponents(schemaType any) string {
 		return "body"
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -498,9 +492,7 @@ func inferRequestComponents(schemaType any) string {
 	hasHeader := false
 	hasBody := false
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		if field.Tag.Get("query") != "" {
 			hasQuery = true
 		}

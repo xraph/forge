@@ -34,15 +34,16 @@ const (
 	maxAuditListLimit     = 1000
 )
 
-// NewInMemoryAuditStore returns a store that keeps the most recent `cap`
-// records in a ring buffer. cap <= 0 defaults to 1000.
-func NewInMemoryAuditStore(cap int) AuditStore {
-	if cap <= 0 {
-		cap = 1000
+// NewInMemoryAuditStore returns a store that keeps the most recent `capacity`
+// records in a ring buffer. capacity <= 0 defaults to 1000.
+func NewInMemoryAuditStore(capacity int) AuditStore {
+	if capacity <= 0 {
+		capacity = 1000
 	}
+
 	return &memAuditStore{
-		buf: make([]AuditRecord, 0, cap),
-		cap: cap,
+		buf: make([]AuditRecord, 0, capacity),
+		cap: capacity,
 	}
 }
 
@@ -62,6 +63,7 @@ func (s *memAuditStore) Append(rec AuditRecord) {
 		copy(s.buf, s.buf[1:])
 		s.buf = s.buf[:len(s.buf)-1]
 	}
+
 	s.buf = append(s.buf, rec)
 	subs := append([]chan AuditRecord(nil), s.subs...)
 	s.mu.Unlock()
@@ -79,11 +81,14 @@ func (s *memAuditStore) List(filter AuditFilter) []AuditRecord {
 	if limit <= 0 {
 		limit = defaultAuditListLimit
 	}
+
 	if limit > maxAuditListLimit {
 		limit = maxAuditListLimit
 	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	out := make([]AuditRecord, 0, limit)
 	// walk newest -> oldest
 	for i := len(s.buf) - 1; i >= 0 && len(out) < limit; i-- {
@@ -91,36 +96,45 @@ func (s *memAuditStore) List(filter AuditFilter) []AuditRecord {
 		if filter.Contributor != "" && rec.Contributor != filter.Contributor {
 			continue
 		}
+
 		if filter.Intent != "" && rec.Intent != filter.Intent {
 			continue
 		}
+
 		if filter.User != "" && rec.User != filter.User {
 			continue
 		}
+
 		if filter.Result != "" && rec.Result != filter.Result {
 			continue
 		}
+
 		out = append(out, rec)
 	}
+
 	return out
 }
 
 func (s *memAuditStore) Subscribe() (<-chan AuditRecord, func()) {
 	ch := make(chan AuditRecord, 32)
+
 	s.mu.Lock()
 	s.subs = append(s.subs, ch)
 	s.mu.Unlock()
+
 	cancel := func() {
 		s.mu.Lock()
 		for i, c := range s.subs {
 			if c == ch {
 				s.subs = append(s.subs[:i], s.subs[i+1:]...)
+
 				break
 			}
 		}
 		s.mu.Unlock()
 		close(ch)
 	}
+
 	return ch, cancel
 }
 
@@ -140,6 +154,7 @@ func (e *recordingEmitter) Emit(ctx context.Context, rec AuditRecord) {
 	if e.store != nil {
 		e.store.Append(rec)
 	}
+
 	if e.inner != nil {
 		e.inner.Emit(ctx, rec)
 	}

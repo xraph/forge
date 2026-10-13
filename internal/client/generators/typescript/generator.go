@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/errors"
@@ -104,10 +106,9 @@ func enumTSType(schema *client.Schema) string {
 	for _, v := range schema.Enum {
 		switch tv := v.(type) {
 		case string:
-			b, _ := json.Marshal(tv)
-			parts = append(parts, string(b))
+			parts = append(parts, jsonString(tv))
 		case bool:
-			parts = append(parts, fmt.Sprintf("%t", tv))
+			parts = append(parts, strconv.FormatBool(tv))
 		case nil:
 			parts = append(parts, "null")
 		default:
@@ -324,9 +325,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 			// One module per hook, which is what makes importing a single
 			// hook cost a single hook. hooks.ts above is now only the barrel
 			// over these.
-			for name, content := range facadeGen.GenerateModules(spec, config) {
-				genClient.Files[name] = content
-			}
+			maps.Copy(genClient.Files, facadeGen.GenerateModules(spec, config))
 
 			// Declared so a hook withdrawn from the specification is deleted
 			// rather than left behind: rewriting hooks.ts drops it from the
@@ -355,9 +354,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		// assembles from. Splitting them out is what lets a consumer reach one
 		// operation, or just the entities table, without reaching all of them
 		// -- ops.ts itself still names everything, by definition.
-		for name, content := range opsGen.GenerateModules(spec, config) {
-			genClient.Files[name] = content
-		}
+		maps.Copy(genClient.Files, opsGen.GenerateModules(spec, config))
 
 		// Same reason as src/hooks: an operation removed from the document
 		// disappears from the assembled table, but its module would not.
@@ -418,6 +415,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		if codecModules > 0 {
 			genClient.ExclusiveDirs = append(genClient.ExclusiveDirs, "src/codecs")
 		}
+
 		genClient.Warnings = append(genClient.Warnings, codecWarnings...)
 	}
 
@@ -601,7 +599,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 				depsJSONSb.WriteString(",\n")
 			}
 
-			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, deps[name]))
+			fmt.Fprintf(&depsJSONSb, "    \"%s\": \"%s\"", name, deps[name])
 
 			first = false
 		}
@@ -1062,7 +1060,7 @@ func (g *Generator) objectPropsLiteral(schema *client.Schema, spec *client.APISp
 
 		clientName := tsFieldName(nsID, propName, config)
 		tsType := g.schemaToTSType(prop, spec, nsID+"."+propName, config)
-		buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
+		fmt.Fprintf(&buf, "  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType)
 	}
 
 	buf.WriteString("}")
@@ -1107,7 +1105,8 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	// " & " (and applies Nullable), so this delegates rather than
 	// reimplementing union logic here.
 	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || len(schema.AllOf) > 0 {
-		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, g.schemaToTSType(schema, spec, name, config)))
+		fmt.Fprintf(&buf, "export type %s = %s;\n", name, g.schemaToTSType(schema, spec, name, config))
+
 		return buf.String()
 	}
 
@@ -1125,7 +1124,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
 			}
 
-			buf.WriteString(fmt.Sprintf("export type %s = Record<string, %s>;\n", name, valueType))
+			fmt.Fprintf(&buf, "export type %s = Record<string, %s>;\n", name, valueType)
 
 		case allowed && hasProps:
 			// Declared properties AND an open-ended map: an interface with
@@ -1144,10 +1143,10 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 				valueType = g.schemaToTSType(valueSchema, spec, name+"."+additionalPropertiesSegment, config)
 			}
 
-			buf.WriteString(fmt.Sprintf("export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec, name, config), valueType))
+			fmt.Fprintf(&buf, "export type %s = %s & Record<string, %s>;\n", name, g.objectPropsLiteral(schema, spec, name, config), valueType)
 
 		default:
-			buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+			fmt.Fprintf(&buf, "export interface %s {\n", name)
 
 			for _, propName := range sortedKeys(schema.Properties) {
 				prop := schema.Properties[propName]
@@ -1162,7 +1161,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 
 				clientName := tsFieldName(name, propName, config)
 				tsType := g.schemaToTSType(prop, spec, name+"."+propName, config)
-				buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType))
+				fmt.Fprintf(&buf, "  %s%s: %s;\n", tsPropertyKey(clientName), optional, tsType)
 			}
 
 			buf.WriteString("}\n")
@@ -1171,12 +1170,12 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	case "array":
 		if schema.Items != nil {
 			itemType := g.schemaToTSType(schema.Items, spec, name+".items", config)
-			buf.WriteString(fmt.Sprintf("export type %s = %s[];\n", name, itemType))
+			fmt.Fprintf(&buf, "export type %s = %s[];\n", name, itemType)
 		}
 
 	default:
 		tsType := g.schemaToTSType(schema, spec, name, config)
-		buf.WriteString(fmt.Sprintf("export type %s = %s;\n", name, tsType))
+		fmt.Fprintf(&buf, "export type %s = %s;\n", name, tsType)
 	}
 
 	return buf.String()
@@ -1219,9 +1218,10 @@ func propertyJSDoc(schema *client.Schema, indent string) string {
 	// line before "@deprecated" — that blank line would carry no meaning,
 	// unlike a genuine blank line between two paragraphs of prose.
 	if description != "" {
-		for _, line := range strings.Split(description, "\n") {
+		for line := range strings.SplitSeq(description, "\n") {
 			if line == "" {
 				fmt.Fprintf(&buf, "%s *\n", indent)
+
 				continue
 			}
 
@@ -1471,7 +1471,7 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 
 	buf.WriteString("import { createError } from './errors';\n\n")
 
-	buf.WriteString(fmt.Sprintf("export class %s {\n", config.APIName))
+	fmt.Fprintf(&buf, "export class %s {\n", config.APIName)
 	buf.WriteString("  protected httpClient: HTTPClient;\n")
 
 	if config.IncludeAuth {

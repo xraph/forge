@@ -105,7 +105,6 @@ func (o *Observability) RecordMetric(metric *Metric) {
 	if o.monitor != nil {
 		o.monitor.RecordMetric(metric)
 	}
-
 }
 
 // RecordError records an error with tracing and metrics.

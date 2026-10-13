@@ -35,7 +35,7 @@ type ApplyManager struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	mu      sync.RWMutex
@@ -311,7 +311,7 @@ func (am *ApplyManager) processApplyTask(task applyTask) applyResult {
 
 	// Update statistics
 	am.statsMu.Lock()
-	am.totalApplied += uint64(result.count)
+	am.totalApplied += uint64(result.count) //nolint:gosec // G115: count is a slice length, never negative
 
 	// Update running average latency
 	if am.averageLatency == 0 {

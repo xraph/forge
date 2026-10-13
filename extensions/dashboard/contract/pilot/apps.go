@@ -36,16 +36,20 @@ func projectAppHome(home, slug string) string {
 	if home == "" || slug == "" {
 		return home
 	}
+
 	if len(home) >= 2 && home[0] == '/' && home[1] == '@' {
 		return home
 	}
+
 	if home[0] != '/' {
 		return home
 	}
+
 	prefix := "/@" + slug
 	if home == "/" {
 		return prefix
 	}
+
 	return prefix + home
 }
 
@@ -64,13 +68,17 @@ func appsListHandler(reg contract.Registry) func(ctx context.Context, _ struct{}
 		if reg == nil {
 			return AppsListResponse{}, &contract.Error{Code: contract.CodeUnavailable, Message: "registry not configured"}
 		}
+
 		all := reg.All()
+
 		out := make([]AppInfo, 0, len(all))
 		for _, m := range all {
 			if m.Contributor.App == nil {
 				continue
 			}
+
 			a := m.Contributor.App
+
 			displayName := a.DisplayName
 			if displayName == "" {
 				displayName = m.Contributor.Name
@@ -94,15 +102,19 @@ func appsListHandler(reg contract.Registry) func(ctx context.Context, _ struct{}
 				Root:        a.Root,
 			})
 		}
+
 		sort.SliceStable(out, func(i, j int) bool {
 			if out[i].Priority != out[j].Priority {
 				return out[i].Priority < out[j].Priority
 			}
+
 			if out[i].DisplayName != out[j].DisplayName {
 				return out[i].DisplayName < out[j].DisplayName
 			}
+
 			return out[i].Contributor < out[j].Contributor
 		})
+
 		return AppsListResponse{Apps: out}, nil
 	}
 }

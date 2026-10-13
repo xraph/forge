@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -76,13 +77,14 @@ func (s *GRPCService) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("grpc service stopped")
+
 	return nil
 }
 
 // Health checks if the gRPC service is healthy.
 func (s *GRPCService) Health(ctx context.Context) error {
 	if s.server == nil {
-		return fmt.Errorf("grpc server not initialized")
+		return errors.New("grpc server not initialized")
 	}
 	// GRPC interface doesn't have a Ping method, so we check if server exists
 	return nil
@@ -95,7 +97,7 @@ func (s *GRPCService) Server() GRPC {
 
 // Ensure GRPCService implements GRPC interface for convenience
 
-func (s *GRPCService) RegisterService(desc *grpc.ServiceDesc, impl interface{}) error {
+func (s *GRPCService) RegisterService(desc *grpc.ServiceDesc, impl any) error {
 	return s.server.RegisterService(desc, impl)
 }
 

@@ -23,6 +23,7 @@ func TestCached_Expired(t *testing.T) {
 	if !c.Expired(time.Now()) {
 		t.Error("expected Expired() to be true")
 	}
+
 	c2 := Cached{StoredAt: time.Now(), TTL: time.Hour}
 	if c2.Expired(time.Now()) {
 		t.Error("expected fresh entry to not be expired")

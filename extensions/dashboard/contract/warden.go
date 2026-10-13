@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -26,10 +27,10 @@ func PrincipalFor(user *dashauth.UserInfo) Principal {
 	if user == nil {
 		return Principal{}
 	}
+
 	claims := make(map[string]any, len(user.Claims))
-	for k, v := range user.Claims {
-		claims[k] = v
-	}
+	maps.Copy(claims, user.Claims)
+
 	return Principal{User: user, Claims: claims}
 }
 
@@ -79,16 +80,21 @@ type wardenRegistry struct {
 func (r *wardenRegistry) Register(name string, w Warden) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if _, exists := r.wardens[name]; exists {
 		return fmt.Errorf("warden %q already registered", name)
 	}
+
 	r.wardens[name] = w
+
 	return nil
 }
 
 func (r *wardenRegistry) Get(name string) (Warden, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	w, ok := r.wardens[name]
+
 	return w, ok
 }

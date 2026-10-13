@@ -184,16 +184,17 @@ func TestInMemorySessionStore_ConcurrentResumesDoNotShareState(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		wg.Add(1)
 
 		go func(worker int) {
 			defer wg.Done()
 
-			for j := 0; j < 50; j++ {
+			for j := range 50 {
 				got, err := store.Get(ctx, "session-1")
 				if err != nil {
 					t.Errorf("worker %d: Get() = %v, want nil", worker, err)
+
 					return
 				}
 
@@ -321,7 +322,7 @@ func TestInMemorySessionStore_CloseStopsCleanupLoop(t *testing.T) {
 func TestInMemorySessionStore_CloseIsIdempotent(t *testing.T) {
 	store := NewInMemorySessionStore()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := store.Close(); err != nil {
 			t.Fatalf("Close() call %d = %v, want nil", i, err)
 		}
@@ -332,16 +333,12 @@ func TestInMemorySessionStore_ConcurrentCloseIsSafe(t *testing.T) {
 	store := NewInMemorySessionStore()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+	for range 8 {
+		wg.Go(func() {
 			if err := store.Close(); err != nil {
 				t.Errorf("Close() = %v, want nil", err)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -350,7 +347,7 @@ func TestInMemorySessionStore_ConcurrentCloseIsSafe(t *testing.T) {
 func TestInMemorySessionStore_StartStopCyclesDoNotLeak(t *testing.T) {
 	before := runtime.NumGoroutine()
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		store := NewInMemorySessionStore()
 
 		if err := store.Close(); err != nil {

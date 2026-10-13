@@ -575,8 +575,8 @@ func copyMap(m map[string]any) map[string]any {
 		return nil
 	}
 
-	copy := make(map[string]any, len(m))
-	maps.Copy(copy, m)
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
 
-	return copy
+	return out
 }

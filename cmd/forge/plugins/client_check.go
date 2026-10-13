@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/client_check.go
 package plugins
 
 import (
@@ -8,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -417,6 +417,7 @@ func prefixLines(text, prefix string) string {
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 
 	truncated := false
+
 	if len(lines) > maxDiffLines {
 		lines = lines[:maxDiffLines]
 		truncated = true
@@ -513,9 +514,9 @@ func diffRegion(oldRegion, newRegion []string) []string {
 		table[i] = make([]int, cols)
 	}
 
-	for i := len(oldRegion) - 1; i >= 0; i-- {
-		for j := len(newRegion) - 1; j >= 0; j-- {
-			if oldRegion[i] == newRegion[j] {
+	for i, oldLine := range slices.Backward(oldRegion) {
+		for j, newLine := range slices.Backward(newRegion) {
+			if oldLine == newLine {
 				table[i][j] = table[i+1][j+1] + 1
 			} else {
 				table[i][j] = max(table[i+1][j], table[i][j+1])

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -184,7 +185,10 @@ func (s *PresenceStore) CleanupExpired(ctx context.Context, olderThan time.Durat
 	// Remove expired users from online set
 	now := time.Now().Unix()
 
-	return s.client.ZRemRangeByScore(ctx, onlineKey, "-inf", string(rune(now))).Err()
+	// Scores are Unix seconds, so the bound has to be the decimal string.
+	// string(rune(now)) produced a single garbage character that Redis
+	// rejects as "min or max is not a float".
+	return s.client.ZRemRangeByScore(ctx, onlineKey, "-inf", strconv.FormatInt(now, 10)).Err()
 }
 
 func (s *PresenceStore) Connect(ctx context.Context) error {
@@ -418,6 +422,7 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 	historyKey := s.prefix + ":history:" + userID
 
 	// Get latest events (highest scores first)
+	//nolint:staticcheck // SA1019: ZRANGE REV needs Redis 6.2; ZREVRANGE keeps older servers working
 	results, err := s.client.ZRevRange(ctx, historyKey, 0, int64(limit-1)).Result()
 	if err != nil {
 		return nil, err
@@ -440,11 +445,12 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, since time.Time) ([]*streaming.PresenceEvent, error) {
 	historyKey := s.prefix + ":history:" + userID
 
-	// Get events since timestamp
-	minScore := float64(since.Unix())
-
+	// Get events since timestamp. Scores are Unix seconds, so the bound has to
+	// be the decimal string; string(rune(...)) produced one garbage character
+	// that Redis rejects as "min or max is not a float".
+	//nolint:staticcheck // SA1019: ZRANGE BYSCORE needs Redis 6.2; ZRANGEBYSCORE keeps older servers working
 	results, err := s.client.ZRangeByScore(ctx, historyKey, &redis.ZRangeBy{
-		Min: string(rune(int(minScore))),
+		Min: strconv.FormatInt(since.Unix(), 10),
 		Max: "+inf",
 	}).Result()
 	if err != nil {

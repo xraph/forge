@@ -128,7 +128,7 @@ func paramRequiredFromTags(field reflect.StructField, omitempty bool) bool {
 	case field.Tag.Get("default") != "":
 		return false
 	default:
-		return !omitempty && field.Type.Kind() != reflect.Ptr
+		return !omitempty && field.Type.Kind() != reflect.Pointer
 	}
 }
 
@@ -139,7 +139,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 		return nil
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -149,9 +149,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) [
 
 	var params []Parameter
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {
@@ -194,7 +192,7 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 	fieldType := field.Type
 
 	// Handle pointer types
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 
@@ -206,9 +204,7 @@ func flattenEmbeddedQueryParams(schemaGen *schemaGenerator, field reflect.Struct
 	var params []Parameter
 
 	// Recursively process embedded struct fields
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -248,7 +244,7 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 	fieldType := field.Type
 
 	// Handle pointer types
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 
@@ -260,9 +256,7 @@ func flattenEmbeddedHeaderParams(schemaGen *schemaGenerator, field reflect.Struc
 	var params []Parameter
 
 	// Recursively process embedded struct fields
-	for i := range fieldType.NumField() {
-		embeddedField := fieldType.Field(i)
-
+	for embeddedField := range fieldType.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(embeddedField) {
@@ -304,7 +298,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 		return nil
 	}
 
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 
@@ -314,9 +308,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) 
 
 	var params []Parameter
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-
+	for field := range rt.Fields() {
 		// Skip unexported fields, but descend into anonymous ones so an embedded
 		// lowercase-named struct still promotes its exported fields.
 		if skipStructField(field) {

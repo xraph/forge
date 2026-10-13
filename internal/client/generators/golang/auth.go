@@ -135,9 +135,9 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 		case "http":
 			switch f.scheme.Scheme {
 			case "bearer":
-				buf.WriteString(fmt.Sprintf("\t%s string // http bearer -> Authorization: Bearer <v>\n", f.name))
+				fmt.Fprintf(&buf, "\t%s string // http bearer -> Authorization: Bearer <v>\n", f.name)
 			case "basic":
-				buf.WriteString(fmt.Sprintf("\t%s BasicCredentials // http basic -> Authorization: Basic <v>\n", f.name))
+				fmt.Fprintf(&buf, "\t%s BasicCredentials // http basic -> Authorization: Basic <v>\n", f.name)
 			default:
 				// digest, negotiate and hoba are all registered http auth
 				// schemes and reach here verbatim from the document; only
@@ -149,7 +149,7 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 		case "apiKey":
 			switch f.scheme.In {
 			case "header", "cookie", "query":
-				buf.WriteString(fmt.Sprintf("\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName))
+				fmt.Fprintf(&buf, "\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName)
 			default:
 				// OpenAPI 3.1 allows exactly these three locations, but the
 				// two IR builders copy `in` verbatim with no validation, so a
@@ -167,7 +167,7 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 			// Neither specification mandates a transmission. Bearer is what the
 			// flows produce in practice, and stating the assumption beats
 			// implying the document made it.
-			buf.WriteString(fmt.Sprintf("\t%s string // %s -> Authorization: Bearer <v>\n", f.name, f.scheme.Type))
+			fmt.Fprintf(&buf, "\t%s string // %s -> Authorization: Bearer <v>\n", f.name, f.scheme.Type)
 		default:
 			// spec_parser.go and introspector.go copy Type/Scheme verbatim out
 			// of the document with no validation, so a legal-but-unhandled pair
@@ -208,22 +208,22 @@ func generateAuthApply(schemes []client.DetectedAuthScheme) string {
 		switch {
 		case f.scheme.Type == "http" && f.scheme.Scheme == "bearer",
 			f.scheme.Type == "oauth2", f.scheme.Type == "openIdConnect":
-			buf.WriteString(fmt.Sprintf("\tif a.%s != \"\" {\n", f.name))
-			buf.WriteString(fmt.Sprintf("\t\theader.Set(\"Authorization\", \"Bearer \"+a.%s)\n", f.name))
+			fmt.Fprintf(&buf, "\tif a.%s != \"\" {\n", f.name)
+			fmt.Fprintf(&buf, "\t\theader.Set(\"Authorization\", \"Bearer \"+a.%s)\n", f.name)
 			buf.WriteString("\t}\n\n")
 
 		case f.scheme.Type == "http" && f.scheme.Scheme == "basic":
-			buf.WriteString(fmt.Sprintf("\tif a.%s.Username != \"\" || a.%s.Password != \"\" {\n", f.name, f.name))
-			buf.WriteString(fmt.Sprintf("\t\theader.Set(\"Authorization\", \"Basic \"+base64.StdEncoding.EncodeToString([]byte(a.%s.Username+\":\"+a.%s.Password)))\n", f.name, f.name))
+			fmt.Fprintf(&buf, "\tif a.%s.Username != \"\" || a.%s.Password != \"\" {\n", f.name, f.name)
+			fmt.Fprintf(&buf, "\t\theader.Set(\"Authorization\", \"Basic \"+base64.StdEncoding.EncodeToString([]byte(a.%s.Username+\":\"+a.%s.Password)))\n", f.name, f.name)
 			buf.WriteString("\t}\n\n")
 
 		case f.scheme.Type == "apiKey" && f.scheme.In == "header":
-			buf.WriteString(fmt.Sprintf("\tif a.%s != \"\" {\n", f.name))
-			buf.WriteString(fmt.Sprintf("\t\theader.Set(%q, a.%s)\n", f.scheme.ParamName, f.name))
+			fmt.Fprintf(&buf, "\tif a.%s != \"\" {\n", f.name)
+			fmt.Fprintf(&buf, "\t\theader.Set(%q, a.%s)\n", f.scheme.ParamName, f.name)
 			buf.WriteString("\t}\n\n")
 
 		case f.scheme.Type == "apiKey" && f.scheme.In == "cookie":
-			buf.WriteString(fmt.Sprintf("\tif a.%s != \"\" {\n", f.name))
+			fmt.Fprintf(&buf, "\tif a.%s != \"\" {\n", f.name)
 			// A request carries at most one Cookie header value, and
 			// net/http.Client.send calls Request.AddCookie once per jar
 			// cookie -- which is implemented as Header.Get("Cookie") followed
@@ -235,16 +235,16 @@ func generateAuthApply(schemes []client.DetectedAuthScheme) string {
 			// key, is what keeps every scheme's credential in the one value
 			// AddCookie (and any other caller) will actually read.
 			buf.WriteString("\t\tif prev := header.Get(\"Cookie\"); prev != \"\" {\n")
-			buf.WriteString(fmt.Sprintf("\t\t\theader.Set(\"Cookie\", prev+\"; %s=\"+a.%s)\n", f.scheme.ParamName, f.name))
+			fmt.Fprintf(&buf, "\t\t\theader.Set(\"Cookie\", prev+\"; %s=\"+a.%s)\n", f.scheme.ParamName, f.name)
 			buf.WriteString("\t\t} else {\n")
-			buf.WriteString(fmt.Sprintf("\t\t\theader.Set(\"Cookie\", %q+a.%s)\n", f.scheme.ParamName+"=", f.name))
+			fmt.Fprintf(&buf, "\t\t\theader.Set(\"Cookie\", %q+a.%s)\n", f.scheme.ParamName+"=", f.name)
 			buf.WriteString("\t\t}\n")
 			buf.WriteString("\t}\n\n")
 
 		case f.scheme.Type == "apiKey" && f.scheme.In == "query":
-			buf.WriteString(fmt.Sprintf("\tif a.%s != \"\" && u != nil {\n", f.name))
+			fmt.Fprintf(&buf, "\tif a.%s != \"\" && u != nil {\n", f.name)
 			buf.WriteString("\t\tq := u.Query()\n")
-			buf.WriteString(fmt.Sprintf("\t\tq.Set(%q, a.%s)\n", f.scheme.ParamName, f.name))
+			fmt.Fprintf(&buf, "\t\tq.Set(%q, a.%s)\n", f.scheme.ParamName, f.name)
 			buf.WriteString("\t\tu.RawQuery = q.Encode()\n")
 			buf.WriteString("\t}\n\n")
 

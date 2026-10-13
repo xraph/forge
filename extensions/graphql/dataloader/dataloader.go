@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// LoaderConfig configures a DataLoader
+// LoaderConfig configures a DataLoader.
 type LoaderConfig struct {
 	// Wait is the duration to wait before dispatching a batch
 	Wait time.Duration
@@ -14,7 +14,7 @@ type LoaderConfig struct {
 	MaxBatch int
 }
 
-// DefaultLoaderConfig returns default loader configuration
+// DefaultLoaderConfig returns default loader configuration.
 func DefaultLoaderConfig() LoaderConfig {
 	return LoaderConfig{
 		Wait:     10 * time.Millisecond,
@@ -23,44 +23,47 @@ func DefaultLoaderConfig() LoaderConfig {
 }
 
 // BatchFunc loads multiple keys and returns their values
-// The returned slice must be the same length as the keys slice
-type BatchFunc func(ctx context.Context, keys []interface{}) ([]interface{}, []error)
+// The returned slice must be the same length as the keys slice.
+type BatchFunc func(ctx context.Context, keys []any) ([]any, []error)
 
-// Loader batches and caches data loading operations
+// Loader batches and caches data loading operations.
 type Loader struct {
 	config    LoaderConfig
 	batchFunc BatchFunc
-	cache     map[interface{}]interface{}
+	cache     map[any]any
 	cacheMu   sync.RWMutex
-	batch     []interface{}
+	batch     []any
 	batchMu   sync.Mutex
 	scheduled bool
-	results   map[interface{}]chan result
+	results   map[any]chan result
 }
 
 type result struct {
-	value interface{}
+	value any
 	err   error
 }
 
-// NewLoader creates a new DataLoader
+// NewLoader creates a new DataLoader.
 func NewLoader(config LoaderConfig, batchFunc BatchFunc) *Loader {
 	return &Loader{
 		config:    config,
 		batchFunc: batchFunc,
-		cache:     make(map[interface{}]interface{}),
-		results:   make(map[interface{}]chan result),
+		cache:     make(map[any]any),
+		results:   make(map[any]chan result),
 	}
 }
 
-// Load loads a single key, batching and caching the load
-func (l *Loader) Load(ctx context.Context, key interface{}) (interface{}, error) {
+// Load loads a single key, batching and caching the load.
+func (l *Loader) Load(ctx context.Context, key any) (any, error) {
 	// Check cache first
 	l.cacheMu.RLock()
+
 	if val, ok := l.cache[key]; ok {
 		l.cacheMu.RUnlock()
+
 		return val, nil
 	}
+
 	l.cacheMu.RUnlock()
 
 	// Add to batch
@@ -84,12 +87,13 @@ func (l *Loader) Load(ctx context.Context, key interface{}) (interface{}, error)
 
 	// Wait for result
 	res := <-resultCh
+
 	return res.value, res.err
 }
 
-// LoadMany loads multiple keys at once
-func (l *Loader) LoadMany(ctx context.Context, keys []interface{}) ([]interface{}, error) {
-	results := make([]interface{}, len(keys))
+// LoadMany loads multiple keys at once.
+func (l *Loader) LoadMany(ctx context.Context, keys []any) ([]any, error) {
+	results := make([]any, len(keys))
 	errs := make([]error, len(keys))
 
 	for i, key := range keys {
@@ -108,28 +112,31 @@ func (l *Loader) LoadMany(ctx context.Context, keys []interface{}) ([]interface{
 	return results, nil
 }
 
-// Prime adds a value to the cache
-func (l *Loader) Prime(key interface{}, value interface{}) {
+// Prime adds a value to the cache.
+func (l *Loader) Prime(key any, value any) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
+
 	l.cache[key] = value
 }
 
-// Clear removes a key from the cache
-func (l *Loader) Clear(key interface{}) {
+// Clear removes a key from the cache.
+func (l *Loader) Clear(key any) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
+
 	delete(l.cache, key)
 }
 
-// ClearAll removes all keys from the cache
+// ClearAll removes all keys from the cache.
 func (l *Loader) ClearAll() {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
-	l.cache = make(map[interface{}]interface{})
+
+	l.cache = make(map[any]any)
 }
 
-// dispatch executes the batch function after waiting
+// dispatch executes the batch function after waiting.
 func (l *Loader) dispatch(ctx context.Context) {
 	// Wait for the configured duration or until max batch size
 	time.Sleep(l.config.Wait)
@@ -138,7 +145,7 @@ func (l *Loader) dispatch(ctx context.Context) {
 	keys := l.batch
 	resultChans := l.results
 	l.batch = nil
-	l.results = make(map[interface{}]chan result)
+	l.results = make(map[any]chan result)
 	l.scheduled = false
 	l.batchMu.Unlock()
 
@@ -155,6 +162,7 @@ func (l *Loader) dispatch(ctx context.Context) {
 		if i < len(values) {
 			res.value = values[i]
 		}
+
 		if i < len(errs) {
 			res.err = errs[i]
 		}
@@ -169,6 +177,7 @@ func (l *Loader) dispatch(ctx context.Context) {
 		// Send result
 		if ch, ok := resultChans[key]; ok {
 			ch <- res
+
 			close(ch)
 		}
 	}

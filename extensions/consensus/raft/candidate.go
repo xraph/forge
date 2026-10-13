@@ -27,7 +27,7 @@ type CandidateState struct {
 	electionTimeout time.Duration
 
 	// Lifecycle
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }

@@ -397,7 +397,8 @@ func TestCleanGenericTypeName(t *testing.T) {
 
 			// Verify result matches OpenAPI component name pattern
 			for _, ch := range result {
-				if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-') {
+				valid := (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-'
+				if !valid {
 					t.Errorf("cleanGenericTypeName(%q) = %q contains invalid character %q for OpenAPI component name", tt.input, result, string(ch))
 				}
 			}

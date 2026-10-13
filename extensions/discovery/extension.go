@@ -122,6 +122,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("discovery extension disabled")
+
 		return nil
 	}
 
@@ -216,11 +217,15 @@ func (e *Extension) Start(ctx context.Context) error {
 		forge.F("farp", e.config.FARP.Enabled),
 	)
 
+	// The watch and health loops run until Stop, so they must not inherit
+	// Start's cancellation.
+	loopCtx := context.WithoutCancel(ctx)
+
 	// Start watching for service changes (if enabled)
 	if e.config.Watch.Enabled && len(e.config.Watch.Services) > 0 {
 		e.wg.Add(1)
 
-		go e.watchServices(discoveryService)
+		go e.watchServices(loopCtx, discoveryService)
 	}
 
 	// Start health check updater (if enabled and not using FARP ServiceNode,
@@ -229,7 +234,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	if e.config.HealthCheck.Enabled && !e.config.FARP.Enabled {
 		e.wg.Add(1)
 
-		go e.healthCheckLoop(discoveryService.Backend())
+		go e.healthCheckLoop(loopCtx, discoveryService.Backend())
 	}
 
 	e.Logger().Info("discovery extension started")
@@ -247,7 +252,7 @@ func (e *Extension) initFARPServiceNode(ctx context.Context) error {
 	e.mu.RUnlock()
 
 	if discoveryService == nil || instance == nil {
-		return fmt.Errorf("discovery service or instance not initialized")
+		return errors.New("discovery service or instance not initialized")
 	}
 
 	if err := e.startServiceNode(ctx, discoveryService, instance); err != nil {
@@ -258,8 +263,9 @@ func (e *Extension) initFARPServiceNode(ctx context.Context) error {
 		// Health check loop fallback for non-FARP mode:
 		if e.config.HealthCheck.Enabled {
 			e.wg.Add(1)
-			go e.healthCheckLoop(discoveryService.Backend())
+			go e.healthCheckLoop(context.WithoutCancel(ctx), discoveryService.Backend())
 		}
+
 		return nil
 	}
 
@@ -355,6 +361,7 @@ func (e *Extension) registerFARPEndpoints() {
 	router := e.App().Router()
 	if router == nil {
 		e.Logger().Warn("no router available, FARP HTTP endpoints not registered")
+
 		return
 	}
 
@@ -373,15 +380,27 @@ func (e *Extension) registerFARPEndpoints() {
 		}
 
 		node.HTTPHandler().ServeHTTP(ctx.Response(), ctx.Request())
+
 		return nil
 	}
 
-	router.GET("/_farp/manifest", serveNode)
-	router.GET("/_farp/health", serveNode)
-	router.GET("/_farp/schemas/:type", serveNode)
+	// A failed route (usually a path the app already owns) shouldn't stop the
+	// extension, but it shouldn't vanish silently either.
+	register := func(path string, handler func(forge.Context) error) {
+		if err := router.GET(path, handler); err != nil {
+			e.Logger().Warn("failed to register FARP endpoint",
+				forge.F("path", path),
+				forge.F("error", err),
+			)
+		}
+	}
+
+	register("/_farp/manifest", serveNode)
+	register("/_farp/health", serveNode)
+	register("/_farp/schemas/:type", serveNode)
 
 	// Discovery info endpoint — works immediately (reads serviceInstance).
-	router.GET("/_farp/discovery", func(ctx forge.Context) error {
+	register("/_farp/discovery", func(ctx forge.Context) error {
 		e.mu.RLock()
 		inst := e.serviceInstance
 		e.mu.RUnlock()
@@ -461,6 +480,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		e.wg.Wait()
 		close(done)
@@ -474,6 +494,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -530,10 +551,7 @@ func (e *Extension) pushToGatewayWithRetry(ctx context.Context, instance *Servic
 			select {
 			case <-time.After(delay):
 				// Double the delay, capped at maxDelay
-				delay = delay * 2
-				if delay > maxDelay {
-					delay = maxDelay
-				}
+				delay = min(delay*2, maxDelay)
 			case <-e.stopCh:
 				return
 			case <-ctx.Done():
@@ -544,6 +562,7 @@ func (e *Extension) pushToGatewayWithRetry(ctx context.Context, instance *Servic
 				forge.F("gateway_url", e.config.FARP.GatewayURL),
 				forge.F("service_name", instance.Name),
 			)
+
 			return
 		}
 	}
@@ -585,6 +604,7 @@ func (e *Extension) createBackend() (Backend, error) {
 		// mDNS backend for native OS-level service discovery
 		// Works on macOS (Bonjour), Linux (Avahi), Windows (DNS-SD)
 		logger := e.Logger()
+
 		return backends.NewMDNSBackend(backends.MDNSConfig{
 			Domain:        e.config.MDNS.Domain,
 			ServiceType:   e.config.MDNS.ServiceType,
@@ -618,6 +638,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	if serviceName == "" {
 		serviceName = e.config.Service.Name
 	}
+
 	if serviceName == "" && e.App() != nil {
 		serviceName = e.App().Name()
 	}
@@ -636,6 +657,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 		httpAddr := e.getHTTPAddress()
 		if httpAddr != "" {
 			addr, port := parseHTTPAddress(httpAddr)
+
 			if serviceAddress == "" {
 				if os.Getenv("FORGE_ADVERTISE_ADDR") != "" || os.Getenv("POD_IP") != "" {
 					addr = ""
@@ -646,6 +668,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 				} else if _, err := strconv.Atoi(httpAddr); err == nil {
 					addr = ""
 				}
+
 				serviceAddress = addr
 			}
 
@@ -667,6 +690,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	} else if id == "" {
 		id = e.config.Service.ID
 	}
+
 	if id == "" {
 		id = fmt.Sprintf("%s-%d", serviceName, time.Now().UnixNano())
 	}
@@ -681,6 +705,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	// Add FARP metadata for discovery backends (mDNS TXT records, etc.)
 	if e.config.FARP.Enabled {
 		baseURL := ""
+
 		if serviceAddress != "" && servicePort > 0 {
 			scheme := "http"
 			if e.config.Service.Metadata != nil && e.config.Service.Metadata["scheme"] != "" {
@@ -694,10 +719,12 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 		if baseURL != "" {
 			metadata["farp.manifest"] = baseURL + "/_farp/manifest"
 		}
+
 		healthPath := e.config.FARP.Endpoints.Health
 		if healthPath == "" {
 			healthPath = "/_/health"
 		}
+
 		metadata["farp.health"] = healthPath
 
 		// Advertise configured schema endpoints so discovery metadata
@@ -706,20 +733,26 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 			if baseURL != "" {
 				metadata["farp.openapi"] = baseURL + e.config.FARP.Endpoints.OpenAPI
 			}
+
 			metadata["farp.openapi.path"] = e.config.FARP.Endpoints.OpenAPI
 		}
+
 		if e.config.FARP.Endpoints.AsyncAPI != "" {
 			if baseURL != "" {
 				metadata["farp.asyncapi"] = baseURL + e.config.FARP.Endpoints.AsyncAPI
 			}
+
 			metadata["farp.asyncapi.path"] = e.config.FARP.Endpoints.AsyncAPI
 		}
+
 		if e.config.FARP.Endpoints.GraphQL != "" {
 			if baseURL != "" {
 				metadata["farp.graphql"] = baseURL + e.config.FARP.Endpoints.GraphQL
 			}
+
 			metadata["farp.graphql.path"] = e.config.FARP.Endpoints.GraphQL
 		}
+
 		if e.config.FARP.Endpoints.GRPCReflection {
 			metadata["farp.grpc.reflection"] = "true"
 		}
@@ -727,6 +760,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 		if e.config.FARP.CollapseServiceTags {
 			metadata["farp.collapse_service_tags"] = "true"
 		}
+
 		if !e.config.FARP.ShouldExcludeInternalPaths() {
 			metadata["farp.include_internal_paths"] = "true"
 		}
@@ -820,13 +854,13 @@ func parseHTTPAddress(httpAddr string) (address string, port int) {
 }
 
 // watchServices watches for service changes.
-func (e *Extension) watchServices(discoveryService *Service) {
+func (e *Extension) watchServices(ctx context.Context, discoveryService *Service) {
 	defer e.wg.Done()
 
 	backend := discoveryService.Backend()
 
 	for _, serviceName := range e.config.Watch.Services {
-		err := backend.Watch(context.Background(), serviceName, func(instances []*ServiceInstance) {
+		err := backend.Watch(ctx, serviceName, func(instances []*ServiceInstance) {
 			e.Logger().Info("service instances changed",
 				forge.F("service", serviceName),
 				forge.F("count", len(instances)),
@@ -848,7 +882,7 @@ func (e *Extension) watchServices(discoveryService *Service) {
 }
 
 // healthCheckLoop periodically updates health status.
-func (e *Extension) healthCheckLoop(backend Backend) {
+func (e *Extension) healthCheckLoop(ctx context.Context, backend Backend) {
 	defer e.wg.Done()
 
 	ticker := time.NewTicker(e.config.HealthCheck.Interval)
@@ -858,8 +892,8 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 		select {
 		case <-ticker.C:
 			// Check service health using app health checks
-			ctx, cancel := context.WithTimeout(context.Background(), e.config.HealthCheck.Timeout)
-			report := e.App().HealthManager().Check(ctx)
+			checkCtx, cancel := context.WithTimeout(ctx, e.config.HealthCheck.Timeout)
+			report := e.App().HealthManager().Check(checkCtx)
 
 			cancel()
 
@@ -876,7 +910,7 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 			instance.LastHeartbeat = time.Now().Unix()
 
 			// Re-register to update status
-			regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			regCtx, regCancel := context.WithTimeout(ctx, 5*time.Second)
 			if err := backend.Register(regCtx, instance); err != nil {
 				e.Logger().Warn("failed to update service health",
 					forge.F("error", err),
@@ -894,6 +928,7 @@ func (e *Extension) healthCheckLoop(backend Backend) {
 // Service returns the service discovery service.
 func (e *Extension) Service() *Service {
 	discoveryService, _ := forge.InjectType[*Service](e.App().Container())
+
 	return discoveryService
 }
 
@@ -929,10 +964,9 @@ func (e *Extension) enrichInstanceFromManifest(inst *ServiceInstance, node *farp
 
 	// Copy the instance to avoid mutating the original
 	enriched := *inst
+
 	metadata := make(map[string]string)
-	for k, v := range inst.Metadata {
-		metadata[k] = v
-	}
+	maps.Copy(metadata, inst.Metadata)
 
 	baseURL := "http://" + net.JoinHostPort(inst.Address, strconv.Itoa(inst.Port))
 
@@ -944,18 +978,22 @@ func (e *Extension) enrichInstanceFromManifest(inst *ServiceInstance, node *farp
 		metadata["farp.health"] = eps.Health
 		metadata["farp.health.url"] = baseURL + eps.Health
 	}
+
 	if eps.OpenAPI != "" {
 		metadata["farp.openapi"] = baseURL + eps.OpenAPI
 		metadata["farp.openapi.path"] = eps.OpenAPI
 	}
+
 	if eps.AsyncAPI != "" {
 		metadata["farp.asyncapi"] = baseURL + eps.AsyncAPI
 		metadata["farp.asyncapi.path"] = eps.AsyncAPI
 	}
+
 	if eps.GraphQL != "" {
 		metadata["farp.graphql"] = baseURL + eps.GraphQL
 		metadata["farp.graphql.path"] = eps.GraphQL
 	}
+
 	if eps.GRPCReflection {
 		metadata["farp.grpc.reflection"] = "true"
 	}
@@ -965,6 +1003,7 @@ func (e *Extension) enrichInstanceFromManifest(inst *ServiceInstance, node *farp
 	}
 
 	enriched.Metadata = metadata
+
 	return &enriched
 }
 
@@ -1028,6 +1067,7 @@ func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance
 func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName string) error {
 	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/_farp/v1/deregister/" + serviceName
 
+	//nolint:gosec // G704: the gateway URL comes from operator config (FARP.GatewayURL), not from request input
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL, nil)
 	if err != nil {
 		return fmt.Errorf("create deregistration request: %w", err)
@@ -1035,7 +1075,7 @@ func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName strin
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request targets the operator-configured gateway, see above
 	if err != nil {
 		return fmt.Errorf("push deregistration to gateway: %w", err)
 	}

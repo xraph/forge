@@ -48,6 +48,7 @@ func newTestInstance(name, id string, port int, metadata map[string]string, tags
 	if metadata == nil {
 		metadata = make(map[string]string)
 	}
+
 	return &ServiceInstance{
 		ID:       id,
 		Name:     name,
@@ -67,17 +68,21 @@ func discoverWithRetry(t *testing.T, b *MDNSBackend, serviceName string, maxAtte
 	t.Helper()
 
 	ctx := context.Background()
+
 	var instances []*ServiceInstance
 
-	for i := 0; i < maxAttempts; i++ {
+	for range maxAttempts {
 		var err error
+
 		instances, err = b.Discover(ctx, serviceName)
 		if err != nil {
 			t.Fatalf("Discover(%s): %v", serviceName, err)
 		}
+
 		if len(instances) > 0 {
 			return instances
 		}
+
 		time.Sleep(500 * time.Millisecond)
 	}
 
@@ -105,12 +110,15 @@ func TestMDNSBackend_DefaultConfig(t *testing.T) {
 	if b.config.Domain != "local." {
 		t.Errorf("default Domain = %q, want %q", b.config.Domain, "local.")
 	}
+
 	if b.config.BrowseTimeout != 5*time.Second {
 		t.Errorf("default BrowseTimeout = %v, want %v", b.config.BrowseTimeout, 5*time.Second)
 	}
+
 	if b.config.WatchInterval != 30*time.Second {
 		t.Errorf("default WatchInterval = %v, want %v", b.config.WatchInterval, 30*time.Second)
 	}
+
 	if b.config.TTL != 120 {
 		t.Errorf("default TTL = %d, want %d", b.config.TTL, 120)
 	}
@@ -191,6 +199,7 @@ func TestMDNSBackend_Close(t *testing.T) {
 		BrowseTimeout: 3 * time.Second,
 		TTL:           120,
 	}
+
 	b, err := NewMDNSBackend(cfg)
 	if err != nil {
 		t.Fatalf("NewMDNSBackend: %v", err)
@@ -218,6 +227,7 @@ func TestMDNSBackend_Close(t *testing.T) {
 	if svcCount != 0 {
 		t.Errorf("services not cleared after Close: %d", svcCount)
 	}
+
 	if watchCount != 0 {
 		t.Errorf("watchers not cleared after Close: %d", watchCount)
 	}
@@ -342,12 +352,15 @@ func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
 	}
 
 	found := false
+
 	for _, i := range instances {
 		if i.ID == "inst-1" {
 			found = true
+
 			if i.Name != "test-svc" {
 				t.Errorf("Name = %q, want %q", i.Name, "test-svc")
 			}
+
 			if i.Port != 18080 {
 				t.Errorf("Port = %d, want %d", i.Port, 18080)
 			}
@@ -382,6 +395,7 @@ func TestMDNSBackend_SharedServiceType(t *testing.T) {
 	if err := b.Register(ctx, svcA); err != nil {
 		t.Fatalf("Register ServiceA: %v", err)
 	}
+
 	if err := b.Register(ctx, svcB); err != nil {
 		t.Fatalf("Register ServiceB: %v", err)
 	}
@@ -420,16 +434,20 @@ func TestMDNSBackend_SharedServiceType(t *testing.T) {
 	})
 
 	t.Run("DiscoverAllTypes returns all", func(t *testing.T) {
-		var instances []*ServiceInstance
-		var err error
-		for attempt := 0; attempt < 5; attempt++ {
+		var (
+			instances []*ServiceInstance
+			err       error
+		)
+		for range 5 {
 			instances, err = b.DiscoverAllTypes(ctx)
 			if err != nil {
 				t.Fatalf("DiscoverAllTypes: %v", err)
 			}
+
 			if len(instances) >= 2 {
 				break
 			}
+
 			time.Sleep(1 * time.Second)
 		}
 
@@ -445,6 +463,7 @@ func TestMDNSBackend_SharedServiceType(t *testing.T) {
 		if !nameSet["ServiceA"] {
 			t.Errorf("DiscoverAllTypes missing ServiceA (got %v)", nameSet)
 		}
+
 		if !nameSet["ServiceB"] {
 			t.Errorf("DiscoverAllTypes missing ServiceB (got %v)", nameSet)
 		}
@@ -467,6 +486,7 @@ func TestMDNSBackend_SharedServiceType(t *testing.T) {
 		if !nameSet["ServiceA"] {
 			t.Errorf("ListServices missing locally-registered ServiceA; got %v", names)
 		}
+
 		if !nameSet["ServiceB"] {
 			t.Errorf("ListServices missing locally-registered ServiceB; got %v", names)
 		}
@@ -517,6 +537,7 @@ func TestMDNSBackend_TXTRecordMetadata(t *testing.T) {
 	if found.Name != "MetaSvc" {
 		t.Errorf("Name = %q, want %q", found.Name, "MetaSvc")
 	}
+
 	if found.Version != "2.5.0" {
 		t.Errorf("Version = %q, want %q", found.Version, "2.5.0")
 	}
@@ -547,6 +568,7 @@ func TestMDNSBackend_DiscoverWithTags(t *testing.T) {
 	if err := b.Register(ctx, inst1); err != nil {
 		t.Fatalf("Register tag-1: %v", err)
 	}
+
 	if err := b.Register(ctx, inst2); err != nil {
 		t.Fatalf("Register tag-2: %v", err)
 	}
@@ -560,11 +582,13 @@ func TestMDNSBackend_DiscoverWithTags(t *testing.T) {
 
 	for _, inst := range instances {
 		hasProd := false
+
 		for _, tag := range inst.Tags {
 			if tag == "prod" {
 				hasProd = true
 			}
 		}
+
 		if !hasProd {
 			t.Errorf("instance %s missing 'prod' tag", inst.ID)
 		}
@@ -581,12 +605,15 @@ func TestMDNSBackend_Watch(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	var mu sync.Mutex
-	var received []*ServiceInstance
+	var (
+		mu       sync.Mutex
+		received []*ServiceInstance
+	)
 
 	err := b.Watch(ctx, "watch-svc", func(instances []*ServiceInstance) {
 		mu.Lock()
 		defer mu.Unlock()
+
 		received = instances
 	})
 	if err != nil {
@@ -611,7 +638,7 @@ func TestMDNSBackend_Watch(t *testing.T) {
 
 // TestMDNSBackend_CrossBackendDiscovery simulates the gateway scenario:
 // - Backend A registers ServiceA under a shared type
-// - Backend B (gateway) browses for the shared type and discovers ServiceA
+// - Backend B (gateway) browses for the shared type and discovers ServiceA.
 func TestMDNSBackend_CrossBackendDiscovery(t *testing.T) {
 	sharedType := "_crosstest._tcp"
 
@@ -643,12 +670,15 @@ func TestMDNSBackend_CrossBackendDiscovery(t *testing.T) {
 
 	// Gateway (backend B) lists services — retry for reliability.
 	var names []string
-	for attempt := 0; attempt < 5; attempt++ {
+
+	for attempt := range 5 {
 		var err error
+
 		names, err = bB.ListServices(ctx)
 		if err != nil {
 			t.Fatalf("ListServices on backend B: %v", err)
 		}
+
 		t.Logf("ListServices attempt %d: %v", attempt+1, names)
 
 		for _, n := range names {
@@ -656,6 +686,7 @@ func TestMDNSBackend_CrossBackendDiscovery(t *testing.T) {
 				goto foundInList
 			}
 		}
+
 		time.Sleep(1 * time.Second)
 	}
 
@@ -674,10 +705,12 @@ foundInList:
 	if portalInst.Port != 19050 {
 		t.Errorf("Portal port = %d, want 19050", portalInst.Port)
 	}
+
 	if portalInst.Metadata["farp.openapi"] != "http://127.0.0.1:19050/openapi.json" {
 		t.Errorf("Portal farp.openapi = %q, want http://127.0.0.1:19050/openapi.json",
 			portalInst.Metadata["farp.openapi"])
 	}
+
 	if portalInst.Name != "Portal" {
 		t.Errorf("Portal Name = %q, want %q", portalInst.Name, "Portal")
 	}
@@ -687,6 +720,7 @@ foundInList:
 	if err != nil {
 		t.Fatalf("Discover(NonExistent): %v", err)
 	}
+
 	if len(wrongInstances) != 0 {
 		t.Errorf("Discover(NonExistent) returned %d instances, want 0", len(wrongInstances))
 	}

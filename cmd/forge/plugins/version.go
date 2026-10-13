@@ -1,8 +1,9 @@
-// v2/cmd/forge/plugins/version.go
 package plugins
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,14 +28,14 @@ type versionCache struct {
 // Returns version without 'v' prefix (e.g., "2.1.5").
 // Uses a file-based cache (~/.forge/cache/version.json) with a 24h TTL
 // to avoid excessive GitHub API calls.
-func getLatestForgeVersion() string {
+func getLatestForgeVersion(ctx context.Context) string {
 	// Try cache first
 	if version, ok := getCachedVersion(); ok {
 		return version
 	}
 
 	// Fetch from GitHub
-	version, err := fetchLatestVersionFromGitHub()
+	version, err := fetchLatestVersionFromGitHub(ctx)
 	if err != nil {
 		// Try expired cache as fallback
 		if version, ok := getCachedVersionFallback(); ok {
@@ -91,19 +92,24 @@ func readVersionCache() (*versionCache, error) {
 	}
 
 	if cache.Version == "" {
-		return nil, fmt.Errorf("empty version in cache")
+		return nil, errors.New("empty version in cache")
 	}
 
 	return &cache, nil
 }
 
 // fetchLatestVersionFromGitHub queries the GitHub API for the latest release tag.
-func fetchLatestVersionFromGitHub() (string, error) {
+func fetchLatestVersionFromGitHub(ctx context.Context) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", forgeRepo)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build latest version request: %w", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch latest version: %w", err)
 	}
@@ -127,7 +133,7 @@ func fetchLatestVersionFromGitHub() (string, error) {
 	}
 
 	if release.TagName == "" {
-		return "", fmt.Errorf("empty tag_name in release response")
+		return "", errors.New("empty tag_name in release response")
 	}
 
 	return strings.TrimPrefix(release.TagName, "v"), nil

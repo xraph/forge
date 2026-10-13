@@ -147,8 +147,9 @@ func main() {
 		t.Fatalf("write driver: %v", err)
 	}
 
-	cmd := exec.Command(goBin, "run", "./cmd/driver")
+	cmd := exec.CommandContext(t.Context(), goBin, "run", "./cmd/driver")
 	cmd.Dir = dir
+
 	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off", "GOSUMDB=off")
 
 	out, err := cmd.CombinedOutput()

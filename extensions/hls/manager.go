@@ -2,6 +2,7 @@ package hls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"github.com/xraph/forge/extensions/hls/transcoder"
 )
 
-// Manager implements the HLS interface
+// Manager implements the HLS interface.
 type Manager struct {
 	config     Config
 	storage    *storage.HLSStorage
@@ -38,7 +39,7 @@ type Manager struct {
 	cleanupDone chan struct{}
 }
 
-// NewManager creates a new HLS manager
+// NewManager creates a new HLS manager.
 func NewManager(config Config, store *storage.HLSStorage) (*Manager, error) {
 	generator := NewPlaylistGenerator(config.BaseURL)
 
@@ -77,14 +78,17 @@ func NewManager(config Config, store *storage.HLSStorage) (*Manager, error) {
 	return m, nil
 }
 
-// CreateStream creates a new HLS stream
+// CreateStream creates a new HLS stream.
 func (m *Manager) CreateStream(ctx context.Context, opts StreamOptions) (*Stream, error) {
 	// Check stream limit
 	m.streamsMu.RLock()
+
 	if len(m.streams) >= m.config.MaxStreams {
 		m.streamsMu.RUnlock()
-		return nil, fmt.Errorf("maximum number of streams reached")
+
+		return nil, errors.New("maximum number of streams reached")
 	}
+
 	m.streamsMu.RUnlock()
 
 	// Create stream
@@ -134,7 +138,7 @@ func (m *Manager) CreateStream(ctx context.Context, opts StreamOptions) (*Stream
 	m.statsMu.Unlock()
 
 	// Save metadata
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"id":          stream.ID,
 		"type":        string(stream.Type),
 		"status":      string(stream.Status),
@@ -149,20 +153,20 @@ func (m *Manager) CreateStream(ctx context.Context, opts StreamOptions) (*Stream
 	return stream, nil
 }
 
-// GetStream retrieves a stream by ID
+// GetStream retrieves a stream by ID.
 func (m *Manager) GetStream(ctx context.Context, streamID string) (*Stream, error) {
 	m.streamsMu.RLock()
 	defer m.streamsMu.RUnlock()
 
 	stream, exists := m.streams[streamID]
 	if !exists {
-		return nil, fmt.Errorf("stream not found")
+		return nil, errors.New("stream not found")
 	}
 
 	return stream, nil
 }
 
-// DeleteStream deletes a stream
+// DeleteStream deletes a stream.
 func (m *Manager) DeleteStream(ctx context.Context, streamID string) error {
 	m.streamsMu.Lock()
 	delete(m.streams, streamID)
@@ -188,7 +192,7 @@ func (m *Manager) DeleteStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
-// ListStreams lists all streams
+// ListStreams lists all streams.
 func (m *Manager) ListStreams(ctx context.Context) ([]*Stream, error) {
 	m.streamsMu.RLock()
 	defer m.streamsMu.RUnlock()
@@ -201,7 +205,7 @@ func (m *Manager) ListStreams(ctx context.Context) ([]*Stream, error) {
 	return streams, nil
 }
 
-// StartLiveStream starts a live stream
+// StartLiveStream starts a live stream.
 func (m *Manager) StartLiveStream(ctx context.Context, streamID string) error {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -209,7 +213,7 @@ func (m *Manager) StartLiveStream(ctx context.Context, streamID string) error {
 	}
 
 	if stream.Type != StreamTypeLive && stream.Type != StreamTypeEvent {
-		return fmt.Errorf("stream is not a live stream")
+		return errors.New("stream is not a live stream")
 	}
 
 	m.streamsMu.Lock()
@@ -222,7 +226,7 @@ func (m *Manager) StartLiveStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
-// StopLiveStream stops a live stream
+// StopLiveStream stops a live stream.
 func (m *Manager) StopLiveStream(ctx context.Context, streamID string) error {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -239,7 +243,7 @@ func (m *Manager) StopLiveStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
-// IngestSegment ingests a new segment for a live stream
+// IngestSegment ingests a new segment for a live stream.
 func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *Segment) error {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -247,7 +251,7 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 	}
 
 	if stream.Status != StreamStatusActive {
-		return fmt.Errorf("stream is not active")
+		return errors.New("stream is not active")
 	}
 
 	// Save segment to storage
@@ -257,9 +261,11 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 
 	// Update tracker
 	m.trackersMu.RLock()
+
 	if tracker, exists := m.trackers[streamID]; exists {
 		tracker.AddSegment(segment.VariantID, segment.SequenceNum, segment.Duration, int64(len(segment.Data)))
 	}
+
 	m.trackersMu.RUnlock()
 
 	// Update variant info
@@ -268,9 +274,11 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 		if variant.ID == segment.VariantID {
 			variant.SegmentCount++
 			variant.LastSegment = segment.SequenceNum
+
 			break
 		}
 	}
+
 	stream.UpdatedAt = time.Now()
 	m.streamsMu.Unlock()
 
@@ -287,20 +295,24 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 	// Cleanup old segments if DVR window is set
 	if m.config.DVRWindowSize > 0 {
 		m.trackersMu.RLock()
+
 		if tracker, exists := m.trackers[streamID]; exists {
 			removed := tracker.RemoveOldSegments(segment.VariantID, m.config.DVRWindowSize)
-			// Delete removed segments from storage
+			// Delete removed segments from storage. Pruning is best effort: the
+			// segment is already ingested, Manager has no logger to report to,
+			// and the auto-cleanup pass sweeps up anything left behind.
 			for _, segNum := range removed {
-				m.storage.DeleteSegment(ctx, streamID, segment.VariantID, segNum)
+				_ = m.storage.DeleteSegment(ctx, streamID, segment.VariantID, segNum)
 			}
 		}
+
 		m.trackersMu.RUnlock()
 	}
 
 	return nil
 }
 
-// CreateVOD creates a VOD stream from a source file
+// CreateVOD creates a VOD stream from a source file.
 func (m *Manager) CreateVOD(ctx context.Context, source io.Reader, opts VODOptions) (*Stream, error) {
 	// For VOD from a reader, we need to save it to a temp file first
 	// In production, you'd handle this more efficiently
@@ -328,7 +340,7 @@ func (m *Manager) CreateVOD(ctx context.Context, source io.Reader, opts VODOptio
 	return stream, nil
 }
 
-// CreateVODFromFile creates a VOD stream from a file path
+// CreateVODFromFile creates a VOD stream from a file path.
 func (m *Manager) CreateVODFromFile(ctx context.Context, sourcePath string, opts VODOptions) (*Stream, error) {
 	// Create stream
 	streamOpts := StreamOptions{
@@ -380,7 +392,7 @@ func (m *Manager) CreateVODFromFile(ctx context.Context, sourcePath string, opts
 	return stream, nil
 }
 
-// TranscodeVideo transcodes a video to multiple profiles
+// TranscodeVideo transcodes a video to multiple profiles.
 func (m *Manager) TranscodeVideo(ctx context.Context, streamID string, profiles []TranscodeProfile) error {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -410,6 +422,7 @@ func (m *Manager) TranscodeVideo(ctx context.Context, streamID string, profiles 
 		}
 
 		m.streamsMu.Lock()
+
 		stream.Variants = append(stream.Variants, variant)
 		m.streamsMu.Unlock()
 
@@ -427,7 +440,7 @@ func (m *Manager) TranscodeVideo(ctx context.Context, streamID string, profiles 
 	return nil
 }
 
-// GetMasterPlaylist generates and returns the master playlist
+// GetMasterPlaylist generates and returns the master playlist.
 func (m *Manager) GetMasterPlaylist(ctx context.Context, streamID string) (*MasterPlaylist, error) {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -461,7 +474,7 @@ func (m *Manager) GetMasterPlaylist(ctx context.Context, streamID string) (*Mast
 	}, nil
 }
 
-// GetMediaPlaylist generates and returns a media playlist for a variant
+// GetMediaPlaylist generates and returns a media playlist for a variant.
 func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variantID string) (*MediaPlaylist, error) {
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
@@ -470,24 +483,29 @@ func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variant
 
 	// Find variant
 	var variant *Variant
+
 	for _, v := range stream.Variants {
 		if v.ID == variantID {
 			variant = v
+
 			break
 		}
 	}
+
 	if variant == nil {
-		return nil, fmt.Errorf("variant not found")
+		return nil, errors.New("variant not found")
 	}
 
 	// Get segments from tracker
 	var segments []*SegmentInfo
 
 	m.trackersMu.RLock()
+
 	if tracker, exists := m.trackers[streamID]; exists {
 		// For live streams, get DVR window
 		if stream.Type == StreamTypeLive || stream.Type == StreamTypeEvent {
 			entries := tracker.GetSegmentsWindow(variantID, stream.DVRWindowSize)
+
 			segments = make([]*SegmentInfo, len(entries))
 			for i, entry := range entries {
 				segments[i] = &SegmentInfo{
@@ -499,6 +517,7 @@ func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variant
 		} else {
 			// For VOD, get all segments
 			entries := tracker.GetSegments(variantID)
+
 			segments = make([]*SegmentInfo, len(entries))
 			for i, entry := range entries {
 				segments[i] = &SegmentInfo{
@@ -509,6 +528,7 @@ func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variant
 			}
 		}
 	}
+
 	m.trackersMu.RUnlock()
 
 	// Fallback if no tracker (e.g., VOD without tracking)
@@ -518,6 +538,7 @@ func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variant
 
 	// Generate playlist content
 	var content string
+
 	ended := stream.Status == StreamStatusStopped || stream.Status == StreamStatusEnded
 
 	if stream.Type == StreamTypeLive {
@@ -541,7 +562,7 @@ func (m *Manager) GetMediaPlaylist(ctx context.Context, streamID string, variant
 	}, nil
 }
 
-// GetSegment retrieves a segment with streaming
+// GetSegment retrieves a segment with streaming.
 func (m *Manager) GetSegment(ctx context.Context, streamID, variantID string, segmentNum int) (io.ReadCloser, error) {
 	// Verify stream exists
 	stream, err := m.GetStream(ctx, streamID)
@@ -551,14 +572,17 @@ func (m *Manager) GetSegment(ctx context.Context, streamID, variantID string, se
 
 	// Verify variant exists
 	variantExists := false
+
 	for _, v := range stream.Variants {
 		if v.ID == variantID {
 			variantExists = true
+
 			break
 		}
 	}
+
 	if !variantExists {
-		return nil, fmt.Errorf("variant not found")
+		return nil, errors.New("variant not found")
 	}
 
 	// Get segment from storage with streaming
@@ -585,25 +609,25 @@ func (m *Manager) GetSegment(ctx context.Context, streamID, variantID string, se
 	return reader, nil
 }
 
-// GetSegmentURL returns the URL for a segment
+// GetSegmentURL returns the URL for a segment.
 func (m *Manager) GetSegmentURL(ctx context.Context, streamID, variantID string, segmentNum int) (string, error) {
 	return fmt.Sprintf("%s/%s/variants/%s/segment_%d.ts", m.config.BaseURL, streamID, variantID, segmentNum), nil
 }
 
-// GetStreamStats returns statistics for a stream
+// GetStreamStats returns statistics for a stream.
 func (m *Manager) GetStreamStats(ctx context.Context, streamID string) (*StreamStats, error) {
 	m.statsMu.RLock()
 	defer m.statsMu.RUnlock()
 
 	stats, exists := m.stats[streamID]
 	if !exists {
-		return nil, fmt.Errorf("stats not found")
+		return nil, errors.New("stats not found")
 	}
 
 	return stats, nil
 }
 
-// GetActiveViewers returns the number of active viewers for a stream
+// GetActiveViewers returns the number of active viewers for a stream.
 func (m *Manager) GetActiveViewers(ctx context.Context, streamID string) (int, error) {
 	stats, err := m.GetStreamStats(ctx, streamID)
 	if err != nil {
@@ -613,7 +637,7 @@ func (m *Manager) GetActiveViewers(ctx context.Context, streamID string) (int, e
 	return stats.CurrentViewers, nil
 }
 
-// cleanupRoutine periodically cleans up old segments
+// cleanupRoutine periodically cleans up old segments.
 func (m *Manager) cleanupRoutine() {
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
@@ -629,15 +653,17 @@ func (m *Manager) cleanupRoutine() {
 	}
 }
 
-// performCleanup performs cleanup of old segments
+// performCleanup performs cleanup of old segments.
 func (m *Manager) performCleanup() {
 	ctx := context.Background()
 
 	m.streamsMu.RLock()
+
 	streamIDs := make([]string, 0, len(m.streams))
 	for id := range m.streams {
 		streamIDs = append(streamIDs, id)
 	}
+
 	m.streamsMu.RUnlock()
 
 	for _, streamID := range streamIDs {
@@ -649,7 +675,7 @@ func (m *Manager) performCleanup() {
 	}
 }
 
-// Stop stops the manager
+// Stop stops the manager.
 func (m *Manager) Stop() {
 	if m.config.EnableAutoCleanup {
 		close(m.cleanupStop)

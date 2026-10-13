@@ -1,4 +1,3 @@
-// cmd/forge/plugins/dashboard_test.go
 package plugins
 
 import (
@@ -117,6 +116,7 @@ func TestScaffoldDashboardAppUsesPluginErrorBoundary(t *testing.T) {
 
 	raw, err := os.ReadFile(filepath.Join(dir, "src", "App.tsx"))
 	require.NoError(t, err)
+
 	src := string(raw)
 
 	assert.Contains(t, src, "@forge-go/dashboard-runtime", "App.tsx must import from @forge-go/dashboard-runtime")
@@ -177,6 +177,7 @@ func TestScaffoldDashboardReadmeSaysForgeServesNoPages(t *testing.T) {
 
 	raw, err := os.ReadFile(filepath.Join(dir, "README.md"))
 	require.NoError(t, err)
+
 	readme := string(raw)
 
 	assert.Contains(t, readme, "no pages")
@@ -208,6 +209,7 @@ func TestScaffoldDashboardNextTarget(t *testing.T) {
 			t.Errorf("missing %s: %v", want, err)
 		}
 	}
+
 	if _, err := os.Stat(filepath.Join(dir, "vite.config.ts")); err == nil {
 		t.Error("next target emitted vite.config.ts")
 	}
@@ -314,6 +316,7 @@ func TestScaffoldDashboardNextPageLoadsForgeDashboardDynamically(t *testing.T) {
 
 	page, err := os.ReadFile(filepath.Join(dir, "app/admin/[[...slug]]/page.tsx"))
 	require.NoError(t, err)
+
 	src := string(page)
 
 	assert.NotContains(t, src, `import { ForgeDashboard } from "@forge-go/dashboard-host"`,
@@ -347,6 +350,7 @@ func TestScaffoldDashboardNextRouteDocumentsForgeURL(t *testing.T) {
 
 	raw, err := os.ReadFile(filepath.Join(dir, "app/api/forge/[...path]/route.ts"))
 	require.NoError(t, err)
+
 	route := string(raw)
 
 	assert.Contains(t, route, "FORGE_URL",

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -537,13 +538,16 @@ func (a *app) CentralMigrator() (CentralMigrator, bool) {
 	if a.container == nil {
 		return nil, false
 	}
+
 	if !vessel.HasType[CentralMigrator](a.container) {
 		return nil, false
 	}
+
 	cm, err := vessel.Inject[CentralMigrator](a.container)
 	if err != nil {
 		return nil, false
 	}
+
 	return cm, true
 }
 
@@ -568,8 +572,10 @@ func (a *app) Start(ctx context.Context) error {
 	a.mu.Lock()
 	if a.started || a.starting {
 		a.mu.Unlock()
+
 		return errors.New("app already started")
 	}
+
 	a.starting = true
 	a.mu.Unlock()
 
@@ -919,6 +925,7 @@ func (a *app) printStartupBanner() {
 		if prefix == "" {
 			prefix = "/_/debug/pprof"
 		}
+
 		bannerCfg.PprofPath = prefix
 	}
 
@@ -1005,12 +1012,14 @@ func (a *app) setupPprofEndpoints() error {
 		// Index page: empty path or just "/".
 		if sub == "" || sub == "/" {
 			pprofIndexPage(w, r, prefix)
+
 			return
 		}
 
 		// Specific handlers (cmdline, profile, symbol, trace).
 		if h, ok := specific[sub]; ok {
 			h.ServeHTTP(w, r)
+
 			return
 		}
 
@@ -1221,8 +1230,8 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("error", err),
 		)
 
-		for i := len(a.extensions) - 1; i >= 0; i-- {
-			ext := a.extensions[i]
+		for _, v := range slices.Backward(a.extensions) {
+			ext := v
 			a.logger.Info("stopping extension", F("extension", ext.Name()))
 
 			if err := ext.Stop(ctx); err != nil {
@@ -1237,8 +1246,8 @@ func (a *app) stopExtensions(ctx context.Context) {
 	}
 
 	// Stop in reverse dependency order
-	for i := len(order) - 1; i >= 0; i-- {
-		name := order[i]
+	for _, v := range slices.Backward(order) {
+		name := v
 
 		ext, ok := extMap[name]
 		if !ok {
@@ -1596,6 +1605,7 @@ func (a *app) handleMetrics(ctx Context) error {
 	// etc.) is handled correctly by the Prometheus client library.
 	if p, ok := a.metrics.(shared.PrometheusProvider); ok {
 		p.PrometheusHandler().ServeHTTP(ctx.Response(), ctx.Request())
+
 		return nil
 	}
 
@@ -1650,6 +1660,7 @@ func (a *app) handleHealth(ctx Context) error {
 	statusCode := http.StatusOK
 	if report.Overall == HealthStatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
+
 		a.logger.Warn("health check reporting unhealthy status",
 			F("services", len(report.Services)),
 		)
@@ -1848,6 +1859,7 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 	// Set DisableMigrations from .forge.yaml if not already set programmatically
 	if !config.DisableMigrations && forgeConfig.Database.DisableMigrations {
 		config.DisableMigrations = true
+
 		if logger != nil {
 			logger.Info("migrations disabled via .forge.yaml", F("path", forgeConfigPath))
 		}
@@ -1856,6 +1868,7 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 	// Set CentralMigrations from .forge.yaml if not already set programmatically.
 	if !config.CentralMigrations && forgeConfig.Database.CentralMigrations {
 		config.CentralMigrations = true
+
 		if logger != nil {
 			logger.Info("central migrations enabled via .forge.yaml", F("path", forgeConfigPath))
 		}

@@ -272,7 +272,7 @@ func (c *enhancedConn) onWriterExit(cause error) {
 
 	if cause != nil && c.logger != nil {
 		c.logger.Warn("streaming connection writer stopped",
-			forge.F("conn_id", c.Connection.ID()),
+			forge.F("conn_id", c.ID()),
 			forge.F("reason", cause.Error()),
 		)
 	}

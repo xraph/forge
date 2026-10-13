@@ -20,12 +20,14 @@ type meResp struct {
 // handler, so the two paths can be compared directly.
 func post(t *testing.T, fromMiddleware bool, err error) *httptest.ResponseRecorder {
 	t.Helper()
+
 	r := forge.NewRouter()
 
 	handler := func(ctx forge.Context, _ *meReq) (*meResp, error) {
 		if fromMiddleware {
 			return &meResp{OK: true}, nil
 		}
+
 		return nil, err
 	}
 
@@ -35,6 +37,7 @@ func post(t *testing.T, fromMiddleware bool, err error) *httptest.ResponseRecord
 			return func(ctx forge.Context) error { return err }
 		}))
 	}
+
 	if regErr := r.POST("/x", handler, opts...); regErr != nil {
 		t.Fatalf("register route: %v", regErr)
 	}
@@ -44,6 +47,7 @@ func post(t *testing.T, fromMiddleware bool, err error) *httptest.ResponseRecord
 		bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
+
 	return rec
 }
 
@@ -75,10 +79,12 @@ func TestMiddlewareError_MapsLikeHandlerError(t *testing.T) {
 				t.Fatalf("handler: got %d, want %d (body %q)",
 					fromHandler.Code, tc.want, fromHandler.Body.String())
 			}
+
 			if fromMiddleware.Code != tc.want {
 				t.Errorf("middleware: got %d, want %d (body %q)",
 					fromMiddleware.Code, tc.want, fromMiddleware.Body.String())
 			}
+
 			if fromMiddleware.Body.String() != fromHandler.Body.String() {
 				t.Errorf("bodies differ:\n  handler:    %q\n  middleware: %q",
 					fromHandler.Body.String(), fromMiddleware.Body.String())
@@ -95,6 +101,7 @@ func TestMiddlewareError_ProducesJSONEnvelope(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("middleware error body is not JSON: %q", rec.Body.String())
 	}
+
 	if body["error"] != "nope" {
 		t.Errorf("error field: got %v, want %q", body["error"], "nope")
 	}

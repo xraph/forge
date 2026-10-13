@@ -49,6 +49,7 @@ func (s *stubManager) GetRoom(_ context.Context, id string) (streaming.Room, err
 			return r, nil
 		}
 	}
+
 	return nil, streaming.ErrRoomNotFound
 }
 func (s *stubManager) ListChannels(_ context.Context) ([]streaming.Channel, error) {
@@ -58,21 +59,26 @@ func (s *stubManager) GetPresence(_ context.Context, userID string) (*streaming.
 	if p, ok := s.presence[userID]; ok {
 		return p, nil
 	}
+
 	return nil, errors.New("presence not found")
 }
 func (s *stubManager) CreateRoom(_ context.Context, r streaming.Room) error {
 	if s.createErr != nil {
 		return s.createErr
 	}
+
 	s.createdRoom = r
 	s.rooms = append(s.rooms, r)
+
 	return nil
 }
 func (s *stubManager) DeleteRoom(_ context.Context, id string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
+
 	s.deletedID = id
+
 	return nil
 }
 func (s *stubManager) BroadcastToRoom(_ context.Context, _ string, _ *streaming.Message) error {
@@ -82,16 +88,20 @@ func (s *stubManager) SetPresence(_ context.Context, userID, status string) erro
 	if s.setPresenceErr != nil {
 		return s.setPresenceErr
 	}
+
 	s.setUser = userID
 	s.setStatus = status
+
 	return nil
 }
 func (s *stubManager) KickConnection(_ context.Context, connID, reason string) error {
 	if s.kickErr != nil {
 		return s.kickErr
 	}
+
 	s.kickedConn = connID
 	s.kickedReason = reason
+
 	return nil
 }
 func (s *stubManager) GetRoomMembers(_ context.Context, _ string) ([]streaming.Member, error) {
@@ -122,13 +132,16 @@ func managerOf(s *stubManager) ManagerProvider { return func() streaming.Manager
 func TestStatsHandler(t *testing.T) {
 	s := newStub()
 	h := statsHandler(managerOf(s))
+
 	got, err := h(context.Background(), struct{}{}, dashcontract.Principal{})
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
+
 	if got.TotalConnections != 5 || got.TotalMessages != 100 || got.MessagesPerSec != 2.5 {
 		t.Errorf("stats projection wrong: %+v", got)
 	}
+
 	if got.UptimeSeconds != 300 {
 		t.Errorf("uptime = %d, want 300", got.UptimeSeconds)
 	}
@@ -136,11 +149,14 @@ func TestStatsHandler(t *testing.T) {
 
 func TestStatsHandler_NilManager(t *testing.T) {
 	h := statsHandler(func() streaming.Manager { return nil })
+
 	_, err := h(context.Background(), struct{}{}, dashcontract.Principal{})
 	if err == nil {
 		t.Fatal("expected unavailable error")
 	}
-	if ce, ok := err.(*dashcontract.Error); !ok || ce.Code != dashcontract.CodeUnavailable {
+
+	ce := &dashcontract.Error{}
+	if !errors.As(err, &ce) || ce.Code != dashcontract.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable, got %v", err)
 	}
 }
@@ -148,8 +164,11 @@ func TestStatsHandler_NilManager(t *testing.T) {
 func TestKickConnection_BadRequestOnEmptyID(t *testing.T) {
 	s := newStub()
 	h := kickConnectionHandler(managerOf(s))
+
 	_, err := h(context.Background(), KickConnectionInput{ConnID: ""}, dashcontract.Principal{})
-	if ce, ok := err.(*dashcontract.Error); !ok || ce.Code != dashcontract.CodeBadRequest {
+
+	ce := &dashcontract.Error{}
+	if !errors.As(err, &ce) || ce.Code != dashcontract.CodeBadRequest {
 		t.Errorf("expected CodeBadRequest, got %v", err)
 	}
 }
@@ -157,10 +176,12 @@ func TestKickConnection_BadRequestOnEmptyID(t *testing.T) {
 func TestKickConnection_PassesThroughToManager(t *testing.T) {
 	s := newStub()
 	h := kickConnectionHandler(managerOf(s))
+
 	res, err := h(context.Background(), KickConnectionInput{ConnID: "c_42", Reason: "spam"}, dashcontract.Principal{})
 	if err != nil {
 		t.Fatalf("kick: %v", err)
 	}
+
 	if !res.OK || s.kickedConn != "c_42" || s.kickedReason != "spam" {
 		t.Errorf("expected kick to land, got conn=%q reason=%q ok=%v", s.kickedConn, s.kickedReason, res.OK)
 	}
@@ -170,8 +191,11 @@ func TestDeleteRoom_NotFoundMapsToCodeNotFound(t *testing.T) {
 	s := newStub()
 	s.deleteErr = streaming.ErrRoomNotFound
 	h := deleteRoomHandler(managerOf(s))
+
 	_, err := h(context.Background(), DeleteRoomInput{ID: "missing"}, dashcontract.Principal{})
-	if ce, ok := err.(*dashcontract.Error); !ok || ce.Code != dashcontract.CodeNotFound {
+
+	ce := &dashcontract.Error{}
+	if !errors.As(err, &ce) || ce.Code != dashcontract.CodeNotFound {
 		t.Errorf("expected CodeNotFound, got %v", err)
 	}
 }
@@ -179,13 +203,16 @@ func TestDeleteRoom_NotFoundMapsToCodeNotFound(t *testing.T) {
 func TestSendMessage_RequiresRoomAndContent(t *testing.T) {
 	s := newStub()
 	h := sendMessageHandler(managerOf(s))
+
 	cases := []SendMessageInput{
 		{RoomID: "", Content: "hi"},
 		{RoomID: "r1", Content: ""},
 	}
 	for _, in := range cases {
 		_, err := h(context.Background(), in, dashcontract.Principal{})
-		if ce, ok := err.(*dashcontract.Error); !ok || ce.Code != dashcontract.CodeBadRequest {
+
+		ce := &dashcontract.Error{}
+		if !errors.As(err, &ce) || ce.Code != dashcontract.CodeBadRequest {
 			t.Errorf("expected CodeBadRequest for %+v, got %v", in, err)
 		}
 	}
@@ -194,10 +221,12 @@ func TestSendMessage_RequiresRoomAndContent(t *testing.T) {
 func TestSetPresence_PassesThrough(t *testing.T) {
 	s := newStub()
 	h := setPresenceHandler(managerOf(s))
+
 	res, err := h(context.Background(), SetPresenceInput{UserID: "u1", Status: "away"}, dashcontract.Principal{})
 	if err != nil {
 		t.Fatalf("setPresence: %v", err)
 	}
+
 	if !res.OK || s.setUser != "u1" || s.setStatus != "away" {
 		t.Errorf("expected presence to land, got user=%q status=%q", s.setUser, s.setStatus)
 	}
@@ -206,8 +235,11 @@ func TestSetPresence_PassesThrough(t *testing.T) {
 func TestSetPresence_BadRequestOnEmptyFields(t *testing.T) {
 	s := newStub()
 	h := setPresenceHandler(managerOf(s))
+
 	_, err := h(context.Background(), SetPresenceInput{}, dashcontract.Principal{})
-	if ce, ok := err.(*dashcontract.Error); !ok || ce.Code != dashcontract.CodeBadRequest {
+
+	ce := &dashcontract.Error{}
+	if !errors.As(err, &ce) || ce.Code != dashcontract.CodeBadRequest {
 		t.Errorf("expected CodeBadRequest, got %v", err)
 	}
 }
@@ -224,19 +256,24 @@ func TestConfigHandler_ProjectsFeaturesAndLimits(t *testing.T) {
 		PingInterval:          25 * time.Second,
 	}
 	h := configHandler(func() streaming.Config { return cfg })
+
 	got, err := h(context.Background(), struct{}{}, dashcontract.Principal{})
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
+
 	if got.BackendType != "redis" || !got.Distributed || got.NodeID != "node-1" {
 		t.Errorf("backend / distributed / nodeID projection wrong: %+v", got)
 	}
+
 	if got.Features["rooms"] != true || got.Features["channels"] != false {
 		t.Errorf("features projection wrong: %+v", got.Features)
 	}
+
 	if got.Limits["maxConnectionsPerUser"].(int) != 5 {
 		t.Errorf("limits projection wrong: %+v", got.Limits)
 	}
+
 	if got.Timeouts["pingInterval"].(string) != "25s" {
 		t.Errorf("timeouts projection wrong: %+v", got.Timeouts)
 	}
@@ -255,10 +292,12 @@ func TestPresenceList_AggregatesOverUniqueUsers(t *testing.T) {
 		fakeConn{id: "c3", userID: ""},      // anonymous, skipped
 	}
 	h := presenceListHandler(managerOf(s))
+
 	got, err := h(context.Background(), struct{}{}, dashcontract.Principal{})
 	if err != nil {
 		t.Fatalf("presence: %v", err)
 	}
+
 	if len(got.Presence) != 1 || got.Presence[0].UserID != "alice" {
 		t.Errorf("expected 1 unique presence entry, got %+v", got.Presence)
 	}
@@ -268,8 +307,9 @@ func TestPresenceList_AggregatesOverUniqueUsers(t *testing.T) {
 
 type fakeConn struct {
 	streaming.EnhancedConnection // embed to satisfy the interface; override what we use
-	id                           string
-	userID                       string
+
+	id     string
+	userID string
 }
 
 func (f fakeConn) ID() string                 { return f.id }

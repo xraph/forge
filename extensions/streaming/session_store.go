@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 )
@@ -58,16 +59,12 @@ func (s *SessionSnapshot) clone() *SessionSnapshot {
 
 	if s.Metadata != nil {
 		cp.Metadata = make(map[string]string, len(s.Metadata))
-		for k, v := range s.Metadata {
-			cp.Metadata[k] = v
-		}
+		maps.Copy(cp.Metadata, s.Metadata)
 	}
 
 	if s.LastEventIDs != nil {
 		cp.LastEventIDs = make(map[string]string, len(s.LastEventIDs))
-		for k, v := range s.LastEventIDs {
-			cp.LastEventIDs[k] = v
-		}
+		maps.Copy(cp.LastEventIDs, s.LastEventIDs)
 	}
 
 	return &cp
@@ -94,6 +91,7 @@ func NewInMemorySessionStore() SessionStore {
 		stop:     make(chan struct{}),
 	}
 	go store.cleanupLoop()
+
 	return store
 }
 
@@ -107,6 +105,7 @@ func (s *inMemorySessionStore) Save(ctx context.Context, snapshot *SessionSnapsh
 		snapshot:  snapshot.clone(),
 		expiresAt: time.Now().Add(ttl),
 	}
+
 	return nil
 }
 
@@ -133,6 +132,7 @@ func (s *inMemorySessionStore) Delete(ctx context.Context, sessionID string) err
 	defer s.mu.Unlock()
 
 	delete(s.sessions, sessionID)
+
 	return nil
 }
 

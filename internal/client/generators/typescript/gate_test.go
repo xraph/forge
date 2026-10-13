@@ -115,12 +115,15 @@ func TestTypesQuoteNonIdentifierKeys(t *testing.T) {
 	if bad := errorsMentioning(errs, "TS1131"); len(bad) > 0 {
 		t.Errorf("should not have TS1131 errors:\n%s", strings.Join(bad, "\n"))
 	}
+
 	if bad := errorsMentioning(errs, "TS1351"); len(bad) > 0 {
 		t.Errorf("should not have TS1351 errors:\n%s", strings.Join(bad, "\n"))
 	}
+
 	if bad := errorsMentioning(errs, "TS1109"); len(bad) > 0 {
 		t.Errorf("should not have TS1109 errors:\n%s", strings.Join(bad, "\n"))
 	}
+
 	if bad := errorsMentioning(errs, "TS1128"); len(bad) > 0 {
 		t.Errorf("should not have TS1128 errors:\n%s", strings.Join(bad, "\n"))
 	}
@@ -328,6 +331,8 @@ func TestGenerateExampleTestGatesAuthWhenIncludeAuthFalse(t *testing.T) {
 // asserts the absence of all of them, across every fixture, and is what CI
 // runs to keep the corpus clean going forward.
 func TestGeneratedClientsTypeCheck(t *testing.T) {
+	t.Parallel()
+
 	for _, f := range gateFixtures() {
 		t.Run(f.Name, func(t *testing.T) {
 			t.Parallel()

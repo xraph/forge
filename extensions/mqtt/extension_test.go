@@ -14,10 +14,14 @@ import (
 // requireBroker skips the test if no MQTT broker is reachable at localhost:1883.
 func requireBroker(t *testing.T) {
 	t.Helper()
-	conn, err := net.DialTimeout("tcp", "localhost:1883", 500*time.Millisecond)
+
+	dialer := &net.Dialer{Timeout: 500 * time.Millisecond}
+
+	conn, err := dialer.DialContext(context.Background(), "tcp", "localhost:1883")
 	if err != nil {
 		t.Skip("skipping: MQTT broker not available at localhost:1883")
 	}
+
 	conn.Close()
 }
 
@@ -144,6 +148,7 @@ func TestExtensionClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve mqtt client: %v", err)
 	}
+
 	if client == nil {
 		t.Error("expected client to be returned")
 	}
@@ -162,6 +167,7 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Health(ctx)
 	if err == nil {
 		t.Error("expected health check to fail when not connected")
@@ -209,7 +215,7 @@ func TestExtensionDescription(t *testing.T) {
 	}
 }
 
-// Helper function to create a test app
+// Helper function to create a test app.
 func createTestApp(t *testing.T) forge.App {
 	t.Helper()
 

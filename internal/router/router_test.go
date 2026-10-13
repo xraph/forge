@@ -71,7 +71,7 @@ func TestRouter_StandardHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test request
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -89,7 +89,7 @@ func TestRouter_ContextHandler(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -106,7 +106,7 @@ func TestRouter_ContextHandler_Error(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -133,7 +133,7 @@ func TestRouter_OpinionatedHandler(t *testing.T) {
 	body, err := json.Marshal(reqBody)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -160,7 +160,7 @@ func TestRouter_OpinionatedHandler_BadRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send invalid JSON
-	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader([]byte("invalid json")))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", bytes.NewReader([]byte("invalid json")))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -189,7 +189,7 @@ func TestRouter_ServiceHandler(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -232,7 +232,7 @@ func TestRouter_CombinedHandler(t *testing.T) {
 	body, err := json.Marshal(reqBody)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -280,7 +280,7 @@ func TestRouter_AllHTTPMethods(t *testing.T) {
 
 		require.NoError(t, err, "Failed to register %s", method)
 
-		req := httptest.NewRequest(method, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), method, "/test", nil)
 		rec := httptest.NewRecorder()
 
 		router.ServeHTTP(rec, req)
@@ -347,7 +347,7 @@ func TestRouter_WithMiddleware(t *testing.T) {
 	}, WithMiddleware(middleware))
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -365,7 +365,7 @@ func TestRouter_Group(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -384,7 +384,7 @@ func TestRouter_NestedGroups(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -410,7 +410,7 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -465,7 +465,7 @@ func TestRouter_GroupMiddlewareIsolation(t *testing.T) {
 		groupMiddlewareCalled = false
 		rootMiddlewareCalled = false
 
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -479,7 +479,7 @@ func TestRouter_GroupMiddlewareIsolation(t *testing.T) {
 		groupMiddlewareCalled = false
 		rootMiddlewareCalled = false
 
-		req := httptest.NewRequest(http.MethodGet, "/public", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/public", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -523,7 +523,7 @@ func TestRouter_UseGlobal(t *testing.T) {
 	// Test that global middleware applies to root route
 	t.Run("global middleware applies to root route", func(t *testing.T) {
 		globalCalled = false
-		req := httptest.NewRequest(http.MethodGet, "/public", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/public", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -534,7 +534,7 @@ func TestRouter_UseGlobal(t *testing.T) {
 	// Test that global middleware applies to group route
 	t.Run("global middleware applies to group route", func(t *testing.T) {
 		globalCalled = false
-		req := httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/protected", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -592,7 +592,7 @@ func TestRouter_UseVsUseGlobal(t *testing.T) {
 		scopedCalled = false
 		globalCalled = false
 
-		req := httptest.NewRequest(http.MethodGet, "/root-route", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/root-route", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -605,7 +605,7 @@ func TestRouter_UseVsUseGlobal(t *testing.T) {
 		scopedCalled = false
 		globalCalled = false
 
-		req := httptest.NewRequest(http.MethodGet, "/api/group-route", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/group-route", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -651,7 +651,7 @@ func TestRouter_Use(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -744,7 +744,7 @@ func TestRouter_Any_PureHTTPHandler(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -773,7 +773,7 @@ func TestRouter_Any_HTTPHandlerFunc(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -797,7 +797,7 @@ func TestRouter_Any_StandardFunc(t *testing.T) {
 	// Test GET and POST
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -828,7 +828,7 @@ func TestRouter_Any_ContextHandler(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -856,7 +856,7 @@ func TestRouter_Any_OpinionatedHandler(t *testing.T) {
 
 	// Test POST with body
 	body := bytes.NewBufferString(`{"name":"John","email":"john@example.com"}`)
-	req := httptest.NewRequest(http.MethodPost, "/users", body)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", body)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -891,7 +891,7 @@ func TestRouter_Any_WithMiddleware(t *testing.T) {
 	}, WithMiddleware(middleware))
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -941,7 +941,7 @@ func TestRouter_Any_OnGroup(t *testing.T) {
 	// Test with different methods
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/api/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/api/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -973,7 +973,7 @@ func TestRouter_Any_GroupWithMiddleware(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -1020,7 +1020,7 @@ func TestRouter_Any_NestedGroups(t *testing.T) {
 	// Test with different methods
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/api/v1/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/api/v1/test", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -1086,7 +1086,7 @@ func TestRouter_Handle_HTTPHandler(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/mounted", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/mounted", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -1132,7 +1132,7 @@ func TestRouter_Handle_FileServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test accessing files
-	req := httptest.NewRequest(http.MethodGet, "/files/test.txt", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/test.txt", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -1159,7 +1159,7 @@ func TestRouter_Handle_OnGroup(t *testing.T) {
 	// Test with different methods
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/api/mounted", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/api/mounted", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -1185,7 +1185,7 @@ func TestRouter_Handle_NestedGroups(t *testing.T) {
 	err := v1.Handle("/resource", handler)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/resource", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/resource", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -1221,7 +1221,7 @@ func TestRouter_Handle_SubRouter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -1248,14 +1248,14 @@ func TestRouter_Handle_MixedWithRoutes(t *testing.T) {
 	router.Handle("/static/*", handler)
 
 	// Test regular route
-	req1 := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/users", nil)
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, req1)
 	assert.Equal(t, http.StatusOK, rec1.Code)
 	assert.Equal(t, "users route", rec1.Body.String())
 
 	// Test mounted handler
-	req2 := httptest.NewRequest(http.MethodGet, "/static/file.css", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/static/file.css", nil)
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
 	assert.Equal(t, http.StatusOK, rec2.Code)

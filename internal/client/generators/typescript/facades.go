@@ -64,14 +64,14 @@ import { ops } from './ops';
 		ep := &spec.Endpoints[i]
 
 		if isReadMethod(ep.Method) {
-			lines.WriteString(fmt.Sprintf("export const %s = query%s(%s);\n",
-				names[i], queryTypeArg(ep, spec, imports), tsMember("ops", keys[i])))
+			fmt.Fprintf(&lines, "export const %s = query%s(%s);\n",
+				names[i], queryTypeArg(ep, spec, imports), tsMember("ops", keys[i]))
 
 			continue
 		}
 
-		lines.WriteString(fmt.Sprintf("export const %s = mutation%s(%s);\n",
-			names[i], mutationTypeArgs(ep, spec, imports), tsMember("ops", keys[i])))
+		fmt.Fprintf(&lines, "export const %s = mutation%s(%s);\n",
+			names[i], mutationTypeArgs(ep, spec, imports), tsMember("ops", keys[i]))
 	}
 
 	if len(imports) > 0 {
@@ -83,7 +83,7 @@ import { ops } from './ops';
 		// order is deliberately not stable in Go.
 		sort.Strings(named)
 
-		buf.WriteString(fmt.Sprintf("import type { %s } from './types';\n\n", strings.Join(named, ", ")))
+		fmt.Fprintf(&buf, "import type { %s } from './types';\n\n", strings.Join(named, ", "))
 	}
 
 	buf.WriteString(lines.String())
@@ -119,18 +119,18 @@ func (g *FacadeGenerator) GenerateModules(
 		// discarding its result still writes the import line -- a read
 		// operation would import the entity type its mutation form would have
 		// named, and never use it.
-		binder, typeArgs := "query", ""
+		var binder, typeArgs string
 		if isReadMethod(ep.Method) {
-			typeArgs = queryTypeArg(ep, spec, imports)
+			binder, typeArgs = "query", queryTypeArg(ep, spec, imports)
 		} else {
 			binder, typeArgs = "mutation", mutationTypeArgs(ep, spec, imports)
 		}
 
 		var buf strings.Builder
 
-		buf.WriteString(fmt.Sprintf("import { %s } from '@forge-go/client-core';\n", binder))
-		buf.WriteString(fmt.Sprintf("import { %s } from '../ops/%s';\n",
-			naming.consts[i], naming.files[i]))
+		fmt.Fprintf(&buf, "import { %s } from '@forge-go/client-core';\n", binder)
+		fmt.Fprintf(&buf, "import { %s } from '../ops/%s';\n",
+			naming.consts[i], naming.files[i])
 
 		if len(imports) > 0 {
 			named := make([]string, 0, len(imports))
@@ -141,7 +141,7 @@ func (g *FacadeGenerator) GenerateModules(
 			// iteration order is deliberately not stable in Go.
 			sort.Strings(named)
 
-			buf.WriteString(fmt.Sprintf("import type { %s } from '../types';\n", strings.Join(named, ", ")))
+			fmt.Fprintf(&buf, "import type { %s } from '../types';\n", strings.Join(named, ", "))
 		}
 
 		// The PURE annotation is what lets a bundler drop this binding when
@@ -153,8 +153,8 @@ func (g *FacadeGenerator) GenerateModules(
 		// It buys nothing against an import-graph budget, which counts whole
 		// reachable files. It buys the same win again inside a real bundle,
 		// for a consumer who imports the barrel and never migrates.
-		buf.WriteString(fmt.Sprintf("\nexport const %s = /*#__PURE__*/ %s%s(%s);\n",
-			names[i], binder, typeArgs, naming.consts[i]))
+		fmt.Fprintf(&buf, "\nexport const %s = /*#__PURE__*/ %s%s(%s);\n",
+			names[i], binder, typeArgs, naming.consts[i])
 
 		files["src/hooks/"+stems[i]+".ts"] = buf.String()
 	}

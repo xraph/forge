@@ -340,22 +340,38 @@ func TestRoomStore_MembershipErrors(t *testing.T) {
 		},
 		{
 			name: "get members of a missing room",
-			call: func() error { _, err := s.GetMembers(ctx, "nope"); return err },
+			call: func() error {
+				_, err := s.GetMembers(ctx, "nope")
+
+				return err
+			},
 			want: streaming.ErrRoomNotFound,
 		},
 		{
 			name: "get a non-member",
-			call: func() error { _, err := s.GetMember(ctx, "room-1", "carol"); return err },
+			call: func() error {
+				_, err := s.GetMember(ctx, "room-1", "carol")
+
+				return err
+			},
 			want: streaming.ErrNotRoomMember,
 		},
 		{
 			name: "member count of a missing room",
-			call: func() error { _, err := s.MemberCount(ctx, "nope"); return err },
+			call: func() error {
+				_, err := s.MemberCount(ctx, "nope")
+
+				return err
+			},
 			want: streaming.ErrRoomNotFound,
 		},
 		{
 			name: "is-member on a missing room",
-			call: func() error { _, err := s.IsMember(ctx, "nope", "alice"); return err },
+			call: func() error {
+				_, err := s.IsMember(ctx, "nope", "alice")
+
+				return err
+			},
 			want: streaming.ErrRoomNotFound,
 		},
 	}
@@ -722,15 +738,11 @@ func TestRoomStore_IsBannedIsSafeUnderConcurrentReads(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 8 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for i := range 32 {
 				_, _ = s.IsBanned(ctx, "room-1", fmt.Sprintf("u%d", i))
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -746,8 +758,16 @@ func TestRoomStore_BanErrorsOnMissingRoom(t *testing.T) {
 	}{
 		{name: "ban", call: func() error { return s.BanMember(ctx, "nope", "u", streaming.RoomBan{}) }},
 		{name: "unban", call: func() error { return s.UnbanMember(ctx, "nope", "u") }},
-		{name: "get bans", call: func() error { _, err := s.GetBans(ctx, "nope"); return err }},
-		{name: "is banned", call: func() error { _, err := s.IsBanned(ctx, "nope", "u"); return err }},
+		{name: "get bans", call: func() error {
+			_, err := s.GetBans(ctx, "nope")
+
+			return err
+		}},
+		{name: "is banned", call: func() error {
+			_, err := s.IsBanned(ctx, "nope", "u")
+
+			return err
+		}},
 	}
 
 	for _, tt := range tests {

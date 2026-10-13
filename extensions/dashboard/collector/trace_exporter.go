@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"maps"
 
 	"github.com/xraph/forge/internal/observability"
 )
@@ -23,6 +24,7 @@ func (e *DashboardSpanExporter) ExportSpans(_ context.Context, spans []*observab
 		view := convertSpan(s)
 		e.store.AddSpan(view)
 	}
+
 	return nil
 }
 
@@ -34,16 +36,13 @@ func (e *DashboardSpanExporter) Shutdown(_ context.Context) error {
 // convertSpan maps an observability.Span to a collector.SpanView.
 func convertSpan(s *observability.Span) *SpanView {
 	attrs := make(map[string]string, len(s.Attributes))
-	for k, v := range s.Attributes {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, s.Attributes)
 
 	events := make([]SpanEventView, 0, len(s.Events))
 	for _, ev := range s.Events {
 		evAttrs := make(map[string]string, len(ev.Attributes))
-		for k, v := range ev.Attributes {
-			evAttrs[k] = v
-		}
+		maps.Copy(evAttrs, ev.Attributes)
+
 		events = append(events, SpanEventView{
 			Name:       ev.Name,
 			Timestamp:  ev.Timestamp,

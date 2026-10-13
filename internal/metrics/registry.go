@@ -206,7 +206,6 @@ func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption)
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-
 		if counter, ok := registered.Metric.(metrics.Counter); ok {
 			return counter
 		}
@@ -228,7 +227,6 @@ func (r *registry) GetOrCreateGauge(name string, opts ...metrics.MetricOption) m
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-
 		if gauge, ok := registered.Metric.(metrics.Gauge); ok {
 			return gauge
 		}
@@ -250,7 +248,6 @@ func (r *registry) GetOrCreateHistogram(name string, opts ...metrics.MetricOptio
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-
 		if histogram, ok := registered.Metric.(metrics.Histogram); ok {
 			return histogram
 		}
@@ -272,7 +269,6 @@ func (r *registry) GetOrCreateTimer(name string, opts ...metrics.MetricOption) m
 	defer r.mu.Unlock()
 
 	if registered, exists := r.metrics[key]; exists {
-
 		if timer, ok := registered.Metric.(metrics.Timer); ok {
 			return timer
 		}
@@ -297,7 +293,6 @@ func (r *registry) GetMetric(name string, tags map[string]string) any {
 	defer r.mu.RUnlock()
 
 	if registered, exists := r.metrics[key]; exists {
-
 		return registered.Metric
 	}
 
@@ -358,7 +353,7 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 
 			sample := exporters.Sample{
 				Kind:    exporters.SampleHistogram,
-				Count:   uint64(histogram.Count()),
+				Count:   histogram.Count(),
 				Sum:     histogram.Sum(),
 				Buckets: make([]exporters.Bucket, 0, len(raw)),
 			}
@@ -378,7 +373,7 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 		}
 	case metrics.MetricTypeTimer:
 		if timer, ok := rm.Metric.(metrics.Timer); ok {
-			count := uint64(timer.Count())
+			count := timer.Count()
 
 			return exporters.Sample{
 				Kind:  exporters.SampleTimer,

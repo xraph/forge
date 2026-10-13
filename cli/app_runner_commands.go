@@ -11,11 +11,13 @@ import (
 // forge.MigratableExtension.
 func collectMigratableExtensions(app forge.App) []forge.MigratableExtension {
 	var migratables []forge.MigratableExtension
+
 	for _, ext := range app.Extensions() {
 		if m, ok := ext.(forge.MigratableExtension); ok {
 			migratables = append(migratables, m)
 		}
 	}
+
 	return migratables
 }
 
@@ -63,6 +65,7 @@ func buildServeCommand(autoMigrate bool) Command {
 				// Check if migrations are disabled via config or .forge.yaml
 				if a.MigrationsDisabled() {
 					a.Logger().Info("auto-migrations disabled via configuration")
+
 					return nil
 				}
 
@@ -72,12 +75,15 @@ func buildServeCommand(autoMigrate bool) Command {
 				}
 
 				a.Logger().Info("running auto-migrations before serve")
+
 				for _, m := range migratables {
-					ext := m.(forge.Extension) //nolint:errcheck // MigratableExtension always embeds Extension
+					ext := m.(forge.Extension)
+
 					result, err := m.Migrate(hookCtx)
 					if err != nil {
 						return fmt.Errorf("auto-migrate failed for %s: %w", ext.Name(), err)
 					}
+
 					if result.Applied > 0 {
 						a.Logger().Info("migrations applied",
 							forge.F("extension", ext.Name()),
@@ -85,6 +91,7 @@ func buildServeCommand(autoMigrate bool) Command {
 						)
 					}
 				}
+
 				return nil
 			}, forge.LifecycleHookOptions{
 				Name:     "cli-auto-migrate",
@@ -103,16 +110,19 @@ func buildMigrateCommand() Command {
 	// Parent migrate command — shows usage when invoked without subcommand.
 	migrateCmd := NewCommand("migrate", "Database migration commands", func(ctx CommandContext) error {
 		app := ctx.App()
+
 		name := "app"
 		if app != nil {
 			name = app.Name()
 		}
+
 		ctx.Println("Usage: " + name + " migrate <command>")
 		ctx.Println("")
 		ctx.Println("Commands:")
 		ctx.Println("  up       Run all pending migrations")
 		ctx.Println("  down     Rollback the last migration batch")
 		ctx.Println("  status   Show migration status")
+
 		return nil
 	})
 
@@ -162,15 +172,18 @@ func buildMigrateUpCommand() Command {
 
 			totalApplied := 0
 			totalPending := 0
+
 			for _, g := range groups {
 				totalApplied += len(g.Applied)
 				totalPending += len(g.Pending)
 			}
+
 			if totalPending == 0 {
 				ctx.Success(fmt.Sprintf("All migrations applied (%d total)", totalApplied))
 			} else {
 				ctx.Info(fmt.Sprintf("%d migration(s) applied, %d still pending", totalApplied, totalPending))
 			}
+
 			return nil
 		}
 
@@ -178,33 +191,40 @@ func buildMigrateUpCommand() Command {
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
+
 			return nil
 		}
 
 		spinner := ctx.Spinner("Running migrations...")
 
 		totalApplied := 0
+
 		for _, m := range migratables {
-			ext := m.(forge.Extension) //nolint:errcheck // MigratableExtension embeds Extension
+			ext := m.(forge.Extension)
+
 			result, err := m.Migrate(ctx.Context())
 			if err != nil {
 				spinner.Stop("Migration failed")
+
 				return fmt.Errorf("migration failed for %s: %w", ext.Name(), err)
 			}
+
 			totalApplied += result.Applied
 			if result.Applied > 0 {
 				for _, name := range result.Names {
-					ctx.Success(fmt.Sprintf("  Applied: %s", name))
+					ctx.Success("  Applied: " + name)
 				}
 			}
 		}
 
 		spinner.Stop("Done")
+
 		if totalApplied > 0 {
 			ctx.Success(fmt.Sprintf("Applied %d migration(s)", totalApplied))
 		} else {
 			ctx.Info("No pending migrations")
 		}
+
 		return nil
 	})
 }
@@ -246,8 +266,10 @@ func buildMigrateDownCommand() Command {
 				if err != nil {
 					return fmt.Errorf("confirmation failed: %w", err)
 				}
+
 				if !ok {
 					ctx.Info("Rollback cancelled")
+
 					return nil
 				}
 			}
@@ -256,14 +278,17 @@ func buildMigrateDownCommand() Command {
 			if err != nil {
 				return fmt.Errorf("central rollback failed: %w", err)
 			}
+
 			if result.RolledBack == 0 {
 				ctx.Info("Nothing to rollback")
 			} else {
 				ctx.Success(fmt.Sprintf("Rolled back %d migration(s)", result.RolledBack))
+
 				for _, name := range result.Names {
 					ctx.Println(fmt.Sprintf("  %s %s", Yellow("↩"), name))
 				}
 			}
+
 			return nil
 		}
 
@@ -271,6 +296,7 @@ func buildMigrateDownCommand() Command {
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
+
 			return nil
 		}
 
@@ -281,22 +307,28 @@ func buildMigrateDownCommand() Command {
 			if err != nil {
 				return fmt.Errorf("confirmation failed: %w", err)
 			}
+
 			if !ok {
 				ctx.Info("Rollback cancelled")
+
 				return nil
 			}
 		}
 
 		totalRolledBack := 0
+
 		for _, m := range migratables {
-			ext := m.(forge.Extension) //nolint:errcheck // MigratableExtension embeds Extension
+			ext := m.(forge.Extension)
+
 			result, err := m.Rollback(ctx.Context())
 			if err != nil {
 				return fmt.Errorf("rollback failed for %s: %w", ext.Name(), err)
 			}
+
 			totalRolledBack += result.RolledBack
 			if result.RolledBack > 0 {
 				ctx.Success(fmt.Sprintf("Rolled back %d migration(s) for %s", result.RolledBack, ext.Name()))
+
 				for _, name := range result.Names {
 					ctx.Println(fmt.Sprintf("  %s %s", Yellow("↩"), name))
 				}
@@ -306,6 +338,7 @@ func buildMigrateDownCommand() Command {
 		if totalRolledBack == 0 {
 			ctx.Info("Nothing to rollback")
 		}
+
 		return nil
 	},
 		WithFlag(NewBoolFlag("force", "f", "Skip confirmation prompt", false)),
@@ -318,7 +351,7 @@ func buildMigrateDownCommand() Command {
 // before calling this helper.
 func renderMigrationGroups(ctx CommandContext, groups []*forge.MigrationGroupInfo) {
 	for _, g := range groups {
-		ctx.Println(fmt.Sprintf("  Group: %s", Bold(g.Name)))
+		ctx.Println("  Group: " + Bold(g.Name))
 
 		table := ctx.Table()
 		table.SetHeader([]string{"Version", "Name", "Status", "Applied At"})
@@ -331,6 +364,7 @@ func renderMigrationGroups(ctx CommandContext, groups []*forge.MigrationGroupInf
 				mig.AppliedAt,
 			})
 		}
+
 		for _, mig := range g.Pending {
 			table.AppendRow([]string{
 				mig.Version,
@@ -372,12 +406,14 @@ func buildMigrateStatusCommand() Command {
 
 			if len(groups) == 0 {
 				ctx.Info("No migrations registered")
+
 				return nil
 			}
 
 			ctx.Println("")
-			ctx.Println(fmt.Sprintf("%s:", Bold("Central migrations")))
+			ctx.Println(Bold("Central migrations") + ":")
 			renderMigrationGroups(ctx, groups)
+
 			return nil
 		}
 
@@ -385,19 +421,23 @@ func buildMigrateStatusCommand() Command {
 		migratables := collectMigratableExtensions(app)
 		if len(migratables) == 0 {
 			ctx.Info("No extensions with migrations found")
+
 			return nil
 		}
 
 		for _, m := range migratables {
-			ext := m.(forge.Extension) //nolint:errcheck // MigratableExtension embeds Extension
+			ext := m.(forge.Extension)
+
 			groups, err := m.MigrationStatus(ctx.Context())
 			if err != nil {
 				ctx.Error(fmt.Errorf("failed to get status for %s: %w", ext.Name(), err))
+
 				continue
 			}
 
 			if len(groups) == 0 {
-				ctx.Info(fmt.Sprintf("No migrations registered for %s", ext.Name()))
+				ctx.Info("No migrations registered for " + ext.Name())
+
 				continue
 			}
 
@@ -405,6 +445,7 @@ func buildMigrateStatusCommand() Command {
 			ctx.Println(fmt.Sprintf("%s Migrations (%s %s):", Bold(ext.Name()), ext.Name(), ext.Version()))
 			renderMigrationGroups(ctx, groups)
 		}
+
 		return nil
 	})
 }
@@ -425,6 +466,7 @@ func registerExtensionCommands(c CLI, app forge.App) {
 					forge.F("extension", ext.Name()),
 					forge.F("type", fmt.Sprintf("%T", cmdAny)),
 				)
+
 				continue
 			}
 

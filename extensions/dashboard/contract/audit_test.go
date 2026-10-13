@@ -10,6 +10,7 @@ import (
 
 func TestLogAuditEmitter_FormatsRecord(t *testing.T) {
 	var buf bytes.Buffer
+
 	em := NewLogAuditEmitter(&buf)
 	em.Emit(context.Background(), AuditRecord{
 		Time:        time.Now(),
@@ -20,6 +21,7 @@ func TestLogAuditEmitter_FormatsRecord(t *testing.T) {
 		Result:      "ok",
 		LatencyMs:   12,
 	})
+
 	out := buf.String()
 	for _, want := range []string{"users", "user.disable", "u_42", "admin@example.com", "ok"} {
 		if !strings.Contains(out, want) {

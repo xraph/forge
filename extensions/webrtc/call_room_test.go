@@ -198,15 +198,11 @@ func TestCallRoom_MultipleUsers(t *testing.T) {
 	}
 
 	users := []string{"user1", "user2", "user3"}
-	peers := make([]PeerConnection, 0, len(users))
 
 	for _, userID := range users {
-		peer, err := room.JoinCall(ctx, userID, joinOpts)
-		if err != nil {
+		if _, err := room.JoinCall(ctx, userID, joinOpts); err != nil {
 			t.Fatalf("failed to join user %s: %v", userID, err)
 		}
-
-		peers = append(peers, peer)
 	}
 
 	// Verify all users are in room

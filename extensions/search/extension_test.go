@@ -244,6 +244,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve search service: %v", err)
 	}
+
 	if search == nil {
 		t.Fatal("expected non-nil search instance")
 	}

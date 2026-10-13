@@ -1,4 +1,3 @@
-// internal/router/asyncapi_client_meta_test.go
 package router
 
 import (

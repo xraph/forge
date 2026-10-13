@@ -20,11 +20,12 @@ type HLSStorage struct {
 	prefix  string // Base prefix for all HLS content
 }
 
-// NewHLSStorage creates a new HLS storage wrapper
+// NewHLSStorage creates a new HLS storage wrapper.
 func NewHLSStorage(storage Backend, prefix string) *HLSStorage {
 	if prefix == "" {
 		prefix = "hls"
 	}
+
 	return &HLSStorage{
 		storage: storage,
 		prefix:  prefix,
@@ -35,11 +36,13 @@ func NewHLSStorage(storage Backend, prefix string) *HLSStorage {
 
 func (s *HLSStorage) SaveSegment(ctx context.Context, streamID, variantID string, segmentNum int, data []byte) error {
 	key := s.segmentKey(streamID, variantID, segmentNum)
+
 	return s.storage.Put(ctx, key, bytes.NewReader(data), "video/MP2T")
 }
 
 func (s *HLSStorage) GetSegment(ctx context.Context, streamID, variantID string, segmentNum int) ([]byte, error) {
 	key := s.segmentKey(streamID, variantID, segmentNum)
+
 	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -51,16 +54,19 @@ func (s *HLSStorage) GetSegment(ctx context.Context, streamID, variantID string,
 
 func (s *HLSStorage) GetSegmentStream(ctx context.Context, streamID, variantID string, segmentNum int) (io.ReadCloser, error) {
 	key := s.segmentKey(streamID, variantID, segmentNum)
+
 	return s.storage.Get(ctx, key)
 }
 
 func (s *HLSStorage) DeleteSegment(ctx context.Context, streamID, variantID string, segmentNum int) error {
 	key := s.segmentKey(streamID, variantID, segmentNum)
+
 	return s.storage.Delete(ctx, key)
 }
 
 func (s *HLSStorage) SegmentExists(ctx context.Context, streamID, variantID string, segmentNum int) (bool, error) {
 	key := s.segmentKey(streamID, variantID, segmentNum)
+
 	return s.storage.Exists(ctx, key)
 }
 
@@ -68,11 +74,13 @@ func (s *HLSStorage) SegmentExists(ctx context.Context, streamID, variantID stri
 
 func (s *HLSStorage) SavePlaylist(ctx context.Context, streamID, variantID, content string) error {
 	key := s.playlistKey(streamID, variantID)
+
 	return s.storage.Put(ctx, key, strings.NewReader(content), "application/vnd.apple.mpegurl")
 }
 
 func (s *HLSStorage) GetPlaylist(ctx context.Context, streamID, variantID string) (string, error) {
 	key := s.playlistKey(streamID, variantID)
+
 	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return "", err
@@ -83,11 +91,13 @@ func (s *HLSStorage) GetPlaylist(ctx context.Context, streamID, variantID string
 	if err != nil {
 		return "", err
 	}
+
 	return string(data), nil
 }
 
 func (s *HLSStorage) DeletePlaylist(ctx context.Context, streamID, variantID string) error {
 	key := s.playlistKey(streamID, variantID)
+
 	return s.storage.Delete(ctx, key)
 }
 
@@ -95,11 +105,13 @@ func (s *HLSStorage) DeletePlaylist(ctx context.Context, streamID, variantID str
 
 func (s *HLSStorage) SaveMasterPlaylist(ctx context.Context, streamID, content string) error {
 	key := s.masterPlaylistKey(streamID)
+
 	return s.storage.Put(ctx, key, strings.NewReader(content), "application/vnd.apple.mpegurl")
 }
 
 func (s *HLSStorage) GetMasterPlaylist(ctx context.Context, streamID string) (string, error) {
 	key := s.masterPlaylistKey(streamID)
+
 	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return "", err
@@ -110,18 +122,21 @@ func (s *HLSStorage) GetMasterPlaylist(ctx context.Context, streamID string) (st
 	if err != nil {
 		return "", err
 	}
+
 	return string(data), nil
 }
 
 func (s *HLSStorage) DeleteMasterPlaylist(ctx context.Context, streamID string) error {
 	key := s.masterPlaylistKey(streamID)
+
 	return s.storage.Delete(ctx, key)
 }
 
 // Stream metadata
 
-func (s *HLSStorage) SaveStreamMetadata(ctx context.Context, streamID string, metadata map[string]interface{}) error {
+func (s *HLSStorage) SaveStreamMetadata(ctx context.Context, streamID string, metadata map[string]any) error {
 	key := s.metadataKey(streamID)
+
 	data, err := json.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -130,8 +145,9 @@ func (s *HLSStorage) SaveStreamMetadata(ctx context.Context, streamID string, me
 	return s.storage.Put(ctx, key, bytes.NewReader(data), "application/json")
 }
 
-func (s *HLSStorage) GetStreamMetadata(ctx context.Context, streamID string) (map[string]interface{}, error) {
+func (s *HLSStorage) GetStreamMetadata(ctx context.Context, streamID string) (map[string]any, error) {
 	key := s.metadataKey(streamID)
+
 	reader, err := s.storage.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -143,7 +159,7 @@ func (s *HLSStorage) GetStreamMetadata(ctx context.Context, streamID string) (ma
 		return nil, err
 	}
 
-	var metadata map[string]interface{}
+	var metadata map[string]any
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
@@ -153,6 +169,7 @@ func (s *HLSStorage) GetStreamMetadata(ctx context.Context, streamID string) (ma
 
 func (s *HLSStorage) DeleteStreamMetadata(ctx context.Context, streamID string) error {
 	key := s.metadataKey(streamID)
+
 	return s.storage.Delete(ctx, key)
 }
 
@@ -181,6 +198,7 @@ func (s *HLSStorage) DeleteStream(ctx context.Context, streamID string) error {
 func (s *HLSStorage) CleanupOldSegments(ctx context.Context, streamID string, keepLast int) error {
 	// List all segments for this stream
 	prefix := s.streamPrefix(streamID)
+
 	objects, err := s.storage.List(ctx, prefix)
 	if err != nil {
 		return fmt.Errorf("failed to list segments: %w", err)
@@ -195,6 +213,7 @@ func (s *HLSStorage) CleanupOldSegments(ctx context.Context, streamID string, ke
 	// advertises the last N segments of one variant. Spending a single budget
 	// across every variant deletes segments the playlists still reference.
 	byVariant := make(map[string][]segmentRef)
+
 	for _, obj := range objects {
 		ref, ok := s.parseSegmentKey(streamID, obj.Key)
 		if !ok {
@@ -297,6 +316,7 @@ func (s *HLSStorage) GetStorageStats(ctx context.Context) (*StorageStats, error)
 		if strings.HasSuffix(obj.Key, ".ts") {
 			stats.TotalSegments++
 		}
+
 		stats.TotalSize += obj.Size
 
 		// Extract stream ID from path
@@ -334,7 +354,7 @@ func (s *HLSStorage) streamPrefix(streamID string) string {
 	return path.Join(s.prefix, streamID) + "/"
 }
 
-// StorageStats contains storage backend statistics
+// StorageStats contains storage backend statistics.
 type StorageStats struct {
 	TotalStreams   int64
 	TotalSegments  int64

@@ -282,12 +282,12 @@ func (g *CapabilityGenerator) writeOperationUnion(buf *strings.Builder, spec *cl
 // failure than a module that cannot be loaded at all.
 func writeUnion(buf *strings.Builder, name string, members []string) {
 	if len(members) == 0 {
-		buf.WriteString(fmt.Sprintf("export type %s = never;\n\n", name))
+		fmt.Fprintf(buf, "export type %s = never;\n\n", name)
 
 		return
 	}
 
-	buf.WriteString(fmt.Sprintf("export type %s =\n", name))
+	fmt.Fprintf(buf, "export type %s =\n", name)
 
 	for i, member := range members {
 		terminator := "\n"
@@ -295,7 +295,7 @@ func writeUnion(buf *strings.Builder, name string, members []string) {
 			terminator = ";\n\n"
 		}
 
-		buf.WriteString(fmt.Sprintf("  | %s%s", tsString(member), terminator))
+		fmt.Fprintf(buf, "  | %s%s", tsString(member), terminator)
 	}
 }
 
@@ -336,7 +336,7 @@ export const requiredCapabilities = {
 			rendered = append(rendered, tsStringArray(alternative))
 		}
 
-		buf.WriteString(fmt.Sprintf("  %s: [%s],\n", tsKey(keys[i]), strings.Join(rendered, ", ")))
+		fmt.Fprintf(buf, "  %s: [%s],\n", tsKey(keys[i]), strings.Join(rendered, ", "))
 	}
 
 	buf.WriteString(`} as const satisfies Partial<Record<OperationName, readonly (readonly Capability[])[]>>;
@@ -430,14 +430,14 @@ export const requiredAuthorization = {
 		var fields []string
 
 		if len(roles) > 0 {
-			fields = append(fields, fmt.Sprintf("roles: %s", tsStringArray(roles)))
+			fields = append(fields, "roles: "+tsStringArray(roles))
 		}
 
 		if len(permissions) > 0 {
-			fields = append(fields, fmt.Sprintf("permissions: %s", tsStringArray(permissions)))
+			fields = append(fields, "permissions: "+tsStringArray(permissions))
 		}
 
-		buf.WriteString(fmt.Sprintf("  %s: { %s },\n", tsKey(keys[i]), strings.Join(fields, ", ")))
+		fmt.Fprintf(buf, "  %s: { %s },\n", tsKey(keys[i]), strings.Join(fields, ", "))
 	}
 
 	buf.WriteString(`} as const satisfies Partial<

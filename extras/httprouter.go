@@ -3,6 +3,7 @@ package extras
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -68,8 +69,8 @@ func (a *HTTPRouterAdapter) UseGlobal(middleware func(http.Handler) http.Handler
 
 	// Compose in reverse so the first registered middleware is outermost.
 	handler := http.Handler(a.router)
-	for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
-		handler = a.globalMiddlewares[i](handler)
+	for _, v := range slices.Backward(a.globalMiddlewares) {
+		handler = v(handler)
 	}
 
 	a.chain.Store(&handler)

@@ -154,7 +154,7 @@ func WithMessageAuthorizer(ma streamauth.MessageAuthorizer) ManagerOption {
 	return func(m *manager) { m.messageAuth = ma }
 }
 
-// WithNodeID sets the node ID for distributed mode.
+// WithManagerNodeID sets the node ID for distributed mode.
 func WithManagerNodeID(id string) ManagerOption {
 	return func(m *manager) { m.nodeID = id }
 }
@@ -201,6 +201,7 @@ func NewManager(
 	for _, opt := range opts {
 		opt(m)
 	}
+
 	return m
 }
 
@@ -259,7 +260,9 @@ func (m *manager) Register(conn Connection) error {
 	// given its rooms before it is registered — session resumption and the SSE
 	// query-parameter path both do exactly that — and those joins happened
 	// before there was an observer to hear them.
-	if observable, ok := conn.(interface{ setMembershipObserver(membershipObserver) }); ok {
+	if observable, ok := conn.(interface {
+		setMembershipObserver(observer membershipObserver)
+	}); ok {
 		observable.setMembershipObserver(m)
 	}
 
@@ -278,7 +281,7 @@ func (m *manager) Register(conn Connection) error {
 
 	// Update load balancer connection count
 	if m.loadBalancer != nil && m.nodeID != "" {
-		if updater, ok := m.loadBalancer.(interface{ ReleaseConnection(string) }); ok {
+		if updater, ok := m.loadBalancer.(interface{ ReleaseConnection(nodeID string) }); ok {
 			_ = updater // connection count incremented via SelectNode
 		}
 	}
@@ -376,7 +379,7 @@ func (m *manager) Unregister(connID string) error {
 
 	// Update load balancer connection count
 	if m.loadBalancer != nil && m.nodeID != "" {
-		if releaser, ok := m.loadBalancer.(interface{ ReleaseConnection(string) }); ok {
+		if releaser, ok := m.loadBalancer.(interface{ ReleaseConnection(nodeID string) }); ok {
 			releaser.ReleaseConnection(m.nodeID)
 		}
 	}
@@ -429,7 +432,9 @@ func (m *manager) ResumeSession(ctx context.Context, connID, sessionID string) (
 
 	snapshot, err := m.sessionStore.Get(ctx, sessionID)
 	if err != nil {
-		return false, nil // Session not found or expired — not an error
+		// Not found, expired or unreadable all mean the same thing to the
+		// caller: there is nothing to resume, so the connection starts fresh.
+		return false, nil //nolint:nilerr // resumption is best-effort, a store miss is not a failure
 	}
 
 	// Bind the snapshot to its owner. An anonymous snapshot (empty UserID) can
@@ -1183,9 +1188,11 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		if err != nil {
 			return err
 		}
+
 		if filtered == nil {
 			return nil // message blocked by filter for this recipient
 		}
+
 		msg = filtered
 	}
 
@@ -1229,7 +1236,9 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		// assume the latter. Since the content type is usually a per-connection
 		// preference, every frame to a non-JSON client came through here — which
 		// switched the per-type overflow policy off for that client entirely.
-		if fw, ok := conn.(interface{ WriteFrame(OutboundFrame) error }); ok {
+		if fw, ok := conn.(interface {
+			WriteFrame(frame OutboundFrame) error
+		}); ok {
 			return fw.WriteFrame(OutboundFrame{
 				Data:   data,
 				Type:   msg.Type,
@@ -1258,9 +1267,11 @@ func (m *manager) coordinatorBroadcast(ctx context.Context, broadcastType string
 	if message.Metadata == nil {
 		message.Metadata = make(map[string]any)
 	}
+
 	message.Metadata["_origin_node"] = m.nodeID
 
 	var err error
+
 	switch broadcastType {
 	case "global":
 		err = m.coordinator.BroadcastGlobal(ctx, message)
@@ -1269,6 +1280,7 @@ func (m *manager) coordinatorBroadcast(ctx context.Context, broadcastType string
 	case "user":
 		err = m.coordinator.BroadcastToUser(ctx, targetID, message)
 	}
+
 	if err != nil && m.logger != nil {
 		m.logger.Error("coordinator broadcast failed",
 			forge.F("type", broadcastType),
@@ -1378,7 +1390,7 @@ func (m *manager) fanOut(
 	}
 
 	var (
-		count int64
+		count atomic.Int64
 		wg    sync.WaitGroup
 	)
 
@@ -1387,19 +1399,15 @@ func (m *manager) fanOut(
 	workers := min(maxFanOutConcurrency, len(conns))
 
 	for range workers {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for conn := range work {
 				if err := m.deliverToConnection(ctx, conn, message); err != nil {
 					logFailure(conn, err)
 				} else {
-					atomic.AddInt64(&count, 1)
+					count.Add(1)
 				}
 			}
-		}()
+		})
 	}
 
 	for _, conn := range conns {
@@ -1409,7 +1417,7 @@ func (m *manager) fanOut(
 	close(work)
 	wg.Wait()
 
-	delivered := atomic.LoadInt64(&count)
+	delivered := count.Load()
 	m.messagesSent.Add(delivered)
 
 	return delivered
@@ -1488,6 +1496,7 @@ func (m *manager) BroadcastExcept(ctx context.Context, message *Message, exclude
 			recipients = append(recipients, conn)
 		}
 	}
+
 	m.mu.RUnlock()
 
 	m.fanOut(ctx, recipients, message, "broadcast", "except")
@@ -1508,6 +1517,7 @@ func (m *manager) SetPresence(ctx context.Context, userID, status string) error 
 
 	// Get old status for hook
 	var oldStatus string
+
 	if m.hooks != nil {
 		if existing, err := m.presenceTracker.GetPresence(ctx, userID); err == nil && existing != nil {
 			oldStatus = existing.Status
@@ -1674,6 +1684,7 @@ func (m *manager) Start(ctx context.Context) error {
 		if err := m.coordinator.Subscribe(ctx, m.handleCoordinatorMessage); err != nil {
 			return fmt.Errorf("failed to subscribe to coordinator: %w", err)
 		}
+
 		if err := m.coordinator.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start coordinator: %w", err)
 		}
@@ -1709,6 +1720,7 @@ func (m *manager) Start(ctx context.Context) error {
 			m.healthChecker.RegisterNode(localNode)
 			go m.healthChecker.Start(ctx)
 		}
+
 		if m.logger != nil {
 			m.logger.Info("load balancer started",
 				forge.F("node_id", m.nodeID),
@@ -1732,10 +1744,12 @@ func (m *manager) Start(ctx context.Context) error {
 // or for the context to expire. Call Drain before Stop for graceful shutdown.
 func (m *manager) Drain(ctx context.Context) error {
 	m.mu.RLock()
+
 	conns := make([]Connection, 0, len(m.connections))
 	for _, conn := range m.connections {
 		conns = append(conns, conn)
 	}
+
 	m.mu.RUnlock()
 
 	if m.logger != nil {
@@ -1771,6 +1785,7 @@ func (m *manager) Drain(ctx context.Context) error {
 
 	// Wait for all close operations or context cancellation
 	done := make(chan struct{})
+
 	go func() {
 		wg.Wait()
 		close(done)
@@ -1819,6 +1834,7 @@ func (m *manager) Stop(ctx context.Context) error {
 	if m.healthChecker != nil {
 		m.healthChecker.Stop(ctx)
 	}
+
 	if m.loadBalancer != nil && m.nodeID != "" {
 		_ = m.loadBalancer.UnregisterNode(ctx, m.nodeID)
 	}
@@ -1828,6 +1844,7 @@ func (m *manager) Stop(ctx context.Context) error {
 		if m.nodeID != "" {
 			_ = m.coordinator.UnregisterNode(ctx, m.nodeID)
 		}
+
 		_ = m.coordinator.Stop(ctx)
 	}
 
@@ -1865,7 +1882,7 @@ func (m *manager) Health(ctx context.Context) error {
 	m.mu.RUnlock()
 
 	if !started {
-		return fmt.Errorf("streaming manager not started")
+		return errors.New("streaming manager not started")
 	}
 
 	// L2: Backend stores reachable
@@ -2410,8 +2427,10 @@ func (m *manager) GetTypingUsersInChannels(ctx context.Context, channelIDs []str
 		users, err := m.typingTracker.GetTypingUsers(ctx, channelID)
 		if err != nil {
 			result[channelID] = []string{}
+
 			continue
 		}
+
 		result[channelID] = users
 	}
 
@@ -2443,6 +2462,7 @@ func (m *manager) GetThreadHistory(ctx context.Context, roomID, threadID string,
 	if !m.config.EnableMessageHistory {
 		return nil, errors.New("message history is disabled")
 	}
+
 	return m.messageStore.GetThreadHistory(ctx, roomID, threadID, query)
 }
 
@@ -2450,6 +2470,7 @@ func (m *manager) GetUserMessages(ctx context.Context, userID string, query stre
 	if !m.config.EnableMessageHistory {
 		return nil, errors.New("message history is disabled")
 	}
+
 	return m.messageStore.GetUserMessages(ctx, userID, query)
 }
 
@@ -2457,6 +2478,7 @@ func (m *manager) SearchMessages(ctx context.Context, roomID, searchTerm string,
 	if !m.config.EnableMessageHistory {
 		return nil, errors.New("message history is disabled")
 	}
+
 	return m.messageStore.Search(ctx, roomID, searchTerm, query)
 }
 
@@ -2512,6 +2534,7 @@ func (m *manager) EditMessage(ctx context.Context, messageID string, newContent 
 	if msg.Metadata == nil {
 		msg.Metadata = make(map[string]any)
 	}
+
 	msg.Metadata["edited"] = true
 	msg.Metadata["edited_at"] = time.Now()
 
@@ -2640,6 +2663,7 @@ func (m *manager) RemoveReaction(ctx context.Context, messageID, userID, emoji s
 	} else {
 		reactions[emoji] = filtered
 	}
+
 	msg.Metadata["reactions"] = reactions
 
 	if err := m.messageStore.Save(ctx, msg); err != nil {
@@ -2689,12 +2713,14 @@ func (m *manager) GetReactions(ctx context.Context, messageID string) (map[strin
 
 	for emoji, usersRaw := range reactions {
 		users, _ := usersRaw.([]any)
+
 		userStrs := make([]string, 0, len(users))
 		for _, u := range users {
 			if uStr, ok := u.(string); ok {
 				userStrs = append(userStrs, uStr)
 			}
 		}
+
 		result[emoji] = userStrs
 	}
 
@@ -2817,6 +2843,7 @@ func (m *manager) GetRateLimitStatus(ctx context.Context, userID string) (*strea
 		if err != nil {
 			return nil, err
 		}
+
 		return &streaming.RateLimitStatus{
 			Allowed:    status.Allowed,
 			Remaining:  status.Remaining,
@@ -2888,7 +2915,7 @@ func (m *manager) GetStats(ctx context.Context) (*streaming.ManagerStats, error)
 		OnlineUsers:      onlineCount,
 		MessagesPerSec:   messagesPerSec,
 		Uptime:           uptime,
-		MemoryUsage:      int64(mem.Alloc),
+		MemoryUsage:      int64(mem.Alloc), //nolint:gosec // G115: live heap bytes cannot reach MaxInt64
 	}
 
 	return stats, nil
@@ -2992,6 +3019,7 @@ func (m *manager) CreateDirectMessage(ctx context.Context, fromUserID, toUserID 
 	if user1 > user2 {
 		user1, user2 = user2, user1
 	}
+
 	roomID := fmt.Sprintf("dm_%s_%s", user1, user2)
 
 	// Check if DM room already exists
@@ -3075,9 +3103,11 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 	switch msg.Type {
 	case coordinator.MessageTypeNodeRegister:
 		m.handleNodeRegister(ctx, msg)
+
 		return nil
 	case coordinator.MessageTypeNodeUnregister:
 		m.handleNodeUnregister(ctx, msg)
+
 		return nil
 	}
 
@@ -3097,6 +3127,7 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 		if err != nil {
 			return err
 		}
+
 		streamMsg = &streaming.Message{}
 		if err := json.Unmarshal(data, streamMsg); err != nil {
 			return err
@@ -3120,9 +3151,9 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 	}
 
 	// Deliver to local connections based on message type
-	switch msg.Type {
-	case coordinator.MessageTypeBroadcast:
-		if msg.RoomID != "" {
+	if msg.Type == coordinator.MessageTypeBroadcast {
+		switch {
+		case msg.RoomID != "":
 			// Room broadcast — deliver to local room members only
 			conns := m.GetAllConnections()
 			for _, conn := range conns {
@@ -3130,13 +3161,13 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 					_ = m.deliverToConnection(ctx, conn, streamMsg)
 				}
 			}
-		} else if msg.UserID != "" {
+		case msg.UserID != "":
 			// User-targeted — deliver to local connections for this user
 			conns := m.GetUserConnections(msg.UserID)
 			for _, conn := range conns {
 				_ = m.deliverToConnection(ctx, conn, streamMsg)
 			}
-		} else {
+		default:
 			// Global broadcast — deliver to all local connections
 			conns := m.GetAllConnections()
 			for _, conn := range conns {
@@ -3173,6 +3204,7 @@ func (m *manager) handleNodeRegister(ctx context.Context, msg *coordinator.Coord
 				forge.F("error", err),
 			)
 		}
+
 		return
 	}
 
@@ -3205,6 +3237,7 @@ func (m *manager) handleNodeUnregister(ctx context.Context, msg *coordinator.Coo
 				forge.F("error", err),
 			)
 		}
+
 		return
 	}
 

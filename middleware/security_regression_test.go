@@ -51,7 +51,7 @@ func TestCORSWildcardMatchesOnLabelBoundaries(t *testing.T) {
 // unbounded map growth driven by the client.
 func TestRateLimitKeyIgnoresEphemeralPort(t *testing.T) {
 	for port := range 5 {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		r.RemoteAddr = fmt.Sprintf("203.0.113.7:%d", 40000+port)
 
 		if got := ClientIP(r); got != "203.0.113.7" {
@@ -65,7 +65,7 @@ func TestRateLimitKeyIgnoresEphemeralPort(t *testing.T) {
 	allowed := 0
 
 	for port := range 100 {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		r.RemoteAddr = fmt.Sprintf("203.0.113.7:%d", 40000+port)
 
 		if limiter.Allow(ClientIP(r)) {
@@ -127,7 +127,7 @@ func TestTimeoutMiddlewarePassesFlushThrough(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stream", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stream", nil))
 
 	if !sawFlusher {
 		t.Fatal("handler did not receive an http.Flusher; streaming is broken through Timeout")
@@ -150,7 +150,7 @@ func TestTimeoutMiddlewareBoundsItsBuffer(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/big", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/big", nil))
 
 	if got := rec.Body.Len(); got != len(payload) {
 		t.Errorf("wrote %d bytes, want %d", got, len(payload))

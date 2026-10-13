@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -28,6 +29,7 @@ func MustGetQueue(c forge.Container) Queue {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get queue service: %v", err))
 	}
+
 	return queue
 }
 
@@ -35,8 +37,9 @@ func MustGetQueue(c forge.Container) Queue {
 // Returns error if not found or type assertion fails.
 func GetQueueFromApp(app forge.App) (Queue, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
+
 	return GetQueue(app.Container())
 }
 
@@ -46,5 +49,6 @@ func MustGetQueueFromApp(app forge.App) Queue {
 	if app == nil {
 		panic("app is nil")
 	}
+
 	return MustGetQueue(app.Container())
 }

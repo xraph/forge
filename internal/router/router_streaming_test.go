@@ -348,7 +348,7 @@ func TestUpgradeToWebSocket_MockRequest(t *testing.T) {
 	// This test would require actual WebSocket upgrade which is complex
 	// Just verify the function exists and can be called
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ws", nil)
 
 	_, err := upgradeToWebSocket(w, req, nil)
 	// Expected to fail with mock request (no upgrade header)
@@ -411,7 +411,7 @@ func TestRouter_SSE_WriteSSE(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate a request to trigger the handler
-	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stream", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -482,7 +482,7 @@ func TestRouter_SSE_ContextDone(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that we can make a request
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -529,7 +529,7 @@ func TestRouter_SSE_ErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make request
-	req := httptest.NewRequest(http.MethodGet, "/error", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/error", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -566,7 +566,7 @@ func TestRouter_SSE_WithPOST(t *testing.T) {
 	assert.True(t, found)
 
 	// Test that POST request works
-	req := httptest.NewRequest(http.MethodPost, "/events", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/events", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

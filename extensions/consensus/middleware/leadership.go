@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"strconv"
+
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
@@ -157,7 +159,7 @@ func (mm *MetricsMiddleware) AddConsensusHeaders(next func(forge.Context) error)
 
 		ctx.Response().Header().Set("X-Consensus-Node-ID", stats.NodeID)
 		ctx.Response().Header().Set("X-Consensus-Cluster-ID", stats.ClusterID)
-		ctx.Response().Header().Set("X-Consensus-Term", string(rune(stats.Term)))
+		ctx.Response().Header().Set("X-Consensus-Term", strconv.FormatUint(stats.Term, 10))
 		ctx.Response().Header().Set("X-Consensus-Role", string(stats.Role))
 
 		isLeader := mm.service.IsLeader()

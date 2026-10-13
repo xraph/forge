@@ -76,7 +76,7 @@ func TestRateLimit_AllowedRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := forge_http.NewContext(rec, req, nil)
 
@@ -94,7 +94,7 @@ func TestRateLimit_ExceededRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 
 	// First request allowed
 	rec1 := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestRateLimit_NilLogger(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec1 := httptest.NewRecorder()
 	ctx1 := forge_http.NewContext(rec1, req, nil)
 	_ = handler(ctx1)

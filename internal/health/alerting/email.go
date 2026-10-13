@@ -370,15 +370,15 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 	var msg strings.Builder
 
 	// Email headers
-	msg.WriteString(fmt.Sprintf("From: %s\r\n", en.config.From))
-	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(en.config.To, ", ")))
+	fmt.Fprintf(&msg, "From: %s\r\n", en.config.From)
+	fmt.Fprintf(&msg, "To: %s\r\n", strings.Join(en.config.To, ", "))
 
 	if len(en.config.CC) > 0 {
-		msg.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(en.config.CC, ", ")))
+		fmt.Fprintf(&msg, "Cc: %s\r\n", strings.Join(en.config.CC, ", "))
 	}
 
 	if len(en.config.BCC) > 0 {
-		msg.WriteString(fmt.Sprintf("Bcc: %s\r\n", strings.Join(en.config.BCC, ", ")))
+		fmt.Fprintf(&msg, "Bcc: %s\r\n", strings.Join(en.config.BCC, ", "))
 	}
 
 	// Subject
@@ -387,11 +387,11 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 		subject = en.config.Subject
 	}
 
-	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
 
 	// Custom headers
 	for key, value := range en.config.Headers {
-		msg.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+		fmt.Fprintf(&msg, "%s: %s\r\n", key, value)
 	}
 
 	// MIME headers
@@ -438,20 +438,20 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 	var msg strings.Builder
 
 	// Email headers
-	msg.WriteString(fmt.Sprintf("From: %s\r\n", en.config.From))
-	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(en.config.To, ", ")))
+	fmt.Fprintf(&msg, "From: %s\r\n", en.config.From)
+	fmt.Fprintf(&msg, "To: %s\r\n", strings.Join(en.config.To, ", "))
 
 	if len(en.config.CC) > 0 {
-		msg.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(en.config.CC, ", ")))
+		fmt.Fprintf(&msg, "Cc: %s\r\n", strings.Join(en.config.CC, ", "))
 	}
 
 	// Subject for batch
 	subject := fmt.Sprintf("Health Alert Batch: %d alerts", len(alerts))
-	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
 
 	// Custom headers
 	for key, value := range en.config.Headers {
-		msg.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+		fmt.Fprintf(&msg, "%s: %s\r\n", key, value)
 	}
 
 	// MIME headers
@@ -465,19 +465,19 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 	msg.WriteString("\r\n")
 
 	msg.WriteString("Health Alert Batch Notification\n\n")
-	msg.WriteString(fmt.Sprintf("Total alerts: %d\n", len(alerts)))
-	msg.WriteString(fmt.Sprintf("Timestamp: %s\n\n", time.Now().Format(time.RFC3339)))
+	fmt.Fprintf(&msg, "Total alerts: %d\n", len(alerts))
+	fmt.Fprintf(&msg, "Timestamp: %s\n\n", time.Now().Format(time.RFC3339))
 
 	for i, alert := range alerts {
-		msg.WriteString(fmt.Sprintf("Alert %d:\n", i+1))
-		msg.WriteString(fmt.Sprintf("  ID: %s\n", alert.ID))
-		msg.WriteString(fmt.Sprintf("  Type: %s\n", alert.Type))
-		msg.WriteString(fmt.Sprintf("  Severity: %s\n", alert.Severity))
-		msg.WriteString(fmt.Sprintf("  Service: %s\n", alert.Service))
-		msg.WriteString(fmt.Sprintf("  Title: %s\n", alert.Title))
-		msg.WriteString(fmt.Sprintf("  Message: %s\n", alert.Message))
-		msg.WriteString(fmt.Sprintf("  Timestamp: %s\n", alert.Timestamp.Format(time.RFC3339)))
-		msg.WriteString(fmt.Sprintf("  Resolved: %t\n\n", alert.Resolved))
+		fmt.Fprintf(&msg, "Alert %d:\n", i+1)
+		fmt.Fprintf(&msg, "  ID: %s\n", alert.ID)
+		fmt.Fprintf(&msg, "  Type: %s\n", alert.Type)
+		fmt.Fprintf(&msg, "  Severity: %s\n", alert.Severity)
+		fmt.Fprintf(&msg, "  Service: %s\n", alert.Service)
+		fmt.Fprintf(&msg, "  Title: %s\n", alert.Title)
+		fmt.Fprintf(&msg, "  Message: %s\n", alert.Message)
+		fmt.Fprintf(&msg, "  Timestamp: %s\n", alert.Timestamp.Format(time.RFC3339))
+		fmt.Fprintf(&msg, "  Resolved: %t\n\n", alert.Resolved)
 	}
 
 	msg.WriteString("--\nForge Health Alerting System\n")
@@ -515,7 +515,7 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
     </div>`)
 
 	for i, alert := range alerts {
-		msg.WriteString(fmt.Sprintf(`
+		fmt.Fprintf(&msg, `
     <div class="alert %s">
         <div class="alert-title">Alert %d: %s</div>
         <div class="alert-field">
@@ -547,7 +547,7 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 				} else {
 					return "Active"
 				}
-			}()))
+			}())
 	}
 
 	msg.WriteString(`

@@ -449,11 +449,6 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 
 	// Try to detect OpenAPI support
 	if p.supportsOpenAPI(router) {
-		endpoint := p.config.Endpoints.OpenAPI
-		if endpoint == "" {
-			endpoint = "/openapi.json"
-		}
-
 		schemas = append(schemas, FARPSchemaConfig{
 			Type:        "openapi",
 			SpecVersion: "3.1.0",
@@ -468,11 +463,6 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 
 	// Try to detect AsyncAPI support
 	if p.supportsAsyncAPI(router) {
-		endpoint := p.config.Endpoints.AsyncAPI
-		if endpoint == "" {
-			endpoint = "/asyncapi.json"
-		}
-
 		schemas = append(schemas, FARPSchemaConfig{
 			Type:        "asyncapi",
 			SpecVersion: "3.0.0",

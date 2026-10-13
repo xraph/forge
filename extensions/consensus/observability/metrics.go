@@ -17,14 +17,14 @@ type MetricsCollector struct {
 	logger  forge.Logger
 
 	// Counters (atomic)
-	electionCount       int64
-	electionFailures    int64
-	logAppends          int64
-	logAppendFailures   int64
-	snapshotCount       int64
-	snapshotFailures    int64
-	configChanges       int64
-	leadershipTransfers int64
+	electionCount       atomic.Int64
+	electionFailures    atomic.Int64
+	logAppends          atomic.Int64
+	logAppendFailures   atomic.Int64
+	snapshotCount       atomic.Int64
+	snapshotFailures    atomic.Int64
+	configChanges       atomic.Int64
+	leadershipTransfers atomic.Int64
 
 	// Gauges (protected by mutex)
 	currentTerm  uint64
@@ -44,7 +44,7 @@ type MetricsCollector struct {
 
 	// Lifecycle
 	started bool
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 }
@@ -133,39 +133,39 @@ func (mc *MetricsCollector) Stop(ctx context.Context) error {
 
 // RecordElection records an election event.
 func (mc *MetricsCollector) RecordElection(success bool) {
-	atomic.AddInt64(&mc.electionCount, 1)
+	mc.electionCount.Add(1)
 
 	if !success {
-		atomic.AddInt64(&mc.electionFailures, 1)
+		mc.electionFailures.Add(1)
 	}
 }
 
 // RecordLogAppend records a log append event.
 func (mc *MetricsCollector) RecordLogAppend(success bool) {
-	atomic.AddInt64(&mc.logAppends, 1)
+	mc.logAppends.Add(1)
 
 	if !success {
-		atomic.AddInt64(&mc.logAppendFailures, 1)
+		mc.logAppendFailures.Add(1)
 	}
 }
 
 // RecordSnapshot records a snapshot event.
 func (mc *MetricsCollector) RecordSnapshot(success bool) {
-	atomic.AddInt64(&mc.snapshotCount, 1)
+	mc.snapshotCount.Add(1)
 
 	if !success {
-		atomic.AddInt64(&mc.snapshotFailures, 1)
+		mc.snapshotFailures.Add(1)
 	}
 }
 
 // RecordConfigChange records a configuration change.
 func (mc *MetricsCollector) RecordConfigChange() {
-	atomic.AddInt64(&mc.configChanges, 1)
+	mc.configChanges.Add(1)
 }
 
 // RecordLeadershipTransfer records a leadership transfer.
 func (mc *MetricsCollector) RecordLeadershipTransfer() {
-	atomic.AddInt64(&mc.leadershipTransfers, 1)
+	mc.leadershipTransfers.Add(1)
 }
 
 // RecordReplicationLatency records a replication latency.
@@ -238,14 +238,14 @@ func (mc *MetricsCollector) exportMetrics() {
 	// In a real implementation, you'd use the actual metrics interface methods
 
 	mc.logger.Debug("consensus metrics",
-		forge.F("elections", atomic.LoadInt64(&mc.electionCount)),
-		forge.F("election_failures", atomic.LoadInt64(&mc.electionFailures)),
-		forge.F("log_appends", atomic.LoadInt64(&mc.logAppends)),
-		forge.F("log_append_failures", atomic.LoadInt64(&mc.logAppendFailures)),
-		forge.F("snapshots", atomic.LoadInt64(&mc.snapshotCount)),
-		forge.F("snapshot_failures", atomic.LoadInt64(&mc.snapshotFailures)),
-		forge.F("config_changes", atomic.LoadInt64(&mc.configChanges)),
-		forge.F("leadership_transfers", atomic.LoadInt64(&mc.leadershipTransfers)),
+		forge.F("elections", mc.electionCount.Load()),
+		forge.F("election_failures", mc.electionFailures.Load()),
+		forge.F("log_appends", mc.logAppends.Load()),
+		forge.F("log_append_failures", mc.logAppendFailures.Load()),
+		forge.F("snapshots", mc.snapshotCount.Load()),
+		forge.F("snapshot_failures", mc.snapshotFailures.Load()),
+		forge.F("config_changes", mc.configChanges.Load()),
+		forge.F("leadership_transfers", mc.leadershipTransfers.Load()),
 	)
 
 	// Export gauges
@@ -299,14 +299,14 @@ func (mc *MetricsCollector) GetMetrics() map[string]any {
 
 	metrics := map[string]any{
 		// Counters
-		"elections":            atomic.LoadInt64(&mc.electionCount),
-		"election_failures":    atomic.LoadInt64(&mc.electionFailures),
-		"log_appends":          atomic.LoadInt64(&mc.logAppends),
-		"log_append_failures":  atomic.LoadInt64(&mc.logAppendFailures),
-		"snapshots":            atomic.LoadInt64(&mc.snapshotCount),
-		"snapshot_failures":    atomic.LoadInt64(&mc.snapshotFailures),
-		"config_changes":       atomic.LoadInt64(&mc.configChanges),
-		"leadership_transfers": atomic.LoadInt64(&mc.leadershipTransfers),
+		"elections":            mc.electionCount.Load(),
+		"election_failures":    mc.electionFailures.Load(),
+		"log_appends":          mc.logAppends.Load(),
+		"log_append_failures":  mc.logAppendFailures.Load(),
+		"snapshots":            mc.snapshotCount.Load(),
+		"snapshot_failures":    mc.snapshotFailures.Load(),
+		"config_changes":       mc.configChanges.Load(),
+		"leadership_transfers": mc.leadershipTransfers.Load(),
 
 		// Gauges
 		"current_term":  mc.currentTerm,

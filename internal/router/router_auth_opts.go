@@ -123,9 +123,9 @@ func (o *groupScopes) Apply(config *GroupConfig) {
 // requirement on the route's metadata, and enforcement happens where that
 // requirement reaches MiddlewareWithRequirement.
 //
-// The name says "any" because a name that hides whether it means and or or
-// sends you to the source to find out. Use WithAllPermissions for all-of
-// semantics.
+// The name says "any" because a name that hides whether it means all-of or
+// any-of sends you to the source to find out. Use WithAllPermissions for
+// all-of semantics.
 //
 // Example:
 //

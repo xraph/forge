@@ -393,7 +393,7 @@ func toMap(value any) (map[string]any, bool) {
 
 	// Try reflection for struct types
 	v := reflect.ValueOf(value)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 

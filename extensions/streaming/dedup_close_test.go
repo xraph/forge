@@ -30,7 +30,7 @@ func TestMessageDedup_CloseStopsCleanupLoop(t *testing.T) {
 func TestMessageDedup_CloseIsIdempotent(t *testing.T) {
 	d := newMessageDedup(1024, time.Minute)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := d.Close(); err != nil {
 			t.Fatalf("Close() call %d = %v, want nil", i, err)
 		}
@@ -42,16 +42,12 @@ func TestMessageDedup_ConcurrentCloseIsSafe(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+	for range 8 {
+		wg.Go(func() {
 			if err := d.Close(); err != nil {
 				t.Errorf("Close() = %v, want nil", err)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -60,7 +56,7 @@ func TestMessageDedup_ConcurrentCloseIsSafe(t *testing.T) {
 func TestMessageDedup_StartStopCyclesDoNotLeak(t *testing.T) {
 	before := runtime.NumGoroutine()
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		d := newMessageDedup(1024, 10*time.Millisecond)
 		d.IsDuplicate(fmt.Sprintf("msg-%d", i))
 

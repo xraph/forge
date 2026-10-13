@@ -27,7 +27,7 @@ func TestGoGeneratorIsDeterministic(t *testing.T) {
 	// A single re-run can pass by luck when a map has one entry. Ten runs with
 	// several roles and permissions in the fixture makes a randomized order
 	// overwhelmingly likely to show up.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		next, err := golang.NewGenerator().Generate(context.Background(), spec, config)
 		if err != nil {
 			t.Fatalf("Generate (run %d): %v", i, err)

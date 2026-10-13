@@ -24,7 +24,7 @@ func TestAuthMiddleware_Success(t *testing.T) {
 		w.Write([]byte("success"))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("X-Api-Key", "valid-token-123")
 
 	rec := httptest.NewRecorder()
@@ -54,7 +54,7 @@ func TestAuthMiddleware_BearerToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer bearer-token")
 
 	rec := httptest.NewRecorder()
@@ -80,7 +80,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 		t.Error("Handler should not be called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	// No auth header
 	rec := httptest.NewRecorder()
 
@@ -105,7 +105,7 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 		t.Error("Handler should not be called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set("X-Api-Key", "invalid-token")
 
 	rec := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestAuthMiddleware_Disabled(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	// No auth header, but auth is disabled
 	rec := httptest.NewRecorder()
 
@@ -155,7 +155,7 @@ func TestRateLimitMiddleware_WithinLimit(t *testing.T) {
 
 	// Make 5 requests (within limit of 10)
 	for i := range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -181,7 +181,7 @@ func TestRateLimitMiddleware_ExceedLimit(t *testing.T) {
 
 	// Make requests exceeding the limit
 	for i := range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345" // Same client
 		rec := httptest.NewRecorder()
 
@@ -221,7 +221,7 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 
 	// Make many requests - should all succeed when rate limiting disabled
 	for i := range 100 {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -247,7 +247,7 @@ func TestRateLimitMiddleware_DifferentClients(t *testing.T) {
 
 	// Client 1 - make 2 requests (at limit)
 	for i := range 2 {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		rec := httptest.NewRecorder()
 
@@ -260,7 +260,7 @@ func TestRateLimitMiddleware_DifferentClients(t *testing.T) {
 
 	// Client 2 - should still be able to make requests
 	for i := range 2 {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.2:12345" // Different IP
 		rec := httptest.NewRecorder()
 

@@ -35,18 +35,22 @@ func (opts PrincipalOptions) hasRequiredRole(user *dashauth.UserInfo) bool {
 	if len(opts.RequiredRoles) == 0 {
 		return true
 	}
+
 	if user == nil {
 		return false
 	}
+
 	have := make(map[string]struct{}, len(user.Roles))
 	for _, r := range user.Roles {
 		have[r] = struct{}{}
 	}
+
 	for _, want := range opts.RequiredRoles {
 		if _, ok := have[want]; ok {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -83,22 +87,28 @@ func NewPrincipalHandler(opts PrincipalOptions) http.HandlerFunc {
 		if user == nil {
 			if !opts.AuthEnabled {
 				writeJSON(w, http.StatusOK, principalResponse{Authenticated: false})
+
 				return
 			}
+
 			writeJSON(w, http.StatusUnauthorized, unauthenticatedResponse{
 				Code:      "UNAUTHENTICATED",
 				LoginPath: opts.LoginPath,
 			})
+
 			return
 		}
+
 		if !opts.hasRequiredRole(user) {
 			writeJSON(w, http.StatusForbidden, accessDeniedResponse{
 				Code:          "PERMISSION_DENIED",
 				Message:       "Your account doesn't have a role required to access this dashboard.",
 				RequiredRoles: append([]string{}, opts.RequiredRoles...),
 			})
+
 			return
 		}
+
 		resp := principalResponse{
 			Authenticated: true,
 			Subject:       user.Subject,
@@ -110,6 +120,7 @@ func NewPrincipalHandler(opts PrincipalOptions) http.HandlerFunc {
 		if resp.DisplayName == "" {
 			resp.DisplayName = resp.Subject
 		}
+
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -121,8 +132,19 @@ func HandleAPIPrincipalHTTP(w http.ResponseWriter, r *http.Request) {
 	NewPrincipalHandler(PrincipalOptions{AuthEnabled: true})(w, r)
 }
 
+// writeJSON marshals before touching the response, so a body that can't be
+// encoded becomes a 500 instead of the intended status with an empty body.
 func writeJSON(w http.ResponseWriter, status int, body any) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+
+	// The trailing newline keeps the body byte-identical to json.Encoder's.
+	_, _ = w.Write(append(data, '\n'))
 }

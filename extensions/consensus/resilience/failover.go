@@ -446,7 +446,7 @@ func (fm *FailoverManager) recordFailoverEvent(event FailoverEvent) {
 
 	// Update average
 	if fm.stats.TotalFailovers > 0 {
-		totalDuration := time.Duration(fm.stats.AverageFailoverTime.Nanoseconds() * int64(fm.stats.TotalFailovers-1))
+		totalDuration := time.Duration(fm.stats.AverageFailoverTime.Nanoseconds() * (fm.stats.TotalFailovers - 1))
 		totalDuration += event.Duration
 		fm.stats.AverageFailoverTime = totalDuration / time.Duration(fm.stats.TotalFailovers)
 	}

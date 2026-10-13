@@ -78,18 +78,21 @@ func TestConfigOptions(t *testing.T) {
 
 	// Test WithBasePath
 	WithBasePath("/custom")(&config)
+
 	if config.BasePath != "/custom" {
 		t.Errorf("expected base path '/custom', got '%s'", config.BasePath)
 	}
 
 	// Test WithTargetDuration
 	WithTargetDuration(10)(&config)
+
 	if config.TargetDuration != 10 {
 		t.Errorf("expected target duration 10, got %d", config.TargetDuration)
 	}
 
 	// Test WithDVRWindow
 	WithDVRWindow(20)(&config)
+
 	if config.DVRWindowSize != 20 {
 		t.Errorf("expected DVR window 20, got %d", config.DVRWindowSize)
 	}
@@ -97,27 +100,33 @@ func TestConfigOptions(t *testing.T) {
 	// Test WithTranscoding
 	profiles := []TranscodeProfile{Profile720p}
 	WithTranscoding(true, profiles...)(&config)
+
 	if !config.EnableTranscoding {
 		t.Error("expected transcoding to be enabled")
 	}
+
 	if len(config.TranscodeProfiles) != 1 {
 		t.Errorf("expected 1 profile, got %d", len(config.TranscodeProfiles))
 	}
 
 	// Test WithCORS
 	WithCORS(true, "http://example.com")(&config)
+
 	if !config.EnableCORS {
 		t.Error("expected CORS to be enabled")
 	}
+
 	if len(config.AllowedOrigins) != 1 || config.AllowedOrigins[0] != "http://example.com" {
 		t.Errorf("expected origin 'http://example.com', got %v", config.AllowedOrigins)
 	}
 
 	// Test WithCleanup
 	WithCleanup(time.Hour, 30*time.Minute)(&config)
+
 	if config.SegmentRetention != time.Hour {
 		t.Errorf("expected retention 1 hour, got %v", config.SegmentRetention)
 	}
+
 	if config.CleanupInterval != 30*time.Minute {
 		t.Errorf("expected cleanup interval 30 minutes, got %v", config.CleanupInterval)
 	}
@@ -148,9 +157,11 @@ func TestStreamTypes(t *testing.T) {
 	if StreamTypeLive != "live" {
 		t.Errorf("expected 'live', got '%s'", StreamTypeLive)
 	}
+
 	if StreamTypeVOD != "vod" {
 		t.Errorf("expected 'vod', got '%s'", StreamTypeVOD)
 	}
+
 	if StreamTypeEvent != "event" {
 		t.Errorf("expected 'event', got '%s'", StreamTypeEvent)
 	}

@@ -186,6 +186,7 @@ func (rc *redisCoordinator) SyncRoomState(ctx context.Context, roomID string, st
 	if err != nil {
 		return fmt.Errorf("failed to marshal room state: %w", err)
 	}
+
 	if err := rc.client.Set(ctx, stateKey, stateData, time.Hour).Err(); err != nil {
 		return err
 	}

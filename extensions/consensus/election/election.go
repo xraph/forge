@@ -26,7 +26,7 @@ type ElectionManager struct {
 	votesReceived     map[uint64]map[string]bool // term -> nodeID -> granted
 
 	// Lifecycle
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // lifecycle context: created in Start, cancelled in Stop
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	mu     sync.RWMutex
@@ -292,15 +292,15 @@ func (em *ElectionManager) resetElectionTimer() {
 	})
 }
 
-// randomTimeout returns a random timeout between min and max.
-func randomTimeout(min, max time.Duration) time.Duration {
-	if min >= max {
-		return min
+// randomTimeout returns a random timeout between minTimeout and maxTimeout.
+func randomTimeout(minTimeout, maxTimeout time.Duration) time.Duration {
+	if minTimeout >= maxTimeout {
+		return minTimeout
 	}
 
-	delta := max - min
+	delta := maxTimeout - minTimeout
 
-	return min + time.Duration(rand.Int63n(int64(delta)))
+	return minTimeout + time.Duration(rand.Int63n(int64(delta))) //nolint:gosec // G404: election jitter only needs to desynchronise nodes, not be unpredictable
 }
 
 // CleanupOldVotes removes vote records for old terms.
@@ -311,7 +311,7 @@ func (em *ElectionManager) CleanupOldVotes(keepTerms int) {
 	currentTerm := em.GetCurrentTerm()
 
 	minTerm := uint64(0)
-	if currentTerm > uint64(keepTerms) {
+	if keepTerms >= 0 && currentTerm > uint64(keepTerms) {
 		minTerm = currentTerm - uint64(keepTerms)
 	}
 

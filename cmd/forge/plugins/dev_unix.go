@@ -3,6 +3,7 @@
 package plugins
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
@@ -74,8 +75,11 @@ func killProcessGroup(cmd *exec.Cmd) {
 
 // killChildProcesses kills child processes using pgrep.
 func killChildProcesses(parentPid int) {
-	// Use pgrep to find child processes
-	cmd := exec.Command("pgrep", "-P", strconv.Itoa(parentPid))
+	// Use pgrep to find child processes. This runs during shutdown cleanup
+	// and has to finish even once the command that started the app is done,
+	// so it is deliberately not tied to a caller's context.
+	//nolint:gosec // G204: fixed binary, and the only variable argument is an integer PID.
+	cmd := exec.CommandContext(context.Background(), "pgrep", "-P", strconv.Itoa(parentPid))
 
 	output, err := cmd.Output()
 	if err != nil {

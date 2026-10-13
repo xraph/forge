@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,69 +14,69 @@ const (
 	ServiceKey = "kafka"
 )
 
-// Config contains configuration for the Kafka extension
+// Config contains configuration for the Kafka extension.
 type Config struct {
 	// Connection settings
-	Brokers      []string      `json:"brokers" yaml:"brokers" mapstructure:"brokers"`
-	ClientID     string        `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
-	Version      string        `json:"version" yaml:"version" mapstructure:"version"` // Kafka version (e.g., "3.0.0")
-	DialTimeout  time.Duration `json:"dial_timeout" yaml:"dial_timeout" mapstructure:"dial_timeout"`
-	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
-	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
-	KeepAlive    time.Duration `json:"keep_alive" yaml:"keep_alive" mapstructure:"keep_alive"`
+	Brokers      []string      `json:"brokers"       mapstructure:"brokers"       yaml:"brokers"`
+	ClientID     string        `json:"client_id"     mapstructure:"client_id"     yaml:"client_id"`
+	Version      string        `json:"version"       mapstructure:"version"       yaml:"version"` // Kafka version (e.g., "3.0.0")
+	DialTimeout  time.Duration `json:"dial_timeout"  mapstructure:"dial_timeout"  yaml:"dial_timeout"`
+	ReadTimeout  time.Duration `json:"read_timeout"  mapstructure:"read_timeout"  yaml:"read_timeout"`
+	WriteTimeout time.Duration `json:"write_timeout" mapstructure:"write_timeout" yaml:"write_timeout"`
+	KeepAlive    time.Duration `json:"keep_alive"    mapstructure:"keep_alive"    yaml:"keep_alive"`
 
 	// TLS/SASL
-	EnableTLS     bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
-	TLSCertFile   string `json:"tls_cert_file,omitempty" yaml:"tls_cert_file,omitempty" mapstructure:"tls_cert_file"`
-	TLSKeyFile    string `json:"tls_key_file,omitempty" yaml:"tls_key_file,omitempty" mapstructure:"tls_key_file"`
-	TLSCAFile     string `json:"tls_ca_file,omitempty" yaml:"tls_ca_file,omitempty" mapstructure:"tls_ca_file"`
-	TLSSkipVerify bool   `json:"tls_skip_verify" yaml:"tls_skip_verify" mapstructure:"tls_skip_verify"`
+	EnableTLS     bool   `json:"enable_tls"              mapstructure:"enable_tls"      yaml:"enable_tls"`
+	TLSCertFile   string `json:"tls_cert_file,omitempty" mapstructure:"tls_cert_file"   yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile    string `json:"tls_key_file,omitempty"  mapstructure:"tls_key_file"    yaml:"tls_key_file,omitempty"`
+	TLSCAFile     string `json:"tls_ca_file,omitempty"   mapstructure:"tls_ca_file"     yaml:"tls_ca_file,omitempty"`
+	TLSSkipVerify bool   `json:"tls_skip_verify"         mapstructure:"tls_skip_verify" yaml:"tls_skip_verify"`
 
-	EnableSASL    bool   `json:"enable_sasl" yaml:"enable_sasl" mapstructure:"enable_sasl"`
-	SASLMechanism string `json:"sasl_mechanism,omitempty" yaml:"sasl_mechanism,omitempty" mapstructure:"sasl_mechanism"` // PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
-	SASLUsername  string `json:"sasl_username,omitempty" yaml:"sasl_username,omitempty" mapstructure:"sasl_username"`
-	SASLPassword  string `json:"sasl_password,omitempty" yaml:"sasl_password,omitempty" mapstructure:"sasl_password"`
+	EnableSASL    bool   `json:"enable_sasl"              mapstructure:"enable_sasl"    yaml:"enable_sasl"`
+	SASLMechanism string `json:"sasl_mechanism,omitempty" mapstructure:"sasl_mechanism" yaml:"sasl_mechanism,omitempty"` // PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+	SASLUsername  string `json:"sasl_username,omitempty"  mapstructure:"sasl_username"  yaml:"sasl_username,omitempty"`
+	SASLPassword  string `json:"sasl_password,omitempty"  mapstructure:"sasl_password"  yaml:"sasl_password,omitempty"`
 
 	// Producer settings
-	ProducerEnabled         bool          `json:"producer_enabled" yaml:"producer_enabled" mapstructure:"producer_enabled"`
-	ProducerMaxMessageBytes int           `json:"producer_max_message_bytes" yaml:"producer_max_message_bytes" mapstructure:"producer_max_message_bytes"`
-	ProducerCompression     string        `json:"producer_compression" yaml:"producer_compression" mapstructure:"producer_compression"` // none, gzip, snappy, lz4, zstd
-	ProducerFlushMessages   int           `json:"producer_flush_messages" yaml:"producer_flush_messages" mapstructure:"producer_flush_messages"`
-	ProducerFlushFrequency  time.Duration `json:"producer_flush_frequency" yaml:"producer_flush_frequency" mapstructure:"producer_flush_frequency"`
-	ProducerRetryMax        int           `json:"producer_retry_max" yaml:"producer_retry_max" mapstructure:"producer_retry_max"`
-	ProducerIdempotent      bool          `json:"producer_idempotent" yaml:"producer_idempotent" mapstructure:"producer_idempotent"`
-	ProducerAcks            string        `json:"producer_acks" yaml:"producer_acks" mapstructure:"producer_acks"` // none, local, all
+	ProducerEnabled         bool          `json:"producer_enabled"           mapstructure:"producer_enabled"           yaml:"producer_enabled"`
+	ProducerMaxMessageBytes int           `json:"producer_max_message_bytes" mapstructure:"producer_max_message_bytes" yaml:"producer_max_message_bytes"`
+	ProducerCompression     string        `json:"producer_compression"       mapstructure:"producer_compression"       yaml:"producer_compression"` // none, gzip, snappy, lz4, zstd
+	ProducerFlushMessages   int           `json:"producer_flush_messages"    mapstructure:"producer_flush_messages"    yaml:"producer_flush_messages"`
+	ProducerFlushFrequency  time.Duration `json:"producer_flush_frequency"   mapstructure:"producer_flush_frequency"   yaml:"producer_flush_frequency"`
+	ProducerRetryMax        int           `json:"producer_retry_max"         mapstructure:"producer_retry_max"         yaml:"producer_retry_max"`
+	ProducerIdempotent      bool          `json:"producer_idempotent"        mapstructure:"producer_idempotent"        yaml:"producer_idempotent"`
+	ProducerAcks            string        `json:"producer_acks"              mapstructure:"producer_acks"              yaml:"producer_acks"` // none, local, all
 
 	// Consumer settings
-	ConsumerEnabled   bool          `json:"consumer_enabled" yaml:"consumer_enabled" mapstructure:"consumer_enabled"`
-	ConsumerGroupID   string        `json:"consumer_group_id,omitempty" yaml:"consumer_group_id,omitempty" mapstructure:"consumer_group_id"`
-	ConsumerOffsets   string        `json:"consumer_offsets" yaml:"consumer_offsets" mapstructure:"consumer_offsets"` // newest, oldest
-	ConsumerMaxWait   time.Duration `json:"consumer_max_wait" yaml:"consumer_max_wait" mapstructure:"consumer_max_wait"`
-	ConsumerFetchMin  int32         `json:"consumer_fetch_min" yaml:"consumer_fetch_min" mapstructure:"consumer_fetch_min"`
-	ConsumerFetchMax  int32         `json:"consumer_fetch_max" yaml:"consumer_fetch_max" mapstructure:"consumer_fetch_max"`
-	ConsumerIsolation string        `json:"consumer_isolation" yaml:"consumer_isolation" mapstructure:"consumer_isolation"` // read_uncommitted, read_committed
+	ConsumerEnabled   bool          `json:"consumer_enabled"            mapstructure:"consumer_enabled"   yaml:"consumer_enabled"`
+	ConsumerGroupID   string        `json:"consumer_group_id,omitempty" mapstructure:"consumer_group_id"  yaml:"consumer_group_id,omitempty"`
+	ConsumerOffsets   string        `json:"consumer_offsets"            mapstructure:"consumer_offsets"   yaml:"consumer_offsets"` // newest, oldest
+	ConsumerMaxWait   time.Duration `json:"consumer_max_wait"           mapstructure:"consumer_max_wait"  yaml:"consumer_max_wait"`
+	ConsumerFetchMin  int32         `json:"consumer_fetch_min"          mapstructure:"consumer_fetch_min" yaml:"consumer_fetch_min"`
+	ConsumerFetchMax  int32         `json:"consumer_fetch_max"          mapstructure:"consumer_fetch_max" yaml:"consumer_fetch_max"`
+	ConsumerIsolation string        `json:"consumer_isolation"          mapstructure:"consumer_isolation" yaml:"consumer_isolation"` // read_uncommitted, read_committed
 
 	// Consumer group settings
-	ConsumerGroupRebalance string        `json:"consumer_group_rebalance" yaml:"consumer_group_rebalance" mapstructure:"consumer_group_rebalance"` // range, roundrobin, sticky
-	ConsumerGroupSession   time.Duration `json:"consumer_group_session" yaml:"consumer_group_session" mapstructure:"consumer_group_session"`
-	ConsumerGroupHeartbeat time.Duration `json:"consumer_group_heartbeat" yaml:"consumer_group_heartbeat" mapstructure:"consumer_group_heartbeat"`
+	ConsumerGroupRebalance string        `json:"consumer_group_rebalance" mapstructure:"consumer_group_rebalance" yaml:"consumer_group_rebalance"` // range, roundrobin, sticky
+	ConsumerGroupSession   time.Duration `json:"consumer_group_session"   mapstructure:"consumer_group_session"   yaml:"consumer_group_session"`
+	ConsumerGroupHeartbeat time.Duration `json:"consumer_group_heartbeat" mapstructure:"consumer_group_heartbeat" yaml:"consumer_group_heartbeat"`
 
 	// Metadata settings
-	MetadataRetryMax     int           `json:"metadata_retry_max" yaml:"metadata_retry_max" mapstructure:"metadata_retry_max"`
-	MetadataRetryBackoff time.Duration `json:"metadata_retry_backoff" yaml:"metadata_retry_backoff" mapstructure:"metadata_retry_backoff"`
-	MetadataRefreshFreq  time.Duration `json:"metadata_refresh_freq" yaml:"metadata_refresh_freq" mapstructure:"metadata_refresh_freq"`
-	MetadataFullRefresh  bool          `json:"metadata_full_refresh" yaml:"metadata_full_refresh" mapstructure:"metadata_full_refresh"`
+	MetadataRetryMax     int           `json:"metadata_retry_max"     mapstructure:"metadata_retry_max"     yaml:"metadata_retry_max"`
+	MetadataRetryBackoff time.Duration `json:"metadata_retry_backoff" mapstructure:"metadata_retry_backoff" yaml:"metadata_retry_backoff"`
+	MetadataRefreshFreq  time.Duration `json:"metadata_refresh_freq"  mapstructure:"metadata_refresh_freq"  yaml:"metadata_refresh_freq"`
+	MetadataFullRefresh  bool          `json:"metadata_full_refresh"  mapstructure:"metadata_full_refresh"  yaml:"metadata_full_refresh"`
 
 	// Observability
-	EnableMetrics bool `json:"enable_metrics" yaml:"enable_metrics" mapstructure:"enable_metrics"`
-	EnableTracing bool `json:"enable_tracing" yaml:"enable_tracing" mapstructure:"enable_tracing"`
-	EnableLogging bool `json:"enable_logging" yaml:"enable_logging" mapstructure:"enable_logging"`
+	EnableMetrics bool `json:"enable_metrics" mapstructure:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing bool `json:"enable_tracing" mapstructure:"enable_tracing" yaml:"enable_tracing"`
+	EnableLogging bool `json:"enable_logging" mapstructure:"enable_logging" yaml:"enable_logging"`
 
 	// Config loading flags
-	RequireConfig bool `json:"-" yaml:"-" mapstructure:"-"`
+	RequireConfig bool `json:"-" mapstructure:"-" yaml:"-"`
 }
 
-// DefaultConfig returns default Kafka configuration
+// DefaultConfig returns default Kafka configuration.
 func DefaultConfig() Config {
 	return Config{
 		Brokers:                 []string{"localhost:9092"},
@@ -117,29 +118,29 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if len(c.Brokers) == 0 {
-		return fmt.Errorf("brokers is required")
+		return errors.New("brokers is required")
 	}
 
 	if c.ClientID == "" {
-		return fmt.Errorf("client_id is required")
+		return errors.New("client_id is required")
 	}
 
 	if c.Version == "" {
-		return fmt.Errorf("version is required")
+		return errors.New("version is required")
 	}
 
 	if c.EnableTLS && !c.TLSSkipVerify {
 		if c.TLSCertFile == "" || c.TLSKeyFile == "" {
-			return fmt.Errorf("tls requires cert_file and key_file when not skipping verification")
+			return errors.New("tls requires cert_file and key_file when not skipping verification")
 		}
 	}
 
 	if c.EnableSASL {
 		if c.SASLUsername == "" || c.SASLPassword == "" {
-			return fmt.Errorf("sasl requires username and password")
+			return errors.New("sasl requires username and password")
 		}
 
 		validMechanisms := map[string]bool{
@@ -206,7 +207,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ToSaramaConfig converts to Sarama configuration
+// ToSaramaConfig converts to Sarama configuration.
 func (c *Config) ToSaramaConfig() (*sarama.Config, error) {
 	config := sarama.NewConfig()
 
@@ -215,6 +216,7 @@ func (c *Config) ToSaramaConfig() (*sarama.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid kafka version: %w", err)
 	}
+
 	config.Version = version
 
 	config.ClientID = c.ClientID
@@ -307,7 +309,7 @@ func (c *Config) ToSaramaConfig() (*sarama.Config, error) {
 	return config, nil
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
 func WithBrokers(brokers ...string) ConfigOption {

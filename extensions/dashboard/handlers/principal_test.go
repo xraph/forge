@@ -18,16 +18,19 @@ func TestHandleAPIPrincipal_OK(t *testing.T) {
 		Scopes:      []string{"users.read"},
 	}
 	ctx := dashauth.WithUser(context.Background(), user)
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil).WithContext(ctx)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/principal", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 	HandleAPIPrincipalHTTP(w, req)
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body)
 	}
+
 	var body map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+
 	if body["subject"] != "alice" || body["displayName"] != "Alice" {
 		t.Errorf("unexpected body: %v", body)
 	}
@@ -36,13 +39,16 @@ func TestHandleAPIPrincipal_OK(t *testing.T) {
 func TestHandleAPIPrincipal_DisplayNameFallsBackToSubject(t *testing.T) {
 	user := &dashauth.UserInfo{Subject: "u_42"}
 	ctx := dashauth.WithUser(context.Background(), user)
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil).WithContext(ctx)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/principal", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 	HandleAPIPrincipalHTTP(w, req)
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body)
 	}
+
 	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["displayName"] != "u_42" {
 		t.Errorf("expected displayName fallback to subject, got %q", body["displayName"])
@@ -50,9 +56,10 @@ func TestHandleAPIPrincipal_DisplayNameFallsBackToSubject(t *testing.T) {
 }
 
 func TestHandleAPIPrincipal_Unauthenticated(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/principal", nil)
 	w := httptest.NewRecorder()
 	HandleAPIPrincipalHTTP(w, req)
+
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
 	}
@@ -60,13 +67,16 @@ func TestHandleAPIPrincipal_Unauthenticated(t *testing.T) {
 
 func TestPrincipalHandler_AuthDisabledReturns200Anonymous(t *testing.T) {
 	h := NewPrincipalHandler(PrincipalOptions{AuthEnabled: false})
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/principal", nil)
 	w := httptest.NewRecorder()
 	h(w, req)
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body)
 	}
+
 	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["authenticated"] != false {
 		t.Errorf("expected authenticated:false, got %v", body)
@@ -75,17 +85,21 @@ func TestPrincipalHandler_AuthDisabledReturns200Anonymous(t *testing.T) {
 
 func TestPrincipalHandler_AuthEnabledReturns401WithLoginPath(t *testing.T) {
 	h := NewPrincipalHandler(PrincipalOptions{AuthEnabled: true, LoginPath: "/dashboard/login"})
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/principal", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/principal", nil)
 	w := httptest.NewRecorder()
 	h(w, req)
+
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", w.Code)
 	}
+
 	var body map[string]any
+
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["code"] != "UNAUTHENTICATED" {
 		t.Errorf("expected code=UNAUTHENTICATED, got %v", body)
 	}
+
 	if body["loginPath"] != "/dashboard/login" {
 		t.Errorf("expected loginPath in envelope, got %v", body)
 	}

@@ -28,7 +28,7 @@ func TestCORS_PreflightWithoutExplicitOPTIONSHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test preflight OPTIONS request
-	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	req.Header.Set("Access-Control-Request-Headers", "Content-Type")
@@ -63,7 +63,7 @@ func TestCORS_ActualRequestAfterPreflight(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test actual GET request (after preflight)
-	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
 
 	rec := httptest.NewRecorder()
@@ -102,7 +102,7 @@ func TestCORS_PreflightWithSpecificOrigin(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test preflight OPTIONS request
-	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "Content-Type, Authorization")
@@ -142,7 +142,7 @@ func TestCORS_PreflightWithDisallowedOrigin(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test preflight OPTIONS request from disallowed origin
-	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://evil.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 
@@ -181,7 +181,7 @@ func TestCORS_PreflightMultipleRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test preflight for /api/users
-	req1 := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/users", nil)
 	req1.Header.Set("Origin", "https://example.com")
 	req1.Header.Set("Access-Control-Request-Method", "POST")
 
@@ -192,7 +192,7 @@ func TestCORS_PreflightMultipleRoutes(t *testing.T) {
 	assert.Equal(t, "*", rec1.Header().Get("Access-Control-Allow-Origin"))
 
 	// Test preflight for /api/posts
-	req2 := httptest.NewRequest(http.MethodOptions, "/api/posts", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/posts", nil)
 	req2.Header.Set("Origin", "https://example.com")
 	req2.Header.Set("Access-Control-Request-Method", "GET")
 
@@ -221,7 +221,7 @@ func TestCORS_PreflightWithRouteGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test preflight for grouped route
-	req := httptest.NewRequest(http.MethodOptions, "/api/users", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/users", nil)
 	req.Header.Set("Origin", "https://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 

@@ -196,8 +196,8 @@ func TestConnectionAuthenticator_AuthenticateConnection(t *testing.T) {
 			registry := tt.setupRegistry()
 			authenticator := NewConnectionAuthenticator(registry, tt.providers)
 
-			req, _ := http.NewRequest(http.MethodGet, "/", nil)
 			ctx := context.Background()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 
 			_, err := authenticator.AuthenticateConnection(ctx, req)
 			if (err != nil) != tt.wantErr {
@@ -245,10 +245,12 @@ func TestConnectionAuthenticator_RequireScopes(t *testing.T) {
 				return
 			}
 
-			req, _ := http.NewRequest(http.MethodGet, "/", nil)
 			ctx := context.Background()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 
-			authCtx, err := authenticator.AuthenticateConnection(ctx, req)
+			// The missing-scope case is expected to fail here. hasScopes treats
+			// a nil context as "no scopes", so the error itself adds nothing.
+			authCtx, _ := authenticator.AuthenticateConnection(ctx, req)
 			hasScopes := authCtx != nil && authCtx.HasScopes(tt.scopes...)
 
 			if hasScopes == tt.wantErr {
@@ -269,8 +271,8 @@ func BenchmarkConnectionAuthenticator_AuthenticateConnection(b *testing.B) {
 	})
 
 	authenticator := NewConnectionAuthenticator(registry, []string{"mock"})
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	ctx := context.Background()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 
 	for b.Loop() {
 		_, _ = authenticator.AuthenticateConnection(ctx, req)

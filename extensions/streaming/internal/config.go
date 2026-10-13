@@ -66,12 +66,12 @@ type Config struct {
 	NodeTimeout       time.Duration `json:"node_timeout"       yaml:"node_timeout"`
 
 	// Load balancer settings (distributed mode only)
-	EnableLoadBalancer     bool          `json:"enable_load_balancer"      yaml:"enable_load_balancer"`
-	LoadBalancerStrategy   string        `json:"load_balancer_strategy"    yaml:"load_balancer_strategy"` // "round_robin", "least_connections", "consistent_hash", "sticky"
-	HealthCheckInterval    time.Duration `json:"health_check_interval"     yaml:"health_check_interval"`
-	HealthCheckTimeout     time.Duration `json:"health_check_timeout"      yaml:"health_check_timeout"`
-	StickySessionTTL       time.Duration `json:"sticky_session_ttl"        yaml:"sticky_session_ttl"`
-	ConsistentHashReplicas int           `json:"consistent_hash_replicas"  yaml:"consistent_hash_replicas"`
+	EnableLoadBalancer     bool          `json:"enable_load_balancer"     yaml:"enable_load_balancer"`
+	LoadBalancerStrategy   string        `json:"load_balancer_strategy"   yaml:"load_balancer_strategy"` // "round_robin", "least_connections", "consistent_hash", "sticky"
+	HealthCheckInterval    time.Duration `json:"health_check_interval"    yaml:"health_check_interval"`
+	HealthCheckTimeout     time.Duration `json:"health_check_timeout"     yaml:"health_check_timeout"`
+	StickySessionTTL       time.Duration `json:"sticky_session_ttl"       yaml:"sticky_session_ttl"`
+	ConsistentHashReplicas int           `json:"consistent_hash_replicas" yaml:"consistent_hash_replicas"`
 
 	// Session resumption
 	EnableSessionResumption bool          `json:"enable_session_resumption" yaml:"enable_session_resumption"`

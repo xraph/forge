@@ -25,7 +25,7 @@ const (
 var (
 	NewLogger            = logger.NewLogger
 	NewDevelopmentLogger = logger.NewDevelopmentLogger
-	NewBeautifulLogger   = logger.NewBeautifulLogger
+	NewBeautifulLogger   = logger.NewBeautifulLogger //nolint:staticcheck // v1 compatibility re-export; downstream code still calls forge.NewBeautifulLogger
 	NewProductionLogger  = logger.NewProductionLogger
 	NewNoopLogger        = logger.NewNoopLogger
 	GetGlobalLogger      = logger.GetGlobalLogger

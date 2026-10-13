@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	mqttclient "github.com/eclipse/paho.mqtt.golang"
@@ -55,6 +56,7 @@ func (s *MQTTService) Start(ctx context.Context) error {
 	}
 
 	s.logger.Info("mqtt service started")
+
 	return nil
 }
 
@@ -70,13 +72,14 @@ func (s *MQTTService) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("mqtt service stopped")
+
 	return nil
 }
 
 // Health checks if the MQTT service is healthy.
 func (s *MQTTService) Health(ctx context.Context) error {
 	if s.client == nil {
-		return fmt.Errorf("mqtt client not initialized")
+		return errors.New("mqtt client not initialized")
 	}
 
 	if err := s.client.Ping(ctx); err != nil {
@@ -109,11 +112,11 @@ func (s *MQTTService) Reconnect() error {
 	return s.client.Reconnect()
 }
 
-func (s *MQTTService) Publish(topic string, qos byte, retained bool, payload interface{}) error {
+func (s *MQTTService) Publish(topic string, qos byte, retained bool, payload any) error {
 	return s.client.Publish(topic, qos, retained, payload)
 }
 
-func (s *MQTTService) PublishAsync(topic string, qos byte, retained bool, payload interface{}) error {
+func (s *MQTTService) PublishAsync(topic string, qos byte, retained bool, payload any) error {
 	return s.client.PublishAsync(topic, qos, retained, payload)
 }
 

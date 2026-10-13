@@ -143,13 +143,16 @@ func (ps *ProtobufSerializer) Type() SerializerType {
 }
 
 // MessageEnvelope wraps a message with metadata.
+//
+// The JSON keys match the Go field names on purpose. That is what the untagged
+// struct already put on the wire, so peers on older builds still decode it.
 type MessageEnvelope struct {
-	Type           internal.MessageType
-	From           string
-	To             string
-	Data           []byte
-	Timestamp      int64
-	SerializerType SerializerType
+	Type           internal.MessageType `json:"Type"`
+	From           string               `json:"From"`
+	To             string               `json:"To"`
+	Data           []byte               `json:"Data"`
+	Timestamp      int64                `json:"Timestamp"`
+	SerializerType SerializerType       `json:"SerializerType"`
 }
 
 // MessageCodec provides encoding/decoding with envelope.

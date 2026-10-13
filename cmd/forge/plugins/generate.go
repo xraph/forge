@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/generate.go
 package plugins
 
 import (
@@ -41,7 +40,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 	)
 
 	// Add subcommands
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"app",
 		"Generate a new application",
 		p.generateApp,
@@ -49,7 +48,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("template", "t", "Template", "basic")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"service",
 		"Generate a new service",
 		p.generateService,
@@ -57,7 +56,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("name", "n", "Service name", "")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"extension",
 		"Generate a new extension",
 		p.generateExtension,
@@ -65,7 +64,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("name", "n", "Extension name", "")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"controller",
 		"Generate a controller",
 		p.generateController,
@@ -74,7 +73,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("app", "a", "App name", "")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"model",
 		"Generate a database model",
 		p.generateModel,
@@ -85,7 +84,7 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("path", "p", "Models directory path (relative to project root)", "internal/models")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"migration",
 		"Generate a database migration",
 		p.generateMigration,
@@ -93,14 +92,14 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("name", "n", "Migration name", "")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"cli-app",
 		"Generate a CLI application",
 		p.generateCLIApp,
 		cli.WithFlag(cli.NewStringFlag("name", "n", "CLI app name", "")),
 	))
 
-	generateCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(generateCmd, cli.NewCommand(
 		"command",
 		"Generate a CLI command (for CLI apps only)",
 		p.generateCLICommand,
@@ -202,7 +201,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 		// Create go.mod
 		modulePath := fmt.Sprintf("%s/apps/%s", p.config.Project.Module, name)
-		version := getLatestForgeVersion()
+		version := getLatestForgeVersion(ctx.Context())
 
 		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", modulePath, version)
 		if err := os.WriteFile(filepath.Join(appPath, "go.mod"), []byte(goModContent), 0644); err != nil {
@@ -325,7 +324,7 @@ func (p *GeneratePlugin) generateCLIApp(ctx cli.CommandContext) error {
 
 		// Create go.mod
 		modulePath := fmt.Sprintf("%s/apps/%s", p.config.Project.Module, name)
-		version := getLatestForgeVersion()
+		version := getLatestForgeVersion(ctx.Context())
 
 		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v%s\n", modulePath, version)
 		if err := os.WriteFile(filepath.Join(appPath, "go.mod"), []byte(goModContent), 0644); err != nil {
@@ -408,9 +407,8 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 
 	// Build service path based on selected directory
 	var (
-		servicePath        string
-		serviceFileName    string
-		isExtensionService bool
+		servicePath     string
+		serviceFileName string
 	)
 
 	switch selectedDir {
@@ -424,25 +422,16 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 		// It's an extension directory - use flat naming
 		servicePath = filepath.Join(p.config.RootDir, "extensions", selectedDir)
 		serviceFileName = strings.ToLower(name) + ".service.go"
-		isExtensionService = true
 	}
 
 	spinner := ctx.Spinner(fmt.Sprintf("Generating service %s in %s...", name, selectedDir))
 
-	// Create directory (skip for extension flat files at root)
-	if !isExtensionService {
-		if err := os.MkdirAll(servicePath, 0755); err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
+	// Create the service directory. An extension service is a flat file in
+	// the extension directory, which usually exists already.
+	if err := os.MkdirAll(servicePath, 0755); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
 
-			return err
-		}
-	} else {
-		// Ensure extension directory exists
-		if err := os.MkdirAll(servicePath, 0755); err != nil {
-			spinner.Stop(cli.Red("✗ Failed"))
-
-			return err
-		}
+		return err
 	}
 
 	// Generate service file
@@ -647,8 +636,6 @@ func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controlle
 		}
 	} else {
 		// For apps, always use internal/controllers
-		controllersPath = filepath.Join(target.Path, "..", "internal", "controllers")
-		// Normalize the path
 		if p.config.IsSingleModule() {
 			controllersPath = filepath.Join(p.config.RootDir, p.config.Project.GetStructure().Apps, target.Name, "internal", "controllers")
 		} else {
@@ -1205,50 +1192,50 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	var builder strings.Builder
 
 	// Package and imports
-	builder.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+	fmt.Fprintf(&builder, "package %s\n\n", packageName)
 	builder.WriteString("import (\n\t\"github.com/xraph/forge\"\n)\n\n")
 
 	// DTOs
 	builder.WriteString("// DTOs\n\n")
 
 	// ListRequest
-	builder.WriteString(fmt.Sprintf("// List%sRequest defines the request parameters for listing %s\n", titleName, pluralName))
-	builder.WriteString(fmt.Sprintf("type List%sRequest struct {\n", titleName))
+	fmt.Fprintf(&builder, "// List%sRequest defines the request parameters for listing %s\n", titleName, pluralName)
+	fmt.Fprintf(&builder, "type List%sRequest struct {\n", titleName)
 	builder.WriteString("\tPage     int    `query:\"page\" description:\"Page number (default: 1)\"`\n")
 	builder.WriteString("\tPageSize int    `query:\"pageSize\" description:\"Items per page (default: 20)\"`\n")
 	builder.WriteString("\tSearch   string `query:\"search\" description:\"Search term\"`\n")
 	builder.WriteString("}\n\n")
 
 	// GetRequest
-	builder.WriteString(fmt.Sprintf("// Get%sRequest defines the request parameters for getting a single %s\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type Get%sRequest struct {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
+	fmt.Fprintf(&builder, "// Get%sRequest defines the request parameters for getting a single %s\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type Get%sRequest struct {\n", titleName)
+	fmt.Fprintf(&builder, "\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// CreateRequest
-	builder.WriteString(fmt.Sprintf("// Create%sRequest defines the request body for creating a %s\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type Create%sRequest struct {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tName        string `json:\"name\" body:\"\" description:\"%s name\" minLength:\"1\"`\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName))
+	fmt.Fprintf(&builder, "// Create%sRequest defines the request body for creating a %s\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type Create%sRequest struct {\n", titleName)
+	fmt.Fprintf(&builder, "\tName        string `json:\"name\" body:\"\" description:\"%s name\" minLength:\"1\"`\n", titleName)
+	fmt.Fprintf(&builder, "\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// UpdateRequest
-	builder.WriteString(fmt.Sprintf("// Update%sRequest defines the request for updating a %s\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type Update%sRequest struct {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tID          string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tName        string `json:\"name\" body:\"\" description:\"%s name\"`\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName))
+	fmt.Fprintf(&builder, "// Update%sRequest defines the request for updating a %s\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type Update%sRequest struct {\n", titleName)
+	fmt.Fprintf(&builder, "\tID          string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName)
+	fmt.Fprintf(&builder, "\tName        string `json:\"name\" body:\"\" description:\"%s name\"`\n", titleName)
+	fmt.Fprintf(&builder, "\tDescription string `json:\"description\" body:\"\" description:\"%s description\"`\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// DeleteRequest
-	builder.WriteString(fmt.Sprintf("// Delete%sRequest defines the request parameters for deleting a %s\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type Delete%sRequest struct {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName))
+	fmt.Fprintf(&builder, "// Delete%sRequest defines the request parameters for deleting a %s\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type Delete%sRequest struct {\n", titleName)
+	fmt.Fprintf(&builder, "\tID string `path:\"id\" description:\"%s ID\" format:\"uuid\"`\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// Response
-	builder.WriteString(fmt.Sprintf("// %sResponse defines the response structure for a single %s\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type %sResponse struct {\n", titleName))
+	fmt.Fprintf(&builder, "// %sResponse defines the response structure for a single %s\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type %sResponse struct {\n", titleName)
 	builder.WriteString("\tID          string `json:\"id\"`\n")
 	builder.WriteString("\tName        string `json:\"name\"`\n")
 	builder.WriteString("\tDescription string `json:\"description\"`\n")
@@ -1257,98 +1244,98 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("}\n\n")
 
 	// ListResponse
-	builder.WriteString(fmt.Sprintf("// List%sResponse defines the response structure for listing %s\n", titleName, pluralName))
-	builder.WriteString(fmt.Sprintf("type List%sResponse struct {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tItems      []%sResponse `json:\"items\"`\n", titleName))
+	fmt.Fprintf(&builder, "// List%sResponse defines the response structure for listing %s\n", titleName, pluralName)
+	fmt.Fprintf(&builder, "type List%sResponse struct {\n", titleName)
+	fmt.Fprintf(&builder, "\tItems      []%sResponse `json:\"items\"`\n", titleName)
 	builder.WriteString("\tTotalCount int          `json:\"totalCount\"`\n")
 	builder.WriteString("\tPage       int          `json:\"page\"`\n")
 	builder.WriteString("\tPageSize   int          `json:\"pageSize\"`\n")
 	builder.WriteString("}\n\n")
 
 	// Controller struct
-	builder.WriteString(fmt.Sprintf("// %sController handles %s endpoints\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("type %sController struct {\n", titleName))
+	fmt.Fprintf(&builder, "// %sController handles %s endpoints\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "type %sController struct {\n", titleName)
 	builder.WriteString("\t// Add dependencies here\n")
 	builder.WriteString("\t// Example:\n")
-	builder.WriteString(fmt.Sprintf("\t// service *services.%sService\n", titleName))
+	fmt.Fprintf(&builder, "\t// service *services.%sService\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// Constructor
-	builder.WriteString(fmt.Sprintf("// New%sController creates a new %s controller\n", titleName, lowerName))
-	builder.WriteString(fmt.Sprintf("func New%sController() *%sController {\n", titleName, titleName))
-	builder.WriteString(fmt.Sprintf("\treturn &%sController{}\n", titleName))
+	fmt.Fprintf(&builder, "// New%sController creates a new %s controller\n", titleName, lowerName)
+	fmt.Fprintf(&builder, "func New%sController() *%sController {\n", titleName, titleName)
+	fmt.Fprintf(&builder, "\treturn &%sController{}\n", titleName)
 	builder.WriteString("}\n\n")
 
 	// Name method
 	builder.WriteString("// Name implements forge.Controller\n")
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Name() string {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\treturn \"%s:controller\"\n", lowerName))
+	fmt.Fprintf(&builder, "func (c *%sController) Name() string {\n", titleName)
+	fmt.Fprintf(&builder, "\treturn \"%s:controller\"\n", lowerName)
 	builder.WriteString("}\n\n")
 
 	// Routes method
 	builder.WriteString("// Routes implements forge.Controller\n")
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Routes(router forge.Router) error {\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) Routes(router forge.Router) error {\n", titleName)
 
 	// List route
-	builder.WriteString(fmt.Sprintf("\trouter.GET(\"/%s\", c.List,\n", pluralName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.list\"),\n", pluralName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"List %s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Retrieve a paginated list of %s\"),\n", pluralName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(List%sRequest{}),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"List of %s\", List%sResponse{}),\n", titleName, titleName))
+	fmt.Fprintf(&builder, "\trouter.GET(\"/%s\", c.List,\n", pluralName)
+	fmt.Fprintf(&builder, "\t\tforge.WithName(\"%s.list\"),\n", pluralName)
+	fmt.Fprintf(&builder, "\t\tforge.WithSummary(\"List %s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithDescription(\"Retrieve a paginated list of %s\"),\n", pluralName)
+	fmt.Fprintf(&builder, "\t\tforge.WithTags(\"%s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithRequestSchema(List%sRequest{}),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(200, \"List of %s\", List%sResponse{}),\n", titleName, titleName)
 	builder.WriteString("\t)\n\n")
 
 	// Create route
-	builder.WriteString(fmt.Sprintf("\trouter.POST(\"/%s\", c.Create,\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.create\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Create %s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Create a new %s\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Create%sRequest{}),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(201, \"%s created\", %sResponse{}),\n", titleName, titleName))
+	fmt.Fprintf(&builder, "\trouter.POST(\"/%s\", c.Create,\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithName(\"%s.create\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithSummary(\"Create %s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithDescription(\"Create a new %s\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithTags(\"%s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithRequestSchema(Create%sRequest{}),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(201, \"%s created\", %sResponse{}),\n", titleName, titleName)
 	builder.WriteString("\t\tforge.WithResponseSchema(400, \"Invalid request\", nil),\n")
 	builder.WriteString("\t)\n\n")
 
 	// Get route
-	builder.WriteString(fmt.Sprintf("\trouter.GET(\"/%s/:id\", c.Get,\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.get\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Get %s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Retrieve a specific %s by ID\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Get%sRequest{}),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"%s details\", %sResponse{}),\n", titleName, titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	fmt.Fprintf(&builder, "\trouter.GET(\"/%s/:id\", c.Get,\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithName(\"%s.get\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithSummary(\"Get %s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithDescription(\"Retrieve a specific %s by ID\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithTags(\"%s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithRequestSchema(Get%sRequest{}),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(200, \"%s details\", %sResponse{}),\n", titleName, titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName)
 	builder.WriteString("\t)\n\n")
 
 	// Update route
-	builder.WriteString(fmt.Sprintf("\trouter.PUT(\"/%s/:id\", c.Update,\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.update\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Update %s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Update an existing %s\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Update%sRequest{}),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(200, \"%s updated\", %sResponse{}),\n", titleName, titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	fmt.Fprintf(&builder, "\trouter.PUT(\"/%s/:id\", c.Update,\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithName(\"%s.update\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithSummary(\"Update %s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithDescription(\"Update an existing %s\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithTags(\"%s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithRequestSchema(Update%sRequest{}),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(200, \"%s updated\", %sResponse{}),\n", titleName, titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName)
 	builder.WriteString("\t)\n\n")
 
 	// Delete route
-	builder.WriteString(fmt.Sprintf("\trouter.DELETE(\"/%s/:id\", c.Delete,\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithName(\"%s.delete\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithSummary(\"Delete %s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithDescription(\"Delete a %s\"),\n", lowerName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithTags(\"%s\"),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithRequestSchema(Delete%sRequest{}),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(204, \"%s deleted\", nil),\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName))
+	fmt.Fprintf(&builder, "\trouter.DELETE(\"/%s/:id\", c.Delete,\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithName(\"%s.delete\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithSummary(\"Delete %s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithDescription(\"Delete a %s\"),\n", lowerName)
+	fmt.Fprintf(&builder, "\t\tforge.WithTags(\"%s\"),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithRequestSchema(Delete%sRequest{}),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(204, \"%s deleted\", nil),\n", titleName)
+	fmt.Fprintf(&builder, "\t\tforge.WithResponseSchema(404, \"%s not found\", nil),\n", titleName)
 	builder.WriteString("\t)\n\n")
 
 	builder.WriteString("\treturn nil\n")
 	builder.WriteString("}\n\n")
 
 	// List handler
-	builder.WriteString(fmt.Sprintf("func (c *%sController) List(ctx forge.Context) error {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tvar req List%sRequest\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) List(ctx forge.Context) error {\n", titleName)
+	fmt.Fprintf(&builder, "\tvar req List%sRequest\n", titleName)
 	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
 	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
 	builder.WriteString("\t}\n\n")
@@ -1358,8 +1345,8 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("\t// if err != nil {\n")
 	builder.WriteString("\t//     return forge.InternalError(err)\n")
 	builder.WriteString("\t// }\n\n")
-	builder.WriteString(fmt.Sprintf("\tresponse := List%sResponse{\n", titleName))
-	builder.WriteString(fmt.Sprintf("\t\tItems:      []%sResponse{},\n", titleName))
+	fmt.Fprintf(&builder, "\tresponse := List%sResponse{\n", titleName)
+	fmt.Fprintf(&builder, "\t\tItems:      []%sResponse{},\n", titleName)
 	builder.WriteString("\t\tTotalCount: 0,\n")
 	builder.WriteString("\t\tPage:       req.Page,\n")
 	builder.WriteString("\t\tPageSize:   req.PageSize,\n")
@@ -1368,8 +1355,8 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("}\n\n")
 
 	// Create handler
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Create(ctx forge.Context) error {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tvar req Create%sRequest\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) Create(ctx forge.Context) error {\n", titleName)
+	fmt.Fprintf(&builder, "\tvar req Create%sRequest\n", titleName)
 	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
 	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
 	builder.WriteString("\t}\n\n")
@@ -1379,7 +1366,7 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("\t// if err != nil {\n")
 	builder.WriteString("\t//     return forge.InternalError(err)\n")
 	builder.WriteString("\t// }\n\n")
-	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{\n", titleName))
+	fmt.Fprintf(&builder, "\tresponse := %sResponse{\n", titleName)
 	builder.WriteString("\t\tID:          \"generated-id\",\n")
 	builder.WriteString("\t\tName:        req.Name,\n")
 	builder.WriteString("\t\tDescription: req.Description,\n")
@@ -1388,8 +1375,8 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("}\n\n")
 
 	// Get handler
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Get(ctx forge.Context) error {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tvar req Get%sRequest\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) Get(ctx forge.Context) error {\n", titleName)
+	fmt.Fprintf(&builder, "\tvar req Get%sRequest\n", titleName)
 	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
 	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
 	builder.WriteString("\t}\n\n")
@@ -1398,17 +1385,17 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("\t// item, err := c.service.GetByID(ctx.Context(), req.ID)\n")
 	builder.WriteString("\t// if err != nil {\n")
 	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
-	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	fmt.Fprintf(&builder, "\t//         return forge.NotFound(\"%s not found\")\n", lowerName)
 	builder.WriteString("\t//     }\n")
 	builder.WriteString("\t//     return forge.InternalError(err)\n")
 	builder.WriteString("\t// }\n\n")
-	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{ID: req.ID}\n", titleName))
+	fmt.Fprintf(&builder, "\tresponse := %sResponse{ID: req.ID}\n", titleName)
 	builder.WriteString("\treturn ctx.JSON(200, response)\n")
 	builder.WriteString("}\n\n")
 
 	// Update handler
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Update(ctx forge.Context) error {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tvar req Update%sRequest\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) Update(ctx forge.Context) error {\n", titleName)
+	fmt.Fprintf(&builder, "\tvar req Update%sRequest\n", titleName)
 	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
 	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
 	builder.WriteString("\t}\n\n")
@@ -1417,11 +1404,11 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("\t// item, err := c.service.Update(ctx.Context(), req.ID, req.Name, req.Description)\n")
 	builder.WriteString("\t// if err != nil {\n")
 	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
-	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	fmt.Fprintf(&builder, "\t//         return forge.NotFound(\"%s not found\")\n", lowerName)
 	builder.WriteString("\t//     }\n")
 	builder.WriteString("\t//     return forge.InternalError(err)\n")
 	builder.WriteString("\t// }\n\n")
-	builder.WriteString(fmt.Sprintf("\tresponse := %sResponse{\n", titleName))
+	fmt.Fprintf(&builder, "\tresponse := %sResponse{\n", titleName)
 	builder.WriteString("\t\tID:          req.ID,\n")
 	builder.WriteString("\t\tName:        req.Name,\n")
 	builder.WriteString("\t\tDescription: req.Description,\n")
@@ -1430,8 +1417,8 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("}\n\n")
 
 	// Delete handler
-	builder.WriteString(fmt.Sprintf("func (c *%sController) Delete(ctx forge.Context) error {\n", titleName))
-	builder.WriteString(fmt.Sprintf("\tvar req Delete%sRequest\n", titleName))
+	fmt.Fprintf(&builder, "func (c *%sController) Delete(ctx forge.Context) error {\n", titleName)
+	fmt.Fprintf(&builder, "\tvar req Delete%sRequest\n", titleName)
 	builder.WriteString("\tif err := ctx.BindRequest(&req); err != nil {\n")
 	builder.WriteString("\t\treturn forge.BadRequest(err.Error())\n")
 	builder.WriteString("\t}\n\n")
@@ -1440,7 +1427,7 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 	builder.WriteString("\t// err := c.service.Delete(ctx.Context(), req.ID)\n")
 	builder.WriteString("\t// if err != nil {\n")
 	builder.WriteString("\t//     if errors.IsNotFound(err) {\n")
-	builder.WriteString(fmt.Sprintf("\t//         return forge.NotFound(\"%s not found\")\n", lowerName))
+	fmt.Fprintf(&builder, "\t//         return forge.NotFound(\"%s not found\")\n", lowerName)
 	builder.WriteString("\t//     }\n")
 	builder.WriteString("\t//     return forge.InternalError(err)\n")
 	builder.WriteString("\t// }\n\n")
@@ -1449,7 +1436,7 @@ func (p *GeneratePlugin) generateControllerFile(name, packageName string) string
 
 	// Verify interface implementation
 	builder.WriteString("// Verify interface implementation\n")
-	builder.WriteString(fmt.Sprintf("var _ forge.Controller = (*%sController)(nil)\n", titleName))
+	fmt.Fprintf(&builder, "var _ forge.Controller = (*%sController)(nil)\n", titleName)
 
 	return builder.String()
 }
@@ -1458,7 +1445,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	// Prepare custom fields
 	fieldsCode := ""
 
-	var fieldsCodeSb1017 strings.Builder
+	var fieldLines strings.Builder
 
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
@@ -1470,11 +1457,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			groveTag := fmt.Sprintf(`grove:"%s"`, strings.ToLower(parts[0]))
 			jsonTag := fmt.Sprintf(`json:"%s"`, strings.ToLower(parts[0]))
 
-			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, groveTag, jsonTag))
+			fmt.Fprintf(&fieldLines, "\t%s %s `%s %s`\n", fieldName, fieldType, groveTag, jsonTag)
 		}
 	}
 
-	fieldsCode += fieldsCodeSb1017.String()
+	fieldsCode += fieldLines.String()
 
 	// Default example field if none provided and no base model
 	if fieldsCode == "" && baseType == "none" {
@@ -1514,26 +1501,6 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		imports = append(imports, `"time"`)
 	}
 
-	// Build imports section
-	var importSection string
-
-	if len(imports) > 0 {
-		if len(imports) == 1 {
-			importSection = fmt.Sprintf("import %s\n\n", imports[0])
-		} else {
-			importSection = "import (\n"
-
-			var importSectionSb1073 strings.Builder
-			for _, imp := range imports {
-				importSectionSb1073.WriteString(fmt.Sprintf("\t%s\n", imp))
-			}
-
-			importSection += importSectionSb1073.String()
-
-			importSection += ")\n\n"
-		}
-	}
-
 	// Add the grove import if using any base model (do this before building imports section)
 	hasBunImport := false
 
@@ -1549,8 +1516,8 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		imports = append(imports, `"github.com/xraph/grove"`)
 	}
 
-	// Rebuild imports section now that we have all imports
-	importSection = ""
+	// Build imports section now that we have all imports
+	var importSection string
 
 	if len(imports) > 0 {
 		if len(imports) == 1 {
@@ -1558,12 +1525,12 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 		} else {
 			importSection = "import (\n"
 
-			var importSectionSb1099 strings.Builder
+			var importLines strings.Builder
 			for _, imp := range imports {
-				importSectionSb1099.WriteString(fmt.Sprintf("\t%s\n", imp))
+				fmt.Fprintf(&importLines, "\t%s\n", imp)
 			}
 
-			importSection += importSectionSb1099.String()
+			importSection += importLines.String()
 
 			importSection += ")\n\n"
 		}
@@ -1675,17 +1642,17 @@ func getBaseModelName(baseType string) string {
 // of each capital letter in the name (e.g., "PersonalAccessToken" -> "pat").
 func generateAlias(name string) string {
 	var (
-		alias       string
-		aliasSb1227 strings.Builder
+		alias    string
+		initials strings.Builder
 	)
 
 	for _, c := range name {
 		if c >= 'A' && c <= 'Z' {
-			aliasSb1227.WriteRune(c + 32) // Convert to lowercase
+			initials.WriteRune(c + 32) // Convert to lowercase
 		}
 	}
 
-	alias += aliasSb1227.String()
+	alias += initials.String()
 	// Fallback to first 3 chars if no capitals found or alias is empty
 	if alias == "" {
 		if len(name) >= 3 {
@@ -2170,9 +2137,6 @@ func (p *GeneratePlugin) generateCLICommand(ctx cli.CommandContext) error {
 	titleName = strings.ReplaceAll(titleName, " ", "")
 
 	if isSubcommand {
-		parentTitle := cases.Title(language.English).String(strings.ReplaceAll(parentName, "-", " "))
-		parentTitle = strings.ReplaceAll(parentTitle, " ", "")
-
 		ctx.Info("Add this subcommand to the parent command in your main.go:")
 		ctx.Println("")
 		ctx.Println(fmt.Sprintf(`  // After creating the %s command:
@@ -2184,7 +2148,7 @@ func (p *GeneratePlugin) generateCLICommand(ctx cli.CommandContext) error {
 	}
 
 	ctx.Println("")
-	ctx.Info(fmt.Sprintf("Command file: %s", commandFilePath))
+	ctx.Info("Command file: " + commandFilePath)
 
 	return nil
 }
@@ -2196,37 +2160,38 @@ func (p *GeneratePlugin) generateCommandFile(name, description string, flags []C
 	lowerName := strings.ToLower(strings.ReplaceAll(name, "-", ""))
 
 	// Build flag options
-	var flagsCode strings.Builder
-	var flagRetrievalCode strings.Builder
+	var (
+		flagsCode         strings.Builder
+		flagRetrievalCode strings.Builder
+	)
 
 	for _, f := range flags {
 		switch f.Type {
 		case "string":
-			flagsCode.WriteString(
-				fmt.Sprintf("\t\tcli.WithFlag(cli.NewStringFlag(%q, %q, %q, \"\")),\n",
-					f.Name, f.ShortName, f.Description))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.String(%q)\n", f.Name, f.Name))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+			fmt.Fprintf(&flagsCode, "\t\tcli.WithFlag(cli.NewStringFlag(%q, %q, %q, \"\")),\n",
+				f.Name, f.ShortName, f.Description)
+			fmt.Fprintf(&flagRetrievalCode, "\t%s := ctx.String(%q)\n", f.Name, f.Name)
+			fmt.Fprintf(&flagRetrievalCode, "\t_ = %s // TODO: use this flag\n\n", f.Name)
 		case "bool":
-			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewBoolFlag(%q, %q, %q, false)),\n",
-				f.Name, f.ShortName, f.Description))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Bool(%q)\n", f.Name, f.Name))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+			fmt.Fprintf(&flagsCode, "\t\tcli.WithFlag(cli.NewBoolFlag(%q, %q, %q, false)),\n",
+				f.Name, f.ShortName, f.Description)
+			fmt.Fprintf(&flagRetrievalCode, "\t%s := ctx.Bool(%q)\n", f.Name, f.Name)
+			fmt.Fprintf(&flagRetrievalCode, "\t_ = %s // TODO: use this flag\n\n", f.Name)
 		case "int":
-			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewIntFlag(%q, %q, %q, 0)),\n",
-				f.Name, f.ShortName, f.Description))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Int(%q)\n", f.Name, f.Name))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+			fmt.Fprintf(&flagsCode, "\t\tcli.WithFlag(cli.NewIntFlag(%q, %q, %q, 0)),\n",
+				f.Name, f.ShortName, f.Description)
+			fmt.Fprintf(&flagRetrievalCode, "\t%s := ctx.Int(%q)\n", f.Name, f.Name)
+			fmt.Fprintf(&flagRetrievalCode, "\t_ = %s // TODO: use this flag\n\n", f.Name)
 		case "float":
-			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewFloat64Flag(%q, %q, %q, 0)),\n",
-				f.Name, f.ShortName, f.Description))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.Float64(%q)\n", f.Name, f.Name))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+			fmt.Fprintf(&flagsCode, "\t\tcli.WithFlag(cli.NewFloat64Flag(%q, %q, %q, 0)),\n",
+				f.Name, f.ShortName, f.Description)
+			fmt.Fprintf(&flagRetrievalCode, "\t%s := ctx.Float64(%q)\n", f.Name, f.Name)
+			fmt.Fprintf(&flagRetrievalCode, "\t_ = %s // TODO: use this flag\n\n", f.Name)
 		case "stringSlice":
-			flagsCode.WriteString(fmt.Sprintf("\t\tcli.WithFlag(cli.NewStringSliceFlag(%q, %q, %q, []string{})),\n",
-				f.Name, f.ShortName, f.Description))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t%s := ctx.StringSlice(%q)\n", f.Name, f.Name))
-			flagRetrievalCode.WriteString(fmt.Sprintf("\t_ = %s // TODO: use this flag\n\n", f.Name))
+			fmt.Fprintf(&flagsCode, "\t\tcli.WithFlag(cli.NewStringSliceFlag(%q, %q, %q, []string{})),\n",
+				f.Name, f.ShortName, f.Description)
+			fmt.Fprintf(&flagRetrievalCode, "\t%s := ctx.StringSlice(%q)\n", f.Name, f.Name)
+			fmt.Fprintf(&flagRetrievalCode, "\t_ = %s // TODO: use this flag\n\n", f.Name)
 		}
 	}
 

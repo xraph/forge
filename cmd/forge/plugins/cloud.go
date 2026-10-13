@@ -1,4 +1,3 @@
-// v2/cmd/forge/plugins/cloud.go
 package plugins
 
 import (
@@ -34,7 +33,7 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	)
 
 	// Deploy subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"deploy",
 		"Deploy to Forge Cloud",
 		p.cloudDeploy,
@@ -45,7 +44,7 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	))
 
 	// Status subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"status",
 		"Show deployment status on Forge Cloud",
 		p.cloudStatus,
@@ -55,7 +54,7 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	))
 
 	// Login subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"login",
 		"Authenticate with Forge Cloud",
 		p.cloudLogin,
@@ -63,14 +62,14 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	))
 
 	// Logout subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"logout",
 		"Log out from Forge Cloud",
 		p.cloudLogout,
 	))
 
 	// Logs subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"logs",
 		"View logs from Forge Cloud",
 		p.cloudLogs,
@@ -81,7 +80,7 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	))
 
 	// Rollback subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"rollback",
 		"Rollback to previous deployment",
 		p.cloudRollback,
@@ -91,7 +90,7 @@ func (p *CloudPlugin) Commands() []cli.Command {
 	))
 
 	// Scale subcommand
-	cloudCmd.AddSubcommand(cli.NewCommand(
+	mustAddSubcommand(cloudCmd, cli.NewCommand(
 		"scale",
 		"Scale service instances",
 		p.cloudScale,

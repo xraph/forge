@@ -146,7 +146,7 @@ const (
 //
 // Every read of the gate goes through here so the two fields are reconciled in
 // exactly one place; the generators never touch Hooks or ReactQuery directly.
-func (c GeneratorConfig) HooksEnabled() bool {
+func (c *GeneratorConfig) HooksEnabled() bool {
 	return c.Hooks || c.ReactQuery
 }
 

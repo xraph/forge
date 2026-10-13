@@ -74,7 +74,7 @@ func (cf *contentFilter) Filter(ctx context.Context, msg *streaming.Message, rec
 		if cf.profanityRegex.MatchString(text) {
 			switch cf.config.ProfanityAction {
 			case "block":
-				return nil, nil // Block message
+				return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (profanity)
 			case "replace":
 				text = cf.profanityRegex.ReplaceAllString(text, cf.config.ReplaceWith)
 			case "flag":
@@ -95,7 +95,7 @@ func (cf *contentFilter) Filter(ctx context.Context, msg *streaming.Message, rec
 			for _, url := range urls {
 				blocked := cf.isURLBlocked(url)
 				if blocked {
-					return nil, nil // Block message with blocked URL
+					return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (blocked URL)
 				}
 			}
 		}
@@ -104,7 +104,7 @@ func (cf *contentFilter) Filter(ctx context.Context, msg *streaming.Message, rec
 	// Spam detection
 	if cf.config.EnableSpamDetection {
 		if cf.isSpam(text) {
-			return nil, nil // Block spam
+			return nil, nil //nolint:nilnil // MessageFilter contract: nil, nil blocks the message (spam)
 		}
 	}
 
@@ -161,11 +161,37 @@ func (cf *contentFilter) isSpam(text string) bool {
 	}
 
 	// Check repeated characters
-	if cf.config.MaxRepeatedChars > 0 {
-		repeatRegex := regexp.MustCompile(`(.)\1{` + string(rune(cf.config.MaxRepeatedChars)) + `,}`)
-		if repeatRegex.MatchString(text) {
-			return true
+	if cf.config.MaxRepeatedChars > 0 && hasRepeatedRun(text, cf.config.MaxRepeatedChars) {
+		return true
+	}
+
+	return false
+}
+
+// hasRepeatedRun reports whether any character in text is followed by limit or
+// more copies of itself, the check the old `(.)\1{n,}` pattern was written for.
+// RE2 has no backreferences, so that pattern made MustCompile panic whenever
+// this check ran, and the count was spliced in as a rune rather than a number.
+// Like `.` in the pattern, a newline never counts towards a run.
+func hasRepeatedRun(text string, limit int) bool {
+	var prev rune
+
+	havePrev := false
+	copies := 0
+
+	for _, r := range text {
+		if havePrev && r == prev && r != '\n' {
+			copies++
+			if copies >= limit {
+				return true
+			}
+
+			continue
 		}
+
+		prev = r
+		havePrev = true
+		copies = 0
 	}
 
 	return false

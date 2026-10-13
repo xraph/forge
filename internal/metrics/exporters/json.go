@@ -313,13 +313,13 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 	}
 
 	// Find the opening brace
-	braceIndex := strings.Index(fullName, "{")
-	if braceIndex == -1 {
+	before, after, ok := strings.Cut(fullName, "{")
+	if !ok {
 		return fullName, nil
 	}
 
-	baseName := fullName[:braceIndex]
-	tagsStr := fullName[braceIndex+1:]
+	baseName := before
+	tagsStr := after
 
 	// Remove closing brace
 	tagsStr = strings.TrimSuffix(tagsStr, "}")

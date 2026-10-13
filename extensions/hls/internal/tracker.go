@@ -5,21 +5,21 @@ import (
 	"time"
 )
 
-// SegmentTracker tracks segments for live streams
+// SegmentTracker tracks segments for live streams.
 type SegmentTracker struct {
 	streamID string
 	segments map[string]*VariantSegments // variantID -> segments
 	mu       sync.RWMutex
 }
 
-// VariantSegments tracks segments for a single variant
+// VariantSegments tracks segments for a single variant.
 type VariantSegments struct {
 	Segments      []*SegmentEntry
 	MediaSequence int
 	LastSegment   int
 }
 
-// SegmentEntry represents a tracked segment
+// SegmentEntry represents a tracked segment.
 type SegmentEntry struct {
 	Index     int
 	Duration  float64
@@ -28,7 +28,7 @@ type SegmentEntry struct {
 	Available bool
 }
 
-// NewSegmentTracker creates a new segment tracker
+// NewSegmentTracker creates a new segment tracker.
 func NewSegmentTracker(streamID string) *SegmentTracker {
 	return &SegmentTracker{
 		streamID: streamID,
@@ -36,7 +36,7 @@ func NewSegmentTracker(streamID string) *SegmentTracker {
 	}
 }
 
-// AddSegment adds a segment for a variant
+// AddSegment adds a segment for a variant.
 func (t *SegmentTracker) AddSegment(variantID string, index int, duration float64, size int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -60,7 +60,7 @@ func (t *SegmentTracker) AddSegment(variantID string, index int, duration float6
 	t.segments[variantID].LastSegment = index
 }
 
-// GetSegments returns segments for a variant
+// GetSegments returns segments for a variant.
 func (t *SegmentTracker) GetSegments(variantID string) []*SegmentEntry {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -69,13 +69,14 @@ func (t *SegmentTracker) GetSegments(variantID string) []*SegmentEntry {
 		// Return a copy
 		result := make([]*SegmentEntry, len(vs.Segments))
 		copy(result, vs.Segments)
+
 		return result
 	}
 
 	return nil
 }
 
-// GetSegmentsWindow returns the last N segments (DVR window)
+// GetSegmentsWindow returns the last N segments (DVR window).
 func (t *SegmentTracker) GetSegmentsWindow(variantID string, windowSize int) []*SegmentEntry {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -84,19 +85,21 @@ func (t *SegmentTracker) GetSegmentsWindow(variantID string, windowSize int) []*
 		if len(vs.Segments) <= windowSize {
 			result := make([]*SegmentEntry, len(vs.Segments))
 			copy(result, vs.Segments)
+
 			return result
 		}
 
 		start := len(vs.Segments) - windowSize
 		result := make([]*SegmentEntry, windowSize)
 		copy(result, vs.Segments[start:])
+
 		return result
 	}
 
 	return nil
 }
 
-// GetMediaSequence returns the media sequence number for a variant
+// GetMediaSequence returns the media sequence number for a variant.
 func (t *SegmentTracker) GetMediaSequence(variantID string) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -108,7 +111,7 @@ func (t *SegmentTracker) GetMediaSequence(variantID string) int {
 	return 0
 }
 
-// GetLastSegment returns the last segment index for a variant
+// GetLastSegment returns the last segment index for a variant.
 func (t *SegmentTracker) GetLastSegment(variantID string) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -120,7 +123,7 @@ func (t *SegmentTracker) GetLastSegment(variantID string) int {
 	return -1
 }
 
-// RemoveOldSegments removes segments older than the window size
+// RemoveOldSegments removes segments older than the window size.
 func (t *SegmentTracker) RemoveOldSegments(variantID string, keepLast int) []int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -130,7 +133,7 @@ func (t *SegmentTracker) RemoveOldSegments(variantID string, keepLast int) []int
 			toRemove := len(vs.Segments) - keepLast
 			removed := make([]int, toRemove)
 
-			for i := 0; i < toRemove; i++ {
+			for i := range toRemove {
 				removed[i] = vs.Segments[i].Index
 			}
 
@@ -144,7 +147,7 @@ func (t *SegmentTracker) RemoveOldSegments(variantID string, keepLast int) []int
 	return nil
 }
 
-// Clear clears all segments for a variant
+// Clear clears all segments for a variant.
 func (t *SegmentTracker) Clear(variantID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -152,7 +155,7 @@ func (t *SegmentTracker) Clear(variantID string) {
 	delete(t.segments, variantID)
 }
 
-// ClearAll clears all segments for all variants
+// ClearAll clears all segments for all variants.
 func (t *SegmentTracker) ClearAll() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -160,7 +163,7 @@ func (t *SegmentTracker) ClearAll() {
 	t.segments = make(map[string]*VariantSegments)
 }
 
-// GetVariants returns all variant IDs
+// GetVariants returns all variant IDs.
 func (t *SegmentTracker) GetVariants() []string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -173,7 +176,7 @@ func (t *SegmentTracker) GetVariants() []string {
 	return variants
 }
 
-// GetSegmentCount returns the total number of segments for a variant
+// GetSegmentCount returns the total number of segments for a variant.
 func (t *SegmentTracker) GetSegmentCount(variantID string) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

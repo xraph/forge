@@ -23,12 +23,12 @@ type ExtendedAdapter interface {
 	// Configure applies router-level matcher settings. It is called once, at
 	// construction, before any route is registered. Calling it after the
 	// first route must return an error.
-	Configure(MatcherConfig) error
+	Configure(cfg MatcherConfig) error
 
 	// HandleRoute registers a route from its parsed form. It returns an error
 	// for a conflicting registration, which is what the plain Handle method
 	// has no way to express.
-	HandleRoute(RouteSpec) error
+	HandleRoute(spec RouteSpec) error
 }
 
 // Capabilities reports which wide behaviors a backend honors.

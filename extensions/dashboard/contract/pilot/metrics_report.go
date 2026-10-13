@@ -18,10 +18,12 @@ func metricsReportHandler(p MetricsReportProvider) func(ctx context.Context, _ s
 		if p == nil {
 			return MetricsReportResponse{}, &contract.Error{Code: contract.CodeUnavailable, Message: "metrics report provider not configured"}
 		}
+
 		report := p.CollectMetricsReport(ctx)
 		if report == nil {
 			return MetricsReportResponse{}, nil
 		}
+
 		collectors := make([]CollectorEntry, 0, len(report.Collectors))
 		for _, c := range report.Collectors {
 			collectors = append(collectors, CollectorEntry{
@@ -32,6 +34,7 @@ func metricsReportHandler(p MetricsReportProvider) func(ctx context.Context, _ s
 				LastCollection: formatTime(c.LastCollection),
 			})
 		}
+
 		topMetrics := make([]MetricEntryDTO, 0, len(report.TopMetrics))
 		for _, m := range report.TopMetrics {
 			topMetrics = append(topMetrics, MetricEntryDTO{
@@ -40,6 +43,7 @@ func metricsReportHandler(p MetricsReportProvider) func(ctx context.Context, _ s
 				Value: m.Value,
 			})
 		}
+
 		return MetricsReportResponse{
 			TotalMetrics:  report.TotalMetrics,
 			MetricsByType: report.MetricsByType,
@@ -53,5 +57,6 @@ func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
+
 	return t.UTC().Format(time.RFC3339)
 }

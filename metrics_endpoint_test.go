@@ -35,7 +35,7 @@ func TestMetricsEndpoint(t *testing.T) {
 
 	t.Run("plain_text", func(t *testing.T) {
 		// No Accept header → promhttp serves text/plain; version=0.0.4
-		req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics", nil)
 		w := httptest.NewRecorder()
 		app.Router().ServeHTTP(w, req)
 
@@ -77,8 +77,9 @@ func TestMetricsEndpoint(t *testing.T) {
 		// Accept: application/openmetrics-text → real promhttp negotiates OpenMetrics.
 		// The old Export-based handler ignores Accept and always returns text/plain.
 		// Only the real promhttp.Handler honours this header.
-		req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics", nil)
 		req.Header.Set("Accept", "application/openmetrics-text;version=1.0.0;q=0.5")
+
 		w := httptest.NewRecorder()
 		app.Router().ServeHTTP(w, req)
 
@@ -103,5 +104,6 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
+
 	return s[:n]
 }

@@ -76,6 +76,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 	if ctx.Bool("verbose") {
 		migrationPath, _ := p.getMigrationPathForApp(appName)
 		ctx.Info("📁 Migration directory: " + migrationPath)
+
 		if appName != "" {
 			ctx.Info("📦 App: " + appName)
 		}
@@ -106,6 +107,7 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 	if appName != "" {
 		migrationCmd.Env = append(migrationCmd.Env, "FORGE_MIGRATION_GROUP="+appName)
 	}
+
 	migrationCmd.Stdout = os.Stdout
 	migrationCmd.Stderr = os.Stderr
 
@@ -181,12 +183,12 @@ func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, erro
 	// Build replace section
 	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
 
-	var replacesSectionSb103 strings.Builder
+	var replaceLines strings.Builder
 	for module, path := range replaceDirectives {
-		replacesSectionSb103.WriteString(fmt.Sprintf("replace %s => %s\n", module, path))
+		fmt.Fprintf(&replaceLines, "replace %s => %s\n", module, path)
 	}
 
-	replacesSection += replacesSectionSb103.String()
+	replacesSection += replaceLines.String()
 
 	// Pin grove and the driver module to the same version the user's own project already
 	// requires, if it requires one. Their migrations package imports "grove/migrate" (see
@@ -317,7 +319,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string
 
 	// Build imports section with grove, the resolved driver, and project/extension migrations
 	var importsBuilder strings.Builder
-	importsBuilder.WriteString(fmt.Sprintf(`	"context"
+	fmt.Fprintf(&importsBuilder, `	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -329,11 +331,11 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string
 	// the executor. Both are blank imports for their init() side effects.
 	_ %q
 	_ %q
-`, drv.Module, drv.MigrateImport))
+`, drv.Module, drv.MigrateImport)
 
 	// Add project migrations import
 	if migrationsImport != "" {
-		importsBuilder.WriteString(fmt.Sprintf("\n\t// Import project migrations\n\t\"%s\"\n", migrationsImport))
+		fmt.Fprintf(&importsBuilder, "\n\t// Import project migrations\n\t\"%s\"\n", migrationsImport)
 	}
 
 	// Add extension migrations imports
@@ -341,7 +343,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath, dsn, appName string
 		importsBuilder.WriteString("\n\t// Import extension migrations")
 
 		for _, extImport := range extensionImports {
-			importsBuilder.WriteString(fmt.Sprintf("\n\t_ \"%s\"", extImport))
+			fmt.Fprintf(&importsBuilder, "\n\t_ \"%s\"", extImport)
 		}
 	}
 
@@ -873,11 +875,13 @@ func (p *DatabasePlugin) getGroveVersion() (string, error) {
 
 		if trimmed == "require (" {
 			inRequireBlock = true
+
 			continue
 		}
 
 		if inRequireBlock && trimmed == ")" {
 			inRequireBlock = false
+
 			continue
 		}
 

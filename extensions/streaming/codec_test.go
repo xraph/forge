@@ -499,13 +499,13 @@ func TestCodecRegistry_ConcurrentAccess(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			r.Register(&stubCodec{contentType: ContentTypeMsgPack, encoded: []byte("x")})
 			_ = r.SetDefault(ContentTypeJSON)
 		}
 	}()
 
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		_, _ = r.Get(ContentTypeJSON)
 		_ = r.Default()
 		_, _ = r.Encode(&Message{Data: "x"})

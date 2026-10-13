@@ -464,11 +464,7 @@ func TestRoomStateSynchronizer_ConcurrentSync(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 8 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for i := range 25 {
 				_ = syncer.SyncRoomMembers(ctx, "room-1")
 				_ = syncer.HandleRoomStateUpdate(ctx, &RoomState{
@@ -477,7 +473,7 @@ func TestRoomStateSynchronizer_ConcurrentSync(t *testing.T) {
 					Settings: map[string]any{"name": "room-1"},
 				})
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -599,6 +595,7 @@ func TestPresenceSynchronizer_SyncLoopPushesOnlineUsers(t *testing.T) {
 	}
 
 	settled := coord.presenceCount()
+
 	time.Sleep(60 * time.Millisecond)
 
 	if got := coord.presenceCount(); got > settled+2 {
@@ -707,6 +704,7 @@ func TestPresenceSynchronizer_SyncLoopStopsWithTheContext(t *testing.T) {
 	cancel()
 
 	settled := coord.presenceCount()
+
 	time.Sleep(60 * time.Millisecond)
 
 	if got := coord.presenceCount(); got > settled+2 {

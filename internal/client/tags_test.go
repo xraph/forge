@@ -1,4 +1,3 @@
-// internal/client/tags_test.go
 package client
 
 import (

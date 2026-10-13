@@ -1,4 +1,3 @@
-// envelope_test.go
 package contract
 
 import (
@@ -20,14 +19,17 @@ func TestRequest_RoundTrip_Command(t *testing.T) {
 		CSRF:           "csrf_token",
 		IdempotencyKey: "ik_1",
 	}
+
 	b, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	var got Request
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+
 	if got.Kind != KindCommand || got.IdempotencyKey != "ik_1" {
 		t.Errorf("round trip lost data: %+v", got)
 	}
@@ -52,17 +54,21 @@ func TestErrorResponse_RoundTrip(t *testing.T) {
 			Redactions:    []string{"users[*].email"},
 		},
 	}
+
 	b, err := json.Marshal(er)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	if !bytes.Contains(b, []byte(`"code":"PERMISSION_DENIED"`)) {
 		t.Errorf("marshaled form missing code: %s", b)
 	}
+
 	var got ErrorResponse
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+
 	if got.Error.Code != CodePermissionDenied {
 		t.Errorf("round trip lost code")
 	}
@@ -71,11 +77,17 @@ func TestErrorResponse_RoundTrip(t *testing.T) {
 func TestStreamEvent_RoundTrip_AllModes(t *testing.T) {
 	for _, mode := range []SubscriptionMode{ModeReplace, ModeAppend, ModeSnapshotDelta} {
 		ev := StreamEvent{Intent: "audit.tail", Mode: mode, Payload: json.RawMessage(`{"a":1}`), Seq: 42}
-		b, _ := json.Marshal(ev)
+
+		b, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
 		var got StreamEvent
 		if err := json.Unmarshal(b, &got); err != nil {
 			t.Fatalf("mode %s: %v", mode, err)
 		}
+
 		if got.Mode != mode || got.Seq != 42 {
 			t.Errorf("mode %s round trip lost data: %+v", mode, got)
 		}

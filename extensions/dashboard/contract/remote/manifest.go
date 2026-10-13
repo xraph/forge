@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,40 +25,51 @@ import (
 // mistakes (wrong port, wrong path) are diagnosable.
 func FetchManifest(ctx context.Context, baseURL, apiKey string, client *http.Client) (*contract.ContractManifest, error) {
 	if baseURL == "" {
-		return nil, fmt.Errorf("remote: baseURL is required")
+		return nil, errors.New("remote: baseURL is required")
 	}
+
 	if client == nil {
 		client = &http.Client{Timeout: DefaultTimeout}
 	}
+
 	url := strings.TrimRight(baseURL, "/") + DefaultManifestPath
+
 	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("remote: build manifest request: %w", err)
 	}
+
 	hr.Header.Set("Accept", "application/json")
+
 	if apiKey != "" {
 		hr.Header.Set("Authorization", "Bearer "+apiKey)
 	}
+
 	resp, err := client.Do(hr)
 	if err != nil {
 		return nil, fmt.Errorf("remote: fetch manifest from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
+
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		excerpt := strings.TrimSpace(string(body))
 		if len(excerpt) > 200 {
 			excerpt = excerpt[:200] + "…"
 		}
+
 		return nil, fmt.Errorf("remote: manifest endpoint %s returned %d: %s", url, resp.StatusCode, excerpt)
 	}
+
 	var m contract.ContractManifest
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, fmt.Errorf("remote: decode manifest from %s: %w", url, err)
 	}
+
 	if m.Contributor.Name == "" {
 		return nil, fmt.Errorf("remote: manifest from %s is missing contributor.name", url)
 	}
+
 	return &m, nil
 }
 
@@ -68,6 +80,7 @@ func fetchWithDeadline(ctx context.Context, d time.Duration) (context.Context, c
 	if d <= 0 {
 		return ctx, func() {}
 	}
+
 	return context.WithTimeout(ctx, d)
 }
 

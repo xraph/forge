@@ -129,7 +129,7 @@ func TestListStreams(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple streams
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		opts := StreamOptions{
 			Title: "Test Stream",
 			Type:  StreamTypeLive,
@@ -280,7 +280,7 @@ func TestMaxStreamsLimit(t *testing.T) {
 	}
 
 	// Create max streams
-	for i := 0; i < config.MaxStreams; i++ {
+	for i := range config.MaxStreams {
 		_, err := manager.CreateStream(ctx, opts)
 		if err != nil {
 			t.Fatalf("failed to create stream %d: %v", i, err)

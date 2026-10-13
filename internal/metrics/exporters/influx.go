@@ -423,13 +423,13 @@ func (ie *InfluxExporter) parseMetricName(fullName string) (string, map[string]s
 		return fullName, make(map[string]string)
 	}
 
-	braceIndex := strings.Index(fullName, "{")
-	if braceIndex == -1 {
+	before, after, ok := strings.Cut(fullName, "{")
+	if !ok {
 		return fullName, make(map[string]string)
 	}
 
-	baseName := fullName[:braceIndex]
-	tagsStr := fullName[braceIndex+1:]
+	baseName := before
+	tagsStr := after
 
 	tagsStr = strings.TrimSuffix(tagsStr, "}")
 

@@ -257,7 +257,7 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	var buf strings.Builder
 
 	// Package declaration
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	// Imports
 	buf.WriteString("import (\n")
@@ -456,7 +456,7 @@ func (g *Generator) generateHelperMethods(needsAuth bool) string {
 func (g *Generator) generateErrorsFile(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("package %s\n\n", config.PackageName))
+	fmt.Fprintf(&buf, "package %s\n\n", config.PackageName)
 
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"fmt\"\n")
@@ -492,7 +492,7 @@ func (g *Generator) generateErrorsFile(spec *client.APISpec, config client.Gener
 func (g *Generator) generateGoMod(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("module %s\n\n", config.Module))
+	fmt.Fprintf(&buf, "module %s\n\n", config.Module)
 	buf.WriteString("go 1.24.0\n\n")
 
 	// Derived from getDependencies rather than listed again here. The two
@@ -505,7 +505,7 @@ func (g *Generator) generateGoMod(config client.GeneratorConfig) string {
 		buf.WriteString("require (\n")
 
 		for _, dep := range deps {
-			buf.WriteString(fmt.Sprintf("\t%s %s\n", dep.Name, dep.Version))
+			fmt.Fprintf(&buf, "\t%s %s\n", dep.Name, dep.Version)
 		}
 
 		buf.WriteString(")\n")

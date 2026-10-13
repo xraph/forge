@@ -466,7 +466,7 @@ func getXIDUserIDFromContext(ctx context.Context) *xid.ID {
 }
 
 func SetXIDUserID(ctx context.Context, userID xid.ID) context.Context {
-	return context.WithValue(ctx, "user_id", userID)
+	return context.WithValue(ctx, "user_id", userID) //nolint:staticcheck // SA1029: "user_id" is the documented plain-string key that app auth middleware sets and the audit hooks read
 }
 
 func GetXIDUserID(ctx context.Context) (xid.ID, bool) {
@@ -498,7 +498,7 @@ func getUserIDFromContext(ctx context.Context) *int64 {
 
 // SetUserID is a helper to set user ID in context for audit tracking.
 func SetUserID(ctx context.Context, userID int64) context.Context {
-	return context.WithValue(ctx, "user_id", userID)
+	return context.WithValue(ctx, "user_id", userID) //nolint:staticcheck // SA1029: "user_id" is the documented plain-string key that app auth middleware sets and the audit hooks read
 }
 
 // GetUserID retrieves user ID from context.

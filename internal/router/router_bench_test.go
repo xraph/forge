@@ -65,7 +65,7 @@ func BenchmarkRouter_StandardHandler(b *testing.B) {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -84,7 +84,7 @@ func BenchmarkRouter_ContextHandler(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -114,7 +114,7 @@ func BenchmarkRouter_ContextHandler_ReflectPath(b *testing.B) {
 
 	_ = router.GET("/test", h)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -133,7 +133,7 @@ func BenchmarkRouter_ContextHandlerWithParams(b *testing.B) {
 		return ctx.String(200, ctx.Param("id"))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/users/42/posts/7", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/users/42/posts/7", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -167,7 +167,7 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 
 	reader := bytes.NewReader(body)
 
-	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/test", nil)
 	req.Header.Set("Content-Type", "application/json")
 
 	w := &benchWriter{}
@@ -199,7 +199,7 @@ func BenchmarkRouter_ServiceHandler(b *testing.B) {
 		return ctx.JSON(200, users)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -225,7 +225,7 @@ func BenchmarkRouter_Middleware(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -253,7 +253,7 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -267,7 +267,7 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 func BenchmarkContext_JSON(b *testing.B) {
 	data := map[string]string{"message": "hello"}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -281,7 +281,7 @@ func BenchmarkContext_JSON(b *testing.B) {
 }
 
 func BenchmarkContext_String(b *testing.B) {
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/test", nil)
 	w := &benchWriter{}
 
 	b.ReportAllocs()
@@ -356,6 +356,7 @@ func TestBenchmarkFixturesActuallyMatch(t *testing.T) {
 				r := NewRouter()
 
 				var h ctxHandlerAlias = func(ctx Context) error { return ctx.String(200, "ok") }
+
 				_ = r.GET("/test", h)
 
 				return r
@@ -379,7 +380,7 @@ func TestBenchmarkFixturesActuallyMatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			tc.build().ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+			tc.build().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil))
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("benchmark fixture does not match: got %d, want 200", rec.Code)
@@ -415,7 +416,7 @@ func TestOpinionatedBenchmarkFixtureRepeats(t *testing.T) {
 
 	reader := bytes.NewReader(body)
 
-	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/test", nil)
 	req.Header.Set("Content-Type", "application/json")
 
 	for i := range 3 {
@@ -469,7 +470,7 @@ func BenchmarkRouter_OpinionatedHandler_RealisticRequest(b *testing.B) {
 
 	reader := bytes.NewReader(body)
 
-	req := httptest.NewRequest(
+	req := httptest.NewRequestWithContext(b.Context(),
 		http.MethodPost, "/orgs/o1/users/u1?page=2&perPage=50&search=abc", nil,
 	)
 	req.Header.Set("Content-Type", "application/json")

@@ -105,7 +105,7 @@ func TestCookieManager_GetCookie(t *testing.T) {
 	cm := NewCookieManager(DefaultCookieOptions())
 
 	// Create request with cookie
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  "test",
 		Value: "value",
@@ -124,7 +124,7 @@ func TestCookieManager_GetCookie(t *testing.T) {
 func TestCookieManager_GetCookie_NotFound(t *testing.T) {
 	cm := NewCookieManager(DefaultCookieOptions())
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 
 	_, err := cm.GetCookie(req, "nonexistent")
 	if !errors.Is(err, ErrCookieNotFound) {
@@ -161,7 +161,7 @@ func TestCookieManager_HasCookie(t *testing.T) {
 	cm := NewCookieManager(DefaultCookieOptions())
 
 	// Request with cookie
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  "test",
 		Value: "value",
@@ -180,7 +180,7 @@ func TestCookieManager_GetAllCookies(t *testing.T) {
 	cm := NewCookieManager(DefaultCookieOptions())
 
 	// Request with multiple cookies
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "cookie1", Value: "value1"})
 	req.AddCookie(&http.Cookie{Name: "cookie2", Value: "value2"})
 	req.AddCookie(&http.Cookie{Name: "cookie3", Value: "value3"})

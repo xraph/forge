@@ -100,10 +100,12 @@ func TestMQTTClientGetSubscriptions(t *testing.T) {
 	// Check if both topics are present
 	foundTopic1 := false
 	foundTopic2 := false
+
 	for _, sub := range subs {
 		if sub.Topic == "topic1" && sub.QoS == 1 {
 			foundTopic1 = true
 		}
+
 		if sub.Topic == "topic2" && sub.QoS == 2 {
 			foundTopic2 = true
 		}

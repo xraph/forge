@@ -1,4 +1,3 @@
-// internal/router/router_opts_client_test.go
 package router
 
 import (
@@ -98,6 +97,7 @@ func TestWithStaleTime(t *testing.T) {
 				if ok {
 					t.Fatalf("a value that cannot mean anything must not be recorded, got %v", got)
 				}
+
 				return
 			}
 

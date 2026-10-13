@@ -1,4 +1,3 @@
-// internal/client/generators/typescript/e2e_client_meta_test.go
 package typescript
 
 import (
@@ -67,6 +66,7 @@ func TestGenerationCarriesEntityMetaEndToEnd(t *testing.T) {
 
 	_, ok := out.Files["src/ops.ts"]
 	opsFile := ClientManifestText(out.Files)
+
 	if !ok {
 		t.Fatal("src/ops.ts was not generated")
 	}

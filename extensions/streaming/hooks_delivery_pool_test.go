@@ -71,7 +71,7 @@ func (h *deliveryRecorder) waitForDeliveries(t *testing.T, n int) {
 
 	timeout := time.After(3 * time.Second)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		select {
 		case <-h.delivered:
 		case <-timeout:
@@ -104,7 +104,7 @@ func TestHookRegistry_FireOnMessageDeliveredReachesEveryHook(t *testing.T) {
 				r.Add(recorders[i])
 			}
 
-			for i := 0; i < tt.messages; i++ {
+			for range tt.messages {
 				r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 			}
 
@@ -128,7 +128,7 @@ func TestHookRegistry_FireOnMessageDeliveredWithNoHooksSpawnsNothing(t *testing.
 
 	before := runtime.NumGoroutine()
 
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -153,7 +153,7 @@ func TestHookRegistry_FireOnMessageDeliveredIsBounded(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	peak := peakGoroutines(func(sample func()) {
-		for i := 0; i < recipients; i++ {
+		for i := range recipients {
 			r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 
 			if i%100 == 0 {
@@ -183,7 +183,7 @@ func TestHookRegistry_DroppedDeliveriesIsZeroUnderLightLoad(t *testing.T) {
 	rec := newDeliveryRecorder("recorder", 32)
 	r.Add(rec)
 
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -206,7 +206,7 @@ func TestHookRegistry_DroppedDeliveriesCountsSaturationDrops(t *testing.T) {
 
 	// Enough to fill the queue behind the parked workers and then overflow it.
 	fired := deliveryQueueSize + maxDeliveryWorkers + 500
-	for i := 0; i < fired; i++ {
+	for range fired {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -234,7 +234,7 @@ func TestHookRegistry_DroppedDeliveriesCountsPostCloseFires(t *testing.T) {
 		t.Fatalf("Close() = %v, want nil", err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -248,7 +248,7 @@ func TestHookRegistry_DroppedDeliveriesIgnoresHooklessFires(t *testing.T) {
 	r := NewHookRegistry()
 	defer r.Close()
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -353,7 +353,7 @@ func TestHookRegistry_CloseStopsWorkers(t *testing.T) {
 	rec := newDeliveryRecorder("recorder", 4)
 	r.Add(rec)
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 
@@ -373,7 +373,7 @@ func TestHookRegistry_CloseIsIdempotent(t *testing.T) {
 	r.Add(newDeliveryRecorder("recorder", 1))
 	r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := r.Close(); err != nil {
 			t.Fatalf("Close() call %d = %v, want nil", i, err)
 		}
@@ -389,7 +389,7 @@ func TestHookRegistry_FireOnMessageDeliveredAfterCloseDoesNotPanic(t *testing.T)
 	}
 
 	// Deliveries racing a shutdown must be dropped, not panic on a closed channel.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		r.FireOnMessageDelivered(context.Background(), nil, &Message{ID: "m"})
 	}
 }
@@ -397,7 +397,7 @@ func TestHookRegistry_FireOnMessageDeliveredAfterCloseDoesNotPanic(t *testing.T)
 func TestHookRegistry_CloseWithNeverFiredPoolIsCheap(t *testing.T) {
 	before := runtime.NumGoroutine()
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		r := NewHookRegistry()
 
 		if err := r.Close(); err != nil {

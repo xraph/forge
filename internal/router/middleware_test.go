@@ -35,7 +35,7 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	wrappedHandler := forgeMW(forgeHandler)
 
 	// Execute with a test context
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	ctx := forge_http.NewContext(rec, req, container)
@@ -96,7 +96,7 @@ func TestChain(t *testing.T) {
 	chained := Chain(mw1, mw2, mw3)(handler)
 
 	// Execute with a test context
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := vessel.New()
 
@@ -129,7 +129,7 @@ func TestChain_Empty(t *testing.T) {
 
 	chained := Chain()(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := vessel.New()
 
@@ -160,7 +160,7 @@ func TestChain_Single(t *testing.T) {
 
 	chained := Chain(mw)(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := vessel.New()
 

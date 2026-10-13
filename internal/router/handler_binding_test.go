@@ -81,7 +81,7 @@ func TestOpinionatedHandlerBindsAllSources(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
-	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123/providers/github?page=2&limit=50&debug=true", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/workspaces/ws123/providers/github?page=2&limit=50&debug=true", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Api-Key", "secret-key-123")
 	req.Header.Set("User-Agent", "TestClient/1.0")
@@ -137,7 +137,7 @@ func TestOpinionatedHandlerPathParamsOnly(t *testing.T) {
 	err := router.GET("/users/:user_id/items/:item_id", handler)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/user123/items/item456", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/user123/items/item456", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -178,7 +178,7 @@ func TestOpinionatedHandlerValidationError(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
-	req := httptest.NewRequest(http.MethodPost, "/workspaces/ws123", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/workspaces/ws123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestCombinedHandlerBindsAllSources(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(bodyData) //nolint:errchkjson // Test data
 
-	req := httptest.NewRequest(http.MethodPost, "/tenants/tenant123", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/tenants/tenant123", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
@@ -276,7 +276,7 @@ func TestOpinionatedHandlerGETWithQueryOnly(t *testing.T) {
 	err := router.GET("/search", handler)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?q=golang&page=3&limit=25&format=json", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/search?q=golang&page=3&limit=25&format=json", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -346,7 +346,7 @@ func TestCtxArg_ExactContextStillServes(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ok", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ok", rec.Body.String())
@@ -366,6 +366,7 @@ func TestOpinionatedHandler_StillBindsAndResponds(t *testing.T) {
 	r := NewRouter()
 
 	called := 0
+
 	require.NoError(t, r.POST("/echo", func(ctx Context, req *bindTestReq) (*bindTestResp, error) {
 		called++
 
@@ -373,7 +374,7 @@ func TestOpinionatedHandler_StillBindsAndResponds(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"name":"rex"}`))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/echo", strings.NewReader(`{"name":"rex"}`))
 	httpReq.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, httpReq)
 

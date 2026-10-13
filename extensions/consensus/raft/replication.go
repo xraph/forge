@@ -3,7 +3,6 @@ package raft
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/xraph/forge"
@@ -225,7 +224,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 	if req.Term > n.currentTerm {
 		n.currentTerm = req.Term
 		n.votedFor = ""
-		n.persistState()
+		n.persistStateOrLog("append entries from newer term")
 	}
 
 	// Step down to follower if we're not already
@@ -301,7 +300,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 		resp.MatchIndex = req.Entries[len(req.Entries)-1].Index
 	}
 
-	atomic.AddInt64(&n.appendCount, 1)
+	n.appendCount.Add(1)
 
 	return resp, nil
 }
@@ -427,7 +426,7 @@ func (n *Node) InstallSnapshot(ctx context.Context, req *internal.InstallSnapsho
 	if req.Term > n.currentTerm {
 		n.currentTerm = req.Term
 		n.votedFor = ""
-		n.persistState()
+		n.persistStateOrLog("install snapshot from newer term")
 	}
 
 	// Update leader

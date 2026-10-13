@@ -302,7 +302,6 @@ func TestScheduler_CancelBeatsACommittedRun(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 
 	s := New("test")
-	s.ctx, s.stop = context.WithCancel(context.Background())
 
 	var ran atomic.Bool
 
@@ -313,8 +312,8 @@ func TestScheduler_CancelBeatsACommittedRun(t *testing.T) {
 	s.jobs[0].next = time.Now().Add(-time.Second)
 	s.mu.Unlock()
 
-	s.runDue() // commits to the run and queues its goroutine
-	cancel()   // lands before that goroutine gets a turn
+	s.runDue(t.Context()) // commits to the run and queues its goroutine
+	cancel()              // lands before that goroutine gets a turn
 
 	s.inWork.Wait() // the committed run has finished, or skipped itself
 

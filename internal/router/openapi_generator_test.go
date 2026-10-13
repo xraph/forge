@@ -193,7 +193,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 	handler := gen.specHandler()
 
 	// Create test request
-	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/openapi.json", nil)
 	w := httptest.NewRecorder()
 
 	// Convert handler to http.HandlerFunc
@@ -222,7 +222,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 	handler := gen.uiHandler()
 
 	// Create test request
-	req := httptest.NewRequest(http.MethodGet, "/swagger", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/swagger", nil)
 	w := httptest.NewRecorder()
 
 	// Convert handler to http.HandlerFunc

@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"slices"
 
 	forge_http "github.com/xraph/go-utils/http"
 	"github.com/xraph/vessel"
@@ -51,8 +52,8 @@ func Chain(middlewares ...Middleware) Middleware {
 	return func(final Handler) Handler {
 		// Build chain in reverse order so first middleware wraps innermost
 		// This means: m1(m2(m3(final))) where m1 is first in the list
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			final = middlewares[i](final)
+		for _, v := range slices.Backward(middlewares) {
+			final = v(final)
 		}
 
 		return final
@@ -175,7 +176,7 @@ type contextValuer interface {
 }
 
 type contextSharer interface {
-	ShareValues(map[string]any)
+	ShareValues(values map[string]any)
 }
 
 // contextValuesReleaser is implemented by contexts that track values-map

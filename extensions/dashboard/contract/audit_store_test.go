@@ -17,10 +17,12 @@ func TestAuditStore_AppendList(t *testing.T) {
 	now := time.Now()
 	s.Append(mkRec("a", now.Add(-1*time.Second)))
 	s.Append(mkRec("b", now))
+
 	got := s.List(AuditFilter{})
 	if len(got) != 2 {
 		t.Fatalf("len = %d", len(got))
 	}
+
 	if got[0].Intent != "b" || got[1].Intent != "a" {
 		t.Errorf("expected newest-first ordering, got %+v", got)
 	}
@@ -31,6 +33,7 @@ func TestAuditStore_FilterIntent(t *testing.T) {
 	s.Append(mkRec("a", time.Now()))
 	s.Append(mkRec("b", time.Now()))
 	s.Append(mkRec("a", time.Now()))
+
 	got := s.List(AuditFilter{Intent: "a"})
 	if len(got) != 2 {
 		t.Errorf("expected 2 intent=a records, got %d", len(got))
@@ -39,12 +42,14 @@ func TestAuditStore_FilterIntent(t *testing.T) {
 
 func TestAuditStore_LimitClamping(t *testing.T) {
 	s := NewInMemoryAuditStore(0)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		s.Append(mkRec("x", time.Now()))
 	}
+
 	if got := s.List(AuditFilter{Limit: 5}); len(got) != 5 {
 		t.Errorf("limit=5 -> %d records", len(got))
 	}
+
 	if got := s.List(AuditFilter{Limit: -1}); len(got) != 50 {
 		t.Errorf("limit=-1 -> %d records (want default 50 since cap < default)", len(got))
 	}
@@ -52,9 +57,10 @@ func TestAuditStore_LimitClamping(t *testing.T) {
 
 func TestAuditStore_RingTruncates(t *testing.T) {
 	s := NewInMemoryAuditStore(3)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		s.Append(AuditRecord{Time: time.Now(), Intent: "x", User: string(rune('a' + i))})
 	}
+
 	got := s.List(AuditFilter{})
 	if len(got) != 3 {
 		t.Fatalf("expected 3 (cap), got %d", len(got))
@@ -67,9 +73,12 @@ func TestAuditStore_RingTruncates(t *testing.T) {
 
 func TestAuditStore_SubscribeBroadcasts(t *testing.T) {
 	s := NewInMemoryAuditStore(0)
+
 	ch, cancel := s.Subscribe()
 	defer cancel()
+
 	go s.Append(mkRec("hello", time.Now()))
+
 	select {
 	case rec := <-ch:
 		if rec.Intent != "hello" {
@@ -84,6 +93,7 @@ func TestAuditStore_CancelClosesChannel(t *testing.T) {
 	s := NewInMemoryAuditStore(0)
 	ch, cancel := s.Subscribe()
 	cancel()
+
 	select {
 	case _, ok := <-ch:
 		if ok {
@@ -100,16 +110,20 @@ func TestRecordingAuditEmitter_FansOut(t *testing.T) {
 	innerCalled := false
 	inner := auditEmitterFunc(func(_ context.Context, rec AuditRecord) {
 		innerCalled = true
+
 		captured = append(captured, rec)
 	})
 	em := NewRecordingAuditEmitter(inner, store)
 	em.Emit(context.Background(), mkRec("x", time.Now()))
+
 	if !innerCalled {
 		t.Errorf("inner emitter not called")
 	}
+
 	if len(captured) != 1 {
 		t.Errorf("inner saw %d records", len(captured))
 	}
+
 	if got := store.List(AuditFilter{}); len(got) != 1 {
 		t.Errorf("store has %d records", len(got))
 	}

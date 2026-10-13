@@ -17,10 +17,12 @@ func healthHandler(p HealthProvider) func(ctx context.Context, _ struct{}, _ con
 		if p == nil {
 			return HealthList{}, &contract.Error{Code: contract.CodeUnavailable, Message: "health provider not configured"}
 		}
+
 		data := p.CollectHealth(ctx)
 		if data == nil {
 			return HealthList{}, nil
 		}
+
 		entries := make([]HealthEntry, 0, len(data.Services))
 		for _, svc := range data.Services {
 			entries = append(entries, HealthEntry{
@@ -31,6 +33,7 @@ func healthHandler(p HealthProvider) func(ctx context.Context, _ struct{}, _ con
 				Critical:   svc.Critical,
 			})
 		}
+
 		return HealthList{
 			OverallStatus:  data.OverallStatus,
 			HealthySummary: data.Summary.Healthy,

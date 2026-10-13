@@ -54,9 +54,11 @@ func WrapBeforeWrite(w http.ResponseWriter) http.ResponseWriter {
 	if w == nil {
 		return nil
 	}
+
 	if _, ok := w.(*beforeWriteWriter); ok {
 		return w
 	}
+
 	return &beforeWriteWriter{ResponseWriter: w}
 }
 
@@ -70,6 +72,7 @@ func BeforeWrite(w http.ResponseWriter, fn func()) bool {
 	if !ok {
 		return false
 	}
+
 	return bw.Before(fn)
 }
 
@@ -77,18 +80,23 @@ func (w *beforeWriteWriter) Before(fn func()) bool {
 	if fn == nil {
 		return false
 	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	if w.committed {
 		return false
 	}
+
 	w.hooks = append(w.hooks, fn)
+
 	return true
 }
 
 func (w *beforeWriteWriter) Written() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	return w.committed
 }
 
@@ -106,6 +114,7 @@ func (w *beforeWriteWriter) commit() {
 	w.mu.Lock()
 	if w.committed {
 		w.mu.Unlock()
+
 		return
 	}
 	// Mark committed before running anything: a callback that writes to the
@@ -142,6 +151,7 @@ func (w *beforeWriteWriter) WriteHeader(code int) {
 
 func (w *beforeWriteWriter) Write(b []byte) (int, error) {
 	w.commit()
+
 	return w.ResponseWriter.Write(b)
 }
 
@@ -153,6 +163,7 @@ func (w *beforeWriteWriter) Write(b []byte) (int, error) {
 // commits the headers, because net/http sends them on the first flush.
 func (w *beforeWriteWriter) Flush() {
 	w.commit()
+
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -169,10 +180,12 @@ func (w *beforeWriteWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, http.ErrNotSupported
 	}
+
 	conn, rw, err := hijacker.Hijack()
 	if err == nil {
 		w.discard()
 	}
+
 	return conn, rw, err
 }
 
@@ -182,9 +195,12 @@ func (w *beforeWriteWriter) ReadFrom(src io.Reader) (int64, error) {
 	rf, ok := w.ResponseWriter.(io.ReaderFrom)
 	if !ok {
 		w.commit()
+
 		return io.Copy(w.ResponseWriter, src)
 	}
+
 	w.commit()
+
 	return rf.ReadFrom(src)
 }
 
@@ -193,6 +209,7 @@ func (w *beforeWriteWriter) Push(target string, opts *http.PushOptions) error {
 	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
 		return pusher.Push(target, opts)
 	}
+
 	return http.ErrNotSupported
 }
 

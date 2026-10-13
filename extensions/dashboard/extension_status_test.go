@@ -116,22 +116,24 @@ type statusTestApp struct {
 
 func (a *statusTestApp) Extensions() []forge.Extension { return a.exts }
 
-func (a *statusTestApp) Name() string                                   { return "test-app" }
-func (a *statusTestApp) Version() string                                { return "1.0.0" }
-func (a *statusTestApp) Environment() string                            { return "test" }
-func (a *statusTestApp) Container() forge.Container                     { return nil }
-func (a *statusTestApp) Router() forge.Router                           { return nil }
-func (a *statusTestApp) Config() forge.ConfigManager                    { return nil }
-func (a *statusTestApp) Logger() forge.Logger                           { return forge.NewNoopLogger() }
-func (a *statusTestApp) Metrics() forge.Metrics                         { return forge.NewNoOpMetrics() }
-func (a *statusTestApp) HealthManager() forge.HealthManager             { return nil }
-func (a *statusTestApp) LifecycleManager() forge.LifecycleManager       { return nil }
-func (a *statusTestApp) Start(context.Context) error                    { return nil }
-func (a *statusTestApp) Stop(context.Context) error                     { return nil }
-func (a *statusTestApp) Run() error                                     { return nil }
-func (a *statusTestApp) RegisterController(forge.Controller) error      { return nil }
-func (a *statusTestApp) RegisterExtension(forge.Extension) error        { return nil }
-func (a *statusTestApp) GetExtension(string) (forge.Extension, error)   { return nil, nil }
+func (a *statusTestApp) Name() string                              { return "test-app" }
+func (a *statusTestApp) Version() string                           { return "1.0.0" }
+func (a *statusTestApp) Environment() string                       { return "test" }
+func (a *statusTestApp) Container() forge.Container                { return nil }
+func (a *statusTestApp) Router() forge.Router                      { return nil }
+func (a *statusTestApp) Config() forge.ConfigManager               { return nil }
+func (a *statusTestApp) Logger() forge.Logger                      { return forge.NewNoopLogger() }
+func (a *statusTestApp) Metrics() forge.Metrics                    { return forge.NewNoOpMetrics() }
+func (a *statusTestApp) HealthManager() forge.HealthManager        { return nil }
+func (a *statusTestApp) LifecycleManager() forge.LifecycleManager  { return nil }
+func (a *statusTestApp) Start(context.Context) error               { return nil }
+func (a *statusTestApp) Stop(context.Context) error                { return nil }
+func (a *statusTestApp) Run() error                                { return nil }
+func (a *statusTestApp) RegisterController(forge.Controller) error { return nil }
+func (a *statusTestApp) RegisterExtension(forge.Extension) error   { return nil }
+func (a *statusTestApp) GetExtension(name string) (forge.Extension, error) {
+	return nil, fmt.Errorf("extension %s not found", name)
+}
 func (a *statusTestApp) StartTime() time.Time                           { return time.Now() }
 func (a *statusTestApp) Uptime() time.Duration                          { return 0 }
 func (a *statusTestApp) MigrationsDisabled() bool                       { return false }
@@ -171,7 +173,7 @@ func newDiscoveryTestExt(t *testing.T, log forge.Logger, exts ...forge.Extension
 
 	e := newTestDashboardExt(t)
 	if log != nil {
-		e.BaseExtension.SetLogger(log)
+		e.SetLogger(log)
 	}
 
 	e.contractRegistry = contract.NewRegistry()
@@ -187,7 +189,7 @@ func newDiscoveryTestExt(t *testing.T, log forge.Logger, exts ...forge.Extension
 func capabilityStatus(t *testing.T, e *Extension) map[string]map[string]json.RawMessage {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/capabilities", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/capabilities", nil)
 	w := httptest.NewRecorder()
 	e.handleContractCapabilities()(w, req)
 
@@ -400,7 +402,7 @@ func TestContributorStatus_ConcurrentRegistrationAndServe(t *testing.T) {
 
 		for range 20 {
 			w := httptest.NewRecorder()
-			h(w, httptest.NewRequest(http.MethodGet, "/api/dashboard/v1/capabilities", nil))
+			h(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/dashboard/v1/capabilities", nil))
 
 			if w.Code != http.StatusOK {
 				t.Errorf("status = %d", w.Code)

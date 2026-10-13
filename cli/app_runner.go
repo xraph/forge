@@ -53,6 +53,7 @@ func NewAppRunner(setup AppSetup) *AppRunner {
 // serving when using the serve/start command.
 func (r *AppRunner) AutoMigrate() *AppRunner {
 	r.autoMigrateOnServe = true
+
 	return r
 }
 
@@ -60,42 +61,49 @@ func (r *AppRunner) AutoMigrate() *AppRunner {
 // These flags are injected into every command before flag parsing.
 func (r *AppRunner) WithGlobalFlags(flags ...Flag) *AppRunner {
 	r.globalFlags = append(r.globalFlags, flags...)
+
 	return r
 }
 
 // WithExtraCommands adds additional commands alongside the built-in ones.
 func (r *AppRunner) WithExtraCommands(cmds ...Command) *AppRunner {
 	r.extraCommands = append(r.extraCommands, cmds...)
+
 	return r
 }
 
 // DisableMigrationCommands disables auto-registration of migrate commands.
 func (r *AppRunner) DisableMigrationCommands() *AppRunner {
 	r.disableMigrationCommands = true
+
 	return r
 }
 
 // DisableServeCommand disables the built-in serve command.
 func (r *AppRunner) DisableServeCommand() *AppRunner {
 	r.disableServeCommand = true
+
 	return r
 }
 
 // Name sets the CLI application name.
 func (r *AppRunner) Name(name string) *AppRunner {
 	r.name = name
+
 	return r
 }
 
 // Version sets the CLI application version.
 func (r *AppRunner) Version(version string) *AppRunner {
 	r.version = version
+
 	return r
 }
 
 // Description sets the CLI application description.
 func (r *AppRunner) Description(desc string) *AppRunner {
 	r.description = desc
+
 	return r
 }
 
@@ -132,6 +140,7 @@ func (r *AppRunner) Execute() error {
 		once.Do(func() {
 			cachedApp, cachedErr = r.setup(ctx)
 		})
+
 		return cachedApp, cachedErr
 	}
 
@@ -144,7 +153,7 @@ func (r *AppRunner) Execute() error {
 	})
 
 	// Inject global flags
-	cImpl := c.(*cli) //nolint:errcheck // New always returns *cli
+	cImpl := c.(*cli)
 	cImpl.globalFlags = append(cImpl.globalFlags, r.globalFlags...)
 
 	// 1. Register serve command (default command)
@@ -256,5 +265,6 @@ func RunApp(setup AppSetup, opts ...RunAppOption) {
 	for _, opt := range opts {
 		opt(r)
 	}
+
 	r.Run()
 }

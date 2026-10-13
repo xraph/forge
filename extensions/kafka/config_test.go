@@ -360,87 +360,103 @@ func TestConfigOptions(t *testing.T) {
 
 	// Test WithBrokers
 	WithBrokers("broker1:9092", "broker2:9092")(&config)
+
 	if len(config.Brokers) != 2 {
 		t.Errorf("expected 2 brokers, got %d", len(config.Brokers))
 	}
 
 	// Test WithClientID
 	WithClientID("custom-client")(&config)
+
 	if config.ClientID != "custom-client" {
 		t.Errorf("expected client_id 'custom-client', got %s", config.ClientID)
 	}
 
 	// Test WithVersion
 	WithVersion("2.8.0")(&config)
+
 	if config.Version != "2.8.0" {
 		t.Errorf("expected version '2.8.0', got %s", config.Version)
 	}
 
 	// Test WithTLS
 	WithTLS("cert.pem", "key.pem", "ca.pem", true)(&config)
+
 	if !config.EnableTLS {
 		t.Error("expected enable_tls to be true")
 	}
+
 	if !config.TLSSkipVerify {
 		t.Error("expected tls_skip_verify to be true")
 	}
 
 	// Test WithSASL
 	WithSASL("SCRAM-SHA-512", "user", "pass")(&config)
+
 	if !config.EnableSASL {
 		t.Error("expected enable_sasl to be true")
 	}
+
 	if config.SASLMechanism != "SCRAM-SHA-512" {
 		t.Errorf("expected mechanism 'SCRAM-SHA-512', got %s", config.SASLMechanism)
 	}
 
 	// Test WithProducer
 	WithProducer(false)(&config)
+
 	if config.ProducerEnabled {
 		t.Error("expected producer_enabled to be false")
 	}
 
 	// Test WithConsumer
 	WithConsumer(false)(&config)
+
 	if config.ConsumerEnabled {
 		t.Error("expected consumer_enabled to be false")
 	}
 
 	// Test WithConsumerGroup
 	WithConsumerGroup("my-group")(&config)
+
 	if !config.ConsumerEnabled {
 		t.Error("expected consumer_enabled to be true")
 	}
+
 	if config.ConsumerGroupID != "my-group" {
 		t.Errorf("expected consumer_group_id 'my-group', got %s", config.ConsumerGroupID)
 	}
 
 	// Test WithCompression
 	WithCompression("lz4")(&config)
+
 	if config.ProducerCompression != "lz4" {
 		t.Errorf("expected compression 'lz4', got %s", config.ProducerCompression)
 	}
 
 	// Test WithIdempotent
 	WithIdempotent(true)(&config)
+
 	if !config.ProducerIdempotent {
 		t.Error("expected producer_idempotent to be true")
 	}
 
 	// Test WithMetrics
 	WithMetrics(false)(&config)
+
 	if config.EnableMetrics {
 		t.Error("expected enable_metrics to be false")
 	}
 
 	// Test WithTracing
 	WithTracing(false)(&config)
+
 	if config.EnableTracing {
 		t.Error("expected enable_tracing to be false")
 	}
 
 	// Test WithRequireConfig
 	WithRequireConfig(true)(&config)
+
 	if !config.RequireConfig {
 		t.Error("expected require_config to be true")
 	}
@@ -452,6 +468,7 @@ func TestConfigOptions(t *testing.T) {
 		Version:  "3.0.0",
 	}
 	WithConfig(customConfig)(&config)
+
 	if config.Brokers[0] != "custom:9092" {
 		t.Errorf("expected broker 'custom:9092', got %s", config.Brokers[0])
 	}

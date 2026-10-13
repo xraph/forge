@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge"
@@ -36,7 +37,7 @@ func MustGetCache(c forge.Container) Cache {
 // Returns error if not found or type assertion fails.
 func GetCacheFromApp(app forge.App) (Cache, error) {
 	if app == nil {
-		return nil, fmt.Errorf("app is nil")
+		return nil, errors.New("app is nil")
 	}
 
 	return GetCache(app.Container())

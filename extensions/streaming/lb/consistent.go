@@ -3,7 +3,7 @@ package lb
 import (
 	"cmp"
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: ring placement hash, not a security boundary
 	"encoding/binary"
 	"fmt"
 	"slices"
@@ -199,7 +199,9 @@ func (chb *consistentHashBalancer) selectNextHealthyNode(startIdx int) (*NodeInf
 }
 
 func (chb *consistentHashBalancer) hash(key string) uint32 {
-	h := md5.New()
+	// MD5 only spreads keys over the ring. Swapping it would move every key to a
+	// different node, breaking routing across a rolling upgrade.
+	h := md5.New() //nolint:gosec // G401: ring placement hash, not a security boundary
 	h.Write([]byte(key))
 	hashBytes := h.Sum(nil)
 

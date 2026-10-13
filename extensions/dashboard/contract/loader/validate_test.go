@@ -1,4 +1,3 @@
-// validate_test.go
 package loader
 
 import (
@@ -11,10 +10,12 @@ import (
 
 func mustLoad(t *testing.T, src string) *contract.ContractManifest {
 	t.Helper()
+
 	m, err := Load(strings.NewReader(src), "test.yaml")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+
 	return m
 }
 
@@ -30,6 +31,7 @@ queries:
   userList: { intent: users.list }
 `)
 	wreg := contract.NewWardenRegistry()
+
 	_ = wreg.Register("tenantOwner", &noopWarden{})
 	if err := Validate(m, wreg); err != nil {
 		t.Fatalf("validate: %v", err)
@@ -97,16 +99,20 @@ queries:
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := mustLoad(t, head+tc.queries)
+
 			err := Validate(m, contract.NewWardenRegistry())
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected validation to fail for queries %q", tc.queries)
 				}
+
 				if !strings.Contains(err.Error(), tc.errHas) {
 					t.Fatalf("error %q does not name the bad intent %q", err, tc.errHas)
 				}
+
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("validate: %v", err)
 			}

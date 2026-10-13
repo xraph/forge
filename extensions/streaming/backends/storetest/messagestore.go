@@ -99,6 +99,7 @@ func RunMessageStoreContract(t *testing.T, newStore NewMessageStore) {
 				}
 
 				mu.Lock()
+
 				seqs = append(seqs, msg.Sequence)
 				mu.Unlock()
 			}(i)

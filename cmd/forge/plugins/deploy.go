@@ -117,9 +117,7 @@ func (p *DeployPlugin) Commands() []cli.Command {
 			opts = append(opts, cli.WithFlag(cli.NewBoolFlag("dry-run", "", "Preview changes", false)), cli.WithFlag(cli.NewBoolFlag("yes", "y", "Write the migration", false)))
 		}
 
-		if err := deployCmd.AddSubcommand(cli.NewCommand(name, c.desc, deployOutputHandler(name, handler), opts...)); err != nil {
-			panic(err)
-		}
+		mustAddSubcommand(deployCmd, cli.NewCommand(name, c.desc, deployOutputHandler(name, handler), opts...))
 	}
 
 	return []cli.Command{deployCmd}

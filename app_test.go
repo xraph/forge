@@ -328,7 +328,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to /_/info
-	req := httptest.NewRequest(http.MethodGet, "/_/info", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/info", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 
@@ -375,7 +375,7 @@ func TestAppWithMetrics(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Verify metrics endpoint is available
-	req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 
@@ -409,7 +409,7 @@ func TestAppWithHealth(t *testing.T) {
 	})
 
 	// Verify health endpoint is available
-	req := httptest.NewRequest(http.MethodGet, "/_/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/health", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 

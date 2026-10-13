@@ -51,6 +51,7 @@ func (s *TypingStore) GetTypingUsers(ctx context.Context, roomID string) ([]stri
 	// Get all users with expiration time > now
 	now := time.Now().Unix()
 
+	//nolint:staticcheck // SA1019: ZRANGE BYSCORE needs Redis 6.2; ZRANGEBYSCORE keeps older servers working
 	users, err := s.client.ZRangeByScore(ctx, key, &redis.ZRangeBy{
 		Min: strconv.FormatInt(now, 10),
 		Max: "+inf",
@@ -92,7 +93,9 @@ func (s *TypingStore) CleanupExpired(ctx context.Context) error {
 
 		// Remove expired entries from each key
 		for _, key := range keys {
-			if err := s.client.ZRemRangeByScore(ctx, key, "-inf", string(rune(now))).Err(); err != nil {
+			// Scores are Unix seconds; string(rune(now)) sent Redis a garbage
+			// character instead of a number, so nothing was ever removed.
+			if err := s.client.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(now, 10)).Err(); err != nil {
 				continue // Skip errors, continue cleanup
 			}
 		}

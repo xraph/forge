@@ -121,13 +121,13 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	var readme strings.Builder
 
 	// Title
-	readme.WriteString(fmt.Sprintf("# %s Client\n\n", spec.Info.Title))
+	fmt.Fprintf(&readme, "# %s Client\n\n", spec.Info.Title)
 
 	if spec.Info.Description != "" {
 		readme.WriteString(spec.Info.Description + "\n\n")
 	}
 
-	readme.WriteString(fmt.Sprintf("Generated client for %s %s\n\n", spec.Info.Title, spec.Info.Version))
+	fmt.Fprintf(&readme, "Generated client for %s %s\n\n", spec.Info.Title, spec.Info.Version)
 
 	// Installation
 	readme.WriteString("## Installation\n\n")
@@ -184,7 +184,7 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	// License
 	if spec.Info.License != nil {
 		readme.WriteString("## License\n\n")
-		readme.WriteString(fmt.Sprintf("[%s](%s)\n\n", spec.Info.License.Name, spec.Info.License.URL))
+		fmt.Fprintf(&readme, "[%s](%s)\n\n", spec.Info.License.Name, spec.Info.License.URL)
 	}
 
 	return readme.String()
@@ -231,19 +231,19 @@ func (m *OutputManager) generateGoUsageExample(config GeneratorConfig, spec *API
 	example.WriteString("```go\n")
 	example.WriteString("package main\n\n")
 	example.WriteString("import (\n")
-	example.WriteString(fmt.Sprintf("    \"%s\"\n", config.PackageName))
+	fmt.Fprintf(&example, "    \"%s\"\n", config.PackageName)
 	example.WriteString("    \"context\"\n")
 	example.WriteString("    \"log\"\n")
 	example.WriteString(")\n\n")
 	example.WriteString("func main() {\n")
-	example.WriteString(fmt.Sprintf("    client := %s.NewClient(\n", config.PackageName))
+	fmt.Fprintf(&example, "    client := %s.NewClient(\n", config.PackageName)
 
 	if config.BaseURL != "" {
-		example.WriteString(fmt.Sprintf("        %s.WithBaseURL(\"%s\"),\n", config.PackageName, config.BaseURL))
+		fmt.Fprintf(&example, "        %s.WithBaseURL(\"%s\"),\n", config.PackageName, config.BaseURL)
 	}
 
 	if config.IncludeAuth && NeedsAuthConfig(spec) {
-		example.WriteString(fmt.Sprintf("        %s.WithAuth(%s.AuthConfig{\n", config.PackageName, config.PackageName))
+		fmt.Fprintf(&example, "        %s.WithAuth(%s.AuthConfig{\n", config.PackageName, config.PackageName)
 		example.WriteString("            BearerToken: \"your-token-here\",\n")
 		example.WriteString("        }),\n")
 	}
@@ -266,11 +266,11 @@ func (m *OutputManager) generateTypeScriptUsageExample(config GeneratorConfig, s
 	var example strings.Builder
 
 	example.WriteString("```typescript\n")
-	example.WriteString(fmt.Sprintf("import { %s } from '%s';\n\n", config.APIName, config.PackageName))
-	example.WriteString(fmt.Sprintf("const client = new %s({\n", config.APIName))
+	fmt.Fprintf(&example, "import { %s } from '%s';\n\n", config.APIName, config.PackageName)
+	fmt.Fprintf(&example, "const client = new %s({\n", config.APIName)
 
 	if config.BaseURL != "" {
-		example.WriteString(fmt.Sprintf("  baseURL: '%s',\n", config.BaseURL))
+		fmt.Fprintf(&example, "  baseURL: '%s',\n", config.BaseURL)
 	}
 
 	if config.IncludeAuth && NeedsAuthConfig(spec) {
@@ -293,30 +293,30 @@ func (m *OutputManager) generateAPIOverview(spec *APISpec) string {
 
 	stats := spec.GetStats()
 
-	overview.WriteString(fmt.Sprintf("- **Total Endpoints**: %d\n", stats.TotalEndpoints))
-	overview.WriteString(fmt.Sprintf("- **REST Endpoints**: %d\n", stats.RESTEndpoints))
+	fmt.Fprintf(&overview, "- **Total Endpoints**: %d\n", stats.TotalEndpoints)
+	fmt.Fprintf(&overview, "- **REST Endpoints**: %d\n", stats.RESTEndpoints)
 
 	if stats.WebSocketCount > 0 {
-		overview.WriteString(fmt.Sprintf("- **WebSocket Endpoints**: %d\n", stats.WebSocketCount))
+		fmt.Fprintf(&overview, "- **WebSocket Endpoints**: %d\n", stats.WebSocketCount)
 	}
 
 	if stats.SSECount > 0 {
-		overview.WriteString(fmt.Sprintf("- **SSE Endpoints**: %d\n", stats.SSECount))
+		fmt.Fprintf(&overview, "- **SSE Endpoints**: %d\n", stats.SSECount)
 	}
 
 	if stats.SecuredEndpoints > 0 {
-		overview.WriteString(fmt.Sprintf("- **Secured Endpoints**: %d\n", stats.SecuredEndpoints))
+		fmt.Fprintf(&overview, "- **Secured Endpoints**: %d\n", stats.SecuredEndpoints)
 	}
 
 	if len(stats.Tags) > 0 {
-		overview.WriteString(fmt.Sprintf("- **Tags**: %s\n", strings.Join(stats.Tags, ", ")))
+		fmt.Fprintf(&overview, "- **Tags**: %s\n", strings.Join(stats.Tags, ", "))
 	}
 
 	if len(spec.Servers) > 0 {
 		overview.WriteString("\n### Servers\n\n")
 
 		for _, server := range spec.Servers {
-			overview.WriteString(fmt.Sprintf("- **%s**", server.URL))
+			fmt.Fprintf(&overview, "- **%s**", server.URL)
 
 			if server.Description != "" {
 				overview.WriteString(": " + server.Description)

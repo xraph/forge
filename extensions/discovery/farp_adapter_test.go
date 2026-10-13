@@ -62,18 +62,23 @@ func TestForgeRoutesToRouteDescriptors(t *testing.T) {
 	if d.Path != "/api/users" {
 		t.Errorf("path = %q, want /api/users", d.Path)
 	}
+
 	if len(d.Methods) != 1 || d.Methods[0] != "GET" {
 		t.Errorf("methods = %v, want [GET]", d.Methods)
 	}
+
 	if d.Protocol != "rest" {
 		t.Errorf("protocol = %q, want rest", d.Protocol)
 	}
+
 	if d.OperationID != "getUsers" {
 		t.Errorf("operationID = %q, want getUsers (fallback from Name)", d.OperationID)
 	}
+
 	if !d.Public {
 		t.Error("expected public=true from metadata")
 	}
+
 	if d.Metadata["summary"] != "List users" {
 		t.Errorf("metadata[summary] = %v, want List users", d.Metadata["summary"])
 	}
@@ -83,9 +88,11 @@ func TestForgeRoutesToRouteDescriptors(t *testing.T) {
 	if d.OperationID != "getUserById" {
 		t.Errorf("operationID = %q, want getUserById", d.OperationID)
 	}
+
 	if !d.Deprecated {
 		t.Error("expected deprecated=true")
 	}
+
 	if d.Timeout != "5s" {
 		t.Errorf("timeout = %q, want 5s", d.Timeout)
 	}
@@ -107,6 +114,7 @@ func TestForgeRoutesToRouteDescriptors_Empty(t *testing.T) {
 	if descriptors := forgeRoutesToRouteDescriptors(nil, nil); descriptors != nil {
 		t.Errorf("expected nil for nil input, got %v", descriptors)
 	}
+
 	if descriptors := forgeRoutesToRouteDescriptors([]forge.RouteInfo{}, nil); descriptors != nil {
 		t.Errorf("expected nil for empty input, got %v", descriptors)
 	}

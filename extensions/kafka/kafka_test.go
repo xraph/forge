@@ -13,12 +13,12 @@ func TestKafkaInterface(t *testing.T) {
 }
 
 func TestMessageHandlerType(t *testing.T) {
-	handler := func(message *sarama.ConsumerMessage) error {
+	var handler MessageHandler = func(message *sarama.ConsumerMessage) error {
 		return nil
 	}
 
-	if handler == nil {
-		t.Error("handler should not be nil")
+	if err := handler(&sarama.ConsumerMessage{}); err != nil {
+		t.Errorf("handler returned unexpected error: %v", err)
 	}
 }
 

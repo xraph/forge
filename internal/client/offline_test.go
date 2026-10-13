@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
@@ -172,6 +173,7 @@ func TestOfflineMetaParityBetweenIRBuilders(t *testing.T) {
 	}
 
 	live := &APISpec{Schemas: map[string]*Schema{}, Security: []SecurityScheme{}}
+
 	err := (&Introspector{}).extractFromOpenAPI(live, &shared.OpenAPISpec{
 		OpenAPI: "3.0.0",
 		Info:    shared.Info{Title: "Sync Parity", Version: "1.0.0"},
@@ -186,9 +188,7 @@ func TestOfflineMetaParityBetweenIRBuilders(t *testing.T) {
 
 	yamlOp := func(id string, ext map[string]any) map[string]any {
 		out := map[string]any{"operationId": id, "responses": map[string]any{"200": map[string]any{"description": "ok"}}}
-		for k, v := range ext {
-			out[k] = v
-		}
+		maps.Copy(out, ext)
 
 		return out
 	}
@@ -358,6 +358,7 @@ func TestOfflineSyncChannelParityBetweenIRBuilders(t *testing.T) {
 	sseExt := map[string]any{"x-forge-sync": sync("Document")}
 
 	live := &APISpec{Schemas: map[string]*Schema{}}
+
 	err := (&Introspector{}).extractFromAsyncAPI(live, &shared.AsyncAPISpec{
 		AsyncAPI: "3.0.0",
 		Info:     shared.AsyncAPIInfo{Title: "Sync Channels", Version: "1.0.0"},

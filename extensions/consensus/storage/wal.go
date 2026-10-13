@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -326,8 +327,17 @@ func (w *WAL) serializeEntry(entry *WALEntry) ([]byte, error) {
 	// [4 bytes: data size]
 	// [N bytes: data]
 	// [4 bytes: checksum]
+	const recordOverhead = 1 + 8 + 8 + 4 + 4
+
 	dataSize := len(entry.Data)
-	totalSize := 1 + 8 + 8 + 4 + dataSize + 4
+
+	// Both sizes are stored as uint32, so a larger entry would wrap and
+	// corrupt the log on replay.
+	if int64(dataSize) > math.MaxUint32-recordOverhead {
+		return nil, fmt.Errorf("wal entry too large: %d bytes of data", dataSize)
+	}
+
+	totalSize := recordOverhead + dataSize
 
 	buf := make([]byte, 4+totalSize)
 

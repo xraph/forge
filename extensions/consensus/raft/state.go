@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/xraph/forge"
@@ -94,7 +93,7 @@ func (n *Node) startElection() {
 
 	n.mu.Unlock()
 
-	atomic.AddInt64(&n.electionCount, 1)
+	n.electionCount.Add(1)
 
 	n.logger.Info("starting election",
 		forge.F("node_id", n.id),
@@ -302,11 +301,11 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 			n.currentTerm = req.Term
 			n.votedFor = ""
 			n.setRole(internal.RoleFollower)
-			n.persistState()
+			n.persistStateOrLog("vote request from newer term")
 		}
 
 		n.votedFor = req.CandidateID
-		n.persistState()
+		n.persistStateOrLog("vote granted")
 		n.resetElectionTimerUnsafe()
 
 		resp.VoteGranted = true
@@ -331,7 +330,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 		n.currentTerm = req.Term
 		n.votedFor = ""
 		n.setRole(internal.RoleFollower)
-		n.persistState()
+		n.persistStateOrLog("vote request from newer term")
 	}
 
 	// Vote granted if:
@@ -341,7 +340,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 
 	if (n.votedFor == "" || n.votedFor == req.CandidateID) && logUpToDate {
 		n.votedFor = req.CandidateID
-		n.persistState()
+		n.persistStateOrLog("vote granted")
 		n.resetElectionTimerUnsafe()
 
 		resp.VoteGranted = true
@@ -465,7 +464,7 @@ func (n *Node) stepDownLocked(term uint64) {
 	if term > n.currentTerm {
 		n.currentTerm = term
 		n.votedFor = ""
-		n.persistState()
+		n.persistStateOrLog("stepped down to newer term")
 	}
 
 	if n.GetRole() != internal.RoleFollower {
