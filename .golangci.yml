@@ -212,6 +212,15 @@ linters:
         linters:
           - gosec
         text: "G306:"
+      # Statfs_t.Bsize is int64 on Linux and unsigned on macOS, so only the
+      # Linux build flags the uint64 conversion. It is a filesystem block size
+      # and never negative. An inline nolint would trip nolintlint on macOS,
+      # where the finding does not exist, so the exclusion lives here.
+      - path: ^internal/(health/checks/disk|metrics/collectors/system)\.go$
+        linters:
+          - gosec
+        text: "G115:"
+        source: 'uint64\(stat\.Bsize\)'
       # Exclude some `staticcheck` messages.
       - linters:
           - staticcheck
