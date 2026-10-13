@@ -78,13 +78,7 @@ Plan for the load on your database. Every publish sends a `NOTIFY` that wakes ea
 
 Two behaviours differ from JetStream. Sequence numbers rise for each publisher, but with several publishers delivery follows commit order, so a consumer can see 42 before 41. And a transaction left open anywhere in the cluster holds delivery back until it ends, because a consumer never reads past the oldest open transaction. `VisibilityLag` tells you how long the oldest one has been open. It reads `pg_stat_activity`, so the role needs `pg_read_all_stats` (or `pg_monitor`) to see other roles' transactions, and prepared transactions aren't counted. RPC costs about two commits per call, and a call to a procedure nobody serves ends at its deadline.
 
-Cursors store transaction IDs from the cluster that wrote them. `pg_upgrade` keeps those IDs, but a dump and restore, logical replication or a Blue/Green major upgrade can start the new cluster from lower ones, and new messages would then sit behind every cursor. `Subscribe` refuses with "consumer cursor is ahead of this cluster's transaction IDs" when that happens. To repair it, stop your subscribers and reset the IDs on the copy. The tables live in the schema you configured, so qualify the names below if you set `Schema`. Retained messages get delivered again, including ones that were in flight, so your handlers have to tolerate duplicates:
-
-```sql
-UPDATE forge_conduit_messages SET txid = '0'::xid8;
-UPDATE forge_conduit_consumers SET cursor_txid = '0'::xid8, cursor_seq = 0, start_snapshot = NULL;
-DELETE FROM forge_conduit_claims;
-```
+Cursors store transaction IDs from the cluster that wrote them. `pg_upgrade` keeps those IDs, but a dump and restore, logical replication or a Blue/Green major upgrade can start the new cluster from lower ones, and new messages would then sit behind every cursor. `Subscribe` refuses with "consumer cursor is ahead of this cluster's transaction IDs" when that happens. To repair it, call `Rebase` once on the copy before you start your subscribers. It moves the old cluster's rows to the front of the log and sends each affected consumer back to its oldest retained message, so those messages get delivered again, including ones that were in flight. Your handlers have to tolerate the duplicates. On a healthy database `Rebase` changes nothing.
 
 ## Kafka
 
