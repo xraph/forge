@@ -856,6 +856,17 @@ func convertSSEChannel(spec *APISpec, opID string, channel *shared.AsyncAPIChann
 }
 
 func detectWebSocketChannel(asyncAPI *shared.AsyncAPISpec, channel *shared.AsyncAPIChannel) bool {
+	// Explicit bindings identify the transport even when servers are omitted.
+	if channel.Bindings != nil {
+		if channel.Bindings.WS != nil {
+			return true
+		}
+
+		if channel.Bindings.HTTP != nil {
+			return false
+		}
+	}
+
 	for _, serverRef := range channel.Servers {
 		serverName := strings.TrimPrefix(serverRef.Ref, "#/servers/")
 		if server, ok := asyncAPI.Servers[serverName]; ok {

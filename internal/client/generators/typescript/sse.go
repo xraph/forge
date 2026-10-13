@@ -64,18 +64,22 @@ func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorCon
 	// are only resolved below when this is true, so decode() is only ever
 	// referenced when the import exists.
 	needsCodecs := codecsNeeded(config)
-	if needsCodecs {
+
+	var clients strings.Builder
+	// Resolve the clients first, so inline payloads do not leave unused imports.
+	for _, sse := range spec.SSEs {
+		clientCode := s.generateSSEClient(sse, spec, config, needsCodecs)
+		clients.WriteString(clientCode)
+		clients.WriteString("\n")
+	}
+
+	code := clients.String()
+	if strings.Contains(code, "decode(") {
 		buf.WriteString("import { decode } from './codecs';\n")
 	}
 
 	buf.WriteString("\n")
-
-	// Generate client for each SSE endpoint
-	for _, sse := range spec.SSEs {
-		clientCode := s.generateSSEClient(sse, spec, config, needsCodecs)
-		buf.WriteString(clientCode)
-		buf.WriteString("\n")
-	}
+	buf.WriteString(code)
 
 	sort.Strings(s.warnings)
 
@@ -253,7 +257,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("  private eventSource: EventSource | null = null;\n")
 	buf.WriteString("  private config: Required<Pick<SSEClientConfig, 'baseURL'>> & SSEClientConfig;\n")
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
-	buf.WriteString("  private closed: boolean = false;\n")
+
+	if config.Features.Reconnection {
+		buf.WriteString("  private closed: boolean = false;\n")
+	}
+
 	buf.WriteString("  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;\n")
 
 	if config.Features.Reconnection {
@@ -294,7 +302,10 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	buf.WriteString("    return new Promise((resolve, reject) => {\n")
 	buf.WriteString("      this.setState(ConnectionState.CONNECTING);\n")
-	buf.WriteString("      this.closed = false;\n\n")
+
+	if config.Features.Reconnection {
+		buf.WriteString("      this.closed = false;\n\n")
+	}
 
 	// Build URL with query parameters for auth in browser
 	fmt.Fprintf(&buf, "      let url = this.config.baseURL + '%s';\n", sse.Path)
@@ -610,7 +621,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("   * Close the SSE connection.\n")
 	buf.WriteString("   */\n")
 	buf.WriteString("  close(): void {\n")
-	buf.WriteString("    this.closed = true;\n")
+
+	if config.Features.Reconnection {
+		buf.WriteString("    this.closed = true;\n")
+	}
+
 	buf.WriteString("    this.clearConnectionTimeout();\n")
 
 	if config.Features.Reconnection {

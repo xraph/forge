@@ -55,18 +55,30 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	// send/receive codec ids are only resolved below when this is true, so
 	// encode()/decode() are only ever referenced when the import exists.
 	needsCodecs := codecsNeeded(config)
-	if needsCodecs {
-		buf.WriteString("import { decode, encode } from './codecs';\n")
+
+	var clients strings.Builder
+	// Resolve the clients first, so inline payloads do not leave unused imports.
+	for _, ws := range spec.WebSockets {
+		clientCode := w.generateWebSocketClient(ws, spec, config, needsCodecs)
+		clients.WriteString(clientCode)
+		clients.WriteString("\n")
+	}
+
+	code := clients.String()
+	codecImports := []string{}
+
+	for _, helper := range []string{"decode", "encode"} {
+		if strings.Contains(code, helper+"(") {
+			codecImports = append(codecImports, helper)
+		}
+	}
+
+	if len(codecImports) > 0 {
+		fmt.Fprintf(&buf, "import { %s } from './codecs';\n", strings.Join(codecImports, ", "))
 	}
 
 	buf.WriteString("\n")
-
-	// Generate client for each WebSocket endpoint
-	for _, ws := range spec.WebSockets {
-		clientCode := w.generateWebSocketClient(ws, spec, config, needsCodecs)
-		buf.WriteString(clientCode)
-		buf.WriteString("\n")
-	}
+	buf.WriteString(code)
 
 	sort.Strings(w.warnings)
 
