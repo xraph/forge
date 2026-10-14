@@ -42,6 +42,12 @@ func NewExtensionConfigLoader(app App, logger Logger) *ExtensionConfigLoader {
 //   - defaults: Default config to use if nothing found
 //   - requireConfig: If true, returns error when config not found; if false, uses defaults
 //
+// When the key is found, the result is defaults, then the file, then the
+// fields of programmaticConfig that differ from defaults and aren't zero. So a
+// value DefaultConfig() put into programmaticConfig doesn't hide the file, and
+// an option like WithLimit(70) still beats it. Pass the same defaults the
+// constructor started from, or every non-zero programmatic field wins again.
+//
 // Returns error only if requireConfig=true and config not found, or if binding fails.
 func (l *ExtensionConfigLoader) LoadConfig(
 	key string,
@@ -101,9 +107,9 @@ func (l *ExtensionConfigLoader) LoadConfig(
 			)
 		}
 
-		// Merge with programmatic config (programmatic takes precedence)
+		// Options set in code win over the file; defaults don't.
 		if programmaticConfig != nil && !isZeroValue(programmaticConfig) {
-			if err := l.mergeConfig(programmaticConfig, target); err != nil {
+			if err := l.mergeConfig(programmaticConfig, defaults, target); err != nil {
 				return fmt.Errorf("failed to merge programmatic config: %w", err)
 			}
 		}
@@ -124,9 +130,9 @@ func (l *ExtensionConfigLoader) LoadConfig(
 			)
 		}
 
-		// Merge with programmatic config (programmatic takes precedence)
+		// Options set in code win over the file; defaults don't.
 		if programmaticConfig != nil && !isZeroValue(programmaticConfig) {
-			if err := l.mergeConfig(programmaticConfig, target); err != nil {
+			if err := l.mergeConfig(programmaticConfig, defaults, target); err != nil {
 				return fmt.Errorf("failed to merge programmatic config: %w", err)
 			}
 		}
@@ -236,8 +242,15 @@ func (l *ExtensionConfigLoader) copyConfig(source, target any) error {
 	return fmt.Errorf("type mismatch: source=%v, target=%v", sourceVal.Type(), targetVal.Type())
 }
 
-// mergeConfig merges non-zero fields from source into target.
-func (l *ExtensionConfigLoader) mergeConfig(source, target any) error {
+// mergeConfig copies the fields of source that were set in code onto target,
+// which already holds the file config. A field counts as set when it is
+// non-zero and differs from the same field in defaults, so a value that
+// DefaultConfig() put there doesn't hide the file's value. Nested structs are
+// compared field by field. With nil defaults every non-zero field counts.
+//
+// A field set in code to exactly its default value can't be told apart from
+// one left alone, so the file wins for that field.
+func (l *ExtensionConfigLoader) mergeConfig(source, defaults, target any) error {
 	sourceVal := reflect.ValueOf(source)
 	targetVal := reflect.ValueOf(target)
 
@@ -258,23 +271,72 @@ func (l *ExtensionConfigLoader) mergeConfig(source, target any) error {
 		return fmt.Errorf("type mismatch: source=%v, target=%v", sourceVal.Type(), targetVal.Type())
 	}
 
-	// Merge fields
-	for i := range sourceVal.NumField() {
-		sourceField := sourceVal.Field(i)
-		targetField := targetVal.Field(i)
+	var defaultsVal reflect.Value
+
+	if defaults != nil {
+		defaultsVal = reflect.ValueOf(defaults)
+		if defaultsVal.Kind() == reflect.Pointer {
+			defaultsVal = defaultsVal.Elem()
+		}
+
+		if defaultsVal.Type() != targetVal.Type() {
+			return fmt.Errorf("type mismatch: defaults=%v, target=%v", defaultsVal.Type(), targetVal.Type())
+		}
+	}
+
+	mergeSetFields(sourceVal, defaultsVal, targetVal)
+
+	return nil
+}
+
+// mergeSetFields walks the exported fields of a struct and copies each one
+// that source set onto target. defaults may be the invalid Value, in which
+// case every non-zero source field is copied.
+func mergeSetFields(source, defaults, target reflect.Value) {
+	for i := range source.NumField() {
+		sourceField := source.Field(i)
+		targetField := target.Field(i)
 
 		// Skip unexported fields
 		if !targetField.CanSet() {
 			continue
 		}
 
-		// Only override if source field is non-zero
-		if !isZeroValue(sourceField.Interface()) {
+		if sourceField.IsZero() {
+			continue
+		}
+
+		if !defaults.IsValid() {
 			targetField.Set(sourceField)
+
+			continue
+		}
+
+		defaultField := defaults.Field(i)
+		if reflect.DeepEqual(sourceField.Interface(), defaultField.Interface()) {
+			continue
+		}
+
+		if sourceField.Kind() == reflect.Struct && hasExportedField(sourceField.Type()) {
+			mergeSetFields(sourceField, defaultField, targetField)
+
+			continue
+		}
+
+		targetField.Set(sourceField)
+	}
+}
+
+// hasExportedField reports whether a struct type has a field mergeSetFields
+// can set. Structs without one, such as time.Time, are copied whole.
+func hasExportedField(t reflect.Type) bool {
+	for f := range t.Fields() {
+		if f.IsExported() {
+			return true
 		}
 	}
 
-	return nil
+	return false
 }
 
 // isZeroValue checks if a value is the zero value for its type.
