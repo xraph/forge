@@ -9,7 +9,7 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Forge provides a complete observability stack: structured logging, distributed tracing via OpenTelemetry, and built-in diagnostic endpoints. All components are integrated out of the box and accessible through the DI container.
+Forge gives you structured logging, OpenTelemetry tracing and a set of built-in diagnostic endpoints. Tracing is on from the first request and logs pick up its trace and span IDs; sending spans to a collector takes one environment variable.
 
 ## Structured Logging
 
@@ -179,55 +179,165 @@ defer forge.TrackWithFields(logger, "processOrder",
 
 ## Distributed Tracing
 
-Forge integrates with OpenTelemetry for distributed tracing, supporting Jaeger and OTLP exporters.
+Tracing is on by default. Start an app and send it a request: Forge has already opened a server span for that request, stamped `trace_id` and `span_id` on every log line written through the request's logger, and put a `traceparent` header on the response. Nothing leaves the process until you give it an endpoint.
 
-### Jaeger Integration
+### Export spans
+
+Point Forge at an OTLP collector and restart.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 ./my-app
+```
+
+Forge appends `/v1/traces` to that value. If you need a different path, set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` instead, and it's used exactly as written.
+
+Export is OTLP over HTTP with protobuf bodies, and that's the only transport. A gRPC collector on port 4317 won't work, so use the collector's HTTP port (4318 by default). The endpoint also has to be a full `http` or `https` URL. A bare `localhost:4318` is rejected: Forge logs one error, keeps booting, and carries on creating spans without exporting them.
+
+For Grafana Cloud, or any backend that wants an auth header, set the headers variable as well:
+
+| Variable | Example |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://otlp-gateway-prod-us-central-0.grafana.net/otlp` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Basic%20<base64 of instance:token>` |
+| `OTEL_SERVICE_NAME` | `user-api` |
+
+Header values are percent-encoded, so the space after `Basic` is written `%20`. Separate several headers with commas. The `headers` key in YAML or code takes plain values and needs no encoding.
+
+### Configuration
+
+Every key is optional. This is the `tracing:` block with its defaults:
+
+```yaml
+tracing:
+  enabled: true                  # false turns tracing off completely
+  endpoint: ""                   # full OTLP/HTTP traces URL; empty means no export
+  headers: {}                    # sent with every export request
+  sample_ratio: 1.0              # 1.0 in dev, test and local; 0.1 anywhere else
+  propagators: [tracecontext, baggage]
+  exclude_paths: ["/_/"]         # path prefixes that get no span
+  response_header: traceparent   # set to "" to stop writing it
+  resource: {}                   # extra resource attributes, e.g. service.namespace: payments
+```
+
+When the same setting comes from more than one place, the first of these wins:
+
+1. Code: `forge.WithAppTracingConfig`
+2. The `tracing:` block in your Forge config file
+3. `OTEL_*` environment variables
+4. The defaults above
 
 ```go
-import "go.opentelemetry.io/otel"
+ratio := 0.25
 
-// Configure Jaeger exporter
-tp, err := jaeger.NewTracerProvider(
-    jaeger.WithEndpoint("http://localhost:14268/api/traces"),
-    jaeger.WithServiceName("user-api"),
+app := forge.New(
+    forge.WithAppName("user-api"),
+    forge.WithAppEnvironment("production"),
+    forge.WithAppTracingConfig(forge.TracingConfig{
+        Endpoint:    "https://collector.internal:4318/v1/traces",
+        SampleRatio: &ratio,
+    }),
 )
-if err != nil {
-    log.Fatal(err)
-}
-otel.SetTracerProvider(tp)
-defer tp.Shutdown(context.Background())
 ```
 
-### OTLP Integration
+These environment variables are read when the matching key isn't set above them:
+
+| Variable | Sets |
+|---|---|
+| `OTEL_SDK_DISABLED=true` | `enabled: false` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `endpoint`, with `/v1/traces` appended |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `endpoint`, used as is |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `headers` (also `OTEL_EXPORTER_OTLP_TRACES_HEADERS`) |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | the sampler and its ratio |
+| `OTEL_PROPAGATORS` | `propagators` |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | the resource |
+
+The resource always carries `service.name` (the app's name), `service.version` and `deployment.environment.name`, plus host and process details. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override those, and the `resource` key overrides both.
+
+### What a request produces
+
+Each request gets one server span, named `METHOD /route/pattern` once the router has matched, such as `GET /users/:id`. The name uses the pattern and not the URL, so traffic to a thousand different user IDs lands on one span name. A request that matches nothing keeps the bare method as its name.
+
+The span carries these attributes: `http.request.method`, `url.scheme`, `url.path`, `network.protocol.version`, `server.address`, `user_agent.original`, `http.route` and `http.response.status_code`. A method outside the standard nine is recorded as `_OTHER`, with the original in `http.request.method_original`.
+
+A response with a 5xx status marks the span as an error and sets `error.type`. When a handler returns a 5xx error or panics and the router recovers, the error is recorded on the span as well, with a stack trace for panics. 4xx responses are normal traffic, so they don't mark the span.
+
+Requests whose path starts with anything in `exclude_paths` get no span. The default, `/_/`, keeps Forge's own endpoints (health, metrics, info) out of your traces.
+
+Incoming `traceparent` and `baggage` headers are honoured, so your spans join the caller's trace.
+
+### Add your own spans
+
+`forge.StartSpan` starts a child of whatever span the context carries. Pass it the request's context and end the span when the work is done.
 
 ```go
-import "go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+func charge(ctx forge.Context) error {
+    spanCtx, span := forge.StartSpan(ctx.Context(), "charge-card")
+    defer span.End()
 
-// Configure OTLP exporter (works with Grafana Tempo, Datadog, etc.)
-exporter, err := otlptrace.New(ctx,
-    otlptrace.WithEndpoint("localhost:4317"),
-    otlptrace.WithInsecure(),
-)
-```
+    span.SetAttributes(attribute.String("payment.provider", "stripe"))
 
-### Trace Context Propagation
-
-Forge propagates trace context through the request lifecycle:
-
-```go
-func handler(ctx forge.Context) error {
-    // Trace and request IDs are available via context
-    traceID := forge.TraceIDFromContext(ctx.Request().Context())
-    requestID := forge.RequestIDFromContext(ctx.Request().Context())
-
-    logger.Info("handling request",
-        forge.TraceID(traceID),
-        forge.RequestID(requestID),
-    )
-
-    return ctx.JSON(200, result)
+    return provider.Charge(spanCtx, order)
 }
 ```
+
+`forge.SpanFromContext(ctx)` returns the current span, or a no-op span when there isn't one, so you can add attributes without checking.
+
+### Trace outgoing calls
+
+`forge.HTTPClient()` returns an `*http.Client` whose requests get a client span and carry the trace headers to the next service. Build it once and reuse it.
+
+```go
+var client = forge.HTTPClient()
+
+func fetchUser(ctx context.Context, id string) (*http.Response, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://users/"+id, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    return client.Do(req)
+}
+```
+
+Already have a client with its own transport? Wrap the transport with `forge.InstrumentTransport(rt)`. A nil transport means `http.DefaultTransport`.
+
+Build the client after `forge.New`. It picks up the tracer provider and propagators at that moment, so a client built earlier traces nothing.
+
+### Send spans somewhere else too
+
+`forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider. It's how the dashboard's trace store receives spans, and you can use it to copy spans into your own store or log.
+
+```go
+app := forge.New(forge.WithAppName("user-api"))
+
+if err := forge.RegisterSpanProcessor(app, myProcessor); err != nil {
+    if errors.Is(err, forge.ErrTracingDisabled) {
+        // tracing is off, so there is nothing to attach to
+    }
+}
+```
+
+The provider is also in the container as `trace.TracerProvider` (from `go.opentelemetry.io/otel/trace`) if you'd rather start spans from your own tracer.
+
+### Sampling
+
+Without any configuration the ratio is 1.0 (every trace) when the app's environment is empty, `development`, `dev`, `local` or `test`, and 0.1 for every other environment. Sampling is always parent-based: if a caller sent a sampled trace, you keep it, and if they sent an unsampled one, you drop it. The ratio only decides for requests that start a new trace.
+
+To change it, set `sample_ratio` in code or config. A value outside 0 to 1 is clamped and logged as a warning. To pick a sampler by name, use `OTEL_TRACES_SAMPLER` with `OTEL_TRACES_SAMPLER_ARG` for the ratio:
+
+```bash
+OTEL_TRACES_SAMPLER=parentbased_traceidratio OTEL_TRACES_SAMPLER_ARG=0.25 ./my-app
+```
+
+The names Forge accepts are `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off` and `parentbased_traceidratio`. Anything else logs a warning and falls back to `parentbased_traceidratio`. A `sample_ratio` in code or config beats these variables entirely.
+
+### Shutdown
+
+Spans are batched, and the batch is flushed when the app stops, after the extensions and the container have shut down so their last spans are included. The flush waits at most five seconds.
+
+<Callout type="warn">
+Each `forge.New` call sets the OpenTelemetry global tracer provider and propagator, and the last app built wins. `forge.StartSpan` and `forge.HTTPClient` read those globals, so in a process that builds more than one Forge app they follow the last one. Each app's own request spans still go to its own provider. If you run several apps in one process, build the one you want the helpers to follow last.
+</Callout>
 
 ## Built-in Endpoints
 

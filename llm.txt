@@ -309,7 +309,7 @@ router.Use(forge.RequestID())
 - `/internal/di` - Dependency injection implementation
 - `/internal/router` - Router implementation with OpenAPI
 - `/internal/health` - Health check system
-- `/internal/observability` - Tracing and monitoring
+- `/internal/telemetry` - OpenTelemetry tracing (see its llm.txt)
 
 ## Notes
 
