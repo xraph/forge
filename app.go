@@ -164,6 +164,10 @@ type AppConfig struct {
 	// surfaces that as a startup race rather than hiding it, so switch it on
 	// once and watch a few boots before relying on it.
 	ParallelExtensionStartup bool
+
+	// metricsConfigSet records a WithAppMetricsConfig call, so a config equal
+	// to the defaults still counts as set in code.
+	metricsConfigSet bool
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -268,10 +272,13 @@ func WithAppRouterOptions(opts ...RouterOption) AppOption {
 	}
 }
 
-// WithAppMetricsConfig sets the metrics configuration.
+// WithAppMetricsConfig sets the metrics configuration. Values set here win
+// over the metrics block in the forge config file. Without it the defaults
+// apply and the file may change any of them.
 func WithAppMetricsConfig(config MetricsConfig) AppOption {
 	return func(c *AppConfig) {
 		c.MetricsConfig = config
+		c.metricsConfigSet = true
 	}
 }
 

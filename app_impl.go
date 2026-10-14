@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -44,6 +45,10 @@ type app struct {
 	healthManager    HealthManager
 	lifecycleManager LifecycleManager
 	tracing          *telemetry.Provider
+
+	// codeMetrics is the metrics config the caller passed, or nil when they
+	// passed none and the defaults applied. Reloads resolve against it.
+	codeMetrics *shared.MetricsConfig
 
 	// HTTP server
 	httpServer *http.Server
@@ -190,27 +195,17 @@ func newApp(config AppConfig) *app {
 	// Create metrics with full config support
 	var metrics Metrics
 
-	metricsConfig := &config.MetricsConfig
+	// Without a metrics config from code the defaults apply and the config
+	// file may change any of them; with one, code values win.
+	var codeMetrics *shared.MetricsConfig
 
-	// Apply defaults if metrics config is empty (not explicitly disabled)
-	if !metricsConfig.Enabled && metricsConfig.Collection.Namespace == "" {
-		// User didn't provide config, use defaults
-		defaultMetrics := DefaultMetricsConfig()
-		metricsConfig = &defaultMetrics
-		config.MetricsConfig = defaultMetrics // Update config for banner display
+	if metricsConfigFromCode(config) {
+		code := config.MetricsConfig
+		codeMetrics = &code
 	}
 
-	// Try to load from ConfigManager first
-	if configManager != nil {
-		var runtimeConfig shared.MetricsConfig
-		if err := configManager.Bind("metrics", &runtimeConfig); err == nil {
-			// Merge: runtime values override defaults, programmatic values override runtime
-			if runtimeConfig.Enabled {
-				metricsConfig = mergeMetricsConfig(&runtimeConfig, metricsConfig)
-				config.MetricsConfig = *metricsConfig // Update config for banner display
-			}
-		}
-	}
+	metricsConfig, _ := resolveMetricsConfig(codeMetrics, configManager)
+	config.MetricsConfig = *metricsConfig // Update config for banner display
 
 	if metricsConfig.Enabled {
 		metrics = metricsinternal.New(metricsConfig, logger)
@@ -376,6 +371,7 @@ func newApp(config AppConfig) *app {
 		healthManager:    healthManager,
 		lifecycleManager: lm,
 		tracing:          tracing,
+		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
 	}
@@ -1438,8 +1434,125 @@ func (c *defaultConfigManager) Bind(key string, target any) error {
 // CONFIG MERGE HELPERS
 // =============================================================================
 
-// mergeMetricsConfig merges runtime and programmatic configs
-// Programmatic non-zero values take precedence over runtime values.
+// metricsConfigFromCode reports whether the caller chose a metrics config.
+// An empty one (not enabled, no namespace) never counts. Otherwise a
+// WithAppMetricsConfig call counts, and so does any config that differs from
+// DefaultMetricsConfig, which is what New and DefaultAppConfig start from.
+func metricsConfigFromCode(config AppConfig) bool {
+	m := config.MetricsConfig
+	if !m.Enabled && m.Collection.Namespace == "" {
+		return false
+	}
+
+	return config.metricsConfigSet || !reflect.DeepEqual(m, DefaultMetricsConfig())
+}
+
+// resolveMetricsConfig returns the metrics config the app runs with, and
+// whether the config file contributed to it. code is the config the caller
+// passed, or nil when they passed none.
+//
+// With no code config the defaults apply and every key present in the file's
+// metrics block replaces its default, so the file can turn a feature off. With
+// a code config the file is read only when it says enabled: true, and code
+// values win (see mergeMetricsConfig).
+func resolveMetricsConfig(code *shared.MetricsConfig, cm ConfigManager) (*shared.MetricsConfig, bool) {
+	if code == nil {
+		defaults := DefaultMetricsConfig()
+
+		if cm == nil || !cm.HasKey("metrics") {
+			return &defaults, false
+		}
+
+		var file shared.MetricsConfig
+		if err := cm.Bind("metrics", &file); err != nil {
+			return &defaults, false
+		}
+
+		return overlayMetricsFile(&defaults, &file, cm.HasKey), true
+	}
+
+	if cm == nil {
+		return code, false
+	}
+
+	var file shared.MetricsConfig
+	if err := cm.Bind("metrics", &file); err != nil || !file.Enabled {
+		return code, false
+	}
+
+	return mergeMetricsConfig(&file, code), true
+}
+
+// overlayMetricsFile copies onto base each field whose key is present under
+// metrics in the config file. Present means the key exists, so false and zero
+// values in the file win. Map fields merge, with file entries winning.
+func overlayMetricsFile(base, file *shared.MetricsConfig, hasKey func(string) bool) *shared.MetricsConfig {
+	result := *base
+
+	has := func(key string) bool { return hasKey("metrics." + key) }
+
+	if has("enabled") {
+		result.Enabled = file.Enabled
+	}
+
+	if has("features.system_metrics") {
+		result.Features.SystemMetrics = file.Features.SystemMetrics
+	}
+
+	if has("features.runtime_metrics") {
+		result.Features.RuntimeMetrics = file.Features.RuntimeMetrics
+	}
+
+	if has("features.http_metrics") {
+		result.Features.HTTPMetrics = file.Features.HTTPMetrics
+	}
+
+	if has("features.http_body_sizes") {
+		result.Features.HTTPBodySizes = file.Features.HTTPBodySizes
+	}
+
+	if has("collection.interval") {
+		result.Collection.Interval = file.Collection.Interval
+	}
+
+	if has("collection.namespace") {
+		result.Collection.Namespace = file.Collection.Namespace
+	}
+
+	if has("collection.path") {
+		result.Collection.Path = file.Collection.Path
+	}
+
+	if has("limits.max_metrics") {
+		result.Limits.MaxMetrics = file.Limits.MaxMetrics
+	}
+
+	if has("limits.buffer_size") {
+		result.Limits.BufferSize = file.Limits.BufferSize
+	}
+
+	if has("limits.max_series_per_metric") {
+		result.Limits.MaxSeriesPerMetric = file.Limits.MaxSeriesPerMetric
+	}
+
+	if has("storage") {
+		result.Storage = file.Storage
+	}
+
+	result.Collection.DefaultTags = make(map[string]string, len(base.Collection.DefaultTags)+len(file.Collection.DefaultTags))
+	maps.Copy(result.Collection.DefaultTags, base.Collection.DefaultTags)
+	maps.Copy(result.Collection.DefaultTags, file.Collection.DefaultTags)
+
+	result.Exporters = make(map[string]shared.MetricsExporterConfig[map[string]any], len(base.Exporters)+len(file.Exporters))
+	maps.Copy(result.Exporters, base.Exporters)
+	maps.Copy(result.Exporters, file.Exporters)
+
+	return &result
+}
+
+// mergeMetricsConfig merges the file config (runtime) with a config the
+// caller passed in code (programmatic). Programmatic non-zero values and true
+// booleans take precedence, so the file can't turn off what code turned on.
 func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.MetricsConfig {
 	result := *runtime // Start with runtime
 
@@ -1464,6 +1577,10 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 		result.Limits.BufferSize = programmatic.Limits.BufferSize
 	}
 
+	if programmatic.Limits.MaxSeriesPerMetric > 0 {
+		result.Limits.MaxSeriesPerMetric = programmatic.Limits.MaxSeriesPerMetric
+	}
+
 	// Boolean fields (prefer programmatic if set explicitly in config)
 	// For booleans, we can't distinguish zero value from explicit false,
 	// so runtime takes precedence unless we have explicit true
@@ -1477,6 +1594,14 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 
 	if programmatic.Features.HTTPMetrics {
 		result.Features.HTTPMetrics = true
+	}
+
+	if programmatic.Features.HTTPBodySizes {
+		result.Features.HTTPBodySizes = true
+	}
+
+	if programmatic.Storage != nil {
+		result.Storage = programmatic.Storage
 	}
 
 	// Merge maps (programmatic values override)
@@ -1597,15 +1722,12 @@ func (a *app) reloadConfigsFromManager() error {
 		return nil
 	}
 
-	// Reload metrics config
-	var metricsConfig shared.MetricsConfig
-	if err := a.configManager.Bind("metrics", &metricsConfig); err == nil {
-		if metricsConfig.Enabled {
-			if err := a.metrics.Reload(&metricsConfig); err != nil {
-				a.logger.Warn("failed to reload metrics config", F("error", err))
-			} else {
-				a.logger.Debug("metrics config reloaded from ConfigManager")
-			}
+	// Reload metrics config, resolved the same way newApp resolved it.
+	if metricsConfig, fromFile := resolveMetricsConfig(a.codeMetrics, a.configManager); fromFile && metricsConfig.Enabled {
+		if err := a.metrics.Reload(metricsConfig); err != nil {
+			a.logger.Warn("failed to reload metrics config", F("error", err))
+		} else {
+			a.logger.Debug("metrics config reloaded from ConfigManager")
 		}
 	}
 
