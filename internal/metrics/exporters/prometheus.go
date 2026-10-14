@@ -146,6 +146,49 @@ func (c *forgeCollector) desc(fqName, kind string, keys []string) *prometheus.De
 	return actual.(*prometheus.Desc)
 }
 
+// semconvNamespaces are OTel semantic-convention metric namespaces. Names
+// under them are exported as Grafana's stock dashboards expect them: no forge
+// prefix, and the unit as a suffix.
+var semconvNamespaces = []string{"http.server.", "http.client.", "rpc.", "messaging.", "db.client."}
+
+func isSemconv(name string) bool {
+	for _, ns := range semconvNamespaces {
+		if strings.HasPrefix(name, ns) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// unitSuffix follows the OTel to Prometheus compatibility rules for the units
+// forge records. A unit in braces is an annotation and adds nothing.
+func unitSuffix(unit string) string {
+	switch unit {
+	case "s":
+		return "_seconds"
+	case "By":
+		return "_bytes"
+	case "ms":
+		return "_milliseconds"
+	default:
+		return ""
+	}
+}
+
+func (c *forgeCollector) fqName(name, unit string) string {
+	if !isSemconv(name) {
+		return buildFQName(c.namespace, name)
+	}
+
+	n := sanitizeName(name)
+	if s := unitSuffix(unit); s != "" && !strings.HasSuffix(n, s) {
+		n += s
+	}
+
+	return n
+}
+
 // Describe implements prometheus.Collector. Intentionally emits no descriptors.
 func (c *forgeCollector) Describe(chan<- *prometheus.Desc) {}
 
@@ -166,7 +209,7 @@ func (c *forgeCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		name, labels := parseMetricKey(key)
-		fqName := buildFQName(c.namespace, name)
+		fqName := c.fqName(name, sample.Unit)
 		families[fqName] = append(families[fqName], series{sample: sample, labels: labels})
 		count++
 
@@ -358,8 +401,25 @@ func (c *forgeCollector) emitHistogram(ch chan<- prometheus.Metric, fqName strin
 		cumulative[b.UpperBound] = running
 	}
 
-	ch <- prometheus.MustNewConstHistogram(c.desc(fqName, "histogram", keys),
+	m := prometheus.MustNewConstHistogram(c.desc(fqName, "histogram", keys),
 		sample.Count, sample.Sum, cumulative, vals...)
+
+	if len(sample.Exemplars) > 0 {
+		exs := make([]prometheus.Exemplar, 0, len(sample.Exemplars))
+		for _, e := range sample.Exemplars {
+			exs = append(exs, prometheus.Exemplar{
+				Value:     e.Value,
+				Timestamp: e.Timestamp,
+				Labels:    prometheus.Labels{"trace_id": e.TraceID, "span_id": e.SpanID},
+			})
+		}
+
+		if withEx, err := prometheus.NewMetricWithExemplars(m, exs...); err == nil {
+			m = withEx
+		}
+	}
+
+	ch <- m
 }
 
 func toUint64(v any) (uint64, bool) {

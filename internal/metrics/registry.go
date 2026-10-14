@@ -393,11 +393,11 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 	switch rm.Type {
 	case metrics.MetricTypeCounter:
 		if counter, ok := rm.Metric.(metrics.Counter); ok {
-			return exporters.Sample{Kind: exporters.SampleCounter, Value: counter.Value()}
+			return exporters.Sample{Kind: exporters.SampleCounter, Value: counter.Value(), Unit: rm.Unit}
 		}
 	case metrics.MetricTypeGauge:
 		if gauge, ok := rm.Metric.(metrics.Gauge); ok {
-			return exporters.Sample{Kind: exporters.SampleGauge, Value: gauge.Value()}
+			return exporters.Sample{Kind: exporters.SampleGauge, Value: gauge.Value(), Unit: rm.Unit}
 		}
 	case metrics.MetricTypeHistogram:
 		if histogram, ok := rm.Metric.(metrics.Histogram); ok {
@@ -408,6 +408,7 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 				Count:   histogram.Count(),
 				Sum:     histogram.Sum(),
 				Buckets: make([]exporters.Bucket, 0, len(raw)),
+				Unit:    rm.Unit,
 			}
 
 			for bound, count := range raw {
@@ -421,6 +422,10 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 				return cmp.Compare(a.UpperBound, b.UpperBound)
 			})
 
+			if ex, ok := histogram.(interface{ Exemplars() []metrics.Exemplar }); ok {
+				sample.Exemplars = latestExemplarPerBucket(ex.Exemplars(), sample.Buckets)
+			}
+
 			return sample
 		}
 	case metrics.MetricTypeTimer:
@@ -429,6 +434,7 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 
 			return exporters.Sample{
 				Kind:  exporters.SampleTimer,
+				Unit:  rm.Unit,
 				Count: count,
 				Sum:   timer.Mean().Seconds() * float64(count),
 				P50:   timer.Percentile(50).Seconds(),
@@ -439,6 +445,44 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 	}
 
 	return exporters.Sample{Kind: exporters.SampleUnknown}
+}
+
+// latestExemplarPerBucket keeps the newest traced exemplar in each bucket.
+// Prometheus stores one exemplar per bucket, so sending more only wastes the
+// scrape.
+func latestExemplarPerBucket(all []metrics.Exemplar, buckets []exporters.Bucket) []exporters.Exemplar {
+	if len(all) == 0 || len(buckets) == 0 {
+		return nil
+	}
+
+	newest := make(map[int]metrics.Exemplar, len(buckets))
+
+	for _, e := range all {
+		if e.TraceID == "" {
+			continue
+		}
+
+		idx := len(buckets) - 1
+
+		for i, b := range buckets {
+			if e.Value <= b.UpperBound {
+				idx = i
+
+				break
+			}
+		}
+
+		if cur, ok := newest[idx]; !ok || e.Timestamp.After(cur.Timestamp) {
+			newest[idx] = e
+		}
+	}
+
+	out := make([]exporters.Exemplar, 0, len(newest))
+	for _, e := range newest {
+		out = append(out, exporters.Exemplar{Value: e.Value, TraceID: e.TraceID, SpanID: e.SpanID, Timestamp: e.Timestamp})
+	}
+
+	return out
 }
 
 // GetAllMetrics returns all metrics as nested maps.

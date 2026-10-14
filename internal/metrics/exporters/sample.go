@@ -1,5 +1,7 @@
 package exporters
 
+import "time"
+
 // Sample carries one metric's current value in the shape Prometheus exposition
 // needs.
 //
@@ -30,9 +32,23 @@ type Sample struct {
 	// P50, P95 and P99 are a timer's quantiles in seconds.
 	P50, P95, P99 float64
 
+	// Unit is the metric's unit as registered ("s", "By", "{request}").
+	Unit string
+
+	// Exemplars holds at most one exemplar per bucket, histograms only.
+	Exemplars []Exemplar
+
 	// Raw carries a value a custom collector produced. Custom collectors report
 	// untyped maps, so those keep the old path.
 	Raw any
+}
+
+// Exemplar links one histogram observation to the trace that produced it.
+type Exemplar struct {
+	Value     float64
+	TraceID   string
+	SpanID    string
+	Timestamp time.Time
 }
 
 // SampleKind identifies which fields of a Sample carry meaning.
