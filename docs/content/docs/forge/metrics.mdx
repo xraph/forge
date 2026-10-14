@@ -230,9 +230,7 @@ metrics:
     max_series_per_metric: 2000
 ```
 
-<Callout type="warn">
-When a config file turns metrics on, Forge starts from the file and copies only some of your code settings over it. `http_body_sizes` and `max_series_per_metric` aren't among them, so a value you set in code can be lost. If either seems to be ignored, set it in the file.
-</Callout>
+If you don't call `WithAppMetricsConfig`, Forge starts from `DefaultMetricsConfig()` and every key you put in the file replaces its default, so `http_metrics: false` or `namespace: myapp` in the file takes effect. If you do call it, your code wins: the file is read only when it says `enabled: true`, and it can't turn off anything code turned on.
 
 ### Default Configuration
 
@@ -310,17 +308,22 @@ Turn on the body size histograms with `metrics.features.http_body_sizes: true`. 
 
 The duration histogram carries `trace_id` and `span_id` exemplars for sampled requests, so you can jump from a slow bucket to the trace that landed in it. Exemplars only exist in the OpenMetrics format, which Prometheus asks for on its own. A plain `curl` of `/_/metrics` won't show them unless you send `Accept: application/openmetrics-text`.
 
-Prometheus has to be started with `--enable-feature=exemplar-storage` or it throws them away. In Grafana, switch on Exemplars in the query options of the latency panel and point the `trace_id` link at your tracing data source. Requests that tracing didn't sample have no exemplar.
+Prometheus has to be started with `--enable-feature=exemplar-storage` or it throws them away. In Grafana you switch on the Exemplars toggle per query, on the latency query. The link from `trace_id` to your tracing data source isn't set on the panel. It lives in the Prometheus data source settings, in the Exemplars section. Requests that tracing didn't sample have no exemplar.
 
 #### Series cap
 
-Every distinct label set is a series, and a label fed by user input will eventually find a way to make millions of them. `metrics.limits.max_series_per_metric` (default 2000, and 0 means the default) stops that. Once a metric name holds that many label sets, new ones fold into a single series and Forge logs one warning for that metric:
+Every distinct label set is a series, and a label fed by user input will eventually find a way to make millions of them. `metrics.limits.max_series_per_metric` (default 2000, and 0 means the default) stops that. Once a metric name holds that many label sets, new ones fold into a single series and Forge logs one warning for that metric.
+
+Here `orders_total` has a `tier` label and a cap of 1. `free` got in first, then `pro` was incremented once and `team` once:
 
 ```
-forge_orders_created_total{otel_metric_overflow="true"} 41
+forge_orders_total{otel_metric_overflow="",tier="free"} 1
+forge_orders_total{otel_metric_overflow="true",tier=""} 2
 ```
 
-The overflow series carries only that label, so the counts are right and the detail is gone. If you see it on a dashboard, find the label that has too many values and fix that. Raising the cap only moves the problem.
+The overflow series has `otel_metric_overflow="true"` and every other label empty, and the series under the cap carry `otel_metric_overflow=""`. The counts are right and the detail is gone. If you see it on a dashboard, find the label that has too many values and fix that. Raising the cap only moves the problem.
+
+`metrics.limits.max_metrics` (default 10000) caps the whole registry, every series of every metric counted. Past it, a new metric or label set still gives you a handle you can call, but nothing it records reaches the scrape, and Forge logs one warning.
 
 #### Moving from the old series
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The metrics collector behind `app.Metrics()`. It owns a registry of counters, gauges, histograms and timers, runs the built-in collectors (system, runtime, HTTP server), and serves the registry at `/_/metrics` through a client_golang bridge. The metric types and the `Metrics` interface come from `github.com/xraph/go-utils/metrics`; this package aliases them.
+The metrics collector behind `app.Metrics()`. It owns a registry of counters, gauges, histograms and timers, runs the system collector, and serves the registry at `/_/metrics` through a client_golang bridge. The `go_*` and `process_*` runtime series come from that bridge's Go and process collectors when `features.runtime_metrics` is on. The HTTP server metrics live in `collectors/http_server.go`, but `forge.New` installs them, not the collector. The metric types and the `Metrics` interface come from `github.com/xraph/go-utils/metrics`; this package aliases them.
 
 ## Key Components
 
@@ -25,12 +25,12 @@ app.Metrics()  (collector)
 │   └── RegisteredMetric{Name, Type, Tags, Unit, Metric}
 ├── built-in collectors, started by collector.Start
 │   ├── system (system_metrics)
-│   ├── runtime (runtime_metrics)
 │   └── custom callbacks
 ├── HTTP server metrics, installed by forge.New (not by the collector)
 │   └── collectors.HTTPServerMetrics -> router.UseGlobal, inside tracing
 ├── exporters
 │   ├── Prometheus bridge -> /_/metrics (text, or OpenMetrics when asked)
+│   │   └── Go and process collectors, go_* and process_* (runtime_metrics)
 │   └── JSON, InfluxDB line protocol, StatsD text (Export only)
 └── storage (memory | redis | timeseries)
 ```
@@ -86,7 +86,9 @@ func NewPrometheusBridge(snapshot SnapshotFunc, cfg PrometheusConfig) *Prometheu
 
 ### Registry series cap
 
-`RegistryConfig.MaxSeriesPerMetric` (config key `metrics.limits.max_series_per_metric`) caps distinct label sets per metric name. The default is 2000, and 0 means the default. When a name already holds that many series, a new label set is replaced by `{otel_metric_overflow="true"}` (the `OverflowLabel` constant) and the call returns the overflow series. The other labels are dropped. `OnOverflow` fires once per name; the collector wires it to a single `log.Warn` per metric. Unlabelled metrics are never capped. Existing series keep working after the cap is hit.
+`RegistryConfig.MaxSeriesPerMetric` (config key `metrics.limits.max_series_per_metric`) caps distinct label sets per metric name. The default is 2000, and 0 means the default. When a name already holds that many series, a new label set is replaced by `{otel_metric_overflow="true"}` (the `OverflowLabel` constant) and the call returns the overflow series. The other labels are dropped, so a vector's overflow series scrapes with them empty, and the in-cap series carry `otel_metric_overflow=""`. `OnOverflow` fires once per name; the collector wires it to a single `log.Warn` per metric. Unlabelled metrics are never capped. Existing series keep working after the cap is hit.
+
+`RegistryConfig.MaxMetrics` (config key `metrics.limits.max_metrics`, default 10000) caps the registry as a whole, counting every series. The collector uses the config value when it is above zero. Past it, `GetOrCreate*` still returns a working metric that is never registered or exported, and `OnTotalLimit` fires once per registry; the collector wires it to a single `log.Warn`.
 
 ### Unit capture
 
@@ -120,7 +122,7 @@ go-utils' own `WithLabels` builds a fresh, unregistered metric, so values record
 
 The older `forge_http_*` series, the `http.requests.path.*` flat keys and the `track_paths` / `group_similar_paths` / path allow and block list settings are gone. Do not reintroduce a raw-path label.
 
-A config-merge quirk to know about: when a config file enables metrics, `mergeMetricsConfig` (app_impl.go) starts from the file and copies only some programmatic fields. `HTTPBodySizes` and `MaxSeriesPerMetric` set in code are not copied.
+Config precedence (`resolveMetricsConfig` in app_impl.go): with no `WithAppMetricsConfig`, the defaults apply and every key present in the file's `metrics` block replaces its default, so the file can turn a feature off. With a code config, the file is read only when it says `enabled: true` and code wins (`mergeMetricsConfig`: non-zero values and true booleans from code are kept).
 
 ## Usage Examples
 
@@ -200,12 +202,13 @@ metrics:
 ## Common Patterns
 
 ### Histogram Buckets
+The HTTP server metrics use these (`durationBuckets` and `sizeBuckets` in `collectors/http_server.go`). Copy them when your own histogram should line up with the HTTP ones.
 ```go
-// HTTP latency (seconds)
-httpBuckets := []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+// Duration (seconds)
+durationBuckets := []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
 
-// Response size (bytes)
-sizeBuckets := []float64{64, 256, 1024, 4096, 16384, 65536, 262144, 1048576}
+// Body size (bytes)
+sizeBuckets := []float64{64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216}
 ```
 
 ### Label Cardinality
