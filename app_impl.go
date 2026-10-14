@@ -322,8 +322,8 @@ func newApp(config AppConfig) *app {
 		httpMetrics := collectors.NewHTTPServerMetrics(metrics, collectors.HTTPServerOptions{
 			ExcludePaths: tracing.Settings().ExcludePaths,
 			BodySizes:    metricsConfig.Features.HTTPBodySizes,
-			// With tracing off this middleware is the outermost one and
-			// must install its own route-match holder.
+			// With tracing off, nothing outside this middleware installs a
+			// route-match holder, so it must create a fresh one.
 			FreshRouteMatch: !tracing.Settings().Enabled,
 		})
 

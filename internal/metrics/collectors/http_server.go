@@ -99,10 +99,17 @@ func (h *HTTPServerMetrics) Middleware() func(http.Handler) http.Handler {
 
 			defer active.Dec()
 
+			// Behind the tracing middleware the holder is already on the
+			// context, and copying the request would buy nothing.
+			inner := r
+			if ctx != r.Context() {
+				inner = r.WithContext(ctx)
+			}
+
 			rec := telemetry.NewStatusRecorder(w)
 			start := time.Now()
 
-			next.ServeHTTP(rec, r.WithContext(ctx))
+			next.ServeHTTP(rec, inner)
 
 			elapsed := time.Since(start).Seconds()
 			status := rec.Status()
