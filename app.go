@@ -81,6 +81,7 @@ type AppConfig struct {
 	// Observability
 	MetricsConfig MetricsConfig
 	HealthConfig  HealthConfig
+	TracingConfig TracingConfig
 
 	// Profiling
 	EnablePprof bool   // Enable pprof profiling endpoints at /_/debug/pprof (default: false)
@@ -271,6 +272,14 @@ func WithAppRouterOptions(opts ...RouterOption) AppOption {
 func WithAppMetricsConfig(config MetricsConfig) AppOption {
 	return func(c *AppConfig) {
 		c.MetricsConfig = config
+	}
+}
+
+// WithAppTracingConfig sets the tracing configuration. Values set here win
+// over the forge config file and OTEL_* environment variables.
+func WithAppTracingConfig(config TracingConfig) AppOption {
+	return func(c *AppConfig) {
+		c.TracingConfig = config
 	}
 }
 

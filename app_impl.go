@@ -23,7 +23,9 @@ import (
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	internalrouter "github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/forge/internal/telemetry"
 	"github.com/xraph/vessel"
+	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +42,7 @@ type app struct {
 	metrics          Metrics
 	healthManager    HealthManager
 	lifecycleManager LifecycleManager
+	tracing          *telemetry.Provider
 
 	// HTTP server
 	httpServer *http.Server
@@ -226,6 +229,10 @@ func newApp(config AppConfig) *app {
 	// This runs BEFORE server initialization to ensure port is configured
 	config = loadForgeYAMLConfig(config, logger)
 
+	// Tracing. Built before the router so its middleware is the outermost
+	// global middleware, and before extensions register so they can trace.
+	tracing := buildTracing(config, configManager, logger)
+
 	// Create health manager with full config support
 	var healthManager HealthManager
 
@@ -304,6 +311,12 @@ func newApp(config AppConfig) *app {
 
 	router := NewRouter(routerOpts...)
 
+	if tracing.Settings().Enabled {
+		router.UseGlobal(internalrouter.PureMiddleware(
+			telemetry.ServerMiddleware(tracing.TracerProvider(), tracing.Settings()),
+		).ToMiddleware())
+	}
+
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
 
 	// Key-based registration (backward compatibility)
@@ -328,6 +341,10 @@ func newApp(config AppConfig) *app {
 		return router, nil
 	}, vessel.WithAliases(shared.RouterKey))
 
+	_ = Provide(container, func() (trace.TracerProvider, error) {
+		return tracing.TracerProvider(), nil
+	})
+
 	// Create lifecycle manager
 	lm := NewLifecycleManager(logger)
 
@@ -340,6 +357,7 @@ func newApp(config AppConfig) *app {
 		metrics:          metrics,
 		healthManager:    healthManager,
 		lifecycleManager: lm,
+		tracing:          tracing,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
 	}
@@ -782,6 +800,13 @@ func (a *app) Stop(ctx context.Context) error {
 	// 3. Stop DI container (stops all services in reverse order)
 	if err := a.container.Stop(ctx); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
+	}
+
+	// 4. Flush spans last, so the drain and the extension stops are exported.
+	if a.tracing != nil {
+		if err := a.tracing.Shutdown(ctx); err != nil {
+			a.logger.Warn("tracing shutdown did not finish", F("error", err))
+		}
 	}
 
 	a.started = false
@@ -1892,4 +1917,42 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 	}
 
 	return config
+}
+
+// buildTracing resolves the tracing config and builds the provider. Telemetry
+// never stops the app from booting: an exporter that can't be built is
+// logged and the app carries on creating spans without exporting them.
+func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Provider {
+	var fromFile shared.TracingConfig
+	if cm != nil {
+		_ = cm.Bind("tracing", &fromFile)
+	}
+
+	settings := telemetry.Resolve(telemetry.Inputs{
+		Code:        config.TracingConfig,
+		File:        fromFile,
+		Environment: config.Environment,
+		Getenv:      os.Getenv,
+	})
+
+	for _, w := range settings.Warnings {
+		log.Warn(w)
+	}
+
+	ctx := context.Background()
+
+	res, err := telemetry.BuildResource(ctx, config.Name, config.Version, config.Environment, settings.Resource)
+	if err != nil {
+		log.Warn("telemetry: resource detection incomplete", F("error", err))
+	}
+
+	provider, err := telemetry.NewProvider(ctx, settings, res, log)
+	if err != nil {
+		log.Error("telemetry: tracing export disabled", F("error", err))
+
+		settings.Endpoint = ""
+		provider, _ = telemetry.NewProvider(ctx, settings, res, log)
+	}
+
+	return provider
 }

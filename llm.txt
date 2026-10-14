@@ -71,6 +71,15 @@ app.Router() Router
 app.Config() ConfigManager
 app.Logger() Logger
 app.Metrics() Metrics
+
+// Tracing
+func WithAppTracingConfig(c TracingConfig) AppOption
+func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span)
+func SpanFromContext(ctx context.Context) trace.Span
+func HTTPClient() *http.Client                                  // outbound requests traced, trace context injected
+func InstrumentTransport(rt http.RoundTripper) http.RoundTripper // nil means http.DefaultTransport
+func RegisterSpanProcessor(a App, sp sdktrace.SpanProcessor) error // ErrTracingDisabled when tracing is off
+// DI: Inject[trace.TracerProvider](app.Container())
 ```
 
 ## Usage Examples
@@ -215,6 +224,26 @@ shutdown_timeout: 30s
 - `/_/info` - Application information (name, version, uptime)
 - `/_/metrics` - Prometheus metrics endpoint
 - `/_/health` - Health check status with component details
+
+### Tracing
+
+`forge.New` builds an OpenTelemetry tracer provider and installs a server
+span middleware as the outermost global middleware. Every request gets a span
+named `METHOD /route/pattern`, an incoming `traceparent` is honoured, and the
+response carries a `traceparent` header. Spans are exported over OTLP/HTTP
+only when an endpoint is set. Precedence is `WithAppTracingConfig`, then the
+`tracing:` block of the config file, then `OTEL_*` env
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SDK_DISABLED`, ...). `Stop` flushes
+queued spans last, after the container stops.
+
+```yaml
+tracing:
+  enabled: true            # false turns tracing off entirely
+  endpoint: http://collector:4318/v1/traces
+  sample_ratio: 0.1
+  exclude_paths: ["/_/"]
+  response_header: traceparent   # "" sends no header
+```
 
 ## Dependencies
 
