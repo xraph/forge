@@ -166,6 +166,9 @@ type registry struct {
 	maxSeries  int
 	onOverflow func(string, int)
 	overflowed map[string]bool
+
+	onTotalLimit  func(int)
+	totalLimitHit bool
 }
 
 // RegistryConfig contains configuration for the registry.
@@ -176,6 +179,9 @@ type RegistryConfig struct {
 	MaxSeriesPerMetric int `json:"max_series_per_metric" yaml:"max_series_per_metric"`
 	// OnOverflow is called once per metric name the first time it hits the cap.
 	OnOverflow func(name string, limit int) `json:"-" yaml:"-"`
+	// OnTotalLimit is called once per registry the first time a new metric is
+	// dropped because the registry already holds MaxMetrics.
+	OnTotalLimit func(limit int) `json:"-" yaml:"-"`
 }
 
 // DefaultRegistryConfig returns default registry configuration.
@@ -207,6 +213,8 @@ func NewRegistryWithConfig(config *RegistryConfig) Registry {
 		maxSeries:  maxSeries,
 		onOverflow: config.OnOverflow,
 		overflowed: make(map[string]bool),
+
+		onTotalLimit: config.OnTotalLimit,
 	}
 }
 
@@ -773,6 +781,14 @@ func (r *registry) registerMetricInternal(name string, metric any, metricType me
 	}
 
 	if len(r.metrics) >= r.maxMetrics {
+		if !r.totalLimitHit {
+			r.totalLimitHit = true
+
+			if r.onTotalLimit != nil {
+				r.onTotalLimit(r.maxMetrics)
+			}
+		}
+
 		return errors.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
 	}
 

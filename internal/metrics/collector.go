@@ -134,19 +134,30 @@ func New(config *CollectorConfig, log logger.Logger) Metrics {
 		config = DefaultCollectorConfig()
 	}
 
+	maxMetrics := DefaultRegistryConfig().MaxMetrics
+	if config.Limits.MaxMetrics > 0 {
+		maxMetrics = config.Limits.MaxMetrics
+	}
+
 	c := &collector{
 		Metrics: metrics.NewMetricsCollector(
 			shared.MetricsCollectorKey, metrics.WithConfig(config), metrics.WithLogger(log),
 		),
 		name: shared.MetricsCollectorKey,
 		registry: NewRegistryWithConfig(&RegistryConfig{
-			MaxMetrics:         DefaultRegistryConfig().MaxMetrics,
+			MaxMetrics:         maxMetrics,
 			EnableIndexing:     true,
 			MaxSeriesPerMetric: config.Limits.MaxSeriesPerMetric,
 			OnOverflow: func(name string, limit int) {
 				if log != nil {
 					log.Warn("metrics: series cap reached, new label sets fold into the overflow series",
 						logger.String("metric", name), logger.Int("limit", limit))
+				}
+			},
+			OnTotalLimit: func(limit int) {
+				if log != nil {
+					log.Warn("metrics: metric limit reached, new metrics and label sets are not exported",
+						logger.Int("limit", limit))
 				}
 			},
 		}),

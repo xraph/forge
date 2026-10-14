@@ -2,10 +2,13 @@ package metrics
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
-	"github.com/xraph/forge/internal/metrics/exporters"
 	gometrics "github.com/xraph/go-utils/metrics"
+
+	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/metrics/exporters"
 )
 
 func newCappedRegistry(limit int, onOverflow func(string, int)) Registry {
@@ -111,4 +114,65 @@ func TestRoutePatternSurvivesKey(t *testing.T) {
 
 		return true
 	})
+}
+
+func TestTotalLimitWarnsOnce(t *testing.T) {
+	warned := 0
+	r := NewRegistryWithConfig(&RegistryConfig{
+		MaxMetrics: 2,
+		OnTotalLimit: func(limit int) {
+			if limit != 2 {
+				t.Errorf("total limit hook got %d, want 2", limit)
+			}
+
+			warned++
+		},
+	})
+
+	for _, name := range []string{"a", "b", "c", "d"} {
+		r.GetOrCreateCounter(name).Inc()
+	}
+
+	n := 0
+
+	r.Stream(func(string, exporters.Sample) bool {
+		n++
+
+		return true
+	})
+
+	if n != 2 {
+		t.Fatalf("registered = %d, want 2", n)
+	}
+
+	if warned != 1 {
+		t.Fatalf("total limit hook called %d times, want 1", warned)
+	}
+}
+
+func TestCollectorUsesConfiguredMaxMetrics(t *testing.T) {
+	log, ok := logger.NewTestLogger().(*logger.TestLogger)
+	if !ok {
+		t.Fatal("logger.NewTestLogger did not return a *logger.TestLogger")
+	}
+
+	cfg := DefaultCollectorConfig()
+	cfg.Limits.MaxMetrics = 2
+
+	m := New(cfg, log)
+	for _, name := range []string{"a", "b", "c", "d"} {
+		m.Counter(name).Inc()
+	}
+
+	warnings := 0
+
+	for _, e := range log.GetLogsByLevel("WARN") {
+		if strings.Contains(e.Message, "metrics: metric limit reached") {
+			warnings++
+		}
+	}
+
+	if warnings != 1 {
+		t.Fatalf("limit warnings = %d, want 1 (logs: %v)", warnings, log.GetLogsByLevel("WARN"))
+	}
 }
