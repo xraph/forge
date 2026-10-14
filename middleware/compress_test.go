@@ -139,3 +139,29 @@ func TestCompress_InvalidLevel(t *testing.T) {
 	assert.Empty(t, rec.Header().Get("Content-Encoding"))
 	assert.Equal(t, "content", rec.Body.String())
 }
+
+// TestCompress_KeepsContextValues pins that the handler behind Compress sees
+// what earlier middleware stored. Compress hands the handler a new Context
+// around the gzip writer, and that Context used to start with no values.
+func TestCompress_KeepsContextValues(t *testing.T) {
+	var seen any
+
+	handler := Compress(gzip.DefaultCompression)(func(ctx forge.Context) error {
+		seen = ctx.Get("auth_context")
+		ctx.Set("from-handler", "h")
+
+		return ctx.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	ctx := forge_http.NewContext(httptest.NewRecorder(), req, nil)
+	defer ctx.(forge_http.ContextWithClean).Cleanup()
+
+	ctx.Set("auth_context", "user-1")
+
+	assert.NoError(t, handler(ctx))
+	assert.Equal(t, "user-1", seen)
+	assert.Equal(t, "h", ctx.Get("from-handler"))
+}

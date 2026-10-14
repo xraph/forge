@@ -47,11 +47,16 @@ func Compress(level int) forge.Middleware {
 			newCtx := forge_http.NewContext(gzw, ctx.Request(), container)
 			defer newCtx.(forge_http.ContextWithClean).Cleanup()
 
-			// Copy context values from original context
-			// This ensures session, cookies, etc. are preserved
-			// Note: We can't directly access the internal values map,
-			// but the session and other values should be preserved through the container/scope
-			// For now, we'll rely on the container to preserve scoped values
+			// The new Context starts with an empty values map, so without
+			// this the handler could not read anything earlier middleware
+			// stored, such as the caller's identity. Sharing the map (not
+			// copying it) also lets outer middleware see what the handler
+			// stores. Cleanup releases the borrow before newCtx is pooled.
+			if src, ok := ctx.(interface{ Values() map[string]any }); ok {
+				if dst, ok := newCtx.(interface{ ShareValues(values map[string]any) }); ok {
+					dst.ShareValues(src.Values())
+				}
+			}
 
 			// Execute the next handler with the new context
 			return next(newCtx)
