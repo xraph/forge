@@ -21,7 +21,6 @@ require (
 	github.com/xraph/go-utils v1.4.0
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/otel v1.45.0
-	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0
