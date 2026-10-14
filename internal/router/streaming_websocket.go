@@ -240,12 +240,38 @@ func (c *wsConnection) Close() error {
 	return c.conn.Close()
 }
 
+// goAwayWriteTimeout bounds the close frame a drain sends. It is short because
+// the drain shares the shutdown deadline with everything else.
+const goAwayWriteTimeout = time.Second
+
 // goAway tells the client the server is shutting down, with close code 1001,
 // and closes the connection. Best effort: a client that has already gone just
 // gets the close.
+//
+// When a write already holds the lock, the peer has most likely stopped
+// reading and that write can block for the whole write timeout. Waiting behind
+// it would let one stalled client outlast the drain, so the raw connection is
+// closed instead: that fails the blocked write, and the handler's own Close
+// finishes the job. That client gets no close frame, but it was not reading.
 func (c *wsConnection) goAway() {
-	_ = c.write(ws.OpClose, ws.NewCloseFrameBody(ws.StatusGoingAway, "server shutting down"))
-	_ = c.Close()
+	if !c.mu.TryLock() {
+		c.cancel()
+		_ = c.conn.Close()
+
+		return
+	}
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return
+	}
+
+	_ = c.conn.SetWriteDeadline(time.Now().Add(goAwayWriteTimeout))
+	_ = wsutil.WriteServerMessage(c.conn, ws.OpClose, ws.NewCloseFrameBody(ws.StatusGoingAway, "server shutting down"))
+
+	c.closed = true
+	c.cancel()
+	_ = c.conn.Close()
 }
 
 // Context returns the connection context.

@@ -101,7 +101,11 @@ func (d *streamDrain) drain(ctx context.Context) error {
 // sent a 1001 (going away) close frame first, so it can reconnect elsewhere.
 // Plain requests are not touched. Call it when a graceful shutdown starts,
 // alongside http.Server.Shutdown: it is what lets Shutdown finish while
-// streams are open. Streams opened after it was called end immediately.
+// streams are open.
+//
+// The drain is one-shot. Every stream opened on this router after it was
+// called ends immediately, so serving again after a graceful shutdown needs a
+// new router.
 func (r *router) DrainStreams(ctx context.Context) error {
 	return r.drain.drain(ctx)
 }

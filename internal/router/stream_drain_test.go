@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,8 +97,11 @@ func TestDrainStreams_endsAnSSERouteToo(t *testing.T) {
 	r := newRouter(WithContainer(vessel.New()))
 
 	started := make(chan struct{})
+	returned := make(chan struct{})
 
 	require.NoError(t, r.SSE("/sse", func(ctx Context) error {
+		defer close(returned)
+
 		close(started)
 
 		<-ctx.Context().Done()
@@ -117,7 +121,17 @@ func TestDrainStreams_endsAnSSERouteToo(t *testing.T) {
 	}()
 
 	<-started
-	drainWithin(t, r, 2*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_ = r.DrainStreams(ctx)
+
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("the SSE route's handler was still running after the drain")
+	}
 }
 
 func TestDrainStreams_sendsASocketGoingAwayAndUnblocksItsRead(t *testing.T) {
@@ -139,9 +153,6 @@ func TestDrainStreams_sendsASocketGoingAwayAndUnblocksItsRead(t *testing.T) {
 	require.NoError(t, err)
 
 	defer conn.Close()
-
-	// Let the handler reach its Read before draining.
-	time.Sleep(50 * time.Millisecond)
 
 	drainWithin(t, r, 2*time.Second)
 
@@ -187,7 +198,6 @@ func TestDrainStreams_cancelsTheSocketsContext(t *testing.T) {
 
 	defer conn.Close()
 
-	time.Sleep(50 * time.Millisecond)
 	drainWithin(t, r, 2*time.Second)
 
 	select {
@@ -340,4 +350,42 @@ func TestDrainStreams_isSharedWithGroups(t *testing.T) {
 	default:
 		t.Fatal("a group's stream was not drained by its parent router")
 	}
+}
+
+func TestGoAway_doesNotWaitBehindAWriteToAStalledClient(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+
+	c := newWSConnection("stalled", server, context.Background())
+
+	// net.Pipe has no buffer, so with nobody reading the client end this write
+	// blocks while holding the connection lock, like a peer that stopped reading.
+	writeErr := make(chan error, 1)
+
+	go func() { writeErr <- c.Write([]byte("never read")) }()
+
+	require.Eventually(t, func() bool {
+		if !c.mu.TryLock() {
+			return true
+		}
+
+		c.mu.Unlock()
+
+		return false
+	}, time.Second, time.Millisecond, "the write never took the lock")
+
+	start := time.Now()
+
+	c.goAway()
+
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+
+	select {
+	case err := <-writeErr:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the blocked write was not released by goAway")
+	}
+
+	require.Error(t, c.Context().Err())
 }
