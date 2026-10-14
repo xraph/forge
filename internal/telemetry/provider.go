@@ -1,0 +1,121 @@
+package telemetry
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/xraph/forge/internal/logger"
+)
+
+// ErrTracingDisabled is returned by RegisterSpanProcessor when tracing is off.
+var ErrTracingDisabled = errors.New("telemetry: tracing is disabled")
+
+const shutdownCap = 5 * time.Second
+
+// Provider owns the app's tracer provider.
+type Provider struct {
+	sdk      *sdktrace.TracerProvider // nil when tracing is disabled
+	tp       trace.TracerProvider
+	settings Settings
+	resource *resource.Resource
+}
+
+// NewProvider builds the tracer provider and installs it, with the
+// propagators, as the OTel globals. With no endpoint the provider records
+// spans but exports nothing; processors added later still see them.
+func NewProvider(ctx context.Context, s Settings, res *resource.Resource, log logger.Logger) (*Provider, error) {
+	p := &Provider{settings: s, resource: res}
+
+	otel.SetTextMapPropagator(buildPropagator(s.Propagators))
+
+	if !s.Enabled {
+		p.tp = noop.NewTracerProvider()
+		otel.SetTracerProvider(p.tp)
+
+		return p, nil
+	}
+
+	opts := []sdktrace.TracerProviderOption{
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(BuildSampler(s)),
+	}
+
+	if s.Endpoint != "" {
+		exp, err := otlptracehttp.New(ctx,
+			otlptracehttp.WithEndpointURL(s.Endpoint),
+			otlptracehttp.WithHeaders(s.Headers),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("telemetry: create OTLP exporter for %q: %w", s.Endpoint, err)
+		}
+
+		opts = append(opts, sdktrace.WithBatcher(exp))
+	}
+
+	p.sdk = sdktrace.NewTracerProvider(opts...)
+	p.tp = p.sdk
+
+	otel.SetTracerProvider(p.tp)
+	otel.SetErrorHandler(newRateLimitedErrorHandler(log, time.Minute))
+
+	return p, nil
+}
+
+// TracerProvider returns the provider spans should be started from.
+func (p *Provider) TracerProvider() trace.TracerProvider { return p.tp }
+
+// Settings returns the resolved settings the provider was built with.
+func (p *Provider) Settings() Settings { return p.settings }
+
+// Resource returns the shared resource.
+func (p *Provider) Resource() *resource.Resource { return p.resource }
+
+// RegisterSpanProcessor adds a processor after construction. The dashboard
+// uses it to feed its local trace store.
+func (p *Provider) RegisterSpanProcessor(sp sdktrace.SpanProcessor) error {
+	if p.sdk == nil {
+		return ErrTracingDisabled
+	}
+
+	p.sdk.RegisterSpanProcessor(sp)
+
+	return nil
+}
+
+// Shutdown flushes queued spans, waiting at most five seconds or until ctx
+// is done.
+func (p *Provider) Shutdown(ctx context.Context) error {
+	if p.sdk == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, shutdownCap)
+	defer cancel()
+
+	return p.sdk.Shutdown(ctx)
+}
+
+func buildPropagator(names []string) propagation.TextMapPropagator {
+	var list []propagation.TextMapPropagator
+
+	for _, n := range names {
+		switch n {
+		case "tracecontext":
+			list = append(list, propagation.TraceContext{})
+		case "baggage":
+			list = append(list, propagation.Baggage{})
+		}
+	}
+
+	return propagation.NewCompositeTextMapPropagator(list...)
+}
