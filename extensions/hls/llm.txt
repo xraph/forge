@@ -2,123 +2,132 @@
 
 ## Purpose
 
-HTTP Live Streaming (HLS) support for delivering video and audio content with adaptive bitrate streaming, segmentation, and playlist generation.
+HTTP Live Streaming for Forge apps. A REST API to create live streams with adaptive bitrate
+variants, push MPEG-TS segments, and serve master and media M3U8 playlists (HLS version 3) with a
+sliding DVR window. Segments and playlists live in a Trove object store
+(github.com/xraph/trove), so local disk, S3, GCS or Azure.
 
-## Key Components
+Several parts aren't finished: segment delivery over HTTP, VOD output and persistence of stream
+records. See "Not implemented yet".
 
-- **HLS Server**: Serve HLS streams
-- **Segmentation**: Automatic media segmentation
-- **Playlist Generation**: M3U8 playlist creation
-- **Adaptive Bitrate**: Multiple quality levels
-- **Live & VOD**: Support for live and on-demand content
+Module: github.com/xraph/forge/extensions/hls (package `hls`). Subpackages: `storage`
+(HLSStorage over Trove), `segmenter` and `transcoder` (FFmpeg), `internal/distributed`
+(coordinator on the consensus extension). The go.mod replaces the root and consensus modules
+with local paths.
 
-## Architecture
+## Constructors and options
 
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
+func NewManager(config Config, store *storage.HLSStorage) (*Manager, error)
+
+WithBasePath(path string)                       // "/hls"
+WithBaseURL(url string)                         // "http://localhost:8080/hls", used in playlist URLs
+WithStorageBackend(backend string)              // named Trove; "" or "default" = unnamed
+WithStorageBucket(bucket string)                // "hls", created on start
+WithStoragePrefix(prefix string)                // "hls"
+WithTargetDuration(duration int)                // 6 seconds
+WithDVRWindow(size int)                         // 10 segments
+WithTranscoding(enabled bool, profiles ...TranscodeProfile)
+WithFFmpegPaths(ffmpegPath, ffprobePath string)
+WithCORS(enabled bool, origins ...string)       // only the first origin is sent
+WithLimits(maxStreams, maxViewersPerStream int, maxBandwidthPerStream int64)  // MaxStreams enforced
+WithCleanup(retention, interval time.Duration)
+WithDistributed(enabled bool)
+WithNodeID(nodeID string)                       // generated when distributed and empty
+WithClusterID(clusterID string)
+WithFailover(enabled bool)
+WithAuth(required bool)                         // stored only
+WithCaching(enabled bool, ttl time.Duration)    // stored only
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
-HLS Extension
-├── Stream Server
-│   ├── Segment Serving
-│   └── Playlist Serving
-├── Segmenter
-│   ├── Video Segmentation
-│   └── TS File Generation
-├── Playlist Generator
-│   └── M3U8 Creation
-└── Transcoding
-    └── Multiple Bitrates
+
+## Setup
+
+The extension resolves a `*trove.Trove` from the container while it registers
+(`forge.InjectNamed` for a named backend, else `forge.Inject`). Provide it before the app runs,
+or list Trove's own Forge extension before HLS (HLS doesn't declare the dependency).
+
+```go
+drv := localdriver.New()                          // github.com/xraph/trove/drivers/localdriver
+_ = drv.Open(ctx, "local://./hls-data")
+store, _ := trove.Open(drv)
+_ = forge.ProvideValue(app.Container(), store)
 ```
 
-## Public API
+## What the container holds
 
-### Core Types
+The manager as `hls.HLS`, also under the alias `hls` (ServiceKey). Resolve after registration,
+e.g. in a `forge.OnStarted` hook: `svc, err := forge.Inject[hls.HLS](app.Container())`.
 
 ```go
 type HLS interface {
-    CreateStream(name string, config StreamConfig) (*Stream, error)
-    GetStream(name string) (*Stream, error)
-    StopStream(name string) error
+    CreateStream(ctx, opts StreamOptions) (*Stream, error)
+    GetStream(ctx, streamID string) (*Stream, error)
+    DeleteStream(ctx, streamID string) error
+    ListStreams(ctx) ([]*Stream, error)
+    StartLiveStream(ctx, streamID string) error
+    StopLiveStream(ctx, streamID string) error
+    IngestSegment(ctx, streamID string, segment *Segment) error      // stream must be active
+    CreateVOD(ctx, source io.Reader, opts VODOptions) (*Stream, error)
+    TranscodeVideo(ctx, streamID string, profiles []TranscodeProfile) error
+    GetMasterPlaylist(ctx, streamID string) (*MasterPlaylist, error)
+    GetMediaPlaylist(ctx, streamID, variantID string) (*MediaPlaylist, error)
+    GetSegment(ctx, streamID, variantID string, segmentNum int) (io.ReadCloser, error)
+    GetSegmentURL(ctx, streamID, variantID string, segmentNum int) (string, error)
+    GetStreamStats(ctx, streamID string) (*StreamStats, error)
+    GetActiveViewers(ctx, streamID string) (int, error)
 }
-
-type Stream struct {
-    Name      string
-    URL       string
-    Bitrates  []int
-    Status    StreamStatus
-}
 ```
 
-### Main Functions/Methods
+`*Manager` also has `CreateVODFromFile(ctx, sourcePath string, opts VODOptions) (*Stream, error)`.
 
-```go
-// Extension
-func NewExtension(config Config) forge.Extension
+## Key types
 
-// Get HLS service
-func GetHLS(c forge.Container) (HLS, error)
+- StreamOptions{Title, Type, TargetDuration, DVRWindowSize, TranscodeProfiles, ...}, Stream (ID,
+  Variants, ...), Variant, Segment{VariantID, SequenceNum, Duration, Data, ...},
+  MasterPlaylist{Content, ...}, MediaPlaylist, VariantInfo, SegmentInfo, StreamStats,
+  VariantStats, VODOptions, TranscodeProfile{Name, Width, Height, Bitrate, FrameRate, VideoCodec, AudioCodec, ...}.
+- StreamType: StreamTypeLive, StreamTypeVOD, StreamTypeEvent. StreamStatus: created, active,
+  stopped, error, ended.
+- Profiles: Profile360p, Profile480p, Profile720p, Profile1080p, Profile4K; DefaultProfiles().
+- Playlist helpers: NewPlaylistGenerator(baseURL), ParseResolution, FormatResolution,
+  GenerateCodecsString(videoCodec, audioCodec).
 
-// Create stream
-stream, _ := hls.CreateStream("live-stream", StreamConfig{
-    Bitrates: []int{1000000, 500000, 250000},
-})
+## HTTP routes (under base_path, registered on start, no auth)
 
-// Stream available at /hls/live-stream/playlist.m3u8
-```
+POST /hls/streams, GET /hls/streams, GET/DELETE /hls/streams/:streamID,
+POST /hls/streams/:streamID/start, /stop, /ingest (Segment JSON with base64 Data),
+GET /hls/streams/:streamID/stats, GET /hls/:streamID/master.m3u8,
+GET /hls/:streamID/variants/:variantID/playlist.m3u8,
+GET /hls/:streamID/variants/:variantID/segment_:segmentNum.ts (broken, see below).
 
-## Usage Examples
+Request and response types have no JSON tags: keys are Go field names (`Title`, `VariantID`).
+Decoding ignores case; responses use the capitalised names. Storage layout:
+`<prefix>/<streamID>/<variantID>/` in the bucket.
 
-### Basic HLS Streaming
+## Config
 
-```go
-import "github.com/xraph/forge/extensions/hls"
+Key `extensions.hls`, falling back to `hls`. File overrides defaults, options override the file.
+YAML keys are the snake_case struct tags (base_url, storage_bucket, target_duration,
+dvr_window_size, ...). Forge only reads config.yaml when EnableConfigAutoDiscovery is on.
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        hls.NewExtension(hls.Config{
-            BasePath:    "/hls",
-            SegmentDuration: 6 * time.Second,
-        }),
-    },
-})
+## Not implemented yet
 
-// Get HLS service
-hlsService, _ := hls.GetHLS(app.Container())
-
-// Create live stream
-stream, _ := hlsService.CreateStream("live", hls.StreamConfig{
-    Type:     hls.StreamTypeLive,
-    Bitrates: []int{1000000, 500000},
-})
-
-// Access stream at: http://localhost:8080/hls/live/playlist.m3u8
-```
-
-## Configuration
-
-```yaml
-extensions:
-  hls:
-    base_path: /hls
-    segment_duration: 6s
-    playlist_size: 10
-    storage_path: ./hls-segments
-```
-
-## Dependencies
-
-### External
-- Video processing libraries
-
-### Internal
-- github.com/xraph/forge - Core framework
-
-## Notes
-
-### Production Readiness
-- ✅ HLS streaming
-- ✅ Adaptive bitrate
-- ✅ Live and VOD
-- ✅ M3U8 playlists
-
-### License
-MIT License - Part of Forge Framework
-
+- Segment delivery: the router registers `segment_:segmentNum.ts` as a literal path, so real
+  segment URLs return 404. Serve segments from your own handler via GetSegment, or from the
+  Trove bucket through a CDN.
+- VOD: CreateVOD only creates the record; CreateVODFromFile starts FFmpeg jobs but never
+  segments or stores output; TranscodeVideo reads a placeholder path.
+- Stream records are in memory only. Metadata is written to storage but never read back, so
+  streams vanish on restart while their files remain.
+- Stored but unread: RequireAuth, MaxViewersPerStream, MaxBandwidthPerStream, MaxSegmentSize,
+  EnableCaching, CacheTTL, SegmentRetention, RedirectToLeader, RedirectToOwner, EnableFailover.
+  Cleanup trims each stream to the DVR window every CleanupInterval.
+- Distributed mode starts a coordinator on `consensus.ConsensusService` (registration fails if
+  the consensus extension is absent), but routes never redirect to a leader or owner, and the
+  consensus extension itself doesn't run a Raft node yet.
+- No LL-HLS or fMP4.

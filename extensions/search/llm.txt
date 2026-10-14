@@ -2,152 +2,152 @@
 
 ## Purpose
 
-Full-text search capabilities with multiple backend support (in-memory, Elasticsearch, Typesense, Meilisearch) providing indexing, querying, faceting, and ranking.
+One `Search` interface in the container for index management, document indexing, full-text
+search with filters and field boosts, suggestions and autocomplete.
 
-## Key Components
+Only the in-memory backend works today. `elasticsearch`, `meilisearch` and `typesense` are
+accepted by config but are placeholders that never contact a server (see "Not implemented yet").
 
-- **Search Interface**: Query and index documents
-- **Multiple Backends**: In-memory, Elasticsearch, Typesense, Meilisearch
-- **Full-Text Search**: Tokenization and relevance ranking
-- **Faceted Search**: Filter by attributes
-- **Autocomplete**: Search suggestions
+Module: github.com/xraph/forge/extensions/search (package `search`).
 
-## Architecture
+## Constructors and options
 
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension   // same as NewExtension(WithConfig(cfg))
+func DefaultConfig() Config
+
+type ConfigOption func(*Config)
+WithDriver(driver string)            // "inmemory", "elasticsearch", "meilisearch", "typesense"
+WithURL(url string)
+WithHosts(hosts ...string)
+WithAuth(username, password string)
+WithAPIKey(apiKey string)
+WithMaxConnections(maxConns int)
+WithTimeout(timeout time.Duration)   // RequestTimeout
+WithDefaultLimit(limit int)
+WithMaxLimit(limit int)
+WithTLS(certFile, keyFile, caFile string)
+WithMetrics(enable bool)
+WithTracing(enable bool)
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
-Search Extension
-├── Search Interface
-│   ├── Indexing
-│   ├── Querying
-│   └── Deletion
-├── Backends
-│   ├── In-Memory
-│   ├── Elasticsearch
-│   ├── Typesense
-│   └── Meilisearch
-├── Features
-│   ├── Full-Text Search
-│   ├── Faceting
-│   ├── Filtering
-│   └── Autocomplete
-└── Ranking
-    └── Relevance Scoring
+
+Backends directly: `NewInMemorySearch(config, logger, metrics) *InMemorySearch`, and
+`NewElasticsearchSearch`, `NewMeilisearchSearch`, `NewTypesenseSearch` (each returns
+`(*XxxSearch, error)`). `NewSearchService(config Config, logger forge.Logger, metrics forge.Metrics) (*SearchService, error)`
+picks the backend from `Driver`.
+
+## What the container holds
+
+`*search.SearchService` by type and under the alias `search` (ServiceKey), and the `search.Search`
+interface backed by the same instance. The extension's Start connects the backend; Stop
+disconnects it.
+
+```go
+s, err := search.GetSearch(app.Container())   // also MustGetSearch, GetSearchFromApp, MustGetSearchFromApp
+svc, err := forge.Inject[*search.SearchService](app.Container())
 ```
 
-## Public API
-
-### Core Types
+## Key types
 
 ```go
 type Search interface {
-    Index(ctx context.Context, index string, document Document) error
-    Query(ctx context.Context, index string, query Query) (*SearchResult, error)
+    Connect(ctx context.Context) error
+    Disconnect(ctx context.Context) error
+    Ping(ctx context.Context) error
+    CreateIndex(ctx context.Context, name string, schema IndexSchema) error
+    DeleteIndex(ctx context.Context, name string) error
+    ListIndexes(ctx context.Context) ([]string, error)
+    GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error)
+    Index(ctx context.Context, index string, doc Document) error
+    BulkIndex(ctx context.Context, index string, docs []Document) error
+    Get(ctx context.Context, index string, id string) (*Document, error)
     Delete(ctx context.Context, index string, id string) error
+    Update(ctx context.Context, index string, id string, doc Document) error
+    Search(ctx context.Context, query SearchQuery) (*SearchResults, error)
+    Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error)
+    Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error)
+    Stats(ctx context.Context) (*SearchStats, error)
 }
 
-type Document struct {
-    ID     string
-    Fields map[string]interface{}
+type Document struct { ID string; Fields map[string]any }
+type Filter struct { Field, Operator string; Value any }
+type SearchQuery struct {
+    Index, Query string; Filters []Filter; Sort []SortField; Facets []string
+    Offset, Limit int; Highlight bool; HighlightFields, Fields []string
+    MinScore float64; BoostFields map[string]float64; FuzzyLevel int; Options map[string]any
 }
-
-type Query struct {
-    Text    string
-    Filters map[string]interface{}
-    Limit   int
-    Offset  int
-}
-
-type SearchResult struct {
-    Hits       []Hit
-    Total      int64
-    Facets     map[string]Facet
-}
+type SearchResults struct { Hits []Hit; Total int64; Offset, Limit int; ProcessingTime time.Duration; Facets map[string][]Facet; Query string; Exhaustive bool }
+type Hit struct { ID string; Score float64; Document map[string]any; Highlights map[string][]string }
+type SuggestQuery struct { Index, Query, Field string; Limit int; Fuzzy bool }
+type AutocompleteQuery struct { Index, Query, Field string; Limit int }
 ```
 
-### Main Functions/Methods
+Also IndexSchema (Fields []FieldSchema, Settings, Synonyms, StopWords, Analyzers, Ranking,
+Faceting, Highlighting), IndexInfo, SortField, Facet, SuggestResults/Suggestion,
+AutocompleteResults/Completion, SearchStats.
+
+Sentinel errors: ErrNotConnected, ErrAlreadyConnected, ErrIndexNotFound, ErrIndexAlreadyExists,
+ErrDocumentNotFound, ErrInvalidQuery, ErrInvalidSchema, ErrConnectionFailed, ErrTimeout,
+ErrInvalidConfig, ErrUnsupportedDriver, ErrOperationFailed.
+
+## Usage
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get search service
-func GetSearch(c forge.Container) (Search, error)
-
-// Index document
-search.Index(ctx, "products", Document{
-    ID: "123",
-    Fields: map[string]interface{}{
-        "title": "Laptop",
-        "price": 999.99,
-    },
-})
-
-// Search
-results, _ := search.Query(ctx, "products", Query{
-    Text:  "laptop",
-    Limit: 10,
+s := search.MustGetSearchFromApp(app)
+_ = s.CreateIndex(ctx, "products", search.IndexSchema{})
+_ = s.Index(ctx, "products", search.Document{ID: "4", Fields: map[string]any{"title": "Laptop stand"}})
+res, err := s.Search(ctx, search.SearchQuery{
+    Index: "products", Query: "stand",
+    Filters: []search.Filter{{Field: "category", Operator: "=", Value: "desk"}},
+    BoostFields: map[string]float64{"title": 2},
 })
 ```
 
-## Usage Examples
+## In-memory behaviour
 
-### Basic Search
+- Index before CreateIndex returns ErrIndexNotFound; CreateIndex twice returns ErrIndexAlreadyExists.
+- Query: lowercased substring match against the string form of every field; empty matches all.
+- Score: +1 per matching field, times its BoostFields entry, doubled on an exact whole-field match.
+  Sorted highest first. MinScore drops lower hits.
+- Filters: `=` (or `==`), `!=`, `EXISTS`, `NOT EXISTS`, compared as strings. Any other operator
+  (including the `>`, `IN`, `BETWEEN` the Filter comment lists) matches nothing.
+- Limit 0 uses DefaultLimit (20); above MaxLimit (100) is capped.
+- Suggest matches substrings in one field, Autocomplete matches prefixes. Both default to 10.
 
-```go
-import "github.com/xraph/forge/extensions/search"
+## Config
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        search.NewExtension(search.Config{
-            Driver: "elasticsearch",
-            URL:    "http://localhost:9200",
-        }),
-    },
-})
+Key `extensions.search`, falling back to `search`. File overrides defaults, options override the
+file. Validation runs at registration (e.g. max_limit below default_limit fails).
 
-// Get search service
-s, _ := search.GetSearch(app.Container())
+| yaml key | default |
+| --- | --- |
+| driver | "inmemory" |
+| url, hosts, username, password, api_key | "" |
+| max_connections, max_idle_connections | 10, 5 |
+| connect_timeout, request_timeout, keep_alive | 10s, 30s, 60s |
+| max_retries, retry_backoff, retry_on_timeout | 3, 100ms, true |
+| default_limit, max_limit, default_min_score | 20, 100, 0 |
+| enable_highlight, enable_facets | true, true |
+| bulk_size, flush_interval, enable_compression | 100, 5s, false |
+| enable_tls, tls_cert_file, tls_key_file, tls_ca_file, insecure_skip_verify | off |
+| enable_metrics, enable_tracing | true, true |
 
-// Index documents
-s.Index(ctx, "products", search.Document{
-    ID: "1",
-    Fields: map[string]interface{}{
-        "title":       "MacBook Pro",
-        "category":    "laptops",
-        "price":       1999.99,
-        "description": "Powerful laptop",
-    },
-})
+Validation for the placeholder drivers: elasticsearch needs url or hosts, meilisearch needs url,
+typesense needs url or hosts and api_key.
 
-// Search
-results, _ := s.Query(ctx, "products", search.Query{
-    Text:  "laptop",
-    Limit: 10,
-})
+## Gotchas
 
-for _, hit := range results.Hits {
-    fmt.Printf("Found: %s (score: %.2f)\n", hit.Document.Fields["title"], hit.Score)
-}
-```
+- `SearchResults.ProcessingTime` is a time.Duration under the JSON key `processing_time_ms`, so
+  JSON output is nanoseconds.
+- Forge only reads config.yaml when `EnableConfigAutoDiscovery` is on (DefaultAppConfig sets it;
+  an AppConfig literal doesn't).
 
-## Configuration
+## Not implemented yet
 
-```yaml
-extensions:
-  search:
-    driver: elasticsearch
-    url: http://localhost:9200
-    index_prefix: myapp_
-```
-
-## Notes
-
-### Production Readiness
-- ✅ Multiple backends
-- ✅ Full-text search
-- ✅ Faceting
-- ✅ Autocomplete
-
-### License
-MIT License - Part of Forge Framework
-
+- elasticsearch, meilisearch, typesense: Connect succeeds without contacting a server, writes are
+  dropped, Search returns no hits. An app configured for them starts and silently indexes nothing.
+- In memory: Sort, Facets, Highlight and FuzzyLevel are accepted and ignored.
+- Connection, retry, bulk and TLS settings only matter to the network drivers.

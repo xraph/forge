@@ -7,155 +7,167 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/mqtt` provides an MQTT client built on the Eclipse Paho library.
-It registers an `MQTTService` in the DI container that wraps a `MQTT` client with publish, subscribe,
-connection lifecycle, and Last Will and Testament support.
+`github.com/xraph/forge/extensions/mqtt` connects your app to an MQTT broker such as Mosquitto, EMQX or HiveMQ when the app starts, and gives you one shared client for publishing and subscribing. You get QoS 0, 1 and 2, retained messages, topic wildcards, a last will message, TLS, and username and password auth. Under the hood it's the [Eclipse Paho Go client](https://github.com/eclipse/paho.mqtt.golang), which speaks MQTT 3.1 and 3.1.1, and you can reach the Paho client directly when you need to.
 
-## What It Registers
-
-| Service | DI Key | Type |
-|---|---|---|
-| MQTT service | `mqtt` | `*MQTTService` (also satisfies `MQTT`) |
-
-The service is managed by Vessel. `Start` connects to the broker and `Stop` disconnects gracefully
-with a 250ms quiesce period.
+```bash
+go get github.com/xraph/forge/extensions/mqtt@latest
+go get github.com/eclipse/paho.mqtt.golang
+```
 
 ## Quick Start
+
+This app subscribes to `sensors/+/temperature`, logs every reading, and publishes the body of `POST /readings` to `sensors/demo/temperature`:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"io"
+	"log"
+	"net/http"
 
-    mqttclient "github.com/eclipse/paho.mqtt.golang"
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/mqtt"
+	paho "github.com/eclipse/paho.mqtt.golang"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/mqtt"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "iot-gateway", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "sensors",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			mqtt.NewExtension(
+				mqtt.WithBroker("tcp://localhost:1883"),
+				mqtt.WithClientID("sensors-api"),
+			),
+		},
+	})
 
-    app.RegisterExtension(mqtt.NewExtension(
-        mqtt.WithBroker("tcp://localhost:1883"),
-        mqtt.WithClientID("gateway-01"),
-        mqtt.WithCredentials("user", "password"),
-        mqtt.WithQoS(1),
-        mqtt.WithAutoReconnect(true),
-    ))
+	// The extension connects during startup, so subscribe once it's up.
+	err := app.RegisterHookFn(forge.PhaseAfterStart, "subscribe-readings",
+		func(ctx context.Context, a forge.App) error {
+			m, err := forge.Inject[mqtt.MQTT](a.Container())
+			if err != nil {
+				return err
+			}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+			return m.Subscribe("sensors/+/temperature", 1, func(_ paho.Client, msg paho.Message) {
+				log.Printf("%s: %s", msg.Topic(), msg.Payload())
+			})
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Resolve the MQTT client from DI
-    svc, _ := forge.InjectType[*mqtt.MQTTService](app.Container())
-    client := svc // MQTTService satisfies the MQTT interface
+	// POST a reading and it's published to sensors/demo/temperature.
+	err = app.Router().POST("/readings", func(ctx forge.Context) error {
+		m, err := forge.Inject[mqtt.MQTT](app.Container())
+		if err != nil {
+			return err
+		}
 
-    // Subscribe to a topic
-    client.Subscribe("sensors/temperature/#", 1,
-        func(c mqttclient.Client, msg mqttclient.Message) {
-            fmt.Printf("Topic: %s, Payload: %s\n", msg.Topic(), msg.Payload())
-        },
-    )
+		body, err := io.ReadAll(ctx.Request().Body)
+		if err != nil {
+			return err
+		}
 
-    // Subscribe to multiple topics at once
-    client.SubscribeMultiple(map[string]byte{
-        "sensors/humidity/#":  1,
-        "sensors/pressure/#": 1,
-    }, func(c mqttclient.Client, msg mqttclient.Message) {
-        fmt.Printf("Sensor data: %s = %s\n", msg.Topic(), msg.Payload())
-    })
+		if err := m.Publish("sensors/demo/temperature", 1, false, body); err != nil {
+			return err
+		}
 
-    // Publish a message
-    client.Publish("commands/device-01", 1, false, []byte(`{"action":"reset"}`))
+		return ctx.JSON(http.StatusAccepted, map[string]string{"status": "published"})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Publish with retained flag (new subscribers get the latest value)
-    client.Publish("status/gateway-01", 1, true, []byte(`{"status":"online"}`))
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
+
+No broker yet? Mosquitto runs in Docker with one command:
+
+```bash
+docker run -d --name mosquitto -p 1883:1883 eclipse-mosquitto:2 mosquitto -c /mosquitto-no-auth.conf
+```
+
+Then `go run .` and `curl -X POST localhost:8080/readings -d '21.5'`. You'll see `sensors/demo/temperature: 21.5` in the log.
+
+## What It Registers
+
+| Service | How you resolve it | Type |
+|---|---|---|
+| MQTT service | `forge.Inject[*mqtt.MQTTService](c)`, or `forge.Resolve[*mqtt.MQTTService](c, "mqtt")` | `*mqtt.MQTTService` (has every `mqtt.MQTT` method except `GetSubscriptions`) |
+| MQTT client interface | `forge.Inject[mqtt.MQTT](c)` | `mqtt.MQTT`, the client inside that same service |
+
+The extension's `Start` resolves the service and connects, waiting up to `connect_timeout` for the broker. If the broker doesn't accept in time, the app doesn't start and `app.Run()` returns the connection error. On shutdown the client disconnects with a 250 ms quiesce period.
 
 ## Using MQTT in Your Services
 
-Inject `*mqtt.MQTTService` for automatic DI resolution:
+Take `mqtt.MQTT` in a constructor and the container hands you the shared client:
 
 ```go
 type SensorCollector struct {
-    mqtt   mqtt.MQTT
-    logger forge.Logger
+	mqtt   mqtt.MQTT
+	logger forge.Logger
 }
 
-func NewSensorCollector(m *mqtt.MQTTService, logger forge.Logger) *SensorCollector {
-    return &SensorCollector{mqtt: m, logger: logger}
+func NewSensorCollector(m mqtt.MQTT, logger forge.Logger) *SensorCollector {
+	return &SensorCollector{mqtt: m, logger: logger}
 }
 
-func (sc *SensorCollector) Start(ctx context.Context) error {
-    return sc.mqtt.Subscribe("sensors/#", 1,
-        func(c mqttclient.Client, msg mqttclient.Message) {
-            sc.logger.Info("sensor reading",
-                forge.F("topic", msg.Topic()),
-                forge.F("payload", string(msg.Payload())),
-            )
-        },
-    )
+func (sc *SensorCollector) Listen() error {
+	return sc.mqtt.Subscribe("sensors/#", 1, func(_ paho.Client, msg paho.Message) {
+		sc.logger.Info("sensor reading",
+			forge.F("topic", msg.Topic()),
+			forge.F("payload", string(msg.Payload())),
+		)
+	})
 }
 
 func (sc *SensorCollector) SendCommand(deviceID string, cmd []byte) error {
-    return sc.mqtt.Publish("commands/"+deviceID, 1, false, cmd)
+	return sc.mqtt.Publish("commands/"+deviceID, 1, false, cmd)
 }
 ```
 
-Register with Vessel:
+Register it with the container, and call `Listen` from an after-start hook, since `Subscribe` fails until the client is connected:
 
 ```go
-forge.ProvideConstructor(app.Container(), NewSensorCollector)
+err := forge.ProvideConstructor(app.Container(), NewSensorCollector)
 ```
 
-## Connection Lifecycle Handlers
+## Connection Callbacks
 
-Register callbacks for connection events:
-
-```go
-client.SetOnConnectHandler(func(c mqttclient.Client) {
-    fmt.Println("Connected to MQTT broker")
-    // Re-subscribe to topics if needed
-})
-
-client.SetConnectionLostHandler(func(c mqttclient.Client, err error) {
-    fmt.Printf("Connection lost: %v\n", err)
-})
-
-client.SetReconnectingHandler(func(c mqttclient.Client, opts *mqttclient.ClientOptions) {
-    fmt.Println("Attempting reconnection...")
-})
-```
+`SetOnConnectHandler`, `SetConnectionLostHandler` and `SetReconnectingHandler` are on the interface, but they don't register anything. Paho only takes these callbacks before it connects, and the extension has connected by the time you can call them, so each one just logs a warning. The extension's own callbacks keep `GetStats()` and the metrics up to date, and you can read those instead.
 
 ## Key Concepts
 
-- **QoS levels** -- publish and subscribe with QoS 0 (at most once), QoS 1 (at least once), or QoS 2 (exactly once). The default is configurable.
-- **Auto-reconnect** -- the client automatically reconnects on connection loss with configurable max delay and attempt limits.
-- **Subscriptions** -- subscribe to topics with wildcard support (`+` single level, `#` multi level). Track active subscriptions.
-- **Last Will and Testament** -- configure a message that the broker publishes when the client disconnects unexpectedly.
-- **Retained messages** -- publish messages with the retained flag so new subscribers receive the latest value immediately.
-- **Clean sessions** -- toggle between persistent sessions (broker remembers subscriptions) and clean sessions.
+- QoS levels: you pass QoS 0, 1 or 2 on every `Publish` and `Subscribe`. `default_qos` is validated but nothing applies it.
+- Reconnects: Paho reconnects after a drop, backing off up to `max_reconnect_delay`. There is no attempt limit; `max_reconnect_attempts` isn't read.
+- Subscriptions: `+` matches one topic level and `#` everything below a level. `GetSubscriptions` lists what this client subscribed to.
+- Last will: a message the broker publishes when your client disappears without a clean disconnect.
+- Retained messages: the broker keeps the last retained message on a topic and hands it to every new subscriber.
+- Sessions: with `clean_session` on (the default), the broker forgets your subscriptions when the connection drops, and the extension doesn't subscribe again.
 
 ## Important Runtime Notes
 
-- The MQTT client is created during `NewMQTTService` but does not connect until Vessel calls `Start`.
-- Connection handlers (`OnConnect`, `OnConnectionLost`, `OnReconnecting`) can be set for custom logic.
-- The `ResumeSubs` option re-subscribes to topics after reconnection.
+- The client is created by `NewMQTTService` and connects in the extension's `Start`. `Publish`, `Subscribe` and `Unsubscribe` return `not connected` until then, and during a reconnect.
+- `resume_subs` is Paho's option for resending subscribe requests that were stored but not yet acknowledged. It doesn't restore your subscriptions after a clean-session reconnect. For that, turn `clean_session` off and keep the client ID stable.
+- Give every instance of your service its own client ID. Two clients with the same ID keep kicking each other off the broker.
 
 ## Detailed Pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/mqtt/features">
-Publishing, subscribing, QoS, and connection management.
+Publishing, subscribing, QoS, sessions, TLS and stats.
 </Card>
 <Card title="Configuration" href="/docs/extensions/mqtt/configuration">
-Config reference, YAML example, and programmatic options.
+Every config key, its default, and the option helpers.
 </Card>
 <Card title="Functions" href="/docs/extensions/mqtt/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

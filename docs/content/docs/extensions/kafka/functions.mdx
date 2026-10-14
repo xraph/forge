@@ -7,78 +7,128 @@ description: Public API reference for the Kafka extension
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the Kafka extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the Kafka extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the [configuration page](/docs/extensions/kafka/configuration) |
 
-## DI Helpers
+The option helpers (`WithBrokers`, `WithTLS`, `WithSASL` and the rest) are listed on the configuration page.
+
+## Resolving the Client
+
+The package has no `GetKafka`-style helpers. Use Forge's DI functions:
+
+| Call | Returns |
+|---|---|
+| `forge.Inject[*kafka.KafkaService](c)` | The service, by type |
+| `forge.Resolve[*kafka.KafkaService](c, "kafka")` | The same service, by its alias (`kafka.ServiceKey`) |
+
+## Service and Client Constructors
+
+You only need these when you build a client outside the extension, in a test for example.
 
 | Function | Description |
 |---|---|
-| `GetKafka(c forge.Container) (Kafka, error)` | Resolve the `Kafka` client from the container |
-| `MustGetKafka(c forge.Container) Kafka` | Same but panics on error |
-| `GetKafkaFromApp(app forge.App) (Kafka, error)` | Resolve from an app instance |
-| `MustGetKafkaFromApp(app forge.App) Kafka` | Same but panics on error |
+| `NewKafkaService(config Config, logger forge.Logger, metrics forge.Metrics) (*KafkaService, error)` | Validate the config and create the client (connects to the brokers) |
+| `NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (Kafka, error)` | Create the bare client, with TLS, SASL, producers and consumer as configured |
+| `(*KafkaService).Client() Kafka` | The wrapped client |
+| `(*KafkaService).Name() string` | `"kafka-service"` |
+| `(*KafkaService).Start(ctx) error` | Ping the brokers |
+| `(*KafkaService).Stop(ctx) error` | Close the client (errors are logged, not returned) |
+| `(*KafkaService).Health(ctx) error` | Ping the brokers |
 
-## Kafka Interface -- Producer
-
-| Method | Description |
-|---|---|
-| `SendMessage(ctx, msg) (partition, offset, error)` | Send a message synchronously and wait for ack |
-| `SendMessages(ctx, msgs) error` | Send multiple messages synchronously |
-| `SendAsync(ctx, msg) error` | Send a message asynchronously (non-blocking) |
-| `SendBatch(ctx, msgs) error` | Send a batch asynchronously |
-
-## Kafka Interface -- Consumer
+## Kafka Interface: Producer
 
 | Method | Description |
 |---|---|
-| `Consume(ctx, topic, handler) error` | Start consuming a topic with a message handler |
-| `StopConsuming(topic) error` | Stop consuming a topic |
-| `ConsumePartition(ctx, topic, partition, offset, handler) error` | Consume a specific partition from an offset |
+| `SendMessage(topic string, key, value []byte) error` | Send through the sync producer and wait for the acknowledgement |
+| `SendMessageAsync(topic string, key, value []byte) error` | Queue on the async producer and return; delivery errors are only logged |
+| `SendMessages(messages []*ProducerMessage) error` | Send a batch through the sync producer (`Headers` and `Timestamp` are ignored) |
 
-## Kafka Interface -- Consumer Group
-
-| Method | Description |
-|---|---|
-| `JoinGroup(ctx, groupID, topics, handler) error` | Join a consumer group for the given topics |
-| `LeaveGroup(ctx) error` | Leave the current consumer group |
-
-## Kafka Interface -- Admin
+## Kafka Interface: Consumer
 
 | Method | Description |
 |---|---|
-| `CreateTopic(ctx, config) error` | Create a new topic |
-| `DeleteTopic(ctx, topic) error` | Delete a topic |
-| `ListTopics(ctx) ([]string, error)` | List all topic names |
-| `DescribeTopic(ctx, topic) (*TopicMetadata, error)` | Get topic metadata including partitions |
+| `Consume(ctx context.Context, topics []string, handler MessageHandler) error` | Read every partition of each topic from the newest offset |
+| `ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error` | Read one partition from `offset` |
+| `StopConsume() error` | Cancel the readers started by the last `Consume` call |
 
-## Kafka Interface -- Lifecycle
+## Kafka Interface: Consumer Group
 
 | Method | Description |
 |---|---|
-| `Ping(ctx) error` | Verify broker connectivity |
-| `Close() error` | Close all producers, consumers, and connections |
-| `Stats() ClientStats` | Get client statistics |
+| `JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error` | Join `groupID` and run its consume loop in the background |
+| `LeaveConsumerGroup(ctx context.Context) error` | Close the current group |
+
+## Kafka Interface: Admin
+
+| Method | Description |
+|---|---|
+| `CreateTopic(topic string, config TopicConfig) error` | Create a topic |
+| `DeleteTopic(topic string) error` | Delete a topic |
+| `ListTopics() ([]string, error)` | Topic names the client knows about |
+| `DescribeTopic(topic string) (*TopicMetadata, error)` | Partitions with leader and replicas |
+| `GetPartitions(topic string) ([]int32, error)` | Partition IDs |
+| `GetOffset(topic string, partition int32, time int64) (int64, error)` | Offset at a time, or `sarama.OffsetNewest` / `sarama.OffsetOldest` |
+
+## Kafka Interface: Sarama Access and Lifecycle
+
+| Method | Description |
+|---|---|
+| `GetProducer() sarama.SyncProducer` | The sync producer, `nil` when the producer is off |
+| `GetAsyncProducer() sarama.AsyncProducer` | The async producer, `nil` when the producer is off |
+| `GetConsumer() sarama.Consumer` | The partition consumer, `nil` when the consumer is off |
+| `GetConsumerGroup() sarama.ConsumerGroup` | The group you joined, or `nil` |
+| `GetClient() sarama.Client` | The Sarama client |
+| `GetStats() ClientStats` | Running counters for the client |
+| `Ping(ctx context.Context) error` | Fail if the client is closed or can't list topics |
+| `Close() error` | Close producers, consumer, group and client |
+
+## Config Methods
+
+| Method | Description |
+|---|---|
+| `(*Config).Validate() error` | The checks the extension runs at registration |
+| `(*Config).ToSaramaConfig() (*sarama.Config, error)` | The Sarama config, without TLS or SASL (the client adds those) |
 
 ## Key Types
 
 ### `ProducerMessage`
 
-| Field | Type | Purpose |
+| Field | Type | Notes |
 |---|---|---|
 | `Topic` | `string` | Target topic |
-| `Key` | `[]byte` | Message key (for partitioning) |
-| `Value` | `[]byte` | Message payload |
-| `Headers` | `[]MessageHeader` | Message headers |
-| `Partition` | `int32` | Target partition (-1 for auto) |
-| `Timestamp` | `time.Time` | Message timestamp |
+| `Key` | `[]byte` | Partitioning key |
+| `Value` | `[]byte` | Payload |
+| `Headers` | `[]MessageHeader` | Ignored by `SendMessages` |
+| `Partition` | `int32` | Copied, then overwritten by the hash partitioner |
+| `Offset` | `int64` | Not used when sending |
+| `Timestamp` | `time.Time` | Ignored by `SendMessages` |
+
+`MessageHeader` has `Key string` and `Value []byte`.
 
 ### `TopicConfig`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Name` | `string` | Topic name |
 | `NumPartitions` | `int32` | Number of partitions |
 | `ReplicationFactor` | `int16` | Replication factor |
-| `ConfigEntries` | `map[string]*string` | Topic config overrides |
+| `ConfigEntries` | `map[string]*string` | Topic settings such as `retention.ms` |
+
+### `TopicMetadata` and `PartitionMetadata`
+
+`TopicMetadata` has `Name`, `Partitions []PartitionMetadata` and `Config map[string]string` (always empty today). `PartitionMetadata` has `ID`, `Leader`, `Replicas` and `Isr` (always empty today).
+
+### `ClientStats`
+
+`Connected`, `ConnectTime`, `MessagesSent`, `MessagesReceived`, `BytesSent`, `BytesReceived`, `Errors`, `LastError`, `LastErrorTime`, `ActiveConsumers`, `ActiveProducers`.
+
+### Handlers
+
+| Type | Definition |
+|---|---|
+| `MessageHandler` | `func(message *sarama.ConsumerMessage) error` |
+| `ConsumerGroupHandler` | Interface with `Setup`, `Cleanup` and `ConsumeClaim`, the same as Sarama's |
+
+### SCRAM
+
+`XDGSCRAMClient` implements `sarama.SCRAMClient` over `github.com/xdg-go/scram`, with the hash generators `SHA256` and `SHA512`. The client wires it up for you when `sasl_mechanism` is a SCRAM one.

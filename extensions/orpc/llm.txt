@@ -2,100 +2,137 @@
 
 ## Purpose
 
-oRPC (OpenAPI-based RPC) transport protocol implementation providing RPC-style APIs with OpenAPI compatibility, type-safe clients, and automatic code generation.
+Exposes a Forge app's HTTP routes as JSON-RPC 2.0 methods on one endpoint (`POST /rpc`), with
+batch requests, a method list, and a generated OpenRPC 1.3.2 document. Calling a method builds
+an HTTP request for the route and runs the real handler through the router.
 
-## Key Components
+Despite the name, this is not the TypeScript oRPC wire protocol. It's JSON-RPC 2.0 plus OpenRPC.
+SPEC_COMPLIANCE.md lists where it deviates from both specs.
 
-- **oRPC Server**: RPC endpoint handler
-- **OpenAPI Integration**: Full OpenAPI 3.x compatibility
-- **Type Safety**: Compile-time type checking
-- **Code Generation**: Automatic client generation
-- **Streaming**: Bidirectional streaming support
+Module: github.com/xraph/forge/extensions/orpc (package `orpc`).
 
-## Architecture
+## Constructors and options
 
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
+func NewORPCService(config Config, logger forge.Logger, metrics forge.Metrics) (*ORPCService, error)
+func NewORPCServer(config Config, logger forge.Logger, metrics forge.Metrics) ORPC
+
+type ConfigOption func(*Config)
+WithEnabled(enabled bool)
+WithEndpoint(endpoint string)                 // "/rpc"; methods list at <endpoint>/methods
+WithOpenRPCEndpoint(endpoint string)          // "/rpc/schema"
+WithServerInfo(name, version string)          // "forge-app", "1.0.0"
+WithAutoExposeRoutes(enabled bool)            // true
+WithMethodPrefix(prefix string)
+WithExcludePatterns(patterns []string)        // ["/_/*"]
+WithIncludePatterns(patterns []string)
+WithNamingStrategy(strategy string)           // "path", "method", "custom" (custom acts like path)
+WithOpenRPC(enabled bool)
+WithDiscovery(enabled bool)
+WithBatch(enabled bool)
+WithBatchLimit(limit int)                     // 10
+WithMaxRequestSize(size int64)                // 1048576, at least 1024
+WithMetrics(enabled bool)
+WithAuth(header string, tokens []string)      // stored, not applied
+WithRateLimit(perMinute int)                  // stored, not applied
+WithRequestTimeout(seconds int)               // stored, not applied
+WithSchemaCache(enabled bool)                 // stored, not applied
+WithRequireConfig(required bool)
+WithConfig(cfg Config)
 ```
-oRPC Extension
-├── Server
-│   ├── RPC Handlers
-│   └── Request/Response
-├── OpenAPI Schema
-│   └── Automatic Generation
-├── Type System
-│   └── Type Validation
-└── Client Generation
-    └── TypeScript/Go Clients
-```
 
-## Public API
+## What the container holds
 
-### Core Types
+`*orpc.ORPCService` by type and under the alias `orpc` (ServiceKey). It implements the ORPC
+methods and `Server() ORPC`.
 
 ```go
 type ORPC interface {
-    RegisterProcedure(name string, handler ProcedureHandler) error
-    Call(ctx context.Context, procedure string, input interface{}) (interface{}, error)
+    RegisterMethod(method *Method) error
+    GetMethod(name string) (*Method, error)
+    ListMethods() []Method
+    GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error)
+    HandleRequest(ctx context.Context, req *Request) *Response
+    HandleBatch(ctx context.Context, requests []*Request) []*Response
+    OpenRPCDocument() *OpenRPCDocument
+    Use(interceptor Interceptor)
+    GetStats() ServerStats
+    SetRouter(router forge.Router)
 }
-
-type ProcedureHandler func(ctx context.Context, input interface{}) (interface{}, error)
+type Interceptor func(ctx context.Context, req *Request, next MethodHandler) (any, error)
+type MethodHandler func(ctx any, params any) (any, error)
+type Method struct {
+    Name, Description string; Params *ParamsSchema; Result *ResultSchema
+    Handler MethodHandler; RouteInfo any; Tags []string; Deprecated bool; Metadata map[string]any
+}
 ```
 
-### Main Functions/Methods
+Add your own methods or interceptors from a `forge.PhaseAfterStart` hook:
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get oRPC service
-func GetORPC(c forge.Container) (ORPC, error)
-
-// Register procedure
-orpc.RegisterProcedure("createUser", createUserHandler)
-
-// Call procedure
-result, _ := orpc.Call(ctx, "createUser", userInput)
-```
-
-## Usage Examples
-
-### Basic oRPC Server
-
-```go
-import "github.com/xraph/forge/extensions/orpc"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        orpc.NewExtension(orpc.Config{
-            Endpoint: "/orpc",
-        }),
-    },
+svc, err := forge.Inject[*orpc.ORPCService](a.Container())
+svc.Use(func(ctx context.Context, req *orpc.Request, next orpc.MethodHandler) (any, error) {
+    return next(ctx, req.Params)
 })
-
-// Register procedure
-orpcSvc, _ := orpc.GetORPC(app.Container())
-orpcSvc.RegisterProcedure("getUser", func(ctx context.Context, input interface{}) (interface{}, error) {
-    id := input.(map[string]interface{})["id"].(string)
-    return getUserFromDB(ctx, id)
-})
+err = svc.RegisterMethod(&orpc.Method{Name: "system.ping",
+    Handler: func(ctx any, params any) (any, error) { return map[string]string{"pong": "ok"}, nil }})
 ```
 
-## Configuration
+## Wire types (types.go)
 
-```yaml
-extensions:
-  orpc:
-    endpoint: /orpc
-    enable_docs: true
-```
+Request{JSONRPC, Method string; Params json.RawMessage; ID any}, Response{JSONRPC; Result any;
+Error *Error; ID any}, Error{Code int; Message string; Data any}. Helpers NewErrorResponse,
+NewErrorResponseWithData, NewSuccessResponse, (*Request).IsNotification, GetErrorMessage(code).
+Codes: ErrParseError -32700, ErrInvalidRequest -32600, ErrMethodNotFound -32601,
+ErrInvalidParams -32602, ErrInternalError -32603, ErrServerError -32000. Go sentinel errors:
+ErrMethodExists, ErrMethodNotFoundError, ErrInvalidMethodName, ErrDisabled, ErrBatchDisabled,
+ErrBatchTooLarge, ErrRequestTooLarge. OpenRPC types: OpenRPCDocument, OpenRPCInfo,
+OpenRPCMethod, OpenRPCParam, OpenRPCResult, OpenRPCError, OpenRPCTag, OpenRPCServer, ...;
+schema types ParamsSchema, ResultSchema, PropertySchema.
 
-## Notes
+## Routes and method names
 
-### Production Readiness
-- ✅ oRPC protocol
-- ✅ OpenAPI compatibility
-- ✅ Type safety
-- ✅ Client generation
+Endpoints: POST /rpc (single or batch), GET /rpc/methods (WithDiscovery), GET /rpc/schema
+(WithOpenRPC). Routes are read when the extension starts, so register them before app.Run.
 
-### License
-MIT License - Part of Forge Framework
+Default naming (`path`): verb word (POST create, GET get, PUT update, PATCH patch, DELETE delete)
+plus the path with slashes as dots, parameter markers dropped and hyphens as underscores:
+`GET /users/:id` is `get.users.id`. `method` strategy uses the route name (forge.WithName).
+MethodPrefix is prepended to every name, including custom ones.
 
+Route options read by the extension: forge.WithORPCMethod(name), forge.WithORPCExclude(),
+forge.WithORPCParams(schema), forge.WithORPCResult(schema), forge.WithORPCPrimaryResponse(code),
+plus forge.WithSummary (description) and forge.WithTags (tags). forge.WithORPCTags sets
+`orpc.tags` metadata that the extension never reads.
+
+Calling: params is an object; path params are top-level keys, the body goes under `body`, query
+values under `query`. Status >= 400 from the route becomes -32603 `route returned status <code>`.
+A non-JSON response comes back as {"status": ..., "body": ...}. JSON-RPC responses always use
+HTTP 200.
+
+## Config
+
+Key `extensions.orpc`, falling back to `orpc`. Options override the file. YAML keys: enabled,
+endpoint, openrpc_endpoint, server_name, server_version, auto_expose_routes, method_prefix,
+exclude_patterns, include_patterns, naming_strategy, enable_openrpc, enable_discovery,
+enable_batch, batch_limit, max_request_size, enable_metrics, plus the unused require_auth,
+auth_header, auth_tokens, rate_limit_per_minute, request_timeout, schema_cache.
+
+Metrics: `orpc_requests_total` (labels status, method), gauge `orpc_methods_total`.
+
+## Gotchas
+
+- Headers on the original POST /rpc (Authorization, cookies, tracing) are not copied to the
+  request the route sees, so routes that read the caller's identity get nothing over JSON-RPC.
+- Notifications (no id) still get a response, and one bad element rejects a whole batch. See
+  SPEC_COMPLIANCE.md.
+- Pattern matching uses filepath.Match; a trailing `/*` matches anything under the prefix.
+
+## Not implemented yet
+
+- Auth, rate limiting, request timeout and schema cache settings are stored and validated but
+  not applied. Put middleware or the auth extension in front of the endpoint.
+- `custom` naming strategy (behaves like `path`).

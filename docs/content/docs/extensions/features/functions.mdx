@@ -3,65 +3,76 @@ title: Functions
 description: Public API reference for the Feature Flags extension
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the features extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | The extension, with options applied over `DefaultConfig()` |
+| `NewExtensionWithConfig(config Config) forge.Extension` | The extension with a complete config |
+| `DefaultConfig() Config` | The defaults |
 
-## DI Helpers
+The options are listed on the [Configuration](/docs/extensions/features/configuration#options) page.
+
+## DI helpers
 
 | Function | Description |
 |---|---|
-| `Get(c forge.Container) (*Service, error)` | Resolve the features service from the container |
-| `MustGet(c forge.Container) *Service` | Same but panics on error |
-| `GetFromApp(app forge.App) (*Service, error)` | Resolve from an app instance |
-| `MustGetFromApp(app forge.App) *Service` | Same but panics on error |
+| `Get(container forge.Container) (*Service, error)` | Resolve the service |
+| `MustGet(container forge.Container) *Service` | Same, panics on error |
+| `GetFromApp(app forge.App) (*Service, error)` | Resolve from an app |
+| `MustGetFromApp(app forge.App) *Service` | Same, panics on error |
 
-## Service -- Flag Evaluation
+## Service: flag evaluation
 
 | Method | Description |
 |---|---|
-| `IsEnabled(ctx, flag) bool` | Check if a boolean flag is enabled |
-| `IsEnabledWithDefault(ctx, flag, default) bool` | Check with a fallback default |
-| `GetString(ctx, flag, default) string` | Get a string flag value |
-| `GetInt(ctx, flag, default) int` | Get an integer flag value |
-| `GetFloat(ctx, flag, default) float64` | Get a float flag value |
-| `GetJSON(ctx, flag, target) error` | Deserialize a JSON flag value into target |
-| `GetAllFlags(ctx) (map[string]any, error)` | Get all flag values |
-| `Refresh(ctx) error` | Force a flag refresh from the provider |
+| `IsEnabled(ctx, flagKey string, userCtx *UserContext) bool` | A boolean flag, `false` when undefined |
+| `IsEnabledWithDefault(ctx, flagKey string, userCtx *UserContext, defaultValue bool) bool` | A boolean flag with your fallback |
+| `GetString(ctx, flagKey string, userCtx *UserContext, defaultValue string) string` | A string flag |
+| `GetInt(ctx, flagKey string, userCtx *UserContext, defaultValue int) int` | An `int` flag |
+| `GetFloat(ctx, flagKey string, userCtx *UserContext, defaultValue float64) float64` | A `float64` flag |
+| `GetJSON(ctx, flagKey string, userCtx *UserContext, defaultValue any) any` | Any value, returned as stored |
+| `GetAllFlags(ctx, userCtx *UserContext) (map[string]any, error)` | Every defined flag, evaluated for the user |
+| `Refresh(ctx) error` | Call the provider's `Refresh` once (a no-op for `local`) |
+| `Health(ctx) error` | The provider's health |
+
+The service also has `Name`, `Start` and `Stop`, which the container calls for you.
 
 ## UserContext
 
-Build a user context for targeted flag evaluation:
-
 | Function | Description |
 |---|---|
-| `NewUserContext(userID) *UserContext` | Create a user context |
-| `uc.WithEmail(email) *UserContext` | Set user email |
-| `uc.WithName(name) *UserContext` | Set user name |
-| `uc.WithGroups(groups...) *UserContext` | Set user groups |
-| `uc.WithAttribute(key, value) *UserContext` | Set a custom attribute |
-| `uc.WithIP(ip) *UserContext` | Set user IP address |
-| `uc.WithCountry(country) *UserContext` | Set user country |
-| `uc.HasGroup(group) bool` | Check group membership |
-| `uc.GetAttribute(key) (any, error)` | Get an attribute value |
-| `uc.GetAttributeString(key) (string, error)` | Get an attribute as string |
+| `NewUserContext(userID string) *UserContext` | A user context with an ID |
+| `uc.WithEmail(email string) *UserContext` | Set the email |
+| `uc.WithName(name string) *UserContext` | Set the name |
+| `uc.WithGroups(groups []string) *UserContext` | Set the groups |
+| `uc.WithAttribute(key string, value any) *UserContext` | Set a custom attribute |
+| `uc.WithIP(ip string) *UserContext` | Set the IP address |
+| `uc.WithCountry(country string) *UserContext` | Set the country |
+| `uc.HasGroup(group string) bool` | Group membership |
+| `uc.GetAttribute(key string) (any, bool)` | A custom attribute |
+| `uc.GetAttributeString(key string) (string, error)` | A custom attribute as a string, or an error when it's missing or not a string |
 
-## Provider Interface
+## Provider interface
+
+Implement `features.Provider` to build your own provider. The extension can't take one yet (it only builds providers by name), but you can pass it to `NewService(config, provider, logger)` yourself.
 
 | Method | Description |
 |---|---|
-| `Name() string` | Provider identifier |
-| `Initialize(ctx, config) error` | Initialize the provider |
-| `IsEnabled(ctx, flag, userCtx) bool` | Evaluate a boolean flag |
-| `GetString(ctx, flag, default, userCtx) string` | Get string value |
-| `GetInt(ctx, flag, default, userCtx) int` | Get integer value |
-| `GetFloat(ctx, flag, default, userCtx) float64` | Get float value |
-| `GetJSON(ctx, flag, target, userCtx) error` | Get JSON value |
-| `GetAllFlags(ctx) (map[string]any, error)` | Get all flags |
-| `Refresh(ctx) error` | Refresh from upstream |
-| `Close() error` | Close the provider |
+| `Name() string` | Provider name |
+| `Initialize(ctx) error` | Called by the service's `Start` |
+| `IsEnabled(ctx, flagKey, userCtx, defaultValue bool) (bool, error)` | Evaluate a boolean flag |
+| `GetString(ctx, flagKey, userCtx, defaultValue string) (string, error)` | String value |
+| `GetInt(ctx, flagKey, userCtx, defaultValue int) (int, error)` | Integer value |
+| `GetFloat(ctx, flagKey, userCtx, defaultValue float64) (float64, error)` | Float value |
+| `GetJSON(ctx, flagKey, userCtx, defaultValue any) (any, error)` | Any value |
+| `GetAllFlags(ctx, userCtx) (map[string]any, error)` | Every flag |
+| `Refresh(ctx) error` | Reload from the source |
+| `Close() error` | Release resources |
 | `Health(ctx) error` | Health check |
+
+`NewLocalProvider(config LocalProviderConfig, defaults map[string]any) Provider` builds the local provider. `NewLaunchDarklyProvider`, `NewUnleashProvider`, `NewFlagsmithProvider` and `NewPostHogProvider` exist but always return an error.
+
+## Unused types
+
+`FlagValue`, `EvaluationResult` and `FlagEvaluationEvent` are exported, but nothing in the extension produces or consumes them.

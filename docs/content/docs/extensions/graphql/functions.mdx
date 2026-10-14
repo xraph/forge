@@ -1,61 +1,115 @@
 ---
 title: Functions
-description: Public API reference for the GraphQL extension
+description: Exported functions, interfaces and types of the GraphQL extension
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the GraphQL extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the GraphQL extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Creates the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the configuration page |
+| `(*Config) Validate() error` | The checks `Register` runs |
 
-## GraphQL Interface -- Schema
+The option helpers are listed on the [configuration page](/docs/extensions/graphql/configuration#option-helpers).
 
-| Method | Description |
-|---|---|
-| `RegisterQuery(name, resolver, config) error` | Register a query field resolver |
-| `RegisterMutation(name, resolver, config) error` | Register a mutation field resolver |
-| `RegisterSubscription(name, resolver, config) error` | Register a subscription resolver |
-| `RegisterType(name, definition) error` | Register a custom type definition |
-| `GetSchema() *GraphQLSchema` | Get the current schema |
+## Service
 
-## GraphQL Interface -- Execution
+`NewGraphQLService(config Config, container forge.Container, logger forge.Logger, metrics forge.Metrics) (*GraphQLService, error)` is the constructor the extension registers. You resolve the result with `forge.Inject[*graphql.GraphQLService]`.
 
 | Method | Description |
 |---|---|
-| `Execute(ctx, request) (*Response, error)` | Execute a GraphQL request |
-| `Use(middleware...)` | Add executor middleware |
+| `Server() GraphQL` | The underlying server |
+| `Start(ctx) error`, `Stop(ctx) error` | Log a line and return `nil` |
+| `Health(ctx) error` | Calls `Ping` |
+| `Name() string` | `graphql-service` |
 
-## GraphQL Interface -- Lifecycle
+`*GraphQLService` also forwards every `GraphQL` method except `EnableIntrospection` to the server.
 
-| Method | Description |
+## GraphQL interface
+
+| Method | What it does today |
 |---|---|
-| `Start(ctx) error` | Initialize the GraphQL server |
-| `Stop(ctx) error` | Shut down the server |
-| `Health(ctx) error` | Check server health |
+| `HTTPHandler() http.Handler` | The gqlgen `handler.Server` the routes call |
+| `PlaygroundHandler() http.Handler` | The playground page, pointed at `endpoint` |
+| `GenerateSchema() (string, error)` | A short SDL listing of the built-in `Query` and `Mutation` fields |
+| `GetSchema() *GraphQLSchema` | The built-in schema's query, mutation and subscription fields |
+| `Ping(ctx) error` | Always `nil` |
+| `RegisterType(name string, obj any) error` | Logs a debug line, returns `nil`. Not implemented |
+| `RegisterQuery(name string, resolver FieldResolverFunc) error` | Logs a debug line, returns `nil`. Not implemented |
+| `RegisterMutation(name string, resolver FieldResolverFunc) error` | Logs a debug line, returns `nil`. Not implemented |
+| `RegisterSubscription(name string, resolver SubscriptionResolverFunc) error` | Logs a debug line, returns `nil`. Not implemented |
+| `ExecuteQuery(ctx, query string, variables map[string]any) (*Response, error)` | Returns a `Response` with a "not yet implemented" error. Not implemented |
+| `Use(middleware Middleware)` | Logs a debug line. Not implemented |
+| `EnableIntrospection(enable bool)` | Changes a stored field and logs a warning. Has no effect |
 
-## GraphQL Interface -- Stats
+`NewGraphQLServer(config Config, logger forge.Logger, metrics forge.Metrics, container forge.Container) (GraphQL, error)` builds the server on its own, without the service wrapper.
 
-| Method | Description |
+## Function types
+
+| Type | Signature |
 |---|---|
-| `Stats() ServerStats` | Get server statistics |
+| `FieldResolverFunc` | `func(ctx context.Context, args map[string]any) (any, error)` |
+| `SubscriptionResolverFunc` | `func(ctx context.Context, args map[string]any) (<-chan any, error)` |
+| `ExecutorFunc` | `func(ctx context.Context, req *Request) (*Response, error)` |
+| `Middleware` | `func(next ExecutorFunc) ExecutorFunc` |
 
-## Key Types
+Nothing calls values of these types yet.
+
+## Key types
 
 ### `Request`
 
-| Field | Type | Purpose |
-|---|---|---|
-| `Query` | `string` | GraphQL query string |
-| `OperationName` | `string` | Operation name for multi-operation documents |
-| `Variables` | `map[string]any` | Query variables |
+| Field | Type |
+|---|---|
+| `Query` | `string` |
+| `OperationName` | `string` |
+| `Variables` | `map[string]any` |
 
 ### `Response`
 
-| Field | Type | Purpose |
-|---|---|---|
-| `Data` | `any` | Query result data |
-| `Errors` | `[]Error` | Execution errors |
-| `Extensions` | `map[string]any` | Response extensions (timing, tracing) |
+| Field | Type |
+|---|---|
+| `Data` | `any` |
+| `Errors` | `[]Error` |
+| `Extensions` | `map[string]any` |
+
+`Error` has `Message`, `Path []any`, `Locations []Location` and `Extensions`. `Location` has `Line` and `Column`.
+
+### `GraphQLSchema`
+
+`Types map[string]*TypeDefinition`, `Queries`, `Mutations` and `Subscriptions` (each `map[string]*FieldDefinition`), and `Directives []*GraphQLDirective`. A `FieldDefinition` has `Name`, `Description`, `Type`, `Args`, `Resolver`, `Deprecated` and `DeprecationReason`.
+
+### Others
+
+| Type | What it is |
+|---|---|
+| `DataLoader` | Interface with `Load`, `LoadMany`, `Prime`, `Clear` and `ClearAll`. `*dataloader.Loader` has the same methods |
+| `FieldResolver` | Interface with `Resolve(ctx, source any, args map[string]any) (any, error)` |
+| `FederationConfig` | `Enabled bool` and `Version int`, from `DefaultFederationConfig()` (`false`, `2`). Not read anywhere |
+| `Resolver` | gqlgen's root resolver for the built-in schema, from `NewResolver(container, logger, metrics, config)` |
+
+`ServiceKey` is the container name of the service, `"graphql"`.
+
+## dataloader package
+
+`github.com/xraph/forge/extensions/graphql/dataloader`
+
+| Symbol | Description |
+|---|---|
+| `NewLoader(config LoaderConfig, batchFunc BatchFunc) *Loader` | Creates a loader |
+| `DefaultLoaderConfig() LoaderConfig` | `Wait: 10ms`, `MaxBatch: 100` |
+| `BatchFunc` | `func(ctx context.Context, keys []any) ([]any, []error)`, one value and one error per key, in order |
+| `(*Loader) Load(ctx, key any) (any, error)` | Loads one key, batched with concurrent calls and cached |
+| `(*Loader) LoadMany(ctx, keys []any) ([]any, error)` | Calls `Load` for each key in turn, so it doesn't batch |
+| `(*Loader) Prime(key, value any)` | Puts a value in the cache |
+| `(*Loader) Clear(key any)`, `(*Loader) ClearAll()` | Drop cached values |
+
+## directives package
+
+`directives.Auth(ctx, obj any, next graphql.Resolver, requires *string) (any, error)` checks `ctx.Value("user")` and the `[]string` under `ctx.Value("roles")`. The server doesn't use it.
+
+## Errors
+
+`ErrNotInitialized`, `ErrInvalidQuery`, `ErrInvalidSchema`, `ErrTypeNotFound`, `ErrResolverNotFound`, `ErrExecutionFailed`, `ErrComplexityExceeded`, `ErrDepthExceeded`, `ErrTimeout` and `ErrInvalidConfig`. The server doesn't return them today. See the [features page](/docs/extensions/graphql/features#sentinel-errors).

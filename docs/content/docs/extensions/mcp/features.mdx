@@ -1,220 +1,183 @@
 ---
 title: Features
-description: MCP extension capabilities
+description: What the MCP extension does with your routes, resources and prompts, and what it doesn't do yet
 ---
 
-## MCP Protocol Server
+import { Callout } from 'fumadocs-ui/components/callout';
 
-Implements the Model Context Protocol for AI agent integration. AI assistants can discover and use your application's API through three capability types: **Tools**, **Resources**, and **Prompts**.
+## Tools From Routes
 
-## Tools
+With `AutoExposeRoutes` on (the default), the extension walks the router when it starts and turns each route into a `*mcp.Tool`:
 
-Tools represent actions the AI can invoke. Each tool has a name, description, and JSON Schema for inputs:
+| Route | Tool name |
+|---|---|
+| `POST /users` | `create_users` |
+| `GET /users/:id` | `get_users_id` |
+| `PUT /users/{id}` | `update_users_id` |
+| `PATCH /users/:id` | `patch_users_id` |
+| `DELETE /users/:id` | `delete_users_id` |
+| `GET /` | `get` |
+
+Any other verb is lowercased (`OPTIONS` becomes `options`). `WithToolPrefix("shop_")` turns `get_users_id` into `shop_get_users_id`. If two routes produce the same name, the later one overwrites the earlier one and a warning is logged.
+
+The description is the route's `forge.WithSummary` text, or `"<METHOD> <path>"` when there isn't one. The input schema is always an object with:
+
+- one required `string` property per path parameter (`:id` or `{id}`)
+- a `body` object, for POST, PUT and PATCH only
+- an optional `query` object that accepts any keys
+
+The schema doesn't read your OpenAPI request types, so `body` is a bare object.
+
+A name longer than `MaxToolNameLength` (64 by default) is rejected by `RegisterTool`, and the extension logs a warning and skips that route.
+
+## Choosing Which Routes Become Tools
 
 ```go
-server.RegisterTool(&mcp.Tool{
-    Name:        "create_user",
-    Description: "Create a new user account",
-    InputSchema: mcp.JSONSchema{
-        Type: "object",
-        Properties: map[string]mcp.JSONSchema{
-            "name":  {Type: "string", Description: "User's full name"},
-            "email": {Type: "string", Description: "Email address", Format: "email"},
-            "role":  {Type: "string", Description: "User role", Enum: []any{"admin", "user", "viewer"}},
-        },
-        Required: []string{"name", "email"},
-    },
-})
-```
-
-Tools can be auto-generated from Forge routes or registered manually. Each tool's execution is logged and optionally metered.
-
-## Auto-Expose Routes as Tools
-
-Forge HTTP routes are automatically converted to MCP tools with generated JSON Schema inputs. Each route's path params, query params, and body are mapped to tool arguments:
-
-```go
-// POST /users -> tool: create_users
-// GET /users/:id -> tool: get_users (with "id" parameter)
-// PUT /users/:id -> tool: update_users
-// DELETE /users/:id -> tool: delete_users
-
 mcp.NewExtension(
-    mcp.WithAutoExposeRoutes(true),
-    mcp.WithToolPrefix("myapp_"),                // prefix all tool names
-    mcp.WithExcludePatterns("/_/*", "/internal/*"),
+	mcp.WithIncludePatterns([]string{"/api/*"}),
+	mcp.WithExcludePatterns([]string{"/_/*", "/api/internal/*"}),
 )
 ```
 
-Tool naming uses underscores (e.g. `POST /api/users` becomes `create_api_users`).
+A pattern is either an exact path or a prefix ending in `/*`. Exclude patterns are checked first. If you set include patterns, a route has to match one of them. Routes under the MCP base path are always skipped. Nothing is excluded by default, so add `/_/*` if you don't want Forge's health and metrics routes listed.
+
+## Calling Tools
+
+<Callout type="warn">
+Tool calls don't reach your handlers yet. Plan around this before you rely on the extension.
+</Callout>
+
+`POST /_/mcp/tools/get_orders_id` with this body:
+
+```json
+{"name": "get_orders_id", "arguments": {"id": "42", "query": {"expand": "items"}}}
+```
+
+substitutes the path parameters, adds the query in sorted key order and answers:
+
+```json
+{"content": [{"type": "text", "text": "Tool executed: GET /orders/42?expand=items"}]}
+```
+
+If `arguments` has a `body`, its JSON is appended as ` (body: {...})`. That's all `Server.ExecuteTool` does. It builds an `*http.Request` and never sends it, so your route doesn't run.
+
+An unknown tool name returns HTTP 404 with `{"error": "mcp: tool not found: ..."}`. A tool you registered by hand with `Server().RegisterTool` has no route behind it, so calling it returns HTTP 500 with `isError: true` and the text `Tool execution failed: mcp: no route found for tool ...`. Hand-registered tools show up in the list but can't be called.
+
+Each call increments `mcp_tool_calls_total` with a `status` label of `success` or `error`.
+
+## Transport
+
+Every endpoint is plain JSON over HTTP. There's no JSON-RPC 2.0 envelope, no `initialize` handshake, no session, and no stdio or Streamable HTTP transport. An MCP client that speaks the protocol (Claude Desktop, an IDE agent) can't use these endpoints as they are. You'd need a small adapter that speaks MCP on one side and calls these endpoints on the other.
 
 ## Resources
 
-Resources represent data the AI can read (files, database records, configuration, etc.):
+Resources are data you publish for a model to read. They aren't generated from routes. Turn them on with `WithResources(true)`, then register each one and, optionally, a reader:
 
 ```go
-// Register a resource
-server.RegisterResource(&mcp.Resource{
-    URI:         "db://users/recent",
-    Name:        "Recent Users",
-    Description: "List of recently registered users",
-    MimeType:    "application/json",
-})
+srv := svc.Server()
 
-// Register the reader function
-server.RegisterResourceReader("db://users/recent",
-    func(ctx context.Context, resource *mcp.Resource) (mcp.Content, error) {
-        users := getRecentUsers(ctx)
-        data, _ := json.Marshal(users)
-        return mcp.Content{
-            Type:     "text",
-            Text:     string(data),
-            MimeType: "application/json",
-        }, nil
-    },
-)
+if err := srv.RegisterResource(&mcp.Resource{
+	URI:         "db://users/recent",
+	Name:        "Recent users",
+	Description: "Users who signed up in the last day",
+	MimeType:    "application/json",
+}); err != nil {
+	return err
+}
+
+err := srv.RegisterResourceReader("db://users/recent",
+	func(ctx context.Context, r *mcp.Resource) (mcp.Content, error) {
+		data, err := json.Marshal(recentUsers(ctx))
+		if err != nil {
+			return mcp.Content{}, err
+		}
+
+		return mcp.Content{Type: "text", MimeType: r.MimeType, Text: string(data)}, nil
+	})
 ```
 
-Resources must be explicitly registered -- they are not auto-generated from routes.
+`POST /_/mcp/resources/read` with `{"uri":"db://users/recent"}` answers `{"contents": [...]}` with whatever your reader returns. A resource without a reader returns its name, URI and description as text. An unknown URI is a 404, and a reader error is a 500.
+
+The [overview](/docs/extensions/mcp#resources-and-prompts) shows where to put this code: a `forge.OnStarted` hook, once `*mcp.MCPService` can be resolved.
 
 ## Prompts
 
-Reusable prompt templates with typed arguments:
+Prompts are templates with named arguments. Turn them on with `WithPrompts(true)`:
 
 ```go
-// Register a prompt
-server.RegisterPrompt(&mcp.Prompt{
-    Name:        "debug_error",
-    Description: "Help debug an application error",
-    Arguments: []mcp.PromptArgument{
-        {Name: "error_message", Description: "The error message", Required: true},
-        {Name: "stack_trace", Description: "Stack trace if available", Required: false},
-        {Name: "context", Description: "What the user was doing", Required: false},
-    },
-})
+if err := srv.RegisterPrompt(&mcp.Prompt{
+	Name:        "debug_error",
+	Description: "Help debug an application error",
+	Arguments: []mcp.PromptArgument{
+		{Name: "error_message", Description: "The error message", Required: true},
+		{Name: "stack_trace", Description: "Stack trace, if you have one"},
+	},
+}); err != nil {
+	return err
+}
 
-// Register the generator function
-server.RegisterPromptGenerator("debug_error",
-    func(ctx context.Context, prompt *mcp.Prompt, args map[string]any) ([]mcp.PromptMessage, error) {
-        errMsg := args["error_message"].(string)
-        return []mcp.PromptMessage{
-            {Role: "system", Content: mcp.Content{
-                Type: "text",
-                Text: "You are a debugging assistant. Analyze the error and suggest fixes.",
-            }},
-            {Role: "user", Content: mcp.Content{
-                Type: "text",
-                Text: fmt.Sprintf("Error: %s\nStack: %v\nContext: %v",
-                    errMsg, args["stack_trace"], args["context"]),
-            }},
-        }, nil
-    },
-)
+err := srv.RegisterPromptGenerator("debug_error",
+	func(ctx context.Context, p *mcp.Prompt, args map[string]any) ([]mcp.PromptMessage, error) {
+		return []mcp.PromptMessage{{
+			Role: "user",
+			Content: []mcp.Content{{
+				Type: "text",
+				Text: fmt.Sprintf("Error: %v\nStack: %v", args["error_message"], args["stack_trace"]),
+			}},
+		}}, nil
+	})
 ```
 
-## Server Info Endpoint
+`POST /_/mcp/prompts/debug_error` with `{"arguments": {...}}` answers `{"description": "...", "messages": [...]}`. `Required` is only advertised; the extension doesn't check that required arguments are present. A prompt without a generator returns one user message with its name, its arguments in sorted order and its description.
 
-Reports server name, version, and enabled capabilities:
+## Server Info
 
-```go
-info := server.GetServerInfo()
-// ServerInfo{
-//     Name: "my-app",
-//     Version: "1.0.0",
-//     Capabilities: Capabilities{
-//         Tools:     &ToolsCapability{ListChanged: true},
-//         Resources: &ResourcesCapability{ListChanged: true},
-//         Prompts:   &PromptsCapability{ListChanged: true},
-//     },
-// }
+`GET /_/mcp/info` returns `Server.GetServerInfo()`. With resources and prompts turned on, it looks like this:
+
+```json
+{"name": "orders-api", "version": "1.0.0", "capabilities": {"tools": {}, "resources": {}, "prompts": {}}}
 ```
 
-## Capabilities Advertised
+`tools` is always there. `resources` and `prompts` appear only when you've turned them on. Every `listChanged` and `subscribe` flag is false, because the extension never sends change notifications.
 
-The server advertises which capabilities are available to AI clients:
+## Authentication and Rate Limiting
 
-| Capability | Config Field | Default | Endpoint |
-|---|---|---|---|
-| Tools | Always available | Enabled | `POST /_/mcp/tools`, `POST /_/mcp/tools/call` |
-| Resources | `EnableResources` | Disabled | `POST /_/mcp/resources`, `POST /_/mcp/resources/read` |
-| Prompts | `EnablePrompts` | Disabled | `POST /_/mcp/prompts`, `POST /_/mcp/prompts/get` |
+<Callout type="warn">
+Neither is applied to the MCP endpoints. Treat `/_/mcp` as public until you protect it yourself.
+</Callout>
 
-## Tool Name Generation
+`WithAuth(header, tokens)` sets `RequireAuth`, `AuthHeader` and `AuthTokens`, and validation fails if you turn auth on with no tokens. `WithRateLimit(n)` sets `RateLimitPerMinute`. The extension doesn't read any of them when it registers its routes.
 
-Routes are converted to tool names with configurable prefix and max length:
+The package exports the middleware, though:
 
-- Path separators become underscores: `/api/users/:id` -> `get_api_users`
-- HTTP method prefix: POST -> `create_`, GET -> `get_`, PUT -> `update_`, DELETE -> `delete_`
-- `ToolPrefix` prepends a namespace: `myapp_create_users`
-- `MaxToolNameLength` truncates names (default: 64 characters)
+- `mcp.AuthMiddleware(cfg, logger)` checks the configured header against `AuthTokens`, accepting a bare token or `Bearer <token>`, and answers 401 otherwise.
+- `mcp.RateLimitMiddleware(cfg, logger, metrics)` allows `RateLimitPerMinute` requests per client per minute (keyed by token when auth is on, else by `X-Forwarded-For` or the remote address), sets `X-Ratelimit-*` headers and answers 429 when the window is full.
 
-## Include/Exclude Patterns
+Both return a `forge.PureMiddleware`, which you can convert with `.ToMiddleware()`. Mind that `app.Router().Use(...)` puts a middleware on every route, not only the MCP ones, so the simpler route today is to put the base path behind your gateway's auth.
 
-Control which routes are exposed as tools:
+## Schema Cache and Stats
 
-```go
-mcp.NewExtension(
-    mcp.WithAutoExposeRoutes(true),
-    mcp.WithIncludePatterns("/api/*"),
-    mcp.WithExcludePatterns("/_/*", "/health", "/metrics"),
-)
-```
+`Server.CacheSchema(key, schema)` and `Server.GetCachedSchema(key)` store and fetch `*JSONSchema` values by key, and do nothing when `SchemaCache` is false. The extension itself never calls them, so tool generation isn't cached.
 
-## Authentication
+`Server.Clear()` empties the tools, resources, prompts and schema cache. `Server.Stats()` returns a map with `tools`, `resources` and `prompts` counts and the `enabled` flag.
 
-Optional header-based token authentication for MCP endpoints:
+## Metrics
 
-```go
-mcp.NewExtension(
-    mcp.WithAuth(true),
-    mcp.WithAuthHeader("X-MCP-Token"),
-    mcp.WithAuthTokens([]string{"secret-token-1", "secret-token-2"}),
-)
-```
+| Metric | Type | When |
+|---|---|---|
+| `mcp_tools_total` | gauge | every time a tool is registered |
+| `mcp_tool_calls_total{status}` | counter | every tool call, `success` or `error` |
+| `mcp_rate_limit_exceeded_total` | counter | when `RateLimitMiddleware` rejects a request (only if you wired it) |
 
-## Rate Limiting
+These are recorded whenever the app has a metrics backend. The `EnableMetrics` field doesn't turn them off.
 
-Configurable per-minute rate limiting for MCP requests:
+## Content
 
-```go
-mcp.NewExtension(
-    mcp.WithRateLimit(100), // 100 requests per minute
-)
-```
+`mcp.Content` is what readers, generators and tool calls return:
 
-## Schema Caching
-
-Cache generated JSON schemas to avoid regeneration overhead. Enabled by default. The cache includes methods for explicit management:
-
-```go
-server.CacheSchema("key", schema)
-cached := server.GetCachedSchema("key")
-server.Clear() // clear all cached schemas
-```
-
-## Server Statistics
-
-```go
-stats := server.Stats()
-// map[string]any{
-//     "tools": 15,
-//     "resources": 3,
-//     "prompts": 2,
-//     "cached_schemas": 15,
-// }
-```
-
-## Content Types
-
-MCP content supports multiple formats:
-
-```go
-// Text content
-mcp.Content{Type: "text", Text: "Hello, World!"}
-
-// Binary content (base64)
-mcp.Content{Type: "blob", Data: base64Data, MimeType: "image/png"}
-
-// JSON content
-mcp.Content{Type: "text", Text: jsonString, MimeType: "application/json"}
-```
+| Field | JSON | Use |
+|---|---|---|
+| `Type` | `type` | `"text"`, `"image"` or `"resource"` |
+| `Text` | `text` | Text content |
+| `Data` | `data` | Base64 data, for images |
+| `MimeType` | `mimeType` | Content type |

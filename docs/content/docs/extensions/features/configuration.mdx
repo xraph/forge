@@ -1,77 +1,82 @@
 ---
 title: Configuration
-description: Config reference, YAML example, and options for Feature Flags
+description: Options and config struct for the Feature Flags extension
 ---
 
-## YAML Configuration Example
+## Configure it in code
 
-```yaml title="config.yaml"
-extensions:
-  features:
-    enabled: true
-    provider: "local"                # "local", "launchdarkly", "unleash", "flagsmith", "posthog"
-    refreshInterval: "30s"
-    enableCache: true
-    cacheTTL: "5m"
-
-    defaultFlags:
-      new-dashboard: true
-      max-items: 100
-
-    local:
-      flags:
-        new-dashboard:
-          enabled: true
-          defaultValue: true
-        dark-mode:
-          enabled: false
-          defaultValue: false
-        max-items:
-          enabled: true
-          defaultValue: 50
-```
-
-The extension loads config from `extensions.features` first, falling back to `features`.
-
-## Programmatic Configuration
+The extension takes its settings only from the options you pass to `features.NewExtension`. It never calls `LoadConfig` and never reads `extensions.features` (or `features`) from your config file, even though `Config` carries `yaml` tags. A YAML section for it has no effect.
 
 ```go
 ext := features.NewExtension(
-    features.WithProvider("local"),
-    features.WithRefreshInterval(1 * time.Minute),
-    features.WithCache(true, 10*time.Minute),
-    features.WithDefaultFlags(map[string]any{
-        "new-dashboard": true,
-        "max-items":     100,
-    }),
+	features.WithLocalFlags(map[string]features.FlagConfig{
+		"new-dashboard": {Key: "new-dashboard", Type: "boolean", Enabled: true},
+		"max-items":     {Key: "max-items", Type: "number", Value: 50},
+	}),
+	features.WithDefaultFlags(map[string]any{
+		"theme": "light",
+	}),
+	features.WithRefreshInterval(time.Minute),
 )
 ```
 
-## Config Struct Reference
+If you want flags in a file, read the file yourself, build the `map[string]features.FlagConfig`, and pass it to `WithLocalFlags`.
+
+## Options
+
+| Option | Effect |
+|---|---|
+| `WithLocalFlags(flags map[string]FlagConfig)` | Sets the flag definitions and selects the `local` provider |
+| `WithDefaultFlags(flags map[string]any)` | Fallback values for keys with no flag definition |
+| `WithEnabled(enabled bool)` | `false` skips registration entirely, and `features.Get` then returns an error |
+| `WithProvider(provider string)` | Picks a provider by name. Only `local` works |
+| `WithRefreshInterval(interval time.Duration)` | How often the service calls the provider's `Refresh`. `0` turns the loop off |
+| `WithCache(enabled bool, ttl time.Duration)` | Sets `EnableCache` and `CacheTTL`, which nothing reads yet |
+| `WithLaunchDarkly(sdkKey string)` | Selects `launchdarkly`. Registration then fails |
+| `WithUnleash(url, apiToken, appName string)` | Selects `unleash`. Registration then fails |
+| `WithFlagsmith(apiURL, environmentKey string)` | Selects `flagsmith`. Registration then fails |
+| `WithPostHog(apiKey, host string)` | Selects `posthog`. Registration then fails |
+| `WithConfig(config Config)` | Replaces the whole config. `NewExtensionWithConfig(cfg)` does the same |
+
+Options apply in order over `DefaultConfig()`, so a later option wins.
+
+## `Config`
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable the extension |
-| `Provider` | `string` | `"local"` | Feature flag provider |
-| `RefreshInterval` | `time.Duration` | `30s` | Flag refresh interval |
-| `EnableCache` | `bool` | `true` | Enable flag value caching |
-| `CacheTTL` | `time.Duration` | `5m` | Cache TTL |
-| `DefaultFlags` | `map[string]any` | `{}` | Default flag values |
-| `Local.Flags` | `map[string]FlagConfig` | `{}` | Local flag definitions |
+| `Enabled` | `bool` | `true` | `false` registers nothing |
+| `Provider` | `string` | `"local"` | `local`, `launchdarkly`, `unleash`, `flagsmith` or `posthog`. Anything else fails registration |
+| `RefreshInterval` | `time.Duration` | `30s` | Refresh loop interval, `0` for none |
+| `EnableCache` | `bool` | `true` | Not read |
+| `CacheTTL` | `time.Duration` | `5m` | Not read |
+| `DefaultFlags` | `map[string]any` | empty | Fallbacks for undefined keys |
+| `Local.Flags` | `map[string]FlagConfig` | empty | Local flag definitions |
+| `LaunchDarkly`, `Unleash`, `Flagsmith`, `PostHog` | provider config structs | zero | Not used, since those providers aren't wired up |
 
-### `FlagConfig`
+## `FlagConfig`
 
 | Field | Type | Description |
 |---|---|---|
-| `Enabled` | `bool` | Whether the flag is active |
-| `DefaultValue` | `any` | Default value when enabled |
+| `Key` | `string` | The flag key. Use the same string as the map key |
+| `Name`, `Description` | `string` | For your own reference |
+| `Type` | `string` | `boolean`, `string`, `number` or `json`. Decides how `GetAllFlags` evaluates the flag |
+| `Enabled` | `bool` | The base answer for boolean flags. Ignored by the other getters |
+| `Value` | `any` | The base answer for string, number and JSON flags |
+| `Targeting` | `[]TargetingRule` | Rules checked in order |
+| `Rollout` | `*RolloutConfig` | Percentage rollout for boolean flags |
 
-## Option Helpers
+## `TargetingRule`
 
-| Function | Description |
-|---|---|
-| `WithProvider(provider)` | Set the flag provider |
-| `WithRefreshInterval(interval)` | Set refresh interval |
-| `WithCache(enabled, ttl)` | Configure caching |
-| `WithDefaultFlags(flags)` | Set default flag values |
-| `WithConfig(config)` | Provide a complete config struct |
+| Field | Type | Description |
+|---|---|---|
+| `Attribute` | `string` | `user_id`, `email`, `name`, `ip`, `country`, `group` or a custom attribute key |
+| `Operator` | `string` | `equals`, `contains`, `in` or `not_in` |
+| `Values` | `[]string` | Values to compare against |
+| `Value` | `any` | The answer when the rule matches. Its Go type must match the getter you call |
+
+## `RolloutConfig`
+
+| Field | Type | Description |
+|---|---|---|
+| `Percentage` | `int` | `0` to `100` |
+| `Attribute` | `string` | What to hash: `user_id` when empty, `email`, or a custom string attribute |

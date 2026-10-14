@@ -2,109 +2,145 @@
 
 ## Purpose
 
-Security features including rate limiting, IP filtering, CORS, CSP, security headers, and vulnerability scanning for building secure applications.
+HTTP security for Forge apps in one extension: security headers, per-IP rate limiting, CORS,
+CSRF (double-submit), JWT issuing and verification, cookie sessions, API keys, Argon2id and
+bcrypt password hashing, and audit logging. Each feature has an enable switch and an auto-apply
+switch; auto-applied middleware wraps every route in the app (including /_/health and
+/_/metrics).
 
-## Key Components
+Module: github.com/xraph/forge/extensions/security (package `security`).
 
-- **Rate Limiting**: Request rate limiting per IP/user
-- **IP Filtering**: Whitelist/blacklist IP addresses
-- **Security Headers**: HSTS, CSP, X-Frame-Options
-- **CORS**: Cross-origin resource sharing
-- **Input Validation**: XSS and injection prevention
-
-## Architecture
-
-```
-Security Extension
-├── Rate Limiting
-│   ├── Per IP
-│   ├── Per User
-│   └── Per Endpoint
-├── IP Filtering
-│   ├── Whitelist
-│   └── Blacklist
-├── Security Headers
-│   ├── HSTS
-│   ├── CSP
-│   └── X-Frame-Options
-└── Input Validation
-    ├── XSS Prevention
-    └── SQL Injection Prevention
-```
-
-## Public API
-
-### Main Functions/Methods
+## Constructors
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Middleware
-func RateLimitMiddleware(limit int, window time.Duration) forge.Middleware
-func SecurityHeadersMiddleware() forge.Middleware
-func CORSMiddleware(config CORSConfig) forge.Middleware
+func NewExtension(opts ...ConfigOption) *Extension     // *Extension, so you can call its accessors
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
 ```
 
-## Usage Examples
+JWT is enabled by default and HMAC needs a key, so a bare `NewExtension()` fails to register with
+"signing key is required for HMAC signing methods". Pass WithJWTSigningKey or
+WithJWTEnabled(false).
 
-### Rate Limiting
+## Options (config.go, ratelimit.go)
+
+- Whole extension: WithEnabled, WithConfig, WithRequireConfig.
+- Sessions: WithSessionEnabled, WithSessionStore(store string), WithSessionCookieName,
+  WithSessionTTL, WithSessionIdleTimeout, WithSessionAutoRenew, WithAutoApplyMiddleware (session
+  middleware), WithSkipPaths, WithRedisAddress, WithRedisPassword, WithRedisDB.
+- Cookies: WithCookieEnabled, WithCookieSecure, WithCookieHttpOnly, WithCookieSameSite(string),
+  WithCookiePath, WithCookieDomain.
+- Headers: WithSecurityHeadersEnabled, WithSecurityHeadersConfig, WithSecureHeaders() (stricter
+  preset), WithAutoApplySecurityHeaders.
+- Rate limit: WithRateLimitEnabled, WithRateLimitConfig, WithRateLimitPerIP(requests int, window time.Duration),
+  WithRateLimitPerUser(requests, window) (same as per-IP today), WithAutoApplyRateLimit.
+- CORS: WithCORSEnabled, WithCORSConfig, WithCORSOrigins([]string), WithCORSMethods,
+  WithCORSHeaders, WithCORSExposeHeaders, WithCORSAllowCredentials, WithCORSMaxAge(int),
+  WithCORSMaxAgeDuration, WithCORSAllowPrivateNetwork, WithCORSSkipPaths, WithAutoApplyCORS.
+- CSRF: WithCSRFEnabled, WithCSRFConfig, WithAutoApplyCSRF.
+- JWT: WithJWTEnabled, WithJWTConfig, WithJWTSigningKey(key string), WithAutoApplyJWT.
+- API keys: WithAPIKeyEnabled, WithAPIKeyConfig, WithAutoApplyAPIKey.
+- Passwords: WithPasswordHasherConfig, WithSecurePasswordHasher().
+- Audit: WithAuditEnabled, WithAuditConfig, WithAuditLevel(level string), WithAutoApplyAudit.
+
+## Accessors and container entries
+
+Accessors on *Extension (set once the extension has registered, so use them in a
+`forge.PhaseAfterRegister` hook or later): SessionStore(), CookieManager(), CSRFProtection(),
+RateLimiter() *MemoryRateLimiter, SecurityHeadersManager(), PasswordHasher(), JWTManager(),
+CORSManager(), APIKeyManager(), AuditLogger(), Middlewares().
+
+Each manager is also registered in the container by type, with these names:
+SessionStore (`security:session`, `security.SessionStore`), *CookieManager (`security:cookie`,
+`security.CookieManager`), *CSRFProtection (`security.CSRFProtection`), *MemoryRateLimiter
+(`security.RateLimiter`), *SecurityHeadersManager (`security.SecurityHeadersManager`),
+*PasswordHasher (`security.PasswordHasher`), *JWTManager (`security.JWTManager`), *CORSManager
+(`security.CORSManager`), *APIKeyManager (`security.APIKeyManager`), *AuditLogger
+(`security.AuditLogger`).
+
+## Middleware
+
+| Feature | Per-route middleware | Read in handler |
+| --- | --- | --- |
+| Headers | SecurityHeadersMiddleware(manager) | |
+| Rate limit | RateLimitMiddleware(limiter) | X-Ratelimit-* and Retry-After headers, 429 |
+| CORS | CORSMiddleware(manager) | |
+| CSRF | CSRFMiddleware(csrf, cookieManager) | GetCSRFToken(w) |
+| JWT | JWTMiddleware(jwtManager), RequireRoles(roles...) | GetJWTClaims(ctx forge.Context) |
+| API keys | APIKeyMiddleware(manager), RequireScopes(scopes...) | GetAPIKeyInfo(ctx forge.Context) |
+| Audit | AuditMiddleware(auditLogger) | |
+| Sessions | SessionMiddleware(SessionMiddlewareOptions{Store, CookieManager, Config, ...}), RequireSession(handler), RequireSessionFunc(handler), RequireSessionSimple() | GetSessionFromForgeContext(ctx) |
+
+All of these store values with `ctx.Set` on the forge.Context. Read them through the forge.Context
+helpers. `GetSession(ctx context.Context)`, `GetJWTClaimsFromStdContext` and
+`GetAPIKeyInfoFromStdContext` read the request context, which these middlewares don't populate.
+
+## JWT
 
 ```go
-import "github.com/xraph/forge/extensions/security"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        security.NewExtension(security.Config{
-            RateLimit: security.RateLimitConfig{
-                Enabled: true,
-                Limit:   100,  // 100 requests
-                Window:  1 * time.Minute,
-            },
-        }),
-    },
-})
-
-// Rate limiting automatically applied to all routes
+jwt := sec.JWTManager()
+token, err := jwt.GenerateToken(&security.JWTClaims{UserID: "user-42", Roles: []string{"admin"}})
 ```
 
-### Security Headers
+GenerateToken fills issuer, audience, iat, nbf, a 1h expiry (TTL) and a random jti. ValidateToken
+checks signature, time claims, issuer and audience. GenerateRefreshToken(userID) uses RefreshTTL
+(7 days). JWTClaims: UserID, Username, Email, Roles, Metadata plus registered claims. The key is
+raw bytes, so use HS256 (default), HS384 or HS512. JWTConfig.TokenLookup accepts a list like
+`header:Authorization,query:token,cookie:jwt`. `NewJWTManager(config JWTConfig, logger) (*JWTManager, error)`.
 
-```go
-// Automatic security headers
-// X-Frame-Options: DENY
-// X-Content-Type-Options: nosniff
-// X-XSS-Protection: 1; mode=block
-// Strict-Transport-Security: max-age=31536000
-// Content-Security-Policy: default-src 'self'
-```
+## Sessions
 
-## Configuration
+`SessionStore` interface: Create, Get, Update, Delete, DeleteByUserID, Touch, Cleanup, Count,
+Connect, Disconnect, Ping. Built in: `NewInMemorySessionStore(logger, metrics)`. Helpers:
+CreateSession(ctx, w, userID, store, cookieManager, SessionConfig, data), DestroySession,
+UpdateSession, NewSession, GenerateSessionID. Session has GetData(key).
+Cookies default to Secure, HttpOnly, SameSite=Lax; use WithCookieSecure(false) on plain HTTP.
 
-```yaml
-extensions:
-  security:
-    rate_limit:
-      enabled: true
-      limit: 100
-      window: 1m
-    
-    cors:
-      allowed_origins:
-        - https://example.com
-      allowed_methods:
-        - GET
-        - POST
-```
+## Passwords
 
-## Notes
+`NewPasswordHasher(config PasswordHasherConfig) *PasswordHasher`; Hash, Verify (reads Argon2id
+and bcrypt), NeedsRehash (same algorithm only). Default Argon2id 64 MiB / 3 iterations / 4 lanes;
+SecurePasswordHasherConfig() 256 MiB / 4 / 8; bcrypt cost 12 with Algorithm "bcrypt". Also
+CheckPasswordStrength, ValidatePassword, GenerateRandomPassword, HashAPIKey, VerifyAPIKeyHash,
+ConstantTimeCompare.
 
-### Production Readiness
-- ✅ Rate limiting
-- ✅ Security headers
-- ✅ CORS
-- ✅ Input validation
+## Others
 
-### License
-MIT License - Part of Forge Framework
+- API keys: `NewAPIKeyManager(config, logger)`; GenerateAPIKey(prefix), CreateAPIKey(*APIKeyInfo)
+  (string, error), GetAPIKey, ValidateAPIKey(ctx, key), RevokeAPIKey, DeleteAPIKey,
+  ListAPIKeys(userID). Held in memory. Header X-API-Key by default; expired or revoked keys are
+  rejected.
+- CSRF: first safe request sets a `csrf_token` cookie and an `X-Csrf-Token` response header;
+  unsafe methods must send `X-CSRF-Token`, else 403. Tokens kept in memory 12h.
+- CORS: defaults to every origin, no credentials, max age 1h. `*.example.com` patterns allowed.
+  SecureCORSConfig(origins).
+- Headers: SecureHeadersPreset(), NewCSPBuilder().
+- Audit: NewAuditLogger(config, logger); default level "auth"; LogAuthEvent, LogDataEvent,
+  LogAdminEvent, LogSecurityEvent; sensitive headers and fields redacted.
 
+## Config
+
+Key `extensions.security`, falling back to `security`. Options win over the file, the file over
+defaults, field by field. Section keys are snake_case (session, cookie, csrf, rate_limit,
+security_headers, password_hasher, jwt, cors, api_key, audit), but only `session` and `cookie`
+have snake_case field tags. Inside the other sections use Go field names: `jwt.SigningKey`, not
+`jwt.signing_key` (silently ignored).
+
+Defaults: every feature enabled, every auto-apply off; session in memory, cookie
+`forge_session`, 24h TTL, 30m idle, auto-renew; rate limit 100/min per client, skipping /health
+and /metrics; headers X-Frame-Options SAMEORIGIN, nosniff, HSTS 1y with subdomains,
+strict-origin-when-cross-origin; JWT HS256, 1h, refresh 7d, no key.
+
+## Gotchas
+
+- The rate limiter keys on X-Real-IP, then the first X-Forwarded-For, then the remote address.
+  Clients control those headers unless a proxy overwrites them.
+- examples/security-auto-middleware reads the session with GetSession(r.Context()), which never
+  finds it.
+
+## Not implemented yet
+
+- Redis session store: WithSessionStore("redis") passes validation but registration fails with
+  "redis session store not yet implemented". Pass your own SessionStore to SessionMiddleware.
+- Per-user rate limiting: WithRateLimitPerUser keys on IP like WithRateLimitPerIP.
+  RateLimitConfig.Store only supports memory.

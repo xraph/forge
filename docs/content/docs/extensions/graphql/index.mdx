@@ -1,138 +1,120 @@
 ---
 title: GraphQL
-description: GraphQL API server with playground, query caching, and DataLoader
+description: A gqlgen GraphQL endpoint and playground mounted on the Forge router
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/graphql` provides a GraphQL server built on gqlgen. It registers
-a `GraphQLService` in the DI container and mounts the GraphQL endpoint and optional playground on the
-Forge HTTP router during startup.
+`github.com/xraph/forge/extensions/graphql` runs a [gqlgen](https://gqlgen.com/) server inside your app and mounts it on the Forge router. You get a GraphQL endpoint, a GraphQL Playground, a query complexity limit, automatic persisted queries, Apollo Federation's `_service` query, two Forge metrics and slow query logging. The module also ships a small `dataloader` package for batching N+1 lookups in your own resolvers.
 
-## What It Registers
+<Callout type="warn">
+The server only runs the schema compiled into the module (`hello`, `version` and `echo`). You can't hand it your own schema or resolvers yet: `RegisterQuery`, `RegisterMutation`, `RegisterType` and `RegisterSubscription` only write a debug log line, `Use` does nothing, and `ExecuteQuery` returns an error response. If you need your own schema today, run gqlgen in your own module and mount its `handler.Server` on a Forge route, the same way the extension does.
+</Callout>
 
-| Service | DI Key | Type |
-|---|---|---|
-| GraphQL service | `graphql` | `*GraphQLService` (also satisfies `GraphQL`) |
+## Quick start
 
-Routes are registered on the Forge HTTP router in `Start()`:
-- `POST` and `GET` on the GraphQL endpoint (default `/graphql`)
-- `GET` on the playground endpoint (default `/playground`) when enabled
+You need Go 1.26 or later. Add Forge and the extension:
 
-## Quick Start
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/graphql@latest
+```
+
+Save this as `main.go`:
 
 ```go
 package main
 
 import (
-    "context"
+	"log"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/graphql"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/graphql"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "graphql-demo",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			graphql.NewExtension(
+				graphql.WithEndpoint("/graphql"),
+				graphql.WithPlayground(true),
+			),
+		},
+	})
 
-    app.RegisterExtension(graphql.NewExtension(
-        graphql.WithEndpoint("/graphql"),
-        graphql.WithPlayground(true),
-        graphql.WithMaxDepth(10),
-        graphql.WithMaxComplexity(200),
-        graphql.WithQueryCache(true),
-    ))
-
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
-
-    // Resolve the GraphQL service
-    svc, _ := forge.InjectType[*graphql.GraphQLService](app.Container())
-    server := svc.Server()
-
-    // Register types, queries, mutations
-    server.RegisterQuery("hello", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-        name := "World"
-        if n, ok := args["name"].(string); ok {
-            name = n
-        }
-        return map[string]string{"message": "Hello, " + name + "!"}, nil
-    })
-
-    server.RegisterMutation("createUser", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-        // Create user logic
-        return map[string]any{"id": "user-1", "name": args["name"]}, nil
-    })
-
-    // Add middleware
-    server.Use(func(next graphql.ExecutorFunc) graphql.ExecutorFunc {
-        return func(ctx context.Context, req *graphql.Request) (*graphql.Response, error) {
-            // Pre-processing...
-            return next(ctx, req)
-        }
-    })
-
-    // Execute a query programmatically
-    result, _ := server.ExecuteQuery(ctx, `{ hello(name: "Alice") }`, nil)
-    fmt.Println(result)
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## Using GraphQL in Your Services
+Run it with `go mod tidy && go run .`, then send a query:
 
-Inject `*graphql.GraphQLService` for automatic DI resolution:
+```bash
+curl -X POST http://localhost:8080/graphql \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ hello(name: \"Forge\") version }"}'
+# {"data":{"hello":"Hello, Forge!","version":"2.0.0"}}
+```
 
-```go
-type UserResolver struct {
-    graphql graphql.GraphQL
-    db      *database.DB
+Open `http://localhost:8080/playground` in a browser for the playground. The endpoint answers `GET` too, so `curl -G localhost:8080/graphql --data-urlencode 'query={ version }'` works.
+
+## The built-in schema
+
+This is everything the server answers today, from `schema/schema.graphql` in the module:
+
+```graphql
+directive @auth(requires: String) on FIELD_DEFINITION
+
+type Query {
+  hello(name: String!): String!
+  version: String!
 }
 
-func NewUserResolver(g *graphql.GraphQLService, db *database.DB) *UserResolver {
-    resolver := &UserResolver{graphql: g.Server(), db: db}
-    // Register resolvers at construction time
-    g.Server().RegisterQuery("users", resolver.listUsers)
-    g.Server().RegisterQuery("user", resolver.getUser)
-    g.Server().RegisterMutation("createUser", resolver.createUser)
-    return resolver
+type Mutation {
+  echo(message: String!): String!
 }
 ```
 
-Register with Vessel:
+Federation v2 code is generated in, so `{ _service { sdl } }` returns that SDL. There are no entities and no subscriptions.
 
-```go
-forge.ProvideConstructor(app.Container(), NewUserResolver)
-```
+## What it registers
 
-## Key Concepts
+| Service | How you resolve it | Type |
+|---|---|---|
+| GraphQL service | `forge.Inject[*graphql.GraphQLService](c)`, or the name `graphql` | `*GraphQLService` |
+| GraphQL interface | `forge.Inject[graphql.GraphQL](c)` | `GraphQL`, backed by the same instance |
 
-- **Schema** -- auto-generate schema from resolvers or load from a schema file. Supports queries, mutations, and subscriptions.
-- **Playground** -- interactive GraphQL IDE served at a configurable path for development and debugging.
-- **Query complexity and depth** -- enforce limits on query complexity and nesting depth to prevent abusive queries.
-- **Query caching** -- cache parsed and validated queries with configurable TTL and max cache size.
-- **DataLoader** -- built-in N+1 query prevention with configurable batch size and wait time.
-- **Middleware** -- chain middleware on the GraphQL executor for cross-cutting concerns.
-- **CORS** -- configurable CORS with allowed origins.
+When the extension starts, it adds these routes to the Forge router:
 
-## Important Runtime Notes
+- `POST` and `GET` on `endpoint` (default `/graphql`)
+- `GET` on `playground_endpoint` (default `/playground`), only when `enable_playground` is on
 
-- The extension registers routes during `Start()`, not during `Register()`.
-- Query timeout is enforced per-request via context deadline.
-- Slow query logging is enabled by default with a 1-second threshold.
-- File uploads are supported with a configurable max upload size (default 10 MB).
+Behind the endpoint, gqlgen's WebSocket, `GET`, `POST`, `OPTIONS` and multipart transports are registered. The schema has no subscriptions, so the WebSocket transport has nothing to stream.
 
-## Detailed Pages
+## Runtime notes
+
+- Routes are registered in `Start()`, not in `Register()`.
+- Introspection is always on. `WithIntrospection(false)` and `enable_introspection: false` don't change that.
+- The complexity limit (`max_complexity`, default `1000`) is enforced. Depth limits and the query timeout aren't: `max_depth` and `query_timeout` are validated and then ignored.
+- Slow query logging warns about operations slower than `slow_query_threshold` (default `1s`), as long as metrics or logging is on.
+- `GenerateSchema()` and `GetSchema()` work. They describe the built-in schema.
+
+## Detailed pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/graphql/features">
-Schema, playground, caching, DataLoader, and query protection.
+What the server does today, the DataLoader package, and what isn't wired yet.
 </Card>
 <Card title="Configuration" href="/docs/extensions/graphql/configuration">
-Config reference, YAML example, and programmatic options.
+Every config key, which ones the server reads, and the option helpers.
 </Card>
 <Card title="Functions" href="/docs/extensions/graphql/functions">
-Public API grouped by purpose with descriptions.
+Exported functions, interfaces and types.
 </Card>
 </Cards>

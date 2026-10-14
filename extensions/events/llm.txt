@@ -2,188 +2,174 @@
 
 ## Purpose
 
-Event-driven architecture support providing event bus, event sourcing, and pub/sub patterns with multiple broker backends (in-memory, NATS, RabbitMQ, Kafka).
+Event-driven architecture for Forge apps: a publish/subscribe event bus, an append-only event
+store with snapshots for event sourcing, and pluggable brokers (in-memory, core NATS, Redis
+Pub/Sub, and Redis Streams with consumer groups and a dead-letter stream).
 
-## Key Components
+Module: github.com/xraph/forge/extensions/events (package `events`).
 
-- **Event Bus**: Publish/subscribe event system
-- **Event Sourcing**: Store events as source of truth
-- **Multiple Brokers**: In-memory, NATS, RabbitMQ, Kafka
-- **Event Store**: Persistent event storage
-- **Replay**: Event replay and rehydration
-- **Handlers**: Event handler registration
+Subpackages:
+- `core`: Event, EventBus, MessageBroker, DurableMessageBroker, EventStore, handlers, retry policy.
+- `brokers`: NewMemoryBroker, NewNATSBroker, NewRedisBroker (Pub/Sub, or Streams with `enable_streams`).
+- `stores`: NewMemoryEventStore, plus PostgreSQL and MongoDB stores (incomplete, see below).
+- `schema`: SchemaRegistry and EventSchemaValidator. The bus never calls them for you.
 
-## Architecture
-
-```
-Events Extension
-├── Event Bus
-│   ├── Publishing
-│   ├── Subscribing
-│   └── Routing
-├── Brokers
-│   ├── In-Memory
-│   ├── NATS
-│   ├── RabbitMQ
-│   └── Kafka
-├── Event Sourcing
-│   ├── Event Store
-│   ├── Snapshots
-│   └── Projections
-└── Handlers
-    └── Event Processing
-```
-
-## Public API
-
-### Core Types
+## Constructors and options
 
 ```go
-type EventBus interface {
-    Publish(ctx context.Context, event Event) error
-    Subscribe(eventType string, handler EventHandler) error
-    Unsubscribe(eventType string, handler EventHandler) error
-}
+func NewExtension() forge.Extension                                              // DefaultConfig()
+func NewExtensionWithConfig(config Config, options ...EventServiceOption) forge.Extension
+func DefaultConfig() Config
 
+type EventServiceOption func(*EventService)
+func WithEventStore(store core.EventStore) EventServiceOption                    // borrowed: never closed
+func WithEventStoreFactory(factory EventStoreFactory) EventServiceOption        // owned: built on each start
+type EventStoreFactory func(context.Context, StoreConfig) (core.EventStore, error)
+
+func NewEventService(config Config, logger forge.Logger, metrics forge.Metrics, options ...EventServiceOption) *EventService
+func NewEventBus(config EventBusOptions) (core.EventBus, error)
+```
+
+There are no `WithXxx` config options; build a `Config` and use NewExtensionWithConfig.
+
+## What the container holds
+
+| Type | Alias | Helper |
+| --- | --- | --- |
+| `*events.EventService` | `events` (ServiceKey) | `GetEventService(c)` / `MustGetEventService(c)` |
+| `core.EventBus` | `eventBus` (EventBusKey) | `GetEventBus(c)` / `MustGetEventBus(c)` |
+| `core.EventStore` | `eventStore` (EventStoreKey) | `GetEventStore(c)` / `MustGetEventStore(c)` |
+| `*core.HandlerRegistry` | `eventHandlerRegistry` (HandlerRegistryKey) | `GetHandlerRegistry(c)` / `MustGetHandlerRegistry(c)` |
+
+`GetEventServiceFromApp(app)` and `MustGetEventServiceFromApp(app)` skip the Container() call.
+The extension's Start opens the store, connects every enabled broker and starts the bus, so an
+unreachable broker stops the app from starting.
+
+## Key types (core)
+
+```go
 type Event struct {
-    ID        string
-    Type      string
-    Data      interface{}
-    Timestamp time.Time
-    Metadata  map[string]string
+    ID, Type, AggregateID string; Data any; Metadata map[string]any
+    Timestamp time.Time; Version int; Source, CorrelationID, CausationID string
+}
+func NewEvent(eventType, aggregateID string, data any) *Event   // UUID, UTC time, version 1
+// chainable: WithVersion, WithSource, WithCorrelationID, WithCausationID, WithMetadata(key, value)
+
+type EventBus interface {
+    Publish(ctx context.Context, event *Event) error            // saves to store, then sends
+    PublishTo(ctx context.Context, brokerName string, event *Event) error  // no save
+    Subscribe(eventType string, handler EventHandler) error     // on every registered broker
+    Unsubscribe(eventType string, handlerName string) error
+    RegisterBroker(name string, broker MessageBroker) error     // only while the bus is stopped
+    UnregisterBroker(name string) error
+    GetBroker(name string) (MessageBroker, error)
+    GetBrokers() map[string]MessageBroker
+    SetDefaultBroker(name string) error
+    GetStats() map[string]any
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    HealthCheck(ctx context.Context) error
 }
 
-type EventHandler func(ctx context.Context, event Event) error
-```
-
-### Main Functions/Methods
-
-```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get event bus
-func GetEventBus(c forge.Container) (EventBus, error)
-
-// Publish event
-bus.Publish(ctx, Event{
-    Type: "user.created",
-    Data: user,
-})
-
-// Subscribe to events
-bus.Subscribe("user.created", func(ctx context.Context, event Event) error {
-    // Handle event
-    return nil
-})
-```
-
-## Usage Examples
-
-### Basic Event Publishing
-
-```go
-import "github.com/xraph/forge/extensions/events"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        events.NewExtension(events.Config{
-            Broker: "nats",
-            NATSConfig: &events.NATSConfig{
-                URL: "nats://localhost:4222",
-            },
-        }),
-    },
-})
-
-// Get event bus
-bus, _ := events.GetEventBus(app.Container())
-
-// Publish event
-bus.Publish(ctx, events.Event{
-    Type: "order.created",
-    Data: map[string]interface{}{
-        "order_id": "123",
-        "amount":   99.99,
-    },
-})
-
-// Subscribe to events
-bus.Subscribe("order.created", func(ctx context.Context, event events.Event) error {
-    log.Printf("Order created: %v", event.Data)
-    // Process order
-    return nil
-})
-```
-
-### Event Sourcing
-
-```go
-// Event store
-store := events.NewEventStore(db)
-
-// Store event
-store.Append(ctx, "order-123", events.Event{
-    Type: "order.created",
-    Data: orderData,
-})
-
-// Replay events
-events, _ := store.GetEvents(ctx, "order-123")
-for _, event := range events {
-    // Rebuild state from events
-    applyEvent(event)
+type EventHandler interface {
+    Handle(ctx context.Context, event *Event) error
+    CanHandle(event *Event) bool
+    Name() string
 }
+
+type MessageBroker interface { Connect, Publish(ctx, topic string, event Event), Subscribe, Unsubscribe, Close, HealthCheck, GetStats }
+type DurableMessageBroker interface { MessageBroker; DurableCapabilities() (DurableBrokerCapabilities, error); SubscribeDurable(ctx, topic string, handler EventHandler) error }
+func RequireDurableBroker(broker MessageBroker) (DurableMessageBroker, error)  // ErrDurableDeliveryUnavailable otherwise
 ```
 
-### Multiple Event Types
+EventStore methods: SaveEvent, SaveEvents, GetEvent, GetEvents(ctx, EventCriteria),
+GetEventsByAggregate(ctx, aggregateID, fromVersion), GetEventsByType(ctx, type, limit, offset),
+GetEventsSince, GetEventsInRange, DeleteEvent, DeleteEventsByAggregate (soft deletes),
+GetLastEvent, GetEventCount, GetEventCountByType, CreateSnapshot, GetSnapshot, DeleteSnapshot,
+Close, HealthCheck.
+
+## Handlers (re-exported from core in exports.go)
+
+- `NewTypedEventHandler(name string, eventTypes []string, handler EventHandlerFunc) *TypedEventHandler`
+  with `.WithMiddleware(...)`, `.WithRetryPolicy(p)`, `.WithMetrics(m)`, `.WithLogger(l)`.
+- `NewDomainEventHandler(name, aggregateType string, eventTypes []string, handler EventHandlerFunc)`:
+  only accepts events whose `aggregate_type` metadata matches.
+- `NewReflectionEventHandler(name string, target any)`: calls `Handle<Type>(ctx, event)` on target,
+  so it only fits event types that are valid Go identifiers.
+- `core.EventHandlerFunc(fn)`: a bare function, subscribed anonymously. You can't unsubscribe it
+  by name, and Redis Streams rejects it.
+- `NewRetryPolicy(maxRetries int, initialDelay time.Duration) *RetryPolicy`: doubles the delay up
+  to 5 minutes; `.WithMaxDelay`, `.WithBackoffFactor`, `.WithRetryableErrors`, `.WithShouldRetryFunc`.
+- Middleware: `LoggingMiddleware(l)`, `MetricsMiddleware(m)`, `ValidationMiddleware()`.
+- Store helpers: `NewEventCriteria()`, `NewSnapshot(aggregateID, snapshotType string, data any, version int)`.
+
+## Usage
 
 ```go
-// Subscribe to multiple events
-bus.Subscribe("user.*", userHandler)        // Wildcard
-bus.Subscribe("order.created", orderHandler)
-bus.Subscribe("payment.processed", paymentHandler)
+bus, err := events.GetEventBus(app.Container())
+h := events.NewTypedEventHandler("welcome-email", []string{"user.created"},
+    func(ctx context.Context, e *core.Event) error { return nil })
+err = bus.Subscribe("user.created", h)
 
-// Publish different event types
-bus.Publish(ctx, events.Event{Type: "user.created", Data: user})
-bus.Publish(ctx, events.Event{Type: "user.updated", Data: user})
-bus.Publish(ctx, events.Event{Type: "order.created", Data: order})
+err = bus.Publish(ctx, core.NewEvent("user.created", "user-1", payload).WithSource("accounts-api"))
 ```
 
-## Configuration
+Subscribe from a `forge.PhaseAfterStart` hook so the bus is running.
+
+## Config
+
+Read from `extensions.events` only (no top-level fallback), bound over the config you passed.
 
 ```yaml
 extensions:
   events:
-    broker: nats
-    
-    nats:
-      url: nats://localhost:4222
-      
-    kafka:
-      brokers:
-        - localhost:9092
-      topic: events
+    bus:
+      default_broker: memory   # empty = publish to every broker
+      enable_metrics: true
+    store:
+      type: memory             # anything else needs WithEventStore or WithEventStoreFactory
+      database: ""
+      table: events
+    brokers:
+      - name: memory
+        type: memory           # memory, nats, redis
+        enabled: true
+        config: {}
 ```
 
-## Dependencies
+Validation: at least one enabled broker, unique names, a known type, and default_broker must be
+an enabled broker. If you replace the broker list, set `bus.default_broker` too.
 
-### External
-- github.com/nats-io/nats.go - NATS client
-- github.com/rabbitmq/amqp091-go - RabbitMQ client
-- github.com/segmentio/kafka-go - Kafka client
+Broker `config` keys:
+- nats: url (default nats://localhost:4222), name, username, password, token, max_reconnects,
+  enable_compression. Core NATS only, no JetStream.
+- redis: address or addresses (default localhost:6379), username, password, database, pool_size,
+  master_name (Sentinel). Several addresses without master_name use a cluster client.
+- redis with `enable_streams: true`: also consumer_group, consumer_name, stream_max_len,
+  stream_max_deliveries (5), stream_claim_idle, stream_poll_interval, stream_lease_duration,
+  stream_ordering. Streams mode refuses Redis Cluster.
 
-### Internal
-- github.com/xraph/forge - Core framework
+## Delivery
 
-## Notes
+- memory, NATS, Redis Pub/Sub: at most once. Each matching handler runs in its own goroutine
+  (30s timeout on memory). A handler error is logged and the event is not redelivered, so put a
+  RetryPolicy on the handler.
+- Redis Streams: at least once. Returning nil acks; an error leaves the message pending until
+  stream_claim_idle, and after stream_max_deliveries it moves to `<topic>:forge:dead-letter`.
+  Handler names build the consumer group, so keep them stable.
+- Publish fails if any destination fails, and a retry can deliver again to brokers that succeeded.
 
-### Production Readiness
-- ✅ Multiple broker support
-- ✅ Event sourcing
-- ✅ Pub/sub patterns
-- ✅ Event replay
+## Not implemented yet
 
-### License
-MIT License - Part of Forge Framework
+- `bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`,
+  `bus.worker_count`, `bus.enable_tracing`, `brokers[].priority` and the whole `metrics` section
+  exist on the config structs but the bus ignores them.
+- `stores.NewPostgresEventStore` and `stores.NewMongoEventStore` don't implement the full
+  `core.EventStore` interface, so you can't pass them to the service. The only built-in store
+  is in memory and is lost on restart.
+- No Kafka or NATS JetStream broker. Implement `core.MessageBroker` and `RegisterBroker` it while
+  the bus is stopped.
 
+## Testing
+
+Redis integration tests in `brokers` skip unless `FORGE_EVENTS_REDIS_TEST_ADDR` is set.

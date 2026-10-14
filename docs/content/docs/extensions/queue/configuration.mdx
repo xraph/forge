@@ -1,57 +1,9 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for Queue
+description: Config keys, YAML examples, and option helpers for Queue
 ---
 
-## YAML Configuration Example
-
-```yaml title="config.yaml"
-extensions:
-  queue:
-    driver: "rabbitmq"              # "inmemory", "redis", "rabbitmq", "nats"
-    url: "amqp://guest:guest@localhost:5672/"
-    vhost: "/"
-
-    # Connection settings
-    maxConnections: 10
-    maxIdleConnections: 5
-    connectTimeout: "10s"
-    readTimeout: "30s"
-    writeTimeout: "30s"
-    keepAlive: "60s"
-
-    # Retry settings
-    maxRetries: 3
-    retryBackoff: "100ms"
-    retryMultiplier: 2.0
-    maxRetryBackoff: "30s"
-
-    # Consumer defaults
-    defaultPrefetch: 10
-    defaultConcurrency: 1
-    defaultTimeout: "30s"
-
-    # Features
-    enableDeadLetter: true
-    deadLetterSuffix: ".dlq"
-    enablePersistence: true
-    enablePriority: false
-    enableDelayed: false
-    maxMessageSize: 1048576         # 1 MB
-
-    # TLS
-    enableTLS: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
-    tlsCAFile: ""
-
-    # Observability
-    enableMetrics: true
-    enableTracing: true
-
-```
-
-The extension loads config from `extensions.queue` first, falling back to `queue`.
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Programmatic Configuration
 
@@ -60,66 +12,117 @@ ext := queue.NewExtension(
     queue.WithDriver("redis"),
     queue.WithURL("redis://localhost:6379"),
     queue.WithDeadLetter(true),
-    queue.WithConcurrency(5),
-    queue.WithPrefetch(20),
+    queue.WithMaxConnections(20),
 )
 ```
 
-## Config Struct Reference
+`NewExtensionWithConfig(cfg)` takes a whole `queue.Config`, which you'd normally start from
+`queue.DefaultConfig()`.
 
-### `Config`
+## YAML Configuration
 
-Source: `config.go`
+The extension reads `extensions.queue` from your config file, falling back to a top-level `queue`
+key. The file overrides the defaults and the options you set in code override the file, so you can
+leave the driver and URL to the file:
 
-| Field | Type | Default | Description |
+```yaml title="config.yaml"
+extensions:
+  queue:
+    driver: rabbitmq                 # inmemory, redis, rabbitmq or nats
+    url: "amqp://guest:guest@localhost:5672/"
+
+    # Redis connection pool and timeouts
+    max_connections: 10
+    max_idle_connections: 5
+    connect_timeout: 10s
+    read_timeout: 30s
+    write_timeout: 30s
+    max_retries: 3
+
+    # RabbitMQ channel prefetch
+    default_prefetch: 10
+
+    # Keep failed messages (in-memory and Redis)
+    enable_dead_letter: true
+```
+
+Keys are snake_case, taken from the `yaml` tags on `queue.Config`. Durations take Go duration
+strings such as `10s`. A field you set in code to exactly its default value looks untouched, so the
+file wins for that field.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()`
+turns it on, but an `AppConfig` literal like the one in the quick start leaves it off, so set it
+yourself or pass your own `ConfigManager`.
+
+With `WithRequireConfig(true)`, `Register` fails when neither `extensions.queue` nor `queue` is in
+your config. Without it, a missing section is fine, and a section that fails to bind is logged as a
+warning while the extension carries on with the defaults and your options.
+
+## Keys That Change Behaviour
+
+| Key | Field | Default | What it does |
 |---|---|---|---|
-| `Driver` | `string` | `"inmemory"` | Queue backend |
-| `URL` | `string` | `""` | Connection URL |
-| `Hosts` | `[]string` | `nil` | Multiple host URLs |
-| `Username` | `string` | `""` | Auth username |
-| `Password` | `string` | `""` | Auth password |
-| `VHost` | `string` | `""` | Virtual host (RabbitMQ) |
-| `MaxConnections` | `int` | `10` | Connection pool max |
-| `MaxIdleConnections` | `int` | `5` | Idle connection max |
-| `ConnectTimeout` | `time.Duration` | `10s` | Connection timeout |
-| `ReadTimeout` | `time.Duration` | `30s` | Read timeout |
-| `WriteTimeout` | `time.Duration` | `30s` | Write timeout |
-| `KeepAlive` | `time.Duration` | `60s` | Connection keepalive |
-| `MaxRetries` | `int` | `3` | Max retry attempts |
-| `RetryBackoff` | `time.Duration` | `100ms` | Initial retry backoff |
-| `RetryMultiplier` | `float64` | `2.0` | Backoff multiplier |
-| `MaxRetryBackoff` | `time.Duration` | `30s` | Maximum retry backoff |
-| `DefaultPrefetch` | `int` | `10` | Default consumer prefetch |
-| `DefaultConcurrency` | `int` | `1` | Default consumer concurrency |
-| `DefaultTimeout` | `time.Duration` | `30s` | Default message timeout |
-| `EnableDeadLetter` | `bool` | `true` | Route failed messages to DLQ |
-| `DeadLetterSuffix` | `string` | `".dlq"` | DLQ name suffix |
-| `EnablePersistence` | `bool` | `true` | Persist messages to disk |
-| `EnablePriority` | `bool` | `false` | Enable priority queues |
-| `EnableDelayed` | `bool` | `false` | Enable delayed messages |
-| `MaxMessageSize` | `int64` | `1048576` (1 MB) | Maximum message size |
-| `EnableTLS` | `bool` | `false` | Enable TLS |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `EnableTracing` | `bool` | `true` | Enable tracing |
+| `driver` | `Driver` | `inmemory` | `inmemory`, `redis`, `rabbitmq` or `nats`. Anything else fails validation |
+| `url` | `URL` | `""` | Connection URL. Redis, RabbitMQ and NATS need `url` or `hosts` |
+| `hosts` | `Hosts` | `[]` | Redis and RabbitMQ use `hosts[0]` as `host:port`, NATS prefixes it with `nats://` |
+| `username`, `password` | `Username`, `Password` | `""` | Credentials for Redis and NATS, and for RabbitMQ when it builds the URL from `hosts` |
+| `vhost` | `VHost` | `""` | RabbitMQ virtual host, when the URL is built from `hosts` |
+| `max_connections` | `MaxConnections` | `10` | Redis pool size. Must be positive |
+| `max_idle_connections` | `MaxIdleConnections` | `5` | Redis minimum idle connections. Can't exceed `max_connections` |
+| `connect_timeout` | `ConnectTimeout` | `10s` | Redis dial timeout and NATS connect timeout. Must be positive |
+| `read_timeout`, `write_timeout` | `ReadTimeout`, `WriteTimeout` | `30s`, `30s` | Redis read and write timeouts |
+| `max_retries` | `MaxRetries` | `3` | Redis command retries, and NATS reconnect attempts |
+| `default_prefetch` | `DefaultPrefetch` | `10` | RabbitMQ channel prefetch (QoS). Can't be negative |
+| `enable_dead_letter` | `EnableDeadLetter` | `true` | Keep messages your handler fails on, on the in-memory and Redis drivers |
+
+## Keys That Aren't Used Yet
+
+<Callout type="warn">
+These fields are on `queue.Config` and have defaults, but no driver reads them. Setting them, or
+calling the matching option, changes nothing today.
+</Callout>
+
+| Key | Default | Note |
+|---|---|---|
+| `default_concurrency` | `1` | Validated as positive. Concurrency comes from `ConsumeOptions.Concurrency`, and only the in-memory driver uses it |
+| `max_message_size` | `1048576` | Validated as positive, not enforced |
+| `default_timeout` | `30s` | Set the timeout per consumer with `ConsumeOptions.Timeout` |
+| `keep_alive` | `60s` | |
+| `retry_backoff`, `retry_multiplier`, `max_retry_backoff` | `100ms`, `2.0`, `30s` | |
+| `dead_letter_suffix` | `.dlq` | Redis uses `queue:<name>:dlq` regardless |
+| `enable_persistence` | `true` | RabbitMQ always publishes persistent messages |
+| `enable_priority` | `false` | Priority works on RabbitMQ through `QueueOptions.MaxPriority` |
+| `enable_delayed` | `false` | `PublishDelayed` doesn't check it |
+| `enable_tls`, `tls_cert_file`, `tls_key_file`, `tls_ca_file`, `insecure_skip_verify` | off | Use a `rediss://`, `amqps://` or `tls://` URL instead |
+| `enable_metrics`, `enable_tracing` | `true`, `true` | |
+
+## Validation
+
+`Register` runs `Config.Validate` after loading and fails the app when it returns an error. It
+checks that the driver is one of the four, that Redis, RabbitMQ and NATS have a `url` or `hosts`,
+that `max_connections` is positive and at least `max_idle_connections`, that `connect_timeout` and
+`default_concurrency` and `max_message_size` are positive, and that `default_prefetch` isn't
+negative.
 
 ## Option Helpers
 
-| Function | Description |
+| Function | Sets |
 |---|---|
-| `WithDriver(driver)` | Set queue backend driver |
-| `WithURL(url)` | Set connection URL |
-| `WithHosts(hosts...)` | Set multiple host URLs |
-| `WithAuth(username, password)` | Set authentication credentials |
-| `WithVHost(vhost)` | Set virtual host (RabbitMQ) |
-| `WithMaxConnections(max)` | Set connection pool size |
-| `WithPrefetch(prefetch)` | Set default consumer prefetch |
-| `WithConcurrency(concurrency)` | Set default consumer concurrency |
-| `WithTimeout(timeout)` | Set default message timeout |
-| `WithDeadLetter(enable)` | Toggle dead-letter queue routing |
-| `WithPersistence(enable)` | Toggle message persistence |
-| `WithPriority(enable)` | Toggle priority queue support |
-| `WithDelayed(enable)` | Toggle delayed message support |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
-| `WithMetrics(enable)` | Toggle metrics |
-| `WithTracing(enable)` | Toggle tracing |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithDriver(driver string)` | `Driver` |
+| `WithURL(url string)` | `URL` |
+| `WithHosts(hosts ...string)` | `Hosts` |
+| `WithAuth(username, password string)` | `Username` and `Password` |
+| `WithVHost(vhost string)` | `VHost` (RabbitMQ) |
+| `WithMaxConnections(maxConns int)` | `MaxConnections` |
+| `WithPrefetch(prefetch int)` | `DefaultPrefetch` |
+| `WithDeadLetter(enable bool)` | `EnableDeadLetter` |
+| `WithRequireConfig(require bool)` | `RequireConfig`: fail `Register` when the config has no section for the extension |
+| `WithConfig(config Config)` | Replaces the whole config |
+| `WithConcurrency(concurrency int)` | `DefaultConcurrency` (not used yet) |
+| `WithTimeout(timeout time.Duration)` | `DefaultTimeout` (not used yet) |
+| `WithPersistence(enable bool)` | `EnablePersistence` (not used yet) |
+| `WithPriority(enable bool)` | `EnablePriority` (not used yet) |
+| `WithDelayed(enable bool)` | `EnableDelayed` (not used yet) |
+| `WithTLS(certFile, keyFile, caFile string)` | `EnableTLS` and the `TLS*File` fields (not used yet) |
+| `WithMetrics(enable bool)` | `EnableMetrics` (not used yet) |
+| `WithTracing(enable bool)` | `EnableTracing` (not used yet) |

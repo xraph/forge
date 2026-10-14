@@ -1,82 +1,120 @@
 ---
 title: Functions
-description: Public API reference for the HLS extension
+description: Public Go API of the HLS extension
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the HLS extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the HLS extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the [configuration page](/docs/extensions/hls/configuration) |
+| `(*Config).Validate() error` | The checks registration runs |
+| `ServiceKey` | `"hls"`, the alias the manager is registered under |
 
-## HLS Interface -- Stream Management
+Resolve the manager with `forge.Inject[hls.HLS](container)`.
 
-| Method | Description |
-|---|---|
-| `CreateStream(ctx, options) (*Stream, error)` | Create a new stream (live, VOD, or event) |
-| `GetStream(ctx, streamID) (*Stream, error)` | Get stream information |
-| `DeleteStream(ctx, streamID) error` | Delete a stream and its segments |
-| `ListStreams(ctx) ([]*Stream, error)` | List all streams |
-| `StartStream(ctx, streamID) error` | Start a live stream |
-| `StopStream(ctx, streamID) error` | Stop a live stream |
+## The `HLS` interface
 
-## HLS Interface -- Segment Operations
+### Streams
 
 | Method | Description |
 |---|---|
-| `IngestSegment(ctx, streamID, variantID, data) error` | Push a media segment |
-| `GetSegment(ctx, streamID, variantID, segmentNum) (io.ReadCloser, error)` | Retrieve a segment |
+| `CreateStream(ctx, opts StreamOptions) (*Stream, error)` | Create a `live`, `event` or `vod` stream with one variant per profile |
+| `GetStream(ctx, streamID string) (*Stream, error)` | One stream from memory |
+| `ListStreams(ctx) ([]*Stream, error)` | Every stream in memory |
+| `DeleteStream(ctx, streamID string) error` | Forget the stream and delete its files |
 
-## HLS Interface -- Playlists
-
-| Method | Description |
-|---|---|
-| `GetMasterPlaylist(ctx, streamID) (string, error)` | Generate the master playlist (m3u8) |
-| `GetMediaPlaylist(ctx, streamID, variantID) (string, error)` | Generate a media playlist |
-
-## HLS Interface -- Stats
+### Live streaming
 
 | Method | Description |
 |---|---|
-| `GetStreamStats(ctx, streamID) (*StreamStats, error)` | Get stream statistics |
+| `StartLiveStream(ctx, streamID string) error` | Mark a live or event stream active |
+| `StopLiveStream(ctx, streamID string) error` | Mark it stopped |
+| `IngestSegment(ctx, streamID string, segment *Segment) error` | Store a segment for an active stream and prune past the DVR window |
 
-## Playlist Generator
+### VOD (placeholders)
+
+| Method | Description |
+|---|---|
+| `CreateVOD(ctx, source io.Reader, opts VODOptions) (*Stream, error)` | Creates the stream record only; `source` is ignored |
+| `TranscodeVideo(ctx, streamID string, profiles []TranscodeProfile) error` | Adds variants and starts FFmpeg jobs on a placeholder input path |
+
+`(*Manager).CreateVODFromFile(ctx, sourcePath string, opts VODOptions) (*Stream, error)` is on the concrete manager only. It starts transcode jobs but never stores their output.
+
+### Playlists and segments
+
+| Method | Description |
+|---|---|
+| `GetMasterPlaylist(ctx, streamID string) (*MasterPlaylist, error)` | Generate, store and return the master playlist. The M3U8 text is in `Content` |
+| `GetMediaPlaylist(ctx, streamID, variantID string) (*MediaPlaylist, error)` | Same for one variant |
+| `GetSegment(ctx, streamID, variantID string, segmentNum int) (io.ReadCloser, error)` | Read a stored segment. You close the reader |
+| `GetSegmentURL(ctx, streamID, variantID string, segmentNum int) (string, error)` | `{BaseURL}/{streamID}/variants/{variantID}/segment_{n}.ts` |
+
+### Stats
+
+| Method | Description |
+|---|---|
+| `GetStreamStats(ctx, streamID string) (*StreamStats, error)` | Per-stream counters. Only `SegmentsServed` and the per-variant counters move |
+| `GetActiveViewers(ctx, streamID string) (int, error)` | `CurrentViewers`, which is always 0 today |
+
+## Playlist helpers
 
 | Function | Description |
 |---|---|
-| `NewPlaylistGenerator(baseURL) *PlaylistGenerator` | Create a playlist generator |
-| `GenerateMasterPlaylist(stream) string` | Generate a master m3u8 playlist |
-| `GenerateMediaPlaylist(stream, variantID) string` | Generate a media m3u8 playlist |
+| `NewPlaylistGenerator(baseURL string) *PlaylistGenerator` | The generator the manager uses |
+| `(*PlaylistGenerator).GenerateMasterPlaylist(stream *Stream) string` | Master M3U8 for every variant |
+| `(*PlaylistGenerator).GenerateMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo, ended bool) string` | Media M3U8, with `#EXT-X-ENDLIST` when `ended` |
+| `(*PlaylistGenerator).GenerateLiveMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo) string` | Live media M3U8, windowed to `stream.DVRWindowSize` |
+| `(*PlaylistGenerator).GenerateVODMediaPlaylist(stream *Stream, variant *Variant, segments []*SegmentInfo) string` | Media M3U8 with `ended` set |
+| `FormatResolution(width, height int) string` | `"1280x720"` |
+| `ParseResolution(resolution string) (width, height int, err error)` | The reverse |
+| `GenerateCodecsString(videoCodec, audioCodec string) string` | `h264`, `h265` and `aac` to their RFC 6381 codec strings |
 
-## Utility Functions
+## Profiles
 
-| Function | Description |
+| Name | Description |
 |---|---|
-| `DefaultProfiles() []TranscodeProfile` | Get default transcode profiles (360p to 4K) |
-| `FormatResolution(width, height) string` | Format a resolution string |
-| `ParseResolution(resolution) (width, height, error)` | Parse a resolution string |
-| `GenerateCodecsString(profile) string` | Generate HLS codecs attribute string |
+| `Profile360p`, `Profile480p`, `Profile720p`, `Profile1080p`, `Profile4K` | Ready-made `TranscodeProfile` values |
+| `DefaultProfiles() []TranscodeProfile` | 360p, 480p, 720p and 1080p |
 
-## Key Types
+## Key types
 
 ### `StreamOptions`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Name` | `string` | Stream display name |
-| `Type` | `StreamType` | `live`, `vod`, or `event` |
-| `Profiles` | `[]TranscodeProfile` | Quality profiles to generate |
+| `Title`, `Description` | `string` | Display text |
+| `Type` | `StreamType` | `StreamTypeLive`, `StreamTypeEvent` or `StreamTypeVOD` |
+| `TargetDuration` | `int` | Seconds, written to `#EXT-X-TARGETDURATION` |
+| `DVRWindowSize` | `int` | Segments listed in the live playlist |
+| `TranscodeProfiles` | `[]TranscodeProfile` | One variant per profile |
+| `StorageBackend`, `StoragePath` | `string` | Not read |
+
+### `VODOptions`
+
+`Title`, `Description`, `TargetDuration`, `TranscodeProfiles`, and `StorageBackend` and `StoragePath` (not read).
 
 ### `TranscodeProfile`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Name` | `string` | Profile name (e.g. `"720p"`) |
-| `Width` | `int` | Output width |
-| `Height` | `int` | Output height |
-| `VideoBitrate` | `int` | Video bitrate (kbps) |
-| `AudioBitrate` | `int` | Audio bitrate (kbps) |
-| `VideoCodec` | `string` | Video codec (e.g. `"h264"`) |
-| `AudioCodec` | `string` | Audio codec (e.g. `"aac"`) |
+| `Name` | `string` | Profile name, such as `"720p"` |
+| `Width`, `Height` | `int` | Output size |
+| `Bitrate` | `int` | Bits per second, used as the variant's `BANDWIDTH` |
+| `FrameRate` | `float64` | Written as `FRAME-RATE` |
+| `VideoCodec`, `AudioCodec` | `string` | Such as `"h264"` and `"aac"` |
+| `Preset` | `string` | FFmpeg preset, such as `"fast"` |
+
+### `Segment`
+
+`StreamID`, `VariantID`, `SequenceNum` (the number in `segment_<n>.ts`), `Duration` in seconds, `Data` (MPEG-TS bytes), plus `URL`, `Size` and `CreatedAt`, which ingest doesn't fill in.
+
+### `Stream` and `Variant`
+
+`Stream` holds `ID`, `Type`, `Status`, `Title`, `Description`, `Variants`, `TargetDuration`, `DVRWindowSize`, timestamps, and the unused `Duration`, `ViewerCount`, `TotalViews` and `TotalBandwidth`. `Variant` holds `ID`, `Bandwidth`, `Resolution`, `Codecs`, `FrameRate`, `PlaylistURL` (not set), `SegmentCount` and `LastSegment`.
+
+### `StreamStatus`
+
+`StreamStatusCreated`, `StreamStatusActive` and `StreamStatusStopped` are the ones the manager sets. `StreamStatusError` and `StreamStatusEnded` exist but nothing sets them.

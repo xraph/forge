@@ -1,192 +1,137 @@
-# Forge Service Discovery Extension
+# Forge Discovery Extension
 
 ## Purpose
 
-Service discovery system providing automatic service registration and discovery with multiple backends (Consul, etcd, Kubernetes, mDNS/Bonjour). Integrates with FARP protocol for schema-aware service discovery.
+Service registration and discovery for Forge apps. On start the app registers itself in a
+registry (memory, Consul, etcd, mDNS/DNS-SD, or an HTTP seed list), a loop keeps its health
+status current, and it deregisters on shutdown. A `*discovery.Service` in the container finds
+other services by name or tag with round-robin or random picks. Optional FARP endpoints tell an
+API gateway about your routes and OpenAPI or AsyncAPI schemas (github.com/xraph/farp).
 
-## Key Components
+Module: github.com/xraph/forge/extensions/discovery (package `discovery`). Backends live in
+`discovery/backends` (NewMemoryBackend, NewConsulBackend, NewEtcdBackend, NewKubernetesBackend,
+NewMDNSBackend, NewHTTPBackend).
 
-- **Service Registry**: Register and discover services
-- **Multiple Backends**: Consul, etcd, Kubernetes, mDNS
-- **FARP Integration**: Schema-aware discovery with OpenAPI/AsyncAPI
-- **Health Checks**: Automatic health monitoring
-- **Load Balancing**: Client-side load balancing
-- **Service Mesh**: Integration with service mesh platforms
-
-## Architecture
-
-```
-Discovery Extension
-├── Service Registry
-│   ├── Registration
-│   ├── Deregistration
-│   └── Query
-├── Backends
-│   ├── Consul
-│   ├── etcd
-│   ├── Kubernetes
-│   └── mDNS/Bonjour
-├── FARP Integration
-│   ├── Schema Publishing
-│   └── Schema Discovery
-├── Health Monitoring
-│   └── Service Health Checks
-└── Load Balancing
-    └── Client-Side LB
-```
-
-## Public API
-
-### Core Types
+## Constructors and options
 
 ```go
-type Discovery interface {
-    Register(ctx context.Context, service *Service) error
-    Deregister(ctx context.Context, serviceID string) error
-    GetService(ctx context.Context, serviceName string) ([]*Service, error)
-    Watch(ctx context.Context, serviceName string) (<-chan []*Service, error)
-}
-
-type Service struct {
-    ID      string
-    Name    string
-    Address string
-    Port    int
-    Tags    []string
-    Meta    map[string]string
-    Health  HealthStatus
-}
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
+func NewService(config Config, backend Backend, logger forge.Logger) *Service
 ```
 
-### Main Functions/Methods
+Options (config.go):
+- General: WithEnabled(bool), WithBackend(string), WithConfig(Config), WithAppConfig(forge.AppConfig)
+- Service: WithService(ServiceConfig), WithServiceName(string), WithServiceID(string),
+  WithServiceVersion(string), WithServiceAddress(address string, port int),
+  WithServiceTags(...string), WithServiceMetadata(map[string]string), WithAutoDeregister(bool)
+- Health and watch: WithHealthCheck(HealthCheckConfig), WithHTTPHealthCheck(endpoint string, interval time.Duration),
+  WithWatch(services []string, onChange func([]*ServiceInstance))
+- Backends: WithConsul(address, token string), WithEtcd(endpoints []string),
+  WithKubernetes(namespace string, inCluster bool), WithEureka(urls []string), WithMDNS(domain string),
+  WithHTTPSeeds(...string), WithHTTPPollInterval(d), WithHTTPTimeout(d)
+- mDNS: WithMDNSServiceType(string), WithMDNSServiceTypes(...string), WithMDNSWatchInterval(d),
+  WithMDNSBrowseTimeout(d), WithMDNSTTL(uint32), WithMDNSInterface(string), WithMDNSIPv6(bool)
+- FARP: WithFARP(FARPConfig), WithFARPEnabled(bool), WithFARPAutoRegister(bool),
+  WithFARPStrategy(string), WithFARPSchemas(...FARPSchemaConfig), WithFARPEndpoints(FARPEndpointsConfig),
+  WithFARPCapabilities(...string), WithFARPGatewayURL(string), WithFARPExcludeInternalPaths(bool),
+  WithFARPCollapseServiceTags(bool), WithFARPPathRules(...farp.PathRule)
+
+## What the container holds
+
+`*discovery.Service`, also under the names `discovery` (ServiceKey) and `discovery.Service`
+(ServiceKeyLegacy).
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get discovery service
-func GetDiscovery(c forge.Container) (Discovery, error)
-
-// Register service
-discovery.Register(ctx, &Service{
-    Name:    "user-service",
-    Address: "localhost",
-    Port:    8080,
-})
-
-// Discover services
-services, _ := discovery.GetService(ctx, "user-service")
+svc, err := forge.Inject[*discovery.Service](app.Container())
+all, err := svc.Discover(ctx, "payments")
+v2, err := svc.DiscoverWithTags(ctx, "payments", []string{"v2"})
+healthy, err := svc.DiscoverHealthy(ctx, "payments")
+inst, err := svc.SelectInstance(ctx, "payments", discovery.LoadBalanceRandom)
+url, err := svc.GetServiceURL(ctx, "payments", "http", discovery.LoadBalanceRoundRobin)
+err = svc.Watch(ctx, "payments", func(instances []*discovery.ServiceInstance) {})
+names, err := svc.ListServices(ctx)
 ```
 
-## Usage Examples
+Also Register, Deregister, Backend(), Health.
 
-### Consul Service Discovery
+## Key types
 
-```go
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        discovery.NewExtension(discovery.Config{
-            Backend: "consul",
-            ConsulConfig: &discovery.ConsulConfig{
-                Address: "localhost:8500",
-            },
-        }),
-    },
-})
+- `Backend` (= backends.Backend): Name, Initialize, Register, Deregister, Discover,
+  DiscoverWithTags, Watch, ListServices, Health, Close.
+- `ServiceInstance` (= backends.ServiceInstance): ID, Name, Version, Address, Port, Tags,
+  Metadata, Status, LastHeartbeat; helpers URL(scheme), HasTag, HasAllTags, IsHealthy,
+  GetMetadata(key) (string, bool).
+- `LoadBalanceStrategy`: LoadBalanceRoundRobin, LoadBalanceRandom work.
+  LoadBalanceLeastConnections and LoadBalanceWeightedRoundRobin fall back to round-robin.
+- Config structs: Config, ServiceConfig, HealthCheckConfig, WatchConfig, FARPConfig,
+  FARPSchemaConfig, FARPLocationConfig, FARPEndpointsConfig, plus aliases ConsulConfig,
+  EtcdConfig, KubernetesConfig, EurekaConfig, MDNSConfig, HTTPConfig.
+- `NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher`.
 
-// Auto-register on startup
-discovery, _ := discovery.GetDiscovery(app.Container())
-discovery.Register(ctx, &discovery.Service{
-    ID:      "user-service-1",
-    Name:    "user-service",
-    Address: "localhost",
-    Port:    8080,
-    Tags:    []string{"v1", "production"},
-})
+## Backends
 
-// Discover services
-services, _ := discovery.GetService(ctx, "payment-service")
-for _, svc := range services {
-    fmt.Printf("Found: %s at %s:%d\n", svc.Name, svc.Address, svc.Port)
-}
-```
+| backend | registers this app | notes |
+| --- | --- | --- |
+| memory (default) | yes, in process | one process only |
+| consul | yes | 30s TTL check kept passing by the health loop; deregistered after 1m critical |
+| etcd | yes | keys under etcd.key_prefix (/services) |
+| kubernetes | no | Discover returns one instance per matching Kubernetes Service |
+| mdns | yes | service type defaults to `_<name>._tcp` |
+| http | no | polls each seed's `/_farp/discovery` |
+| eureka | n/a | startup fails: "eureka backend not yet implemented" |
 
-### mDNS/Bonjour (Zero-Config)
+## Identity and address
 
-```go
-// No infrastructure required - works on local network
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        discovery.NewExtension(discovery.Config{
-            Backend: "mdns",
-            MDNSConfig: &discovery.MDNSConfig{
-                Domain: "local",
-            },
-        }),
-    },
-})
+- Name: FORGE_SERVICE_ID, service.name, app name. Version: service.version, app version.
+- Port: service.port, then the port in the app's HTTPAddress.
+- Address: service.address, FORGE_ADVERTISE_ADDR, POD_IP, host in HTTPAddress, hostname,
+  localhost. A wildcard (0.0.0.0, ::) is never advertised.
+- Instance ID: FORGE_INSTANCE_ID, `<name>-<hostname>` when FORGE_SERVICE_ID is set, service.id,
+  else generated as `<name>-<unix nanoseconds>`.
 
-// Services automatically discoverable on local network
-```
+## FARP
 
-### FARP Integration
+With farp.enabled the extension adds GET /_farp/manifest, /_farp/health, /_farp/schemas/:type
+and /_farp/discovery. The manifest is built in a PhaseAfterStart hook so it sees every route;
+until then the first three answer 503. With gateway_url set, it posts to
+`<gateway_url>/_farp/v1/register` once the server is listening (retrying with backoff) and calls
+`/_farp/v1/deregister/<name>` on shutdown. Internal paths (/_/*, /_farp/*) are excluded from
+schemas unless WithFARPExcludeInternalPaths(false). Path rules: first match wins. With no
+farp.schemas and auto_register on, it publishes whichever of OpenAPI and AsyncAPI the app has.
 
-```go
-// Register with API schema
-discovery.Register(ctx, &discovery.Service{
-    Name:    "api-service",
-    Address: "localhost",
-    Port:    8080,
-    Meta: map[string]string{
-        "openapi_url":  "http://localhost:8080/openapi.json",
-        "api_version":  "v1",
-    },
-})
+## Config
 
-// Gateway discovers services with schemas
-services, _ := discovery.GetService(ctx, "api-service")
-for _, svc := range services {
-    openapiURL := svc.Meta["openapi_url"]
-    // Load schema and configure routes
-}
-```
+Key `extensions.discovery`, falling back to `discovery`. Options apply on top of the file.
 
-## Configuration
+| yaml key | default |
+| --- | --- |
+| enabled | true (must be a boolean) |
+| backend | "memory" |
+| service.name, id, version, address, port, tags, metadata | empty |
+| service.enable_auto_deregister | true (when FARP is off) |
+| health_check.enabled, interval, timeout | true, 10s, 5s |
+| watch.enabled, watch.services | false, [] |
+| consul.address, token, datacenter, namespace, tls_enabled, tls_ca_file, tls_cert, tls_key | 127.0.0.1:8500 |
+| etcd.endpoints, username, password, dial_timeout, key_prefix | 127.0.0.1:2379, 5s, /services |
+| kubernetes.namespace, in_cluster, kubeconfig_path, service_type, label_selector | default, true, ClusterIP |
+| mdns.domain, service_type, service_types, watch_interval, interface, ipv6, browse_timeout, ttl | local., 3s, 120 |
+| http.seeds, poll_interval, timeout | [], 10s, 5s |
+| farp.enabled, auto_register, gateway_url | false, true, "" |
+| farp.schemas, endpoints, capabilities, path_rules | |
+| farp.exclude_internal_paths, collapse_service_tags | true, false |
 
-```yaml
-extensions:
-  discovery:
-    backend: consul
-    
-    consul:
-      address: localhost:8500
-      token: ${CONSUL_TOKEN}
-      
-    mdns:
-      domain: local
-      service_type: _forge._tcp
-```
+## Gotchas
 
-## Dependencies
+- Always set a stable instance ID (WithServiceID, service.id or FORGE_INSTANCE_ID). Without one,
+  the health loop re-registers a freshly generated ID every interval, so the registry fills with
+  duplicates and shutdown deregisters an ID that was never registered.
 
-### External
-- github.com/hashicorp/consul/api - Consul client
-- go.etcd.io/etcd/client/v3 - etcd client
-- k8s.io/client-go - Kubernetes client
-- github.com/grandcat/zeroconf - mDNS/Bonjour
+## Not implemented yet
 
-### Internal
-- github.com/xraph/forge - Core framework
-- github.com/xraph/forge/farp - FARP protocol
-
-## Notes
-
-### Production Readiness
-- ✅ Multiple backend support
-- ✅ FARP integration
-- ✅ Health monitoring
-- ✅ Zero-config with mDNS
-
-### License
-MIT License - Part of Forge Framework
-
+- eureka backend.
+- etcd `tls_*` keys aren't applied.
+- Read but ignored: health_check.http, health_check.tcp, health_check.grpc,
+  health_check.deregister_critical_service_after (the loop always uses the app's health checks;
+  Consul's deregistration delay is fixed at 1m), watch.tags, farp.strategy.

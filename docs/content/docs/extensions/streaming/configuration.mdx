@@ -1,130 +1,177 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for Streaming
+description: YAML keys, options and defaults for the Streaming extension, and which fields the code reads
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Where config comes from
+
+The extension reads `extensions.streaming` from your config file, falling back to a top-level `streaming` key. Defaults come first, the file overrides them, and options you set in code override the file. A field you leave out of the file keeps its default.
+
+One catch: a field you set in code to exactly its default value looks untouched, so the file wins for that field.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on; a bare `forge.AppConfig{}` literal leaves it off.
+
+## YAML example
+
+The keys are the snake_case names from the struct tags. Durations take Go duration strings.
 
 ```yaml title="config.yaml"
 extensions:
   streaming:
-    backend: "local"                 # "local", "redis", "nats"
-    backendURLs: []
-    backendUsername: ""
-    backendPassword: ""
+    backend: "redis"                 # "local" (default), "redis" or "nats" (not implemented)
+    backend_urls: ["localhost:6379"]   # host:port, not a redis:// URL
+    enable_distributed: true         # needs redis; WithRedisBackend sets it for you
+    node_id: "api-1"                 # generated when empty in distributed mode
 
-    # Feature toggles
-    enableRooms: true
-    enableChannels: true
-    enablePresence: true
-    enableTypingIndicators: true
-    enableMessageHistory: true
-    enableDistributed: false
+    # Features
+    enable_rooms: true
+    enable_channels: true
+    enable_presence: true
+    enable_typing_indicators: true
+    enable_message_history: true
 
-    # Connection limits
-    maxConnectionsPerUser: 5
-    maxRoomsPerUser: 50
-    maxChannelsPerUser: 100
+    # Limits
+    max_connections_per_user: 5
+    max_anonymous_connections: 1000
+    max_total_connections: 20000     # 0 means unbounded
+    max_rooms_per_user: 50
+    max_channels_per_user: 100
+    max_message_size: 65536          # bytes
+    max_messages_per_second: 100
 
-    # Message limits
-    maxMessageSize: 65536            # 64 KB
-    maxMessagesPerSecond: 100
+    # WebSocket keepalive
+    ping_interval: "30s"
+    pong_timeout: "10s"
 
-    # Timeouts
-    pingInterval: "30s"
-    pongTimeout: "10s"
-    writeTimeout: "10s"
+    # Presence and typing
+    presence_timeout: "5m"
+    presence_cleanup: "1m"
+    typing_timeout: "3s"
+    typing_cleanup: "1s"
+    max_typing_users_per_room: 10
 
-    # Buffer sizes
-    readBufferSize: 4096
-    writeBufferSize: 4096
+    # Multi-node
+    enable_load_balancer: true
+    load_balancer_strategy: "consistent_hash"
+    enable_session_resumption: true
+    session_resumption_ttl: "2m"
 
-    # Message history
-    messageRetention: "720h"         # 30 days
-    messageCleanup: "1h"
-    maxMessagesPerRoom: 100000
-
-    # Presence
-    presenceTimeout: "5m"
-    presenceCleanup: "1m"
-
-    # Typing
-    typingTimeout: "3s"
-    typingCleanup: "1s"
-    maxTypingUsersPerRoom: 10
-
-    # Distributed
-    nodeID: ""                       # auto-generated if empty
-    heartbeatInterval: "10s"
-    nodeTimeout: "30s"
-
-    # TLS (for Redis/NATS backends)
-    tlsEnabled: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
-    tlsCAFile: ""
+    drain_timeout: "15s"
 ```
 
-The extension loads config from `extensions.streaming` first, falling back to `streaming`.
-
-## Programmatic Configuration
+## Programmatic configuration
 
 ```go
 ext := streaming.NewExtension(
-    streaming.WithRedisBackend("redis://localhost:6379"),
-    streaming.WithFeatures(true, true, true, true, true),
-    streaming.WithConnectionLimits(10, 100, 200),
-    streaming.WithMessageLimits(32768, 50),
-    streaming.WithPresenceTimeout(10 * time.Minute),
+	streaming.WithRedisBackend("localhost:6379"),
+	streaming.WithNodeID("api-1"),
+	streaming.WithFeatures(true, true, true, true, true),
+	streaming.WithConnectionLimits(10, 100, 200),
+	streaming.WithMessageLimits(32*1024, 50),
+	streaming.WithPresenceTimeout(10*time.Minute),
+	streaming.WithSessionResumption(2*time.Minute),
 )
 ```
 
-## Config Struct Reference
+Settings with no option of their own go through `WithConfig`:
 
-### `Config`
+```go
+cfg := streaming.DefaultConfig()
+cfg.MaxTotalConnections = 20000
+cfg.DrainTimeout = 30 * time.Second
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Backend` | `string` | `"local"` | Backend: `"local"`, `"redis"`, `"nats"` |
-| `BackendURLs` | `[]string` | `[]` | Backend connection URLs |
-| `EnableRooms` | `bool` | `true` | Enable room support |
-| `EnableChannels` | `bool` | `true` | Enable channel pub/sub |
-| `EnablePresence` | `bool` | `true` | Enable presence tracking |
-| `EnableTypingIndicators` | `bool` | `true` | Enable typing indicators |
-| `EnableMessageHistory` | `bool` | `true` | Enable message persistence |
-| `EnableDistributed` | `bool` | `false` | Enable distributed mode |
-| `MaxConnectionsPerUser` | `int` | `5` | Max concurrent connections per user |
-| `MaxRoomsPerUser` | `int` | `50` | Max rooms a user can join |
-| `MaxChannelsPerUser` | `int` | `100` | Max channel subscriptions |
-| `MaxMessageSize` | `int` | `65536` | Max message size in bytes |
-| `MaxMessagesPerSecond` | `int` | `100` | Per-user rate limit |
-| `PingInterval` | `time.Duration` | `30s` | WebSocket ping interval |
-| `PongTimeout` | `time.Duration` | `10s` | Pong response timeout |
-| `WriteTimeout` | `time.Duration` | `10s` | Write deadline |
-| `MessageRetention` | `time.Duration` | `720h` (30 days) | Message history retention |
-| `PresenceTimeout` | `time.Duration` | `5m` | Presence expiration |
-| `TypingTimeout` | `time.Duration` | `3s` | Typing indicator expiration |
-| `MaxTypingUsersPerRoom` | `int` | `10` | Max concurrent typing users |
-| `NodeID` | `string` | `""` | Node ID (auto-generated if empty) |
+ext := streaming.NewExtension(streaming.WithConfig(cfg))
+```
 
-## Option Helpers
+## Option helpers
 
-| Function | Description |
+| Option | Sets |
 |---|---|
-| `WithBackend(backend)` | Set the backend type |
-| `WithBackendURLs(urls...)` | Set backend connection URLs |
-| `WithRedisBackend(url)` | Configure Redis backend |
-| `WithNATSBackend(urls...)` | Configure NATS backend |
-| `WithLocalBackend()` | Use local in-memory backend |
-| `WithFeatures(rooms, channels, presence, typing, history)` | Toggle feature flags |
-| `WithConnectionLimits(perUser, roomsPerUser, channelsPerUser)` | Set connection limits |
-| `WithMessageLimits(maxSize, maxPerSecond)` | Set message constraints |
-| `WithTimeouts(ping, pong, write)` | Set timeout durations |
-| `WithBufferSizes(read, write)` | Set buffer sizes |
-| `WithMessageRetention(retention)` | Set history retention period |
-| `WithPresenceTimeout(timeout)` | Set presence expiration |
-| `WithTypingTimeout(timeout)` | Set typing indicator timeout |
-| `WithNodeID(nodeID)` | Set node identifier |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS for backends |
-| `WithAuthentication(username, password)` | Set backend credentials |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithLocalBackend()` | `backend: local`, distributed off |
+| `WithRedisBackend(url)` | `backend: redis`, one URL, distributed on |
+| `WithNATSBackend(urls...)` | `backend: nats`, distributed on. Registration then fails, NATS isn't implemented |
+| `WithBackend(name)`, `WithBackendURLs(urls...)` | The same, field by field. They don't touch `EnableDistributed` |
+| `WithAuthentication(user, pass)` | Backend credentials |
+| `WithTLS(cert, key, ca)` | TLS for the backend connection, and turns `TLSEnabled` on |
+| `WithFeatures(rooms, channels, presence, typing, history)` | Feature switches, all on by default |
+| `WithConnectionLimits(perUser, roomsPerUser, channelsPerUser)` | `5`, `50`, `100` |
+| `WithMessageLimits(maxSize, maxPerSecond)` | `65536` bytes, `100` a second |
+| `WithTimeouts(ping, pong, write)` | `30s`, `10s`, `10s`. Write isn't read |
+| `WithBufferSizes(read, write)` | `4096`, `4096`. Neither is read |
+| `WithMessageRetention(d)` | `720h`. Not read |
+| `WithPresenceTimeout(d)`, `WithTypingTimeout(d)` | `5m`, `3s` |
+| `WithNodeID(id)` | Node ID for distributed mode |
+| `WithLoadBalancer(strategy)` | Turns the load balancer on. Empty keeps `round_robin` |
+| `WithSessionResumption(ttl)` | Turns resumption on. Zero keeps the 30s TTL |
+| `WithRequireConfig(require)` | Fail registration when no `streaming` config is found |
+| `WithConfig(cfg)` | Replace the whole config |
+
+`NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`.
+
+## Validation
+
+Registration fails when:
+
+- `backend` is anything other than `local`, `redis`, `nats` or empty;
+- `enable_distributed` is on with the `local` backend;
+- `redis` or `nats` has no `backend_urls`;
+- `max_connections_per_user` or `max_message_size` is below 1;
+- `ping_interval` or `pong_timeout` is under a second;
+- `tls_enabled` is on without a cert and key file.
+
+## Config struct reference
+
+| Field | YAML key | Default | Notes |
+|---|---|---|---|
+| `Backend` | `backend` | `local` | `redis` works, `nats` fails at registration |
+| `BackendURLs` | `backend_urls` | `[]` | |
+| `BackendUsername`, `BackendPassword` | `backend_username`, `backend_password` | empty | |
+| `EnableRooms` | `enable_rooms` | `true` | |
+| `EnableChannels` | `enable_channels` | `true` | |
+| `EnablePresence` | `enable_presence` | `true` | |
+| `EnableTypingIndicators` | `enable_typing_indicators` | `true` | |
+| `EnableMessageHistory` | `enable_message_history` | `true` | Replay needs it |
+| `EnableDistributed` | `enable_distributed` | `false` | Needs `redis` |
+| `MaxConnectionsPerUser` | `max_connections_per_user` | `5` | |
+| `MaxAnonymousConnections` | `max_anonymous_connections` | `1000` | 0 disables the cap |
+| `MaxTotalConnections` | `max_total_connections` | `0` | 0 means unbounded |
+| `MaxRoomsPerUser` | `max_rooms_per_user` | `50` | |
+| `MaxChannelsPerUser` | `max_channels_per_user` | `100` | |
+| `MaxMessageSize` | `max_message_size` | `65536` | Bytes, also the WebSocket read limit |
+| `MaxMessagesPerSecond` | `max_messages_per_second` | `100` | Per user |
+| `PingInterval` | `ping_interval` | `30s` | WebSocket keepalive |
+| `PongTimeout` | `pong_timeout` | `10s` | Silence allowed past the interval before the socket closes |
+| `WriteTimeout` | `write_timeout` | `10s` | Not read |
+| `ReadBufferSize`, `WriteBufferSize` | `read_buffer_size`, `write_buffer_size` | `4096` | Not read |
+| `MessageRetention` | `message_retention` | `720h` | Not read |
+| `MessageCleanup` | `message_cleanup` | `1h` | Not read |
+| `MaxMessagesPerRoom` | `max_messages_per_room` | `100000` | Not read |
+| `PresenceTimeout` | `presence_timeout` | `5m` | |
+| `PresenceCleanup` | `presence_cleanup` | `1m` | |
+| `TypingTimeout` | `typing_timeout` | `3s` | |
+| `TypingCleanup` | `typing_cleanup` | `1s` | |
+| `MaxTypingUsersPerRoom` | `max_typing_users_per_room` | `10` | |
+| `NodeID` | `node_id` | generated | Distributed mode only |
+| `HeartbeatInterval` | `heartbeat_interval` | `10s` | Not read |
+| `NodeTimeout` | `node_timeout` | `30s` | Not read |
+| `EnableLoadBalancer` | `enable_load_balancer` | `false` | Distributed mode only |
+| `LoadBalancerStrategy` | `load_balancer_strategy` | `round_robin` | `round_robin` uses least connections |
+| `HealthCheckInterval`, `HealthCheckTimeout` | `health_check_interval`, `health_check_timeout` | `10s`, `5s` | Load balancer health checks |
+| `StickySessionTTL` | `sticky_session_ttl` | `1h` | `sticky` strategy |
+| `ConsistentHashReplicas` | `consistent_hash_replicas` | `150` | `consistent_hash` strategy |
+| `EnableSessionResumption` | `enable_session_resumption` | `false` | |
+| `SessionResumptionTTL` | `session_resumption_ttl` | `30s` | |
+| `DrainTimeout` | `drain_timeout` | `15s` | Shutdown drain |
+| `TLSEnabled`, `TLSCertFile`, `TLSKeyFile`, `TLSCAFile` | `tls_enabled`, `tls_cert_file`, `tls_key_file`, `tls_ca_file` | off | Backend TLS |
+
+## Fields that do nothing yet
+
+<Callout type="warn">
+These are stored, and a few of them show up on the dashboard, but nothing acts on them.
+</Callout>
+
+- `write_timeout`, `read_buffer_size`, `write_buffer_size`.
+- `message_retention`, `message_cleanup`, `max_messages_per_room`: history is never trimmed.
+- `heartbeat_interval`, `node_timeout`.

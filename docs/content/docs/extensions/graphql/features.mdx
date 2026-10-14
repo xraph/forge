@@ -1,235 +1,147 @@
 ---
 title: Features
-description: GraphQL extension capabilities
+description: What the GraphQL extension does today, and what it doesn't yet
 ---
 
-## GraphQL Interface
+import { Callout } from 'fumadocs-ui/components/callout';
 
-The extension exposes a `GraphQL` interface for programmatic schema management and query execution:
+## What works
+
+| You need | What you get |
+|---|---|
+| A GraphQL endpoint on your router | `GET` and `POST` routes at `endpoint`, registered when the extension starts |
+| A browser IDE while you develop | GraphQL Playground at `playground_endpoint`, switched off with `WithPlayground(false)` |
+| Protection from expensive queries | gqlgen's fixed complexity limit, from `max_complexity` |
+| Smaller requests from repeat clients | Automatic persisted queries, always on |
+| File uploads | gqlgen's multipart transport, capped at gqlgen's default of 32MB |
+| Federation | Apollo Federation v2 code generated in, including `{ _service { sdl } }` |
+| Visibility | Two metrics, debug logs per operation, error logs, and a warning for slow queries |
+| N+1 batching in your own resolvers | The `dataloader` package |
+
+## The schema is fixed
+
+The server runs the schema compiled into the module and nothing else. `Query` has `hello(name: String!)` and `version`, `Mutation` has `echo(message: String!)`, and that's it. There's no schema file loading and no schema generation from Go types.
+
+<Callout type="warn">
+The `GraphQL` interface has registration methods, but they're placeholders. `RegisterType`, `RegisterQuery`, `RegisterMutation` and `RegisterSubscription` log a debug line and return `nil`, so nothing you register is ever served. `Use(middleware)` does nothing. `ExecuteQuery` returns a `*Response` whose only error says direct execution isn't implemented. `EnableIntrospection` changes a field the running server never reads again.
+</Callout>
+
+If you need your own schema now, generate it with gqlgen in your own module and register its handler on a Forge route:
 
 ```go
-type GraphQL interface {
-    RegisterType(name string, obj interface{}) error
-    RegisterQuery(name string, resolver FieldResolverFunc) error
-    RegisterMutation(name string, resolver FieldResolverFunc) error
-    RegisterSubscription(name string, resolver SubscriptionResolverFunc) error
-    GenerateSchema() (string, error)
-    GetSchema() *GraphQLSchema
-    ExecuteQuery(ctx context.Context, query string, variables map[string]interface{}) (*Response, error)
-    HTTPHandler() http.Handler
-    PlaygroundHandler() http.Handler
-    Use(middleware Middleware)
-    EnableIntrospection(enable bool)
-    Ping(ctx context.Context) error
+srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: &Resolver{}}))
+
+err := app.Router().POST("/graphql", func(c forge.Context) error {
+	srv.ServeHTTP(c.Response(), c.Request())
+
+	return nil
+})
+```
+
+Here `generated` and `Resolver` are your own gqlgen output, not this module's.
+
+## Reading the schema
+
+`GenerateSchema()` returns a short SDL listing of the `Query` and `Mutation` fields, and `GetSchema()` returns a `*GraphQLSchema` with `Types`, `Queries`, `Mutations`, `Subscriptions` and `Directives`. Only `Queries`, `Mutations` and `Subscriptions` get filled in, and the query map includes gqlgen's own `_service`, `__schema` and `__type` fields. Both describe the built-in schema.
+
+```go
+gql, err := forge.Inject[graphql.GraphQL](app.Container())
+if err != nil {
+	return err
+}
+
+for name, field := range gql.GetSchema().Queries {
+	fmt.Println(name, field.Type)
 }
 ```
 
-## Resolver Registration
+## Playground
 
-Register queries, mutations, and subscriptions programmatically:
+The playground is served with `GET` at `playground_endpoint` (default `/playground`) when `enable_playground` is on. It points at `endpoint`. There's no option for the playground path, so set `playground_endpoint` in your config file if you want a different one.
 
-```go
-// Query resolver
-server.RegisterQuery("users", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-    limit := 10
-    if l, ok := args["limit"].(int); ok {
-        limit = l
-    }
-    return db.ListUsers(ctx, limit)
-})
+## Complexity limit
 
-// Mutation resolver
-server.RegisterMutation("createUser", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-    return db.CreateUser(ctx, args["name"].(string), args["email"].(string))
-})
+`max_complexity` (default `1000`, option `WithMaxComplexity`) adds gqlgen's `FixedComplexityLimit`. Every field costs one unless gqlgen's generated complexity functions say otherwise. Set it to `0` to turn the limit off.
 
-// Subscription resolver (returns a channel)
-server.RegisterSubscription("messageAdded", func(ctx context.Context, args map[string]interface{}) (<-chan interface{}, error) {
-    ch := make(chan interface{})
-    go func() {
-        defer close(ch)
-        for msg := range messageStream {
-            ch <- msg
-        }
-    }()
-    return ch, nil
-})
-```
+`max_depth` (`WithMaxDepth`) and `query_timeout` (`WithTimeout`) aren't enforced. They're validated (`max_depth` has to be at least 1, `query_timeout` positive) and then ignored.
 
-## Schema
+## Persisted queries
 
-Auto-generate a GraphQL schema from registered resolvers, or load from a schema file:
+gqlgen's default server, which the extension starts from, already turns on automatic persisted queries with a 100-entry LRU cache and keeps a 1000-entry cache of parsed queries. That's why APQ works even with `enable_query_cache: false`.
 
-```go
-// Auto-generate
-schema, _ := server.GenerateSchema()
+With `enable_query_cache` on (the default), the extension adds a second APQ cache of `max_cache_size` entries. A lookup by hash goes to the first cache, so the 100-entry one decides whether a hash is found. `query_cache_ttl` isn't read.
 
-// Or load from file
-graphql.NewExtension(
-    graphql.WithSchemaFile("schema.graphqls"),
-)
-```
+## File uploads
 
-The `GraphQLSchema` struct includes: `Types`, `Queries`, `Mutations`, `Subscriptions`, and `Directives`.
-
-## Interactive Playground
-
-Built-in GraphQL IDE served at a configurable endpoint for exploring the API during development:
-
-```go
-graphql.NewExtension(
-    graphql.WithPlayground(true),
-    graphql.WithPlaygroundEndpoint("/playground"),
-)
-```
-
-Access the playground at `http://localhost:8080/playground`.
-
-## Query Protection
-
-### Complexity Limits
-
-Reject queries that exceed a configurable complexity score (default 1000). Prevents abusive deeply nested queries:
-
-```go
-graphql.NewExtension(graphql.WithMaxComplexity(500))
-```
-
-### Depth Limits
-
-Reject deeply nested queries beyond a configurable depth (default 15 levels):
-
-```go
-graphql.NewExtension(graphql.WithMaxDepth(10))
-```
-
-### Query Timeout
-
-Per-request timeout enforced via context deadline (default 30 seconds):
-
-```go
-graphql.NewExtension(graphql.WithQueryTimeout(10 * time.Second))
-```
-
-## Query Caching
-
-Cache parsed and validated query plans to avoid re-parsing identical queries:
-
-- `EnableQueryCache` -- enable/disable (default: true)
-- `QueryCacheTTL` -- cache entry TTL (default: 5 minutes)
-- `MaxCacheSize` -- max cached queries (default: 1000)
-
-## DataLoader Integration
-
-Built-in N+1 query prevention. DataLoaders batch individual lookups into efficient bulk queries:
-
-```go
-// DataLoader interface
-type DataLoader interface {
-    Load(key string) (interface{}, error)
-    LoadMany(keys []string) ([]interface{}, []error)
-    Prime(key string, value interface{})
-    Clear(key string)
-    ClearAll()
-}
-
-// Create a loader with batch function
-loader := dataloader.NewLoader(
-    dataloader.DefaultLoaderConfig(),
-    func(keys []string) (map[string]interface{}, error) {
-        return db.BatchGetUsers(keys)
-    },
-)
-```
-
-Configuration:
-- `DataLoaderBatchSize` -- max keys per batch (default: 100)
-- `DataLoaderWait` -- wait time to collect keys before executing batch (default: 10ms)
-
-## Executor Middleware
-
-Chain middleware functions on the GraphQL execution pipeline:
-
-```go
-server.Use(func(next graphql.ExecutorFunc) graphql.ExecutorFunc {
-    return func(ctx context.Context, req *graphql.Request) (*graphql.Response, error) {
-        start := time.Now()
-        resp, err := next(ctx, req)
-        log.Printf("Query took %v", time.Since(start))
-        return resp, err
-    }
-})
-```
-
-## Programmatic Query Execution
-
-Execute queries from server-side code:
-
-```go
-result, err := server.ExecuteQuery(ctx, `
-    query GetUser($id: ID!) {
-        user(id: $id) {
-            name
-            email
-        }
-    }
-`, map[string]interface{}{"id": "123"})
-```
-
-## File Uploads
-
-Support multipart file uploads with configurable max size (default 10 MB).
-
-## CORS Support
-
-Configurable allowed origins for cross-origin requests:
-
-```go
-graphql.NewExtension(
-    graphql.WithCORS(true),
-    graphql.WithAllowedOrigins([]string{"https://app.example.com"}),
-)
-```
-
-## Slow Query Logging
-
-Log queries that exceed a configurable threshold (default 1 second). Helps identify performance bottlenecks.
-
-## Introspection Control
-
-Disable introspection for production security:
-
-```go
-server.EnableIntrospection(false)
-```
+gqlgen's multipart transport handles `multipart/form-data` requests. The default server registers one with gqlgen's 32MB limit before the extension adds its own with `max_upload_size`, and the first one wins, so `max_upload_size` doesn't change the limit today.
 
 ## Observability
 
-- **Metrics** -- request count, latency histograms, error rates
-- **Tracing** -- distributed tracing via OpenTelemetry
-- **Logging** -- structured logging of queries and errors
+With `enable_metrics` on and a metrics sink in the container, every operation records:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `graphql_operation_duration_seconds` | histogram | `operation`, `type` |
+| `graphql_operation_total` | counter | `operation`, `type` |
+
+With `enable_logging` on, each operation gets a debug line when it starts and when it finishes, and every GraphQL error in a response is logged at error level with the operation name and path.
+
+With `log_slow_queries` on, an operation slower than `slow_query_threshold` (default `1s`) logs a warning with its duration and raw query. The slow query check is installed with the metrics and logging hooks, so it only runs when `enable_metrics` or `enable_logging` is on.
+
+`enable_tracing` (`WithTracing`) isn't read. There's no tracing.
 
 ## Federation
 
-Built-in federation support:
+The module's `gqlgen.yml` generates Apollo Federation v2 support, so `{ _service { sdl } }` returns the built-in schema's SDL. The schema has no `@key` types, so there are no entity resolvers. `FederationConfig` and `DefaultFederationConfig()` exist but nothing reads them, and there's no option that turns federation on or off.
+
+## The @auth directive
+
+The schema declares `@auth(requires: String)`, and the `directives` package has an `Auth` function that checks `ctx.Value("user")` and a `[]string` of roles under `ctx.Value("roles")`. Nothing wires it into the server and no field uses it, so it has no effect today.
+
+## CORS
+
+`enable_cors` and `allowed_origins` (`WithCORS`) aren't read. If browsers on other origins call your endpoint, handle CORS in front of it, for example with `middleware.CORS` from `github.com/xraph/forge/middleware`.
+
+## Batch lookups with DataLoader
+
+The `dataloader` package works on its own, whether or not you use the extension. A `Loader` collects the keys concurrent callers ask for during a short wait window, calls your batch function once with all of them, and caches the results:
 
 ```go
-graphql.NewExtension(
-    graphql.WithFederation(graphql.FederationConfig{Enabled: true, Version: "2.0"}),
-)
+users := dataloader.NewLoader(dataloader.DefaultLoaderConfig(),
+	func(ctx context.Context, keys []any) ([]any, []error) {
+		// One query for every key collected in this window.
+		values := make([]any, len(keys))
+		for i, k := range keys {
+			values[i] = fmt.Sprintf("user-%v", k)
+		}
+
+		return values, make([]error, len(keys))
+	})
+
+user, err := users.Load(ctx, 42)
 ```
 
-## Sentinel Errors
+Your batch function has to return a value slice and an error slice that line up with `keys`, one entry per key, or the wrong caller gets the wrong value. `DefaultLoaderConfig()` waits 10ms (`Wait`) and sets `MaxBatch` to 100. `Prime(key, value)`, `Clear(key)` and `ClearAll()` manage the cache.
 
-| Error | Meaning |
+`LoadMany` calls `Load` for one key after another, so it waits a full window per key and doesn't batch. Call `Load` from concurrent resolvers if you want the batching. Create one `Loader` per request, because the cache never expires.
+
+The `enable_dataloader`, `dataloader_batch_size` and `dataloader_wait` config keys aren't connected to this package. Pass a `LoaderConfig` yourself.
+
+## Sentinel errors
+
+The package exports these, but the server doesn't return any of them today:
+
+| Error | Message |
 |---|---|
-| `ErrNotInitialized` | Server has not been initialized |
-| `ErrInvalidQuery` | Query string is malformed |
-| `ErrInvalidSchema` | Schema definition is invalid |
-| `ErrTypeNotFound` | Requested GraphQL type not found |
-| `ErrResolverNotFound` | No resolver for the requested field |
-| `ErrExecutionFailed` | Query execution failed |
-| `ErrComplexityExceeded` | Query complexity exceeds limit |
-| `ErrDepthExceeded` | Query depth exceeds limit |
-| `ErrTimeout` | Query exceeded timeout |
-| `ErrInvalidConfig` | Configuration validation failed |
+| `ErrNotInitialized` | `graphql: not initialized` |
+| `ErrInvalidQuery` | `graphql: invalid query` |
+| `ErrInvalidSchema` | `graphql: invalid schema` |
+| `ErrTypeNotFound` | `graphql: type not found` |
+| `ErrResolverNotFound` | `graphql: resolver not found` |
+| `ErrExecutionFailed` | `graphql: execution failed` |
+| `ErrComplexityExceeded` | `graphql: query complexity exceeded` |
+| `ErrDepthExceeded` | `graphql: query depth exceeded` |
+| `ErrTimeout` | `graphql: query timeout` |
+| `ErrInvalidConfig` | `graphql: invalid configuration` |
+
+Config validation returns plain errors such as `max_depth must be at least 1`, and registration wraps them as `graphql config validation failed: ...`. A query over the complexity limit comes back as a normal GraphQL error from gqlgen.

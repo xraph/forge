@@ -1,101 +1,88 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for oRPC
+description: Config keys, defaults and option helpers for the oRPC extension
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## How Config Is Loaded
+
+The extension reads `extensions.orpc` from your config, and falls back to a top-level `orpc` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`, so fields you leave out keep their defaults. One edge case: when the file has an `orpc` section, an option set to its default value or to a zero value (`false`, `0`, an empty string) looks the same as no option at all, and the file (or the default) wins for that field. So `WithEnabled(false)` or `WithBatch(false)` doesn't take effect next to a config section; set `enabled: false` or `enable_batch: false` in the file instead.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on (`forge.DefaultAppConfig()` turns it on). `WithRequireConfig(true)` makes a missing section an error at startup.
+
 ## YAML Configuration Example
+
+The keys are the snake_case names from the struct tags:
 
 ```yaml title="config.yaml"
 extensions:
   orpc:
     enabled: true
-    endpoint: "/rpc"
-    openRPCEndpoint: "/rpc/schema"
-    serverName: "my-app"
-    serverVersion: "1.0.0"
+    endpoint: /rpc
+    openrpc_endpoint: /rpc/schema
+    server_name: users
+    server_version: 1.0.0
 
-    # Auto-exposure
-    autoExposeRoutes: true
-    methodPrefix: ""
-    excludePatterns:
-      - "/_/*"
-    includePatterns: []
-    namingStrategy: "path"           # "path", "method", or "custom"
+    auto_expose_routes: true
+    method_prefix: ""
+    exclude_patterns: ["/_/*"]
+    include_patterns: []
+    naming_strategy: path        # path, method or custom
 
-    # Features
-    enableOpenRPC: true
-    enableDiscovery: true
-    enableBatch: true
-    batchLimit: 10
+    enable_openrpc: true
+    enable_discovery: true
+    enable_batch: true
+    batch_limit: 10
 
-    # Security
-    requireAuth: false
-    authHeader: "Authorization"
-    rateLimitPerMinute: 0            # 0 = unlimited
-
-    # Limits
-    maxRequestSize: 1048576          # 1 MB
-    requestTimeout: 30               # seconds
-
-    # Performance
-    schemaCache: true
-    enableMetrics: true
+    max_request_size: 1048576    # bytes, at least 1024
+    enable_metrics: true
 ```
-
-The extension loads config from `extensions.orpc` first, falling back to `orpc`.
 
 ## Programmatic Configuration
 
 ```go
 ext := orpc.NewExtension(
-    orpc.WithEndpoint("/api/rpc"),
-    orpc.WithAutoExpose(true),
-    orpc.WithMethodPrefix("myapp."),
-    orpc.WithBatch(true, 20),
-    orpc.WithNamingStrategy("path"),
+	orpc.WithEndpoint("/api/rpc"),
+	orpc.WithOpenRPCEndpoint("/api/rpc/schema"),
+	orpc.WithServerInfo("billing", "2.1.0"),
+	orpc.WithMethodPrefix("billing."),
+	orpc.WithBatchLimit(20),
+	orpc.WithNamingStrategy("method"),
 )
 ```
 
-## Config Struct Reference
+## Config Reference
 
-### `Config`
+| Key | Field | Option | Default | What it does |
+|---|---|---|---|---|
+| `enabled` | `Enabled` | `WithEnabled` | `true` | Turns the extension off without removing it |
+| `endpoint` | `Endpoint` | `WithEndpoint` | `/rpc` | Path of the JSON-RPC endpoint. Can't be empty |
+| `openrpc_endpoint` | `OpenRPCEndpoint` | `WithOpenRPCEndpoint` | `/rpc/schema` | Path of the OpenRPC document |
+| `server_name`, `server_version` | `ServerName`, `ServerVersion` | `WithServerInfo` | `forge-app`, `1.0.0` | `info` block of the OpenRPC document. An empty value falls back to the app's name or version |
+| `auto_expose_routes` | `AutoExposeRoutes` | `WithAutoExposeRoutes` | `true` | Turns routes into methods at start |
+| `method_prefix` | `MethodPrefix` | `WithMethodPrefix` | `""` | Prefix for every generated method name |
+| `exclude_patterns` | `ExcludePatterns` | `WithExcludePatterns` | `["/_/*"]` | Paths to leave out |
+| `include_patterns` | `IncludePatterns` | `WithIncludePatterns` | `[]` | When set, only matching paths are exposed |
+| `naming_strategy` | `NamingStrategy` | `WithNamingStrategy` | `path` | `path`, `method` or `custom` (which behaves like `path`) |
+| `enable_openrpc` | `EnableOpenRPC` | `WithOpenRPC` | `true` | Serves the OpenRPC document |
+| `enable_discovery` | `EnableDiscovery` | `WithDiscovery` | `true` | Serves `<endpoint>/methods` |
+| `enable_batch` | `EnableBatch` | `WithBatch` | `true` | Accepts batch requests |
+| `batch_limit` | `BatchLimit` | `WithBatchLimit` | `10` | Largest batch accepted. At least 1 |
+| `max_request_size` | `MaxRequestSize` | `WithMaxRequestSize` | `1048576` | Largest request body in bytes. At least 1024 |
+| `enable_metrics` | `EnableMetrics` | `WithMetrics` | `true` | Records `orpc_requests_total` and `orpc_methods_total` |
 
-| Field | Type | Default | Description |
+`WithConfig(cfg)` replaces the whole config, and `NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`.
+
+## Settings That Aren't Used Yet
+
+<Callout type="warn">
+These exist in `Config` and pass validation, but nothing reads them. Don't rely on `WithAuth` to protect the endpoint. Put Forge middleware or your auth extension in front of `/rpc` instead.
+</Callout>
+
+| Key | Field | Option | Default |
 |---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable the extension |
-| `Endpoint` | `string` | `"/rpc"` | JSON-RPC endpoint |
-| `OpenRPCEndpoint` | `string` | `"/rpc/schema"` | OpenRPC schema endpoint |
-| `ServerName` | `string` | `"forge-app"` | Server name for OpenRPC |
-| `ServerVersion` | `string` | `"1.0.0"` | Server version |
-| `AutoExposeRoutes` | `bool` | `true` | Auto-expose HTTP routes as methods |
-| `MethodPrefix` | `string` | `""` | Prefix for generated method names |
-| `ExcludePatterns` | `[]string` | `["/_/*"]` | Route patterns to exclude |
-| `IncludePatterns` | `[]string` | `[]` | Route patterns to include (whitelist) |
-| `EnableOpenRPC` | `bool` | `true` | Generate OpenRPC schema |
-| `EnableDiscovery` | `bool` | `true` | Enable method discovery endpoint |
-| `EnableBatch` | `bool` | `true` | Enable batch requests |
-| `BatchLimit` | `int` | `10` | Maximum batch size |
-| `NamingStrategy` | `string` | `"path"` | Method naming: `path`, `method`, `custom` |
-| `RequireAuth` | `bool` | `false` | Require authentication |
-| `AuthHeader` | `string` | `"Authorization"` | Auth header name |
-| `RateLimitPerMinute` | `int` | `0` | Rate limit (0 = unlimited) |
-| `MaxRequestSize` | `int64` | `1048576` (1 MB) | Maximum request size |
-| `RequestTimeout` | `int` | `30` | Request timeout in seconds |
-| `SchemaCache` | `bool` | `true` | Cache generated schemas |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-
-## Option Helpers
-
-| Function | Description |
-|---|---|
-| `WithEnabled(enabled)` | Toggle the extension |
-| `WithEndpoint(endpoint)` | Set the RPC endpoint path |
-| `WithAutoExpose(enabled)` | Toggle auto-exposure of HTTP routes |
-| `WithMethodPrefix(prefix)` | Set method name prefix |
-| `WithExcludePatterns(patterns...)` | Set route exclude patterns |
-| `WithIncludePatterns(patterns...)` | Set route include patterns |
-| `WithBatch(enabled, limit)` | Toggle batch support with limit |
-| `WithNamingStrategy(strategy)` | Set method naming strategy |
-| `WithAuth(header, tokens...)` | Enable authentication |
-| `WithRateLimit(perMinute)` | Set rate limit |
-| `WithConfig(config)` | Provide a complete config struct |
+| `require_auth`, `auth_header`, `auth_tokens` | `RequireAuth`, `AuthHeader`, `AuthTokens` | `WithAuth(header string, tokens []string)` | `false`, `Authorization`, none |
+| `rate_limit_per_minute` | `RateLimitPerMinute` | `WithRateLimit(perMinute int)` | `0` |
+| `request_timeout` | `RequestTimeout` | `WithRequestTimeout(seconds int)` | `30`. Validation still requires at least 1 |
+| `schema_cache` | `SchemaCache` | `WithSchemaCache(enabled bool)` | `true` |

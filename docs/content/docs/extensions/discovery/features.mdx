@@ -3,315 +3,214 @@ title: Features
 description: Discovery extension capabilities
 ---
 
-## Multiple Backends
+## Backends
 
-All backends implement the same `Backend` interface, making it easy to switch between providers without changing application code:
+Every backend implements `discovery.Backend` (an alias for `backends.Backend`), so you switch providers without changing the code that looks services up:
 
 ```go
 type Backend interface {
-    Name() string
-    Initialize(ctx context.Context) error
-    Register(ctx context.Context, instance *ServiceInstance) error
-    Deregister(ctx context.Context, serviceID string) error
-    Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error)
-    DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error)
-    Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error
-    ListServices(ctx context.Context) ([]string, error)
-    Health(ctx context.Context) error
-    Close() error
+	Name() string
+	Initialize(ctx context.Context) error
+	Register(ctx context.Context, instance *ServiceInstance) error
+	Deregister(ctx context.Context, serviceID string) error
+	Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error)
+	DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error)
+	Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error
+	ListServices(ctx context.Context) ([]string, error)
+	Health(ctx context.Context) error
+	Close() error
 }
 ```
 
-### Backend Comparison
+| `backend` | Option | Registers this app | Notes |
+|---|---|---|---|
+| `memory` | `WithBackend("memory")` | yes, in process | Default. One process only |
+| `consul` | `WithConsul(address, token)` | yes | ACL token, datacenter, namespace and TLS from `consul.*`. Attaches a 30-second TTL check and tells Consul to drop the instance after a minute in a critical state |
+| `etcd` | `WithEtcd(endpoints)` | yes | Keys under `etcd.key_prefix` (default `/services`). The `tls_*` keys aren't applied yet |
+| `kubernetes` | `WithKubernetes(namespace, inCluster)` | no, Kubernetes owns that | `Discover` returns one instance per matching Kubernetes Service |
+| `mdns` | `WithMDNS(domain)` | yes | Bonjour on macOS, Avahi on Linux, DNS-SD on Windows. No server needed |
+| `http` | `WithHTTPSeeds(urls...)` | only in this process | Polls each seed's `/_farp/discovery` endpoint |
+| `eureka` | `WithEureka(urls)` | | Not implemented. Startup fails with "eureka backend not yet implemented" |
 
-| Backend | Infrastructure | Multi-Node | Watch | Health Checks | Best For |
-|---|---|---|---|---|---|
-| **Memory** | None | No | No | No | Development, testing |
-| **Consul** | Consul cluster | Yes | Yes | Yes | Production, full-featured |
-| **etcd** | etcd cluster | Yes | Yes | No | Kubernetes environments |
-| **mDNS** | None (LAN) | Yes (LAN) | Yes | No | Local development, zero-config |
-| **Kubernetes** | K8s cluster | Yes | Yes | Yes | Kubernetes-native deployments |
-| **Eureka** | Eureka server | Yes | No | Yes | Spring/Netflix ecosystems |
+Every backend supports `Watch`.
 
-## Self-Registration
+## Self-registration
 
-The discovery service automatically registers the current application as a service instance on startup and deregisters it on shutdown:
+On `Start` the extension builds a `ServiceInstance` from your config and the app (see [where the address comes from](/docs/extensions/discovery/configuration#where-the-address-comes-from)) and registers it. On `Stop` it deregisters, unless you turned `service.enable_auto_deregister` off. With FARP on, the FARP service node handles deregistration instead.
+
+You can also register other instances yourself:
 
 ```go
-svc := discovery.MustGet(app.Container())
+svc, err := forge.Inject[*discovery.Service](app.Container())
+if err != nil {
+	return err
+}
 
-// Manual registration (automatic if SelfRegister is enabled in config)
-err := svc.Register(ctx, &discovery.ServiceInstance{
-    ID:      "my-service-1",
-    Name:    "my-service",
-    Version: "1.0.0",
-    Address: "10.0.0.5",
-    Port:    8080,
-    Tags:    []string{"http", "v1"},
-    Metadata: map[string]string{
-        "region": "us-east-1",
-        "env":    "production",
-    },
+err = svc.Register(ctx, &discovery.ServiceInstance{
+	ID:       "worker-1",
+	Name:     "worker",
+	Version:  "1.0.0",
+	Address:  "10.0.0.5",
+	Port:     8080,
+	Tags:     []string{"http", "v1"},
+	Metadata: map[string]string{"region": "us-east-1"},
+	Status:   discovery.HealthStatusPassing,
 })
 ```
 
-The `ServiceInstance` struct provides utility methods:
+Set `Status` yourself. An instance without `passing` never shows up in `DiscoverHealthy`, `SelectInstance` or `GetServiceURL`.
+
+`ServiceInstance` has a few helpers:
 
 ```go
-instance.URL("http")         // "http://10.0.0.5:8080"
-instance.HasTag("http")      // true
-instance.HasAllTags([]string{"http", "v1"}) // true
-instance.IsHealthy()         // true if Status == HealthPassing
-instance.GetMetadata("region") // ("us-east-1", true)
+instance.URL("http")                         // "http://10.0.0.5:8080"
+instance.HasTag("http")                      // true
+instance.HasAllTags([]string{"http", "v1"})  // true
+instance.IsHealthy()                         // Status == HealthStatusPassing
+instance.GetMetadata("region")               // "us-east-1", true
 ```
 
-## Service Discovery
-
-Find service instances by name or tags:
+## Looking up services
 
 ```go
-svc := discovery.MustGet(app.Container())
-
-// Discover all instances of a service
 instances, err := svc.Discover(ctx, "user-service")
-
-// Filter by tags
-instances, err := svc.DiscoverWithTags(ctx, "user-service", []string{"http", "v2"})
-
-// Get only healthy instances
+tagged, err := svc.DiscoverWithTags(ctx, "user-service", []string{"http", "v2"}) // must have all tags
 healthy, err := svc.DiscoverHealthy(ctx, "user-service")
-
-// List all registered service names
-services, err := svc.ListServices(ctx)
+names, err := svc.ListServices(ctx)
 ```
 
-## Instance Selection
+## Instance selection
 
-Built-in load balancing selects a single instance from the discovered set:
+`SelectInstance` picks one healthy instance, and `GetServiceURL` turns it into `scheme://address:port`:
 
 ```go
-// Select using a load balancing strategy
-instance, err := svc.SelectInstance(ctx, "user-service", discovery.StrategyRoundRobin)
+instance, err := svc.SelectInstance(ctx, "user-service", discovery.LoadBalanceRoundRobin)
 
-// Get a ready-to-use URL for a service
-url, err := svc.GetServiceURL(ctx, "user-service", "http", discovery.StrategyLeastConnections)
-// Returns: "http://10.0.0.5:8080"
+url, err := svc.GetServiceURL(ctx, "user-service", "http", discovery.LoadBalanceRandom)
 ```
 
-## Service Watching
+Two strategies work: `LoadBalanceRoundRobin` and `LoadBalanceRandom`. `LoadBalanceLeastConnections` and `LoadBalanceWeightedRoundRobin` exist as constants, but they fall back to round-robin, since the service doesn't count connections or read weights. When no instance is healthy, both calls return an error.
 
-Subscribe to real-time service change events. When instances are added, removed, or their health changes, your callback is invoked:
+## Watching
+
+Your callback gets the full instance list each time it changes:
 
 ```go
 err := svc.Watch(ctx, "payment-service", func(instances []*discovery.ServiceInstance) {
-    log.Printf("payment-service instances changed: %d available", len(instances))
-    for _, inst := range instances {
-        log.Printf("  - %s (%s:%d) healthy=%v", inst.ID, inst.Address, inst.Port, inst.IsHealthy())
-    }
+	log.Printf("payment-service now has %d instances", len(instances))
 })
 ```
 
-Watching is supported by Consul, etcd, mDNS, and Kubernetes backends.
+To watch from start, pass `WithWatch([]string{"payment-service"}, onChange)` when you build the extension, or list the services under `watch.services` with `watch.enabled: true`. A callback can only come from code. Services you list in the file without one get an info log line on each change and nothing else.
 
-## Health Checks
+## Health
 
-The discovery extension supports health checking of registered services:
+Without FARP, the extension runs a loop every `health_check.interval` (10 seconds by default). It runs your app's health checks with `health_check.timeout`, and re-registers the instance with `passing` when the overall result is healthy and `critical` when it isn't. With FARP on, the FARP service node runs its own health loop instead, and the extension's loop only starts if the node fails to start.
 
-- **Active probes** -- periodic HTTP health checks at configurable intervals (default 10s) with timeout (default 5s).
-- **Failure threshold** -- mark as unhealthy after consecutive failures.
-- **Critical deregister** -- automatically deregister services that remain unhealthy beyond the critical threshold (default 1m).
-- **Service status** -- `HealthPassing`, `HealthWarning`, `HealthCritical`.
+The loop always uses your app's health checks. `health_check.http`, `tcp`, `grpc` and `deregister_critical_service_after` are read into the config but have no effect, and `WithHTTPHealthCheck` only sets the interval and turns the loop on.
 
-Health check behavior varies by backend. Consul provides the most comprehensive health check integration.
+Statuses are `HealthStatusPassing`, `HealthStatusWarning`, `HealthStatusCritical` and `HealthStatusUnknown`. Only `passing` counts as healthy.
 
-## FARP Protocol
+## FARP
 
-The Forge API Registration Protocol (FARP) enables schema-driven API discovery. When enabled, the
-extension exposes two HTTP endpoints and injects FARP metadata into the service's backend registration
-(mDNS TXT records, Consul metadata, etcd keys). The API gateway reads this metadata to auto-generate
-proxy routes.
+FARP is the Forge API gateway registration protocol, implemented in [xraph/farp](https://github.com/xraph/farp). With `farp.enabled`, the extension adds four routes:
 
-### How FARP Works
-
-```
-┌─────────────────────┐       ┌──────────────────────┐       ┌───────────────────────┐
-│   Upstream Service  │       │   Discovery Backend  │       │      API Gateway      │
-│   (discovery ext)   │       │  (mDNS/Consul/etcd)  │       │    (gateway ext)      │
-├─────────────────────┤       ├──────────────────────┤       ├───────────────────────┤
-│ 1. Start            │──────▶│ 2. Register service  │       │                       │
-│ 2. Expose /_farp/*  │       │    + FARP metadata   │       │                       │
-│                     │       │    (farp.enabled,     │       │                       │
-│                     │       │     farp.manifest,    │◀──────│ 3. Discover services  │
-│                     │       │     farp.openapi)     │       │ 4. Read FARP metadata │
-│                     │◀──────│                       │       │ 5. Fetch manifest     │
-│ 5. Return manifest  │──────▶│                       │──────▶│ 6. Generate routes    │
-└─────────────────────┘       └──────────────────────┘       └───────────────────────┘
-```
-
-### `GET /_farp/manifest`
-
-Returns the service's API manifest including metadata and schemas:
-
-```json
-{
-  "name": "user-service",
-  "version": "1.0.0",
-  "schemas": [
-    {
-      "type": "openapi",
-      "specVersion": "3.0",
-      "location": {
-        "type": "url",
-        "url": "/openapi.json"
-      },
-      "contentType": "application/json"
-    }
-  ],
-  "capabilities": ["http", "websocket"]
-}
-```
-
-### `GET /_farp/discovery`
-
-Returns discovery information including instance address and available endpoints.
-
-### FARP Metadata in Discovery
-
-When a service registers with a backend, FARP metadata is injected automatically. The key metadata fields are:
-
-| Key | Value | Description |
-|---|---|---|
-| `farp.enabled` | `"true"` | Signals that FARP is active on this service |
-| `farp.manifest` | `"http://host:port/_farp/manifest"` | URL to fetch the full API manifest |
-| `farp.openapi` | `"http://host:port/openapi.json"` | OpenAPI spec endpoint |
-| `farp.asyncapi` | `"http://host:port/asyncapi.json"` | AsyncAPI spec endpoint (if configured) |
-| `farp.graphql` | `"http://host:port/graphql"` | GraphQL endpoint (if configured) |
-| `farp.strategy` | `"push"` | Registration strategy |
-| `farp.capabilities` | `"[http rest]"` | Advertised capabilities |
-
-The gateway extension checks for `farp.enabled=true` in discovered service metadata and uses
-these URLs to generate proxy routes for each protocol.
-
-### Schema Publishing
-
-Publish API schemas (OpenAPI, AsyncAPI, GraphQL, gRPC) via FARP manifests for the gateway and other services to discover:
-
-```go
-discovery.NewExtension(
-    discovery.WithFARPEnabled(true),
-    discovery.WithFARPSchemas(
-        discovery.FARPSchemaConfig{
-            Type:        "openapi",
-            SpecVersion: "3.0",
-            Location: discovery.FARPLocationConfig{
-                Type: "url",
-                URL:  "/openapi.json",
-            },
-            ContentType: "application/json",
-        },
-        discovery.FARPSchemaConfig{
-            Type:        "graphql",
-            SpecVersion: "2023",
-            Location: discovery.FARPLocationConfig{
-                Type: "url",
-                URL:  "/graphql",
-            },
-        },
-    ),
-)
-```
-
-### Auto-Register with FARP
-
-When `AutoRegister` is enabled (the default), the FARP manifest is automatically registered with the discovery backend, allowing the API gateway to discover and proxy requests without manual configuration:
-
-```go
-discovery.NewExtension(
-    discovery.WithFARPEnabled(true),
-    discovery.WithFARPAutoRegister(true),  // default: true
-)
-```
-
-### FARP Strategies
-
-| Strategy | Behavior |
+| Route | What it returns |
 |---|---|
-| `push` | Service pushes schema registration on startup (default) |
-| `pull` | Gateway pulls schema from service on demand |
-| `hybrid` | Push on startup with pull-based refresh |
+| `GET /_farp/manifest` | The service manifest: routes, endpoints, capabilities and schema references |
+| `GET /_farp/health` | FARP health for this instance |
+| `GET /_farp/schemas/:type` | The OpenAPI or AsyncAPI schema |
+| `GET /_farp/discovery` | Instance ID, name, version, address, port, tags and metadata |
 
-## mDNS Discovery
-
-Zero-configuration service discovery on local networks using multicast DNS. Ideal for local
-development environments where no external infrastructure (Consul, etcd) is available.
-
-### Basic mDNS Setup
+The routes exist from `Register` on. The manifest itself is built in a `PhaseAfterStart` hook, after every extension has started, so it sees routes that other extensions add during their own start. Until then the first three answer 503, and `/_farp/discovery` answers 503 until the extension's own `Start` has run.
 
 ```go
 discovery.NewExtension(
-    discovery.WithBackend("mdns"),
-    discovery.WithServiceName("my-service"),
+	discovery.WithBackend("mdns"),
+	discovery.WithServiceName("users"),
+	discovery.WithServiceID("users-1"),
+	discovery.WithFARPEnabled(true),
+	discovery.WithFARPGatewayURL("http://localhost:7903"),
+	discovery.WithFARPPathRules(
+		farp.PathRule{Pattern: "/internal/**", Action: farp.PathRuleExclude},
+	),
 )
 ```
 
-### mDNS with FARP
+### Metadata in the registry
 
-mDNS is the recommended backend for local development with FARP. FARP metadata is stored in
-mDNS TXT records, so the gateway can discover services and their API schemas over the local
-network without any infrastructure:
+With FARP on, the instance you register carries these keys, so a gateway browsing the registry can find your manifest:
 
-```go
-// Service app (e.g. user-service)
-discovery.NewExtension(
-    discovery.WithEnabled(true),
-    discovery.WithBackend("mdns"),
-    discovery.WithServiceName("user-service"),
-    discovery.WithFARPEnabled(true),
-    discovery.WithFARPAutoRegister(true),
-    discovery.WithFARPEndpoints(discovery.FARPEndpointsConfig{
-        OpenAPI: "/openapi.json",
-        Health:  "/health",
-    }),
-)
-```
+| Key | Value |
+|---|---|
+| `farp.enabled` | `true` |
+| `farp.manifest` | `http://host:port/_farp/manifest` |
+| `farp.health` | `farp.endpoints.health`, or `/_/health` when empty |
+| `farp.openapi`, `farp.openapi.path` | The OpenAPI URL and path, when `farp.endpoints.openapi` is set |
+| `farp.asyncapi`, `farp.asyncapi.path` | Same for AsyncAPI |
+| `farp.graphql`, `farp.graphql.path` | Same for GraphQL |
+| `farp.grpc.reflection` | `true` when `farp.endpoints.grpc_reflection` is on |
+| `farp.collapse_service_tags` | `true` when you turned tag collapsing on |
+| `farp.include_internal_paths` | `true` when you turned internal path exclusion off |
 
-When the service registers via mDNS, the TXT records include:
+The URL keys need an address and a port. Set `scheme` in `service.metadata` to advertise something other than `http`. On mDNS these end up in the TXT records:
 
 ```
-version=1.0.0
-id=user-service-abc123
 farp.enabled=true
 farp.manifest=http://192.168.1.10:8080/_farp/manifest
-farp.openapi=http://192.168.1.10:8080/openapi.json
+farp.health=/health
 ```
 
-The gateway extension browsing for mDNS services reads these TXT records, detects
-`farp.enabled=true`, and auto-generates proxy routes.
+### Schemas
 
-### mDNS Service Types
-
-By default the service type is derived from the service name: `_<name>._tcp`. You can override
-this or configure which service types to browse for:
+When `farp.schemas` is empty and `farp.auto_register` is on (the default), the extension publishes whichever of the OpenAPI and AsyncAPI specs your app has turned on. If you list schemas, only their `type` is read, and only `openapi` and `asyncapi` produce anything. `spec_version`, `location` and `content_type` are ignored, and the extension generates the spec from your routes.
 
 ```go
-discovery.NewExtension(
-    discovery.WithBackend("mdns"),
-    discovery.WithServiceName("user-service"),
-    // Custom service type for registration
-    discovery.WithMDNSServiceType("_myapp._tcp"),
-    // Browse for multiple service types during discovery
-    discovery.WithMDNSServiceTypes("_myapp._tcp", "_api._tcp"),
+discovery.WithFARPSchemas(
+	discovery.FARPSchemaConfig{Type: "openapi"},
+	discovery.FARPSchemaConfig{Type: "asyncapi"},
 )
 ```
 
-### mDNS Configuration Options
+Internal paths (`/_/*`, `/_farp/*` and similar) are left out of the published schemas unless you call `WithFARPExcludeInternalPaths(false)`. `WithFARPPathRules` adds your own rules, checked in order, and the first match wins.
+
+### Gateway push
+
+With `gateway_url` set, the extension posts its registration to `<gateway_url>/_farp/v1/register` once the HTTP server is listening, retries with backoff until that works, and calls `<gateway_url>/_farp/v1/deregister/<name>` on shutdown.
+
+### Not implemented
+
+`farp.strategy` (`push`, `pull`, `hybrid`), `farp.capabilities` and `farp.endpoints.metrics` are stored in the config but the extension doesn't use them. The manifest's capabilities come from the FARP service node, not from your list. `SchemaPublisher` reads them, but the extension doesn't use `SchemaPublisher`.
+
+## mDNS
+
+mDNS needs no server, which makes it the easy choice on one machine or a local network:
+
+```go
+discovery.NewExtension(
+	discovery.WithMDNS(""), // "local." by default
+	discovery.WithServiceName("my-service"),
+	discovery.WithServiceID("my-service-1"),
+)
+```
+
+The service type defaults to `_<name>._tcp`. You can set it, and browse more than one type:
+
+```go
+discovery.NewExtension(
+	discovery.WithMDNS(""),
+	discovery.WithServiceName("user-service"),
+	discovery.WithMDNSServiceType("_myapp._tcp"),
+	discovery.WithMDNSServiceTypes("_myapp._tcp", "_api._tcp"),
+)
+```
 
 | Option | Description |
 |---|---|
-| `WithMDNSServiceType(t)` | Set the mDNS service type for registration |
-| `WithMDNSServiceTypes(t...)` | Set mDNS service types to browse during discovery |
-| `WithMDNSBrowseTimeout(d)` | Timeout for browse operations (default: 3s) |
-| `WithMDNSTTL(ttl)` | DNS record TTL |
+| `WithMDNSServiceType(t)` | Service type to register |
+| `WithMDNSServiceTypes(t...)` | Service types to browse |
+| `WithMDNSBrowseTimeout(d)` | Browse timeout (default 3s) |
+| `WithMDNSTTL(ttl)` | Record TTL in seconds (default 120) |
 | `WithMDNSWatchInterval(d)` | Watch polling interval |
-| `WithMDNSInterface(iface)` | Bind to a specific network interface |
-| `WithMDNSIPv6(enabled)` | Enable IPv6 support |
+| `WithMDNSInterface(iface)` | Network interface to use |
+| `WithMDNSIPv6(enabled)` | Use IPv6 too |

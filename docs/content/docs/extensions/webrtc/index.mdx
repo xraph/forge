@@ -1,145 +1,174 @@
 ---
 title: WebRTC
-description: WebRTC video calling with mesh and SFU topologies
+description: WebRTC call rooms and server-side peer connections built on Pion and the streaming extension
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/webrtc` provides WebRTC peer-to-peer and selective forwarding
-unit (SFU) video calling built on top of the Pion WebRTC library and the Forge streaming extension.
-It manages call rooms, peer connections, SDP signaling, ICE candidate exchange, media tracks,
-and optional quality monitoring.
+`github.com/xraph/forge/extensions/webrtc` builds on [Pion WebRTC v4](https://github.com/pion/webrtc) and the [streaming extension](/docs/extensions/streaming) to give you call rooms, server-side peer connections with SDP offer and answer handling, ICE candidates, data channels, and STUN and TURN configuration.
 
-## What It Registers
+<Callout type="warn">
+This is early software. You can create rooms and negotiate real peer connections with a browser today, but the server doesn't forward media between participants in either topology, the built-in signaling WebSocket drops every message, and screen sharing, call quality and recording aren't wired up. See [what isn't implemented yet](#not-implemented-yet) before you design a product around it.
+</Callout>
 
-The WebRTC extension does not register services via DI keys. Instead, it is constructed with a
-reference to the streaming extension and used directly:
-
-```go
-webrtcExt, err := webrtc.New(streamingExt, webrtc.Config{}, webrtc.WithTopology("mesh"))
+```bash
+go get github.com/xraph/forge/extensions/streaming
+go get github.com/xraph/forge/extensions/webrtc
 ```
 
-The extension registers a WebSocket signaling endpoint at `/webrtc/signal/{roomID}`.
+## Quick start
 
-## Quick Start
+This creates a call room at startup and answers a browser's SDP offer over plain HTTP:
 
 ```go
 package main
 
 import (
-    "context"
+	"context"
+	"log"
+	"net/http"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/streaming"
-    "github.com/xraph/forge/extensions/webrtc"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/streaming"
+	"github.com/xraph/forge/extensions/webrtc"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "video-app", Version: "1.0.0"})
+	stream := streaming.NewExtension(streaming.WithLocalBackend())
 
-    // Streaming extension is required for signaling
-    streamExt := streaming.NewExtension(streaming.WithLocalBackend())
-    app.RegisterExtension(streamExt)
+	rtc, err := webrtc.New(stream, webrtc.DefaultConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Create WebRTC extension
-    webrtcExt, _ := webrtc.New(streamExt, webrtc.DefaultConfig(),
-        webrtc.WithTopology("mesh"),
-        webrtc.WithSTUNServers("stun:stun.l.google.com:19302"),
-    )
-    app.RegisterExtension(webrtcExt)
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "calls",
+		HTTPAddress: ":8080",
+		Extensions:  []forge.Extension{stream, rtc},
+	})
 
-    // Mount signaling and streaming routes
-    webrtcExt.RegisterRoutes(app.Router())
-    streamExt.RegisterRoutes(app.Router(), "/ws", "/sse")
+	err = forge.OnStarted(app, "create-call", func(ctx context.Context, _ forge.App) error {
+		_, err := rtc.CreateCallRoom(ctx, "standup", streaming.RoomOptions{
+			ID:   "standup",
+			Name: "Daily standup",
+		})
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+		return err
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Create a call room
-    room, _ := webrtcExt.CreateCallRoom(ctx, "meeting-123", streaming.RoomOptions{
-        Name:       "Team Standup",
-        MaxMembers: 10,
-    })
+	r := app.Router()
 
-    // A user joins the call
-    peer, _ := webrtcExt.JoinCall(ctx, "meeting-123", "user-alice",
-        &webrtc.JoinOptions{
-            AudioEnabled: true,
-            VideoEnabled: true,
-        },
-    )
+	// STUN and TURN servers, shaped for the browser's RTCPeerConnection.
+	err = r.GET("/ice-servers", func(ctx forge.Context) error {
+		cfg := rtc.GetConfig()
 
-    // Access peer connection for custom operations
-    stats := peer.GetStats()
-    fmt.Printf("Peer state: %s\n", peer.State())
+		servers := []map[string]any{}
+		for _, s := range cfg.GetICEServers() {
+			servers = append(servers, map[string]any{
+				"urls":       s.URLs,
+				"username":   s.Username,
+				"credential": s.Credential,
+			})
+		}
+
+		return ctx.JSON(http.StatusOK, servers)
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// The browser posts its offer, the server joins the call and answers.
+	err = r.POST("/calls/:room/join", func(ctx forge.Context) error {
+		var offer webrtc.SessionDescription
+		if err := ctx.Bind(&offer); err != nil {
+			return err
+		}
+
+		peer, err := rtc.JoinCall(ctx.Context(), ctx.Param("room"), ctx.Query("user"), &webrtc.JoinOptions{})
+		if err != nil {
+			return err
+		}
+
+		if err := peer.SetRemoteDescription(ctx.Context(), &offer); err != nil {
+			return err
+		}
+
+		answer, err := peer.CreateAnswer(ctx.Context())
+		if err != nil {
+			return err
+		}
+
+		return ctx.JSON(http.StatusOK, map[string]string{
+			"type": string(answer.Type),
+			"sdp":  answer.SDP,
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## SFU Topology for Larger Calls
+`curl http://localhost:8080/ice-servers` shows the two Google STUN servers from `DefaultConfig()`. From a page on the same origin, a browser can open a data channel to the server:
 
-```go
-webrtcExt, _ := webrtc.New(streamExt, webrtc.DefaultConfig(),
-    webrtc.WithTopology("sfu"),
-    webrtc.WithSFU(&webrtc.SFUConfig{
-        WorkerCount:      4,
-        MaxBandwidthMbps: 100,
-        AdaptiveBitrate:  true,
-        SimulcastEnabled: true,
-    }),
-)
+```js
+const pc = new RTCPeerConnection({ iceServers: await (await fetch("/ice-servers")).json() });
+pc.createDataChannel("chat");
+await pc.setLocalDescription(await pc.createOffer());
 
-// SFU rooms route all tracks through a central server
-room, _ := webrtcExt.CreateCallRoom(ctx, "webinar-1", streaming.RoomOptions{
-    Name:       "Webinar",
-    MaxMembers: 100,
-})
+// There is no trickle ICE endpoint, so send the offer once gathering is done.
+await new Promise((done) => {
+  if (pc.iceGatheringState === "complete") return done();
+  pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && done();
+});
+
+const res = await fetch("/calls/standup/join?user=ada", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(pc.localDescription),
+});
+await pc.setRemoteDescription(await res.json());
 ```
 
-## Data Channels
+The server waits for its own ICE gathering (up to five seconds) before it returns the answer, so the answer already carries its candidates. Each user can join a room once. A second join with the same `user` fails until that user leaves with `rtc.LeaveCall`.
 
-Send arbitrary data between peers:
+## How it fits together
 
-```go
-// Create a data channel on a peer connection
-dc, _ := webrtc.NewDataChannel(peerConn, "chat", true, logger)
+`webrtc.New(stream, config, opts...)` returns an `*Extension` that you register next to the streaming extension. It lists `streaming` as a dependency, so both have to be in the same app. The extension registers nothing in the DI container. Keep the `*Extension` you created and call it directly.
 
-dc.OnMessage(func(msg []byte) {
-    fmt.Printf("Received: %s\n", string(msg))
-})
+- A call room (`CreateCallRoom`) registers a streaming room under the ID you give it and keeps one server-side Pion peer connection per participant.
+- `JoinCall` creates that peer with your ICE servers. You exchange SDP with the client yourself, through `SetRemoteDescription`, `CreateAnswer` or `CreateOffer`.
+- `Stop` closes every room. `Health` reports unhealthy until the extension has started, and whenever the streaming extension is unhealthy.
 
-dc.Send([]byte("Hello from peer"))
-dc.SendText("Hello as text")
-```
+## Not implemented yet
 
-## Key Concepts
+- Media isn't forwarded. In a mesh room every participant gets a peer connection to the server, and the server only logs the tracks it receives. In an SFU room the router records publishers and tracks, but RTP forwarding is a TODO, so nobody hears anybody.
+- `RegisterRoutes(router)` mounts a WebSocket at `/webrtc/signal/{roomID}`, but its read loop discards every message. See [Features](/docs/extensions/webrtc/features#the-built-in-signaling-websocket).
+- `StartScreenShare`, `StopScreenShare` and `GetQuality` on a call room return `webrtc.ErrNotImplemented`.
+- The extension never constructs a recorder or an extension-wide quality monitor, so `GetRecorder()` and `GetQualityMonitor()` return nil.
+- The extension doesn't read your config file, and most of `Config` is stored but never read. See [Configuration](/docs/extensions/webrtc/configuration).
+- `TopologyMCU` is declared, and `CreateCallRoom` rejects it.
 
-- **Topologies** -- choose between `mesh` (peer-to-peer, best for small groups) and `sfu` (server-mediated forwarding, best for larger calls).
-- **Signaling** -- SDP offers/answers and ICE candidates are exchanged through the streaming extension's room broadcasting.
-- **Call rooms** -- manage participants, tracks, and recording within isolated rooms. Mesh rooms connect every peer to every other peer. SFU rooms route all tracks through a central server.
-- **Media configuration** -- configure audio/video codecs, bitrate limits, resolution caps, and frame rate limits.
-- **Quality monitoring** -- track packet loss, jitter, and bitrate per peer with adaptive quality adjustments.
-- **Recording** -- optional call recording (implementation stub).
-
-## Important Runtime Notes
-
-- The streaming extension is a required dependency. WebRTC uses streaming rooms for signaling.
-- Peer connections use Pion's `webrtc.PeerConnection` with configurable STUN and TURN servers.
-- The SFU router tracks publishers and subscribers per track and handles media forwarding.
-- Authentication can be required for joining calls (`RequireAuth` defaults to `true`).
-
-## Detailed Pages
+## Detailed pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/webrtc/features">
-Mesh, SFU, signaling, media, and quality monitoring capabilities.
+Call rooms, peer connections, signaling helpers and the SFU router.
 </Card>
 <Card title="Configuration" href="/docs/extensions/webrtc/configuration">
-Config reference, YAML example, and programmatic options.
+Config fields, options and which of them take effect.
 </Card>
 <Card title="Functions" href="/docs/extensions/webrtc/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

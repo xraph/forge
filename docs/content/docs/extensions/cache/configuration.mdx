@@ -1,89 +1,105 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for Cache
+description: Config fields, YAML keys and option helpers for Cache
 ---
 
 ## YAML Configuration Example
 
+`Config` has no YAML tags, so the keys in your file are the Go field names, spelled and capitalised
+exactly as in the table below. `DefaultTTL` works. `defaultTTL` and `default_ttl` are silently
+ignored, and the field keeps its default.
+
 ```yaml title="config.yaml"
 extensions:
   cache:
-    driver: "inmemory"          # "inmemory", "redis", or "memcached"
-    url: ""                     # connection string (redis/memcached only)
-    defaultTTL: "5m"            # default expiration for entries
-    maxSize: 10000              # max items in cache (inmemory only)
-    cleanupInterval: "1m"       # expired entry cleanup interval (inmemory only)
-    maxKeySize: 250             # max key size in bytes
-    maxValueSize: 1048576       # max value size in bytes (1MB)
-    prefix: ""                  # key namespace prefix
-    connectionPoolSize: 10      # connection pool size (redis/memcached)
-    connectionTimeout: "5s"
-    readTimeout: "3s"
-    writeTimeout: "3s"
+    Driver: inmemory           # inmemory works; redis and memcached aren't implemented yet
+    DefaultTTL: 10m            # used when Set gets a TTL of 0
+    MaxSize: 50000             # entries, 0 for no limit
+    CleanupInterval: 1m        # how often expired entries are swept
+    MaxKeySize: 250            # bytes, 0 for no limit
+    MaxValueSize: 1048576      # bytes (1 MiB), 0 for no limit
+    Prefix: "orders:"          # added to every key
 ```
 
-The extension loads config from `extensions.cache` first, falling back to `cache` for backward compatibility.
+The extension reads `extensions.cache` first and falls back to a top-level `cache` key.
+
+The final config is built in layers: `DefaultConfig()`, then the file, then any field you set in
+code with an option. Fields you leave out of the file keep their defaults, and a plain
+`cache.NewExtension()` picks up every key in the block. One case the loader can't tell apart: if you
+set a field in code to the same value as its default, the file wins for that field.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()`
+turns it on, but a bare `forge.AppConfig{...}` literal leaves it off, so set it yourself or pass your
+own `ConfigManager`.
 
 ## Programmatic Configuration
 
 ```go
 ext := cache.NewExtension(
-    cache.WithDriver("inmemory"),
-    cache.WithDefaultTTL(10 * time.Minute),
-    cache.WithMaxSize(50000),
-    cache.WithPrefix("myapp:"),
+	cache.WithDriver("inmemory"),
+	cache.WithDefaultTTL(10*time.Minute),
+	cache.WithMaxSize(50000),
+	cache.WithPrefix("myapp:"),
 )
 ```
 
-Or provide a complete config:
+Or hand over a complete config. Start from `DefaultConfig()`, because `WithConfig` replaces every
+field, and a zero `MaxKeySize` or `MaxValueSize` turns that limit off:
 
 ```go
-ext := cache.NewExtensionWithConfig(cache.Config{
-    Driver:     "redis",
-    URL:        "redis://localhost:6379/0",
-    DefaultTTL: 5 * time.Minute,
-    Prefix:     "myapp:",
-})
+cfg := cache.DefaultConfig()
+cfg.DefaultTTL = 10 * time.Minute
+cfg.Prefix = "myapp:"
+
+ext := cache.NewExtensionWithConfig(cfg)
 ```
 
 ## Config Struct Reference
 
 ### `Config`
 
-Source: `config.go`
+Source: `extensions/cache/config.go`
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `Driver` | `string` | `"inmemory"` | Cache backend: `"inmemory"`, `"redis"`, or `"memcached"` |
-| `URL` | `string` | `""` | Connection string. Required for `redis` and `memcached` drivers |
-| `DefaultTTL` | `time.Duration` | `5m` | Default TTL applied when `Set()` is called with `ttl == 0` |
-| `MaxSize` | `int` | `10000` | Maximum number of items (in-memory only). `0` means unlimited |
-| `CleanupInterval` | `time.Duration` | `1m` | How often to sweep expired items (in-memory only) |
-| `MaxKeySize` | `int` | `250` | Maximum key size in bytes |
-| `MaxValueSize` | `int` | `1048576` | Maximum value size in bytes (1 MB) |
-| `Prefix` | `string` | `""` | Prepended to all keys for namespacing |
-| `ConnectionPoolSize` | `int` | `10` | Number of pooled connections (redis/memcached) |
-| `ConnectionTimeout` | `time.Duration` | `5s` | Timeout for establishing a connection |
-| `ReadTimeout` | `time.Duration` | `3s` | Timeout for read operations |
-| `WriteTimeout` | `time.Duration` | `3s` | Timeout for write operations |
-| `RequireConfig` | `bool` | `false` | If `true`, the extension fails to start when config is missing from ConfigManager |
+| `Driver` | `string` | `"inmemory"` | `"inmemory"`, `"redis"` or `"memcached"`. Only `inmemory` is implemented |
+| `URL` | `string` | `""` | Connection string. Validation requires it for `redis` and `memcached` |
+| `DefaultTTL` | `time.Duration` | `5m` | Used when `Set` gets a TTL of `0` |
+| `MaxSize` | `int` | `10000` | Maximum number of entries. `0` means no limit |
+| `CleanupInterval` | `time.Duration` | `1m` | How often expired entries are swept |
+| `MaxKeySize` | `int` | `250` | Maximum key size in bytes. `0` means no limit |
+| `MaxValueSize` | `int` | `1048576` | Maximum value size in bytes (1 MiB). `0` means no limit |
+| `Prefix` | `string` | `""` | Added to every key |
+| `ConnectionPoolSize` | `int` | `10` | Reserved for the network drivers. Nothing reads it yet |
+| `ConnectionTimeout` | `time.Duration` | `5s` | Reserved for the network drivers. Nothing reads it yet |
+| `ReadTimeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
+| `WriteTimeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
+| `RequireConfig` | `bool` | `false` | When `true`, `Register` fails if neither `extensions.cache` nor `cache` is in your config |
 
 ## Validation
 
-`Config.Validate()` checks:
-- `Driver` is one of `inmemory`, `redis`, `memcached`
-- `URL` is non-empty when driver is not `inmemory`
-- `DefaultTTL`, `MaxKeySize`, and `MaxValueSize` are non-negative
+`Register` calls `Config.Validate()` and fails when:
+
+- `Driver` is empty, or isn't `inmemory`, `redis` or `memcached`
+- `URL` is empty for a driver other than `inmemory`
+- `DefaultTTL` is negative (returns `ErrInvalidTTL`)
+- `MaxKeySize` or `MaxValueSize` is negative
+
+Passing validation with `redis` or `memcached` isn't enough to start: building the service then fails
+with "not yet implemented".
 
 ## Option Helpers
 
 | Function | Description |
 |---|---|
-| `WithDriver(driver string)` | Set the cache backend |
-| `WithURL(url string)` | Set the connection string |
-| `WithDefaultTTL(ttl time.Duration)` | Set the default TTL |
-| `WithMaxSize(size int)` | Set maximum item count (in-memory) |
-| `WithPrefix(prefix string)` | Set the key namespace prefix |
-| `WithConnectionPoolSize(size int)` | Set connection pool size |
-| `WithRequireConfig(require bool)` | Require config from ConfigManager |
-| `WithConfig(config Config)` | Provide a complete config object |
+| `WithDriver(driver string)` | Sets `Driver` |
+| `WithURL(url string)` | Sets `URL` |
+| `WithDefaultTTL(ttl time.Duration)` | Sets `DefaultTTL` |
+| `WithMaxSize(size int)` | Sets `MaxSize` |
+| `WithPrefix(prefix string)` | Sets `Prefix` |
+| `WithConnectionPoolSize(size int)` | Sets `ConnectionPoolSize` |
+| `WithRequireConfig(require bool)` | Sets `RequireConfig` |
+| `WithConfig(config Config)` | Replaces the whole config |
+
+There are no options for `CleanupInterval`, `MaxKeySize`, `MaxValueSize` or the timeouts. Set those
+in YAML or through `WithConfig`.

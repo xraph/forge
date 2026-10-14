@@ -19,7 +19,26 @@ Every dashboard request goes through one endpoint, `POST {BasePath}/api/dashboar
 }
 ```
 
-A query reads, a command writes. The kind has to match the capability the intent declares, so you can't run a write intent as a query. Commands also need an `idempotencyKey` and a `csrf` token, and a retried command with the same key gets the first answer back without running twice.
+A query reads, a command writes. The kind has to match the capability the intent declares, so you can't run a write intent as a query: a mismatch gets `BAD_REQUEST` before admission or any cache access. Commands also need an `idempotencyKey` and a `csrf` token, and a command missing either gets a 400.
+
+With contract security on, a retried command with the same key gets the first answer back without running twice. The replay is bound to a digest of the request and the full principal, so the same key sent with a different payload, or by a user whose claims changed, gets `CONFLICT` with reason `idempotency.binding_conflict`. The "Generic command replay" section of the dashboard README has the binding rules and the rollout order.
+
+### Errors and status codes
+
+A failed envelope comes back as `{"ok":false,"envelope":"v1","error":{...}}`, with an HTTP status taken from its code. A handler error that wraps a `*contract.Error` keeps its code, a cancelled context becomes a retryable `UNAVAILABLE`, and anything else becomes `INTERNAL`.
+
+| Code | HTTP status |
+|---|---|
+| `BAD_REQUEST`, `UNSUPPORTED_VERSION` | 400 |
+| `UNAUTHENTICATED` | 401 |
+| `PERMISSION_DENIED` | 403 |
+| `NOT_FOUND` | 404 |
+| `CONFLICT` | 409 |
+| `RATE_LIMITED` | 429 |
+| `UNAVAILABLE` | 503 |
+| `INTERNAL` and any other code | 500 |
+
+A bad CSRF token is the one exception: it carries `UNAUTHENTICATED` with a 403.
 
 Subscriptions don't go through the POST endpoint. A client opens `GET /api/dashboard/v1/stream`, reads its stream ID from the first `hello` event, and then subscribes to intents on it through `/stream/control`.
 
@@ -137,7 +156,7 @@ func (a *AuthExtension) RegisterDashboardAuth(ext *dashboard.Extension) {
 }
 ```
 
-With auth on, `/principal` answers 401 for a signed-out caller and includes the login path, so the client knows where to send them. With `RequiredRoles` set, a signed-in user without one of the roles gets a 403. The login page itself belongs to your auth extension's plugin.
+With auth on, `/principal` answers 401 for a signed-out caller and includes the login path, so the client knows where to send them. With `RequiredRoles` set, `/principal` answers 403 for a signed-in user without one of the roles. Only `/principal` reads `RequiredRoles`; the envelope endpoint enforces each intent's `Requires` predicate instead. The login page itself belongs to your auth extension's plugin.
 
 Handlers read the caller from the context with `dashauth.UserFromContext(ctx)`, or from the `contract.Principal` they're given.
 
@@ -160,8 +179,10 @@ With `EnableExport` on, three routes serve a snapshot outside the contract:
 | Endpoint | Format |
 |---|---|
 | `GET /export/json` | Overview, health, metrics and services as JSON |
-| `GET /export/csv` | Metrics as CSV rows |
-| `GET /export/prometheus` | Prometheus text exposition |
+| `GET /export/csv` | Registered services as CSV rows: name, type, status and registration time |
+| `GET /export/prometheus` | Four gauges in Prometheus text format: total services, healthy services, tracked metrics and uptime |
+
+The export routes don't run the auth middleware, even with auth on. Put them behind your own middleware, or turn export off, when the dashboard is reachable from outside. `ExportFormats` isn't read yet, so all three routes register whenever export is on.
 
 <Callout type="info">
 If you only need Prometheus scraping, forge already serves the app's metrics at `/_/metrics`. The export route is there for a one-off snapshot.

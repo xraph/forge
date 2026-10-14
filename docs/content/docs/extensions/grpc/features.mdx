@@ -3,170 +3,154 @@ title: Features
 description: gRPC extension capabilities
 ---
 
-## GRPC Interface
+## The GRPC interface
 
-The extension exposes a comprehensive `GRPC` interface for server management:
+Resolve `grpcext.GRPC` from the container (or call `Server()` on `*grpcext.GRPCService`) to reach the server:
 
 ```go
 type GRPC interface {
-    RegisterService(desc *grpc.ServiceDesc, impl interface{}) error
-    Start(ctx context.Context, addr string) error
-    Stop(ctx context.Context) error
-    GracefulStop(ctx context.Context) error
-    AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)
-    AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)
-    RegisterHealthChecker(service string, checker HealthChecker)
-    GetServer() *grpc.Server
-    IsRunning() bool
-    GetStats() ServerStats
-    GetServices() []ServiceInfo
-    Ping(ctx context.Context) error
+	RegisterService(desc *grpc.ServiceDesc, impl any) error
+	Start(ctx context.Context, addr string) error
+	Stop(ctx context.Context) error
+	GracefulStop(ctx context.Context) error
+	AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)
+	AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)
+	RegisterHealthChecker(service string, checker HealthChecker)
+	GetServer() *grpc.Server
+	IsRunning() bool
+	GetStats() ServerStats
+	GetServices() []ServiceInfo
+	Ping(ctx context.Context) error
 }
 ```
 
-## Full gRPC Server
+## Registering services
 
-A production-ready gRPC server running on a dedicated TCP port with support for all four RPC types:
+Not reliable yet. grpc-go supports unary, server streaming, client streaming and bidirectional streaming calls, but there's no dependable moment to put your own service on the managed server: before the extension starts you can't reach it (and `Start` would replace a server you registered on), and after it starts grpc-go refuses with `grpc: Server.RegisterService after Server.Serve` and stops the process. See [the known issue](/docs/extensions/grpc#known-issue-registering-your-own-services).
 
-- **Unary** -- single request, single response
-- **Server streaming** -- single request, stream of responses
-- **Client streaming** -- stream of requests, single response
-- **Bidirectional streaming** -- stream of requests and responses
+Until it's fixed, serve your own services from a `grpc.Server` you create and start yourself.
 
-```go
-// Register your protobuf service before app.Start()
-server.RegisterService(&pb.MyService_ServiceDesc, &myServiceImpl{})
-```
-
-## TLS and Mutual TLS
-
-Serve over TLS with configurable certificate, key, and CA files. For zero-trust service-to-service authentication, enable client certificate verification:
+## TLS and mutual TLS
 
 ```go
-forgeGrpc.NewExtension(
-    forgeGrpc.WithTLS("server.crt", "server.key", "ca.crt"),
-    forgeGrpc.WithClientAuth(true), // require client certificates (mTLS)
+grpcext.NewExtension(
+	grpcext.WithTLS("server.crt", "server.key", ""),
+)
+
+// Mutual TLS: require and verify client certificates against ca.crt.
+grpcext.NewExtension(
+	grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
+	grpcext.WithClientAuth(true),
 )
 ```
 
-## Health Checks
+Startup fails if TLS is on without a certificate and key, or client auth is on without a CA file. The CA file is only read when `client_auth` is on.
 
-The standard `grpc.health.v1.Health` service is registered by default. Register service-specific health checkers:
+If the files are configured but can't be loaded (a wrong path, a bad PEM), the extension logs `failed to load TLS credentials` and starts the server without TLS, in plaintext. Watch for that line after you turn TLS on.
+
+## Health checks
+
+With `enable_health_check` on (the default), the server answers the [gRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md). A checker is anything with `Check(ctx context.Context) error`:
 
 ```go
 type HealthChecker interface {
-    Check(ctx context.Context) error
+	Check(ctx context.Context) error
 }
 
-server.RegisterHealthChecker("my-service", &myChecker{})
+srv.RegisterHealthChecker("billing.db", dbChecker{})
 ```
 
-Health probes check all registered services and report per-service status.
+You can add a checker at any time, since checkers are looked up on each call.
 
-## Server Reflection
+| Request | Answer |
+|---|---|
+| `service` empty | `SERVING` |
+| A service whose checker returns `nil` | `SERVING` |
+| A service whose checker returns an error | `NOT_SERVING` |
+| A service with no checker registered | `SERVING` |
 
-Enabled by default for debugging with `grpcurl`, `grpcui`, and other reflection-aware tools:
+`Watch` sends one `SERVING` message and returns, and `List` returns an empty list. Neither reflects your checkers yet.
+
+The extension's own `Health` only reports whether it has started. It doesn't call your checkers.
+
+## Server reflection
+
+On by default, for `grpcurl`, `grpcui` and other reflection-aware tools:
 
 ```bash
-# List services
 grpcurl -plaintext localhost:50051 list
-
-# Describe a service
-grpcurl -plaintext localhost:50051 describe myapp.Greeter
-
-# Call a method
-grpcurl -plaintext -d '{"name":"Alice"}' localhost:50051 myapp.Greeter/SayHello
+grpcurl -plaintext localhost:50051 describe grpc.health.v1.Health
 ```
+
+Turn it off with `WithReflection(false)` or `enable_reflection: false`.
 
 ## Interceptors
 
-The extension automatically configures interceptor chains for both unary and streaming RPCs:
+The server chains these onto every call, in this order, when it's built:
 
-### Built-in Interceptors
+| Interceptor | Turned on by | What it does |
+|---|---|---|
+| Logging | `enable_logging` | A debug line when a call starts and ends, an error line with method, duration and error when it fails |
+| Metrics | `enable_metrics` | The Forge metrics below, plus the `GetStats` counters |
+| Tracing | `enable_tracing` | A placeholder that writes a debug line. It doesn't create spans |
 
-| Interceptor | Purpose |
-|---|---|
-| **Logging** | Logs every RPC call with method name, duration, and status code |
-| **Metrics** | Emits counters and histograms for RPC calls (request count, latency, errors) |
-| **Tracing** | Propagates distributed trace context via OpenTelemetry |
-| **Recovery** | Catches panics in handlers and returns gRPC `Internal` status instead of crashing |
+There's no panic recovery interceptor, so a panic in a handler is grpc-go's to deal with.
 
-### Custom Interceptors
+`AddUnaryInterceptor` and `AddStreamInterceptor` append to the chain, but the chain is fixed when the server is built. On the extension's server that happens before you can reach it, so interceptors you add there are stored and never called.
 
-Add your own interceptors:
+### Metrics
 
-```go
-// Unary interceptor
-server.AddUnaryInterceptor(func(
-    ctx context.Context, req interface{},
-    info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-) (interface{}, error) {
-    log.Printf("Method: %s", info.FullMethod)
-    return handler(ctx, req)
-})
+| Metric | Type | Labels |
+|---|---|---|
+| `grpc_unary_started_total` | counter | `method` |
+| `grpc_unary_succeeded_total` | counter | `method` |
+| `grpc_unary_failed_total` | counter | `method`, `code` |
+| `grpc_unary_duration_seconds` | histogram | `method` |
+| `grpc_stream_active` | gauge | `method` |
+| `grpc_stream_succeeded_total`, `grpc_stream_failed_total` | counter | `method` |
+| `grpc_stream_duration_seconds` | histogram | `method` |
 
-// Stream interceptor
-server.AddStreamInterceptor(func(
-    srv interface{}, ss grpc.ServerStream,
-    info *grpc.StreamServerInfo, handler grpc.StreamHandler,
-) error {
-    log.Printf("Stream: %s", info.FullMethod)
-    return handler(srv, ss)
-})
-```
+## Keepalive and connection limits
 
-## Keepalive
+- `keepalive.time`: ping interval for idle connections. It also sets the maximum idle time, and twice it is the maximum connection age.
+- `keepalive.timeout`: how long to wait for a ping ack, and the grace period after the maximum age.
+- `keepalive.enforcement_policy`, `min_time`, `permit_without_stream`: what the server accepts from client pings.
+- `connection_timeout`: time allowed for a new connection's handshake.
 
-Configurable server keepalive parameters with enforcement policies for misbehaving clients:
+With the defaults, an idle connection closes after two hours and any connection is recycled after four.
 
-- `Keepalive.Time` -- ping interval for idle connections
-- `Keepalive.Timeout` -- wait time for ping response
-- `Keepalive.MinTime` -- minimum time between client pings (enforcement)
-- `Keepalive.PermitWithoutStream` -- allow pings even without active streams
-
-## Message Size Limits
-
-Configurable maximum receive and send message sizes (default 4 MB each):
+## Message size and stream limits
 
 ```go
-forgeGrpc.NewExtension(
-    forgeGrpc.WithMaxMessageSize(16 * 1024 * 1024), // 16 MB
+grpcext.NewExtension(
+	grpcext.WithMaxMessageSize(16 * 1024 * 1024), // receive and send, 16 MB
+	grpcext.WithMaxConcurrentStreams(100),         // per connection, 0 means no limit
 )
 ```
 
-## Concurrent Stream Limits
-
-Cap the number of concurrent streams per connection with `MaxConcurrentStreams` to prevent resource exhaustion.
-
-## Service Info and Statistics
-
-Query registered services and runtime stats:
+## Service info and statistics
 
 ```go
-// List registered services and methods
-services := server.GetServices()
-for _, svc := range services {
-    fmt.Printf("Service: %s\n", svc.Name)
-    for _, method := range svc.Methods {
-        fmt.Printf("  %s (client_stream=%v, server_stream=%v)\n",
-            method.Name, method.IsClientStream, method.IsServerStream)
-    }
+for _, svc := range srv.GetServices() {
+	fmt.Printf("service: %s\n", svc.Name)
+
+	for _, m := range svc.Methods {
+		fmt.Printf("  %s (client_stream=%v, server_stream=%v)\n",
+			m.Name, m.IsClientStream, m.IsServerStream)
+	}
 }
 
-// Runtime statistics
-stats := server.GetStats()
-fmt.Printf("Connections: %d, RPCs started: %d, Failed: %d\n",
-    stats.TotalConnections, stats.RPCsStarted, stats.RPCsFailed)
+stats := srv.GetStats()
+fmt.Printf("started at %d, RPCs started: %d, failed: %d, active streams: %d\n",
+	stats.StartTime, stats.RPCsStarted, stats.RPCsFailed, stats.ActiveStreams)
 ```
 
-## Sentinel Errors
+The RPC and stream counts come from the metrics interceptor, so they stay at zero with `enable_metrics` off. `TotalConnections` is never updated and is always zero.
 
-| Error | Meaning |
+## Sentinel errors
+
+| Error | Returned by |
 |---|---|
-| `ErrNotStarted` | Server has not been started yet |
-| `ErrAlreadyStarted` | Server is already running |
-| `ErrServiceNotFound` | Requested gRPC service not registered |
-| `ErrInvalidConfig` | Configuration validation failed |
-| `ErrStartFailed` | Server failed to start (e.g. port in use) |
-| `ErrStopFailed` | Graceful shutdown failed |
-| `ErrHealthCheckFailed` | Health check probe failed |
+| `ErrNotStarted` | `Stop`, `GracefulStop` and `Ping` when the server isn't running |
+
+`ErrAlreadyStarted`, `ErrServiceNotFound`, `ErrInvalidConfig`, `ErrStartFailed`, `ErrStopFailed` and `ErrHealthCheckFailed` are exported, but nothing returns them today.

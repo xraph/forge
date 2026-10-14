@@ -1,207 +1,163 @@
 ---
 title: Features
-description: Feature flags and targeted rollouts with multiple providers
+description: Feature flags with user targeting and percentage rollouts
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/features` provides feature flag management with pluggable
-providers. It registers a `Service` in the DI container that evaluates feature flags with user
-targeting, percentage rollouts, caching, and periodic refresh from the upstream provider.
+`github.com/xraph/forge/extensions/features` gives you feature flags evaluated in process. You define boolean, string, number and JSON flags in Go, target them at users by ID, email, country, group or any custom attribute, and roll a feature out to a fixed percentage of users with stable hashing, so the same user gets the same answer on every request.
 
-## What It Registers
+Only the `local` provider works today. LaunchDarkly, Unleash, Flagsmith and PostHog have options and config structs, but picking one makes registration fail. See [Providers](/docs/extensions/features/features#providers).
 
-| Service | DI Key | Type |
+## What it registers
+
+| Service | DI key | Type |
 |---|---|---|
-| Feature flags service | `features` | `*Service` |
+| Feature flags service | `features` (also `features.Service`) | `*features.Service` |
 
-The service is registered with Vessel and supports the legacy alias `features.Service`.
+Resolve it with `features.Get(container)`, `features.GetFromApp(app)` or their `Must` versions, or take `*features.Service` as a constructor parameter. With `WithEnabled(false)` nothing is registered, and `features.Get` returns an error.
 
-## Quick Start
+## Quick start
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/features@latest
+```
+
+This app defines two flags: a checkout switch that beta users always get and a quarter of everyone else gets, and a theme string that changes for one country.
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"log"
+	"net/http"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/features"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/features"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "flags-demo",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			features.NewExtension(
+				features.WithLocalFlags(map[string]features.FlagConfig{
+					"new-checkout": {
+						Key:     "new-checkout",
+						Type:    "boolean",
+						Enabled: true,
+						Targeting: []features.TargetingRule{
+							{Attribute: "group", Operator: "in", Values: []string{"beta"}, Value: true},
+						},
+						Rollout: &features.RolloutConfig{Percentage: 25},
+					},
+					"checkout-theme": {
+						Key:   "checkout-theme",
+						Type:  "string",
+						Value: "classic",
+						Targeting: []features.TargetingRule{
+							{Attribute: "country", Operator: "equals", Values: []string{"DE"}, Value: "compact"},
+						},
+					},
+				}),
+			),
+		},
+	})
 
-    // Register with local (config-based) provider
-    app.RegisterExtension(features.NewExtension(
-        features.WithProvider("local"),
-        features.WithRefreshInterval(30 * time.Second),
-        features.WithCache(true, 5*time.Minute),
-        features.WithDefaultFlags(map[string]any{
-            "new-dashboard": true,
-            "max-items":     100,
-        }),
-        features.WithLocalFlags(map[string]features.FlagConfig{
-            "new-dashboard": {
-                Key:     "new-dashboard",
-                Enabled: true,
-                Type:    "boolean",
-                Value:   true,
-            },
-            "dark-mode": {
-                Key:     "dark-mode",
-                Enabled: true,
-                Type:    "boolean",
-                Value:   false,
-                Targeting: []features.TargetingRule{
-                    {
-                        Attribute: "group",
-                        Operator:  "in",
-                        Values:    []string{"beta-testers", "internal"},
-                        Value:     true,
-                    },
-                },
-            },
-            "rollout-feature": {
-                Key:     "rollout-feature",
-                Enabled: true,
-                Type:    "boolean",
-                Value:   false,
-                Rollout: &features.RolloutConfig{
-                    Percentage: 25, // 25% of users
-                    Attribute:  "user_id",
-                },
-            },
-        }),
-    ))
+	err := app.Router().GET("/checkout", func(ctx forge.Context) error {
+		flags, err := features.Get(app.Container())
+		if err != nil {
+			return err
+		}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+		user := features.NewUserContext(ctx.QueryDefault("user", "anonymous")).
+			WithCountry(ctx.Query("country"))
+		if ctx.Query("beta") == "true" {
+			user = user.WithGroups([]string{"beta"})
+		}
 
-    // Resolve the feature flags service
-    svc := features.MustGet(app.Container())
+		return ctx.JSON(http.StatusOK, map[string]any{
+			"user":         user.UserID,
+			"new_checkout": flags.IsEnabled(ctx.Context(), "new-checkout", user),
+			"theme":        flags.GetString(ctx.Context(), "checkout-theme", user, "classic"),
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Build a user context for targeted evaluation
-    userCtx := features.NewUserContext("user-123").
-        WithEmail("alice@example.com").
-        WithGroups([]string{"beta-testers"}).
-        WithAttribute("plan", "premium")
-
-    // Boolean flag check
-    if svc.IsEnabled(ctx, "new-dashboard", userCtx) {
-        fmt.Println("New dashboard is enabled!")
-    }
-
-    // Targeted flag -- enabled for beta-testers
-    if svc.IsEnabled(ctx, "dark-mode", userCtx) {
-        fmt.Println("Dark mode enabled for beta tester")
-    }
-
-    // Typed value retrieval
-    maxItems := svc.GetInt(ctx, "max-items", userCtx, 50)
-    fmt.Println("Max items:", maxItems)
-
-    // Get all flags at once
-    allFlags, _ := svc.GetAllFlags(ctx, userCtx)
-    fmt.Println("All flags:", allFlags)
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## Using Feature Flags in Your Services
+```bash
+curl "http://localhost:8080/checkout?user=alice"
+# {"new_checkout":false,"theme":"classic","user":"alice"}
+curl "http://localhost:8080/checkout?user=bob&beta=true&country=DE"
+# {"new_checkout":true,"theme":"compact","user":"bob"}
+```
 
-Inject the feature flags service via constructor injection to gate functionality:
+Bob is in the `beta` group, so the targeting rule turns the checkout on for him, and his country picks the compact theme. Alice falls through to the 25% rollout, and her user ID hashes outside it. Ask again as Alice and you get the same answer every time.
+
+## Using flags in your own services
 
 ```go
-package handlers
-
-import (
-    "net/http"
-
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/features"
-)
-
 type DashboardHandler struct {
-    features *features.Service
+	flags *features.Service
 }
 
-func NewDashboardHandler(svc *features.Service) *DashboardHandler {
-    return &DashboardHandler{features: svc}
+func NewDashboardHandler(flags *features.Service) *DashboardHandler {
+	return &DashboardHandler{flags: flags}
 }
 
 func (h *DashboardHandler) GetDashboard(ctx forge.Context) error {
-    // Build user context from the authenticated user
-    userCtx := features.NewUserContext(ctx.Get("user_id").(string)).
-        WithEmail(ctx.Get("email").(string))
+	userID, _ := ctx.Get("user_id").(string) // set by your auth middleware
+	user := features.NewUserContext(userID)
 
-    data := map[string]any{
-        "version": "v1",
-    }
+	data := map[string]any{"version": "v1"}
 
-    // Gate features based on flags
-    if h.features.IsEnabled(ctx.Context(), "new-dashboard", userCtx) {
-        data["version"] = "v2"
-        data["widgets"] = h.getNewWidgets()
-    }
+	if h.flags.IsEnabled(ctx.Context(), "new-dashboard", user) {
+		data["version"] = "v2"
+	}
 
-    // Use typed flags for configuration
-    data["maxItems"] = h.features.GetInt(ctx.Context(), "max-items", userCtx, 50)
-    data["theme"] = h.features.GetString(ctx.Context(), "theme", userCtx, "light")
+	data["maxItems"] = h.flags.GetInt(ctx.Context(), "max-items", user, 50)
+	data["theme"] = h.flags.GetString(ctx.Context(), "theme", user, "light")
 
-    return ctx.JSON(http.StatusOK, data)
-}
-
-func (h *DashboardHandler) getNewWidgets() []string {
-    return []string{"chart", "timeline", "activity"}
+	return ctx.JSON(http.StatusOK, data)
 }
 ```
-
-## Forcing a Refresh
-
-You can programmatically force a refresh of flag values from the provider:
 
 ```go
-svc := features.MustGet(app.Container())
-
-// Force refresh from the upstream provider
-if err := svc.Refresh(ctx); err != nil {
-    log.Println("flag refresh failed:", err)
-}
+err := forge.Provide(app.Container(), NewDashboardHandler)
 ```
 
-## Key Concepts
+A value your route middleware stores with `ctx.Set` reaches the handler through `ctx.Get`, so reading the user ID that way works.
 
-- **Providers** -- choose between `local` (config-based), `launchdarkly`, `unleash`, `flagsmith`, or `posthog`. All implement the same `Provider` interface. The local provider is fully functional; external providers require their respective SDKs.
-- **Flag evaluation** -- check if a flag is enabled, get string/int/float values, or retrieve complex JSON values. All evaluations support user targeting context.
-- **User context** -- build a `UserContext` with user ID, email, name, groups, attributes, IP, and country for targeted flag evaluation.
-- **Targeting rules** -- define rules that match on user attributes using operators like `equals`, `contains`, `in`, and `not_in`.
-- **Percentage rollouts** -- gradually roll out features to a percentage of users using consistent hashing on a user attribute.
-- **Caching** -- optional in-memory cache with configurable TTL (default 5 minutes) to reduce provider calls.
-- **Periodic refresh** -- automatically refresh flag values from the provider at a configurable interval (default 30 seconds).
+## Key concepts
 
-## Important Runtime Notes
+- Every getter takes a `*features.UserContext` and a default. An evaluation error logs a warning and returns the default, never an error.
+- Targeting rules match `user_id`, `email`, `name`, `ip`, `country`, `group` or a custom string attribute with `equals`, `contains`, `in` and `not_in`. The first rule that matches and has a value of the right type wins.
+- Percentage rollouts apply to boolean flags. They hash the user's ID (or another attribute) with MD5 into 100 buckets.
+- For a boolean flag the base value is `Enabled`. For every other type it's `Value`.
+- Flags come from `WithLocalFlags` and are fixed for the life of the process. Nothing reads `extensions.features` from your config file.
+- The service runs a refresh loop every `RefreshInterval` (30 seconds by default), but the local provider's `Refresh` does nothing, so the loop has no effect today.
 
-- The `local` provider is fully functional and does not require external infrastructure.
-- External providers (LaunchDarkly, Unleash, Flagsmith, PostHog) have provider implementations in the `providers/` package but are not yet wired into the extension factory -- calling `NewExtension` with those provider names will return an error.
-- Default flag values can be set in config and are used when the provider returns no value.
-- On errors, the service returns default values and logs warnings rather than failing.
-- The service runs a background goroutine for periodic refresh, which is cleanly shut down on `Stop()`.
-
-## Detailed Pages
+## Detailed pages
 
 <Cards>
-<Card title="Features" href="/docs/extensions/features/features">
-Flag evaluation, targeting, caching, and provider details.
+<Card title="Capabilities" href="/docs/extensions/features/features">
+Flag evaluation, targeting, rollouts and provider status.
 </Card>
 <Card title="Configuration" href="/docs/extensions/features/configuration">
-Config reference, YAML example, and programmatic options.
+Options, config struct and what isn't read.
 </Card>
 <Card title="Functions" href="/docs/extensions/features/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

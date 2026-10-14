@@ -1,119 +1,148 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for MQTT
+description: Config keys, YAML example, and option helpers for MQTT
 ---
 
-## YAML Configuration Example
+## Programmatic Configuration
+
+Pass options to `NewExtension`:
+
+```go
+ext := mqtt.NewExtension(
+	mqtt.WithBroker("tcp://broker.example.com:1883"),
+	mqtt.WithClientID("my-iot-service"),
+	mqtt.WithCredentials("user", os.Getenv("MQTT_PASSWORD")),
+	mqtt.WithWill("devices/my-device/status", "offline", 1, true),
+)
+```
+
+For fields without an option, start from `mqtt.DefaultConfig()`, change what you need and hand the struct to `WithConfig` (or `NewExtensionWithConfig`):
+
+```go
+cfg := mqtt.DefaultConfig()
+cfg.Broker = "tcp://mosquitto:1883"
+cfg.ClientID = "sensors-api-1"
+cfg.CleanSession = false
+cfg.MessageStore = "file"
+cfg.StoreDirectory = "/var/lib/sensors/mqtt"
+
+ext := mqtt.NewExtension(mqtt.WithConfig(cfg))
+```
+
+## YAML Configuration
+
+The extension reads `extensions.mqtt` from your config file, falling back to a top-level `mqtt` key. Keys are the snake_case names from the struct's `yaml` tags. Durations take Go duration strings such as `"30s"` or `"10m"`.
 
 ```yaml title="config.yaml"
 extensions:
   mqtt:
-    broker: "tcp://localhost:1883"
-    clientID: "forge-mqtt-client"
+    broker: "tcp://localhost:1883"     # tcp, ssl, tls, ws or wss
+    client_id: "forge-mqtt-client"
     username: ""
     password: ""
-    cleanSession: true
-    connectTimeout: "30s"
-    keepAlive: "60s"
-    pingTimeout: "10s"
-    maxReconnectDelay: "10m"
+    clean_session: true
+    connect_timeout: "30s"
+    keep_alive: "60s"
+    ping_timeout: "10s"
+    max_reconnect_delay: "10m"
 
     # TLS
-    enableTLS: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
-    tlsCAFile: ""
+    enable_tls: false
+    tls_cert_file: ""
+    tls_key_file: ""
+    tls_ca_file: ""
+    tls_skip_verify: false
 
-    # Messaging
-    defaultQoS: 1                   # 0, 1, or 2
-    autoReconnect: true
-    resumeSubs: true
-    maxReconnectAttempts: 0          # 0 = unlimited
-    writeTimeout: "30s"
-    messageChannelDepth: 100
-    orderMatters: true
+    # Reliability
+    auto_reconnect: true
+    resume_subs: true
+    write_timeout: "30s"
 
-    # Message store
-    messageStore: "memory"           # "memory" or "file"
-    storeDirectory: ""
+    # Message handling
+    message_channel_depth: 100
+    order_matters: true
+    message_store: "memory"            # memory or file
+    store_directory: ""                # required for file
 
     # Last Will and Testament
-    willEnabled: false
-    willTopic: ""
-    willPayload: ""
-    willQoS: 0
-    willRetained: false
+    will_enabled: false
+    will_topic: ""
+    will_payload: ""
+    will_qos: 0
+    will_retained: false
 
     # Observability
-    enableMetrics: true
-    enableTracing: true
-    enableLogging: true
+    enable_metrics: true
+    enable_logging: true
 ```
 
-The extension loads config from `extensions.mqtt` first, falling back to `mqtt`.
+Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So a `broker`, `client_id` or `clean_session: false` in YAML takes effect with a plain `mqtt.NewExtension()`. A field you set in code counts only when it isn't zero and differs from `DefaultConfig()`. That matters here: `WithCleanSession(false)` sets a zero value, so if your file says `clean_session: true`, the file wins. Put the value you want in one place.
 
-## Programmatic Configuration
+`WithRequireConfig(true)` turns a missing `extensions.mqtt` (and `mqtt`) section into a startup error.
 
-```go
-ext := mqtt.NewExtension(
-    mqtt.WithBroker("tcp://broker.example.com:1883"),
-    mqtt.WithClientID("my-iot-service"),
-    mqtt.WithCredentials("user", "pass"),
-    mqtt.WithQoS(1),
-    mqtt.WithWill("devices/my-device/status", "offline", 1, true),
-)
-```
+Validation runs when the extension registers. It needs a broker and a client ID, QoS values of 0 to 2, a `will_topic` when the will is on, `memory` or `file` for the message store, a `store_directory` for a file store, and, with TLS verification on, both `tls_cert_file` and `tls_key_file`.
 
-## Config Struct Reference
+## Config Reference
 
 ### `Config`
 
 Source: `config.go`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Broker` | `string` | `"tcp://localhost:1883"` | Broker URL |
-| `ClientID` | `string` | `"forge-mqtt-client"` | Client identifier |
-| `Username` | `string` | `""` | Auth username |
-| `Password` | `string` | `""` | Auth password |
-| `CleanSession` | `bool` | `true` | Start with a clean session |
-| `ConnectTimeout` | `time.Duration` | `30s` | Connection timeout |
-| `KeepAlive` | `time.Duration` | `60s` | Keepalive interval |
-| `PingTimeout` | `time.Duration` | `10s` | Ping response timeout |
-| `MaxReconnectDelay` | `time.Duration` | `10m` | Max reconnection backoff |
-| `EnableTLS` | `bool` | `false` | Enable TLS |
-| `DefaultQoS` | `byte` | `1` | Default QoS level (0, 1, 2) |
-| `AutoReconnect` | `bool` | `true` | Auto-reconnect on disconnect |
-| `ResumeSubs` | `bool` | `true` | Re-subscribe after reconnect |
-| `MaxReconnectAttempts` | `int` | `0` | Max reconnect attempts (0 = unlimited) |
-| `WriteTimeout` | `time.Duration` | `30s` | Write timeout |
-| `MessageChannelDepth` | `uint` | `100` | Internal message channel buffer |
-| `OrderMatters` | `bool` | `true` | Enforce message ordering |
-| `MessageStore` | `string` | `"memory"` | Message store: `"memory"` or `"file"` |
-| `StoreDirectory` | `string` | `""` | Directory for file-based store |
-| `WillEnabled` | `bool` | `false` | Enable Last Will |
-| `WillTopic` | `string` | `""` | Will topic |
-| `WillPayload` | `string` | `""` | Will message |
-| `WillQoS` | `byte` | `0` | Will QoS level |
-| `WillRetained` | `bool` | `false` | Will retained flag |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `EnableTracing` | `bool` | `true` | Enable tracing |
-| `EnableLogging` | `bool` | `true` | Enable logging |
+| Field | YAML key | Type | Default | Description |
+|---|---|---|---|---|
+| `Broker` | `broker` | `string` | `"tcp://localhost:1883"` | Broker URL |
+| `ClientID` | `client_id` | `string` | `"forge-mqtt-client"` | Client ID, unique per connection |
+| `Username` | `username` | `string` | `""` | Broker username |
+| `Password` | `password` | `string` | `""` | Broker password |
+| `CleanSession` | `clean_session` | `bool` | `true` | Start a fresh session on every connect |
+| `ConnectTimeout` | `connect_timeout` | `time.Duration` | `30s` | How long a connect waits |
+| `KeepAlive` | `keep_alive` | `time.Duration` | `60s` | Keepalive interval |
+| `PingTimeout` | `ping_timeout` | `time.Duration` | `10s` | Ping response timeout |
+| `MaxReconnectDelay` | `max_reconnect_delay` | `time.Duration` | `10m` | Cap on the reconnect backoff |
+| `EnableTLS` | `enable_tls` | `bool` | `false` | Connect over TLS |
+| `TLSCertFile` | `tls_cert_file` | `string` | `""` | Client certificate |
+| `TLSKeyFile` | `tls_key_file` | `string` | `""` | Client key |
+| `TLSCAFile` | `tls_ca_file` | `string` | `""` | CA bundle for the broker |
+| `TLSSkipVerify` | `tls_skip_verify` | `bool` | `false` | Skip broker certificate checks |
+| `DefaultQoS` | `default_qos` | `byte` | `1` | Validated but not applied (see below) |
+| `AutoReconnect` | `auto_reconnect` | `bool` | `true` | Reconnect after a drop |
+| `ResumeSubs` | `resume_subs` | `bool` | `true` | Resend stored, unacknowledged subscribe requests on a persistent session |
+| `MaxReconnectAttempts` | `max_reconnect_attempts` | `int` | `0` | Not read (see below) |
+| `WriteTimeout` | `write_timeout` | `time.Duration` | `30s` | Timeout for a blocked write |
+| `MessageChannelDepth` | `message_channel_depth` | `uint` | `100` | Paho's internal message buffer |
+| `OrderMatters` | `order_matters` | `bool` | `true` | Deliver messages to handlers one at a time, in order |
+| `MessageStore` | `message_store` | `string` | `"memory"` | `memory` or `file` |
+| `StoreDirectory` | `store_directory` | `string` | `""` | Directory for the file store |
+| `WillEnabled` | `will_enabled` | `bool` | `false` | Send a last will on connect |
+| `WillTopic` | `will_topic` | `string` | `""` | Will topic |
+| `WillPayload` | `will_payload` | `string` | `""` | Will message |
+| `WillQoS` | `will_qos` | `byte` | `0` | Will QoS |
+| `WillRetained` | `will_retained` | `bool` | `false` | Retain the will message |
+| `EnableMetrics` | `enable_metrics` | `bool` | `true` | Record the `mqtt.*` metrics |
+| `EnableTracing` | `enable_tracing` | `bool` | `true` | Not read (see below) |
+| `EnableLogging` | `enable_logging` | `bool` | `true` | Log connects, drops, reconnects and publishes |
+| `RequireConfig` | none | `bool` | `false` | Fail when the config section is missing |
+
+### Fields that don't do anything yet
+
+- `default_qos` / `WithQoS`: validated (0 to 2) and stored, but nothing reads it. Pass the QoS you want on each `Publish` and `Subscribe`.
+- `max_reconnect_attempts`: nothing reads it, so Paho keeps reconnecting with no limit while `auto_reconnect` is on.
+- `enable_tracing` / `WithTracing`: no tracing is wired up.
 
 ## Option Helpers
 
-| Function | Description |
+| Function | What it sets |
 |---|---|
-| `WithBroker(url)` | Set broker URL |
-| `WithClientID(id)` | Set client identifier |
-| `WithCredentials(username, password)` | Set authentication credentials |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
-| `WithQoS(qos)` | Set default QoS level |
-| `WithCleanSession(clean)` | Toggle clean sessions |
-| `WithKeepAlive(interval)` | Set keepalive interval |
-| `WithAutoReconnect(enabled)` | Toggle auto-reconnect |
-| `WithWill(topic, payload, qos, retained)` | Configure Last Will and Testament |
-| `WithMetrics(enabled)` | Toggle metrics |
-| `WithTracing(enabled)` | Toggle tracing |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithBroker(broker string)` | `Broker` |
+| `WithClientID(clientID string)` | `ClientID` |
+| `WithCredentials(username, password string)` | `Username`, `Password` |
+| `WithTLS(certFile, keyFile, caFile string, skipVerify bool)` | `EnableTLS` plus the four TLS fields |
+| `WithQoS(qos byte)` | `DefaultQoS` (unused) |
+| `WithCleanSession(clean bool)` | `CleanSession` |
+| `WithKeepAlive(duration time.Duration)` | `KeepAlive` |
+| `WithAutoReconnect(enable bool)` | `AutoReconnect` |
+| `WithWill(topic, payload string, qos byte, retained bool)` | `WillEnabled` plus the four will fields |
+| `WithMetrics(enable bool)` | `EnableMetrics` |
+| `WithTracing(enable bool)` | `EnableTracing` (unused) |
+| `WithRequireConfig(require bool)` | `RequireConfig` |
+| `WithConfig(config Config)` | Replaces the whole config |

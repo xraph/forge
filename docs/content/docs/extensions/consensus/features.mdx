@@ -1,325 +1,271 @@
 ---
 title: Features
-description: Consensus extension capabilities
+description: The Raft packages you build a node from, and what the extension does and doesn't do yet
 ---
 
-## Raft Consensus
+import { Callout } from 'fumadocs-ui/components/callout';
 
-Full Raft implementation providing strong consistency guarantees across a cluster of nodes. The algorithm ensures that all nodes agree on the same sequence of state transitions, even in the presence of failures.
+## Packages
 
-### Core Guarantees
+You assemble a node from these packages yourself, the way the [quick start](/docs/extensions/consensus#quick-start) does. Most constructors take a config struct and a `forge.Logger`.
 
-- **Leader election** -- at most one leader is active at any time.
-- **Log replication** -- committed entries are durably replicated to a majority of nodes.
-- **Safety** -- if any node has applied a log entry at a given index, no other node will ever apply a different entry for that index.
-- **Consistency** -- all reads and writes go through the leader, ensuring linearizable semantics.
+| Package | What's in it |
+|---|---|
+| `raft` | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, pre-vote, replication, snapshots, `Propose`, `AddPeer` |
+| `storage` | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, and a write-ahead log (`NewWAL`) |
+| `transport` | `NewLocalTransport` (in process), `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, TLS helpers and serializers |
+| `statemachine` | `NewMemoryStateMachine` and `NewPersistentStateMachine` |
+| `discovery` | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery` |
+| `cluster` | Membership, quorum and topology tracking with `cluster.NewManager` |
+| `middleware` | Checks for Forge handlers around leadership, quorum and read consistency |
+| `admin`, `api` | HTTP handlers for cluster status and management. Nothing mounts them for you |
+| `testing` | An in-process cluster harness and the cluster tests |
 
-## Leader Election
+Only the in-process transport and memory storage have been run as a cluster in this repository. The networked transports, the BadgerDB and BoltDB backends and the discovery backends compile, but nothing here runs a cluster on them, and some of them don't fit the interfaces `raft.NewNode` takes yet. The sections below say which.
 
-Automatic leader election with configurable timing parameters:
+## Raft nodes
 
-```go
-consensus.NewExtension(
-    consensus.WithHeartbeatInterval(150 * time.Millisecond),
-    consensus.WithElectionTimeoutMin(300 * time.Millisecond),
-    consensus.WithElectionTimeoutMax(500 * time.Millisecond),
-)
-```
+`raft.NewNode` takes a `raft.Config`, a logger, and your state machine, transport and storage. `raft.DefaultConfig()` gives you the timings from the Raft paper: a 50ms heartbeat and a 150ms to 300ms election timeout, with pre-vote and quorum checks on. If you build a `raft.Config` literal instead, zero timings fall back to a 1s heartbeat and a 5s to 10s election timeout.
 
-Query the current leadership state:
+How an election works: every node starts as a follower with a random election timeout between `ElectionTimeoutMin` and `ElectionTimeoutMax`. A follower that hears no heartbeat in that window becomes a candidate, runs a pre-vote if `PreVoteEnabled` is on, then asks its peers for votes. The node with a majority becomes leader and sends heartbeats every `HeartbeatInterval`. A new leader writes a no-op entry first, which is why the quick start's `set` lands at index 2.
 
-```go
-svc := consensus.MustGet(app.Container())
+| Method on `*raft.Node` | What it does |
+|---|---|
+| `Start(ctx)`, `Stop(ctx)` | Run and stop the node |
+| `AddPeer(peerID string)` | Registers a peer ID. Call it before `Start`, and connect the transport to that peer separately |
+| `IsLeader()`, `GetLeader()`, `GetRole()`, `GetTerm()` | Leadership state |
+| `Propose(ctx, command []byte)` | Appends a command on the leader and returns once a majority has it. On a follower it returns a not-leader error naming the leader |
+| `Apply(ctx, entry LogEntry)` | Appends a prepared log entry on the leader and waits for it to commit |
+| `GetCommitIndex()`, `GetStats()` | Progress and a `RaftStats` snapshot |
+| `AddNode(ctx, id, address, port)`, `RemoveNode(ctx, id)` | Membership changes, leader only. Not working yet: the goroutine that processes them is never started, so both block until your context ends |
+| `StepDown(ctx)` | The leader steps down |
+| `TransferLeadership(ctx, target)` | Steps down and lets the next election decide. It doesn't hand leadership to `target` yet |
 
-if svc.IsLeader() {
-    // This node is the leader
-}
+Followers advance their commit index but don't apply committed entries to their state machine, so a read from a follower's state machine stays empty. Read from the leader.
 
-leaderID := svc.GetLeader()  // Node ID of the current leader
-role := svc.GetRole()         // Leader, Follower, or Candidate
-term := svc.GetTerm()         // Current Raft term number
-```
+## The memory state machine
 
-## Pluggable State Machine
+`statemachine.NewMemoryStateMachine` keeps a `map[string]any`. It decodes each normal log entry as a JSON `consensus.Command`:
 
-Implement the `StateMachine` interface to define your application's replicated state:
+| `Command.Type` | Payload | Effect |
+|---|---|---|
+| `set` | `key`, `value` | Stores `value` under `key` |
+| `delete` | `key` | Removes `key` |
+| `increment` | `key` | Adds 1, starting from 1 when the key is missing |
+
+`Query` takes a `map[string]any` with a `type`: `get` (with a `key`), `list` (the whole map) or `size`.
+
+`statemachine.NewPersistentStateMachine` stores state in a `consensus.Storage`, but it has `Get`, `CreateSnapshot` and `RestoreSnapshot` where the interface wants `Query`, `Snapshot` and `Restore`, so it doesn't implement `consensus.StateMachine` and `raft.NewNode` won't take it.
+
+## Your own state machine
+
+Implement `consensus.StateMachine` and pass it to `raft.NewNode`:
 
 ```go
 type StateMachine interface {
-    Apply(entry LogEntry) error          // Apply a committed log entry
-    Snapshot() (*Snapshot, error)         // Create a state snapshot
-    Restore(snapshot *Snapshot) error     // Restore from a snapshot
-    Query(query any) (any, error)         // Read from the state machine
+	Apply(entry LogEntry) error
+	Snapshot() (*Snapshot, error)
+	Restore(snapshot *Snapshot) error
+	Query(query any) (any, error)
 }
 ```
 
-Example implementation for a replicated key-value store:
+`Propose` stores whatever bytes you give it in `LogEntry.Data`. This key-value store expects the JSON `Command` the quick start proposes:
 
 ```go
 type KVStore struct {
-    mu   sync.RWMutex
-    data map[string]string
+	mu   sync.RWMutex
+	data map[string]string
 }
 
 func (s *KVStore) Apply(entry consensus.LogEntry) error {
-    var cmd struct {
-        Op    string `json:"op"`
-        Key   string `json:"key"`
-        Value string `json:"value"`
-    }
-    json.Unmarshal(entry.Data, &cmd)
+	// Leaders write a no-op entry when they take over. Only normal entries carry commands.
+	if entry.Type != consensus.EntryNormal {
+		return nil
+	}
 
-    s.mu.Lock()
-    defer s.mu.Unlock()
+	var cmd consensus.Command
+	if err := json.Unmarshal(entry.Data, &cmd); err != nil {
+		return err
+	}
 
-    switch cmd.Op {
-    case "set":
-        s.data[cmd.Key] = cmd.Value
-    case "delete":
-        delete(s.data, cmd.Key)
-    }
-    return nil
+	key, _ := cmd.Payload["key"].(string)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch cmd.Type {
+	case "set":
+		value, _ := cmd.Payload["value"].(string)
+		s.data[key] = value
+	case "delete":
+		delete(s.data, key)
+	}
+
+	return nil
 }
 
 func (s *KVStore) Query(query any) (any, error) {
-    key := query.(string)
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-    return s.data[key], nil
+	key, ok := query.(string)
+	if !ok {
+		return nil, errors.New("query must be a key")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.data[key], nil
 }
 
 func (s *KVStore) Snapshot() (*consensus.Snapshot, error) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-    data, _ := json.Marshal(s.data)
-    return &consensus.Snapshot{Data: data}, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data, err := json.Marshal(s.data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &consensus.Snapshot{Data: data, Size: int64(len(data))}, nil
 }
 
 func (s *KVStore) Restore(snapshot *consensus.Snapshot) error {
-    s.mu.Lock()
-    defer s.mu.Unlock()
-    return json.Unmarshal(snapshot.Data, &s.data)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data := map[string]string{}
+	if err := json.Unmarshal(snapshot.Data, &data); err != nil {
+		return err
+	}
+
+	s.data = data
+
+	return nil
 }
 ```
 
-## Apply and Read
-
-Write operations go through the Raft log for consensus; read operations query the state machine directly:
-
-```go
-// Write: replicate a command through the Raft log
-err := svc.Apply(ctx, consensus.Command{
-    Type: "set",
-    Data: []byte(`{"op":"set","key":"config","value":"v2"}`),
-})
-// Returns only after the command is committed to a majority
-
-// Read: query the state machine (consistent read through leader)
-result, err := svc.Read(ctx, "config")
-```
-
-`Apply` blocks until the command is committed to a majority of nodes. If the current node is not the leader, it returns `ErrNotLeader`.
+The extension has no way to take your state machine. Use it with your own `raft.Node`.
 
 ## Snapshots
 
-Periodic log compaction via snapshots prevents unbounded log growth:
+`raft.Config` has `SnapshotInterval`, `SnapshotThreshold` and `EnableSnapshots` (on in `raft.DefaultConfig()`, off in a `raft.Config` literal). With snapshots on, the node checks every `SnapshotInterval` and asks the state machine for a `Snapshot` when the log holds more than `SnapshotThreshold` entries. A node can receive an `InstallSnapshot` request, but no leader code sends one yet, so a follower that falls far behind isn't caught up from a snapshot.
 
-```go
-consensus.NewExtension(
-    consensus.WithSnapshotInterval(5 * time.Minute),
-    consensus.WithSnapshotThreshold(1000), // Snapshot after 1000 log entries
-)
-```
+<Callout type="warn">
+The extension's `Service.Snapshot` and its auto-snapshot loop call a state machine that is never created, so both panic. The loop is on by default and fires every `raft.snapshot_interval` (30 minutes), which takes your process down. Set `advanced.enable_auto_snapshot: false` in your config file if you register the extension.
+</Callout>
 
-- The state machine's `Snapshot()` is called to capture the current state.
-- Old log entries before the snapshot are discarded.
-- New nodes joining the cluster catch up from the latest snapshot instead of replaying the full log.
-- Manual snapshot trigger: `svc.Snapshot(ctx)`.
+## Storage
 
-## Cluster Management
+`raft.NewNode` takes a `consensus.Storage`: `Start`, `Stop`, `Set`, `Get`, `Delete`, `Batch`, `GetRange` and `Close`.
 
-Add and remove nodes dynamically without cluster downtime:
+| Backend | Constructor |
+|---|---|
+| In memory | `storage.NewMemoryStorage(storage.MemoryStorageConfig{}, logger)` |
+| BadgerDB | `storage.NewBadgerStorage(storage.BadgerStorageConfig{...}, logger)` |
+| BoltDB | `storage.NewBoltDBStorage(storage.BoltDBStorageConfig{...}, logger)` |
+| Write-ahead log | `storage.NewWAL(nodeID, storage.WALConfig{...}, logger)` |
 
-```go
-// Add a new node to the cluster
-err := svc.AddNode(ctx, "node-4", "10.0.0.4", 7000)
+Only `MemoryStorage` implements `consensus.Storage` today. `BadgerStorage` and `BoltDBStorage` have `WriteBatch` where the interface wants `Batch`, and no `Close`, so `raft.NewNode` won't accept them until you wrap them in a small adapter.
 
-// Remove a node from the cluster
-err := svc.RemoveNode(ctx, "node-3")
+The extension's config validator also accepts `pebble` and `postgres` for `storage.type`, but there's no implementation of either in this module.
 
-// Transfer leadership to another node
-err := svc.TransferLeadership(ctx, "node-2")
+## Transports
 
-// Current leader voluntarily steps down
-err := svc.StepDown(ctx)
+All four transports implement `consensus.Transport`: `Start`, `Stop`, `Send`, `Receive`, `AddPeer`, `RemovePeer` and `GetAddress`.
 
-// Get cluster information
-info := svc.GetClusterInfo()
-// info.Nodes, info.LeaderID, info.Term, info.CommitIndex
-```
+| Transport | Constructor |
+|---|---|
+| In process | `transport.NewLocalTransport`, connected to its peers with `Connect` |
+| gRPC | `transport.NewGRPCTransport` |
+| TCP | `transport.NewTCPTransport` |
+| HTTP | `transport.NewHTTPTransport` |
 
-## Role Tracking
+`transport.NewTLSManager` loads certificates, and `NewJSONSerializer`, `NewGobSerializer`, `NewProtobufSerializer` and `NewCompressedSerializer` encode messages. The extension's `transport.type` only accepts `grpc` and `tcp`.
 
-Each node reports its current role: `Leader`, `Follower`, or `Candidate`:
+## Discovery
 
-```go
-role := svc.GetRole()
+`consensus.Discovery` has `Start`, `Stop`, `Register`, `Unregister`, `GetNodes` and `Watch`, which returns a channel of `NodeChangeEvent`. The static and DNS backends implement it. Consul, etcd and Kubernetes use their own method names (`DiscoverPeers`, `WatchPeers` and so on), so they don't satisfy the interface.
 
-switch role {
-case consensus.RoleLeader:
-    // Accept writes, serve consistent reads
-case consensus.RoleFollower:
-    // Forward writes to leader, serve stale reads
-case consensus.RoleCandidate:
-    // Election in progress, reject requests
-}
-```
+| Backend | Constructor |
+|---|---|
+| Static list | `discovery.NewStaticDiscovery` |
+| DNS | `discovery.NewDNSDiscovery` |
+| Consul | `discovery.NewConsulDiscovery` |
+| etcd | `discovery.NewEtcdDiscovery` |
+| Kubernetes | `discovery.NewKubernetesDiscovery` |
 
-## Leadership Checker
+## Leadership checker
 
-Guard operations that should only run on the leader:
+The extension registers a `*consensus.LeadershipChecker` over its service. `RequireLeader()` returns a not-leader error naming the leader, and `RequireQuorum()` returns `ErrNoQuorum` when the cluster has no quorum. `IsLeader()` and `GetLeader()` pass through to the service.
 
-```go
-// Only proceed if this node is the leader
-if !svc.IsLeader() {
-    return consensus.ErrNotLeader
-}
+Because the extension's node is never leader and has no cluster manager, `RequireLeader()` and `RequireQuorum()` always fail today. You can also build one yourself with `consensus.NewLeadershipChecker(service)`, but `*consensus.Service` is the only `ConsensusService` in the module.
 
-// Check cluster health
-info := svc.GetClusterInfo()
-if info.HealthyNodes < (info.ClusterSize/2 + 1) {
-    return consensus.ErrNoQuorum
-}
-```
+## Middleware
 
-## Transport
+The `middleware` package has two kinds of helpers.
 
-Inter-node communication via pluggable transports:
+| Type | Built from | Methods |
+|---|---|---|
+| `LeadershipMiddleware` | `NewLeadershipMiddleware(service, logger)` | `RequireLeader(next)`, `LeaderRedirect(next)`, `ReadOnlyRouting(next)` |
+| `QuorumMiddleware` | `NewQuorumMiddleware(service, logger)` | `RequireQuorum(next)` |
+| `MetricsMiddleware` | `NewMetricsMiddleware(service, logger)` | `AddConsensusHeaders(next)` |
+| `ReadOnlyMiddleware` | `NewReadOnlyMiddleware(raftNode, logger)` | `Handle()`, `HandleStrict()`, `HandleWithStaleReads()` |
+| `RedirectMiddleware` | `NewRedirectMiddleware(raftNode, manager, logger)` | `Handle()`, `HandleWithAutoRedirect()`, `HandleWithForward()` |
+| `ConsistencyMiddleware` | `NewConsistencyMiddleware(raftNode, config, logger)` | `Handle()` |
 
-```go
-type Transport interface {
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Send(ctx context.Context, target string, message any) error
-    Receive() <-chan Message
-    AddPeer(nodeID, address string, port int) error
-    RemovePeer(nodeID string) error
-    GetAddress() string
-}
-```
+The first three wrap a `func(forge.Context) error`. The leadership and quorum checks answer 503 with a JSON body when they fail, and `AddConsensusHeaders` sets `X-Consensus-Node-ID`, `X-Consensus-Term`, `X-Consensus-Role`, `X-Consensus-Leader` and related headers. They take a `ConsensusService`, and the only one in the module is the extension's, which is never leader and has no quorum, so `RequireLeader` and `RequireQuorum` reject every request today.
 
-Available transports:
-- **gRPC** -- default transport using gRPC for RPC calls, log entries, and vote requests.
-- **TCP** -- lightweight TCP transport for simpler deployments.
-
-## Storage Backends
-
-Persistent storage for Raft logs, metadata, and snapshots:
-
-```go
-type Storage interface {
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Set(key, value []byte) error
-    Get(key []byte) ([]byte, error)
-    Delete(key []byte) error
-    Batch(ops []BatchOp) error
-    GetRange(start, end []byte) ([]KeyValue, error)
-    Close() error
-}
-```
-
-Available backends:
-- **BadgerDB** -- embedded key-value store, recommended for production.
-- **BoltDB** -- B+tree based embedded store.
-- **Pebble** -- LSM-tree based store (RocksDB-compatible).
-- **PostgreSQL** -- SQL-based storage for environments where embedded DBs aren't suitable.
-
-## Discovery Integration
-
-Cluster formation via static configuration or dynamic service discovery:
-
-```go
-// Static peers
-consensus.WithPeers([]consensus.PeerConfig{
-    {ID: "node-1", Address: "10.0.0.1", Port: 7000},
-    {ID: "node-2", Address: "10.0.0.2", Port: 7000},
-    {ID: "node-3", Address: "10.0.0.3", Port: 7000},
-})
-
-// Dynamic discovery
-consensus.WithDiscovery("consul")
-```
-
-The discovery interface supports watching for node changes to dynamically adjust the cluster:
-
-```go
-type Discovery interface {
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Register(ctx context.Context, node NodeInfo) error
-    Unregister(ctx context.Context) error
-    GetNodes(ctx context.Context) ([]NodeInfo, error)
-    Watch(ctx context.Context) (<-chan NodeChangeEvent, error)
-}
-```
-
-## Statistics
-
-Monitor consensus performance and health:
-
-```go
-stats := svc.GetStats()
-// stats.Term, stats.CommitIndex, stats.LastApplied
-// stats.LogSize, stats.SnapshotIndex
-// stats.AppliedOps, stats.FailedOps
-// stats.LeaderElections, stats.AvgApplyLatency
-```
+The other three take a `RaftNode`, so your own `*raft.Node` works with them. Their methods return a check function with no `next` parameter, and when a check fails they write the JSON error and return what `ctx.JSON` returns, which is `nil` once the response is written. Your code can't tell a rejection from a pass by the return value, so treat these as unfinished.
 
 ## Admin API
 
-HTTP endpoints for cluster management and monitoring (configurable prefix):
+<Callout type="warn">
+The extension doesn't mount an admin API. `admin_api.enabled` is on by default, and all it does is log "admin API enabled but not yet implemented".
+</Callout>
 
-| Endpoint | Description |
+The `admin` package has the handlers. `admin.NewAPI(service, healthChecker, metricsCollector, logger)` builds them and `RegisterRoutes(router, prefix)` mounts these under `prefix`:
+
+| Route | Handler |
 |---|---|
-| `GET /health` | Node health check |
-| `GET /health/detailed` | Detailed health with cluster info |
-| `GET /status` | Current node status (role, term, leader) |
-| `GET /metrics` | Consensus metrics |
-| `GET /leader` | Current leader info |
-| `GET /nodes` | List all cluster nodes |
-| `POST /leadership/transfer` | Transfer leadership to another node |
-| `POST /leadership/stepdown` | Current leader steps down |
-| `POST /snapshot` | Trigger a manual snapshot |
-| `POST /nodes/add` | Add a node to the cluster |
-| `POST /nodes/remove` | Remove a node from the cluster |
-| `POST /apply` | Apply a command through Raft |
-| `POST /read` | Read from the state machine |
+| `GET /health`, `GET /health/detailed` | Health from the service, or from the health checker when you pass one |
+| `GET /status`, `GET /metrics`, `GET /leader`, `GET /nodes` | Stats, the metrics collector's metrics, leadership and membership |
+| `POST /leadership/transfer`, `POST /leadership/stepdown` | Call `TransferLeadership` and `StepDown` |
+| `POST /snapshot` | Calls `Snapshot` |
+| `POST /nodes/add`, `POST /nodes/remove` | Call `AddNode` and `RemoveNode` |
+| `POST /apply`, `POST /read` | Call `Apply` and `Read` |
 
-## Sentinel Errors
+The handlers call a `ConsensusService`, and with the extension's service they report the stub state above: `/snapshot` and `/read` hit the nil state machine. The `api` package has more handler sets (`NewClusterAPI`, `NewConfigAPI`, `NewNodeAPI` and a stats API) built from `cluster` managers and a `RaftNode`. Nothing registers them either.
+
+## Statistics
+
+`Service.GetStats()` returns a `ConsensusStats` with `NodeID`, `ClusterID`, `Role`, `Status`, `Term`, `LeaderID`, `CommitIndex`, `LastApplied`, `LastLogIndex`, `LastLogTerm`, `ClusterSize`, `HealthyNodes`, `HasQuorum`, `ElectionsTotal`, `ElectionsFailed`, `OperationsTotal`, `OperationsFailed`, `OperationsPerSec`, `AverageLatencyMs`, `ErrorRate`, `LogEntries`, `SnapshotsTotal`, `LastSnapshotTime`, `Uptime` and `StartTime`. On the extension's service most of these stay at zero.
+
+The extension also implements `Metrics()` with a map of the same numbers. The service is created without a metrics sink, so the metrics collection loop it runs every `observability.metrics.collection_interval` records nothing.
+
+## Errors
+
+The root package re-exports these sentinels. Each is a `*errors.ForgeError` with a `CONSENSUS_*` code, so check them with `errors.Is`.
 
 | Error | Meaning |
 |---|---|
-| `ErrNotLeader` | Current node is not the leader |
-| `ErrNoLeader` | No leader has been elected |
-| `ErrNotStarted` | Consensus has not started |
-| `ErrAlreadyStarted` | Already running |
-| `ErrNoQuorum` | Not enough nodes for quorum |
+| `ErrNotLeader` | This node isn't the leader |
+| `ErrNoLeader` | No leader is available |
+| `ErrNotStarted`, `ErrAlreadyStarted` | Lifecycle errors from `Start` and the operations |
+| `ErrNodeNotFound`, `ErrClusterNotFound` | Unknown node or cluster |
+| `ErrStorageUnavailable`, `ErrTransportUnavailable`, `ErrDiscoveryUnavailable` | A backend is down |
+| `ErrNoQuorum` | Not enough healthy nodes |
+| `ErrInvalidTerm`, `ErrStaleTerm` | Term problems |
+| `ErrLogInconsistent` | Log mismatch |
+| `ErrSnapshotFailed`, `ErrCompactionFailed` | Snapshot or compaction failed |
 | `ErrElectionTimeout` | Election timed out |
-| `ErrSnapshotFailed` | Snapshot creation failed |
-| `ErrLogInconsistent` | Log entry mismatch |
-| `ErrStaleTerm` | Received stale term |
-| `ErrNodeNotFound` | Node ID not in cluster |
-| `ErrPeerExists` | Peer already in cluster |
-| `ErrInsufficientPeers` | Not enough peers to form cluster |
-| `ErrStorageUnavailable` | Storage backend unavailable |
+| `ErrInvalidPeer`, `ErrPeerExists`, `ErrPeerNotFound`, `ErrInsufficientPeers` | Peer problems |
+| `ErrInvalidConfig` | Config validation failed |
 
-## Error Helpers
-
-| Function | Description |
+| Helper | What it does |
 |---|---|
-| `IsNotLeaderError(err)` | Check if error is not-leader |
-| `IsNoLeaderError(err)` | Check if no leader elected |
-| `IsNoQuorumError(err)` | Check if quorum lost |
-| `IsRetryable(err)` | Check if error is transient and can be retried |
-| `IsFatal(err)` | Check if error is unrecoverable |
+| `IsNotLeaderError(err)`, `IsNoLeaderError(err)`, `IsNoQuorumError(err)`, `IsStaleTermError(err)` | `errors.Is` against the matching sentinel |
+| `IsRetryable(err)` | True for no leader, no quorum, unavailable storage, transport or discovery, and timeouts |
+| `IsFatal(err)` | True for invalid config and validation errors |
+| `NewNotLeaderError(nodeID, leaderID)` | A not-leader error carrying both IDs |
+| `NewNoLeaderError()`, `NewTimeoutError(operation)` | No-leader and timeout errors |
+| `NewNoQuorumError(required, available)`, `NewStaleTermError(current, received)` | Errors carrying the counts or terms |

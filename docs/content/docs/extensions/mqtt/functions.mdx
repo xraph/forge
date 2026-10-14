@@ -7,72 +7,116 @@ description: Public API reference for the MQTT extension
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the MQTT extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the MQTT extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the [configuration page](/docs/extensions/mqtt/configuration) |
 
-## DI Helpers
+The option helpers (`WithBroker`, `WithTLS`, `WithWill` and the rest) are listed on the configuration page.
+
+## Resolving the Client
+
+The package has no `GetMQTT`-style helpers. Use Forge's DI functions:
+
+| Call | Returns |
+|---|---|
+| `forge.Inject[mqtt.MQTT](c)` | The client interface |
+| `forge.Inject[*mqtt.MQTTService](c)` | The service that owns the client |
+| `forge.Resolve[*mqtt.MQTTService](c, "mqtt")` | The same service, by its alias (`mqtt.ServiceKey`) |
+
+## Service and Client Constructors
+
+You only need these when you build a client outside the extension, in a test for example.
 
 | Function | Description |
 |---|---|
-| `GetMQTT(c forge.Container) (MQTT, error)` | Resolve the `MQTT` client from the container |
-| `MustGetMQTT(c forge.Container) MQTT` | Same but panics on error |
-| `GetMQTTFromApp(app forge.App) (MQTT, error)` | Resolve from an app instance |
-| `MustGetMQTTFromApp(app forge.App) MQTT` | Same but panics on error |
+| `NewMQTTService(config Config, logger forge.Logger, metrics forge.Metrics) (*MQTTService, error)` | Validate the config and create an unconnected client |
+| `NewMQTTClient(config Config, logger forge.Logger, metrics forge.Metrics) MQTT` | Create the bare, unconnected client |
+| `(*MQTTService).Client() MQTT` | The wrapped client. The service also delegates every `MQTT` method except `GetSubscriptions`, so it doesn't satisfy `MQTT` on its own |
+| `(*MQTTService).Name() string` | `"mqtt-service"` |
+| `(*MQTTService).Start(ctx) error` | Connect to the broker |
+| `(*MQTTService).Stop(ctx) error` | Disconnect (errors are logged, not returned) |
+| `(*MQTTService).Health(ctx) error` | Fail when the client isn't connected |
 
-## MQTT Interface -- Connection
-
-| Method | Description |
-|---|---|
-| `Connect(ctx) error` | Connect to the MQTT broker |
-| `Disconnect(ctx) error` | Disconnect gracefully (250ms quiesce) |
-| `Ping(ctx) error` | Verify broker connectivity |
-| `IsConnected() bool` | Check if currently connected |
-
-## MQTT Interface -- Publishing
+## MQTT Interface: Connection
 
 | Method | Description |
 |---|---|
-| `Publish(ctx, topic, payload, qos, retained) error` | Publish a message to a topic |
+| `Connect(ctx context.Context) error` | Connect, waiting up to `connect_timeout`; a no-op when already connected |
+| `Disconnect(ctx context.Context) error` | Disconnect with a 250 ms quiesce; returns `not connected` if it wasn't |
+| `IsConnected() bool` | Current connection state |
+| `Reconnect() error` | Run a connect attempt on the existing client |
+| `Ping(ctx context.Context) error` | Fail when the client isn't connected (no packet is sent) |
 
-## MQTT Interface -- Subscribing
-
-| Method | Description |
-|---|---|
-| `Subscribe(ctx, topic, qos, handler) error` | Subscribe to a topic with a message handler |
-| `SubscribeMultiple(ctx, subscriptions) error` | Subscribe to multiple topics at once |
-| `Unsubscribe(ctx, topics...) error` | Unsubscribe from one or more topics |
-| `GetSubscriptions() []SubscriptionInfo` | List active subscriptions |
-
-## MQTT Interface -- Connection Handlers
+## MQTT Interface: Publishing
 
 | Method | Description |
 |---|---|
-| `SetOnConnect(handler)` | Set callback for successful connection |
-| `SetOnConnectionLost(handler)` | Set callback for connection loss |
-| `SetOnReconnecting(handler)` | Set callback when reconnection starts |
+| `Publish(topic string, qos byte, retained bool, payload any) error` | Publish and wait for Paho to finish |
+| `PublishAsync(topic string, qos byte, retained bool, payload any) error` | Publish and return; failures are only logged |
 
-## MQTT Interface -- Stats
+A `[]byte` or `string` payload goes out as-is. Anything else is JSON-encoded.
+
+## MQTT Interface: Subscribing
 
 | Method | Description |
 |---|---|
-| `Stats() ClientStats` | Get client statistics |
+| `Subscribe(topic string, qos byte, handler MessageHandler) error` | Subscribe one filter and wait for the broker |
+| `SubscribeMultiple(filters map[string]byte, handler MessageHandler) error` | Subscribe several filters, each with its own QoS, to one handler |
+| `Unsubscribe(topics ...string) error` | Unsubscribe one or more filters |
+| `GetSubscriptions() []SubscriptionInfo` | Filters this client subscribed to |
+
+## MQTT Interface: Routing and Callbacks
+
+| Method | Description |
+|---|---|
+| `AddRoute(topic string, handler MessageHandler)` | Add a Paho route without sending SUBSCRIBE |
+| `SetDefaultHandler(handler MessageHandler)` | Add a `#` route that sees every message |
+| `SetOnConnectHandler(handler ConnectHandler)` | Logs a warning only, the callback isn't registered |
+| `SetConnectionLostHandler(handler ConnectionLostHandler)` | Logs a warning only, the callback isn't registered |
+| `SetReconnectingHandler(handler ReconnectingHandler)` | Logs a warning only, the callback isn't registered |
+
+## MQTT Interface: Info
+
+| Method | Description |
+|---|---|
+| `GetClient() paho.Client` | The Paho client, `nil` before the first connect |
+| `GetStats() ClientStats` | Running counters for the client |
+
+## Config Methods
+
+| Method | Description |
+|---|---|
+| `(*Config).Validate() error` | The checks the extension runs at registration |
 
 ## Key Types
+
+### Handlers
+
+These are aliases for Paho's types (`paho` is `github.com/eclipse/paho.mqtt.golang`):
+
+| Type | Alias for |
+|---|---|
+| `MessageHandler` | `paho.MessageHandler`, `func(paho.Client, paho.Message)` |
+| `ConnectHandler` | `paho.OnConnectHandler` |
+| `ConnectionLostHandler` | `paho.ConnectionLostHandler` |
+| `ReconnectingHandler` | `paho.ReconnectHandler` |
 
 ### `SubscriptionInfo`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Topic` | `string` | Subscribed topic pattern |
-| `QoS` | `byte` | QoS level for this subscription |
+| `Topic` | `string` | Subscribed filter |
+| `QoS` | `byte` | QoS for this subscription |
+| `Handler` | `string` | Always `"MessageHandler"` |
 
 ### `ClientStats`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Connected` | `bool` | Current connection status |
-| `MessagesPublished` | `int64` | Total messages published |
-| `MessagesReceived` | `int64` | Total messages received |
-| `Subscriptions` | `int` | Number of active subscriptions |
-| `Reconnections` | `int64` | Number of reconnection attempts |
+| `Connected` | `bool` | Connection state as the extension last saw it |
+| `ConnectTime` | `time.Time` | Last successful connect |
+| `LastMessageTime` | `time.Time` | Last message received through `Subscribe` or `SubscribeMultiple` |
+| `MessagesReceived` | `int64` | Messages received through `Subscribe` or `SubscribeMultiple` |
+| `MessagesSent` | `int64` | Successful publishes |
+| `Subscriptions` | `int` | Number of tracked subscriptions |
+| `Reconnects` | `int64` | Reconnect attempts |

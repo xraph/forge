@@ -2,154 +2,175 @@
 
 ## Purpose
 
-Real-time streaming capabilities providing WebSocket, Server-Sent Events (SSE), and WebTransport support for bidirectional communication and live updates.
+Real-time messaging for Forge apps: ready-made WebSocket and Server-Sent Events endpoints and a
+`Manager` for rooms, pub/sub channels, presence, typing indicators, message history and replay
+after a reconnect. Runs on one node with the local backend, or across nodes with Redis. Inbound
+messages go through a size cap, per-user rate limiting and room authorization, and the server
+stamps the sender's identity.
 
-## Key Components
+Module: github.com/xraph/forge/extensions/streaming (package `streaming`). Most types are aliases
+over `streaming/internal` (exports.go).
 
-- **WebSocket**: Full-duplex communication
-- **SSE**: Server-sent events for live updates
-- **WebTransport**: HTTP/3-based streaming
-- **Pub/Sub**: Message broadcasting
-- **Room Management**: User grouping
+Subpackages: `backends` (CreateStores factory; `backends/local`, `backends/redis`),
+`coordinator` (cross-node relay: NewRedisCoordinator is wired; NewNATSCoordinator exists but the
+extension never uses it), `lb` (load balancer strategies), `auth`, `filters`, `ratelimit`,
+`trackers`, `validation`, `contract` (dashboard contract pages).
 
-## Architecture
-
-```
-Streaming Extension
-├── WebSocket
-│   ├── Connection Management
-│   ├── Message Handling
-│   └── Broadcasting
-├── SSE
-│   ├── Event Streaming
-│   └── Reconnection
-├── WebTransport
-│   ├── HTTP/3 Support
-│   └── Bidirectional Streams
-└── Rooms
-    └── Group Messaging
-```
-
-## Public API
-
-### Core Types
+## Constructors and options
 
 ```go
-type Streaming interface {
-    HandleWebSocket(path string, handler WebSocketHandler) error
-    HandleSSE(path string, handler SSEHandler) error
-    Broadcast(room string, message []byte) error
-}
+func NewExtension(opts ...ConfigOption) *Extension          // note: *Extension, not forge.Extension
+func NewExtensionWithConfig(config Config) *Extension
+func DefaultConfig() Config
 
-type WebSocketHandler func(conn WebSocketConn)
-type SSEHandler func(stream SSEStream)
+WithLocalBackend()                                          // default
+WithRedisBackend(url string)                                // backend redis, distributed on; pass host:port
+WithNATSBackend(urls ...string)                             // fails at registration, see below
+WithBackend(backend string)
+WithBackendURLs(urls ...string)
+WithAuthentication(username, password string)               // backend credentials
+WithFeatures(rooms, channels, presence, typing, history bool)
+WithConnectionLimits(perUser, roomsPerUser, channelsPerUser int)
+WithMessageLimits(maxSize, maxPerSecond int)
+WithTimeouts(ping, pong, write time.Duration)
+WithBufferSizes(read, write int)
+WithMessageRetention(retention time.Duration)
+WithPresenceTimeout(timeout time.Duration)
+WithTypingTimeout(timeout time.Duration)
+WithNodeID(nodeID string)
+WithLoadBalancer(strategy string)                           // sets enable_load_balancer
+WithSessionResumption(ttl time.Duration)
+WithTLS(certFile, keyFile, caFile string)                   // TLS to the backend
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
 
-### Main Functions/Methods
+## Extension methods
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get streaming service
-func GetStreaming(c forge.Container) (Streaming, error)
-
-// WebSocket handler
-streaming.HandleWebSocket("/ws", func(conn WebSocketConn) {
-    for {
-        msg, _ := conn.ReadMessage()
-        conn.WriteMessage(msg)  // Echo
-    }
-})
-
-// Broadcast to room
-streaming.Broadcast("chat-room-1", []byte("Hello everyone!"))
+func (e *Extension) Manager() Manager
+func (e *Extension) RegisterRoutes(router forge.Router, wsPath, ssePath string) error
+func (e *Extension) RegisterHook(hook StreamingHook)
+func (e *Extension) UnregisterHook(name string)
+func (e *Extension) RegisterCodec(codec Codec)
+func (e *Extension) Hooks() *HookRegistry
+func (e *Extension) Codecs() *CodecRegistry
+func (e *Extension) AsyncAPISpec() *forge.AsyncAPISpec
+func (e *Extension) RegisterContractContributor(disp *dispatcher.Dispatcher, reg contract.Registry, wreg contract.WardenRegistry) error
+// (dashboard contract; dispatcher and contract are packages under forge/extensions/dashboard/contract)
 ```
 
-## Usage Examples
+RegisterRoutes mounts GET wsPath (WebSocket), GET ssePath (SSE), and POST ssePath+"/subscribe"
+and ssePath+"/unsubscribe". The logger, hook registry and manager are created in Register, so
+call RegisterRoutes, RegisterHook and RegisterCodec from a start hook (`forge.OnStarted`),
+otherwise you get a nil pointer panic.
 
-### WebSocket Chat
+## What the container holds
+
+`Manager` under the alias `streaming` (ManagerKey). Helpers: `GetManager(c)`, `MustGetManager(c)`,
+`GetManagerFromApp(app)`, `MustGetManagerFromApp(app)`.
+
+## Usage
 
 ```go
-import "github.com/xraph/forge/extensions/streaming"
+stream := streaming.NewExtension(streaming.WithLocalBackend())
+app := forge.NewApp(forge.AppConfig{Name: "live", Extensions: []forge.Extension{stream}})
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        streaming.NewExtension(streaming.Config{}),
-    },
+_ = forge.OnStarted(app, "streaming-routes", func(_ context.Context, a forge.App) error {
+    return stream.RegisterRoutes(a.Router(), "/ws", "/events")
 })
 
-// Get streaming service
-s, _ := streaming.GetStreaming(app.Container())
+// from a handler
+_ = stream.Manager().Broadcast(ctx, streaming.NewEventMessage("announcement", "deploy finished"))
 
-// WebSocket endpoint
-s.HandleWebSocket("/ws/chat", func(conn streaming.WebSocketConn) {
-    // Join room
-    room := conn.Query("room")
-    conn.JoinRoom(room)
-    
-    // Handle messages
-    for {
-        msg, err := conn.ReadMessage()
-        if err != nil {
-            break
-        }
-        
-        // Broadcast to room
-        conn.BroadcastToRoom(room, msg)
-    }
-})
-
-// Client connects: ws://localhost:8080/ws/chat?room=general
+// rooms must exist before anyone joins
+_ = stream.Manager().CreateRoom(ctx, streaming.NewLocalRoom(streaming.RoomOptions{ID: "lobby", Name: "Lobby", Owner: "system"}))
 ```
 
-### Server-Sent Events
+## Key types
 
-```go
-// SSE endpoint
-s.HandleSSE("/events", func(stream streaming.SSEStream) {
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
-    
-    for {
-        select {
-        case <-ticker.C:
-            stream.SendEvent(streaming.Event{
-                Type: "update",
-                Data: fmt.Sprintf("Time: %s", time.Now()),
-            })
-        case <-stream.Context().Done():
-            return
-        }
-    }
-})
+- `Manager` (internal.Manager): Register/Unregister/GetConnection/GetUserConnections, rooms
+  (CreateRoom, GetRoom, DeleteRoom, JoinRoom, LeaveRoom, ListRooms, SearchRooms, ArchiveRoom,
+  ...), channels (CreateChannel, Subscribe, Unsubscribe, ...), `ProcessInbound(ctx, msg, sender)`,
+  Broadcast, BroadcastToRoom, BroadcastToChannel, SendToUser, SendToConnection, presence
+  (SetPresence, GetPresence, GetOnlineUsers), typing (StartTyping, StopTyping, GetTypingUsers),
+  history (GetHistory(ctx, roomID, HistoryQuery), ...), moderation (MuteUser, BanUser, ...),
+  GetStats, ResumeSession, Replay, Start, Drain, Stop, Health.
+- `Connection` = internal.EnhancedConnection. Wrap a core connection with
+  `NewConnection(conn forge.Connection, opts ...ConnOption) Connection`; options
+  WithSendQueueCapacity, WithSendQueueTimeouts, WithConnectionMetrics, WithConnectionLogger.
+- `Message`: JSON frame with type, event, room_id, channel_id, user_id, id, timestamp, data,
+  sequence. `NewEventMessage(event string, data any) *Message`.
+- `RoomOptions{ID, Name, Owner, Private, MaxMembers, Description, Metadata}`, `NewLocalRoom(opts)`.
+- Hooks: a `StreamingHook` (Name) plus any of ConnectionHook (OnConnect, OnDisconnect),
+  MessageHook (OnMessageReceived, OnMessageDelivered), RawMessageHook (OnRawMessage), RoomHook
+  (OnRoomJoin, OnRoomLeave, OnRoomCreate, OnRoomDelete), PresenceHook (OnPresenceChange),
+  ErrorHook (OnError).
+- `Codec` interface: ContentType, Encode, Decode. JSON is the default; binary and text are built
+  in. Clients pick one with `?content_type=` or an `X-Content-Type` header.
+- Errors: many sentinels in exports.go (ErrRoomNotFound, ErrRoomAccessDenied, ErrSendDenied,
+  ErrUserMuted, ErrUserBanned, ErrRateLimitExceeded, ErrMessageTooLarge, ...).
 
-// Client: EventSource("http://localhost:8080/events")
-```
+## Wire protocol
 
-## Configuration
+Client frames: `{"type":"join","room_id":"lobby"}`, `{"type":"message","room_id":"lobby","data":...}`,
+`{"type":"typing","room_id":"lobby","data":true}`, `{"type":"presence","data":"away"}`,
+`{"type":"leave","room_id":"lobby"}`. Server-set fields (user_id, id, timestamp) overwrite what
+the client sends. Rejections come back as `type: "error"` with a stable `code` (rate_limited,
+message_too_large, send_denied, room_access_denied, muted, banned, feature_disabled, ...).
 
-```yaml
-extensions:
-  streaming:
-    websocket:
-      read_buffer_size: 1024
-      write_buffer_size: 1024
-      enable_compression: true
-    
-    sse:
-      keep_alive_interval: 15s
-```
+SSE query params: `rooms`, `channels`, `session_id`, `last_event_id` (or the Last-Event-ID
+header). The stream starts with a `connected` event; it sends `resync_required` when it can't
+replay from the cursor. EventSource clients change subscriptions with POST .../subscribe and
+.../unsubscribe and `{"conn_id": "...", "rooms": [...], "channels": [...]}`.
 
-## Notes
+## Config
 
-### Production Readiness
-- ✅ WebSocket support
-- ✅ SSE support
-- ✅ WebTransport
-- ✅ Room management
-- ✅ Broadcasting
+Key `extensions.streaming`, falling back to `streaming`. File overrides defaults, options override
+the file. YAML keys: backend, backend_urls, backend_username, backend_password, enable_rooms,
+enable_channels, enable_presence, enable_typing_indicators, enable_message_history,
+enable_distributed, max_connections_per_user (5), max_rooms_per_user (50),
+max_channels_per_user (100), max_message_size (65536), max_messages_per_second (100),
+max_anonymous_connections (1000), max_total_connections (0 = unbounded), ping_interval (30s),
+pong_timeout (10s), write_timeout (10s), read_buffer_size, write_buffer_size (4096),
+message_retention (720h), message_cleanup, max_messages_per_room (100000), presence_timeout (5m),
+presence_cleanup, typing_timeout (3s), typing_cleanup, max_typing_users_per_room, node_id,
+heartbeat_interval, node_timeout, enable_load_balancer, load_balancer_strategy,
+health_check_interval, health_check_timeout, sticky_session_ttl, consistent_hash_replicas,
+enable_session_resumption, session_resumption_ttl, drain_timeout (15s), tls_enabled,
+tls_cert_file, tls_key_file, tls_ca_file.
 
-### License
-MIT License - Part of Forge Framework
+Validation: backend must be local, redis, nats or empty; distributed needs redis or nats; redis
+and nats need backend_urls; ping_interval and pong_timeout at least 1s; TLS needs cert and key.
 
+Load balancer strategies: consistent_hash, sticky, least_connections. The default,
+round_robin, currently behaves as least connections. Session resumption state is kept in memory on the node.
+
+## Gotchas
+
+- Identity: the built-in handlers read `user_id` from the Forge context. Set it with middleware
+  (`ctx.Set("user_id", id)`) on a group you pass to RegisterRoutes, or globally. Since
+  forge commit bce0387d the router hands values that middleware stores with ctx.Set to
+  WebSocket and SSE handlers. Without it, connections are anonymous: they receive broadcasts,
+  but JoinRoom refuses them and the SSE subscribe endpoints answer 404. Or register your own
+  `router.WebSocket` handler: wrap with NewConnection, SetUserID, `Manager().Register`, and pass
+  every inbound message through `Manager().ProcessInbound`.
+- Redis backend: the first backend URL is handed to go-redis as `Addr`, so it must be `host:port`.
+  `redis://host:port` fails every call with "too many colons in address". One Redis server only
+  (no Cluster or Sentinel). With TLS on, cert and key are required and the CA file is ignored.
+- With the Redis backend, rooms, history, presence and typing live in Redis and broadcasts are
+  relayed over Redis Pub/Sub. Connections, rate limits, connection limits and resumable sessions
+  stay per node. If the coordinator's Redis client can't be created the node logs "distributed
+  messaging disabled" and runs without cross-node relay.
+- WithLoadBalancer keeps a node registry and health checker but nothing uses it to route
+  clients; put your own load balancer in front. DISTRIBUTED_DEPLOYMENT_GUIDE.md has the details.
+- Metrics go to Forge metrics under `streaming.` (connections.active, messages.broadcast,
+  messages.rate_limited, sendqueue.dropped, sessions.resumed, replay.messages, ...).
+
+## Not implemented yet
+
+- NATS backend: `backends.CreateStores` returns `backends.ErrBackendNotImplemented` for "nats"
+  (it aliases the backend-not-connected error), so `WithNATSBackend` makes registration fail
+  with "failed to create stores".
+- examples/chat: its create-room endpoint doesn't create a room, and it installs no middleware
+  that sets `user_id`, so its connections are anonymous.

@@ -10,61 +10,92 @@ description: Public API reference for the Queue extension
 | `NewExtension(opts ...ConfigOption) forge.Extension` | Create the queue extension with functional options |
 | `NewExtensionWithConfig(config Config) forge.Extension` | Create the queue extension with a complete config |
 | `DefaultConfig() Config` | Returns the default configuration |
+| `DefaultQueueOptions() QueueOptions` | Durable queue, no limits |
+| `DefaultConsumeOptions() ConsumeOptions` | Prefetch 10, concurrency 1, 30s timeout, `AutoAck` off |
 
 ## DI Helpers
 
 | Function | Description |
 |---|---|
-| `GetQueue(c forge.Container) (Queue, error)` | Resolve the `Queue` from the DI container |
-| `MustGetQueue(c forge.Container) Queue` | Same but panics on error |
-| `GetQueueFromApp(app forge.App) (Queue, error)` | Resolve the `Queue` from an app instance |
-| `MustGetQueueFromApp(app forge.App) Queue` | Same but panics on error |
+| `GetQueue(c forge.Container) (Queue, error)` | Resolve the queue from the DI container |
+| `MustGetQueue(c forge.Container) Queue` | Same, but panics on error |
+| `GetQueueFromApp(app forge.App) (Queue, error)` | Resolve the queue from an app |
+| `MustGetQueueFromApp(app forge.App) Queue` | Same, but panics on error |
 
-## Queue Interface -- Queue Management
+`forge.Inject[queue.Queue](c)` and `forge.Inject[*queue.QueueService](c)` work too.
+
+## Driver Constructors
+
+The extension builds the driver for you. You only need these to use a driver outside the
+extension, in a test for example. Each takes `(config Config, logger forge.Logger, metrics forge.Metrics)`.
+
+| Function | Returns |
+|---|---|
+| `NewInMemoryQueue(...)` | `*InMemoryQueue` |
+| `NewRedisQueue(...)` | `(*RedisQueue, error)` |
+| `NewRedisQueueWithClient(..., client redis.UniversalClient)` | `(*RedisQueue, error)`, using a go-redis client you already have |
+| `NewRabbitMQQueue(...)` | `(*RabbitMQQueue, error)` |
+| `NewNATSQueue(...)` | `(*NATSQueue, error)` |
+| `NewQueueService(config Config, queue Queue, logger forge.Logger, metrics forge.Metrics) *QueueService` | Wraps a driver with `Start`, `Stop` and `Health` |
+
+`QueueService.Queue()` returns the driver it wraps.
+
+## Queue Interface: Connection
 
 | Method | Description |
 |---|---|
-| `DeclareQueue(ctx, name, opts) error` | Create a queue with the given options |
-| `DeleteQueue(ctx, name) error` | Delete a queue and all its messages |
-| `ListQueues(ctx) ([]string, error)` | List all queue names |
-| `GetQueueInfo(ctx, name) (*QueueInfo, error)` | Get queue metadata (messages, consumers, rates) |
-| `PurgeQueue(ctx, name) error` | Remove all messages from a queue |
+| `Connect(ctx) error` | Open the connection. The extension calls it in `Start` |
+| `Disconnect(ctx) error` | Close the connection. The extension calls it in `Stop` |
+| `Ping(ctx) error` | Check the connection |
 
-## Queue Interface -- Publishing
+## Queue Interface: Queue Management
 
 | Method | Description |
 |---|---|
-| `Publish(ctx, queue, msg) error` | Publish a single message to a queue |
-| `PublishBatch(ctx, queue, msgs) error` | Publish multiple messages in one operation |
-| `PublishDelayed(ctx, queue, msg, delay) error` | Publish a message for future delivery |
+| `DeclareQueue(ctx, name string, opts QueueOptions) error` | Create a queue |
+| `DeleteQueue(ctx, name string) error` | Delete a queue and its messages |
+| `ListQueues(ctx) ([]string, error)` | List queue names |
+| `GetQueueInfo(ctx, name string) (*QueueInfo, error)` | Message and consumer counts for one queue |
+| `PurgeQueue(ctx, name string) error` | Remove all messages from a queue |
 
-## Queue Interface -- Consuming
-
-| Method | Description |
-|---|---|
-| `Consume(ctx, queue, handler, opts) error` | Start consuming messages from a queue |
-| `StopConsuming(ctx, queue) error` | Stop consuming from a queue |
-
-## Queue Interface -- Message Operations
+## Queue Interface: Publishing
 
 | Method | Description |
 |---|---|
-| `Ack(ctx, msg) error` | Acknowledge successful processing |
-| `Nack(ctx, msg) error` | Negative acknowledge (requeue for retry) |
-| `Reject(ctx, msg) error` | Reject and discard permanently |
+| `Publish(ctx, queue string, message Message) error` | Publish one message |
+| `PublishBatch(ctx, queue string, messages []Message) error` | Publish several messages |
+| `PublishDelayed(ctx, queue string, message Message, delay time.Duration) error` | Publish after a delay. Never delivered on Redis, see [Features](/docs/extensions/queue/features#publishing) |
 
-## Queue Interface -- Dead Letter
-
-| Method | Description |
-|---|---|
-| `GetDeadLetterQueue(ctx, queue) ([]Message, error)` | Get messages in the dead-letter queue |
-| `RequeueDeadLetter(ctx, queue, msgID) error` | Move a dead letter back to the original queue |
-
-## Queue Interface -- Stats
+## Queue Interface: Consuming
 
 | Method | Description |
 |---|---|
-| `Stats(ctx) (*QueueStats, error)` | Get backend statistics |
+| `Consume(ctx, queue string, handler MessageHandler, opts ConsumeOptions) error` | Start a worker and return. `MessageHandler` is `func(ctx context.Context, msg Message) error` |
+| `StopConsuming(ctx, queue string) error` | Stop the workers on a queue |
+
+## Queue Interface: Message Operations
+
+These only act on the in-memory driver. Redis, RabbitMQ and NATS return `nil` and do nothing,
+because their consumer loops acknowledge based on what your handler returns.
+
+| Method | Description |
+|---|---|
+| `Ack(ctx, messageID string) error` | Remove an in-flight message |
+| `Nack(ctx, messageID string, requeue bool) error` | Put it back at the front of the queue, or move it to the dead-letter list |
+| `Reject(ctx, messageID string) error` | Move it to the dead-letter list |
+
+## Queue Interface: Dead Letter
+
+| Method | Description |
+|---|---|
+| `GetDeadLetterQueue(ctx, queue string) ([]Message, error)` | Failed messages. Empty on RabbitMQ and NATS |
+| `RequeueDeadLetter(ctx, queue string, messageID string) error` | Move a dead letter back onto the queue. In-memory only, a no-op elsewhere |
+
+## Queue Interface: Stats
+
+| Method | Description |
+|---|---|
+| `Stats(ctx) (*QueueStats, error)` | Queue, message and consumer counts, uptime, version |
 
 ## Key Types
 
@@ -72,34 +103,49 @@ description: Public API reference for the Queue extension
 
 | Field | Type | Purpose |
 |---|---|---|
-| `ID` | `string` | Unique message identifier |
-| `Queue` | `string` | Queue name |
+| `ID` | `string` | Set by the driver: on publish (in-memory) or on delivery (others) |
+| `Queue` | `string` | Queue name, set on publish by the in-memory driver |
 | `Body` | `[]byte` | Message payload |
 | `Headers` | `map[string]string` | Message headers |
-| `Priority` | `int` | Message priority (higher = more urgent) |
-| `Delay` | `time.Duration` | Delivery delay |
-| `Expiration` | `time.Duration` | Message TTL |
-| `Retries` | `int` | Current retry count |
-| `MaxRetries` | `int` | Maximum retry attempts |
+| `Priority` | `int` | 0 to 9. Used on RabbitMQ queues declared with `MaxPriority` |
+| `Delay` | `time.Duration` | Not read by any driver. Use `PublishDelayed` |
+| `Expiration` | `time.Duration` | Per-message TTL on RabbitMQ |
+| `Retries` | `int` | Never incremented today |
+| `MaxRetries` | `int` | RabbitMQ and NATS redeliver a failed message while `Retries < MaxRetries` |
+| `PublishedAt` | `time.Time` | Set on publish by the in-memory driver |
+| `Metadata` | `map[string]any` | Free-form data that travels with the message |
 
 ### `QueueOptions`
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
-| `Durable` | `bool` | `true` | Survive broker restart |
-| `AutoDelete` | `bool` | `false` | Delete when no consumers |
-| `Exclusive` | `bool` | `false` | Single consumer only |
-| `MaxLength` | `int64` | `0` | Max queue depth (0 = unlimited) |
-| `MessageTTL` | `time.Duration` | `0` | Default message TTL |
-| `MaxPriority` | `int` | `0` | Max priority level (0 = disabled) |
-| `DeadLetterQueue` | `string` | `""` | Custom DLQ name |
+| `Durable` | `bool` | `true` | Survive a broker restart (RabbitMQ) |
+| `AutoDelete` | `bool` | `false` | Delete when unused (RabbitMQ) |
+| `Exclusive` | `bool` | `false` | One connection only (RabbitMQ) |
+| `MaxLength` | `int64` | `0` | Max messages, 0 for no limit (RabbitMQ, NATS) |
+| `MaxLengthBytes` | `int64` | `0` | Not read by any driver |
+| `MessageTTL` | `time.Duration` | `0` | Queue message TTL (RabbitMQ), stream max age (NATS) |
+| `MaxPriority` | `int` | `0` | Enables message priority (RabbitMQ) |
+| `DeadLetterQueue` | `string` | `""` | Queue to dead-letter into (RabbitMQ) |
+| `Arguments` | `map[string]any` | `nil` | Not read by any driver |
 
 ### `ConsumeOptions`
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
-| `AutoAck` | `bool` | `false` | Auto-acknowledge on delivery |
-| `PrefetchCount` | `int` | `10` | Messages to prefetch |
-| `Concurrency` | `int` | `1` | Concurrent message handlers |
-| `Timeout` | `time.Duration` | `30s` | Per-message processing timeout |
-| `RetryStrategy` | `RetryStrategy` | 3 retries, 2x backoff | Retry configuration |
+| `AutoAck` | `bool` | `false` | In-memory: drop messages without waiting for `Ack`. RabbitMQ: broker auto-ack. Leave it off on RabbitMQ and NATS |
+| `PrefetchCount` | `int` | `10` | Read batch on Redis, `MaxAckPending` on NATS |
+| `Concurrency` | `int` | `1` | Worker goroutines (in-memory only) |
+| `Timeout` | `time.Duration` | `30s` | Per-message handler timeout (RabbitMQ, NATS) |
+| `Exclusive` | `bool` | `false` | Exclusive consumer (RabbitMQ) |
+| `ConsumerTag`, `Priority`, `Arguments` | | zero | Not read by any driver |
+| `RetryStrategy` | `RetryStrategy` | 3 retries, 1s initial, 30s max, 2x | Not read by any driver |
+
+### `QueueInfo` and `QueueStats`
+
+`QueueInfo` has `Name`, `Messages`, `Consumers`, `MessageBytes`, `PublishRate`, `DeliverRate`,
+`AckRate`, `Durable`, `AutoDelete`, `CreatedAt` and `LastMessageAt`. `QueueStats` has
+`QueueCount`, `TotalMessages`, `TotalConsumers`, `PublishRate`, `DeliverRate`, `AckRate`,
+`UnackedMessages`, `ReadyMessages`, `Uptime`, `MemoryUsed`, `ConnectionCount`, `Version` and
+`Extra`. The rates, byte counts, `LastMessageAt`, `MemoryUsed`, `UnackedMessages` and
+`ReadyMessages` are never filled in.

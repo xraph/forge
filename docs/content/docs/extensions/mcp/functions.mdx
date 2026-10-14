@@ -1,84 +1,123 @@
 ---
 title: Functions
-description: Public API reference for the MCP extension
+description: Exported functions, methods and types of the MCP extension
 ---
 
 ## Extension Entry Points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the MCP extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the MCP extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Creates the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the [configuration](/docs/extensions/mcp/configuration) page |
+| `(Config) Validate() error` | Checks the base path, name length, auth tokens and rate limit |
+| `(Config) ShouldExpose(path string) bool` | Applies `Enabled`, `AutoExposeRoutes` and the include and exclude patterns to a path |
 
-## Server -- Tool Operations
+## Service
+
+You get the service with `forge.Inject[*mcp.MCPService](app.Container())`, or by the key `mcp`.
+
+| Function or method | Description |
+|---|---|
+| `NewMCPService(config Config, logger forge.Logger, metrics forge.Metrics) (*MCPService, error)` | Validates the config and builds a `Server` |
+| `(*MCPService) Server() *Server` | The server that holds tools, resources and prompts |
+| `(*MCPService) Name() string` | `"mcp-service"` |
+| `Start`, `Stop`, `Health` | Lifecycle hooks called by the container |
+
+## Server: Tools
 
 | Method | Description |
 |---|---|
-| `RegisterTool(tool Tool) error` | Register a tool with name, description, schema, and handler |
-| `ListTools() []Tool` | List all registered tools |
-| `ExecuteTool(ctx, name, arguments) (*ToolResult, error)` | Execute a named tool with arguments |
-| `GenerateToolFromRoute(route) (*Tool, error)` | Generate a tool definition from a Forge HTTP route |
+| `NewServer(config Config, logger forge.Logger, metrics forge.Metrics) *Server` | Builds a server on its own, without the extension |
+| `RegisterTool(tool *Tool) error` | Adds or replaces a tool. Fails on an empty name or one longer than `MaxToolNameLength` |
+| `GetTool(name string) (*Tool, error)` | Looks a tool up by name |
+| `ListTools() []Tool` | Every tool, sorted by name |
+| `GenerateToolFromRoute(route forge.RouteInfo) (*Tool, error)` | Builds a tool from a route and remembers the route behind it. Doesn't register the tool |
+| `ExecuteTool(ctx context.Context, tool *Tool, arguments map[string]any) (string, error)` | Returns `Tool executed: <METHOD> <path>`. Doesn't call the route. Errors for a tool with no route |
 
-## Server -- Resource Operations
-
-| Method | Description |
-|---|---|
-| `RegisterResource(resource Resource, reader ResourceReader) error` | Register a resource with a reader function |
-| `ListResources() []Resource` | List all registered resources |
-| `ReadResource(ctx, uri) (*ResourceContents, error)` | Read a resource by URI |
-
-## Server -- Prompt Operations
+## Server: Resources
 
 | Method | Description |
 |---|---|
-| `RegisterPrompt(prompt Prompt, generator PromptGenerator) error` | Register a prompt template with a generator function |
-| `ListPrompts() []Prompt` | List all registered prompts |
-| `GetPrompt(ctx, name, arguments) ([]PromptMessage, error)` | Generate prompt messages from a template |
+| `RegisterResource(resource *Resource) error` | Adds or replaces a resource. Fails on an empty URI |
+| `RegisterResourceReader(uri string, reader ResourceReader) error` | Sets the function that produces a resource's content |
+| `GetResource(uri string) (*Resource, error)` | Looks a resource up by URI |
+| `ListResources() []Resource` | Every resource, sorted by URI |
+| `ReadResource(ctx context.Context, resource *Resource) (Content, error)` | Runs the reader, or returns a text summary when there isn't one |
 
-## Server -- Info
+`ResourceReader` is `func(ctx context.Context, resource *Resource) (Content, error)`.
+
+## Server: Prompts
 
 | Method | Description |
 |---|---|
-| `GetServerInfo() ServerInfo` | Get server name, version, and capabilities |
+| `RegisterPrompt(prompt *Prompt) error` | Adds or replaces a prompt. Fails on an empty name |
+| `RegisterPromptGenerator(name string, generator PromptGenerator) error` | Sets the function that renders a prompt |
+| `GetPrompt(name string) (*Prompt, error)` | Looks a prompt up by name |
+| `ListPrompts() []Prompt` | Every prompt, sorted by name |
+| `GeneratePrompt(ctx context.Context, prompt *Prompt, args map[string]any) ([]PromptMessage, error)` | Runs the generator, or returns one default user message |
+
+`PromptGenerator` is `func(ctx context.Context, prompt *Prompt, args map[string]any) ([]PromptMessage, error)`.
+
+## Server: Other
+
+| Method | Description |
+|---|---|
+| `GetServerInfo() ServerInfo` | Name, version and capabilities |
+| `CacheSchema(key string, schema *JSONSchema)` | Stores a schema when `SchemaCache` is on |
+| `GetCachedSchema(key string) (*JSONSchema, bool)` | Fetches one |
+| `Clear()` | Empties tools, resources, prompts and the schema cache |
+| `Stats() map[string]any` | `tools`, `resources`, `prompts` and `enabled` |
 
 ## Middleware
 
+Neither of these is applied by the extension. See [Authentication and Rate Limiting](/docs/extensions/mcp/features#authentication-and-rate-limiting).
+
 | Function | Description |
 |---|---|
-| `AuthMiddleware(config, logger) forge.PureMiddleware` | Create authentication middleware for MCP endpoints |
-| `RateLimitMiddleware(config, logger, metrics) forge.PureMiddleware` | Create rate limiting middleware |
+| `AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware` | Checks `AuthHeader` against `AuthTokens` when `RequireAuth` is on |
+| `RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metrics) forge.PureMiddleware` | Per-client limit of `RateLimitPerMinute`. A no-op when the limit is 0 |
+| `NewRateLimiter(config Config, logger forge.Logger) *RateLimiter` | The limiter behind `RateLimitMiddleware`, with `Allow(clientID string) bool` and `Stop()` |
 
 ## Key Types
 
 ### `Tool`
 
-| Field | Type | Purpose |
+| Field | Type | JSON |
 |---|---|---|
-| `Name` | `string` | Tool identifier |
-| `Description` | `string` | Human-readable description for AI agents |
-| `InputSchema` | `JSONSchema` | JSON Schema describing expected arguments |
+| `Name` | `string` | `name` |
+| `Description` | `string` | `description` |
+| `InputSchema` | `*JSONSchema` | `inputSchema` |
+
+### `JSONSchema`
+
+`Type`, `Properties map[string]*JSONSchema`, `Items *JSONSchema`, `Required []string`, `Description`, `Enum []any`, `Format`, `Pattern`, `MinLength`, `MaxLength` (`*int`), `Minimum`, `Maximum` (`*float64`) and `AdditionalProperties any`.
 
 ### `Resource`
 
-| Field | Type | Purpose |
+| Field | Type | JSON |
 |---|---|---|
-| `URI` | `string` | Resource identifier (e.g. `file:///path`) |
-| `Name` | `string` | Display name |
-| `Description` | `string` | Human-readable description |
-| `MimeType` | `string` | Content type |
+| `URI` | `string` | `uri` |
+| `Name` | `string` | `name` |
+| `Description` | `string` | `description` |
+| `MimeType` | `string` | `mimeType` |
+| `Schema` | `*JSONSchema` | `schema` |
 
-### `Prompt`
+### `Prompt` and `PromptArgument`
 
-| Field | Type | Purpose |
-|---|---|---|
-| `Name` | `string` | Prompt identifier |
-| `Description` | `string` | Human-readable description |
-| `Arguments` | `[]PromptArgument` | Typed arguments the prompt accepts |
+`Prompt` has `Name`, `Description` and `Arguments []PromptArgument`. `PromptArgument` has `Name`, `Description` and `Required bool`.
 
 ### `PromptMessage`
 
-| Field | Type | Purpose |
+| Field | Type | JSON |
 |---|---|---|
-| `Role` | `string` | Message role (`user`, `assistant`, `system`) |
-| `Content` | `Content` | Message content (text, image, or resource) |
+| `Role` | `string` | `role`, `"user"` or `"assistant"` |
+| `Content` | `[]Content` | `content` |
+
+### `Content`
+
+`Type` (`"text"`, `"image"` or `"resource"`), `Text`, `Data` and `MimeType`.
+
+### Request and response types
+
+`CallToolRequest`, `CallToolResponse`, `ListToolsResponse`, `ReadResourceRequest`, `ReadResourceResponse`, `ListResourcesResponse`, `GetPromptRequest`, `GetPromptResponse` and `ListPromptsResponse` are the JSON bodies of the HTTP endpoints. `ServerInfo` holds `Name`, `Version` and `Capabilities`.

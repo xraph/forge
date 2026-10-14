@@ -2,103 +2,128 @@
 
 ## Purpose
 
-Model Context Protocol (MCP) implementation providing standardized communication between AI models and applications for context sharing, model management, and inference coordination.
+Exposes a Forge app's HTTP routes as Model Context Protocol style tools: each route gets a name,
+a description from its `forge.WithSummary` text, and a JSON Schema for its path parameters, query
+and body. You can also publish MCP resources and prompts with your own Go readers and
+generators. Endpoints are plain JSON over HTTP.
 
-## Key Components
+Calling a route-backed tool does not run your handler, and there is no JSON-RPC framing, so an
+MCP client can't connect directly. See "Not implemented yet".
 
-- **Protocol Server**: MCP server implementation
-- **Context Management**: Shared context across models
-- **Model Registry**: Model discovery and selection
-- **Inference Routing**: Route requests to appropriate models
-- **Context Windows**: Manage context window sizes
+Module: github.com/xraph/forge/extensions/mcp (package `mcp`).
 
-## Architecture
-
-```
-MCP Extension
-├── Protocol Server
-│   ├── Request Handling
-│   └── Response Formatting
-├── Context Manager
-│   ├── Context Storage
-│   └── Context Retrieval
-├── Model Registry
-│   └── Model Information
-└── Inference Router
-    └── Request Routing
-```
-
-## Public API
-
-### Core Types
+## Constructors and options
 
 ```go
-type MCP interface {
-    RegisterModel(model ModelInfo) error
-    GetContext(id string) (*Context, error)
-    UpdateContext(id string, data ContextData) error
-    Route(req InferenceRequest) (*InferenceResponse, error)
-}
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension   // same as NewExtension(WithConfig(cfg))
+func DefaultConfig() Config
+func NewMCPService(config Config, logger forge.Logger, metrics forge.Metrics) (*MCPService, error)
+func NewServer(config Config, logger forge.Logger, metrics forge.Metrics) *Server
+
+type ConfigOption func(*Config)
+WithEnabled(enabled bool)                       // false registers nothing
+WithBasePath(basePath string)                   // "/_/mcp"
+WithServerInfo(name, version string)            // defaults to the app's name and version
+WithAutoExposeRoutes(autoExpose bool)           // true
+WithToolPrefix(prefix string)
+WithExcludePatterns(patterns []string)          // checked first; exact or "/prefix/*"
+WithIncludePatterns(patterns []string)          // when set, only matches are exposed
+WithResources(enable bool)                      // false
+WithPrompts(enable bool)                        // false
+WithAuth(authHeader string, tokens []string)    // stored and validated, not applied
+WithRateLimit(limit int)                        // per minute; stored, not applied
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
 
-### Main Functions/Methods
+`MaxToolNameLength` (64), `SchemaCache` (true) and `EnableMetrics` (true) have no option; set
+them through WithConfig.
+
+## What the container holds
+
+`*mcp.MCPService` by type and under the alias `mcp` (ServiceKey). `(*MCPService).Server() *Server`
+gives you the registry. Register resources and prompts from a start hook:
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get MCP service
-func GetMCP(c forge.Container) (MCP, error)
-
-// Register model
-mcp.RegisterModel(ModelInfo{
-    ID:   "gpt-4",
-    Type: "llm",
+_ = forge.OnStarted(app, "mcp-content", func(ctx context.Context, a forge.App) error {
+    svc, err := forge.Inject[*mcp.MCPService](a.Container())
+    if err != nil {
+        return err
+    }
+    srv := svc.Server()
+    if err := srv.RegisterResource(&mcp.Resource{URI: "orders://schema", Name: "Order schema", MimeType: "application/json"}); err != nil {
+        return err
+    }
+    return srv.RegisterResourceReader("orders://schema", func(ctx context.Context, r *mcp.Resource) (mcp.Content, error) {
+        return mcp.Content{Type: "text", MimeType: r.MimeType, Text: `{"id":"string"}`}, nil
+    })
 })
-
-// Manage context
-mcp.UpdateContext("session-1", contextData)
 ```
 
-## Usage Examples
+## Server methods
 
-### Basic MCP Server
+RegisterTool(*Tool), GetTool(name), ListTools(), RegisterResource(*Resource), GetResource(uri),
+ListResources(), RegisterResourceReader(uri, ResourceReader), ReadResource(ctx, *Resource),
+RegisterPrompt(*Prompt), GetPrompt(name), ListPrompts(),
+RegisterPromptGenerator(name, PromptGenerator), GeneratePrompt(ctx, *Prompt, args),
+GetServerInfo(), GenerateToolFromRoute(forge.RouteInfo), ExecuteTool(ctx, *Tool, args) (string, error),
+CacheSchema, GetCachedSchema, Clear, Stats.
 
 ```go
-import "github.com/xraph/forge/extensions/mcp"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        mcp.NewExtension(mcp.Config{
-            Endpoint: "/mcp",
-        }),
-    },
-})
-
-// MCP server available at /mcp
+type ResourceReader func(ctx context.Context, resource *Resource) (Content, error)
+type PromptGenerator func(ctx context.Context, prompt *Prompt, args map[string]any) ([]PromptMessage, error)
 ```
 
-## Configuration
+## Key types (types.go)
 
-```yaml
-extensions:
-  mcp:
-    endpoint: /mcp
-    max_context_size: 8192
-```
+Tool{Name, Description, InputSchema *JSONSchema}, ToolCall, ToolResult{Content, IsError},
+Content{Type, Text, Data, MimeType}, Resource{URI, Name, Description, MimeType, Schema},
+ResourceContents, Prompt{Name, Description, Arguments}, PromptArgument{Name, Description, Required},
+PromptMessage{Role, Content}, JSONSchema, ServerInfo, Capabilities, and the request/response
+structs (ListToolsResponse, CallToolRequest, CallToolResponse, ListResourcesResponse,
+ReadResourceRequest, ReadResourceResponse, ListPromptsResponse, GetPromptRequest, GetPromptResponse).
 
-## Dependencies
+## Endpoints (base path /_/mcp)
 
-### Internal
-- github.com/xraph/forge - Core framework
+| Method and path | Does |
+| --- | --- |
+| GET /info | server name, version, capabilities |
+| GET /tools | {"tools": [...]}, sorted by name |
+| POST /tools/:name | body {"name": "...", "arguments": {...}} |
+| GET /resources | when EnableResources |
+| POST /resources/read | body {"uri": "..."} |
+| GET /prompts | when EnablePrompts |
+| POST /prompts/:name | body {"arguments": {...}} |
 
-## Notes
+Tool names: verb word (GET get, POST create, PUT update, PATCH patch, DELETE delete) plus the path
+with slashes as underscores and `:`/`{}` dropped, e.g. `DELETE /users/:id` is `delete_users_id`.
+ToolPrefix is prepended. Names over MaxToolNameLength are skipped with a warning. The MCP
+endpoints themselves are never exposed as tools.
 
-### Production Readiness
-- ✅ MCP protocol
-- ✅ Context management
-- ✅ Model registry
+A resource without a reader returns its name, URI and description as text. A prompt without a
+generator returns one user message built from its name, arguments and description.
 
-### License
-MIT License - Part of Forge Framework
+Metrics: `mcp_tools_total`, `mcp_tool_calls_total{status}`.
 
+## Middleware you can wire yourself
+
+`AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware`,
+`RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metrics) forge.PureMiddleware`,
+`NewRateLimiter(config, logger) *RateLimiter`.
+
+## Config
+
+Key `extensions.mcp`, falling back to `mcp`. Options override the file, the file overrides
+defaults. `Config` has no yaml tags, so keys are Go field names exactly (`ToolPrefix`, not
+`tool_prefix`). An option set to exactly its default value looks like no option, so the file
+wins for that field.
+
+## Not implemented yet
+
+- Route-backed tool calls don't run the handler: POST /tools/get_orders_id returns the text
+  `Tool executed: GET /orders/42`. Hand-registered tools (RegisterTool) can't be called at all.
+- No JSON-RPC 2.0, no `initialize` handshake, no stdio or Streamable HTTP transport. An MCP client
+  needs an adapter.
+- WithAuth and WithRateLimit aren't applied to the endpoints. Treat the base path as public, or
+  wire AuthMiddleware / RateLimitMiddleware yourself.

@@ -7,153 +7,180 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/kafka` provides an Apache Kafka client built on the Sarama library.
-It registers a `KafkaService` in the DI container that wraps a full-featured `Kafka` client with
-producer, consumer, consumer group, and admin capabilities.
+`github.com/xraph/forge/extensions/kafka` puts an Apache Kafka client in your app's container. You get a sync and an async producer, partition consumers, consumer groups, topic administration, and TLS and SASL (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512). It is built on [IBM Sarama](https://github.com/IBM/sarama), and you can reach the raw Sarama client, producers and consumers whenever the wrapper doesn't cover what you need.
 
-## What It Registers
-
-| Service | DI Key | Type |
-|---|---|---|
-| Kafka service | `kafka` | `*KafkaService` (also satisfies `Kafka`) |
-
-The service is managed by Vessel. `Start` verifies broker connectivity via `Ping()` and `Stop` closes
-all producers, consumers, and the underlying Sarama client.
+```bash
+go get github.com/xraph/forge/extensions/kafka@latest
+go get github.com/IBM/sarama
+```
 
 ## Quick Start
+
+This app publishes the body of every `POST /orders` to an `orders` topic and logs each message it reads back:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"io"
+	"log"
+	"net/http"
 
-    "github.com/IBM/sarama"
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/kafka"
+	"github.com/IBM/sarama"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/kafka"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "orders",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			kafka.NewExtension(
+				kafka.WithBrokers("localhost:9092"),
+				kafka.WithClientID("orders"),
+			),
+		},
+	})
 
-    app.RegisterExtension(kafka.NewExtension(
-        kafka.WithBrokers("localhost:9092", "localhost:9093"),
-        kafka.WithClientID("my-service"),
-        kafka.WithProducer(true),
-        kafka.WithConsumer(true),
-        kafka.WithConsumerGroup("my-group"),
-    ))
+	// Start reading the topic once every extension is up.
+	err := app.RegisterHookFn(forge.PhaseAfterStart, "consume-orders",
+		func(ctx context.Context, a forge.App) error {
+			k, err := forge.Inject[*kafka.KafkaService](a.Container())
+			if err != nil {
+				return err
+			}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+			return k.Consume(ctx, []string{"orders"}, func(msg *sarama.ConsumerMessage) error {
+				log.Printf("partition %d offset %d: %s", msg.Partition, msg.Offset, msg.Value)
 
-    // Resolve the Kafka client from DI
-    svc, _ := forge.InjectType[*kafka.KafkaService](app.Container())
-    client := svc // KafkaService satisfies the Kafka interface
+				return nil
+			})
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Create a topic
-    client.CreateTopic("events", kafka.TopicConfig{
-        NumPartitions:     6,
-        ReplicationFactor: 3,
-    })
+	// POST a body and it lands on the "orders" topic.
+	err = app.Router().POST("/orders", func(ctx forge.Context) error {
+		k, err := forge.Inject[*kafka.KafkaService](app.Container())
+		if err != nil {
+			return err
+		}
 
-    // Send a message synchronously
-    client.SendMessage("events", []byte("user-123"), []byte(`{"action":"login"}`))
+		body, err := io.ReadAll(ctx.Request().Body)
+		if err != nil {
+			return err
+		}
 
-    // Send a message asynchronously (fire-and-forget)
-    client.SendMessageAsync("events", []byte("user-456"), []byte(`{"action":"signup"}`))
+		if err := k.SendMessage("orders", nil, body); err != nil {
+			return err
+		}
 
-    // Consume messages from a topic
-    client.Consume(ctx, []string{"events"}, func(msg *sarama.ConsumerMessage) error {
-        fmt.Printf("Received: key=%s value=%s partition=%d offset=%d\n",
-            string(msg.Key), string(msg.Value), msg.Partition, msg.Offset)
-        return nil
-    })
+		return ctx.JSON(http.StatusAccepted, map[string]string{"status": "queued"})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
+
+No broker yet? Start a single-node one and create the topic:
+
+```bash
+docker run -d --name kafka -p 9092:9092 apache/kafka:latest
+docker exec kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --create --topic orders
+```
+
+Then `go run .` and `curl -X POST localhost:8080/orders -d '{"id": 42}'`. The log shows the message coming back from the topic.
+
+## What It Registers
+
+| Service | How you resolve it | Type |
+|---|---|---|
+| Kafka service | `forge.Inject[*kafka.KafkaService](c)`, or `forge.Resolve[*kafka.KafkaService](c, "kafka")` | `*kafka.KafkaService`, which implements `kafka.Kafka` |
+
+The service is built the first time something resolves it, not when the app starts. That first resolve creates the Sarama client, the producers and consumer you enabled, and pings the brokers, so it's where a connection error shows up. If you resolve it in an after-start hook, as the quick start does, that error stops `app.Run()`. When the app stops, the container closes every producer, consumer and consumer group, then the client.
 
 ## Consumer Groups
 
-Join a consumer group for coordinated consumption across multiple instances:
+`Consume` reads partitions directly, with no group and no committed offsets. When several instances should split a topic, or a restart should continue where it stopped, join a group with your own Sarama handler and mark messages yourself:
 
 ```go
-client.JoinConsumerGroup(ctx, "analytics-group", []string{"events", "metrics"},
-    &myGroupHandler{})
+type orderHandler struct{}
 
-// Handler implements kafka.ConsumerGroupHandler
-type myGroupHandler struct{}
+func (orderHandler) Setup(sarama.ConsumerGroupSession) error   { return nil }
+func (orderHandler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
-func (h *myGroupHandler) Setup(session sarama.ConsumerGroupSession) error {
-    return nil
+func (orderHandler) ConsumeClaim(s sarama.ConsumerGroupSession, c sarama.ConsumerGroupClaim) error {
+	for msg := range c.Messages() {
+		log.Printf("group message: %s", msg.Value)
+		s.MarkMessage(msg, "")
+	}
+
+	return nil
 }
 
-func (h *myGroupHandler) Cleanup(session sarama.ConsumerGroupSession) error {
-    return nil
-}
-
-func (h *myGroupHandler) ConsumeClaim(
-    session sarama.ConsumerGroupSession,
-    claim sarama.ConsumerGroupClaim,
-) error {
-    for msg := range claim.Messages() {
-        fmt.Printf("Group message: %s\n", string(msg.Value))
-        session.MarkMessage(msg, "")
-    }
-    return nil
-}
+err := k.JoinConsumerGroup(ctx, "order-workers", []string{"orders"}, orderHandler{})
 ```
+
+The call returns once the consume loop is running in the background. One client is in one group at a time; call `k.LeaveConsumerGroup(ctx)` before you join another. The [features page](/docs/extensions/kafka/features#consumer-groups) covers what the group does and doesn't pick up from your config, including TLS and SASL.
 
 ## Using Kafka in Your Services
 
-Inject `*kafka.KafkaService` for automatic DI resolution:
+Depend on `*kafka.KafkaService` in a constructor and the container hands you the shared client. Store it as the `kafka.Kafka` interface if you want to swap in a fake in tests:
 
 ```go
 type EventPublisher struct {
-    kafka  kafka.Kafka
-    logger forge.Logger
+	kafka  kafka.Kafka
+	logger forge.Logger
 }
 
 func NewEventPublisher(k *kafka.KafkaService, logger forge.Logger) *EventPublisher {
-    return &EventPublisher{kafka: k, logger: logger}
+	return &EventPublisher{kafka: k, logger: logger}
 }
 
-func (p *EventPublisher) PublishUserEvent(action string, userID string, data []byte) error {
-    return p.kafka.SendMessage("user-events", []byte(userID), data)
+func (p *EventPublisher) PublishUserEvent(userID string, data []byte) error {
+	return p.kafka.SendMessage("user-events", []byte(userID), data)
 }
 ```
 
-Register with Vessel:
+Register it with the container:
 
 ```go
-forge.ProvideConstructor(app.Container(), NewEventPublisher)
+err := forge.ProvideConstructor(app.Container(), NewEventPublisher)
 ```
 
 ## Key Concepts
 
-- **Producer** -- send messages synchronously or asynchronously with configurable compression, batching, retries, idempotency, and ack levels.
-- **Consumer** -- subscribe to topics with offset control (newest/oldest), fetch tuning, and isolation levels.
-- **Consumer groups** -- join a consumer group with configurable rebalance strategy (range, round-robin, sticky), session timeout, and heartbeat interval.
-- **Admin operations** -- create topics, delete topics, list topics, describe topics, and get partition metadata.
-- **SASL/TLS** -- authenticate with PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512. Connect over TLS with custom certificates.
+- Producers: `SendMessage` waits for the broker, `SendMessageAsync` queues and returns, `SendMessages` sends a batch. Compression, flush batching, retries and ack level come from config.
+- Consumers: `Consume` reads every partition of a topic from the newest offset, and `ConsumePartition` reads one partition from an offset you pick. Neither commits offsets.
+- Consumer groups: `JoinConsumerGroup` with a Sarama `ConsumerGroupHandler`, using the rebalance strategy, session timeout and heartbeat from config.
+- Admin: create, delete, list and describe topics, list partitions, and look up offsets.
+- Security: TLS with a client certificate and custom CA, and SASL PLAIN or SCRAM.
 
 ## Important Runtime Notes
 
-- The Sarama client is created during `NewKafkaService`. Connection health is verified during `Start`.
-- Producer and consumer can be independently enabled/disabled via config.
-- Async producer errors are logged but not surfaced to callers. Use sync producer for guaranteed delivery.
+- You can turn the producers and the partition consumer off independently with `WithProducer(false)` and `WithConsumer(false)`.
+- Async producer errors are logged and counted in `GetStats().Errors`, never returned to you. Use `SendMessage` when the caller has to know the write landed.
+- `WithIdempotent(true)` makes client creation fail today, `consumer_group_id` and `WithTracing` are stored but unused, and `SendMessages` drops `Headers` and `Timestamp`. The [features page](/docs/extensions/kafka/features) has the details.
 
 ## Detailed Pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/kafka/features">
-Producer, consumer, consumer group, and admin capabilities.
+Producers, consumers, consumer groups, admin and what each one actually does.
 </Card>
 <Card title="Configuration" href="/docs/extensions/kafka/configuration">
-Config reference, YAML example, and programmatic options.
+Every config key, its default, and the option helpers.
 </Card>
 <Card title="Functions" href="/docs/extensions/kafka/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

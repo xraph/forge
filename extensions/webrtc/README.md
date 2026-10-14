@@ -198,7 +198,7 @@ stats, err := peer.GetStats(ctx)
 
 Here is what is unfinished today, so you can plan around it.
 
-`RegisterRoutes(router)` mounts a WebSocket at `/webrtc/signal/{roomID}`, but its read loop drops every message it receives, and the handler asserts `ctx.Get("user_id").(string)`. Nothing sets that value on WebSocket routes today (the streaming README explains why), so a connection to it panics. Do your own signaling instead, over HTTP as in the quick start or over your own WebSocket handler.
+`RegisterRoutes(router)` mounts a WebSocket at `/webrtc/signal/{roomID}`, but its read loop drops every message it receives. The handler also asserts `ctx.Get("user_id").(string)`, so put middleware on the route that sets `user_id`, or a connection panics. Even with a user it can only join a room that already exists, because the auto-create path never sets the room ID. Do your own signaling instead, over HTTP as in the quick start or over your own WebSocket handler.
 
 The SFU topology creates an SFU router and SFU call rooms, but RTP packets are not forwarded between publishers and subscribers yet, so if you pick SFU expecting group calls you will get rooms where nobody hears anybody. Mesh rooms give every participant their own server-side peer. `TopologyMCU` is declared and rejected by `CreateCallRoom`.
 

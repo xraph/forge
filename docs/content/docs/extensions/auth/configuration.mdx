@@ -1,67 +1,136 @@
 ---
 title: Configuration
-description: Config reference, YAML example, and options for Auth
+description: Extension options, what they do today, and the LDAP config reference
 ---
 
-## YAML Configuration Example
+## What Configures Auth Today
 
-```yaml title="config.yaml"
-extensions:
-  auth:
-    enabled: true
-    defaultProvider: "jwt"
-    providers:
-      - name: "jwt"
-        type: "jwt"
-        config:
-          secret: "${JWT_SECRET}"
-      - name: "apikey"
-        type: "apikey"
-        config:
-          header: "X-API-Key"
-```
+Most of auth is configured in code: you build providers with their options, register them on a
+registry from `auth.NewRegistry`, and pick middleware per route. The extension itself doesn't read
+your config file. Its `Register` never loads `extensions.auth` or `auth`, so a YAML block for it has
+no effect.
 
-The extension loads config from `extensions.auth` first, falling back to `auth`.
+The one piece of real config is `providers.LDAPConfig`, which has YAML and JSON tags. You decode it
+yourself and pass it to `NewLDAPProvider`.
 
-## Programmatic Configuration
+## The Extension
 
 ```go
 ext := auth.NewExtension(
-    auth.WithEnabled(true),
-    auth.WithDefaultProvider("jwt"),
+	auth.WithEnabled(true),
+	auth.WithAuthorizer(myAuthorizer),
 )
 ```
 
-Auth providers are typically registered in your application code after the extension is loaded:
+When enabled, `Register` adds an `auth.Registry` constructor under the names `auth:registry` and
+`auth.Registry`. That constructor currently fails when anything resolves it, because it asks the
+container for a `forge.Container` that nothing provides. So for now the extension gives you nothing
+you can use, and the `WithAuthorizer` you pass it never reaches a registry. Build the registry
+yourself and set the authorizer on it:
 
 ```go
-registry := auth.MustGetRegistry(app.Container())
-registry.Register(myJWTProvider)
-registry.Register(myAPIKeyProvider)
+registry := auth.NewRegistry(app.Container(), app.Logger())
+registry.SetAuthorizer(myAuthorizer)
+
+if err := registry.Register(myJWTProvider); err != nil {
+	log.Fatal(err)
+}
+
+if err := registry.Register(myAPIKeyProvider); err != nil {
+	log.Fatal(err)
+}
 ```
 
 ## Config Struct Reference
 
-| Field | Type | Default | Description |
+| Field | Type | Default | What it does today |
 |---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable the auth extension |
-| `Providers` | `[]ProviderConfig` | `[]` | Provider configurations |
-| `DefaultProvider` | `string` | `""` | Default provider name |
-| `RequireConfig` | `bool` | `false` | Require config from ConfigManager |
+| `Enabled` | `bool` | `true` | `false` makes `Register` skip the registry constructor |
+| `Providers` | `[]ProviderConfig` | `[]` | Stored, not read. Providers aren't built from config |
+| `DefaultProvider` | `string` | `""` | Stored, not read |
+| `RequireConfig` | `bool` | `false` | Stored, not read. The extension never loads config, so nothing can be required |
+| `Authorizer` | `Authorizer` | `nil` | Passed to the registry the constructor builds, which currently fails to resolve |
 
 ### `ProviderConfig`
 
-| Field | Type | Description |
-|---|---|---|
-| `Name` | `string` | Provider name (unique identifier) |
-| `Type` | `string` | Provider type (e.g. `"jwt"`, `"apikey"`, `"oauth2"`) |
-| `Config` | `map[string]any` | Provider-specific configuration |
+Declared for config-driven providers, which aren't implemented yet.
+
+| Field | Type |
+|---|---|
+| `Name` | `string` |
+| `Type` | `string` |
+| `Enabled` | `bool` |
+| `Description` | `string` |
+| `Config` | `map[string]any` |
 
 ## Option Helpers
 
 | Function | Description |
 |---|---|
-| `WithEnabled(enabled)` | Toggle the extension |
-| `WithDefaultProvider(name)` | Set the default provider |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithEnabled(enabled bool)` | Sets `Enabled` |
+| `WithAuthorizer(a Authorizer)` | Sets `Authorizer` |
+| `WithProviders(providers ...ProviderConfig)` | Sets `Providers` (not read yet) |
+| `WithDefaultProvider(name string)` | Sets `DefaultProvider` (not read yet) |
+| `WithRequireConfig(require bool)` | Sets `RequireConfig` (not read yet) |
+| `WithConfig(config Config)` | Replaces the whole config |
+
+`NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`.
+
+## LDAP Configuration
+
+Start from `providers.DefaultLDAPConfig()` and fill in your directory:
+
+```go
+cfg := providers.DefaultLDAPConfig()
+cfg.Host = "ldap.example.com"
+cfg.BaseDN = "dc=example,dc=com"
+cfg.BindDN = "cn=reader,dc=example,dc=com"
+cfg.BindPassword = os.Getenv("LDAP_BIND_PW")
+cfg.GroupBaseDN = "ou=groups,dc=example,dc=com"
+cfg.RoleMapping = map[string]string{"cn=admins,ou=groups,dc=example,dc=com": "admin"}
+
+ldapProvider, err := providers.NewLDAPProvider(cfg, app.Logger())
+```
+
+`NewLDAPProvider` returns an error when `Host`, `BaseDN` or `BindDN` is empty, or when
+`InsecureSkipVerify` is `true`.
+
+If you keep these settings in a file, the keys are the tags below. Decode them into a
+`DefaultLDAPConfig()` value so fields you leave out keep their defaults:
+
+```yaml title="ldap.yaml"
+host: ldap.example.com
+port: 389
+bind_dn: cn=reader,dc=example,dc=com
+bind_password: from-your-secret-store
+base_dn: dc=example,dc=com
+search_filter: (sAMAccountName=%s)
+group_base_dn: ou=groups,dc=example,dc=com
+role_mapping:
+  cn=admins,ou=groups,dc=example,dc=com: admin
+```
+
+| Field | YAML key | Default | Notes |
+|---|---|---|---|
+| `Host` | `host` | `""` | Required |
+| `Port` | `port` | `389` | |
+| `BindDN` | `bind_dn` | `""` | Required. The service account |
+| `BindPassword` | `bind_password` | `""` | |
+| `BaseDN` | `base_dn` | `""` | Required. Where users are searched |
+| `SearchFilter` | `search_filter` | `(uid=%s)` | `%s` is the escaped username |
+| `Attributes` | `attributes` | `uid`, `mail`, `displayName`, `memberOf` | Copied into `Claims` |
+| `UseTLS` | `use_tls` | `true` | Upgrades the connection with StartTLS |
+| `InsecureSkipVerify` | `insecure_skip_verify` | `false` | Kept so older config decodes. `true` is rejected |
+| `PoolSize` | `pool_size` | `10` | Connections dialled up front |
+| `ConnectionTimeout` | `connection_timeout` | `10s` | Per dial attempt |
+| `RequestTimeout` | `request_timeout` | `30s` | Per LDAP operation |
+| `IdleTimeout` | `idle_timeout` | `5m` | Not read yet |
+| `MaxRetries` | `max_retries` | `3` | Dial attempts |
+| `RetryDelay` | `retry_delay` | `100ms` | Doubled after each failed attempt |
+| `EnableCache` | `enable_cache` | `true` | Caches successful sign-ins |
+| `CacheTTL` | `cache_ttl` | `5m` | |
+| `GroupBaseDN` | `group_base_dn` | `""` | Groups are only fetched when this is set |
+| `GroupFilter` | `group_filter` | `(member=%s)` | `%s` is the escaped user DN |
+| `RoleMapping` | `role_mapping` | empty | Group DN to name. Empty passes every group DN through. Results go in `Scopes` |
+| `EnableReferrals` | `enable_referrals` | `true` | Not read yet |
+| `PageSize` | `page_size` | `1000` | Not read yet |

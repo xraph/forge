@@ -1,174 +1,184 @@
 ---
 title: Events
-description: Event-driven architecture with pub/sub, event sourcing, and multiple brokers
+description: Event bus, event store and message brokers for event-driven Forge apps
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/events` provides a complete event-driven architecture layer.
-It registers an `EventService` in the DI container that manages an event bus (pub/sub with pluggable
-brokers), an event store (append-only log with snapshots), and a handler registry with middleware support.
+`github.com/xraph/forge/extensions/events` gives your app a publish and subscribe event bus, an append-only event store with snapshots, and pluggable message brokers: in-memory, NATS, Redis Pub/Sub and Redis Streams with consumer groups and a dead-letter stream. You publish domain events such as `user.created` from your handlers, and subscribers in the same process or in other services react to them.
 
-## What It Registers
+The defaults use an in-memory broker and an in-memory store, so there's nothing else to run.
 
-| Service | DI Key | Type |
-|---|---|---|
-| Event service | `events` | `*EventService` |
-| Event bus | `eventBus` | `core.EventBus` |
-| Event store | `eventStore` | `core.EventStore` |
-| Handler registry | `eventHandlerRegistry` | `*core.HandlerRegistry` |
+## What it registers
 
-All services are derived from the `EventService` singleton managed by Vessel.
+| Service | DI key | Type | Helper |
+|---|---|---|---|
+| Event service | `events` | `*events.EventService` | `events.GetEventService(c)` |
+| Event bus | `eventBus` | `core.EventBus` | `events.GetEventBus(c)` |
+| Event store | `eventStore` | `core.EventStore` | `events.GetEventStore(c)` |
+| Handler registry | `eventHandlerRegistry` | `*core.HandlerRegistry` | `events.GetHandlerRegistry(c)` |
 
-## Quick Start
+All four come from the one `EventService` that Vessel builds. Each helper has a `Must...` twin that panics, and `GetEventServiceFromApp(app)` saves you the `Container()` call. The extension's `Start` opens the store, connects every enabled broker and starts the bus, so if a broker can't be reached, the app doesn't start.
+
+## Quick start
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/events@latest
+```
+
+This app publishes `user.created` from `POST /users`, and a named handler picks it up:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"context"
+	"log"
+	"net/http"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/events"
-    "github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/events"
+	"github.com/xraph/forge/extensions/events/core"
 )
+
+type signup struct {
+	Email string `json:"email"`
+}
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "accounts",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			events.NewExtension(), // in-memory broker and store
+		},
+	})
 
-    // Register with defaults (in-memory broker and store)
-    app.RegisterExtension(events.NewExtension())
+	// Subscribe once the bus is running.
+	err := app.RegisterHookFn(forge.PhaseAfterStart, "welcome-email",
+		func(ctx context.Context, a forge.App) error {
+			bus, err := events.GetEventBus(a.Container())
+			if err != nil {
+				return err
+			}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+			welcome := events.NewTypedEventHandler("welcome-email", []string{"user.created"},
+				func(ctx context.Context, e *core.Event) error {
+					log.Printf("send welcome email to %v (user %s)", e.Data, e.AggregateID)
 
-    // Get the event bus
-    bus := events.MustGetEventBus(app.Container())
+					return nil
+				})
 
-    // Subscribe to events
-    bus.Subscribe("user.created", func(ctx context.Context, event *core.Event) error {
-        fmt.Printf("User created: %s (aggregate: %s)\n", event.Type, event.AggregateID)
-        return nil
-    })
+			return bus.Subscribe("user.created", welcome)
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Publish an event
-    event := core.NewEvent("user.created", map[string]any{
-        "email": "alice@example.com",
-        "name":  "Alice",
-    }).WithSource("user-service").WithCorrelationID("req-123")
+	err = app.Router().POST("/users", func(ctx forge.Context) error {
+		var in signup
+		if err := ctx.BindJSON(&in); err != nil {
+			return err
+		}
 
-    bus.Publish(ctx, event)
+		bus, err := events.GetEventBus(app.Container())
+		if err != nil {
+			return err
+		}
+
+		event := core.NewEvent("user.created", "user-1", in).WithSource("accounts-api")
+		if err := bus.Publish(ctx.Context(), event); err != nil {
+			return err
+		}
+
+		return ctx.JSON(http.StatusCreated, map[string]string{"event_id": event.ID})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## Event Sourcing with the Event Store
+`core.NewEvent` takes the event type, the aggregate ID and the data. `Publish` saves the event to the store and then sends it to the default broker, so `GetEventsByAggregate(ctx, "user-1", 0)` returns it afterwards.
+
+## Reading history back
 
 ```go
-store := events.MustGetEventStore(app.Container())
+store, err := events.GetEventStore(app.Container())
+if err != nil {
+	return err
+}
 
-// Save events for an aggregate
-event := core.NewEvent("order.placed", map[string]any{
-    "items": []string{"item-1", "item-2"},
-    "total": 59.99,
-}).WithVersion(1)
-event.AggregateID = "order-456"
+history, err := store.GetEventsByAggregate(ctx, "order-456", 0) // from version 0
+if err != nil {
+	return err
+}
 
-store.SaveEvent(ctx, event)
-
-// Retrieve events for an aggregate
-history, _ := store.GetEventsByAggregate(ctx, "order-456")
 for _, e := range history {
-    fmt.Printf("  v%d: %s\n", e.Version, e.Type)
+	fmt.Printf("v%d: %s\n", e.Version, e.Type)
 }
 
-// Create a snapshot to avoid replaying full history
-snapshot := core.NewSnapshot("order-456", "order", 10, orderState)
-store.CreateSnapshot(ctx, snapshot)
+// Snapshot the current state so you don't replay the full history next time.
+err = store.CreateSnapshot(ctx, events.NewSnapshot("order-456", "order", orderState, 10))
 ```
 
-## Typed Event Handlers with Middleware
+## Using events in your own services
 
-```go
-registry := events.MustGetHandlerRegistry(app.Container())
-
-// Create a typed handler
-handler := core.NewTypedEventHandler("audit-logger", "user.*",
-    func(ctx context.Context, event *core.Event) error {
-        fmt.Printf("[AUDIT] %s: %v\n", event.Type, event.Data)
-        return nil
-    },
-)
-
-// Add middleware chain
-handler.WithMiddleware(core.LoggingMiddleware(logger))
-handler.WithMiddleware(core.MetricsMiddleware(metrics))
-handler.WithRetryPolicy(core.NewRetryPolicy(3, 100*time.Millisecond))
-
-registry.Register("user.*", handler)
-```
-
-## Using Events in Your Services
-
-Inject `*events.EventService` for automatic DI resolution:
+Take `*events.EventService` (or `core.EventBus`) as a constructor parameter and Vessel resolves it by type:
 
 ```go
 type OrderService struct {
-    events *events.EventService
-    logger forge.Logger
+	bus core.EventBus
 }
 
-func NewOrderService(es *events.EventService, logger forge.Logger) *OrderService {
-    return &OrderService{events: es, logger: logger}
+func NewOrderService(bus core.EventBus) *OrderService {
+	return &OrderService{bus: bus}
 }
 
-func (s *OrderService) PlaceOrder(ctx context.Context, order Order) error {
-    // Business logic...
-    
-    event := core.NewEvent("order.placed", order).
-        WithSource("order-service").
-        WithCorrelationID(ctx.Value("requestID").(string))
-    event.AggregateID = order.ID
+func (s *OrderService) PlaceOrder(ctx context.Context, order Order, requestID string) error {
+	event := core.NewEvent("order.placed", order.ID, order).
+		WithSource("order-service").
+		WithCorrelationID(requestID)
 
-    // Publish through the bus
-    return s.events.GetEventBus().Publish(ctx, event)
+	return s.bus.Publish(ctx, event)
 }
 ```
-
-Register with Vessel:
 
 ```go
-forge.ProvideConstructor(app.Container(), NewOrderService)
+err := forge.ProvideConstructor(app.Container(), NewOrderService)
 ```
 
-## Key Concepts
+## Key concepts
 
-- **Event bus** -- publish events to topics and subscribe handlers. The bus supports multiple message brokers (memory, NATS, Redis) with a configurable default and per-publish broker selection.
-- **Event store** -- persist events in an append-only store for event sourcing. Supports snapshots, streaming, projections, and transactional writes. Backends: memory, PostgreSQL, MongoDB.
-- **Handler registry** -- register typed event handlers, domain event handlers, and reflection-based handlers with middleware chains (logging, metrics, validation, retry).
-- **Domain events** -- rich event model with `ID`, `Type`, `AggregateID`, `Version`, `CorrelationID`, `CausationID`, and arbitrary metadata.
-- **Worker pool** -- the event bus processes events through a configurable worker pool with buffered channels.
+- The event bus subscribes a handler on every registered broker and publishes to the default broker, or to all of them when `bus.default_broker` is empty. `PublishTo` targets one broker by name and skips the store.
+- The event store is an append-only log with per-aggregate history, time-range queries, soft deletes and snapshots. Only the in-memory store is built in. For a durable log, lend the service your own `core.EventStore`.
+- The handler registry holds the bus's handlers by event type. Typed, domain and reflection handlers all take middleware and a retry policy.
+- Every event carries `ID`, `Type`, `AggregateID`, `Version`, `Source`, `CorrelationID`, `CausationID` and free-form metadata.
 
-## Important Runtime Notes
+## Runtime notes
 
-- Only the `memory` event store is wired in `EventService`. PostgreSQL and MongoDB stores exist in the codebase but are not yet connected through config.
-- The `memory` broker is always available. NATS and Redis brokers are created from `BrokerConfig` entries.
-- Event bus health, start, and stop are managed by `EventService` through Vessel lifecycle.
+- Only the `memory` store type is built in. `store.type` set to anything else fails startup unless you pass `WithEventStore` or `WithEventStoreFactory`.
+- The `stores` package also has `PostgresEventStore` and `MongoEventStore`, but neither implements the full `core.EventStore` interface yet, so you can't hand them to the service.
+- The extension reads only `extensions.events` from your config file, and that section binds over the `Config` you pass in code. See [Configuration](/docs/extensions/events/configuration).
+- On the memory, NATS and Redis Pub/Sub brokers a handler error is logged and the event isn't redelivered. Give the handler a `RetryPolicy`, or use Redis Streams.
 
-## Detailed Pages
+## Detailed pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/events/features">
-Event bus, event store, handler registry, and middleware capabilities.
+Bus, brokers, store, snapshots, handlers, middleware and retries.
 </Card>
 <Card title="Configuration" href="/docs/extensions/events/configuration">
-Config reference, YAML example, and programmatic options.
+YAML keys, Redis delivery modes, store ownership and unsubscribe retries.
 </Card>
 <Card title="Functions" href="/docs/extensions/events/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

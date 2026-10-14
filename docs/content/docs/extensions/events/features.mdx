@@ -3,252 +3,255 @@ title: Features
 description: Events extension capabilities and architecture
 ---
 
-## Pub/Sub Event Bus
+## Publish and subscribe
 
-Publish events to named topics and subscribe handlers. The bus supports multiple concurrent brokers with priority-based selection and per-publish broker targeting:
+`bus.Subscribe(eventType, handler)` subscribes a handler on every registered broker. `Publish` saves the event to the store, then sends it to the default broker, or to every broker when `bus.default_broker` is empty:
 
 ```go
 bus := events.MustGetEventBus(app.Container())
 
-// Subscribe to a topic
-bus.Subscribe("order.placed", core.NewTypedEventHandler("order-handler", []string{"order.placed"}, func(ctx context.Context, event *core.Event) error {
-    fmt.Printf("Received: %s\n", event.Type)
-    return nil
-}))
+handler := events.NewTypedEventHandler("order-handler", []string{"order.placed"},
+	func(ctx context.Context, event *core.Event) error {
+		fmt.Printf("received %s for %s\n", event.Type, event.AggregateID)
 
-// Publish to default broker
-bus.Publish(ctx, event)
+		return nil
+	})
 
-// Publish to a specific broker
-bus.PublishTo(ctx, "nats", event)
+if err := bus.Subscribe("order.placed", handler); err != nil {
+	return err
+}
+
+// Save, then send to the default broker.
+err := bus.Publish(ctx, core.NewEvent("order.placed", "order-123", order))
+
+// Send to one named broker without saving, for example when relaying from an outbox.
+err = bus.PublishTo(ctx, "nats", event)
 ```
 
-The bus supports a configurable worker pool and bounded queue for internal processing. Broker subscriptions use each broker's delivery path. Redis Streams handlers must commit before returning success; pending deliveries are retried after a failed worker. See [delivery configuration](./configuration#redis-delivery-modes) for ordering, retention, and recovery requirements.
+If any destination fails, `Publish` returns an error, and a retry can deliver again to brokers that already succeeded. The event type doubles as the topic name on every broker.
 
-## Pluggable Message Brokers
+Give your handlers stable names. `bus.Unsubscribe(eventType, name)` removes a handler by name, and Redis Streams builds its consumer group from the name, so the name is what lets a restarted service pick up where it stopped.
 
-All brokers implement the `MessageBroker` interface:
+On the in-memory broker each matching handler runs in its own goroutine with a 30 second timeout. A handler error is logged and counted, and the event isn't redelivered.
 
-| Broker | Implementation | Transport |
+## Message brokers
+
+Every broker implements `core.MessageBroker`:
+
+| Type | Implementation | Delivery |
 |---|---|---|
-| `memory` | `MemoryBroker` | In-process channels |
-| `nats` | `NATSBroker` | NATS server |
-| `redis` | `RedisBroker` | Redis Pub/Sub or durable Streams |
+| `memory` | `brokers.MemoryBroker` | In-process, lost on restart |
+| `nats` | `brokers.NATSBroker` | Core NATS subjects (not JetStream), at most once |
+| `redis` | `brokers.RedisBroker` | Redis Pub/Sub at most once, or Redis Streams at least once with `enable_streams: true` |
 
-Register additional brokers before starting the bus:
+The extension builds brokers from the `brokers` list in config. To add your own, register it while the bus is stopped:
 
 ```go
-bus.RegisterBroker("custom", myCustomBroker)
-bus.SetDefaultBroker("nats")
+if err := bus.RegisterBroker("custom", myBroker); err != nil {
+	return err
+}
+
+if err := bus.SetDefaultBroker("custom"); err != nil {
+	return err
+}
 ```
 
-The memory broker is configured by default. NATS and Redis brokers are created from `BrokerConfig` entries in config and support health checks, connection stats, and graceful shutdown.
+`SetDefaultBroker` works while the bus is running. `RegisterBroker` and `UnregisterBroker` don't.
 
-## Append-Only Event Store
+Before you rely on redelivery, check the broker with `core.RequireDurableBroker`. Memory, NATS and Redis Pub/Sub return `core.ErrDurableDeliveryUnavailable`. Redis Streams implements `core.DurableMessageBroker`. The [Redis delivery modes](./configuration#redis-delivery-modes) section has the details.
 
-Persist domain events with versioning, aggregate grouping, and time-range queries:
+## Event store
+
+The store is an append-only log with per-aggregate history and time-range queries:
 
 ```go
 store := events.MustGetEventStore(app.Container())
 
-// Save single or batch
-store.SaveEvent(ctx, event)
-store.SaveEvents(ctx, []*core.Event{event1, event2})
+err := store.SaveEvent(ctx, event)
+err = store.SaveEvents(ctx, []*core.Event{event1, event2})
 
-// Query by aggregate
-events, _ := store.GetEventsByAggregate(ctx, "order-123")
+history, err := store.GetEventsByAggregate(ctx, "order-123", 0) // from version 0
+placed, err := store.GetEventsByType(ctx, "order.placed", 100, 0) // limit, offset
+recent, err := store.GetEventsSince(ctx, time.Now().Add(-24*time.Hour), 100, 0)
+window, err := store.GetEventsInRange(ctx, start, end, 100, 0)
 
-// Query by type
-events, _ := store.GetEventsByType(ctx, "order.placed")
-
-// Time-range query
-events, _ := store.GetEventsSince(ctx, time.Now().Add(-24*time.Hour))
-events, _ := store.GetEventsInRange(ctx, start, end)
-
-// Count events
-total, _ := store.GetEventCount(ctx)
-byType, _ := store.GetEventCountByType(ctx, "order.placed")
+total, err := store.GetEventCount(ctx)
+byType, err := store.GetEventCountByType(ctx, "order.placed")
 ```
 
-Store backends:
+`GetEvents(ctx, criteria)` takes a `core.EventCriteria` (types, aggregates, sources, time range, metadata, paging and sort) and returns a `*core.EventCollection`. `DeleteEvent` and `DeleteEventsByAggregate` are soft deletes.
 
 | Backend | Implementation | Status |
 |---|---|---|
-| Memory | `MemoryEventStore` | Fully implemented, wired in EventService |
-| PostgreSQL | `PostgresEventStore` | Requires a conforming adapter and explicit store injection |
-| MongoDB | `MongoEventStore` | Requires a conforming adapter and explicit store injection |
+| Memory | `stores.MemoryEventStore` | Built in, used when `store.type` is `memory` |
+| Your own | any `core.EventStore` | Pass it with `WithEventStore` or `WithEventStoreFactory` |
+| PostgreSQL | `stores.PostgresEventStore` | Doesn't implement the full `core.EventStore` interface yet, so you can't hand it to the service |
+| MongoDB | `stores.MongoEventStore` | Same as PostgreSQL |
 
 ## Snapshots
 
-Create and retrieve aggregate snapshots to avoid replaying full event histories:
+A snapshot saves an aggregate's state at a version, so you replay only the events after it:
 
 ```go
-// Create a snapshot at version 50
-snapshot := core.NewSnapshot("order-123", "order", 50, currentState).
-    WithMetadata(map[string]any{"reason": "periodic"})
+snap := events.NewSnapshot("order-123", "order", currentState, 50).
+	WithMetadata("reason", "periodic")
 
-store.CreateSnapshot(ctx, snapshot)
-
-// Retrieve latest snapshot
-snap, _ := store.GetSnapshot(ctx, "order-123")
-// Then replay only events after snap.Version
-```
-
-## Event Streaming and Projections
-
-Subscribe to live event streams with configurable start position, batch size, and poll interval. Define read-model projections that process events and maintain derived state:
-
-```go
-// ProjectionManager handles registration, rebuild, and lifecycle
-type EventProjection interface {
-    Name() string
-    HandleEvent(ctx context.Context, event *core.Event) error
-    Reset(ctx context.Context) error
+if err := store.CreateSnapshot(ctx, snap); err != nil {
+	return err
 }
+
+latest, err := store.GetSnapshot(ctx, "order-123")
+if err != nil {
+	return err
+}
+
+newer, err := store.GetEventsByAggregate(ctx, "order-123", latest.Version+1)
 ```
 
-## Transactional Writes
+## Interfaces without a built-in implementation
 
-`TransactionalEventStore` supports atomic event and snapshot operations:
+`core` defines `EventStream`, `EventProjection`, `ProjectionManager`, `TransactionalEventStore` and `EventStoreMigrator`. Nothing in the extension implements or calls them today. They're there for a store or a projection layer you write yourself, for example:
 
 ```go
 type TransactionalEventStore interface {
-    EventStore
-    BeginTransaction(ctx context.Context) (EventStoreTransaction, error)
-}
-
-type EventStoreTransaction interface {
-    SaveEvent(ctx context.Context, event *core.Event) error
-    SaveEvents(ctx context.Context, events []*core.Event) error
-    CreateSnapshot(ctx context.Context, snapshot *Snapshot) error
-    Commit() error
-    Rollback() error
+	EventStore
+	BeginTransaction(ctx context.Context) (EventStoreTransaction, error)
+	ExecuteInTransaction(ctx context.Context, fn func(tx EventStoreTransaction) error) error
 }
 ```
 
-## Handler Registry
+## Handlers
 
-Register handlers by event type, aggregate, or reflection with middleware chains:
+### Typed event handler
 
-### Typed Event Handler
+A named handler for one or more event types:
 
 ```go
-handler := core.NewTypedEventHandler("audit-logger", "user.*",
-    func(ctx context.Context, event *core.Event) error {
-        log.Printf("[AUDIT] %s: %v", event.Type, event.Data)
-        return nil
-    },
+handler := events.NewTypedEventHandler("audit-logger", []string{"user.created", "user.deleted"},
+	func(ctx context.Context, event *core.Event) error {
+		log.Printf("[AUDIT] %s: %v", event.Type, event.Data)
+
+		return nil
+	})
+```
+
+Event types match exactly. There's no wildcard such as `user.*`.
+
+### Domain event handler
+
+A typed handler that only accepts events whose `aggregate_type` metadata matches:
+
+```go
+handler := events.NewDomainEventHandler("order-handler", "order",
+	[]string{"order.placed", "order.shipped", "order.delivered"},
+	handleOrderEvent,
+)
+
+event := core.NewEvent("order.placed", "order-123", order).WithMetadata("aggregate_type", "order")
+```
+
+### Reflection event handler
+
+```go
+handler := events.NewReflectionEventHandler("payment-handler", paymentService)
+```
+
+It calls `Handle<Type>(ctx, event)` on the target, so it only fits event types that are valid Go identifiers, such as `PaymentCaptured`.
+
+### Bare functions
+
+`core.EventHandlerFunc(fn)` also satisfies `core.EventHandler`, but it subscribes anonymously. You can't unsubscribe it by name, and Redis Streams rejects it.
+
+## Middleware
+
+`WithMiddleware` wraps a typed handler (and so a domain handler) in middleware:
+
+```go
+handler.WithMiddleware(
+	events.LoggingMiddleware(logger),
+	events.MetricsMiddleware(metrics),
+	events.ValidationMiddleware(),
 )
 ```
 
-### Domain Event Handler
-
-```go
-handler := core.NewDomainEventHandler("order-handler",
-    []string{"order.placed", "order.shipped", "order.delivered"},
-    handleOrderEvent,
-)
-```
-
-### Reflection Event Handler
-
-```go
-handler := core.NewReflectionEventHandler("payment-handler", paymentService)
-// Automatically discovers Handle* methods on paymentService
-```
-
-## Middleware Pipeline
-
-Chain middleware on handlers for cross-cutting concerns:
-
-```go
-handler.WithMiddleware(core.LoggingMiddleware(logger))
-handler.WithMiddleware(core.MetricsMiddleware(metrics))
-handler.WithMiddleware(core.ValidationMiddleware(validator))
-```
-
-Built-in middleware:
-
-| Middleware | Purpose |
+| Middleware | What it does |
 |---|---|
-| `LoggingMiddleware` | Logs event type, handler name, and processing duration |
-| `MetricsMiddleware` | Records event processing latency and error counters |
-| `ValidationMiddleware` | Validates event payloads against registered schemas |
+| `LoggingMiddleware(logger)` | Logs the event type, ID and aggregate before the handler, and the outcome and duration after |
+| `MetricsMiddleware(metrics)` | Records `forge.events.handler_execution_time` and the `handler_success` or `handler_errors` counter |
+| `ValidationMiddleware()` | Calls `event.Validate()` and rejects an event with no ID, type, aggregate ID, data or timestamp |
 
-## Retry Policies
+`ValidationMiddleware` checks the event's own fields. It doesn't look at the schema registry.
 
-Configure per-handler retry with exponential backoff:
+## Retry policies
 
 ```go
-policy := core.NewRetryPolicy(3, 100*time.Millisecond).
-    WithMaxDelay(5*time.Second).
-    WithBackoffFactor(2.0).
-    WithRetryableErrors(ErrTemporary)
+policy := events.NewRetryPolicy(3, 100*time.Millisecond).
+	WithMaxDelay(5 * time.Second).
+	WithBackoffFactor(2.0).
+	WithRetryableErrors(ErrTemporary)
 
 handler.WithRetryPolicy(policy)
 ```
 
-The policy calculates delay with `CalculateDelay()` and checks `ShouldRetry()` to decide whether to retry based on error type and attempt count.
+`NewRetryPolicy(maxRetries, initialDelay)` doubles the delay on every attempt, up to five minutes unless you cap it with `WithMaxDelay`. By default it retries any error except context cancellation and deadline errors. `WithRetryableErrors` and `WithShouldRetryFunc` narrow that down. `CalculateDelay(attempt)` and `ShouldRetry(err)` are the two methods the handler calls.
 
-## Rich Event Model
-
-Events carry comprehensive metadata for tracing, versioning, and correlation:
+## Event model
 
 ```go
-event := core.NewEvent("order.placed", orderData).
-    WithVersion(1).
-    WithSource("order-service").
-    WithCorrelationID("req-abc-123").
-    WithCausationID("cmd-xyz-789").
-    WithMetadata("tenant", "acme-corp")
+event := core.NewEvent("order.placed", "order-123", orderData).
+	WithVersion(2).
+	WithSource("order-service").
+	WithCorrelationID("req-abc-123").
+	WithCausationID("cmd-xyz-789").
+	WithMetadata("tenant", "acme-corp")
 
-// Access metadata
 tenant := event.GetMetadataString("tenant")
 
-// Clone, validate, serialize
 clone := event.Clone()
 err := event.Validate()
-data, _ := event.MarshalJSON()
+data, err := event.MarshalJSON()
 ```
 
-## Event Filtering
+`NewEvent` fills in a UUID, a UTC timestamp and version 1.
 
-Filter events with type-safe predicates:
+## Event filters
 
 ```go
-// Built-in filters
-typeFilter := core.TypeFilter("order.*")
-aggregateFilter := core.AggregateFilter("order-123")
-sourceFilter := core.SourceFilter("order-service")
+byType := core.TypeFilter("order.placed", "order.shipped")
+byAggregate := core.AggregateFilter("order-123")
+bySource := core.SourceFilter("order-service")
 
-// Combine filters
-combined := core.CombineFilters(typeFilter, sourceFilter)
+combined := core.CombineFilters(byType, bySource) // all must match
 
-// Use with EventCollection
-collection := core.NewEventCollection(allEvents)
+collection, err := store.GetEvents(ctx, *core.NewEventCriteria().WithLimit(100))
+if err != nil {
+	return err
+}
+
 filtered := collection.Filter(combined)
-sorted := collection.SortByTimestamp()
+filtered.SortByTimestamp(true) // ascending
 ```
 
-## Schema Validation
+Filters match exact values.
 
-The extension includes an internal schema registry for validating event payloads:
+## Schema validation
 
-- **JSONSchemaValidator** -- validate against JSON Schema definitions
-- **StructValidator** -- validate against Go struct tags
-- **RegexValidator** -- validate string fields against regex patterns
-- **SchemaRegistry** -- versioned schema store with evolution tracking, compatibility checks, and caching
+The `schema` subpackage has a schema registry (`schema.NewSchemaRegistry`) with versioned schemas, a memory store and cache, and an `EventSchemaValidator` that checks event data against registered schemas with `JSONSchemaValidator`, `StructValidator` or `RegexValidator`. The bus doesn't call it for you. Run it in your own handler middleware or before you publish.
 
-## Sentinel Errors
+## Sentinel errors
+
+The `events` package exports these sentinels, but nothing in the extension returns them today. The bus and the memory store return their own errors, so don't rely on `errors.Is` against these.
 
 | Error | Meaning |
 |---|---|
-| `ErrEventNotFound` | Event ID does not exist in the store |
-| `ErrSnapshotNotFound` | Snapshot does not exist |
+| `ErrEventNotFound` | Event ID doesn't exist in the store |
+| `ErrSnapshotNotFound` | Snapshot doesn't exist |
 | `ErrInvalidEvent` | Event failed validation |
 | `ErrInvalidSnapshot` | Snapshot failed validation |
-| `ErrBrokerNotFound` | Named broker is not registered |
+| `ErrBrokerNotFound` | Named broker isn't registered |
 | `ErrBrokerAlreadyRegistered` | Broker name collision |
-| `ErrHandlerNotFound` | Handler name not in registry |
-| `ErrEventBusNotStarted` | Bus operation before `Start()` |
-| `ErrEventStoreNotStarted` | Store operation before initialization |
+| `ErrHandlerNotFound` | Handler name isn't in the registry |
+| `ErrEventBusNotStarted` | Bus operation before `Start` |
+| `ErrEventStoreNotStarted` | Store operation before it's initialized |
+
+`core.ErrDurableDeliveryUnavailable` comes from `core.RequireDurableBroker`.

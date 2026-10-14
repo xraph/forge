@@ -1,482 +1,356 @@
 ---
 title: Features
-description: Security extension capabilities
+description: How each part of the Security extension behaves
 ---
 
-## Session Management
+import { Callout } from 'fumadocs-ui/components/callout';
 
-The session system provides server-side session storage with cookie-based tracking.
+The snippets below assume `sec` is the `*security.Extension` you passed to the app and that you run them after the extension has registered (in a `forge.PhaseAfterRegister` hook or later). You can also inject any manager by type, for example `forge.Inject[*security.JWTManager](app.Container())`.
 
-### Session Store
-
-The in-memory `SessionStore` manages session lifecycle with full CRUD operations:
+## Security headers
 
 ```go
-store := app.Container().MustResolve("security:sessions").(security.SessionStore)
-
-// Create a new session
-session, _ := security.NewSession("user-123", 24*time.Hour)
-store.Create(ctx, session, 24*time.Hour)
-
-// Retrieve a session by ID
-session, err := store.Get(ctx, sessionID)
-if err != nil {
-    // security.ErrSessionNotFound or security.ErrSessionExpired
-}
-
-// Store data in the session
-session.SetData("preferences", map[string]string{"theme": "dark"})
-store.Update(ctx, session, 24*time.Hour)
-
-// Refresh session expiry
-store.Touch(ctx, sessionID, 24*time.Hour)
-
-// Delete a single session or all sessions for a user
-store.Delete(ctx, sessionID)
-store.DeleteByUserID(ctx, "user-123")
-
-// Cleanup expired sessions (returns count removed)
-removed, _ := store.Cleanup(ctx)
-
-// Count active sessions
-count, _ := store.Count(ctx)
-```
-
-### Session Object
-
-Each `Session` carries user identity, expiry information, and arbitrary data:
-
-- `ID` -- cryptographically generated session identifier.
-- `UserID` -- the authenticated user this session belongs to.
-- `Data` -- `map[string]any` for storing arbitrary session data (preferences, cart, etc.).
-- `CreatedAt`, `ExpiresAt`, `LastAccessedAt` -- lifecycle timestamps.
-- `IPAddress`, `UserAgent` -- optionally tracked when `TrackIPAddress`/`TrackUserAgent` is enabled.
-- **`IsExpired()`** -- checks if the session has passed its expiry time.
-- **`IsValid()`** -- checks session is non-nil, has a user ID, and is not expired.
-- **`Touch()`** -- refreshes `LastAccessedAt` to the current time.
-
-### Cookie-Based Tracking
-
-The `CookieManager` handles session cookie operations with configurable security options:
-
-```go
-cookieManager := app.Container().MustResolve("security:cookies").(*security.CookieManager)
-
-// Set a cookie
-cookieManager.SetCookie(w, "session_id", "abc123", &security.CookieOptions{
-    Secure:   true,
-    HttpOnly: true,
-    SameSite: security.SameSiteLax,
-    MaxAge:   86400,
-    Path:     "/",
-})
-
-// Read a cookie
-value, err := cookieManager.GetCookie(r, "session_id")
-
-// Delete a cookie
-cookieManager.DeleteCookie(w, "session_id")
-
-// Check if cookie exists
-exists := cookieManager.HasCookie(r, "session_id")
-```
-
-### Session Middleware
-
-Session middleware automatically loads the session from the cookie and makes it available in the request context:
-
-```go
-// Manual middleware application
-app.Use(security.SessionMiddleware(security.SessionMiddlewareOptions{
-    Store:         store,
-    CookieManager: cookieManager,
-    Config:        sessionConfig,
-}))
-
-// Require session (returns 401 if no valid session)
-app.Use(security.RequireSessionSimple())
-
-// Require session with custom handler
-app.Use(security.RequireSession(func(ctx forge.Context) error {
-    return ctx.Redirect(http.StatusFound, "/login")
-}))
-```
-
-### Session Helpers
-
-Convenience functions for common session operations in handlers:
-
-```go
-// Create session and set cookie in one call
-session, err := security.CreateSession(ctx, w, userID, store, cookieManager, config, metadata)
-
-// Destroy session and clear cookie
-security.DestroySession(ctx, w, store, cookieManager, "forge_session")
-
-// Read session from Forge context
-session, ok := security.GetSessionFromForgeContext(ctx)
-
-// Read session from standard context
-session, ok := security.GetSession(stdCtx)
-
-// Update session data and persist
-security.UpdateSession(stdCtx, store, ttl)
-```
-
-## CSRF Protection
-
-Token-based CSRF protection using the double-submit cookie pattern for stateless validation.
-
-```go
-csrf := app.Container().MustResolve("security:csrf").(*security.CSRFProtection)
-
-// Generate a new CSRF token
-token, _ := csrf.GenerateToken()
-
-// Set and validate tokens
-csrf.SetToken(sessionID, token)
-err := csrf.ValidateToken(sessionID, providedToken)
-// Returns: ErrCSRFTokenMissing, ErrCSRFTokenInvalid, or ErrCSRFTokenExpired
-
-// Clean up
-csrf.DeleteToken(sessionID)
-```
-
-The CSRF middleware automatically validates tokens on non-safe methods:
-
-```go
-app.Use(security.CSRFMiddleware(csrf, cookieManager))
-```
-
-- **Token extraction** from configurable location (default: `X-CSRF-Token` header).
-- **Safe methods** excluded from checks: GET, HEAD, OPTIONS, TRACE.
-- **Token length** configurable (default 32 bytes).
-- **Token TTL** configurable (default 12 hours).
-- **Skip paths** to exclude specific routes from CSRF checks.
-
-## JWT Management
-
-Full JSON Web Token lifecycle management with support for multiple signing algorithms.
-
-### Token Generation and Validation
-
-```go
-jwtManager := app.Container().MustResolve("security:jwt").(*security.JWTManager)
-
-// Generate an access token
-token, err := jwtManager.GenerateToken(&security.JWTClaims{
-    UserID:   "user-123",
-    Username: "alice",
-    Email:    "alice@example.com",
-    Roles:    []string{"admin", "editor"},
-    Metadata: map[string]any{"team": "engineering"},
-})
-
-// Validate and parse a token
-claims, err := jwtManager.ValidateToken(tokenString)
-// err may be: ErrJWTMissing, ErrJWTInvalid, ErrJWTExpired, ErrJWTNotYetValid
-fmt.Println(claims.UserID, claims.Roles)
-
-// Generate a refresh token (longer TTL, user ID only)
-refreshToken, err := jwtManager.GenerateRefreshToken("user-123")
-```
-
-### JWT Middleware
-
-```go
-// Apply JWT middleware to a route group
-api := app.Group("/api")
-api.Use(security.JWTMiddleware(jwtManager))
-
-// Access claims in handlers
-api.GET("/me", func(ctx forge.Context) error {
-    claims, ok := security.GetJWTClaims(ctx)
-    if !ok {
-        return ctx.String(http.StatusUnauthorized, "missing claims")
-    }
-    return ctx.JSON(http.StatusOK, claims)
-})
-
-// Require specific roles
-api.Use(security.RequireRoles("admin", "editor"))
-```
-
-### Supported Signing Methods
-
-| Algorithm | Type | Key |
-|---|---|---|
-| HS256, HS384, HS512 | HMAC | Shared secret |
-| RS256, RS384, RS512 | RSA | Private/Public key pair |
-
-### JWT Claims
-
-The `JWTClaims` struct embeds `jwt.RegisteredClaims` and adds application-specific fields:
-
-- `UserID`, `Username`, `Email` -- user identity.
-- `Roles` -- list of role strings for RBAC.
-- `Metadata` -- arbitrary key-value data.
-- Standard JWT fields: `Issuer`, `Audience`, `ExpiresAt`, `NotBefore`, `IssuedAt`, `ID`.
-
-## Rate Limiting
-
-Per-IP token-bucket rate limiter that tracks request counts per time window.
-
-```go
-limiter := app.Container().MustResolve("security:ratelimit").(*security.MemoryRateLimiter)
-
-// Apply rate limiting middleware
-app.Use(security.RateLimitMiddleware(limiter))
-```
-
-Features:
-- **Per-IP tracking** -- each client IP gets its own rate limit bucket.
-- **Configurable window** -- requests per time window (default: 100 requests per minute).
-- **Response headers** -- automatically sets `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` headers.
-- **Skip paths** -- exclude health and metrics endpoints from rate limiting.
-- **Memory-based** -- in-memory tracking with automatic cleanup of expired entries.
-- **Per-user rate limiting** -- optional per-user limits via `WithRateLimitPerUser()`.
-
-## CORS (Cross-Origin Resource Sharing)
-
-Full CORS support with preflight handling and configurable policies.
-
-```go
-corsManager := app.Container().MustResolve("security:cors").(*security.CORSManager)
-app.Use(security.CORSMiddleware(corsManager))
-```
-
-Features:
-- **Origin validation** -- wildcard (`*`) or explicit list of allowed origins.
-- **Method filtering** -- configurable allowed HTTP methods.
-- **Header control** -- configurable allowed and exposed headers.
-- **Preflight handling** -- automatic OPTIONS response with proper CORS headers.
-- **Max age** -- browser preflight cache duration (default 3600 seconds).
-- **Credentials** -- configurable `Access-Control-Allow-Credentials`.
-- **Private network** -- optional `Access-Control-Allow-Private-Network` support.
-- **Secure preset** -- `SecureCORSConfig(origins)` for production-hardened defaults.
-
-```go
-// Secure CORS configuration for production
-secureCfg := security.SecureCORSConfig([]string{
-    "https://app.example.com",
-    "https://admin.example.com",
-})
-corsManager := security.NewCORSManager(secureCfg, logger)
-```
-
-## API Key Management
-
-Generate, validate, and manage API keys with scope-based authorization.
-
-```go
-apiKeyManager := app.Container().MustResolve("security:apikeys").(*security.APIKeyManager)
-
-// Generate a new API key with prefix
-key, _ := apiKeyManager.GenerateAPIKey("prod")
-
-// Register an API key with metadata
-apiKeyManager.CreateAPIKey(&security.APIKeyInfo{
-    Key:    key,
-    Name:   "CI/CD Pipeline",
-    UserID: "service-account-1",
-    Scopes: []string{"deploy", "read"},
-    Metadata: map[string]any{"env": "production"},
-})
-
-// Validate a key (in custom logic)
-info, err := apiKeyManager.ValidateAPIKey(ctx, key)
-// Returns ErrAPIKeyMissing, ErrAPIKeyInvalid, ErrAPIKeyExpired, or ErrAPIKeyRevoked
-
-// Check key capabilities
-if info.HasScope("deploy") { /* allowed */ }
-if info.IsExpired() { /* reject */ }
-
-// Key lifecycle management
-apiKeyManager.UpdateLastUsed(key)
-apiKeyManager.RevokeAPIKey(key)
-apiKeyManager.DeleteAPIKey(key)
-
-// List all keys for a user
-keys := apiKeyManager.ListAPIKeys("service-account-1")
-```
-
-### API Key Middleware
-
-```go
-app.Use(security.APIKeyMiddleware(apiKeyManager))
-
-// Read key info in handlers
-info, ok := security.GetAPIKeyInfo(ctx)
-
-// Require specific scopes
-app.Use(security.RequireScopes("deploy", "write"))
-```
-
-### Key Hashing
-
-For storing API keys securely in a database:
-
-```go
-hasher := app.Container().MustResolve("security:passwords").(*security.PasswordHasher)
-
-// Hash a key for storage
-hash, err := security.HashAPIKey(key, hasher)
-
-// Verify a key against its stored hash
-match, err := security.VerifyAPIKeyHash(key, hash, hasher)
-
-// Constant-time comparison for raw key comparison
-equal := security.ConstantTimeCompare(key1, key2)
-```
-
-## Password Hashing
-
-Production-grade password hashing with Argon2id (default) or bcrypt, plus password strength utilities.
-
-### Hashing and Verification
-
-```go
-hasher := app.Container().MustResolve("security:passwords").(*security.PasswordHasher)
-
-// Hash a password
-hash, err := hasher.Hash("user-password")
-
-// Verify a password against its hash
-match, err := hasher.Verify("user-password", hash)
-
-// Check if a hash needs rehashing (after config change)
-needsRehash, _ := hasher.NeedsRehash(hash)
-if needsRehash {
-    newHash, _ := hasher.Hash("user-password")
-    // Update stored hash
-}
-```
-
-### Password Strength
-
-```go
-// Check password strength (returns a score)
-strength := security.CheckPasswordStrength("myP@ssw0rd!")
-// PasswordVeryWeak, PasswordWeak, PasswordFair, PasswordStrong, PasswordVeryStrong
-
-// Validate against a policy
-err := security.ValidatePassword(password,
-    8,    // minLength
-    72,   // maxLength
-    true, // requireUpper
-    true, // requireLower
-    true, // requireDigit
-    true, // requireSpecial
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithAutoApplySecurityHeaders(true),
 )
-
-// Generate a random password
-randomPw, _ := security.GenerateRandomPassword(24)
 ```
 
-### Algorithms
+Or per route with `security.SecurityHeadersMiddleware(sec.SecurityHeadersManager())`. The middleware sets the headers before your handler runs.
 
-| Algorithm | Default | Notes |
+| Header | Default | `WithSecureHeaders()` preset |
 |---|---|---|
-| **Argon2id** | Yes | Memory-hard, recommended for new projects. Configurable memory, iterations, parallelism, salt/key length. |
-| **Bcrypt** | No | Widely supported, configurable cost (default 12). Max password length 72 bytes. |
+| `X-Frame-Options` | `SAMEORIGIN` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` | `nosniff` |
+| `X-XSS-Protection` | `1; mode=block` | `1; mode=block` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | `max-age=63072000; includeSubDomains; preload` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | `no-referrer` |
+| `Content-Security-Policy` | not set | `default-src 'self'` plus script, style, img, font, connect and `frame-ancestors 'none'` rules |
+| `Permissions-Policy` | not set | denies geolocation, microphone, camera, payment, usb and the motion sensors |
+| `Cross-Origin-Embedder-Policy`, `-Opener-Policy`, `-Resource-Policy` | not set | `require-corp`, `same-origin`, `same-origin` |
 
-## Security Headers
+`Strict-Transport-Security` is only sent when the request arrived over TLS (`r.TLS != nil`). Behind a proxy that terminates TLS you won't see it. The middleware also deletes `Server` and `X-Powered-By` (`RemoveServerHeader` and `RemovePoweredBy`, both on by default), and `CustomHeaders` sets anything else you add.
 
-Automatic injection of security-related HTTP headers.
+`WithSecureHeaders()` replaces the whole headers section, auto-apply switch included, so put it before `WithAutoApplySecurityHeaders(true)`.
 
-```go
-headersManager := app.Container().MustResolve("security:headers").(*security.SecurityHeadersManager)
-app.Use(security.SecurityHeadersMiddleware(headersManager))
-```
-
-Headers set by default:
-
-| Header | Default Value |
-|---|---|
-| `X-Frame-Options` | `DENY` |
-| `X-Content-Type-Options` | `nosniff` |
-| `X-XSS-Protection` | `1; mode=block` |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Content-Security-Policy` | Configurable via `CSPBuilder` |
-
-### CSP Builder
-
-Build Content Security Policy headers programmatically:
+### CSP builder
 
 ```go
 csp := security.NewCSPBuilder().
-    DefaultSrc("'self'").
-    ScriptSrc("'self'", "https://cdn.example.com").
-    StyleSrc("'self'", "'unsafe-inline'").
-    ImgSrc("'self'", "data:", "https:").
-    ConnectSrc("'self'", "https://api.example.com").
-    FrameAncestors("'none'").
-    Build()
+	DefaultSrc("'self'").
+	ScriptSrc("'self'", "https://cdn.example.com").
+	StyleSrc("'self'", "'unsafe-inline'").
+	ImgSrc("'self'", "data:", "https:").
+	ConnectSrc("'self'", "https://api.example.com").
+	FrameAncestors("'none'").
+	Build()
+
+headers := security.DefaultSecurityHeadersConfig()
+headers.ContentSecurityPolicy = csp
+
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithSecurityHeadersConfig(headers),
+	security.WithAutoApplySecurityHeaders(true),
+)
 ```
 
-Additional options:
-- **Remove Server header** -- strips the `Server` response header.
-- **Remove X-Powered-By** -- strips framework identification headers.
-- **Custom headers** -- add arbitrary security headers.
-- **Secure preset** -- `SecureHeadersPreset()` for production-hardened defaults.
+The builder also has `FontSrc`, `FrameSrc`, `ObjectSrc`, `MediaSrc`, `WorkerSrc`, `ChildSrc`, `FormAction`, `BaseURI`, `UpgradeInsecureRequests`, `BlockAllMixedContent`, `ReportURI` and `ReportTo`. Put a policy in `ContentSecurityPolicyReportOnly` to try it without enforcing it.
 
-## Audit Logging
-
-Structured audit logging for authentication events, data access, and administrative actions.
+## Rate limiting
 
 ```go
-auditLogger := app.Container().MustResolve("security:audit").(*security.AuditLogger)
-
-// Apply audit middleware to log all HTTP requests
-app.Use(security.AuditMiddleware(auditLogger))
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithRateLimitPerIP(100, time.Minute),
+	security.WithAutoApplyRateLimit(true),
+)
 ```
 
-### Event Categories
+`MemoryRateLimiter` keeps a bucket per client in memory. It starts with `RequestsPerWindow` tokens (100 by default) and refills completely once `Window` (a minute by default) has passed since the last refill, so in practice it behaves like a fixed window. Every response carries `X-Ratelimit-Limit`, `X-Ratelimit-Remaining` and `X-Ratelimit-Reset` (a Unix timestamp). When the bucket is empty the middleware answers `429 Rate limit exceeded` with `Retry-After` in seconds and bumps the `security.ratelimit.exceeded` counter. Buckets idle for two windows are dropped.
 
-Four helper functions log events with structured fields:
+The client key is `X-Real-IP`, then the first `X-Forwarded-For` address, then the connection's address. Both headers come from the client unless a proxy in front of you overwrites them, so anyone talking to the service directly can pick a new key per request.
+
+`SkipPaths` (default `/health` and `/metrics`) matches by prefix. Forge's own endpoints live under `/_/`, so they are counted unless you add `/_/` yourself.
+
+You can call the limiter directly for your own keys:
 
 ```go
-// Authentication events (login, logout, token refresh)
-security.LogAuthEvent(auditLogger, ctx, "login_success", "success", "user-123", metadata)
-
-// Data access events (read, write, delete)
-security.LogDataEvent(auditLogger, ctx, "record_deleted", "success", "user-123", "users/456", metadata)
-
-// Security events (suspicious activity, policy violations)
-security.LogSecurityEvent(auditLogger, ctx, "brute_force_detected", "warning", "5 failed attempts from 10.0.0.1", metadata)
-
-// Administrative actions (user management, config changes)
-security.LogAdminEvent(auditLogger, ctx, "role_changed", "success", "admin-1", "promote_user", metadata)
+allowed, info := sec.RateLimiter().Allow("tenant-7")
+// info.Limit, info.Remaining, info.Reset, info.RetryAfter
 ```
 
-### Audit Entry Structure
+`WithRateLimitPerUser` sets the same three fields as `WithRateLimitPerIP` and still limits by IP. For per-user limits, wrap `Allow` in your own middleware.
 
-Each `AuditEntry` contains:
-- `Timestamp`, `EventType`, `Category`, `Result` -- when, what, and outcome.
-- `UserID`, `Username`, `Email` -- who performed the action.
-- `Method`, `Path`, `StatusCode`, `Duration` -- HTTP request details.
-- `IPAddress`, `UserAgent` -- client identification.
-- `RequestBody`, `ResponseBody` -- optionally captured (configurable).
-- `Metadata` -- arbitrary structured data.
+## CORS
 
-### Audit Levels
+```go
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithCORSOrigins([]string{"https://app.example.com"}),
+	security.WithCORSAllowCredentials(true),
+	security.WithAutoApplyCORS(true),
+)
+```
 
-| Level | What is logged |
+The default allows every origin (`*`) without credentials, the methods `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD` and `OPTIONS`, and the headers `Origin`, `Content-Type`, `Accept` and `Authorization`, with preflight results cached for an hour.
+
+- An origin entry can be exact (`https://app.example.com`) or a subdomain pattern (`*.example.com`), which matches `example.com` and its real subdomains but not `evilexample.com`.
+- With credentials on, the middleware echoes the request's origin instead of `*`.
+- A request from an origin you didn't allow still reaches your handler. It just gets no CORS headers, so the browser blocks the response.
+- Preflight (`OPTIONS`) requests are answered by the middleware with `204` and never reach your handler. A missing `Access-Control-Request-Method` gets a 400, and a method you didn't allow gets a 403.
+- `WithCORSAllowPrivateNetwork(true)` answers `Access-Control-Request-Private-Network` with `Access-Control-Allow-Private-Network: true`.
+
+`SecureCORSConfig(origins)` returns a tighter starting point: `GET`, `POST`, `PUT` and `DELETE`, `Content-Type` and `Authorization`, credentials on and a 10-minute preflight cache. Pass it with `WithCORSConfig`, then add `WithAutoApplyCORS(true)` after it.
+
+## CSRF protection
+
+```go
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithAutoApplyCSRF(true),
+)
+```
+
+CSRF is enabled by default but only runs when you auto-apply it or put `security.CSRFMiddleware(sec.CSRFProtection(), sec.CookieManager())` on a route. It needs the cookie manager, so leave `Cookie.Enabled` on.
+
+1. On a safe request (`GET`, `HEAD`, `OPTIONS` or `TRACE`) from a client without a valid token, the middleware generates one, stores it in memory for 12 hours, sets a `csrf_token` cookie and returns the token in an `X-Csrf-Token` response header. Later safe requests pass straight through without the header.
+2. On `POST`, `PUT`, `PATCH` and `DELETE`, your front end sends the token back in `X-CSRF-Token`. A missing cookie, a missing token or a wrong one gets `403 CSRF token validation failed`.
+
+Read the token from the response header. The cookie manager only lets a cookie switch flags on, never off, so the `csrf_token` cookie is `HttpOnly` whenever the `cookie` section is (it is by default), even though `CSRFConfig.CookieHTTPOnly` is false. It is also `Secure` unless both `CSRFConfig.CookieSecure` and the `cookie` section's `secure` are false, which you need for local development over plain HTTP. Change where the token is read with `CSRFConfig.TokenLookup` (`header:<name>`, `form:<name>` or `query:<name>`, one only).
+
+`CSRFProtection` also works on its own: `GenerateToken()`, `SetToken(id, token)`, `GetToken(id)`, `ValidateToken(id, token)` (returns `ErrCSRFTokenMissing`, `ErrCSRFTokenInvalid` or `ErrCSRFTokenExpired`) and `DeleteToken(id)`. Tokens are kept in process memory, so they don't span replicas.
+
+## JWT
+
+```go
+jm := sec.JWTManager()
+
+token, err := jm.GenerateToken(&security.JWTClaims{
+	UserID:   "user-123",
+	Username: "alice",
+	Email:    "alice@example.com",
+	Roles:    []string{"admin", "editor"},
+	Metadata: map[string]any{"team": "engineering"},
+})
+
+claims, err := jm.ValidateToken(token) // ErrJWTInvalid, ErrJWTExpired or ErrJWTNotYetValid
+
+refresh, err := jm.GenerateRefreshToken(claims.UserID)
+```
+
+`GenerateToken` fills in the issuer, audience, issued-at, not-before, an expiry `TTL` from now (one hour by default) and a random token ID, then signs. `ValidateToken` checks the signature and signing method, the time claims, and the issuer and audience when you've configured them. `GenerateRefreshToken(userID)` issues a token carrying only the user ID that lasts `RefreshTTL` (seven days by default). Nothing marks it as a refresh token, so `ValidateToken` accepts it like any other.
+
+`JWTClaims` embeds `jwt.RegisteredClaims` from `github.com/golang-jwt/jwt/v5` and adds `UserID`, `Username`, `Email`, `Roles` and `Metadata`.
+
+The signing key is used as raw bytes for both signing and verification, so use the HMAC methods: `HS256` (the default), `HS384` or `HS512`. The RSA and ECDSA method names are accepted by the config, but signing with them fails because the manager has no way to take a private key. Keep the key out of your source and pass it in from the environment or a secrets store.
+
+### Middleware
+
+```go
+err := router.GET("/admin", adminHandler,
+	forge.WithMiddleware(security.JWTMiddleware(jm), security.RequireRoles("admin", "editor")),
+)
+```
+
+`JWTMiddleware` reads `Authorization: Bearer <token>` by default. Set `JWTConfig.TokenLookup` to a comma-separated list such as `header:Authorization,query:token,cookie:jwt` to look elsewhere (`form:<name>` works too). A missing or invalid token gets a plain `401 Unauthorized`. Paths in `JWTConfig.SkipPaths` match by prefix and pass straight through.
+
+`RequireRoles` lets the request through when the claims hold any one of the roles you list, and answers 403 otherwise. Read the claims in your handler with `security.GetJWTClaims(ctx)`. `GetJWTClaimsFromStdContext` reads the request context, where nothing stores claims, so it always returns false.
+
+## Sessions and cookies
+
+<Callout type="warn">
+Sessions live in the in-memory store. `WithSessionStore("redis")` fails at registration with "redis session store not yet implemented", so sessions don't survive a restart or span replicas. You can pass your own `SessionStore` implementation to `SessionMiddleware` and `CreateSession`.
+</Callout>
+
+Create a session at sign-in and protect routes with the session middleware:
+
+```go
+err := router.POST("/login", func(ctx forge.Context) error {
+	session, err := security.CreateSession(ctx.Context(), ctx.Response(), "user-42",
+		sec.SessionStore(), sec.CookieManager(),
+		security.SessionConfig{CookieName: "forge_session", TTL: 24 * time.Hour},
+		map[string]any{"plan": "pro"},
+	)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]string{"session": session.ID})
+})
+
+sessions := security.SessionMiddleware(security.SessionMiddlewareOptions{
+	Store:         sec.SessionStore(),
+	CookieManager: sec.CookieManager(),
+	Config:        security.SessionConfig{CookieName: "forge_session", TTL: 24 * time.Hour},
+})
+
+err = router.GET("/account", func(ctx forge.Context) error {
+	session, ok := security.GetSessionFromForgeContext(ctx)
+	if !ok {
+		return forge.Unauthorized("sign in first")
+	}
+
+	plan, _ := session.GetData("plan")
+
+	return ctx.JSON(http.StatusOK, map[string]any{"user": session.UserID, "plan": plan})
+}, forge.WithMiddleware(sessions, security.RequireSessionSimple()))
+```
+
+`SessionMiddleware` reads the cookie named `Config.CookieName`, loads the session, and stores it with `ctx.Set("session", ...)`. A missing cookie lets the request through without a session. An unknown or expired session also deletes the cookie. With `Config.AutoRenew` set, each request extends the session by `Config.TTL`. `RequireSessionSimple()` answers 401 when there's no session, and `RequireSession(handler)` calls your handler instead, for example to redirect to a sign-in page.
+
+`WithAutoApplyMiddleware(true)` installs the same middleware globally with the extension's session config and skip paths. Skip paths match by prefix.
+
+To change or end a session, work on the store and cookie manager directly:
+
+```go
+err = router.POST("/logout", func(ctx forge.Context) error {
+	if session, ok := security.GetSessionFromForgeContext(ctx); ok {
+		if err := sec.SessionStore().Delete(ctx.Context(), session.ID); err != nil {
+			return err
+		}
+	}
+
+	sec.CookieManager().DeleteCookie(ctx.Response(), "forge_session", nil)
+
+	return ctx.NoContent(http.StatusNoContent)
+}, forge.WithMiddleware(sessions))
+```
+
+`DestroySession`, `UpdateSession`, `GetSession` and `MustGetSession` read the session from the request context under `SessionContextKey{}`, and nothing in the extension puts it there. `DestroySession` therefore returns nil without deleting anything, and `UpdateSession` returns `ErrSessionNotFound`. Use `GetSessionFromForgeContext` and the store as above.
+
+### Session store
+
+```go
+store := sec.SessionStore()
+
+session, err := security.NewSession("user-123", 24*time.Hour)
+err = store.Create(ctx, session, 24*time.Hour)
+
+got, err := store.Get(ctx, session.ID) // ErrSessionNotFound or ErrSessionExpired
+got.SetData("theme", "dark")
+err = store.Update(ctx, got, 24*time.Hour)
+err = store.Touch(ctx, got.ID, 24*time.Hour)
+err = store.DeleteByUserID(ctx, "user-123")
+
+removed, _ := store.Cleanup(ctx) // int
+active, _ := store.Count(ctx)    // int64
+```
+
+The in-memory store also cleans out expired sessions in the background. A `Session` has `ID`, `UserID`, `Data`, `CreatedAt`, `ExpiresAt`, `LastAccessedAt`, `IPAddress` and `UserAgent`, plus `GetData`, `SetData`, `DeleteData`, `IsExpired`, `IsValid` and `Touch`. Nothing fills `IPAddress` or `UserAgent` for you.
+
+### Cookies
+
+```go
+cm := sec.CookieManager()
+
+cm.SetCookie(w, "theme", "dark", &security.CookieOptions{
+	MaxAge:   86400,
+	SameSite: security.SameSiteStrict,
+})
+
+value, err := cm.GetCookie(r, "theme") // ErrCookieNotFound when absent
+exists := cm.HasCookie(r, "theme")
+cm.DeleteCookie(w, "theme", nil)
+```
+
+Empty fields in `CookieOptions` fall back to the manager's defaults, which come from the `cookie` config: `Secure`, `HttpOnly`, `SameSite=Lax` and path `/`. Booleans can only be switched on per cookie, not off, so a `Secure` default sticks. A browser won't send a `Secure` cookie over plain HTTP, so during local development use `WithCookieSecure(false)`. `SameSite=none` requires `Secure`, and the config check refuses it otherwise.
+
+## API keys
+
+```go
+keys := sec.APIKeyManager()
+
+_, err := keys.CreateAPIKey(&security.APIKeyInfo{
+	Name:   "reporting",
+	UserID: "user-42",
+	Scopes: []string{"reports:read"},
+})
+if err != nil {
+	return err
+}
+
+err = router.GET("/reports", listReports,
+	forge.WithMiddleware(security.APIKeyMiddleware(keys), security.RequireScopes("reports:read")),
+)
+```
+
+`CreateAPIKey` generates a random key when `Key` is empty and returns it. `GenerateAPIKey("prod")` makes one with a `prod_` prefix if you want to set it yourself. Keys are held in memory by `APIKeyManager`, so create them at startup or from your own admin endpoint.
+
+`APIKeyMiddleware` reads `X-API-Key` by default (`APIKeyConfig.KeyLookup` takes `header:`, `query:` and `cookie:` entries, comma-separated, and `KeyPrefix` strips a prefix such as `ApiKey`). Missing, unknown, revoked or expired keys get a 401. A valid key's info is stored with `ctx.Set("apikey_info", ...)`, and you read it with `security.GetAPIKeyInfo(ctx)`. `RequireScopes` needs every scope you list and answers 403 naming the first one missing.
+
+The manager also has `GetAPIKey`, `ValidateAPIKey(ctx, key)` (returns `ErrAPIKeyInvalid`, `ErrAPIKeyRevoked` or `ErrAPIKeyExpired`), `RevokeAPIKey`, `DeleteAPIKey`, `UpdateLastUsed` and `ListAPIKeys(userID)`. Set `APIKeyConfig.Validator` to check keys against your own storage instead. `APIKeyInfo.RateLimit` is stored but not enforced.
+
+If you store keys yourself, `HashAPIKey(key, hasher)` and `VerifyAPIKeyHash(key, hash, hasher)` hash them with a `*PasswordHasher`, and `ConstantTimeCompare(a, b)` compares two raw keys.
+
+## Password hashing
+
+```go
+hasher, err := forge.Inject[*security.PasswordHasher](app.Container())
+if err != nil {
+	return err
+}
+
+hash, err := hasher.Hash(plain)       // Argon2id by default
+ok, err := hasher.Verify(plain, hash) // works for Argon2id and bcrypt hashes
+stale, _ := hasher.NeedsRehash(hash)  // true when the cost parameters differ from the config
+```
+
+| Algorithm | Default parameters | `WithSecurePasswordHasher()` |
+|---|---|---|
+| `argon2id` (default) | 64 MiB, 3 iterations, 4 lanes, 16-byte salt, 32-byte key | 256 MiB, 4 iterations, 8 lanes |
+| `bcrypt` | cost 12 | cost 14 |
+
+`Hash` and `Verify` refuse passwords longer than 72 bytes with `ErrPasswordTooLong`, whichever algorithm you use. `Verify` picks the algorithm from the hash prefix, so you can keep old bcrypt hashes working after you switch. `NeedsRehash` only compares parameters within the same algorithm: when you move users from bcrypt to Argon2id, check for the `$2` prefix yourself and rehash after a successful sign-in.
+
+```go
+strength := security.CheckPasswordStrength("myP@ssw0rd!") // PasswordVeryWeak ... PasswordVeryStrong
+err = security.ValidatePassword(plain, 12, 72, true, true, true, false) // min, max, upper, lower, digit, special
+pw, err := security.GenerateRandomPassword(24)
+```
+
+## Audit logging
+
+```go
+security.NewExtension(
+	security.WithJWTEnabled(false),
+	security.WithAuditLevel("all"),
+	security.WithAutoApplyAudit(true),
+)
+```
+
+`AuditMiddleware` records one entry per request after your handler returns: method, path, query, client IP, user agent and duration. If JWT middleware ran before it (an auto-applied `JWTMiddleware` does), the entry also carries the user from the claims. The result is `error` when the handler returned an error and `success` otherwise. It doesn't record headers, the status code or bodies.
+
+Log your own events with the helpers:
+
+```go
+security.LogAuthEvent(auditLogger, ctx, "login", "success", "user-123", map[string]any{"method": "password"})
+security.LogDataEvent(auditLogger, ctx, "delete", "success", "user-123", "users/456", nil)
+security.LogAdminEvent(auditLogger, ctx, "role_change", "success", "admin-1", "promote_user", nil)
+security.LogSecurityEvent(auditLogger, ctx, "brute_force", "failure", "5 failed sign-ins", map[string]any{"ip": "10.0.0.1"})
+```
+
+Each helper prefixes the event type with its category (`auth.login`) and sets the category used for filtering. The level decides what gets written:
+
+| Level | Categories written |
 |---|---|
-| `"none"` | Nothing |
-| `"auth"` | Authentication events only |
-| `"all"` | All requests and events |
+| `auth` (default) | `auth`, `security` |
+| `data` | `data`, `auth`, `security` |
+| `admin` | `admin`, `security` |
+| `security` | `security` |
+| `all`, or anything else | everything |
 
-Sensitive headers (`Authorization`, `Cookie`, `X-API-Key`) and fields are automatically redacted from audit logs.
+Request entries from `AuditMiddleware` are in the `data` category, so with the default `auth` level the middleware writes nothing. Use `data` or `all` when you auto-apply it.
 
-## Sentinel Errors
+Entries go to the app's logger as an `audit` info line, or to `AuditConfig.Handler` if you set one. If you build an `AuditEntry` yourself and pass it to `auditLogger.Log`, its `Authorization`, `Cookie` and `X-API-Key` headers are redacted, and so are top-level `password`, `token`, `secret`, `api_key` and `credit_card` fields in JSON bodies. `ExcludePaths` (default `/health` and `/metrics`) and `IncludePaths` take exact paths or a trailing `*` for a prefix.
 
-| Category | Errors |
+## Sentinel errors
+
+| Area | Errors |
 |---|---|
-| Session | `ErrSessionNotFound`, `ErrSessionExpired`, `ErrInvalidSession` |
-| Cookie | `ErrCookieNotFound`, `ErrInvalidCookie` |
+| Sessions | `ErrSessionNotFound`, `ErrSessionExpired`, `ErrInvalidSession` |
+| Cookies | `ErrCookieNotFound`, `ErrInvalidCookie` |
 | CSRF | `ErrCSRFTokenMissing`, `ErrCSRFTokenInvalid`, `ErrCSRFTokenExpired` |
 | JWT | `ErrJWTMissing`, `ErrJWTInvalid`, `ErrJWTExpired`, `ErrJWTNotYetValid` |
-| API Key | `ErrAPIKeyMissing`, `ErrAPIKeyInvalid`, `ErrAPIKeyExpired`, `ErrAPIKeyRevoked` |
-| Password | `ErrInvalidHash`, `ErrIncompatibleVersion`, `ErrPasswordTooLong` |
+| API keys | `ErrAPIKeyMissing`, `ErrAPIKeyInvalid`, `ErrAPIKeyExpired`, `ErrAPIKeyRevoked` |
+| Passwords | `ErrInvalidHash`, `ErrIncompatibleVersion`, `ErrPasswordTooLong` |

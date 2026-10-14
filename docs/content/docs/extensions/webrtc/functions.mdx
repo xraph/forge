@@ -1,84 +1,123 @@
 ---
 title: Functions
-description: Public API reference for the WebRTC extension
+description: Public API of the WebRTC extension, grouped by purpose
 ---
 
-## Extension Construction
+## Extension
 
 | Function | Description |
 |---|---|
-| `New(streamingExt, config, opts...) (*Extension, error)` | Create the WebRTC extension with a streaming dependency |
+| `New(streamingExt *streaming.Extension, config Config, opts ...ConfigOption) (*Extension, error)` | Applies the options and validates |
+| `DefaultConfig() Config` | Mesh topology and two Google STUN servers |
+| `(*Extension).CreateCallRoom(ctx, roomID string, opts streaming.RoomOptions) (CallRoom, error)` | `opts.ID` is required |
+| `(*Extension).GetCallRoom(roomID string) (CallRoom, error)` | `ErrRoomNotFound` for an unknown ID |
+| `(*Extension).GetCallRooms() []CallRoom` | |
+| `(*Extension).DeleteCallRoom(ctx, roomID string) error` | Closes every peer in the room |
+| `(*Extension).JoinCall(ctx, roomID, userID string, opts *JoinOptions) (PeerConnection, error)` | Joins and updates the call metrics |
+| `(*Extension).LeaveCall(ctx, roomID, userID string) error` | |
+| `(*Extension).GetConfig() Config` | |
+| `(*Extension).GetSignalingManager() SignalingManager` | Set once the extension has registered |
+| `(*Extension).GetSFURouter() SFURouter` | nil in mesh mode |
+| `(*Extension).GetQualityMonitor() QualityMonitor`, `GetRecorder() Recorder` | Always nil today |
+| `(*Extension).RegisterRoutes(router forge.Router) error` | Mounts the unfinished signaling WebSocket at `/webrtc/signal/{roomID}` |
 
-## Peer Connections
+`*Extension` also has the lifecycle methods `Name`, `Version`, `Description`, `Dependencies` (`streaming`), `Register`, `Start`, `Stop` and `Health`.
 
-| Function | Description |
-|---|---|
-| `NewPeerConnection(id, userID, config, logger) (PeerConnection, error)` | Create a new WebRTC peer connection |
-| `NewLocalTrack(kind, id, label, logger) (MediaTrack, error)` | Create a local media track |
-
-## Signaling
-
-| Function | Description |
-|---|---|
-| `NewSignalingManager(streamingExt, logger) SignalingManager` | Create a signaling manager using streaming rooms |
-
-## Call Rooms
-
-| Function | Description |
-|---|---|
-| `NewMeshCallRoom(roomID, streamingRoom, logger, metrics, config) CallRoom` | Create a mesh (P2P) call room |
-| `NewMeshCallRoomFromOptions(roomID, streamingRoom, logger, metrics, config) (CallRoom, error)` | Create a mesh room with validation |
-| `NewSFUCallRoomFromOptions(roomID, streamingRoom, logger, metrics, config) (CallRoom, error)` | Create an SFU call room |
-
-## SFU
+## Config
 
 | Function | Description |
 |---|---|
-| `NewSFURouter(roomID, logger, metrics) SFURouter` | Create an SFU media router |
+| `WithTopology(topology Topology) ConfigOption` | |
+| `WithSFU(config SFUConfig) ConfigOption` | |
+| `WithSTUNServers(servers ...string) ConfigOption` | |
+| `WithTURNServer(turn TURNConfig) ConfigOption` | |
+| `WithAudioCodecs(codecs ...string) ConfigOption`, `WithVideoCodecs(codecs ...string) ConfigOption` | |
+| `WithRecording(path string) ConfigOption` | |
+| `WithQualityMonitoring(config QualityConfig) ConfigOption` | |
+| `(*Config).Validate() error` | |
+| `(*Config).GetICEServers() []ICEServer` | STUN and TURN servers in one list |
+| `DefaultQualityConfig() QualityConfig` | The config SFU rooms use for their monitors |
+| `DefaultRecorderConfig() RecorderConfig` | `./recordings`, Opus and VP8 |
 
-## Quality
-
-| Function | Description |
-|---|---|
-| `NewQualityMonitor(peerID, peer, config, logger, metrics) QualityMonitor` | Create a quality monitor for a peer |
-
-## CallRoom Interface
+## CallRoom
 
 | Method | Description |
 |---|---|
-| `Join(ctx, conn, options) error` | Add a participant to the call |
-| `Leave(ctx, conn) error` | Remove a participant |
-| `GetParticipants() []Participant` | List current participants |
-| `GetParticipant(userID) (*Participant, error)` | Get a specific participant |
+| `ID() string`, `Name() string` | The ID is prefixed with `mesh-` or `sfu-` |
+| `JoinCall(ctx, userID string, opts *JoinOptions) (PeerConnection, error)` | |
+| `Leave(ctx, userID string) error` | `ErrNotInRoom` when the user isn't there |
+| `GetPeer(userID string) (PeerConnection, error)`, `GetPeers() []PeerConnection` | |
+| `GetParticipants() []Participant` | Only `UserID`, `JoinedAt` and, in SFU rooms, `Quality` are set |
+| `MuteUser`, `UnmuteUser`, `EnableVideo`, `DisableVideo` `(ctx, userID string) error` | Switch the server's send tracks for that user |
+| `StartScreenShare(ctx, userID string, track MediaTrack) error`, `StopScreenShare(ctx, userID string) error` | Return `ErrNotImplemented` |
+| `GetQuality(ctx) (*CallQuality, error)` | Returns `ErrNotImplemented` |
+| `Close(ctx) error` | |
 
-## PeerConnection Interface
+`NewMeshCallRoom(streamingRoom, config, signaling, logger, metrics) CallRoom`, `NewMeshCallRoomFromOptions(opts, config, signaling, logger, metrics) (CallRoom, error)` and `NewSFUCallRoomFromOptions(opts, config, signaling, router, logger, metrics) (CallRoom, error)` build rooms outside the extension. `CreateCallRoom` is the usual way in.
 
-| Method | Description |
-|---|---|
-| `CreateOffer() (*SessionDescription, error)` | Generate an SDP offer |
-| `CreateAnswer() (*SessionDescription, error)` | Generate an SDP answer |
-| `SetLocalDescription(sdp) error` | Set the local SDP |
-| `SetRemoteDescription(sdp) error` | Set the remote SDP |
-| `AddICECandidate(candidate) error` | Add an ICE candidate |
-| `AddTrack(track) error` | Add a media track |
-| `RemoveTrack(trackID) error` | Remove a media track |
-| `CreateDataChannel(label, options) (DataChannel, error)` | Create a data channel |
-| `GetStats() PeerStats` | Get connection statistics |
-| `Close() error` | Close the peer connection |
-
-## SignalingManager Interface
+## PeerConnection
 
 | Method | Description |
 |---|---|
-| `SendOffer(ctx, roomID, targetID, offer) error` | Send an SDP offer |
-| `SendAnswer(ctx, roomID, targetID, answer) error` | Send an SDP answer |
-| `SendICECandidate(ctx, roomID, targetID, candidate) error` | Send an ICE candidate |
+| `ID() string`, `UserID() string`, `State() ConnectionState` | |
+| `CreateOffer(ctx) (*SessionDescription, error)` | Sets the local description and waits up to five seconds for ICE gathering |
+| `CreateAnswer(ctx) (*SessionDescription, error)` | Same, for an answer |
+| `SetLocalDescription(ctx, sdp *SessionDescription) error` | |
+| `SetRemoteDescription(ctx, sdp *SessionDescription) error` | |
+| `AddICECandidate(ctx, candidate *ICECandidate) error` | `ErrInvalidCandidate` for an out-of-range m-line index |
+| `AddTrack(ctx, track MediaTrack) error`, `RemoveTrack(ctx, trackID string) error`, `GetTracks() []MediaTrack` | |
+| `GetStats(ctx) (*PeerStats, error)` | |
+| `Close(ctx) error` | |
+| `OnICECandidate`, `OnTrack`, `OnConnectionStateChange`, `OnDataChannel` | Each replaces the previous handler |
 
-## QualityMonitor Interface
+`NewPeerConnection(id, userID string, config Config, logger forge.Logger) (PeerConnection, error)` creates one outside a room. `NewLocalTrack(kind TrackKind, id, label string, logger forge.Logger) (MediaTrack, error)` creates an Opus or VP8 send track.
+
+## DataChannel
 
 | Method | Description |
 |---|---|
-| `Start(ctx) error` | Start monitoring |
-| `Stop() error` | Stop monitoring |
-| `GetQuality() CallQuality` | Get current quality assessment |
-| `GetConnectionQuality() ConnectionQuality` | Get connection quality metrics |
+| `ID() string`, `Label() string`, `State() DataChannelState` | |
+| `Send(data []byte) error`, `SendText(text string) error` | |
+| `OnMessage(func(data []byte))`, `OnOpen(func())`, `OnClose(func())` | |
+| `Close() error` | |
+
+`NewDataChannel(pc *pionwebrtc.PeerConnection, label string, ordered bool, logger forge.Logger) (DataChannel, error)` takes a raw Pion peer connection.
+
+## SignalingManager
+
+| Method | Description |
+|---|---|
+| `SendOffer(ctx, roomID, peerID string, offer *SessionDescription) error` | Broadcasts a `webrtc.offer` message to the streaming room |
+| `SendAnswer(ctx, roomID, peerID string, answer *SessionDescription) error` | `webrtc.answer` |
+| `SendICECandidate(ctx, roomID, peerID string, candidate *ICECandidate) error` | `webrtc.ice_candidate` |
+| `OnOffer`, `OnAnswer`, `OnICECandidate` | Store a handler that nothing calls yet |
+| `Start(ctx) error`, `Stop(ctx) error` | |
+
+`NewSignalingManager(streamingExt *streaming.Extension, logger forge.Logger) SignalingManager` creates one. The message type constants are `MessageTypeOffer`, `MessageTypeAnswer` and `MessageTypeICECandidate`.
+
+## SFURouter
+
+`NewSFURouter(roomID string, logger forge.Logger, metrics forge.Metrics) SFURouter`. Its methods keep publisher, subscriber and track records; none of them move RTP yet.
+
+| Method | Description |
+|---|---|
+| `AddPublisher(ctx, userID string, peer PeerConnection) error`, `RemovePublisher(ctx, userID string) error` | |
+| `AddSubscriber(ctx, userID string, peer PeerConnection) error`, `RemoveSubscriber(ctx, userID string) error` | |
+| `SubscribeToTrack(ctx, subscriberID, publisherID, trackID string) error`, `UnsubscribeFromTrack(ctx, subscriberID, trackID string) error` | |
+| `RouteTrack(ctx, senderID string, track MediaTrack, receiverIDs []string) error` | |
+| `AddReceiver(ctx, trackID, receiverID string) error`, `RemoveReceiver(ctx, trackID, receiverID string) error`, `GetReceivers(trackID string) []string` | |
+| `SetQuality(ctx, trackID, receiverID, quality string) error` | |
+| `GetAvailableTracks() []TrackInfo`, `GetStats(ctx) (*RouterStats, error)` | |
+
+## QualityMonitor and Recorder
+
+| Function | Description |
+|---|---|
+| `NewQualityMonitor(peerID string, peer PeerConnection, config QualityConfig, logger, metrics) QualityMonitor` | |
+| `QualityMonitor.Monitor(ctx, peer PeerConnection) error` | Starts sampling the peer given to `NewQualityMonitor` |
+| `QualityMonitor.GetQuality(peerID string) (*ConnectionQuality, error)` | |
+| `QualityMonitor.Stop(peerID string)` | |
+| `QualityMonitor.OnQualityChange(handler)` | Stores a handler that nothing calls yet |
+| `NewRecorder(roomID string, config RecorderConfig, logger, metrics) (Recorder, error)` | Creates `OutputDir` |
+| `Recorder.Start(ctx, roomID string, options *RecordingOptions) error` | Opens the Ogg and IVF output files |
+| `Recorder.Stop`, `Pause`, `Resume` `(ctx, roomID string) error`, `GetStatus(roomID string) (*RecordingStatus, error)` | |

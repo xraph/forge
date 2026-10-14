@@ -1,88 +1,158 @@
 ---
 title: Functions
-description: Public API reference for the Security extension
+description: Public API of the Security extension, grouped by purpose
 ---
 
-## Extension Entry Points
+## Extension
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the security extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) *Extension` | Create the extension. It satisfies `forge.Extension` and `forge.MiddlewareExtension` |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults for every section |
+| `(*Extension).Middlewares() []forge.Middleware` | The auto-applied middleware, built during `Register` |
 
-## Session Operations
+Accessors, all `nil` until the extension has registered: `SessionStore()`, `CookieManager()`, `CSRFProtection()`, `RateLimiter()`, `SecurityHeadersManager()`, `PasswordHasher()`, `JWTManager()`, `CORSManager()`, `APIKeyManager()`, `AuditLogger()`.
+
+## Sessions
 
 | Function | Description |
 |---|---|
-| `GenerateSessionID() string` | Generate a cryptographic session ID |
-| `NewSession(userID, ttl) *Session` | Create a new session |
+| `NewSession(userID string, ttl time.Duration) (*Session, error)` | A session with a fresh random ID |
+| `GenerateSessionID() (string, error)` | 32 random bytes, base64url-encoded |
+| `NewInMemorySessionStore(logger, metrics) *InMemorySessionStore` | The store the extension uses |
+| `SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware` | Loads the session from its cookie and stores it with `ctx.Set("session", ...)` |
+| `CreateSession(ctx, w, userID, store, cookieManager, config SessionConfig, metadata map[string]any) (*Session, error)` | Creates and stores a session and sets its cookie |
+| `GetSessionFromForgeContext(ctx forge.Context) (*Session, bool)` | Reads what `SessionMiddleware` stored |
+| `MustGetSessionFromForgeContext(ctx forge.Context) *Session` | Same, panics when there is none |
+| `RequireSession(unauthorized forge.Handler) forge.Middleware` | Calls your handler when there is no session. `RequireSessionFunc` is an alias |
+| `RequireSessionSimple() forge.Middleware` | Answers 401 when there is no session |
+| `GetSession(ctx context.Context)`, `MustGetSession(ctx)` | Read the request context under `SessionContextKey{}`, which nothing sets |
+| `DestroySession(ctx, w, store, cookieManager, cookieName) error` | Reads the session through `GetSession`, so today it returns nil without deleting anything |
+| `UpdateSession(ctx, store, ttl) error` | Reads the session through `GetSession`, so today it returns `ErrSessionNotFound` |
 
-### SessionStore Interface
+`SessionStore` methods: `Create(ctx, session, ttl) error`, `Get(ctx, id) (*Session, error)`, `Update(ctx, session, ttl) error`, `Delete(ctx, id) error`, `DeleteByUserID(ctx, userID) error`, `Touch(ctx, id, ttl) error`, `Cleanup(ctx) (int, error)`, `Count(ctx) (int64, error)`, `Connect(ctx) error`, `Disconnect(ctx) error`, `Ping(ctx) error`.
 
-| Method | Description |
+`Session` methods: `GetID`, `GetUserID`, `GetData(key) (any, bool)`, `SetData(key, value)`, `DeleteData(key)`, `GetCreatedAt`, `GetExpiresAt`, `GetLastAccessedAt`, `IsExpired`, `IsValid`, `Touch`.
+
+## Cookies
+
+| Function | Description |
 |---|---|
-| `Create(ctx, session) error` | Store a new session |
-| `Get(ctx, sessionID) (*Session, error)` | Retrieve a session |
-| `Update(ctx, session) error` | Update session data |
-| `Delete(ctx, sessionID) error` | Delete a session |
-| `Touch(ctx, sessionID) error` | Refresh session expiry |
-| `Cleanup(ctx) error` | Remove expired sessions |
-| `Count(ctx) (int, error)` | Count active sessions |
+| `NewCookieManager(defaults CookieOptions) *CookieManager` | A manager with default options |
+| `DefaultCookieOptions() CookieOptions` | Path `/`, `Secure`, `HttpOnly`, `SameSite=Lax` |
+| `(*CookieManager).SetCookie(w, name, value string, opts *CookieOptions)` | Empty fields fall back to the defaults. `nil` uses the defaults |
+| `(*CookieManager).GetCookie(r, name) (string, error)` | `ErrCookieNotFound` when absent |
+| `(*CookieManager).DeleteCookie(w, name string, opts *CookieOptions)` | Expires the cookie |
+| `(*CookieManager).HasCookie(r, name) bool` | |
+| `(*CookieManager).GetAllCookies(r) []*http.Cookie` | |
+
+`SameSiteMode` values: `SameSiteDefault`, `SameSiteLax`, `SameSiteStrict`, `SameSiteNone`.
 
 ## CSRF
 
 | Function | Description |
 |---|---|
-| `GetCSRFToken(w) string` | Generate and set a CSRF token in a cookie |
+| `NewCSRFProtection(config CSRFConfig, logger) *CSRFProtection` | |
+| `DefaultCSRFConfig() CSRFConfig` | |
+| `CSRFMiddleware(csrf *CSRFProtection, cookieManager *CookieManager) forge.Middleware` | Issues tokens on safe methods and checks them on the rest |
+| `GetCSRFToken(w http.ResponseWriter) (string, bool)` | Reads the `X-Csrf-Token` header the middleware set on this response |
+| `(*CSRFProtection).GenerateToken() (string, error)` | |
+| `(*CSRFProtection).SetToken(id, token)`, `GetToken(id) (string, bool)`, `DeleteToken(id)` | |
+| `(*CSRFProtection).ValidateToken(id, token) error` | `ErrCSRFTokenMissing`, `ErrCSRFTokenInvalid` or `ErrCSRFTokenExpired` |
 
 ## JWT
 
 | Function | Description |
 |---|---|
-| `GetJWTClaims(ctx forge.Context) *JWTClaims` | Get JWT claims from Forge context |
-| `GetJWTClaimsFromStdContext(ctx) *JWTClaims` | Get JWT claims from standard context |
-| `RequireRoles(roles...) forge.Middleware` | Middleware requiring specific JWT roles |
+| `NewJWTManager(config JWTConfig, logger) (*JWTManager, error)` | Fails without a signing key for an `HS*` method |
+| `DefaultJWTConfig() JWTConfig` | |
+| `(*JWTManager).GenerateToken(claims *JWTClaims) (string, error)` | Fills in the registered claims and signs |
+| `(*JWTManager).GenerateRefreshToken(userID string) (string, error)` | A token that lasts `RefreshTTL` |
+| `(*JWTManager).ValidateToken(token string) (*JWTClaims, error)` | `ErrJWTInvalid`, `ErrJWTExpired` or `ErrJWTNotYetValid` |
+| `JWTMiddleware(jwtManager *JWTManager) forge.Middleware` | Verifies the token and stores the claims with `ctx.Set("jwt_claims", ...)` |
+| `GetJWTClaims(ctx forge.Context) (*JWTClaims, bool)` | Reads what `JWTMiddleware` stored |
+| `RequireRoles(roles ...string) forge.Middleware` | Lets the request through when the claims hold any one of the roles |
+| `GetJWTClaimsFromStdContext(ctx context.Context) (*JWTClaims, bool)` | Reads the request context, where nothing stores claims |
 
-### JWTManager Methods
-
-| Method | Description |
-|---|---|
-| `GenerateToken(claims) (string, error)` | Generate a JWT token |
-| `ValidateToken(token) (*JWTClaims, error)` | Validate and parse a JWT |
-| `GenerateRefreshToken(claims) (string, error)` | Generate a refresh token |
-
-## API Key
+## Rate limiting
 
 | Function | Description |
 |---|---|
-| `GetAPIKeyInfo(ctx forge.Context) *APIKeyInfo` | Get API key info from Forge context |
-| `GetAPIKeyInfoFromStdContext(ctx) *APIKeyInfo` | Get from standard context |
-| `RequireScopes(scopes...) forge.Middleware` | Middleware requiring API key scopes |
-| `HashAPIKey(key) string` | Hash an API key for storage |
-| `VerifyAPIKeyHash(key, hash) bool` | Verify a key against its hash |
+| `NewMemoryRateLimiter(config RateLimitConfig, logger, metrics) *MemoryRateLimiter` | Starts a cleanup goroutine |
+| `DefaultRateLimitConfig() RateLimitConfig` | |
+| `(*MemoryRateLimiter).Allow(key string) (bool, *RateLimitInfo)` | Takes a token for any key you choose |
+| `RateLimitMiddleware(limiter *MemoryRateLimiter) forge.Middleware` | Limits by client IP and sets the `X-Ratelimit-*` headers |
+| `WithRateLimitPerIP(requests int, window time.Duration) ConfigOption` | |
+| `WithRateLimitPerUser(requests int, window time.Duration) ConfigOption` | Identical to `WithRateLimitPerIP` |
 
-## Password Hashing
-
-### PasswordHasher Methods
-
-| Method | Description |
-|---|---|
-| `Hash(password) (string, error)` | Hash a password |
-| `Verify(password, hash) (bool, error)` | Verify a password against a hash |
+`RateLimitInfo` has `Limit`, `Remaining`, `Reset` and `RetryAfter`.
 
 ## CORS
 
-### CORSManager Middleware
-
-| Method | Description |
+| Function | Description |
 |---|---|
-| `Middleware() forge.Middleware` | CORS middleware handler |
+| `NewCORSManager(config CORSConfig, logger) *CORSManager` | |
+| `DefaultCORSConfig() CORSConfig` | |
+| `SecureCORSConfig(allowedOrigins []string) CORSConfig` | Fewer methods and headers, credentials on, 10-minute preflight cache |
+| `CORSMiddleware(manager *CORSManager) forge.Middleware` | Sets the CORS headers and answers preflight requests |
 
-## Rate Limiting
+## Security headers
 
-### RateLimiter Middleware
-
-| Method | Description |
+| Function | Description |
 |---|---|
-| `Middleware() forge.Middleware` | Rate limiting middleware |
+| `NewSecurityHeadersManager(config SecurityHeadersConfig, logger) *SecurityHeadersManager` | |
+| `DefaultSecurityHeadersConfig() SecurityHeadersConfig` | |
+| `SecureHeadersPreset() SecurityHeadersConfig` | The config `WithSecureHeaders()` applies |
+| `SecurityHeadersMiddleware(manager *SecurityHeadersManager) forge.Middleware` | |
+| `NewCSPBuilder() *CSPBuilder` | Chain directive methods, then `Build() string` |
+
+## API keys
+
+| Function | Description |
+|---|---|
+| `NewAPIKeyManager(config APIKeyConfig, logger) *APIKeyManager` | |
+| `DefaultAPIKeyConfig() APIKeyConfig` | |
+| `(*APIKeyManager).GenerateAPIKey(prefix string) (string, error)` | |
+| `(*APIKeyManager).CreateAPIKey(info *APIKeyInfo) (string, error)` | Generates the key when `info.Key` is empty and returns it |
+| `(*APIKeyManager).GetAPIKey(key) (*APIKeyInfo, bool)` | |
+| `(*APIKeyManager).ValidateAPIKey(ctx, key) (*APIKeyInfo, error)` | Uses `APIKeyConfig.Validator` when set |
+| `(*APIKeyManager).RevokeAPIKey(key) error`, `DeleteAPIKey(key)`, `UpdateLastUsed(key)` | |
+| `(*APIKeyManager).ListAPIKeys(userID) []*APIKeyInfo` | |
+| `APIKeyMiddleware(manager *APIKeyManager) forge.Middleware` | Stores the key info with `ctx.Set("apikey_info", ...)` |
+| `GetAPIKeyInfo(ctx forge.Context) (*APIKeyInfo, bool)` | Reads what `APIKeyMiddleware` stored |
+| `RequireScopes(scopes ...string) forge.Middleware` | Needs every scope listed |
+| `GetAPIKeyInfoFromStdContext(ctx context.Context) (*APIKeyInfo, bool)` | Reads the request context, where nothing stores key info |
+| `HashAPIKey(key string, hasher *PasswordHasher) (string, error)` | |
+| `VerifyAPIKeyHash(key, hash string, hasher *PasswordHasher) (bool, error)` | |
+| `ConstantTimeCompare(a, b string) bool` | |
+
+`APIKeyInfo` has `IsExpired()` and `HasScope(scope)`.
+
+## Passwords
+
+| Function | Description |
+|---|---|
+| `NewPasswordHasher(config PasswordHasherConfig) *PasswordHasher` | |
+| `DefaultPasswordHasherConfig()`, `SecurePasswordHasherConfig()` | |
+| `(*PasswordHasher).Hash(password) (string, error)` | |
+| `(*PasswordHasher).Verify(password, hash) (bool, error)` | Detects Argon2id or bcrypt from the hash |
+| `(*PasswordHasher).NeedsRehash(hash) (bool, error)` | |
+| `CheckPasswordStrength(password) PasswordStrength` | `PasswordVeryWeak` to `PasswordVeryStrong`, with a `String()` method |
+| `ValidatePassword(password string, minLength, maxLength int, requireUpper, requireLower, requireDigit, requireSpecial bool) error` | |
+| `GenerateRandomPassword(length int) (string, error)` | |
+
+`MaxPasswordLength` is 72.
+
+## Audit
+
+| Function | Description |
+|---|---|
+| `NewAuditLogger(config AuditConfig, logger) *AuditLogger` | |
+| `DefaultAuditConfig() AuditConfig` | |
+| `(*AuditLogger).Log(entry *AuditEntry)` | Filters by level, redacts, then writes |
+| `AuditMiddleware(auditLogger *AuditLogger) forge.Middleware` | One `data` entry per request |
+| `LogAuthEvent(al, ctx, eventType, result, userID string, metadata)` | |
+| `LogDataEvent(al, ctx, eventType, result, userID, resource string, metadata)` | |
+| `LogAdminEvent(al, ctx, eventType, result, userID, action string, metadata)` | |
+| `LogSecurityEvent(al, ctx, eventType, result, message string, metadata)` | |

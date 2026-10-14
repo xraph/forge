@@ -3,130 +3,121 @@ title: Configuration
 description: Config structs, YAML examples, and option helpers for Events
 ---
 
-## YAML Configuration Example
+## YAML configuration
+
+The extension reads `extensions.events` and nothing else. There's no fallback to a top-level `events` key.
 
 ```yaml title="config.yaml"
 extensions:
   events:
     bus:
-      default_broker: "memory"       # default broker for Publish()
-      max_retries: 3
-      retry_delay: "5s"
-      enable_metrics: true
-      enable_tracing: false
-      buffer_size: 1000              # event channel buffer
-      worker_count: 10               # concurrent event workers
-      processing_timeout: "30s"
+      default_broker: "orders"   # where Publish sends; empty means every broker
 
     store:
-      type: "memory"                # built-in store; inject persistent stores in Go
-      database: ""                  # database connection name (for postgres/mongodb)
-      table: "events"               # events table/collection name
+      type: "memory"             # the only built-in store; see "Store ownership" below
+      database: ""               # passed to a store factory through StoreConfig
+      table: "events"            # passed to a store factory through StoreConfig
 
     brokers:
-      - name: "memory"
-        type: "memory"
-        enabled: true
-        priority: 1
-
-      - name: "nats"
-        type: "nats"
-        enabled: true
-        priority: 2
-        config:
-          url: "nats://localhost:4222"
-
-      - name: "redis"
+      - name: "orders"
         type: "redis"
-        enabled: false
-        priority: 3
+        enabled: true
         config:
           addresses: ["localhost:6379"]
 
-    metrics:
-      enabled: true
-      publish_interval: "30s"
-      enable_per_type: true
-      enable_per_handler: true
+      - name: "local"
+        type: "memory"
+        enabled: true
+
+      - name: "nats"
+        type: "nats"
+        enabled: false
+        config:
+          url: "nats://localhost:4222"
 ```
 
-The extension loads config from `extensions.events` first, falling back to `events`.
+When you replace the broker list, set `bus.default_broker` to one of your names as well. The default is `memory`, and startup fails if the default broker isn't enabled. Startup also needs at least one enabled broker, unique names among the enabled ones, and a type of `memory`, `nats` or `redis`.
 
-## Programmatic Configuration
+### Broker `config` keys
+
+| Type | Keys |
+|---|---|
+| `memory` | none |
+| `nats` | `url` (default `nats://localhost:4222`), `name`, `username`, `password`, `token`, `max_reconnects`, `enable_compression` |
+| `redis` | `address` or `addresses` (default `localhost:6379`), `username`, `password`, `database`, `pool_size`, `master_name` (Sentinel) |
+| `redis` with `enable_streams: true` | the Redis keys plus `consumer_group`, `consumer_name`, `stream_max_len`, `stream_max_deliveries`, `stream_claim_idle`, `stream_poll_interval`, `stream_lease_duration`, `stream_ordering` |
+
+With more than one Redis address and no `master_name`, the Pub/Sub broker uses a cluster client. Streams mode refuses Redis Cluster.
+
+## Programmatic configuration
 
 ```go
-ext := events.NewExtensionWithConfig(events.Config{
-    Bus: events.BusConfig{
-        DefaultBroker: "memory",
-        WorkerCount:   20,
-        BufferSize:    5000,
-    },
-    Store: events.StoreConfig{
-        Type:  "memory",
-        Table: "events",
-    },
-    Brokers: []events.BrokerConfig{
-        {Name: "memory", Type: "memory", Enabled: true, Priority: 1},
-    },
-})
+cfg := events.DefaultConfig()
+cfg.Bus.DefaultBroker = "local"
+cfg.Brokers = []events.BrokerConfig{
+	{Name: "local", Type: "memory", Enabled: true},
+}
+
+ext := events.NewExtensionWithConfig(cfg)
 ```
 
-## Config Struct Reference
+Start from `events.DefaultConfig()` so the fields you don't touch keep their defaults. `NewExtensionWithConfig(cfg, opts...)` is also where the store options go.
+
+This extension doesn't use the framework's `LoadConfig`. When `extensions.events` exists in your config, it binds that section over the `Config` you passed, so a key in the file wins over the same field set in code. Keys the file leaves out keep your values.
+
+## Config struct reference
 
 ### `Config`
 
-| Field | Type | Default | Description |
+| Field | YAML key | Default | Description |
 |---|---|---|---|
-| `Bus` | `BusConfig` | See below | Event bus configuration |
-| `Store` | `StoreConfig` | See below | Event store configuration |
-| `Brokers` | `[]BrokerConfig` | Memory broker | Message broker definitions |
-| `Metrics` | `MetricsConfig` | See below | Metrics collection settings |
+| `Bus` | `bus` | see below | Event bus settings |
+| `Store` | `store` | see below | Event store settings |
+| `Brokers` | `brokers` | one `memory` broker named `memory` | Brokers to connect |
+| `Metrics` | `metrics` | see below | Not read today |
 
 ### `BusConfig`
 
-| Field | Type | Default | Description |
+| Field | YAML key | Default | Description |
 |---|---|---|---|
-| `DefaultBroker` | `string` | `"memory"` | Default broker for `Publish()` |
-| `MaxRetries` | `int` | `3` | Retry attempts for failed publishes |
-| `RetryDelay` | `time.Duration` | `5s` | Delay between retries |
-| `EnableMetrics` | `bool` | `true` | Emit bus metrics |
-| `EnableTracing` | `bool` | `false` | Enable distributed tracing |
-| `BufferSize` | `int` | `1000` | Internal event channel buffer size |
-| `WorkerCount` | `int` | `10` | Number of concurrent event workers |
-| `ProcessingTimeout` | `time.Duration` | `30s` | Timeout per event processing |
+| `DefaultBroker` | `default_broker` | `"memory"` | Where `Publish` sends. Empty means every broker |
+| `BufferSize` | `buffer_size` | `1000` | Size of an internal queue that nothing feeds today. Must not be negative |
+| `WorkerCount` | `worker_count` | `10` | Idle workers on that queue. Must not be negative |
+| `MaxRetries` | `max_retries` | `3` | Not read |
+| `RetryDelay` | `retry_delay` | `5s` | Not read |
+| `EnableMetrics` | `enable_metrics` | `true` | Not read. The bus records its metrics either way |
+| `EnableTracing` | `enable_tracing` | `false` | Not read |
+| `ProcessingTimeout` | `processing_timeout` | `30s` | Not read |
+
+Retries come from a handler's `RetryPolicy` or from Redis Streams redelivery, not from the bus settings.
 
 ### `StoreConfig`
 
-| Field | Type | Default | Description |
+| Field | YAML key | Default | Description |
 |---|---|---|---|
-| `Type` | `string` | `"memory"` | Store backend: `"memory"`, `"postgres"`, `"mongodb"` |
-| `Database` | `string` | `""` | Database connection name |
-| `Table` | `string` | `"events"` | Table or collection name |
+| `Type` | `type` | `"memory"` | `memory` is built in. Anything else needs `WithEventStore` or `WithEventStoreFactory` |
+| `Database` | `database` | `""` | Handed to your store factory |
+| `Table` | `table` | `"events"` | Handed to your store factory |
 
 ### `BrokerConfig`
 
-| Field | Type | Description |
+| Field | YAML key | Description |
 |---|---|---|
-| `Name` | `string` | Unique broker identifier |
-| `Type` | `string` | Broker type: `"memory"`, `"nats"`, `"redis"` |
-| `Enabled` | `bool` | Whether this broker is active |
-| `Priority` | `int` | Selection priority (lower = higher priority) |
-| `Config` | `map[string]any` | Broker-specific settings |
+| `Name` | `name` | Unique broker name |
+| `Type` | `type` | `memory`, `nats` or `redis` |
+| `Enabled` | `enabled` | Disabled entries are skipped |
+| `Priority` | `priority` | Not read |
+| `Config` | `config` | Broker settings, see the table above |
 
 ### `MetricsConfig`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable metrics collection |
-| `PublishInterval` | `time.Duration` | `30s` | Metrics publishing interval |
-| `EnablePerType` | `bool` | `true` | Per-event-type metrics |
-| `EnablePerHandler` | `bool` | `true` | Per-handler metrics |
+`enabled`, `publish_interval`, `enable_per_type` and `enable_per_handler` exist on the struct (defaults `true`, `30s`, `true`, `true`), but nothing reads them.
 
 ## Redis delivery modes
 
 Redis Pub/Sub is ephemeral by default. Set `enable_streams: true` for durable
 consumer groups on a single Redis server or Sentinel deployment. Streams mode
-rejects Redis Cluster and ordering modes other than `topic`.
+rejects Redis Cluster and ordering modes other than `topic`. A handler acknowledges a message by returning `nil`; after `stream_max_deliveries` attempts (5 by default) the message moves to the `<topic>:forge:dead-letter` stream.
 
 ```yaml
 brokers:
@@ -146,7 +137,7 @@ brokers:
 ```
 
 Before you wire a critical route, call `core.RequireDurableBroker` on the selected
-`core.MessageBroker`. Memory and Redis Pub/Sub return
+`core.MessageBroker`. Memory, NATS and Redis Pub/Sub return
 `core.ErrDurableDeliveryUnavailable`. Redis Streams implements the optional
 `core.DurableMessageBroker` interface and reports topic ordering, one in-flight
 handler, acknowledgement after handler success, pending recovery, its consumer
@@ -173,8 +164,8 @@ func subscribeCommitted(
 `SubscribeDurable` uses its context for the subscription lifetime. Cancellation
 stops delivery, cancels the in-flight handler and leaves uncommitted work pending
 for recovery. After the listener exits, you can subscribe the same logical handler
-again. If you use `bus.Subscribe`, the bus manages subscription restoration across
-its own stop/start cycle; check the selected broker's capability before wiring it.
+again. If you use `bus.Subscribe`, the bus restores subscriptions across
+its own stop and start cycle. Check the selected broker's capability before wiring it.
 
 Pub/Sub `Subscribe` uses its context for setup. Canceling that context after setup
 succeeds keeps the listener active until `Unsubscribe` or broker `Close`.
@@ -200,10 +191,12 @@ for database effects and stable command IDs plus reconciliation for external cal
 ## Store ownership and lifecycle
 
 The service constructs the memory store automatically. For persistent storage,
-provide a conforming `core.EventStore` with `WithEventStore(store)` or an
+provide your own `core.EventStore` with `WithEventStore(store)` or an
 `EventStoreFactory` with `WithEventStoreFactory(factory)`. An unsupported store
-configuration fails startup. The service borrows an injected store and never closes
-it; a factory-created store belongs to the service and is recreated on restart.
+configuration fails startup. `stores.PostgresEventStore` and
+`stores.MongoEventStore` don't implement the full interface yet, so they can't
+be passed here. The service borrows an injected store and never closes
+it. A factory-created store belongs to the service and is recreated on restart.
 
 `Publish` saves before delivery. `PublishTo(ctx, brokerName, event)` only sends to
 the named broker, so you can relay an already committed source event without
@@ -213,8 +206,8 @@ fanout failures. Retrying can redeliver to destinations that already succeeded.
 Startup requires at least one enabled broker and a valid default broker. Register
 or remove brokers while the bus is stopped. You can change the default route while
 it is running. Shutdown stops admission, cancels active operations, and drains
-them before closing brokers. If the caller's deadline expires, cleanup continues;
-a new start is rejected until that cleanup finishes.
+them before closing brokers. If the caller's deadline expires, cleanup continues,
+and a new start is rejected until that cleanup finishes.
 
 ## Retrying subscription removal
 

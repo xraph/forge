@@ -1,219 +1,265 @@
 ---
 title: Features
-description: Streaming extension capabilities
+description: Wire protocol, rooms, presence, typing, history and replay, hooks, backends and metrics
 ---
 
-## Manager Interface
+import { Callout } from 'fumadocs-ui/components/callout';
 
-The core `Manager` interface handles connections, rooms, channels, broadcasting, presence, and typing:
+## Wire protocol
+
+Every frame is a JSON `streaming.Message`:
+
+| Field | Meaning |
+|---|---|
+| `type` | Transport kind: `message`, `join`, `leave`, `typing`, `presence`, `system` or `error` |
+| `event` | Your domain event name, such as `order.created`. Build these with `streaming.NewEventMessage` |
+| `room_id`, `channel_id` | Where the message goes |
+| `user_id`, `id`, `timestamp` | Set by the server on inbound messages. Whatever the client sends is overwritten |
+| `data` | The payload |
+| `sequence` | Position within the room, assigned when a room message is saved |
+| `thread_id`, `metadata`, `content_type` | Optional |
+
+A WebSocket client sends one of these:
+
+```json
+{"type": "join", "room_id": "lobby"}
+{"type": "message", "room_id": "lobby", "data": {"text": "hi"}}
+{"type": "typing", "room_id": "lobby", "data": true}
+{"type": "presence", "data": "away"}
+{"type": "leave", "room_id": "lobby"}
+```
+
+A room message is saved to history (when history is on) and broadcast to the room. A message with a `channel_id` and no `room_id` goes to that channel's subscribers. A frame that doesn't decode as JSON is treated as a binary `message`.
+
+When the server rejects a frame, it sends back a `type: "error"` frame whose `data` holds a stable `code`, the error `message` and the `rejected_id`. The codes are `rate_limited`, `message_too_large`, `send_denied`, `muted`, `banned`, `room_access_denied`, `channel_access_denied`, `room_limit_reached`, `channel_limit_reached`, `feature_disabled`, `invalid_message` and `error`. A rate-limit rejection also carries `retry_after_ms` and `reset_at`.
+
+## WebSocket keepalive
+
+Every `PingInterval` (30s) the server sends a frame with `"type": "system"` and `metadata.lifecycle` set to `"ping"`. Liveness is judged on what the client sends: if nothing has arrived for `PingInterval + PongTimeout` (40s by default), the server closes the socket. A client that only listens has to answer the ping with any frame. `{"type": "system", "event": "pong"}` is accepted and ignored.
+
+SSE connections have no heartbeat.
+
+## SSE
+
+The SSE endpoint takes query parameters:
+
+| Parameter | Effect |
+|---|---|
+| `rooms=a,b` | Join these rooms on connect (needs a user ID) |
+| `channels=x,y` | Subscribe to these channels on connect |
+| `session_id` | Resume a session (see [Session resumption](#session-resumption)) |
+| `last_event_id` | Replay missed room messages. The standard `Last-Event-ID` header, which `EventSource` sends for you, works too |
+
+The stream opens with a `connected` event carrying `conn_id`, `session_id` and `resumed`. Room messages carry a cursor as their SSE event ID, so a reconnecting browser replays what its rooms missed. When the server can't honour the cursor, it sends a `resync_required` event so your client knows to reload.
+
+An `EventSource` can't send frames, so it changes subscriptions over HTTP:
+
+```bash
+curl -X POST localhost:8080/events/subscribe -H 'Content-Type: application/json' \
+  -d '{"conn_id": "a5ef...", "rooms": ["lobby"], "channels": []}'
+```
+
+`/unsubscribe` takes the same body. The caller must be the same user as the connection, so an anonymous connection gets a 404. A request where some joins fail answers 207 with the errors listed.
+
+## The inbound gate
+
+Every frame a WebSocket client sends passes through `Manager().ProcessInbound` before it's handled:
+
+1. Size: frames over `MaxMessageSize` (64 KB) are rejected. The same limit is set as the socket's read limit.
+2. Rate: each user gets `MaxMessagesPerSecond` (100) messages a second. Anonymous connections aren't rate limited.
+3. Target: the sender must be allowed into the room, and must not be muted or banned there.
+4. Content: the validator chain runs.
+
+Server-side calls such as `Broadcast` and `BroadcastToRoom` skip the gate. If you write your own handler, pass each client message through `ProcessInbound` before you act on it.
+
+## Connections
+
+`MaxConnectionsPerUser` (5) caps sockets per user, `MaxAnonymousConnections` (1000) caps sockets with no user, and `MaxTotalConnections` caps the node (unbounded by default). Each connection has a bounded send queue, so one slow client can't stall a broadcast; when it overflows, droppable frames such as typing updates are evicted and the client is disconnected if real messages back up.
 
 ```go
-type Manager interface {
-    // Connections
-    Register(ctx context.Context, conn Connection) error
-    Unregister(ctx context.Context, conn Connection) error
-    GetConnection(connID string) (Connection, error)
-    GetUserConnections(userID string) []Connection
-    ConnectionCount() int
-    KickConnection(ctx context.Context, connID string, reason string) error
+mgr := stream.Manager()
 
-    // Rooms
-    CreateRoom(ctx context.Context, opts RoomOptions) (Room, error)
-    GetRoom(ctx context.Context, roomID string) (Room, error)
-    DeleteRoom(ctx context.Context, roomID string) error
-    JoinRoom(ctx context.Context, roomID, userID string, opts MemberOptions) error
-    LeaveRoom(ctx context.Context, roomID, userID string) error
-    GetRoomMembers(ctx context.Context, roomID string) ([]Member, error)
-    ListRooms(ctx context.Context) ([]Room, error)
+conns := mgr.GetUserConnections("user-123")
+info, _ := mgr.GetConnectionInfo(connID)
+_ = mgr.KickConnection(ctx, connID, "session expired")
 
-    // Channels
-    CreateChannel(ctx context.Context, name string) error
-    Subscribe(ctx context.Context, channelID, userID string) error
-    Unsubscribe(ctx context.Context, channelID, userID string) error
+idle := mgr.GetIdleConnections(30 * time.Minute)
+closed, _ := mgr.CleanupIdleConnections(ctx, 30*time.Minute)
+```
 
-    // Broadcasting
-    Broadcast(ctx context.Context, data []byte) error
-    BroadcastToRoom(ctx context.Context, roomID string, data []byte) error
-    BroadcastToChannel(ctx context.Context, channelID string, data []byte) error
-    SendToUser(ctx context.Context, userID string, data []byte) error
-    SendToConnection(ctx context.Context, connID string, data []byte) error
+On shutdown the extension drains connections for up to `DrainTimeout` (15s) before stopping the manager.
 
-    // Presence and Typing
-    SetPresence(ctx context.Context, userID string, opts PresenceOptions) error
-    GetPresence(ctx context.Context, userID string) (*PresenceEvent, error)
-    GetOnlineUsers(ctx context.Context) ([]string, error)
-    StartTyping(ctx context.Context, roomID, userID string) error
-    StopTyping(ctx context.Context, roomID, userID string) error
-    GetTypingUsers(ctx context.Context, roomID string) ([]string, error)
+To own the WebSocket handler yourself, wrap the connection, set the user, register it, and gate what it sends:
 
-    // History
-    SaveMessage(ctx context.Context, msg *Message) error
-    GetHistory(ctx context.Context, query HistoryQuery) ([]*Message, error)
+```go
+err := app.Router().WebSocket("/custom", func(ctx forge.Context, conn forge.Connection) error {
+	enhanced := streaming.NewConnection(conn)
+	enhanced.SetUserID("user-123")
 
-    // Lifecycle
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Health(ctx context.Context) error
+	mgr := stream.Manager()
+	if err := mgr.Register(enhanced); err != nil {
+		return err
+	}
+	defer mgr.Unregister(conn.ID())
+
+	for {
+		var msg streaming.Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			return err
+		}
+
+		gated, err := mgr.ProcessInbound(ctx.Context(), &msg, enhanced)
+		if err != nil {
+			continue
+		}
+
+		_ = gated // route it yourself
+	}
+})
+```
+
+## Rooms
+
+```go
+mgr := stream.Manager()
+
+err := mgr.CreateRoom(ctx, streaming.NewLocalRoom(streaming.RoomOptions{
+	ID:         "project-alpha",
+	Name:       "Project Alpha",
+	Owner:      "user-1",
+	Private:    true,
+	MaxMembers: 50,
+}))
+
+_ = mgr.JoinRoom(ctx, connID, "project-alpha") // by connection, not user
+_ = mgr.LeaveRoom(ctx, connID, "project-alpha")
+members, _ := mgr.GetRoomMembers(ctx, "project-alpha")
+
+_ = mgr.ArchiveRoom(ctx, "project-alpha")
+_ = mgr.RestoreRoom(ctx, "project-alpha")
+_ = mgr.TransferRoomOwnership(ctx, "project-alpha", "user-2")
+```
+
+`RoomOptions` takes `ID`, `Name`, `Description`, `Owner`, `Private`, `MaxMembers` and `Metadata`. `JoinRoom` needs a connection with a user ID, checks the room authorizer, and counts against `MaxRoomsPerUser` (50). Rejoining a room you're already in is fine.
+
+The room authorizer is built into the extension: anyone may join a public room, only members may join a private one. There's no extension option to swap it out.
+
+Moderation works per room: `MuteUser(ctx, userID, roomID, duration)`, `UnmuteUser`, `BanUser(ctx, userID, roomID, reason, until)`, `UnbanUser` and `GetModerationLog`. A muted or banned user's frames are rejected at the gate. The `Room` interface itself has more: roles, invites, permissions, locks, slow mode and pinned messages. `SearchRooms`, `GetPublicRooms`, `UpdateRoom` and the direct message helpers (`CreateDirectMessage`, `GetDirectMessages`) round it out.
+
+## Channels
+
+`Subscribe(ctx, connID, channelID, filters)`, `Unsubscribe` and `BroadcastToChannel` exist, and `MaxChannelsPerUser` (100) limits subscriptions.
+
+<Callout type="warn">
+A subscription needs the channel to exist, and you can't create one from outside the module today: `CreateChannel` takes a `Channel`, and the options type its local constructor needs isn't exported. Until that's fixed, `Subscribe` returns `ErrChannelNotFound`. Use rooms for topic broadcasts.
+</Callout>
+
+## Presence
+
+Both built-in handlers mark a user online when they connect. The WebSocket handler marks them offline only when their last connection closes, and every frame they send refreshes their activity. The SSE handler marks the user offline whenever an SSE connection closes, even if they still have other connections open.
+
+```go
+_ = mgr.SetPresence(ctx, "user-123", streaming.StatusAway)
+p, _ := mgr.GetPresence(ctx, "user-123")           // *streaming.UserPresence
+online, _ := mgr.GetOnlineUsers(ctx, "lobby")       // members of the room who are online
+count, _ := mgr.GetOnlineCount(ctx)
+_ = mgr.SetCustomStatus(ctx, "user-123", "In a meeting")
+```
+
+Statuses are `StatusOnline`, `StatusAway`, `StatusBusy` and `StatusOffline`. A user with no activity for `PresenceTimeout` (5m) is treated as offline.
+
+## Typing indicators
+
+```go
+_ = mgr.StartTyping(ctx, "user-123", "lobby") // user first, then room
+_ = mgr.StopTyping(ctx, "user-123", "lobby")
+typing, _ := mgr.GetTypingUsers(ctx, "lobby")
+```
+
+Starting and stopping broadcasts a `typing` frame to the room. Typing state expires after `TypingTimeout` (3s), and at most `MaxTypingUsersPerRoom` (10) are tracked per room.
+
+## History and replay
+
+```go
+msg := streaming.NewEventMessage("chat.notice", "hello")
+msg.RoomID = "lobby"
+_ = mgr.SaveMessage(ctx, msg) // assigns msg.Sequence
+
+history, _ := mgr.GetHistory(ctx, "lobby", streaming.HistoryQuery{Limit: 50})
+```
+
+`HistoryQuery` filters by `Limit`, `Before`, `After`, `ThreadID`, `UserID` and `SearchTerm`. There's also `GetThreadHistory`, `GetUserMessages`, `SearchMessages`, `EditMessage`, `DeleteMessage`, and reactions with `AddReaction`, `RemoveReaction` and `GetReactions`.
+
+Each saved room message gets a per-room sequence number. That's what SSE replay uses: `Replay(ctx, connID, cursor)` sends a connection the messages its rooms missed since the cursor. Replay needs message history on.
+
+History is never trimmed: `MessageRetention` and `MaxMessagesPerRoom` aren't read, so with the local backend it grows in memory for the life of the process.
+
+## Session resumption
+
+```go
+streaming.NewExtension(streaming.WithSessionResumption(2 * time.Minute))
+```
+
+With resumption on, a disconnected session's rooms and channels are kept for the TTL (30s by default). A client that reconnects with the same `session_id` query parameter, as the same user, gets them back. Sessions are held in memory on the node.
+
+## Hooks and codecs
+
+Hooks let you refuse connections, transform or drop messages, and watch room and presence changes. A hook implements `Name()` plus any of `ConnectionHook`, `MessageHook`, `RawMessageHook`, `RoomHook`, `PresenceHook` or `ErrorHook`:
+
+```go
+type auditHook struct{ log forge.Logger }
+
+func (h auditHook) Name() string { return "audit" }
+
+func (h auditHook) OnConnect(ctx context.Context, conn streaming.Connection) error {
+	h.log.Info("stream connected", forge.F("conn_id", conn.ID()), forge.F("user_id", conn.GetUserID()))
+
+	return nil // return an error to refuse the connection
 }
+
+func (h auditHook) OnDisconnect(ctx context.Context, conn streaming.Connection) {}
 ```
 
-## WebSocket and SSE Transport
+Register it with `stream.RegisterHook(auditHook{log: app.Logger()})` from a start hook. Hooks fire in registration order; `UnregisterHook(name)` removes one.
 
-Dual transport support:
+JSON is the default codec, and binary and text codecs are built in. `RegisterCodec` adds your own `Codec` (`ContentType`, `Encode`, `Decode`) for a content type that clients ask for with `?content_type=` or an `X-Content-Type` header.
 
-- **WebSocket** -- bidirectional communication. Clients send and receive JSON messages with `type`, `room_id`, `channel_id`, `user_id`, and `data` fields.
-- **SSE (Server-Sent Events)** -- server-to-client push for environments where WebSocket is not available.
+## Backends
 
-Message types: `MessageTypeMessage`, `MessageTypeJoin`, `MessageTypeLeave`, `MessageTypeTyping`, `MessageTypePresence`.
-
-## Room Management
-
-Create and manage chat rooms with rich options:
-
-```go
-room, _ := mgr.CreateRoom(ctx, streaming.RoomOptions{
-    Name:       "project-alpha",
-    MaxMembers: 100,
-})
-
-// Join with role
-mgr.JoinRoom(ctx, room.ID(), userID, streaming.MemberOptions{Role: "moderator"})
-
-// Room lifecycle
-mgr.ArchiveRoom(ctx, roomID)
-mgr.RestoreRoom(ctx, roomID)
-mgr.TransferRoomOwnership(ctx, roomID, newOwnerID)
-mgr.BulkJoinRoom(ctx, roomID, []string{user1, user2, user3})
-```
-
-Room roles: **owner**, **admin**, **moderator**, **member**. Each role has different permissions for moderation, invites, and room management.
-
-Rooms also support: invites with expiration, bans, moderation events, and search by name or metadata.
-
-## Channel Pub/Sub
-
-Subscribe to named channels for topic-based broadcasting:
-
-```go
-mgr.CreateChannel(ctx, "notifications")
-mgr.Subscribe(ctx, "notifications", userID)
-mgr.BroadcastToChannel(ctx, "notifications", []byte(`{"type":"alert","message":"Deploy complete"}`))
-mgr.Unsubscribe(ctx, "notifications", userID)
-```
-
-## Presence Tracking
-
-Track user online/offline status across connections with configurable timeout and cleanup:
-
-```go
-mgr.SetPresence(ctx, userID, streaming.PresenceOptions{
-    Status:       "online",
-    Device:       &streaming.DeviceInfo{Type: "desktop", Name: "Chrome"},
-    Activity:     &streaming.ActivityInfo{Type: "browsing", Detail: "Dashboard"},
-    Availability: "available",
-})
-
-presence, _ := mgr.GetPresence(ctx, userID)
-online, _ := mgr.GetOnlineUsers(ctx)
-mgr.TrackActivity(ctx, userID) // refresh last-seen
-```
-
-Presence timeout defaults to 5 minutes. Cleanup runs periodically to remove stale entries.
-
-## Typing Indicators
-
-Real-time typing status per user per room with automatic expiration:
-
-```go
-mgr.StartTyping(ctx, roomID, userID)  // auto-expires after 3 seconds
-mgr.StopTyping(ctx, roomID, userID)   // explicit stop
-typing, _ := mgr.GetTypingUsers(ctx, roomID)
-```
-
-Configurable: `TypingTimeout` (default 3s), `MaxTypingUsersPerRoom`.
-
-## Message History
-
-Persist messages with configurable retention and query support:
-
-```go
-// Save
-mgr.SaveMessage(ctx, &streaming.Message{
-    RoomID: roomID,
-    UserID: userID,
-    Data:   []byte(`{"text":"Hello!"}`),
-})
-
-// Query
-messages, _ := mgr.GetHistory(ctx, streaming.HistoryQuery{
-    RoomID: roomID,
-    Limit:  50,
-    Before: time.Now(),
-})
-```
-
-Messages support reactions, edits, and metadata attachments. Retention defaults to 30 days with configurable cleanup.
-
-## Connection Management
-
-- Per-user connection limits (default: 5)
-- Session ID and metadata tracking
-- Automatic activity tracking
-- Idle connection cleanup
-
-```go
-conns := mgr.GetUserConnections(userID)
-mgr.KickConnection(ctx, connID, "session expired")
-idle := mgr.GetIdleConnections(ctx, 30*time.Minute)
-mgr.CleanupIdleConnections(ctx, 30*time.Minute)
-```
-
-## Rate Limiting
-
-- Per-user message rate limits (default: 100 messages/second)
-- Max message size (default: 64 KB)
-- Returns `ErrMessageTooLarge` when exceeded
-
-## Distributed Backends
-
-Scale across nodes with Redis or NATS backends:
+| Backend | Option | Status |
+|---|---|---|
+| `local` | `WithLocalBackend()` | In-memory stores on one node. The default |
+| `redis` | `WithRedisBackend(url)` | Redis stores for rooms, channels, history, presence and typing, plus a coordinator that relays broadcasts between nodes. Turns distributed mode on |
+| `nats` | `WithNATSBackend(urls...)` | Not implemented. Registration fails with a backend error |
 
 ```go
 streaming.NewExtension(
-    streaming.WithRedisBackend("redis://localhost:6379"),
-    streaming.WithFeatures(true, true, true, true, true),
+	streaming.WithRedisBackend("localhost:6379"),
+	streaming.WithNodeID("api-1"),
+	streaming.WithLoadBalancer("consistent_hash"),
 )
 ```
 
-| Backend | Transport | Best For |
-|---|---|---|
-| `local` | In-process maps | Single instance, development |
-| `redis` | Redis Pub/Sub | Production, multi-node |
-| `nats` | NATS messaging | High-throughput, multi-node |
+Give each node a stable `WithNodeID`; one is generated otherwise. `WithLoadBalancer` takes `consistent_hash`, `sticky`, `least_connections` or `round_robin`, and only applies in distributed mode. `round_robin` currently uses least connections.
 
-Distributed mode provides: cross-node message routing, presence synchronization, distributed locking, node heartbeats, and failover.
+## Observability
 
-## Sentinel Errors
+Counters and gauges go through Forge's metrics under `streaming.`, including `connections.active`, `connections.total`, `connections.anon_rejected`, `messages.broadcast`, `messages.room_broadcast`, `messages.rate_limited`, `messages.oversize`, `messages.send_denied`, `rooms.joins`, `rooms.joins_denied`, `sendqueue.dropped`, `sendqueue.overflow_disconnects`, `sessions.resumed` and `replay.messages`.
 
-| Error | Meaning |
+`Manager().GetStats(ctx)` returns a `ManagerStats` snapshot (connections, rooms, channels, messages, online users, uptime), and `GetRoomStats` and `GetUserStats` go narrower. The extension's health check fails when the manager is unhealthy.
+
+`stream.AsyncAPISpec()` describes the WebSocket protocol as an AsyncAPI document. If you run the [Forge dashboard](/docs/extensions/dashboard), the extension implements `RegisterContractContributor` and serves the streaming pages of the dashboard contract.
+
+## Sentinel errors
+
+Use `errors.Is` against these:
+
+| Group | Errors |
 |---|---|
-| `ErrRoomNotFound` | Room does not exist |
-| `ErrRoomAlreadyExists` | Room name collision |
-| `ErrRoomFull` | Room has reached max members |
-| `ErrNotRoomMember` | User is not a member of the room |
-| `ErrAlreadyRoomMember` | User is already in the room |
-| `ErrRoomLimitReached` | User has joined too many rooms |
-| `ErrConnectionNotFound` | Connection ID not found |
-| `ErrConnectionClosed` | Connection is closed |
-| `ErrConnectionLimitReached` | User has too many connections |
-| `ErrMessageTooLarge` | Message exceeds `MaxMessageSize` |
-| `ErrMessageNotFound` | Message not found |
-| `ErrChannelNotFound` | Channel does not exist |
-| `ErrChannelAlreadyExists` | Channel name collision |
-| `ErrNotSubscribed` | Not subscribed to channel |
-| `ErrAlreadySubscribed` | Already subscribed to channel |
-| `ErrPermissionDenied` | Insufficient permissions |
-| `ErrInviteNotFound` | Invite not found |
-| `ErrInviteExpired` | Room invite has expired |
-| `ErrPresenceNotFound` | No presence data for user |
-| `ErrInvalidConfig` | Invalid configuration |
+| Connections | `ErrConnectionNotFound`, `ErrConnectionClosed`, `ErrConnectionLimitReached`, `ErrInvalidConnection` |
+| Rooms | `ErrRoomNotFound`, `ErrRoomAlreadyExists`, `ErrRoomFull`, `ErrNotRoomMember`, `ErrAlreadyRoomMember`, `ErrRoomLimitReached` |
+| Channels | `ErrChannelNotFound`, `ErrChannelAlreadyExists`, `ErrNotSubscribed`, `ErrAlreadySubscribed`, `ErrChannelLimitReached` |
+| Authorization | `ErrPermissionDenied`, `ErrRoomAccessDenied`, `ErrChannelAccessDenied`, `ErrSendDenied`, `ErrUserMuted`, `ErrUserBanned`, `ErrSessionNotOwned`, `ErrInsufficientRole`, `ErrInvalidPermission` |
+| Features | `ErrRoomsDisabled`, `ErrChannelsDisabled`, `ErrHistoryDisabled`, `ErrPresenceDisabled`, `ErrTypingDisabled` |
+| Messages | `ErrMessageTooLarge`, `ErrMessageNotFound`, `ErrInvalidMessage`, `ErrRateLimitExceeded` |
+| Other | `ErrInvalidConfig`, `ErrPresenceNotFound`, `ErrInvalidStatus`, `ErrInviteNotFound`, `ErrInviteExpired`, `ErrInvalidRoom`, `ErrInvalidChannel`, the backend errors (`ErrBackendNotFound`, `ErrBackendTimeout`, `ErrBackendUnavailable`) and the lock and node errors |

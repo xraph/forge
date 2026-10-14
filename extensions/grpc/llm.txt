@@ -2,142 +2,161 @@
 
 ## Purpose
 
-gRPC server implementation providing high-performance RPC services with Protocol Buffers, server reflection, health checks, and interceptors for authentication and logging.
+Runs a grpc-go server (google.golang.org/grpc) next to the app's HTTP server and ties it to the
+Forge lifecycle. It gives you the gRPC health checking protocol with per-service checkers, server
+reflection, TLS and mutual TLS, keepalive and message size limits, logging and metrics
+interceptors, and graceful shutdown.
 
-## Key Components
+Registering your own generated services on the managed server does not work reliably yet. Read
+"Not implemented yet" before you plan around it.
 
-- **gRPC Server**: High-performance RPC server
-- **Service Registration**: Register protobuf services
-- **Reflection**: Server reflection for dynamic clients
-- **Interceptors**: Middleware for auth, logging, tracing
-- **Health Checks**: gRPC health checking protocol
+Module: github.com/xraph/forge/extensions/grpc (package `grpc`; import it as `grpcext` so it
+doesn't clash with google.golang.org/grpc).
 
-## Architecture
+## Constructors and options
 
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
+
+type ConfigOption func(*Config)
+WithAddress(addr string)
+WithMaxMessageSize(size int)              // sets MaxRecvMsgSize and MaxSendMsgSize
+WithMaxConcurrentStreams(maxStreams uint32)
+WithTLS(certFile, keyFile, caFile string) // also sets EnableTLS; caFile may be ""
+WithClientAuth(enable bool)
+WithHealthCheck(enable bool)
+WithReflection(enable bool)
+WithMetrics(enable bool)
+WithTracing(enable bool)
+WithRequireConfig(require bool)
+WithConfig(config Config)                 // replaces the whole config
 ```
-gRPC Extension
-├── Server
-│   ├── Service Registration
-│   ├── Interceptors
-│   └── Lifecycle
-├── Reflection
-│   └── Service Introspection
-├── Health Checks
-│   └── gRPC Health Protocol
-└── Streaming
-    ├── Server Streaming
-    ├── Client Streaming
-    └── Bidirectional Streaming
+
+Lower level, if you want the server without the extension:
+
+```go
+func NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GRPC
+func NewGRPCService(config Config, logger forge.Logger, metrics forge.Metrics) (*GRPCService, error)
 ```
 
-## Public API
+## What the container holds
 
-### Core Types
+- `*GRPCService`, also under the name `grpc` (`ServiceKey`). Implements Name/Start/Stop/Health and
+  forwards the GRPC methods; `Server() GRPC` returns the underlying server.
+- `GRPC`, the interface, backed by the same `*GRPCService` singleton.
+
+Resolve with `forge.Inject[grpcext.GRPC](app.Container())` or
+`forge.Inject[*grpcext.GRPCService](app.Container())`. The extension's `Start` resolves
+`*GRPCService` and starts it, so the server listens once the app starts.
+
+## Key types
 
 ```go
 type GRPC interface {
-    RegisterService(desc *grpc.ServiceDesc, impl interface{}) error
-    Server() *grpc.Server
-    Start(ctx context.Context, address string) error
+    RegisterService(desc *grpc.ServiceDesc, impl any) error
+    Start(ctx context.Context, addr string) error
     Stop(ctx context.Context) error
+    GracefulStop(ctx context.Context) error
+    AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)
+    AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)
+    RegisterHealthChecker(service string, checker HealthChecker)
+    GetServer() *grpc.Server
+    IsRunning() bool
+    GetStats() ServerStats
+    GetServices() []ServiceInfo
+    Ping(ctx context.Context) error
+}
+
+type HealthChecker interface { Check(ctx context.Context) error }
+
+type ServiceInfo struct { Name string; Methods []MethodInfo; Description string }
+type MethodInfo struct { Name string; IsClientStream, IsServerStream bool; InputType, OutputType string }
+type ServerStats struct {
+    StartTime, TotalConnections, ActiveStreams, RPCsStarted, RPCsSucceeded, RPCsFailed int64
 }
 ```
 
-### Main Functions/Methods
+Sentinel errors (errors.go): ErrNotStarted, ErrAlreadyStarted, ErrServiceNotFound,
+ErrInvalidConfig, ErrStartFailed, ErrStopFailed, ErrHealthCheckFailed.
+
+## Usage
+
+Add a health checker once the app has started:
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get gRPC server
-func GetGRPC(c forge.Container) (GRPC, error)
-
-// Register service
-server := grpc.GetGRPC(app.Container())
-server.RegisterService(&pb.UserService_ServiceDesc, &userService{})
-```
-
-## Usage Examples
-
-### Basic gRPC Server
-
-```go
-import "github.com/xraph/forge/extensions/grpc"
-
 app := forge.NewApp(forge.AppConfig{
+    Name: "billing",
     Extensions: []forge.Extension{
-        grpc.NewExtension(grpc.Config{
-            Address:    ":50051",
-            Reflection: true,  // Enable server reflection
-        }),
+        grpcext.NewExtension(grpcext.WithAddress(":50051")),
     },
 })
 
-// Get gRPC server
-server, _ := grpc.GetGRPC(app.Container())
-
-// Register service implementation
-server.RegisterService(&pb.UserServiceDesc, &UserServiceImpl{})
-
-// Start server (handled by Forge lifecycle)
-app.Run()
-```
-
-### Service Implementation
-
-```go
-type UserServiceImpl struct {
-    pb.UnimplementedUserServiceServer
-}
-
-func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
-    return &pb.User{
-        Id:    req.Id,
-        Name:  "John Doe",
-        Email: "john@example.com",
-    }, nil
-}
-
-func (s *UserServiceImpl) ListUsers(req *pb.ListUsersRequest, stream pb.UserService_ListUsersServer) error {
-    for _, user := range users {
-        if err := stream.Send(user); err != nil {
-            return err
-        }
+_ = app.RegisterHookFn(forge.PhaseAfterStart, "grpc-health", func(ctx context.Context, a forge.App) error {
+    srv, err := forge.Inject[grpcext.GRPC](a.Container())
+    if err != nil {
+        return err
     }
+    srv.RegisterHealthChecker("billing.db", dbCheck{})
     return nil
-}
+})
 ```
 
-## Configuration
+Checkers are looked up on every call, so you can add them at any time.
 
-```yaml
-extensions:
-  grpc:
-    address: :50051
-    reflection: true
-    health_check: true
-    max_recv_msg_size: 4MB
-    max_send_msg_size: 4MB
-```
+## Config
+
+Key `extensions.grpc`, falling back to `grpc`. Non-zero programmatic options win over the file.
+
+| yaml key | default |
+| --- | --- |
+| address | ":50051" |
+| max_recv_msg_size, max_send_msg_size | 4194304 (4MB) |
+| max_concurrent_streams | 0 (no limit) |
+| connection_timeout | 120s |
+| keepalive.time / keepalive.timeout | 2h / 20s |
+| keepalive.enforcement_policy / min_time / permit_without_stream | true / 5m / false |
+| enable_tls, tls_cert_file, tls_key_file, tls_ca_file | false, "" |
+| client_auth | false |
+| enable_health_check | true |
+| enable_reflection | true |
+| enable_metrics, enable_tracing, enable_logging | true |
+
+`Config.Validate()` runs in Register: TLS on without cert and key, or client_auth without a CA
+file, fails registration. `keepalive.time` is also the max idle time, and twice it is the max
+connection age.
+
+## Health service
+
+With enable_health_check on, `grpc.health.v1.Health` is registered. Check returns SERVING for an
+empty service name, for a service with no checker, and when the checker returns nil; NOT_SERVING
+when the checker errors. The extension's own `Health(ctx)` only reports whether it has started.
+
+## Metrics
+
+From the metrics interceptors, all labelled by `method`: grpc_unary_started_total,
+grpc_unary_succeeded_total, grpc_unary_failed_total (plus `code`),
+grpc_unary_duration_seconds, grpc_stream_active, grpc_stream_succeeded_total,
+grpc_stream_failed_total, grpc_stream_duration_seconds.
+
+## Gotchas
+
+- If TLS files are configured but fail to load (bad path, bad PEM), the server logs
+  `failed to load TLS credentials` and starts in plaintext. Check your logs.
+- The tracing interceptor only writes a debug log line. It creates no spans.
+- `Watch` sends one SERVING message and returns; `List` returns an empty list.
+
+## Not implemented yet
+
+- No dependable point to register your own services. Before Start, `Start` builds a fresh
+  `grpc.Server` and drops what you registered; after Start, grpc-go aborts the process with
+  `grpc: Server.RegisterService after Server.Serve`. Run your application services on a
+  `grpc.Server` you create and start yourself for now. `examples/grpc-advanced` hits this.
+- `AddUnaryInterceptor` and `AddStreamInterceptor` have the same timing problem: interceptors are
+  chained when the server is built, so ones added later are stored and never called.
 
 ## Dependencies
 
-### External
-- google.golang.org/grpc - gRPC framework
-- google.golang.org/protobuf - Protocol Buffers
-
-### Internal
-- github.com/xraph/forge - Core framework
-
-## Notes
-
-### Production Readiness
-- ✅ gRPC server
-- ✅ Service registration
-- ✅ Reflection
-- ✅ Health checks
-- ✅ Streaming support
-
-### License
-MIT License - Part of Forge Framework
-
+- google.golang.org/grpc (health, reflection, credentials)
+- github.com/xraph/forge, github.com/xraph/vessel

@@ -1,124 +1,150 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for HLS
+description: YAML keys, options and defaults for the HLS extension, and which fields the code reads
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Where config comes from
+
+The extension reads `extensions.hls` from your config file, falling back to a top-level `hls` key. Defaults come first, the file overrides them, and options you set in code override the file. A field you leave out of the file keeps its default.
+
+One catch: a field you set in code to exactly its default value looks untouched, so the file wins for that field.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on; a bare `forge.AppConfig{}` literal leaves it off.
+
+## YAML example
+
+The keys are the snake_case names from the struct tags. Durations take Go duration strings.
 
 ```yaml title="config.yaml"
 extensions:
   hls:
-    enabled: true
-    basePath: "/hls"
-    baseURL: "http://localhost:8080/hls"
-    storageBackend: "default"
-    storagePrefix: "hls"
+    base_path: "/hls"
+    base_url: "https://video.example.com/hls"
+
+    # Trove
+    storage_backend: "default"   # a named *trove.Trove, or "default" for the unnamed one
+    storage_bucket: "hls"
+    storage_prefix: "hls"
 
     # Segments
-    targetDuration: 6                # seconds per segment
-    dvrWindowSize: 10                # segments in live playlist
-    maxSegmentSize: 10485760         # 10 MB
+    target_duration: 6           # seconds
+    dvr_window_size: 10          # segments kept in storage per variant
 
-    # Transcoding
-    enableTranscoding: true
-    ffmpegPath: "ffmpeg"
-    ffprobePath: "ffprobe"
-    maxConcurrentTranscodes: 4
-
-    # Distributed
-    enableDistributed: false
-    nodeID: ""
-    clusterID: "hls-cluster"
-    redirectToLeader: true
-    redirectToOwner: true
-    enableFailover: true
+    # Transcoding (only the VOD placeholders use it)
+    enable_transcoding: true
+    ffmpeg_path: "ffmpeg"
+    ffprobe_path: "ffprobe"
+    max_concurrent_transcodes: 4
 
     # Cleanup
-    segmentRetention: "24h"
-    cleanupInterval: "1h"
-    enableAutoCleanup: true
+    enable_auto_cleanup: true
+    cleanup_interval: "1h"
 
-    # Security
-    requireAuth: false
-    enableCORS: true
-    allowedOrigins: ["*"]
+    # CORS on playlist responses
+    enable_cors: true
+    allowed_origins: ["*"]
 
     # Limits
-    maxStreams: 100
-    maxViewersPerStream: 10000
-    maxBandwidthPerStream: 104857600  # 100 Mbps
+    max_streams: 100
 
-    # Caching
-    enableCaching: true
-    cacheTTL: "5m"
+    # Distributed (needs the consensus extension)
+    enable_distributed: false
+    node_id: ""                  # generated when empty
+    cluster_id: "hls-cluster"
 ```
 
-The extension loads config from `extensions.hls` first, falling back to `hls`.
-
-## Programmatic Configuration
+## Programmatic configuration
 
 ```go
 ext := hls.NewExtension(
-    hls.WithBasePath("/live"),
-    hls.WithBaseURL("https://cdn.example.com/live"),
-    hls.WithStorageBackend("s3-backend"),
-    hls.WithTranscoding(true),
-    hls.WithFFmpegPaths("/usr/bin/ffmpeg", "/usr/bin/ffprobe"),
-    hls.WithLimits(50, 5000, 50*1024*1024),
+	hls.WithBasePath("/live"),
+	hls.WithBaseURL("https://cdn.example.com/live"),
+	hls.WithStorageBackend("media"),
+	hls.WithStorageBucket("video"),
+	hls.WithDVRWindow(30),
+	hls.WithTranscoding(true, hls.Profile480p, hls.Profile720p),
+	hls.WithFFmpegPaths("/usr/bin/ffmpeg", "/usr/bin/ffprobe"),
+	hls.WithLimits(50, 5000, 50*1024*1024),
 )
 ```
 
-## Config Struct Reference
+## Option helpers
 
-### `Config`
+| Option | Sets | Default |
+|---|---|---|
+| `WithBasePath(path)` | `BasePath` for the routes | `/hls` |
+| `WithBaseURL(url)` | `BaseURL` used in playlist and segment URLs | `http://localhost:8080/hls` |
+| `WithStorageBackend(name)` | Which `*trove.Trove` to resolve. Empty or `default` uses the unnamed one | `default` |
+| `WithStorageBucket(bucket)` | Trove bucket, created on start | `hls` |
+| `WithStoragePrefix(prefix)` | Key prefix inside the bucket | `hls` |
+| `WithTargetDuration(seconds)` | Segment duration for the segmenter. Streams take theirs from `StreamOptions` | `6` |
+| `WithDVRWindow(segments)` | Segments kept in storage per variant | `10` |
+| `WithTranscoding(enabled, profiles...)` | Transcoding switch, and `TranscodeProfiles` when you pass any | on, `DefaultProfiles()` |
+| `WithFFmpegPaths(ffmpeg, ffprobe)` | FFmpeg binaries | `ffmpeg`, `ffprobe` |
+| `WithCORS(enabled, origins...)` | CORS headers. Only the first origin is sent | on, `*` |
+| `WithLimits(maxStreams, maxViewers, maxBandwidth)` | Limits. Only `MaxStreams` is enforced | `100`, `10000`, `104857600` |
+| `WithCleanup(retention, interval)` | Turns cleanup on and sets retention and interval | on, `24h`, `1h` |
+| `WithDistributed(enabled)` | Distributed mode | off |
+| `WithNodeID(id)`, `WithClusterID(id)` | Node and cluster IDs | generated, `hls-cluster` |
+| `WithFailover(enabled)` | `EnableFailover` (not read) | on |
+| `WithAuth(required)` | `RequireAuth` (not read) | off |
+| `WithCaching(enabled, ttl)` | `EnableCaching` and `CacheTTL` (not read) | on, `5m` |
+| `WithRequireConfig(require)` | Fail registration when no `hls` config is found | off |
+| `WithConfig(cfg)` | Replace the whole config | |
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable the extension |
-| `BasePath` | `string` | `"/hls"` | HTTP base path for endpoints |
-| `BaseURL` | `string` | `"http://localhost:8080/hls"` | Base URL for segment URLs in playlists |
-| `StorageBackend` | `string` | `"default"` | Storage backend name |
-| `StoragePrefix` | `string` | `"hls"` | Key prefix in storage |
-| `TargetDuration` | `int` | `6` | Target segment duration (seconds) |
-| `DVRWindowSize` | `int` | `10` | Segments in live playlist |
-| `MaxSegmentSize` | `int64` | `10485760` (10 MB) | Max segment size |
-| `EnableTranscoding` | `bool` | `true` | Enable FFmpeg transcoding |
-| `TranscodeProfiles` | `[]TranscodeProfile` | Default profiles | Transcode quality profiles |
-| `FFmpegPath` | `string` | `"ffmpeg"` | FFmpeg binary path |
-| `FFprobePath` | `string` | `"ffprobe"` | FFprobe binary path |
-| `MaxConcurrentTranscodes` | `int` | `4` | Max concurrent transcode jobs |
-| `EnableDistributed` | `bool` | `false` | Enable distributed mode |
-| `NodeID` | `string` | `""` | Node identifier |
-| `ClusterID` | `string` | `"hls-cluster"` | Cluster identifier |
-| `EnableFailover` | `bool` | `true` | Auto-failover in distributed mode |
-| `SegmentRetention` | `time.Duration` | `24h` | Segment retention period |
-| `CleanupInterval` | `time.Duration` | `1h` | Cleanup sweep interval |
-| `RequireAuth` | `bool` | `false` | Require authentication |
-| `EnableCORS` | `bool` | `true` | Enable CORS |
-| `AllowedOrigins` | `[]string` | `["*"]` | CORS allowed origins |
-| `MaxStreams` | `int` | `100` | Max concurrent streams |
-| `MaxViewersPerStream` | `int` | `10000` | Max viewers per stream |
-| `MaxBandwidthPerStream` | `int64` | `104857600` (100 Mbps) | Max bandwidth per stream |
-| `EnableCaching` | `bool` | `true` | Enable playlist/segment caching |
-| `CacheTTL` | `time.Duration` | `5m` | Cache TTL |
+`NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`. There's no option that turns cleanup off; set `enable_auto_cleanup: false` in YAML or pass a full config.
 
-## Option Helpers
+## Config struct reference
 
-| Function | Description |
-|---|---|
-| `WithBasePath(path)` | Set the HTTP base path |
-| `WithBaseURL(url)` | Set the base URL for playlists |
-| `WithStorageBackend(name)` | Set the storage backend name |
-| `WithStoragePrefix(prefix)` | Set the storage key prefix |
-| `WithTargetDuration(seconds)` | Set segment duration |
-| `WithDVRWindow(segments)` | Set DVR window size |
-| `WithTranscoding(enabled)` | Toggle transcoding |
-| `WithFFmpegPaths(ffmpeg, ffprobe)` | Set FFmpeg paths |
-| `WithDistributed(enabled, nodeID, clusterID)` | Configure distributed mode |
-| `WithFailover(enabled)` | Toggle failover |
-| `WithCleanup(retention, interval)` | Set cleanup schedule |
-| `WithAuth(required)` | Toggle authentication |
-| `WithCORS(enabled, origins...)` | Configure CORS |
-| `WithLimits(streams, viewers, bandwidth)` | Set resource limits |
-| `WithCaching(enabled, ttl)` | Configure caching |
-| `WithConfig(config)` | Provide a complete config struct |
+| Field | YAML key | Type | Default | Read by |
+|---|---|---|---|---|
+| `Enabled` | `enabled` | `bool` | `true` | nothing |
+| `BasePath` | `base_path` | `string` | `/hls` | route registration |
+| `BaseURL` | `base_url` | `string` | `http://localhost:8080/hls` | playlist and segment URLs |
+| `StorageBackend` | `storage_backend` | `string` | `default` | Trove lookup |
+| `StorageBucket` | `storage_bucket` | `string` | `hls` | storage |
+| `StoragePrefix` | `storage_prefix` | `string` | `hls` | storage |
+| `TargetDuration` | `target_duration` | `int` | `6` | the segmenter (which nothing calls yet), must be positive |
+| `DVRWindowSize` | `dvr_window_size` | `int` | `10` | ingest pruning and cleanup |
+| `MaxSegmentSize` | `max_segment_size` | `int64` | `10485760` | validation only |
+| `EnableTranscoding` | `enable_transcoding` | `bool` | `true` | `CreateVODFromFile` |
+| `TranscodeProfiles` | `transcode_profiles` | `[]TranscodeProfile` | `DefaultProfiles()` | nothing |
+| `FFmpegPath` | `ffmpeg_path` | `string` | `ffmpeg` | transcoder |
+| `FFprobePath` | `ffprobe_path` | `string` | `ffprobe` | transcoder |
+| `MaxConcurrentTranscodes` | `max_concurrent_transcodes` | `int` | `4` | transcoder |
+| `EnableDistributed` | `enable_distributed` | `bool` | `false` | registration |
+| `NodeID` | `node_id` | `string` | generated | coordinator |
+| `ClusterID` | `cluster_id` | `string` | `hls-cluster` | a log line |
+| `RedirectToLeader` | `redirect_to_leader` | `bool` | `true` | nothing |
+| `RedirectToOwner` | `redirect_to_owner` | `bool` | `true` | nothing |
+| `EnableFailover` | `enable_failover` | `bool` | `true` | nothing |
+| `SegmentRetention` | `segment_retention` | `time.Duration` | `24h` | nothing |
+| `CleanupInterval` | `cleanup_interval` | `time.Duration` | `1h` | cleanup routine |
+| `EnableAutoCleanup` | `enable_auto_cleanup` | `bool` | `true` | cleanup routine |
+| `RequireAuth` | `require_auth` | `bool` | `false` | nothing |
+| `EnableCORS` | `enable_cors` | `bool` | `true` | playlist handlers |
+| `AllowedOrigins` | `allowed_origins` | `[]string` | `["*"]` | playlist handlers (first entry) |
+| `MaxStreams` | `max_streams` | `int` | `100` | `CreateStream` |
+| `MaxViewersPerStream` | `max_viewers_per_stream` | `int` | `10000` | validation only |
+| `MaxBandwidthPerStream` | `max_bandwidth_per_stream` | `int64` | `104857600` | nothing |
+| `EnableCaching` | `enable_caching` | `bool` | `true` | nothing |
+| `CacheTTL` | `cache_ttl` | `time.Duration` | `5m` | nothing |
+
+Registration fails validation when `target_duration`, `max_segment_size`, `max_streams` or `max_viewers_per_stream` isn't positive, when `dvr_window_size` is negative, or when transcoding is on with an empty `ffmpeg_path` or a non-positive `max_concurrent_transcodes`.
+
+## Fields that do nothing yet
+
+<Callout type="warn">
+These are stored and, at most, validated. Setting them changes nothing at runtime.
+</Callout>
+
+- `Enabled`: the extension registers its routes whatever the value.
+- `RequireAuth`: no route checks authentication.
+- `MaxViewersPerStream`, `MaxBandwidthPerStream`: no viewer or bandwidth limits.
+- `MaxSegmentSize`: ingest doesn't check segment size.
+- `EnableCaching`, `CacheTTL`: there's no cache.
+- `SegmentRetention`: cleanup trims by count (`DVRWindowSize`), not by age.
+- `TranscodeProfiles`: streams get their profiles from `StreamOptions`, not from here.
+- `RedirectToLeader`, `RedirectToOwner`, `EnableFailover`: distributed mode doesn't route requests.

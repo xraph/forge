@@ -1,147 +1,175 @@
 ---
 title: Cache
-description: In-memory, Redis, and Memcached caching for Forge applications
+description: In-memory key-value caching for Forge applications
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/cache` provides a unified caching layer with swappable backends.
-It registers a `CacheService` in the DI container that your application resolves to store and retrieve
-key-value data with TTL-based expiration.
+`github.com/xraph/forge/extensions/cache` gives your app a key-value cache with per-key TTLs, a default
+expiry, key prefixes, glob-style key lookup and size limits. It registers the cache in the DI
+container so any service can ask for it.
 
-The extension currently ships a complete in-memory driver. Redis and Memcached drivers are declared
-but not yet implemented.
+The in-memory driver is the one that works today. The config also accepts `redis` and `memcached`,
+but those drivers aren't implemented yet: config validation passes, then building the service fails
+with "redis driver not yet implemented" (or the memcached equivalent), so the app doesn't start.
 
 ## What It Registers
 
-| Service | DI Key | Type |
+| Service | How you resolve it | Type |
 |---|---|---|
-| Cache service | `cache` | `*CacheService` (also satisfies `Cache`) |
+| Cache service | `forge.Inject[*cache.CacheService]`, or the name `cache` | `*CacheService` |
+| Cache interface | `forge.Inject[cache.Cache]`, `cache.GetCache` | `Cache`, backed by the same `*CacheService` singleton |
 
-The service is registered as a Vessel-managed singleton. Vessel calls `Start` (connects the backend)
-and `Stop` (disconnects) automatically during the application lifecycle.
+The extension's `Start` resolves the service and connects the backend. Its `Stop` disconnects it,
+which empties the in-memory store.
 
 ## Quick Start
 
-Register the extension and start caching:
+You need Go 1.26 or later. Add the modules:
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/cache@latest
+```
+
+Save this as `main.go`:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"errors"
+	"log"
+	"net/http"
+	"time"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/cache"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/cache"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "cache-demo",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			cache.NewExtension(
+				cache.WithDefaultTTL(10*time.Minute),
+				cache.WithPrefix("demo:"),
+			),
+		},
+	})
 
-    // Register with defaults (in-memory, 5 min TTL, 10k max entries)
-    app.RegisterExtension(cache.NewExtension())
+	err := app.Router().GET("/greeting", func(ctx forge.Context) error {
+		c, err := cache.GetCache(app.Container())
+		if err != nil {
+			return err
+		}
 
-    // Or configure explicitly
-    app.RegisterExtension(cache.NewExtension(
-        cache.WithDriver("inmemory"),
-        cache.WithDefaultTTL(10 * time.Minute),
-        cache.WithMaxSize(50000),
-        cache.WithPrefix("myapp:"),
-    ))
+		value, err := c.Get(ctx.Context(), "greeting")
+		if errors.Is(err, cache.ErrNotFound) {
+			value = []byte("Hello from the cache")
+			if err := c.Set(ctx.Context(), "greeting", value, 30*time.Second); err != nil {
+				return err
+			}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+			return ctx.JSON(http.StatusOK, map[string]string{"source": "miss", "value": string(value)})
+		}
+		if err != nil {
+			return err
+		}
 
-    // Retrieve the cache from the DI container
-    c := cache.MustGetCache(app.Container())
+		return ctx.JSON(http.StatusOK, map[string]string{"source": "hit", "value": string(value)})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Store a value with default TTL
-    c.Set(ctx, "user:123", []byte(`{"name":"Alice"}`), 0)
-
-    // Retrieve
-    data, err := c.Get(ctx, "user:123")
-    if err != nil {
-        fmt.Println("miss:", err)
-    } else {
-        fmt.Println("hit:", string(data))
-    }
-
-    // Check existence
-    exists, _ := c.Exists(ctx, "user:123")
-    fmt.Println("exists:", exists)
-
-    // List keys by pattern
-    keys, _ := c.Keys(ctx, "user:*")
-    fmt.Println("keys:", keys)
-
-    // Update TTL on an existing key
-    c.Expire(ctx, "user:123", 30*time.Minute)
-
-    // Delete
-    c.Delete(ctx, "user:123")
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
+
+Run it and call the route twice:
+
+```bash
+go mod tidy
+go run .
+
+curl http://localhost:8080/greeting
+# {"source":"miss","value":"Hello from the cache"}
+curl http://localhost:8080/greeting
+# {"source":"hit","value":"Hello from the cache"}
+```
+
+The second call comes from memory. Thirty seconds later you get a miss again, because the handler
+wrote the key with its own 30-second TTL, and that wins over the ten-minute default you set on the
+extension.
 
 ## Using Cache in Your Services
 
-The recommended pattern is constructor injection. Declare `*cache.CacheService` as a dependency and Vessel resolves it automatically:
+Take `cache.Cache` as a constructor parameter and the container fills it in:
 
 ```go
 type SessionStore struct {
-    cache  cache.Cache
-    logger forge.Logger
+	cache cache.Cache
 }
 
-// Vessel injects *cache.CacheService because it implements cache.Cache
-func NewSessionStore(c *cache.CacheService, logger forge.Logger) *SessionStore {
-    return &SessionStore{cache: c, logger: logger}
+func NewSessionStore(c cache.Cache) *SessionStore {
+	return &SessionStore{cache: c}
 }
 
 func (s *SessionStore) Save(ctx context.Context, sessionID string, data []byte) error {
-    return s.cache.Set(ctx, "session:"+sessionID, data, 30*time.Minute)
+	return s.cache.Set(ctx, "session:"+sessionID, data, 30*time.Minute)
 }
 
 func (s *SessionStore) Load(ctx context.Context, sessionID string) ([]byte, error) {
-    return s.cache.Get(ctx, "session:"+sessionID)
+	return s.cache.Get(ctx, "session:"+sessionID)
 }
 ```
 
-Register the constructor with Vessel:
+Register the constructor after `forge.NewApp`:
 
 ```go
-forge.ProvideConstructor(app.Container(), NewSessionStore)
+err := forge.Provide(app.Container(), NewSessionStore)
 ```
+
+If you'd rather pull the cache out yourself, `cache.GetCache(container)`, `cache.GetCacheFromApp(app)`
+and `forge.Inject[cache.Cache](container)` all return the same singleton.
 
 ## Key Concepts
 
-- **Drivers** -- choose `inmemory`, `redis`, or `memcached` via config. The in-memory driver includes
-  automatic cleanup of expired entries and LRU-style eviction when `MaxSize` is reached.
-- **Key prefixing** -- set `Prefix` to namespace all keys, useful when sharing a cache backend across services.
-- **TTL defaults** -- if `Set()` is called with `ttl == 0`, the `DefaultTTL` from config is used.
-- **Extended interfaces** -- the in-memory backend also implements `StringCache`, `JSONCache`,
-  `CounterCache`, and `MultiCache` for typed convenience operations.
+- Drivers: `inmemory` works. `redis` and `memcached` pass validation and then fail at service
+  construction. The in-memory driver sweeps expired entries in the background and, when it's full,
+  evicts one entry per `Set` (an expired one if it finds one, otherwise an arbitrary one). That is
+  not LRU.
+- Key prefixing: `Prefix` is added to every key on write and stripped from `Keys` results.
+- TTL defaults: a `Set` with `ttl == 0` uses `DefaultTTL`.
+- Extra interfaces: the in-memory backend also implements `StringCache` and `JSONCache`.
+  `CounterCache` and `MultiCache` are declared in the package, but nothing implements them yet.
 
 ## Important Runtime Notes
 
-- Health checks delegate to the backend's `Ping()` method.
-- Metrics are emitted as counters: `cache_hit`, `cache_miss`, `cache_set`, `cache_delete`, `cache_clear`, `cache_evict`.
-- The `Keys()` method uses glob-style patterns (`*` as wildcard).
+- `CacheService.Health` pings the backend. The extension's own `Health` only reports whether it has
+  started.
+- The in-memory backend records counters named `cache_hit`, `cache_miss`, `cache_set`,
+  `cache_delete`, `cache_clear` and `cache_evict` through Forge metrics.
+- `Keys()` takes a glob with at most one `*`. A pattern with two wildcards matches nothing.
+- YAML keys are the Go field names (`DefaultTTL`, `MaxSize`), because `Config` has no YAML tags.
+  See [Configuration](/docs/extensions/cache/configuration).
 
 ## Detailed Pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/cache/features">
-Capabilities of each backend, extended interfaces, and metrics.
+TTLs, eviction, prefixes, key listing, metrics and the extra interfaces.
 </Card>
 <Card title="Configuration" href="/docs/extensions/cache/configuration">
-Config struct reference, YAML example, and programmatic options.
+Config fields, YAML keys and programmatic options.
 </Card>
 <Card title="Functions" href="/docs/extensions/cache/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

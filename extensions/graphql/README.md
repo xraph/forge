@@ -88,8 +88,8 @@ So what is it good for today? If you want to see gqlgen running inside a Forge a
 | A GraphQL endpoint on your existing router | `GET` and `POST` routes at `endpoint`, registered when the extension starts |
 | A browser IDE while you develop | GraphQL Playground at `playground_endpoint`, switched off with `WithPlayground(false)` |
 | Protection from expensive queries | gqlgen's fixed complexity limit, from `max_complexity` |
-| Smaller requests from repeat clients | Automatic persisted queries with an LRU cache of `max_cache_size` entries |
-| File uploads | gqlgen's multipart transport, capped at `max_upload_size` |
+| Smaller requests from repeat clients | Automatic persisted queries, with gqlgen's default cache |
+| File uploads | gqlgen's multipart transport, with gqlgen's default limits |
 | Federation | Apollo Federation v2 code generated in, including the `_service { sdl }` query |
 | Visibility | `graphql_operation_duration_seconds` and `graphql_operation_total`, debug logs per operation, error logs, and a warning for queries slower than `slow_query_threshold` |
 | N+1 batching in your own resolvers | The [`dataloader`](dataloader/) package |
@@ -128,9 +128,6 @@ extensions:
     playground_endpoint: /playground
     enable_playground: true
     max_complexity: 1000
-    enable_query_cache: true
-    max_cache_size: 1000
-    max_upload_size: 10485760   # 10MB
     enable_metrics: true
     enable_logging: true
     log_slow_queries: true
@@ -145,9 +142,6 @@ These settings change what the server does:
 | `playground_endpoint` | none | `/playground` | Path of the playground |
 | `enable_playground` | `WithPlayground` | `true` | Serves the playground |
 | `max_complexity` | `WithMaxComplexity` | `1000` | Complexity limit, `0` turns it off |
-| `enable_query_cache` | `WithQueryCache` | `true` | Turns on the persisted query cache |
-| `max_cache_size` | none | `1000` | Entries in that cache |
-| `max_upload_size` | none | `10485760` | Largest multipart upload, in bytes |
 | `enable_metrics` | `WithMetrics` | `true` | Records the two operation metrics |
 | `enable_logging` | none | `true` | Logs operations and GraphQL errors |
 | `log_slow_queries` | none | `true` | Warns about slow operations |
@@ -155,7 +149,7 @@ These settings change what the server does:
 
 The slow query warning only runs when you have metrics or logging on.
 
-`Config` has more fields, and some have options, but nothing reads them yet. `enable_introspection` (`WithIntrospection`) has no effect because gqlgen's default server always allows introspection, so you can't turn it off from config today. `max_depth` (`WithMaxDepth`), `query_timeout` (`WithTimeout`), `enable_dataloader` (`WithDataLoader`), `dataloader_batch_size`, `dataloader_wait`, `query_cache_ttl`, `enable_cors` and `allowed_origins` (`WithCORS`), `enable_tracing` (`WithTracing`), `auto_generate_schema` and `schema_file` are validated where there's a rule (`max_depth` has to be at least 1, `query_timeout` positive) and otherwise left alone.
+`Config` has more fields, and some have options, but nothing reads them yet. `enable_query_cache` (`WithQueryCache`), `max_cache_size` and `max_upload_size` are passed to a second persisted-query cache and a second multipart transport, but gqlgen's default server already registers its own, and those handle every request, so the defaults apply. `enable_introspection` (`WithIntrospection`) has no effect because gqlgen's default server always allows introspection, so you can't turn it off from config today. `max_depth` (`WithMaxDepth`), `query_timeout` (`WithTimeout`), `enable_dataloader` (`WithDataLoader`), `dataloader_batch_size`, `dataloader_wait`, `query_cache_ttl`, `enable_cors` and `allowed_origins` (`WithCORS`), `enable_tracing` (`WithTracing`), `auto_generate_schema` and `schema_file` are validated where there's a rule (`max_depth` has to be at least 1, `query_timeout` positive) and otherwise left alone.
 
 `WithConfig` replaces the whole config, and `WithRequireConfig(true)` makes a missing config section an error at startup. In the container you'll find `*graphql.GraphQLService` and the `graphql.GraphQL` interface, both backed by one instance.
 

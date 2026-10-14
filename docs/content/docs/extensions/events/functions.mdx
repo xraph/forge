@@ -3,92 +3,136 @@ title: Functions
 description: Public API reference for the Events extension
 ---
 
-## Extension Entry Points
+Everything below is in `github.com/xraph/forge/extensions/events` unless it starts with `core.`, `brokers.`, `stores.` or `schema.`. The `events` package re-exports most `core` types and constructors as aliases, so `events.NewTypedEventHandler` and `core.NewTypedEventHandler` are the same function.
+
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the events extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the events extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension() forge.Extension` | The extension with `DefaultConfig()` |
+| `NewExtensionWithConfig(config Config, options ...EventServiceOption) forge.Extension` | The extension with your config and service options |
+| `DefaultConfig() Config` | The default configuration |
+| `WithEventStore(store core.EventStore) EventServiceOption` | Lend the service a store it checks at startup and never closes |
+| `WithEventStoreFactory(factory EventStoreFactory) EventServiceOption` | Let the service build, own and close a store on every start |
 
-## DI Helpers
+`EventStoreFactory` is `func(context.Context, StoreConfig) (core.EventStore, error)`.
+
+## DI helpers
 
 | Function | Description |
 |---|---|
 | `GetEventService(c forge.Container) (*EventService, error)` | Resolve the event service |
-| `MustGetEventService(c forge.Container) *EventService` | Same but panics on error |
-| `GetEventBus(c forge.Container) (core.EventBus, error)` | Resolve the event bus |
-| `MustGetEventBus(c forge.Container) core.EventBus` | Same but panics on error |
-| `GetEventStore(c forge.Container) (core.EventStore, error)` | Resolve the event store |
-| `MustGetEventStore(c forge.Container) core.EventStore` | Same but panics on error |
-| `GetHandlerRegistry(c forge.Container) (*core.HandlerRegistry, error)` | Resolve the handler registry |
-| `MustGetHandlerRegistry(c forge.Container) *core.HandlerRegistry` | Same but panics on error |
+| `MustGetEventService(c forge.Container) *EventService` | Same, panics on error |
 | `GetEventServiceFromApp(app forge.App) (*EventService, error)` | Resolve the event service from an app |
-| `MustGetEventServiceFromApp(app forge.App) *EventService` | Same but panics on error |
+| `MustGetEventServiceFromApp(app forge.App) *EventService` | Same, panics on error |
+| `GetEventBus(c forge.Container) (core.EventBus, error)` | Resolve the event bus |
+| `MustGetEventBus(c forge.Container) core.EventBus` | Same, panics on error |
+| `GetEventStore(c forge.Container) (core.EventStore, error)` | Resolve the event store |
+| `MustGetEventStore(c forge.Container) core.EventStore` | Same, panics on error |
+| `GetHandlerRegistry(c forge.Container) (*core.HandlerRegistry, error)` | Resolve the handler registry |
+| `MustGetHandlerRegistry(c forge.Container) *core.HandlerRegistry` | Same, panics on error |
 
-## Event Construction
+`EventService` has `GetEventBus()`, `GetEventStore()`, `GetHandlerRegistry()`, `Start(ctx)`, `Stop(ctx)` and `HealthCheck(ctx)`.
+
+## Event construction
 
 | Function | Description |
 |---|---|
-| `core.NewEvent(eventType, aggregateID, data) *Event` | Create a new domain event |
-| `event.WithVersion(v)` | Set event version |
-| `event.WithSource(s)` | Set event source |
-| `event.WithCorrelationID(id)` | Set correlation ID for tracing |
-| `event.WithCausationID(id)` | Set causation ID for event chains |
-| `event.WithMetadata(key, value)` | Attach metadata |
+| `core.NewEvent(eventType, aggregateID string, data any) *Event` | New event with a UUID, a UTC timestamp and version 1 |
+| `event.WithVersion(version int)` | Set the version |
+| `event.WithSource(source string)` | Set the source |
+| `event.WithCorrelationID(id string)` | Set the correlation ID |
+| `event.WithCausationID(id string)` | Set the causation ID |
+| `event.WithMetadata(key string, value any)` | Attach metadata |
+| `event.GetMetadata(key) (any, bool)`, `event.GetMetadataString(key) string` | Read metadata |
+| `event.Clone()`, `event.Validate()`, `event.String()` | Copy, check required fields, format |
+| `NewSnapshot(aggregateID, snapshotType string, data any, version int) *Snapshot` | New snapshot; `WithMetadata(key, value)` adds metadata |
 
-## EventBus Interface
+## `core.EventBus`
 
 | Method | Description |
 |---|---|
-| `Publish(ctx, event) error` | Publish an event to the default broker |
-| `PublishTo(ctx, brokerName, event) error` | Publish to a specific named broker |
-| `Subscribe(eventType, handler) error` | Subscribe a handler to an event type |
-| `Unsubscribe(eventType, handlerName) error` | Remove a handler subscription |
-| `RegisterBroker(name, broker) error` | Register a new message broker at runtime |
-| `UnregisterBroker(name) error` | Remove a message broker |
-| `GetBroker(name) (MessageBroker, error)` | Get a registered broker by name |
-| `SetDefaultBroker(name) error` | Change the default broker |
-| `GetStats() map[string]any` | Get bus statistics |
+| `Publish(ctx, event) error` | Save to the store, then send to the default broker, or every broker when there's no default |
+| `PublishTo(ctx, brokerName, event) error` | Send to one broker without saving |
+| `Subscribe(eventType, handler) error` | Subscribe a handler on every registered broker |
+| `Unsubscribe(eventType, handlerName) error` | Remove every subscription with that handler name |
+| `RegisterBroker(name, broker) error` | Add a broker while the bus is stopped |
+| `UnregisterBroker(name) error` | Remove a broker while the bus is stopped |
+| `GetBroker(name) (MessageBroker, error)` | One broker by name |
+| `GetBrokers() map[string]MessageBroker` | Every registered broker |
+| `SetDefaultBroker(name) error` | Change where `Publish` sends |
+| `GetStats() map[string]any` | Bus, broker and handler statistics |
+| `Start(ctx)`, `Stop(ctx)`, `HealthCheck(ctx)` | Lifecycle. The extension calls these for you |
 
-## EventStore Interface
+## `core.EventStore`
 
 | Method | Description |
 |---|---|
-| `SaveEvent(ctx, event) error` | Persist a single event |
-| `SaveEvents(ctx, events) error` | Persist multiple events |
-| `GetEvent(ctx, id) (*Event, error)` | Retrieve an event by ID |
-| `GetEvents(ctx, criteria) ([]*Event, error)` | Query events by criteria |
-| `GetEventsByAggregate(ctx, aggregateID) ([]*Event, error)` | Get all events for an aggregate |
-| `GetEventsByType(ctx, eventType) ([]*Event, error)` | Get all events of a type |
-| `GetEventsSince(ctx, timestamp) ([]*Event, error)` | Get events after a timestamp |
-| `GetEventsInRange(ctx, start, end) ([]*Event, error)` | Get events in a time range |
-| `CreateSnapshot(ctx, snapshot) error` | Create an aggregate snapshot |
-| `GetSnapshot(ctx, aggregateID) (*Snapshot, error)` | Retrieve the latest snapshot |
+| `SaveEvent(ctx, event) error` | Save one event |
+| `SaveEvents(ctx, events []*Event) error` | Save several events |
+| `GetEvent(ctx, eventID) (*Event, error)` | One event by ID |
+| `GetEvents(ctx, criteria EventCriteria) (*EventCollection, error)` | Query by types, aggregates, sources, time range, metadata, paging and sort |
+| `GetEventsByAggregate(ctx, aggregateID string, fromVersion int) ([]*Event, error)` | An aggregate's events from a version on |
+| `GetEventsByType(ctx, eventType string, limit int, offset int64) ([]*Event, error)` | Events of one type |
+| `GetEventsSince(ctx, since time.Time, limit int, offset int64) ([]*Event, error)` | Events after a time |
+| `GetEventsInRange(ctx, start, end time.Time, limit int, offset int64) ([]*Event, error)` | Events in a time range |
+| `GetLastEvent(ctx, aggregateID) (*Event, error)` | An aggregate's latest event |
+| `GetEventCount(ctx) (int64, error)`, `GetEventCountByType(ctx, eventType) (int64, error)` | Counts |
+| `DeleteEvent(ctx, eventID) error`, `DeleteEventsByAggregate(ctx, aggregateID) error` | Soft deletes |
+| `CreateSnapshot(ctx, snapshot) error` | Save a snapshot |
+| `GetSnapshot(ctx, aggregateID) (*Snapshot, error)` | An aggregate's latest snapshot |
+| `DeleteSnapshot(ctx, snapshotID) error` | Remove a snapshot |
+| `Close(ctx)`, `HealthCheck(ctx)` | Lifecycle |
 
-## Handler Registration
+`NewEventCriteria()` returns a criteria builder with `WithEventTypes`, `WithAggregateIDs`, `WithSources`, `WithStartTime`, `WithEndTime`, `WithTimeRange`, `WithMetadata`, `WithLimit`, `WithOffset` and `WithSort`.
 
-| Function | Description |
-|---|---|
-| `NewTypedEventHandler(name, eventTypes, handler) *TypedEventHandler` | Create a handler for specific event types |
-| `NewDomainEventHandler(name, aggregateType, eventTypes, handler) *DomainEventHandler` | Create a handler for domain events by aggregate |
-| `NewReflectionEventHandler(name, target) *ReflectionEventHandler` | Create a handler from a struct's methods via reflection |
-| `NewRetryPolicy(maxRetries, initialDelay) *RetryPolicy` | Create a retry policy for handler failures |
-| `NewHandlerRegistry(logger, metrics) *HandlerRegistry` | Create a handler registry (typically done by extension) |
-
-## Built-in Middleware
+## Handlers
 
 | Function | Description |
 |---|---|
-| `LoggingMiddleware(logger) HandlerMiddleware` | Log event handling with timing |
-| `MetricsMiddleware(metrics) HandlerMiddleware` | Emit handler execution metrics |
-| `ValidationMiddleware() HandlerMiddleware` | Validate events before handling |
+| `NewTypedEventHandler(name string, eventTypes []string, handler EventHandlerFunc) *TypedEventHandler` | A named handler for exact event types |
+| `NewDomainEventHandler(name, aggregateType string, eventTypes []string, handler EventHandlerFunc) *DomainEventHandler` | A typed handler that also checks `aggregate_type` metadata |
+| `NewReflectionEventHandler(name string, target any) *ReflectionEventHandler` | Calls `Handle<Type>(ctx, event)` on `target` |
+| `NewRetryPolicy(maxRetries int, initialDelay time.Duration) *RetryPolicy` | Exponential backoff, factor 2, capped at five minutes |
+| `NewHandlerRegistry(logger, metrics) *HandlerRegistry` | A registry. The service makes its own, so you rarely need this |
 
-## Event Filters
+`TypedEventHandler` has `WithMiddleware(...)`, `WithRetryPolicy(policy)`, `WithLogger(logger)` and `WithMetrics(metrics)`. `RetryPolicy` has `WithMaxDelay`, `WithBackoffFactor`, `WithRetryableErrors`, `WithShouldRetryFunc`, `CalculateDelay(attempt)` and `ShouldRetry(err)`.
+
+Subscribe through `bus.Subscribe`, not `HandlerRegistry.Register`. The bus re-subscribes everything in the registry when it starts, but a handler you put straight into the registry while the bus runs never reaches a broker.
+
+## Built-in middleware
 
 | Function | Description |
 |---|---|
-| `core.TypeFilter(eventTypes...) EventFilter` | Filter events by type |
-| `core.AggregateFilter(aggregateIDs...) EventFilter` | Filter events by aggregate ID |
-| `core.SourceFilter(sources...) EventFilter` | Filter events by source |
-| `core.CombineFilters(filters...) EventFilter` | Combine multiple filters with AND logic |
+| `LoggingMiddleware(l forge.Logger) HandlerMiddleware` | Log the event and the handler's outcome and duration |
+| `MetricsMiddleware(metrics forge.Metrics) HandlerMiddleware` | Record handler duration and success or error counts |
+| `ValidationMiddleware() HandlerMiddleware` | Reject events that fail `event.Validate()` |
+
+## Event filters
+
+| Function | Description |
+|---|---|
+| `core.TypeFilter(eventTypes ...string) EventFilter` | Match exact event types |
+| `core.AggregateFilter(aggregateIDs ...string) EventFilter` | Match aggregate IDs |
+| `core.SourceFilter(sources ...string) EventFilter` | Match sources |
+| `core.CombineFilters(filters ...EventFilter) EventFilter` | Match only when every filter matches |
+
+Use them with `EventCollection.Filter(filter)`. `EventCollection` also has `Add(event)` and `SortByTimestamp(ascending bool)`.
+
+## Durable delivery
+
+| Function | Description |
+|---|---|
+| `core.RequireDurableBroker(broker MessageBroker) (DurableMessageBroker, error)` | Return the broker's durable interface, or `core.ErrDurableDeliveryUnavailable` |
+| `DurableMessageBroker.SubscribeDurable(ctx, topic, handler) error` | Subscribe with acknowledgement after handler success (Redis Streams) |
+
+## Brokers and stores
+
+| Function | Description |
+|---|---|
+| `brokers.NewMemoryBroker(logger, metrics) core.MessageBroker` | In-process broker |
+| `brokers.NewNATSBroker(config map[string]any, logger, metrics) (*NATSBroker, error)` | Core NATS broker |
+| `brokers.NewRedisBroker(config map[string]any, logger, metrics) (*RedisBroker, error)` | Redis Pub/Sub or Streams broker |
+| `stores.NewMemoryEventStore(logger, metrics) core.EventStore` | In-memory store |
+
+`stores.NewPostgresEventStore` and `stores.NewMongoEventStore` also exist, but the types they return don't implement `core.EventStore` yet.

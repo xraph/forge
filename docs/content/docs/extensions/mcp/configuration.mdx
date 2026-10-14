@@ -1,89 +1,101 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for MCP
+description: Config fields, YAML keys and option helpers for the MCP extension
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## How Config Is Loaded
+
+The extension reads `extensions.mcp` from your config, and falls back to a top-level `mcp` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`. So `BasePath: /mcp` or `Enabled: false` in YAML takes effect with a plain `mcp.NewExtension()`, and fields you leave out keep their defaults. One edge case: when the file has an `mcp` section, an option set to its default value or to a zero value (`false`, `0`, an empty string) looks the same as no option at all, and the file (or the default) wins for that field. So `WithEnabled(false)` next to a config section doesn't turn the extension off; put `Enabled: false` in the file.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on, but an `AppConfig` literal leaves it off. `WithRequireConfig(true)` makes a missing section an error at startup.
+
+## YAML Keys
+
+<Callout type="warn">
+`mcp.Config` has no `yaml` or `json` tags, so the keys are the Go field names, spelled exactly. `ToolPrefix` works. `toolPrefix` and `tool_prefix` are silently ignored.
+</Callout>
 
 ```yaml title="config.yaml"
 extensions:
   mcp:
-    enabled: true
-    basePath: "/_/mcp"
-    serverName: ""                   # defaults to app name
-    serverVersion: ""                # defaults to app version
+    Enabled: true
+    BasePath: /_/mcp
+    ServerName: orders-api        # defaults to the app name
+    ServerVersion: 1.0.0          # defaults to the app version
 
-    # Auto-exposure
-    autoExposeRoutes: true
-    toolPrefix: ""
-    excludePatterns: []
-    includePatterns: []
-    maxToolNameLength: 64
+    AutoExposeRoutes: true
+    ToolPrefix: shop_
+    ExcludePatterns: ["/_/*", "/internal/*"]
+    IncludePatterns: []
+    MaxToolNameLength: 64
 
-    # Capabilities
-    enableResources: false
-    enablePrompts: false
+    EnableResources: false
+    EnablePrompts: false
 
-    # Security
-    requireAuth: false
-    authHeader: "Authorization"
-    authTokens: []
-    rateLimitPerMinute: 0            # 0 = unlimited
+    # Validated, but not applied to the endpoints (see below)
+    RequireAuth: false
+    AuthHeader: Authorization
+    AuthTokens: []
+    RateLimitPerMinute: 0         # 0 means unlimited
 
-    # Performance
-    enableMetrics: true
-    schemaCache: true
+    EnableMetrics: true           # not read
+    SchemaCache: true
 ```
-
-The extension loads config from `extensions.mcp` first, falling back to `mcp`.
 
 ## Programmatic Configuration
 
 ```go
 ext := mcp.NewExtension(
-    mcp.WithBasePath("/_/mcp"),
-    mcp.WithAutoExpose(true),
-    mcp.WithToolPrefix("myapp_"),
-    mcp.WithResources(true),
-    mcp.WithPrompts(true),
+	mcp.WithBasePath("/_/mcp"),
+	mcp.WithAutoExposeRoutes(true),
+	mcp.WithToolPrefix("shop_"),
+	mcp.WithExcludePatterns([]string{"/_/*", "/internal/*"}),
+	mcp.WithResources(true),
+	mcp.WithPrompts(true),
 )
 ```
 
 ## Config Struct Reference
 
-### `Config`
-
-| Field | Type | Default | Description |
+| Field | Type | Default | What it does |
 |---|---|---|---|
-| `Enabled` | `bool` | `true` | Enable the extension |
-| `BasePath` | `string` | `"/_/mcp"` | Base path for MCP endpoints |
-| `ServerName` | `string` | `""` | Server name (defaults to app name) |
-| `ServerVersion` | `string` | `""` | Server version (defaults to app version) |
-| `AutoExposeRoutes` | `bool` | `true` | Auto-expose HTTP routes as tools |
+| `Enabled` | `bool` | `true` | When false, the extension registers nothing |
+| `BasePath` | `string` | `"/_/mcp"` | Prefix for every MCP endpoint. Can't be empty |
+| `ServerName` | `string` | `""` | Name in `/info`. Empty means the app's name |
+| `ServerVersion` | `string` | `""` | Version in `/info`. Empty means the app's version |
+| `AutoExposeRoutes` | `bool` | `true` | Turns routes into tools at start |
 | `ToolPrefix` | `string` | `""` | Prefix for generated tool names |
-| `ExcludePatterns` | `[]string` | `nil` | Route patterns to exclude |
-| `IncludePatterns` | `[]string` | `nil` | Route patterns to include (whitelist) |
-| `MaxToolNameLength` | `int` | `64` | Maximum tool name length |
-| `EnableResources` | `bool` | `false` | Enable MCP resources |
-| `EnablePrompts` | `bool` | `false` | Enable MCP prompts |
-| `RequireAuth` | `bool` | `false` | Require authentication |
-| `AuthHeader` | `string` | `"Authorization"` | Auth header name |
-| `AuthTokens` | `[]string` | `nil` | Valid authentication tokens |
-| `RateLimitPerMinute` | `int` | `0` | Rate limit (0 = unlimited) |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `SchemaCache` | `bool` | `true` | Cache generated schemas |
+| `ExcludePatterns` | `[]string` | none | Exact paths or `/prefix/*` globs to leave out. Checked first |
+| `IncludePatterns` | `[]string` | none | When set, only matching paths become tools |
+| `MaxToolNameLength` | `int` | `64` | Longer names are rejected. Must be at least 1 |
+| `EnableResources` | `bool` | `false` | Mounts `/resources` and `/resources/read` |
+| `EnablePrompts` | `bool` | `false` | Mounts `/prompts` and `/prompts/:name` |
+| `RequireAuth` | `bool` | `false` | Not applied. Read by `AuthMiddleware` if you wire it |
+| `AuthHeader` | `string` | `"Authorization"` | Header `AuthMiddleware` checks |
+| `AuthTokens` | `[]string` | none | Accepted tokens. Required when `RequireAuth` is true |
+| `RateLimitPerMinute` | `int` | `0` | Not applied. Read by `RateLimitMiddleware` if you wire it. Can't be negative |
+| `EnableMetrics` | `bool` | `true` | Not read. Metrics are recorded whenever the app has a metrics backend |
+| `SchemaCache` | `bool` | `true` | Gates `CacheSchema` and `GetCachedSchema`, which the extension doesn't call itself |
+| `RequireConfig` | `bool` | `false` | Fail at startup when no config section is found |
 
 ## Option Helpers
 
-| Function | Description |
+| Function | Sets |
 |---|---|
-| `WithEnabled(enabled)` | Toggle the extension |
-| `WithBasePath(path)` | Set the base path for MCP endpoints |
-| `WithAutoExpose(enabled)` | Toggle auto-exposure of routes |
-| `WithToolPrefix(prefix)` | Set tool name prefix |
-| `WithExcludePatterns(patterns...)` | Set route exclude patterns |
-| `WithResources(enabled)` | Toggle MCP resources |
-| `WithPrompts(enabled)` | Toggle MCP prompts |
-| `WithAuth(header, tokens...)` | Enable authentication |
-| `WithRateLimit(perMinute)` | Set rate limit |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithEnabled(enabled bool)` | `Enabled` |
+| `WithBasePath(basePath string)` | `BasePath` |
+| `WithServerInfo(name, version string)` | `ServerName`, `ServerVersion` |
+| `WithAutoExposeRoutes(autoExpose bool)` | `AutoExposeRoutes` |
+| `WithToolPrefix(prefix string)` | `ToolPrefix` |
+| `WithExcludePatterns(patterns []string)` | `ExcludePatterns` |
+| `WithIncludePatterns(patterns []string)` | `IncludePatterns` |
+| `WithResources(enable bool)` | `EnableResources` |
+| `WithPrompts(enable bool)` | `EnablePrompts` |
+| `WithAuth(authHeader string, tokens []string)` | `RequireAuth = true`, `AuthHeader`, `AuthTokens` |
+| `WithRateLimit(limit int)` | `RateLimitPerMinute` |
+| `WithRequireConfig(require bool)` | `RequireConfig` |
+| `WithConfig(config Config)` | Replaces the whole config |
+
+`MaxToolNameLength`, `EnableMetrics` and `SchemaCache` have no option of their own. Set them in YAML or through `WithConfig`. `NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`.

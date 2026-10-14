@@ -1,140 +1,143 @@
 ---
 title: gRPC
-description: gRPC server with TLS, interceptors, health checks, and reflection
+description: gRPC server with health checks, reflection and TLS, tied to the app lifecycle
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/grpc` provides a production-ready gRPC server for Forge applications.
-It registers a `GRPCService` in the DI container that manages a standalone TCP listener with configurable
-TLS, interceptors, health checking, and server reflection.
+`github.com/xraph/forge/extensions/grpc` runs a [grpc-go](https://github.com/grpc/grpc-go) server next to your HTTP server and ties it to the app's lifecycle. It gives you the standard gRPC health checking protocol, server reflection for tools like grpcurl, TLS and mutual TLS, keepalive and message size limits, request logging and metrics, and graceful shutdown.
 
-The gRPC server runs on its own port (default `:50051`), separate from the Forge HTTP router.
+The server listens on its own port (`:50051` by default), separate from the Forge HTTP router.
 
-## What It Registers
+<Callout type="warn">
+Registering your own generated services on the server this extension manages doesn't work reliably yet. Read [the known issue](#known-issue-registering-your-own-services) before you plan around it.
+</Callout>
 
-| Service | DI Key | Type |
+## What it registers
+
+| Service | DI key | Type |
 |---|---|---|
-| gRPC service | `grpc` | `*GRPCService` (also satisfies `GRPC`) |
+| gRPC service | `grpc` | `*grpcext.GRPCService` |
+| gRPC server | by type | `grpcext.GRPC`, backed by the same server |
 
-The service is managed by Vessel. `Start` begins listening on the configured address and `Stop` performs a graceful shutdown.
+The extension's `Start` starts the server on the configured address. Its `Stop` drains it with `GracefulStop` and falls back to a hard stop if that fails.
 
-## Quick Start
+## Quick start
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/grpc@latest
+```
+
+This starts a gRPC server on port 50051 with health checks and reflection, and adds a health checker for one dependency:
 
 ```go
 package main
 
 import (
-    "context"
-    "log"
+	"context"
+	"log"
 
-    "google.golang.org/grpc"
-    "github.com/xraph/forge"
-    forgeGrpc "github.com/xraph/forge/extensions/grpc"
-    pb "myapp/proto/greeter" // your protobuf generated package
+	"github.com/xraph/forge"
+	grpcext "github.com/xraph/forge/extensions/grpc"
 )
 
-// Implement your gRPC service
-type greeterServer struct {
-    pb.UnimplementedGreeterServer
-}
+type dbCheck struct{}
 
-func (s *greeterServer) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
-    return &pb.HelloReply{Message: "Hello " + req.Name}, nil
+func (dbCheck) Check(ctx context.Context) error {
+	return nil // ping your database here
 }
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "my-app", Version: "1.0.0"})
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "billing",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			grpcext.NewExtension(
+				grpcext.WithAddress(":50051"),
+				grpcext.WithReflection(true),
+				grpcext.WithHealthCheck(true),
+			),
+		},
+	})
 
-    app.RegisterExtension(forgeGrpc.NewExtension(
-        forgeGrpc.WithAddress(":50051"),
-        forgeGrpc.WithReflection(true),
-        forgeGrpc.WithHealthCheck(true),
-    ))
+	err := app.RegisterHookFn(forge.PhaseAfterStart, "grpc-health", func(ctx context.Context, a forge.App) error {
+		srv, err := forge.Inject[grpcext.GRPC](a.Container())
+		if err != nil {
+			return err
+		}
 
-    ctx := context.Background()
+		srv.RegisterHealthChecker("billing.db", dbCheck{})
 
-    // Resolve the gRPC service and register your proto services
-    svc, _ := forge.InjectType[*forgeGrpc.GRPCService](app.Container())
-    server := svc.Server() // access the GRPC interface
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Register the protobuf service
-    server.RegisterService(&pb.Greeter_ServiceDesc, &greeterServer{})
-
-    // Add custom interceptors
-    server.AddUnaryInterceptor(func(
-        ctx context.Context, req interface{},
-        info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-    ) (interface{}, error) {
-        log.Printf("gRPC call: %s", info.FullMethod)
-        return handler(ctx, req)
-    })
-
-    // Register health checkers
-    server.RegisterHealthChecker("greeter", &greeterHealthChecker{})
-
-    app.Start(ctx)
-    defer app.Stop(ctx)
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## Using gRPC in Your Services
+The package is named `grpc`, so the example imports it as `grpcext` to keep it apart from `google.golang.org/grpc`.
 
-Inject `*grpc.GRPCService` for automatic DI resolution:
+```bash
+grpcurl -plaintext localhost:50051 list
+# grpc.health.v1.Health
+# grpc.reflection.v1.ServerReflection
+# grpc.reflection.v1alpha.ServerReflection
 
-```go
-type MyService struct {
-    grpc forgeGrpc.GRPC
-}
-
-func NewMyService(g *forgeGrpc.GRPCService) *MyService {
-    return &MyService{grpc: g.Server()}
-}
+grpcurl -plaintext -d '{"service":"billing.db"}' localhost:50051 grpc.health.v1.Health/Check
+# { "status": "SERVING" }
 ```
 
-Register with Vessel:
+## Known issue: registering your own services
+
+There's no dependable point at which you can register a generated service (`pb.RegisterUserServiceServer`) on the managed server:
+
+| When you register | What happens |
+|---|---|
+| Before the extension starts | You can't reach the server yet: it's only in the container once the extension registers, and resolving it starts it. If you call `RegisterService` on a server you built with `grpcext.NewGRPCServer` before `Start`, `Start` builds a new `grpc.Server` and your registration is dropped |
+| After the extension starts | The server is already serving, and grpc-go stops the process with `grpc: Server.RegisterService after Server.Serve` |
+
+`AddUnaryInterceptor` and `AddStreamInterceptor` have the same timing problem. Interceptors are chained when the server is built, so one you add once it's running is stored and never called.
+
+Until that's fixed, keep your application services on a `grpc.Server` you create and start yourself (in a Forge `RunnableExtension` or a lifecycle hook), and use this extension for what works today: health checks, reflection, TLS, limits, logging and metrics on its own server.
+
+## TLS and mTLS
 
 ```go
-forge.ProvideConstructor(app.Container(), NewMyService)
-```
-
-## With TLS and mTLS
-
-```go
-forgeGrpc.NewExtension(
-    forgeGrpc.WithAddress(":50051"),
-    forgeGrpc.WithTLS("server.crt", "server.key", "ca.crt"),
-    forgeGrpc.WithClientAuth(true), // require client certificates (mTLS)
+grpcext.NewExtension(
+	grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
+	grpcext.WithClientAuth(true), // require and verify client certificates
 )
 ```
 
-## Key Concepts
+If the certificate or key can't be loaded, the extension logs `failed to load TLS credentials` and starts the server in plaintext. Check your logs after you turn TLS on.
 
-- **Standalone listener** -- the gRPC server binds its own TCP port, independent of the Forge HTTP router.
-- **TLS and mTLS** -- enable TLS with certificate and key files. Optionally require client certificates (mTLS) with a CA file.
-- **Interceptors** -- unary and streaming interceptors for logging, metrics, tracing, and recovery are automatically configured.
-- **Health checks** -- the gRPC health check service is enabled by default, implementing the standard `grpc.health.v1.Health` protocol.
-- **Reflection** -- server reflection is enabled by default for tools like `grpcurl` and `grpcui`.
-- **Keepalive** -- configurable keepalive parameters with enforcement policies.
+## Key concepts
 
-## Important Runtime Notes
+- The gRPC server binds its own TCP port, independent of the Forge HTTP router.
+- The `grpc.health.v1.Health` service is on by default. Register a checker per service name with `RegisterHealthChecker`.
+- Reflection is on by default for `grpcurl`, `grpcui` and similar tools.
+- Logging, metrics and a placeholder tracing interceptor are chained onto every call. There's no panic recovery interceptor.
+- Keepalive settings also set the maximum idle time and age of a connection.
 
-- Service registration (calling `RegisterService` on the gRPC server) must happen before the app starts.
-- The server runs in a background goroutine managed by Vessel lifecycle.
-- Health checks ping registered services and report status.
-
-## Detailed Pages
+## Detailed pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/grpc/features">
-Server capabilities, TLS, interceptors, and streaming support.
+Health checks, reflection, TLS, interceptors, limits and stats.
 </Card>
 <Card title="Configuration" href="/docs/extensions/grpc/configuration">
-Config reference, YAML example, and programmatic options.
+Config keys, defaults and options.
 </Card>
 <Card title="Functions" href="/docs/extensions/grpc/functions">
-Public API grouped by purpose with descriptions.
+Public API grouped by purpose.
 </Card>
 </Cards>

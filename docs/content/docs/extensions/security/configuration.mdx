@@ -1,128 +1,167 @@
 ---
 title: Configuration
-description: Config reference, YAML examples, and options for Security
+description: YAML keys, options and defaults for the Security extension
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+You can configure the extension with options in code, or under `extensions.security` (falling back to a top-level `security`) in your config file. Your options win over the file and the file wins over the defaults, one field at a time. A field you set in code to exactly its default value looks untouched, so the file still wins for that field.
+
+## YAML keys
+
+<Callout type="warn">
+Only the `session` and `cookie` sections have snake_case keys. Every other section binds to the Go field names, case and all, so the JWT key is `jwt.SigningKey`. A key the binder doesn't recognise, such as `jwt.signing_key` or `rate_limit.requestsPerWindow`, is silently ignored.
+</Callout>
+
+The section names themselves follow the struct tags: `rate_limit`, `security_headers`, `password_hasher` and `api_key` are snake_case.
 
 ```yaml title="config.yaml"
 extensions:
   security:
     session:
       enabled: true
-      store: "inmemory"
-      cookieName: "forge_session"
-      ttl: "24h"
-      idleTimeout: "30m"
-      autoApplyMiddleware: false
-      skipPaths: ["/health", "/metrics"]
+      store: inmemory            # "redis" fails at registration, see below
+      cookie_name: forge_session
+      ttl: 24h
+      auto_renew: true
+      auto_apply_middleware: false
+      skip_paths: ["/health", "/metrics"]
 
     cookie:
       enabled: true
-      secure: true
-      httpOnly: true
-      sameSite: "lax"
-      path: "/"
-
-    csrf:
-      enabled: true
-      tokenLength: 32
-      tokenLookup: "header:X-CSRF-Token"
-      ttl: "12h"
-      safeMethods: ["GET", "HEAD", "OPTIONS", "TRACE"]
-
-    rateLimit:
-      enabled: true
-      requestsPerWindow: 100
-      window: "1m"
-      store: "memory"
-      skipPaths: ["/health", "/metrics"]
+      secure: true               # set false for local development over plain HTTP
+      http_only: true
+      same_site: lax             # default, lax, strict or none (none needs secure)
+      path: /
+      domain: ""
+      max_age: 0
 
     jwt:
-      enabled: true
-      signingMethod: "HS256"
-      secret: "${JWT_SECRET}"
-      tokenLookup: "header:Authorization"
-      tokenPrefix: "Bearer"
-      ttl: "1h"
-      refreshTTL: "168h"             # 7 days
+      Enabled: true
+      SigningKey: change-me      # required while JWT is enabled
+      SigningMethod: HS256
+      TokenLookup: header:Authorization
+      TokenPrefix: Bearer
+      Issuer: ""
+      Audience: ""
+      TTL: 1h
+      RefreshTTL: 168h
+      SkipPaths: []
+      AutoApplyMiddleware: false
+
+    csrf:
+      Enabled: true
+      TokenLength: 32
+      TokenLookup: header:X-CSRF-Token
+      CookieName: csrf_token
+      CookieSecure: true
+      CookieSameSite: strict
+      TTL: 12h
+      SafeMethods: [GET, HEAD, OPTIONS, TRACE]
+      SkipPaths: []
+      AutoApplyMiddleware: false
+
+    rate_limit:
+      Enabled: true
+      RequestsPerWindow: 100
+      Window: 1m
+      SkipPaths: ["/health", "/metrics"]
+      AutoApplyMiddleware: false
+
+    security_headers:
+      Enabled: true
+      XFrameOptions: SAMEORIGIN
+      ContentSecurityPolicy: "default-src 'self'"
+      AutoApplyMiddleware: false
 
     cors:
-      enabled: true
-      allowOrigins: ["*"]
-      allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-      allowHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"]
-      exposeHeaders: []
-      maxAge: 3600
-      allowCredentials: false
+      Enabled: true
+      AllowOrigins: ["https://app.example.com"]
+      AllowMethods: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      AllowHeaders: [Origin, Content-Type, Accept, Authorization]
+      ExposeHeaders: []
+      AllowCredentials: true
+      MaxAge: 3600               # seconds
+      AutoApplyMiddleware: false
 
-    apiKey:
-      enabled: true
-      keyLookup: "header:X-API-Key"
+    api_key:
+      Enabled: true
+      KeyLookup: header:X-API-Key
+      KeyPrefix: ""
+      AutoApplyMiddleware: false
 
-    passwordHasher:
-      algorithm: "argon2id"          # "argon2id" or "bcrypt"
-      bcryptCost: 12
+    password_hasher:
+      Algorithm: argon2id        # or bcrypt
+      Argon2Memory: 65536        # KiB
+      Argon2Iterations: 3
+      Argon2Parallelism: 4
+      BcryptCost: 12
 
     audit:
-      enabled: true
-      level: "auth"                  # "none", "auth", "all"
-      excludePaths: ["/health", "/metrics"]
-
-    securityHeaders:
-      enabled: true
+      Enabled: true
+      Level: auth                # auth, data, admin, security or all
+      ExcludePaths: ["/health", "/metrics"]
+      AutoApplyMiddleware: false
 ```
 
-The extension loads config from `extensions.security` first, falling back to `security`.
+Durations take Go duration strings (`30s`, `1h`). The function fields (`ErrorHandler`, `APIKeyConfig.Validator`, `AuditConfig.Handler`) can only be set in code.
 
-## Programmatic Configuration
+The top-level `enabled` key has no effect from the file. The extension checks `Enabled` before it reads the file, so turn the whole extension off with `WithEnabled(false)` in code.
+
+## Options
+
+| Area | Options |
+|---|---|
+| Whole extension | `WithEnabled`, `WithConfig`, `WithRequireConfig`. `NewExtensionWithConfig(cfg)` is `NewExtension(WithConfig(cfg))` |
+| Sessions | `WithSessionEnabled`, `WithSessionStore`, `WithSessionCookieName`, `WithSessionTTL`, `WithSessionIdleTimeout`, `WithSessionAutoRenew`, `WithAutoApplyMiddleware`, `WithSkipPaths`, `WithRedisAddress`, `WithRedisPassword`, `WithRedisDB` |
+| Cookies | `WithCookieEnabled`, `WithCookieSecure`, `WithCookieHttpOnly`, `WithCookieSameSite`, `WithCookiePath`, `WithCookieDomain` |
+| Headers | `WithSecurityHeadersEnabled`, `WithSecurityHeadersConfig`, `WithSecureHeaders`, `WithAutoApplySecurityHeaders` |
+| Rate limiting | `WithRateLimitEnabled`, `WithRateLimitConfig`, `WithRateLimitPerIP`, `WithRateLimitPerUser`, `WithAutoApplyRateLimit` |
+| CORS | `WithCORSEnabled`, `WithCORSConfig`, `WithCORSOrigins`, `WithCORSMethods`, `WithCORSHeaders`, `WithCORSExposeHeaders`, `WithCORSAllowCredentials`, `WithCORSMaxAge`, `WithCORSMaxAgeDuration`, `WithCORSAllowPrivateNetwork`, `WithCORSSkipPaths`, `WithAutoApplyCORS` |
+| CSRF | `WithCSRFEnabled`, `WithCSRFConfig`, `WithAutoApplyCSRF` |
+| JWT | `WithJWTEnabled`, `WithJWTConfig`, `WithJWTSigningKey`, `WithAutoApplyJWT` |
+| API keys | `WithAPIKeyEnabled`, `WithAPIKeyConfig`, `WithAutoApplyAPIKey` |
+| Passwords | `WithPasswordHasherConfig`, `WithSecurePasswordHasher` |
+| Audit | `WithAuditEnabled`, `WithAuditConfig`, `WithAuditLevel`, `WithAutoApplyAudit` |
+
+Options apply in order. The `...Config` options and the `WithSecureHeaders` and `WithSecurePasswordHasher` presets replace their whole section, auto-apply switch included, so put them before the finer options for the same section. `WithRequireConfig(true)` makes registration fail when neither `extensions.security` nor `security` is in the config file.
 
 ```go
 ext := security.NewExtension(
-    security.WithSession(true, "inmemory", 24*time.Hour),
-    security.WithCSRF(true),
-    security.WithJWT(true, "HS256", "my-secret"),
-    security.WithRateLimit(true, 200, time.Minute),
-    security.WithCORS(true, "*"),
-    security.WithAPIKey(true, "header:X-API-Key"),
+	security.WithJWTSigningKey(os.Getenv("JWT_SIGNING_KEY")),
+	security.WithAutoApplyJWT(true),
+	security.WithSecureHeaders(),
+	security.WithAutoApplySecurityHeaders(true),
+	security.WithRateLimitPerIP(200, time.Minute),
+	security.WithAutoApplyRateLimit(true),
+	security.WithCORSOrigins([]string{"https://app.example.com"}),
+	security.WithCORSAllowCredentials(true),
+	security.WithAutoApplyCORS(true),
 )
 ```
 
-## Key Config Sections
+## Defaults
 
-### Session
+| Section | Default |
+|---|---|
+| Features | every one enabled, every auto-apply switch off |
+| Session | `inmemory`, cookie `forge_session`, 24-hour TTL, auto-renew on, skip `/health` and `/metrics` |
+| Cookie | `Secure`, `HttpOnly`, `SameSite=Lax`, path `/` |
+| JWT | `HS256`, no signing key, `header:Authorization` with prefix `Bearer`, 1-hour tokens, 7-day refresh tokens |
+| CSRF | 32-byte tokens kept 12 hours, `header:X-CSRF-Token`, cookie `csrf_token` (`Secure`, `SameSite=Strict`) |
+| Rate limit | 100 requests a minute per client IP, skip `/health` and `/metrics` |
+| Headers | `X-Frame-Options: SAMEORIGIN`, `nosniff`, `X-XSS-Protection: 1; mode=block`, HSTS for a year with subdomains (TLS only), `strict-origin-when-cross-origin`, `Server` and `X-Powered-By` removed |
+| CORS | every origin, no credentials, common methods and headers, preflight cached for 3600 seconds |
+| API keys | `header:X-API-Key` |
+| Passwords | Argon2id, 64 MiB, 3 iterations, 4 lanes. bcrypt cost 12 |
+| Audit | level `auth`, exclude `/health` and `/metrics` |
 
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `true` | Enable sessions |
-| `Store` | `"inmemory"` | Session store backend |
-| `CookieName` | `"forge_session"` | Session cookie name |
-| `TTL` | `24h` | Session TTL |
-| `IdleTimeout` | `30m` | Idle session timeout |
-| `AutoApplyMiddleware` | `false` | Auto-apply to all routes |
+## Accepted but not used
 
-### JWT
+These fields exist and pass validation, but nothing reads them yet:
 
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `true` | Enable JWT |
-| `SigningMethod` | `"HS256"` | Signing algorithm |
-| `Secret` | `""` | Signing secret (required for HMAC) |
-| `TTL` | `1h` | Token TTL |
-| `RefreshTTL` | `7d` | Refresh token TTL |
-
-### Rate Limit
-
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `true` | Enable rate limiting |
-| `RequestsPerWindow` | `100` | Max requests per window |
-| `Window` | `1m` | Time window |
-
-### CORS
-
-| Field | Default | Description |
-|---|---|---|
-| `Enabled` | `true` | Enable CORS |
-| `AllowOrigins` | `["*"]` | Allowed origins |
-| `MaxAge` | `3600` | Preflight cache (seconds) |
+- `session.store: redis` and the `session.redis` block (`address`, `password`, `db`, `pool_size`). Registration fails with "redis session store not yet implemented".
+- `session.idle_timeout`, `session.track_ip_address` and `session.track_user_agent`.
+- `rate_limit.Store`. Only the in-memory limiter exists.
+- `ErrorHandler` on JWT, CSRF and API keys. The middleware writes its own plain-text 401 or 403.
+- `audit.LogRequestBody`, `audit.LogResponseBody` and `audit.MaxBodySize`. The audit middleware never captures bodies.

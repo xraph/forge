@@ -1,111 +1,292 @@
 ---
 title: Configuration
-description: Config reference, YAML example, and options for Consensus
+description: Config keys, defaults, validation rules, and which keys the consensus extension reads
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Where config comes from
+
+The extension reads `extensions.consensus` from your config, falling back to `consensus`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option only counts as set when its value isn't the zero value and differs from the default, so a `false` you set in code doesn't override the file or a default of `true` while a `consensus` section exists. Put `false` values in the file.
+
+`WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the whole programmatic config, and `NewExtensionWithConfig(cfg)` is shorthand for it.
+
+<Callout type="warn">
+The extension validates and stores most of this config but doesn't act on it, because it never builds storage, a transport, discovery or a Raft node. The keys it does read are listed under [keys the extension acts on](#keys-the-extension-acts-on).
+</Callout>
+
+## YAML example
 
 ```yaml title="config.yaml"
 extensions:
   consensus:
-    nodeID: "node-1"                 # required, must be unique
-    clusterID: "default"
-    bindAddr: "0.0.0.0"
-    bindPort: 7000
-
+    node_id: node-1
+    cluster_id: orders
+    bind_addr: 0.0.0.0
+    bind_port: 7000
+    peers:
+      - {id: node-2, address: 10.0.0.2, port: 7000}
+      - {id: node-3, address: 10.0.0.3, port: 7000}
     raft:
-      heartbeatInterval: "1s"
-      electionTimeoutMin: "5s"
-      electionTimeoutMax: "10s"
-      snapshotInterval: "30m"
-      snapshotThreshold: 10000
-
+      heartbeat_interval: 1s
+      election_timeout_min: 5s
+      election_timeout_max: 10s
+      snapshot_interval: 30m
     transport:
-      type: "grpc"
-
-    discovery:
-      type: "static"                 # "static" or "dynamic"
-      peers:
-        - "node-2:7000"
-        - "node-3:7000"
-
+      type: grpc          # grpc or tcp
     storage:
-      type: "badger"
-      path: "./data/consensus"
-
-    election:
-      enabled: true
-
+      type: badger        # badger, boltdb, pebble or postgres
+      path: ./data/consensus
+    discovery:
+      type: static        # static, dns, consul, etcd or kubernetes
     health:
-      enabled: true
-
-    adminAPI:
-      enabled: true
-      pathPrefix: "/consensus"
-
-    events:
-      enabled: true
+      check_interval: 10s
+    admin_api:
+      enabled: false
+    advanced:
+      enable_auto_snapshot: false
 ```
 
-## Programmatic Configuration
+Keep `advanced.enable_auto_snapshot: false`. With the default of `true`, the extension's snapshot loop panics on its nil state machine after `raft.snapshot_interval`.
+
+## Programmatic configuration
 
 ```go
 ext := consensus.NewExtension(
-    consensus.WithNodeID("node-1"),
-    consensus.WithClusterID("my-cluster"),
-    consensus.WithBindAddr("0.0.0.0", 7000),
-    consensus.WithPeers("node-2:7000", "node-3:7000"),
-    consensus.WithSnapshotInterval(15*time.Minute),
+	consensus.WithNodeID("node-1"),
+	consensus.WithClusterID("orders"),
+	consensus.WithBindAddress("0.0.0.0", 7000),
+	consensus.WithPeers([]consensus.PeerConfig{
+		{ID: "node-2", Address: "10.0.0.2", Port: 7000},
+		{ID: "node-3", Address: "10.0.0.3", Port: 7000},
+	}),
+	consensus.WithTransportType("grpc"),
+	consensus.WithStorageType("badger"),
+	consensus.WithStoragePath("./data/consensus"),
 )
 ```
 
-## Config Struct Reference
+| Option | Sets |
+|---|---|
+| `WithNodeID(id string)` | `node_id` |
+| `WithClusterID(id string)` | `cluster_id` |
+| `WithBindAddress(addr string, port int)` | `bind_addr` and `bind_port` |
+| `WithPeers(peers []PeerConfig)` | `peers` |
+| `WithTransportType(transportType string)` | `transport.type` |
+| `WithDiscoveryType(discoveryType string)` | `discovery.type` |
+| `WithStorageType(storageType string)` | `storage.type` |
+| `WithStoragePath(path string)` | `storage.path` |
+| `WithTLS(certFile, keyFile string)` | `security.enable_tls`, `cert_file`, `key_file` |
+| `WithMTLS(caFile string)` | `security.enable_mtls`, `ca_file`. Also needs `WithTLS` |
+| `WithConfig(cfg Config)` | the whole config |
+| `WithRequireConfig(require bool)` | fail when the config section is missing |
 
-### Core
+There are no options for the Raft timings, snapshots, health, observability, the admin API, events or the advanced section. Set those in the file.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `NodeID` | `string` | `""` (required) | Unique node identifier |
-| `ClusterID` | `string` | `"default"` | Cluster identifier |
-| `BindAddr` | `string` | `"0.0.0.0"` | Raft bind address |
-| `BindPort` | `int` | `7000` | Raft bind port |
+## Validation
 
-### Raft
+`Register` validates the merged config, and your app won't start if any of these fail. Each error wraps `ErrInvalidConfig`.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `HeartbeatInterval` | `time.Duration` | `1s` | Leader heartbeat interval |
-| `ElectionTimeoutMin` | `time.Duration` | `5s` | Minimum election timeout |
-| `ElectionTimeoutMax` | `time.Duration` | `10s` | Maximum election timeout |
-| `SnapshotInterval` | `time.Duration` | `30m` | Snapshot creation interval |
-| `SnapshotThreshold` | `int` | `10000` | Log entries before snapshot |
+| Rule | Default |
+|---|---|
+| `node_id` is set | empty, so you must set it |
+| `cluster_id` is set | `default` |
+| `bind_port` is between 1 and 65535 | `7000` |
+| `raft.heartbeat_interval` > 0 | `1s` |
+| `raft.election_timeout_min` > `raft.heartbeat_interval` | `5s` |
+| `raft.election_timeout_max` > `raft.election_timeout_min` | `10s` |
+| `transport.type` is `grpc` or `tcp` | `grpc` |
+| `transport.max_message_size` > 0 | `4194304` (4MB) |
+| `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
+| `storage.type` is `badger`, `boltdb`, `pebble` or `postgres` | `badger` |
+| `storage.path` is set | `./data/consensus` |
+| `security.cert_file` and `key_file` are set when `enable_tls` is on | TLS off |
+| `enable_tls` is on and `ca_file` is set when `enable_mtls` is on | mTLS off |
 
-### Transport
+## Keys the extension acts on
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Type` | `string` | `"grpc"` | Transport protocol |
+| Key | Default | What it does |
+|---|---|---|
+| `node_id`, `cluster_id` | none, `default` | Show up in logs, stats and events |
+| `health.enabled`, `health.check_interval` | `true`, `10s` | Run a loop that calls `HealthCheck` and logs a warning when it fails, which today is every time (`storage not initialized`) |
+| `observability.metrics.enabled`, `collection_interval` | `true`, `15s` | Run a metrics loop. The service has no metrics sink, so it records nothing |
+| `advanced.enable_auto_snapshot`, `raft.snapshot_interval` | `true`, `30m` | Run the snapshot loop, which panics. Turn it off |
+| `admin_api.enabled` | `true` | Logs "admin API enabled but not yet implemented" and nothing else |
+| `events.enabled` | `true` | Adds `events` to the dependencies and tries to publish start, stop and reload events |
 
-### Discovery
+Everything else below is stored and validated where a rule exists, and otherwise ignored.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Type` | `string` | `"static"` | `"static"` or `"dynamic"` |
-| `Peers` | `[]string` | `[]` | Peer addresses (static mode) |
+## All keys
 
-### Storage
+### Node
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Type` | `string` | `"badger"` | Storage backend |
-| `Path` | `string` | `"./data/consensus"` | Data directory |
+| Key | Type | Default |
+|---|---|---|
+| `node_id` | `string` | `""` |
+| `cluster_id` | `string` | `default` |
+| `bind_addr` | `string` | `0.0.0.0` |
+| `bind_port` | `int` | `7000` |
+| `peers` | list of `{id, address, port}` | `[]` |
 
-### Feature Flags
+### `raft`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Election.Enabled` | `bool` | `true` | Enable leader election |
-| `Health.Enabled` | `bool` | `true` | Enable health checks |
-| `AdminAPI.Enabled` | `bool` | `true` | Enable admin API |
-| `AdminAPI.PathPrefix` | `string` | `"/consensus"` | Admin API path prefix |
-| `Events.Enabled` | `bool` | `true` | Emit events via events extension |
+| Key | Type | Default |
+|---|---|---|
+| `heartbeat_interval` | duration | `1s` |
+| `election_timeout_min` | duration | `5s` |
+| `election_timeout_max` | duration | `10s` |
+| `snapshot_interval` | duration | `30m` |
+| `snapshot_threshold` | `uint64` | `10000` |
+| `log_cache_size` | `int` | `1024` |
+| `max_append_entries` | `int` | `64` |
+| `trailing_logs` | `uint64` | `10000` |
+| `replication_batch_size` | `int` | `100` |
+| `leader_lease_timeout` | duration | `500ms` |
+| `pre_vote` | `bool` | `true` |
+| `check_quorum` | `bool` | `true` |
+| `disable_pipeline` | `bool` | `false` |
+
+### `transport`
+
+| Key | Type | Default |
+|---|---|---|
+| `type` | `string` | `grpc` |
+| `max_message_size` | `int` | `4194304` |
+| `timeout` | duration | `10s` |
+| `keep_alive` | `bool` | `true` |
+| `keep_alive_interval` | duration | `30s` |
+| `keep_alive_timeout` | duration | `10s` |
+| `max_connections` | `int` | `100` |
+| `connection_timeout` | duration | `5s` |
+| `idle_timeout` | duration | `5m` |
+| `enable_compression` | `bool` | `true` |
+| `compression_level` | `int` | `6` |
+| `enable_multiplexing` | `bool` | `true` |
+
+### `discovery`
+
+| Key | Type | Default |
+|---|---|---|
+| `type` | `string` | `static` |
+| `endpoints` | `[]string` | `[]` |
+| `namespace` | `string` | `default` |
+| `service_name` | `string` | `forge-consensus` |
+| `refresh_interval` | duration | `30s` |
+| `timeout` | duration | `10s` |
+| `ttl` | duration | `60s` |
+| `enable_watch` | `bool` | `true` |
+
+### `storage`
+
+| Key | Type | Default |
+|---|---|---|
+| `type` | `string` | `badger` |
+| `path` | `string` | `./data/consensus` |
+| `sync_writes` | `bool` | `true` |
+| `max_batch_size` | `int` | `1000` |
+| `max_batch_delay` | duration | `10ms` |
+| `compact_on_start` | `bool` | `false` |
+| `badger_options.value_log_max_entries` | `uint32` | `1000000` |
+| `badger_options.mem_table_size` | `int64` | `67108864` (64MB) |
+| `badger_options.num_mem_tables` | `int` | `5` |
+| `badger_options.num_level_zero_tables` | `int` | `5` |
+| `badger_options.num_compactors` | `int` | `4` |
+| `bolt_options.no_sync` | `bool` | `false` |
+| `bolt_options.no_grow_sync` | `bool` | `false` |
+| `bolt_options.initial_mmap_size` | `int` | `0` |
+| `bolt_options.timeout` | duration | `1s` |
+
+### `election`
+
+| Key | Type | Default |
+|---|---|---|
+| `enabled` | `bool` | `true` |
+| `randomized_timeout` | `bool` | `true` |
+| `pre_vote` | `bool` | `true` |
+| `priority_election` | `bool` | `false` |
+| `priority` | `int` | `0` |
+| `step_down_on_remove` | `bool` | `true` |
+| `leader_stickiness` | duration | `10s` |
+
+### `health`
+
+| Key | Type | Default |
+|---|---|---|
+| `enabled` | `bool` | `true` |
+| `check_interval` | duration | `10s` |
+| `timeout` | duration | `5s` |
+| `unhealthy_threshold` | `int` | `3` |
+| `healthy_threshold` | `int` | `2` |
+
+### `observability`
+
+| Key | Type | Default |
+|---|---|---|
+| `metrics.enabled` | `bool` | `true` |
+| `metrics.collection_interval` | duration | `15s` |
+| `metrics.namespace` | `string` | `forge_consensus` |
+| `metrics.enable_detailed_metrics` | `bool` | `true` |
+| `tracing.enabled` | `bool` | `false` |
+| `tracing.service_name` | `string` | `forge-consensus` |
+| `tracing.sample_rate` | `float64` | `0.1` |
+| `logging.level` | `string` | `info` |
+| `logging.enable_structured` | `bool` | `true` |
+| `logging.log_raft_details` | `bool` | `false` |
+
+### `security`
+
+| Key | Type | Default |
+|---|---|---|
+| `enable_tls` | `bool` | `false` |
+| `enable_mtls` | `bool` | `false` |
+| `cert_file`, `key_file`, `ca_file` | `string` | `""` |
+| `skip_verify` | `bool` | `false` |
+| `enable_encryption` | `bool` | `false` |
+| `encryption_key` | `string` | `""` |
+
+### `resilience`
+
+| Key | Type | Default |
+|---|---|---|
+| `enable_retry` | `bool` | `true` |
+| `max_retries` | `int` | `3` |
+| `retry_delay` | duration | `100ms` |
+| `retry_backoff_factor` | `float64` | `2.0` |
+| `max_retry_delay` | duration | `5s` |
+| `enable_circuit_breaker` | `bool` | `true` |
+| `circuit_breaker_threshold` | `int` | `5` |
+| `circuit_breaker_timeout` | duration | `30s` |
+
+### `admin_api`
+
+| Key | Type | Default |
+|---|---|---|
+| `enabled` | `bool` | `true` |
+| `path_prefix` | `string` | `/consensus` |
+| `enable_auth` | `bool` | `false` |
+| `api_key` | `string` | `""` |
+
+### `events`
+
+| Key | Type | Default |
+|---|---|---|
+| `enabled` | `bool` | `true` |
+| `emit_leader_change` | `bool` | `true` |
+| `emit_node_events` | `bool` | `true` |
+| `emit_cluster_events` | `bool` | `true` |
+
+### `advanced`
+
+| Key | Type | Default |
+|---|---|---|
+| `enable_auto_snapshot` | `bool` | `true` |
+| `enable_auto_compaction` | `bool` | `true` |
+| `compaction_interval` | duration | `1h` |
+| `max_memory_usage` | `int64` | `1073741824` (1GB) |
+| `gc_interval` | duration | `5m` |
+| `enable_read_index` | `bool` | `true` |
+| `enable_leased_reads` | `bool` | `true` |
+
+## Hot reload
+
+The extension implements `Reload(ctx)`. It reloads and validates the config, then copies the `observability`, `health` and `admin_api` sections into the running service. The loops that already started keep their old intervals.

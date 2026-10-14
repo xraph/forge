@@ -1,771 +1,148 @@
-# Distributed Deployment Guide
+# Running streaming on several nodes
 
-## Overview
+This guide covers running the streaming extension on more than one node: what the Redis backend shares between nodes, what stays local to each node, how to put a load balancer in front, and what isn't there yet. Read the [README](README.md) first for the single-node setup.
 
-This guide provides instructions for deploying the Forge v2 streaming extension in a distributed, multi-node configuration with authentication, message filtering, rate limiting, load balancing, and cross-node coordination.
+The short version: point every node at the same Redis server with the Redis backend, give each node a stable node ID, and put your own load balancer in front. Rooms, channels, history, presence and typing state live in Redis, and a broadcast on one node reaches clients on the others. Rate limits, connection limits and resumable WebSocket sessions are still per node.
 
-## Architecture
+## What you need
 
+- Go 1.26 or later.
+- One Redis server that every node can reach. The extension talks to a single Redis server (see [Limits](#limits)), not Redis Cluster or Sentinel.
+- A load balancer that supports WebSocket upgrades and long-lived SSE responses (NGINX, HAProxy, Envoy or a cloud load balancer).
+
+NATS isn't an option yet. `WithNATSBackend` and `backend: nats` make the extension fail at registration with "failed to create stores", because the NATS stores aren't implemented.
+
+## Configure each node
+
+`WithRedisBackend` turns on the Redis backend and distributed mode together. Give every node its own `WithNodeID`. If you leave it out, the node generates a random ID on every start.
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"time"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/streaming"
+)
+
+func main() {
+	stream := streaming.NewExtension(
+		streaming.WithRedisBackend(os.Getenv("REDIS_ADDR")), // host:port, for example redis:6379
+		streaming.WithAuthentication("", os.Getenv("REDIS_PASSWORD")),
+		streaming.WithNodeID(os.Getenv("NODE_ID")),
+		streaming.WithSessionResumption(10*time.Minute),
+	)
+
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "live",
+		HTTPAddress: ":8080",
+		Extensions:  []forge.Extension{stream},
+	})
+
+	err := forge.OnStarted(app, "streaming-routes", func(_ context.Context, a forge.App) error {
+		return stream.RegisterRoutes(a.Router(), "/ws", "/events")
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Node 1     │     │   Node 2     │     │   Node 3     │
-│              │     │              │     │              │
-│  ┌────────┐  │     │  ┌────────┐  │     │  ┌────────┐  │
-│  │Manager │  │     │  │Manager │  │     │  │Manager │  │
-│  └───┬────┘  │     │  └───┬────┘  │     │  └───┬────┘  │
-│      │       │     │      │       │     │      │       │
-└──────┼───────┘     └──────┼───────┘     └──────┼───────┘
-       │                    │                    │
-       └────────────────────┼────────────────────┘
-                            │
-                   ┌────────▼────────┐
-                   │   Coordinator   │
-                   │  (Redis/NATS)   │
-                   └─────────────────┘
-```
 
-## Prerequisites
+Pass the Redis address as `host:port`. The value goes straight to the go-redis client as its address, so a URL such as `redis://redis:6379` doesn't parse as an address and every Redis call fails. Only the first entry in the backend URL list is used.
 
-### Infrastructure
-- **Compute**: 3+ nodes (recommended minimum)
-- **Load Balancer**: NGINX, HAProxy, or cloud load balancer
-- **Redis Cluster** (for Redis coordinator) OR **NATS Cluster** (for NATS coordinator)
-- **Network**: Low-latency network between nodes
-
-### Software
-- Go 1.21+
-- Redis 7.0+ (if using Redis coordinator)
-- NATS 2.10+ with JetStream (if using NATS coordinator)
-
-## Setup
-
-### 1. Redis Coordinator Setup
-
-#### 1.1 Redis Cluster Deployment
-
-**Using Docker Compose**:
+The same settings in YAML, under `extensions.streaming`:
 
 ```yaml
-version: '3.8'
-
-services:
-  redis-node-1:
-    image: redis:7-alpine
-    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
-    ports:
-      - "7001:6379"
-    volumes:
-      - redis-1:/data
-
-  redis-node-2:
-    image: redis:7-alpine
-    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
-    ports:
-      - "7002:6379"
-    volumes:
-      - redis-2:/data
-
-  redis-node-3:
-    image: redis:7-alpine
-    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
-    ports:
-      - "7003:6379"
-    volumes:
-      - redis-3:/data
-
-volumes:
-  redis-1:
-  redis-2:
-  redis-3:
+extensions:
+  streaming:
+    backend: redis
+    backend_urls: ["redis:6379"]
+    backend_password: ""
+    enable_distributed: true
+    node_id: api-1
+    enable_session_resumption: true
+    session_resumption_ttl: 10m
 ```
 
-**Initialize Cluster**:
+Validation fails at startup if `enable_distributed` is on with the local backend, or if the Redis backend has no `backend_urls`.
 
-```bash
-redis-cli --cluster create \
-  127.0.0.1:7001 \
-  127.0.0.1:7002 \
-  127.0.0.1:7003 \
-  --cluster-replicas 0
-```
+### TLS to Redis
 
-#### 1.2 Application Configuration
+`WithTLS(cert, key, ca)` turns on TLS for the Redis connection with TLS 1.2 or newer. Validation requires a client certificate and key whenever TLS is on, and the CA file is accepted but never loaded, so the server certificate is checked against the host's trust store.
 
-```go
-package main
+## What's shared and what's per node
 
-import (
-    "github.com/redis/go-redis/v9"
-    "github.com/xraph/forge/extensions/streaming"
-    "github.com/xraph/forge/extensions/streaming/coordinator"
-)
+| State | Where it lives | What that means for you |
+| --- | --- | --- |
+| Rooms, members, channels | Redis | A room created on one node is visible on all of them |
+| Message history and sequence numbers | Redis | History queries and SSE replay work on any node (see [Sequences and reconnects](#sequences-and-reconnects)) |
+| Presence and typing | Redis | `GetPresence` and `GetTypingUsers` agree across nodes |
+| Broadcasts | Relayed over Redis Pub/Sub by the coordinator | `Broadcast`, `BroadcastToRoom` and `SendToUser` reach clients connected to other nodes |
+| Open connections | In memory, per node | `GetAllConnections` and `ConnectionCount` only see this node |
+| Rate limits | In memory, per node | A user gets `max_messages_per_second` on each node they're connected to |
+| Connection limits | Per node | `max_connections_per_user`, `max_anonymous_connections` and `max_total_connections` count local connections only |
+| Resumable WebSocket sessions | In memory, per node | A client has to reconnect to the same node to get its rooms and channels back |
 
-func main() {
-    // Redis client
-    redisClient := redis.NewClusterClient(&redis.ClusterOptions{
-        Addrs: []string{
-            "redis-node-1:6379",
-            "redis-node-2:6379",
-            "redis-node-3:6379",
-        },
-    })
+If the coordinator's Redis client can't be created, the node logs "distributed messaging disabled" and keeps running without cross-node broadcasts. Watch for that line when you roll out.
 
-    // Create coordinator
-    coord := coordinator.NewRedisCoordinator(redisClient, "node-1")
+## Put a load balancer in front
 
-    // Configure streaming extension
-    config := streaming.Config{
-        NodeID: "node-1",
-        Coordination: streaming.CoordinationConfig{
-            Enabled:       true,
-            Backend:       "redis",
-            URLs:          []string{"redis-node-1:6379", "redis-node-2:6379"},
-            PresenceSync:  true,
-            RoomStateSync: true,
-            SyncInterval:  30 * time.Second,
-        },
-    }
+Nothing in the extension routes clients to nodes, so your load balancer decides where each connection lands.
 
-    // Create extension with coordinator
-    streamExt := streaming.NewExtension(config)
-    // Set coordinator on manager after initialization
-}
-```
+- WebSocket: the upgrade needs `Upgrade` and `Connection` headers passed through, and idle timeouts longer than the ping interval (30 seconds by default). If you use session resumption, make sessions sticky (by cookie or by a hash of the `session_id` query parameter), because resumable sessions are kept in the memory of the node that issued them.
+- SSE: turn off response buffering for the SSE path. Sticky sessions aren't needed: a browser that reconnects to another node with `Last-Event-ID` gets the room messages it missed, because history and sequences live in Redis.
+- The `POST {ssePath}/subscribe` and `/unsubscribe` calls change the subscriptions of a connection by its `conn_id`, and a connection only exists on the node that holds it. Route those calls to the same node as the SSE stream, or the node that gets them answers 404.
 
-### 2. NATS Coordinator Setup
+`WithLoadBalancer(strategy)` doesn't replace any of this. With distributed mode on, it keeps an in-process registry of the nodes it hears about over the coordinator, plus a health checker for them, but nothing in the extension uses that registry to pick a node for a client.
 
-#### 2.1 NATS Cluster Deployment
+## Sequences and reconnects
 
-**Using Docker Compose**:
+Each room message carries a `Sequence` assigned by the message store, and a reconnecting SSE client presents a cursor (`Last-Event-ID`) to get exactly what it missed. Across nodes this only works if a sequence means the same thing everywhere, and two things make sure it does:
 
-```yaml
-version: '3.8'
+1. The Redis message store assigns sequences with `INCR`, which is atomic on the server. The local store's counter is per process, so two nodes on the local backend would hand out the same numbers to different messages. That's one more reason the local backend is for a single node only.
+2. A message that already carries a sequence keeps it. The store only assigns one when `Sequence` is zero, so a message never ends up with different numbers on different nodes.
 
-services:
-  nats-1:
-    image: nats:latest
-    command: >
-      -js
-      -cluster nats://0.0.0.0:6222
-      -routes nats://nats-2:6222,nats://nats-3:6222
-    ports:
-      - "4222:4222"
-      - "6222:6222"
-      - "8222:8222"
-    volumes:
-      - nats-1:/data
+The shared contract suite in `backends/storetest` runs against both the local and the Redis message stores and checks this behaviour.
 
-  nats-2:
-    image: nats:latest
-    command: >
-      -js
-      -cluster nats://0.0.0.0:6222
-      -routes nats://nats-1:6222,nats://nats-3:6222
-    ports:
-      - "4223:4222"
-      - "6223:6222"
-      - "8223:8222"
-    volumes:
-      - nats-2:/data
+When a node can't honour a cursor, the stream sends a `resync_required` event and your client reloads.
 
-  nats-3:
-    image: nats:latest
-    command: >
-      -js
-      -cluster nats://0.0.0.0:6222
-      -routes nats://nats-1:6222,nats://nats-2:6222
-    ports:
-      - "4224:4222"
-      - "6224:6222"
-      - "8224:8222"
-    volumes:
-      - nats-3:/data
+## Monitoring
 
-volumes:
-  nats-1:
-  nats-2:
-  nats-3:
-```
+Every node reports to its own Forge metrics, so aggregate across nodes in your metrics backend. Useful ones, all under `streaming.`:
 
-#### 2.2 Application Configuration
+- `connections.active`, `connections.total`, `connections.rejected_at_capacity`, `connections.anon_rejected`
+- `messages.broadcast`, `messages.room_broadcast`, `messages.rate_limited`, `messages.oversize`, `messages.send_denied`, `messages.validation_failed`
+- `rooms.joins`, `rooms.joins_denied`
+- `sendqueue.depth`, `sendqueue.dropped`
+- `sessions.resumed`, `sessions.resume_denied`, `replay.messages`, `replay.sessions`
 
-```go
-package main
+There are no coordinator metrics. `Manager().GetStats(ctx)` returns a snapshot for one node, and the extension's health check fails when that node's manager is unhealthy, so wire it into your load balancer's health check.
 
-import (
-    "github.com/nats-io/nats.go"
-    "github.com/xraph/forge/extensions/streaming"
-    "github.com/xraph/forge/extensions/streaming/coordinator"
-)
+## Limits
 
-func main() {
-    // NATS connection
-    nc, err := nats.Connect(
-        nats.Name("streaming-node-1"),
-        nats.Servers("nats://nats-1:4222", "nats://nats-2:4222", "nats://nats-3:4222"),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
+These are the gaps you're most likely to hit:
 
-    // Create coordinator
-    coord, err := coordinator.NewNATSCoordinator(nc, "node-1")
-    if err != nil {
-        log.Fatal(err)
-    }
+- One Redis server. The client is a plain go-redis client on the first address in the list. Redis Cluster and Sentinel aren't supported.
+- No NATS backend. `coordinator.NewNATSCoordinator` exists in the package but the extension never uses it.
+- Rate limits, connection limits and resumable sessions are per node, as the table above shows.
+- The presence and room state synchronizers in the `coordinator` package aren't wired in. Shared state comes from the Redis stores instead.
 
-    // Configure streaming extension
-    config := streaming.Config{
-        NodeID: "node-1",
-        Coordination: streaming.CoordinationConfig{
-            Enabled:       true,
-            Backend:       "nats",
-            URLs:          []string{"nats://nats-1:4222"},
-            PresenceSync:  true,
-            RoomStateSync: true,
-            SyncInterval:  30 * time.Second,
-        },
-    }
+Identity works the same on every node: the built-in handlers take the caller from the `user_id` value your middleware sets. [The README FAQ](README.md#how-do-i-authenticate-websocket-connections) shows how.
 
-    streamExt := streaming.NewExtension(config)
-}
-```
+## Troubleshooting
 
-### 3. Authentication Setup
+Broadcasts don't reach clients on other nodes. Check every node's startup log for "distributed messaging disabled", make sure every node uses the same Redis server, and make sure each node has a different `node_id`.
 
-#### 3.1 Enable Authentication
+Every Redis call fails right after startup. Check that the backend URL is `host:port` and not `redis://host:port`.
 
-```go
-import (
-    "github.com/xraph/forge/extensions/auth"
-    "github.com/xraph/forge/extensions/streaming"
-    streamAuth "github.com/xraph/forge/extensions/streaming/auth"
-)
+A reconnecting WebSocket client loses its rooms. The client landed on a different node from the one that holds its session. Make the load balancer sticky, or have the client rejoin its rooms after it reconnects.
 
-// Setup auth extension
-authExt := auth.NewExtension(auth.Config{
-    Providers: []auth.ProviderConfig{
-        {
-            Name: "jwt",
-            Type: "jwt",
-            Config: map[string]any{
-                "secret": "your-secret-key",
-            },
-        },
-        {
-            Name: "api_key",
-            Type: "api_key",
-        },
-    },
-})
-
-// Register auth extension
-app.RegisterExtension(authExt)
-
-// Configure streaming with auth
-streamConfig := streaming.Config{
-    RequireAuth:        true,
-    AuthProviders:      []string{"jwt", "api_key"},
-    RoomAuthEnabled:    true,
-    MessageAuthEnabled: true,
-}
-```
-
-### 4. Load Balancing Configuration
-
-#### 4.1 Sticky Sessions
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/lb"
-)
-
-// Create sticky session store (using Redis)
-sessionStore := // Create Redis-backed session store
-
-// Create base load balancer
-baseBalancer := lb.NewConsistentHashBalancer(150, nodeStore)
-
-// Wrap with sticky sessions
-loadBalancer := lb.NewStickyLoadBalancer(
-    time.Hour,        // Session TTL
-    baseBalancer,     // Fallback strategy
-    sessionStore,
-)
-
-// Set on manager
-manager.SetLoadBalancer(loadBalancer)
-```
-
-#### 4.2 Geographic Proximity
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/lb"
-)
-
-// Create geo locator
-geoLocator := lb.NewSimpleGeoLocator()
-
-// Create geo-aware load balancer
-loadBalancer := lb.NewGeoProximityBalancer(
-    geoLocator,
-    fallbackBalancer,
-    nodeStore,
-)
-
-// Register nodes with geo info
-loadBalancer.RegisterNode(ctx, &lb.NodeInfo{
-    ID:        "node-us-east",
-    Address:   "10.0.1.10",
-    Port:      8080,
-    Latitude:  40.7128,
-    Longitude: -74.0060,
-    Region:    "us-east-1",
-})
-```
-
-### 5. Rate Limiting Configuration
-
-#### 5.1 Distributed Rate Limiting with Redis
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/ratelimit"
-    "github.com/redis/go-redis/v9"
-)
-
-// Create Redis store for rate limiting
-rateLimitStore := // Create Redis-backed store
-
-// Create rate limiter
-rateLimiter := ratelimit.NewTokenBucket(
-    ratelimit.RateLimitConfig{
-        MessagesPerSecond:     10,
-        MessagesPerMinute:     100,
-        BurstSize:            20,
-        RoomMessagesPerSecond: 100,
-        ConnectionsPerUser:    5,
-        ConnectionsPerIP:      20,
-    },
-    rateLimitStore,
-)
-
-// Set on manager
-manager.SetRateLimiter(rateLimiter)
-```
-
-### 6. Message Filtering and Validation
-
-#### 6.1 Setup Filters
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/filters"
-)
-
-// Content filter
-contentFilter := filters.NewContentFilter(filters.ContentFilterConfig{
-    EnableProfanity:     true,
-    ProfanityList:       []string{"badword1", "badword2"},
-    ProfanityAction:     "replace",
-    ReplaceWith:         "***",
-    EnableURLFilter:     true,
-    BlockedDomains:      []string{"spam.com"},
-    EnableSpamDetection: true,
-    MaxURLs:             3,
-    MaxMentions:         5,
-})
-
-// Permission filter
-permissionFilter := filters.NewPermissionFilter(
-    filters.NewDefaultPermissionChecker(roomStore),
-)
-
-// Size filter
-sizeFilter := filters.NewSizeFilter(filters.SizeFilterConfig{
-    MaxMessageSize:         10240, // 10KB
-    EnableTruncation:       true,
-    TruncateLength:         1024,
-    EnableCompression:      true,
-    CompressionThreshold:   2048,
-    CompressionMinSavings:  0.2,
-})
-
-// Add to manager
-manager.AddMessageFilter(permissionFilter)
-manager.AddMessageFilter(contentFilter)
-manager.AddMessageFilter(sizeFilter)
-```
-
-#### 6.2 Setup Validators
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/validation"
-)
-
-// Composite validator
-validator := validation.NewCompositeValidator(
-    validation.NewContentValidator(validation.ContentValidatorConfig{
-        MaxContentLength: 10000,
-        MinContentLength: 1,
-        RequireUserID:    true,
-        RequireType:      true,
-        ValidateURLs:     true,
-    }),
-    validation.NewSecurityValidator(validation.SecurityValidatorConfig{
-        EnableXSSPrevention:         true,
-        EnableSQLInjectionCheck:     true,
-        EnableScriptInjectionCheck:  true,
-        EnableLinkSafety:            true,
-        AllowedProtocols:            []string{"http", "https"},
-        BlockedDomains:              []string{"malicious.com"},
-    }),
-)
-
-// Set on manager
-manager.SetMessageValidator(validator)
-```
-
-### 7. Health Checking
-
-#### 7.1 Enable Health Checks
-
-```go
-import (
-    "github.com/xraph/forge/extensions/streaming/lb"
-)
-
-// Create health checker
-healthChecker := lb.NewHealthChecker(
-    lb.HealthCheckConfig{
-        Enabled:       true,
-        Interval:      10 * time.Second,
-        Timeout:       5 * time.Second,
-        FailThreshold: 3,
-        PassThreshold: 2,
-    },
-    loadBalancer,
-)
-
-// Register nodes
-healthChecker.RegisterNode(&lb.NodeInfo{
-    ID:      "node-1",
-    Address: "10.0.1.10",
-    Port:    8080,
-    Healthy: true,
-})
-
-// Start health checking
-healthChecker.Start(ctx)
-```
-
-#### 7.2 Health Check Endpoint
-
-```go
-// Add health check endpoint on each node
-router.GET("/health", func(ctx forge.Context) error {
-    return ctx.JSON(200, map[string]any{
-        "status": "healthy",
-        "node":   "node-1",
-    })
-})
-```
-
-### 8. Monitoring and Observability
-
-#### 8.1 Metrics Export
-
-```go
-// Enable metrics collection
-app := forge.NewApp(forge.AppConfig{
-    Name:    "Streaming Service",
-    Version: "1.0.0",
-    MetricsConfig: &forge.MetricsConfig{
-        Enabled: true,
-        Type:    "prometheus",
-    },
-})
-
-// Expose metrics endpoint
-router.GET("/metrics", func(ctx forge.Context) error {
-    // Export Prometheus metrics
-    return ctx.Text(200, metrics.Export())
-})
-```
-
-#### 8.2 Key Metrics to Monitor
-
-- **Connections**:
-  - `streaming.connections.active` - Current active connections
-  - `streaming.connections.total` - Total connections since start
-  - `streaming.connections.per_user` - Connections per user
-
-- **Messages**:
-  - `streaming.messages.sent` - Messages sent
-  - `streaming.messages.received` - Messages received
-  - `streaming.messages.filtered` - Messages blocked by filters
-
-- **Rooms**:
-  - `streaming.rooms.active` - Active rooms
-  - `streaming.rooms.members` - Total members across all rooms
-
-- **Rate Limiting**:
-  - `streaming.ratelimit.exceeded` - Rate limit violations
-  - `streaming.ratelimit.allowed` - Allowed requests
-
-- **Coordination**:
-  - `streaming.coordinator.broadcasts` - Cross-node broadcasts
-  - `streaming.coordinator.sync_lag` - Synchronization lag
-
-### 9. Production Deployment Checklist
-
-#### 9.1 Security
-- [ ] Enable TLS for all connections
-- [ ] Configure authentication providers
-- [ ] Set up firewall rules
-- [ ] Enable rate limiting
-- [ ] Configure message filtering
-- [ ] Enable security validation
-
-#### 9.2 High Availability
-- [ ] Deploy minimum 3 nodes
-- [ ] Configure load balancer
-- [ ] Set up health checking
-- [ ] Enable sticky sessions
-- [ ] Configure failover
-
-#### 9.3 Performance
-- [ ] Tune connection limits
-- [ ] Configure message size limits
-- [ ] Enable compression
-- [ ] Optimize Redis/NATS
-- [ ] Set appropriate rate limits
-
-#### 9.4 Monitoring
-- [ ] Set up metrics collection
-- [ ] Configure alerts
-- [ ] Enable logging
-- [ ] Set up tracing (optional)
-- [ ] Configure dashboards
-
-#### 9.5 Scalability
-- [ ] Configure horizontal scaling
-- [ ] Set up auto-scaling (if cloud)
-- [ ] Tune coordination parameters
-- [ ] Configure proper TTLs
-- [ ] Optimize synchronization intervals
-
-### 10. Scaling Strategies
-
-#### 10.1 Horizontal Scaling
-
-**Add Nodes**:
-```bash
-# Deploy new node with same configuration
-# Load balancer will automatically route traffic
-# Coordinator will sync state
-```
-
-**Remove Nodes**:
-```bash
-# Gracefully shutdown node
-# Load balancer will detect unhealthy node
-# Connections will fail over to healthy nodes
-```
-
-#### 10.2 Vertical Scaling
-
-- Increase node resources (CPU, memory)
-- Tune connection limits
-- Optimize backend configuration
-
-#### 10.3 Geographic Distribution
-
-```go
-// Deploy nodes in multiple regions
-nodes := []lb.NodeInfo{
-    {
-        ID:        "node-us-east",
-        Region:    "us-east-1",
-        Latitude:  40.7128,
-        Longitude: -74.0060,
-    },
-    {
-        ID:        "node-eu-west",
-        Region:    "eu-west-1",
-        Latitude:  51.5074,
-        Longitude: -0.1278,
-    },
-    {
-        ID:        "node-ap-south",
-        Region:    "ap-south-1",
-        Latitude:  19.0760,
-        Longitude: 72.8777,
-    },
-}
-
-// Use geo-proximity load balancing
-loadBalancer := lb.NewGeoProximityBalancer(geoLocator, fallback, store)
-for _, node := range nodes {
-    loadBalancer.RegisterNode(ctx, &node)
-}
-```
-
-### 11. Troubleshooting
-
-#### 11.1 Connection Issues
-
-**Problem**: Clients can't connect
-- Check load balancer health
-- Verify authentication configuration
-- Check firewall rules
-- Review rate limiting settings
-
-#### 11.2 Synchronization Issues
-
-**Problem**: State not syncing across nodes
-- Check coordinator connectivity (Redis/NATS)
-- Verify network connectivity
-- Review synchronization intervals
-- Check for clock skew
-
-#### 11.3 Performance Issues
-
-**Problem**: High latency or slow message delivery
-- Check coordinator performance
-- Review rate limiting configuration
-- Optimize message filtering
-- Check network latency between nodes
-- Review backend (Redis/NATS) performance
-
-#### 11.4 Memory Issues
-
-**Problem**: High memory usage
-- Check connection limits
-- Review message store retention
-- Optimize presence tracking
-- Check for connection leaks
-
-### 12. Best Practices
-
-1. **Always use TLS** in production
-2. **Enable authentication** for all connections
-3. **Configure rate limiting** to prevent abuse
-4. **Monitor metrics** continuously
-5. **Set up alerts** for critical issues
-6. **Use sticky sessions** for better user experience
-7. **Enable health checking** for automatic failover
-8. **Configure proper timeouts** to prevent resource leaks
-9. **Test failover scenarios** before production
-10. **Document your configuration** for operations team
-
-### 13. Example Production Configuration
-
-```go
-package main
-
-import (
-    "time"
-    
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/streaming"
-    "github.com/xraph/forge/extensions/streaming/lb"
-    "github.com/xraph/forge/extensions/streaming/ratelimit"
-)
-
-func main() {
-    // Production configuration
-    config := streaming.Config{
-        NodeID: "node-prod-1",
-        
-        // Authentication
-        RequireAuth:        true,
-        AuthProviders:      []string{"jwt"},
-        RoomAuthEnabled:    true,
-        MessageAuthEnabled: true,
-        
-        // Filtering
-        EnableFilters: true,
-        
-        // Validation
-        ValidationEnabled: true,
-        
-        // Rate Limiting
-        RateLimitEnabled: true,
-        RateLimit: ratelimit.RateLimitConfig{
-            MessagesPerSecond:     10,
-            MessagesPerMinute:     100,
-            BurstSize:            20,
-            RoomMessagesPerSecond: 100,
-        },
-        
-        // Load Balancing
-        LoadBalancing: lb.LoadBalancerConfig{
-            Strategy: lb.StrategySticky,
-            HealthCheck: lb.HealthCheckConfig{
-                Enabled:       true,
-                Interval:      10 * time.Second,
-                Timeout:       5 * time.Second,
-                FailThreshold: 3,
-                PassThreshold: 2,
-            },
-            StickySession: lb.StickySessionConfig{
-                Enabled: true,
-                TTL:     time.Hour,
-            },
-        },
-        
-        // Coordination
-        Coordination: streaming.CoordinationConfig{
-            Enabled:       true,
-            Backend:       "redis",
-            URLs:          []string{"redis-1:6379", "redis-2:6379", "redis-3:6379"},
-            PresenceSync:  true,
-            RoomStateSync: true,
-            SyncInterval:  30 * time.Second,
-        },
-        
-        // Connection limits
-        MaxConnectionsPerUser: 5,
-        MaxRoomsPerUser:       100,
-    }
-    
-    // Create and register extension
-    streamExt := streaming.NewExtension(config)
-    app.RegisterExtension(streamExt)
-    
-    // Start server
-    app.Listen(":8080")
-}
-```
-
-## Sequences and Reconnect Across Nodes
-
-Each room message carries a monotonic `Sequence` assigned by the message store, and a reconnecting
-client presents a cursor to receive exactly what it missed.
-
-In distributed mode this only works if the sequence means the same thing on every node, so two
-constraints matter:
-
-1. **Use the Redis message store, not the local one.** Redis assigns sequences with `INCR`, which is
-   atomic at the server. The local store's counter is per-process, so two nodes would hand out the
-   same numbers to different messages and a cursor issued by one would be meaningless on the other.
-2. **Do not renumber replicated messages.** A message arriving from another node already carries its
-   origin's sequence, and the store preserves it rather than assigning a new one. Renumbering would
-   give one message different sequences on different nodes — precisely the case a reconnect behind a
-   load balancer hits.
-
-Sticky sessions are therefore an optimisation here, not a correctness requirement: a client that
-reconnects to a different node still resumes correctly, because the cursor is meaningful cluster-wide.
-
-<!-- Verified by the shared contract suite in backends/storetest, which both the
-     local and Redis stores are run against. -->
-
-## Conclusion
-
-This deployment guide covers all aspects of setting up a distributed, production-ready streaming system with authentication, filtering, rate limiting, load balancing, and cross-node coordination. Follow the checklist and best practices for a reliable deployment.
-
-For support and updates, refer to the main documentation and the implementation summary in `AUTH_AND_COORDINATION_IMPLEMENTATION.md`.
-
+SSE subscribe calls return 404. The call reached a node that doesn't hold that `conn_id`. Route it to the node that holds the stream.

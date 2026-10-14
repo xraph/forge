@@ -3,206 +3,203 @@ title: Features
 description: MQTT extension capabilities and client details
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 ## MQTT Interface
 
-The extension exposes a comprehensive `MQTT` interface:
+`forge.Inject[mqtt.MQTT]` gives you this interface. `*mqtt.MQTTService` delegates the same methods to the same client, except `GetSubscriptions`, so it doesn't satisfy `mqtt.MQTT` itself; call `svc.Client()` when you need the interface from the service.
 
 ```go
 type MQTT interface {
-    Connect(ctx context.Context) error
-    Disconnect(ctx context.Context) error
-    IsConnected() bool
-    Reconnect() error
-    Publish(topic string, qos byte, retained bool, payload interface{}) error
-    PublishAsync(topic string, qos byte, retained bool, payload interface{}) error
-    Subscribe(topic string, qos byte, handler MessageHandler) error
-    SubscribeMultiple(filters map[string]byte, handler MessageHandler) error
-    Unsubscribe(topics ...string) error
-    AddRoute(topic string, handler MessageHandler)
-    SetDefaultHandler(handler MessageHandler)
-    SetOnConnectHandler(handler ConnectHandler)
-    SetConnectionLostHandler(handler ConnectionLostHandler)
-    SetReconnectingHandler(handler ReconnectingHandler)
-    GetClient() mqttclient.Client
-    GetStats() ClientStats
-    GetSubscriptions() []SubscriptionInfo
-    Ping(ctx context.Context) error
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
+	IsConnected() bool
+	Reconnect() error
+
+	Publish(topic string, qos byte, retained bool, payload any) error
+	PublishAsync(topic string, qos byte, retained bool, payload any) error
+
+	Subscribe(topic string, qos byte, handler MessageHandler) error
+	SubscribeMultiple(filters map[string]byte, handler MessageHandler) error
+	Unsubscribe(topics ...string) error
+
+	AddRoute(topic string, handler MessageHandler)
+	SetDefaultHandler(handler MessageHandler)
+	SetOnConnectHandler(handler ConnectHandler)
+	SetConnectionLostHandler(handler ConnectionLostHandler)
+	SetReconnectingHandler(handler ReconnectingHandler)
+
+	GetClient() paho.Client
+	GetStats() ClientStats
+	GetSubscriptions() []SubscriptionInfo
+
+	Ping(ctx context.Context) error
 }
 ```
+
+`paho` is `github.com/eclipse/paho.mqtt.golang`. `MessageHandler`, `ConnectHandler`, `ConnectionLostHandler` and `ReconnectingHandler` are aliases for Paho's own handler types, so a handler is `func(paho.Client, paho.Message)`.
 
 ## Publish Messages
 
-Send messages to any topic with configurable QoS level and retained flag:
+The arguments are the topic, the QoS, the retained flag and the payload:
 
 ```go
-// Synchronous publish (waits for broker acknowledgement based on QoS)
-client.Publish("sensors/temperature", 1, false, []byte("23.5"))
+// Wait for Paho to finish the publish (the broker's ack for QoS 1 and 2).
+err := m.Publish("devices/42/commands", 1, false, []byte("reboot"))
 
-// Publish with retained flag (new subscribers get the latest value)
-client.Publish("status/gateway", 1, true, []byte(`{"status":"online"}`))
+// Strings go out as-is. Anything else is JSON-encoded.
+err = m.Publish("devices/42/state", 1, true, map[string]any{"online": true, "fw": "1.4.2"})
 
-// Asynchronous publish (fire-and-forget)
-client.PublishAsync("metrics/cpu", 0, false, []byte("42.1"))
+// Hand it to Paho and return straight away.
+err = m.PublishAsync("telemetry/42", 0, false, []byte("42.1"))
 ```
+
+`Publish` blocks until Paho finishes and returns its error. `PublishAsync` returns once the message is queued. If delivery fails later, the extension logs it and you don't get an error back. Both fail fast with `not connected` when the client isn't connected, during a reconnect too.
+
+Set `retained` to `true` and the broker keeps the last message on that topic, so a client that subscribes later gets the current value right away. That's the usual way to publish device state.
 
 ## Subscribe to Topics
 
-Register message handlers for topics with full MQTT wildcard support:
-
 ```go
-// Single topic
-client.Subscribe("sensors/temperature/room-1", 1, handler)
+// One topic, or a pattern.
+err := m.Subscribe("sensors/temperature/+", 1, handler)
 
-// Single-level wildcard: matches sensors/temperature/room-1, room-2, etc.
-client.Subscribe("sensors/temperature/+", 1, handler)
-
-// Multi-level wildcard: matches all topics under sensors/
-client.Subscribe("sensors/#", 1, handler)
-
-// Multiple topics at once with per-topic QoS
-client.SubscribeMultiple(map[string]byte{
-    "sensors/temperature/#": 1,
-    "sensors/humidity/#":    1,
-    "alerts/#":              2,  // exactly-once for alerts
+// Several filters, each with its own QoS, one handler.
+err = m.SubscribeMultiple(map[string]byte{
+	"sensors/temperature/#": 1,
+	"sensors/humidity/#":    1,
+	"alerts/#":              2,
 }, handler)
+
+err = m.Unsubscribe("alerts/#")
 ```
+
+`+` matches one topic level and `#` matches everything below a level. Paho calls your handler on its own goroutine. With `order_matters` on (the default), messages reach your handlers one at a time, in the order they arrived, so a slow handler holds up the next message. If your handler does real work, hand it to a worker and return.
 
 ## QoS Levels
 
-Full support for all three MQTT QoS levels:
-
-| Level | Name | Guarantee | Use Case |
+| Level | Name | What you get | Typical use |
 |---|---|---|---|
-| 0 | At most once | Fire and forget, no acknowledgement | Metrics, telemetry where loss is acceptable |
-| 1 | At least once | Guaranteed delivery, possible duplicates | Sensor data, event notifications |
-| 2 | Exactly once | Guaranteed single delivery | Financial transactions, critical commands |
+| 0 | At most once | No acknowledgement, may be lost | Telemetry you can afford to drop |
+| 1 | At least once | Acknowledged, may be duplicated | Most commands and events (make the handler idempotent) |
+| 2 | Exactly once | Four-way handshake, no duplicates | Only where a duplicate would do damage |
 
-The default QoS is configurable via `DefaultQoS` (default: 0).
+You pass QoS on every call. `default_qos` (and `WithQoS`) is validated to be 0 to 2 and stored, but nothing reads it.
 
-## Auto-Reconnect
+## Reconnects and Sessions
 
-The client automatically reconnects on connection loss:
+With `auto_reconnect` on (the default), Paho reconnects after a dropped connection, backing off up to `max_reconnect_delay` (default `10m`). It keeps trying; `max_reconnect_attempts` exists on the config but isn't read. `IsConnected()` tells you the current state, `Reconnect()` forces a connect attempt, and `GetStats().Reconnects` counts the attempts.
 
-- `AutoReconnect` -- enable/disable auto-reconnect (default: true)
-- `MaxReconnectDelay` -- maximum backoff delay between attempts
-- `MaxReconnectAttempts` -- limit total reconnection attempts (0 = unlimited)
-- `ResumeSubs` -- re-subscribe to all topics after successful reconnection
+Pay attention to `clean_session`. It defaults to `true`, which means the broker throws your subscriptions away when the connection drops, and the extension does not subscribe again after an automatic reconnect. `resume_subs` doesn't help here: it only resends subscribe requests Paho had stored but the broker hadn't acknowledged. If your service has to keep receiving through a network blip, turn clean sessions off and keep the client ID stable, so the broker holds the session for you:
 
 ```go
 mqtt.NewExtension(
-    mqtt.WithAutoReconnect(true),
-    // MaxReconnectDelay and ResumeSubs configured via YAML or WithConfig
+	mqtt.WithBroker("ssl://broker.example.com:8883"),
+	mqtt.WithClientID("sensors-api-1"),
+	mqtt.WithCleanSession(false),
 )
 ```
+
+With a persistent session the broker also queues QoS 1 and 2 messages for you while you're away.
 
 ## Last Will and Testament
 
-Configure a will message that the broker publishes when the client disconnects unexpectedly:
+The broker publishes the will message when your client disappears without a clean disconnect:
 
 ```go
 mqtt.NewExtension(
-    mqtt.WithWill("status/gateway-01", []byte(`{"status":"offline"}`), 1, true),
+	mqtt.WithWill("status/gateway-01", `{"status":"offline"}`, 1, true),
 )
 ```
 
-Parameters: topic, payload, QoS level, and retained flag.
+The arguments are topic, payload (a string), QoS and the retained flag. Validation requires a topic and a QoS of 0 to 2.
 
-## Connection Lifecycle Handlers
+## Connection Callbacks
 
-Register callbacks for connection events:
-
-```go
-client.SetOnConnectHandler(func(c mqttclient.Client) {
-    // Called after successful connection or reconnection
-})
-
-client.SetConnectionLostHandler(func(c mqttclient.Client, err error) {
-    // Called when connection is lost
-})
-
-client.SetReconnectingHandler(func(c mqttclient.Client, opts *mqttclient.ClientOptions) {
-    // Called before each reconnection attempt
-})
-```
+<Callout type="warn">
+`SetOnConnectHandler`, `SetConnectionLostHandler` and `SetReconnectingHandler` don't register your callback. Paho only accepts these before it connects, the extension connects during startup, and so each method just logs a warning. There's no way to hook connection events through this extension yet. `GetStats()` and the `mqtt.connections` and `mqtt.reconnects` metrics are kept up to date by the extension's own callbacks.
+</Callout>
 
 ## Topic Routing
 
-Add per-topic message routes and a default handler for unmatched topics:
+`AddRoute` registers a Paho route on the connected client without sending a SUBSCRIBE packet. Use it for messages that arrive on a persistent session you subscribed to in an earlier run:
 
 ```go
-// Route specific topics to specific handlers
-client.AddRoute("commands/+", commandHandler)
-client.AddRoute("config/+", configHandler)
+m.AddRoute("commands/+", commandHandler)
+```
 
-// Catch-all for unmatched messages
-client.SetDefaultHandler(func(c mqttclient.Client, msg mqttclient.Message) {
-    log.Printf("Unhandled: %s", msg.Topic())
+`SetDefaultHandler` adds a route for `#`. Paho runs every route whose filter matches, so this handler sees every message the client receives, including ones another handler already took. It isn't a fallback for unmatched topics:
+
+```go
+m.SetDefaultHandler(func(_ paho.Client, msg paho.Message) {
+	log.Printf("received on %s", msg.Topic())
 })
 ```
 
+Messages delivered through `AddRoute` or `SetDefaultHandler` alone don't count toward `GetStats()` or the received metric. Both methods do nothing if the client hasn't been created yet.
+
 ## Subscription Tracking
 
-Query active subscriptions:
-
 ```go
-subs := client.GetSubscriptions()
-for _, sub := range subs {
-    fmt.Printf("Topic: %s, QoS: %d\n", sub.Topic, sub.QoS)
+for _, sub := range m.GetSubscriptions() {
+	log.Printf("topic %s, qos %d", sub.Topic, sub.QoS)
 }
 ```
 
+`GetSubscriptions()` lists the filters and QoS this client subscribed to, which helps when you're debugging a filter that never matches. The list only changes on `Subscribe`, `SubscribeMultiple` and `Unsubscribe`, so after a clean-session reconnect it still shows filters the broker has forgotten. `SubscriptionInfo.Handler` is always the string `"MessageHandler"`.
+
 ## Client Statistics
 
-Track connection health and message throughput:
-
 ```go
-stats := client.GetStats()
-fmt.Printf("Connected: %v, Sent: %d, Received: %d, Reconnects: %d\n",
-    stats.Connected, stats.MessagesSent, stats.MessagesReceived, stats.Reconnects)
+stats := m.GetStats()
+log.Printf("connected %v, sent %d, received %d, reconnects %d",
+	stats.Connected, stats.MessagesSent, stats.MessagesReceived, stats.Reconnects)
 ```
 
-`ClientStats` includes: `Connected`, `ConnectTime`, `LastMessageTime`, `MessagesReceived`, `MessagesSent`, `Subscriptions`, `Reconnects`.
+`ClientStats` has `Connected`, `ConnectTime`, `LastMessageTime`, `MessagesReceived`, `MessagesSent`, `Subscriptions` and `Reconnects`. `PublishAsync` counts a message as sent only after Paho finishes it.
 
-## Clean Sessions
+## Metrics
 
-Toggle between persistent and clean sessions:
+With `enable_metrics` on, the extension records:
 
-- **Clean session** (`CleanSession: true`) -- broker discards previous session state. Fresh start on every connect.
-- **Persistent session** (`CleanSession: false`) -- broker preserves subscriptions and queued QoS 1/2 messages across disconnects.
+| Metric | Kind | Labels |
+|---|---|---|
+| `mqtt.messages.published` | counter | `topic` |
+| `mqtt.messages.received` | counter | `topic` |
+| `mqtt.connections` | counter | `status` = `connected` or `disconnected` |
+| `mqtt.reconnects` | counter | none |
 
-## Message Persistence
+## Message Store
 
-Choose between in-memory or file-based message store for QoS 1/2 message tracking:
+Paho keeps in-flight QoS 1 and 2 messages in a store:
 
-- `MessageStore: "memory"` -- in-memory store (default)
-- `MessageStore: "file"` -- file-based store at `StoreDirectory` path
+- `message_store: memory` (default): lost when the process exits
+- `message_store: file`: Paho's file store in `store_directory`, which validation requires
 
-## TLS Encryption
-
-Connect over TLS with custom certificates:
+## TLS and Authentication
 
 ```go
 mqtt.NewExtension(
-    mqtt.WithTLS("cert.pem", "key.pem", "ca.pem"),
+	mqtt.WithBroker("ssl://broker.example.com:8883"),
+	mqtt.WithCredentials("sensors-api", os.Getenv("MQTT_PASSWORD")),
+	mqtt.WithTLS("/etc/mqtt/client.pem", "/etc/mqtt/client-key.pem", "/etc/mqtt/ca.pem", false),
 )
 ```
 
-Set `TLSSkipVerify: true` for development environments.
-
-## Message Ordering
-
-When `OrderMatters: true`, the client ensures messages are delivered in order. This may impact throughput as the client waits for each message acknowledgement before sending the next.
+`WithTLS` takes a client certificate, its key, a CA file and a skip-verify flag. With verification on, validation requires both the certificate and the key, so TLS with only a CA file (no client certificate) doesn't pass validation today. Use the `ssl://` or `tls://` scheme for TLS, and `ws://` or `wss://` if your broker only accepts WebSockets. Only skip verification in development.
 
 ## Sentinel Errors
 
-| Error | Meaning |
+The package exports these, but the client doesn't return any of them yet. Its errors are plain strings such as `not connected` or wrapped Paho errors, so `errors.Is` against these won't match.
+
+| Error | Meant for |
 |---|---|
-| `ErrNotConnected` | Client is not connected to the broker |
-| `ErrAlreadyConnected` | Client is already connected |
-| `ErrConnectionFailed` | Failed to connect to the broker |
-| `ErrPublishFailed` | Message publish failed |
-| `ErrSubscribeFailed` | Topic subscription failed |
-| `ErrUnsubscribeFailed` | Topic unsubscription failed |
-| `ErrInvalidQoS` | QoS level is not 0, 1, or 2 |
-| `ErrInvalidTopic` | Topic string is empty or invalid |
+| `ErrNotConnected` | Client not connected |
+| `ErrAlreadyConnected` | Client already connected |
+| `ErrConnectionFailed` | Connect failed |
+| `ErrPublishFailed` | Publish failed |
+| `ErrSubscribeFailed` | Subscribe failed |
+| `ErrUnsubscribeFailed` | Unsubscribe failed |
+| `ErrInvalidQoS` | QoS not 0, 1 or 2 |
+| `ErrInvalidTopic` | Empty or invalid topic |
 | `ErrTimeout` | Operation timed out |

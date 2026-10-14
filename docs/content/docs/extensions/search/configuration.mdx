@@ -1,144 +1,110 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for Search
+description: Config keys, YAML examples, and option helpers for Search
 ---
 
-## YAML Configuration Example
-
-```yaml title="config.yaml"
-extensions:
-  search:
-    driver: "elasticsearch"           # "inmemory", "elasticsearch", "meilisearch", "typesense"
-    url: "http://localhost:9200"
-    hosts:                             # alternative to url for multi-node clusters
-      - "http://node1:9200"
-      - "http://node2:9200"
-    username: "elastic"
-    password: "changeme"
-    apiKey: ""                         # used by Typesense
-
-    # Connection settings
-    maxConnections: 10
-    maxIdleConnections: 5
-    connectTimeout: "5s"
-    requestTimeout: "30s"
-    keepAlive: "30s"
-
-    # Retry settings
-    maxRetries: 3
-    retryBackoff: "100ms"
-    retryOnTimeout: true
-
-    # Search defaults
-    defaultLimit: 20
-    maxLimit: 100
-    defaultMinScore: 0.0
-    enableHighlight: true
-    enableFacets: true
-
-    # Performance
-    bulkSize: 1000
-    flushInterval: "1s"
-    enableCompression: false
-
-    # TLS
-    enableTLS: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
-    tlsCAFile: ""
-    insecureSkipVerify: false
-
-    # Observability
-    enableMetrics: true
-    enableTracing: true
-```
-
-The extension loads config from `extensions.search` first, falling back to `search`.
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Programmatic Configuration
 
 ```go
 ext := search.NewExtension(
-    search.WithDriver("meilisearch"),
-    search.WithURL("http://localhost:7700"),
-    search.WithAPIKey("masterKey"),
+    search.WithDriver("inmemory"),
     search.WithDefaultLimit(25),
+    search.WithMaxLimit(200),
 )
 ```
 
-Or provide a complete config:
+`NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`. Start `cfg` from
+`search.DefaultConfig()` so the fields you don't set keep their defaults and pass validation.
 
-```go
-ext := search.NewExtensionWithConfig(search.Config{
-    Driver:   "elasticsearch",
-    Hosts:    []string{"http://node1:9200", "http://node2:9200"},
-    Username: "elastic",
-    Password: "changeme",
-})
+## YAML Configuration
+
+The extension reads `extensions.search` from your config file, falling back to a top-level `search`
+key. Keys are the snake_case names from the `yaml` tags on `search.Config`, and durations take Go
+duration strings such as `30s`:
+
+```yaml title="config.yaml"
+extensions:
+  search:
+    driver: inmemory
+    default_limit: 25
+    max_limit: 200
+    request_timeout: 30s
 ```
 
-## Config Struct Reference
+The file overrides the defaults, and the options you set in code override the file. A `driver` or
+`default_limit` in the file takes effect with a plain `search.NewExtension()`, while
+`search.WithDefaultLimit(70)` still beats whatever the file says. A field you set in code to
+exactly its default value looks untouched, so the file wins for that field. Fields you leave out of
+the file keep their `DefaultConfig()` values.
 
-### `Config`
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()`
+turns it on, but an `AppConfig` literal leaves it off, so set it yourself or pass your own
+`ConfigManager`.
 
-Source: `config.go`
+With `WithRequireConfig(true)`, `Register` fails when neither `extensions.search` nor `search` is in
+your config. Without it, a missing section is fine, and a section that fails to bind is logged as a
+warning while the extension carries on with the defaults and your options.
 
-| Field | Type | Default | Description |
+## Config Reference
+
+| Key | Field | Default | What it does today |
 |---|---|---|---|
-| `Driver` | `string` | `"inmemory"` | Search backend |
-| `URL` | `string` | `""` | Connection URL |
-| `Hosts` | `[]string` | `nil` | Multiple host URLs (Elasticsearch, Typesense) |
-| `Username` | `string` | `""` | Basic auth username |
-| `Password` | `string` | `""` | Basic auth password |
-| `APIKey` | `string` | `""` | API key (Typesense) |
-| `MaxConnections` | `int` | `10` | Maximum connections in pool |
-| `MaxIdleConnections` | `int` | `5` | Maximum idle connections |
-| `ConnectTimeout` | `time.Duration` | `5s` | Connection timeout |
-| `RequestTimeout` | `time.Duration` | `30s` | Request timeout |
-| `KeepAlive` | `time.Duration` | `30s` | Connection keepalive |
-| `MaxRetries` | `int` | `3` | Max retry attempts |
-| `RetryBackoff` | `time.Duration` | `100ms` | Initial retry backoff |
-| `RetryOnTimeout` | `bool` | `true` | Retry on timeout errors |
-| `DefaultLimit` | `int` | `20` | Default search results limit |
-| `MaxLimit` | `int` | `100` | Maximum allowed search results limit |
-| `DefaultMinScore` | `float64` | `0.0` | Minimum relevance score |
-| `EnableHighlight` | `bool` | `true` | Enable result highlighting |
-| `EnableFacets` | `bool` | `true` | Enable faceted search |
-| `BulkSize` | `int` | `1000` | Bulk indexing batch size |
-| `FlushInterval` | `time.Duration` | `1s` | Bulk flush interval |
-| `EnableCompression` | `bool` | `false` | Enable request compression |
-| `EnableTLS` | `bool` | `false` | Enable TLS |
-| `TLSCertFile` | `string` | `""` | TLS certificate file |
-| `TLSKeyFile` | `string` | `""` | TLS key file |
-| `TLSCAFile` | `string` | `""` | TLS CA file |
-| `InsecureSkipVerify` | `bool` | `false` | Skip TLS verification |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `EnableTracing` | `bool` | `true` | Enable tracing |
-| `RequireConfig` | `bool` | `false` | Fail if config missing from ConfigManager |
+| `driver` | `Driver` | `inmemory` | `inmemory`, `elasticsearch`, `meilisearch` or `typesense`. Only `inmemory` works |
+| `url` | `URL` | `""` | Required by `meilisearch`, and by `elasticsearch` and `typesense` unless `hosts` is set |
+| `hosts` | `Hosts` | `[]` | Alternative to `url` for `elasticsearch` and `typesense` |
+| `username`, `password` | `Username`, `Password` | `""` | Not used |
+| `api_key` | `APIKey` | `""` | Required by `typesense` |
+| `default_limit` | `DefaultLimit` | `20` | Results per search when `Limit` is 0. Must be positive |
+| `max_limit` | `MaxLimit` | `100` | Caps `Limit`. Must be at least `default_limit` |
+| `max_connections` | `MaxConnections` | `10` | Validated as positive, not used |
+| `max_idle_connections` | `MaxIdleConnections` | `5` | Validated, can't exceed `max_connections`, not used |
+| `connect_timeout` | `ConnectTimeout` | `10s` | Validated as positive, not used |
+| `request_timeout` | `RequestTimeout` | `30s` | Validated as positive, not used |
+| `bulk_size` | `BulkSize` | `100` | Validated as positive, not used |
+| `keep_alive` | `KeepAlive` | `60s` | Not used |
+| `max_retries`, `retry_backoff`, `retry_on_timeout` | `MaxRetries`, `RetryBackoff`, `RetryOnTimeout` | `3`, `100ms`, `true` | Not used |
+| `default_min_score` | `DefaultMinScore` | `0` | Not used. Set `MinScore` on each query |
+| `enable_highlight`, `enable_facets` | `EnableHighlight`, `EnableFacets` | `true`, `true` | Not used |
+| `flush_interval`, `enable_compression` | `FlushInterval`, `EnableCompression` | `5s`, `false` | Not used |
+| `enable_tls`, `tls_cert_file`, `tls_key_file`, `tls_ca_file`, `insecure_skip_verify` | `EnableTLS` and the `TLS*` fields | off and empty | Not used |
+| `enable_metrics`, `enable_tracing` | `EnableMetrics`, `EnableTracing` | `true`, `true` | Not used |
+
+<Callout type="warn">
+Only `driver`, `default_limit` and `max_limit` change what the in-memory backend does. The
+connection, retry, bulk, TLS and observability keys are there for the network drivers, which
+aren't implemented yet.
+</Callout>
 
 ## Validation
 
-`Config.Validate()` checks:
-- `Driver` is one of `inmemory`, `elasticsearch`, `meilisearch`, `typesense`
-- Elasticsearch requires `URL` or `Hosts`
-- Meilisearch requires `URL`
-- Typesense requires `URL` or `Hosts`, plus `APIKey`
+`Register` runs `Config.Validate` after loading and fails the app when it returns an error, so a bad
+combination stops the app before it serves anything. It checks:
+
+- `driver` is one of `inmemory`, `elasticsearch`, `meilisearch` or `typesense`
+- `elasticsearch` has `url` or `hosts`
+- `meilisearch` has `url`
+- `typesense` has `url` or `hosts`, and `api_key`
+- `max_connections` is positive and `max_idle_connections` is between 0 and `max_connections`
+- `connect_timeout`, `request_timeout`, `default_limit` and `bulk_size` are positive
+- `max_limit` is at least `default_limit`
 
 ## Option Helpers
 
-| Function | Description |
+| Function | Sets |
 |---|---|
-| `WithDriver(driver)` | Set the search backend driver |
-| `WithURL(url)` | Set the connection URL |
-| `WithHosts(hosts...)` | Set multiple host URLs |
-| `WithAuth(username, password)` | Set basic auth credentials |
-| `WithAPIKey(apiKey)` | Set API key (Typesense) |
-| `WithMaxConnections(max)` | Set connection pool size |
-| `WithTimeout(timeout)` | Set request timeout |
-| `WithDefaultLimit(limit)` | Set default results limit |
-| `WithMaxLimit(limit)` | Set maximum results limit |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS with certificates |
-| `WithMetrics(enable)` | Toggle metrics collection |
-| `WithTracing(enable)` | Toggle distributed tracing |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithDriver(driver string)` | `Driver` |
+| `WithURL(url string)` | `URL` |
+| `WithHosts(hosts ...string)` | `Hosts` |
+| `WithAuth(username, password string)` | `Username` and `Password` |
+| `WithAPIKey(apiKey string)` | `APIKey` |
+| `WithMaxConnections(maxConns int)` | `MaxConnections` |
+| `WithTimeout(timeout time.Duration)` | `RequestTimeout` |
+| `WithDefaultLimit(limit int)` | `DefaultLimit` |
+| `WithMaxLimit(limit int)` | `MaxLimit` |
+| `WithTLS(certFile, keyFile, caFile string)` | `EnableTLS` and the three file fields |
+| `WithMetrics(enable bool)` | `EnableMetrics` |
+| `WithTracing(enable bool)` | `EnableTracing` |
+| `WithRequireConfig(require bool)` | `RequireConfig`: fail `Register` when the config has no section for the extension |
+| `WithConfig(config Config)` | Replaces the whole config |

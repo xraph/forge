@@ -1,225 +1,114 @@
-# Forge Feature Flags Extension
+# Forge Features Extension
 
 ## Purpose
 
-Feature flag management system for controlled feature rollouts, A/B testing, and progressive deployment. Supports multiple providers (LaunchDarkly, Flagsmith, Unleash, in-memory) with real-time flag updates.
+Feature flags for Forge apps. Boolean, string, number and JSON flags defined in Go, targeting by
+user ID, email, name, IP, country, group or custom attribute, and percentage rollouts with stable
+hashing. Flags are evaluated in process by the local provider. LaunchDarkly, Unleash, Flagsmith
+and PostHog settings exist but those providers are not wired up (see "Not implemented yet").
 
-## Key Components
+Module: github.com/xraph/forge/extensions/features (package `features`). The `providers`
+subpackage holds the local provider and client code for the remote services.
 
-- **Feature Flag Management**: Enable/disable features dynamically
-- **Multiple Providers**: LaunchDarkly, Flagsmith, Unleash, in-memory
-- **Targeting Rules**: User-based, percentage-based rollouts
-- **A/B Testing**: Experiment management
-- **Real-time Updates**: Flag changes without deployment
-
-## Architecture
-
-```
-Features Extension
-├── Flag Evaluation
-│   ├── Boolean Flags
-│   ├── String/Number Flags
-│   └── JSON Flags
-├── Providers
-│   ├── LaunchDarkly
-│   ├── Flagsmith
-│   ├── Unleash
-│   └── In-Memory
-├── Targeting
-│   ├── User Targeting
-│   ├── Percentage Rollouts
-│   └── Custom Rules
-└── Caching
-    └── Local Flag Cache
-```
-
-## Public API
-
-### Core Types
+## Constructors and options
 
 ```go
-type FeatureFlags interface {
-    IsEnabled(ctx context.Context, flagKey string, user User) (bool, error)
-    GetVariation(ctx context.Context, flagKey string, user User) (interface{}, error)
-    Track(ctx context.Context, event string, user User, data map[string]interface{}) error
-}
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config    // Enabled true, Provider "local", RefreshInterval 30s, empty maps
+func NewService(config Config, provider Provider, logger forge.Logger) *Service
+func NewLocalProvider(config LocalProviderConfig, defaults map[string]any) Provider
 
-type User struct {
-    Key        string
-    Email      string
-    Attributes map[string]interface{}
-}
+type ConfigOption func(*Config)
+WithEnabled(enabled bool)                         // false skips registration; Get then errors
+WithProvider(provider string)
+WithRefreshInterval(interval time.Duration)       // 0 turns the refresh loop off
+WithCache(enabled bool, ttl time.Duration)        // stored, nothing reads it
+WithLocalFlags(flags map[string]FlagConfig)       // also selects "local"
+WithDefaultFlags(flags map[string]any)            // fallbacks for undefined keys
+WithLaunchDarkly(sdkKey string)
+WithUnleash(url, apiToken, appName string)
+WithFlagsmith(apiURL, environmentKey string)
+WithPostHog(apiKey, host string)
+WithConfig(config Config)
 ```
 
-### Main Functions/Methods
+## What the container holds
+
+`*features.Service`, also under `features` (ServiceKey) and `features.Service` (ServiceKeyLegacy).
+Helpers: `Get(container)`, `MustGet(container)`, `GetFromApp(app)`, `MustGetFromApp(app)`.
+
+## Usage
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get feature flags service (safe, returns error)
-func Get(c forge.Container) (*Service, error)
-
-// Get feature flags service (panics on error, for startup code)
-func MustGet(c forge.Container) *Service
-
-// Convenience helpers for forge.App
-func GetFromApp(app forge.App) (*Service, error)
-func MustGetFromApp(app forge.App) *Service
-
-// Check flag
-enabled := service.IsEnabled(ctx, "new-checkout", userCtx)
-if enabled {
-    // Use new checkout flow
-}
-
-// Get string flag
-theme := service.GetString(ctx, "theme", userCtx, "light")
-
-// Get number flag
-maxItems := service.GetInt(ctx, "max-items", userCtx, 100)
-```
-
-## Usage Examples
-
-### Basic Feature Flag
-
-```go
-import "github.com/xraph/forge/extensions/features"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        features.NewExtension(
-            features.WithEnabled(true),
-            features.WithProvider("local"),
-            features.WithLocalFlags(map[string]features.FlagConfig{
-                "new-ui": {
-                    Key:     "new-ui",
-                    Type:    "boolean",
-                    Enabled: true,
-                },
-            }),
-        ),
+features.NewExtension(features.WithLocalFlags(map[string]features.FlagConfig{
+    "new-checkout": {
+        Key: "new-checkout", Type: "boolean", Enabled: true,
+        Rollout: &features.RolloutConfig{Percentage: 25},
     },
-})
+}))
 
-// Get feature flags service using helper
-service := features.MustGetFromApp(app)
-
-// Check flag with user context
-userCtx := features.NewUserContext("user-123").
-    WithEmail("user@example.com")
-
-if service.IsEnabled(ctx, "new-ui", userCtx) {
-    // Show new UI
-} else {
-    // Show old UI
-}
+flags, err := features.GetFromApp(app)
+user := features.NewUserContext("user-42").WithEmail("ada@example.com").WithGroups([]string{"beta"})
+on := flags.IsEnabled(ctx, "new-checkout", user)
+limit := flags.GetInt(ctx, "upload-limit-mb", user, 10)
 ```
 
-### Multivariate Flags
+## Service methods
 
-```go
-// Get string flag value
-theme := service.GetString(ctx, "theme", userCtx, "light")
+| Method | Returns |
+| --- | --- |
+| IsEnabled(ctx, key, user *UserContext) | bool, false when unknown |
+| IsEnabledWithDefault(ctx, key, user, def bool) | bool |
+| GetString(ctx, key, user, def string) | string |
+| GetInt(ctx, key, user, def int) | int |
+| GetFloat(ctx, key, user, def float64) | float64 |
+| GetJSON(ctx, key, user, def any) | any |
+| GetAllFlags(ctx, user) | (map[string]any, error) |
+| Refresh(ctx) | error (no-op for local) |
 
-switch theme {
-case "dark":
-    // Apply dark theme
-case "light":
-    // Apply light theme
-case "auto":
-    // Auto theme based on system
-}
+Getters never return an error: an evaluation error logs a warning and returns the default.
 
-// Get number flag
-maxItems := service.GetInt(ctx, "max-items", userCtx, 100)
+## Key types
 
-// Get JSON flag
-config := service.GetJSON(ctx, "api-config", userCtx, defaultConfig)
-```
+- `UserContext{UserID, Email, Name string; Groups []string; Attributes map[string]any; IP, Country string}`.
+  `NewUserContext(userID string) *UserContext`; chain WithEmail, WithName, WithGroups,
+  WithAttribute(key, value), WithIP, WithCountry. Also GetAttribute, GetAttributeString, HasGroup.
+  A nil user context skips targeting and rollouts.
+- `FlagConfig{Key, Name, Description, Type string; Enabled bool; Value any; Targeting []TargetingRule; Rollout *RolloutConfig}`.
+  Type is "boolean", "string", "number" or "json"; GetAllFlags uses it to choose the getter.
+- `TargetingRule{Attribute, Operator string; Values []string; Value any}`.
+- `RolloutConfig{Percentage int; Attribute string}`.
+- `Provider` interface: Name, Initialize, IsEnabled, GetString, GetInt, GetFloat, GetJSON,
+  GetAllFlags, Refresh, Close, Health (each getter takes a default and returns (T, error)).
+- Also FlagValue, EvaluationResult, FlagEvaluationEvent, LocalProviderConfig, and config
+  structs LaunchDarklyConfig, UnleashConfig, FlagsmithConfig, PostHogConfig.
 
-### Percentage Rollouts
+## Evaluation order (local provider)
 
-```go
-// Configure flag with percentage rollout
-// new-algorithm: 10% of users see new algorithm
+1. Targeting rules in order. A matching rule whose Value has the requested type wins.
+2. Boolean flags with a Rollout: users inside the percentage get `Enabled`, users outside get
+   the opposite. (Enabled false + 25% means 25% get false and 75% get true.)
+3. The flag's own value (`Enabled` for booleans, `Value` otherwise).
+Undefined flags fall back to WithDefaultFlags, then the getter's default.
 
-if service.IsEnabled(ctx, "new-algorithm", userCtx) {
-    result = newAlgorithm()  // 10% of users
-} else {
-    result = oldAlgorithm()  // 90% of users
-}
-```
+Rule attributes: user_id, email, name, ip, country match the UserContext fields; `group` matches
+Groups and only with `in`; anything else reads Attributes[name] when it's a string.
+Operators: equals and in (equals one of Values), not_in, contains (case-sensitive substring).
+Rollout hashing: MD5 of the attribute (user_id by default) into 100 buckets; an empty value is
+always outside; Percentage <= 0 is nobody, >= 100 is everybody.
 
-### A/B Testing
+## Gotchas
 
-```go
-// Get variant using string flag
-variant := service.GetString(ctx, "checkout-experiment", userCtx, "control")
+- Types match exactly. GetInt only returns values stored as Go `int`, GetFloat only `float64`.
+  A mismatch silently returns your default with no log line.
+- No YAML: the extension doesn't read `extensions.features` even though Config has yaml tags.
+  Configure it in code.
+- No public way to change local flags at runtime.
 
-switch variant {
-case "control":
-    // Original checkout (50%)
-    showCheckoutV1()
-case "variant-a":
-    // Test variant A (25%)
-    showCheckoutV2()
-case "variant-b":
-    // Test variant B (25%)
-    showCheckoutV3()
-}
+## Not implemented yet
 
-// Track metrics separately using your analytics system
-analytics.Track("purchase-completed", map[string]interface{}{
-    "amount": 99.99,
-    "variant": variant,
-    "user_id": userCtx.UserID,
-})
-```
-
-## Configuration
-
-```yaml
-extensions:
-  features:
-    provider: launchdarkly
-    sdk_key: ${LAUNCHDARKLY_SDK_KEY}
-    
-    # Cache settings
-    cache_ttl: 5m
-    stream_enabled: true  # Real-time updates
-```
-
-## Dependencies
-
-### External
-- github.com/launchdarkly/go-server-sdk/v7 - LaunchDarkly
-- github.com/Flagsmith/flagsmith-go-client/v3 - Flagsmith
-- github.com/Unleash/unleash-client-go/v4 - Unleash
-
-### Internal
-- github.com/xraph/forge - Core framework
-
-## Notes
-
-### Production Readiness
-- ✅ Multiple provider support
-- ✅ Real-time flag updates
-- ✅ A/B testing support
-- ✅ Percentage rollouts
-- ✅ User targeting
-
-### Best Practices
-1. Use feature flags for new features
-2. Remove flags after full rollout
-3. Track flag usage metrics
-4. Test both enabled/disabled paths
-5. Use meaningful flag names
-6. Document flag purposes
-7. Implement fallback values
-8. Monitor flag performance
-
-### License
-MIT License - Part of Forge Framework
-
+- launchdarkly, unleash, flagsmith, posthog: the root `NewXxxProvider` functions return
+  "<name> provider not yet available - dependencies not resolved", so selecting one makes
+  registration fail. The `providers` package's own clients are never called by the extension.
+- EnableCache and CacheTTL are not read.

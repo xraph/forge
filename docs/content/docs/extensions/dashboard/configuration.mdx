@@ -47,7 +47,9 @@ extensions:
       - "prometheus"
 ```
 
-The extension loads config from `extensions.dashboard` first, falling back to `dashboard`.
+The extension loads config from `extensions.dashboard` first, falling back to `dashboard`. The file wins over the defaults, and the options you pass to `NewExtension` win over the file, so `base_path: /ops` in YAML moves every route even with a plain `NewExtension()`.
+
+An option only counts as set when its value isn't zero and differs from the default. That matters for the switches that default to on. Once your file has a dashboard section, `WithExport(false)`, `WithCSRF(false)` and `WithContractSecurity(false)` are ignored, so turn those off in the file instead.
 
 ## Programmatic Configuration
 
@@ -113,6 +115,8 @@ Setting `TraceIdleTTL` to zero doesn't reliably turn the gate off. Under a Confi
 
 Auth does nothing until something calls `SetAuthChecker`. An auth extension that implements `DashboardAuthAware` does that for you.
 
+`RequiredRoles` is read by `/principal` only. The envelope endpoint doesn't check it, so the UI's access-denied screen is the whole gate. To refuse an intent on the server, give it a `Requires` predicate in its manifest.
+
 ### Discovery
 
 | Field | Type | Default | Option | Description |
@@ -126,7 +130,7 @@ Auth does nothing until something calls `SetAuthChecker`. An auth extension that
 | Field | Type | Default | Option | Description |
 |---|---|---|---|---|
 | `EnableExport` | `bool` | `true` | `WithExport()` | Serve the `/export/*` routes |
-| `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | `WithExportFormats()` | Supported export formats |
+| `ExportFormats` | `[]string` | `["json","csv","prometheus"]` | `WithExportFormats()` | Not implemented yet. Nothing reads it, and all three routes register whenever `EnableExport` is on |
 
 ### Internal
 

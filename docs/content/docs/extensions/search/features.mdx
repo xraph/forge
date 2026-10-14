@@ -3,9 +3,11 @@ title: Features
 description: Search extension capabilities and backend details
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 ## Unified Search Interface
 
-All backends implement the same `Search` interface, making application code backend-agnostic:
+Every backend implements the same `Search` interface:
 
 ```go
 type Search interface {
@@ -28,166 +30,195 @@ type Search interface {
 }
 ```
 
-## Multiple Backends
+The extension calls `Connect` in its `Start` and `Disconnect` in its `Stop`, so you don't call them
+yourself.
 
-| Driver | Status | Backing Store | Best For |
-|---|---|---|---|
-| `inmemory` | Implemented | Go maps + in-process matching | Development, testing, small datasets |
-| `elasticsearch` | Stub | Elasticsearch cluster | Production full-text search at scale |
-| `meilisearch` | Stub | Meilisearch server | Fast typo-tolerant search |
-| `typesense` | Stub | Typesense server | Low-latency search with API key auth |
+## Backends
+
+| Driver | Status | Needs |
+|---|---|---|
+| `inmemory` | Works. Indexes live in process memory and are lost on restart | Nothing |
+| `elasticsearch` | Placeholder | `url` or `hosts` to pass validation |
+| `meilisearch` | Placeholder | `url` |
+| `typesense` | Placeholder | `url` or `hosts`, and `api_key` |
+
+<Callout type="warn">
+The three network drivers never contact a server. `Connect` succeeds without dialling, writes return
+`nil` and store nothing, `Get` returns `ErrDocumentNotFound`, and `Search`, `Suggest` and
+`Autocomplete` return empty results. An app you configure for Elasticsearch starts fine, logs that
+it connected, and silently indexes nothing. Use `inmemory`, or wrap your own client behind the
+`search.Search` interface.
+</Callout>
+
+The in-memory backend keeps a map of indexes, each with a map of documents, behind
+`sync.RWMutex` locks, so concurrent handlers can index and search at the same time.
 
 ## Index Management
 
-Create indexes with rich schema definitions that include field types, searchable/filterable/sortable flags, analyzers, synonyms, stop words, and ranking rules:
-
 ```go
-s.CreateIndex(ctx, "articles", search.IndexSchema{
+err := s.CreateIndex(ctx, "articles", search.IndexSchema{
     Fields: []search.FieldSchema{
-        {Name: "title", Type: "text", Searchable: true, Sortable: true, Boost: 2.0},
+        {Name: "title", Type: "text", Searchable: true},
         {Name: "body", Type: "text", Searchable: true},
-        {Name: "author", Type: "keyword", Filterable: true, Faceted: true},
-        {Name: "published_at", Type: "date", Sortable: true, Format: "2006-01-02"},
-        {Name: "views", Type: "integer", Sortable: true},
-    },
-    Synonyms: []search.Synonym{
-        {Terms: []string{"laptop", "notebook", "portable computer"}},
-    },
-    StopWords: []string{"the", "a", "an", "is"},
-    Ranking: &search.RankingConfig{
-        Rules:   []string{"typo", "words", "proximity", "attribute", "sort", "exactness"},
-        Weights: map[string]float64{"title": 2.0, "body": 1.0},
+        {Name: "author", Type: "keyword", Filterable: true},
     },
 })
+
+names, err := s.ListIndexes(ctx)
+info, err := s.GetIndexInfo(ctx, "articles") // DocumentCount, CreatedAt, UpdatedAt, Schema
+err = s.DeleteIndex(ctx, "articles")
 ```
 
-Supported field types: `text`, `keyword`, `integer`, `float`, `boolean`, `date`, `geo_point`.
+`CreateIndex` on a name you already used returns `ErrIndexAlreadyExists`, which you can check with
+`errors.Is` if your startup code might run twice. The other calls return `ErrIndexNotFound` for an
+index that doesn't exist.
+
+`IndexSchema` has room for field types (`text`, `keyword`, `integer`, `float`, `boolean`, `date`,
+`geo_point`), searchable, filterable, sortable and faceted flags, analyzers, synonyms, stop words,
+ranking rules and highlighting tags. The in-memory backend stores the schema and returns it from
+`GetIndexInfo`, but doesn't read any of it: every field is searched and filterable whatever the
+schema says. `IndexInfo.IndexSize` is an estimate of 1 KB per document.
 
 ## Document Operations
 
-Documents are represented as `ID` + `Fields map[string]any`:
+A document is an `ID` plus `Fields map[string]any`:
 
 ```go
-// Single document
-s.Index(ctx, "articles", search.Document{
+// Write or replace one document
+err := s.Index(ctx, "articles", search.Document{
     ID:     "article-1",
     Fields: map[string]any{"title": "Getting Started", "body": "...", "author": "Alice"},
 })
 
-// Bulk indexing (configurable batch size via BulkSize config)
-s.BulkIndex(ctx, "articles", []search.Document{doc1, doc2, doc3})
+// Write or replace several
+err = s.BulkIndex(ctx, "articles", []search.Document{doc1, doc2, doc3})
 
-// Retrieve by ID
-doc, _ := s.Get(ctx, "articles", "article-1")
+// Read by ID
+doc, err := s.Get(ctx, "articles", "article-1")
 
-// Update
-s.Update(ctx, "articles", "article-1", search.Document{
-    ID:     "article-1",
+// Replace an existing document
+err = s.Update(ctx, "articles", "article-1", search.Document{
     Fields: map[string]any{"title": "Updated Title", "body": "...", "author": "Alice"},
 })
 
 // Delete
-s.Delete(ctx, "articles", "article-1")
+err = s.Delete(ctx, "articles", "article-1")
 ```
+
+`Index` and `BulkIndex` write or replace the document with that ID, and you have to create the index
+first. `Update` replaces the whole document (it doesn't merge fields), sets its ID to the one you
+pass, and returns `ErrDocumentNotFound` if there's nothing to replace. `Get` and `Delete` return
+`ErrDocumentNotFound` for an unknown ID. `BulkIndex` writes everything in one call; `bulk_size` in
+the config isn't used to split it.
 
 ## Full-Text Search
 
-Query with filters, sorting, facets, highlighting, minimum score thresholds, field boosting, and fuzzy matching:
-
 ```go
-results, _ := s.Search(ctx, search.SearchQuery{
-    Index:           "articles",
-    Query:           "distributed systems",
-    Filters:         []search.Filter{
-        {Field: "author", Operator: "=", Value: "Alice"},
-        {Field: "views", Operator: ">=", Value: 100},
-    },
-    Sort:            []search.SortField{{Field: "published_at", Order: "desc"}},
-    Facets:          []string{"author"},
-    Highlight:       true,
-    HighlightFields: []string{"title", "body"},
-    BoostFields:     map[string]float64{"title": 3.0},
-    FuzzyLevel:      1,
-    MinScore:        0.5,
-    Offset:          0,
-    Limit:           20,
+results, err := s.Search(ctx, search.SearchQuery{
+    Index:       "articles",
+    Query:       "distributed",
+    Filters:     []search.Filter{{Field: "author", Operator: "=", Value: "Alice"}},
+    BoostFields: map[string]float64{"title": 3},
+    MinScore:    1,
+    Offset:      0,
+    Limit:       20,
 })
 ```
 
-Supported filter operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `IN`, `NOT IN`, `BETWEEN`, `EXISTS`.
+This is what the in-memory backend does with each field of a `SearchQuery`:
+
+| Field | Behaviour |
+|---|---|
+| `Query` | Lowercased substring match against the string form (`fmt.Sprintf("%v")`) of every field. An empty query matches every document |
+| Scoring | Each matching field adds 1, multiplied by its `BoostFields` entry, and doubled when the whole field equals the query. Hits come back highest score first |
+| `MinScore` | Drops hits that score below it. An empty query scores 0 |
+| `Filters` | All filters must match. See the operator table below |
+| `Offset` | Skips that many hits |
+| `Limit` | `0` uses `default_limit` (20). Anything above `max_limit` (100) is capped |
+| `Sort` | Ignored, and setting it turns off the score ordering, so hits come back in no particular order |
+| `Facets`, `Highlight`, `HighlightFields`, `Fields`, `FuzzyLevel`, `Options` | Accepted, not applied. `Facets` and `Highlights` stay empty and every hit carries the whole document |
+
+Filters compare the string form of the value:
+
+| Operator | Matches |
+|---|---|
+| `=` or `==` | The field exists and equals the value |
+| `!=` | The field exists and doesn't equal the value. Documents without the field are dropped |
+| `EXISTS` | The field is present |
+| `NOT EXISTS` | The field is absent |
+
+Any other operator (`>`, `<`, `IN`, `BETWEEN` and so on) matches nothing, so the search returns no
+hits. The comment on `Filter.Operator` lists more operators than the backend supports.
 
 ## Search Results
 
-Results include total count, processing time, exhaustiveness flag, per-hit scores, highlight fragments, and facet counts:
-
 ```go
-fmt.Printf("Found %d results in %v\n", results.Total, results.ProcessingTime)
+fmt.Printf("found %d results\n", results.Total)
 for _, hit := range results.Hits {
-    fmt.Printf("  %s (score: %.2f) %v\n", hit.ID, hit.Score, hit.Document)
-    for field, fragments := range hit.Highlights {
-        fmt.Printf("    %s: %v\n", field, fragments)
-    }
-}
-for facet, values := range results.Facets {
-    for _, v := range values {
-        fmt.Printf("  %s: %s (%d)\n", facet, v.Value, v.Count)
-    }
+    fmt.Printf("  %s (score %.2f) %v\n", hit.ID, hit.Score, hit.Document)
 }
 ```
 
+`SearchResults` has `Hits`, `Total` (matches before paging), `Offset`, `Limit` (the limit actually
+applied), `Query`, `ProcessingTime`, `Facets` and `Exhaustive`. The in-memory backend always sets
+`Exhaustive` to `true` and leaves `Facets` empty.
+
+<Callout type="warn">
+`ProcessingTime` is a Go `time.Duration`, so when you return results as JSON you get a nanosecond
+count under the key `processing_time_ms`. The same goes for `SuggestResults`,
+`AutocompleteResults` and `SearchStats.AvgLatency` (`avg_latency_ms`).
+</Callout>
+
 ## Suggestions and Autocomplete
 
-Dedicated query types for search-as-you-type experiences:
+Both look at one field:
 
 ```go
-// Suggestions with fuzzy matching
-suggestions, _ := s.Suggest(ctx, search.SuggestQuery{
+// Substring matches anywhere in the field
+suggestions, err := s.Suggest(ctx, search.SuggestQuery{
     Index: "articles",
-    Query: "distrbuited",  // typo
     Field: "title",
+    Query: "system",
     Limit: 5,
-    Fuzzy: true,
 })
 
-// Autocomplete
-completions, _ := s.Autocomplete(ctx, search.AutocompleteQuery{
+// Prefix matches
+completions, err := s.Autocomplete(ctx, search.AutocompleteQuery{
     Index: "articles",
-    Query: "dist",
     Field: "title",
+    Query: "dist",
     Limit: 10,
 })
 ```
 
-## Connection Resilience
+Matching is case-insensitive, duplicates are dropped, and every result has a score of 1. Both
+default to 10 results and stop as soon as they have enough, so which matches you get from a larger
+set isn't defined. `SuggestQuery.Fuzzy` is accepted and ignored.
 
-- **Connection pooling** -- configurable `MaxConnections`, `MaxIdleConnections`, and `KeepAlive` for backend connections.
-- **Retry with backoff** -- `MaxRetries` with `RetryBackoff` and optional `RetryOnTimeout` for transient failures.
-- **Timeouts** -- separate `ConnectTimeout` and `RequestTimeout` values.
+## Stats
 
-## Security
+`Stats` returns `IndexCount`, `DocumentCount`, `TotalSize` (1 KB per document), `Queries` (calls to
+`Search`), `Uptime` and `Version`. On the in-memory backend `AvgLatency` is a fixed 5ms, not a
+measurement.
 
-- **TLS** -- connect to backends over TLS with `EnableTLS`, custom `TLSCertFile`, `TLSKeyFile`, `TLSCAFile`, or `InsecureSkipVerify`.
-- **Authentication** -- `Username`/`Password` for Elasticsearch, `APIKey` for Meilisearch/Typesense.
+## Not Implemented Yet
 
-## Observability
-
-- **Metrics** -- `EnableMetrics` integrates with the Forge metrics system.
-- **Tracing** -- `EnableTracing` for distributed tracing integration.
-- **Stats** -- `Stats()` returns index count, document count, total size, query count, average latency, and uptime.
+The config carries connection pooling, retries, timeouts, bulk batching, compression, TLS,
+highlighting and facet switches, and metrics and tracing flags. Nothing reads them yet, because the
+only working backend runs in process. See [Configuration](/docs/extensions/search/configuration)
+for which keys do something today.
 
 ## Sentinel Errors
 
-| Error | Meaning |
+These are the errors the backends return today:
+
+| Error | Returned when |
 |---|---|
-| `ErrNotConnected` | Backend is not connected |
-| `ErrAlreadyConnected` | Attempted to connect when already connected |
-| `ErrIndexNotFound` | Requested index does not exist |
-| `ErrIndexAlreadyExists` | Index with that name already exists |
-| `ErrDocumentNotFound` | Document ID not found in the index |
-| `ErrInvalidQuery` | Malformed or invalid search query |
-| `ErrInvalidSchema` | Invalid index schema definition |
-| `ErrConnectionFailed` | Failed to establish connection to backend |
-| `ErrTimeout` | Operation exceeded timeout |
-| `ErrInvalidConfig` | Invalid configuration values |
-| `ErrUnsupportedDriver` | Configured driver is not recognized |
-| `ErrOperationFailed` | Generic operation failure |
+| `ErrNotConnected` | You call a method before `Connect` or after `Disconnect` |
+| `ErrIndexNotFound` | The named index doesn't exist (in-memory) |
+| `ErrIndexAlreadyExists` | `CreateIndex` on a name that exists (in-memory) |
+| `ErrDocumentNotFound` | `Get`, `Update` or `Delete` on an unknown ID |
+
+`ErrAlreadyConnected`, `ErrInvalidQuery`, `ErrInvalidSchema`, `ErrConnectionFailed`, `ErrTimeout`,
+`ErrInvalidConfig`, `ErrUnsupportedDriver` and `ErrOperationFailed` are declared in `errors.go`, but
+nothing returns them yet.

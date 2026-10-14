@@ -3,259 +3,207 @@ title: Capabilities
 description: Feature flags extension capabilities
 ---
 
-## Boolean Flags
+## Boolean flags
 
-The simplest and most common use case: on/off feature toggles. `IsEnabled` returns `true` if the flag exists, is enabled, and evaluates to `true` for the given user context. `IsEnabledWithDefault` allows specifying a fallback value.
+`IsEnabled` returns the flag's answer for the user, or `false` when the flag isn't defined anywhere. `IsEnabledWithDefault` lets you pick that fallback.
 
 ```go
 svc := features.MustGet(app.Container())
-userCtx := features.NewUserContext("user-123")
+user := features.NewUserContext("user-123")
 
-// Simple boolean check (defaults to false)
-if svc.IsEnabled(ctx, "new-checkout", userCtx) {
-    // Show new checkout flow
+if svc.IsEnabled(ctx, "new-checkout", user) {
+	// show the new checkout
 }
 
-// With explicit default
-if svc.IsEnabledWithDefault(ctx, "beta-features", userCtx, true) {
-    // Enabled by default unless explicitly disabled
+if svc.IsEnabledWithDefault(ctx, "beta-features", user, true) {
+	// on unless a flag or default says otherwise
 }
 ```
 
-On error (provider unavailable, flag missing), `IsEnabled` returns `false` and `IsEnabledWithDefault` returns the specified default. Errors are logged as warnings.
+For a boolean flag, the answer comes from `Enabled`, not `Value`. A flag with `Enabled: true, Value: false` is on.
 
-## Typed Flag Values
+## Typed flag values
 
-Beyond booleans, flags can carry string, integer, float, or complex JSON values for dynamic configuration:
+String, number and JSON flags carry their answer in `Value`:
 
 ```go
-// String values (e.g., theme, variant)
-theme := svc.GetString(ctx, "theme", userCtx, "light")
-
-// Integer values (e.g., limits, counts)
-maxItems := svc.GetInt(ctx, "max-upload-size-mb", userCtx, 10)
-
-// Float values (e.g., percentages, multipliers)
-discount := svc.GetFloat(ctx, "discount-rate", userCtx, 0.0)
-
-// Complex JSON values (e.g., feature configuration)
-config := svc.GetJSON(ctx, "checkout-config", userCtx, map[string]any{
-    "steps":   3,
-    "showTax": true,
+theme := svc.GetString(ctx, "theme", user, "light")
+maxUpload := svc.GetInt(ctx, "max-upload-size-mb", user, 10)
+discount := svc.GetFloat(ctx, "discount-rate", user, 0.0)
+layout := svc.GetJSON(ctx, "checkout-config", user, map[string]any{
+	"steps":   3,
+	"showTax": true,
 })
 ```
 
-Each getter accepts a default value that is returned when the flag is not found, disabled, or the provider returns an error.
+Types match exactly. `GetInt` only returns a value stored as a Go `int`, and `GetFloat` only one stored as a `float64`. Store `50` in a flag and read it with `GetFloat` and you get your default back with no warning in the logs. The same goes for the values in `WithDefaultFlags`.
 
-## User Targeting
+String, number and JSON flags ignore `Enabled`. A flag with `Enabled: false` still returns its `Value`.
 
-The `UserContext` provides rich attributes for targeted flag evaluation. Build it using the fluent API:
+## User context
+
+Build a `UserContext` with what you know about the caller:
 
 ```go
-userCtx := features.NewUserContext("user-123").
-    WithEmail("alice@example.com").
-    WithName("Alice Smith").
-    WithGroups([]string{"beta-testers", "premium"}).
-    WithIP("192.168.1.100").
-    WithCountry("US").
-    WithAttribute("plan", "enterprise").
-    WithAttribute("signup_date", "2024-01-15")
+user := features.NewUserContext("user-123").
+	WithEmail("alice@example.com").
+	WithName("Alice Smith").
+	WithGroups([]string{"beta-testers", "premium"}).
+	WithIP("192.168.1.100").
+	WithCountry("US").
+	WithAttribute("plan", "enterprise")
 ```
 
-### Available Attributes for Targeting
-
-| Attribute | Source | Targeting Key |
+| Attribute | Set with | Rule attribute |
 |---|---|---|
 | User ID | `NewUserContext(id)` | `user_id` |
 | Email | `WithEmail(email)` | `email` |
 | Name | `WithName(name)` | `name` |
-| Groups | `WithGroups(groups)` | `group` |
-| IP Address | `WithIP(ip)` | `ip` |
+| Groups | `WithGroups(groups)` | `group` (only with `in`) |
+| IP address | `WithIP(ip)` | `ip` |
 | Country | `WithCountry(country)` | `country` |
-| Custom | `WithAttribute(key, val)` | Any string key |
+| Custom | `WithAttribute(key, value)` | the key, when the value is a string |
 
-### UserContext Methods
+You can also pass `nil` as the user context. Targeting and rollouts are then skipped and you get the flag's base value.
 
 ```go
-// Check group membership
-if userCtx.HasGroup("beta-testers") { ... }
+if user.HasGroup("beta-testers") {
+	// ...
+}
 
-// Get a custom attribute
-plan, ok := userCtx.GetAttribute("plan")
-
-// Get attribute as string
-planStr, ok := userCtx.GetAttributeString("plan")
+plan, ok := user.GetAttribute("plan")
+planStr, err := user.GetAttributeString("plan") // error when missing or not a string
 ```
 
-## Targeting Rules
+## Targeting rules
 
-Targeting rules match user attributes against configured conditions. When a rule matches, its associated value overrides the flag's default value.
+A rule matches a user attribute against `Values`. When it matches and its `Value` has the type you asked for, that value is the answer.
 
 ```go
 features.WithLocalFlags(map[string]features.FlagConfig{
-    "premium-feature": {
-        Key:     "premium-feature",
-        Enabled: true,
-        Type:    "boolean",
-        Value:   false, // Default: disabled
-        Targeting: []features.TargetingRule{
-            {
-                Attribute: "plan",
-                Operator:  "in",
-                Values:    []string{"premium", "enterprise"},
-                Value:     true, // Enabled for premium/enterprise plans
-            },
-            {
-                Attribute: "email",
-                Operator:  "contains",
-                Values:    []string{"@company.com"},
-                Value:     true, // Enabled for internal users
-            },
-        },
-    },
+	"premium-feature": {
+		Key:     "premium-feature",
+		Type:    "boolean",
+		Enabled: false, // off unless a rule turns it on
+		Targeting: []features.TargetingRule{
+			{
+				Attribute: "plan",
+				Operator:  "in",
+				Values:    []string{"premium", "enterprise"},
+				Value:     true,
+			},
+			{
+				Attribute: "email",
+				Operator:  "contains",
+				Values:    []string{"@company.com"},
+				Value:     true,
+			},
+		},
+	},
 })
 ```
 
-### Supported Operators
-
-| Operator | Behavior |
+| Operator | True when |
 |---|---|
-| `equals` | Exact match against first value in `Values` |
-| `contains` | Substring match (case-sensitive) |
-| `in` | Attribute value is in the `Values` list |
-| `not_in` | Attribute value is NOT in the `Values` list |
+| `equals`, `in` | The attribute equals one of `Values` |
+| `not_in` | The attribute equals none of `Values` |
+| `contains` | The attribute contains one of `Values` as a substring (case-sensitive) |
 
-For the `group` attribute, the `in` operator checks if the user belongs to any of the listed groups.
+For `group`, only `in` works: it's true when the user is in any of the listed groups. Rules run in the order you list them, and the first one that matches with a value of the right type wins.
 
-Rules are evaluated in order; the first matching rule determines the flag value.
+## Percentage rollouts
 
-## Percentage Rollouts
-
-Gradually roll out features to a percentage of users using consistent hashing. The same user always gets the same result for a given flag (no flickering).
+A rollout applies to boolean flags (`IsEnabled`, `IsEnabledWithDefault`):
 
 ```go
 features.WithLocalFlags(map[string]features.FlagConfig{
-    "new-search": {
-        Key:     "new-search",
-        Enabled: true,
-        Type:    "boolean",
-        Value:   false,
-        Rollout: &features.RolloutConfig{
-            Percentage: 25,       // 25% of users
-            Attribute:  "user_id", // Hash on user ID (default)
-        },
-    },
+	"new-search": {
+		Key:     "new-search",
+		Type:    "boolean",
+		Enabled: true,
+		Rollout: &features.RolloutConfig{
+			Percentage: 25,
+			Attribute:  "user_id", // the default when empty
+		},
+	},
 })
 ```
 
-The rollout mechanism:
-1. Takes the configured attribute value from the user context (default: `user_id`).
-2. Computes an MD5 hash of the attribute value.
-3. Maps the hash to a 0--99 range.
-4. Enables the flag if the hash value is below the `Percentage` threshold.
+1. The provider reads the rollout attribute: `user_id` when empty, `email`, or a custom string attribute.
+2. It hashes the value with MD5 and takes the first four bytes modulo 100.
+3. A user whose bucket is below `Percentage` gets `Enabled`. Everyone else gets the opposite.
 
-This ensures deterministic, consistent bucketing -- the same user always gets the same result.
+A user with an empty value for that attribute is always outside. `Percentage` of `0` or less puts nobody in, and `100` or more puts everybody in. Raising the percentage only adds users, because a bucket never moves.
 
-## Local Provider
+So `Enabled: true` with `Percentage: 25` is on for about a quarter of your users. Flip it to `Enabled: false` and that quarter gets `false` while everyone else gets `true`, which is rarely what you meant.
 
-The `local` provider stores flags in memory from configuration. It requires no external infrastructure and is ideal for development, testing, and simple production deployments.
+## Evaluation order
 
-```go
-app.RegisterExtension(features.NewExtension(
-    features.WithProvider("local"),
-    features.WithLocalFlags(map[string]features.FlagConfig{
-        "feature-a": {Key: "feature-a", Enabled: true, Type: "boolean", Value: true},
-        "max-items": {Key: "max-items", Enabled: true, Type: "integer", Value: 100},
-    }),
-))
-```
+For a defined flag the local provider stops at the first step that gives an answer:
 
-Local provider capabilities:
-- **Flag types**: boolean, string, integer, float, json.
-- **Targeting rules**: attribute-based targeting with `equals`, `contains`, `in`, `not_in` operators.
-- **Percentage rollouts**: consistent hash-based rollout.
-- **Dynamic updates**: `UpdateFlag(key, flag)` and `RemoveFlag(key)` for runtime changes.
-- **Thread-safe**: all operations are protected by `sync.RWMutex`.
+1. Targeting rules, in order.
+2. For boolean flags with a `Rollout`, the user's bucket.
+3. The flag's own value: `Enabled` for booleans, `Value` for everything else.
 
-### Evaluation Order
+A flag you never defined falls back to `WithDefaultFlags`, then to the default you passed to the getter.
 
-The local provider evaluates flags in this priority order:
-1. **Targeting rules** -- first matching rule wins.
-2. **Rollout** -- percentage-based bucketing.
-3. **Flag value** -- the configured `Value` field.
-4. **Defaults** -- the `DefaultFlags` map from config.
+## Local provider
 
-## External Providers
-
-The extension supports external feature flag platforms through the `Provider` interface:
-
-| Provider | Config Struct | Status |
-|---|---|---|
-| **LaunchDarkly** | `LaunchDarklyConfig` (SDK key, timeout) | Provider implemented, not yet wired |
-| **Unleash** | `UnleashConfig` (URL, API token, app name, env) | Provider implemented, not yet wired |
-| **Flagsmith** | `FlagsmithConfig` (API URL, environment key) | Provider implemented, not yet wired |
-| **PostHog** | `PostHogConfig` (API key, host, personal API key) | Provider implemented, not yet wired |
-
-External provider implementations exist in the `providers/` package but are not yet wired into the extension's `createProvider()` factory. Using them directly requires constructing the provider manually.
-
-## Flag Caching
-
-Optional in-memory caching reduces calls to external providers:
+The `local` provider keeps the flags you pass to `WithLocalFlags` in memory. It needs no infrastructure, and it's the only provider that works today.
 
 ```go
-features.WithCache(true, 10*time.Minute)
+features.NewExtension(
+	features.WithLocalFlags(map[string]features.FlagConfig{
+		"feature-a": {Key: "feature-a", Type: "boolean", Enabled: true},
+		"max-items": {Key: "max-items", Type: "number", Value: 100},
+	}),
+)
 ```
 
-- **Default**: enabled with 5-minute TTL.
-- When a cached value exists and hasn't expired, it's returned without calling the provider.
-- Cache is cleared on `Refresh()`.
-- Caching is most beneficial with external providers to reduce network calls and latency.
+The flag set is fixed once you build the extension. The underlying `providers.LocalProvider` has `UpdateFlag` and `RemoveFlag`, but the service doesn't expose its provider, so you can't reach them from an app. To change a flag, restart with new definitions.
 
-## Periodic Refresh
+## Providers
 
-The service runs a background goroutine that periodically refreshes flag values from the provider:
+| `Provider` | Status |
+|---|---|
+| `local` | Works |
+| `launchdarkly` | `WithLaunchDarkly` exists. Registration fails with "launchdarkly provider not yet available" |
+| `unleash` | `WithUnleash` exists. Registration fails the same way |
+| `flagsmith` | `WithFlagsmith` exists. Registration fails the same way |
+| `posthog` | `WithPostHog` exists. Registration fails the same way |
 
-```go
-features.WithRefreshInterval(1 * time.Minute)
-```
+The `providers` package has client code for the four remote services, but the extension doesn't call it yet. Pick one today and your app won't start.
 
-- **Default**: 30 seconds.
-- Set to `0` to disable periodic refresh.
-- The goroutine is cleanly shut down when the service stops.
-- Manual refresh is available via `svc.Refresh(ctx)`.
+## Caching
 
-## Default Values
+Not implemented. `WithCache(enabled, ttl)` sets `EnableCache` and `CacheTTL`, but nothing reads them, and every call goes straight to the provider. With the in-memory local provider that costs nothing.
 
-Configure fallback values used when the provider returns no value or is unavailable:
+## Periodic refresh
+
+The service starts a goroutine that calls the provider's `Refresh` every `RefreshInterval` (30 seconds by default, `0` turns it off) and stops it on `Stop`. The local provider's `Refresh` does nothing, so the loop has no visible effect today. `svc.Refresh(ctx)` calls it once by hand.
+
+## Default values
+
+`WithDefaultFlags` gives values for keys that have no flag definition:
 
 ```go
 features.WithDefaultFlags(map[string]any{
-    "new-dashboard": true,
-    "max-items":     100,
-    "theme":         "light",
+	"new-dashboard": true,
+	"max-items":     100,
+	"theme":         "light",
 })
 ```
 
-Default values are checked after the provider returns an error or when a flag is not found. They act as a safety net for service resilience.
+A defined flag never falls back to these. For an undefined key, the getter checks the default map first and then uses the default you passed, as long as the stored value has the matching Go type.
 
-## Bulk Flag Listing
-
-Retrieve all flag values at once for debugging, management UIs, or client-side hydration:
+## Listing every flag
 
 ```go
-allFlags, err := svc.GetAllFlags(ctx, userCtx)
-// Returns: map[string]any{
-//   "new-dashboard": true,
-//   "dark-mode":     false,
-//   "max-items":     100,
-// }
+all, err := svc.GetAllFlags(ctx, user)
 ```
 
-## Provider Health
+This evaluates every flag you defined for that user. `Type` decides how: `boolean` goes through `IsEnabled`, `string` through `GetString`, `number` through `GetInt`, and anything else returns the raw `Value`. Keys that only exist in `WithDefaultFlags` aren't included.
 
-Each provider implements `Health(ctx) error` for integration with the Forge health check system. The `local` provider always reports healthy. External providers check connectivity to their upstream service.
+## Health
 
-```go
-// Health is checked automatically by Forge if health checks are enabled
-// The service delegates to: provider.Health(ctx)
-```
+The service's `Health(ctx)` delegates to the provider's `Health`. The local provider always reports healthy.

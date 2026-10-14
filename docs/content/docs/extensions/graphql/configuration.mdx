@@ -1,109 +1,114 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for GraphQL
+description: Config keys, defaults, and which ones the GraphQL server reads
 ---
 
-## YAML Configuration Example
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Where config comes from
+
+The extension reads `extensions.graphql` from your config, falling back to `graphql`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option only counts as set when its value isn't the zero value and differs from the default, so with a config section present, `WithPlayground(false)` loses to the file (and to the default of `true` when the file doesn't set it). Put `false` values in the file.
+
+`WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the whole programmatic config.
+
+## YAML example
+
+These are the keys the server actually reads:
 
 ```yaml title="config.yaml"
 extensions:
   graphql:
-    endpoint: "/graphql"
-    playgroundEndpoint: "/playground"
-    enablePlayground: true
-    enableIntrospection: true
-    autoGenerateSchema: true
-    schemaFile: ""
-
-    # Query protection
-    maxComplexity: 1000
-    maxDepth: 15
-    queryTimeout: "30s"
-
-    # DataLoader
-    enableDataLoader: true
-    dataLoaderBatchSize: 100
-    dataLoaderWait: "10ms"
-
-    # Query caching
-    enableQueryCache: true
-    queryCacheTTL: "5m"
-    maxCacheSize: 1000
-
-    # CORS
-    enableCORS: true
-    allowedOrigins:
-      - "*"
-
-    # Uploads
-    maxUploadSize: 10485760          # 10 MB
-
-    # Observability
-    enableMetrics: true
-    enableTracing: true
-    enableLogging: true
-    logSlowQueries: true
-    slowQueryThreshold: "1s"
+    endpoint: /graphql
+    playground_endpoint: /playground
+    enable_playground: true
+    max_complexity: 1000
+    enable_query_cache: true
+    max_cache_size: 1000
+    enable_metrics: true
+    enable_logging: true
+    log_slow_queries: true
+    slow_query_threshold: 1s
 ```
 
-The extension loads config from `extensions.graphql` first, falling back to `graphql`.
+## Keys the server reads
 
-## Programmatic Configuration
+| Key | Option | Default | What it does |
+|---|---|---|---|
+| `endpoint` | `WithEndpoint` | `/graphql` | Path of the `GET` and `POST` routes |
+| `playground_endpoint` | none | `/playground` | Path of the playground |
+| `enable_playground` | `WithPlayground` | `true` | Serves the playground |
+| `max_complexity` | `WithMaxComplexity` | `1000` | gqlgen's fixed complexity limit, `0` turns it off |
+| `enable_query_cache` | `WithQueryCache` | `true` | Adds a second persisted query cache. APQ stays on without it |
+| `max_cache_size` | none | `1000` | Entries in that second cache |
+| `enable_metrics` | `WithMetrics` | `true` | Records `graphql_operation_duration_seconds` and `graphql_operation_total` |
+| `enable_logging` | none | `true` | Debug logs per operation, error logs for GraphQL errors |
+| `log_slow_queries` | none | `true` | Warns about slow operations, when metrics or logging is on |
+| `slow_query_threshold` | none | `1s` | What counts as slow |
+
+The [features page](/docs/extensions/graphql/features#persisted-queries) explains why `enable_query_cache` and `max_cache_size` don't control the cache that answers lookups.
+
+## Keys that have no effect yet
+
+<Callout type="warn">
+These keys are in `Config`, and some have options, but the server never reads them. Setting them changes nothing beyond validation.
+</Callout>
+
+| Key | Option | Default | Notes |
+|---|---|---|---|
+| `enable_introspection` | `WithIntrospection` | `true` | Introspection is always on |
+| `auto_generate_schema` | none | `true` | The schema is fixed |
+| `schema_file` | none | `""` | The schema is fixed |
+| `max_depth` | `WithMaxDepth` | `15` | Must be at least 1, not enforced |
+| `query_timeout` | `WithTimeout` | `30s` | Must be positive, not enforced |
+| `enable_dataloader` | `WithDataLoader` | `true` | The `dataloader` package is separate |
+| `dataloader_batch_size` | none | `100` | Must be at least 1 |
+| `dataloader_wait` | none | `10ms` | |
+| `query_cache_ttl` | second argument of `WithQueryCache` | `5m` | |
+| `enable_cors` | `WithCORS` | `true` | |
+| `allowed_origins` | `WithCORS(origins...)` | `["*"]` | |
+| `max_upload_size` | none | `10485760` | Must be non-negative. gqlgen's 32MB default applies |
+| `enable_tracing` | `WithTracing` | `true` | |
+
+## Validation
+
+`Register` validates the merged config, and your app won't start if any of these fail:
+
+| Rule | Error |
+|---|---|
+| `endpoint` is set | `endpoint is required` |
+| `max_complexity` >= 0 | `max_complexity must be non-negative` |
+| `max_depth` >= 1 | `max_depth must be at least 1` |
+| `query_timeout` > 0 | `query_timeout must be positive` |
+| `dataloader_batch_size` >= 1 | `dataloader_batch_size must be at least 1` |
+| `max_upload_size` >= 0 | `max_upload_size must be non-negative` |
+
+## Programmatic configuration
 
 ```go
 ext := graphql.NewExtension(
-    graphql.WithEndpoint("/api/graphql"),
-    graphql.WithPlayground(true),
-    graphql.WithMaxComplexity(500),
-    graphql.WithMaxDepth(10),
-    graphql.WithDataLoader(true),
-    graphql.WithQueryCache(true, 10*time.Minute),
+	graphql.WithEndpoint("/api/graphql"),
+	graphql.WithPlayground(true),
+	graphql.WithMaxComplexity(500),
+	graphql.WithMetrics(true),
 )
 ```
 
-## Config Struct Reference
+## Option helpers
 
-### `Config`
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Endpoint` | `string` | `"/graphql"` | GraphQL endpoint path |
-| `PlaygroundEndpoint` | `string` | `"/playground"` | Playground UI path |
-| `EnablePlayground` | `bool` | `true` | Enable GraphQL playground |
-| `EnableIntrospection` | `bool` | `true` | Enable schema introspection |
-| `AutoGenerateSchema` | `bool` | `true` | Auto-generate schema from resolvers |
-| `SchemaFile` | `string` | `""` | Path to schema file (overrides auto-generation) |
-| `MaxComplexity` | `int` | `1000` | Max query complexity score |
-| `MaxDepth` | `int` | `15` | Max query nesting depth |
-| `QueryTimeout` | `time.Duration` | `30s` | Per-request timeout |
-| `EnableDataLoader` | `bool` | `true` | Enable N+1 prevention |
-| `DataLoaderBatchSize` | `int` | `100` | DataLoader batch size |
-| `DataLoaderWait` | `time.Duration` | `10ms` | DataLoader wait before batching |
-| `EnableQueryCache` | `bool` | `true` | Enable query plan caching |
-| `QueryCacheTTL` | `time.Duration` | `5m` | Query cache TTL |
-| `MaxCacheSize` | `int` | `1000` | Max cached query plans |
-| `EnableCORS` | `bool` | `true` | Enable CORS |
-| `AllowedOrigins` | `[]string` | `["*"]` | CORS allowed origins |
-| `MaxUploadSize` | `int64` | `10485760` (10 MB) | Max file upload size |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `EnableTracing` | `bool` | `true` | Enable tracing |
-| `LogSlowQueries` | `bool` | `true` | Log slow queries |
-| `SlowQueryThreshold` | `time.Duration` | `1s` | Slow query threshold |
-
-## Option Helpers
-
-| Function | Description |
+| Function | Sets |
 |---|---|
-| `WithEndpoint(endpoint)` | Set the GraphQL endpoint path |
-| `WithPlayground(enable)` | Toggle playground UI |
-| `WithIntrospection(enable)` | Toggle schema introspection |
-| `WithMaxComplexity(max)` | Set max query complexity |
-| `WithMaxDepth(max)` | Set max query depth |
-| `WithTimeout(timeout)` | Set query timeout |
-| `WithDataLoader(enable)` | Toggle DataLoader |
-| `WithQueryCache(enable, ttl)` | Toggle query caching with TTL |
-| `WithCORS(origins...)` | Set CORS allowed origins |
-| `WithMetrics(enable)` | Toggle metrics |
-| `WithTracing(enable)` | Toggle tracing |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithEndpoint(endpoint string)` | `Endpoint` |
+| `WithPlayground(enable bool)` | `EnablePlayground` |
+| `WithIntrospection(enable bool)` | `EnableIntrospection` (no effect) |
+| `WithMaxComplexity(maxComplexity int)` | `MaxComplexity` |
+| `WithMaxDepth(maxDepth int)` | `MaxDepth` (no effect) |
+| `WithTimeout(timeout time.Duration)` | `QueryTimeout` (no effect) |
+| `WithDataLoader(enable bool)` | `EnableDataLoader` (no effect) |
+| `WithQueryCache(enable bool, ttl time.Duration)` | `EnableQueryCache` and `QueryCacheTTL` |
+| `WithCORS(origins ...string)` | `EnableCORS = true` and `AllowedOrigins` (no effect) |
+| `WithMetrics(enable bool)` | `EnableMetrics` |
+| `WithTracing(enable bool)` | `EnableTracing` (no effect) |
+| `WithRequireConfig(require bool)` | `RequireConfig` |
+| `WithConfig(config Config)` | the whole config |
+
+There are no options for `playground_endpoint`, `max_cache_size`, `max_upload_size`, the logging keys, `schema_file` or federation. Set those in the file, or build a `Config` and pass it with `WithConfig` or `NewExtensionWithConfig`.

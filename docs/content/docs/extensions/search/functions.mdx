@@ -15,80 +15,119 @@ description: Public API reference for the Search extension
 
 | Function | Description |
 |---|---|
-| `GetSearch(c forge.Container) (Search, error)` | Resolve the `Search` from the DI container |
-| `MustGetSearch(c forge.Container) Search` | Same as `GetSearch` but panics on error |
-| `GetSearchFromApp(app forge.App) (Search, error)` | Resolve the `Search` from an app instance |
-| `MustGetSearchFromApp(app forge.App) Search` | Same as `GetSearchFromApp` but panics on error |
+| `GetSearch(c forge.Container) (Search, error)` | Resolve the search service from the DI container |
+| `MustGetSearch(c forge.Container) Search` | Same as `GetSearch`, but panics on error |
+| `GetSearchFromApp(app forge.App) (Search, error)` | Resolve the search service from an app |
+| `MustGetSearchFromApp(app forge.App) Search` | Same as `GetSearchFromApp`, but panics on error |
 
-## Search Interface -- Connection
+`forge.Inject[search.Search](c)` and `forge.Inject[*search.SearchService](c)` work too.
+
+## Backend Constructors
+
+The extension builds the backend for you. You only need these to use one outside the extension, in
+a test for example. Each takes `(config Config, logger forge.Logger, metrics forge.Metrics)`.
+
+| Function | Returns |
+|---|---|
+| `NewInMemorySearch(...)` | `*InMemorySearch` |
+| `NewElasticsearchSearch(...)` | `(*ElasticsearchSearch, error)`, a placeholder |
+| `NewMeilisearchSearch(...)` | `(*MeilisearchSearch, error)`, a placeholder |
+| `NewTypesenseSearch(...)` | `(*TypesenseSearch, error)`, a placeholder |
+| `NewSearchService(...)` | `(*SearchService, error)`: validates the config, builds the backend for `Driver`, and adds `Start`, `Stop` and `Health` |
+
+`SearchService.Backend()` returns the backend it wraps.
+
+## Search Interface: Connection
 
 | Method | Description |
 |---|---|
-| `Connect(ctx) error` | Open connection to the search backend |
-| `Disconnect(ctx) error` | Close the connection |
-| `Ping(ctx) error` | Verify the backend is reachable |
+| `Connect(ctx) error` | Connect the backend. The extension calls it in `Start` |
+| `Disconnect(ctx) error` | Disconnect. The in-memory backend drops every index |
+| `Ping(ctx) error` | `ErrNotConnected` until `Connect` has run |
 
-## Search Interface -- Index Management
-
-| Method | Description |
-|---|---|
-| `CreateIndex(ctx, name, schema) error` | Create a new search index with the given schema |
-| `DeleteIndex(ctx, name) error` | Delete an index and all its documents |
-| `ListIndexes(ctx) ([]string, error)` | List all index names |
-| `GetIndexInfo(ctx, name) (*IndexInfo, error)` | Get index metadata including document count and size |
-
-## Search Interface -- Document Operations
+## Search Interface: Index Management
 
 | Method | Description |
 |---|---|
-| `Index(ctx, index, doc) error` | Index a single document |
-| `BulkIndex(ctx, index, docs) error` | Index multiple documents in one batch |
-| `Get(ctx, index, id) (*Document, error)` | Retrieve a document by ID |
-| `Delete(ctx, index, id) error` | Delete a document by ID |
-| `Update(ctx, index, id, doc) error` | Update an existing document |
+| `CreateIndex(ctx, name string, schema IndexSchema) error` | Create an index. `ErrIndexAlreadyExists` if the name is taken |
+| `DeleteIndex(ctx, name string) error` | Delete an index and its documents |
+| `ListIndexes(ctx) ([]string, error)` | Index names, in no particular order |
+| `GetIndexInfo(ctx, name string) (*IndexInfo, error)` | Document count, estimated size, timestamps and the stored schema |
 
-## Search Interface -- Query Operations
-
-| Method | Description |
-|---|---|
-| `Search(ctx, query) (*SearchResults, error)` | Execute a full-text search with filters, sorting, and facets |
-| `Suggest(ctx, query) (*SuggestResults, error)` | Get search suggestions for a partial query |
-| `Autocomplete(ctx, query) (*AutocompleteResults, error)` | Get ranked completions for search-as-you-type |
-
-## Search Interface -- Analytics
+## Search Interface: Document Operations
 
 | Method | Description |
 |---|---|
-| `Stats(ctx) (*SearchStats, error)` | Get backend statistics (index count, document count, query stats) |
+| `Index(ctx, index string, doc Document) error` | Write or replace one document |
+| `BulkIndex(ctx, index string, docs []Document) error` | Write or replace several documents |
+| `Get(ctx, index, id string) (*Document, error)` | Read a document by ID |
+| `Delete(ctx, index, id string) error` | Delete a document by ID |
+| `Update(ctx, index, id string, doc Document) error` | Replace an existing document. `ErrDocumentNotFound` if it doesn't exist |
+
+## Search Interface: Query Operations
+
+| Method | Description |
+|---|---|
+| `Search(ctx, query SearchQuery) (*SearchResults, error)` | Full-text search with boosts, a minimum score, simple filters and paging |
+| `Suggest(ctx, query SuggestQuery) (*SuggestResults, error)` | Values of one field that contain the query |
+| `Autocomplete(ctx, query AutocompleteQuery) (*AutocompleteResults, error)` | Values of one field that start with the query |
+
+## Search Interface: Analytics
+
+| Method | Description |
+|---|---|
+| `Stats(ctx) (*SearchStats, error)` | Index and document counts, query count, uptime and version |
 
 ## Key Types
 
 ### `SearchQuery`
 
-The primary query object passed to `Search()`:
+| Field | Type | In-memory behaviour |
+|---|---|---|
+| `Index` | `string` | Target index |
+| `Query` | `string` | Case-insensitive substring match. Empty matches everything |
+| `Filters` | `[]Filter` | `=`, `==`, `!=`, `EXISTS`, `NOT EXISTS`. Any other operator matches nothing |
+| `BoostFields` | `map[string]float64` | Multiplies the score of a matching field |
+| `MinScore` | `float64` | Drops hits below it |
+| `Offset` | `int` | Skips that many hits |
+| `Limit` | `int` | `0` means `default_limit`, capped at `max_limit` |
+| `Sort` | `[]SortField` | Ignored, and turns off the score ordering |
+| `Facets` | `[]string` | Ignored |
+| `Highlight`, `HighlightFields` | `bool`, `[]string` | Ignored |
+| `Fields` | `[]string` | Ignored, hits carry the whole document |
+| `FuzzyLevel` | `int` | Ignored |
+| `Options` | `map[string]any` | Ignored |
+
+### `Filter`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Index` | `string` | Target index name |
-| `Query` | `string` | Search text |
-| `Filters` | `[]Filter` | Field-level filters |
-| `Sort` | `[]SortField` | Sort order |
-| `Facets` | `[]string` | Fields to compute facet counts for |
-| `Offset` | `int` | Pagination offset |
-| `Limit` | `int` | Maximum results to return |
-| `Highlight` | `bool` | Enable highlighting |
-| `HighlightFields` | `[]string` | Fields to highlight |
-| `Fields` | `[]string` | Fields to return (empty = all) |
-| `MinScore` | `float64` | Minimum relevance score threshold |
-| `BoostFields` | `map[string]float64` | Per-field relevance boosting |
-| `FuzzyLevel` | `int` | Fuzzy matching tolerance |
+| `Field` | `string` | Document field to test |
+| `Operator` | `string` | `=`, `==`, `!=`, `EXISTS` or `NOT EXISTS` |
+| `Value` | `any` | Compared as a string (`fmt.Sprintf("%v")`) |
 
 ### `SearchResults`
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Hits` | `[]Hit` | Matching documents with scores and highlights |
-| `Total` | `int64` | Total number of matches |
-| `ProcessingTime` | `time.Duration` | Backend query time |
-| `Facets` | `map[string][]Facet` | Facet counts by field |
-| `Exhaustive` | `bool` | Whether the total count is exact |
+| `Hits` | `[]Hit` | `ID`, `Score`, `Document` (the document's fields) and `Highlights` (always empty) |
+| `Total` | `int64` | Matches before paging |
+| `Offset`, `Limit` | `int` | The paging actually applied |
+| `Query` | `string` | The query text |
+| `ProcessingTime` | `time.Duration` | Serialised as nanoseconds under `processing_time_ms` |
+| `Facets` | `map[string][]Facet` | Always empty |
+| `Exhaustive` | `bool` | Always `true` |
+
+### `SuggestQuery` and `AutocompleteQuery`
+
+Both have `Index`, `Query`, `Field` and `Limit` (default 10). `SuggestQuery` also has `Fuzzy`, which
+is ignored. Results come back as `SuggestResults.Suggestions` and
+`AutocompleteResults.Completions`, each entry a `Text` and a `Score` of 1, plus `ProcessingTime`.
+
+### `IndexSchema` and `FieldSchema`
+
+`IndexSchema` has `Fields`, `Settings`, `Synonyms`, `StopWords`, `Analyzers`, `Ranking`,
+`Faceting` and `Highlighting`. `FieldSchema` has `Name`, `Type`, `Required`, `Searchable`,
+`Filterable`, `Sortable`, `Faceted`, `Stored`, `Index`, `Boost`, `Analyzer`, `Format`, `Locale` and
+`DefaultValue`. The in-memory backend stores the schema and returns it from `GetIndexInfo` without
+acting on any of it.

@@ -2,159 +2,136 @@
 
 ## Purpose
 
-Raft consensus protocol implementation for building highly available distributed systems. Provides leader election, log replication, and state machine replication for creating fault-tolerant services that maintain consistency across multiple nodes.
+Raft consensus building blocks in Go: a Raft node with leader election, pre-vote, log
+replication and snapshots, plus storage, transports, discovery and state machines to build a
+node from. A Forge extension sits on top, but it does not wire those pieces together yet.
 
-## Key Components
+Read "Status" before you use any of it. Today the useful path is assembling `raft.Node`
+yourself on the in-process transport.
 
-- **Raft Implementation**: Leader election and log replication
-- **State Machine**: Pluggable state machine interface
-- **Cluster Management**: Node discovery and membership
-- **Snapshot Support**: State snapshots for fast recovery
-- **Transport Layer**: Multiple transport options (gRPC, HTTP, in-memory)
+Module: github.com/xraph/forge/extensions/consensus (package `consensus`). Most root types and
+helpers are aliases over `consensus/internal` (exports.go).
 
-## Architecture
+## Status
 
-```
-Consensus Extension
-├── Raft Core
-│   ├── Leader Election
-│   ├── Log Replication
-│   └── State Machine
-├── Cluster Management
-│   ├── Node Discovery
-│   ├── Membership Changes
-│   └── Health Monitoring
-├── Storage
-│   ├── Log Storage
-│   ├── Snapshot Storage
-│   └── State Persistence
-└── Transport
-    ├── gRPC Transport
-    ├── HTTP Transport
-    └── In-Memory Transport
-```
+- `raft`: leader election and log replication work on the in-process transport. Three nodes
+  elect a leader and a proposed entry commits on a majority.
+- Followers advance their commit index but don't apply committed entries to their state
+  machine. Read from the leader.
+- `consensus.NewExtension`: validates config and registers services, but its storage,
+  transport, discovery, state machine and Raft node are never created (the init steps only log).
+- gRPC/TCP/HTTP transports, BadgerDB/BoltDB storage and the discovery backends compile, but
+  nothing in this repo runs a networked cluster on them.
+- `testing/` runs in-process clusters; `TestLogReplication` is skipped under `-short`, which is
+  how CI runs it.
 
-## Public API
+## Packages and constructors
 
-### Core Types
+Each constructor takes a config struct and a `forge.Logger`.
 
-```go
-type Node interface {
-    // Lifecycle
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    
-    // Cluster operations
-    Join(ctx context.Context, nodeID, address string) error
-    Leave(ctx context.Context, nodeID string) error
-    
-    // Proposals
-    Propose(ctx context.Context, data []byte) error
-    
-    // State
-    IsLeader() bool
-    Leader() string
-    State() NodeState
-}
+- raft: `NewNode(config raft.Config, logger, stateMachine internal.StateMachine, transport internal.Transport, storage internal.Storage) (*Node, error)`.
+  Node methods: Start, Stop, IsLeader, GetLeader, Propose(ctx, command []byte), GetCommitIndex, AddPeer(peerID).
+- storage: `NewMemoryStorage(MemoryStorageConfig, logger) *MemoryStorage`,
+  `NewBadgerStorage(BadgerStorageConfig, logger) (*BadgerStorage, error)`,
+  `NewBoltDBStorage(BoltDBStorageConfig, logger) (*BoltDBStorage, error)`,
+  `NewWAL(nodeID string, WALConfig, logger) (*WAL, error)`.
+- transport: `NewLocalTransport(LocalTransportConfig, logger) *LocalTransport` (in process; link
+  with `Connect(other)`), `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`,
+  `NewTLSManager`, serializers (Gob, JSON, Protobuf, compressed).
+- statemachine: `NewMemoryStateMachine(MemoryStateMachineConfig, logger) *MemoryStateMachine`
+  (key-value map; commands `set`, `delete`, `increment`; Query `{"type":"get","key":...}`),
+  `NewPersistentStateMachine(PersistentStateMachineConfig, logger) (*PersistentStateMachine, error)`.
+- discovery: NewStaticDiscovery, NewDNSDiscovery, NewConsulDiscovery, NewEtcdDiscovery,
+  NewKubernetesDiscovery, NewRegistry.
+- cluster: `NewManager(ManagerConfig, logger)`, plus membership, quorum, topology and rebalance managers.
+- middleware: NewLeadershipMiddleware, NewQuorumMiddleware, NewMetricsMiddleware,
+  NewReadOnlyMiddleware, NewRedirectMiddleware, NewConsistencyMiddleware.
+- testing: in-process cluster harness.
 
-type StateMachine interface {
-    Apply(data []byte) error
-    Snapshot() ([]byte, error)
-    Restore(snapshot []byte) error
-}
-```
-
-### Main Functions/Methods
+## Usage (in-process cluster)
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
+tr := transport.NewLocalTransport(transport.LocalTransportConfig{NodeID: id}, logger)
+st := storage.NewMemoryStorage(storage.MemoryStorageConfig{}, logger)
+sm := statemachine.NewMemoryStateMachine(statemachine.MemoryStateMachineConfig{}, logger)
+node, err := raft.NewNode(raft.Config{
+    NodeID: id, HeartbeatInterval: 100 * time.Millisecond,
+    ElectionTimeoutMin: 300 * time.Millisecond, ElectionTimeoutMax: 600 * time.Millisecond,
+}, logger, sm, tr, st)
+_ = st.Start(ctx)
+// for every other peer: tr.Connect(peerTransport); node.AddPeer(peerID)
+_ = tr.Start(ctx); _ = node.Start(ctx)
 
-// Create node
-node := consensus.NewNode(config)
-node.Start(ctx)
-
-// Propose change
-node.Propose(ctx, []byte("data"))
-
-// Check leadership
-if node.IsLeader() {
-    // Handle as leader
-}
+cmd, _ := json.Marshal(consensus.Command{Type: "set", Payload: map[string]any{"key": "k", "value": "v"}})
+err = leaderNode.Propose(ctx, cmd)   // a follower returns a not-leader error naming the leader
 ```
 
-## Usage Examples
+The README quick start is the full, compiling version of this.
 
-### Basic Raft Cluster
+## Root package
+
+- Types: RaftNode, StateMachine (Apply(LogEntry), Snapshot(), Restore(*Snapshot), Query(any)),
+  Storage, Transport, Command{Type string; Payload map[string]any}, LogEntry, PeerConfig,
+  ConsensusService, ClusterManager, Config, ConfigOption.
+- Errors: ErrNotLeader, ErrNoQuorum and more; helpers IsNotLeaderError, IsNoLeaderError,
+  IsNoQuorumError, IsStaleTermError, IsRetryable, IsFatal.
+- `NewLeadershipChecker(service ConsensusService) *LeadershipChecker`.
+
+## The extension
 
 ```go
-import "github.com/xraph/forge/extensions/consensus"
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
 
-// Create state machine
-type KVStore struct {
-    data map[string]string
-    mu   sync.RWMutex
-}
-
-func (s *KVStore) Apply(data []byte) error {
-    s.mu.Lock()
-    defer s.mu.Unlock()
-    
-    var cmd Command
-    json.Unmarshal(data, &cmd)
-    s.data[cmd.Key] = cmd.Value
-    return nil
-}
-
-// Start Raft node
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        consensus.NewExtension(consensus.Config{
-            NodeID:      "node1",
-            RaftAddress: "localhost:7000",
-            DataDir:     "./raft-data",
-            StateMachine: &KVStore{data: make(map[string]string)},
-        }),
-    },
-})
-
-// Join cluster
-node, _ := consensus.GetNode(app.Container())
-node.Join(ctx, "node2", "localhost:7001")
-node.Join(ctx, "node3", "localhost:7002")
+WithNodeID(id string)
+WithClusterID(id string)
+WithBindAddress(addr string, port int)
+WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
+WithTransportType(transportType string)    // grpc, tcp
+WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
+WithStorageType(storageType string)        // badger, boltdb, pebble, postgres
+WithStoragePath(path string)
+WithTLS(certFile, keyFile string)
+WithMTLS(caFile string)
+WithConfig(cfg Config)
+WithRequireConfig(require bool)
 ```
 
-## Configuration
+Container entries: `*consensus.Service` (aliases `consensus`, `consensus:service`),
+`ClusterManager` (`consensus:cluster`), `RaftNode` (`consensus:raft`), `StateMachine`
+(`consensus:statemachine`), `*LeadershipChecker` (`consensus:leadership`). Because the
+components are never built, the RaftNode and StateMachine entries are nil.
 
-```yaml
-extensions:
-  consensus:
-    node_id: node1
-    raft_address: localhost:7000
-    data_dir: ./raft-data
-    heartbeat_timeout: 1s
-    election_timeout: 3s
-    snapshot_interval: 5m
-```
+What you get from the service today: `Apply` always returns ErrNotLeader; `Read` panics on the
+nil state machine; `HealthCheck` returns "storage not initialized" (and the health loop logs it every
+health.check_interval); GetRaftNode/GetStateMachine/GetStorage/GetTransport return nil;
+TransferLeadership and StepDown return "not yet implemented".
 
-## Dependencies
+## Config
 
-### External
-- github.com/hashicorp/raft - Raft implementation
-- go.etcd.io/bbolt - Log storage
+Key `extensions.consensus`, falling back to `consensus`. Options override the file. Validation
+at registration: node_id set (no default); cluster_id set ("default"); bind_port 1..65535
+(7000); raft.heartbeat_interval < election_timeout_min < election_timeout_max (1s, 5s, 10s);
+transport.type grpc or tcp ("grpc"); transport.max_message_size positive (4MB); discovery.type
+static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
+("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
+ca_file.
 
-### Internal
-- github.com/xraph/forge - Core framework
+Other sections: election, health, observability, resilience, admin_api, events, advanced. Full
+keys and defaults in internal/config.go. The extension acts on: health.enabled and
+health.check_interval, observability.metrics.enabled and collection_interval,
+advanced.enable_auto_snapshot with raft.snapshot_interval, and events.enabled (adds an `events`
+dependency and publishes start and stop events when an event bus is present).
 
-## Notes
+## Gotchas
 
-### Production Readiness
-- ✅ Raft consensus protocol
-- ✅ Leader election
-- ✅ Log replication
-- ✅ Snapshots
-- ✅ Cluster management
+- advanced.enable_auto_snapshot is on by default; every raft.snapshot_interval (30m) the snapshot
+  call panics on the nil state machine and takes the process down. Set it to false if you add
+  the extension.
 
-### License
-MIT License - Part of Forge Framework
+## Not implemented yet
 
+- The extension's component wiring (storage, transport, discovery, state machine, Raft node).
+- The admin API under `admin_api`: turning it on only writes a log line.
+- Applying committed entries on followers.

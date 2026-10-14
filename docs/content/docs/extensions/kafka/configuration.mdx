@@ -1,133 +1,176 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for Kafka
+description: Config keys, YAML example, and option helpers for Kafka
 ---
 
-## YAML Configuration Example
+## Programmatic Configuration
+
+Pass options to `NewExtension`:
+
+```go
+ext := kafka.NewExtension(
+	kafka.WithBrokers("broker-1:9092", "broker-2:9092"),
+	kafka.WithClientID("orders"),
+	kafka.WithSASL("SCRAM-SHA-256", "orders-service", os.Getenv("KAFKA_PASSWORD")),
+	kafka.WithCompression("lz4"),
+)
+```
+
+For fields without an option, start from `kafka.DefaultConfig()`, change what you need and hand the struct to `WithConfig` (or `NewExtensionWithConfig`):
+
+```go
+cfg := kafka.DefaultConfig()
+cfg.Brokers = []string{"broker-1:9092", "broker-2:9092"}
+cfg.ClientID = "orders"
+cfg.ProducerAcks = "all"
+cfg.ConsumerOffsets = "oldest"
+cfg.ConsumerGroupRebalance = "sticky"
+
+ext := kafka.NewExtension(kafka.WithConfig(cfg))
+```
+
+## YAML Configuration
+
+The extension reads `extensions.kafka` from your config file, falling back to a top-level `kafka` key. Keys are the snake_case names from the struct's `yaml` tags. Durations take Go duration strings such as `"500ms"` or `"10m"`.
 
 ```yaml title="config.yaml"
 extensions:
   kafka:
     brokers:
       - "localhost:9092"
-    clientID: "forge-kafka-client"
+    client_id: "forge-kafka-client"
     version: "3.0.0"
-    dialTimeout: "30s"
-    readTimeout: "30s"
-    writeTimeout: "30s"
+    dial_timeout: "30s"
+    read_timeout: "30s"
+    write_timeout: "30s"
+    keep_alive: "0s"
 
     # TLS
-    enableTLS: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
-    tlsCAFile: ""
+    enable_tls: false
+    tls_cert_file: ""
+    tls_key_file: ""
+    tls_ca_file: ""
+    tls_skip_verify: false
 
     # SASL
-    enableSASL: false
-    saslMechanism: "PLAIN"         # "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"
-    saslUsername: ""
-    saslPassword: ""
+    enable_sasl: false
+    sasl_mechanism: "PLAIN"           # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+    sasl_username: ""
+    sasl_password: ""
 
     # Producer
-    producerEnabled: true
-    producerMaxMessageBytes: 1000000
-    producerCompression: "snappy"   # "none", "gzip", "snappy", "lz4", "zstd"
-    producerFlushMessages: 10
-    producerFlushFrequency: "100ms"
-    producerRetryMax: 3
-    producerIdempotent: false
-    producerAcks: "local"           # "none", "local", "all"
+    producer_enabled: true
+    producer_max_message_bytes: 1000000
+    producer_compression: "snappy"    # none, gzip, snappy, lz4, zstd
+    producer_flush_messages: 10
+    producer_flush_frequency: "100ms"
+    producer_retry_max: 3
+    producer_idempotent: false        # leave off, see below
+    producer_acks: "local"            # none, local, all
 
     # Consumer
-    consumerEnabled: true
-    consumerGroupID: ""
-    consumerOffsets: "newest"       # "newest" or "oldest"
-    consumerMaxWait: "500ms"
-    consumerFetchMin: 1
-    consumerFetchMax: 1048576
-    consumerIsolation: "read_uncommitted"
+    consumer_enabled: true
+    consumer_offsets: "newest"        # newest, oldest (consumer groups only)
+    consumer_max_wait: "500ms"
+    consumer_fetch_min: 1
+    consumer_fetch_max: 1048576
+    consumer_isolation: "read_uncommitted"   # or read_committed
 
     # Consumer group
-    consumerGroupRebalance: "range" # "range", "roundrobin", "sticky"
-    consumerGroupSession: "10s"
-    consumerGroupHeartbeat: "3s"
+    consumer_group_rebalance: "range" # range, roundrobin, sticky
+    consumer_group_session: "10s"
+    consumer_group_heartbeat: "3s"
 
     # Metadata
-    metadataRetryMax: 3
-    metadataRetryBackoff: "250ms"
-    metadataRefreshFreq: "10m"
+    metadata_retry_max: 3
+    metadata_retry_backoff: "250ms"
+    metadata_refresh_freq: "10m"
+    metadata_full_refresh: true
 
     # Observability
-    enableMetrics: true
-    enableTracing: true
-    enableLogging: true
+    enable_metrics: true
+    enable_logging: true
 ```
 
-The extension loads config from `extensions.kafka` first, falling back to `kafka`.
+Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So `brokers` or `sasl_mechanism` in YAML takes effect with a plain `kafka.NewExtension()`. A field you set in code counts only when it isn't zero and differs from `DefaultConfig()`, so setting a field in code back to its default, or a bool to `false`, leaves the file's value in place.
 
-## Programmatic Configuration
+`WithRequireConfig(true)` turns a missing `extensions.kafka` (and `kafka`) section into a startup error.
 
-```go
-ext := kafka.NewExtension(
-    kafka.WithBrokers("broker1:9092", "broker2:9092"),
-    kafka.WithClientID("my-service"),
-    kafka.WithSASL("SCRAM-SHA-256", "user", "pass"),
-    kafka.WithCompression("lz4"),
-    kafka.WithConsumerGroup("my-group", "range"),
-    kafka.WithIdempotent(true),
-)
-```
+Unknown values for `producer_compression`, `producer_acks`, `consumer_offsets`, `consumer_isolation`, `consumer_group_rebalance` or `sasl_mechanism` fail validation when the extension registers, so a typo stops the app at startup.
 
-## Config Struct Reference
+## Config Reference
 
 ### `Config`
 
 Source: `config.go`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Brokers` | `[]string` | `["localhost:9092"]` | Kafka broker addresses |
-| `ClientID` | `string` | `"forge-kafka-client"` | Client identifier |
-| `Version` | `string` | `"3.0.0"` | Kafka protocol version |
-| `DialTimeout` | `time.Duration` | `30s` | Connection timeout |
-| `ReadTimeout` | `time.Duration` | `30s` | Read timeout |
-| `WriteTimeout` | `time.Duration` | `30s` | Write timeout |
-| `EnableTLS` | `bool` | `false` | Enable TLS |
-| `EnableSASL` | `bool` | `false` | Enable SASL authentication |
-| `SASLMechanism` | `string` | `"PLAIN"` | SASL mechanism |
-| `SASLUsername` | `string` | `""` | SASL username |
-| `SASLPassword` | `string` | `""` | SASL password |
-| `ProducerEnabled` | `bool` | `true` | Enable producer |
-| `ProducerCompression` | `string` | `"snappy"` | Compression codec |
-| `ProducerFlushMessages` | `int` | `10` | Flush after N messages |
-| `ProducerFlushFrequency` | `time.Duration` | `100ms` | Flush interval |
-| `ProducerRetryMax` | `int` | `3` | Max producer retries |
-| `ProducerIdempotent` | `bool` | `false` | Idempotent producer |
-| `ProducerAcks` | `string` | `"local"` | Ack level: `none`, `local`, `all` |
-| `ConsumerEnabled` | `bool` | `true` | Enable consumer |
-| `ConsumerGroupID` | `string` | `""` | Consumer group ID |
-| `ConsumerOffsets` | `string` | `"newest"` | Initial offset: `newest`, `oldest` |
-| `ConsumerGroupRebalance` | `string` | `"range"` | Rebalance strategy |
-| `ConsumerGroupSession` | `time.Duration` | `10s` | Session timeout |
-| `ConsumerGroupHeartbeat` | `time.Duration` | `3s` | Heartbeat interval |
-| `EnableMetrics` | `bool` | `true` | Enable metrics |
-| `EnableTracing` | `bool` | `true` | Enable tracing |
+| Field | YAML key | Type | Default | Description |
+|---|---|---|---|---|
+| `Brokers` | `brokers` | `[]string` | `["localhost:9092"]` | Seed brokers |
+| `ClientID` | `client_id` | `string` | `"forge-kafka-client"` | Client ID sent to the brokers |
+| `Version` | `version` | `string` | `"3.0.0"` | Kafka protocol version Sarama speaks |
+| `DialTimeout` | `dial_timeout` | `time.Duration` | `30s` | Connect timeout |
+| `ReadTimeout` | `read_timeout` | `time.Duration` | `30s` | Read timeout |
+| `WriteTimeout` | `write_timeout` | `time.Duration` | `30s` | Write timeout |
+| `KeepAlive` | `keep_alive` | `time.Duration` | `0` | TCP keepalive period. Zero uses Go's default period, a negative value turns keepalives off |
+| `EnableTLS` | `enable_tls` | `bool` | `false` | Connect over TLS |
+| `TLSCertFile` | `tls_cert_file` | `string` | `""` | Client certificate |
+| `TLSKeyFile` | `tls_key_file` | `string` | `""` | Client key |
+| `TLSCAFile` | `tls_ca_file` | `string` | `""` | CA bundle for the brokers |
+| `TLSSkipVerify` | `tls_skip_verify` | `bool` | `false` | Skip broker certificate checks |
+| `EnableSASL` | `enable_sasl` | `bool` | `false` | Authenticate with SASL |
+| `SASLMechanism` | `sasl_mechanism` | `string` | `"PLAIN"` | `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512` |
+| `SASLUsername` | `sasl_username` | `string` | `""` | SASL username |
+| `SASLPassword` | `sasl_password` | `string` | `""` | SASL password |
+| `ProducerEnabled` | `producer_enabled` | `bool` | `true` | Create the sync and async producers |
+| `ProducerMaxMessageBytes` | `producer_max_message_bytes` | `int` | `1000000` | Largest message the producer accepts |
+| `ProducerCompression` | `producer_compression` | `string` | `"snappy"` | `none`, `gzip`, `snappy`, `lz4` or `zstd` |
+| `ProducerFlushMessages` | `producer_flush_messages` | `int` | `10` | Flush after this many messages |
+| `ProducerFlushFrequency` | `producer_flush_frequency` | `time.Duration` | `100ms` | Flush at least this often |
+| `ProducerRetryMax` | `producer_retry_max` | `int` | `3` | Send retries |
+| `ProducerIdempotent` | `producer_idempotent` | `bool` | `false` | Idempotent producer, not usable yet (see below) |
+| `ProducerAcks` | `producer_acks` | `string` | `"local"` | `none`, `local` (leader) or `all` |
+| `ConsumerEnabled` | `consumer_enabled` | `bool` | `true` | Create the partition consumer and apply the consumer settings |
+| `ConsumerGroupID` | `consumer_group_id` | `string` | `""` | Stored but not read (see below) |
+| `ConsumerOffsets` | `consumer_offsets` | `string` | `"newest"` | Where a new consumer group starts: `newest` or `oldest` |
+| `ConsumerMaxWait` | `consumer_max_wait` | `time.Duration` | `500ms` | How long the broker may wait to fill a fetch |
+| `ConsumerFetchMin` | `consumer_fetch_min` | `int32` | `1` | Minimum bytes per fetch |
+| `ConsumerFetchMax` | `consumer_fetch_max` | `int32` | `1048576` | Most bytes one fetch may return |
+| `ConsumerIsolation` | `consumer_isolation` | `string` | `"read_uncommitted"` | `read_uncommitted` or `read_committed` |
+| `ConsumerGroupRebalance` | `consumer_group_rebalance` | `string` | `"range"` | `range`, `roundrobin` or `sticky` |
+| `ConsumerGroupSession` | `consumer_group_session` | `time.Duration` | `10s` | Group session timeout |
+| `ConsumerGroupHeartbeat` | `consumer_group_heartbeat` | `time.Duration` | `3s` | Group heartbeat interval |
+| `MetadataRetryMax` | `metadata_retry_max` | `int` | `3` | Metadata fetch retries |
+| `MetadataRetryBackoff` | `metadata_retry_backoff` | `time.Duration` | `250ms` | Wait between metadata retries |
+| `MetadataRefreshFreq` | `metadata_refresh_freq` | `time.Duration` | `10m` | Background metadata refresh |
+| `MetadataFullRefresh` | `metadata_full_refresh` | `bool` | `true` | Keep metadata for every topic |
+| `EnableMetrics` | `enable_metrics` | `bool` | `true` | Record the `kafka.*` metrics |
+| `EnableTracing` | `enable_tracing` | `bool` | `true` | Stored but not read (see below) |
+| `EnableLogging` | `enable_logging` | `bool` | `true` | Log failed and successful sync sends |
+| `RequireConfig` | none | `bool` | `false` | Fail when the config section is missing |
+
+### Fields that don't do anything yet
+
+- `producer_idempotent` / `WithIdempotent(true)`: Sarama requires `Net.MaxOpenRequests` to be 1 for an idempotent producer, and the extension leaves it at 5, so turning this on makes client creation fail.
+- `consumer_group_id` / `WithConsumerGroup(id)`: nothing reads the ID. The group that counts is the one you pass to `JoinConsumerGroup`. `WithConsumerGroup` also sets `ConsumerEnabled` to `true`, which is already the default.
+- `enable_tracing` / `WithTracing`: no tracing is wired up.
+- `consumer_offsets` has no effect on `Consume`, which always starts at the newest offset. It only applies to a consumer group with no committed offsets.
 
 ## Option Helpers
 
-| Function | Description |
+| Function | What it sets |
 |---|---|
-| `WithBrokers(brokers...)` | Set broker addresses |
-| `WithClientID(id)` | Set client identifier |
-| `WithVersion(version)` | Set Kafka protocol version |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
-| `WithSASL(mechanism, username, password)` | Enable SASL authentication |
-| `WithProducer(enabled)` | Toggle producer |
-| `WithConsumer(enabled)` | Toggle consumer |
-| `WithConsumerGroup(groupID, strategy)` | Set consumer group |
-| `WithCompression(codec)` | Set compression codec |
-| `WithIdempotent(enabled)` | Toggle idempotent producer |
-| `WithMetrics(enabled)` | Toggle metrics |
-| `WithTracing(enabled)` | Toggle tracing |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithBrokers(brokers ...string)` | `Brokers` |
+| `WithClientID(clientID string)` | `ClientID` |
+| `WithVersion(version string)` | `Version` |
+| `WithTLS(certFile, keyFile, caFile string, skipVerify bool)` | `EnableTLS` plus the four TLS fields |
+| `WithSASL(mechanism, username, password string)` | `EnableSASL` plus the three SASL fields |
+| `WithProducer(enabled bool)` | `ProducerEnabled` |
+| `WithConsumer(enabled bool)` | `ConsumerEnabled` |
+| `WithConsumerGroup(groupID string)` | `ConsumerGroupID` (unused) and `ConsumerEnabled = true` |
+| `WithCompression(compression string)` | `ProducerCompression` |
+| `WithIdempotent(enabled bool)` | `ProducerIdempotent` (fails client creation when `true`) |
+| `WithMetrics(enable bool)` | `EnableMetrics` |
+| `WithTracing(enable bool)` | `EnableTracing` (unused) |
+| `WithRequireConfig(require bool)` | `RequireConfig` |
+| `WithConfig(config Config)` | Replaces the whole config |

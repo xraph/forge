@@ -3,51 +3,86 @@ title: Functions
 description: Public API reference for the gRPC extension
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the gRPC extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the gRPC extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | The extension with options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | The extension with a complete config |
+| `DefaultConfig() Config` | The defaults |
 
-## GRPC Interface -- Service Registration
+The options are listed on the [Configuration](/docs/extensions/grpc/configuration#options) page.
+
+## Resolving the server
+
+There are no `Get` helpers. Use Forge's DI:
+
+```go
+svc, err := forge.Inject[*grpcext.GRPCService](app.Container()) // also registered as "grpc"
+srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same server
+```
+
+## Constructors
+
+| Function | Description |
+|---|---|
+| `NewGRPCService(config Config, logger forge.Logger, metrics forge.Metrics) (*GRPCService, error)` | The service the extension registers. Validates the config |
+| `NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GRPC` | A bare server you start yourself with `Start(ctx, addr)` |
+
+## `GRPCService`
 
 | Method | Description |
 |---|---|
-| `RegisterService(desc *grpc.ServiceDesc, impl any)` | Register a gRPC service implementation |
-| `GetServiceInfo() []ServiceInfo` | List all registered services and their methods |
+| `Server() GRPC` | The server |
+| `Start(ctx) error` | Start the server on the configured address. The extension calls it |
+| `Stop(ctx) error` | `GracefulStop`, then `Stop` if that fails. The extension calls it |
+| `Health(ctx) error` | Whether the server exists |
+| `RegisterService`, `AddUnaryInterceptor`, `AddStreamInterceptor`, `RegisterHealthChecker`, `GetServer`, `IsRunning`, `GetStats`, `GetServices`, `Ping` | Pass through to the server |
 
-## GRPC Interface -- Server Lifecycle
-
-| Method | Description |
-|---|---|
-| `Start(ctx) error` | Start the gRPC server listener |
-| `Stop(ctx) error` | Graceful shutdown of the server |
-| `Health(ctx) error` | Run health checks on registered services |
-
-## GRPC Interface -- Interceptors
+## `GRPC`: service registration
 
 | Method | Description |
 |---|---|
-| `AddUnaryInterceptor(interceptor)` | Add a unary server interceptor |
-| `AddStreamInterceptor(interceptor)` | Add a stream server interceptor |
+| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service. Not reliable on the managed server, see the [known issue](/docs/extensions/grpc#known-issue-registering-your-own-services) |
+| `GetServices() []ServiceInfo` | Registered services and their methods |
 
-## GRPC Interface -- Health
-
-| Method | Description |
-|---|---|
-| `RegisterHealthChecker(name, checker)` | Register a named health checker |
-| `SetServingStatus(service, status)` | Set the serving status for a service |
-
-## GRPC Interface -- Stats
+## `GRPC`: lifecycle
 
 | Method | Description |
 |---|---|
-| `Stats() ServerStats` | Get server statistics |
-| `GetServer() *grpc.Server` | Access the underlying `grpc.Server` |
+| `Start(ctx, addr string) error` | Build a fresh `grpc.Server` with the configured options and serve on `addr`. Does nothing if already running |
+| `Stop(ctx) error` | Hard stop. `ErrNotStarted` when not running |
+| `GracefulStop(ctx) error` | Drain, then stop. `ErrNotStarted` when not running |
+| `IsRunning() bool` | Whether it's serving |
+| `Ping(ctx) error` | `ErrNotStarted` when not running |
+| `GetServer() *grpc.Server` | The underlying grpc-go server |
 
-## Key Types
+## `GRPC`: interceptors
+
+| Method | Description |
+|---|---|
+| `AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)` | Appended to the chain on the next `Start`. Never runs on a server that's already running |
+| `AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)` | Same, for streams |
+
+## `GRPC`: health and stats
+
+| Method | Description |
+|---|---|
+| `RegisterHealthChecker(service string, checker HealthChecker)` | Answer `NOT_SERVING` for `service` when `checker.Check` fails |
+| `GetStats() ServerStats` | Start time, RPC counts and active streams |
+
+## Key types
+
+### `ServerStats`
+
+| Field | Type | Purpose |
+|---|---|---|
+| `StartTime` | `int64` | Unix seconds when the server last started |
+| `TotalConnections` | `int64` | Never updated, always zero |
+| `ActiveStreams` | `int64` | Streams in flight |
+| `RPCsStarted`, `RPCsSucceeded`, `RPCsFailed` | `int64` | Unary call counts |
+
+The counts come from the metrics interceptor and stay at zero with metrics off.
 
 ### `ServiceInfo`
 
@@ -55,7 +90,7 @@ description: Public API reference for the gRPC extension
 |---|---|---|
 | `Name` | `string` | Fully qualified service name |
 | `Methods` | `[]MethodInfo` | Service methods |
-| `Description` | `string` | Service description |
+| `Description` | `string` | Always empty |
 
 ### `MethodInfo`
 
@@ -64,5 +99,12 @@ description: Public API reference for the gRPC extension
 | `Name` | `string` | Method name |
 | `IsClientStream` | `bool` | Client streams requests |
 | `IsServerStream` | `bool` | Server streams responses |
-| `InputType` | `string` | Input message type |
-| `OutputType` | `string` | Output message type |
+| `InputType`, `OutputType` | `string` | Always empty; grpc-go's service info doesn't carry them |
+
+### `HealthChecker`
+
+```go
+type HealthChecker interface {
+	Check(ctx context.Context) error
+}
+```

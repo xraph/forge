@@ -161,7 +161,7 @@ err := k.SendMessages([]*kafka.ProducerMessage{
 })
 ```
 
-Mind you, `SendMessages` only copies `Topic`, `Key`, `Value` and `Partition` across to Sarama today. `Headers` and `Timestamp` on `ProducerMessage` are ignored, so if you need record headers, build a `sarama.ProducerMessage` yourself and send it through `k.GetProducer()`.
+Mind you, `SendMessages` only copies `Topic`, `Key`, `Value` and `Partition` across to Sarama today. `Headers` and `Timestamp` on `ProducerMessage` are ignored, so if you need record headers, build a `sarama.ProducerMessage` yourself and send it through `k.GetProducer()`. The `Partition` you set is copied but not honoured: Sarama's default hash partitioner picks the partition from the key, and only a manual partitioner reads the field.
 
 Sarama's default partitioner hashes the key. If you give related events the same key, they land on one partition and you read them back in the order you sent them.
 
@@ -178,7 +178,7 @@ err := k.ConsumePartition(ctx, "orders", 0, sarama.OffsetOldest,
 	})
 ```
 
-Both return as soon as the partition readers are running. Each partition gets its own goroutine. If your handler returns an error, the extension logs it with the topic, partition and offset and moves on to the next message, so nothing is retried and you decide what a failed message means for your service. Call `k.StopConsume()` or cancel the context to stop reading.
+Both return as soon as the partition readers are running. Each partition gets its own goroutine. If your handler returns an error, the extension logs it with the topic, partition and offset and moves on to the next message, so nothing is retried and you decide what a failed message means for your service. To stop reading, cancel the context you passed in. `k.StopConsume()` only cancels the readers started by the most recent `Consume` call, so it won't stop a `ConsumePartition` reader, or the readers from an earlier `Consume`.
 
 `JoinConsumerGroup` is the one you want when several instances of a service share a topic, or when a restart should pick up where it left off. You write a Sarama `ConsumerGroupHandler`, and you mark messages as processed yourself:
 

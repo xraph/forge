@@ -1,172 +1,191 @@
 ---
 title: Streaming
-description: Real-time WebSocket and SSE with rooms, channels, presence, and typing indicators
+description: WebSocket and SSE endpoints with rooms, channels, presence, typing indicators and message replay
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/streaming` provides a real-time communication layer with WebSocket
-and Server-Sent Events (SSE) support. It registers a `Manager` in the DI container that handles
-connections, rooms, channels, presence tracking, typing indicators, and message history with pluggable
-backends (local, Redis, NATS).
+`github.com/xraph/forge/extensions/streaming` gives your app ready-made WebSocket and Server-Sent Events (SSE) endpoints and a `Manager` that handles rooms, pub/sub channels, presence, typing indicators, message history and gap-free replay after a reconnect. You can run it on one node with the local in-memory backend, or across several with Redis. Whatever a client sends goes through a size limit, a per-user rate limit and room authorization before anyone else sees it.
 
-## What It Registers
+## What it registers
 
-| Service | DI Key | Type |
+| Service | How you resolve it | Type |
 |---|---|---|
-| Streaming manager | `streaming` | `Manager` |
+| Streaming manager | `ext.Manager()`, `streaming.GetManager(container)` or `forge.Inject[streaming.Manager](container)`, alias `streaming` | `streaming.Manager` |
 
-The manager is registered as a Vessel-managed singleton. The extension provides a `RegisterRoutes` helper to mount WebSocket and SSE endpoints on the Forge HTTP router.
+Routes aren't mounted for you. You call `RegisterRoutes(router, wsPath, ssePath)`, which adds the WebSocket route, the SSE route, and `POST {ssePath}/subscribe` and `{ssePath}/unsubscribe`.
 
-## Quick Start
+## Quick start
 
-```go
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/streaming@latest
+```
+
+```go title="main.go"
 package main
 
 import (
-    "context"
+	"context"
+	"log"
+	"net/http"
 
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/streaming"
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/streaming"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{Name: "chat-app", Version: "1.0.0"})
+	stream := streaming.NewExtension(streaming.WithLocalBackend())
 
-    ext := streaming.NewExtension(
-        streaming.WithLocalBackend(),
-        streaming.WithFeatures(true, true, true, true, true), // rooms, channels, presence, typing, history
-        streaming.WithConnectionLimits(5, 50, 50),            // 5 conns/user, 50 rooms/user, 50 channels/user
-    )
-    app.RegisterExtension(ext)
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "live-updates",
+		HTTPAddress: ":8080",
+		Extensions:  []forge.Extension{stream},
+	})
 
-    // Mount WebSocket and SSE endpoints
-    ext.RegisterRoutes(app.Router(), "/ws", "/sse")
+	// The extension builds its manager when the app registers it, so mount
+	// the built-in handlers from a start hook: WebSocket on /ws, SSE on
+	// /events, plus POST /events/subscribe and /events/unsubscribe.
+	err := forge.OnStarted(app, "streaming-routes", func(_ context.Context, a forge.App) error {
+		return stream.RegisterRoutes(a.Router(), "/ws", "/events")
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    ctx := context.Background()
-    app.Start(ctx)
-    defer app.Stop(ctx)
+	// Send a message to every open WebSocket and SSE connection.
+	err = app.Router().POST("/announce", func(ctx forge.Context) error {
+		msg := streaming.NewEventMessage("announcement", ctx.Query("text"))
 
-    mgr := streaming.MustGetManager(app.Container())
+		if err := stream.Manager().Broadcast(ctx.Context(), msg); err != nil {
+			return err
+		}
 
-    // Create a room
-    room, _ := mgr.CreateRoom(ctx, streaming.RoomOptions{
-        Name:       "general",
-        MaxMembers: 100,
-    })
+		return ctx.JSON(http.StatusAccepted, map[string]string{"status": "sent"})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Broadcast to all connected users
-    mgr.Broadcast(ctx, []byte(`{"type":"announcement","data":"Server is ready"}`))
-
-    // Broadcast to a specific room
-    mgr.BroadcastToRoom(ctx, room.ID(), []byte(`{"type":"message","data":"Hello room!"}`))
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## Using Streaming in Your Services
+Run it, open an SSE stream in one terminal and send from another:
 
-Inject the `Manager` for automatic DI resolution:
+```bash
+go mod tidy && go run .
+
+curl -N http://localhost:8080/events
+curl -X POST 'http://localhost:8080/announce?text=deploy+finished'
+```
+
+The stream prints a `connected` event with your connection and session IDs, then the announcement:
+
+```text
+event: connected
+data: {"conn_id":"a5ef...","resumed":false,"session_id":"389f..."}
+
+event: message
+data: {"id":"","type":"message","event":"announcement","user_id":"","data":"deploy finished","timestamp":"..."}
+```
+
+A WebSocket client on `ws://localhost:8080/ws` gets the same JSON as a text frame.
+
+<Callout type="warn">
+Call `RegisterRoutes`, `RegisterHook` and `RegisterCodec` from a start hook like the one above, or anywhere after the app has registered its extensions. The extension creates its logger, hook registry and manager during registration, so calling them earlier panics with a nil pointer.
+</Callout>
+
+## Identity and authentication
+
+Joining a room needs a user. The built-in handlers read the caller's ID from the `user_id` value on the Forge context. A connection without one is anonymous: it receives broadcasts, but `JoinRoom` refuses it and the SSE subscribe endpoints answer 404.
+
+Values that route or group middleware stores with `ctx.Set` reach the WebSocket and SSE handlers, so you authenticate with ordinary middleware. Mount the routes on a group that has it:
+
+```go
+requireUser := func(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
+		userID := ctx.Header("X-User-ID") // replace with your real auth check
+		if userID == "" {
+			return forge.Unauthorized("sign in first")
+		}
+
+		ctx.Set("user_id", userID)
+
+		return next(ctx)
+	}
+}
+
+err := forge.OnStarted(app, "streaming-routes", func(_ context.Context, a forge.App) error {
+	rt := a.Router().Group("/rt", forge.WithGroupMiddleware(requireUser))
+
+	return stream.RegisterRoutes(rt, "/ws", "/events")
+})
+```
+
+The value has to be a `string`. Browsers can't set headers on a WebSocket or `EventSource` request, so in practice you'll read a cookie or a token from the query string.
+
+## Rooms
+
+Rooms must exist before anyone joins them, so you create them from your own code:
+
+```go
+err := stream.Manager().CreateRoom(ctx, streaming.NewLocalRoom(streaming.RoomOptions{
+	ID:    "lobby",
+	Name:  "Lobby",
+	Owner: "system",
+}))
+```
+
+The default room authorizer lets any user into a public room and only members into a private one. A client joins with `{"type": "join", "room_id": "lobby"}` over WebSocket, or `?rooms=lobby` on the SSE URL.
+
+## Using the manager in your services
 
 ```go
 type ChatService struct {
-    streaming streaming.Manager
-    logger    forge.Logger
+	streams streaming.Manager
 }
 
-func NewChatService(mgr streaming.Manager, logger forge.Logger) *ChatService {
-    return &ChatService{streaming: mgr, logger: logger}
+func NewChatService(mgr streaming.Manager) *ChatService {
+	return &ChatService{streams: mgr}
 }
 
-func (s *ChatService) SendMessage(ctx context.Context, roomID string, userID string, msg []byte) error {
-    // Save to history
-    s.streaming.SaveMessage(ctx, &streaming.Message{
-        RoomID: roomID,
-        UserID: userID,
-        Data:   msg,
-    })
-    // Broadcast to room
-    return s.streaming.BroadcastToRoom(ctx, roomID, msg)
-}
+func (s *ChatService) Notify(ctx context.Context, roomID, text string) error {
+	msg := streaming.NewEventMessage("chat.notice", text)
+	msg.RoomID = roomID
 
-func (s *ChatService) GetOnlineUsers(ctx context.Context) ([]string, error) {
-    return s.streaming.GetOnlineUsers(ctx)
+	if err := s.streams.SaveMessage(ctx, msg); err != nil {
+		return err
+	}
+
+	return s.streams.BroadcastToRoom(ctx, roomID, msg)
 }
 ```
 
-Register with Vessel:
+Register it with `forge.ProvideConstructor(app.Container(), NewChatService)`. Every broadcast method takes a `*streaming.Message`, not raw bytes.
 
-```go
-forge.ProvideConstructor(app.Container(), NewChatService)
-```
+## Status
 
-## Room Management
+- The NATS backend isn't implemented. `WithNATSBackend` passes validation, then registration fails with a backend error.
+- Channels can't be created from outside the module yet. `CreateChannel` takes a `Channel`, and the options type the local constructor needs isn't exported, so subscribes fail with `ErrChannelNotFound`. Rooms work.
+- `round_robin`, the default load balancer strategy, uses least connections.
+- Several config fields, such as `message_retention` and the buffer sizes, are never read. The [configuration page](/docs/extensions/streaming/configuration#fields-that-do-nothing-yet) lists them.
 
-```go
-mgr := streaming.MustGetManager(app.Container())
-
-// Create a room
-room, _ := mgr.CreateRoom(ctx, streaming.RoomOptions{
-    Name:       "project-alpha",
-    MaxMembers: 50,
-})
-
-// Join/leave
-mgr.JoinRoom(ctx, room.ID(), userID, streaming.MemberOptions{Role: "member"})
-mgr.LeaveRoom(ctx, room.ID(), userID)
-
-// Get room members
-members, _ := mgr.GetRoomMembers(ctx, room.ID())
-
-// Transfer ownership
-mgr.TransferRoomOwnership(ctx, room.ID(), newOwnerID)
-```
-
-## Presence and Typing
-
-```go
-// Set user presence
-mgr.SetPresence(ctx, userID, streaming.PresenceOptions{
-    Status: "online",
-    Device: &streaming.DeviceInfo{Type: "desktop"},
-})
-
-// Get online users
-online, _ := mgr.GetOnlineUsers(ctx)
-
-// Typing indicators
-mgr.StartTyping(ctx, roomID, userID)
-mgr.StopTyping(ctx, roomID, userID)
-typing, _ := mgr.GetTypingUsers(ctx, roomID)
-```
-
-## Key Concepts
-
-- **Connections** -- WebSocket and SSE connections are wrapped in an `EnhancedConnection` that tracks user ID, session ID, metadata, joined rooms, and subscribed channels.
-- **Rooms** -- users join rooms to exchange messages. Rooms support members, roles, invites, bans, and moderation events.
-- **Channels** -- pub/sub channels for topic-based messaging. Users subscribe to channels to receive broadcasts.
-- **Presence** -- track user online status, device info, and activity across connections with configurable timeout and cleanup intervals.
-- **Typing indicators** -- real-time typing status per user per room with automatic expiration.
-- **Message history** -- persist messages with configurable retention (default 30 days) and search/query support.
-- **Distributed mode** -- scale across nodes with Redis or NATS backends for cross-node message routing and presence synchronization.
-
-## Important Runtime Notes
-
-- Call `RegisterRoutes(router, wsPath, ssePath)` to mount WebSocket and SSE endpoints.
-- The local backend stores everything in memory. Use Redis or NATS backends for production multi-node deployments.
-- Connection limits, message rate limits, and message size limits are enforced per-user.
-
-## Detailed Pages
+## Detailed pages
 
 <Cards>
 <Card title="Features" href="/docs/extensions/streaming/features">
-Rooms, channels, presence, typing, message history, and distributed mode.
+Wire protocol, rooms, presence, typing, history and replay, hooks, backends and metrics.
 </Card>
 <Card title="Configuration" href="/docs/extensions/streaming/configuration">
-Config reference, YAML example, and programmatic options.
+YAML keys, options, defaults and which fields the code reads.
 </Card>
 <Card title="Functions" href="/docs/extensions/streaming/functions">
-Public API grouped by purpose with descriptions.
+The public Go API, grouped by purpose.
 </Card>
 </Cards>

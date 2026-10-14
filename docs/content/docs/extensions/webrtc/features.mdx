@@ -1,303 +1,178 @@
 ---
 title: Features
-description: WebRTC extension capabilities
+description: Call rooms, peer connections, signaling helpers and the SFU router
 ---
 
-## Topologies
+import { Callout } from 'fumadocs-ui/components/callout';
 
-The WebRTC extension supports two connection topologies, chosen per call room:
+The snippets assume `rtc` is the `*webrtc.Extension` from `webrtc.New` and that the app has started. The package name `webrtc` clashes with Pion's, so if you also import `github.com/pion/webrtc/v4`, give one of them an alias.
 
-### Mesh Topology
+## Call rooms
 
-Every participant connects directly to every other participant via peer-to-peer connections. Best for small groups (2--4 people) with minimal server load.
+A call room pairs a streaming room with a set of server-side peer connections, one per participant. You need an ID in the options. The topology comes from the extension's config, not from the room.
 
 ```go
-ext, _ := webrtc.New(streamingExt, config, webrtc.WithTopology(webrtc.TopologyMesh))
-room, _ := ext.CreateCallRoom(ctx, "standup", streaming.RoomOptions{
-    ID:         "standup",
-    Name:       "Daily Standup",
-    MaxMembers: 4,
+room, err := rtc.CreateCallRoom(ctx, "support-42", streaming.RoomOptions{
+	ID:         "support-42",
+	Name:       "Support call",
+	MaxMembers: 4,
 })
+
+peer, err := room.JoinCall(ctx, "agent-7", &webrtc.JoinOptions{
+	AudioEnabled: true,
+	VideoEnabled: true,
+})
+
+err = room.MuteUser(ctx, "agent-7")
+err = room.Leave(ctx, "agent-7")
+err = rtc.DeleteCallRoom(ctx, "support-42")
 ```
 
-In mesh mode, the server only handles signaling (SDP and ICE exchange). All media flows directly between peers.
+- `CreateCallRoom` registers the streaming room with the streaming manager and fails if a call room with that ID already exists. `GetCallRoom(id)` returns `ErrRoomNotFound` for an unknown ID, and `GetCallRooms()` lists them all.
+- `room.ID()` is prefixed with the topology (`mesh-support-42`). Use the ID you passed to `CreateCallRoom` for the extension's methods.
+- `rtc.JoinCall(ctx, roomID, userID, opts)` and `rtc.LeaveCall(ctx, roomID, userID)` do the same as the room methods and also update the `webrtc.calls.*` and `webrtc.peers.active` metrics.
+- A user can join a room once. A second `JoinCall` for the same user fails until they leave. `Leave` returns `ErrNotInRoom` for someone who isn't there.
+- `MaxMembers` goes to the streaming room. `JoinCall` doesn't check it.
+- `DeleteCallRoom` closes every peer in the room. A closed room refuses new joins.
 
-### SFU Topology
+`AudioEnabled` and `VideoEnabled` add an Opus and a VP8 send track from the server to that user's peer. Nothing writes media into those tracks, so they're silent. `MuteUser`, `UnmuteUser`, `DisableVideo` and `EnableVideo` switch those server-side tracks off and on. They don't touch what the client sends.
 
-A Selective Forwarding Unit routes all media through the server. Participants send their streams once to the server, which forwards them to other participants. Scales to larger groups:
+`GetParticipants()` returns one `Participant` per peer with `UserID` filled in, plus `Quality` in SFU rooms (see below). `JoinedAt` is the time of the call, and `DisplayName`, the audio and video flags and `ScreenSharing` stay empty. `JoinOptions.DisplayName` and `Metadata` are accepted and ignored.
 
-```go
-ext, _ := webrtc.New(streamingExt, config, webrtc.WithTopology(webrtc.TopologySFU))
-room, _ := ext.CreateCallRoom(ctx, "all-hands", streaming.RoomOptions{
-    ID:         "all-hands",
-    Name:       "All Hands Meeting",
-    MaxMembers: 50,
-})
-```
+`StartScreenShare`, `StopScreenShare` and `GetQuality` return `ErrNotImplemented`.
 
-The SFU router manages publisher/subscriber relationships:
+## Peer connections
 
-```go
-router := ext.GetSFURouter()
-
-// Subscribe a viewer to a specific track
-router.SubscribeToTrack(ctx, subscriberID, publisherID, trackID)
-
-// Unsubscribe
-router.UnsubscribeFromTrack(ctx, subscriberID, trackID)
-
-// Set quality layer for a receiver
-router.SetQuality(ctx, trackID, receiverID, "high")
-
-// List available tracks
-tracks := router.GetAvailableTracks()
-```
-
-## SDP Signaling
-
-Automated SDP (Session Description Protocol) offer/answer exchange through the streaming extension's room broadcasting system:
+`JoinCall` returns a `webrtc.PeerConnection`, an interface over a Pion `*webrtc.PeerConnection` created with your ICE servers.
 
 ```go
-signalingManager := ext.GetSignalingManager()
-
-// Send SDP offer to a specific peer
-signalingManager.SendOffer(ctx, roomID, peerID, offer)
-
-// Send SDP answer back
-signalingManager.SendAnswer(ctx, roomID, peerID, answer)
-
-// Handle incoming offers
-signalingManager.OnOffer(func(roomID, peerID string, offer *webrtc.SessionDescription) {
-    // Process offer, create answer
-})
-
-// Handle incoming answers
-signalingManager.OnAnswer(func(roomID, peerID string, answer *webrtc.SessionDescription) {
-    // Set remote description
-})
-```
-
-## ICE Candidate Exchange
-
-ICE (Interactive Connectivity Establishment) candidates are relayed via streaming rooms for NAT traversal:
-
-```go
-// Send ICE candidate to a peer
-signalingManager.SendICECandidate(ctx, roomID, peerID, candidate)
-
-// Receive ICE candidates
-signalingManager.OnICECandidate(func(roomID, peerID string, candidate *webrtc.ICECandidate) {
-    // Add to peer connection
-})
-```
-
-Configure STUN/TURN servers for reliable connectivity:
-
-```go
-webrtc.WithSTUNServers([]string{
-    "stun:stun.l.google.com:19302",
-    "stun:stun1.l.google.com:19302",
-})
-
-webrtc.WithTURNServers([]webrtc.TURNServer{
-    {
-        URL:      "turn:turn.example.com:3478",
-        Username: "user",
-        Password: "pass",
-    },
-})
-```
-
-## Call Rooms
-
-Isolated rooms manage participants, tracks, and lifecycle:
-
-```go
-// Create a room
-room, _ := ext.CreateCallRoom(ctx, "meeting-123", streaming.RoomOptions{
-    ID:         "meeting-123",
-    Name:       "Team Sync",
-    MaxMembers: 10,
-})
-
-// Join a call
-peer, _ := room.JoinCall(ctx, "user-1", &webrtc.JoinOptions{
-    AudioEnabled: true,
-    VideoEnabled: true,
-    DisplayName:  "Alice",
-    Metadata:     map[string]any{"role": "presenter"},
-})
-
-// List participants
-participants := room.GetParticipants()
-for _, p := range participants {
-    fmt.Printf("%s: audio=%v video=%v screen=%v\n",
-        p.DisplayName, p.AudioEnabled, p.VideoEnabled, p.ScreenSharing)
+if err := peer.SetRemoteDescription(ctx, offer); err != nil {
+	return err
 }
 
-// Mute/unmute, enable/disable video
-room.MuteUser(ctx, "user-2")
-room.UnmuteUser(ctx, "user-2")
-room.DisableVideo(ctx, "user-2")
-room.EnableVideo(ctx, "user-2")
+answer, err := peer.CreateAnswer(ctx) // also sets the local description
 
-// Screen sharing
-room.StartScreenShare(ctx, "user-1", screenTrack)
-room.StopScreenShare(ctx, "user-1")
-
-// Leave
-room.Leave(ctx, "user-1")
-
-// Clean up
-ext.DeleteCallRoom(ctx, "meeting-123")
+stats, err := peer.GetStats(ctx)
+log.Printf("peer %s is %s, sent %d bytes", peer.UserID(), peer.State(), stats.BytesSent)
 ```
 
-## Peer Connections
+`CreateOffer` and `CreateAnswer` set the local description themselves and wait up to five seconds for ICE gathering, so the SDP they return already lists the server's candidates. Don't call `SetLocalDescription` with the result afterwards. If the client trickles candidates, pass each one to `AddICECandidate`.
 
-Each `PeerConnection` represents a single user's WebRTC connection:
+Set callbacks with `OnTrack`, `OnConnectionStateChange` and `OnDataChannel`. Each setter replaces the previous handler, including the logging handler the call room installs.
 
 ```go
-// Create an SDP offer
-offer, _ := peer.CreateOffer(ctx)
-
-// Set local/remote descriptions
-peer.SetLocalDescription(ctx, offer)
-peer.SetRemoteDescription(ctx, answer)
-
-// Add ICE candidates
-peer.AddICECandidate(ctx, candidate)
-
-// Add/remove media tracks
-peer.AddTrack(ctx, audioTrack)
-peer.RemoveTrack(ctx, trackID)
-
-// Get all tracks
-tracks := peer.GetTracks()
-
-// Connection event handlers
-peer.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-    // Send to remote peer via signaling
+peer.OnConnectionStateChange(func(state webrtc.ConnectionState) {
+	log.Printf("peer %s is %s", peer.UserID(), state)
 })
 
 peer.OnTrack(func(track webrtc.MediaTrack, receiver *webrtc.TrackReceiver) {
-    // Handle incoming remote track (audio/video)
-})
-
-peer.OnConnectionStateChange(func(state webrtc.ConnectionState) {
-    log.Printf("connection state: %s", state)
+	log.Printf("remote %s track %s", track.Kind(), track.ID())
 })
 ```
 
-## Data Channels
+`OnICECandidate` only sees candidates gathered before you call `CreateOffer` or `CreateAnswer`, because both replace Pion's candidate callback with their own gathering wait. In practice the server doesn't trickle, and the SDP carries its candidates.
 
-Support for WebRTC data channels for arbitrary data exchange between peers:
+The `MediaTrack` you get in `OnTrack` exposes the ID, kind and label. It doesn't give you the RTP packets, so you can't read or forward remote media through this API.
+
+`SessionDescription` and `ICECandidate` have no JSON tags, so they marshal with Go field names (`Type`, `SDP`). Decoding is case-insensitive, which is why the quick start can bind a browser's `{type, sdp}` into a `SessionDescription`. Shape what you send back to a browser yourself, with lowercase keys.
+
+## Data channels
+
+A data channel the client opens arrives through `OnDataChannel`:
 
 ```go
 peer.OnDataChannel(func(dc webrtc.DataChannel) {
-    fmt.Printf("data channel opened: %s\n", dc.Label())
+	dc.OnOpen(func() {
+		_ = dc.SendText("hello from the server")
+	})
 
-    dc.OnMessage(func(msg []byte) {
-        fmt.Printf("received: %s\n", string(msg))
-    })
-
-    dc.Send([]byte("hello from peer"))
-    dc.SendText("text message")
-
-    dc.OnClose(func() {
-        fmt.Println("data channel closed")
-    })
+	dc.OnMessage(func(msg []byte) {
+		log.Printf("%s: %s", dc.Label(), msg)
+	})
 })
 ```
 
-Data channels support both binary (`Send`) and text (`SendText`) messages.
+`Send` writes binary messages and `SendText` text ones. The `PeerConnection` interface has no way to open a data channel from the server. `NewDataChannel(pc, label, ordered, logger)` does that, but it takes a raw Pion `*webrtc.PeerConnection`, which the interface doesn't expose.
 
-## Quality Monitoring
+## Signaling helpers
 
-Per-peer monitoring of connection quality at configurable intervals (default: 5 seconds):
+`rtc.GetSignalingManager()` returns a `SignalingManager` that wraps SDP and candidates in streaming messages of type `webrtc.offer`, `webrtc.answer` and `webrtc.ice_candidate` and broadcasts them to a streaming room:
 
 ```go
-monitor := ext.GetQualityMonitor()
+sig := rtc.GetSignalingManager()
 
-// Start monitoring a peer
-monitor.Monitor(ctx, peer)
+err := sig.SendOffer(ctx, "support-42", "agent-7", offer)
+err = sig.SendAnswer(ctx, "support-42", "agent-7", answer)
+err = sig.SendICECandidate(ctx, "support-42", "agent-7", candidate)
+```
 
-// Get current quality
-quality, _ := monitor.GetQuality(peerID)
-// quality.Score       -- 0-100 quality score
-// quality.PacketLoss  -- percentage
-// quality.Jitter      -- milliseconds
-// quality.Latency     -- round-trip time
-// quality.BitrateKbps -- current bitrate
-// quality.Warnings    -- quality degradation warnings
+The target peer ID only goes into the message metadata. Everyone connected to that streaming room receives the message, so your clients have to filter on it.
 
-// Subscribe to quality changes
-monitor.OnQualityChange(func(peerID string, quality *webrtc.ConnectionQuality) {
-    if quality.PacketLoss > 5.0 {
-        log.Printf("peer %s: high packet loss (%.1f%%)", peerID, quality.PacketLoss)
-    }
+It only sends. `OnOffer`, `OnAnswer` and `OnICECandidate` store a handler that nothing ever calls, and `Start` subscribes to nothing. Call rooms do hand their peers' ICE candidates to `SendICECandidate`, but they use the prefixed room ID (`mesh-support-42`), which no streaming client is in.
+
+### The built-in signaling WebSocket
+
+<Callout type="warn">
+`RegisterRoutes` doesn't give you working signaling yet. Use your own endpoint, over HTTP as in the quick start or over your own WebSocket handler.
+</Callout>
+
+`rtc.RegisterRoutes(router)` mounts `GET /webrtc/signal/{roomID}` as a WebSocket on the router you pass. The handler reads the user with `ctx.Get("user_id").(string)`, so mount it under a group whose middleware sets `user_id`. Values route and group middleware store with `ctx.Set` reach WebSocket handlers, so that works. Without it the type assertion panics and the connection drops.
+
+```go
+calls := app.Router().Group("/rtc")
+calls.Use(func(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
+		ctx.Set("user_id", userFromRequest(ctx)) // your auth
+		return next(ctx)
+	}
 })
 
-// Stop monitoring
-monitor.Stop(peerID)
+err := rtc.RegisterRoutes(calls) // ws://host/rtc/webrtc/signal/{roomID}
 ```
 
-### Adaptive Quality
+With a user set, the handler joins them to an existing room with audio and video send tracks and leaves the room when the socket closes. Every message it reads is discarded, so no SDP or candidate is ever exchanged. For a room that doesn't exist it tries to create one without an ID, which fails and closes the connection.
 
-When `AdaptiveQuality` is enabled, the extension automatically adjusts media quality based on connection metrics. Bitrate and resolution are reduced when packet loss or jitter exceed thresholds.
+## Topologies
 
-## Audio and Video Configuration
+Mesh is the default. Every participant gets a peer connection to the server, and the server logs the tracks it receives without forwarding them, so participants don't hear each other through it.
 
-Fine-grained control over media settings:
+`WithSFU(webrtc.SFUConfig{...})` switches to SFU rooms:
 
 ```go
-webrtc.WithAudioConfig(webrtc.AudioConfig{
-    Enabled:    true,
-    Codecs:     []string{"opus"},
-    MaxBitrate: 128_000, // 128 kbps
-})
-
-webrtc.WithVideoConfig(webrtc.VideoConfig{
-    Enabled:       true,
-    Codecs:        []string{"VP8", "H264"},
-    MinBitrate:    100_000,    // 100 kbps
-    MaxBitrate:    2_500_000,  // 2.5 Mbps
-    MaxWidth:      1920,
-    MaxHeight:     1080,
-    MaxFrameRate:  30,
-})
+rtc, err := webrtc.New(stream, webrtc.DefaultConfig(),
+	webrtc.WithSFU(webrtc.SFUConfig{
+		WorkerCount:      4,
+		MaxBandwidthMbps: 100,
+		SimulcastEnabled: true,
+	}),
+)
 ```
 
-## Recording
+In an SFU room, a user who joins with `AudioEnabled` or `VideoEnabled` becomes a publisher. Anyone else becomes a subscriber and is subscribed to every track already published. Each SFU participant also gets a quality monitor built from `DefaultQualityConfig()` (your `QualityConfig` isn't used), which samples the peer every second until the context you passed to `JoinCall` ends, and fills `Participant.Quality`. Pass a long-lived context if you want it to outlive a request. The router behind them is one `SFURouter` shared by every SFU room (`rtc.GetSFURouter()`, nil in mesh mode) that keeps the publisher, subscriber and track bookkeeping: `AddPublisher`, `AddSubscriber`, `SubscribeToTrack`, `UnsubscribeFromTrack`, `AddReceiver`, `SetQuality`, `GetAvailableTracks` and `GetStats`.
 
-Optional call recording with configurable output path (stub implementation -- recording infrastructure is not yet wired):
+<Callout type="warn">
+The SFU doesn't forward RTP yet. Subscriptions are recorded, but no packets go from a publisher to its subscribers. `Leave` also doesn't remove a publisher from the shared router, so the same user ID can't publish again, in that room or any other SFU room, until you call `rtc.GetSFURouter().RemovePublisher`. The `SFUConfig` values are stored and not read.
+</Callout>
+
+## Quality monitoring and recording
+
+The extension never creates an extension-wide monitor or recorder, so `rtc.GetQualityMonitor()` and `rtc.GetRecorder()` return nil whatever the config says. Apart from the per-participant monitors in SFU rooms, you build them yourself.
 
 ```go
-recorder := ext.GetRecorder()
+monitor := webrtc.NewQualityMonitor(peer.ID(), peer, webrtc.DefaultQualityConfig(), logger, metrics)
+if err := monitor.Monitor(ctx, peer); err != nil {
+	return err
+}
+defer monitor.Stop(peer.ID())
+
+quality, err := monitor.GetQuality(peer.ID())
+// quality.Score (0-100), PacketLoss, Jitter, Latency, BitrateKbps
 ```
 
-## Authentication
+The monitor samples `peer.GetStats` every `MonitorInterval` and scores the result against your thresholds. `Monitor` watches the peer you passed to `NewQualityMonitor`, not the one you pass to `Monitor`, and `OnQualityChange` stores a handler that is never called, so poll `GetQuality`.
 
-Require authentication for joining calls (default: enabled). When enabled, join requests must pass through the configured auth middleware:
+`NewRecorder(roomID, webrtc.DefaultRecorderConfig(), logger, metrics)` returns a `Recorder` whose `Start` opens an Ogg file for audio and an IVF file for video under `OutputDir`. Nothing in the extension writes media into it.
 
-```go
-webrtc.WithAuth(true)
-webrtc.WithAllowGuests(false)
-```
+## Errors
 
-## Sentinel Errors
-
-| Error | Meaning |
-|---|---|
-| `ErrPeerNotFound` | Peer connection not found |
-| `ErrPeerAlreadyExists` | Peer already in the room |
-| `ErrConnectionFailed` | WebRTC connection failed |
-| `ErrSignalingFailed` | SDP or ICE exchange failed |
-| `ErrSignalingTimeout` | Signaling timed out |
-| `ErrInvalidSDP` | Malformed session description |
-| `ErrRoomNotFound` | Call room does not exist |
-| `ErrRoomFull` | Room at max capacity |
-| `ErrNotInRoom` | User not in the room |
-| `ErrTrackNotFound` | Media track not found |
-| `ErrCodecNotSupported` | Requested codec not supported |
-| `ErrSFUNotEnabled` | SFU operation on mesh room |
-| `ErrUnauthorized` | Authentication required |
+The package exports sentinel errors for `errors.Is`: `ErrInvalidConfig`, `ErrNoICEServers` and `ErrInvalidBitrateRange` from config validation, `ErrRoomNotFound`, `ErrNotInRoom`, `ErrPeerNotFound`, `ErrConnectionClosed` and `ErrNotImplemented` from rooms and the extension, and `ErrInvalidCandidate` from `AddICECandidate`. `SignalingError`, `ConnectionError` and `MediaError` wrap an underlying error with the peer, room or track involved. The other declared errors, such as `ErrRoomFull`, `ErrUnauthorized` and `ErrCodecNotSupported`, aren't returned by anything yet.

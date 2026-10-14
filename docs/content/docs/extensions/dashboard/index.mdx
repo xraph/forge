@@ -85,11 +85,11 @@ The envelope is capped at 1 MiB by default. A bigger body gets a 413 before it's
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/export/json` | Full JSON snapshot |
-| GET | `/export/csv` | Metrics as CSV |
-| GET | `/export/prometheus` | Prometheus text format |
+| GET | `/export/json` | Overview, health, metrics and services as one JSON snapshot |
+| GET | `/export/csv` | Registered services as CSV |
+| GET | `/export/prometheus` | Service, metric and uptime gauges in Prometheus text format |
 
-Export routes register only when `EnableExport` is true, which is the default.
+Export routes register only when `EnableExport` is true, which is the default. They don't run the auth middleware, even with auth on, so put them behind your own middleware or turn export off when the dashboard is reachable from outside.
 
 ## Programmatic Access
 

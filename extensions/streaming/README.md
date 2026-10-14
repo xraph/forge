@@ -201,10 +201,12 @@ You can configure the extension in code with options, or in YAML under `extensio
 
 A few settings have no option and go through `WithConfig` or YAML: `max_anonymous_connections` (1000), `max_total_connections` (0, unbounded), `drain_timeout` (15s) and `max_messages_per_room` (100000).
 
+Two of these are only reported, never enforced: `message_retention` (`WithMessageRetention`) and `max_messages_per_room` show up on the dashboard, but nothing trims history by age or count, so room history grows until you delete it.
+
 ```yaml
 extensions:
   streaming:
-    backend_urls: ["redis://localhost:6379"]
+    backend_urls: ["localhost:6379"]   # host:port, not a redis:// URL
     node_id: api-1
     max_total_connections: 20000
     enable_session_resumption: true
@@ -233,7 +235,7 @@ If you run the [Forge dashboard](../dashboard/), the extension implements `Regis
 
 ## Examples
 
-The [chat example](examples/chat/) serves a single-page chat UI on `/` with WebSocket and SSE routes and a small REST API for rooms, history and members. It's part of this module, so `GOWORK=off go run ./examples/chat` from this directory starts it on port 8080. Treat it as a sketch: its create-room endpoint doesn't create a room yet, and its connections arrive anonymous for the reason given in [Rooms and identity](#rooms-and-identity).
+The [chat example](examples/chat/) serves a single-page chat UI on `/` with WebSocket and SSE routes and a small REST API for rooms, history and members. It's part of this module, so `GOWORK=off go run ./examples/chat` from this directory starts it on port 8080. Treat it as a sketch: its create-room endpoint doesn't create a room yet, and nothing in front of its routes sets `user_id`, so its connections arrive anonymous. Add middleware as shown in [Rooms and identity](#rooms-and-identity) if you want to try rooms with it.
 
 ## FAQ
 
@@ -247,7 +249,7 @@ Use SSE when the browser only listens: it reconnects on its own and replays miss
 
 ### Can I scale Forge Streaming across several servers?
 
-Yes, with the Redis backend. `WithRedisBackend("redis://...")` stores rooms, history and presence in Redis and relays broadcasts between nodes. The NATS backend is not implemented yet.
+Yes, with the Redis backend. `WithRedisBackend("localhost:6379")` stores rooms, history and presence in Redis and relays broadcasts between nodes. Pass a plain `host:port`: the backend hands the string to go-redis as an address, so a `redis://` URL fails on every call, and only the first address is used. The NATS backend is not implemented yet.
 
 ### How do clients catch up after a dropped connection?
 
@@ -255,7 +257,7 @@ Over SSE, room messages carry a sequence number as the event ID. When the browse
 
 ### How do I authenticate WebSocket connections?
 
-The built-in handlers take the user from the `user_id` context value, but middleware can't set it on those routes today (see [Rooms and identity](#rooms-and-identity)). Authenticated rooms currently need your own WebSocket handler that sets the user ID before it registers the connection.
+Put middleware on the routes (or their group) that checks the caller's token and calls `ctx.Set("user_id", id)`. The built-in WebSocket and SSE handlers read that value, so the connection joins rooms as that user. [Rooms and identity](#rooms-and-identity) has the details, and the alternative of writing your own handler. Keep in mind that a WebSocket client has to answer the server's JSON ping: one that only listens is closed after about 40 seconds with the default timings.
 
 ## Contributing
 

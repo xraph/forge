@@ -3,92 +3,92 @@ title: Functions
 description: Public API reference for the Discovery extension
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the discovery extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | The extension. Options apply over the defaults and the config file |
+| `NewExtensionWithConfig(config Config) forge.Extension` | The extension with a complete config |
+| `DefaultConfig() Config` | The defaults |
 
-## DI Helpers
+Every `With...` option is listed on the [Configuration](/docs/extensions/discovery/configuration#options) page.
 
-| Function | Description |
-|---|---|
-| `GetService(c forge.Container) (*Service, error)` | Resolve the discovery service from the container |
-| `MustGetService(c forge.Container) *Service` | Same but panics on error |
-| `GetServiceFromApp(app forge.App) (*Service, error)` | Resolve from an app instance |
-| `MustGetServiceFromApp(app forge.App) *Service` | Same but panics on error |
+## Resolving the service
 
-## Service -- Registration
+The package has no `Get` or `MustGet` helpers. Use Forge's DI:
+
+```go
+svc, err := forge.Inject[*discovery.Service](app.Container())
+```
+
+The service is also registered under the names `discovery` and `discovery.Service`.
+
+## Service: registration
 
 | Method | Description |
 |---|---|
-| `Register(ctx, instance) error` | Register a service instance |
-| `Deregister(ctx, instance) error` | Remove a service instance |
+| `Register(ctx, instance *ServiceInstance) error` | Register an instance with the backend. Set `Status` yourself |
+| `Deregister(ctx, serviceID string) error` | Remove an instance by ID |
 
-## Service -- Discovery
-
-| Method | Description |
-|---|---|
-| `Discover(ctx, serviceName) ([]*ServiceInstance, error)` | Find all instances of a service |
-| `DiscoverWithTags(ctx, serviceName, tags) ([]*ServiceInstance, error)` | Find instances matching tags |
-| `DiscoverHealthy(ctx, serviceName) ([]*ServiceInstance, error)` | Find only healthy instances |
-| `SelectInstance(ctx, serviceName) (*ServiceInstance, error)` | Pick one instance (load balanced) |
-| `GetServiceURL(ctx, serviceName) (string, error)` | Get the URL of a healthy instance |
-| `ListServices(ctx) ([]string, error)` | List all registered service names |
-
-## Service -- Watching
+## Service: discovery
 
 | Method | Description |
 |---|---|
-| `Watch(ctx, serviceName, callback) error` | Subscribe to service change events |
+| `Discover(ctx, serviceName string) ([]*ServiceInstance, error)` | Every instance of a service |
+| `DiscoverWithTags(ctx, serviceName string, tags []string) ([]*ServiceInstance, error)` | Instances that have all of the tags |
+| `DiscoverHealthy(ctx, serviceName string) ([]*ServiceInstance, error)` | Instances whose status is `passing` |
+| `SelectInstance(ctx, serviceName string, strategy LoadBalanceStrategy) (*ServiceInstance, error)` | One healthy instance |
+| `GetServiceURL(ctx, serviceName, scheme string, strategy LoadBalanceStrategy) (string, error)` | One healthy instance as `scheme://address:port`. An empty scheme means `http` |
+| `ListServices(ctx) ([]string, error)` | Every service name the backend knows |
+| `Watch(ctx, serviceName string, onChange func([]*ServiceInstance)) error` | Call `onChange` with the full list whenever it changes |
 
-## Service -- Backend Access
+## Service: backend access
 
 | Method | Description |
 |---|---|
-| `Backend() Backend` | Access the underlying backend directly |
-| `Health(ctx) error` | Check discovery service health |
+| `Backend() Backend` | The underlying backend |
+| `Health(ctx) error` | The backend's health |
 
-## FARP Config Options
+`Name`, `Start` and `Stop` are lifecycle methods the container calls for you.
 
-| Function | Description |
+## Load balancing strategies
+
+| Constant | Value | Status |
+|---|---|---|
+| `LoadBalanceRoundRobin` | `round_robin` | Works |
+| `LoadBalanceRandom` | `random` | Works |
+| `LoadBalanceLeastConnections` | `least_connections` | Falls back to round-robin |
+| `LoadBalanceWeightedRoundRobin` | `weighted_round_robin` | Falls back to round-robin |
+
+## ServiceInstance
+
+`ServiceInstance` (an alias for `backends.ServiceInstance`) has `ID`, `Name`, `Version`, `Address`, `Port`, `Tags`, `Metadata`, `Status` and `LastHeartbeat`, plus:
+
+| Method | Description |
 |---|---|
-| `WithFARP(cfg FARPConfig) ConfigOption` | Set the full FARP configuration |
-| `WithFARPEnabled(bool) ConfigOption` | Enable or disable FARP schema registration |
-| `WithFARPAutoRegister(bool) ConfigOption` | Auto-register schemas on startup |
-| `WithFARPStrategy(string) ConfigOption` | Set strategy: `push`, `pull`, or `hybrid` |
-| `WithFARPSchemas(schemas ...FARPSchemaConfig) ConfigOption` | Set schema configurations |
-| `WithFARPEndpoints(FARPEndpointsConfig) ConfigOption` | Set endpoint configuration |
-| `WithFARPCapabilities(caps ...string) ConfigOption` | Set advertised capabilities |
+| `URL(scheme string) string` | `scheme://address:port` |
+| `HasTag(tag string) bool` | Whether the instance has a tag |
+| `HasAllTags(tags []string) bool` | Whether it has every tag |
+| `IsHealthy() bool` | `Status == HealthStatusPassing` |
+| `GetMetadata(key string) (string, bool)` | One metadata value |
 
-## mDNS Config Options
+Health statuses: `HealthStatusPassing`, `HealthStatusWarning`, `HealthStatusCritical`, `HealthStatusUnknown`.
 
-| Function | Description |
+## Extension accessors
+
+If you hold the `*discovery.Extension`, `Service()` returns the discovery service, `ServiceNode()` the FARP service node (nil until FARP has started), and `LocalServiceID()` the ID this app registered under.
+
+## FARP routes
+
+With `farp.enabled`, the extension registers:
+
+| Route | Description |
 |---|---|
-| `WithMDNS(domain string) ConfigOption` | Set backend to mDNS with optional domain |
-| `WithMDNSServiceType(string) ConfigOption` | Set the mDNS service type for registration |
-| `WithMDNSServiceTypes(types ...string) ConfigOption` | Set service types to browse for discovery |
-| `WithMDNSBrowseTimeout(time.Duration) ConfigOption` | Set browse operation timeout |
-| `WithMDNSTTL(uint32) ConfigOption` | Set DNS record TTL |
-| `WithMDNSWatchInterval(time.Duration) ConfigOption` | Set watch polling interval |
-| `WithMDNSInterface(string) ConfigOption` | Bind to a specific network interface |
-| `WithMDNSIPv6(bool) ConfigOption` | Enable IPv6 support |
+| `GET /_farp/manifest` | The FARP manifest. 503 until the app has started |
+| `GET /_farp/health` | FARP health. 503 until the app has started |
+| `GET /_farp/schemas/:type` | The OpenAPI or AsyncAPI schema. 503 until the app has started |
+| `GET /_farp/discovery` | This instance's ID, name, version, address, port, tags and metadata. 503 until the extension has started |
 
-## Service Identity Options
+## Not used by the extension
 
-| Function | Description |
-|---|---|
-| `WithServiceID(string) ConfigOption` | Set the unique service instance identifier |
-| `WithServiceVersion(string) ConfigOption` | Set the service version string |
-| `WithAutoDeregister(bool) ConfigOption` | Auto-deregister on shutdown |
-
-## FARP Endpoints
-
-When FARP is enabled, the following HTTP endpoints are registered:
-
-| Endpoint | Description |
-|---|---|
-| `GET /_farp/manifest` | FARP manifest describing the service's API schemas |
-| `GET /_farp/discovery` | Discovery information for other services |
+`NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher`, `ServiceRegistration`, `ServiceQuery`, `ServiceEvent` and the `ServiceEvent*` constants are exported, but the extension itself doesn't use them.

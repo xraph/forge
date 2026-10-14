@@ -2,136 +2,143 @@
 
 ## Purpose
 
-MQTT broker and client implementation for IoT applications providing publish/subscribe messaging with QoS support, retained messages, and last will and testament.
+Connects a Forge app to an MQTT broker (Mosquitto, EMQX, HiveMQ, ...) when the app starts and
+gives you one shared client for publish and subscribe: QoS 0/1/2, retained messages, `+` and `#`
+wildcards, a last will, TLS, and username/password auth. Built on the Eclipse Paho Go client
+(github.com/eclipse/paho.mqtt.golang), MQTT 3.1 and 3.1.1 only. The raw Paho client is reachable
+with GetClient().
 
-## Key Components
+Module: github.com/xraph/forge/extensions/mqtt (package `mqtt`). Import Paho as `paho` (or any
+name) to write handlers.
 
-- **MQTT Broker**: Embedded MQTT broker
-- **MQTT Client**: Connect to external brokers
-- **QoS Levels**: 0, 1, 2 quality of service
-- **Retained Messages**: Last message persistence
-- **Last Will**: Automatic disconnect messages
+## Constructors and options
 
-## Architecture
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
+func NewMQTTClient(config Config, logger forge.Logger, metrics forge.Metrics) MQTT
+func NewMQTTService(config Config, logger forge.Logger, metrics forge.Metrics) (*MQTTService, error)
 
+type ConfigOption func(*Config)
+WithBroker(broker string)                                    // tcp://, ssl://, tls://, ws://, wss://
+WithClientID(clientID string)                                // unique per connection
+WithCredentials(username, password string)
+WithTLS(certFile, keyFile, caFile string, skipVerify bool)   // sets enable_tls
+WithQoS(qos byte)                                            // default_qos, not applied
+WithCleanSession(clean bool)
+WithKeepAlive(duration time.Duration)
+WithAutoReconnect(enable bool)
+WithWill(topic, payload string, qos byte, retained bool)     // sets will_enabled
+WithMetrics(enable bool)
+WithTracing(enable bool)                                     // not read
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
-MQTT Extension
-├── Broker
-│   ├── Topic Management
-│   ├── Subscription Management
-│   └── Message Routing
-├── Client
-│   ├── Publishing
-│   └── Subscribing
-├── QoS Handler
-│   └── Message Delivery
-└── Persistence
-    └── Retained Messages
+
+## What the container holds
+
+`*mqtt.MQTTService` by type and under the alias `mqtt` (ServiceKey), and the `mqtt.MQTT`
+interface backed by the same instance.
+
+```go
+m, err := forge.Inject[mqtt.MQTT](app.Container())
 ```
 
-## Public API
+The extension's Start connects and waits up to connect_timeout; if the broker doesn't accept,
+the app doesn't start. Stop disconnects with a 250ms quiesce.
 
-### Core Types
+## Key types
 
 ```go
 type MQTT interface {
-    Publish(topic string, qos byte, retained bool, payload []byte) error
+    Connect(ctx context.Context) error
+    Disconnect(ctx context.Context) error
+    IsConnected() bool
+    Reconnect() error
+    Publish(topic string, qos byte, retained bool, payload any) error       // waits for Paho
+    PublishAsync(topic string, qos byte, retained bool, payload any) error  // failures only logged
     Subscribe(topic string, qos byte, handler MessageHandler) error
+    SubscribeMultiple(filters map[string]byte, handler MessageHandler) error
     Unsubscribe(topics ...string) error
+    AddRoute(topic string, handler MessageHandler)                          // no SUBSCRIBE packet
+    SetDefaultHandler(handler MessageHandler)
+    SetOnConnectHandler(handler ConnectHandler)
+    SetConnectionLostHandler(handler ConnectionLostHandler)
+    SetReconnectingHandler(handler ReconnectingHandler)
+    GetClient() paho.Client
+    GetStats() ClientStats
+    GetSubscriptions() []SubscriptionInfo
+    Ping(ctx context.Context) error
 }
 
-type MessageHandler func(topic string, payload []byte)
+type MessageHandler = paho.MessageHandler            // func(paho.Client, paho.Message)
+type ConnectHandler = paho.OnConnectHandler
+type ConnectionLostHandler = paho.ConnectionLostHandler
+type ReconnectingHandler = paho.ReconnectHandler
+type SubscriptionInfo struct { Topic string; QoS byte; Handler string }
+type ClientStats struct {
+    Connected bool; ConnectTime, LastMessageTime time.Time
+    MessagesReceived, MessagesSent int64; Subscriptions int; Reconnects int64
+}
 ```
 
-### Main Functions/Methods
+Payloads: `[]byte` and string go out as-is; anything else is JSON-encoded. Publish and
+PublishAsync fail fast when not connected.
+
+Sentinel errors: ErrNotConnected, ErrAlreadyConnected, ErrConnectionFailed, ErrPublishFailed,
+ErrSubscribeFailed, ErrUnsubscribeFailed, ErrInvalidQoS, ErrInvalidTopic, ErrTimeout.
+
+## Usage
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get MQTT service
-func GetMQTT(c forge.Container) (MQTT, error)
-
-// Publish message
-mqtt.Publish("sensors/temperature", 1, false, []byte("22.5"))
-
-// Subscribe to topic
-mqtt.Subscribe("sensors/#", 1, func(topic string, payload []byte) {
-    log.Printf("%s: %s", topic, payload)
+err := m.Subscribe("devices/+/state", 1, func(_ paho.Client, msg paho.Message) {
+    log.Printf("%s: %s", msg.Topic(), msg.Payload())
 })
+err = m.Publish("devices/42/state", 1, true, map[string]any{"online": true})
 ```
 
-## Usage Examples
+Subscribe from an after-start hook, once the client is connected.
 
-### Basic MQTT Broker
+## Config
 
-```go
-import "github.com/xraph/forge/extensions/mqtt"
+Key `extensions.mqtt`, falling back to `mqtt`. File overrides defaults, options override the file.
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        mqtt.NewExtension(mqtt.Config{
-            Mode:    "broker",
-            Address: ":1883",
-        }),
-    },
-})
+| yaml key | default |
+| --- | --- |
+| broker | tcp://localhost:1883 |
+| client_id | forge-mqtt-client |
+| username, password | "" |
+| clean_session | true |
+| connect_timeout | 30s |
+| keep_alive, ping_timeout | 60s, 10s |
+| auto_reconnect, max_reconnect_delay | true, 10m |
+| resume_subs | true |
+| write_timeout | 30s |
+| default_qos | 1 (validated 0..2, not applied) |
+| message_channel_depth | 100 |
+| order_matters | true (handlers get messages one at a time, in order) |
+| message_store, store_directory | memory, "" (file store needs a directory) |
+| will_enabled, will_topic, will_payload, will_qos, will_retained | off |
+| enable_tls, tls_cert_file, tls_key_file, tls_ca_file, tls_skip_verify | off |
+| enable_metrics, enable_logging | true |
 
-// MQTT broker running on port 1883
-```
+Metrics: counters `mqtt.messages.published` and `mqtt.messages.received` (label `topic`),
+`mqtt.connections` (`status=connected|disconnected`), `mqtt.reconnects`.
 
-### MQTT Client
+## Gotchas
 
-```go
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        mqtt.NewExtension(mqtt.Config{
-            Mode:   "client",
-            Broker: "tcp://localhost:1883",
-        }),
-    },
-})
+- With clean_session true (default) the broker drops subscriptions when the connection drops and
+  the extension doesn't resubscribe after an automatic reconnect. Use WithCleanSession(false)
+  with a stable, unique client ID if you need to keep receiving.
+- Two clients with the same ID keep disconnecting each other (`mqtt connection lost` loops).
+- With order_matters, a slow handler holds up the next message; hand work off to a worker.
+- With TLS and verification on, validation needs both a client cert and key, so TLS with only a
+  CA file doesn't pass validation today.
 
-// Get MQTT client
-mqtt, _ := mqtt.GetMQTT(app.Container())
+## Not implemented yet
 
-// Publish
-mqtt.Publish("home/lights/living-room", 1, false, []byte("ON"))
-
-// Subscribe
-mqtt.Subscribe("home/sensors/#", 1, func(topic string, payload []byte) {
-    log.Printf("Sensor update: %s = %s", topic, payload)
-})
-```
-
-## Configuration
-
-```yaml
-extensions:
-  mqtt:
-    mode: broker  # or client
-    address: :1883
-    broker: tcp://localhost:1883
-    client_id: forge-mqtt
-```
-
-## Dependencies
-
-### External
-- github.com/eclipse/paho.mqtt.golang - MQTT client
-- MQTT broker library
-
-### Internal
-- github.com/xraph/forge - Core framework
-
-## Notes
-
-### Production Readiness
-- ✅ MQTT broker
-- ✅ MQTT client
-- ✅ QoS support
-- ✅ Retained messages
-
-### License
-MIT License - Part of Forge Framework
-
+- SetOnConnectHandler, SetConnectionLostHandler, SetReconnectingHandler only log a warning: the
+  client is already connected by the time you can call them.
+- default_qos, max_reconnect_attempts and enable_tracing are not read.
+- MQTT 5.

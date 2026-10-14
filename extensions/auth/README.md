@@ -302,7 +302,7 @@ The docs pages and older examples resolve the registry from the container and re
 
 ## Examples
 
-[`examples/auth_example`](examples/auth_example/) registers API key, JWT, Basic and OAuth2 providers and builds OpenAPI docs for them. It predates the two issues above, so it won't run unmodified: swap in `auth.NewRegistry` and the `shareAuth` pattern from the quick start.
+[`examples/auth_example`](examples/auth_example/) registers API key, JWT, Basic and OAuth2 providers and builds OpenAPI docs for them. It predates the two issues above, so it won't run unmodified: build the registry with `auth.NewRegistry` and attach `registry.MiddlewareWithRequirement(...)` to your routes, as the quick start does.
 
 ## FAQ
 

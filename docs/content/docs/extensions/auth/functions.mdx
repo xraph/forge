@@ -8,57 +8,113 @@ description: Public API reference for the Auth extension
 | Function | Description |
 |---|---|
 | `NewExtension(opts ...ConfigOption) forge.Extension` | Create the auth extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | `Enabled: true` and an empty provider list |
 
-## DI Helpers
+## Registry
 
 | Function | Description |
 |---|---|
-| `GetRegistry(c forge.Container) (*Registry, error)` | Resolve the auth registry from the container |
-| `MustGetRegistry(c forge.Container) *Registry` | Same but panics on error |
-| `GetRegistryFromApp(app forge.App) (*Registry, error)` | Resolve from an app instance |
-| `MustGetRegistryFromApp(app forge.App) *Registry` | Same but panics on error |
+| `NewRegistry(container forge.Container, logger forge.Logger) Registry` | Create a registry with the default authorizer. This is how you get one today |
+
+## DI Helpers
+
+These resolve the registry the extension registers. That constructor currently fails, because it
+needs a `forge.Container` from the container and nothing provides one, so all four return an error
+or panic. Use `NewRegistry` until that changes.
+
+| Function | Description |
+|---|---|
+| `GetRegistry(c forge.Container) (Registry, error)` | Resolve the registry from the container |
+| `MustGetRegistry(c forge.Container) Registry` | Same, but panics on error |
+| `GetRegistryFromApp(app forge.App) (Registry, error)` | Resolve it from an app |
+| `MustGetRegistryFromApp(app forge.App) Registry` | Same, but panics on error |
+
+The names it's registered under are the constants `RegistryKey` (`"auth:registry"`) and
+`RegistryKeyLegacy` (`"auth.Registry"`).
 
 ## Registry Interface
 
 | Method | Description |
 |---|---|
-| `Register(provider) error` | Register an auth provider |
-| `Unregister(name) error` | Remove an auth provider |
-| `Get(name) (AuthProvider, error)` | Get a provider by name |
-| `Has(name) bool` | Check if a provider exists |
-| `List() []AuthProvider` | List all registered providers |
-| `Middleware() forge.Middleware` | Middleware that succeeds if any provider authenticates |
-| `MiddlewareAnd() forge.Middleware` | Middleware that requires all providers to pass |
-| `MiddlewareWithScopes(scopes...) forge.Middleware` | Middleware with scope requirements |
-| `OpenAPISchemes() map[string]any` | Get OpenAPI security schemes from all providers |
+| `Register(provider AuthProvider) error` | Add a provider. `ErrProviderExists` for a duplicate name, `ErrInvalidConfiguration` for an empty one |
+| `Unregister(name string) error` | Remove a provider. `ErrProviderNotFound` for an unknown name |
+| `Get(name string) (AuthProvider, error)` | Look a provider up by name |
+| `Has(name string) bool` | Whether a provider is registered |
+| `List() []string` | Registered provider names, in no particular order |
+| `Middleware(providerNames ...string) forge.Middleware` | First provider to succeed wins. 401 when all fail. No names lets every request through |
+| `MiddlewareAnd(providerNames ...string) forge.Middleware` | Every provider must succeed |
+| `MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware` | One provider plus required scopes |
+| `MiddlewareWithRequirement(req Requirement) forge.Middleware` | Authenticate with `req.Providers`, then call the authorizer. 403 on denial |
+| `OpenAPISchemes() map[string]SecurityScheme` | Each provider's `OpenAPIScheme()`, keyed by name |
+| `SetAuthorizer(a Authorizer)` | Replace the authorizer. `nil` is ignored |
+| `Authorizer() Authorizer` | The current authorizer |
+
+## Authorization
+
+| Symbol | Description |
+|---|---|
+| `Requirement{Providers, Scopes, Roles, Permissions, Mode}` | What a route needs. All `Scopes`, any one of `Roles`, all `Permissions`. `Mode: "and"` requires every provider |
+| `(Requirement) IsEmpty() bool` | True when `Scopes`, `Roles` and `Permissions` are all empty |
+| `Authorizer` | Interface with `Name() string` and `Authorize(ctx, authCtx, req) error` |
+| `NewDefaultAuthorizer() Authorizer` | The set-membership authorizer the registry starts with |
 
 ## AuthProvider Interface
 
 | Method | Description |
 |---|---|
 | `Name() string` | Provider name |
-| `Type() string` | Provider type |
-| `Authenticate(ctx, r) (*AuthContext, error)` | Authenticate a request |
-| `OpenAPIScheme() map[string]any` | OpenAPI security scheme |
-| `Middleware() forge.Middleware` | Provider-specific middleware |
+| `Type() SecuritySchemeType` | `SecurityTypeAPIKey`, `SecurityTypeHTTP`, `SecurityTypeOAuth2`, `SecurityTypeOpenIDConnect` or `SecurityTypeMutualTLS` |
+| `Authenticate(ctx context.Context, r *http.Request) (*AuthContext, error)` | Authenticate a request |
+| `OpenAPIScheme() SecurityScheme` | The provider's OpenAPI security scheme |
+| `Middleware() forge.Middleware` | Middleware for using the provider on its own, outside the registry |
+
+`SecurityScheme`, `OAuthFlows` and `OAuthFlow` are aliases for Forge's OpenAPI types.
+`ProviderFunc` is `func(ctx context.Context, r *http.Request) (*AuthContext, error)`.
+
+## Providers (`auth/providers`)
+
+| Constructor | Options |
+|---|---|
+| `NewAPIKeyProvider(name string, opts ...APIKeyOption) auth.AuthProvider` | `WithAPIKeyHeader`, `WithAPIKeyQuery`, `WithAPIKeyCookie`, `WithAPIKeyValidator`, `WithAPIKeyDescription`, `WithAPIKeyContainer` |
+| `NewBearerTokenProvider(name string, opts ...BearerTokenOption) auth.AuthProvider` | `WithBearerFormat`, `WithBearerValidator`, `WithBearerDescription`, `WithBearerContainer` |
+| `NewBasicAuthProvider(name string, opts ...BasicAuthOption) auth.AuthProvider` | `WithBasicAuthValidator`, `WithBasicAuthDescription`, `WithBasicAuthContainer` |
+| `NewOAuth2Provider(name string, flows *auth.OAuthFlows, opts ...OAuth2Option) auth.AuthProvider` | `WithOAuth2Validator`, `WithOAuth2Description`, `WithOAuth2Container` |
+| `NewOIDCProvider(name string, openIdConnectUrl string, opts ...OIDCOption) auth.AuthProvider` | `WithOIDCValidator`, `WithOIDCDescription`, `WithOIDCContainer` |
+| `NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, error)` | `LDAPConfig`, starting from `DefaultLDAPConfig()`. Call `Close()` to shut the connection pool |
+
+Validator types: `APIKeyValidator` and `BearerTokenValidator`, `OAuth2TokenValidator` and
+`OIDCTokenValidator` take `(ctx, token string)`. `BasicAuthValidator` takes
+`(ctx, username, password string)`. All return `(*auth.AuthContext, error)`.
 
 ## Context Helpers
 
 | Function | Description |
 |---|---|
-| `FromContext(ctx) (*AuthContext, error)` | Get auth context from request context |
-| `MustFromContext(ctx) *AuthContext` | Same but panics on error |
-| `WithContext(ctx, authCtx) context.Context` | Store auth context in context |
-| `GetAuthContext(ctx forge.Context) *AuthContext` | Get from Forge context |
-| `MustGetAuthContext(ctx forge.Context) *AuthContext` | Same but panics |
+| `GetAuthContext(ctx forge.Context) (*AuthContext, bool)` | Read what the registry middleware stored with `ctx.Set` |
+| `MustGetAuthContext(ctx forge.Context) *AuthContext` | Same, but panics when missing |
+| `WithContext(ctx context.Context, authCtx *AuthContext) context.Context` | Put an auth context in a standard context |
+| `FromContext(ctx context.Context) (*AuthContext, bool)` | Read it back. The registry doesn't set it, so this finds only what you stored with `WithContext` |
+| `MustFromContext(ctx context.Context) *AuthContext` | Same, but panics when missing |
+| `GetAuthContextFromStdContext(ctx context.Context) (*AuthContext, bool)` | Same as `FromContext` |
+
+## Frame Credentials
+
+| Function | Description |
+|---|---|
+| `ParseExplicitFrameCredential(presentation string) (scheme, token string, err error)` | Parse a bare token, `Bearer <token>` or `DPoP <token>` |
+| `WithExplicitFrameCredential(ctx context.Context, scheme, token string) (context.Context, error)` | Mark a context with the token's SHA-256 digest |
+| `MatchesExplicitFrameCredential(ctx context.Context, scheme, token string) bool` | Check a token against the mark |
 
 ## AuthContext Methods
 
 | Method | Description |
 |---|---|
-| `HasScope(scope) bool` | Check if user has a scope |
-| `HasScopes(scopes...) bool` | Check if user has all scopes |
-| `GetClaim(key) (any, bool)` | Get a claim value |
-| `GetClaimString(key) (string, bool)` | Get a claim as string |
+| `HasScope(scope string) bool` | The scope is present |
+| `HasScopes(scopes ...string) bool` | Every scope is present |
+| `HasRole(role string) bool` | The role is present |
+| `HasAnyRole(roles ...string) bool` | At least one role is present |
+| `HasPermission(permission string) bool` | The permission is present |
+| `HasAllPermissions(permissions ...string) bool` | Every permission is present |
+| `GetClaim(key string) (any, bool)` | A claim value and whether it exists |
+| `GetClaimString(key string) (string, bool)` | A claim, when it's a string |

@@ -2,165 +2,165 @@
 
 ## Purpose
 
-Message queue management providing task queuing, job processing, and background workers with multiple backend support (in-memory, Redis, RabbitMQ, NATS).
+One `Queue` interface in front of four message queue backends: in-memory, Redis Streams
+(github.com/redis/go-redis/v9), RabbitMQ (github.com/rabbitmq/amqp091-go) and NATS JetStream
+(github.com/nats-io/nats.go). You publish background jobs and consume them in workers, with
+dead-letter queues, priority and TTL where the backend supports them. Switching backends means
+changing `driver`.
 
-## Key Components
+Module: github.com/xraph/forge/extensions/queue (package `queue`).
 
-- **Queue Interface**: Push/pop messages
-- **Workers**: Background job processing
-- **Priority Queues**: Message prioritization
-- **Delayed Jobs**: Schedule future execution
-- **Retry Logic**: Automatic retries with exponential backoff
+## Constructors and options
 
-## Architecture
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
 
+type ConfigOption func(*Config)
+WithDriver(driver string)            // "inmemory", "redis", "rabbitmq", "nats"
+WithURL(url string)
+WithHosts(hosts ...string)
+WithAuth(username, password string)
+WithVHost(vhost string)              // RabbitMQ
+WithMaxConnections(maxConns int)
+WithPrefetch(prefetch int)           // DefaultPrefetch
+WithConcurrency(concurrency int)     // DefaultConcurrency
+WithTimeout(timeout time.Duration)   // DefaultTimeout
+WithDeadLetter(enable bool)
+WithPersistence(enable bool)
+WithPriority(enable bool)
+WithDelayed(enable bool)
+WithTLS(certFile, keyFile, caFile string)
+WithMetrics(enable bool)
+WithTracing(enable bool)
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
-Queue Extension
-├── Queue Management
-│   ├── Push Messages
-│   ├── Pop Messages
-│   └── Peek Messages
-├── Workers
-│   ├── Worker Pool
-│   ├── Job Processing
-│   └── Concurrency Control
-├── Scheduling
-│   ├── Delayed Jobs
-│   └── Recurring Jobs
-└── Backends
-    ├── In-Memory
-    ├── Redis
-    ├── RabbitMQ
-    └── NATS
+
+Backends directly: `NewInMemoryQueue(config, logger, metrics) *InMemoryQueue`,
+`NewRedisQueue(config, logger, metrics) (*RedisQueue, error)`,
+`NewRedisQueueWithClient(config, logger, metrics, client redis.UniversalClient) (*RedisQueue, error)`,
+`NewRabbitMQQueue(...) (*RabbitMQQueue, error)`, `NewNATSQueue(...) (*NATSQueue, error)`.
+`NewQueueService(config Config, queue Queue, logger forge.Logger, metrics forge.Metrics) *QueueService`.
+
+## What the container holds
+
+`*queue.QueueService` by type and under the alias `queue` (ServiceKey), and the `queue.Queue`
+interface backed by the same instance.
+
+```go
+q, err := queue.GetQueue(app.Container())   // also MustGetQueue, GetQueueFromApp, MustGetQueueFromApp
+q, err = forge.Inject[queue.Queue](app.Container())
 ```
 
-## Public API
+The extension's Start connects to the backend, so an unreachable broker stops the app starting.
 
-### Core Types
+## Key types
 
 ```go
 type Queue interface {
-    Push(ctx context.Context, message Message) error
-    Pop(ctx context.Context) (*Message, error)
-    Process(ctx context.Context, handler MessageHandler) error
-}
-
-type Message struct {
-    ID       string
-    Queue    string
-    Payload  []byte
-    Priority int
-    Retry    int
+    Connect(ctx context.Context) error
+    Disconnect(ctx context.Context) error
+    Ping(ctx context.Context) error
+    DeclareQueue(ctx context.Context, name string, opts QueueOptions) error
+    DeleteQueue(ctx context.Context, name string) error
+    ListQueues(ctx context.Context) ([]string, error)
+    GetQueueInfo(ctx context.Context, name string) (*QueueInfo, error)
+    PurgeQueue(ctx context.Context, name string) error
+    Publish(ctx context.Context, queue string, message Message) error
+    PublishBatch(ctx context.Context, queue string, messages []Message) error
+    PublishDelayed(ctx context.Context, queue string, message Message, delay time.Duration) error
+    Consume(ctx context.Context, queue string, handler MessageHandler, opts ConsumeOptions) error
+    StopConsuming(ctx context.Context, queue string) error
+    Ack(ctx context.Context, messageID string) error
+    Nack(ctx context.Context, messageID string, requeue bool) error
+    Reject(ctx context.Context, messageID string) error
+    GetDeadLetterQueue(ctx context.Context, queue string) ([]Message, error)
+    RequeueDeadLetter(ctx context.Context, queue string, messageID string) error
+    Stats(ctx context.Context) (*QueueStats, error)
 }
 
 type MessageHandler func(ctx context.Context, msg Message) error
+
+type Message struct {
+    ID, Queue string; Body []byte; Headers map[string]string
+    Priority int /* 0-9 */; Delay, Expiration time.Duration
+    Retries, MaxRetries int; PublishedAt time.Time; Metadata map[string]any
+}
+type QueueOptions struct {
+    Durable, AutoDelete, Exclusive bool; MaxLength, MaxLengthBytes int64
+    MessageTTL time.Duration; MaxPriority int; DeadLetterQueue string; Arguments map[string]any
+}
+type ConsumeOptions struct {
+    ConsumerTag string; AutoAck, Exclusive bool; PrefetchCount, Priority, Concurrency int
+    RetryStrategy RetryStrategy; Timeout time.Duration; Arguments map[string]any
+}
+func DefaultQueueOptions() QueueOptions      // durable, no limits
+func DefaultConsumeOptions() ConsumeOptions  // prefetch 10, concurrency 1, 30s timeout
 ```
 
-### Main Functions/Methods
+Also QueueInfo, QueueStats, RetryStrategy. Sentinel errors in errors.go (ErrNotConnected,
+ErrQueueNotFound, ErrPublishFailed, ErrUnsupportedDriver, ErrMessageTooLarge, ...).
+
+## Usage
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
-
-// Get queue service
-func GetQueue(c forge.Container) (Queue, error)
-
-// Push message
-queue.Push(ctx, Message{
-    Queue:   "emails",
-    Payload: emailData,
-})
-
-// Process messages
-queue.Process(ctx, func(ctx context.Context, msg Message) error {
-    return sendEmail(msg.Payload)
-})
+_ = q.DeclareQueue(ctx, "emails", queue.DefaultQueueOptions())
+_ = q.Consume(ctx, "emails", func(ctx context.Context, msg queue.Message) error {
+    return send(ctx, msg.Body)
+}, queue.DefaultConsumeOptions())   // returns immediately; workers run in the background
+_ = q.Publish(ctx, "emails", queue.Message{Body: payload})
 ```
 
-## Usage Examples
+## Backend differences
 
-### Basic Queue
+- inmemory: declare before Publish and Consume. Handler error moves the message to the DLQ. On
+  nil, removed with AutoAck, otherwise held until `Ack(ctx, msg.ID)`. ConsumeOptions.Concurrency
+  sets worker goroutines. PublishDelayed blocks the caller for the delay.
+- redis: one stream per queue (`queue:<name>:stream`), consumer group `consumers`. Declare before
+  Consume. Handler error pushes to the `queue:<name>:dlq` list and acks. No retry.
+- rabbitmq: a queue per name via the default exchange, persistent messages. Declare before
+  Publish (the default exchange drops messages for a missing queue). Handler error nacks; the
+  broker dead-letters if the queue has DeadLetterQueue. PublishDelayed uses a `<name>.delayed`
+  TTL queue. QueueOptions become `x-` arguments; Priority needs MaxPriority on the queue.
+- nats: a JetStream stream per queue, file storage, subjects `<name>.*`. Declare before Publish
+  and Consume. Handler error terminates, or NakWithDelay while Retries < MaxRetries.
+  PublishDelayed waits in a goroutine (lost on exit). Stop with StopConsuming, not ctx.
+- Ack, Nack and Reject only do something on inmemory; the other drivers ack based on the
+  handler's return value. GetDeadLetterQueue returns nothing on rabbitmq and nats.
 
-```go
-import "github.com/xraph/forge/extensions/queue"
+## Config
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        queue.NewExtension(queue.Config{
-            Driver: "redis",
-            URL:    "redis://localhost:6379",
-        }),
-    },
-})
+Key `extensions.queue`, falling back to `queue`. File overrides defaults, options override the file.
 
-// Get queue
-q, _ := queue.GetQueue(app.Container())
+| yaml key | default | used by |
+| --- | --- | --- |
+| driver | "inmemory" | all |
+| url, hosts | "" | redis, rabbitmq and nats need one |
+| username, password | "" | redis, nats, rabbitmq (when built from hosts) |
+| vhost | "" | rabbitmq (when built from hosts) |
+| max_connections, max_idle_connections | 10, 5 | redis pool; idle must not exceed max |
+| connect_timeout, read_timeout, write_timeout | 10s, 30s, 30s | redis |
+| max_retries | 3 | redis command retries, nats reconnects |
+| default_prefetch | 10 | rabbitmq channel QoS |
+| default_concurrency, max_message_size | 1, 1048576 | validated, not applied |
+| enable_dead_letter | true | inmemory, redis |
 
-// Push message
-q.Push(ctx, queue.Message{
-    Queue:   "tasks",
-    Payload: []byte(`{"task":"send_email"}`),
-})
+URLs are redacted in logs and connection errors.
 
-// Process messages
-q.Process(ctx, func(ctx context.Context, msg queue.Message) error {
-    log.Printf("Processing: %s", msg.Payload)
-    return nil
-})
-```
+## Not implemented yet
 
-### Priority Queue
+- No driver reads: enable_tls and tls_cert_file/tls_key_file/tls_ca_file, insecure_skip_verify,
+  enable_priority, enable_delayed, enable_persistence, dead_letter_suffix, default_timeout,
+  retry_backoff, retry_multiplier, max_retry_backoff, keep_alive, enable_metrics, enable_tracing.
+  For TLS use a `rediss://`, `amqps://` or `tls://` URL.
+- PublishDelayed on redis writes to a sorted set no consumer reads, so delayed messages are never
+  delivered.
+- Nothing increments Message.Retries, so on rabbitmq and nats MaxRetries > 0 means "retry until
+  it succeeds". ConsumeOptions.RetryStrategy isn't read by any driver.
 
-```go
-// High priority
-q.Push(ctx, queue.Message{
-    Queue:    "tasks",
-    Payload:  urgentTask,
-    Priority: 10,  // Higher priority
-})
+## Testing
 
-// Normal priority
-q.Push(ctx, queue.Message{
-    Queue:    "tasks",
-    Payload:  normalTask,
-    Priority: 5,
-})
-
-// High priority messages processed first
-```
-
-### Delayed Jobs
-
-```go
-// Execute in 1 hour
-q.PushDelayed(ctx, queue.Message{
-    Queue:   "reminders",
-    Payload: reminderData,
-}, 1*time.Hour)
-```
-
-## Configuration
-
-```yaml
-extensions:
-  queue:
-    driver: redis
-    url: redis://localhost:6379
-    workers: 5
-    retry:
-      max_attempts: 3
-      backoff: exponential
-```
-
-## Notes
-
-### Production Readiness
-- ✅ Multiple backends
-- ✅ Worker pools
-- ✅ Priority queues
-- ✅ Retry logic
-- ✅ Delayed jobs
-
-### License
-MIT License - Part of Forge Framework
-
+NATS, Redis and RabbitMQ integration tests skip under `-short`. The RabbitMQ password-redaction
+test in redact_test.go also needs QUEUE_TEST_RABBITMQ_HOST, _USER and _PASS.

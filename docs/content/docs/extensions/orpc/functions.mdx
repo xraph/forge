@@ -1,54 +1,66 @@
 ---
 title: Functions
-description: Public API reference for the oRPC extension
+description: Exported functions, methods and types of the oRPC extension
 ---
 
 ## Extension Entry Points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the oRPC extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create the oRPC extension with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Creates the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults listed on the [configuration](/docs/extensions/orpc/configuration) page |
+| `(*Config) Validate() error` | Checks the endpoints, batch limit, request size, timeout and naming strategy |
+| `(*Config) ShouldExpose(path string) bool` | Applies the include and exclude patterns to a path |
 
-## ORPC Interface -- Method Registration
+## Service
+
+You get the service with `forge.Inject[*orpc.ORPCService](app.Container())`, or by the key `orpc`. It implements `ORPC` by passing every call to the server inside it.
+
+| Function or method | Description |
+|---|---|
+| `NewORPCService(config Config, logger forge.Logger, metrics forge.Metrics) (*ORPCService, error)` | Validates the config and builds a server |
+| `NewORPCServer(config Config, logger forge.Logger, metrics forge.Metrics) ORPC` | Builds a server on its own, without the extension |
+| `(*ORPCService) Server() ORPC` | The server inside the service |
+| `(*ORPCService) Name() string` | `"orpc-service"` |
+| `Start`, `Stop`, `Health` | Lifecycle hooks called by the container |
+
+## ORPC: Methods
 
 | Method | Description |
 |---|---|
-| `RegisterMethod(method Method) error` | Register a JSON-RPC method manually |
-| `GetMethod(name) (*Method, error)` | Get a registered method by name |
-| `ListMethods() []Method` | List all registered methods |
-| `GenerateMethodFromRoute(route) (*Method, error)` | Generate a method from a Forge HTTP route |
+| `RegisterMethod(method *Method) error` | Adds or replaces a method. `ErrInvalidMethodName` for an empty name |
+| `GetMethod(name string) (*Method, error)` | `ErrMethodNotFoundError` when there's no such method |
+| `ListMethods() []Method` | Every method, sorted by name |
+| `GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error)` | Builds a method that runs the route. Doesn't register it. Errors for a route marked with `forge.WithORPCExclude` |
 
-## ORPC Interface -- Request Handling
-
-| Method | Description |
-|---|---|
-| `HandleRequest(ctx, request) *Response` | Process a single JSON-RPC request |
-| `HandleBatch(ctx, requests) []*Response` | Process a batch of JSON-RPC requests |
-
-## ORPC Interface -- Schema
+## ORPC: Requests
 
 | Method | Description |
 |---|---|
-| `OpenRPCDocument() *OpenRPCDocument` | Generate the OpenRPC schema document |
+| `HandleRequest(ctx context.Context, req *Request) *Response` | Runs one request through the interceptors and the method |
+| `HandleBatch(ctx context.Context, requests []*Request) []*Response` | Runs a batch in order, after checking `enable_batch` and `batch_limit` |
+| `Use(interceptor Interceptor)` | Adds an interceptor. They run in the order you add them |
+| `SetRouter(router forge.Router)` | Sets the router that route-backed methods call. The extension does this in `Start` |
 
-## ORPC Interface -- Middleware and Stats
+`Interceptor` is `func(ctx context.Context, req *Request, next MethodHandler) (any, error)`, and `MethodHandler` is `func(ctx any, params any) (any, error)`. The handler's `ctx` is a `context.Context`.
+
+## ORPC: Schema and Stats
 
 | Method | Description |
 |---|---|
-| `Use(middleware...)` | Add middleware to the processing pipeline |
-| `GetStats() *ServerStats` | Get server statistics |
-| `SetRouter(router)` | Set the Forge router for route execution |
+| `OpenRPCDocument() *OpenRPCDocument` | Builds the OpenRPC 1.3.2 document, methods sorted by name |
+| `GetStats() ServerStats` | Request, error and batch counts and the average latency in seconds |
 
 ## Response Helpers
 
 | Function | Description |
 |---|---|
-| `NewSuccessResponse(id, result) *Response` | Create a success response |
-| `NewErrorResponse(id, code, message) *Response` | Create an error response |
-| `NewErrorResponseWithData(id, code, message, data) *Response` | Create an error response with additional data |
-| `GetErrorMessage(code) string` | Get the standard message for a JSON-RPC error code |
+| `NewSuccessResponse(id any, result any) *Response` | A success response |
+| `NewErrorResponse(id any, code int, message string) *Response` | An error response |
+| `NewErrorResponseWithData(id any, code int, message string, data any) *Response` | An error response with `data` |
+| `GetErrorMessage(code int) string` | The standard message for a JSON-RPC error code |
+| `(*Request) IsNotification() bool` | True when the request has no `id`. The extension doesn't call it |
 
 ## Key Types
 
@@ -56,27 +68,50 @@ description: Public API reference for the oRPC extension
 
 | Field | Type | Purpose |
 |---|---|---|
-| `Name` | `string` | Method name (e.g. `create.users`) |
-| `Description` | `string` | Human-readable description |
-| `Handler` | `MethodHandler` | Function to execute |
-| `Params` | `*ParamsSchema` | Parameter schema |
-| `Result` | `*ResultSchema` | Result schema |
-| `Tags` | `[]string` | Categorization tags |
+| `Name` | `string` | Method name, for example `get.users.id` |
+| `Description` | `string` | The route summary, for generated methods |
+| `Params` | `*ParamsSchema` | Params schema for the OpenRPC document. Not used to validate |
+| `Result` | `*ResultSchema` | Result schema for the OpenRPC document |
+| `Handler` | `MethodHandler` | The function that runs the call |
+| `RouteInfo` | `any` | The `forge.RouteInfo` behind a generated method |
+| `Tags` | `[]string` | Tags, from `forge.WithTags` for generated methods |
+| `Deprecated` | `bool` | Shown in the list and the document. Always false for generated methods |
+| `Metadata` | `map[string]any` | The route's metadata, for generated methods |
+
+### `ParamsSchema`, `ResultSchema` and `PropertySchema`
+
+`ParamsSchema` has `Type`, `Properties map[string]*PropertySchema`, `Required []string` and `Description`. `ResultSchema` has the same fields without `Required`. `PropertySchema` has `Type`, `Description`, `Properties`, `Items *PropertySchema`, `Required` and `Example any`.
 
 ### `Request`
 
-| Field | Type | Purpose |
+| Field | Type | JSON |
 |---|---|---|
-| `JSONRPC` | `string` | Protocol version (always `"2.0"`) |
-| `Method` | `string` | Method name to invoke |
-| `Params` | `json.RawMessage` | Method parameters |
-| `ID` | `any` | Request identifier |
+| `JSONRPC` | `string` | `jsonrpc`, must be `"2.0"` |
+| `Method` | `string` | `method` |
+| `Params` | `json.RawMessage` | `params` |
+| `ID` | `any` | `id` |
 
-### `Response`
+### `Response` and `Error`
 
-| Field | Type | Purpose |
-|---|---|---|
-| `JSONRPC` | `string` | Protocol version |
-| `Result` | `any` | Success result |
-| `Error` | `*Error` | Error object (if failed) |
-| `ID` | `any` | Request identifier |
+`Response` has `JSONRPC`, `Result any`, `Error *Error` and `ID any`. `Error` has `Code int`, `Message string` and `Data any`, and implements `error`.
+
+### `ServerStats`
+
+`TotalRequests`, `TotalErrors`, `TotalBatchReqs` (`int64`) and `AverageLatency` (`float64`, seconds). `TotalMethods` and `ActiveRequests` exist but are never updated.
+
+### OpenRPC types
+
+`OpenRPCDocument`, `OpenRPCInfo`, `OpenRPCContact`, `OpenRPCLicense`, `OpenRPCMethod`, `OpenRPCParam`, `OpenRPCResult`, `OpenRPCError`, `OpenRPCTag`, `OpenRPCComponents` and `OpenRPCServer` mirror the OpenRPC specification. The generated document fills `info`, `methods` and `servers`.
+
+## Error Constants
+
+| Constant | Value |
+|---|---|
+| `ErrParseError` | `-32700` |
+| `ErrInvalidRequest` | `-32600` |
+| `ErrMethodNotFound` | `-32601` |
+| `ErrInvalidParams` | `-32602` |
+| `ErrInternalError` | `-32603` |
+| `ErrServerError` | `-32000` |
+
+Sentinel errors: `ErrInvalidMethodName` and `ErrMethodNotFoundError` are returned as described above. `ErrMethodExists`, `ErrDisabled`, `ErrBatchDisabled`, `ErrBatchTooLarge` and `ErrRequestTooLarge` are declared but never returned.

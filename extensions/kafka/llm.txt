@@ -2,145 +2,168 @@
 
 ## Purpose
 
-Apache Kafka integration providing high-throughput message streaming with producer and consumer support, consumer groups, and automatic offset management.
+Apache Kafka client for Forge apps, built on IBM Sarama (github.com/IBM/sarama). You get sync and
+async producers, partition consumers, consumer groups, topic administration, TLS and SASL (PLAIN,
+SCRAM-SHA-256, SCRAM-SHA-512), Forge metrics per topic, and access to the raw Sarama client,
+producers and consumers.
 
-## Key Components
+Module: github.com/xraph/forge/extensions/kafka (package `kafka`).
 
-- **Producer**: Publish messages to Kafka topics
-- **Consumer**: Subscribe to Kafka topics
-- **Consumer Groups**: Load-balanced message consumption
-- **Offset Management**: Automatic and manual offset control
-- **Admin Client**: Topic and partition management
+## Constructors and options
 
-## Architecture
+```go
+func NewExtension(opts ...ConfigOption) forge.Extension
+func NewExtensionWithConfig(config Config) forge.Extension
+func DefaultConfig() Config
 
+type ConfigOption func(*Config)
+WithBrokers(brokers ...string)
+WithClientID(clientID string)
+WithVersion(version string)                                     // Kafka protocol version, e.g. "3.0.0"
+WithTLS(certFile, keyFile, caFile string, skipVerify bool)      // sets EnableTLS
+WithSASL(mechanism, username, password string)                  // sets EnableSASL
+WithProducer(enabled bool)
+WithConsumer(enabled bool)
+WithConsumerGroup(groupID string)
+WithCompression(compression string)                             // none, gzip, snappy, lz4, zstd
+WithIdempotent(enabled bool)
+WithMetrics(enable bool)
+WithTracing(enable bool)
+WithRequireConfig(require bool)
+WithConfig(config Config)
 ```
-Kafka Extension
-├── Producer
-│   ├── Sync Publishing
-│   ├── Async Publishing
-│   └── Batching
-├── Consumer
-│   ├── Subscription
-│   ├── Consumer Groups
-│   └── Offset Management
-├── Admin
-│   ├── Topic Management
-│   └── Partition Management
-└── Health Checks
-    └── Connection Monitoring
+
+Lower level: `NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (Kafka, error)`
+and `NewKafkaService(config Config, logger forge.Logger, metrics forge.Metrics) (*KafkaService, error)`.
+`(*Config).ToSaramaConfig() (*sarama.Config, error)` builds the Sarama config.
+
+## What the container holds
+
+One service, `*kafka.KafkaService`, by type and under the alias `kafka` (`ServiceKey`). It
+implements the `Kafka` interface and adds `Client() Kafka`, `Name`, `Start`, `Stop`, `Health`.
+
+```go
+k, err := forge.Inject[*kafka.KafkaService](app.Container())
+k, err = forge.Resolve[*kafka.KafkaService](app.Container(), "kafka")
 ```
 
-## Public API
+The service is built on first resolve. That's when the client connects, creates the enabled
+producers and consumer, and pings the brokers, so the first Inject is where a connection error
+shows up. The extension's own Start and Stop only mark state; the container closes the client.
 
-### Core Types
+## Key types
 
 ```go
 type Kafka interface {
-    Producer() Producer
-    Consumer(group string) (Consumer, error)
-    Admin() Admin
+    SendMessage(topic string, key, value []byte) error
+    SendMessageAsync(topic string, key, value []byte) error
+    SendMessages(messages []*ProducerMessage) error
+    Consume(ctx context.Context, topics []string, handler MessageHandler) error
+    ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error
+    StopConsume() error
+    JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error
+    LeaveConsumerGroup(ctx context.Context) error
+    CreateTopic(topic string, config TopicConfig) error
+    DeleteTopic(topic string) error
+    ListTopics() ([]string, error)
+    DescribeTopic(topic string) (*TopicMetadata, error)
+    GetPartitions(topic string) ([]int32, error)
+    GetOffset(topic string, partition int32, time int64) (int64, error)
+    GetProducer() sarama.SyncProducer
+    GetAsyncProducer() sarama.AsyncProducer
+    GetConsumer() sarama.Consumer
+    GetConsumerGroup() sarama.ConsumerGroup
+    GetClient() sarama.Client
+    GetStats() ClientStats
+    Close() error
+    Ping(ctx context.Context) error
 }
 
-type Producer interface {
-    Publish(ctx context.Context, topic string, key, value []byte) error
-    PublishAsync(ctx context.Context, topic string, key, value []byte) error
+type MessageHandler func(message *sarama.ConsumerMessage) error
+type ConsumerGroupHandler interface {   // same shape as sarama.ConsumerGroupHandler
+    Setup(sarama.ConsumerGroupSession) error
+    Cleanup(sarama.ConsumerGroupSession) error
+    ConsumeClaim(sarama.ConsumerGroupSession, sarama.ConsumerGroupClaim) error
 }
-
-type Consumer interface {
-    Subscribe(topics ...string) error
-    Consume(ctx context.Context) (<-chan Message, error)
-    Commit(ctx context.Context, msg Message) error
-}
+type ProducerMessage struct { Topic string; Key, Value []byte; Headers []MessageHeader; Partition int32; Offset int64; Timestamp time.Time }
+type MessageHeader struct { Key string; Value []byte }
+type TopicConfig struct { NumPartitions int32; ReplicationFactor int16; ConfigEntries map[string]*string }
+type TopicMetadata struct { Name string; Partitions []PartitionMetadata; Config map[string]string }
+type PartitionMetadata struct { ID, Leader int32; Replicas, Isr []int32 }
+type ClientStats struct { Connected bool; ConnectTime time.Time; MessagesSent, MessagesReceived, BytesSent, BytesReceived, Errors int64; LastError error; LastErrorTime time.Time; ActiveConsumers, ActiveProducers int }
 ```
 
-### Main Functions/Methods
+Sentinel errors (errors.go): ErrClientNotInitialized, ErrProducerNotEnabled,
+ErrConsumerNotEnabled, ErrAlreadyConsuming, ErrNotConsuming, ErrInConsumerGroup,
+ErrNotInConsumerGroup, ErrSendFailed, ErrConsumeFailed, ErrTopicNotFound, ErrInvalidPartition,
+ErrConnectionFailed, ErrClientClosed.
 
-```go
-// Extension
-func NewExtension(config Config) forge.Extension
+`XDGSCRAMClient` (scram.go) is the SCRAM client Sarama uses for SASL SCRAM.
 
-// Get Kafka service
-func GetKafka(c forge.Container) (Kafka, error)
+## Behaviour
 
-// Produce messages
-producer := kafka.Producer()
-producer.Publish(ctx, "events", []byte("key"), []byte("value"))
+- SendMessage uses the sync producer and returns once the broker acks (`producer_acks`).
+- SendMessageAsync puts the message on the async producer's channel and returns. Delivery errors
+  are logged and counted in GetStats().Errors, never returned.
+- Consume and ConsumePartition read partitions directly: no consumer group, no committed offsets.
+  Consume always starts at the newest offset. Both return once the readers are running (one
+  goroutine per partition). A handler error is logged and the next message is read; nothing is
+  retried. Stop with StopConsume or by cancelling ctx.
+- JoinConsumerGroup runs the group loop in the background. You call `session.MarkMessage` in
+  your handler. One group per client; LeaveConsumerGroup before joining another.
+- CreateTopic and DeleteTopic go to the first broker in the client's list.
 
-// Consume messages
-consumer, _ := kafka.Consumer("my-group")
-consumer.Subscribe("events")
-messages, _ := consumer.Consume(ctx)
-for msg := range messages {
-    // Process message
-    consumer.Commit(ctx, msg)
-}
-```
+## Config
 
-## Usage Examples
+Key `extensions.kafka`, falling back to `kafka`. File overrides defaults, options override the file.
 
-### Basic Producer/Consumer
+| yaml key | default |
+| --- | --- |
+| brokers | ["localhost:9092"] |
+| client_id | "forge-kafka-client" |
+| version | "3.0.0" |
+| dial_timeout, read_timeout, write_timeout | 30s |
+| keep_alive | 0 |
+| enable_tls, tls_cert_file, tls_key_file, tls_ca_file, tls_skip_verify | off |
+| enable_sasl, sasl_mechanism, sasl_username, sasl_password | off, "PLAIN" |
+| producer_enabled | true |
+| producer_max_message_bytes | 1000000 |
+| producer_compression | "snappy" |
+| producer_flush_messages, producer_flush_frequency | 10, 100ms |
+| producer_retry_max | 3 |
+| producer_idempotent | false |
+| producer_acks | "local" (none, local, all) |
+| consumer_enabled | true |
+| consumer_group_id | "" (stored, not read) |
+| consumer_offsets | "newest" (newest, oldest) |
+| consumer_max_wait, consumer_fetch_min, consumer_fetch_max | 500ms, 1, 1048576 |
+| consumer_isolation | "read_uncommitted" |
+| consumer_group_rebalance | "range" (range, roundrobin, sticky) |
+| consumer_group_session, consumer_group_heartbeat | 10s, 3s |
+| metadata_retry_max, metadata_retry_backoff, metadata_refresh_freq, metadata_full_refresh | 3, 250ms, 10m, true |
+| enable_metrics, enable_tracing, enable_logging | true |
 
-```go
-import "github.com/xraph/forge/extensions/kafka"
+Unknown values for compression, acks, offsets, isolation or rebalance fail validation at
+registration.
 
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        kafka.NewExtension(kafka.Config{
-            Brokers: []string{"localhost:9092"},
-        }),
-    },
-})
+Metrics (enable_metrics): counters `kafka.messages.sent`, `kafka.messages.received` and gauges
+`kafka.bytes.sent`, `kafka.bytes.received` (size of the last message), labelled by `topic`.
 
-// Get Kafka service
-k, _ := kafka.GetKafka(app.Container())
+## Gotchas
 
-// Produce messages
-producer := k.Producer()
-producer.Publish(ctx, "events", []byte("user-123"), []byte(`{"action":"login"}`))
+- SendMessages copies only Topic, Key, Value and Partition to Sarama. Headers and Timestamp are
+  ignored; build a `sarama.ProducerMessage` and use `GetProducer()` if you need headers.
+- With TLS on and skip-verify off, validation requires both a client cert and key, so TLS
+  without a client certificate doesn't pass validation today.
 
-// Consume messages
-consumer, _ := k.Consumer("myapp-group")
-consumer.Subscribe("events")
+## Not implemented yet
 
-messages, _ := consumer.Consume(ctx)
-for msg := range messages {
-    log.Printf("Received: %s = %s", msg.Key, msg.Value)
-    consumer.Commit(ctx, msg)
-}
-```
-
-## Configuration
-
-```yaml
-extensions:
-  kafka:
-    brokers:
-      - localhost:9092
-    producer:
-      compression: snappy
-      batch_size: 1000
-    consumer:
-      group_id: myapp-group
-      auto_commit: false
-```
+- `WithIdempotent(true)` makes client creation fail: Sarama needs `Net.MaxOpenRequests` of 1 and
+  the extension leaves Sarama's default of 5.
+- `enable_tracing` / `WithTracing` and `consumer_group_id` are stored but nothing reads them.
+  The group ID you pass to JoinConsumerGroup is the one that counts.
 
 ## Dependencies
 
-### External
-- github.com/segmentio/kafka-go - Kafka client
-
-### Internal
-- github.com/xraph/forge - Core framework
-
-## Notes
-
-### Production Readiness
-- ✅ Kafka producer/consumer
-- ✅ Consumer groups
-- ✅ Offset management
-- ✅ High throughput
-
-### License
-MIT License - Part of Forge Framework
-
+- github.com/IBM/sarama
+- github.com/xraph/forge, github.com/xraph/vessel

@@ -2,123 +2,110 @@
 
 ## Purpose
 
-WebRTC (Web Real-Time Communication) support for peer-to-peer audio, video, and data streaming with signaling server, ICE handling, and TURN/STUN server integration.
+WebRTC call rooms and server-side peer connections for Forge apps, built on Pion WebRTC v4
+(github.com/pion/webrtc/v4) and the Forge streaming extension. You get call rooms with mesh and
+SFU topologies, SDP offer and answer handling, ICE candidates, data channels and STUN/TURN
+configuration.
 
-## Key Components
+Early software: the built-in signaling endpoint, SFU media forwarding, recording, screen share
+and quality monitoring are unfinished. See "Not implemented yet".
 
-- **Signaling Server**: WebSocket-based signaling
-- **Peer Connections**: WebRTC peer management
-- **ICE Handling**: NAT traversal with STUN/TURN
-- **Media Streaming**: Audio/video streams
-- **Data Channels**: Arbitrary data transfer
+Module: github.com/xraph/forge/extensions/webrtc (package `webrtc`). Its go.mod replaces the
+root, streaming and auth modules with local paths.
 
-## Architecture
-
-```
-WebRTC Extension
-├── Signaling Server
-│   ├── Offer/Answer Exchange
-│   ├── ICE Candidate Exchange
-│   └── Room Management
-├── Peer Management
-│   ├── Connection Tracking
-│   └── State Management
-├── STUN/TURN
-│   └── NAT Traversal
-└── Media & Data
-    ├── Audio/Video Streams
-    └── Data Channels
-```
-
-## Public API
-
-### Core Types
+## Constructor and options
 
 ```go
-type WebRTC interface {
-    CreateRoom(id string) (*Room, error)
-    GetRoom(id string) (*Room, error)
-    HandleSignaling(conn WebSocketConn) error
-}
+func New(streamingExt *streaming.Extension, config Config, opts ...ConfigOption) (*Extension, error)
+func DefaultConfig() Config
 
-type Room struct {
-    ID    string
-    Peers []Peer
-}
+type ConfigOption func(*Config)
+WithTopology(topology Topology)          // TopologyMesh (default), TopologySFU; TopologyMCU is rejected
+WithSFU(config SFUConfig)                // sets SFU topology and its settings
+WithSTUNServers(servers ...string)       // replaces the list
+WithTURNServer(turn TURNConfig)          // appends; TURNConfig{URLs []string; Username, Credential string; TLS fields}
+WithAudioCodecs(codecs ...string)        // stored, not applied
+WithVideoCodecs(codecs ...string)        // stored, not applied
+WithRecording(path string)               // stored, not applied
+WithQualityMonitoring(config QualityConfig) // stored, not applied
 ```
 
-### Main Functions/Methods
+`New` validates: at least one STUN or TURN server (ErrNoICEServers), SFU topology needs an
+SFUConfig, MaxVideoBitrate >= MinVideoBitrate. DefaultConfig has two Google STUN servers
+(stun.l.google.com:19302, stun1.l.google.com:19302), mesh topology.
+
+Config is code only: the extension doesn't read `extensions.webrtc`. It declares a dependency on
+`streaming`, so register both extensions in the same app. Nothing is put in the DI container;
+keep the `*Extension` you got from New.
+
+## Usage
 
 ```go
-// Extension
-func NewExtension(config Config) forge.Extension
+stream := streaming.NewExtension(streaming.WithLocalBackend())
+rtc, err := webrtc.New(stream, webrtc.DefaultConfig())
+app := forge.NewApp(forge.AppConfig{Name: "calls", Extensions: []forge.Extension{stream, rtc}})
 
-// Get WebRTC service
-func GetWebRTC(c forge.Container) (WebRTC, error)
-
-// Create room
-room, _ := webrtc.CreateRoom("meeting-123")
-
-// Handle signaling
-webrtc.HandleSignaling(wsConn)
-```
-
-## Usage Examples
-
-### Video Conferencing
-
-```go
-import "github.com/xraph/forge/extensions/webrtc"
-
-app := forge.NewApp(forge.AppConfig{
-    Extensions: []forge.Extension{
-        webrtc.NewExtension(webrtc.Config{
-            STUNServers: []string{"stun:stun.l.google.com:19302"},
-            TURNServers: []webrtc.TURNServer{
-                {
-                    URLs:       []string{"turn:turn.example.com:3478"},
-                    Username:   "user",
-                    Credential: "pass",
-                },
-            },
-        }),
-    },
+_ = forge.OnStarted(app, "create-call", func(ctx context.Context, _ forge.App) error {
+    _, err := rtc.CreateCallRoom(ctx, "standup", streaming.RoomOptions{ID: "standup", Name: "Standup"})
+    return err
 })
 
-// Get WebRTC service
-rtc, _ := webrtc.GetWebRTC(app.Container())
-
-// Signaling endpoint
-router.WebSocket("/ws/webrtc", func(conn forge.WebSocketConn) {
-    rtc.HandleSignaling(conn)
-})
-
-// Client joins: ws://localhost:8080/ws/webrtc?room=meeting-123
+// in an HTTP handler: answer a browser offer
+peer, err := rtc.JoinCall(ctx, roomID, userID, &webrtc.JoinOptions{})
+err = peer.SetRemoteDescription(ctx, &offer)
+answer, err := peer.CreateAnswer(ctx)   // waits up to 5s for ICE gathering, so candidates are inline
 ```
 
-## Configuration
+## Extension methods
 
-```yaml
-extensions:
-  webrtc:
-    stun_servers:
-      - stun:stun.l.google.com:19302
-    
-    turn_servers:
-      - urls:
-          - turn:turn.example.com:3478
-        username: ${TURN_USERNAME}
-        credential: ${TURN_CREDENTIAL}
-```
+CreateCallRoom(ctx, roomID string, opts streaming.RoomOptions) (CallRoom, error),
+GetCallRoom(roomID) (CallRoom, error), GetCallRooms() []CallRoom, DeleteCallRoom(ctx, roomID)
+(closes every peer), JoinCall(ctx, roomID, userID string, opts *JoinOptions) (PeerConnection, error),
+LeaveCall(ctx, roomID, userID), GetConfig() Config, GetSignalingManager(), GetSFURouter(),
+GetQualityMonitor(), GetRecorder(), RegisterRoutes(router forge.Router) error.
+`(*Config).GetICEServers() []ICEServer` returns STUN and TURN servers for clients.
 
-## Notes
+Each user can join a room once; a second JoinCall for the same user fails until LeaveCall.
+JoinCall and LeaveCall on the extension update `webrtc.calls.*` and `webrtc.peers.active`.
 
-### Production Readiness
-- ✅ WebRTC signaling
-- ✅ STUN/TURN support
-- ✅ Room management
-- ✅ Peer tracking
+## Key types (interfaces.go)
 
-### License
-MIT License - Part of Forge Framework
+- PeerConnection: ID, UserID, State, CreateOffer, CreateAnswer, SetLocalDescription,
+  SetRemoteDescription, AddICECandidate, AddTrack, RemoveTrack, GetTracks, GetStats, Close,
+  OnICECandidate, OnTrack, OnConnectionStateChange, OnDataChannel.
+- CallRoom: ID, Name, JoinCall, Leave, GetPeer, GetPeers, GetParticipants, MuteUser, UnmuteUser,
+  EnableVideo, DisableVideo, StartScreenShare, StopScreenShare, GetQuality, Close.
+- JoinOptions{AudioEnabled, VideoEnabled bool; DisplayName string; Metadata map[string]any}: audio/video add a local
+  track to the server's peer.
+- Also MediaTrack, DataChannel, SignalingManager, SFURouter, Recorder, QualityMonitor,
+  SessionDescription{Type, SDP}, ICECandidate, ICEServer, ConnectionState, Participant, PeerStats.
+- Constructors: NewPeerConnection, NewDataChannel, NewLocalTrack, NewSignalingManager,
+  NewSFURouter, NewMeshCallRoom, NewMeshCallRoomFromOptions, NewSFUCallRoomFromOptions,
+  NewRecorder (DefaultRecorderConfig), NewQualityMonitor (DefaultQualityConfig).
+- Errors: ErrNoICEServers, ErrPeerNotFound, ErrPeerAlreadyExists, ErrRoomNotFound,
+  ErrAlreadyInRoom, ErrSFUNotEnabled, ErrNotImplemented and more; error types SignalingError,
+  ConnectionError, MediaError.
 
+## Gotchas
+
+- SessionDescription and ICECandidate have no JSON tags: they marshal as `Type`, `SDP`. Decoding
+  is case-insensitive, so binding a browser's `{type, sdp}` works, but shape responses to the
+  browser yourself with lowercase keys.
+- No trickle ICE endpoint: have the browser finish gathering before sending its offer.
+
+## Not implemented yet
+
+- RegisterRoutes mounts a WebSocket at `/webrtc/signal/{roomID}` whose read loop drops every
+  message. The handler also asserts `ctx.Get("user_id").(string)` without a check, so it panics
+  unless global or group middleware has set `user_id`. Do your own signaling.
+- SFU: rooms and the router exist but RTP isn't forwarded between participants.
+- StartScreenShare, StopScreenShare and GetQuality return ErrNotImplemented. The extension never
+  builds a recorder or quality monitor, so GetRecorder and GetQualityMonitor return nil.
+- Stored but unread: MediaConfig (codecs, bitrates, resolution), SignalingEnabled,
+  SignalingTimeout, RequireAuth, AllowGuests, RecordingEnabled, RecordingPath, MetricsEnabled.
+  Pion negotiates codecs with its defaults.
+- examples/basic relies on RegisterRoutes and recording.
+
+## Testing
+
+`-short` skips the integration tests; nothing in CI runs them.

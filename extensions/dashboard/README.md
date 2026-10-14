@@ -225,7 +225,7 @@ dashExt := dashboard.NewExtension(dashboard.WithEnableAuth(true))
 dashExt.(*dashboard.Extension).SetAuthChecker(&MyChecker{})
 ```
 
-With `WithEnableAuth(true)`, `/principal` answers 401 for a signed-out caller and tells the client where the login page is (`LoginPath`, `/login` under the base path by default). Add `WithRequiredRoles` and a signed-in user without one of those roles gets 403 `PERMISSION_DENIED`. With auth off, `/principal` returns `{"authenticated":false}` so the UI can skip its login gate. Auth extensions such as authsome wire all of this themselves through `DashboardAuthAware`.
+With `WithEnableAuth(true)`, `/principal` answers 401 for a signed-out caller and tells the client where the login page is (`LoginPath`, `/login` under the base path by default). Add `WithRequiredRoles` and `/principal` answers 403 `PERMISSION_DENIED` for a signed-in user without one of those roles. Only `/principal` checks the roles. The contract endpoint doesn't, so the role gate holds only as far as your UI respects that answer, and your `AuthChecker` or contributor handlers should enforce anything that matters. With auth off, `/principal` returns `{"authenticated":false}` so the UI can skip its login gate. Auth extensions such as authsome wire all of this themselves through `DashboardAuthAware`.
 
 ## Configuration
 
@@ -243,7 +243,7 @@ Configure the dashboard with options on `dashboard.NewExtension`, or under `exte
 | `WithTraceCaptureRequestBody(bool)` | off | Keep a bounded, redacted JSON request body with each trace |
 | `WithMemoryProfile(profile)` | medium | `MemoryProfileLow`, `MemoryProfileMedium` or `MemoryProfileHigh` presets for the collection and trace settings |
 | `WithDiscovery(bool)`, `WithDiscoveryTag(string)`, `WithDiscoveryPollInterval(d)` | off, `forge-dashboard-contributor`, 60s | Remote contributor discovery |
-| `WithExport(bool)`, `WithExportFormats([]string)` | on, all three | Export endpoints |
+| `WithExport(bool)`, `WithExportFormats([]string)` | on, all three | Export endpoints. `WithExportFormats` isn't read yet, so all three formats stay on. The export routes don't go through the auth middleware |
 | `WithConfig(dashboard.Config)`, `WithRequireConfig(bool)` | | Replace the whole config, or fail without one |
 
 Options apply in order, so a setting after `WithMemoryProfile` overrides the preset.

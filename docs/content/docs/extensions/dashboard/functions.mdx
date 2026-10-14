@@ -10,6 +10,13 @@ description: Public API reference for the Dashboard extension
 | `NewExtension` | `(opts ...ConfigOption) forge.Extension` | Create the dashboard extension with functional options |
 | `DefaultConfig` | `() Config` | Returns the default configuration |
 
+## Package Functions
+
+| Function | Signature | Description |
+|---|---|---|
+| `TracingMiddleware` | `(store *collector.TraceStore, basePath string, captureRequestBody ...bool) forge.Middleware` | The middleware `Start()` installs to record request traces. Requests under `basePath` also keep the trace gate open |
+| `AdaptIdempotencyStore` | `(s idempotency.Store) dispatcher.IdempotencyStore` | Wrap a `contract/idempotency` store for `dispatcher.WithIdempotencyStore`, the same way the extension wires its own dispatcher. A store that can claim keys comes back as a `dispatcher.IdempotencyClaimer` |
+
 ## Extension Methods
 
 ### Data
@@ -36,7 +43,7 @@ description: Public API reference for the Dashboard extension
 | `SetAuthChecker` | `(checker dashauth.AuthChecker)` | Set the checker run on every contract request |
 | `AuthChecker` | `() dashauth.AuthChecker` | The configured checker, or `nil` |
 | `EnableAuth` | `()` | Turn auth on. Auth extensions call this from `RegisterDashboardAuth` |
-| `SetRequiredRoles` | `(roles []string)` | Restrict the dashboard to users holding one of these roles |
+| `SetRequiredRoles` | `(roles []string)` | Make `/principal` answer 403 for users without one of these roles. The envelope endpoint doesn't check it |
 | `SetTenantResolver` | `(resolver dashauth.TenantResolver)` | Resolve a tenant for every request, readable with `dashauth.TenantFromContext` |
 | `TenantResolver` | `() dashauth.TenantResolver` | The configured resolver, or `nil` |
 | `CSRFManager` | `() *security.CSRFManager` | The CSRF manager, or `nil` when CSRF is off |

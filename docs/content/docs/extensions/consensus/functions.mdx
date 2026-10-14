@@ -1,78 +1,134 @@
 ---
 title: Functions
-description: Public API reference for the Consensus extension
+description: Exported functions, methods, types and errors of the consensus module
 ---
 
-## Extension Entry Points
+## Extension entry points
 
 | Function | Description |
 |---|---|
-| `NewExtension(opts ...ConfigOption) forge.Extension` | Create the consensus extension with functional options |
-| `NewExtensionWithConfig(config Config) forge.Extension` | Create with a complete config |
-| `DefaultConfig() Config` | Returns the default configuration |
+| `NewExtension(opts ...ConfigOption) forge.Extension` | Creates the extension from `DefaultConfig()` plus your options |
+| `NewExtensionWithConfig(config Config) forge.Extension` | Same as `NewExtension(WithConfig(config))` |
+| `DefaultConfig() Config` | The defaults on the configuration page |
+| `(*Config) Validate() error` | The checks `Register` runs |
 
-## Extension Accessors
+The option helpers are on the [configuration page](/docs/extensions/consensus/configuration#programmatic-configuration).
 
-| Method | Description |
+## Extension methods
+
+`NewExtension` returns a `forge.Extension`. Assert it to `*consensus.Extension` to reach these:
+
+| Method | Returns |
 |---|---|
-| `Service() ConsensusService` | Access the consensus service |
-| `IsLeader() bool` | Check if this node is the current leader |
-| `GetLeader() (string, error)` | Get the current leader's node ID |
-| `GetRole() string` | Get the current role (leader, follower, candidate) |
-| `GetStats() map[string]any` | Get consensus statistics |
-| `GetClusterInfo() map[string]any` | Get cluster membership info |
+| `Service() *Service` | The consensus service |
+| `IsLeader() bool` | Always `false` today |
+| `GetLeader() string` | Always `""` today |
+| `GetRole() NodeRole` | Always `RoleFollower` today |
+| `GetStats() ConsensusStats` | Mostly zero today |
+| `GetClusterInfo() ClusterInfo` | Empty today |
+| `Apply(ctx, cmd Command) error` | Always a not-leader error today |
+| `Read(ctx, query any) (any, error)` | Panics today, because the state machine is nil |
+| `Metrics() map[string]any` | The stats as a flat map |
+| `Reload(ctx) error` | Reloads config, see [hot reload](/docs/extensions/consensus/configuration#hot-reload) |
+| `Health(ctx) error` | `storage not initialized` today |
 
-## ConsensusService Interface
+## Service
 
-### Operations
+`*consensus.Service` is the extension's `ConsensusService`. `NewConsensusService(config Config, logger forge.Logger, metrics forge.Metrics) (*Service, error)` builds one on its own, with the same stubbed components.
 
-| Method | Description |
+| Method | What it does today |
 |---|---|
-| `Apply(ctx, cmd) (any, error)` | Apply a command through the Raft log (write operation) |
-| `Read(ctx, query) (any, error)` | Read from the state machine (consistent read) |
-
-### Lifecycle
-
-| Method | Description |
-|---|---|
-| `Start(ctx) error` | Start the Raft node |
-| `Stop(ctx) error` | Stop the Raft node |
-| `HealthCheck(ctx) error` | Check node and cluster health |
-
-### Leadership
-
-| Method | Description |
-|---|---|
-| `IsLeader() bool` | Check if this node is the leader |
-| `GetLeader() (string, error)` | Get the leader node ID |
-| `GetRole() string` | Get the current role |
-
-### Cluster
-
-| Method | Description |
-|---|---|
-| `GetStats() map[string]any` | Runtime statistics |
-| `GetClusterInfo() map[string]any` | Cluster membership information |
-| `UpdateConfig(config) error` | Update configuration at runtime |
+| `Start(ctx) error` | Logs each component it would initialise, starts the health, metrics and snapshot loops. A second call returns `ErrAlreadyStarted` |
+| `Stop(ctx) error` | Stops the loops |
+| `IsLeader() bool`, `GetLeader() string`, `GetRole() NodeRole`, `GetTerm() uint64` | `false`, `""`, `RoleFollower`, `0` |
+| `Apply(ctx, cmd Command) error` | Not-leader error |
+| `Read(ctx, query any) (any, error)` | Panics on the nil state machine |
+| `Snapshot(ctx) error` | Panics on the nil state machine |
+| `AddNode(ctx, nodeID, address string, port int) error`, `RemoveNode(ctx, nodeID string) error` | Not-leader error |
+| `TransferLeadership(ctx, targetNodeID string) error`, `StepDown(ctx) error` | Not-leader error. Not implemented past that check |
+| `GetStats() ConsensusStats`, `GetClusterInfo() ClusterInfo` | Stats and membership, mostly zero |
+| `HealthCheck(ctx) error` | `storage not initialized` once started, `ErrNotStarted` before |
+| `GetHealthStatus(ctx) HealthStatus` | Per-check details, unhealthy today |
+| `UpdateConfig(ctx, config Config) error` | Validates, then copies the `observability`, `health` and `admin_api` sections |
+| `GetRaftNode()`, `GetStateMachine()`, `GetClusterManager()`, `GetTransport()`, `GetDiscovery()`, `GetStorage()` | `nil` |
 
 ## LeadershipChecker
 
-| Method | Description |
+| Function or method | Description |
 |---|---|
-| `NewLeadershipChecker(service ConsensusService)` | Create a leadership checker |
-| `RequireLeader() bool` | Returns true if current node is leader |
-| `RequireQuorum() bool` | Returns true if cluster has quorum |
+| `NewLeadershipChecker(service ConsensusService) *LeadershipChecker` | Wraps a service |
+| `IsLeader() bool`, `GetLeader() string` | Pass through to the service |
+| `RequireLeader() error` | A not-leader error naming the leader, or `nil` on the leader |
+| `RequireQuorum() error` | `ErrNoQuorum`, or `nil` when the cluster has quorum |
 
-## Error Helpers
+## Interfaces
+
+| Interface | Methods |
+|---|---|
+| `ConsensusService` | `Start`, `Stop`, `IsLeader`, `GetLeader`, `GetRole`, `GetTerm`, `Apply`, `Read`, `GetStats`, `HealthCheck`, `GetHealthStatus`, `GetClusterInfo`, `AddNode`, `RemoveNode`, `TransferLeadership`, `StepDown`, `Snapshot`, `UpdateConfig` |
+| `RaftNode` | `Start`, `Stop`, `IsLeader`, `GetLeader`, `GetTerm`, `GetRole`, `Apply`, `Propose`, `GetCommitIndex`, `AppendEntries`, `RequestVote`, `InstallSnapshot`, `GetStats`, `AddPeer` |
+| `StateMachine` | `Apply(LogEntry) error`, `Snapshot() (*Snapshot, error)`, `Restore(*Snapshot) error`, `Query(any) (any, error)` |
+| `Storage` | `Start`, `Stop`, `Set`, `Get`, `Delete`, `Batch`, `GetRange`, `Close` |
+| `Transport` | `Start`, `Stop`, `Send`, `Receive`, `AddPeer`, `RemovePeer`, `GetAddress` |
+| `Discovery` | `Start`, `Stop`, `Register`, `Unregister`, `GetNodes`, `Watch` |
+| `ClusterManager` | `GetNodes`, `GetNode`, `AddNode`, `RemoveNode`, `UpdateNode`, `GetLeader`, `HasQuorum`, `GetClusterSize`, `GetHealthyNodes` |
+
+## Key types
+
+| Type | Fields |
+|---|---|
+| `Command` | `Type string`, `Payload map[string]any` |
+| `LogEntry` | `Index`, `Term`, `Type EntryType`, `Data []byte`, `Created` |
+| `Snapshot` | `Index`, `Term`, `Data []byte`, `Size`, `Created`, `Checksum` |
+| `PeerConfig` | `ID`, `Address`, `Port` |
+| `ClusterInfo` | `ID`, `Leader`, `Term`, `Nodes []NodeInfo`, `TotalNodes`, `ActiveNodes`, `HasQuorum`, `CommitIndex`, `LastApplied` |
+| `NodeInfo` | `ID`, `Address`, `Port`, `Role`, `Status`, `Term`, `LastHeartbeat`, `Metadata` |
+| `HealthStatus` | `Healthy`, `Status`, `Leader`, `HasQuorum`, `TotalNodes`, `ActiveNodes`, `Details []HealthCheck`, `LastCheck`, `Checks` |
+| `RaftStats` | `NodeID`, `Role`, `Term`, `Leader`, `CommitIndex`, `LastApplied`, `LastLogIndex`, `LastLogTerm`, `VotedFor`, `LastHeartbeat` |
+
+`ConsensusStats` is listed on the [features page](/docs/extensions/consensus/features#statistics).
+
+## Constants
+
+| Group | Values |
+|---|---|
+| `NodeRole` | `RoleFollower`, `RoleCandidate`, `RoleLeader` (`"follower"`, `"candidate"`, `"leader"`) |
+| `NodeStatus` | `StatusActive`, `StatusInactive`, `StatusSuspected`, `StatusFailed` |
+| `EntryType` | `EntryNormal`, `EntryConfig`, `EntryBarrier`, `EntryNoop` |
+| `MessageType` | `MessageTypeAppendEntries`, `MessageTypeRequestVote`, `MessageTypeInstallSnapshot`, `MessageTypeHeartbeat` |
+| `NodeChangeType` | `NodeChangeTypeAdded`, `NodeChangeTypeRemoved`, `NodeChangeTypeUpdated` |
+| `BatchOpType` | `BatchOpSet`, `BatchOpDelete` |
+| Container names | `ServiceKey` (`consensus`), `ServiceKeyLegacy` (`consensus:service`), `ClusterManagerKey`, `RaftNodeKey`, `StateMachineKey`, `LeadershipCheckerKey` |
+
+The event types (`ConsensusEventNodeStarted` and 32 more, each a `consensus.*` string) are exported too. The extension only emits `ConsensusEventNodeStarted`, `ConsensusEventNodeStopped` and `ConsensusEventConfigReloaded`.
+
+## Errors
+
+The sentinels and helpers are listed on the [features page](/docs/extensions/consensus/features#errors).
 
 | Function | Description |
 |---|---|
-| `NewNotLeaderError(leaderID) error` | Create a not-leader error with leader hint |
-| `NewNoLeaderError() error` | Create a no-leader error |
-| `NewTimeoutError(operation) error` | Create a timeout error |
-| `NewNoQuorumError(available, required) error` | Create a quorum error |
-| `IsNotLeaderError(err) bool` | Check if error is not-leader |
-| `IsNoLeaderError(err) bool` | Check if no leader elected |
-| `IsNoQuorumError(err) bool` | Check if quorum lost |
-| `IsRetryable(err) bool` | Check if error is transient |
-| `IsFatal(err) bool` | Check if error is unrecoverable |
+| `NewNotLeaderError(nodeID, leaderID string)` | Not-leader error carrying both IDs |
+| `NewNoLeaderError()` | No-leader error |
+| `NewTimeoutError(operation string)` | Timeout error |
+| `NewNoQuorumError(required, available int)` | No-quorum error carrying the counts |
+| `NewStaleTermError(current, received uint64)` | Stale-term error carrying both terms |
+| `IsNotLeaderError`, `IsNoLeaderError`, `IsNoQuorumError`, `IsStaleTermError` | `errors.Is` checks |
+| `IsRetryable(err)`, `IsFatal(err)` | Classify an error |
+
+## Subpackages
+
+| Package | Constructors |
+|---|---|
+| `raft` | `NewNode(config, logger, stateMachine, transport, storage) (*Node, error)`, `DefaultConfig()` |
+| `storage` | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, `NewWAL` |
+| `transport` | `NewLocalTransport`, `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, `NewTLSManager`, `NewConnectionPool`, the serializers |
+| `statemachine` | `NewMemoryStateMachine`, `NewPersistentStateMachine`, `NewApplyManager` |
+| `discovery` | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery`, `NewRegistry` |
+| `cluster` | `NewManager`, `NewMembershipManager`, `NewQuorumManager`, `NewTopologyManager`, `NewRebalanceManager` |
+| `middleware` | `NewLeadershipMiddleware`, `NewQuorumMiddleware`, `NewMetricsMiddleware`, `NewReadOnlyMiddleware`, `NewRedirectMiddleware`, `NewConsistencyMiddleware` |
+| `admin` | `NewAPI(service, healthChecker, metricsCollector, logger)` with `RegisterRoutes(router, prefix)` |
+| `api` | `NewClusterAPI`, `NewConfigAPI`, `NewNodeAPI`, `NewStatsAPI` |
+| `observability` | `NewHealthChecker`, `NewMetricsCollector`, `NewLogManager`, `NewAlertManager`, `NewTracingManager` |
+
+The [features page](/docs/extensions/consensus/features) says which of these fit the root interfaces and which don't yet.

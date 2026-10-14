@@ -260,7 +260,7 @@ When you replace the broker list, set `bus.default_broker` to one of your names 
 | Key | Default | What it does |
 | --- | --- | --- |
 | `bus.default_broker` | `memory` | Where `Publish` sends. Empty means every broker |
-| `bus.enable_metrics` | `true` | Bus metrics |
+| `bus.enable_metrics` | `true` | Accepted, but nothing reads it yet |
 | `store.type` | `memory` | `memory` is built in. Anything else needs `WithEventStore` or `WithEventStoreFactory` |
 | `store.database`, `store.table` | empty, `events` | Passed to a store factory through `StoreConfig` |
 | `brokers[].name`, `type`, `enabled`, `config` | one `memory` broker | The brokers to connect |

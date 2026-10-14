@@ -1,217 +1,195 @@
 ---
 title: Features
-description: HLS extension capabilities
+description: What the HLS extension does today, and which parts are still scaffolding
 ---
 
-## HLS Streaming Server
+import { Callout } from 'fumadocs-ui/components/callout';
 
-Serve master playlists, media playlists, and segments over HTTP with standard HLS protocol compliance. The extension registers HTTP routes for playlist and segment serving:
+## Streams
 
-| Endpoint | Description |
-|---|---|
-| `GET /hls/:streamID/master.m3u8` | Master playlist with all quality variants |
-| `GET /hls/:streamID/variants/:variantID/playlist.m3u8` | Media playlist for a specific variant |
-| `GET /hls/:streamID/variants/:variantID/segment_:num.ts` | Individual media segment |
-| `POST /hls/streams/:streamID/ingest` | Ingest a segment for a live stream |
-
-## Stream Lifecycle
-
-Full lifecycle management for both live and VOD streams:
+A stream has a type, a status and a list of variants. You create it, start it, push segments while it's active, and stop or delete it:
 
 ```go
-manager := hls.MustGet(app.Container())
+svc, _ := forge.Inject[hls.HLS](app.Container())
 
-// Create a live stream
-stream, _ := manager.CreateStream(ctx, hls.StreamOptions{
-    Title:       "Conference Stream",
-    Type:        hls.StreamTypeLive,
-    TargetDuration: 6,    // Segment duration in seconds
-    DVRWindowSize:  10,   // Sliding window of segments
-    TranscodeProfiles: hls.DefaultProfiles(),
+stream, _ := svc.CreateStream(ctx, hls.StreamOptions{
+	Title:             "Conference Stream",
+	Type:              hls.StreamTypeLive,
+	TargetDuration:    6,  // seconds, written to #EXT-X-TARGETDURATION
+	DVRWindowSize:     10, // segments listed in the live playlist
+	TranscodeProfiles: hls.DefaultProfiles(),
 })
 
-// Start live streaming
-manager.StartLiveStream(ctx, stream.ID)
+_ = svc.StartLiveStream(ctx, stream.ID)
+_ = svc.StopLiveStream(ctx, stream.ID)
 
-// Stop live streaming
-manager.StopLiveStream(ctx, stream.ID)
+streams, _ := svc.ListStreams(ctx)
+one, _ := svc.GetStream(ctx, stream.ID)
 
-// Delete a stream
-manager.DeleteStream(ctx, stream.ID)
-
-// List all streams
-streams, _ := manager.ListStreams(ctx)
-
-// Get a specific stream
-stream, _ := manager.GetStream(ctx, streamID)
+_ = svc.DeleteStream(ctx, stream.ID) // also deletes its files from storage
 ```
 
-Each `Stream` tracks:
-- `ID`, `Title`, `Description`, `Type` (live/VOD/event)
-- `Status` (created/live/stopped/ended)
-- `Variants` -- quality variants with playlists
-- `ViewerCount`, `TotalViews`, `TotalBandwidth`
-- `CreatedAt`, `StartedAt`, `EndedAt`, `Duration`
+| Type | Constant | Playlist |
+|---|---|---|
+| `live` | `StreamTypeLive` | Sliding window, no `#EXT-X-PLAYLIST-TYPE`, never ends |
+| `event` | `StreamTypeEvent` | Same window, tagged `#EXT-X-PLAYLIST-TYPE:EVENT`, and `#EXT-X-ENDLIST` once stopped |
+| `vod` | `StreamTypeVOD` | Tagged `VOD`, but nothing fills it yet (see [VOD](#vod)) |
 
-## Adaptive Bitrate Streaming
+`StartLiveStream` refuses a VOD stream. Status moves from `created` to `active` on start and to `stopped` on stop; `StreamStatusError` and `StreamStatusEnded` exist as constants but nothing sets them.
 
-Master playlists reference multiple quality variants so clients automatically switch between bitrates based on network conditions:
+`CreateStream` fails once `MaxStreams` streams exist (100 by default). It doesn't fill anything in from the extension config, so set `TargetDuration`, `DVRWindowSize` and `TranscodeProfiles` yourself.
 
-```go
-// Get the master playlist
-master, _ := manager.GetMasterPlaylist(ctx, stream.ID)
-// Contains references to all quality variants:
-// #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
-// variants/360p/playlist.m3u8
-// #EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
-// variants/720p/playlist.m3u8
+Each `Stream` carries `ID`, `Type`, `Status`, `Title`, `Description`, `Variants`, `TargetDuration`, `DVRWindowSize`, `CreatedAt`, `UpdatedAt`, `StartedAt` and `EndedAt`. It also has `Duration`, `ViewerCount`, `TotalViews` and `TotalBandwidth`, which nothing updates.
+
+## Variants and adaptive bitrate
+
+Every transcode profile you pass becomes one variant with a generated UUID. The variant's bandwidth, resolution, frame rate and codec string come from the profile, and the master playlist lists each one:
+
+```text
+#EXTM3U
+#EXT-X-VERSION:3
+
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2",FRAME-RATE=30.000
+http://localhost:8080/hls/<streamID>/variants/<variantID>/playlist.m3u8
 ```
 
-### Default Transcode Profiles
+`GenerateCodecsString` maps `h264` to `avc1.4d401f`, `h265` to `hev1.1.6.L93.B0` and `aac` to `mp4a.40.2`. Other codec names are left out of the string.
 
-| Profile | Resolution | Video Bitrate | Audio Bitrate |
-|---|---|---|---|
-| 360p | 640x360 | 800 kbps | 64 kbps |
-| 480p | 854x480 | 1400 kbps | 96 kbps |
-| 720p | 1280x720 | 2800 kbps | 128 kbps |
-| 1080p | 1920x1080 | 5000 kbps | 192 kbps |
-| 4K | 3840x2160 | 14000 kbps | 256 kbps |
+### Built-in profiles
 
-Custom profiles can be defined:
+| Variable | Resolution | Bitrate | Video codec | Preset |
+|---|---|---|---|---|
+| `Profile360p` | 640x360 | 800 kbps | h264 | fast |
+| `Profile480p` | 854x480 | 1.4 Mbps | h264 | medium |
+| `Profile720p` | 1280x720 | 2.8 Mbps | h264 | medium |
+| `Profile1080p` | 1920x1080 | 5 Mbps | h264 | medium |
+| `Profile4K` | 3840x2160 | 20 Mbps | h265 | slow |
+
+All of them use 30 fps and `aac` audio. `DefaultProfiles()` returns the first four; `Profile4K` isn't in it. `Bitrate` is one number in bits per second; there's no separate audio bitrate. A custom profile looks like this:
 
 ```go
 profile := hls.TranscodeProfile{
-    Name:       "custom-480p",
-    VideoCodec: "h264",
-    AudioCodec: "aac",
-    Width:      854,
-    Height:     480,
-    Bitrate:    1500000,
-    FrameRate:  24.0,
-    Preset:     "fast",
+	Name:       "custom-480p",
+	Width:      854,
+	Height:     480,
+	Bitrate:    1500000,
+	FrameRate:  24,
+	VideoCodec: "h264",
+	AudioCodec: "aac",
+	Preset:     "fast",
 }
 ```
 
-## Multi-Variant Transcoding
+## Segment ingest
 
-FFmpeg-based transcoding generates multiple quality profiles from ingested media:
+You push segments you've already encoded, one variant at a time:
 
 ```go
-// Transcode a stream into multiple variants
-manager.TranscodeVideo(ctx, stream.ID, []hls.TranscodeProfile{
-    hls.Profile720p,
-    hls.Profile480p,
-    hls.Profile360p,
+err := svc.IngestSegment(ctx, stream.ID, &hls.Segment{
+	VariantID:   stream.Variants[0].ID,
+	SequenceNum: 42,
+	Duration:    6.0,
+	Data:        segmentBytes, // MPEG-TS
 })
 ```
 
-The transcoder supports:
-- File-based transcoding: `TranscodeFile(ctx, inputPath, profile)`
-- Stream-based transcoding: `TranscodeStream(ctx, input, output, profile)`
-- Job management: `StartJob`, `GetJob`, `CancelJob`
-- Video info extraction: `GetVideoInfo(ctx, inputPath)`
+Over HTTP it's `POST {BasePath}/streams/:streamID/ingest` with the same fields as JSON and `Data` base64 encoded. Ingest fails unless the stream is active. The segment is written to storage first, then recorded in an in-memory tracker that the media playlist reads. Nothing checks the segment against `MaxSegmentSize`.
 
-## Segment Ingestion
+## The DVR window
 
-Push segments to the server for live streams:
+There are two windows, and they come from different places:
+
+- The media playlist lists the last `DVRWindowSize` segments of the **stream** (from `StreamOptions`), with `#EXT-X-MEDIA-SEQUENCE` set to the first one listed.
+- On every ingest, segments older than the last `DVRWindowSize` of the **extension config** (default 10) are dropped from the tracker and deleted from storage.
+
+Keep a stream's window at or below the extension's. If the stream's window is larger, its playlist lists segments that have already been deleted.
+
+The cleanup routine (on by default) runs every `CleanupInterval` and trims each stream's stored segments to the extension's window, per variant. It doesn't look at segment age, so `SegmentRetention` has no effect.
+
+## Storage layout
+
+Everything goes into the Trove bucket you configure (`hls` by default), under `StoragePrefix` (also `hls`):
+
+```text
+<prefix>/<streamID>/master.m3u8
+<prefix>/<streamID>/metadata.json
+<prefix>/<streamID>/<variantID>/playlist.m3u8
+<prefix>/<streamID>/<variantID>/segment_<n>.ts
+```
+
+Playlists are regenerated and written back each time someone requests one. `metadata.json` is written when the stream is created and never read, so a restart loses the stream record even though its files stay.
+
+## Serving segments yourself
+
+The built-in segment route doesn't match real segment URLs, so players get a 404. Until it's fixed you can mount your own route and point `BaseURL` at a path that matches it, or let your CDN read the bucket directly. A handler that reads through the manager looks like this:
 
 ```go
-manager.IngestSegment(ctx, stream.ID, &hls.Segment{
-    VariantID:   "720p",
-    SequenceNum: 42,
-    Duration:    6.0,
-    Data:        segmentBytes,
+err := app.Router().GET("/media/:streamID/:variantID/:file", func(c forge.Context) error {
+	name := strings.TrimSuffix(strings.TrimPrefix(c.Param("file"), "segment_"), ".ts")
+
+	num, err := strconv.Atoi(name)
+	if err != nil {
+		return forge.BadRequest("bad segment name")
+	}
+
+	r, err := svc.GetSegment(c.Request().Context(), c.Param("streamID"), c.Param("variantID"), num)
+	if err != nil {
+		return forge.NotFound("segment not found")
+	}
+	defer r.Close()
+
+	c.Response().Header().Set("Content-Type", "video/MP2T")
+	c.Response().WriteHeader(http.StatusOK)
+	_, err = io.Copy(c.Response(), r)
+
+	return err
 })
 ```
 
-The `Segment` struct contains:
-- `StreamID`, `VariantID` -- which stream and quality variant
-- `SequenceNum` -- monotonically increasing segment number
-- `Duration` -- segment duration in seconds
-- `Data` -- raw segment bytes (TS format)
-- `Size` -- computed from data length
-- `CreatedAt` -- timestamp
+Playlists build segment URLs as `{BaseURL}/{streamID}/variants/{variantID}/segment_{n}.ts`, so your route has to accept that shape under whatever `BaseURL` you set.
 
-## DVR Window
-
-Configurable sliding window of segments in live playlists for time-shifted playback:
+## Stream statistics
 
 ```go
-hls.StreamOptions{
-    DVRWindowSize: 10, // Keep 10 segments in the live playlist
-}
+stats, _ := svc.GetStreamStats(ctx, stream.ID)
+viewers, _ := svc.GetActiveViewers(ctx, stream.ID)
 ```
 
-Older segments beyond the DVR window are removed from the playlist but remain in storage until the retention policy deletes them. This allows viewers to rewind within the window.
+`StreamStats` has `CurrentViewers`, `TotalViews`, `TotalBandwidth`, `AverageLatency`, `SegmentsServed`, `ErrorRate` and a per-variant `VariantStats` map. Only `SegmentsServed` and the per-variant counters move today: `SegmentsServed` counts ingested segments plus segments read through `GetSegment`. Viewer counts, bandwidth and latency stay at zero, so `GetActiveViewers` always returns 0.
 
-## VOD (Video on Demand)
+## CORS
 
-Create on-demand streams from pre-recorded content:
+With `EnableCORS` on (the default), playlist responses carry `Access-Control-Allow-Origin`, `-Methods` (`GET, POST, DELETE, OPTIONS`) and `-Headers` (`Content-Type, Authorization`). Only the first entry of `AllowedOrigins` is sent, and there's no `OPTIONS` route, so preflighted requests from a browser won't succeed. The management routes get no CORS headers.
 
-```go
-// From a reader
-stream, _ := manager.CreateVOD(ctx, sourceReader, hls.VODOptions{
-    Title:             "Recorded Talk",
-    TranscodeProfiles: hls.DefaultProfiles(),
-})
+## VOD
 
-// From a file path
-stream, _ := manager.CreateVODFromFile(ctx, "/path/to/video.mp4", hls.VODOptions{
-    Title:             "Recorded Talk",
-    TranscodeProfiles: hls.DefaultProfiles(),
-})
-```
+<Callout type="warn">
+VOD is a placeholder. None of these produce a playable stream yet.
+</Callout>
 
-VOD streams have a fixed playlist with all segments available from the start.
+- `CreateVOD(ctx, source io.Reader, opts)` creates a `vod` stream record and ignores `source`.
+- `(*Manager).CreateVODFromFile(ctx, path, opts)` creates the record and, when transcoding is on, starts one FFmpeg job per profile writing to `/tmp`. Nothing segments or stores the output, and the job variant IDs don't match the stream's variants. It isn't on the `HLS` interface, so you need the concrete `*hls.Manager` to call it.
+- `TranscodeVideo(ctx, streamID, profiles)` adds variants and starts FFmpeg jobs that read from a placeholder path under `/tmp`.
 
-## Storage Integration
+VOD streams have no segment tracker, so their media playlists are always empty.
 
-Segments and playlists are stored via the Forge storage extension, supporting any configured backend (local filesystem, S3, etc.):
+The `transcoder` and `segmenter` subpackages wrap FFmpeg and FFprobe (`TranscodeFile`, `TranscodeStream`, `StartJob`, `GetJob`, `CancelJob`, `SegmentFile`, `GetVideoInfo`). They work on their own, but the manager doesn't connect them to storage yet.
 
-```go
-// Segments are automatically stored via the storage extension
-// Retrieve a segment URL for CDN delivery
-url, _ := manager.GetSegmentURL(ctx, streamID, variantID, segmentNum)
-```
-
-Segment retention is configurable (default: 24 hours) with periodic cleanup of expired segments.
-
-## Stream Statistics
-
-Per-stream monitoring of viewer count, bandwidth, and segment metrics:
-
-```go
-stats, _ := manager.GetStreamStats(ctx, stream.ID)
-// stats.ViewerCount    -- current viewers
-// stats.TotalViews     -- total unique views
-// stats.TotalBandwidth -- total bytes served
-// stats.SegmentCount   -- total segments ingested
-// stats.Duration       -- stream duration
-
-viewers, _ := manager.GetActiveViewers(ctx, stream.ID)
-```
-
-## Distributed Mode
-
-Scale across multiple nodes using the consensus extension for leader election and stream ownership routing:
+## Distributed mode
 
 ```go
 hls.NewExtension(
-    hls.WithDistributed(true),
-    hls.WithNodeID("node-1"),
+	hls.WithDistributed(true),
+	hls.WithNodeID("node-1"),
+	hls.WithClusterID("video"),
 )
 ```
 
-In distributed mode:
-- Each stream is owned by a single node.
-- If a stream owner goes down, another node takes over (automatic failover).
-- Segment ingestion is routed to the owning node.
-- Playlist serving can be handled by any node.
+With distributed mode on, the extension resolves `consensus.ConsensusService` while it registers (registration fails without the consensus extension), generates a node ID if you didn't set one, and starts a coordinator. That's as far as it goes: the routes don't redirect to a leader or stream owner, `RedirectToLeader`, `RedirectToOwner` and `EnableFailover` aren't read, and every node keeps its own in-memory stream list.
 
-## Additional Features
+## What isn't there
 
-- **CORS support** -- configurable CORS headers for cross-origin playback from web players.
-- **Authentication** -- optional auth requirement for stream access.
-- **Caching** -- configurable caching of playlists and segments with TTL (default: 5 minutes).
-- **Limits** -- configurable max streams, max viewers per stream, and max bandwidth per stream.
-- **Stream types** -- live (sliding window), VOD (complete playlist), and event (growing playlist).
+- No authentication on any route. `RequireAuth` is stored and never read.
+- No viewer or bandwidth limits. `MaxViewersPerStream` is only validated, and `MaxBandwidthPerStream` isn't read at all.
+- No playlist or segment cache. `EnableCaching` and `CacheTTL` aren't read.
+- Playlists are HLS version 3 with MPEG-TS segments. There's no low-latency HLS and no fMP4.

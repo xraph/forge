@@ -3,9 +3,9 @@ title: Features
 description: Cache extension capabilities and backend details
 ---
 
-## Unified Cache Interface
+## Cache Interface
 
-All backends implement the same `Cache` interface, so application code is backend-agnostic. Swapping from in-memory to Redis requires only a config change -- no code modifications.
+Every backend implements the same `Cache` interface, and every value is a `[]byte`:
 
 ```go
 type Cache interface {
@@ -23,135 +23,176 @@ type Cache interface {
 }
 ```
 
-## Multiple Backends
+You don't call `Connect` and `Disconnect` yourself. The extension does that when the app starts and
+stops, and every other method returns `ErrNotConnected` outside that window.
 
-Switch between backends using a single config field (`Driver`):
+## Drivers
 
-| Driver | Status | Backing Store | Use Case |
-|---|---|---|---|
-| `inmemory` | Implemented | `sync.RWMutex` + `map[string]*cacheItem` | Development, single-instance deployments |
-| `redis` | Declared (not yet implemented) | Redis server | Production, multi-instance |
-| `memcached` | Declared (not yet implemented) | Memcached server | High-throughput, distributed |
+You pick the backend with the `Driver` field:
+
+| Driver | Status |
+|---|---|
+| `inmemory` | Works. A map guarded by a `sync.RWMutex`, with a background sweep of expired entries |
+| `redis` | Not implemented yet. Validation requires a `URL`, then service construction fails with "redis driver not yet implemented" |
+| `memcached` | Not implemented yet. Same as `redis`, failing with "memcached driver not yet implemented" |
+
+So for now the cache lives in one process. Two replicas of your service each have their own copy,
+and a restart empties it.
 
 ## TTL-Based Expiration
 
-Every entry can have an individual TTL. When `ttl == 0` is passed to `Set()`, the configured `DefaultTTL` (default: 5 minutes) is applied automatically. You can also remove expiration entirely by calling `Expire()` with a non-positive TTL.
+Every entry can have its own TTL. A `Set` with `ttl == 0` uses `DefaultTTL` (5 minutes unless you
+change it). `TTL` returns the time left, or `0` for an entry that never expires. `Expire` with a TTL
+of `0` or less makes the entry permanent.
 
 ```go
-// Set with explicit TTL
-c.Set(ctx, "token:abc", tokenBytes, 1*time.Hour)
+// Set with an explicit TTL
+err := c.Set(ctx, "token:abc", tokenBytes, time.Hour)
 
-// Set with default TTL from config
-c.Set(ctx, "token:def", tokenBytes, 0)
+// Set with the default TTL from config
+err = c.Set(ctx, "token:def", tokenBytes, 0)
 
-// Inspect remaining TTL
-remaining, _ := c.TTL(ctx, "token:abc")
+// Inspect the remaining TTL
+remaining, err := c.TTL(ctx, "token:abc")
 
-// Update TTL on existing key
-c.Expire(ctx, "token:abc", 2*time.Hour)
+// Change the TTL on an existing key
+err = c.Expire(ctx, "token:abc", 2*time.Hour)
 ```
+
+`Get`, `TTL` and `Expire` return `ErrNotFound` for a key that is missing or has expired.
 
 ## Automatic Cleanup
 
-The in-memory backend runs a background goroutine that sweeps expired entries at the configured `CleanupInterval` (default: 1 minute). This prevents unbounded memory growth from expired-but-unaccessed entries. The goroutine starts on `Connect()` and stops cleanly on `Disconnect()`.
+The in-memory backend runs a goroutine that removes expired entries every `CleanupInterval`
+(1 minute by default), so entries nobody reads again don't pile up. It starts on `Connect` and stops
+on `Disconnect`.
 
 ## Eviction
 
-When `MaxSize` is reached (default: 10,000 items), the in-memory backend evicts entries on write:
+When the cache already holds `MaxSize` entries (10,000 by default), the next `Set` removes one entry
+first:
 
-1. First, it looks for an expired entry to remove.
-2. If no expired entries exist, it removes the first entry found (map iteration order).
+1. It removes the first expired entry it finds.
+2. If none has expired, it removes an arbitrary entry, whichever comes first in Go map order.
 
-Each eviction emits a `cache_evict` counter metric.
+That is not LRU, so a hot key can go. If you need hot keys to survive, size `MaxSize` so you rarely
+reach it, or set it to `0` for no limit. Each eviction increments the `cache_evict` counter.
 
 ## Key Prefixing
 
-All keys are transparently prefixed with `Config.Prefix`, enabling safe multi-tenant or multi-service usage of shared backends. Prefixes are stripped when returning keys from `Keys()`.
+`Prefix` is added to every key on write and stripped again from `Keys` results, so several apps or
+tenants can share a key space:
 
 ```go
-// With Prefix "myapp:" configured, this stores as "myapp:user:123"
-c.Set(ctx, "user:123", data, 0)
+// With Prefix "myapp:" configured, this stores "myapp:user:123"
+err := c.Set(ctx, "user:123", data, 0)
 
-// Keys() returns "user:123" (prefix stripped)
-keys, _ := c.Keys(ctx, "user:*")
+// Keys returns "user:123", without the prefix
+keys, err := c.Keys(ctx, "user:*")
 ```
 
 ## Size Guards
 
-`MaxKeySize` (default: 250 bytes) and `MaxValueSize` (default: 1 MB) are validated on every write. If either limit is exceeded, the operation returns `ErrKeyTooLarge` or `ErrValueTooLarge` without storing the data.
+Every `Set` checks `MaxKeySize` (250 bytes by default) and `MaxValueSize` (1 MiB by default). Over
+either limit, it returns `ErrKeyTooLarge` or `ErrValueTooLarge` and stores nothing. A value of `0`
+turns the check off. An empty key returns a plain error.
 
 ## Glob-Style Key Listing
 
-`Keys(ctx, pattern)` supports `*` wildcard patterns for key discovery:
+`Keys(ctx, pattern)` supports one `*` per pattern:
 
-- `"*"` -- matches all keys
-- `"user:*"` -- prefix match
-- `"*:sessions"` -- suffix match
-- `"app:*:config"` -- prefix + suffix match
+- `"*"` matches every key
+- `"user:*"` is a prefix match
+- `"*:sessions"` is a suffix match
+- `"app:*:config"` matches prefix and suffix
+
+A pattern with two wildcards, such as `"*:draft:*"`, matches nothing. `Keys` also walks every entry
+while holding the read lock, so keep it off hot request paths when your cache is large.
 
 ## Metrics
 
-The in-memory backend emits counters via the `forge.Metrics` interface:
+The in-memory backend increments these counters through `forge.Metrics`:
 
-| Counter | Emitted When |
+| Counter | Incremented when |
 |---|---|
-| `cache_hit` | `Get()` finds a valid, non-expired entry |
-| `cache_miss` | `Get()` finds no entry or an expired one |
-| `cache_set` | `Set()` stores a value |
-| `cache_delete` | `Delete()` removes a key |
-| `cache_clear` | `Clear()` removes all keys |
-| `cache_evict` | An entry is evicted due to `MaxSize` |
+| `cache_hit` | `Get` finds a live entry |
+| `cache_miss` | `Get` finds no entry, or an expired one |
+| `cache_set` | `Set` stores a value |
+| `cache_delete` | `Delete` runs |
+| `cache_clear` | `Clear` runs |
+| `cache_evict` | An entry is removed because the cache reached `MaxSize` |
 
 ## Health Checks
 
-`Ping()` verifies the backend is connected and responsive. The `CacheService.Health()` method delegates to `Ping()`, which Vessel calls during health check cycles. If the cache is not connected, `Ping()` returns `ErrNotConnected`.
+`CacheService.Health` calls the backend's `Ping`, which returns `ErrNotConnected` until the cache has
+started. The extension's own `Health` only reports whether the extension has started.
 
-## Extended Interfaces (In-Memory)
+## Extra Interfaces (In-Memory)
 
-The in-memory backend implements additional typed interfaces beyond the base `Cache`:
-
-### StringCache
-
-Store and retrieve string values without manual `[]byte` conversion:
+The in-memory backend implements two typed interfaces on top of `Cache`. The `cache.Cache` you get
+from the container is the `*CacheService` wrapper, which doesn't have these methods, so ask the
+service for its backend and type-assert it:
 
 ```go
-inmem := c.Cache().(*InMemoryCache) // type assert to access extended methods
-inmem.SetString(ctx, "greeting", "hello", 5*time.Minute)
-val, _ := inmem.GetString(ctx, "greeting") // "hello"
+svc, err := forge.Inject[*cache.CacheService](app.Container())
+if err != nil {
+	return err
+}
+
+sc, ok := svc.Cache().(cache.StringCache)
+if !ok {
+	return errors.New("backend does not support string helpers")
+}
+
+if err := sc.SetString(ctx, "greeting", "hello", 5*time.Minute); err != nil {
+	return err
+}
+
+greeting, err := sc.GetString(ctx, "greeting") // "hello"
 ```
 
 ### JSONCache
 
-Serialize/deserialize any Go value as JSON:
+`SetJSON` marshals any Go value and `GetJSON` unmarshals it into a target:
 
 ```go
 type User struct {
-    Name  string `json:"name"`
-    Email string `json:"email"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
-inmem.SetJSON(ctx, "user:1", User{Name: "Alice", Email: "alice@example.com"}, 0)
+jc, ok := svc.Cache().(cache.JSONCache)
+if !ok {
+	return errors.New("backend does not support JSON helpers")
+}
+
+if err := jc.SetJSON(ctx, "user:1", User{Name: "Alice", Email: "alice@example.com"}, 0); err != nil {
+	return err
+}
 
 var user User
-inmem.GetJSON(ctx, "user:1", &user) // user.Name == "Alice"
+err = jc.GetJSON(ctx, "user:1", &user) // user.Name == "Alice"
 ```
 
 ### CounterCache and MultiCache
 
-| Interface | Methods | Purpose |
-|---|---|---|
-| `CounterCache` | `Incr`, `IncrBy`, `Decr`, `DecrBy` | Atomic integer counters |
-| `MultiCache` | `MGet`, `MSet`, `MDelete` | Batch operations across multiple keys |
+| Interface | Methods |
+|---|---|
+| `CounterCache` | `Incr`, `IncrBy`, `Decr`, `DecrBy` |
+| `MultiCache` | `MGet`, `MSet`, `MDelete` |
 
-These interfaces are declared but not yet implemented in the in-memory backend.
+Both are declared in the package, but no backend implements them yet, so a type assertion to either
+one fails.
 
 ## Sentinel Errors
 
 | Error | Meaning |
 |---|---|
-| `ErrNotFound` | Key does not exist or has expired |
-| `ErrNotConnected` | Backend is not connected (call `Connect` first) |
-| `ErrKeyTooLarge` | Key exceeds `MaxKeySize` bytes |
-| `ErrValueTooLarge` | Value exceeds `MaxValueSize` bytes |
-| `ErrInvalidTTL` | Negative or otherwise invalid TTL |
-| `ErrUnsupportedOperation` | Operation not supported by the current backend |
+| `ErrNotFound` | `Get`, `TTL` or `Expire` on a key that is missing or expired |
+| `ErrNotConnected` | Any call before the app has started the cache, or after it stopped |
+| `ErrKeyTooLarge` | Key longer than `MaxKeySize` bytes |
+| `ErrValueTooLarge` | Value larger than `MaxValueSize` bytes |
+| `ErrInvalidTTL` | A negative `DefaultTTL` in the config |
+| `ErrUnsupportedOperation` | Declared for backends that lack an operation. The in-memory backend never returns it |
+
+Compare them with `errors.Is`.

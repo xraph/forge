@@ -3,9 +3,11 @@ title: Features
 description: Queue extension capabilities and backend details
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 ## Unified Queue Interface
 
-All backends implement the same `Queue` interface, making application code backend-agnostic:
+All backends implement the same `Queue` interface:
 
 ```go
 type Queue interface {
@@ -31,165 +33,220 @@ type Queue interface {
 }
 ```
 
-## Multiple Backends
+The extension calls `Connect` in its `Start` and `Disconnect` in its `Stop`, so you don't call
+them yourself.
 
-| Driver | Implementation | Transport | Status |
+## Backends
+
+| Driver | Implementation | Backend | Connection |
 |---|---|---|---|
-| `inmemory` | `InMemoryQueue` | In-process channels | Fully implemented |
-| `redis` | `RedisQueue` | Redis Streams | Fully implemented |
-| `rabbitmq` | `RabbitMQQueue` | AMQP 0-9-1 | Fully implemented |
-| `nats` | `NATSQueue` | NATS JetStream | Fully implemented |
+| `inmemory` | `InMemoryQueue` | Slices in process memory, lost on restart | none |
+| `redis` | `RedisQueue` | Redis Streams, one stream per queue (`queue:<name>:stream`) with the consumer group `consumers` | `url` as `redis://` or `rediss://`, or a `host:port` in `url` or `hosts` |
+| `rabbitmq` | `RabbitMQQueue` | A RabbitMQ queue per name, published through the default exchange as persistent messages | `url` as `amqp://` or `amqps://`, or `hosts[0]` with `username`, `password` and `vhost` |
+| `nats` | `NATSQueue` | A JetStream stream per queue, file storage, subjects `<name>.*` | `url` as `nats://`, or `hosts[0]`, with `username` and `password` |
+
+## Backend Differences
+
+The backends don't behave the same in every corner. Check this table before you pick one:
+
+| | `inmemory` | `redis` | `rabbitmq` | `nats` |
+|---|---|---|---|---|
+| Declare before use | Before `Publish` and `Consume` | Before `Consume` (the group starts at messages published after the declare) | Before `Publish` (the default exchange drops messages for a missing queue) | Before `Publish` and `Consume` |
+| Declaring twice | `ErrQueueAlreadyExists` | `ErrQueueAlreadyExists` | No error with the same options, a broker error with different ones | `ErrQueueAlreadyExists` |
+| Handler returns an error | Moved to the DLQ | Pushed to the `queue:<name>:dlq` list and acknowledged | Nacked, then dead-lettered by the broker if the queue has `DeadLetterQueue` set | Terminated, or redelivered with `NakWithDelay` while `msg.Retries < msg.MaxRetries` |
+| Handler returns nil | Removed with `AutoAck`, otherwise held until you call `Ack(ctx, msg.ID)` | Acknowledged | Acknowledged | Acknowledged |
+| `PublishDelayed` | Blocks the caller for the delay, then publishes | Not delivered | A `<name>.delayed` queue with a TTL that dead-letters back to `<name>` | A goroutine publishes after the delay, lost if the process exits |
+| `GetDeadLetterQueue` | Returns the failed messages | Returns the failed messages | Returns nothing | Returns nothing |
+| `RequeueDeadLetter` | Moves the message back onto the queue | Does nothing | Does nothing | Does nothing |
+| `ConsumeOptions.Concurrency` | Worker goroutines | Not used | Not used | Not used |
+| Priority | Not used (FIFO) | Not used | Message priority, on a queue declared with `MaxPriority` | Not used |
 
 ## Queue Declaration
 
-Create queues with rich options controlling durability, retention, and priority:
+`DefaultQueueOptions()` gives you a durable queue with no limits. Set the fields you need on top:
 
 ```go
-q.DeclareQueue(ctx, "tasks", queue.QueueOptions{
-    Durable:         true,              // survive broker restart
-    AutoDelete:      false,             // persist when unused
-    Exclusive:       false,             // allow multiple consumers
-    MaxLength:       100000,            // max messages in queue
-    MaxLengthBytes:  1073741824,        // 1 GB max size
-    MessageTTL:      48 * time.Hour,    // message expiration
-    MaxPriority:     10,                // enable priority levels
-    DeadLetterQueue: "tasks.dlq",       // dead-letter destination
-    Arguments:       map[string]any{},  // backend-specific arguments
-})
+opts := queue.DefaultQueueOptions()
+opts.MaxLength = 100_000
+opts.MessageTTL = 24 * time.Hour
+opts.MaxPriority = 10
+opts.DeadLetterQueue = "tasks.failed"
+
+err := q.DeclareQueue(ctx, "tasks", opts)
 ```
+
+RabbitMQ is the only backend that reads most of these. It passes `Durable`, `AutoDelete` and
+`Exclusive` to the queue declare and turns `MessageTTL`, `MaxLength`, `MaxPriority` and
+`DeadLetterQueue` into `x-` queue arguments (the dead-letter queue is reached through the default
+exchange, so declare it too). NATS maps `MaxLength` and `MessageTTL` to the stream's message limit
+and max age. Redis stores `Durable` in the queue's metadata and ignores the rest, and the
+in-memory driver keeps the options without acting on them. No driver reads `MaxLengthBytes` or
+`Arguments`.
 
 ## Publishing
 
-Send single messages, batches, or delayed messages with headers, priority, and expiration:
+`Body` is raw bytes, so encode your job however you like:
 
 ```go
 // Single message
-q.Publish(ctx, "tasks", queue.Message{
+err := q.Publish(ctx, "tasks", queue.Message{
     Body:       []byte(`{"task":"process-report"}`),
-    Headers:    map[string]string{"type": "report", "priority": "high"},
+    Headers:    map[string]string{"type": "report"},
     Priority:   5,
-    Expiration: 1 * time.Hour,
-    MaxRetries: 3,
+    Expiration: time.Hour,
 })
 
 // Batch publish
-q.PublishBatch(ctx, "tasks", []queue.Message{msg1, msg2, msg3})
+err = q.PublishBatch(ctx, "tasks", []queue.Message{msg1, msg2, msg3})
 
-// Delayed delivery
-q.PublishDelayed(ctx, "tasks", msg, 30*time.Minute)
+// Delayed delivery (see the warning below)
+err = q.PublishDelayed(ctx, "tasks", msg, 30*time.Minute)
 ```
 
-## Concurrent Consumers
+`Priority` (0 to 9) and `Expiration` map to RabbitMQ's message priority and per-message TTL. The
+other drivers carry them in the message without acting on them. `Message.Delay` isn't read by any
+driver. The in-memory driver sets `ID`, `Queue` and `PublishedAt` on publish, and the other drivers
+set `ID` on delivery from the broker's own identifiers (the stream entry ID on Redis, the delivery
+tag on RabbitMQ, the stream sequence on NATS).
 
-Consume messages with configurable concurrency, prefetch, and processing timeout. Each consumer runs in its own goroutine pool:
+<Callout type="warn">
+Don't use `PublishDelayed` with the Redis driver. It writes the message to a sorted set
+(`queue:<name>:delayed`) that no consumer reads, so the message is never delivered. On the
+in-memory driver the call blocks for the whole delay, and on NATS the pending publish lives in a
+goroutine and is lost if the process exits.
+</Callout>
+
+## Consuming
+
+`Consume` starts the worker and returns straight away. Your handler gets a context and a
+`queue.Message`. Return `nil` for success and an error for failure:
 
 ```go
-q.Consume(ctx, "tasks", handleTask, queue.ConsumeOptions{
-    ConsumerTag:   "worker-1",
-    AutoAck:       false,          // manual acknowledgement
-    PrefetchCount: 10,             // buffer 10 messages per worker
-    Concurrency:   5,              // 5 concurrent goroutines
-    Timeout:       30 * time.Second,
-    RetryStrategy: queue.RetryStrategy{
-        MaxRetries:      3,
-        InitialInterval: 500 * time.Millisecond,
-        MaxInterval:     30 * time.Second,
-        Multiplier:      2.0,
-    },
-})
+opts := queue.DefaultConsumeOptions() // prefetch 10, concurrency 1, 30s timeout
+opts.PrefetchCount = 50
+
+err := q.Consume(ctx, "tasks", func(ctx context.Context, msg queue.Message) error {
+    return process(ctx, msg.Body)
+}, opts)
+
+// later
+err = q.StopConsuming(ctx, "tasks")
 ```
 
-## Message Acknowledgement
+`PrefetchCount` becomes the read batch on Redis and `MaxAckPending` on NATS, and RabbitMQ applies
+the extension's `default_prefetch` as the channel QoS instead. `Timeout` bounds each handler call
+on RabbitMQ and NATS (and sets the JetStream ack wait). `Concurrency` starts that many worker
+goroutines on the in-memory driver and isn't used elsewhere. On the in-memory, Redis and RabbitMQ
+drivers, cancelling the context you pass to `Consume` stops the worker too. On NATS, call
+`StopConsuming`.
 
-Explicit control over message lifecycle:
+`ConsumerTag`, `Priority` and `Arguments` on `ConsumeOptions` aren't read by any driver, and
+`Exclusive` only reaches RabbitMQ. `RetryStrategy` isn't read either. If you need a bounded number
+of attempts with backoff, retry inside your handler.
+
+Leave `AutoAck` off on RabbitMQ and NATS. On NATS the subscription always uses manual acks, so with
+`AutoAck` on a successful message is never acknowledged and comes back after the ack wait. On
+RabbitMQ, a handler error with `AutoAck` on makes the consumer nack a delivery the broker has
+already acknowledged.
+
+## Acknowledgement
+
+On Redis, RabbitMQ and NATS the consumer loop acknowledges for you based on what your handler
+returns. `Ack`, `Nack` and `Reject` are there for the in-memory driver, where they act on a
+message that's in flight because `AutoAck` is off:
 
 ```go
 func handleTask(ctx context.Context, msg queue.Message) error {
-    err := processTask(msg)
-    if err == nil {
-        return q.Ack(ctx, msg.ID)        // success: remove from queue
+    if err := processTask(msg); err != nil {
+        if isRetryable(err) {
+            return q.Nack(ctx, msg.ID, true) // back to the front of the queue
+        }
+
+        return q.Reject(ctx, msg.ID) // to the dead-letter queue
     }
-    if isRetryable(err) {
-        return q.Nack(ctx, msg.ID, true)  // requeue for retry
-    }
-    return q.Reject(ctx, msg.ID)          // discard permanently
+
+    return q.Ack(ctx, msg.ID) // done
 }
 ```
+
+On the in-memory driver `Nack` with `requeue` false and `Reject` both move the message to the
+dead-letter list, whatever `enable_dead_letter` says. On the other drivers all three return `nil`
+and do nothing.
+
+<Callout type="warn">
+Nothing increments `Message.Retries`. On RabbitMQ and NATS a message published with `MaxRetries`
+above zero keeps coming back until your handler succeeds. On the in-memory and Redis drivers a
+failed message goes straight to the dead-letter list without a retry.
+</Callout>
 
 ## Dead-Letter Queues
 
-When enabled (`EnableDeadLetter`), messages that exceed max retries are routed to a dead-letter queue (named with `DeadLetterSuffix`, default `.dlq`):
+On the in-memory and Redis drivers, a message your handler fails on is kept in a dead-letter list
+while `enable_dead_letter` is on (the default). On Redis that list is `queue:<name>:dlq`. RabbitMQ
+dead-letters through the broker, to the queue you named in `QueueOptions.DeadLetterQueue`. NATS
+terminates the message and keeps no dead-letter copy.
 
 ```go
-// Inspect dead letters
-deadLetters, _ := q.GetDeadLetterQueue(ctx, "tasks")
+// Inspect dead letters (in-memory and Redis)
+deadLetters, err := q.GetDeadLetterQueue(ctx, "tasks")
 for _, msg := range deadLetters {
-    fmt.Printf("Dead letter: %s, retries: %d\n", msg.ID, msg.Retries)
+    fmt.Printf("dead letter %s: %s\n", msg.ID, msg.Body)
 }
 
-// Requeue a specific dead letter
-q.RequeueDeadLetter(ctx, "tasks", deadLetters[0].ID)
+// Requeue one (in-memory only)
+err = q.RequeueDeadLetter(ctx, "tasks", deadLetters[0].ID)
 ```
+
+On Redis the dead-letter list holds the message as it was published, so `ID` is whatever you set
+before publishing (empty unless you set it). On RabbitMQ, read the dead-letter queue by consuming it. Each broker message body there is the JSON-encoded `queue.Message`, so `Consume` on that queue hands you the original message.
 
 ## Queue Management
 
 ```go
 // List all queues
-queues, _ := q.ListQueues(ctx)
+queues, err := q.ListQueues(ctx)
 
-// Get detailed queue info
-info, _ := q.GetQueueInfo(ctx, "tasks")
-fmt.Printf("Messages: %d, Consumers: %d, Publish rate: %.1f/s\n",
-    info.Messages, info.Consumers, info.PublishRate)
+// Get queue info
+info, err := q.GetQueueInfo(ctx, "tasks")
+fmt.Printf("messages: %d, consumers: %d\n", info.Messages, info.Consumers)
 
 // Purge all messages
-q.PurgeQueue(ctx, "tasks")
+err = q.PurgeQueue(ctx, "tasks")
 
 // Delete queue
-q.DeleteQueue(ctx, "tasks")
+err = q.DeleteQueue(ctx, "tasks")
 
-// Global stats
-stats, _ := q.Stats(ctx)
-fmt.Printf("Total queues: %d, Total messages: %d\n",
-    stats.QueueCount, stats.TotalMessages)
+// Backend stats
+stats, err := q.Stats(ctx)
+fmt.Printf("queues: %d, messages: %d\n", stats.QueueCount, stats.TotalMessages)
 ```
 
-## Backend Comparison
+`QueueInfo` fills `Name`, `Messages`, `Consumers`, `Durable`, `AutoDelete` and `CreatedAt`. `QueueStats` fills
+`QueueCount`, `TotalMessages`, `TotalConsumers`, `Uptime`, `Version` and `ConnectionCount`, and
+Redis adds the server's `INFO stats` output under `Extra["info"]`. The rate fields, byte counts,
+`MemoryUsed`, `UnackedMessages` and `ReadyMessages` are always zero. On RabbitMQ, `Stats` reports
+zero queues and messages, `GetQueueInfo` always says `Durable: true`, and `CreatedAt` is the time of
+the call. The in-memory `GetQueueInfo` always reports zero consumers.
 
-| Feature | In-Memory | Redis | RabbitMQ | NATS |
-|---|---|---|---|---|
-| Persistence | No | Yes (Streams) | Yes | Yes (JetStream) |
-| Delayed messages | Yes | Yes | Yes (plugin) | Yes |
-| Priority queues | Yes | Limited | Yes | No |
-| Dead-letter | Yes | Yes | Yes (native) | Yes |
-| Clustering | No | Yes | Yes | Yes |
-| Concurrency | Goroutines | Goroutines | Channels | Subscriptions |
+## Credentials and TLS
 
-## Security and Resilience
-
-- **TLS** -- connect to backends over TLS with custom certificates (`EnableTLS`, `TLSCertFile`, `TLSKeyFile`, `TLSCAFile`).
-- **Connection pooling** -- `MaxConnections` and `MaxIdleConnections` for backend connections.
-- **Retry with backoff** -- `MaxRetries` with `RetryBackoff` and exponential `RetryMultiplier`.
-- **Observability** -- optional `EnableMetrics` and `EnableTracing` integration.
+Connection URLs are redacted in log lines and connection errors, so a password in `url` doesn't end
+up in your logs. For TLS, use a `rediss://`, `amqps://` or `tls://` URL. The `enable_tls` and
+`tls_*` config fields aren't read by any driver.
 
 ## Sentinel Errors
 
-| Error | Meaning |
+These are the errors the drivers return today:
+
+| Error | Returned when |
 |---|---|
-| `ErrNotConnected` | Backend is not connected |
-| `ErrAlreadyConnected` | Attempted to connect when already connected |
-| `ErrConnectionFailed` | Failed to establish connection |
-| `ErrQueueNotFound` | Named queue does not exist |
-| `ErrQueueAlreadyExists` | Queue name collision |
-| `ErrQueueFull` | Queue has reached `MaxLength` |
-| `ErrMessageNotFound` | Message ID not found |
-| `ErrInvalidMessage` | Message failed validation |
-| `ErrMessageTooLarge` | Message exceeds `MaxMessageSize` |
-| `ErrPublishFailed` | Publish operation failed |
-| `ErrConsumeFailed` | Consumer setup failed |
-| `ErrConsumerNotFound` | Consumer not found for queue |
-| `ErrAckFailed` | Acknowledgement failed |
-| `ErrNackFailed` | Negative acknowledgement failed |
-| `ErrTimeout` | Operation timed out |
-| `ErrUnsupportedDriver` | Configured driver not recognized |
-| `ErrInvalidConfig` | Invalid configuration values |
+| `ErrNotConnected` | You call a method before `Connect` or after `Disconnect` |
+| `ErrConnectionFailed` | `Ping` finds the RabbitMQ or NATS connection closed |
+| `ErrQueueNotFound` | The named queue doesn't exist |
+| `ErrQueueAlreadyExists` | You declare a queue that exists (in-memory, Redis, NATS) |
+| `ErrMessageNotFound` | `Ack`, `Nack`, `Reject` or `RequeueDeadLetter` can't find the ID (in-memory) |
+
+`ErrAlreadyConnected`, `ErrInvalidMessage`, `ErrConsumerNotFound`, `ErrPublishFailed`,
+`ErrConsumeFailed`, `ErrAckFailed`, `ErrNackFailed`, `ErrTimeout`, `ErrInvalidConfig`,
+`ErrUnsupportedDriver`, `ErrMessageTooLarge` and `ErrQueueFull` are declared in `errors.go`, but no
+driver returns them yet. Other failures come back as wrapped errors from the broker client.

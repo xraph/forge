@@ -3,213 +3,267 @@ title: Features
 description: Kafka extension capabilities and client details
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 ## Kafka Interface
 
-The extension exposes a comprehensive `Kafka` interface wrapping producer, consumer, consumer group, and admin operations:
+`*kafka.KafkaService` implements this interface, delegating every call to the client it wraps:
 
 ```go
 type Kafka interface {
-    // Producer
-    SendMessage(topic string, key, value []byte) error
-    SendMessageAsync(topic string, key, value []byte) error
-    SendMessages(messages []*ProducerMessage) error
-    // Consumer
-    Consume(ctx context.Context, topics []string, handler MessageHandler) error
-    ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error
-    StopConsume() error
-    // Consumer Groups
-    JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error
-    LeaveConsumerGroup(ctx context.Context) error
-    // Admin
-    CreateTopic(topic string, config TopicConfig) error
-    DeleteTopic(topic string) error
-    ListTopics() ([]string, error)
-    DescribeTopic(topic string) (*TopicMetadata, error)
-    GetPartitions(topic string) ([]int32, error)
-    GetOffset(topic string, partition int32, time int64) (int64, error)
-    // Access underlying Sarama clients
-    GetProducer() sarama.SyncProducer
-    GetAsyncProducer() sarama.AsyncProducer
-    GetConsumer() sarama.Consumer
-    GetConsumerGroup() sarama.ConsumerGroup
-    GetClient() sarama.Client
-    GetStats() ClientStats
-    Close() error
-    Ping(ctx context.Context) error
+	// Producer
+	SendMessage(topic string, key, value []byte) error
+	SendMessageAsync(topic string, key, value []byte) error
+	SendMessages(messages []*ProducerMessage) error
+
+	// Consumer
+	Consume(ctx context.Context, topics []string, handler MessageHandler) error
+	ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error
+	StopConsume() error
+
+	// Consumer groups
+	JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error
+	LeaveConsumerGroup(ctx context.Context) error
+
+	// Admin
+	CreateTopic(topic string, config TopicConfig) error
+	DeleteTopic(topic string) error
+	ListTopics() ([]string, error)
+	DescribeTopic(topic string) (*TopicMetadata, error)
+	GetPartitions(topic string) ([]int32, error)
+	GetOffset(topic string, partition int32, time int64) (int64, error)
+
+	// The underlying Sarama objects
+	GetProducer() sarama.SyncProducer
+	GetAsyncProducer() sarama.AsyncProducer
+	GetConsumer() sarama.Consumer
+	GetConsumerGroup() sarama.ConsumerGroup
+	GetClient() sarama.Client
+	GetStats() ClientStats
+
+	Close() error
+	Ping(ctx context.Context) error
 }
 ```
 
+`MessageHandler` is `func(*sarama.ConsumerMessage) error`, and `ConsumerGroupHandler` has the same three methods as Sarama's.
+
 ## Sync Producer
 
-Send messages and wait for broker acknowledgement. Configurable ack levels control durability guarantees:
+`SendMessage` goes through Sarama's sync producer and returns once the broker acknowledges the write, so a failed write comes back to you as an error:
 
 ```go
-// Send a single message with key for partitioning
-client.SendMessage("events", []byte("user-123"), []byte(`{"action":"login"}`))
+err := k.SendMessage("events", []byte("user-123"), []byte(`{"action":"login"}`))
+```
 
-// Batch send multiple messages
-client.SendMessages([]*kafka.ProducerMessage{
-    {Topic: "events", Key: []byte("user-1"), Value: []byte(`{"action":"login"}`)},
-    {Topic: "events", Key: []byte("user-2"), Value: []byte(`{"action":"signup"}`)},
+How many replicas have to acknowledge is `producer_acks`:
+
+- `none`: no acknowledgement at all
+- `local` (the default): the partition leader only
+- `all`: every in-sync replica
+
+Sarama's default hash partitioner picks the partition from the key, so events with the same key land on one partition and you read them back in order. Mind you, a `nil` key doesn't get random placement here. The extension wraps it as an empty key, which hashes like any other, so every keyless message goes to the same partition. Give messages a key if you want them spread.
+
+## Batch Sends
+
+`SendMessages` sends a batch through the sync producer:
+
+```go
+err := k.SendMessages([]*kafka.ProducerMessage{
+	{Topic: "events", Key: []byte("user-1"), Value: []byte(`{"action":"login"}`)},
+	{Topic: "events", Key: []byte("user-2"), Value: []byte(`{"action":"signup"}`)},
 })
 ```
 
-Ack levels (configured via `ProducerAcks`):
-- `none` -- fire-and-forget, no broker acknowledgement
-- `local` -- leader only acknowledges
-- `all` -- all in-sync replicas acknowledge (strongest guarantee)
+<Callout type="warn">
+`SendMessages` only copies `Topic`, `Key`, `Value` and `Partition` to Sarama. `Headers` and `Timestamp` on `ProducerMessage` are ignored, and the default hash partitioner overwrites `Partition`, so you can't pick a partition this way either. If you need record headers, build a `sarama.ProducerMessage` yourself and send it through `k.GetProducer()`.
+</Callout>
+
+A batch counts toward `GetStats().MessagesSent`, but it doesn't add to `BytesSent` or record the per-topic metrics.
 
 ## Async Producer
 
-Send messages without blocking. Errors and successes are handled via background channels. Useful for high-throughput scenarios where occasional message loss is acceptable:
+`SendMessageAsync` puts the message on the async producer's input channel and returns:
 
 ```go
-client.SendMessageAsync("metrics", []byte("server-1"), metricsPayload)
+err := k.SendMessageAsync("metrics", []byte("server-1"), payload)
 ```
 
-Async producer errors are logged but not surfaced to callers. Use the sync producer for guaranteed delivery.
+Delivery errors don't come back to you. A background goroutine logs them and counts them in `GetStats().Errors`. The message is counted as sent when it's queued, not when the broker accepts it.
+
+<Callout type="warn">
+The extension turns on Sarama's `Producer.Return.Successes` (the sync producer needs it), and the async producer shares that config, but nothing reads `GetAsyncProducer().Successes()`. Sarama's async producer stops when that channel fills (256 entries by default), and after that `SendMessageAsync` blocks. Until that's fixed, prefer `SendMessage` for steady traffic, or drain `k.GetAsyncProducer().Successes()` in a goroutine of your own.
+</Callout>
 
 ## Compression
 
-Support for multiple compression codecs configured via `ProducerCompression`:
+`producer_compression` picks the codec. Anything else fails validation at startup.
 
 | Codec | Trade-off |
 |---|---|
-| `none` | No CPU overhead, maximum bandwidth |
-| `gzip` | Best compression ratio, highest CPU |
-| `snappy` | Fast compression, moderate ratio |
+| `none` | No CPU cost, most bytes on the wire |
+| `gzip` | Good ratio, highest CPU |
+| `snappy` (default) | Fast, moderate ratio |
 | `lz4` | Very fast, good ratio |
-| `zstd` | Best balance of speed and ratio |
+| `zstd` | Strong ratio at reasonable speed |
 
 ## Idempotent Producer
 
-Enable exactly-once semantics at the producer level with `ProducerIdempotent: true`. This ensures that retries do not produce duplicate messages. Requires `ProducerAcks: "all"`.
+<Callout type="warn">
+Not usable yet. Sarama only accepts an idempotent producer when `Net.MaxOpenRequests` is 1 and `RequiredAcks` is `WaitForAll`. The extension doesn't expose `MaxOpenRequests` and leaves it at Sarama's default of 5, so `WithIdempotent(true)` (or `producer_idempotent: true`) makes client creation fail, even with `producer_acks: all`. Keep it off.
+</Callout>
 
 ## Batching
 
-Configure flush thresholds for producer batching:
+The producers flush when either threshold is hit:
 
-- `ProducerFlushMessages` -- flush after N messages (default: 0, disabled)
-- `ProducerFlushFrequency` -- flush every N duration (default: 0, disabled)
+- `producer_flush_messages`: flush after this many messages (default `10`)
+- `producer_flush_frequency`: flush at least this often (default `100ms`)
+
+`producer_retry_max` (default `3`) sets the send retries and `producer_max_message_bytes` (default `1000000`) the largest message the producer accepts.
 
 ## Consumer
 
-Subscribe to topics with offset control and fetch tuning:
+`Consume` finds every partition of each topic and starts one goroutine per partition, reading from the newest offset:
 
 ```go
-client.Consume(ctx, []string{"events", "metrics"}, func(msg *sarama.ConsumerMessage) error {
-    fmt.Printf("Topic: %s, Partition: %d, Offset: %d\n",
-        msg.Topic, msg.Partition, msg.Offset)
-    return nil
-})
+err := k.Consume(ctx, []string{"events", "metrics"}, func(msg *sarama.ConsumerMessage) error {
+	log.Printf("topic %s partition %d offset %d", msg.Topic, msg.Partition, msg.Offset)
 
-// Consume from a specific partition and offset
-client.ConsumePartition(ctx, "events", 0, sarama.OffsetNewest, handler)
+	return nil
+})
 ```
 
-Configuration options:
-- `ConsumerOffsets` -- `newest` (default) or `oldest`
-- `ConsumerMaxWait` -- max wait time for fetch (default: 250ms)
-- `ConsumerFetchMin` -- minimum fetch size in bytes
-- `ConsumerFetchMax` -- maximum fetch size in bytes
-- `ConsumerIsolation` -- `read_uncommitted` or `read_committed`
+`ConsumePartition` reads one partition from the offset you give it, including `sarama.OffsetOldest`:
+
+```go
+err := k.ConsumePartition(ctx, "events", 0, sarama.OffsetOldest, handler)
+```
+
+Both return as soon as the readers are running. Neither one uses a consumer group or commits offsets, and `Consume` always starts at the newest offset whatever `consumer_offsets` says, so it only sees messages produced after it starts.
+
+When your handler returns an error, the extension logs it with the topic, partition and offset and moves on. Nothing is retried. To stop reading, cancel the context you passed in. `StopConsume()` cancels the readers started by the most recent `Consume` call; it doesn't reach `ConsumePartition` readers, which stop only when their context is cancelled.
+
+These settings shape the fetches, and they apply while `consumer_enabled` is on:
+
+- `consumer_max_wait`: how long the broker may wait to fill a fetch (default `500ms`)
+- `consumer_fetch_min`: minimum bytes per fetch (default `1`)
+- `consumer_fetch_max`: the most bytes one fetch may return (default `1048576`). A message larger than this can't be consumed, so keep it at least as big as your largest message
+- `consumer_isolation`: `read_uncommitted` (default) or `read_committed`
 
 ## Consumer Groups
 
-Join consumer groups with configurable rebalance strategy:
-
 ```go
-client.JoinConsumerGroup(ctx, "analytics-group",
-    []string{"events", "metrics"}, &myHandler{})
+err := k.JoinConsumerGroup(ctx, "analytics-group", []string{"events", "metrics"}, handler)
 ```
 
-Rebalance strategies (configured via `ConsumerGroupRebalance`):
-- `range` -- assigns contiguous partitions to consumers
-- `roundrobin` -- distributes partitions evenly
-- `sticky` -- minimizes partition movement during rebalance
+You write the Sarama `ConsumerGroupHandler`, and you call `session.MarkMessage` for each message you've processed; that's what gets committed. The call returns once the group's consume loop is running. If `Consume` on the group returns an error, the loop logs it and stops, so watch your logs. Group errors that Sarama reports on `GetConsumerGroup().Errors()` are dropped unless you read that channel.
 
-Tunable parameters:
-- `ConsumerGroupSession` -- session timeout (default: 10s)
-- `ConsumerGroupHeartbeat` -- heartbeat interval (default: 3s)
+A group with no committed offsets starts from `consumer_offsets` (`newest` or `oldest`). Partitions are assigned with `consumer_group_rebalance`:
+
+- `range` (default): contiguous ranges of partitions per member
+- `roundrobin`: partitions dealt out in turn
+- `sticky`: keeps assignments stable across rebalances
+
+`consumer_group_session` (default `10s`) and `consumer_group_heartbeat` (default `3s`) set the session timeout and heartbeat interval. The group ID that counts is the one you pass to `JoinConsumerGroup`; `consumer_group_id` and `WithConsumerGroup` store a value nothing reads.
+
+<Callout type="warn">
+`JoinConsumerGroup` builds a separate Sarama client from your config, and that client gets neither TLS nor SASL. Against a cluster that requires either, the group can't connect. The offset, rebalance, session and heartbeat settings also only reach the group while `consumer_enabled` is on.
+</Callout>
 
 ## Topic Administration
 
 ```go
-// Create a topic
-client.CreateTopic("events", kafka.TopicConfig{
-    NumPartitions:     6,
-    ReplicationFactor: 3,
-    ConfigEntries:     map[string]*string{"retention.ms": ptr("604800000")},
+retention := "604800000"
+
+err := k.CreateTopic("events", kafka.TopicConfig{
+	NumPartitions:     6,
+	ReplicationFactor: 3,
+	ConfigEntries:     map[string]*string{"retention.ms": &retention},
 })
 
-// List, describe, delete
-topics, _ := client.ListTopics()
-meta, _ := client.DescribeTopic("events")
-partitions, _ := client.GetPartitions("events")
-client.DeleteTopic("old-events")
+topics, err := k.ListTopics()
+meta, err := k.DescribeTopic("events")
+partitions, err := k.GetPartitions("events")
+next, err := k.GetOffset("events", 0, sarama.OffsetNewest)
+err = k.DeleteTopic("old-events")
 ```
 
-`TopicMetadata` includes partition details with leader, replicas, and ISR information.
+`CreateTopic` and `DeleteTopic` send the admin request to the first broker in the client's list. `DescribeTopic` fills in each partition's ID, leader and replicas. `PartitionMetadata.Isr` and `TopicMetadata.Config` exist on the types but stay empty.
 
 ## SASL Authentication
 
-Support for multiple SASL mechanisms:
-
-| Mechanism | Description |
-|---|---|
-| `PLAIN` | Username/password in plaintext (use with TLS) |
-| `SCRAM-SHA-256` | Challenge-response with SHA-256 |
-| `SCRAM-SHA-512` | Challenge-response with SHA-512 |
-
-The extension includes a built-in `XDGSCRAMClient` for SCRAM authentication.
-
-## TLS Encryption
-
-Connect over TLS with custom certificates:
-
 ```go
 kafka.NewExtension(
-    kafka.WithTLS("cert.pem", "key.pem", "ca.pem"),
+	kafka.WithBrokers("broker-1:9093"),
+	kafka.WithSASL("SCRAM-SHA-512", "orders-service", os.Getenv("KAFKA_PASSWORD")),
 )
 ```
 
-Set `TLSSkipVerify: true` for development environments (not recommended for production).
+| Mechanism | What it does |
+|---|---|
+| `PLAIN` | Username and password in the clear, so pair it with TLS |
+| `SCRAM-SHA-256` | Challenge and response with SHA-256 |
+| `SCRAM-SHA-512` | Challenge and response with SHA-512 |
+
+SASL needs a username and a password, and any other mechanism fails validation. SCRAM uses the package's `XDGSCRAMClient`, built on `github.com/xdg-go/scram`.
+
+## TLS Encryption
+
+```go
+kafka.NewExtension(
+	kafka.WithBrokers("broker-1:9093"),
+	kafka.WithTLS("/etc/kafka/client.pem", "/etc/kafka/client-key.pem", "/etc/kafka/ca.pem", false),
+)
+```
+
+`WithTLS` takes a client certificate, its key, a CA file and a skip-verify flag. With verification on, validation requires both the certificate and the key, so TLS without a client certificate doesn't pass validation today unless you also skip verification. Only skip verification in development.
 
 ## Client Statistics
 
-Track connection health and throughput:
-
 ```go
-stats := client.GetStats()
-fmt.Printf("Connected: %v, Messages sent: %d, Errors: %d\n",
-    stats.Connected, stats.MessagesSent, stats.Errors)
+stats := k.GetStats()
+log.Printf("sent %d, received %d, errors %d", stats.MessagesSent, stats.MessagesReceived, stats.Errors)
 ```
 
-`ClientStats` includes: `Connected`, `ConnectTime`, `MessagesSent`, `MessagesReceived`, `BytesSent`, `BytesReceived`, `Errors`, `LastError`, `ActiveConsumers`, `ActiveProducers`.
+`ClientStats` has `Connected`, `ConnectTime`, `MessagesSent`, `MessagesReceived`, `BytesSent`, `BytesReceived`, `Errors`, `LastError`, `LastErrorTime`, `ActiveConsumers` and `ActiveProducers`. `MessagesReceived` and `BytesReceived` count what `Consume` and `ConsumePartition` read; messages a consumer group reads aren't counted. `Connected` is set when the client is created and never changes.
 
-## Metadata Management
+## Metrics
 
-Automatic metadata refresh keeps the client informed about cluster topology changes:
+With `enable_metrics` on, the extension records these through Forge's metrics, each labelled by `topic`:
 
-- `MetadataRetryMax` -- max retry attempts for metadata fetch
-- `MetadataRetryBackoff` -- backoff between retries
-- `MetadataRefreshFreq` -- periodic refresh interval
-- `MetadataFullRefresh` -- full vs. incremental refresh
+| Metric | Kind | Recorded by |
+|---|---|---|
+| `kafka.messages.sent` | counter | `SendMessage`, `SendMessageAsync` |
+| `kafka.bytes.sent` | gauge, size of the last message | `SendMessage`, `SendMessageAsync` |
+| `kafka.messages.received` | counter | `Consume`, `ConsumePartition` |
+| `kafka.bytes.received` | gauge, size of the last message | `Consume`, `ConsumePartition` |
+
+## Metadata Refresh
+
+Sarama keeps the cluster topology up to date in the background:
+
+- `metadata_retry_max`: retries for a metadata fetch (default `3`)
+- `metadata_retry_backoff`: wait between retries (default `250ms`)
+- `metadata_refresh_freq`: how often to refresh (default `10m`)
+- `metadata_full_refresh`: fetch metadata for every topic, not only the ones in use (default `true`)
 
 ## Sentinel Errors
 
-| Error | Meaning |
+The package exports these, but the client doesn't return any of them yet. Its errors are plain wrapped errors such as `producer not enabled` or `already in consumer group`, so `errors.Is` against these won't match.
+
+| Error | Meant for |
 |---|---|
-| `ErrClientNotInitialized` | Client has not been created |
-| `ErrProducerNotEnabled` | Producer is disabled in config |
-| `ErrConsumerNotEnabled` | Consumer is disabled in config |
-| `ErrAlreadyConsuming` | Already consuming the requested topic |
-| `ErrNotConsuming` | Not consuming the requested topic |
-| `ErrInConsumerGroup` | Operation conflicts with active consumer group |
+| `ErrClientNotInitialized` | Client not created |
+| `ErrProducerNotEnabled` | Producer disabled in config |
+| `ErrConsumerNotEnabled` | Consumer disabled in config |
+| `ErrAlreadyConsuming` | Already consuming |
+| `ErrNotConsuming` | Not consuming |
+| `ErrInConsumerGroup` | Already in a consumer group |
 | `ErrNotInConsumerGroup` | Not in a consumer group |
-| `ErrSendFailed` | Message send failed |
-| `ErrConsumeFailed` | Consumer setup failed |
-| `ErrTopicNotFound` | Topic does not exist |
-| `ErrInvalidPartition` | Invalid partition number |
-| `ErrConnectionFailed` | Failed to connect to brokers |
-| `ErrClientClosed` | Client has been closed |
+| `ErrSendFailed` | Send failed |
+| `ErrConsumeFailed` | Consume failed |
+| `ErrTopicNotFound` | Topic doesn't exist |
+| `ErrInvalidPartition` | Invalid partition |
+| `ErrConnectionFailed` | Connection failed |
+| `ErrClientClosed` | Client closed |

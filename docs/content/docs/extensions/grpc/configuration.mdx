@@ -1,102 +1,112 @@
 ---
 title: Configuration
-description: Config structs, YAML examples, and option helpers for gRPC
+description: Config keys, defaults and options for gRPC
 ---
 
-## YAML Configuration Example
+## YAML configuration
+
+The extension reads `extensions.grpc` from your config file, falling back to a top-level `grpc` key. Keys are snake_case.
 
 ```yaml title="config.yaml"
 extensions:
   grpc:
     address: ":50051"
-    maxRecvMsgSize: 4194304          # 4 MB
-    maxSendMsgSize: 4194304          # 4 MB
-    maxConcurrentStreams: 0           # 0 = unlimited
-    connectionTimeout: "120s"
+    max_recv_msg_size: 4194304   # 4 MB
+    max_send_msg_size: 4194304   # 4 MB
+    max_concurrent_streams: 0    # 0 means no limit
+    connection_timeout: "120s"
 
     keepalive:
       time: "2h"
       timeout: "20s"
-      enforcementPolicy: true
-      minTime: "5m"
-      permitWithoutStream: false
+      enforcement_policy: true
+      min_time: "5m"
+      permit_without_stream: false
 
-    # TLS
-    enableTLS: false
-    tlsCertFile: "/path/to/server.crt"
-    tlsKeyFile: "/path/to/server.key"
-    tlsCAFile: "/path/to/ca.crt"
-    clientAuth: false                 # set true for mTLS
+    enable_tls: false
+    tls_cert_file: "/path/to/server.crt"
+    tls_key_file: "/path/to/server.key"
+    tls_ca_file: "/path/to/ca.crt"
+    client_auth: false           # true for mTLS
 
-    # Features
-    enableHealthCheck: true
-    enableReflection: true
+    enable_health_check: true
+    enable_reflection: true
 
-    # Observability
-    enableMetrics: true
-    enableTracing: true
-    enableLogging: true
+    enable_metrics: true
+    enable_tracing: true         # placeholder, writes a debug line
+    enable_logging: true
 ```
 
-The extension loads config from `extensions.grpc` first, falling back to `grpc`.
-
-## Programmatic Configuration
+## Programmatic configuration
 
 ```go
-ext := grpc.NewExtension(
-    grpc.WithAddress(":9090"),
-    grpc.WithTLS("server.crt", "server.key", "ca.crt"),
-    grpc.WithClientAuth(true),
-    grpc.WithMaxMessageSize(10 * 1024 * 1024), // 10 MB
-    grpc.WithMaxConcurrentStreams(100),
+ext := grpcext.NewExtension(
+	grpcext.WithAddress(":9090"),
+	grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
+	grpcext.WithClientAuth(true),
+	grpcext.WithMaxMessageSize(10 * 1024 * 1024), // 10 MB
+	grpcext.WithMaxConcurrentStreams(100),
 )
 ```
 
-## Config Struct Reference
+## Precedence
+
+The extension starts from `DefaultConfig()`, applies the config file section, then applies the fields you set in code. A field counts as set in code when it isn't zero and differs from the default.
+
+That has one consequence for the switches that default to `true`. When your config file has a `grpc` section, `WithReflection(false)`, `WithHealthCheck(false)`, `WithMetrics(false)` and `WithTracing(false)` are zero values, so the loader can't tell them apart from "not set" and the file (or the default) wins. Turn those off in the file instead, for example `enable_reflection: false`. Without a config section, the options apply as written.
+
+`WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the programmatic config wholesale, and `NewExtensionWithConfig(cfg)` does the same.
+
+## Config struct reference
 
 ### `Config`
 
-| Field | Type | Default | Description |
+| Field | YAML key | Default | Description |
 |---|---|---|---|
-| `Address` | `string` | `":50051"` | TCP listen address |
-| `MaxRecvMsgSize` | `int` | `4194304` (4 MB) | Maximum receive message size |
-| `MaxSendMsgSize` | `int` | `4194304` (4 MB) | Maximum send message size |
-| `MaxConcurrentStreams` | `uint32` | `0` | Max concurrent streams (0 = unlimited) |
-| `ConnectionTimeout` | `time.Duration` | `120s` | Connection timeout |
-| `Keepalive` | `KeepaliveConfig` | See below | Keepalive settings |
-| `EnableTLS` | `bool` | `false` | Enable TLS |
-| `TLSCertFile` | `string` | `""` | TLS certificate file |
-| `TLSKeyFile` | `string` | `""` | TLS private key file |
-| `TLSCAFile` | `string` | `""` | CA file for client auth |
-| `ClientAuth` | `bool` | `false` | Require client certificates |
-| `EnableHealthCheck` | `bool` | `true` | Enable gRPC health service |
-| `EnableReflection` | `bool` | `true` | Enable server reflection |
-| `EnableMetrics` | `bool` | `true` | Enable metrics interceptor |
-| `EnableTracing` | `bool` | `true` | Enable tracing interceptor |
-| `EnableLogging` | `bool` | `true` | Enable logging interceptor |
+| `Address` | `address` | `":50051"` | TCP listen address. Required |
+| `MaxRecvMsgSize` | `max_recv_msg_size` | `4194304` | Receive limit in bytes |
+| `MaxSendMsgSize` | `max_send_msg_size` | `4194304` | Send limit in bytes |
+| `MaxConcurrentStreams` | `max_concurrent_streams` | `0` | Streams per connection, `0` for no limit |
+| `ConnectionTimeout` | `connection_timeout` | `120s` | Time allowed for a new connection's handshake |
+| `Keepalive` | `keepalive` | see below | Keepalive settings |
+| `EnableTLS` | `enable_tls` | `false` | Serve TLS. Needs `tls_cert_file` and `tls_key_file` |
+| `TLSCertFile` | `tls_cert_file` | `""` | Server certificate |
+| `TLSKeyFile` | `tls_key_file` | `""` | Server private key |
+| `TLSCAFile` | `tls_ca_file` | `""` | CA for client certificates. Read only when `client_auth` is on |
+| `ClientAuth` | `client_auth` | `false` | Require and verify client certificates. Needs `tls_ca_file` |
+| `EnableHealthCheck` | `enable_health_check` | `true` | Register `grpc.health.v1.Health` |
+| `EnableReflection` | `enable_reflection` | `true` | Register server reflection |
+| `EnableMetrics` | `enable_metrics` | `true` | Metrics interceptors |
+| `EnableTracing` | `enable_tracing` | `true` | Placeholder tracing interceptor |
+| `EnableLogging` | `enable_logging` | `true` | Logging interceptors |
+| `RequireConfig` | none | `false` | Set with `WithRequireConfig` |
+
+If TLS is configured but the files can't be loaded, the server starts in plaintext and logs `failed to load TLS credentials`.
 
 ### `KeepaliveConfig`
 
-| Field | Type | Default | Description |
+| Field | YAML key | Default | Description |
 |---|---|---|---|
-| `Time` | `time.Duration` | `2h` | Ping interval for idle connections |
-| `Timeout` | `time.Duration` | `20s` | Timeout waiting for ping ack |
-| `EnforcementPolicy` | `bool` | `true` | Enforce minimum ping interval |
-| `MinTime` | `time.Duration` | `5m` | Minimum allowed ping interval from clients |
-| `PermitWithoutStream` | `bool` | `false` | Allow keepalive pings without active streams |
+| `Time` | `time` | `2h` | Ping interval for idle connections. Also the maximum idle time; twice it is the maximum connection age |
+| `Timeout` | `timeout` | `20s` | Ping ack timeout, and the grace period after the maximum age |
+| `EnforcementPolicy` | `enforcement_policy` | `true` | Enforce `min_time` on client pings |
+| `MinTime` | `min_time` | `5m` | Minimum interval between client pings |
+| `PermitWithoutStream` | `permit_without_stream` | `false` | Allow client pings with no active stream |
 
-## Option Helpers
+## Options
 
 | Function | Description |
 |---|---|
-| `WithAddress(addr)` | Set the listen address |
-| `WithMaxMessageSize(size)` | Set max recv and send message size |
-| `WithMaxConcurrentStreams(max)` | Set max concurrent streams |
-| `WithTLS(certFile, keyFile, caFile)` | Enable TLS |
-| `WithClientAuth(enable)` | Toggle mTLS client authentication |
-| `WithHealthCheck(enable)` | Toggle health check service |
-| `WithReflection(enable)` | Toggle server reflection |
-| `WithMetrics(enable)` | Toggle metrics |
-| `WithTracing(enable)` | Toggle tracing |
-| `WithRequireConfig(require)` | Require config from ConfigManager |
-| `WithConfig(config)` | Provide a complete config struct |
+| `WithAddress(addr string)` | Listen address |
+| `WithMaxMessageSize(size int)` | Receive and send limits |
+| `WithMaxConcurrentStreams(maxStreams uint32)` | Streams per connection |
+| `WithTLS(certFile, keyFile, caFile string)` | Turn TLS on with these files |
+| `WithClientAuth(enable bool)` | Require client certificates |
+| `WithHealthCheck(enable bool)` | Health service |
+| `WithReflection(enable bool)` | Server reflection |
+| `WithMetrics(enable bool)` | Metrics interceptors |
+| `WithTracing(enable bool)` | Tracing interceptor |
+| `WithRequireConfig(require bool)` | Fail when the config section is missing |
+| `WithConfig(config Config)` | Replace the whole config |
+
+`connection_timeout`, `keepalive` and `enable_logging` have no option. Set them in the file or through `WithConfig`.
