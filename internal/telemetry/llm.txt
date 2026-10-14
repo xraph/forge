@@ -69,7 +69,7 @@ Set at end, in one `SetAttributes` call: `http.route` (when matched), `http.resp
 ## Provider lifecycle
 
 - `NewProvider` installs the propagator and the tracer provider as the OTel globals and sets the rate limited error handler. With no endpoint it still records spans, so processors added later see them.
-- A disabled config gives a `noop` provider and `RegisterSpanProcessor` returns `ErrTracingDisabled`.
+- A disabled config gives a `noop` provider, still installed as the global along with the propagator, and `RegisterSpanProcessor` returns `ErrTracingDisabled`.
 - The endpoint must be an `http` or `https` URL with a host, or `NewProvider` returns an error wrapping `ErrInvalidEndpoint`. `buildTracing` logs one error, clears the endpoint and builds again without an exporter, so a bad endpoint never stops the app booting.
 - Export is OTLP over HTTP/protobuf (`otlptracehttp`) only, through a batching span processor.
 - Shutdown happens in `app.Stop` (`app_impl.go`), as the last step after extensions and the container have stopped, so their final spans are flushed. `Provider.Shutdown` waits at most five seconds.
@@ -77,7 +77,14 @@ Set at end, in one `SetAttributes` call: `http.route` (when matched), `http.resp
 
 ## Process globals
 
-Each `forge.New` sets the OpenTelemetry global tracer provider and propagator, and the last app built wins. `forge.StartSpan`, `forge.HTTPClient` and `InstrumentTransport` read those globals, so in a process with more than one forge app they follow the last one. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly. `InstrumentTransport` reads the globals when it is called, so build clients after the app.
+`forge.New` takes over the OpenTelemetry globals: tracer provider, propagator and error handler. Consumers feel this in two ways.
+
+- An app that set up its own tracer provider in code before `forge.New` loses it. Forge replaces it, and spans from `otel.Tracer(...)` go to Forge's provider, which exports only when an endpoint is configured. With tracing disabled, `NewProvider` still installs a `noop` provider and the propagator as globals, so an app that wants to keep its own provider sets it up after `forge.New`.
+- An app that already runs its own `otelhttp` server middleware gets two server spans per request. It should remove its own, or turn forge's off with `tracing.enabled: false`.
+
+With more than one forge app in a process, the last one built wins the tracer provider, the `propagators` setting and the error handler. The error handler is only set when tracing is on. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
+
+`InstrumentTransport` and `HTTPClient` capture the provider and propagator that are current when you call them. A client built before any `forge.New` still traces: OTel's global delegate forwards to the first provider set. In a process with several apps a client stays with whichever provider was current when it was built.
 
 ## Public API (root `tracing.go`)
 

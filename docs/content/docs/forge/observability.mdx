@@ -303,7 +303,7 @@ func fetchUser(ctx context.Context, id string) (*http.Response, error) {
 
 Already have a client with its own transport? Wrap the transport with `forge.InstrumentTransport(rt)`. A nil transport means `http.DefaultTransport`.
 
-Build the client after `forge.New`. It picks up the tracer provider and propagators at that moment, so a client built earlier traces nothing.
+A client captures the tracer provider and propagators that are current when you build it. One built before `forge.New` still traces, because OpenTelemetry's global hands its spans on to the first provider anyone sets. In a process with several apps, though, a client stays with whichever provider was current when you built it, so build it after the app you want it to follow.
 
 ### Send spans somewhere else too
 
@@ -338,7 +338,11 @@ The names Forge accepts are `always_on`, `always_off`, `traceidratio`, `parentba
 Spans are batched, and the batch is flushed when the app stops, after the extensions and the container have shut down so their last spans are included. The flush waits at most five seconds.
 
 <Callout type="warn">
-Each `forge.New` call sets the OpenTelemetry global tracer provider and propagator, and the last app built wins. `forge.StartSpan` and `forge.HTTPClient` read those globals, so in a process that builds more than one Forge app they follow the last one. Each app's own request spans still go to its own provider. If you run several apps in one process, build the one you want the helpers to follow last.
+`forge.New` takes over the OpenTelemetry globals: the tracer provider, the propagator and the error handler. If your app set up its own tracer provider in code before `forge.New`, Forge replaces it, and spans you start with `otel.Tracer(...)` go to Forge's provider from then on. That provider only exports when you've configured an endpoint. With `enabled: false` the global becomes a no-op provider, so if you want to keep your own, set it up after `forge.New`.
+
+Already running your own `otelhttp` server middleware? You'll now get two server spans per request. Remove yours, or turn Forge's off with `tracing.enabled: false`.
+
+With more than one Forge app in a process, the last app built sets all three: the tracer provider, the `propagators` setting and the error handler (that one only from an app with tracing on). `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to its own provider. Build the app you want the helpers to follow last.
 </Callout>
 
 ## Built-in Endpoints
