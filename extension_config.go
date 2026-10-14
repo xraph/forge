@@ -43,10 +43,11 @@ func NewExtensionConfigLoader(app App, logger Logger) *ExtensionConfigLoader {
 //   - requireConfig: If true, returns error when config not found; if false, uses defaults
 //
 // When the key is found, the result is defaults, then the file, then the
-// fields of programmaticConfig that differ from defaults and aren't zero. So a
-// value DefaultConfig() put into programmaticConfig doesn't hide the file, and
-// an option like WithLimit(70) still beats it. Pass the same defaults the
-// constructor started from, or every non-zero programmatic field wins again.
+// fields of programmaticConfig that differ from defaults. So a value
+// DefaultConfig() put into programmaticConfig doesn't hide the file, and an
+// option like WithLimit(70) or WithEnabled(false) still beats it. Pass the
+// same defaults the constructor started from: a field that differs from them
+// wins, zero or not. An entirely zero programmaticConfig is ignored.
 //
 // Returns error only if requireConfig=true and config not found, or if binding fails.
 func (l *ExtensionConfigLoader) LoadConfig(
@@ -243,10 +244,11 @@ func (l *ExtensionConfigLoader) copyConfig(source, target any) error {
 }
 
 // mergeConfig copies the fields of source that were set in code onto target,
-// which already holds the file config. A field counts as set when it is
-// non-zero and differs from the same field in defaults, so a value that
-// DefaultConfig() put there doesn't hide the file's value. Nested structs are
-// compared field by field. With nil defaults every non-zero field counts.
+// which already holds the file config. A field counts as set when it differs
+// from the same field in defaults, so a value that DefaultConfig() put there
+// doesn't hide the file's value, and an option that sets a field to its zero
+// value over a non-zero default still wins. Nested structs are compared field
+// by field. With nil defaults every non-zero field counts.
 //
 // A field set in code to exactly its default value can't be told apart from
 // one left alone, so the file wins for that field.
@@ -290,7 +292,9 @@ func (l *ExtensionConfigLoader) mergeConfig(source, defaults, target any) error 
 }
 
 // mergeSetFields walks the exported fields of a struct and copies each one
-// that source set onto target. defaults may be the invalid Value, in which
+// that source set onto target. A field counts as set when it differs from the
+// same field in defaults, zero values included, so WithEnabled(false) over a
+// true default beats the file. defaults may be the invalid Value, in which
 // case every non-zero source field is copied.
 func mergeSetFields(source, defaults, target reflect.Value) {
 	for i := range source.NumField() {
@@ -302,12 +306,10 @@ func mergeSetFields(source, defaults, target reflect.Value) {
 			continue
 		}
 
-		if sourceField.IsZero() {
-			continue
-		}
-
 		if !defaults.IsValid() {
-			targetField.Set(sourceField)
+			if !sourceField.IsZero() {
+				targetField.Set(sourceField)
+			}
 
 			continue
 		}

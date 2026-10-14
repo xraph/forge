@@ -557,7 +557,7 @@ func (e *Extension) Middlewares() []forge.Middleware {
 }
 ```
 
-`LoadConfig` builds the final config in three layers. It starts from the defaults you pass, applies whatever `extensions.rate-limiter` (or the legacy `rate-limiter` key) holds in your config file or environment, then applies the fields you set in code. A field counts as set in code when it isn't zero and differs from `DefaultConfig()`, which is why you pass `DefaultConfig()` as the fourth argument: it's how the loader tells a `BurstSize: 50` you passed to `NewExtension` apart from a default that happened to be there already.
+`LoadConfig` builds the final config in three layers. It starts from the defaults you pass, applies whatever `extensions.rate-limiter` (or the legacy `rate-limiter` key) holds in your config file or environment, then applies the fields you set in code. A field counts as set in code when it differs from `DefaultConfig()`, zero values included, which is why you pass `DefaultConfig()` as the fourth argument: it's how the loader tells a `BurstSize: 50` you passed to `NewExtension` apart from a default that happened to be there already.
 
 One case it can't tell apart. If you set a field in code to the same value as its default, the file wins for that field.
 
