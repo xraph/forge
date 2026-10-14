@@ -49,7 +49,7 @@ extensions:
 
 The extension loads config from `extensions.dashboard` first, falling back to `dashboard`. The file wins over the defaults, and the options you pass to `NewExtension` win over the file, so `base_path: /ops` in YAML moves every route even with a plain `NewExtension()`.
 
-An option only counts as set when its value isn't zero and differs from the default. That matters for the switches that default to on. Once your file has a dashboard section, `WithExport(false)`, `WithCSRF(false)` and `WithContractSecurity(false)` are ignored, so turn those off in the file instead.
+An option counts as set when it differs from the default, so `WithExport(false)`, `WithCSRF(false)` and `WithContractSecurity(false)` beat the file. An option set to exactly its default looks the same as no option, and the file wins for that field.
 
 ## Programmatic Configuration
 
@@ -90,12 +90,8 @@ If you'd rather tune for the memory you have than set each value, `WithMemoryPro
 | `TraceMaxCount` | `int` | `200` | `WithTraceMaxCount()` | Most traces kept in memory |
 | `TraceRetention` | `time.Duration` | `30m` | `WithTraceRetention()` | How long a trace is kept |
 | `TraceMaxSpansPerTrace` | `int` | `200` | `WithTraceMaxSpansPerTrace()` | Most spans one trace keeps, so a long-lived trace can't grow without bound |
-| `TraceIdleTTL` | `time.Duration` | `5m` | `WithTraceIdleTTL()` | How long after the last dashboard request or open stream spans are still recorded. Negative records always |
+| `TraceIdleTTL` | `time.Duration` | `5m` | `WithTraceIdleTTL()` | How long after the last dashboard request or open stream spans are still recorded. Zero or negative records always |
 | `TraceCaptureRequestBody` | `bool` | `false` | `WithTraceCaptureRequestBody()` | Keep a size-limited, redacted JSON request body on each trace |
-
-<Callout type="warn">
-Setting `TraceIdleTTL` to zero doesn't reliably turn the gate off. Under a ConfigManager a zero value is treated as unset and the default wins. Use a negative duration.
-</Callout>
 
 ### Security
 

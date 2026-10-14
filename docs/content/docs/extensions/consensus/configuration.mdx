@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Where config comes from
 
-The extension reads `extensions.consensus` from your config, falling back to `consensus`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option only counts as set when its value isn't the zero value and differs from the default, so a `false` you set in code doesn't override the file or a default of `true` while a `consensus` section exists. Put `false` values in the file.
+The extension reads `extensions.consensus` from your config, falling back to `consensus`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option counts as set when it differs from the default, so a `false` you set in code beats both the file and a default of `true`. An option you set to exactly its default looks the same as no option, and the file wins for that field.
 
 `WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the whole programmatic config, and `NewExtensionWithConfig(cfg)` is shorthand for it.
 

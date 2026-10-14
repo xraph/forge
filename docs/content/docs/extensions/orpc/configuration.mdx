@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## How Config Is Loaded
 
-The extension reads `extensions.orpc` from your config, and falls back to a top-level `orpc` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`, so fields you leave out keep their defaults. One edge case: when the file has an `orpc` section, an option set to its default value or to a zero value (`false`, `0`, an empty string) looks the same as no option at all, and the file (or the default) wins for that field. So `WithEnabled(false)` or `WithBatch(false)` doesn't take effect next to a config section; set `enabled: false` or `enable_batch: false` in the file instead.
+The extension reads `extensions.orpc` from your config, and falls back to a top-level `orpc` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`, so fields you leave out keep their defaults. One edge case: when the file has an `orpc` section, an option set to exactly its default value looks the same as no option at all, and the file wins for that field. A zero value that differs from the default, like `WithBatch(false)`, still beats the file.
 
 Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on (`forge.DefaultAppConfig()` turns it on). `WithRequireConfig(true)` makes a missing section an error at startup.
 

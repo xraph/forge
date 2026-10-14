@@ -92,7 +92,7 @@ extensions:
     enable_logging: true
 ```
 
-Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So `brokers` or `sasl_mechanism` in YAML takes effect with a plain `kafka.NewExtension()`. A field you set in code counts only when it isn't zero and differs from `DefaultConfig()`, so setting a field in code back to its default, or a bool to `false`, leaves the file's value in place.
+Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So `brokers` or `sasl_mechanism` in YAML takes effect with a plain `kafka.NewExtension()`. A field you set in code counts when it differs from `DefaultConfig()`, so setting a field in code back to its default leaves the file's value in place.
 
 `WithRequireConfig(true)` turns a missing `extensions.kafka` (and `kafka`) section into a startup error.
 

@@ -51,9 +51,7 @@ ext := grpcext.NewExtension(
 
 ## Precedence
 
-The extension starts from `DefaultConfig()`, applies the config file section, then applies the fields you set in code. A field counts as set in code when it isn't zero and differs from the default.
-
-That has one consequence for the switches that default to `true`. When your config file has a `grpc` section, `WithReflection(false)`, `WithHealthCheck(false)`, `WithMetrics(false)` and `WithTracing(false)` are zero values, so the loader can't tell them apart from "not set" and the file (or the default) wins. Turn those off in the file instead, for example `enable_reflection: false`. Without a config section, the options apply as written.
+The extension starts from `DefaultConfig()`, applies the config file section, then applies the fields you set in code. A field counts as set in code when it differs from the default, so `WithReflection(false)` turns reflection off even when your file says `enable_reflection: true`. The one thing the loader can't see is an option set to exactly its default: that looks like no option, and the file wins for that field.
 
 `WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the programmatic config wholesale, and `NewExtensionWithConfig(cfg)` does the same.
 

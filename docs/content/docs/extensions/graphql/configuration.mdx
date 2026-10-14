@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Where config comes from
 
-The extension reads `extensions.graphql` from your config, falling back to `graphql`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option only counts as set when its value isn't the zero value and differs from the default, so with a config section present, `WithPlayground(false)` loses to the file (and to the default of `true` when the file doesn't set it). Put `false` values in the file.
+The extension reads `extensions.graphql` from your config, falling back to `graphql`. It starts from `DefaultConfig()`, applies the file, then applies the options you pass to `NewExtension`. An option counts as set when it differs from the default, so `WithPlayground(false)` beats both the file and the default of `true`. An option set to exactly its default looks the same as no option, and the file wins for that field.
 
 `WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the whole programmatic config.
 

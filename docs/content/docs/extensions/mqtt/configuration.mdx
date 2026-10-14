@@ -76,7 +76,7 @@ extensions:
     enable_logging: true
 ```
 
-Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So a `broker`, `client_id` or `clean_session: false` in YAML takes effect with a plain `mqtt.NewExtension()`. A field you set in code counts only when it isn't zero and differs from `DefaultConfig()`. That matters here: `WithCleanSession(false)` sets a zero value, so if your file says `clean_session: true`, the file wins. Put the value you want in one place.
+Defaults sit at the bottom, the file goes on top of them, and options you set in code go on top of the file. So a `broker`, `client_id` or `clean_session: false` in YAML takes effect with a plain `mqtt.NewExtension()`. A field you set in code counts when it differs from `DefaultConfig()`, so `WithCleanSession(false)` beats a file that says `clean_session: true`. Setting a field in code back to its default leaves the file's value in place.
 
 `WithRequireConfig(true)` turns a missing `extensions.mqtt` (and `mqtt`) section into a startup error.
 
