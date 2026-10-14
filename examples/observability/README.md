@@ -13,10 +13,14 @@ Import `grafana-dashboard.json` and pick your Prometheus data source. It include
 HTTP RED panels and Go runtime panels (`go_*`, `process_*`).
 
 ## Metric naming
-Forge application metrics (HTTP request counts, latencies, etc.) are emitted under
-the `forge_` namespace prefix — e.g. `forge_http_requests_total`,
-`forge_http_request_duration_bucket`. The namespace is configurable via
-`metrics.collection.namespace` in your Forge config.
+HTTP server metrics follow the OpenTelemetry semantic conventions and carry no
+prefix: `http_server_request_duration_seconds` (a histogram, so its `_count` is the
+request count) and `http_server_active_requests`. They're labelled with
+`http_route`, `http_request_method`, `http_response_status_code`, `url_scheme` and
+`error_type`, so you can break any panel down by route.
+
+Metrics you create yourself are emitted under the `forge_` namespace prefix. The
+namespace is configurable via `metrics.collection.namespace` in your Forge config.
 
 Go runtime and process metrics (`go_goroutines`, `go_memstats_*`,
 `process_cpu_seconds_total`, etc.) use their standard unprefixed names; they come

@@ -21,6 +21,7 @@ import (
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
+	"github.com/xraph/forge/internal/metrics/collectors"
 	internalrouter "github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/forge/internal/telemetry"
@@ -318,6 +319,20 @@ func newApp(config AppConfig) *app {
 	} else {
 		// No spans, but an incoming traceparent still reaches HTTPClient calls.
 		router.UseGlobal(internalrouter.PureMiddleware(telemetry.PropagationMiddleware()).ToMiddleware())
+	}
+
+	// HTTP server metrics sit inside tracing, so exemplars see the span, and
+	// outside every extension middleware, so rejected requests are counted.
+	if metricsConfig.Enabled && metricsConfig.Features.HTTPMetrics {
+		httpMetrics := collectors.NewHTTPServerMetrics(metrics, collectors.HTTPServerOptions{
+			ExcludePaths: tracing.Settings().ExcludePaths,
+			BodySizes:    metricsConfig.Features.HTTPBodySizes,
+			// With tracing off this middleware is the outermost one and
+			// must install its own route-match holder.
+			FreshRouteMatch: !tracing.Settings().Enabled,
+		})
+
+		router.UseGlobal(internalrouter.PureMiddleware(httpMetrics.Middleware()).ToMiddleware())
 	}
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
@@ -737,10 +752,6 @@ func (a *app) Start(ctx context.Context) error {
 			}
 		}
 	}
-
-	// Apply HTTP metrics middleware if enabled
-	// This must happen after container.Start() which initializes the HTTP collector
-	a.applyHTTPMetricsMiddleware()
 
 	// Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
@@ -1357,32 +1368,6 @@ func (a *app) applyExtensionMiddlewares() error {
 	}
 
 	return nil
-}
-
-// applyHTTPMetricsMiddleware applies the HTTP metrics middleware globally to the router.
-// This automatically tracks request count, duration, status codes, and response sizes
-// for all routes when HTTP metrics are enabled.
-func (a *app) applyHTTPMetricsMiddleware() {
-	if !a.config.MetricsConfig.Enabled || !a.config.MetricsConfig.Features.HTTPMetrics {
-		return
-	}
-
-	// Check if the metrics service provides HTTP middleware
-	provider, ok := a.metrics.(metricsinternal.HTTPMetricsProvider)
-	if !ok {
-		return
-	}
-
-	httpMiddleware := provider.HTTPMiddleware()
-	if httpMiddleware == nil {
-		return
-	}
-
-	// Convert the pure HTTP middleware to a forge middleware and apply globally
-	forgeMiddleware := internalrouter.PureMiddleware(httpMiddleware).ToMiddleware()
-	a.router.UseGlobal(forgeMiddleware)
-
-	a.logger.Info("HTTP metrics middleware applied")
 }
 
 // registerExtensionHealthChecks registers health checks for all extensions.

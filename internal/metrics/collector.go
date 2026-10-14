@@ -27,14 +27,6 @@ import (
 // Metrics defines the interface for metrics collection.
 type Metrics = metrics.Metrics
 
-// HTTPMetricsProvider is implemented by metrics collectors that can provide
-// HTTP middleware for automatic request tracking.
-type HTTPMetricsProvider interface {
-	// HTTPMiddleware returns middleware that automatically records HTTP request metrics.
-	// Returns nil if HTTP metrics are not enabled.
-	HTTPMiddleware() func(http.Handler) http.Handler
-}
-
 // MetricDetailProvider is implemented by metrics collectors that expose
 // individual metric objects for detailed introspection (metadata, exemplars, etc.).
 type MetricDetailProvider interface {
@@ -100,7 +92,6 @@ type collector struct {
 	metricsCollected   int64
 	lastCollectionTime time.Time
 	errors             []error
-	httpCollector      *collectors.HTTPCollector
 	tsStorage          *storage.TimeSeriesStorage
 
 	// cancelCollection unregisters the periodic collection job on Stop.
@@ -740,23 +731,6 @@ func (c *collector) ResetMetric(name string) error {
 }
 
 // =============================================================================
-// HTTP METRICS MIDDLEWARE
-// =============================================================================
-
-// HTTPMiddleware returns HTTP middleware that automatically records request metrics.
-// Returns nil if HTTP metrics are not enabled or the collector has not been started.
-func (c *collector) HTTPMiddleware() func(http.Handler) http.Handler {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.httpCollector == nil {
-		return nil
-	}
-
-	return c.httpCollector.Middleware()
-}
-
-// =============================================================================
 // STATISTICS
 // =============================================================================
 
@@ -821,16 +795,6 @@ func (c *collector) initializeBuiltinCollectors() error {
 		if err := c.registerCollectorLocked(systemCollector); err != nil {
 			return fmt.Errorf("failed to register system collector: %w", err)
 		}
-	}
-
-	// Register HTTP collector
-	if c.config.Features.HTTPMetrics {
-		httpCollector := collectors.NewHTTPCollector()
-		if err := c.registerCollectorLocked(httpCollector); err != nil {
-			return fmt.Errorf("failed to register HTTP collector: %w", err)
-		}
-
-		c.httpCollector = httpCollector.(*collectors.HTTPCollector)
 	}
 
 	if c.logger != nil {
