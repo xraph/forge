@@ -339,3 +339,41 @@ func TestPropagationMiddlewareExtractsOnly(t *testing.T) {
 		t.Fatal("PropagationMiddleware wrote a response header")
 	}
 }
+
+// The response header is built by hand for speed, so check it against what
+// the TraceContext propagator writes for the same span context.
+func TestServerResponseHeaderMatchesTraceContext(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sampler sdktrace.Sampler
+	}{
+		{"sampled", sdktrace.AlwaysSample()},
+		{"unsampled", sdktrace.NeverSample()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(tc.sampler))
+
+			t.Cleanup(func() { _ = tp.Shutdown(t.Context()) })
+
+			var sc trace.SpanContext
+
+			h := ServerMiddleware(tp, Settings{ResponseHeader: "traceparent"})(http.HandlerFunc(
+				func(_ http.ResponseWriter, r *http.Request) { sc = trace.SpanContextFromContext(r.Context()) }))
+
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/a", nil))
+
+			carrier := propagation.MapCarrier{}
+			propagation.TraceContext{}.Inject(trace.ContextWithSpanContext(t.Context(), sc), carrier)
+
+			want := carrier.Get("traceparent")
+			if want == "" || rec.Header().Get("Traceparent") != want {
+				t.Fatalf("traceparent = %q, propagator writes %q", rec.Header().Get("Traceparent"), want)
+			}
+
+			if sc.IsSampled() != (tc.name == "sampled") {
+				t.Fatalf("sampled = %v", sc.IsSampled())
+			}
+		})
+	}
+}

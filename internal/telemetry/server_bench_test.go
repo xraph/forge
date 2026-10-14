@@ -32,3 +32,8 @@ func BenchmarkServerMiddlewareNoExporter(b *testing.B) {
 func BenchmarkServerMiddlewareNoop(b *testing.B) {
 	benchServe(b, ServerMiddleware(noop.NewTracerProvider(), Settings{})(benchHandler))
 }
+
+func BenchmarkServerMiddlewareUnsampled(b *testing.B) {
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
+	benchServe(b, ServerMiddleware(tp, Settings{ExcludePaths: []string{"/_/"}, ResponseHeader: "traceparent"})(benchHandler))
+}

@@ -41,6 +41,7 @@ func NormalizeMethod(m string) (method, original string) {
 // matched, which it reports through shared.RouteMatch.
 func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) http.Handler {
 	tracer := tp.Tracer(instrumentationName)
+	responseHeader := http.CanonicalHeaderKey(s.ResponseHeader)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,16 +68,13 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 			sc := span.SpanContext()
 			if sc.IsValid() {
-				ctx = logger.WithTraceID(ctx, sc.TraceID().String())
-				ctx = logger.WithSpanID(ctx, sc.SpanID().String())
+				traceID, spanID := sc.TraceID().String(), sc.SpanID().String()
 
-				if s.ResponseHeader != "" {
-					carrier := propagation.MapCarrier{}
-					propagation.TraceContext{}.Inject(ctx, carrier)
+				ctx = logger.WithTraceID(ctx, traceID)
+				ctx = logger.WithSpanID(ctx, spanID)
 
-					if v := carrier.Get("traceparent"); v != "" {
-						w.Header().Set(s.ResponseHeader, v)
-					}
+				if responseHeader != "" {
+					w.Header()[responseHeader] = []string{traceparent(traceID, spanID, sc.IsSampled())}
 				}
 			}
 
@@ -94,23 +92,33 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 			next.ServeHTTP(rec, r.WithContext(ctx))
 
+			// An unsampled span drops everything set on it, so skip the work.
+			if !span.IsRecording() {
+				span.End()
+
+				return
+			}
+
 			status := rec.Status()
+			attrs := make([]attribute.KeyValue, 0, 3)
 
 			if match.Pattern != "" {
 				if method != "_OTHER" {
 					span.SetName(method + " " + match.Pattern)
 				}
 
-				span.SetAttributes(attribute.String("http.route", match.Pattern))
+				attrs = append(attrs, attribute.String("http.route", match.Pattern))
 			}
 
-			span.SetAttributes(attribute.Int("http.response.status_code", status))
+			attrs = append(attrs, attribute.Int("http.response.status_code", status))
 
 			if status >= http.StatusInternalServerError {
 				span.SetStatus(codes.Error, "")
-				span.SetAttributes(attribute.String("error.type", strconv.Itoa(status)))
+
+				attrs = append(attrs, attribute.String("error.type", strconv.Itoa(status)))
 			}
 
+			span.SetAttributes(attrs...)
 			span.End()
 		})
 	}
@@ -135,12 +143,13 @@ func requestAttributes(r *http.Request, method, original string) []attribute.Key
 		scheme = "https"
 	}
 
-	attrs := []attribute.KeyValue{
+	attrs := make([]attribute.KeyValue, 0, 7)
+	attrs = append(attrs,
 		attribute.String("http.request.method", method),
 		attribute.String("url.scheme", scheme),
 		attribute.String("url.path", r.URL.Path),
 		attribute.String("network.protocol.version", strings.TrimPrefix(r.Proto, "HTTP/")),
-	}
+	)
 
 	if original != "" {
 		attrs = append(attrs, attribute.String("http.request.method_original", original))
@@ -159,6 +168,17 @@ func requestAttributes(r *http.Request, method, original string) []attribute.Key
 	}
 
 	return attrs
+}
+
+// traceparent builds the W3C header value for a valid span context, the same
+// bytes propagation.TraceContext would inject, without a carrier map.
+func traceparent(traceID, spanID string, sampled bool) string {
+	flags := "00"
+	if sampled {
+		flags = "01"
+	}
+
+	return "00-" + traceID + "-" + spanID + "-" + flags
 }
 
 func excluded(path string, prefixes []string) bool {

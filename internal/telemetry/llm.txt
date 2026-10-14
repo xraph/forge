@@ -55,7 +55,7 @@ For each request, `ServerMiddleware` does this:
 2. It extracts the incoming context with the global propagator, then calls `shared.NewRouteMatch(ctx)`. The router fills the `shared.RouteMatch` holder with the matched pattern, so the middleware can read it after `next` returns even though the match happens inside the router. `NewRouteMatch` always installs a fresh holder. A handler that dispatches a second request through the router with its own context (the orpc extension does this) would otherwise share the outer holder, and the inner route would rename the outer span. Inner middleware that wants the pattern calls `shared.EnsureRouteMatch` to share the holder the outermost one made.
 3. It starts a span named after the method (`_OTHER` methods are named `HTTP`) with `SpanKindServer`. After the handler returns, the span is renamed `METHOD pattern` and `http.route` is set, but only if a pattern matched.
 4. It puts `trace_id` and `span_id` on the context through `logger.WithTraceID` and `logger.WithSpanID`, so a request-scoped logger writes them on every line.
-5. It writes `ResponseHeader` (default `traceparent`) before calling the handler, from the span context.
+5. It writes `ResponseHeader` (default `traceparent`) before calling the handler. The value is built straight from the span context by `traceparent()`, the same bytes `propagation.TraceContext` would inject, without the carrier map. `TestServerResponseHeaderMatchesTraceContext` holds the two together.
 6. 5xx sets status Error and `error.type`. A panic that escapes records the error with a stack trace, ends the span, and re-panics.
 
 The router records errors on the span itself: `internal/router/span_error.go` wraps the error handler (`wrapSpanErrors`) and records any error that maps to a 5xx, and the recovery wrapper in `router_impl.go` records recovered panics with `recordSpanPanic`, which adds a stack trace. The 5xx error path records no stack. 4xx errors are not recorded.
@@ -64,7 +64,7 @@ The router records errors on the span itself: `internal/router/span_error.go` wr
 
 Set at start: `http.request.method`, `url.scheme`, `url.path`, `network.protocol.version`, `server.address`, `user_agent.original`, and `http.request.method_original` when the method is outside the standard nine (the method attribute is then `_OTHER`).
 
-Set at end: `http.route` (when matched), `http.response.status_code`, and `error.type` (the status code as a string) for 5xx.
+Set at end, in one `SetAttributes` call: `http.route` (when matched), `http.response.status_code`, and `error.type` (the status code as a string) for 5xx. An unsampled span isn't recording, so the middleware skips the rename, the attributes and the status and just ends it.
 
 ## Provider lifecycle
 
