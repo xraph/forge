@@ -305,7 +305,7 @@ Build the client after `forge.New`. It picks up the tracer provider and propagat
 
 ### Send spans somewhere else too
 
-`forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider. It's how the dashboard's trace store receives spans, and you can use it to copy spans into your own store or log.
+`forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider, so you can copy spans into your own store or log.
 
 ```go
 app := forge.New(forge.WithAppName("user-api"))
