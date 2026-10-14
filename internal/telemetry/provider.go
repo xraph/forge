@@ -89,8 +89,8 @@ func (p *Provider) Settings() Settings { return p.settings }
 // Resource returns the shared resource.
 func (p *Provider) Resource() *resource.Resource { return p.resource }
 
-// RegisterSpanProcessor adds a processor after construction. Extensions use
-// it to receive spans, for example to keep a local copy.
+// RegisterSpanProcessor adds a span processor after construction. It returns
+// ErrTracingDisabled when tracing is off.
 func (p *Provider) RegisterSpanProcessor(sp sdktrace.SpanProcessor) error {
 	if p.sdk == nil {
 		return ErrTracingDisabled
