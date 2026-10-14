@@ -121,6 +121,9 @@ func resolveSampler(in Inputs, getenv func(string) string, warnings *[]string) (
 				if arg := getenv("OTEL_TRACES_SAMPLER_ARG"); arg != "" {
 					if v, err := strconv.ParseFloat(arg, 64); err == nil {
 						ratio = v
+					} else {
+						*warnings = append(*warnings, fmt.Sprintf(
+							"telemetry: OTEL_TRACES_SAMPLER_ARG=%q is not a number, using 1.0", arg))
 					}
 				}
 			}

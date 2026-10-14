@@ -39,7 +39,7 @@ For every setting the first source that has a value wins:
 | `ExcludePaths` | code, file, default `"/_/"` |
 | `ResponseHeader` | code, file, default `traceparent`; empty string disables it |
 | `Resource` | code, file; merged over the detected resource |
-| `Warnings` | messages for the caller to log (unsupported sampler, NaN or out of range ratio) |
+| `Warnings` | messages for the caller to log (unsupported sampler, an `OTEL_TRACES_SAMPLER_ARG` that is not a number, NaN or out of range ratio) |
 
 A code or file `SampleRatio` always pairs with `parentbased_traceidratio` and ignores `OTEL_TRACES_SAMPLER`. A ratio outside [0, 1] is clamped with a warning; NaN falls back to the environment default.
 

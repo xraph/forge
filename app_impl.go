@@ -1930,7 +1930,13 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Provider {
 	var fromFile shared.TracingConfig
 	if cm != nil {
-		_ = cm.Bind("tracing", &fromFile)
+		// Bind also fails when there is no tracing key, which is the normal
+		// case, so only a key that exists and won't bind is worth a warning.
+		if err := cm.Bind("tracing", &fromFile); err != nil && cm.HasKey("tracing") {
+			log.Warn("telemetry: could not read tracing config, using defaults", F("error", err))
+
+			fromFile = shared.TracingConfig{}
+		}
 	}
 
 	settings := telemetry.Resolve(telemetry.Inputs{

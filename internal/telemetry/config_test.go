@@ -181,3 +181,18 @@ func TestResolvePropagatorsFromEnv(t *testing.T) {
 		t.Fatalf("propagators = %v", s.Propagators)
 	}
 }
+
+func TestResolveUnparseableSamplerArgWarns(t *testing.T) {
+	s := Resolve(Inputs{
+		Environment: "production",
+		Getenv: env(map[string]string{
+			"OTEL_TRACES_SAMPLER":     "traceidratio",
+			"OTEL_TRACES_SAMPLER_ARG": "half",
+		}),
+	})
+
+	want := `telemetry: OTEL_TRACES_SAMPLER_ARG="half" is not a number, using 1.0`
+	if s.SampleRatio != 1.0 || !slices.Equal(s.Warnings, []string{want}) {
+		t.Fatalf("ratio %v warnings %q", s.SampleRatio, s.Warnings)
+	}
+}

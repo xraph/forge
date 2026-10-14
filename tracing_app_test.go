@@ -282,3 +282,38 @@ func TestAppTracingDisabledStillPropagates(t *testing.T) {
 		t.Fatalf("downstream traceparent = %q, want trace id 4bf92f3577b34da6a3ce929d0e0e4736", got)
 	}
 }
+
+func TestAppWarnsOnUnreadableTracingConfig(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	const msg = "telemetry: could not read tracing config, using defaults"
+
+	warned := func(cm ConfigManager) bool {
+		log, ok := logger.NewTestLogger().(*logger.TestLogger)
+		if !ok {
+			t.Fatal("logger.NewTestLogger did not return a *logger.TestLogger")
+		}
+
+		New(WithAppName("tracing-config"), WithAppLogger(log), WithAppConfigManager(cm))
+
+		for _, e := range log.GetLogsByLevel("WARN") {
+			if e.Message == msg {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	bad := NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)
+	bad.Set("tracing", true) // "tracing: true" in YAML, which is not a block
+
+	if !warned(bad) {
+		t.Fatal("a tracing block that fails to bind should log a warning")
+	}
+
+	if warned(NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)) {
+		t.Fatal("a config with no tracing block should not warn")
+	}
+}
