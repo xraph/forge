@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -12,6 +13,9 @@ import (
 func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteOption) error {
 	// Convert WebSocketHandler to http.Handler
 	httpHandler := func(w http.ResponseWriter, req *http.Request) {
+		req, leave := r.drain.enter(req)
+		defer leave()
+
 		// Upgrade to WebSocket (validates Origin first)
 		conn, err := upgradeToWebSocket(w, req, r.webSocketOrigins)
 		if err != nil {
@@ -39,6 +43,14 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 
 		wsConn := newWSConnection(connID, conn, req.Context())
 		defer wsConn.Close()
+
+		// Shutdown does not track a hijacked connection, so a drain tells the
+		// client itself and closes the socket, which also unblocks a handler
+		// waiting in Read.
+		if r.drain != nil {
+			stop := context.AfterFunc(r.drain.ctx, wsConn.goAway)
+			defer stop()
+		}
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; without it every connection leaks them for process life.
@@ -76,6 +88,9 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 	// Convert SSEHandler to http.Handler
 	httpHandler := func(w http.ResponseWriter, req *http.Request) {
+		req, leave := r.drain.enter(req)
+		defer leave()
+
 		// Create SSE stream
 		config := DefaultStreamConfig()
 
@@ -159,6 +174,9 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 
 	// Wrap handler to set SSE headers automatically
 	wrappedHandler := func(w http.ResponseWriter, req *http.Request) {
+		req, leave := r.drain.enter(req)
+		defer leave()
+
 		// Set SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")

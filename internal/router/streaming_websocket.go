@@ -240,6 +240,14 @@ func (c *wsConnection) Close() error {
 	return c.conn.Close()
 }
 
+// goAway tells the client the server is shutting down, with close code 1001,
+// and closes the connection. Best effort: a client that has already gone just
+// gets the close.
+func (c *wsConnection) goAway() {
+	_ = c.write(ws.OpClose, ws.NewCloseFrameBody(ws.StatusGoingAway, "server shutting down"))
+	_ = c.Close()
+}
+
 // Context returns the connection context.
 func (c *wsConnection) Context() context.Context {
 	return c.ctx

@@ -103,6 +103,10 @@ type router struct {
 	// the middleware applies to every route regardless of where it was added.
 	globalChain *globalChain
 
+	// drain ends this router's streams at shutdown. Shared with groups, so
+	// draining the root reaches every stream however it was registered.
+	drain *streamDrain
+
 	mu *sync.RWMutex // Pointer to shared mutex for groups
 }
 
@@ -190,6 +194,7 @@ func newRouter(opts ...RouterOption) *router {
 		maxBodySize:      cfg.maxBodySize,
 
 		globalChain: &globalChain{},
+		drain:       newStreamDrain(),
 
 		mu: mu, // Initialize shared mutex
 	}
@@ -373,6 +378,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// group-registered socket would silently fall back to same-origin only.
 		webSocketOrigins: r.webSocketOrigins,
 		maxBodySize:      r.maxBodySize,
+		drain:            r.drain,
 
 		// Groups share the parent's adapter, so they must share what forge
 		// learned about it. Without this a group-registered route would fall

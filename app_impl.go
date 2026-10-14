@@ -871,14 +871,31 @@ func (a *app) gracefulShutdown() error {
 
 	a.logger.Info("starting graceful shutdown", F("timeout", a.config.ShutdownTimeout))
 
-	// 1. Stop accepting new requests and wait for active requests to complete
+	// 1. End open streams, so they don't hold Shutdown for its whole timeout.
+	// Shutdown waits for every active request and an event stream never
+	// returns on its own; it does not track hijacked WebSocket connections at
+	// all. This runs alongside Shutdown, which still lets plain requests
+	// finish.
+	drained := make(chan error, 1)
+
+	if d, ok := a.router.(interface{ DrainStreams(ctx context.Context) error }); ok {
+		go func() { drained <- d.DrainStreams(ctx) }()
+	} else {
+		drained <- nil
+	}
+
+	// 2. Stop accepting new requests and wait for active requests to complete
 	if a.httpServer != nil {
 		if err := a.httpServer.Shutdown(ctx); err != nil {
 			a.logger.Error("http server shutdown error", F("error", err))
 		}
 	}
 
-	// 2. Stop the application (which stops all services)
+	if err := <-drained; err != nil {
+		a.logger.Warn("streams still open at the end of the shutdown timeout", F("error", err))
+	}
+
+	// 3. Stop the application (which stops all services)
 	if err := a.Stop(ctx); err != nil {
 		a.logger.Error("app shutdown error", F("error", err))
 	}
