@@ -81,7 +81,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.3 // indirect
-	github.com/xraph/go-utils v1.3.0 // indirect
+	github.com/xraph/go-utils v1.4.0 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.jetify.com/typeid/v2 v2.0.0-alpha.3 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

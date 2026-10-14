@@ -128,6 +128,9 @@ var (
 	// TraceID creates a trace ID field.
 	TraceID = log.TraceID
 
+	// SpanID creates a span ID field.
+	SpanID = log.SpanID
+
 	// UserID creates a user ID field.
 	UserID = log.UserID
 

@@ -54,6 +54,8 @@ var (
 	RequestIDFromContext = log.RequestIDFromContext
 	WithTraceID          = log.WithTraceID
 	TraceIDFromContext   = log.TraceIDFromContext
+	WithSpanID           = log.WithSpanID
+	SpanIDFromContext    = log.SpanIDFromContext
 	WithUserID           = log.WithUserID
 	UserIDFromContext    = log.UserIDFromContext
 )

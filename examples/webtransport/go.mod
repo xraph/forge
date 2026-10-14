@@ -82,7 +82,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.3 // indirect
 	github.com/xraph/forge/extensions/auth v1.9.13 // indirect
-	github.com/xraph/go-utils v1.3.0 // indirect
+	github.com/xraph/go-utils v1.4.0 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
