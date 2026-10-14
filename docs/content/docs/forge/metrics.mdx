@@ -19,7 +19,7 @@ The metrics endpoint is available at:
 GET /_/metrics
 ```
 
-It returns metrics in Prometheus exposition format by default.
+It returns metrics in Prometheus exposition format by default, and in OpenMetrics when the scraper asks for it (Prometheus does). That matters for [exemplars](#exemplars).
 
 ## Metrics Interface
 
@@ -104,7 +104,7 @@ func handler(ctx forge.Context) error {
     start := time.Now()
     defer func() {
         elapsed := time.Since(start).Seconds()
-        duration.Record(elapsed)
+        duration.Observe(elapsed)
     }()
 
     // ... handler logic
@@ -133,6 +133,53 @@ counter := metrics.Counter("api_calls",
 )
 ```
 
+## Label Vectors
+
+`forge.WithLabel` works, but it does a registry lookup on every call, and nothing stops two call sites from spelling a label name differently. For anything on a hot path, declare the metric once with its label names and fetch children with `With`.
+
+```go
+type Orders struct {
+    created *forge.Vec[forge.Counter]
+    latency *forge.Vec[forge.Histogram]
+}
+
+func NewOrders(m forge.Metrics) *Orders {
+    return &Orders{
+        created: forge.CounterVec(m, "orders_created_total", "tier", "region"),
+        latency: forge.HistogramVec(m, "checkout_duration_seconds",
+            forge.HistogramOpts{
+                Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5},
+                Help:    "Time to complete a checkout.",
+            },
+            "tier",
+        ),
+    }
+}
+
+func (o *Orders) Record(tier, region string, took time.Duration) {
+    o.created.With(tier, region).Inc()
+    o.latency.With(tier).Observe(took.Seconds())
+}
+```
+
+`forge.GaugeVec` has the same shape as `CounterVec`. Pass the values to `With` in the order you declared the names. Children are cached, so repeat calls skip the registry.
+
+Get the count wrong and Forge doesn't panic. It logs one error for that vector, drops the sample and hands you a throwaway metric so your code keeps running. That is the right call in production and a bad one in a test, where a dropped sample means a missing number you only notice on a dashboard. Call `StrictMetrics` at the top of the test and the same mistake fails it:
+
+```go
+import forgetesting "github.com/xraph/forge/testing"
+
+func TestRecord(t *testing.T) {
+    forgetesting.StrictMetrics(t)
+
+    o := NewOrders(forgetesting.NewNoOpMetrics())
+    o.Record("pro", "eu", 120*time.Millisecond) // fine
+    o.created.With("pro").Inc()                  // test error: got 1 label values, want 2
+}
+```
+
+Children made through `.WithLabels(...)` on a metric you got from `app.Metrics()` are registered and exported too. Labels still multiply, so keep user IDs, request IDs and raw paths out of them. See [Series cap](#series-cap) for what happens when you don't.
+
 ## MetricsConfig
 
 Configure metrics collection behavior.
@@ -144,11 +191,12 @@ app := forge.New(
         Features: forge.MetricsFeatures{
             SystemMetrics:  true,  // OS-level metrics (CPU, memory, disk)
             RuntimeMetrics: true,  // Go runtime metrics (goroutines, GC)
-            HTTPMetrics:    true,  // Auto HTTP request/response metrics
+            HTTPMetrics:    true,  // Request duration and active requests
+            HTTPBodySizes:  false, // Also record request and response body sizes
         },
         Collection: forge.MetricsCollection{
             Interval:  10 * time.Second,  // Collection interval
-            Namespace: "myapp",           // Prefix for all metrics
+            Namespace: "myapp",           // Prefix for your own metrics
             Path:      "/_/metrics",      // Endpoint path
             DefaultTags: map[string]string{
                 "environment": "production",
@@ -162,12 +210,29 @@ app := forge.New(
             },
         },
         Limits: forge.MetricsLimits{
-            MaxMetrics: 10000,  // Maximum number of unique metrics
-            BufferSize: 1000,   // Internal buffer size
+            MaxMetrics:         10000, // Maximum number of unique metrics
+            BufferSize:         1000,  // Internal buffer size
+            MaxSeriesPerMetric: 2000,  // Label sets one metric name may hold
         },
     }),
 )
 ```
+
+The same settings in a config file:
+
+```yaml
+metrics:
+  enabled: true
+  features:
+    http_metrics: true
+    http_body_sizes: true
+  limits:
+    max_series_per_metric: 2000
+```
+
+<Callout type="warn">
+When a config file turns metrics on, Forge starts from the file and copies only some of your code settings over it. `http_body_sizes` and `max_series_per_metric` aren't among them, so a value you set in code can be lost. If either seems to be ignored, set it in the file.
+</Callout>
 
 ### Default Configuration
 
@@ -175,12 +240,14 @@ app := forge.New(
 config := forge.DefaultMetricsConfig()
 // Returns:
 // - Enabled: true
-// - System/Runtime/HTTP metrics: disabled (opt-in)
+// - System, runtime and HTTP metrics: enabled
+// - HTTP body sizes: disabled (opt-in)
 // - Collection interval: 10s
 // - Namespace: "forge"
 // - Path: /_/metrics
 // - MaxMetrics: 10000
 // - BufferSize: 1000
+// - MaxSeriesPerMetric: 0, which means 2000
 ```
 
 ## Built-in Metric Types
@@ -203,10 +270,76 @@ When enabled in `MetricsFeatures`, Forge automatically collects:
 
 ### HTTP Metrics (`HTTPMetrics: true`)
 
-- `http_requests_total` -- total request count by method, path, status
-- `http_request_duration_seconds` -- request latency histogram
-- `http_response_size_bytes` -- response size histogram
-- `http_active_requests` -- currently active requests gauge
+Forge records the OpenTelemetry HTTP server metrics for every request, keyed by the route pattern you registered (`/users/:id`), never the raw path. The recorder sits inside tracing and outside your extensions' middleware, so a request that an auth extension rejects with a 401 is still counted.
+
+| Series | Type | Labels |
+|--------|------|--------|
+| `http_server_request_duration_seconds` | histogram, buckets 0.005 to 10 s | `http_request_method`, `http_route`, `http_response_status_code`, `url_scheme`, `error_type` |
+| `http_server_active_requests` | gauge | `http_request_method`, `url_scheme` |
+| `http_server_request_body_size_bytes` | histogram, only with `http_body_sizes` | same as duration |
+| `http_server_response_body_size_bytes` | histogram, only with `http_body_sizes` | same as duration |
+
+Three queries cover most dashboards.
+
+```promql
+# Requests per second, by route
+sum by (http_route) (rate(http_server_request_duration_seconds_count[5m]))
+
+# Share of requests that returned a 5xx
+sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+  / sum(rate(http_server_request_duration_seconds_count[5m]))
+
+# p95 latency, by route
+histogram_quantile(0.95,
+  sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
+```
+
+A few details that change how you read the numbers:
+
+- `http_route` is empty for requests that matched no route, so a scanner hammering `/wp-admin` lands under one empty route instead of making a series per path it tries.
+- Methods outside the standard nine (GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, TRACE, PATCH) are recorded as `_OTHER`.
+- `error_type` is the status code (`"503"`) for 5xx responses and empty otherwise.
+- Paths under the tracing `exclude_paths` (default `/_/`) are not recorded, so scraping `/_/metrics` doesn't count itself.
+- The request body size is only observed when the request carries a `Content-Length`.
+
+These names are never prefixed. Your own metrics keep the `forge_` prefix, or whatever you set in `metrics.collection.namespace`, and the `go_` and `process_` runtime series stay unprefixed as before.
+
+Turn on the body size histograms with `metrics.features.http_body_sizes: true`. They're off by default because each one adds a full set of buckets per route and status.
+
+#### Exemplars
+
+The duration histogram carries `trace_id` and `span_id` exemplars for sampled requests, so you can jump from a slow bucket to the trace that landed in it. Exemplars only exist in the OpenMetrics format, which Prometheus asks for on its own. A plain `curl` of `/_/metrics` won't show them unless you send `Accept: application/openmetrics-text`.
+
+Prometheus has to be started with `--enable-feature=exemplar-storage` or it throws them away. In Grafana, switch on Exemplars in the query options of the latency panel and point the `trace_id` link at your tracing data source. Requests that tracing didn't sample have no exemplar.
+
+#### Series cap
+
+Every distinct label set is a series, and a label fed by user input will eventually find a way to make millions of them. `metrics.limits.max_series_per_metric` (default 2000, and 0 means the default) stops that. Once a metric name holds that many label sets, new ones fold into a single series and Forge logs one warning for that metric:
+
+```
+forge_orders_created_total{otel_metric_overflow="true"} 41
+```
+
+The overflow series carries only that label, so the counts are right and the detail is gone. If you see it on a dashboard, find the label that has too many values and fix that. Raising the cap only moves the problem.
+
+#### Moving from the old series
+
+Earlier releases exposed a flat set of `forge_http_*` series, with a gauge per path, status and method. Those are gone, along with the `track_paths`, `group_similar_paths` and path allow and block list settings. Remove them from your config. With the route as a label you don't need them.
+
+| Old | New |
+|-----|-----|
+| `forge_http_requests_total` | `http_server_request_duration_seconds_count` |
+| `forge_http_request_duration_*` | `http_server_request_duration_seconds_*` |
+| `forge_http_requests_active` | `http_server_active_requests` |
+| `forge_http_request_size_*` | `http_server_request_body_size_bytes_*` (needs `http_body_sizes`) |
+| `forge_http_response_size_*` | `http_server_response_body_size_bytes_*` (needs `http_body_sizes`) |
+| `forge_http_requests_status_200`, `..._404` and so on | label `http_response_status_code` |
+| `forge_http_requests_method_GET`, `..._POST` and so on | label `http_request_method` |
+| `forge_http_requests_path_*` | label `http_route` |
+| `forge_http_requests_error_rate` | the 5xx ratio query above |
+| `forge_http_requests_avg_duration`, `forge_http_response_avg_size` | `rate(..._sum[5m]) / rate(..._count[5m])` |
+
+The old duration histogram used buckets from 5 to 10000 while recording seconds, so nearly every request landed in the first bucket and its quantiles told you nothing. Don't try to carry old panels over by renaming. Rebuild them from the queries above.
 
 ## Custom Metrics in Handlers
 
@@ -229,7 +362,7 @@ func createOrder(ctx forge.Context) error {
     }
 
     orderCounter.Inc()
-    orderValue.Record(order.Total)
+    orderValue.Observe(order.Total)
 
     return ctx.JSON(201, order)
 }
@@ -309,7 +442,7 @@ func main() {
     r.GET("/api/dashboard", func(ctx forge.Context) error {
         start := time.Now()
         defer func() {
-            requestLatency.Record(time.Since(start).Seconds())
+            requestLatency.Observe(time.Since(start).Seconds())
         }()
 
         activeUsers.Set(float64(getUserCount()))

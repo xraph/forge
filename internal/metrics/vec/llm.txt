@@ -1,0 +1,91 @@
+# Forge Metrics Vec - Internal Implementation
+
+## Purpose
+
+Label vectors for custom metrics. You declare a metric once with its label names, then fetch a child per tuple of label values with `With`. It is the generic core behind `forge.CounterVec`, `forge.GaugeVec` and `forge.HistogramVec`, and the HTTP server metrics use it for their hot path.
+
+## Key Components
+
+- **Vec[T]** (`vec.go`): holds the metric name, the label names, a `build` function that makes the child for one label set, a `sink` child, and a cache of children keyed by the joined values.
+- **New[T]**: `vec.New(name, labelNames, build, sink)`. `build` receives a `map[string]string` of label name to value. `sink` is what a wrong-arity call returns.
+- **With(values ...string) T**: values in the order the names were declared.
+- **SetArityHook**: replaces what happens on a wrong-arity call and returns a function that restores the previous hook.
+
+## Behaviour
+
+### Arity
+
+If `len(values)` differs from the number of declared names, `With` does not panic. It calls the arity hook once per vector (guarded by an atomic `warned` flag, so a hot loop with a bad call site logs one line, not millions), then returns `sink`. `sink` is a real child that nothing registers, so the caller's `.Inc()` or `.Observe()` runs and the sample goes nowhere.
+
+The default hook logs an error through the global go-utils logger with the metric name, wanted count and got count. `forgetesting.StrictMetrics(t)` in `github.com/xraph/forge/testing` installs a hook that calls `t.Errorf` and restores the previous one in `t.Cleanup`. The hook is process-global (an `atomic.Pointer`), so tests that use it must not run in parallel with tests that expect the default behaviour.
+
+### Cache bound
+
+Children are cached in a `sync.Map` keyed by the values joined with `\xff`, so repeat calls cost one map load and no collector lock. The cache holds at most `maxCached` (4096) children. Past that, `With` still returns a correct child (built through the registry, which applies `metrics.limits.max_series_per_metric`), it is just not cached, so the call is slower. The cap exists so a label fed by user input can't grow this map without limit. The registry's series cap is what bounds exported series.
+
+Two goroutines asking for the same new tuple can both build a child; `LoadOrStore` keeps one and both get it. Because the registry hands back the same series for the same name and labels, the duplicate is harmless.
+
+## Public API
+
+```go
+type Vec[T any] struct { /* unexported */ }
+
+func New[T any](name string, labelNames []string, build func(map[string]string) T, sink T) *Vec[T]
+func (v *Vec[T]) With(values ...string) T
+func SetArityHook(f func(name string, want, got int)) (restore func())
+```
+
+The public wrappers live in the root package (`metrics_vec.go`):
+
+```go
+type Vec[T any] = vec.Vec[T]
+type HistogramOpts struct { Buckets []float64; Help string }
+
+func CounterVec(m Metrics, name string, labelNames ...string) *Vec[Counter]
+func GaugeVec(m Metrics, name string, labelNames ...string) *Vec[Gauge]
+func HistogramVec(m Metrics, name string, opts HistogramOpts, labelNames ...string) *Vec[Histogram]
+```
+
+Each `build` calls `m.Counter/Gauge/Histogram(name, WithLabels(labels))` (histograms also pass `WithBuckets` and `WithDescription`), so children are registered, exported and capped like any other metric.
+
+## Usage Examples
+
+```go
+orders := forge.CounterVec(app.Metrics(), "orders_created_total", "tier", "region")
+orders.With("pro", "eu").Inc()
+
+latency := forge.HistogramVec(app.Metrics(), "checkout_duration_seconds",
+    forge.HistogramOpts{Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1}, Help: "Checkout latency."},
+    "tier")
+latency.With("pro").Observe(0.18)
+```
+
+In a test:
+
+```go
+forgetesting.StrictMetrics(t)
+orders.With("pro").Inc() // test error: got 1 label values, want 2
+```
+
+## Dependencies
+
+### External
+- github.com/xraph/go-utils/log - default arity hook logging
+
+### Internal
+- none (the root package and `internal/metrics/collectors` import this package)
+
+## Related Packages
+
+- `/` - `CounterVec`, `GaugeVec`, `HistogramVec`
+- `/testing` - `StrictMetrics`
+- `/internal/metrics` - registry, series cap
+- `/internal/metrics/collectors` - `HTTPServerMetrics` is built on `Vec`
+
+## Notes
+
+- Declare a vector once and keep it on a struct. Calling `CounterVec` per request throws the cache away.
+- Label values are not validated. High-cardinality values will hit the registry's series cap.
+
+### License
+MIT License - Part of Forge Framework (internal package)

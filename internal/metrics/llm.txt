@@ -2,554 +2,248 @@
 
 ## Purpose
 
-Production-grade metrics collection and export system for Forge applications providing Prometheus integration, custom collectors, automatic metric registration, storage backends, and HTTP endpoints for metrics exposure. Tracks application performance, resource usage, and business metrics.
+The metrics collector behind `app.Metrics()`. It owns a registry of counters, gauges, histograms and timers, runs the built-in collectors (system, runtime, HTTP server), and serves the registry at `/_/metrics` through a client_golang bridge. The metric types and the `Metrics` interface come from `github.com/xraph/go-utils/metrics`; this package aliases them.
 
 ## Key Components
 
-- **Metrics Registry**: Central registry for all application metrics
-- **Prometheus Integration**: Native Prometheus client with /metrics endpoint
-- **Collectors**: Counter, Gauge, Histogram, Summary metric types
-- **Custom Collectors**: Application-specific metric collectors
-- **Storage**: In-memory and persistent storage backends
-- **Exporters**: Prometheus, StatsD, CloudWatch, Datadog exporters
-- **Automatic Discovery**: Auto-registration of framework metrics
+- **collector** (`collector.go`): implements `Metrics`. Start/Stop/Health lifecycle, `Counter`/`Gauge`/`Histogram`/`Timer` constructors, `PrometheusHandler()`, `Export(format)`, `Reload(config)`.
+- **registry** (`registry.go`, `registry_wrap.go`): keyed by name plus sorted labels. Caps distinct label sets per name, captures units, and wraps every metric it returns so `WithLabels` goes back through the registry.
+- **Prometheus bridge** (`exporters/prometheus.go`): a client_golang collector that streams registry samples on each scrape. Decides the exported name, adds the unit suffix, attaches exemplars.
+- **Other exporters** (`exporters/json.go`, `influx.go`, `statsd.go`): format-only. They render a snapshot for `Export(format)`. Nothing pushes. There are no CloudWatch or Datadog exporters.
+- **Collectors** (`collectors/`): `system.go` (CPU, memory, disk, network, load, per platform), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics).
+- **vec** (`vec/`): label vectors. See `vec/llm.txt`.
+- **Storage** (`storage/`): in-memory, Redis and time-series backends for metric history.
+- **noop** (`noop.go`): `NewNoOpMetrics()` for tests and disabled metrics.
 
 ## Architecture
 
 ```
-Metrics System
-├── Registry
-│   ├── Metric Registration
-│   ├── Collector Management
-│   └── Label Management
-├── Collectors
-│   ├── Counter (monotonic increase)
-│   ├── Gauge (arbitrary value)
-│   ├── Histogram (distribution)
-│   └── Summary (quantiles)
-├── Framework Metrics
-│   ├── HTTP Metrics (requests, latency, errors)
-│   ├── Runtime Metrics (goroutines, memory, GC)
-│   ├── Database Metrics (connections, queries)
-│   └── Cache Metrics (hits, misses)
-├── Exporters
-│   ├── Prometheus HTTP Endpoint
-│   ├── Push Gateway
-│   ├── StatsD
-│   └── CloudWatch/Datadog
-└── Storage
-    ├── In-Memory Store
-    └── Time-Series DB
+app.Metrics()  (collector)
+├── registry
+│   ├── GetOrCreateCounter/Gauge/Histogram/Timer   (series cap applied here)
+│   ├── regCounter/regGauge/regHistogram/regTimer  (WithLabels re-enters the registry)
+│   └── RegisteredMetric{Name, Type, Tags, Unit, Metric}
+├── built-in collectors, started by collector.Start
+│   ├── system (system_metrics)
+│   ├── runtime (runtime_metrics)
+│   └── custom callbacks
+├── HTTP server metrics, installed by forge.New (not by the collector)
+│   └── collectors.HTTPServerMetrics -> router.UseGlobal, inside tracing
+├── exporters
+│   ├── Prometheus bridge -> /_/metrics (text, or OpenMetrics when asked)
+│   └── JSON, InfluxDB line protocol, StatsD text (Export only)
+└── storage (memory | redis | timeseries)
 ```
 
 ## Public API
 
 ### Core Types
 
+These are go-utils types, aliased here as `metrics.Metrics`, `metrics.Counter` and so on.
+
 ```go
 type Metrics interface {
-    // Counter operations
-    Counter(name string, labels ...string) Counter
-    IncrementCounter(name string, labels map[string]string)
-    
-    // Gauge operations
-    Gauge(name string, labels ...string) Gauge
-    SetGauge(name string, value float64, labels map[string]string)
-    
-    // Histogram operations
-    Histogram(name string, buckets []float64, labels ...string) Histogram
-    ObserveHistogram(name string, value float64, labels map[string]string)
-    
-    // Summary operations
-    Summary(name string, objectives map[float64]float64, labels ...string) Summary
-    ObserveSummary(name string, value float64, labels map[string]string)
-    
-    // Registry
-    Register(collector Collector) error
-    Unregister(name string) error
-    
-    // HTTP handler
-    Handler() http.Handler
+    Counter(name string, opts ...MetricOption) Counter
+    Gauge(name string, opts ...MetricOption) Gauge
+    Histogram(name string, opts ...MetricOption) Histogram
+    Timer(name string, opts ...MetricOption) Timer
+
+    RegisterCollector(c CustomCollector) error
+    PrometheusHandler() http.Handler // via shared.PrometheusProvider
+    Export(format ExportFormat) ([]byte, error)
+    Reload(config *MetricsConfig) error
 }
 
 type Counter interface {
     Inc()
-    Add(value float64)
+    Add(delta float64)
+    AddWithExemplar(delta float64, ex Exemplar)
+    Value() float64
     WithLabels(labels map[string]string) Counter
 }
 
-type Gauge interface {
-    Set(value float64)
-    Inc()
-    Dec()
-    Add(value float64)
-    Sub(value float64)
-    WithLabels(labels map[string]string) Gauge
-}
-
 type Histogram interface {
-    Observe(value float64)
+    Observe(v float64)
+    ObserveWithExemplar(v float64, ex Exemplar)
     WithLabels(labels map[string]string) Histogram
 }
-
-type Summary interface {
-    Observe(value float64)
-    WithLabels(labels map[string]string) Summary
-}
 ```
 
-### Main Functions/Methods
+Options: `WithLabel`, `WithLabels`, `WithBuckets`, `WithDescription`, `WithUnit`. The forge package re-exports `WithLabel` and `WithLabels`.
+
+### Main Functions
 
 ```go
-// Create metrics system
-func NewMetrics(config MetricsConfig) Metrics
-func NewPrometheusMetrics(registry *prometheus.Registry) Metrics
+func New(config *CollectorConfig, log logger.Logger) Metrics
+func DefaultCollectorConfig() *CollectorConfig
+func NewNoOpMetrics() Metrics
+func NewRegistryWithConfig(cfg *RegistryConfig) Registry
 
-// Standard collectors
-func NewCounterCollector(name, help string, labels ...string) Counter
-func NewGaugeCollector(name, help string, labels ...string) Gauge
-func NewHistogramCollector(name, help string, buckets []float64, labels ...string) Histogram
-func NewSummaryCollector(name, help string, objectives map[float64]float64, labels ...string) Summary
-
-// Exporters
-func NewPrometheusExporter(config PrometheusConfig) Exporter
-func NewStatsDExporter(config StatsDConfig) Exporter
-func NewCloudWatchExporter(config CloudWatchConfig) Exporter
+// exporters
+func NewStreamingPrometheusBridge(stream StreamFunc, cfg PrometheusConfig) *PrometheusBridge
+func NewPrometheusBridge(snapshot SnapshotFunc, cfg PrometheusConfig) *PrometheusBridge // deprecated, materializes the snapshot
 ```
+
+### Registry series cap
+
+`RegistryConfig.MaxSeriesPerMetric` (config key `metrics.limits.max_series_per_metric`) caps distinct label sets per metric name. The default is 2000, and 0 means the default. When a name already holds that many series, a new label set is replaced by `{otel_metric_overflow="true"}` (the `OverflowLabel` constant) and the call returns the overflow series. The other labels are dropped. `OnOverflow` fires once per name; the collector wires it to a single `log.Warn` per metric. Unlabelled metrics are never capped. Existing series keep working after the cap is hit.
+
+### Unit capture
+
+`metrics.WithUnit("s")` is stored on `RegisteredMetric.Unit` when the metric is first registered and reaches the bridge in `exporters.Sample.Unit`. Only the bridge's semconv naming rule reads it. `createMetadata`/`inferUnit` fill the descriptive metadata and play no part in the exported name.
+
+### WithLabels wrappers
+
+go-utils' own `WithLabels` builds a fresh, unregistered metric, so values recorded on it never reached a scrape. The registry now returns `regCounter`, `regGauge`, `regHistogram` and `regTimer`, whose `WithLabels` merges the labels into the original options and calls `GetOrCreate*` again. A child is therefore registered, cached, exported and subject to the series cap. `childOpts` does the merge; labels passed to `WithLabels` win over labels from the parent.
+
+### Prometheus naming rule (the bridge)
+
+`forgeCollector.fqName` decides the exported name:
+
+- Name starts with `http.server.`, `http.client.`, `rpc.`, `messaging.` or `db.client.` (semconv): never prefixed. Dots become underscores and the unit adds a suffix (`s` -> `_seconds`, `By` -> `_bytes`, `ms` -> `_milliseconds`; a unit in braces such as `{request}` adds nothing; no double suffix). `http.server.request.duration` with unit `s` is `http_server_request_duration_seconds`.
+- Anything else: `<namespace>_<name>`, namespace from `metrics.collection.namespace` (default `forge`). Your own metrics keep this prefix.
+- `go_*` and `process_*` come from client_golang's Go and process collectors and stay unprefixed.
+
+### Exemplars
+
+`Histogram.ObserveWithExemplar` stores a `metrics.Exemplar{Value, Timestamp, TraceID, SpanID}`. At scrape time `latestExemplarPerBucket` keeps the newest exemplar that has a trace ID in each bucket (Prometheus stores one per bucket), and the bridge attaches them with `prometheus.NewMetricWithExemplars` using labels `trace_id` and `span_id`. The handler is built with `EnableOpenMetrics: true`, and exemplars only appear when the scraper negotiates OpenMetrics (Prometheus does; a plain `curl` does not unless it sends `Accept: application/openmetrics-text`). Prometheus itself needs `--enable-feature=exemplar-storage`.
 
 ### HTTP server metrics (`collectors/http_server.go`)
 
 `collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{...}).Middleware()` records the OTel HTTP server semantic-convention metrics, keyed by the matched route rather than the raw path:
 
-- `http.server.request.duration` (s, histogram), labels `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`, `error.type`. Scraped as `http_server_request_duration_seconds`.
+- `http.server.request.duration` (s, histogram, buckets 0.005 to 10 s), labels `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`, `error.type`. Scraped as `http_server_request_duration_seconds`.
 - `http.server.active_requests` (`{request}`, gauge), labels `http.request.method`, `url.scheme`.
-- With `BodySizes`: `http.server.request.body.size` and `http.server.response.body.size` (By, histograms, same labels as the duration). The request size is only observed when `Content-Length` is positive.
+- With `BodySizes` (`metrics.features.http_body_sizes`, off by default): `http.server.request.body.size` and `http.server.response.body.size` (By, histograms, same labels as the duration). The request size is only observed when `Content-Length` is positive.
 
-The route comes from `shared.RouteMatch`. By default the middleware shares the holder the tracing middleware installed (`shared.EnsureRouteMatch`); set `FreshRouteMatch` when it is the outermost middleware so a nested in-process dispatch can't reuse the outer request's holder. Methods outside the standard nine collapse to `_OTHER` (`telemetry.NormalizeMethod`), unmatched requests get an empty `http.route`, `error.type` is the status code for 5xx and empty otherwise, and paths with an `ExcludePaths` prefix are not recorded. A sampled span on the request context adds an exemplar to the duration observation. The response status and byte count come from `telemetry.StatusRecorder`.
+`forge.New` installs it with `router.UseGlobal` when metrics and `features.http_metrics` are on: after the tracing middleware, so exemplars see the span, and before every extension middleware, so requests an auth extension rejects are counted. The route comes from `shared.RouteMatch`. By default the middleware shares the holder the tracing middleware installed (`shared.EnsureRouteMatch`); `FreshRouteMatch` is set when tracing is off and this is the outermost middleware, so a nested in-process dispatch can't reuse the outer request's holder. Methods outside the standard nine collapse to `_OTHER` (`telemetry.NormalizeMethod`), unmatched requests get an empty `http.route`, `error.type` is the status code for 5xx and empty otherwise, and paths with an `ExcludePaths` prefix (the tracing `exclude_paths`, default `/_/`) are not recorded. A sampled span on the request context adds an exemplar to the duration observation. The response status and byte count come from `telemetry.StatusRecorder`.
+
+The older `forge_http_*` series, the `http.requests.path.*` flat keys and the `track_paths` / `group_similar_paths` / path allow and block list settings are gone. Do not reintroduce a raw-path label.
+
+A config-merge quirk to know about: when a config file enables metrics, `mergeMetricsConfig` (app_impl.go) starts from the file and copies only some programmatic fields. `HTTPBodySizes` and `MaxSeriesPerMetric` set in code are not copied.
 
 ## Usage Examples
 
-### Basic Metrics
+### Counters, gauges and histograms
 
 ```go
-import "github.com/xraph/forge/internal/metrics"
+import (
+    "github.com/xraph/forge"
+    gometrics "github.com/xraph/go-utils/metrics"
+)
 
-func main() {
-    // Create metrics system
-    m := metrics.NewMetrics(metrics.MetricsConfig{
-        Namespace: "myapp",
-        Subsystem: "api",
-    })
-    
-    // Counter - monotonic increase
-    requestCounter := m.Counter("requests_total",
-        "method", "path", "status")
-    requestCounter.WithLabels(map[string]string{
-        "method": "GET",
-        "path":   "/users",
-        "status": "200",
-    }).Inc()
-    
-    // Gauge - arbitrary value
-    activeConnections := m.Gauge("active_connections")
-    activeConnections.Set(42)
-    activeConnections.Inc()  // 43
-    activeConnections.Dec()  // 42
-    
-    // Histogram - distribution of values
-    requestDuration := m.Histogram("request_duration_seconds",
-        []float64{0.001, 0.01, 0.1, 1, 10},  // Buckets
-        "method", "path")
-    requestDuration.WithLabels(map[string]string{
-        "method": "GET",
-        "path":   "/users",
-    }).Observe(0.045)  // 45ms request
-    
-    // Summary - quantiles
-    responseSize := m.Summary("response_size_bytes",
-        map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},  // quantiles
-        "endpoint")
-    responseSize.WithLabels(map[string]string{
-        "endpoint": "/api/users",
-    }).Observe(1024)
-}
+m := app.Metrics()
+
+m.Counter("requests_handled_total", forge.WithLabels(map[string]string{"queue": "emails"})).Inc()
+
+m.Gauge("queue_depth").Set(42)
+
+m.Histogram("job_duration_seconds",
+    gometrics.WithBuckets(0.01, 0.1, 1, 10),
+    gometrics.WithUnit("s"),
+).Observe(0.45)
 ```
 
-### HTTP Request Metrics
+Exported as `forge_requests_handled_total`, `forge_queue_depth` and `forge_job_duration_seconds` (the `forge_` prefix applies to your own names).
+
+### Label vectors
 
 ```go
-// Middleware to track HTTP metrics
-func MetricsMiddleware(m metrics.Metrics) Middleware {
-    requestCounter := m.Counter("http_requests_total",
-        "method", "path", "status")
-    requestDuration := m.Histogram("http_request_duration_seconds",
-        []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5},
-        "method", "path", "status")
-    requestSize := m.Histogram("http_request_size_bytes",
-        []float64{100, 1000, 10000, 100000, 1000000},
-        "method", "path")
-    responseSize := m.Histogram("http_response_size_bytes",
-        []float64{100, 1000, 10000, 100000, 1000000},
-        "method", "path")
-    
-    return func(next Handler) Handler {
-        return func(ctx Context) error {
-            start := time.Now()
-            
-            // Track request size
-            if ctx.Request().ContentLength > 0 {
-                requestSize.WithLabels(map[string]string{
-                    "method": ctx.Request().Method,
-                    "path":   ctx.Request().URL.Path,
-                }).Observe(float64(ctx.Request().ContentLength))
-            }
-            
-            // Execute handler
-            err := next(ctx)
-            
-            // Determine status
-            status := ctx.Response().Status
-            if err != nil {
-                status = getStatusFromError(err)
-            }
-            
-            labels := map[string]string{
-                "method": ctx.Request().Method,
-                "path":   ctx.Request().URL.Path,
-                "status": strconv.Itoa(status),
-            }
-            
-            // Track metrics
-            requestCounter.WithLabels(labels).Inc()
-            requestDuration.WithLabels(labels).Observe(time.Since(start).Seconds())
-            
-            // Track response size
-            if size := ctx.Response().Size; size > 0 {
-                responseSize.WithLabels(map[string]string{
-                    "method": ctx.Request().Method,
-                    "path":   ctx.Request().URL.Path,
-                }).Observe(float64(size))
-            }
-            
-            return err
-        }
-    }
-}
+orders := forge.CounterVec(m, "orders_created_total", "tier", "region")
+orders.With("pro", "eu").Inc()
 ```
 
-### Runtime Metrics
+See `vec/llm.txt`. In tests call `forgetesting.StrictMetrics(t)` so a wrong number of values fails the test.
 
-```go
-// Collect Go runtime metrics
-func RegisterRuntimeMetrics(m metrics.Metrics) {
-    // Goroutines
-    goroutines := m.Gauge("go_goroutines")
-    
-    // Memory
-    memAlloc := m.Gauge("go_memory_alloc_bytes")
-    memSys := m.Gauge("go_memory_sys_bytes")
-    memHeapInuse := m.Gauge("go_memory_heap_inuse_bytes")
-    
-    // GC
-    gcPauses := m.Histogram("go_gc_pause_seconds",
-        []float64{0.00001, 0.0001, 0.001, 0.01, 0.1})
-    
-    // Update periodically
-    ticker := time.NewTicker(10 * time.Second)
-    go func() {
-        for range ticker.C {
-            var m runtime.MemStats
-            runtime.ReadMemStats(&m)
-            
-            goroutines.Set(float64(runtime.NumGoroutine()))
-            memAlloc.Set(float64(m.Alloc))
-            memSys.Set(float64(m.Sys))
-            memHeapInuse.Set(float64(m.HeapInuse))
-            
-            // Last GC pause
-            if len(m.PauseNs) > 0 {
-                gcPauses.Observe(float64(m.PauseNs[(m.NumGC+255)%256]) / 1e9)
-            }
-        }
-    }()
-}
-```
+### Custom collector
 
-### Database Connection Pool Metrics
+Implement `metrics.CustomCollector` (`Name()`, `Collect() map[string]any`, `Reset() error`) and pass it to `m.RegisterCollector(c)`. The collector's `collectMetrics` loop calls `Collect` every `metrics.collection.interval`.
 
-```go
-func RegisterDatabaseMetrics(m metrics.Metrics, db *sql.DB) {
-    openConnections := m.Gauge("db_connections_open")
-    inUseConnections := m.Gauge("db_connections_inuse")
-    idleConnections := m.Gauge("db_connections_idle")
-    waitCount := m.Counter("db_connection_wait_total")
-    waitDuration := m.Histogram("db_connection_wait_duration_seconds",
-        []float64{0.001, 0.01, 0.1, 1})
-    
-    ticker := time.NewTicker(5 * time.Second)
-    go func() {
-        for range ticker.C {
-            stats := db.Stats()
-            openConnections.Set(float64(stats.OpenConnections))
-            inUseConnections.Set(float64(stats.InUse))
-            idleConnections.Set(float64(stats.Idle))
-            waitCount.Add(float64(stats.WaitCount))
-            waitDuration.Observe(stats.WaitDuration.Seconds())
-        }
-    }()
-}
-```
+### Prometheus endpoint
 
-### Business Metrics
-
-```go
-// Track business KPIs
-func RegisterBusinessMetrics(m metrics.Metrics) {
-    // User registrations
-    registrations := m.Counter("user_registrations_total",
-        "source", "plan")
-    registrations.WithLabels(map[string]string{
-        "source": "web",
-        "plan":   "premium",
-    }).Inc()
-    
-    // Orders
-    orders := m.Counter("orders_total",
-        "status", "payment_method")
-    orderValue := m.Histogram("order_value_usd",
-        []float64{10, 50, 100, 500, 1000, 5000})
-    
-    orders.WithLabels(map[string]string{
-        "status":         "completed",
-        "payment_method": "credit_card",
-    }).Inc()
-    orderValue.Observe(99.99)
-    
-    // Active users
-    activeUsers := m.Gauge("active_users")
-    activeUsers.Set(1234)
-    
-    // Revenue
-    revenue := m.Counter("revenue_total_usd")
-    revenue.Add(99.99)
-}
-```
-
-### Custom Collector
-
-```go
-// Implement custom collector
-type QueueCollector struct {
-    queue         *Queue
-    sizeGauge     metrics.Gauge
-    throughputCounter metrics.Counter
-}
-
-func NewQueueCollector(m metrics.Metrics, queue *Queue) *QueueCollector {
-    return &QueueCollector{
-        queue:         queue,
-        sizeGauge:     m.Gauge("queue_size", "name"),
-        throughputCounter: m.Counter("queue_throughput_total", "name", "operation"),
-    }
-}
-
-func (c *QueueCollector) Collect() {
-    c.sizeGauge.WithLabels(map[string]string{
-        "name": c.queue.Name(),
-    }).Set(float64(c.queue.Size()))
-}
-
-// Register and update periodically
-collector := NewQueueCollector(m, queue)
-m.Register(collector)
-
-ticker := time.NewTicker(5 * time.Second)
-go func() {
-    for range ticker.C {
-        collector.Collect()
-    }
-}()
-```
-
-### Prometheus Endpoint
-
-```go
-// Expose metrics via HTTP
-router := app.Router()
-router.GET("/_/metrics", func(ctx Context) error {
-    handler := app.Metrics().Handler()
-    handler.ServeHTTP(ctx.Response(), ctx.Request())
-    return nil
-})
-
-// Metrics available at: http://localhost:8080/_/metrics
-
-// Example output:
-// # HELP myapp_http_requests_total Total HTTP requests
-// # TYPE myapp_http_requests_total counter
-// myapp_http_requests_total{method="GET",path="/users",status="200"} 1234
-//
-// # HELP myapp_http_request_duration_seconds HTTP request duration
-// # TYPE myapp_http_request_duration_seconds histogram
-// myapp_http_request_duration_seconds_bucket{method="GET",path="/users",le="0.005"} 543
-// myapp_http_request_duration_seconds_bucket{method="GET",path="/users",le="0.01"} 876
-// myapp_http_request_duration_seconds_bucket{method="GET",path="/users",le="+Inf"} 1234
-// myapp_http_request_duration_seconds_sum{method="GET",path="/users"} 12.34
-// myapp_http_request_duration_seconds_count{method="GET",path="/users"} 1234
-```
-
-### Multi-Exporter Setup
-
-```go
-// Export to multiple backends
-config := metrics.MetricsConfig{
-    Exporters: []metrics.ExporterConfig{
-        {
-            Type:     "prometheus",
-            Endpoint: "/_/metrics",
-        },
-        {
-            Type:     "statsd",
-            Address:  "localhost:8125",
-        },
-        {
-            Type:     "cloudwatch",
-            Region:   "us-east-1",
-            Namespace: "MyApp",
-        },
-    },
-}
-
-m := metrics.NewMetrics(config)
-
-// Metrics automatically exported to all backends
-```
+`/_/metrics` is served from `collector.PrometheusHandler()`. Scrape it with Prometheus, or with `curl -H 'Accept: application/openmetrics-text'` to see exemplars.
 
 ## Configuration
 
 ```yaml
-# Metrics configuration
 metrics:
   enabled: true
-  namespace: myapp
-  subsystem: api
-  
-  # Prometheus
-  prometheus:
-    enabled: true
-    endpoint: /_/metrics
-    
-  # Additional exporters
-  exporters:
-    - type: statsd
-      address: localhost:8125
-      prefix: myapp
-      
-    - type: cloudwatch
-      region: us-east-1
-      namespace: MyApp
-      interval: 60s
+  features:
+    system_metrics: true
+    runtime_metrics: true
+    http_metrics: true
+    http_body_sizes: false      # request and response body size histograms
+  collection:
+    interval: 10s
+    namespace: forge            # prefix for your own metrics, never for semconv names
+    path: /_/metrics
+    default_tags:
+      environment: development
+  limits:
+    max_metrics: 10000
+    buffer_size: 1000
+    max_series_per_metric: 2000 # 0 means 2000
 ```
 
 ## Dependencies
 
 ### External
-- github.com/prometheus/client_golang - Prometheus client
+- github.com/prometheus/client_golang - Prometheus registry, OpenMetrics encoding
+- github.com/xraph/go-utils/metrics - metric types, options, `Metrics` interface
+- go.opentelemetry.io/otel/trace - span context for exemplars
 
 ### Internal
-- github.com/xraph/forge/internal/shared - Shared interfaces
+- github.com/xraph/forge/internal/shared - shared interfaces and `RouteMatch`
+- github.com/xraph/forge/internal/telemetry - method normalisation, status recorder, path exclusion
+- github.com/xraph/forge/internal/metrics/vec - label vectors
 
 ## Common Patterns
 
 ### Histogram Buckets
 ```go
 // HTTP latency (seconds)
-httpBuckets := []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10}
-
-// Database query time (seconds)
-dbBuckets := []float64{0.0001, 0.001, 0.01, 0.1, 1}
+httpBuckets := []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
 // Response size (bytes)
-sizeBuckets := []float64{100, 1000, 10000, 100000, 1000000, 10000000}
+sizeBuckets := []float64{64, 256, 1024, 4096, 16384, 65536, 262144, 1048576}
 ```
 
 ### Label Cardinality
 ```go
-// ✅ Good - low cardinality
-m.Counter("http_requests_total",
-    "method",  // ~10 values (GET, POST, etc.)
-    "status",  // ~10 values (200, 404, etc.)
-)
+// Good: bounded values
+forge.CounterVec(m, "http_client_requests_total", "method", "status_class")
 
-// ❌ Bad - high cardinality (causes memory issues)
-m.Counter("http_requests_total",
-    "user_id",     // Millions of values!
-    "session_id",  // Millions of values!
-)
-```
-
-### Timing Operations
-```go
-func trackOperation(m metrics.Metrics, name string, operation func() error) error {
-    counter := m.Counter(name + "_total", "status")
-    duration := m.Histogram(name + "_duration_seconds",
-        []float64{0.001, 0.01, 0.1, 1, 10})
-    
-    start := time.Now()
-    err := operation()
-    elapsed := time.Since(start).Seconds()
-    
-    status := "success"
-    if err != nil {
-        status = "error"
-    }
-    
-    counter.WithLabels(map[string]string{"status": status}).Inc()
-    duration.Observe(elapsed)
-    
-    return err
-}
+// Bad: unbounded values. The series cap will fold these into one
+// otel_metric_overflow series once it is reached, and you lose the detail.
+forge.CounterVec(m, "http_client_requests_total", "user_id", "session_id")
 ```
 
 ## Related Packages
 
-- `/` - Core Forge framework using metrics
-- `/internal/health` - Health metrics
-- `/internal/router` - HTTP metrics
+- `/` - Core Forge framework (`forge.CounterVec`, `forge.GaugeVec`, `forge.HistogramVec`)
+- `/testing` - `StrictMetrics`, `NewNoOpMetrics`
+- `/internal/metrics/vec` - label vectors
+- `/internal/telemetry` - tracing middleware, `NormalizeMethod`, `StatusRecorder`
+- `/internal/router` - route matching that fills `shared.RouteMatch`
 
 ## Notes
 
-### Production Readiness
-- ✅ Production-ready with comprehensive testing
-- ✅ Prometheus-native metrics
-- ✅ Low overhead (<1μs per metric)
-- ✅ Thread-safe concurrent updates
-- ✅ Automatic metric registration
-
 ### Performance Characteristics
-- Counter increment: ~100ns
-- Gauge set: ~100ns
-- Histogram observe: ~500ns
-- Summary observe: ~1μs
-- Memory: ~1KB per unique label combination
+- A `Vec.With` hit is a `sync.Map` load; a miss builds the child through the registry.
+- The Prometheus scrape streams one metric at a time (`NewStreamingPrometheusBridge`) instead of copying the registry.
+- Registry operations take the registry mutex; keep metric handles and vectors on a struct instead of re-fetching them per call.
 
 ### Security Considerations
-- Don't expose sensitive data in metric labels
-- Rate limit metrics endpoint
-- Use authentication for metrics access in production
-- Monitor metrics cardinality
-- Alert on unusual metric patterns
+- Don't put user IDs, request IDs or raw paths in labels.
+- Put authentication in front of `/_/metrics` in production, or keep it on an internal port.
+- Watch the series-cap warning in the logs. It means a label has too many values.
 
 ### Best Practices
-1. Use counters for monotonic values
-2. Use gauges for arbitrary values
-3. Use histograms for distributions
-4. Keep label cardinality low (<100 per metric)
-5. Use meaningful metric names
-6. Add units to metric names (_bytes, _seconds)
-7. Use consistent labeling across metrics
-8. Monitor your metrics system itself
+1. Declare vectors once at startup and keep them on a struct.
+2. Use counters for monotonic values, gauges for values that go up and down, histograms for distributions.
+3. Name units into the metric (`_seconds`, `_bytes`) and pass `WithUnit` for semconv names.
+4. Keep label cardinality low and bounded.
+5. Use the HTTP server metrics for request rate, errors and latency; don't hand-roll a middleware that labels by path.
 
 ### License
 MIT License - Part of Forge Framework (internal package)
-

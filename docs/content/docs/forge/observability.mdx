@@ -345,6 +345,17 @@ Already running your own `otelhttp` server middleware? You'll now get two server
 With more than one Forge app in a process, the last app built sets all three: the tracer provider, the `propagators` setting and the error handler (that one only from an app with tracing on). `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to its own provider. Build the app you want the helpers to follow last.
 </Callout>
 
+## Metrics
+
+With `metrics.features.http_metrics` on (the default), Forge records the OpenTelemetry HTTP server metrics for every request and serves them at `/_/metrics`. The latency series is `http_server_request_duration_seconds`, labelled by method, route pattern, status code, scheme and error type. Requests that tracing samples carry a `trace_id` exemplar on it, so Grafana can take you from a slow bucket to the trace.
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
+```
+
+Prometheus needs `--enable-feature=exemplar-storage` to keep the exemplars. The full series list, the label vectors for your own metrics, the series cap and the migration from the old `forge_http_*` names are on the [Metrics](/docs/forge/metrics) page.
+
 ## Built-in Endpoints
 
 Forge exposes several built-in endpoints for observability and introspection:
