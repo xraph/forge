@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"math"
 	"slices"
 	"testing"
 
@@ -138,6 +139,38 @@ func TestResolveClampsRatio(t *testing.T) {
 
 	if s.SampleRatio != 1.0 || len(s.Warnings) != 1 {
 		t.Fatalf("ratio %v warnings %v", s.SampleRatio, s.Warnings)
+	}
+}
+
+func TestResolveNaNRatioFallsBackToDefault(t *testing.T) {
+	s := Resolve(Inputs{
+		Environment: "production",
+		Getenv: env(map[string]string{
+			"OTEL_TRACES_SAMPLER":     "parentbased_traceidratio",
+			"OTEL_TRACES_SAMPLER_ARG": "NaN",
+		}),
+	})
+
+	if s.SampleRatio != 0.1 || len(s.Warnings) != 1 {
+		t.Fatalf("ratio %v warnings %v", s.SampleRatio, s.Warnings)
+	}
+}
+
+func TestResolveNaNFileRatioFallsBackToDefault(t *testing.T) {
+	s := Resolve(Inputs{File: shared.TracingConfig{SampleRatio: new(math.NaN())}, Getenv: env(nil)})
+
+	if s.SampleRatio != 1.0 || len(s.Warnings) != 1 {
+		t.Fatalf("ratio %v warnings %v", s.SampleRatio, s.Warnings)
+	}
+}
+
+func TestResolveHeaderKeepsLiteralPlus(t *testing.T) {
+	s := Resolve(Inputs{Getenv: env(map[string]string{
+		"OTEL_EXPORTER_OTLP_HEADERS": "authorization=Basic%20ab+c/d==",
+	})})
+
+	if s.Headers["authorization"] != "Basic ab+c/d==" {
+		t.Fatalf("authorization = %q", s.Headers["authorization"])
 	}
 }
 

@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -126,7 +127,12 @@ func resolveSampler(in Inputs, getenv func(string) string, warnings *[]string) (
 		}
 	}
 
-	if ratio < 0 || ratio > 1 {
+	switch {
+	case math.IsNaN(ratio):
+		ratio = defaultRatio(in.Environment)
+		*warnings = append(*warnings, fmt.Sprintf(
+			"telemetry: sample ratio NaN is not a number, using %v", ratio))
+	case ratio < 0 || ratio > 1:
 		*warnings = append(*warnings, fmt.Sprintf("telemetry: sample ratio %v is outside [0, 1], clamping", ratio))
 		ratio = min(max(ratio, 0), 1)
 	}
@@ -158,7 +164,7 @@ func parseHeaders(raw string) map[string]string {
 			continue
 		}
 
-		if dec, err := url.QueryUnescape(strings.TrimSpace(v)); err == nil {
+		if dec, err := url.PathUnescape(strings.TrimSpace(v)); err == nil {
 			v = dec
 		}
 
