@@ -10,9 +10,9 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **resource.go**: `BuildResource`, the one resource every signal shares.
 - **sampler.go**: `BuildSampler`, maps a sampler name to an SDK sampler.
 - **provider.go**: `NewProvider`, `Provider.RegisterSpanProcessor`, `Provider.Shutdown`.
-- **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `NormalizeMethod`.
+- **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `NormalizeMethod`, `Excluded` (the path-prefix check, shared with the HTTP server metrics middleware).
 - **client.go**: `InstrumentTransport`, `HTTPClient`.
-- **recorder.go**: `statusRecorder`, captures the status and keeps Flusher, Hijacker and Unwrap working.
+- **recorder.go**: `StatusRecorder` (`NewStatusRecorder`), captures the status and body bytes (`Status`, `BytesWritten`) and keeps Flusher, Hijacker and Unwrap working. The HTTP server metrics middleware in `internal/metrics/collectors` uses it too. A 1xx other than 101 is forwarded but not recorded, so 103 Early Hints never becomes the final status. Flush and Hijack go through `http.ResponseController`, so a wrapper below that only has `Unwrap` still works; a failed hijack returns the controller's error (wrapping `http.ErrNotSupported`) and records nothing, a successful one records 101.
 - **errorhandler.go**: the OTel error handler, rate limited to one warn per minute.
 
 ## Precedence

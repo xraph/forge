@@ -117,6 +117,16 @@ func NewStatsDExporter(config StatsDConfig) Exporter
 func NewCloudWatchExporter(config CloudWatchConfig) Exporter
 ```
 
+### HTTP server metrics (`collectors/http_server.go`)
+
+`collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{...}).Middleware()` records the OTel HTTP server semantic-convention metrics, keyed by the matched route rather than the raw path:
+
+- `http.server.request.duration` (s, histogram), labels `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`, `error.type`. Scraped as `http_server_request_duration_seconds`.
+- `http.server.active_requests` (`{request}`, gauge), labels `http.request.method`, `url.scheme`.
+- With `BodySizes`: `http.server.request.body.size` and `http.server.response.body.size` (By, histograms, same labels as the duration). The request size is only observed when `Content-Length` is positive.
+
+The route comes from `shared.RouteMatch`. By default the middleware shares the holder the tracing middleware installed (`shared.EnsureRouteMatch`); set `FreshRouteMatch` when it is the outermost middleware so a nested in-process dispatch can't reuse the outer request's holder. Methods outside the standard nine collapse to `_OTHER` (`telemetry.NormalizeMethod`), unmatched requests get an empty `http.route`, `error.type` is the status code for 5xx and empty otherwise, and paths with an `ExcludePaths` prefix are not recorded. A sampled span on the request context adds an exemplar to the duration observation. The response status and byte count come from `telemetry.StatusRecorder`.
+
 ## Usage Examples
 
 ### Basic Metrics

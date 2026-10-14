@@ -45,7 +45,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if excluded(r.URL.Path, s.ExcludePaths) {
+			if Excluded(r.URL.Path, s.ExcludePaths) {
 				next.ServeHTTP(w, r)
 
 				return
@@ -78,7 +78,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				}
 			}
 
-			rec := newStatusRecorder(w)
+			rec := NewStatusRecorder(w)
 
 			defer func() {
 				if p := recover(); p != nil {
@@ -181,7 +181,9 @@ func traceparent(traceID, spanID string, sampled bool) string {
 	return "00-" + traceID + "-" + spanID + "-" + flags
 }
 
-func excluded(path string, prefixes []string) bool {
+// Excluded reports whether path starts with any of prefixes. The tracing and
+// HTTP metrics middleware use it to skip paths such as "/_/".
+func Excluded(path string, prefixes []string) bool {
 	for _, p := range prefixes {
 		if strings.HasPrefix(path, p) {
 			return true
