@@ -775,6 +775,21 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			})
 		}
 
+		// Tell outer middleware which route matched. Global middleware runs
+		// before matching, so it leaves a RouteMatch on the context and reads
+		// it back after the handler returns.
+		{
+			inner := finalHandler
+			routePattern := fullPath
+			finalHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if m := shared.RouteMatchFromContext(req.Context()); m != nil {
+					m.Pattern = routePattern
+				}
+
+				inner.ServeHTTP(w, req)
+			})
+		}
+
 		if r.ext != nil {
 			if err := r.ext.HandleRoute(RouteSpec{
 				Method:  method,
