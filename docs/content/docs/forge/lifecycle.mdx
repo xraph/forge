@@ -246,6 +246,10 @@ app.RegisterHookFn(forge.PhaseBeforeStop, "flush-buffers",
 )
 ```
 
+Open streams don't hold a shutdown up. When it starts, Forge cancels the context of every SSE and WebSocket handler, sends each socket a 1001 (going away) close frame, and waits for those handlers to return while the HTTP server drains its other requests, which are left to finish normally. A handler that waits on `ctx.Context().Done()` ends by itself and its client reconnects to another instance, so you don't need your own signal handling for streams.
+
+A handler that ignores its context can't stop the shutdown either. It ends when the `WithShutdownTimeout` deadline passes, with a warning in the log.
+
 ### Priority-Based Ordering
 
 When multiple hooks are registered for the same phase, they execute in priority order (highest first):
