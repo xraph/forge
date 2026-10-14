@@ -1,591 +1,345 @@
-# Forge: Authentication Extension
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge Auth, authentication providers and route middleware for Go APIs built on Forge" width="100%">
+</p>
 
-Production-ready authentication system with automatic OpenAPI security scheme generation.
+# Forge Auth: API authentication middleware for Go
+
+Forge Auth is the authentication package for [Forge](https://github.com/xraph/forge), the Go backend framework. It gives you ready-made providers for API keys, Bearer tokens such as JWTs, HTTP Basic, OAuth 2.0, OpenID Connect and LDAP or Active Directory, a registry that chains them, and route middleware that checks scopes, roles and permissions before your handler runs. You write the part that knows your users (a validator function), and the package handles reading the credential, trying providers in order and answering 401 or 403.
+
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/auth.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/auth) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+
+[Documentation](https://www.xraph.com/docs/forge/extensions/auth/features) · [Quick start](#quick-start) · [Features](#features) · [Providers](#providers) · [Protecting routes](#protecting-routes) · [Authorization](#authorization) · [The extension](#the-forge-extension) · [FAQ](#faq)
+
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/). Add Forge and the auth module:
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/auth@latest
+```
+
+Save this as `main.go`. It protects one route with an API key and a second one with an API key plus the `admin` role:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/auth"
+	"github.com/xraph/forge/extensions/auth/providers"
+)
+
+// Demo keys. A real service looks these up in its database.
+var apiKeys = map[string]auth.AuthContext{
+	"alice-key": {Subject: "alice", Roles: []string{"admin"}},
+	"bob-key":   {Subject: "bob", Roles: []string{"viewer"}},
+}
+
+func validateKey(_ context.Context, key string) (*auth.AuthContext, error) {
+	authCtx, ok := apiKeys[key]
+	if !ok {
+		return nil, auth.ErrInvalidCredentials
+	}
+
+	return &authCtx, nil
+}
+
+func main() {
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "auth-demo",
+		HTTPAddress: ":8080",
+	})
+
+	registry := auth.NewRegistry(app.Container(), app.Logger())
+
+	err := registry.Register(providers.NewAPIKeyProvider("api-key",
+		providers.WithAPIKeyValidator(validateKey),
+	))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	signedIn := registry.MiddlewareWithRequirement(auth.Requirement{
+		Providers: []string{"api-key"},
+	})
+	adminsOnly := registry.MiddlewareWithRequirement(auth.Requirement{
+		Providers: []string{"api-key"},
+		Roles:     []string{"admin"},
+	})
+
+	router := app.Router()
+
+	err = router.GET("/me", func(ctx forge.Context) error {
+		authCtx, ok := auth.GetAuthContext(ctx)
+		if !ok {
+			return forge.Unauthorized("not signed in")
+		}
+
+		return ctx.JSON(http.StatusOK, map[string]any{
+			"subject":  authCtx.Subject,
+			"roles":    authCtx.Roles,
+			"provider": authCtx.ProviderName,
+		})
+	}, forge.WithMiddleware(signedIn), forge.WithAuth("api-key"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = router.DELETE("/cache", func(ctx forge.Context) error {
+		return ctx.JSON(http.StatusOK, map[string]string{"status": "cleared"})
+	}, forge.WithMiddleware(adminsOnly), forge.WithAuth("api-key"), forge.WithAnyRole("admin"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Run it and try a few requests:
+
+```bash
+go mod tidy
+go run .
+
+curl -i http://localhost:8080/me
+# 401 Unauthorized
+curl -H "X-API-Key: alice-key" http://localhost:8080/me
+# {"provider":"api-key","roles":["admin"],"subject":"alice"}
+curl -i -X DELETE -H "X-API-Key: bob-key" http://localhost:8080/cache
+# 403 authorization failed: requires any of roles admin
+curl -X DELETE -H "X-API-Key: alice-key" http://localhost:8080/cache
+# {"status":"cleared"}
+```
+
+One thing in that program is there on purpose, and you'll want it in your own code for now. The registry comes from `auth.NewRegistry`, not from the extension. `auth.NewExtension()` registers a registry constructor that asks the container for a `forge.Container`, and nothing provides one, so resolving `auth.Registry` from the container fails today with "no provider for type di.Container". [The Forge extension](#the-forge-extension) has the details.
+
+The handler reads the subject with `auth.GetAuthContext(ctx)`. The registry middleware stores it with `ctx.Set`, and what middleware stores that way reaches the handler.
 
 ## Features
 
-- ✅ **Multiple Auth Providers** - API Key, Bearer Token (JWT), OAuth2, OpenID Connect, Basic Auth
-- ✅ **Auto OpenAPI Generation** - Security schemes automatically added to OpenAPI specs
-- ✅ **DI Container Access** - Validators can access services for database lookups, caching, etc.
-- ✅ **Flexible Configuration** - Route-level and group-level auth with OR/AND logic
-- ✅ **Scope/Permission Support** - Fine-grained access control with required scopes
-- ✅ **Thread-Safe** - Concurrent access to auth registry
-- ✅ **Production-Ready** - Proper error handling, validation, and logging
+| You need | Forge Auth gives you |
+| --- | --- |
+| API key authentication in Go | `providers.NewAPIKeyProvider`, reading a header (`X-API-Key` by default), a query parameter or a cookie |
+| JWT or other Bearer tokens | `providers.NewBearerTokenProvider` with your own token validator |
+| HTTP Basic, OAuth 2.0 and OpenID Connect | `NewBasicAuthProvider`, `NewOAuth2Provider` and `NewOIDCProvider` |
+| LDAP or Active Directory sign-in | `providers.NewLDAPProvider`, with StartTLS, a connection pool, a result cache and group-to-role mapping |
+| More than one way to sign in | Registry middleware that tries providers in order, or requires all of them |
+| Role, scope and permission checks | `auth.Requirement` and a pluggable `auth.Authorizer` |
+| Documented security in your API spec | `forge.WithAuth`, `forge.WithAnyRole` and `forge.WithAllPermissions` route metadata, read by the OpenAPI and client generators |
+| Your own scheme | Any type that implements `auth.AuthProvider` |
 
-## Quick Start
+## Providers
 
-### LDAP certificate trust
+Each provider takes a name, which is what you pass to middleware and route options, and a validator you write. Your validator gets the raw credential and returns an `*auth.AuthContext`, or an error such as `auth.ErrInvalidCredentials`. If you forget the validator, the provider returns `auth.ErrInvalidConfiguration` on every request.
 
-If you use LDAP with StartTLS, install your LDAP certificate authority in the
-host trust store before connecting. The provider verifies the certificate and
-hostname and requires TLS 1.2 or newer. `InsecureSkipVerify` remains in
-`LDAPConfig` so existing code and configuration still decode, but setting it to
-`true` returns an error before any connection attempt. Set it to `false` after
-configuring trust. Deployments that relied on unverified certificates must
-configure their CA before upgrading.
+| Constructor | Reads | Options |
+| --- | --- | --- |
+| `NewAPIKeyProvider(name, ...)` | Header, then query, then cookie | `WithAPIKeyHeader`, `WithAPIKeyQuery`, `WithAPIKeyCookie`, `WithAPIKeyValidator`, `WithAPIKeyDescription`, `WithAPIKeyContainer` |
+| `NewBearerTokenProvider(name, ...)` | `Authorization: Bearer <token>` | `WithBearerFormat`, `WithBearerValidator`, `WithBearerDescription`, `WithBearerContainer` |
+| `NewBasicAuthProvider(name, ...)` | `Authorization: Basic <base64>` | `WithBasicAuthValidator`, `WithBasicAuthDescription`, `WithBasicAuthContainer` |
+| `NewOAuth2Provider(name, flows, ...)` | A Bearer token | `WithOAuth2Validator`, `WithOAuth2Description`, `WithOAuth2Container` |
+| `NewOIDCProvider(name, discoveryURL, ...)` | A Bearer token | `WithOIDCValidator`, `WithOIDCDescription`, `WithOIDCContainer` |
+| `NewLDAPProvider(cfg, logger)` | HTTP Basic credentials, checked against your directory | `LDAPConfig`, starting from `DefaultLDAPConfig()` |
 
-### 1. Register the Auth Extension
+The Bearer, OAuth2 and OIDC providers don't verify tokens themselves. You check the signature, expiry and audience in your validator. The OAuth2 flows and OIDC discovery URL you pass only feed the OpenAPI security scheme. Here are a few registered side by side:
 
 ```go
-import (
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/auth"
-    "github.com/xraph/forge/extensions/auth/providers"
+jwt := providers.NewBearerTokenProvider("jwt",
+	providers.WithBearerFormat("JWT"),
+	providers.WithBearerValidator(verifyJWT),
 )
+basic := providers.NewBasicAuthProvider("basic",
+	providers.WithBasicAuthValidator(checkPassword),
+)
+oauth := providers.NewOAuth2Provider("oauth2", &auth.OAuthFlows{
+	AuthorizationCode: &auth.OAuthFlow{
+		AuthorizationURL: "https://id.example.com/authorize",
+		TokenURL:         "https://id.example.com/token",
+		Scopes:           map[string]string{"read": "Read access"},
+	},
+}, providers.WithOAuth2Validator(verifyJWT))
 
-func main() {
-    app := forge.NewApp(forge.DefaultAppConfig())
-    
-    // Register auth extension
-    authExt := auth.NewExtension()
-    app.RegisterExtension(authExt)
-    
-    app.Run()
+for _, p := range []auth.AuthProvider{jwt, basic, oauth} {
+	if err := registry.Register(p); err != nil {
+		return err
+	}
 }
 ```
 
-### 2. Register Auth Providers
+### LDAP and Active Directory
 
 ```go
-// Get auth registry
-registry := forge.Must[auth.Registry](app.Container(), "auth:registry")
+cfg := providers.DefaultLDAPConfig()
+cfg.Host = "ldap.example.com"
+cfg.BaseDN = "dc=example,dc=com"
+cfg.BindDN = "cn=reader,dc=example,dc=com"
+cfg.BindPassword = "from-your-secret-store"
+cfg.RoleMapping = map[string]string{"cn=admins,ou=groups,dc=example,dc=com": "admin"}
 
-// Register API Key provider
-apiKeyProvider := providers.NewAPIKeyProvider("api-key",
-    providers.WithAPIKeyHeader("X-API-Key"),
-    providers.WithAPIKeyValidator(func(ctx context.Context, key string) (*auth.AuthContext, error) {
-        // Validate against database or cache
-        if key == "secret-key-123" {
-            return &auth.AuthContext{
-                Subject: "user-123",
-                Claims: map[string]interface{}{
-                    "role": "admin",
-                },
-            }, nil
-        }
-        return nil, auth.ErrInvalidCredentials
-    }),
-)
-registry.Register(apiKeyProvider)
-
-// Register JWT Bearer provider
-jwtProvider := providers.NewBearerTokenProvider("jwt",
-    providers.WithBearerFormat("JWT"),
-    providers.WithBearerValidator(func(ctx context.Context, token string) (*auth.AuthContext, error) {
-        // Validate JWT token
-        // Access services from DI container
-        // jwtService := forge.Must[JWTService](app.Container(), "jwt")
-        // claims, err := jwtService.Verify(token)
-        
-        return &auth.AuthContext{
-            Subject: "user-from-jwt",
-            Scopes:  []string{"read:users", "write:users"},
-        }, nil
-    }),
-)
-registry.Register(jwtProvider)
-```
-
-### 3. Protect Routes
-
-```go
-router := app.Router()
-
-// Public route (no auth)
-router.GET("/public", publicHandler)
-
-// Protected route with API Key OR JWT
-router.GET("/protected", protectedHandler,
-    forge.WithAuth("api-key", "jwt"),
-    forge.WithSummary("Protected endpoint"),
-)
-
-// Route requiring specific scopes
-router.POST("/admin/users", adminHandler,
-    forge.WithRequiredAuth("jwt", "write:users", "admin"),
-    forge.WithSummary("Create user (Admin only)"),
-)
-
-// Group with auth (all routes inherit)
-api := router.Group("/api/v1", forge.WithGroupAuth("jwt"))
-{
-    api.GET("/users", listUsersHandler)
-    api.GET("/users/:id", getUserHandler)
-    api.POST("/users", createUserHandler)
-}
-```
-
-### 4. Access Auth Context in Handlers
-
-```go
-func protectedHandler(w http.ResponseWriter, r *http.Request) error {
-    // Get auth context
-    authCtx, ok := auth.FromContext(r.Context())
-    if !ok {
-        return forge.Unauthorized("not authenticated")
-    }
-    
-    return forge.JSON(w, 200, map[string]interface{}{
-        "user":     authCtx.Subject,
-        "provider": authCtx.ProviderName,
-        "scopes":   authCtx.Scopes,
-        "claims":   authCtx.Claims,
-    })
-}
-```
-
-## Built-in Providers
-
-### API Key Provider
-
-Supports API keys in headers, query parameters, or cookies.
-
-```go
-provider := providers.NewAPIKeyProvider("api-key",
-    providers.WithAPIKeyHeader("X-API-Key"),        // Header
-    providers.WithAPIKeyQuery("api_key"),           // Query param
-    providers.WithAPIKeyCookie("api_key"),          // Cookie
-    providers.WithAPIKeyDescription("API Key Authentication"),
-    providers.WithAPIKeyValidator(validateFunc),
-)
-```
-
-**OpenAPI Output:**
-```yaml
-securitySchemes:
-  api-key:
-    type: apiKey
-    name: X-API-Key
-    in: header
-```
-
-### Bearer Token Provider (JWT)
-
-For JWT tokens or other bearer tokens.
-
-```go
-provider := providers.NewBearerTokenProvider("jwt",
-    providers.WithBearerFormat("JWT"),
-    providers.WithBearerDescription("JWT Bearer Authentication"),
-    providers.WithBearerValidator(validateFunc),
-)
-```
-
-**OpenAPI Output:**
-```yaml
-securitySchemes:
-  jwt:
-    type: http
-    scheme: bearer
-    bearerFormat: JWT
-```
-
-### Basic Auth Provider
-
-HTTP Basic Authentication.
-
-```go
-provider := providers.NewBasicAuthProvider("basic",
-    providers.WithBasicAuthDescription("HTTP Basic Authentication"),
-    providers.WithBasicAuthValidator(func(ctx context.Context, username, password string) (*auth.AuthContext, error) {
-        // Validate credentials
-        return &auth.AuthContext{Subject: username}, nil
-    }),
-)
-```
-
-**OpenAPI Output:**
-```yaml
-securitySchemes:
-  basic:
-    type: http
-    scheme: basic
-```
-
-### OAuth2 Provider
-
-OAuth 2.0 with configurable flows.
-
-```go
-provider := providers.NewOAuth2Provider("oauth2",
-    &auth.OAuthFlows{
-        AuthorizationCode: &auth.OAuthFlow{
-            AuthorizationURL: "https://example.com/oauth/authorize",
-            TokenURL:         "https://example.com/oauth/token",
-            Scopes: map[string]string{
-                "read":  "Read access",
-                "write": "Write access",
-            },
-        },
-    },
-    providers.WithOAuth2Validator(validateFunc),
-)
-```
-
-**OpenAPI Output:**
-```yaml
-securitySchemes:
-  oauth2:
-    type: oauth2
-    flows:
-      authorizationCode:
-        authorizationUrl: https://example.com/oauth/authorize
-        tokenUrl: https://example.com/oauth/token
-        scopes:
-          read: Read access
-          write: Write access
-```
-
-### OpenID Connect Provider
-
-OpenID Connect authentication.
-
-```go
-provider := providers.NewOIDCProvider("oidc",
-    "https://example.com/.well-known/openid-configuration",
-    providers.WithOIDCValidator(validateFunc),
-)
-```
-
-## Route Options
-
-### Single Provider (OR Logic)
-
-```go
-// Accepts either api-key OR jwt
-router.GET("/protected", handler,
-    forge.WithAuth("api-key", "jwt"),
-)
-```
-
-**OpenAPI:**
-```yaml
-security:
-  - api-key: []
-  - jwt: []
-```
-
-### Required Scopes
-
-```go
-// Requires jwt with specific scopes
-router.POST("/admin", handler,
-    forge.WithRequiredAuth("jwt", "write:users", "admin"),
-)
-```
-
-**OpenAPI:**
-```yaml
-security:
-  - jwt: [write:users, admin]
-```
-
-### Multiple Providers (AND Logic)
-
-```go
-// Requires BOTH api-key AND jwt (rare use case)
-router.GET("/high-security", handler,
-    forge.WithAuthAnd("api-key", "jwt"),
-)
-```
-
-**OpenAPI:**
-```yaml
-security:
-  - api-key: []
-    jwt: []
-```
-
-## Group Options
-
-Apply authentication to all routes in a group:
-
-```go
-// All routes in this group require JWT
-api := router.Group("/api/v1",
-    forge.WithGroupAuth("jwt"),
-    forge.WithGroupRequiredScopes("read"),
-)
-
-// Override group auth for specific route
-api.GET("/public-in-group", handler, forge.WithAuth()) // No auth
-```
-
-## Custom Auth Providers
-
-Implement the `AuthProvider` interface:
-
-```go
-type MyCustomProvider struct {
-    name      string
-    container forge.Container
+ldapProvider, err := providers.NewLDAPProvider(cfg, logger)
+if err != nil {
+	return err
 }
 
-func (p *MyCustomProvider) Name() string {
-    return p.name
-}
-
-func (p *MyCustomProvider) Type() auth.SecuritySchemeType {
-    return auth.SecurityTypeHTTP
-}
-
-func (p *MyCustomProvider) Authenticate(ctx context.Context, r *http.Request) (*auth.AuthContext, error) {
-    // Your custom authentication logic
-    // Access DI container services via p.container
-    
-    return &auth.AuthContext{
-        Subject: "user-id",
-        Claims:  map[string]interface{}{"custom": "data"},
-    }, nil
-}
-
-func (p *MyCustomProvider) OpenAPIScheme() auth.SecurityScheme {
-    return auth.SecurityScheme{
-        Type:        auth.SecurityTypeHTTP,
-        Description: "My custom authentication",
-        Scheme:      "custom",
-    }
-}
-
-func (p *MyCustomProvider) Middleware() forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            authCtx, err := p.Authenticate(r.Context(), r)
-            if err != nil {
-                http.Error(w, "Unauthorized", http.StatusUnauthorized)
-                return
-            }
-            ctx := auth.WithContext(r.Context(), authCtx)
-            next.ServeHTTP(w, r.WithContext(ctx))
-        })
-    }
-}
-
-// Register it
-registry.Register(&MyCustomProvider{name: "custom"})
+err = registry.Register(ldapProvider) // registered as "ldap"
 ```
 
-## AuthContext API
+The provider binds with your service account, searches with `SearchFilter` (`(uid=%s)` by default, `(sAMAccountName=%s)` for Active Directory), binds as the user to check the password, then looks up groups with `GroupFilter`. With an empty `RoleMapping` every group DN is passed through, and with a mapping only the mapped names are kept. Either way they land in the auth context's `Scopes`, not `Roles`, so check them with `Requirement.Scopes`. The attributes you list in `Attributes` become claims, and the user's DN and raw groups go in `Metadata`. Successful sign-ins are cached for `CacheTTL` (five minutes by default).
 
-The `AuthContext` contains authenticated user information:
+TLS is on by default. The connection starts plain on `Port` (389) and upgrades with StartTLS, verifying the certificate and hostname with TLS 1.2 or newer. Install your directory's certificate authority in the host trust store before you connect. `InsecureSkipVerify` is still in `LDAPConfig` so older config decodes, but setting it to `true` makes `NewLDAPProvider` return an error before any connection is attempted.
 
-```go
-type AuthContext struct {
-    Subject      string                 // User/service ID
-    Claims       map[string]interface{} // Additional claims
-    Scopes       []string               // Permissions/scopes
-    Metadata     map[string]interface{} // Provider-specific data
-    ProviderName string                 // Which provider authenticated
-}
+### Writing your own provider
 
-// Helper methods
-authCtx.HasScope("admin")              // Check single scope
-authCtx.HasScopes("read", "write")     // Check multiple scopes
-authCtx.GetClaim("email")              // Get claim value
-authCtx.GetClaimString("role")         // Get string claim
-```
+If your scheme isn't covered, implement `auth.AuthProvider` yourself: `Name`, `Type`, `Authenticate(ctx, *http.Request)`, `OpenAPIScheme` and `Middleware`. The registry only calls `Name` and `Authenticate` on the request path, and `OpenAPIScheme` when you ask it for `OpenAPISchemes()`. You only need a real `Middleware` if you plan to use the provider on its own, outside the registry.
 
-## DI Container Access
+## Protecting routes
 
-Validators have access to the DI container for service lookup:
+The registry turns provider names into `forge.Middleware`. You attach it with `forge.WithMiddleware` on a route or `forge.WithGroupMiddleware` on a group.
+
+| Registry method | Behaviour |
+| --- | --- |
+| `Middleware(names...)` | Tries each provider in order and uses the first that succeeds. 401 when all fail |
+| `MiddlewareAnd(names...)` | Every provider must succeed. The first one's subject is kept, later claims and scopes are merged in |
+| `MiddlewareWithScopes(name, scopes...)` | One provider plus required scopes |
+| `MiddlewareWithRequirement(req)` | Authenticates with `req.Providers` (`Mode: "and"` for all-of), then calls the authorizer |
+
+A failed sign-in gets a plain-text `401 Unauthorized`. A failed check gets `403` with the authorizer's error text. After a successful sign-in, the registry sets `ProviderName` on the auth context to the name the provider was registered under.
 
 ```go
-// Create provider with container access
-apiKeyProvider := providers.NewAPIKeyProvider("api-key",
-    providers.WithAPIKeyContainer(app.Container()),
-    providers.WithAPIKeyValidator(func(ctx context.Context, apiKey string) (*auth.AuthContext, error) {
-        // Access services from container
-        db, err := database.GetDatabase(app.Container())
-        if err != nil {
-            return nil, err
-        }
-        cache := forge.Must[Cache](app.Container(), "cache")
-        
-        // Check cache first
-        if user, found := cache.Get(ctx, "apikey:"+apiKey); found {
-            return user.(*auth.AuthContext), nil
-        }
-        
-        // Query database
-        user, err := db.FindUserByAPIKey(ctx, apiKey)
-        if err != nil {
-            return nil, auth.ErrInvalidCredentials
-        }
-        
-        // Cache for next time
-        authCtx := &auth.AuthContext{
-            Subject: user.ID,
-            Claims:  map[string]interface{}{"email": user.Email},
-        }
-        cache.Set(ctx, "apikey:"+apiKey, authCtx, 5*time.Minute)
-        
-        return authCtx, nil
-    }),
+api := router.Group("/api",
+	forge.WithGroupMiddleware(registry.Middleware("jwt", "api-key")),
+	forge.WithGroupAuth("jwt", "api-key"),
 )
-```
 
-## Error Handling
-
-The auth extension provides standard errors:
-
-```go
-var (
-    ErrProviderNotFound     = errors.New("auth provider not found")
-    ErrProviderExists       = errors.New("auth provider already exists")
-    ErrInvalidConfiguration = errors.New("invalid auth configuration")
-    ErrMissingCredentials   = errors.New("missing authentication credentials")
-    ErrInvalidCredentials   = errors.New("invalid credentials")
-    ErrInsufficientScopes   = errors.New("insufficient scopes")
-    ErrAuthenticationFailed = errors.New("authentication failed")
-    ErrAuthorizationFailed  = errors.New("authorization failed")
-    ErrTokenExpired         = errors.New("token expired")
-    ErrTokenInvalid         = errors.New("invalid token")
-)
-```
-
-## Testing
-
-Mock providers for testing:
-
-```go
-type MockAuthProvider struct{}
-
-func (m *MockAuthProvider) Name() string { return "mock" }
-func (m *MockAuthProvider) Type() auth.SecuritySchemeType { return auth.SecurityTypeAPIKey }
-
-func (m *MockAuthProvider) Authenticate(ctx context.Context, r *http.Request) (*auth.AuthContext, error) {
-    return &auth.AuthContext{Subject: "test-user"}, nil
-}
-
-// ... implement other methods
-
-// In tests
-registry.Register(&MockAuthProvider{})
-```
-
-## Configuration
-
-Load configuration from ConfigManager:
-
-```go
-// config.yaml
-extensions:
-  auth:
-    enabled: true
-    default_provider: "jwt"
-    providers:
-      - name: "api-key"
-        type: "apiKey"
-        enabled: true
-
-// Create extension with config loading
-authExt := auth.NewExtension(auth.WithRequireConfig(true))
-```
-
-## Best Practices
-
-### 1. **Use Appropriate Auth for Use Case**
-
-- **API Keys** - Machine-to-machine, service accounts
-- **JWT Bearer** - User sessions, SPAs, mobile apps
-- **OAuth2** - Third-party integrations
-- **Basic Auth** - Simple internal tools, development
-
-### 2. **Validate Thoroughly**
-
-```go
-providers.WithBearerValidator(func(ctx context.Context, token string) (*auth.AuthContext, error) {
-    // 1. Verify signature
-    // 2. Check expiration
-    // 3. Validate issuer/audience
-    // 4. Check revocation list
-    // 5. Verify scopes/permissions
-    
-    return authCtx, nil
+deleteUser := registry.MiddlewareWithRequirement(auth.Requirement{
+	Providers:   []string{"jwt"},
+	Permissions: []string{"users:write", "users:delete"},
 })
-```
 
-### 3. **Use Scopes for Fine-Grained Control**
-
-```go
-// Define clear scope hierarchy
-const (
-    ScopeReadUsers  = "read:users"
-    ScopeWriteUsers = "write:users"
-    ScopeAdmin      = "admin"
-)
-
-router.POST("/users", handler,
-    forge.WithRequiredAuth("jwt", ScopeWriteUsers),
+err := api.DELETE("/users/:id", handler,
+	forge.WithMiddleware(deleteUser),
+	forge.WithAllPermissions("users:write", "users:delete"),
 )
 ```
 
-### 4. **Cache Validation Results**
+You'll notice each rule appears twice. `forge.WithAuth`, `forge.WithRequiredAuth`, `forge.WithAuthAnd`, `forge.WithAnyRole`, `forge.WithAllPermissions` and their `WithGroup...` versions only record route metadata. The OpenAPI generator turns it into `security` requirements and an `x-forge-authz` extension, and the client generators read it too, but nothing is enforced until the registry middleware is on the route.
+
+### Reading the subject
+
+`auth.GetAuthContext(ctx)` returns the `*auth.AuthContext`, in later middleware and in the handler alike. The registry doesn't put it in the request context, so `auth.FromContext(ctx.Context())` finds it only if you copy it there with `auth.WithContext`, which code that takes a plain `context.Context` needs. `MiddlewareWithRequirement` also stores the subject's roles and scopes under `auth.subject.roles` and `auth.subject.scopes` for router interceptors.
+
+`AuthContext` carries `Subject`, `Claims`, `Scopes`, `Roles`, `Permissions`, `Metadata`, `Data` and `ProviderName`, and has `HasScope`, `HasScopes`, `HasRole`, `HasAnyRole`, `HasPermission`, `HasAllPermissions`, `GetClaim` and `GetClaimString`.
+
+## Authorization
+
+The default authorizer does plain set membership. The subject must hold all `Scopes`, any one of the `Roles` and all `Permissions`, and a requirement with none of the three passes. There's no role hierarchy and no wildcard matching. If you need real policy, you swap the authorizer:
 
 ```go
-// Cache JWT validation results by token
-cache.Set(ctx, "jwt:"+tokenHash, authCtx, tokenTTL)
+type tenantAuthorizer struct{}
+
+func (tenantAuthorizer) Name() string { return "tenant" }
+
+func (tenantAuthorizer) Authorize(ctx context.Context, a *auth.AuthContext, req auth.Requirement) error {
+	if tenant, _ := a.GetClaimString("tenant"); tenant == "" {
+		return fmt.Errorf("%w: no tenant claim", auth.ErrAuthorizationFailed)
+	}
+
+	return auth.NewDefaultAuthorizer().Authorize(ctx, a, req)
+}
+
+registry.SetAuthorizer(tenantAuthorizer{})
 ```
 
-### 5. **Log Authentication Events**
+Return `nil` to allow. Any error becomes a 403 with the error's text. Wrap `auth.ErrAuthorizationFailed` or `auth.ErrInsufficientScopes` so callers can tell the cases apart with `errors.Is`. `SetAuthorizer(nil)` is ignored, so the registry always has one. [Warden](https://github.com/xraph/warden) is built to plug in here.
 
-```go
-logger.Info("authentication succeeded",
-    "provider", authCtx.ProviderName,
-    "subject", authCtx.Subject,
-    "ip", r.RemoteAddr,
-)
-```
+### Credentials from protocol frames
 
-### 6. **Use Rate Limiting**
+For transports that receive a token after the HTTP handshake (a WebSocket or SSE control frame, for example), `auth.ParseExplicitFrameCredential` parses a bare token, `Bearer <token>` or `DPoP <token>`. Trusted transport code can then mark it with `auth.WithExplicitFrameCredential`, and a provider can check the mark with `auth.MatchesExplicitFrameCredential`. The mark stores only a SHA-256 digest and grants no identity: your provider still validates the token.
 
-Combine with rate limiting middleware to prevent brute force attacks.
+## The Forge extension
+
+`auth.NewExtension(opts...)` is the extension entry point:
+
+| Option | Sets |
+| --- | --- |
+| `WithEnabled(bool)` | `false` skips registration |
+| `WithAuthorizer(auth.Authorizer)` | The authorizer the registry starts with |
+| `WithProviders(...ProviderConfig)`, `WithDefaultProvider(string)` | Stored on `Config`, but `Register` doesn't read them yet |
+| `WithRequireConfig(bool)`, `WithConfig(auth.Config)` | The rest of `Config`. `NewExtensionWithConfig(cfg)` is `NewExtension(WithConfig(cfg))` |
+
+The extension doesn't read YAML. When enabled, `Register` adds an `auth.Registry` constructor under the names `auth:registry` and `auth.Registry`, and `auth.GetRegistry`, `GetRegistryFromApp` and their `Must` versions resolve it. As the quick start explains, that constructor currently fails because it needs a `forge.Container` from the container. Until it changes, build the registry with `auth.NewRegistry(app.Container(), app.Logger())` and keep a reference to it. One knock-on effect: the OpenAPI generator's lookup of `auth:registry` finds nothing, so security scheme definitions aren't added to `components` automatically, even though each operation still gets its `security` requirements.
+
+## Errors
+
+| Error | Meaning |
+| --- | --- |
+| `ErrMissingCredentials` | The request had no credential the provider recognised |
+| `ErrInvalidCredentials` | The credential was malformed or your validator rejected it |
+| `ErrInvalidConfiguration` | A provider without a validator, or a provider with an empty name |
+| `ErrProviderExists`, `ErrProviderNotFound` | `Register` with a duplicate name, or `Get`/`Unregister` with an unknown one |
+| `ErrInsufficientScopes`, `ErrAuthorizationFailed` | Returned by authorizers |
+| `ErrAuthenticationFailed`, `ErrTokenExpired`, `ErrTokenInvalid` | For your validators to return |
+
+## Documentation
+
+| Topic | Where |
+| --- | --- |
+| Features and usage | [Auth features](https://www.xraph.com/docs/forge/extensions/auth/features) |
+| Configuration reference | [Auth configuration](https://www.xraph.com/docs/forge/extensions/auth/configuration) |
+| Function reference | [Auth functions](https://www.xraph.com/docs/forge/extensions/auth/functions) |
+| Go API | [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/auth) and [the providers package](https://pkg.go.dev/github.com/xraph/forge/extensions/auth/providers) |
+| Route metadata and OpenAPI output | [Forge OpenAPI guide](../../docs/content/docs/forge/openapi.mdx) |
+
+The docs pages and older examples resolve the registry from the container and read the auth context from the request in the handler. Neither works as written today, for the two reasons in the [quick start](#quick-start).
 
 ## Examples
 
-See [examples/auth_example](examples/auth_example) for a complete working example with:
+[`examples/auth_example`](examples/auth_example/) registers API key, JWT, Basic and OAuth2 providers and builds OpenAPI docs for them. It predates the two issues above, so it won't run unmodified: swap in `auth.NewRegistry` and the `shareAuth` pattern from the quick start.
 
-- Multiple auth providers
-- Route and group protection
-- Scope validation
-- OpenAPI documentation
-- DI container integration
+## FAQ
 
-## Architecture
+### How do I add API key authentication to a Go REST API?
 
+Register `providers.NewAPIKeyProvider("api-key", providers.WithAPIKeyValidator(yourCheck))` with a registry, then put `registry.Middleware("api-key")` on the routes you want to protect. The [quick start](#quick-start) is a complete program.
+
+### Does Forge Auth validate JWTs for me?
+
+No. The Bearer provider pulls the token out of the `Authorization` header and passes it to your validator. Use the JWT library you trust to check the signature, expiry and audience there, and return the subject, roles and scopes.
+
+### Can a route accept either an API key or a JWT?
+
+Yes. `registry.Middleware("api-key", "jwt")` tries them in order and lets the request through on the first success. `MiddlewareAnd` does the opposite and requires both.
+
+### How do I check roles and permissions per route?
+
+Use `registry.MiddlewareWithRequirement` with `Roles` (any one is enough) or `Permissions` (all are required). Add `forge.WithAnyRole` or `forge.WithAllPermissions` too if you want the rule in your OpenAPI document.
+
+### Does it support LDAP or Active Directory?
+
+Yes, through `providers.NewLDAPProvider`. Clients send HTTP Basic credentials, the provider checks them against your directory over StartTLS, and `RoleMapping` turns directory groups into the scope strings your routes check.
+
+## Contributing
+
+Auth is its own Go module in the [Forge repository](https://github.com/xraph/forge). Build and test it from its directory the way CI does:
+
+```bash
+cd extensions/auth
+GOWORK=off go build ./...
+GOWORK=off go vet ./...
+GOWORK=off go test -short -count=1 ./...
+golangci-lint run ./...
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Auth Extension                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌───────────────┐          ┌──────────────────────────┐    │
-│  │   Registry    │          │    Auth Providers        │    │
-│  │               │◄─────────┤  - API Key               │    │
-│  │ - Register    │          │  - Bearer Token (JWT)    │    │
-│  │ - Get         │          │  - Basic Auth            │    │
-│  │ - Middleware  │          │  - OAuth2                │    │
-│  │ - OpenAPI     │          │  - OpenID Connect        │    │
-│  └───────┬───────┘          │  - Custom                │    │
-│          │                  └──────────────────────────┘    │
-│          │                                                  │
-│          ▼                                                  │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │              Router Integration                        │ │
-│  │  - WithAuth()                                          │ │
-│  │  - WithRequiredAuth()                                  │ │
-│  │  - WithGroupAuth()                                     │ │
-│  └───────────────────────────────────────────────────────-┘ │
-│          │                                                  │
-│          ▼                                                  │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │          OpenAPI Generator Integration                 │ │
-│  │  - Auto-generates security schemes                     │ │
-│  │  - Adds security requirements to routes                │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+
+[AGENTS.md](../../AGENTS.md) has the pinned lint version and the repository conventions. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), for example `fix(auth): ...`.
 
 ## License
 
-Part of the Forge framework.
-
+Forge Auth is part of Forge and is available under the [Apache License 2.0](../../LICENSE).

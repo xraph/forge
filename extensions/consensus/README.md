@@ -1,614 +1,293 @@
-# Forge Consensus Extension
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge Consensus, Raft consensus building blocks for Go: leader election, log replication, storage backends and transports" width="100%">
+</p>
 
-Production-grade distributed consensus extension for Forge that enables high availability, leader election, and distributed coordination using the Raft consensus algorithm.
+# Forge Consensus: Raft consensus building blocks for Go
 
-## Features
+Forge Consensus is the Raft consensus module for [Forge](https://github.com/xraph/forge), the Go backend framework. It holds a Raft implementation in Go with leader election, pre-vote, log replication and snapshots, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, gRPC, TCP, HTTP and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines. A Forge extension sits on top, but it doesn't wire those pieces together yet, so read the [status](#status) before you pick it for a distributed system.
 
-### Core Capabilities
-- **Raft Consensus**: Industry-standard Raft algorithm implementation
-- **Leader Election**: Automatic leader election with configurable timeouts
-- **Log Replication**: Consistent log replication across all nodes
-- **Snapshot & Compaction**: Automatic snapshotting and log compaction
-- **Membership Changes**: Dynamic cluster membership with joint consensus
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/consensus.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/consensus) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
-### Transport Layer
-- **Multiple Transports**: gRPC (production) and TCP support
-- **Connection Pooling**: Efficient connection management
-- **TLS/mTLS**: Secure communication with mutual TLS
-- **Compression**: Optional message compression for reduced bandwidth
+[Documentation](https://www.xraph.com/docs/forge/extensions/consensus) · [Quick start](#quick-start) · [Status](#status) · [Packages](#packages) · [The Forge extension](#the-forge-extension) · [Configuration](#configuration) · [FAQ](#faq)
 
-### Service Discovery
-- **Static Configuration**: Simple peer list for small clusters
-- **DNS Discovery**: DNS-based service discovery
-- **Consul Integration**: HashiCorp Consul service discovery
-- **Kubernetes**: Native Kubernetes service discovery
-- **etcd**: etcd-based discovery support
+## Quick start
 
-### Storage Backends
-- **BadgerDB**: High-performance embedded key-value store (default)
-- **BoltDB**: Reliable embedded database
-- **Pebble**: RocksDB-inspired LSM storage
-- **PostgreSQL**: Distributed PostgreSQL backend (experimental)
-
-### Observability
-- **Prometheus Metrics**: Comprehensive metrics for monitoring
-- **Health Checks**: Multi-level health checking
-- **Distributed Tracing**: OpenTelemetry tracing support
-- **Structured Logging**: Contextual logging with correlation IDs
-
-### Resilience
-- **Circuit Breakers**: Automatic failure detection and recovery
-- **Retry Logic**: Exponential backoff with jitter
-- **Timeouts**: Configurable timeouts at all layers
-- **Failover**: Automatic leader failover
-
-### Security
-- **TLS/mTLS**: Transport layer security
-- **Authentication**: Node authentication
-- **Authorization**: Role-based access control (RBAC)
-- **Encryption**: Optional data encryption at rest
-
-### Administration
-- **REST API**: Complete admin API for cluster management
-- **Health Endpoints**: Health and readiness checks
-- **Metrics Endpoints**: Real-time metrics
-- **CLI Tools**: Command-line tools for administration
-
-## Quick Start
-
-### Installation
+You need [Go 1.26 or later](https://go.dev/dl/). Add Forge and the module:
 
 ```bash
-go get github.com/xraph/forge/extensions/consensus
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/consensus@latest
 ```
 
-### Basic Usage
+This program builds a three-node Raft cluster in one process, using the in-process transport the module's own cluster tests run on. It waits for a leader, writes a key through it, and checks that every node has committed the entry:
 
 ```go
 package main
 
 import (
-    "context"
-    "log"
-    
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/consensus"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus"
+	"github.com/xraph/forge/extensions/consensus/raft"
+	"github.com/xraph/forge/extensions/consensus/statemachine"
+	"github.com/xraph/forge/extensions/consensus/storage"
+	"github.com/xraph/forge/extensions/consensus/transport"
 )
 
 func main() {
-    // Create Forge app
-    app := forge.New()
-    
-    // Add consensus extension
-    app.RegisterExtension(consensus.NewExtension(
-        consensus.WithNodeID("node-1"),
-        consensus.WithClusterID("my-cluster"),
-        consensus.WithBindAddress("0.0.0.0", 7000),
-        consensus.WithPeers([]consensus.PeerConfig{
-            {ID: "node-1", Address: "localhost", Port: 7000},
-            {ID: "node-2", Address: "localhost", Port: 7001},
-            {ID: "node-3", Address: "localhost", Port: 7002},
-        }),
-    ))
-    
-    // Start app
-    if err := app.Start(context.Background()); err != nil {
-        log.Fatal(err)
-    }
-    
-    // Get consensus service
-    consensusService, _ := forge.Inject[*consensus.Service](app.Container())
-    
-    // Check if leader
-    if consensusService.IsLeader() {
-        log.Println("This node is the leader!")
-    }
-    
-    // Apply a command (only on leader)
-    cmd := consensus.Command{
-        Type: "set",
-        Payload: map[string]interface{}{
-            "key":   "user:123",
-            "value": "John Doe",
-        },
-    }
-    
-    if err := consensusService.Apply(context.Background(), cmd); err != nil {
-        log.Printf("Failed to apply command: %v", err)
-    }
-    
-    // Block forever
-    select {}
+	ctx := context.Background()
+	logger := forge.NewNoopLogger()
+	ids := []string{"node-1", "node-2", "node-3"}
+
+	transports := map[string]*transport.LocalTransport{}
+	nodes := map[string]*raft.Node{}
+	machines := map[string]*statemachine.MemoryStateMachine{}
+
+	// Build three nodes, each with its own log storage and state machine.
+	for _, id := range ids {
+		tr := transport.NewLocalTransport(transport.LocalTransportConfig{NodeID: id}, logger)
+		st := storage.NewMemoryStorage(storage.MemoryStorageConfig{}, logger)
+		sm := statemachine.NewMemoryStateMachine(statemachine.MemoryStateMachineConfig{}, logger)
+
+		node, err := raft.NewNode(raft.Config{
+			NodeID:             id,
+			HeartbeatInterval:  100 * time.Millisecond,
+			ElectionTimeoutMin: 300 * time.Millisecond,
+			ElectionTimeoutMax: 600 * time.Millisecond,
+		}, logger, sm, tr, st)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := st.Start(ctx); err != nil {
+			log.Fatal(err)
+		}
+
+		transports[id], nodes[id], machines[id] = tr, node, sm
+	}
+
+	// Connect every node to every other node, then start them.
+	for _, id := range ids {
+		for _, peer := range ids {
+			if peer != id {
+				transports[id].Connect(transports[peer])
+				nodes[id].AddPeer(peer)
+			}
+		}
+	}
+
+	for _, id := range ids {
+		if err := transports[id].Start(ctx); err != nil {
+			log.Fatal(err)
+		}
+
+		if err := nodes[id].Start(ctx); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Wait for an election.
+	leader := ""
+	for leader == "" {
+		time.Sleep(100 * time.Millisecond)
+
+		for id, node := range nodes {
+			if node.IsLeader() {
+				leader = id
+			}
+		}
+	}
+
+	fmt.Println("leader:", leader)
+
+	// Writes go to the leader and return once a majority has the entry.
+	cmd, err := json.Marshal(consensus.Command{
+		Type:    "set",
+		Payload: map[string]any{"key": "greeting", "value": "hello"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := nodes[leader].Propose(ctx, cmd); err != nil {
+		log.Fatal(err)
+	}
+
+	value, err := machines[leader].Query(map[string]any{"type": "get", "key": "greeting"})
+	fmt.Println("greeting:", value, err)
+
+	// Followers learn the new commit index on the next heartbeat.
+	time.Sleep(300 * time.Millisecond)
+
+	for _, id := range ids {
+		fmt.Println(id, "commit index:", nodes[id].GetCommitIndex())
+	}
 }
 ```
 
-### Configuration File
+Run it with `go mod tidy && go run .`:
+
+```text
+leader: node-2
+greeting: hello <nil>
+node-1 commit index: 2
+node-2 commit index: 2
+node-3 commit index: 2
+```
+
+Entry 1 is the no-op every new leader writes, and entry 2 is your `set`. Calling `Propose` on a follower returns a not-leader error that names the current leader, which you can check with `consensus.IsNotLeaderError`.
+
+## Status
+
+This module isn't ready to run a production cluster. Here's what we checked against the code as it is today, piece by piece, so you can decide which parts are worth building on:
+
+| Piece | State |
+| --- | --- |
+| Leader election and log replication in `raft` | Works on the in-process transport. Three nodes elect a leader, and a proposed entry commits on a majority |
+| Applying entries on followers | Followers advance their commit index but don't apply committed entries to their state machine, so reads from a follower stay empty. Read from the leader |
+| `consensus.NewExtension` | Validates config and registers services, but its storage, transport, discovery, state machine and Raft node are never created. See [the Forge extension](#the-forge-extension) |
+| Network transports, BadgerDB and BoltDB storage, discovery backends | The code is here and compiles, but nothing in this repository runs a networked cluster on them yet |
+| Cluster tests | `testing/` runs in-process clusters. `TestLogReplication` is skipped under `-short`, which is how CI runs it |
+
+## Packages
+
+You assemble a node from these packages yourself, the way the quick start does. Each one has a constructor that takes a config struct and a `forge.Logger`:
+
+| Package | What's in it |
+| --- | --- |
+| [`raft`](raft/) | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, replication, snapshots, `Propose`, `AddPeer` |
+| [`storage`](storage/) | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, and a write-ahead log (`NewWAL`) |
+| [`transport`](transport/) | `NewLocalTransport` (in process), `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, TLS helpers and serializers |
+| [`statemachine`](statemachine/) | `NewMemoryStateMachine` (a key-value map with `set`, `delete` and `increment`) and `NewPersistentStateMachine` |
+| [`discovery`](discovery/) | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery` |
+| [`cluster`](cluster/) | Membership, quorum and topology tracking with `cluster.NewManager` |
+| [`middleware`](middleware/) | Wrappers for Forge handlers that require leadership or quorum, enforce a read consistency level, or redirect writes to the leader |
+| [`testing`](testing/) | An in-process cluster harness and the cluster tests |
+
+From the root package you get the shared types (`RaftNode`, `StateMachine`, `Storage`, `Transport`, `Command`, `LogEntry`), the role and event constants, and the errors (`ErrNotLeader`, `ErrNoQuorum` and the rest, with `IsNotLeaderError`, `IsNoQuorumError` and `IsRetryable`). To plug in your own state machine, implement `Apply`, `Snapshot`, `Restore` and `Query` from `consensus.StateMachine`.
+
+## The Forge extension
+
+```go
+app := forge.NewApp(forge.AppConfig{
+	Name: "orders",
+	Extensions: []forge.Extension{
+		consensus.NewExtension(
+			consensus.WithNodeID("node-1"),
+			consensus.WithClusterID("orders"),
+			consensus.WithBindAddress("0.0.0.0", 7000),
+			consensus.WithPeers([]consensus.PeerConfig{
+				{ID: "node-2", Address: "10.0.0.2", Port: 7000},
+				{ID: "node-3", Address: "10.0.0.3", Port: 7000},
+			}),
+		),
+	},
+})
+```
+
+That compiles and starts, and here's what you get today. The extension loads and validates your config, then puts `*consensus.Service` (also named `consensus` and `consensus:service`), `ClusterManager`, `RaftNode`, `StateMachine` and a `*consensus.LeadershipChecker` in the container. Starting it only logs each component it would initialise. Nothing listens on the bind port, the node stays a follower, and so:
+
+| Call | Result |
+| --- | --- |
+| `Apply` | Always `ErrNotLeader` |
+| `Read` | Panics, because the state machine is nil |
+| `Health` | Returns `storage not initialized`, and the service's health loop logs that warning every `health.check_interval` |
+| `GetRaftNode`, `GetStateMachine`, `GetStorage`, `GetTransport` | `nil`, and so are the matching container entries |
+| `TransferLeadership`, `StepDown` | "not yet implemented" errors |
+
+One more thing to watch: with `advanced.enable_auto_snapshot` on (the default), the service takes a snapshot every `raft.snapshot_interval` (30 minutes by default) and that call panics on the nil state machine, which takes the process down. If you add the extension anyway, set `advanced.enable_auto_snapshot: false`. The admin API under `admin_api` isn't implemented either; turning it on only writes a log line.
+
+## Configuration
+
+The extension reads `extensions.consensus` from your config, falling back to `consensus`. Options you pass in code override the file.
 
 ```yaml
-# config.yaml
 extensions:
   consensus:
-    node_id: "node-1"
-    cluster_id: "production-cluster"
-    bind_addr: "0.0.0.0"
+    node_id: node-1
+    cluster_id: orders
+    bind_addr: 0.0.0.0
     bind_port: 7000
-    
     peers:
-      - id: "node-1"
-        address: "10.0.1.10"
-        port: 7000
-      - id: "node-2"
-        address: "10.0.1.11"
-        port: 7000
-      - id: "node-3"
-        address: "10.0.1.12"
-        port: 7000
-    
+      - {id: node-2, address: 10.0.0.2, port: 7000}
+      - {id: node-3, address: 10.0.0.3, port: 7000}
     raft:
       heartbeat_interval: 1s
       election_timeout_min: 5s
       election_timeout_max: 10s
-      snapshot_interval: 30m
-      snapshot_threshold: 10000
-    
     transport:
-      type: grpc
-      enable_compression: true
-      max_message_size: 4194304  # 4MB
-      timeout: 10s
-    
+      type: grpc          # grpc or tcp
     storage:
-      type: badger
+      type: badger        # badger, boltdb, pebble or postgres
       path: ./data/consensus
-      sync_writes: true
-    
     discovery:
-      type: kubernetes
-      namespace: default
-      service_name: forge-consensus
-    
-    security:
-      enable_tls: true
-      cert_file: /etc/certs/server.crt
-      key_file: /etc/certs/server.key
-      ca_file: /etc/certs/ca.crt
-      enable_mtls: true
-    
-    admin_api:
-      enabled: true
-      path_prefix: /consensus
-    
-    observability:
-      metrics:
-        enabled: true
-        collection_interval: 15s
-      tracing:
-        enabled: true
-        sample_rate: 0.1
-      logging:
-        level: info
-        log_raft_details: false
+      type: static        # static, dns, consul, etcd or kubernetes
+    advanced:
+      enable_auto_snapshot: false
 ```
 
-## Usage Examples
+Validation runs when the extension registers. If any of these rules fail, your app won't start:
 
-### Leader Election
+| Rule | Default |
+| --- | --- |
+| `node_id` is set | empty, so you must set it |
+| `cluster_id` is set | `default` |
+| `bind_port` is between 1 and 65535 | `7000` |
+| `raft.heartbeat_interval` < `raft.election_timeout_min` < `raft.election_timeout_max` | `1s`, `5s`, `10s` |
+| `transport.type` is `grpc` or `tcp` | `grpc` |
+| `transport.max_message_size` is positive | 4MB |
+| `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
+| `storage.type` is `badger`, `boltdb`, `pebble` or `postgres`, and `storage.path` is set | `badger`, `./data/consensus` |
+| `security.cert_file` and `key_file` are set when `enable_tls` is on, and `ca_file` when `enable_mtls` is on | TLS off |
 
-The consensus extension automatically handles leader election. You can check leadership status:
+The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `WithTransportType`, `WithDiscoveryType`, `WithStorageType`, `WithStoragePath`, `WithTLS`, `WithMTLS`, `WithConfig` and `WithRequireConfig`. The config also has `election`, `health`, `observability`, `resilience`, `admin_api`, `events` and `advanced` sections. Their full key list and defaults are in [`internal/config.go`](internal/config.go) and on the [configuration page](https://www.xraph.com/docs/forge/extensions/consensus/configuration). Today the extension acts on a handful of them: `health.enabled` and `health.check_interval` drive its health loop, `observability.metrics.enabled` and `collection_interval` drive metrics collection, and `advanced.enable_auto_snapshot` with `raft.snapshot_interval` drives the snapshot loop. `events.enabled` is on by default. It adds `events` to the extension's dependencies and publishes start and stop events when an event bus is in the container.
 
-```go
-service := consensusService.Service()
+## Documentation
 
-// Check if this node is the leader
-if service.IsLeader() {
-    log.Println("I am the leader")
-}
+| Topic | Where |
+| --- | --- |
+| What the module covers | [Features](https://www.xraph.com/docs/forge/extensions/consensus/features) |
+| Every config key | [Configuration](https://www.xraph.com/docs/forge/extensions/consensus/configuration) |
+| Exported functions and types | [Functions](https://www.xraph.com/docs/forge/extensions/consensus/functions), [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/consensus) |
+| The Raft algorithm | [In Search of an Understandable Consensus Algorithm](https://raft.github.io/raft.pdf) |
+| Extensions in general | [Forge extension system](../../docs/content/docs/forge/extensions-system.mdx) |
 
-// Get current leader ID
-leaderID := service.GetLeader()
-log.Printf("Current leader: %s", leaderID)
+## FAQ
 
-// Get current role
-role := service.GetRole() // "follower", "candidate", or "leader"
-log.Printf("My role: %s", role)
-```
+### Is there a Raft implementation in Go I can embed in a Forge service?
 
-### Applying Commands
+There is one in [`raft`](raft/), and the quick start shows a three-node cluster electing a leader and committing an entry. Check the [status](#status) table first: follower state machines don't apply entries yet, and the networked transports haven't been run as a cluster here.
 
-Only the leader can apply commands to the state machine:
+### How does leader election work?
 
-```go
-cmd := consensus.Command{
-    Type: "create_user",
-    Payload: map[string]interface{}{
-        "id":    "123",
-        "name":  "Alice",
-        "email": "alice@example.com",
-    },
-}
+Nodes start as followers with a randomised election timeout between `election_timeout_min` and `election_timeout_max`. A follower that hears no heartbeat in that window becomes a candidate, runs a pre-vote if it's on, then asks its peers for votes, and the node with a majority becomes leader and sends heartbeats every `heartbeat_interval`.
 
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
+### Can I use this for distributed locks or leader-only jobs?
 
-err := service.Apply(ctx, cmd)
-if consensus.IsNotLeaderError(err) {
-    // Redirect to leader
-    leaderID := service.GetLeader()
-    log.Printf("Not leader. Redirect to: %s", leaderID)
-} else if err != nil {
-    log.Printf("Failed to apply command: %v", err)
-}
-```
+Not through the extension yet, because `IsLeader` stays false. With your own `raft.Node`, `IsLeader()` and `GetLeader()` tell you which node should run a leader-only job.
 
-### Reading Data
+### Which storage backends are there?
 
-Reads can be performed on any node (eventual consistency) or restricted to the leader (strong consistency):
-
-```go
-// Read from any node (eventual consistency)
-result, err := service.Read(ctx, "user:123")
-
-// For strong consistency, check leadership first
-if service.IsLeader() {
-    result, err := service.Read(ctx, "user:123")
-}
-```
-
-### Cluster Management
-
-Add or remove nodes dynamically:
-
-```go
-// Add a new node (only leader can do this)
-err := service.AddNode(ctx, "node-4", "10.0.1.13", 7000)
-
-// Remove a node
-err := service.RemoveNode(ctx, "node-4")
-
-// Get cluster information
-info := service.GetClusterInfo()
-fmt.Printf("Cluster ID: %s\n", info.ID)
-fmt.Printf("Leader: %s\n", info.Leader)
-fmt.Printf("Total Nodes: %d\n", info.TotalNodes)
-fmt.Printf("Active Nodes: %d\n", info.ActiveNodes)
-fmt.Printf("Has Quorum: %v\n", info.HasQuorum)
-```
-
-### Leadership Transfer
-
-Transfer leadership to another node:
-
-```go
-// Transfer leadership to node-2
-err := service.TransferLeadership(ctx, "node-2")
-
-// Or step down as leader (triggers new election)
-err := service.StepDown(ctx)
-```
-
-### Snapshots
-
-Create snapshots manually or rely on automatic snapshots:
-
-```go
-// Manual snapshot
-err := service.Snapshot(ctx)
-
-// Automatic snapshots are configured via:
-// - snapshot_interval: time between snapshots
-// - snapshot_threshold: number of log entries before snapshot
-```
-
-### Health Checks
-
-```go
-// Simple health check
-err := service.HealthCheck(ctx)
-if err != nil {
-    log.Printf("Unhealthy: %v", err)
-}
-
-// Detailed health status
-status := service.GetHealthStatus(ctx)
-fmt.Printf("Status: %s\n", status.Status)
-fmt.Printf("Leader: %v\n", status.Leader)
-fmt.Printf("Has Quorum: %v\n", status.HasQuorum)
-fmt.Printf("Active Nodes: %d/%d\n", status.ActiveNodes, status.TotalNodes)
-
-for _, check := range status.Details {
-    fmt.Printf("  %s: %v - %s\n", check.Name, check.Healthy, check.Message)
-}
-```
-
-### Middleware Integration
-
-Use consensus middleware to enforce leadership:
-
-```go
-import (
-    "github.com/xraph/forge/extensions/consensus/middleware"
-)
-
-// Get leadership checker
-checker, _ := forge.Inject[*consensus.LeadershipChecker](app.Container())
-leadershipMW := middleware.NewLeadershipMiddleware(checker, logger)
-
-// Require leader for write endpoints
-router.POST("/api/users", leadershipMW.RequireLeader()(createUserHandler))
-
-// Add leader information to all responses
-router.Use(leadershipMW.AddLeaderHeader())
-
-// Route reads to any node, writes to leader only
-router.Use(leadershipMW.ReadOnlyRouting())
-
-// Enforce consistency levels
-router.GET("/api/users/:id", 
-    leadershipMW.ConsistencyMiddleware(middleware.ConsistencyStrong)(getUserHandler))
-```
-
-## Admin API
-
-The consensus extension provides a REST API for administration:
-
-### Health Check
-```bash
-curl http://localhost:8080/consensus/health
-```
-
-### Cluster Status
-```bash
-curl http://localhost:8080/consensus/status
-```
-
-### List Nodes
-```bash
-curl http://localhost:8080/consensus/nodes
-```
-
-### Get Leader
-```bash
-curl http://localhost:8080/consensus/leader
-```
-
-### Metrics
-```bash
-curl http://localhost:8080/consensus/metrics
-```
-
-### Add Node
-```bash
-curl -X POST http://localhost:8080/consensus/add-node \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node_id": "node-4",
-    "address": "10.0.1.13",
-    "port": 7000
-  }'
-```
-
-### Remove Node
-```bash
-curl -X POST http://localhost:8080/consensus/remove-node \
-  -H "Content-Type: application/json" \
-  -d '{"node_id": "node-4"}'
-```
-
-### Transfer Leadership
-```bash
-curl -X POST http://localhost:8080/consensus/transfer-leadership \
-  -H "Content-Type: application/json" \
-  -d '{"target_node_id": "node-2"}'
-```
-
-### Create Snapshot
-```bash
-curl -X POST http://localhost:8080/consensus/snapshot
-```
-
-## Monitoring
-
-### Prometheus Metrics
-
-The extension exports comprehensive Prometheus metrics:
-
-```prometheus
-# Node metrics
-forge_consensus_cluster_size
-forge_consensus_cluster_healthy_nodes
-forge_consensus_is_leader
-forge_consensus_has_quorum
-forge_consensus_term
-
-# Operations metrics
-forge_consensus_operations_total
-forge_consensus_operations_failed
-forge_consensus_operations_per_sec
-forge_consensus_operation_duration_seconds
-
-# Election metrics
-forge_consensus_leader_elections_total
-forge_consensus_leader_election_duration_seconds
-
-# Log metrics
-forge_consensus_commit_index
-forge_consensus_last_applied
-forge_consensus_log_size
-forge_consensus_log_entries
-
-# Snapshot metrics
-forge_consensus_snapshots_total
-forge_consensus_snapshot_duration_seconds
-```
-
-### Grafana Dashboard
-
-A complete Grafana dashboard is available at `examples/grafana/consensus-dashboard.json`.
-
-## Production Considerations
-
-### Cluster Size
-
-- **Minimum**: 3 nodes for fault tolerance
-- **Recommended**: 5 nodes for production
-- **Maximum**: 7-9 nodes (more nodes = slower consensus)
-
-### Performance Tuning
-
-```yaml
-raft:
-  # Faster heartbeats for quicker failure detection
-  heartbeat_interval: 500ms
-  
-  # Shorter election timeout for faster recovery
-  election_timeout_min: 2s
-  election_timeout_max: 4s
-  
-  # Larger batch size for higher throughput
-  replication_batch_size: 500
-  max_append_entries: 128
-
-transport:
-  # Enable compression for reduced bandwidth
-  enable_compression: true
-  compression_level: 6
-  
-  # Larger message size for bulk operations
-  max_message_size: 16777216  # 16MB
-
-storage:
-  # Increase batch size for higher write throughput
-  max_batch_size: 5000
-  max_batch_delay: 5ms
-```
-
-### High Availability
-
-1. **Deploy across availability zones**: Distribute nodes across different AZs
-2. **Use persistent storage**: Ensure data is persisted to disk
-3. **Monitor health**: Set up health checks and alerting
-4. **Backup snapshots**: Regularly backup snapshot data
-5. **Test failover**: Regularly test node failures
-
-### Security Hardening
-
-```yaml
-security:
-  # Always enable TLS in production
-  enable_tls: true
-  enable_mtls: true
-  
-  # Use strong cipher suites
-  # Rotate certificates regularly
-  
-  # Enable encryption at rest
-  enable_encryption: true
-  encryption_key: "${CONSENSUS_ENCRYPTION_KEY}"
-```
-
-## Troubleshooting
-
-### No Leader Elected
-
-**Symptoms**: Cluster has no leader, writes fail
-
-**Causes**:
-- Network partitions
-- Majority of nodes down
-- Clock skew between nodes
-- Incorrect peer configuration
-
-**Solutions**:
-- Check network connectivity between nodes
-- Ensure at least N/2 + 1 nodes are healthy
-- Synchronize clocks with NTP
-- Verify peer configuration
-
-### Split Brain
-
-**Symptoms**: Multiple nodes think they are leader
-
-**Causes**:
-- Network partition
-- Inconsistent peer configuration
-
-**Prevention**:
-- Use odd number of nodes (3, 5, 7)
-- Deploy across availability zones
-- Use proper network policies
-
-### High Latency
-
-**Symptoms**: Slow command application
-
-**Causes**:
-- Large log entries
-- Slow disk I/O
-- Network latency
-- Too many nodes
-
-**Solutions**:
-- Reduce message size
-- Use faster disks (SSD/NVMe)
-- Reduce cluster size
-- Enable compression
-- Increase snapshot frequency
-
-### Log Growth
-
-**Symptoms**: Disk space filling up
-
-**Solutions**:
-- Reduce `snapshot_interval`
-- Lower `snapshot_threshold`
-- Enable automatic compaction
-- Monitor disk usage
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Forge Consensus Extension                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │   Raft Core  │  │   Election   │  │   Cluster    │          │
-│  │              │◄─┤   Manager    │◄─┤   Manager    │          │
-│  └──────┬───────┘  └──────────────┘  └──────────────┘          │
-│         │                                                         │
-│  ┌──────▼───────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │   Storage    │  │  Transport   │  │  Discovery   │          │
-│  │   Layer      │  │   Layer      │  │   Service    │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│         │                  │                  │                  │
-│  ┌──────▼──────────────────▼──────────────────▼────────┐        │
-│  │           State Machine & Event Emitter              │        │
-│  └──────────────────────────────────────────────────────┘        │
-│         │                                                         │
-│  ┌──────▼──────────────────────────────────────────────┐        │
-│  │    Health • Metrics • Observability • Admin API      │        │
-│  └──────────────────────────────────────────────────────┘        │
-└─────────────────────────────────────────────────────────────────┘
-```
+In memory, BadgerDB and BoltDB, plus a write-ahead log. The config validator also accepts `pebble` and `postgres`, but there's no implementation for either in this module.
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+The module is its own Go module inside the Forge repository. Test it from its directory, without `-short` if you want the cluster tests:
+
+```bash
+cd extensions/consensus
+GOWORK=off go test -race ./...
+GOWORK=off go test -count=1 -run TestLogReplication -v ./testing/
+GOWORK=off golangci-lint run ./...
+```
+
+[AGENTS.md](../../AGENTS.md) has the full build, lint and release rules for the repository, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has the contribution guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Support
-
-- **Documentation**: [https://forge.xraph.dev/consensus](https://forge.xraph.dev/consensus)
-- **Issues**: [GitHub Issues](https://github.com/xraph/forge/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/xraph/forge/discussions)
-- **Discord**: [Forge Community](https://discord.gg/forge)
-
-## Acknowledgments
-
-- Based on the [Raft Consensus Algorithm](https://raft.github.io/)
-- Inspired by etcd, Consul, and HashiCorp Raft
-- Built on the [Forge Framework](https://github.com/xraph/forge)
-
+Forge Consensus is part of Forge and is available under the [Apache License 2.0](../../LICENSE).

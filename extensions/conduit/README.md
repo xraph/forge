@@ -1,57 +1,302 @@
-# Conduit
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge Conduit, typed events, durable streams, broker RPC and service clients for Go on NATS JetStream, Redis Streams, PostgreSQL and Kafka" width="100%">
+</p>
 
-Conduit connects Forge services through typed events, durable streams and named HTTP or gRPC clients. You choose the broker. Your handlers keep the same API.
+# Forge Conduit: typed events, durable streams and service clients for Go
 
-Every process has two identities: `ServiceID` names the logical service, while `InstanceID` names its running replica. Consumer identity includes the namespace, service and subscription. Competing consumers share that identity across replicas; broadcast consumers add a subscriber identity so each instance has its own cursor.
+Conduit connects [Forge](https://github.com/xraph/forge) services through typed events, durable streams, broker RPC and named HTTP or gRPC clients. You choose the broker (NATS JetStream, Redis Streams, PostgreSQL, Kafka or in-memory) and your handlers keep the same Go API. It covers at-least-once delivery with retries and dead letters, competing and broadcast consumers, a transactional outbox and inbox on PostgreSQL, service discovery, and operator controls for pause, replay and backfill.
 
-## Start a service
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/conduit.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/conduit) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+
+[Documentation](https://www.xraph.com/docs/forge/extensions/conduit/configuration) · [Quick start](#quick-start) · [Features](#features) · [Events](#publish-and-handle) · [Service clients](#call-a-service-by-name) · [RPC](#typed-broker-rpc) · [Outbox and inbox](#commit-business-data-and-an-event-together) · [Providers](#providers) · [Configuration](#configuration) · [FAQ](#faq)
+
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/). This example uses the in-memory provider, so you don't need a broker to try it.
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/conduit@latest
+```
 
 ```go
-import (
-    "context"
-    "time"
+package main
 
-    "github.com/xraph/forge/extensions/conduit"
-    "github.com/xraph/forge/extensions/conduit/providers/jetstream"
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/conduit"
+	"github.com/xraph/forge/extensions/conduit/providers/memory"
 )
 
 type OrderPlaced struct {
-    OrderID string `json:"orderID"`
+	OrderID string `json:"orderID"`
 }
 
 var OrderPlacedV1 = conduit.Event[OrderPlaced]("orders.placed.v1")
 
-broker := jetstream.New(jetstream.Options{URL: "nats://localhost:4222"})
-ext, err := conduit.NewExtension(conduit.WithConfig(conduit.Config{
-    Streams: map[string]conduit.StreamConfig{
-        "orders": {Provider: "events", Subjects: []string{"orders.>"}, MaxAge: 7 * 24 * time.Hour, Replicas: 3},
-    },
-    Subscriptions: map[string]conduit.SubscriptionConfig{
-        "process-orders": {Stream: "orders", Mode: conduit.Competing, Durable: true, Concurrency: 4, MaxInFlight: 16},
-        "refresh-cache":  {Stream: "orders", Mode: conduit.Broadcast},
-    },
-}), conduit.WithProvider("events", broker))
-if err != nil { return err }
+func main() {
+	ext, err := conduit.NewExtension(
+		conduit.WithProvider("events", memory.New()),
+		conduit.WithConfig(conduit.Config{
+			Streams: map[string]conduit.StreamConfig{
+				"orders": {Provider: "events", Subjects: []string{"orders.>"}},
+			},
+			Subscriptions: map[string]conduit.SubscriptionConfig{
+				"process-orders": {Stream: "orders", Mode: conduit.Competing},
+			},
+		}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-err = conduit.Subscribe(ext.Runtime(), OrderPlacedV1,
-    func(ctx context.Context, msg conduit.Message[OrderPlaced]) error {
-        return chargeOrder(ctx, msg.Data.OrderID, msg.Envelope.ID)
-    }, conduit.Consumer("process-orders"))
-if err != nil { return err }
+	// Bind handlers before the app starts.
+	err = conduit.Subscribe(ext.Runtime(), OrderPlacedV1,
+		func(ctx context.Context, msg conduit.Message[OrderPlaced]) error {
+			log.Printf("charging order %s (message %s)", msg.Data.OrderID, msg.Envelope.ID)
 
-err = conduit.Subscribe(ext.Runtime(), OrderPlacedV1,
-    func(ctx context.Context, msg conduit.Message[OrderPlaced]) error {
-        return refreshOrderCache(ctx, msg.Data.OrderID)
-    }, conduit.Consumer("refresh-cache"))
-if err != nil { return err }
+			return nil
+		}, conduit.Consumer("process-orders"))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-// Register ext through app.RegisterExtension or AppConfig.Extensions.
-// Forge starts and stops the runtime with the application.
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "orders",
+		HTTPAddress: ":8080",
+		Extensions:  []forge.Extension{ext},
+	})
+
+	err = app.Router().POST("/orders/:id", func(ctx forge.Context) error {
+		id := ctx.Param("id")
+
+		receipt, err := conduit.Publish(ctx.Context(), ext.Runtime(), OrderPlacedV1,
+			OrderPlaced{OrderID: id}, conduit.MessageID("order-"+id+"-placed"))
+		if err != nil {
+			return err
+		}
+
+		return ctx.JSON(http.StatusAccepted, receipt)
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
 ```
 
-Identity, version and endpoints are optional when you use the Forge extension. You can call `conduit.NewExtension()` and put provider, stream and subscription settings under `extensions.conduit` in your application configuration. Bind handlers before registration. Forge validates the loaded configuration when it registers the extension.
+Run it and place an order:
 
-Conduit reads the native `.forge.yaml` or `.forge.yml` application name, version, namespace and development listener settings, then fills missing values from the Forge application. The advertised host follows explicit discovery configuration, `FORGE_ADVERTISE_ADDR`, `POD_IP`, the manifest host and the machine hostname. Wildcard listeners are never advertised. Explicit Conduit fields win. `conduit.New` remains strict for standalone runtimes.
+```bash
+go mod tidy
+go run .
+
+# in another terminal
+curl -X POST localhost:8080/orders/42
+# {"messageID":"order-42-placed","sequence":1,"persisted":false,"duplicate":false}
+```
+
+The app logs `charging order 42 (message order-42-placed)`. `persisted` is false because memory keeps nothing on disk. For real retention, swap the provider for JetStream and make the subscription durable:
+
+```go
+ext, err := conduit.NewExtension(
+	conduit.WithProvider("events", jetstream.New(jetstream.Options{URL: "nats://localhost:4222"})),
+	conduit.WithConfig(conduit.Config{
+		Streams: map[string]conduit.StreamConfig{
+			"orders": {Provider: "events", Subjects: []string{"orders.>"}, MaxAge: 7 * 24 * time.Hour, Replicas: 3},
+		},
+		Subscriptions: map[string]conduit.SubscriptionConfig{
+			"process-orders": {Stream: "orders", Mode: conduit.Competing, Durable: true, Concurrency: 4, MaxInFlight: 16},
+			"refresh-cache":  {Stream: "orders", Mode: conduit.Broadcast},
+		},
+	}),
+)
+```
+
+The memory provider refuses `Durable: true`, so the app fails at registration if you ask for a guarantee the broker can't give.
+
+## Features
+
+| You need | Conduit gives you |
+| --- | --- |
+| Events with a schema in your Go types | `conduit.Event[T]`, `Publish` and `Subscribe` with typed handlers |
+| Work shared across replicas, or fan-out to each one | Competing and broadcast subscriptions, durable or ephemeral |
+| At-least-once delivery you can reason about | Receipts that say whether the broker persisted the message, retries, `Permanent` errors and dead letters |
+| Business data and events that commit together | A PostgreSQL outbox and inbox in `transaction`, plus `PublishTx` on the PostgreSQL provider |
+| Request and reply over the broker | `conduit.Procedure`, `Handle` and `Call`, with typed errors |
+| HTTP and gRPC calls by service name | `conduit.Clients(...).HTTP` and `.GRPC`, resolved through discovery |
+| Policy, tracing and audit in one place | Publish, handle and RPC hooks, handler middleware and observers |
+| Operator controls | Consumer lag, pause and resume, bounded backfill, dead-letter replay, and a dashboard plugin |
+| A choice of broker | NATS JetStream, Redis Streams, PostgreSQL, Kafka and memory, behind one provider interface |
+
+## Identity and topology
+
+Every process you run has two identities: `ServiceID` names the logical service, while `InstanceID` names its running replica. Consumer identity includes the namespace, service and subscription. Competing consumers share that identity across replicas, and broadcast consumers add a subscriber identity so each instance has its own cursor.
+
+Streams belong to a namespace, and wherever you declare one, its retention settings must match. Your services can use different subscriptions, delivery modes, retry policies and worker counts against the same stream. A competing group's `MaxInFlight`, timeout and retry settings must agree across its replicas, and `Concurrency` controls each replica's workers.
+
+Conduit generates an instance ID when you omit it. Supply your pod or process identity when you need to correlate it with deployment records, and advertise an address that clients can reach: a listener's wildcard bind address is not an endpoint.
+
+## Publish and handle
+
+```go
+receipt, err := conduit.Publish(ctx, ext.Runtime(), OrderPlacedV1,
+	OrderPlaced{OrderID: "order-42"},
+	conduit.MessageID("order-42-placed"),
+	conduit.Correlation("checkout-42"),
+)
+```
+
+The receipt confirms broker acceptance. `Persisted` tells you whether the provider stored the message durably. It does not mean a handler has finished. If publication returns `conduit.ErrOutcomeUnknown`, retry with the same message ID: the broker may have accepted the first attempt even though its acknowledgement didn't reach you.
+
+Delivery is at least once, so you should write idempotent handlers. JetStream deduplication has a finite window, and a handler can commit its work before losing an acknowledgement. `conduit.Permanent(err)` ends processing retries immediately. Other failures retry with a linearly increasing delay, then enter the provider's dead letter store. A storage failure leaves the delivery eligible for retry instead of dropping it.
+
+Ephemeral broadcast starts with new events by default. Durable broadcast needs a stable `BroadcastID`, unique to each intended subscriber, so a replacement process can resume that subscriber's cursor. An auto-generated instance ID can't identify a durable broadcast subscriber after a restart.
+
+## Hooks and middleware
+
+Use `conduit.WithHooks` at construction or `Runtime.RegisterHook` before startup. A hook needs only a name and the interfaces it uses, and `HookFuncs` covers the common cases:
+
+```go
+conduit.WithHooks(conduit.HookFuncs{
+	HookName: "trace-and-audit",
+	OnPublish: func(ctx context.Context, draft *conduit.Envelope) error {
+		if draft.Headers == nil {
+			draft.Headers = map[string]string{}
+		}
+		draft.Headers["traceparent"] = traceHeader(ctx)
+
+		return nil
+	},
+	OnHandle: func(ctx context.Context, msg conduit.Envelope, delivery conduit.DeliveryInfo) error {
+		return authorizeEvent(ctx, msg.Source.ServiceID, msg.Type)
+	},
+	OnEvent: func(ctx context.Context, event conduit.HookEvent) {
+		recordOutcome(ctx, event.Stage, event.Delivery)
+	},
+})
+```
+
+Publish hooks run before final typed validation. They can enrich metadata or reject a draft, but they can't change its message ID, source or type. Handle hooks can reject an attempt before your handler runs. `conduit.AroundHandle` wraps individual subscriptions with middleware in outermost-first order.
+
+Observers receive copied outcomes for lifecycle, provider connections, subscription startup, publication, processing, acknowledgement, retry, dead letter storage and replay. Observer panics are isolated. Their bounded queue drops observations under sustained backpressure, which you can see through `ObserverDrops`. An observer is best effort, so put mandatory policy or audit work in a control hook or your business transaction. The Forge extension also counts every outcome in `forge_conduit_outcomes_total`, labelled by namespace, service and outcome, and records a `forge_conduit_processing_duration_seconds` histogram.
+
+## Call a service by name
+
+```go
+clients := conduit.Clients(ext.Runtime())
+httpClient := clients.HTTP("inventory", authenticatedTransport)
+
+request, err := http.NewRequestWithContext(ctx, "GET", "http://inventory/items/42", nil)
+if err != nil {
+	return err
+}
+
+response, err := httpClient.Do(request)
+
+conn, err := clients.GRPC("inventory", transportCredentials)
+// Pass conn to your generated protobuf client's constructor.
+```
+
+The HTTP client resolves ready endpoints on every request you make and spreads calls across them. The gRPC resolver refreshes addresses every second and uses round robin. You keep credentials and request authentication in your own transport. Conduit doesn't retry API mutations, and informational source headers don't authenticate a caller.
+
+When Forge discovery is installed, Conduit reuses its backend and leaves its lifecycle to Forge, including only records that carry the matching Conduit namespace. Otherwise a single broker registry is picked automatically: memory doesn't count, and JetStream wins when it's one of several. Set `discovery` to a provider name, `forge` or `none` to choose yourself, and remember that a programmatic `WithRegistry` always wins. JetStream's registry stores a 45-second lease per instance, renewed every ten seconds, so crashed members disappear when their leases expire. `discovery.NewStatic` gives you a fixed registry for tests and fixed deployments, with no crash expiry.
+
+## Typed broker RPC
+
+Declare a procedure once and share it with callers and handlers:
+
+```go
+var lookup = conduit.Procedure[LookupRequest, LookupResponse]("billing.lookup.v1")
+
+err := conduit.Handle(ext.Runtime(), lookup,
+	func(ctx context.Context, request conduit.Request[LookupRequest]) (LookupResponse, error) {
+		return billing.Lookup(ctx, request.Data.ID)
+	})
+
+response, err := conduit.Call(ctx, runtime, "billing", lookup, LookupRequest{ID: "invoice-42"})
+```
+
+Replicas share one procedure queue, and each call reaches one instance. `rpc.provider` picks the connection when several providers support RPC. With one provider, selection is automatic. With several and `rpc.provider` unset, memory is left out: if one provider remains, it serves RPC, and if several remain and exactly one is JetStream, JetStream does. Otherwise set `rpc.provider` yourself. `rpc.timeout`, `rpc.concurrency` and `rpc.max_in_flight` are per service.
+
+Cancellation and deadlines reach your handlers, but cancellation is best effort and a timed-out call may already have caused an effect. Calls send once and never retry business effects, so keep an application idempotency key for mutations. Return `&conduit.RPCError{Code: conduit.RPCPermissionDenied, Message: "Billing access required"}` for an intentional public error. Arbitrary errors and panics become `INTERNAL` responses without their private cause. The `RPCCalling`, `RPCReceived`, `RPCHandling`, `RPCHandled`, `RPCReturned` and `RPCFailed` hook stages expose the request lifecycle. RPC is live request and reply with no event retention, so durable workflows belong on streams and the transactional inbox.
+
+## Commit business data and an event together
+
+`transaction.Store` uses PostgreSQL through `database/sql`. Run `Migrate` through your migration process, then enqueue a prepared event in the same transaction as your business write:
+
+```go
+store := &transaction.Store{DB: db}
+
+publication, err := conduit.Prepare(ctx, ext.Runtime(), OrderPlacedV1, order)
+if err != nil {
+	return err
+}
+
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer tx.Rollback()
+
+if err := saveOrder(ctx, tx, order); err != nil {
+	return err
+}
+
+if err := store.Enqueue(ctx, tx, publication.Stream, publication.Envelope); err != nil {
+	return err
+}
+
+return tx.Commit()
+```
+
+Run `store.Relay(ctx, runtime, onError)` under your application's lifecycle context. It uses `FOR UPDATE SKIP LOCKED`, keeps prepared message IDs and removes a row only after durable broker acceptance, so several relay workers can share the table. A crash after broker acceptance can publish the same ID again.
+
+On the consuming side, bind `store.Inbox(handler)` through `Runtime.Bind`. Your handler receives the same SQL transaction as the inbox marker. The deduplication key includes namespace, service, subscription and message, so replicas share protection while independent subscribers each get their own business effect. External effects still need their own idempotency keys. Inbox rows stay until you apply a retention policy, so keep them longer than the events you might replay.
+
+## Consumer operations
+
+Call `runtime.Consumers(ctx)` and you get pending messages, outstanding acknowledgements and redeliveries for each broker consumer, with processing and publish-to-delivery latency summaries for the current instance (count, total, maximum and average, in nanoseconds, not fleet percentiles).
+
+`runtime.PauseSubscription(ctx, "process-orders", true)` pauses intake on the broker cursor, and `false` resumes it. A competing cursor is shared by the service's replicas; a broadcast cursor belongs to its subscriber. Accepted work can finish while the cursor is paused. JetStream, Redis Streams and PostgreSQL keep pause state across restarts, and memory keeps it for the life of the process.
+
+`runtime.Backfill(ctx, conduit.BackfillInput{ID: "billing-recovery-42", Subscription: "process-orders", Start: 10, End: 30})` replays a range of at most 100 sequences, with a 30-second deadline per run. Matching events keep their original IDs and go only to the selected consumer. Reuse the same ID and range to resume after an interruption, and a completed operation returns its recorded result. Business effects can repeat unless your inbox protects them.
+
+## Providers
+
+| Provider | Package | Durable streams | Replay | Dead letters | Discovery |
+| --- | --- | --- | --- | --- | --- |
+| NATS JetStream | `providers/jetstream` | File storage with configured replicas | Sequence cursors and targeted recovery | Persisted KV records | Leased KV records |
+| Redis Streams (7.2+, AOF on) | `providers/redisstreams` | AOF-confirmed primary and configured replicas | Per-stream sequences and consumer groups | AOF-backed records | Leased keys |
+| PostgreSQL 13+ | `providers/postgres` | Committed transactions | Per-stream sequences in commit-safe order | Rows | Leased rows |
+| Kafka | `providers/kafka` | All configured in-sync replicas | One-based single-partition offsets | Retained failure log | Use Forge or a registry |
+| Memory | `providers/memory` | Process memory only | Retained process-local records | Process-local records | Process-local leases |
+
+JetStream, Redis and PostgreSQL report the same capabilities: retained events, dead letters, targeted replay, pause and resume, resumable backfill, broker RPC and a leased registry. Kafka supplies retained events, dead letters and targeted replay, so pair it with Forge discovery and the named HTTP and gRPC clients. No supplied provider promises ordered processing by message key.
+
+A few things you'll want to know before you pick one:
+
+| Provider | Worth knowing |
+| --- | --- |
+| JetStream | `Options.LeaseTTL` has to match the TTL of an existing `FC_DISC_*` bucket, or every registry call returns a conflict |
+| Redis Streams | Confirms local and replica AOF writes with `WAITAOF`, and deduplicates publications for 24 hours by default. RPC keeps two pooled connections blocked, so leave room for both |
+| PostgreSQL | Deduplicates on message ID while the original is retained, and gives you `PublishTx` to publish inside your own transaction. A consumer never reads past the oldest open transaction, which `VisibilityLag` measures, and after a dump and restore you call `Rebase` once |
+| Kafka | One partition per stream, one active competing replica at a time, age retention only (`MaxMessages` is rejected), and no publication deduplication |
+
+The [providers guide](https://www.xraph.com/docs/forge/extensions/conduit/providers) covers PostgreSQL roles and grants, PgBouncer, retention and the rest of each provider's operating notes.
+
+To add a broker, implement `core.Provider` and report your real `Capabilities`. Management operations use `core.Management`, discovery uses `core.Registry`, and transient request and reply uses `core.RPCProvider`. Unsupported guarantees fail explicitly. `providers/conformance.Run` checks replica delivery, broadcast, isolation, durable restart, takeover, retries, recovery, topology conflicts and retention against a real broker, then runs a group for each capability the provider claims.
+
+## Configuration
+
+You can call `conduit.NewExtension()` with no options and put providers, streams and subscriptions under `extensions.conduit`. Bind handlers before registration, and Forge validates the loaded configuration when it registers the extension.
 
 ```yaml
 extensions:
@@ -59,7 +304,7 @@ extensions:
     providers:
       events:
         type: jetstream
-        url: ${NATS_URL}
+        url: nats://nats:4222
         dead_letter_replicas: 3
     streams:
       orders:
@@ -77,165 +322,70 @@ extensions:
         timeout: 30s
 ```
 
-`CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL` override loaded values unless you supply those values explicitly in Go. Forge's normal configuration sources and deployment overlays also apply.
+Provider `type` accepts `jetstream`, `redis-streams`, `postgres`, `kafka` and `memory`. Kafka URLs are comma-separated `host:port` addresses. TLS and authentication go in each provider's native `Options` in Go.
 
-When Forge discovery is installed, Conduit reuses its backend and leaves its lifecycle with Forge. Only records carrying the matching Conduit namespace are included. Otherwise a single broker registry is selected automatically. The memory provider doesn't count, and JetStream wins when it's one of several. Set `discovery` to a provider name, `forge` or `none` to choose explicitly. A programmatic `WithRegistry` always wins. The bridge removes only its own instance record, and its crash-expiry guarantees follow the existing discovery backend.
+Identity, version and endpoints are optional with the Forge extension. Conduit reads the application name, version, namespace and development listener settings from `.forge.yaml` or `.forge.yml`, then fills missing values from the Forge application. The advertised host comes from explicit discovery configuration, then `FORGE_ADVERTISE_ADDR`, `POD_IP`, the manifest host and the machine hostname, and wildcard listeners are never advertised. Explicit Conduit fields win. `conduit.New` stays strict for standalone runtimes.
 
-Conduit generates an instance ID when you omit it. Supply your pod or process identity when you need to correlate it with deployment records. Advertise an address that clients can reach; a listener's wildcard bind address is not an endpoint.
+`CONDUIT_NAMESPACE`, `CONDUIT_SERVICE_ID`, `CONDUIT_INSTANCE_ID`, `CONDUIT_VERSION`, `CONDUIT_DISCOVERY` and `CONDUIT_PROVIDERS_<NAME>_URL` override loaded values unless you set those values explicitly in Go. Forge's normal configuration sources and deployment overlays apply too.
 
-Streams belong to a namespace and must have matching retention settings wherever they are declared. Services can use different subscriptions, delivery modes, retry policies and worker counts against the same stream. A competing group's `MaxInFlight`, timeout and retry settings must agree across its replicas; `Concurrency` controls each replica's workers.
+## Dashboard
 
-## Publish and handle
+With the dashboard extension installed, Conduit contributes the `conduit` dashboard contract automatically. The React package is `@forge-go/dashboard-plugin-conduit`. It shows per-instance counters, provider guarantees, streams, subscription policies, registered replicas, the latest 100 hook outcomes and cursor-paged dead letters, with real pause and resume, bounded backfill and dead-letter replay. Replay targets the original consumer and keeps the original message ID. Listings leave out payloads, headers and handler error text.
 
-```go
-receipt, err := conduit.Publish(ctx, ext.Runtime(), OrderPlacedV1,
-    OrderPlaced{OrderID: "order-42"},
-    conduit.MessageID("order-42-placed"),
-    conduit.Correlation("checkout-42"),
-)
+Namespace and service claims, when present, must match the configured runtime, and malformed claims are denied. The dashboard's own authentication, CSRF, command idempotency and audit adapters stay in charge of transport access.
+
+## Documentation
+
+| Topic | Where |
+| --- | --- |
+| Starting a service, replicas and delivery | [Conduit overview](https://www.xraph.com/docs/forge/extensions/conduit) |
+| YAML, inferred metadata and environment overrides | [Configuration](https://www.xraph.com/docs/forge/extensions/conduit/configuration) |
+| Publishing, hooks and PostgreSQL transactions | [Events](https://www.xraph.com/docs/forge/extensions/conduit/events) |
+| JetStream, Redis Streams, PostgreSQL, Kafka and custom providers | [Providers](https://www.xraph.com/docs/forge/extensions/conduit/providers) |
+| Broker RPC and discovery-backed clients | [RPC and discovery](https://www.xraph.com/docs/forge/extensions/conduit/rpc-discovery) |
+| Consumer controls, scoped access, shutdown and the demo | [Operations](https://www.xraph.com/docs/forge/extensions/conduit/operations) |
+| Package reference | [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/conduit) |
+
+## Run the demo
+
+```sh
+cd extensions/conduit
+GOWORK=off go run ./cmd/demo
 ```
 
-The receipt confirms broker acceptance. `Persisted` tells you whether the provider stored the message durably. It does not mean a handler has finished. If publication returns `conduit.ErrOutcomeUnknown`, retry with the same message ID: the broker may have accepted the first attempt even though its acknowledgement did not reach you.
+The demo listens on `127.0.0.1:8098` and runs two instances against the memory broker. Set `CONDUIT_DEMO_NATS` to use a real JetStream server instead. In `forge-dashboard`, start the shell with `FORGE_DASHBOARD_BACKEND=http://127.0.0.1:8098` and open `/@conduit/`.
 
-Delivery is at least once. Use idempotent handlers. JetStream deduplication has a finite window, and a handler can commit its work before losing an acknowledgement. `conduit.Permanent(err)` ends processing retries immediately. Other failures retry with a linearly increasing delay, then enter the provider's dead letter store. Storage failure leaves the delivery eligible for retry instead of dropping it.
+## FAQ
 
-Ephemeral broadcast starts with new events by default. Durable broadcast requires a stable `BroadcastID`, unique to each intended subscriber, so a replacement process can resume that subscriber's cursor. An auto-generated instance ID cannot identify a durable broadcast subscriber after a restart.
+### How do I send events between Go microservices with Forge?
 
-## Hooks and middleware
+Declare the event once with `conduit.Event[T]`, add the Conduit extension with a provider and a stream, `Subscribe` in the consuming service and `Publish` in the producing one. Both services use the same stream declaration, and each has its own subscriptions.
 
-Use `conduit.WithHooks` at construction or `Runtime.RegisterHook` before startup. A hook needs only a name and the interfaces it uses. `HookFuncs` supplies callbacks for common cases:
+### Is delivery exactly once?
 
-```go
-conduit.WithHooks(conduit.HookFuncs{
-    HookName: "trace-and-audit",
-    OnPublish: func(ctx context.Context, draft *conduit.Envelope) error {
-        if draft.Headers == nil { draft.Headers = map[string]string{} }
-        draft.Headers["traceparent"] = traceHeader(ctx)
-        return nil
-    },
-    OnHandle: func(ctx context.Context, msg conduit.Envelope, delivery conduit.DeliveryInfo) error {
-        return authorizeEvent(ctx, msg.Source.ServiceID, msg.Type)
-    },
-    OnEvent: func(ctx context.Context, event conduit.HookEvent) {
-        recordOutcome(ctx, event.Stage, event.Delivery)
-    },
-})
-```
+No, it's at least once. Use stable message IDs when you publish, make handlers idempotent, and put database effects behind the transactional inbox. Broker deduplication windows are finite, and a handler can commit work before its acknowledgement is lost.
 
-Publish hooks run before final typed validation. They can enrich metadata or reject a draft, but cannot change its message ID, source or type. Handle hooks can reject an attempt before your handler runs. `AroundHandle` wraps individual subscriptions with middleware in outermost-first order.
+### Which broker should I use with Conduit?
 
-Observers receive copied outcomes for lifecycle, provider connections, subscription startup, publication, processing, acknowledgement, retry, dead letter storage and replay. Observer panics are isolated. Their bounded queue drops observations under sustained backpressure, which you can inspect through `ObserverDrops`. Use a control hook or your business transaction for mandatory policy or audit work. An observer is best effort.
+JetStream if you're starting fresh: it's the provider Conduit prefers for RPC and the registry when you configure several. Redis Streams or PostgreSQL if that's what you already run, since both report the same capabilities as JetStream. Kafka when you're already on Kafka and can live with one partition per stream. Memory for tests and local work.
 
-The Forge extension also reports these observations through `forge_conduit_outcomes_total`, labelled by namespace, service and outcome. Dashboard counters record runtime outcomes directly and distinguish handled messages from confirmed acknowledgements.
+### Can I use Conduit without Forge?
 
-## Call a service by name
+Yes. `conduit.New(cfg, opts...)` builds a standalone runtime that you start and stop yourself. It's strict: you set `Identity.ServiceID` in the config, and nothing is read from `.forge.yaml` or a Forge app. The namespace defaults to `default` and the instance ID is generated.
 
-```go
-clients := conduit.Clients(ext.Runtime())
-httpClient := clients.HTTP("inventory", authenticatedTransport)
-request, err := http.NewRequestWithContext(ctx, "GET", "http://inventory/items/42", nil)
-if err != nil { return err }
-response, err := httpClient.Do(request)
+## Contributing
 
-conn, err := clients.GRPC("inventory", transportCredentials)
-// Pass conn to your generated protobuf client's constructor.
-```
-
-HTTP resolves ready endpoints on each request and distributes calls across them. The gRPC resolver refreshes addresses every second and uses round robin. Credentials and request authentication stay with your transport. Conduit does not retry API mutations automatically, and informational source headers do not authenticate a caller.
-
-JetStream's discovery registry stores a 45-second lease per instance, renewed every ten seconds. Shutdown removes only that instance. Crashed members disappear when their leases expire. The registry is pluggable independently of messaging; `discovery.Static` supports tests and fixed deployments, with no automatic crash expiry.
-
-## Commit business data and an event together
-
-`transaction.Store` uses PostgreSQL through `database/sql`. Run `Migrate` through your application's migration process, then enqueue a prepared event in the same transaction as your business write:
-
-```go
-publication, err := conduit.Prepare(ctx, ext.Runtime(), OrderPlacedV1, order)
-if err != nil { return err }
-tx, err := db.BeginTx(ctx, nil)
-if err != nil { return err }
-defer tx.Rollback()
-if err := saveOrder(ctx, tx, order); err != nil { return err }
-if err := store.Enqueue(ctx, tx, publication.Stream, publication.Envelope); err != nil { return err }
-if err := tx.Commit(); err != nil { return err }
-```
-
-Run `store.Relay(ctx, runtime, onError)` under your application's lifecycle context. It uses `FOR UPDATE SKIP LOCKED`, preserves prepared message IDs and removes a row only after durable broker acceptance. Multiple relay workers can share the table. A crash after broker acceptance can publish the same ID again.
-
-For consumers, bind `store.Inbox(handler)` through `Runtime.Bind`. Your handler receives the same SQL transaction as the inbox marker. Its deduplication key includes namespace, service, subscription and message, so replicas share protection while independent subscribers each get their own business effect. External effects still need their own idempotency keys. Inbox rows remain until you apply your retention policy; keep them longer than the events you may replay.
-
-## Dashboard and providers
-
-The extension automatically contributes the `conduit` dashboard contract when the dashboard extension is present. The React package is `@forge-go/dashboard-plugin-conduit`. It shows per-instance counters, provider guarantees, streams, subscription policies, registered replicas, the latest 100 hook outcomes and cursor-paged dead letters. Replay targets the original consumer and keeps the original message ID. Listings exclude payloads, headers and arbitrary handler error text.
-
-Namespace and service claims, when present, must match the configured runtime. Malformed claims are denied. Without those claims, the contract uses the explicitly configured runtime scope. The dashboard's normal authentication, CSRF, command idempotency and audit adapters remain in charge of transport access.
-
-| Provider       | Durable streams                               | Replay                                         | Dead letters          | Discovery               |
-| -------------- | --------------------------------------------- | ---------------------------------------------- | --------------------- | ----------------------- |
-| NATS JetStream | File storage with configured replicas         | Sequence cursors and targeted recovery         | Persisted KV records  | Leased KV records       |
-| Redis Streams  | AOF-confirmed primary and configured replicas | Per-stream sequences and consumer groups       | AOF-backed records    | Leased keys             |
-| PostgreSQL     | Committed transactions                        | Per-stream sequences read in commit-safe order | Rows                  | Leased rows             |
-| Kafka          | All configured in-sync replicas               | One-based single-partition offsets             | Retained failure log  | Use Forge or a registry |
-| Memory         | Process memory only                           | Retained process-local records                 | Process-local records | Process-local leases    |
-
-Implement `core.Provider` and report your actual `Capabilities` to add a broker. Management operations use `core.Management`; discovery uses `core.Registry`. Unsupported guarantees fail explicitly. No supplied provider promises ordered processing by message key. Implement `core.RPCProvider` for transient request/reply. Named gRPC clients provide streaming RPC through generated clients.
-
-## Run the checks and demo
+The extension is its own Go module inside the Forge repository.
 
 ```sh
 cd extensions/conduit
 GOWORK=off go test -race ./...
-CONDUIT_TEST_POSTGRES='postgres://postgres:password@localhost:5432/conduit?sslmode=disable' GOWORK=off go test -race ./transaction ./providers/postgres .
-GOWORK=off go run ./cmd/demo
+CONDUIT_TEST_POSTGRES='postgres://postgres:password@localhost:5432/conduit?sslmode=disable' \
+  GOWORK=off go test -race ./transaction ./providers/postgres .
 ```
 
-The demo listens on `127.0.0.1:8098` and runs two instances against the memory broker. Set `CONDUIT_DEMO_NATS` to use a real JetStream server instead. In `forge-dashboard`, start the shell with `FORGE_DASHBOARD_BACKEND=http://127.0.0.1:8098` and open `/@conduit/`. PostgreSQL integration tests skip unless you provide `CONDUIT_TEST_POSTGRES`; broker restart tests run an embedded NATS server with a real file store.
+PostgreSQL tests skip unless you set `CONDUIT_TEST_POSTGRES`, and `CONDUIT_TEST_REDIS` and `CONDUIT_TEST_KAFKA` turn on the other optional integrations. CI sets `CONDUIT_REQUIRE_PROVIDERS=1` so those checks can't silently skip. Broker restart tests run an embedded NATS server with a real file store. See [AGENTS.md](../../AGENTS.md) for the toolchain, lint rules and commit format.
 
-## Typed broker RPC
+## License
 
-Declare your procedure once and share it with callers and handlers:
-
-```go
-var lookup = conduit.Procedure[LookupRequest, LookupResponse]("billing.lookup.v1")
-
-err := conduit.Handle(ext.Runtime(), lookup,
-    func(ctx context.Context, request conduit.Request[LookupRequest]) (LookupResponse, error) {
-        return billing.Lookup(ctx, request.Data.ID)
-    })
-
-response, err := conduit.Call(ctx, runtime, "billing", lookup, LookupRequest{ID: "invoice-42"})
-```
-
-Replicas share one procedure queue. Each call reaches one instance. `rpc.provider` selects a connection when several providers support RPC. With one provider, selection is automatic. With several and `rpc.provider` unset, the memory provider is left out of the choice: if one provider remains, it serves RPC, and if several remain and exactly one is JetStream, JetStream does. Otherwise set `rpc.provider` yourself. Configure `rpc.timeout`, `rpc.concurrency` and `rpc.max_in_flight` per service. Handlers can inspect caller identity, headers and correlation in `request.Envelope`. These fields are metadata; broker access controls and your authorization hooks authenticate callers.
-
-Cancellation and deadlines propagate to handlers. Cancellation is best effort, and a timed-out call may already have caused an effect. Calls send once and never retry business effects automatically. Keep an application idempotency key for mutations. RPC uses live request/reply without event retention: NATS subjects, Redis streams or PostgreSQL rows, depending on the provider. Durable workflows belong on streams and transactional inboxes.
-
-Return `&conduit.RPCError{Code: conduit.RPCPermissionDenied, Message: "Billing access required"}` for intentional public errors. Arbitrary errors and panics become `INTERNAL` responses without their private cause. `RPCCalling`, `RPCReceived`, `RPCHandling`, `RPCHandled`, `RPCReturned` and `RPCFailed` hooks expose the request lifecycle. Existing publish and handle control hooks run before RPC work.
-
-## Consumer operations
-
-`runtime.Consumers(ctx)` reads pending messages, outstanding acknowledgements and redeliveries from each registered broker consumer. Processing and publication-to-delivery latency summaries count attempts on the current instance. They include count, total, maximum and average durations, in nanoseconds. They are not fleet percentiles. Hooks include attempt duration, and Forge exports a processing duration histogram in seconds.
-
-`runtime.PauseSubscription(ctx, "process-orders", true)` pauses intake on the actual broker cursor. Pass `false` to resume. A competing cursor is shared by service replicas; a broadcast cursor belongs to its configured subscriber. Accepted work can finish while the cursor is paused. JetStream, Redis Streams and PostgreSQL retain pause state across restarts; memory state lasts for the process.
-
-Run controlled recovery with `runtime.Backfill(ctx, conduit.BackfillInput{ID: "billing-recovery-42", Subscription: "process-orders", Start: 10, End: 30})`. The inclusive range is capped at 100 sequences and each run has a 30-second deadline. Missing retained messages, other event types and earlier targeted recovery records are counted as skipped. Matching original events retain their IDs and go only to the selected logical consumer. Business effects may repeat unless your inbox protects them.
-
-JetStream stores progress in a replicated file-backed KV bucket, Redis in an AOF-confirmed hash and PostgreSQL in a table. Reuse the same operation ID and unchanged range to resume after an interruption; completed operations return their recorded result. A crash claim expires after one minute. Concurrent attempts conflict. Publication IDs are stable per operation and sequence, but broker deduplication has a finite window. Memory provides the same controls without disk persistence. The dashboard exposes real pause/resume commands, bounded backfill, scoped history and broker lag.
-
-## Additional providers and published docs
-
-Use `providers/redisstreams` for Redis 7.2+ with AOF enabled, `providers/postgres` for PostgreSQL 13+, or `providers/kafka` for Kafka. Forge configuration accepts `redis-streams`, `postgres` and `kafka`; Kafka URLs contain comma-separated `host:port` addresses. Native provider options carry TLS and authentication settings.
-
-Redis confirms local and configured replica AOF writes with `WAITAOF`. It supports age/count retention and consumer groups, with 24-hour publication deduplication by default. Redis RPC keeps at most two pooled connections blocked, one serving every procedure and one waiting for replies, so leave room for both in the pool size. PostgreSQL stores each stream as rows with its own sequence, deduplicates on message ID for as long as the original is retained, and gives you `PublishTx` to publish inside your own transaction. A consumer never reads past the oldest open transaction in the cluster, so a long transaction delays delivery; `VisibilityLag` measures it. With several publishers, delivery follows commit order, so a consumer can see sequence 42 before 41.
-
-PostgreSQL `Migrate` and `AutoMigrate` create what's missing and do nothing when the schema is current, so only the first deploy, or a release that adds tables or indexes, needs a role that can create and own the `forge_conduit_` tables. Your runtime role needs `USAGE` on the schema, `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the `forge_conduit_` tables, and `USAGE` and `UPDATE` on the `forge_conduit_seq_` sequences (`ALTER DEFAULT PRIVILEGES` helps). Declaring a new stream needs `CREATE` on the schema, or declare it once as the owner. Behind PgBouncer, set `URL` beside `Pool` and point it straight at PostgreSQL for the `LISTEN` connection. `VisibilityLag` reads `pg_stat_activity`, so grant the role `pg_read_all_stats` (or `pg_monitor`) to see other roles' transactions; prepared transactions aren't counted. A stream with `MaxMessages` trims inside each publish, so a long `PublishTx` on it makes other publishers to that stream wait, and sequence gaps leave slightly fewer rows than the cap. Delivery takes an advisory lock per consumer group. While rows wait behind an open transaction it re-polls after 50ms and backs off to `PollInterval`, so delivery after that transaction ends lags by up to the current wait. A cursor ahead of the cluster's transaction IDs, after a dump and restore for example, makes `Subscribe` fail; call `Rebase` once on the restored database to repair it.
-
-One upgrade note: JetStream's `Options.LeaseTTL` has to match the TTL of an existing `FC_DISC_*` bucket, or every registry call returns a conflict.
-
-Kafka uses one partition per stream and settles each event before fetching the next. One competing replica is active at a time, while broadcast groups have independent offsets. Kafka supports age retention and rejects `MaxMessages`. It preserves stable IDs without publication deduplication; retry attempt counts reset after group reassignment. Use the transactional inbox to protect business effects.
-
-JetStream, Redis and PostgreSQL report the same capabilities: retained events, dead letters, targeted replay, pause/resume, resumable backfill, broker RPC and a leased registry. Kafka supplies retained events, dead letters and targeted replay; use Forge discovery and named HTTP/gRPC clients with it. Kafka failure listings fold the retained service failure log, so their cost grows with that log. Concurrent recovery can publish duplicates with the original message ID.
-
-The shared `providers/conformance.Run` suite checks real broker replica delivery, broadcast, isolation, durable restart, unsettled takeover, retries, recovery, topology conflicts, sequence starts and age retention. It then runs a group for each capability a provider claims. Set `CONDUIT_TEST_REDIS`, `CONDUIT_TEST_POSTGRES` and `CONDUIT_TEST_KAFKA` to run the optional local integrations. CI sets `CONDUIT_REQUIRE_PROVIDERS=1` so those checks cannot silently skip.
-
-Full usage and deployment details are in the [Conduit documentation](https://xraph.com/docs/forge/extensions/conduit). Install the published module with `go get github.com/xraph/forge/extensions/conduit@v1.0.0` and the dashboard package with `pnpm add @forge-go/dashboard-plugin-conduit`.
+Conduit is part of [Forge](https://github.com/xraph/forge) and is available under the [Apache License 2.0](../../LICENSE).

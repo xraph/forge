@@ -1,602 +1,289 @@
-# oRPC Extension for Forge
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge oRPC, a JSON-RPC 2.0 and OpenRPC layer that exposes the HTTP routes of a Go application built on Forge" width="100%">
+</p>
 
-The oRPC (Open RPC) extension automatically exposes your Forge application's REST API as JSON-RPC 2.0 methods with OpenRPC schema support. This provides a unified RPC interface for your existing HTTP endpoints.
+# Forge oRPC: JSON-RPC 2.0 and OpenRPC for Go HTTP routes
 
-## Features
+Forge oRPC is the JSON-RPC 2.0 extension for [Forge](https://github.com/xraph/forge), the Go backend framework. You add it to an app and every HTTP route you've registered becomes a JSON-RPC method on one endpoint, with batch requests, a method list and a generated OpenRPC schema. You keep writing ordinary Forge handlers. Clients that prefer RPC call the same code through `POST /rpc`.
 
-- ✅ **Automatic Method Generation**: Converts REST routes to JSON-RPC 2.0 methods
-- ✅ **OpenRPC Schema**: Generates OpenRPC 1.3.2 compliant schema documentation
-- ✅ **Route Execution**: Executes underlying HTTP endpoints via JSON-RPC calls
-- ✅ **Batch Requests**: Supports JSON-RPC 2.0 batch request specification
-- ✅ **Custom Method Names**: Override auto-generated method names
-- ✅ **Schema Annotations**: Add custom param/result schemas via route options
-- ✅ **Pattern Matching**: Include/exclude routes with glob patterns
-- ✅ **Flexible Naming**: Multiple naming strategies (path-based, method-based, custom)
-- ✅ **Observability**: Integrated metrics and logging
-- ✅ **Type Safety**: Schema validation and type hints
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/orpc.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/orpc) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
-## Installation
+[Documentation](https://www.xraph.com/docs/forge/extensions/orpc) · [Quick start](#quick-start) · [Features](#features) · [Method names](#method-names) · [Calling methods](#calling-methods) · [OpenRPC schema](#openrpc-schema) · [Configuration](#configuration) · [FAQ](#faq)
+
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/). Add Forge and the extension to your module:
 
 ```bash
-go get github.com/xraph/forge/extensions/orpc
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/orpc@latest
 ```
 
-## Quick Start
-
-### Basic Setup (Auto-Exposure)
+Save this as `main.go`:
 
 ```go
 package main
 
 import (
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/orpc"
+	"log"
+	"net/http"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/orpc"
 )
 
 func main() {
-    app := forge.NewApp(forge.AppConfig{
-        Name:    "my-api",
-        Version: "1.0.0",
-    })
-    
-    // Add REST routes
-    app.Router().GET("/users/:id", getUserHandler)
-    app.Router().POST("/users", createUserHandler)
-    
-    // Enable oRPC - automatically exposes routes as JSON-RPC methods
-    app.RegisterExtension(orpc.NewExtension(
-        orpc.WithEnabled(true),
-        orpc.WithAutoExposeRoutes(true),
-    ))
-    
-    app.Run()
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "users",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			orpc.NewExtension(orpc.WithServerInfo("users", "1.0.0")),
+		},
+	})
+
+	err := app.Router().GET("/users/:id", func(ctx forge.Context) error {
+		return ctx.JSON(http.StatusOK, map[string]string{
+			"id":   ctx.Param("id"),
+			"name": "Ada",
+		})
+	},
+		forge.WithSummary("Get a user by ID"),
+		forge.WithORPCMethod("users.get"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-This automatically creates JSON-RPC methods:
-- `get.users.id` → `GET /users/:id`
-- `create.users` → `POST /users`
+Run it with `go mod tidy && go run .`, then call the route as a JSON-RPC method:
 
-### Access Endpoints
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"users.get","params":{"id":"42"},"id":1}'
+# {"jsonrpc":"2.0","result":{"id":"42","name":"Ada"},"id":1}
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/rpc` | POST | Main JSON-RPC 2.0 endpoint |
-| `/rpc/schema` | GET | OpenRPC schema document |
-| `/rpc/methods` | GET | List available methods |
+curl http://localhost:8080/rpc/methods
+curl http://localhost:8080/rpc/schema
+```
+
+The extension reads the router's routes when it starts, so register your routes before `app.Run()` (or `app.Start`). A route you add after that won't show up as a method.
+
+## Features
+
+| You need | Forge oRPC gives you |
+| --- | --- |
+| An RPC interface without a second set of handlers | Every Forge route, exposed as a JSON-RPC 2.0 method that runs the real handler |
+| Control over what gets exposed | Include and exclude path patterns, per-route opt-out, and a method name prefix |
+| Predictable method names | `get.users.id` style names from the path, the route name, or one you set with `forge.WithORPCMethod` |
+| Fewer round trips | Batch requests, capped by `batch_limit` |
+| A machine-readable contract | An OpenRPC 1.3.2 document built from your routes and their OpenAPI request and response schemas |
+| Visibility | A method list endpoint, request counters and a method gauge in Forge metrics |
+
+## Endpoints
+
+With the default config the extension adds three routes to your app:
+
+| Route | What it does |
+| --- | --- |
+| `POST /rpc` | Runs a single JSON-RPC request or a batch (a JSON array) |
+| `GET /rpc/methods` | Lists method names, descriptions, tags and deprecation flags |
+| `GET /rpc/schema` | Returns the OpenRPC document |
+
+Change the paths with `WithEndpoint` and `WithOpenRPCEndpoint`. The methods route always sits at `<endpoint>/methods`, and `WithDiscovery(false)` or `WithOpenRPC(false)` removes the last two.
+
+## Method names
+
+The default naming strategy, `path`, builds a name from the HTTP verb and the path. `POST` becomes `create`, `GET` becomes `get`, `PUT` becomes `update`, `PATCH` stays `patch` and `DELETE` stays `delete`. Slashes turn into dots, path parameter markers are dropped and hyphens become underscores:
+
+| Route | Method name |
+| --- | --- |
+| `GET /users/:id` | `get.users.id` |
+| `POST /api/v1/posts` | `create.api.v1.posts` |
+| `DELETE /order-items/{id}` | `delete.order_items.id` |
+
+Set `naming_strategy: method` to use the route's name (from `forge.WithName`) where it has one, falling back to the path. `WithMethodPrefix("billing.")` puts a prefix on every generated name. A name set with `forge.WithORPCMethod` always wins over the strategy, though the prefix still applies.
+
+These route options shape what the extension does with a route:
+
+| Route option | Effect |
+| --- | --- |
+| `forge.WithORPCMethod("users.get")` | Sets the method name |
+| `forge.WithORPCExclude()` | Leaves the route out |
+| `forge.WithORPCParams(&orpc.ParamsSchema{...})` | Replaces the generated params schema |
+| `forge.WithORPCResult(&orpc.ResultSchema{...})` | Replaces the generated result schema |
+| `forge.WithORPCPrimaryResponse(201)` | Picks which OpenAPI response schema becomes the method's result |
+| `forge.WithSummary`, `forge.WithTags` | Become the method's description and tags |
+
+Path patterns come first. `exclude_patterns` defaults to `["/_/*"]`, which keeps Forge's health, info and metrics routes out. If you set `include_patterns`, a route has to match one of them to be exposed. Patterns use `filepath.Match`, and a trailing `/*` matches any path under the prefix. The extension's own routes are always skipped.
+
+## Calling methods
+
+`params` is a JSON object. Path parameters go in as top-level keys, the request body goes under `body`, and query string values go under `query`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "update.users.id",
+  "params": {
+    "id": "42",
+    "body": {"name": "Ada Lovelace"},
+    "query": {"notify": true}
+  },
+  "id": 7
+}
+```
+
+The extension turns that into `PUT /users/42?notify=true` with a JSON body, sends it through your router and puts the decoded JSON response in `result`. A handler that answers with a status of 400 or more comes back as a JSON-RPC error with code `-32603` and the message `route returned status <code>`. A non-JSON response comes back as `{"status": ..., "body": ...}`.
+
+Watch for one thing. The router sees a brand new request, and none of the headers on your original `POST /rpc` call (an `Authorization` header, a session cookie, a tracing header) are copied onto it, so if your route reads them to decide who the caller is, it gets nothing back when you call it over JSON-RPC.
+
+A batch is an array of requests, answered with an array of responses in the same order:
+
+```bash
+curl -X POST http://localhost:8080/rpc -d '[
+  {"jsonrpc":"2.0","method":"users.get","params":{"id":"1"},"id":1},
+  {"jsonrpc":"2.0","method":"nope","id":2}
+]'
+# [{"jsonrpc":"2.0","result":{"id":"1","name":"Ada"},"id":1},
+#  {"jsonrpc":"2.0","error":{"code":-32601,"message":"Method 'nope' not found"},"id":2}]
+```
+
+JSON-RPC errors are always sent with HTTP 200. The codes are the standard ones, exported as constants:
+
+| Constant | Code | When |
+| --- | --- | --- |
+| `orpc.ErrParseError` | -32700 | The body isn't valid JSON |
+| `orpc.ErrInvalidRequest` | -32600 | Wrong `jsonrpc` version, missing method, or a malformed batch |
+| `orpc.ErrMethodNotFound` | -32601 | No method by that name |
+| `orpc.ErrInvalidParams` | -32602 | `params` can't be decoded |
+| `orpc.ErrInternalError` | -32603 | The route or an interceptor returned an error |
+| `orpc.ErrServerError` | -32000 | Request too large, batches disabled, or batch over the limit |
+
+### Register methods and interceptors yourself
+
+The service is in the container as `*orpc.ORPCService`. You can add a method that isn't backed by a route, or wrap every call in an interceptor. A `forge.PhaseAfterStart` hook is a good place for it, since the extension has started by then:
+
+```go
+err := app.RegisterHookFn(forge.PhaseAfterStart, "rpc-extras", func(ctx context.Context, a forge.App) error {
+	svc, err := forge.Inject[*orpc.ORPCService](a.Container())
+	if err != nil {
+		return err
+	}
+
+	svc.Use(func(ctx context.Context, req *orpc.Request, next orpc.MethodHandler) (any, error) {
+		log.Printf("rpc %s", req.Method)
+		return next(ctx, req.Params)
+	})
+
+	return svc.RegisterMethod(&orpc.Method{
+		Name:        "system.ping",
+		Description: "Liveness check",
+		Handler: func(ctx any, params any) (any, error) {
+			return map[string]string{"pong": "ok"}, nil
+		},
+	})
+})
+```
+
+An interceptor gets the raw request. Pass `req.Params` (or your own value) to `next`, which hands it to the method's handler.
+
+## OpenRPC schema
+
+`GET /rpc/schema` returns an OpenRPC 1.3.2 document. You set `info.title` and `info.version` with `WithServerInfo`, and `servers` points at your endpoint. For a method's params, the extension uses the first of these you've provided: `forge.WithORPCParams`, the route's OpenAPI request schema, the request type registered for OpenAPI, and finally a basic schema with the path parameters, `query` and (for POST, PUT and PATCH) `body`. Results work the same way, from `forge.WithORPCResult` or the route's OpenAPI response schemas, so if you already describe your responses for OpenAPI you don't have to describe them twice. Methods are sorted by name. You can diff the output between builds.
 
 ## Configuration
 
-### Using ConfigManager (Recommended)
-
-In `config.yaml`:
+The extension reads `extensions.orpc` from your config, falling back to `orpc`. Options you pass in code override the file.
 
 ```yaml
 extensions:
   orpc:
     enabled: true
-    endpoint: "/rpc"
-    openrpc_endpoint: "/rpc/schema"
+    endpoint: /rpc
+    openrpc_endpoint: /rpc/schema
+    server_name: users
+    server_version: 1.0.0
     auto_expose_routes: true
-    method_prefix: "api."
-    exclude_patterns:
-      - "/_/*"
-      - "/internal/*"
+    method_prefix: ""
+    exclude_patterns: ["/_/*"]
     include_patterns: []
+    naming_strategy: path      # path, method or custom
     enable_openrpc: true
     enable_discovery: true
     enable_batch: true
     batch_limit: 10
-    naming_strategy: "path"
-    max_request_size: 1048576
-    request_timeout: 30
-    schema_cache: true
+    max_request_size: 1048576  # bytes, at least 1024
     enable_metrics: true
 ```
 
-Then in code:
+| Key | Option | Default | What it does |
+| --- | --- | --- | --- |
+| `enabled` | `WithEnabled` | `true` | Turns the extension off without removing it |
+| `endpoint` | `WithEndpoint` | `/rpc` | Path of the JSON-RPC endpoint |
+| `openrpc_endpoint` | `WithOpenRPCEndpoint` | `/rpc/schema` | Path of the OpenRPC document |
+| `server_name`, `server_version` | `WithServerInfo` | `forge-app`, `1.0.0` | `info` block in the OpenRPC document |
+| `auto_expose_routes` | `WithAutoExposeRoutes` | `true` | Turns routes into methods at start |
+| `method_prefix` | `WithMethodPrefix` | `""` | Prefix for every generated method name |
+| `exclude_patterns` | `WithExcludePatterns` | `["/_/*"]` | Paths to leave out |
+| `include_patterns` | `WithIncludePatterns` | `[]` | If set, only matching paths are exposed |
+| `naming_strategy` | `WithNamingStrategy` | `path` | `path`, `method` or `custom` (which behaves like `path` today) |
+| `enable_openrpc` | `WithOpenRPC` | `true` | Serves the OpenRPC document |
+| `enable_discovery` | `WithDiscovery` | `true` | Serves `<endpoint>/methods` |
+| `enable_batch` | `WithBatch` | `true` | Accepts batch requests |
+| `batch_limit` | `WithBatchLimit` | `10` | Largest batch accepted |
+| `max_request_size` | `WithMaxRequestSize` | `1048576` | Largest request body, in bytes |
+| `enable_metrics` | `WithMetrics` | `true` | Records `orpc_requests_total` and `orpc_methods_total` |
 
-```go
-// Config loaded automatically from ConfigManager
-app.RegisterExtension(orpc.NewExtension())
-```
+`WithConfig` replaces the whole config and `WithRequireConfig(true)` makes a missing config section an error at startup.
 
-### Programmatic Configuration
+Six more settings exist in `Config` and pass validation, but nothing reads them yet: `require_auth`, `auth_header` and `auth_tokens` (set by `WithAuth`), `rate_limit_per_minute` (`WithRateLimit`), `request_timeout` (`WithRequestTimeout`) and `schema_cache` (`WithSchemaCache`). Don't rely on `WithAuth` to protect the endpoint. Put Forge middleware or your auth extension in front of `/rpc` instead.
 
-```go
-app.RegisterExtension(orpc.NewExtension(
-    orpc.WithEnabled(true),
-    orpc.WithEndpoint("/rpc"),
-    orpc.WithAutoExposeRoutes(true),
-    orpc.WithMethodPrefix("api."),
-    orpc.WithExcludePatterns([]string{"/_/*", "/internal/*"}),
-    orpc.WithIncludePatterns([]string{"/api/*"}), // Only expose /api/* routes
-    orpc.WithOpenRPC(true),
-    orpc.WithDiscovery(true),
-    orpc.WithBatch(true),
-    orpc.WithBatchLimit(10),
-    orpc.WithNamingStrategy("path"),
-    orpc.WithAuth("X-API-Key", []string{"secret-token"}),
-    orpc.WithRateLimit(100), // 100 requests per minute
-    orpc.WithMaxRequestSize(1024 * 1024), // 1MB
-    orpc.WithRequestTimeout(30), // seconds
-))
-```
+## Documentation
 
-### Configuration Options
+| Topic | Where |
+| --- | --- |
+| What the extension does | [Features](https://www.xraph.com/docs/forge/extensions/orpc/features) |
+| Every config key | [Configuration](https://www.xraph.com/docs/forge/extensions/orpc/configuration) |
+| Exported functions and types | [Functions](https://www.xraph.com/docs/forge/extensions/orpc/functions), [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/orpc) |
+| How the extension follows the spec | [SPEC_COMPLIANCE.md](SPEC_COMPLIANCE.md) |
+| Extensions in general | [Forge extension system](../../docs/content/docs/forge/extensions-system.mdx) |
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `Enabled` | bool | `true` | Enable/disable oRPC server |
-| `Endpoint` | string | `"/rpc"` | JSON-RPC endpoint path |
-| `OpenRPCEndpoint` | string | `"/rpc/schema"` | OpenRPC schema endpoint |
-| `AutoExposeRoutes` | bool | `true` | Auto-generate methods from routes |
-| `MethodPrefix` | string | `""` | Prefix for method names |
-| `ExcludePatterns` | []string | `["/_/*"]` | Patterns to exclude |
-| `IncludePatterns` | []string | `[]` | Only expose matching patterns |
-| `EnableOpenRPC` | bool | `true` | Generate OpenRPC schema |
-| `EnableDiscovery` | bool | `true` | Enable method discovery endpoint |
-| `EnableBatch` | bool | `true` | Support batch requests |
-| `BatchLimit` | int | `10` | Max batch size |
-| `NamingStrategy` | string | `"path"` | Method naming: "path", "method", "custom" |
-| `MaxRequestSize` | int64 | `1048576` | Max request size in bytes |
-| `RequestTimeout` | int | `30` | Request timeout in seconds |
-| `SchemaCache` | bool | `true` | Cache generated schemas |
-| `EnableMetrics` | bool | `true` | Enable metrics collection |
+## FAQ
 
-## Usage Examples
+### How do I expose a Go REST API over JSON-RPC 2.0?
 
-### Custom Method Names
+Add `orpc.NewExtension()` to your Forge app and register your routes before the app starts. Each route becomes a method you can call at `POST /rpc`, and `GET /rpc/methods` shows you the names it picked.
 
-```go
-app.Router().GET("/users/:id", getUserHandler,
-    forge.WithORPCMethod("user.get"),  // Custom RPC method name
-    forge.WithSummary("Get user by ID"),
-)
+### Does Forge oRPC generate an OpenRPC document?
 
-// JSON-RPC method: "user.get" (instead of auto-generated "get.users.id")
-```
+Yes. `GET /rpc/schema` serves an OpenRPC 1.3.2 document. It's built from the same route metadata Forge uses for OpenAPI, so typed request and response schemas carry over.
 
-### Schema Annotations
+### Is oRPC here the same as the TypeScript oRPC library?
 
-```go
-app.Router().GET("/users/:id", getUserHandler,
-    forge.WithORPCParams(&orpc.ParamsSchema{
-        Type: "object",
-        Properties: map[string]*orpc.PropertySchema{
-            "id": {
-                Type:        "string",
-                Description: "User ID",
-            },
-        },
-        Required: []string{"id"},
-    }),
-    forge.WithORPCResult(&orpc.ResultSchema{
-        Type:        "object",
-        Description: "User details",
-        Properties: map[string]*orpc.PropertySchema{
-            "id":    {Type: "string"},
-            "name":  {Type: "string"},
-            "email": {Type: "string"},
-        },
-    }),
-)
-```
+No. This extension speaks JSON-RPC 2.0 and describes itself with OpenRPC. It doesn't implement the wire protocol of the TypeScript `orpc` project.
 
-### Exclude Specific Routes
+### Can I keep some routes out of JSON-RPC?
 
-```go
-// Explicitly exclude from oRPC
-app.Router().GET("/internal/debug", debugHandler,
-    forge.WithORPCExclude(),
-)
-```
-
-### Making JSON-RPC Calls
-
-#### Single Request
-
-```bash
-curl -X POST http://localhost:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "get.users.id",
-    "params": {
-      "id": "123",
-      "query": {"include": "profile"}
-    },
-    "id": 1
-  }'
-```
-
-Response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "id": "123",
-    "name": "John Doe",
-    "email": "john@example.com"
-  },
-  "id": 1
-}
-```
-
-#### Batch Request
-
-```bash
-curl -X POST http://localhost:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '[
-    {
-      "jsonrpc": "2.0",
-      "method": "get.users.id",
-      "params": {"id": "123"},
-      "id": 1
-    },
-    {
-      "jsonrpc": "2.0",
-      "method": "get.users.id",
-      "params": {"id": "456"},
-      "id": 2
-    }
-  ]'
-```
-
-Response:
-
-```json
-[
-  {
-    "jsonrpc": "2.0",
-    "result": {"id": "123", "name": "John"},
-    "id": 1
-  },
-  {
-    "jsonrpc": "2.0",
-    "result": {"id": "456", "name": "Jane"},
-    "id": 2
-  }
-]
-```
-
-#### Error Response
-
-```json
-{
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32601,
-    "message": "Method 'user.delete' not found"
-  },
-  "id": 1
-}
-```
-
-### OpenRPC Schema
-
-```bash
-curl http://localhost:8080/rpc/schema
-```
-
-Returns OpenRPC 1.3.2 compliant schema:
-
-```json
-{
-  "openrpc": "1.3.2",
-  "info": {
-    "title": "my-api",
-    "version": "1.0.0",
-    "description": "JSON-RPC 2.0 API"
-  },
-  "methods": [
-    {
-      "name": "get.users.id",
-      "summary": "Get user by ID",
-      "params": [
-        {
-          "name": "params",
-          "required": true,
-          "schema": {
-            "type": "object",
-            "properties": {
-              "id": {"type": "string", "description": "User ID"}
-            },
-            "required": ["id"]
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {"type": "object"}
-      }
-    }
-  ]
-}
-```
-
-## Method Naming
-
-Methods are named based on HTTP method and path:
-
-| Route | HTTP Method | Auto-Generated Name | With Prefix `api.` |
-|-------|-------------|---------------------|-------------------|
-| `/users` | GET | `get.users` | `api.get.users` |
-| `/users` | POST | `create.users` | `api.create.users` |
-| `/users/:id` | GET | `get.users.id` | `api.get.users.id` |
-| `/users/:id` | PUT | `update.users.id` | `api.update.users.id` |
-| `/users/:id` | DELETE | `delete.users.id` | `api.delete.users.id` |
-| `/users/:id` | PATCH | `patch.users.id` | `api.patch.users.id` |
-| `/api/v1/posts` | GET | `get.api.v1.posts` | `api.get.api.v1.posts` |
-
-### Naming Strategies
-
-1. **Path-based (default)**: Generates from HTTP method + path
-2. **Method-based**: Uses route name if available
-3. **Custom**: Uses `forge.WithORPCMethod()` annotation
-
-## Pattern Matching
-
-### Exclude Patterns
-
-```go
-orpc.NewExtension(
-    orpc.WithExcludePatterns([]string{
-        "/_/*",        // Exclude /_/health, /_/metrics
-        "/internal/*", // Exclude /internal/admin
-        "/debug/*",    // Exclude debug routes
-    }),
-)
-```
-
-### Include Patterns
-
-```go
-orpc.NewExtension(
-    orpc.WithIncludePatterns([]string{
-        "/api/*",      // Only expose /api/* routes
-        "/public/*",   // And /public/* routes
-    }),
-)
-```
-
-**Note**: If `IncludePatterns` is set, only matching routes are exposed.
-
-## Route Options Reference
-
-### `forge.WithORPCMethod(name string)`
-
-Set custom JSON-RPC method name.
-
-```go
-forge.WithORPCMethod("user.get")
-```
-
-### `forge.WithORPCParams(schema *orpc.ParamsSchema)`
-
-Define parameter schema for OpenRPC.
-
-```go
-forge.WithORPCParams(&orpc.ParamsSchema{
-    Type: "object",
-    Properties: map[string]*orpc.PropertySchema{
-        "id": {Type: "string"},
-    },
-})
-```
-
-### `forge.WithORPCResult(schema *orpc.ResultSchema)`
-
-Define result schema for OpenRPC.
-
-```go
-forge.WithORPCResult(&orpc.ResultSchema{
-    Type: "object",
-    Description: "User object",
-})
-```
-
-### `forge.WithORPCExclude()`
-
-Exclude route from oRPC auto-exposure.
-
-```go
-forge.WithORPCExclude()
-```
-
-### `forge.WithORPCTags(tags ...string)`
-
-Add custom tags for OpenRPC schema.
-
-```go
-forge.WithORPCTags("users", "admin")
-```
-
-## Observability
-
-### Metrics
-
-The extension automatically records:
-
-- `orpc_methods_total` - Total registered methods (gauge)
-- `orpc_requests_total{status,method}` - Total requests by status and method (counter)
-
-### Logging
-
-All operations are logged with structured fields:
-
-```go
-logger.Debug("orpc: method registered", forge.F("method", methodName))
-logger.Warn("orpc: failed to generate method", forge.F("path", path), forge.F("error", err))
-logger.Info("orpc: routes exposed as methods", forge.F("total_routes", count), forge.F("methods", methodCount))
-```
-
-## JSON-RPC 2.0 Error Codes
-
-| Code | Message | Description |
-|------|---------|-------------|
-| -32700 | Parse error | Invalid JSON |
-| -32600 | Invalid Request | Invalid Request object |
-| -32601 | Method not found | Method does not exist |
-| -32602 | Invalid params | Invalid method parameters |
-| -32603 | Internal error | Internal JSON-RPC error |
-| -32000 | Server error | Implementation-defined server error |
-
-## Advanced Usage
-
-### Manual Method Registration
-
-Register custom methods without routes:
-
-```go
-ext := app.GetExtension("orpc").(*orpc.Extension)
-server := ext.Server()
-
-server.RegisterMethod(&orpc.Method{
-    Name:        "custom.operation",
-    Description: "Custom operation not tied to HTTP route",
-    Handler: func(ctx context.Context, params interface{}) (interface{}, error) {
-        // Custom logic
-        return map[string]string{"result": "success"}, nil
-    },
-})
-```
-
-### Interceptors
-
-Add middleware to JSON-RPC method execution:
-
-```go
-server.Use(func(ctx context.Context, req *orpc.Request, next orpc.MethodHandler) (interface{}, error) {
-    // Pre-processing
-    log.Printf("Calling method: %s", req.Method)
-    
-    // Execute method
-    result, err := next(ctx, req.Params)
-    
-    // Post-processing
-    if err != nil {
-        log.Printf("Method failed: %s", err)
-    }
-    
-    return result, err
-})
-```
-
-## Testing
-
-```go
-func TestORPCExtension(t *testing.T) {
-    app := forge.NewApp(forge.AppConfig{
-        Name: "test-app",
-    })
-    
-    app.RegisterExtension(orpc.NewExtension(
-        orpc.WithEnabled(true),
-    ))
-    
-    app.Router().GET("/test", func(ctx forge.Context) error {
-        return ctx.JSON(200, map[string]string{"status": "ok"})
-    })
-    
-    app.Start(context.Background())
-    defer app.Stop(context.Background())
-    
-    // Test JSON-RPC request
-    reqBody := map[string]interface{}{
-        "jsonrpc": "2.0",
-        "method":  "get.test",
-        "id":      1,
-    }
-    body, _ := json.Marshal(reqBody)
-    
-    req := httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    
-    app.Router().ServeHTTP(rec, req)
-    
-    assert.Equal(t, 200, rec.Code)
-}
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│           Forge Application                 │
-│  ┌──────────────────────────────────────┐  │
-│  │     Router (REST API)                │  │
-│  │  GET /users/:id                      │  │
-│  │  POST /users                         │  │
-│  │  PUT /users/:id                      │  │
-│  └──────────────────────────────────────┘  │
-│                    │                        │
-│                    ▼                        │
-│  ┌──────────────────────────────────────┐  │
-│  │     oRPC Extension                   │  │
-│  │  • Auto-generate JSON-RPC methods    │  │
-│  │  • Generate OpenRPC schema           │  │
-│  │  • Execute via internal HTTP calls   │  │
-│  └──────────────────────────────────────┘  │
-│                    │                        │
-│                    ▼                        │
-│  ┌──────────────────────────────────────┐  │
-│  │     JSON-RPC Endpoints               │  │
-│  │  POST /rpc                           │  │
-│  │  GET /rpc/schema (OpenRPC)           │  │
-│  │  GET /rpc/methods                    │  │
-│  └──────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-                    │
-                    ▼
-        ┌───────────────────────┐
-        │   JSON-RPC Clients    │
-        │   (Any language)      │
-        └───────────────────────┘
-```
-
-## Comparison with Other Protocols
-
-| Feature | REST | oRPC (JSON-RPC) | gRPC | GraphQL |
-|---------|------|-----------------|------|---------|
-| Transport | HTTP | HTTP | HTTP/2 | HTTP |
-| Format | JSON/XML | JSON | Protobuf | JSON |
-| Schema | OpenAPI | OpenRPC | .proto | SDL |
-| Batching | ❌ | ✅ | ✅ (streaming) | ✅ |
-| Type Safety | Via OpenAPI | Via OpenRPC | ✅ Native | ✅ Native |
-| Browser Support | ✅ | ✅ | ⚠️ Limited | ✅ |
-| Debugging | Easy | Easy | Harder | Easy |
-| Auto-generation | ⚠️ | ✅ (Forge) | ✅ | ✅ |
-
-## Best Practices
-
-1. **Use Custom Method Names**: For public APIs, use semantic names via `WithORPCMethod()`
-2. **Add Schema Annotations**: Document params/results with `WithORPCParams()` and `WithORPCResult()`
-3. **Exclude Internal Routes**: Use patterns to exclude `/_/*` and `/internal/*`
-4. **Enable OpenRPC**: Always enable schema generation for documentation
-5. **Add Descriptions**: Use `forge.WithSummary()` and `forge.WithDescription()` on routes
-6. **Use Method Prefix**: Namespace your methods with `WithMethodPrefix("api.")`
-7. **Monitor Metrics**: Track method usage and error rates
-8. **Version Your API**: Include version in prefix or method names
-
-## License
-
-MIT
+Add `forge.WithORPCExclude()` to the route, or list its path in `exclude_patterns`. Internal routes under `/_/` are excluded by default.
 
 ## Contributing
 
-Contributions welcome! Please submit PRs to the main Forge repository.
+The extension is its own Go module inside the Forge repository. Test it from its directory:
 
-## Support
+```bash
+cd extensions/orpc
+GOWORK=off go test -race ./...
+GOWORK=off golangci-lint run ./...
+```
 
-- [Documentation](https://forge.xraph.dev)
-- [GitHub Issues](https://github.com/xraph/forge/issues)
-- [Examples](examples/orpc_example)
+[AGENTS.md](../../AGENTS.md) has the full build, lint and release rules for the repository, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has the contribution guidelines.
 
----
+## License
 
-Built with ❤️ by Dr. Ruby  
-Part of the Forge framework
-
+Forge oRPC is part of Forge and is available under the [Apache License 2.0](../../LICENSE).

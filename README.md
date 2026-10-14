@@ -217,28 +217,28 @@ Forge registers every extension before starting any of them, and stops them in r
 
 | Extension and docs | What you get |
 | --- | --- |
-| [auth](extensions/auth/) · [Docs](https://www.xraph.com/docs/forge/extensions/auth/features) | Authentication providers |
-| [cache](extensions/cache/) · [Docs](https://www.xraph.com/docs/forge/extensions/cache/features) | In-memory, Redis and Memcached caching |
-| [conduit](extensions/conduit/) · [Docs](https://www.xraph.com/docs/forge/extensions/conduit/configuration) | Typed events, durable streams and HTTP/gRPC service clients |
-| [consensus](extensions/consensus/) · [Docs](https://www.xraph.com/docs/forge/extensions/consensus/features) | Raft consensus and distributed coordination |
+| [auth](extensions/auth/) · [Docs](https://www.xraph.com/docs/forge/extensions/auth/features) | API key, Bearer/JWT, Basic, OAuth 2.0, OpenID Connect and LDAP providers, with scope and role checks |
+| [cache](extensions/cache/) · [Docs](https://www.xraph.com/docs/forge/extensions/cache/features) | In-memory key-value caching with TTLs (the Redis and Memcached drivers aren't implemented yet) |
+| [conduit](extensions/conduit/) · [Docs](https://www.xraph.com/docs/forge/extensions/conduit/configuration) | Typed events, durable streams and HTTP/gRPC service clients over NATS, Redis, PostgreSQL or Kafka |
+| [consensus](extensions/consensus/) · [Docs](https://www.xraph.com/docs/forge/extensions/consensus/features) | A Raft implementation with storage, transports and discovery (the extension doesn't wire them together yet) |
 | [dashboard](extensions/dashboard/) · [Docs](https://www.xraph.com/docs/forge/extensions/dashboard/features) | Dashboard contract API, included in the root module |
-| [discovery](extensions/discovery/) · [Docs](https://www.xraph.com/docs/forge/extensions/discovery/features) | Service registration and discovery |
-| [events](extensions/events/) · [Docs](https://www.xraph.com/docs/forge/extensions/events/features) | Event buses and broker integrations |
-| [features](extensions/features/) · [Docs](https://www.xraph.com/docs/forge/extensions/features/features) | Feature flags and experiments |
-| [graphql](extensions/graphql/) · [Docs](https://www.xraph.com/docs/forge/extensions/graphql/features) | GraphQL server integration |
-| [grpc](extensions/grpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/grpc/features) | gRPC servers and reflection |
-| [hls](extensions/hls/) · [Docs](https://www.xraph.com/docs/forge/extensions/hls/features) | HTTP Live Streaming |
-| [kafka](extensions/kafka/) · [Docs](https://www.xraph.com/docs/forge/extensions/kafka/features) | Apache Kafka integration |
-| [mcp](extensions/mcp/) · [Docs](https://www.xraph.com/docs/forge/extensions/mcp/features) | Model Context Protocol servers |
-| [mqtt](extensions/mqtt/) · [Docs](https://www.xraph.com/docs/forge/extensions/mqtt/features) | MQTT messaging |
-| [orpc](extensions/orpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/orpc/features) | oRPC transport integration |
-| [queue](extensions/queue/) · [Docs](https://www.xraph.com/docs/forge/extensions/queue/features) | NATS, Redis and RabbitMQ queues |
-| [search](extensions/search/) · [Docs](https://www.xraph.com/docs/forge/extensions/search/features) | Full-text search integrations |
-| [security](extensions/security/) · [Docs](https://www.xraph.com/docs/forge/extensions/security/features) | Application security hardening |
-| [streaming](extensions/streaming/) · [Docs](https://www.xraph.com/docs/forge/extensions/streaming/features) | WebSocket and server-sent events |
-| [webrtc](extensions/webrtc/) · [Docs](https://www.xraph.com/docs/forge/extensions/webrtc/features) | Peer-to-peer communication |
+| [discovery](extensions/discovery/) · [Docs](https://www.xraph.com/docs/forge/extensions/discovery/features) | Service registration and discovery over Consul, etcd, mDNS or a static seed list |
+| [events](extensions/events/) · [Docs](https://www.xraph.com/docs/forge/extensions/events/features) | An event bus, an event store for event sourcing, and NATS or Redis brokers |
+| [features](extensions/features/) · [Docs](https://www.xraph.com/docs/forge/extensions/features/features) | Feature flags with user targeting and percentage rollouts, evaluated in process |
+| [graphql](extensions/graphql/) · [Docs](https://www.xraph.com/docs/forge/extensions/graphql/features) | A gqlgen GraphQL server (it serves its built-in schema only, for now) |
+| [grpc](extensions/grpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/grpc/features) | A gRPC server with health checks, reflection and TLS (registering your own services isn't reliable yet) |
+| [hls](extensions/hls/) · [Docs](https://www.xraph.com/docs/forge/extensions/hls/features) | HTTP Live Streaming for live streams (segment delivery and VOD are unfinished) |
+| [kafka](extensions/kafka/) · [Docs](https://www.xraph.com/docs/forge/extensions/kafka/features) | Apache Kafka producers, consumers and topic admin, built on Sarama |
+| [mcp](extensions/mcp/) · [Docs](https://www.xraph.com/docs/forge/extensions/mcp/features) | Your routes as Model Context Protocol tools, plus resources and prompts (tool calls don't run your handler yet) |
+| [mqtt](extensions/mqtt/) · [Docs](https://www.xraph.com/docs/forge/extensions/mqtt/features) | MQTT publish and subscribe, built on Eclipse Paho |
+| [orpc](extensions/orpc/) · [Docs](https://www.xraph.com/docs/forge/extensions/orpc/features) | JSON-RPC 2.0 and an OpenRPC schema over the routes you already have |
+| [queue](extensions/queue/) · [Docs](https://www.xraph.com/docs/forge/extensions/queue/features) | Message queues and background jobs over memory, Redis Streams, RabbitMQ or NATS JetStream |
+| [search](extensions/search/) · [Docs](https://www.xraph.com/docs/forge/extensions/search/features) | Full-text search with an in-memory backend (the Elasticsearch, Meilisearch and Typesense drivers are placeholders) |
+| [security](extensions/security/) · [Docs](https://www.xraph.com/docs/forge/extensions/security/features) | Security headers, rate limiting, CORS, CSRF, JWT, sessions and password hashing |
+| [streaming](extensions/streaming/) · [Docs](https://www.xraph.com/docs/forge/extensions/streaming/features) | WebSocket and SSE with rooms, presence and replay after a reconnect |
+| [webrtc](extensions/webrtc/) · [Docs](https://www.xraph.com/docs/forge/extensions/webrtc/features) | WebRTC rooms and peer connections on Pion (signaling and SFU forwarding are unfinished) |
 
-Apart from the dashboard, each of these is its own Go module, so importing the root framework doesn't pull them in. To write your own, start with the [extension system guide](docs/content/docs/forge/extensions-system.mdx) and the [simple extension example](examples/simple-extension/).
+Apart from the dashboard, each of these is its own Go module, so importing the root framework doesn't pull them in. Some are further along than others. Each extension's README has a status note where a part isn't finished, so read it before you build on one. To write your own, start with the [extension system guide](docs/content/docs/forge/extensions-system.mdx) and the [simple extension example](examples/simple-extension/).
 
 ## The forgery stack
 
@@ -263,7 +263,7 @@ Forgery is the family of Go libraries built on Forge. Each one is a library rath
 | [Weave](https://github.com/xraph/weave) · [Docs](https://www.xraph.com/docs/weave) | RAG pipeline: ingestion, chunking, embeddings, vector storage, retrieval and prompt assembly |
 | [Cortex](https://github.com/xraph/cortex) · [Docs](https://www.xraph.com/docs/cortex) | Agent orchestration with skills, traits, behaviors and personas |
 | [Sentinel](https://github.com/xraph/sentinel) · [Docs](https://www.xraph.com/docs/sentinel) | LLM evaluation with scoring, baseline regression detection and red-team tests |
-| [Shield](https://github.com/xraph/shield) · [Docs](https://www.xraph.com/docs/shield) | Layered AI safety for prompts and outputs |
+| [Shield](https://github.com/xraph/shield) · [Docs](https://www.xraph.com/docs/shield) | Safety policies and guardrail configuration for prompts and outputs (the scanning layers aren't implemented yet) |
 
 Putting several of them in one app looks like this. Each extension finds its settings under `extensions.<name>` in your config file and resolves its dependencies (Grove's database, usually) from the container:
 

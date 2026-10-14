@@ -1,670 +1,261 @@
-# HLS Extension for Forge
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge HLS, an HTTP Live Streaming extension for Go that stores segments in Trove and serves M3U8 playlists" width="100%">
+</p>
 
-Production-ready HTTP Live Streaming (HLS) extension with adaptive bitrate streaming, transcoding, and distributed support.
+# Forge HLS: HTTP Live Streaming server for Go
 
-## Features
+Forge HLS is the HTTP Live Streaming extension for [Forge](https://github.com/xraph/forge), the Go backend framework. You add it to your app and get a REST API for live streams: create a stream with adaptive bitrate variants, push MPEG-TS segments from your encoder, and serve master and media M3U8 playlists with a sliding DVR window. Segments and playlists are stored in a [Trove](https://github.com/xraph/trove) object store, so they can sit on local disk, S3, GCS or Azure. Some parts are not finished yet, segment delivery and VOD among them, so read [Status](#status) before you put a player in front of it.
 
-- **Adaptive Bitrate Streaming**: Automatically switches between quality levels based on network conditions
-- **Live Streaming**: Support for real-time live streams with DVR capabilities
-- **Video on Demand (VOD)**: Convert video files to HLS format with multiple quality levels
-- **Transcoding**: FFmpeg-based transcoding to multiple resolutions and bitrates
-- **Segmentation**: Automatic video segmentation into HLS-compatible chunks
-- **Multiple Storage Backends**: Uses Forge storage extension (Local, S3, GCS, Azure)
-- **Distributed Support**: Run multiple HLS nodes with coordination
-- **Auto Cleanup**: Automatic cleanup of old segments
-- **CORS Support**: Built-in CORS headers for cross-origin playback
-- **Health Checks**: Integrated health monitoring
-- **Statistics**: Track viewer counts, bandwidth, and performance metrics
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/hls.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/hls) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
-## Installation
+[Documentation](https://www.xraph.com/docs/forge/extensions/hls) · [Quick start](#quick-start) · [Features](#features) · [HTTP API](#http-api) · [Go API](#use-it-from-go) · [Status](#status) · [Configuration](#configuration) · [FAQ](#faq)
+
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/) and a Go module:
 
 ```bash
-go get github.com/xraph/forge/extensions/hls
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/hls@latest
+go get github.com/xraph/trove@latest
 ```
 
-### Prerequisites
-
-- FFmpeg and FFprobe must be installed on your system
-- For transcoding: FFmpeg with appropriate codecs (h264, h265, aac, etc.)
-- Forge storage extension must be registered before HLS extension
-
-```bash
-# Install FFmpeg on Ubuntu/Debian
-sudo apt-get install ffmpeg
-
-# Install FFmpeg on macOS
-brew install ffmpeg
-
-# Verify installation
-ffmpeg -version
-ffprobe -version
-```
-
-## Quick Start
+Save this as `main.go`. The HLS extension looks up a `*trove.Trove` in the container when it registers, so you open one on a local directory and provide it before the app runs:
 
 ```go
 package main
 
 import (
-    "context"
-    "log"
-    
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/hls"
-    troveext "github.com/xraph/trove/extension"
-    _ "github.com/xraph/trove/drivers/localdriver"
+	"context"
+	"log"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/hls"
+	"github.com/xraph/trove"
+	"github.com/xraph/trove/drivers/localdriver"
 )
 
 func main() {
-    app := forge.New()
-    
-    // Register object storage (required)
-    app.UseExtension(troveext.New(
-        troveext.WithFileStoreDSN("default", "local://./hls_storage"),
-        troveext.WithDefaultFileStore("default"),
-    ))
-    
-    // Register HLS extension
-    app.UseExtension(hls.NewExtension(
-        hls.WithBasePath("/hls"),
-        hls.WithBaseURL("http://localhost:8080/hls"),
-        hls.WithTargetDuration(6),
-        hls.WithTranscoding(true, hls.DefaultProfiles()...),
-    ))
-    
-    ctx := context.Background()
-    if err := app.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    
-    log.Println("HLS server started on http://localhost:8080")
-    app.Listen(":8080")
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "video",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			hls.NewExtension(hls.WithBaseURL("http://localhost:8080/hls")),
+		},
+	})
+
+	// HLS keeps playlists and segments in a Trove object store, resolved
+	// from the container. Here that's a directory on local disk.
+	drv := localdriver.New()
+	if err := drv.Open(context.Background(), "local://./hls-data"); err != nil {
+		log.Fatal(err)
+	}
+
+	store, err := trove.Open(drv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close(context.Background())
+
+	if err := forge.ProvideValue(app.Container(), store); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
+
+Run it with `go mod tidy && go run .`, then drive it with curl (and `jq` to pick out the IDs):
+
+```bash
+# Create a live stream with one 720p variant.
+STREAM=$(curl -s -X POST localhost:8080/hls/streams -H 'Content-Type: application/json' -d '{
+  "Title": "Launch", "Type": "live", "TargetDuration": 6, "DVRWindowSize": 5,
+  "TranscodeProfiles": [{"Name": "720p", "Width": 1280, "Height": 720, "Bitrate": 2800000,
+    "FrameRate": 30, "VideoCodec": "h264", "AudioCodec": "aac"}]}')
+ID=$(echo "$STREAM" | jq -r .ID)
+VARIANT=$(echo "$STREAM" | jq -r '.Variants[0].ID')
+
+# Go live, then push a segment. Data is the .ts file, base64 encoded.
+curl -X POST localhost:8080/hls/streams/$ID/start
+curl -X POST localhost:8080/hls/streams/$ID/ingest -H 'Content-Type: application/json' \
+  -d "{\"VariantID\":\"$VARIANT\",\"SequenceNum\":0,\"Duration\":6.0,\"Data\":\"$(base64 < segment0.ts)\"}"
+
+# Playlists.
+curl localhost:8080/hls/$ID/master.m3u8
+curl localhost:8080/hls/$ID/variants/$VARIANT/playlist.m3u8
+```
+
+The master playlist lists the variant with `BANDWIDTH=2800000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"`, and the media playlist lists `segment_0.ts` with `#EXTINF:6.000`. Segment and playlist URLs are built from the base URL you set, so make it the address your players will use. The files land under `./hls-data`.
+
+## Features
+
+| You need | Forge HLS gives you |
+| --- | --- |
+| Live streams | Create, start, stop, list and delete streams of type `live`, `event` or `vod` |
+| Adaptive bitrate | One variant per transcode profile, with bandwidth, resolution, codec strings and frame rate in the master playlist |
+| Segment ingest | Push numbered MPEG-TS segments per variant, over HTTP or from Go with `IngestSegment` |
+| A DVR window | The media playlist keeps the last `DVRWindowSize` segments and older ones are deleted from storage |
+| Object storage | Any Trove backend, picked by name, with a bucket and key prefix |
+| Ready-made profiles | `Profile360p`, `Profile480p`, `Profile720p`, `Profile1080p` and `DefaultProfiles()` |
+| Stream stats | Per-stream counters from `/hls/streams/:id/stats` |
+| CORS | `Access-Control-Allow-*` headers on playlist responses |
+| A Raft-backed cluster mode | A distributed coordinator on top of the [consensus extension](../consensus/), see [Status](#status) |
+
+## HTTP API
+
+The extension registers these routes under the base path (`/hls` by default) when the app starts:
+
+| Method and path | What it does |
+| --- | --- |
+| `POST /hls/streams` | Create a stream from `StreamOptions` JSON. Returns the `Stream` with its ID and variant IDs |
+| `GET /hls/streams` | `{"streams": [...], "count": n}` |
+| `GET /hls/streams/:streamID` | One stream |
+| `DELETE /hls/streams/:streamID` | Delete a stream and its stored files |
+| `POST /hls/streams/:streamID/start`, `/stop` | Mark a live stream active or stopped |
+| `POST /hls/streams/:streamID/ingest` | Store one `Segment`: `VariantID`, `SequenceNum`, `Duration` and base64 `Data` |
+| `GET /hls/streams/:streamID/stats` | `StreamStats` |
+| `GET /hls/:streamID/master.m3u8` | Master playlist |
+| `GET /hls/:streamID/variants/:variantID/playlist.m3u8` | Media playlist |
+| `GET /hls/:streamID/variants/:variantID/segment_:segmentNum.ts` | Intended to serve a segment. See [Status](#status) |
+
+The request and response types have no JSON tags, so the keys are the Go field names (`Title`, `VariantID`, `SequenceNum`). Go's decoder ignores case, so `title` works on the way in, but responses use the capitalised names. A segment is accepted only while the stream is active.
+
+None of these routes check authentication. Put the management routes behind your own middleware or gateway before you expose the app.
+
+## Use it from Go
+
+The extension registers its manager as `hls.HLS` in the container, so you can skip the HTTP layer:
+
+```go
+svc, err := forge.Inject[hls.HLS](app.Container())
+
+stream, err := svc.CreateStream(ctx, hls.StreamOptions{
+	Title:             "Launch",
+	Type:              hls.StreamTypeLive,
+	TargetDuration:    6,
+	DVRWindowSize:     5,
+	TranscodeProfiles: []hls.TranscodeProfile{hls.Profile360p, hls.Profile720p},
+})
+
+err = svc.StartLiveStream(ctx, stream.ID)
+
+err = svc.IngestSegment(ctx, stream.ID, &hls.Segment{
+	VariantID:   stream.Variants[0].ID,
+	SequenceNum: 0,
+	Duration:    6.0,
+	Data:        tsBytes,
+})
+
+master, err := svc.GetMasterPlaylist(ctx, stream.ID)
+fmt.Println(master.Content)
+```
+
+`GetMediaPlaylist`, `GetSegment` (an `io.ReadCloser` from storage), `GetStreamStats` and `GetActiveViewers` round it out. Resolve the service after the app has registered its extensions, for example in a `forge.OnStarted` hook.
+
+## Status
+
+Some of this extension is still scaffolding, and you should know which parts before you rely on it.
+
+Segment delivery is broken. The router registers `segment_:segmentNum.ts` as a literal path, so a real segment URL such as `.../segment_0.ts` gets a 404 and your players cannot fetch segments. Until the route is fixed, serve segments from your own handler that calls `GetSegment`, or let your CDN read them straight from the Trove bucket.
+
+VOD does not produce output yet. `CreateVOD` only creates the stream record, and `CreateVODFromFile` starts FFmpeg transcode jobs but never segments or stores the results. `TranscodeVideo` reads from a placeholder path. If you push segments you have already encoded to a live stream, that path works end to end up to the segment route.
+
+Stream records live in memory. Metadata is written to storage, but nothing reads it back, so streams are gone after a restart even though their files remain.
+
+Many config fields are stored and never read: `RequireAuth`, `MaxViewersPerStream`, `MaxBandwidthPerStream`, `MaxSegmentSize`, `EnableCaching`, `CacheTTL`, `SegmentRetention` and the distributed `RedirectToLeader`, `RedirectToOwner` and `EnableFailover` flags. The cleanup routine trims each stream to the DVR window every `CleanupInterval`. With `WithDistributed(true)` the extension starts a coordinator on the consensus extension, but the routes do not redirect to a leader or owner.
 
 ## Configuration
 
-### Basic Configuration
+You can configure the extension in code with options, or in YAML under `extensions.hls` (the extension also reads a top-level `hls` key).
 
-```go
-hlsExt := hls.NewExtension(
-    hls.WithBasePath("/hls"),
-    hls.WithBaseURL("http://localhost:8080/hls"),
-    hls.WithStorageBackend("default"),
-    hls.WithStoragePrefix("hls"),
-    hls.WithTargetDuration(6),           // 6 second segments
-    hls.WithDVRWindow(10),               // Keep last 10 segments for DVR
-    hls.WithCORS(true, "*"),
-)
+| Option | Sets | Default |
+| --- | --- | --- |
+| `WithBasePath(string)` | `BasePath` for the routes | `/hls` |
+| `WithBaseURL(string)` | `BaseURL` used in playlist URLs | `http://localhost:8080/hls` |
+| `WithStorageBackend(string)` | A named Trove from the container. Empty or `default` uses the unnamed one | `default` |
+| `WithStorageBucket(string)`, `WithStoragePrefix(string)` | Bucket (created on start) and key prefix | `hls`, `hls` |
+| `WithTargetDuration(int)`, `WithDVRWindow(int)` | Seconds per segment, segments kept | `6`, `10` |
+| `WithTranscoding(bool, ...TranscodeProfile)` | Transcoding switch and default profiles | on, `DefaultProfiles()` |
+| `WithFFmpegPaths(ffmpeg, ffprobe)` | Binaries for transcoding | `ffmpeg`, `ffprobe` |
+| `WithCORS(bool, ...string)` | CORS headers. Only the first origin is sent | on, `*` |
+| `WithLimits(maxStreams, maxViewers, maxBandwidth)` | `MaxStreams` is enforced on create | `100`, `10000`, `104857600` |
+| `WithCleanup(retention, interval)` | Turns on cleanup and sets its interval | on, `24h`, `1h` |
+| `WithDistributed(bool)`, `WithNodeID(string)`, `WithClusterID(string)`, `WithFailover(bool)` | Cluster mode | off |
+| `WithAuth(bool)`, `WithCaching(bool, ttl)` | Stored only, see [Status](#status) | off, on and `5m` |
+| `WithRequireConfig(bool)`, `WithConfig(hls.Config)` | Require YAML, or replace the whole config | |
+
+The YAML keys are the snake_case names from the struct tags, such as `base_url`, `storage_bucket`, `target_duration` and `dvr_window_size`. The file overrides `DefaultConfig()`, your options override the file, and anything you leave out of the YAML keeps its default.
+
+```yaml
+extensions:
+  hls:
+    base_url: https://video.example.com/hls
+    storage_bucket: media
+    target_duration: 4
+    dvr_window_size: 30
 ```
 
-### Transcoding Configuration
-
-```go
-hlsExt := hls.NewExtension(
-    hls.WithTranscoding(true,
-        hls.Profile360p,   // 640x360, 800 Kbps
-        hls.Profile480p,   // 854x480, 1.4 Mbps
-        hls.Profile720p,   // 1280x720, 2.8 Mbps
-        hls.Profile1080p,  // 1920x1080, 5 Mbps
-    ),
-    hls.WithFFmpegPaths("ffmpeg", "ffprobe"),
-)
-```
-
-### Custom Transcoding Profile
-
-```go
-customProfile := hls.TranscodeProfile{
-    Name:       "custom",
-    Width:      1920,
-    Height:     1080,
-    Bitrate:    4000000, // 4 Mbps
-    FrameRate:  30,
-    VideoCodec: "h264",
-    AudioCodec: "aac",
-    Preset:     "medium",
-}
-
-hlsExt := hls.NewExtension(
-    hls.WithTranscoding(true, customProfile),
-)
-```
-
-### Storage Configuration
-
-```go
-// Use specific storage backend
-hlsExt := hls.NewExtension(
-    hls.WithStorageBackend("s3"),        // Use S3 backend
-    hls.WithStoragePrefix("live-streams"), // Storage prefix
-)
-```
-
-### Cleanup Configuration
-
-```go
-hlsExt := hls.NewExtension(
-    hls.WithCleanup(
-        24 * time.Hour,  // Keep segments for 24 hours
-        1 * time.Hour,   // Run cleanup every hour
-    ),
-)
-```
-
-## API Endpoints
-
-### Stream Management
-
-#### Create Stream
-
-```http
-POST /hls/streams
-Content-Type: application/json
-
-{
-    "title": "My Live Stream",
-    "description": "Live stream description",
-    "type": "live",
-    "target_duration": 6,
-    "dvr_window_size": 10,
-    "transcode_profiles": [
-        {
-            "name": "720p",
-            "width": 1280,
-            "height": 720,
-            "bitrate": 2800000,
-            "frame_rate": 30,
-            "video_codec": "h264",
-            "audio_codec": "aac"
-        }
-    ]
-}
-```
-
-#### List Streams
-
-```http
-GET /hls/streams
-```
-
-#### Get Stream
-
-```http
-GET /hls/streams/:streamID
-```
-
-#### Delete Stream
-
-```http
-DELETE /hls/streams/:streamID
-```
-
-### Live Streaming
-
-#### Start Live Stream
-
-```http
-POST /hls/streams/:streamID/start
-```
-
-#### Stop Live Stream
-
-```http
-POST /hls/streams/:streamID/stop
-```
-
-#### Ingest Segment
-
-```http
-POST /hls/streams/:streamID/ingest
-Content-Type: application/json
-
-{
-    "variant_id": "variant-uuid",
-    "sequence_num": 123,
-    "duration": 6.0,
-    "data": "base64_encoded_segment_data"
-}
-```
-
-### Playback
-
-#### Master Playlist
-
-```http
-GET /hls/:streamID/master.m3u8
-```
-
-#### Media Playlist
-
-```http
-GET /hls/:streamID/variants/:variantID/playlist.m3u8
-```
-
-#### Segment
-
-```http
-GET /hls/:streamID/variants/:variantID/segment_:segmentNum.ts
-```
-
-### Statistics
-
-```http
-GET /hls/streams/:streamID/stats
-```
-
-Response:
-
-```json
-{
-    "stream_id": "uuid",
-    "current_viewers": 150,
-    "total_views": 1500,
-    "total_bandwidth": 750000000,
-    "segments_served": 50000,
-    "error_rate": 0.001,
-    "variant_stats": {
-        "variant-uuid": {
-            "variant_id": "variant-uuid",
-            "request_count": 25000,
-            "bytes_served": 500000000,
-            "current_viewers": 75
-        }
-    }
-}
-```
-
-## Usage Examples
-
-### Live Streaming
-
-```go
-// Get HLS service from DI
-hlsSvc, _ := forge.Inject[hls.HLS](app.Container())
-
-// Create live stream
-stream, err := hlsSvc.CreateStream(ctx, hls.StreamOptions{
-    Title:          "Live Event",
-    Type:           hls.StreamTypeLive,
-    TargetDuration: 6,
-    DVRWindowSize:  20,
-    TranscodeProfiles: []hls.TranscodeProfile{
-        hls.Profile360p,
-        hls.Profile720p,
-    },
-})
-
-// Start streaming
-hlsSvc.StartLiveStream(ctx, stream.ID)
-
-// Ingest segments (from your video encoder)
-for segment := range segments {
-    hlsSvc.IngestSegment(ctx, stream.ID, &segment)
-}
-
-// Stop streaming
-hlsSvc.StopLiveStream(ctx, stream.ID)
-```
-
-### Video on Demand (VOD)
-
-```go
-// Get manager (extends HLS interface)
-hlsMgr, _ := forge.Inject[*hls.Manager](app.Container())
-
-// Create VOD from file
-stream, err := hlsMgr.CreateVODFromFile(ctx, "/path/to/video.mp4", hls.VODOptions{
-    Title:          "Movie Title",
-    Description:    "Movie description",
-    TargetDuration: 10,
-    TranscodeProfiles: []hls.TranscodeProfile{
-        hls.Profile480p,
-        hls.Profile720p,
-        hls.Profile1080p,
-    },
-})
-
-// Stream is ready (transcoding happens asynchronously)
-log.Printf("Stream URL: http://localhost:8080/hls/%s/master.m3u8", stream.ID)
-```
-
-### Client-Side Playback
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-</head>
-<body>
-    <video id="video" controls width="800"></video>
-    <script>
-        const video = document.getElementById('video');
-        const streamUrl = 'http://localhost:8080/hls/STREAM_ID/master.m3u8';
-        
-        if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play();
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (Safari)
-            video.src = streamUrl;
-            video.addEventListener('loadedmetadata', () => {
-                video.play();
-            });
-        }
-    </script>
-</body>
-</html>
-```
-
-## Architecture
-
-### Components
-
-1. **Extension**: Main entry point, registers routes and services
-2. **Manager**: Core HLS logic, stream management
-3. **Segmenter**: Video segmentation using FFmpeg
-4. **Transcoder**: Video transcoding with multiple profiles
-5. **Playlist Generator**: M3U8 playlist generation
-6. **Storage**: HLS-specific storage wrapper around Forge storage extension
-7. **Segment Tracker**: Tracks segments for live streams with DVR
-
-### Storage Structure
-
-```
-hls/
-├── {streamID}/
-│   ├── master.m3u8
-│   ├── metadata.json
-│   └── {variantID}/
-│       ├── playlist.m3u8
-│       ├── segment_0.ts
-│       ├── segment_1.ts
-│       └── segment_N.ts
-```
-
-## Performance Considerations
-
-### Segment Duration
-
-- **6 seconds**: Good balance between latency and efficiency (default)
-- **2-4 seconds**: Lower latency for live events
-- **10 seconds**: Better efficiency for VOD
-
-### DVR Window
-
-- Determines how far back viewers can seek in live streams
-- Larger window = more storage but better user experience
-- Default: 10 segments (60 seconds with 6-second segments)
-
-### Transcoding
-
-- Transcoding is CPU-intensive
-- Use hardware acceleration when available (CUDA, QSV, VideoToolbox)
-- Limit concurrent transcoding jobs (default: 4)
-- Consider pre-transcoding VOD content
-
-### Caching
-
-- Enable CDN caching for segments (Cache-Control headers)
-- Master and media playlists can be cached with short TTL
-- Segments are immutable and can be cached indefinitely
-
-## Distributed Mode
-
-HLS extension supports distributed deployment using the Forge consensus extension for high-availability and horizontal scaling.
-
-### Requirements
-
-1. **Consensus Extension**: Raft-based leader election and coordination
-2. **Shared Storage**: S3, GCS, or Azure (local storage works for testing)
-3. **Load Balancer**: Distribute requests across nodes (optional)
-
-### Configuration
-
-```go
-// Register consensus extension first
-consensusExt := consensus.NewExtension(
-    consensus.WithNodeID("hls-node-1"),
-    consensus.WithClusterID("hls-cluster"),
-    consensus.WithBindAddress("0.0.0.0:7000"),
-    consensus.WithTransportType("tcp"),
-)
-
-// Configure HLS with distributed mode
-hlsExt := hls.NewExtension(
-    hls.WithDistributed(true),
-    hls.WithNodeID("hls-node-1"),
-    hls.WithClusterID("hls-cluster"),
-    hls.WithFailover(true),
-)
-
-app.UseExtension(storageExt)     // Storage extension
-app.UseExtension(consensusExt)   // Consensus extension (required)
-app.UseExtension(hlsExt)         // HLS extension
-```
-
-### Features
-
-- **Leader Election**: Automatic leader election using Raft
-- **Write Operations**: Stream creation/deletion only on leader
-- **Read Operations**: Playlists and segments available on all nodes
-- **Automatic Failover**: Re-election on leader failure
-- **Cluster Awareness**: Headers showing node and leader info
-- **Request Routing**: Automatic redirect to leader for write operations
-
-### Running a Cluster
-
-```bash
-# Node 1 (Bootstrap)
-./hls-server -node=node1 -port=8081 -raft=7001
-
-# Node 2
-./hls-server -node=node2 -port=8082 -raft=7002 -peers=node1:7001
-
-# Node 3
-./hls-server -node=node3 -port=8083 -raft=7003 -peers=node1:7001
-```
-
-### Cluster Headers
-
-All responses include cluster information:
-
-```http
-X-HLS-Node: node1
-X-HLS-Leader: node1
-X-HLS-Is-Leader: true
-```
-
-### Leader-Only Operations
-
-- `POST /hls/streams` - Create stream
-- `DELETE /hls/streams/:id` - Delete stream
-- `POST /hls/streams/:id/start` - Start live stream
-- `POST /hls/streams/:id/stop` - Stop live stream
-
-Followers return `307 Temporary Redirect` pointing to the leader.
-
-### All-Node Operations
-
-- `GET /hls/streams` - List streams
-- `GET /hls/streams/:id` - Get stream
-- `GET /hls/:id/master.m3u8` - Master playlist
-- `GET /hls/:id/variants/:vid/playlist.m3u8` - Media playlist
-- `GET /hls/:id/variants/:vid/segment_*.ts` - Segments
-
-### Failover
-
-When the leader fails:
-
-1. Remaining nodes detect failure (heartbeat timeout)
-2. New election is triggered
-3. New leader is elected (requires quorum)
-4. Write operations resume on new leader
-5. Read operations continue uninterrupted
-
-Typical failover time: 2-5 seconds (configurable)
-
-### Production Setup
-
-```
-        Load Balancer (nginx/HAProxy)
-                 |
-    +------------+------------+
-    |            |            |
-  Node 1       Node 2       Node 3
- (Leader)    (Follower)   (Follower)
-    |            |            |
-    +------------+------------+
-          Consensus Layer
-           (Raft Protocol)
-                 |
-           Shared Storage
-            (S3/GCS/Azure)
-```
-
-#### Load Balancer Configuration
-
-```nginx
-upstream hls_cluster {
-    # Health check on /health
-    server node1:8081 max_fails=3 fail_timeout=30s;
-    server node2:8082 max_fails=3 fail_timeout=30s;
-    server node3:8083 max_fails=3 fail_timeout=30s;
-}
-
-server {
-    listen 80;
-    
-    location /hls/ {
-        proxy_pass http://hls_cluster;
-        proxy_next_upstream error timeout http_307;
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### Monitoring
-
-Cluster metrics exposed via consensus extension:
-
-- `hls_cluster_size` - Total nodes in cluster
-- `hls_cluster_healthy_nodes` - Healthy nodes count
-- `hls_cluster_has_quorum` - Whether cluster has quorum
-- `hls_cluster_leader` - Current leader node
-- `hls_cluster_streams` - Total streams in cluster
-
-### Best Practices
-
-1. **Odd Number of Nodes**: Use 3, 5, or 7 nodes for proper quorum
-2. **Network Latency**: Keep Raft nodes in same region (< 50ms latency)
-3. **Shared Storage**: Use S3/GCS for production (all nodes must access)
-4. **Clock Sync**: Ensure NTP is configured on all nodes
-5. **Health Checks**: Configure LB to remove unhealthy nodes
-6. **Graceful Shutdown**: Drain connections before stopping nodes
-
-### See Also
-
-- [Distributed Example](./examples/distributed/) - Complete working example
-- [Consensus Extension](../consensus/) - Consensus extension documentation
-
-## Monitoring
-
-### Metrics
-
-The extension exposes Prometheus metrics:
-
-- `hls_active_streams`: Number of active streams
-- `hls_total_viewers`: Total concurrent viewers
-- `hls_segments_served`: Total segments served
-- `hls_bandwidth_bytes`: Total bandwidth used
-- `hls_transcode_jobs`: Active transcoding jobs
-
-### Health Checks
-
-```go
-// Health check endpoint is automatically registered
-// GET /health will include HLS extension status
-```
-
-## Troubleshooting
-
-### FFmpeg Not Found
-
-```
-Error: ffmpeg: executable file not found in $PATH
-```
-
-Solution: Install FFmpeg or specify path:
-
-```go
-hls.WithFFmpegPaths("/usr/local/bin/ffmpeg", "/usr/local/bin/ffprobe")
-```
-
-### Storage Extension Not Found
-
-```
-Error: failed to resolve storage manager
-```
-
-Solution: Register storage extension before HLS:
-
-```go
-app.UseExtension(storageExt) // Must come first
-app.UseExtension(hlsExt)
-```
-
-### Segments Not Playing
-
-- Check FFmpeg logs for encoding errors
-- Verify segments are properly saved to storage
-- Ensure CORS headers are set if cross-origin
-- Check browser console for HLS.js errors
-
-### High Memory Usage
-
-- Reduce DVR window size
-- Enable automatic cleanup
-- Limit concurrent transcoding jobs
-- Use streaming instead of buffering entire segments
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on, but an `AppConfig` literal like the one in the quick start leaves it off.
+
+If you use Trove's own Forge extension to provide the store, list it before HLS in `Extensions`, because HLS resolves the store while it registers and does not declare the dependency.
+
+## Documentation
+
+| Topic | Where |
+| --- | --- |
+| Overview | [HLS docs](https://www.xraph.com/docs/forge/extensions/hls) |
+| Features and usage | [HLS features](https://www.xraph.com/docs/forge/extensions/hls/features) |
+| Configuration reference | [HLS configuration](https://www.xraph.com/docs/forge/extensions/hls/configuration) |
+| Function reference | [HLS functions](https://www.xraph.com/docs/forge/extensions/hls/functions) |
+| Go API | [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/hls) |
+| Object storage | [Trove](https://github.com/xraph/trove) and its [docs](https://www.xraph.com/docs/trove) |
 
 ## Examples
 
-See the [examples](./examples) directory for complete working examples:
+These live in this module, so run them from this directory with `GOWORK=off go run ./examples/<name>`:
 
-- **basic**: Simple live streaming server
-- **vod**: Video on demand with transcoding
-- **player.html**: HTML5 video player with HLS.js
+| Example | What it shows |
+| --- | --- |
+| [basic](examples/basic/) | A local Trove store, the extension with transcoding on, and a demo live stream |
+| [vod](examples/vod/) | The VOD entry points (they do not produce playable output yet) |
+| [distributed](examples/distributed/) | Cluster mode with the consensus extension |
+| [player.html](examples/player.html) | A browser test page for a playlist URL |
 
-Run examples:
+## FAQ
 
-```bash
-# Basic live streaming
-cd examples/basic
-go run main.go
+### How do I serve HLS video from a Go server?
 
-# VOD from file
-cd examples/vod
-go run main.go /path/to/video.mp4
-```
+Encode your stream into MPEG-TS segments (FFmpeg or a hardware encoder), push them to the ingest endpoint, and point players at the master playlist. Read [Status](#status) first: segment URLs return 404 today, so you need a small handler of your own until that route is fixed.
 
-## License
+### Does Forge HLS transcode video with FFmpeg?
 
-Same as Forge framework.
+It has an FFmpeg transcoder and segmenter, but the VOD path that would use them does not store any output yet. For live streams, send segments you have already encoded with your own FFmpeg command or hardware encoder.
+
+### Where are HLS segments stored?
+
+In a Trove object store under `<prefix>/<streamID>/<variantID>/` in the bucket you configure (`hls` by default). Pick local disk, S3, GCS or Azure through the Trove driver you open.
+
+### Does it support low-latency HLS or fMP4?
+
+No. Playlists are HLS version 3 with MPEG-TS segments.
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR on the main Forge repository.
+HLS is its own Go module inside the [Forge repository](https://github.com/xraph/forge). It replaces the root and consensus modules with local paths. Build, vet and test it from its directory the way CI does:
 
-## Credits
+```bash
+cd extensions/hls
+GOWORK=off go build ./...
+GOWORK=off go vet ./...
+GOWORK=off go test -short -count=1 ./...
+golangci-lint run ./...
+```
 
-Built on top of:
-- FFmpeg for transcoding and segmentation
-- Forge framework
-- HLS specification (RFC 8216)
+Forge's [AGENTS.md](../../AGENTS.md) has the pinned lint version and the rest of the repository conventions. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), for example `fix(hls): ...`.
 
+## License
+
+Forge HLS is part of Forge and is available under the [Apache License 2.0](../../LICENSE).

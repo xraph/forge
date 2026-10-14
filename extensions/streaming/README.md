@@ -1,456 +1,276 @@
-# Streaming Extension
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge Streaming, a WebSocket and Server-Sent Events extension for Go with rooms, channels, presence and message replay" width="100%">
+</p>
 
-Real-time streaming extension for Forge with WebSocket/SSE support, rooms, channels, presence tracking, typing indicators, and distributed coordination.
+# Forge Streaming: WebSocket and SSE real-time messaging for Go
 
-## Features
+Forge Streaming is the real-time messaging extension for [Forge](https://github.com/xraph/forge), the Go backend framework. It gives your app ready-made WebSocket and Server-Sent Events (SSE) endpoints and a `Manager` that handles chat rooms, pub/sub channels, presence, typing indicators, message history and gap-free replay after a reconnect. You can run it on one node with the local backend, or across several with Redis. Whatever your clients send goes through size limits, per-user rate limiting and room authorization before you or anyone else sees it broadcast.
 
-- ✅ **WebSocket & SSE** - Built on top of Forge's core router streaming support
-- ✅ **Rooms** - Create chat rooms with members, roles, and permissions
-- ✅ **Channels** - Pub/sub channels with filters and subscriptions
-- ✅ **Presence** - Track online/offline/away status across users
-- ✅ **Typing Indicators** - Real-time typing indicators per room
-- ✅ **Message History** - Persist and retrieve message history
-- ✅ **Distributed** - Redis/NATS backends for multi-node deployments
-- ✅ **Authorization** - Room and message policies wired by default, not opt-in
-- ✅ **Gap-free reconnect** - Per-room sequences and cursor-based replay over SSE
-- ✅ **Backpressure** - Bounded per-connection send queue; one slow client cannot stall a broadcast
-- ✅ **Interface-First** - All major components are interfaces for testability
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/streaming.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/streaming) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
-## Installation
+[Documentation](https://www.xraph.com/docs/forge/extensions/streaming) · [Quick start](#quick-start) · [Features](#features) · [Wire protocol](#wire-protocol) · [Rooms and identity](#rooms-and-identity) · [Backends](#backends) · [Configuration](#configuration) · [FAQ](#faq)
 
-```go
-import "github.com/xraph/forge/extensions/streaming"
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/) and a Go module:
+
+```bash
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/streaming@latest
 ```
 
-## Quick Start
-
-### Basic Setup (Local Backend)
+Save this as `main.go`:
 
 ```go
 package main
 
 import (
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/streaming"
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/streaming"
 )
 
 func main() {
-    // Create container and app
-    container := forge.NewContainer()
-    app := forge.NewApp(container)
-    router := forge.NewRouter(forge.WithContainer(container))
+	stream := streaming.NewExtension(streaming.WithLocalBackend())
 
-    // Create streaming extension with local backend
-    streamExt := streaming.NewExtension(
-        streaming.WithLocalBackend(),
-        streaming.WithFeatures(true, true, true, true, true), // rooms, channels, presence, typing, history
-    )
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "live-updates",
+		HTTPAddress: ":8080",
+		Extensions:  []forge.Extension{stream},
+	})
 
-    // Register and start
-    app.Use(streamExt)
-    app.Start(context.Background())
+	// The extension builds its manager when the app registers it, so mount
+	// the built-in handlers from a start hook: WebSocket on /ws, SSE on
+	// /events, plus POST /events/subscribe and /events/unsubscribe.
+	err := forge.OnStarted(app, "streaming-routes", func(_ context.Context, a forge.App) error {
+		return stream.RegisterRoutes(a.Router(), "/ws", "/events")
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Register streaming routes
-    streamExt.RegisterRoutes(router, "/ws", "/sse")
+	// Send a message to every open WebSocket and SSE connection.
+	err = app.Router().POST("/announce", func(ctx forge.Context) error {
+		msg := streaming.NewEventMessage("announcement", ctx.Query("text"))
 
-    // Start server
-    http.ListenAndServe(":8080", router)
+		if err := stream.Manager().Broadcast(ctx.Context(), msg); err != nil {
+			return err
+		}
+
+		return ctx.JSON(http.StatusAccepted, map[string]string{"status": "sent"})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-### With Redis Backend (Distributed)
+Run it, open an SSE stream in one terminal and send from another:
+
+```bash
+go mod tidy
+go run .
+
+curl -N http://localhost:8080/events
+curl -X POST 'http://localhost:8080/announce?text=deploy+finished'
+```
+
+The stream first prints a `connected` event with your connection and session IDs, then the announcement:
+
+```text
+event: connected
+data: {"conn_id":"a5ef...","resumed":false,"session_id":"389f..."}
+
+event: message
+data: {"id":"","type":"message","event":"announcement","user_id":"","data":"deploy finished","timestamp":"..."}
+```
+
+If you connect a WebSocket client to `ws://localhost:8080/ws`, it gets the same JSON as a text frame. Call `RegisterRoutes`, `RegisterHook` and `RegisterCodec` from a start hook like this one. The extension creates its logger, hook registry and manager during registration, so if you call them before the app starts you get a nil pointer panic.
+
+## Features
+
+| You need | Forge Streaming gives you |
+| --- | --- |
+| WebSocket and SSE endpoints | `RegisterRoutes(router, wsPath, ssePath)`, built on Forge's core router streaming |
+| Chat rooms | Create, join, leave, archive and search rooms, member roles, invites, mute and ban |
+| Pub/sub channels | Channel subscriptions per connection, broadcast to subscribers |
+| Presence and typing indicators | Online, away, busy and offline status that tracks every tab a user has open, and typing state with a timeout |
+| Message history and replay | Per-room sequence numbers, history queries, and replay of missed messages from an SSE `Last-Event-ID` |
+| Protection on the inbound path | Message size cap (64 KB), per-user rate limit (100 messages a second), room and send authorization, and identity stamped by the server |
+| Backpressure | A bounded send queue per connection, so one slow client cannot stall a broadcast |
+| Multiple nodes | A Redis backend with a cross-node coordinator, plus load balancer strategies |
+| Graceful shutdown | Connections are drained (15 seconds by default) before the manager stops |
+| Extension points | Connection, message, room, presence and error hooks, pluggable codecs, and an AsyncAPI spec from `AsyncAPISpec()` |
+
+## Wire protocol
+
+Every frame is a JSON `streaming.Message`:
+
+| Field | Meaning |
+| --- | --- |
+| `type` | Transport kind: `message`, `join`, `leave`, `typing`, `presence`, `system` or `error` |
+| `event` | Your domain event name, such as `order.created`. Build these with `streaming.NewEventMessage` |
+| `room_id`, `channel_id` | Where the message goes |
+| `user_id`, `id`, `timestamp` | Set by the server on inbound messages. Whatever the client sends is overwritten |
+| `data` | The payload |
+| `sequence` | Position within the room, assigned when a room message is saved |
+
+A WebSocket client sends one of these:
+
+```json
+{"type": "join", "room_id": "lobby"}
+{"type": "message", "room_id": "lobby", "data": {"text": "hi"}}
+{"type": "typing", "room_id": "lobby", "data": true}
+{"type": "presence", "data": "away"}
+{"type": "leave", "room_id": "lobby"}
+```
+
+When you send a room message, the server saves it to history (if history is on) and broadcasts it to the room. A message with a `channel_id` goes to that channel's subscribers. When the server rejects one of your frames, it sends back a `type: "error"` frame whose `data` has a stable `code` (`rate_limited`, `message_too_large`, `send_denied`, `room_access_denied`, `muted`, `banned`, `feature_disabled` and a few more) and, for rate limits, `retry_after_ms`.
+
+The SSE endpoint takes query parameters: `rooms=a,b` and `channels=x,y` to join on connect, `session_id` to resume a session, and `last_event_id` (or the standard `Last-Event-ID` header, which `EventSource` sends for you) to replay what you missed. If the server cannot honour your cursor, the stream sends a `resync_required` event so your client knows to reload. A browser `EventSource` can't send frames, so it changes subscriptions with `POST {ssePath}/subscribe` and `/unsubscribe`, passing `{"conn_id": "...", "rooms": [...], "channels": [...]}`.
+
+## Rooms and identity
+
+Rooms must exist before anyone joins them, so you create them from your own code:
 
 ```go
-streamExt := streaming.NewExtension(
-    streaming.WithRedisBackend("redis://localhost:6379"),
-    streaming.WithFeatures(true, true, true, true, true),
-    streaming.WithNodeID("node-1"), // Optional, auto-generated if not set
-)
+err := stream.Manager().CreateRoom(ctx, streaming.NewLocalRoom(streaming.RoomOptions{
+	ID:    "lobby",
+	Name:  "Lobby",
+	Owner: "system",
+}))
 ```
 
-## Architecture
+`RoomOptions` also takes `Private`, `MaxMembers`, `Description` and `Metadata`. The default room authorizer lets anyone into a public room and only members into a private one. From the server you can push into a room with `Manager().BroadcastToRoom`, read history with `GetHistory(ctx, roomID, streaming.HistoryQuery{Limit: 50})`, and reach one user on every device with `SendToUser`.
 
-### Interface-First Design
+Joining a room needs a user. The built-in handlers read the caller's ID from the `user_id` value on the Forge context, and a connection without one is anonymous: it can receive broadcasts, but `JoinRoom` refuses it and the SSE subscribe endpoints answer 404. Put middleware on the group or the routes that authenticates the caller and calls `ctx.Set("user_id", ...)`, and the built-in handlers pick it up. If you'd rather own the handler, call `router.WebSocket` yourself, wrap the connection with `streaming.NewConnection(conn)`, call `SetUserID`, then `Manager().Register` it and pass every inbound message through `Manager().ProcessInbound` before you act on it.
 
-All major components are defined as interfaces with multiple implementations:
+## Hooks and codecs
 
-```
-streaming (interfaces)
-├── Manager              - Central orchestrator
-├── EnhancedConnection   - WebSocket connection with metadata
-├── Room                 - Room management
-├── RoomStore           - Room persistence backend
-├── Channel             - Pub/sub channel
-├── ChannelStore        - Channel persistence backend
-├── PresenceTracker     - Presence tracking
-├── PresenceStore       - Presence persistence backend
-├── TypingTracker       - Typing indicators
-├── TypingStore         - Typing persistence backend
-├── MessageStore        - Message history
-└── DistributedBackend  - Cross-node coordination
-```
-
-### Package Structure
-
-```
-v2/extensions/streaming/
-├── streaming.go         # Core interfaces (Manager, EnhancedConnection)
-├── room.go             # Room interfaces
-├── channel.go          # Channel interfaces
-├── presence.go         # Presence interfaces
-├── typing.go           # Typing interfaces
-├── persistence.go      # Message store interfaces
-├── distributed.go      # Distributed backend interfaces
-├── config.go           # Configuration
-├── errors.go           # Domain errors
-├── manager.go          # Manager implementation
-├── connection.go       # Enhanced connection implementation
-├── extension.go        # Extension entry point
-├── backends/
-│   ├── factory.go      # Store factory
-│   ├── local/          # In-memory implementations
-│   ├── redis/          # Redis implementations (TODO)
-│   └── nats/           # NATS implementations (TODO)
-└── trackers/
-    ├── presence_tracker.go  # Presence tracker implementation
-    └── typing_tracker.go    # Typing tracker implementation
-```
-
-## Usage Examples
-
-### Custom WebSocket Handler
+Hooks let you reject connections, transform or drop messages, and watch room and presence changes as they happen. A hook implements `Name()` plus any of `ConnectionHook`, `MessageHook`, `RawMessageHook`, `RoomHook`, `PresenceHook` or `ErrorHook`:
 
 ```go
-router.WebSocket("/chat", func(ctx forge.Context, conn forge.Connection) error {
-    // Get streaming manager from DI
-    var manager streaming.Manager
-    ctx.Container().Resolve(&manager)
+type auditHook struct{ log forge.Logger }
 
-    // Get user from auth
-    userID := ctx.Get("user_id").(string)
+func (h auditHook) Name() string { return "audit" }
 
-    // Create enhanced connection
-    enhanced := streaming.NewEnhancedConnection(conn)
-    enhanced.SetUserID(userID)
-    enhanced.SetSessionID(uuid.New().String())
+func (h auditHook) OnConnect(ctx context.Context, conn streaming.Connection) error {
+	h.log.Info("stream connected", forge.F("conn_id", conn.ID()))
+	return nil // return an error to refuse the connection
+}
 
-    // Register
-    manager.Register(enhanced)
-    defer manager.Unregister(conn.ID())
-
-    // Set online
-    manager.SetPresence(ctx.Request().Context(), userID, streaming.StatusOnline)
-    defer manager.SetPresence(ctx.Request().Context(), userID, streaming.StatusOffline)
-
-    // Message loop
-    for {
-        var msg streaming.Message
-        if err := conn.ReadJSON(&msg); err != nil {
-            return err
-        }
-
-        reqCtx := ctx.Request().Context()
-
-        // Identity comes from the connection, never from the client. Without
-        // this a client can set user_id to anything and have the server
-        // broadcast and persist it under that name.
-        msg.UserID = enhanced.GetUserID()
-
-        // The inbound gate: size cap, per-user rate limit, target
-        // authorization, content validation. Skipping it leaves an unmetered
-        // path from any socket straight to a broadcast.
-        gated, err := manager.ProcessInbound(reqCtx, &msg, enhanced)
-        if err != nil {
-            // Tell the client why, so it can back off rather than retrying
-            // into the same limit forever. NewLifecycleMessage rather than a
-            // literal Event: a lifecycle name in Event is a name no generated
-            // manifest binds, and the client reports it as an unknown message
-            // instead of dropping it. The name rides in Metadata instead.
-            rejected := streaming.NewLifecycleMessage(streaming.MessageTypeError, "message.rejected")
-            rejected.Data = map[string]any{"error": err.Error()}
-
-            _ = conn.WriteJSON(rejected)
-
-            continue
-        }
-
-        switch gated.Type {
-        case streaming.MessageTypeMessage:
-            if gated.RoomID != "" {
-                // Save first: this assigns gated.Sequence, which is what lets a
-                // reconnecting client resume from exactly this point.
-                manager.SaveMessage(reqCtx, gated)
-                manager.BroadcastToRoom(reqCtx, gated.RoomID, gated)
-            }
-        case streaming.MessageTypeJoin:
-            manager.JoinRoom(reqCtx, conn.ID(), gated.RoomID)
-        case streaming.MessageTypeLeave:
-            manager.LeaveRoom(reqCtx, conn.ID(), gated.RoomID)
-        }
-    }
-})
+func (h auditHook) OnDisconnect(ctx context.Context, conn streaming.Connection) {}
 ```
 
-<!-- `enhanced` above is the streaming.Connection registered with the manager;
-     see the full example in examples/chat/main.go. -->
+Register it with `stream.RegisterHook(auditHook{log: app.Logger()})` from a start hook. JSON is the default codec. Binary and text codecs are built in, and `RegisterCodec` adds your own for a content type that clients ask for with `?content_type=` or an `X-Content-Type` header.
 
-Using `RegisterRoutes` instead of a hand-written handler does all of the above for you.
+## Backends
 
-### Room Management REST API
+| Backend | Option | Status |
+| --- | --- | --- |
+| `local` | `WithLocalBackend()` | In-memory stores on one node. The default |
+| `redis` | `WithRedisBackend(url)` | Redis stores for rooms, channels, history, presence and typing, plus a coordinator that relays messages between nodes. Turns distributed mode on |
+| `nats` | `WithNATSBackend(urls...)` | Not implemented. Registration fails with a backend error |
 
-```go
-api := router.Group("/api/v1")
-
-// Create room
-api.POST("/rooms", func(ctx forge.Context, req *CreateRoomRequest) error {
-    var manager streaming.Manager
-    ctx.Container().Resolve(&manager)
-
-    userID := ctx.Get("user_id").(string)
-
-    room := streaming.RoomOptions{
-        ID:          uuid.New().String(),
-        Name:        req.Name,
-        Description: req.Description,
-        Owner:       userID,
-    }
-
-    if err := manager.CreateRoom(ctx.Request().Context(), room); err != nil {
-        return err
-    }
-
-    return ctx.JSON(200, room)
-})
-
-// Get room history
-api.GET("/rooms/:id/history", func(ctx forge.Context) error {
-    var manager streaming.Manager
-    ctx.Container().Resolve(&manager)
-
-    roomID := ctx.Param("id")
-
-    messages, err := manager.GetHistory(ctx.Request().Context(), roomID, streaming.HistoryQuery{
-        Limit: 100,
-    })
-    if err != nil {
-        return err
-    }
-
-    return ctx.JSON(200, messages)
-})
-```
+With more than one node, give each a stable `WithNodeID` (one is generated otherwise) and consider `WithLoadBalancer("consistent_hash")` or `"sticky"`. `least_connections` is also available, and `round_robin` currently uses least connections too. `WithSessionResumption(ttl)` keeps a disconnected session's rooms and channels for the TTL so a client that comes back with the same `session_id` gets them restored. Sessions are kept in memory on the node.
 
 ## Configuration
 
-### Complete Configuration Example
+You can configure the extension in code with options, or in YAML under `extensions.streaming` (the extension also reads a top-level `streaming` key).
 
-```go
-streamExt := streaming.NewExtension(
-    // Backend
-    streaming.WithBackend("redis"),
-    streaming.WithBackendURLs("redis://localhost:6379"),
-    streaming.WithAuthentication("username", "password"),
+| Option | Sets |
+| --- | --- |
+| `WithLocalBackend()`, `WithRedisBackend(url)`, `WithNATSBackend(urls...)` | Backend, URLs and distributed mode |
+| `WithBackend(string)`, `WithBackendURLs(...string)`, `WithAuthentication(user, pass)` | The same, field by field |
+| `WithFeatures(rooms, channels, presence, typing, history)` | Feature switches, all on by default |
+| `WithConnectionLimits(perUser, roomsPerUser, channelsPerUser)` | `5`, `50`, `100` by default |
+| `WithMessageLimits(maxSize, maxPerSecond)` | `65536` bytes, `100` a second |
+| `WithTimeouts(ping, pong, write)` | `30s`, `10s`, `10s` |
+| `WithBufferSizes(read, write)` | `4096`, `4096` |
+| `WithMessageRetention(d)`, `WithPresenceTimeout(d)`, `WithTypingTimeout(d)` | `720h`, `5m`, `3s` |
+| `WithNodeID(string)`, `WithLoadBalancer(strategy)`, `WithSessionResumption(ttl)` | Multi-node settings |
+| `WithTLS(cert, key, ca)` | TLS for the backend connection |
+| `WithRequireConfig(bool)`, `WithConfig(streaming.Config)` | Require YAML, or replace the whole config |
 
-    // Features
-    streaming.WithFeatures(true, true, true, true, true),
-
-    // Limits
-    streaming.WithConnectionLimits(5, 50, 100), // conns/user, rooms/user, channels/user
-    streaming.WithMessageLimits(64*1024, 100),  // max size, max/second
-
-    // Timeouts
-    streaming.WithTimeouts(30*time.Second, 10*time.Second, 10*time.Second), // ping, pong, write
-
-    // Retention
-    streaming.WithMessageRetention(30 * 24 * time.Hour), // 30 days
-
-    // Distributed
-    streaming.WithNodeID("node-1"),
-
-    // TLS
-    streaming.WithTLS("cert.pem", "key.pem", "ca.pem"),
-)
-```
-
-### Configuration from File
+A few settings have no option and go through `WithConfig` or YAML: `max_anonymous_connections` (1000), `max_total_connections` (0, unbounded), `drain_timeout` (15s) and `max_messages_per_room` (100000).
 
 ```yaml
-# config.yaml
 extensions:
   streaming:
-    backend: redis
-    backend_urls:
-      - redis://localhost:6379
-    enable_rooms: true
-    enable_channels: true
-    enable_presence: true
-    enable_typing_indicators: true
-    enable_message_history: true
-    max_connections_per_user: 5
-    max_rooms_per_user: 50
-    max_message_size: 65536
-    message_retention: 720h # 30 days
+    backend_urls: ["redis://localhost:6379"]
+    node_id: api-1
+    max_total_connections: 20000
+    enable_session_resumption: true
 ```
 
-```go
-// Automatically loads from config
-streamExt := streaming.NewExtension()
+The YAML keys are the snake_case names from the struct tags. The file overrides `DefaultConfig()` and your options override the file, so `backend: redis` or `max_message_size` works there too. Fields you leave out keep their defaults.
+
+Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on, but an `AppConfig` literal like the one in the quick start leaves it off.
+
+## Observability
+
+Counters and gauges go through Forge's metrics under `streaming.`: `connections.active`, `connections.total`, `messages.broadcast`, `messages.room_broadcast`, `messages.rate_limited`, `messages.oversize`, `rooms.joins`, `rooms.joins_denied`, `sendqueue.dropped`, `sessions.resumed`, `replay.messages` and more. `Manager().GetStats(ctx)` returns a snapshot, and the extension's health check fails when the manager is unhealthy.
+
+If you run the [Forge dashboard](../dashboard/), the extension implements `RegisterContractContributor`, which serves the streaming pages of the dashboard contract.
+
+## Documentation
+
+| Topic | Where |
+| --- | --- |
+| Overview | [Streaming docs](https://www.xraph.com/docs/forge/extensions/streaming) |
+| Features and usage | [Streaming features](https://www.xraph.com/docs/forge/extensions/streaming/features) |
+| Configuration reference | [Streaming configuration](https://www.xraph.com/docs/forge/extensions/streaming/configuration) |
+| Function reference | [Streaming functions](https://www.xraph.com/docs/forge/extensions/streaming/functions) |
+| Go API | [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/streaming) |
+| Core router streaming | [Forge streaming guide](../../docs/content/docs/forge/%28streaming%29/streaming.mdx) |
+
+## Examples
+
+The [chat example](examples/chat/) serves a single-page chat UI on `/` with WebSocket and SSE routes and a small REST API for rooms, history and members. It's part of this module, so `GOWORK=off go run ./examples/chat` from this directory starts it on port 8080. Treat it as a sketch: its create-room endpoint doesn't create a room yet, and its connections arrive anonymous for the reason given in [Rooms and identity](#rooms-and-identity).
+
+## FAQ
+
+### How do I add WebSockets to a Go app built on Forge?
+
+Add `streaming.NewExtension()` to your app and call `RegisterRoutes(router, "/ws", "/events")` from a start hook. You get a WebSocket endpoint and an SSE endpoint that share one connection manager. The [quick start](#quick-start) is a complete program.
+
+### Should I use WebSocket or Server-Sent Events?
+
+Use SSE when the browser only listens: it reconnects on its own and replays missed room messages from `Last-Event-ID`. Use WebSocket when clients also send, for chat, typing indicators or presence updates. Both transports receive the same broadcasts.
+
+### Can I scale Forge Streaming across several servers?
+
+Yes, with the Redis backend. `WithRedisBackend("redis://...")` stores rooms, history and presence in Redis and relays broadcasts between nodes. The NATS backend is not implemented yet.
+
+### How do clients catch up after a dropped connection?
+
+Over SSE, room messages carry a sequence number as the event ID. When the browser reconnects with `Last-Event-ID`, the server replays what that connection's rooms missed, or sends `resync_required` when it cannot. Over WebSocket, reconnect with the same `session_id` and turn on `WithSessionResumption` to get your rooms and channels back.
+
+### How do I authenticate WebSocket connections?
+
+The built-in handlers take the user from the `user_id` context value, but middleware can't set it on those routes today (see [Rooms and identity](#rooms-and-identity)). Authenticated rooms currently need your own WebSocket handler that sets the user ID before it registers the connection.
+
+## Contributing
+
+Streaming is its own Go module inside the [Forge repository](https://github.com/xraph/forge). Build, vet and test it from its directory the way CI does:
+
+```bash
+cd extensions/streaming
+GOWORK=off go build ./...
+GOWORK=off go vet ./...
+GOWORK=off go test -short -count=1 ./...
+golangci-lint run ./...
 ```
 
-## Message Protocol
-
-### Message Structure
-
-```go
-type Message struct {
-    ID        string         `json:"id"`
-    Type      string         `json:"type"`      // "message", "presence", "typing", "system"
-    Event     string         `json:"event,omitempty"`
-    RoomID    string         `json:"room_id,omitempty"`
-    ChannelID string         `json:"channel_id,omitempty"`
-    UserID    string         `json:"user_id"`
-    Data      any            `json:"data"`
-    RawData   []byte         `json:"-"`                      // Binary payload
-    ContentType string       `json:"content_type,omitempty"` // MIME type of Data
-    Metadata  map[string]any `json:"metadata,omitempty"`
-    Timestamp time.Time      `json:"timestamp"`
-    ThreadID  string         `json:"thread_id,omitempty"`
-    Sequence  int64          `json:"sequence,omitempty"`     // Per-room, assigned on save
-}
-```
-
-`Type` is the transport kind; `Event` is the domain name (`order.created`). The generated TypeScript
-client binds on `Event`, so a frame an application is expected to handle must set it — build those
-with `NewEventMessage` rather than by hand.
-
-`Sequence` is assigned by the message store when a room message is saved, and is what lets a
-reconnecting client be sent exactly what it missed.
-
-### Message Types
-
-- `MessageTypeMessage` - Regular chat message
-- `MessageTypePresence` - Presence update (online/offline/away)
-- `MessageTypeTyping` - Typing indicator
-- `MessageTypeSystem` - System notification
-- `MessageTypeJoin` - User joined room
-- `MessageTypeLeave` - User left room
-- `MessageTypeError` - Error message
-
-## Backend Comparison
-
-| Feature | Local | Redis | NATS |
-|---------|-------|-------|------|
-| Single Node | ✅ | ✅ | ✅ |
-| Multi-Node | ❌ | ✅ | ✅ |
-| Persistence | Memory | Disk | Disk |
-| Message History | Limited | Full | Full |
-| Presence Sync | ❌ | ✅ | ✅ |
-| Performance | Fastest | Fast | Fastest |
-| Setup | None | Redis | NATS Server |
-
-## Security
-
-Authorization is wired by default rather than offered as an opt-in.
-
-- **Room joins** consult a `RoomAuthorizer`. The default admits members, admits anyone to a public
-  room, and refuses non-members entry to a private one. Replace it with `WithRoomAuthorizer`.
-- **Sends** require the connection to have joined the target room, pass the `MessageAuthorizer`, and
-  not be muted or banned there.
-- **Inbound messages** must go through `Manager.ProcessInbound` before broadcast — size cap, per-user
-  rate limit, target authorization, then content validation. `RegisterRoutes` does this for you; a
-  custom socket handler must call it, or it leaves an unmetered path from any socket to a broadcast.
-- **Identity** is stamped from the authenticated connection. A client cannot set `user_id`.
-- **Session resumption** binds a snapshot to the user who created it.
-- **Anonymous connections** are capped separately, since no per-user limit can bound them.
-
-## Migration
-
-Several previously inert settings are now enforced, and a few semantics changed. See the
-[migration guide](https://xraph.com/docs/forge/extensions/streaming/migration) — in particular
-`StartTyping`/`StopTyping` take `(ctx, userID, roomID)`, which is the one change that compiles either
-way.
-
-## Production Considerations
-
-### Scaling
-
-For distributed deployments:
-
-1. Use Redis or NATS backend
-2. Set unique node IDs per instance
-3. Configure proper timeouts and limits
-4. Enable message persistence
-5. Monitor metrics
-
-### Security
-
-- Always use authentication middleware before WebSocket routes
-- Validate user permissions for room/channel access
-- Rate limit connections per user
-- Use TLS in production
-- Never log sensitive message content
-
-### Monitoring
-
-Key metrics to monitor:
-
-- `streaming.connections.active` - Active connections
-- `streaming.connections.total` - Total connections created
-- `streaming.messages.broadcast` - Messages broadcast
-- `streaming.rooms.joins` - Room joins
-- `streaming.presence.updates` - Presence updates
-
-### Health Checks
-
-```go
-// Extension provides health check
-if err := streamExt.Health(ctx); err != nil {
-    log.Error("streaming unhealthy", err)
-}
-```
-
-## Testing
-
-### Mock Implementations
-
-All interfaces can be easily mocked for testing:
-
-```go
-type mockManager struct {
-    streaming.Manager
-    registerCalls int
-}
-
-func (m *mockManager) Register(conn streaming.EnhancedConnection) error {
-    m.registerCalls++
-    return nil
-}
-
-func TestMyHandler(t *testing.T) {
-    manager := &mockManager{}
-    // Test with mock manager
-}
-```
-
-### Integration Tests
-
-```go
-// Use local backend for tests
-streamExt := streaming.NewExtension(streaming.WithLocalBackend())
-// Run tests against real implementation
-```
-
-## Roadmap
-
-- [ ] Redis backend implementation
-- [ ] NATS backend implementation  
-- [ ] Message compression for old messages
-- [ ] Advanced filtering and search
-- [ ] WebRTC signaling support
-- [ ] GraphQL subscriptions integration
-- [ ] Admin dashboard for monitoring
+Forge's [AGENTS.md](../../AGENTS.md) has the pinned lint version and the rest of the repository conventions. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), for example `fix(streaming): ...`.
 
 ## License
 
-Part of Forge framework.
-
+Forge Streaming is part of Forge and is available under the [Apache License 2.0](../../LICENSE).

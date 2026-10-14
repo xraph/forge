@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Forge oRPC</title>
+  <desc id="desc">Forge oRPC extension banner. It exposes the HTTP routes of a Forge Go application as JSON-RPC 2.0 methods with an OpenRPC schema.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1200" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#121B2A"/>
+      <stop offset="1" stop-color="#1E3047"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="559" y2="552" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFBE76"/>
+      <stop offset="1" stop-color="#FF7048"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="240" rx="20" fill="url(#background)"/>
+  <path d="M720 0V240M800 0V240M880 0V240M960 0V240M1040 0V240M1120 0V240M680 40H1200M680 120H1200M680 200H1200" stroke="#E0F2FE" stroke-opacity=".06"/>
+  <g transform="translate(48 60) scale(.215)" fill="#FFBE76">
+    <path d="M134 0H559V125H134Z"/>
+    <path d="M134 218H425V343H134Z"/>
+    <path d="M432 342.304V218H558.551L432 342.304Z"/>
+    <path d="M0 551.304V136H127V427L0 551.304Z"/>
+    <path d="M127 125H.343L127 .138V125Z"/>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif">
+    <text x="202" y="62" fill="#FFBE76" font-size="13" font-weight="600" letter-spacing="2.5">FORGE EXTENSION</text>
+    <text x="200" y="118" fill="#F8FAFC" font-size="64" font-weight="750" letter-spacing="-2">oRPC</text>
+    <text x="202" y="158" fill="#C5D4E3" font-size="22">Call your Forge routes over JSON-RPC 2.0.</text>
+    <text x="202" y="190" fill="#90A7BE" font-size="15">JSON-RPC 2.0 / OpenRPC / Batch requests</text>
+  </g>
+  <g transform="translate(930 22) scale(.35)" fill="url(#accent)" opacity=".95">
+    <path d="M134 0H559V125H134Z"/>
+    <path d="M134 218H425V343H134Z"/>
+    <path d="M432 342.304V218H558.551L432 342.304Z"/>
+    <path d="M0 551.304V136H127V427L0 551.304Z"/>
+    <path d="M127 125H.343L127 .138V125Z"/>
+  </g>
+</svg>

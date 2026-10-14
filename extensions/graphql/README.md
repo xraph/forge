@@ -1,32 +1,68 @@
-# GraphQL Extension for Forge
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="Forge GraphQL, a gqlgen GraphQL endpoint and playground mounted on the router of a Go application built on Forge" width="100%">
+</p>
 
-Production-ready GraphQL server extension powered by [gqlgen](https://gqlgen.com/), providing type-safe GraphQL APIs with automatic code generation, schema management, and full observability support.
+# Forge GraphQL: a gqlgen GraphQL server for Go apps on Forge
 
-## Features
+Forge GraphQL is the GraphQL extension for [Forge](https://github.com/xraph/forge), the Go backend framework. It runs a [gqlgen](https://gqlgen.com/) server inside your app and mounts it on the Forge router, with a GraphQL Playground, query complexity limits, automatic persisted queries, file uploads, Apollo Federation's `_service` query, Forge metrics and slow query logging. It also ships a small DataLoader package for batching N+1 lookups in Golang resolvers.
 
-- ✅ **Type-safe GraphQL** - Automatic code generation from GraphQL schemas
-- ✅ **Multiple transports** - HTTP (GET/POST), WebSocket subscriptions
-- ✅ **Built-in optimization** - Query complexity limits, automatic persisted queries (APQ)
-- ✅ **DataLoader support** - N+1 query optimization with batching and caching
-- ✅ **Custom directives** - Authentication, authorization, and custom logic
-- ✅ **Apollo Federation v2** - Microservices composition ready
-- ✅ **File uploads** - Multipart form data support
-- ✅ **GraphQL Playground** - Interactive query exploration
-- ✅ **Full observability** - Logging, metrics, and tracing integration
-- ✅ **DI integration** - Access to Forge services via dependency injection
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/graphql.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/graphql) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
-## Installation
+[Documentation](https://www.xraph.com/docs/forge/extensions/graphql) · [Quick start](#quick-start) · [Status](#what-the-extension-serves-today) · [Features](#features) · [DataLoader](#batch-lookups-with-dataloader) · [Configuration](#configuration) · [FAQ](#faq)
+
+## Quick start
+
+You need [Go 1.26 or later](https://go.dev/dl/). Add Forge and the extension to your module:
 
 ```bash
-go get github.com/xraph/forge/extensions/graphql
-go get github.com/99designs/gqlgen@v0.17.45
+go get github.com/xraph/forge@latest
+go get github.com/xraph/forge/extensions/graphql@latest
 ```
 
-## Quick Start
+Save this as `main.go`:
 
-### 1. Define Your GraphQL Schema
+```go
+package main
 
-Create `schema/schema.graphql`:
+import (
+	"log"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/graphql"
+)
+
+func main() {
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "graphql-demo",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			graphql.NewExtension(
+				graphql.WithEndpoint("/graphql"),
+				graphql.WithPlayground(true),
+			),
+		},
+	})
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Run it with `go mod tidy && go run .`, then send a query:
+
+```bash
+curl -X POST http://localhost:8080/graphql \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"{ hello(name: \"Forge\") version }"}'
+# {"data":{"hello":"Hello, Forge!","version":"2.0.0"}}
+```
+
+Open <http://localhost:8080/playground> in a browser for the GraphQL Playground. The endpoint answers `GET` as well as `POST`, so `curl -G localhost:8080/graphql --data-urlencode 'query={ version }'` works too.
+
+## What the extension serves today
+
+Read this before you build on the extension. The server runs the schema that is compiled into this module, [`schema/schema.graphql`](schema/schema.graphql), and nothing else:
 
 ```graphql
 directive @auth(requires: String) on FIELD_DEFINITION
@@ -41,421 +77,128 @@ type Mutation {
 }
 ```
 
-### 2. Generate Code
+There isn't a way to hand it your own schema or resolvers yet. `RegisterType`, `RegisterQuery`, `RegisterMutation` and `RegisterSubscription` on the `GraphQL` interface only write a debug log line, `Use` does nothing, and `ExecuteQuery` returns an error response telling you to go through `HTTPHandler()`. The config keys `auto_generate_schema` and `schema_file` are accepted and ignored.
 
-```bash
-go run github.com/99designs/gqlgen generate
-```
+So what is it good for today? If you want to see gqlgen running inside a Forge app with the playground, persisted queries, complexity limits and metrics already wired, it shows you how, and the `dataloader` package is usable on its own in any resolver you write. If you need your own schema right now, run gqlgen in your own module and mount its `handler.Server` on a Forge route yourself, the same way [`extension.go`](extension.go) does.
 
-### 3. Implement Resolvers
+## Features
 
-Edit `schema.resolvers.go`:
+| You need | Forge GraphQL gives you |
+| --- | --- |
+| A GraphQL endpoint on your existing router | `GET` and `POST` routes at `endpoint`, registered when the extension starts |
+| A browser IDE while you develop | GraphQL Playground at `playground_endpoint`, switched off with `WithPlayground(false)` |
+| Protection from expensive queries | gqlgen's fixed complexity limit, from `max_complexity` |
+| Smaller requests from repeat clients | Automatic persisted queries with an LRU cache of `max_cache_size` entries |
+| File uploads | gqlgen's multipart transport, capped at `max_upload_size` |
+| Federation | Apollo Federation v2 code generated in, including the `_service { sdl }` query |
+| Visibility | `graphql_operation_duration_seconds` and `graphql_operation_total`, debug logs per operation, error logs, and a warning for queries slower than `slow_query_threshold` |
+| N+1 batching in your own resolvers | The [`dataloader`](dataloader/) package |
+
+The server also registers gqlgen's WebSocket, GET, POST, OPTIONS and multipart transports. The schema has no subscriptions, so the WebSocket transport has nothing to stream yet.
+
+## Batch lookups with DataLoader
+
+The `dataloader` package works on its own, whether or not you use the extension. A `Loader` collects the keys that concurrent callers ask for during a short wait window, calls your batch function once with all of them, and caches the results:
 
 ```go
-func (r *queryResolver) Hello(ctx context.Context, name string) (string, error) {
-    r.logger.Debug("hello query called", forge.F("name", name))
-    return fmt.Sprintf("Hello, %s!", name), nil
-}
+users := dataloader.NewLoader(dataloader.DefaultLoaderConfig(),
+	func(ctx context.Context, keys []any) ([]any, []error) {
+		// One query for every key collected in this window.
+		values := make([]any, len(keys))
+		for i, k := range keys {
+			values[i] = fmt.Sprintf("user-%v", k)
+		}
+
+		return values, make([]error, len(keys))
+	})
+
+user, err := users.Load(ctx, 42)
 ```
 
-### 4. Register Extension
-
-```go
-package main
-
-import (
-    "context"
-    "github.com/xraph/forge"
-    "github.com/xraph/forge/extensions/graphql"
-)
-
-func main() {
-    // Create Forge app
-    app := forge.NewApp(forge.DefaultAppConfig())
-
-    // Register GraphQL extension
-    gqlExt := graphql.NewExtension(
-        graphql.WithEndpoint("/graphql"),
-        graphql.WithPlayground(true),
-        graphql.WithMaxComplexity(1000),
-        graphql.WithQueryCache(true, 5*time.Minute),
-    )
-    
-    if err := app.RegisterExtension(gqlExt); err != nil {
-        log.Fatal(err)
-    }
-
-    // Start the app
-    if err := app.Start(context.Background()); err != nil {
-        log.Fatal(err)
-    }
-
-    // Run server
-    if err := app.Run(context.Background(), ":8080"); err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-### 5. Query Your API
-
-```bash
-# Query
-curl -X POST http://localhost:8080/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query":"{ hello(name: \"World\") }"}'
-
-# Or visit the playground
-open http://localhost:8080/playground
-```
+Order matters. Your batch function has to return a value slice and an error slice that line up with `keys`, one entry per key, or the wrong caller gets the wrong user. `DefaultLoaderConfig()` waits 10ms before it dispatches. `Prime`, `Clear` and `ClearAll` manage the cache. One caveat: `LoadMany` calls `Load` for one key after another, so it waits a full window per key and doesn't batch. Call `Load` from concurrent resolvers if you want the batching.
 
 ## Configuration
 
-### Full Configuration Example
-
-```go
-config := graphql.DefaultConfig()
-config.Endpoint = "/api/graphql"
-config.PlaygroundEndpoint = "/api/playground"
-config.EnablePlayground = true
-config.EnableIntrospection = true
-
-// Performance
-config.MaxComplexity = 1000
-config.MaxDepth = 15
-config.QueryTimeout = 30 * time.Second
-
-// DataLoader
-config.EnableDataLoader = true
-config.DataLoaderBatchSize = 100
-config.DataLoaderWait = 10 * time.Millisecond
-
-// Caching
-config.EnableQueryCache = true
-config.QueryCacheTTL = 5 * time.Minute
-config.MaxCacheSize = 1000
-
-// Security
-config.EnableCORS = true
-config.AllowedOrigins = []string{"https://example.com"}
-config.MaxUploadSize = 10 * 1024 * 1024 // 10MB
-
-// Observability
-config.EnableMetrics = true
-config.EnableTracing = true
-config.EnableLogging = true
-config.LogSlowQueries = true
-config.SlowQueryThreshold = 1 * time.Second
-
-ext := graphql.NewExtensionWithConfig(config)
-```
-
-### Environment Variables/Config File
+The extension reads `extensions.graphql` from your config, falling back to `graphql`. Options you pass in code override the file.
 
 ```yaml
-# config.yaml
 extensions:
   graphql:
-    endpoint: "/graphql"
-    playground_endpoint: "/playground"
+    endpoint: /graphql
+    playground_endpoint: /playground
     enable_playground: true
-    enable_introspection: true
     max_complexity: 1000
-    max_depth: 15
-    query_timeout: 30s
-    enable_dataloader: true
-    dataloader_batch_size: 100
-    dataloader_wait: 10ms
     enable_query_cache: true
-    query_cache_ttl: 5m
     max_cache_size: 1000
-    enable_cors: true
-    allowed_origins:
-      - "https://example.com"
-    max_upload_size: 10485760
+    max_upload_size: 10485760   # 10MB
     enable_metrics: true
-    enable_tracing: true
     enable_logging: true
     log_slow_queries: true
     slow_query_threshold: 1s
 ```
 
-## Advanced Features
+These settings change what the server does:
 
-### DataLoader for N+1 Query Optimization
+| Key | Option | Default | What it does |
+| --- | --- | --- | --- |
+| `endpoint` | `WithEndpoint` | `/graphql` | Path of the GraphQL endpoint |
+| `playground_endpoint` | none | `/playground` | Path of the playground |
+| `enable_playground` | `WithPlayground` | `true` | Serves the playground |
+| `max_complexity` | `WithMaxComplexity` | `1000` | Complexity limit, `0` turns it off |
+| `enable_query_cache` | `WithQueryCache` | `true` | Turns on the persisted query cache |
+| `max_cache_size` | none | `1000` | Entries in that cache |
+| `max_upload_size` | none | `10485760` | Largest multipart upload, in bytes |
+| `enable_metrics` | `WithMetrics` | `true` | Records the two operation metrics |
+| `enable_logging` | none | `true` | Logs operations and GraphQL errors |
+| `log_slow_queries` | none | `true` | Warns about slow operations |
+| `slow_query_threshold` | none | `1s` | What counts as slow |
 
-```go
-import "github.com/xraph/forge/extensions/graphql/dataloader"
+The slow query warning only runs when you have metrics or logging on.
 
-// Create a loader
-config := dataloader.DefaultLoaderConfig()
-loader := dataloader.NewLoader(config, func(ctx context.Context, keys []interface{}) ([]interface{}, []error) {
-    // Batch load users by IDs
-    ids := make([]int, len(keys))
-    for i, key := range keys {
-        ids[i] = key.(int)
-    }
-    
-    users, err := db.GetUsersByIDs(ctx, ids)
-    if err != nil {
-        errs := make([]error, len(keys))
-        for i := range errs {
-            errs[i] = err
-        }
-        return nil, errs
-    }
-    
-    // Return in same order as keys
-    results := make([]interface{}, len(keys))
-    for i, user := range users {
-        results[i] = user
-    }
-    return results, make([]error, len(keys))
-})
+`Config` has more fields, and some have options, but nothing reads them yet. `enable_introspection` (`WithIntrospection`) has no effect because gqlgen's default server always allows introspection, so you can't turn it off from config today. `max_depth` (`WithMaxDepth`), `query_timeout` (`WithTimeout`), `enable_dataloader` (`WithDataLoader`), `dataloader_batch_size`, `dataloader_wait`, `query_cache_ttl`, `enable_cors` and `allowed_origins` (`WithCORS`), `enable_tracing` (`WithTracing`), `auto_generate_schema` and `schema_file` are validated where there's a rule (`max_depth` has to be at least 1, `query_timeout` positive) and otherwise left alone.
 
-// Use in resolver
-func (r *userResolver) Friends(ctx context.Context, obj *User) ([]*User, error) {
-    friends, err := loader.LoadMany(ctx, obj.FriendIDs)
-    if err != nil {
-        return nil, err
-    }
-    return friends.([]*User), nil
-}
-```
+`WithConfig` replaces the whole config, and `WithRequireConfig(true)` makes a missing config section an error at startup. In the container you'll find `*graphql.GraphQLService` and the `graphql.GraphQL` interface, both backed by one instance.
 
-### Custom Directives
+## Documentation
 
-Define in schema:
+| Topic | Where |
+| --- | --- |
+| What the extension does | [Features](https://www.xraph.com/docs/forge/extensions/graphql/features) |
+| Every config key | [Configuration](https://www.xraph.com/docs/forge/extensions/graphql/configuration) |
+| Exported functions and types | [Functions](https://www.xraph.com/docs/forge/extensions/graphql/functions), [pkg.go.dev](https://pkg.go.dev/github.com/xraph/forge/extensions/graphql) |
+| gqlgen itself | [gqlgen documentation](https://gqlgen.com/) |
+| Extensions in general | [Forge extension system](../../docs/content/docs/forge/extensions-system.mdx) |
 
-```graphql
-directive @auth(requires: String) on FIELD_DEFINITION
+## FAQ
 
-type Query {
-  adminOnly: String! @auth(requires: "admin")
-  user: String! @auth
-}
-```
+### How do I add a GraphQL endpoint to a Go app built on Forge?
 
-Implement directive:
+Add `graphql.NewExtension()` to your app's `Extensions`. You get `/graphql` and `/playground` on the Forge router. Read [what the extension serves today](#what-the-extension-serves-today) first, because the schema is fixed for now.
 
-```go
-import "github.com/xraph/forge/extensions/graphql/directives"
+### Can I use my own GraphQL schema with Forge GraphQL?
 
-// Configure in gqlgen.yml
-// directives:
-//   auth:
-//     skip_runtime: false
+Not through the extension yet. The registration methods are placeholders. Generate your schema with gqlgen in your own module and register its handler on a Forge route.
 
-// Use built-in auth directive or implement custom
-func (r *Resolver) Directive() generated.DirectiveRoot {
-    return generated.DirectiveRoot{
-        Auth: directives.Auth,
-    }
-}
-```
+### Does it support Apollo Federation?
 
-### Apollo Federation v2
+The generated code includes Federation v2, and `{ _service { sdl } }` returns the module's schema. Entity resolvers aren't there, because the built-in schema has no entities.
 
-Configure in `gqlgen.yml`:
+### How do I fix the N+1 problem in Go GraphQL resolvers?
 
-```yaml
-federation:
-  filename: generated/federation.go
-  package: generated
-  version: 2
-```
+Use the `dataloader` package: create one `Loader` per request and call `Load` from each resolver, so lookups that happen together turn into one batch call.
 
-Define federated schema:
+## Contributing
 
-```graphql
-extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: ["@key", "@external"])
-
-type User @key(fields: "id") {
-  id: ID!
-  name: String!
-}
-
-extend type Product @key(fields: "id") {
-  id: ID! @external
-  reviews: [Review!]!
-}
-```
-
-### File Uploads
-
-```graphql
-scalar Upload
-
-type Mutation {
-  uploadFile(file: Upload!): String!
-}
-```
-
-```go
-func (r *mutationResolver) UploadFile(ctx context.Context, file graphql.Upload) (string, error) {
-    content, err := io.ReadAll(file.File)
-    if err != nil {
-        return "", err
-    }
-    
-    // Process file...
-    return fmt.Sprintf("Uploaded %s (%d bytes)", file.Filename, len(content)), nil
-}
-```
-
-## Dependency Injection
-
-Access Forge services in resolvers:
-
-```go
-type Resolver struct {
-    container forge.Container
-    logger    forge.Logger
-    metrics   forge.Metrics
-    config    Config
-}
-
-func (r *queryResolver) GetData(ctx context.Context) (*Data, error) {
-    // Resolve database from DI using helper function
-    db, err := database.GetDatabase(r.container)
-    if err != nil {
-        return nil, err
-    }
-    
-    // Use services
-    r.logger.Info("fetching data")
-    r.metrics.Counter("data_requests").Inc()
-    
-    return db.QueryData(ctx)
-}
-```
-
-## Observability
-
-### Logging
-
-```go
-// Automatic operation logging
-[DEBUG] graphql operation start {operation: "GetUser", type: "query"}
-[DEBUG] graphql operation complete {operation: "GetUser", duration: "15ms"}
-
-// Slow query logging
-[WARN] slow query detected {operation: "ComplexQuery", duration: "1.5s", query: "..."}
-
-// Error logging
-[ERROR] graphql error {operation: "UpdateUser", error: "validation failed", path: ["updateUser"]}
-```
-
-### Metrics
-
-Automatically collected:
-- `graphql_operation_duration_seconds` - Operation latency histogram
-- `graphql_operation_total` - Total operations counter
-
-Both tagged with:
-- `operation` - Operation name
-- `type` - query, mutation, or subscription
-
-### Tracing
-
-Full distributed tracing support via OpenTelemetry integration.
-
-## Testing
-
-```go
-func TestGraphQLQuery(t *testing.T) {
-    container := forge.NewContainer()
-    logger := forge.NewNoopLogger()
-    metrics := forge.NewNoOpMetrics()
-    config := graphql.DefaultConfig()
-
-    server, err := graphql.NewGraphQLServer(config, logger, metrics, container)
-    if err != nil {
-        t.Fatal(err)
-    }
-
-    handler := server.HTTPHandler()
-
-    query := `{"query":"{ hello(name: \"Test\") }"}`
-    req := httptest.NewRequest("POST", "/graphql", strings.NewReader(query))
-    req.Header.Set("Content-Type", "application/json")
-    w := httptest.NewRecorder()
-    
-    handler.ServeHTTP(w, req)
-
-    if w.Code != 200 {
-        t.Errorf("expected 200, got %d", w.Code)
-    }
-}
-```
-
-## Performance Best Practices
-
-1. **Enable Query Caching** - Use APQ for frequently executed queries
-2. **Set Complexity Limits** - Prevent resource exhaustion
-3. **Use DataLoader** - Batch and cache data loading
-4. **Enable Compression** - Reduce bandwidth
-5. **Monitor Slow Queries** - Optimize with logging and tracing
-
-## Troubleshooting
-
-### Schema Changes Not Reflected
-
-Regenerate code after schema changes:
+The extension is its own Go module inside the Forge repository. Its go.mod has no `replace` for the Forge root, so it builds against the published Forge version its `require` line names, even inside this repository. Test it from its directory:
 
 ```bash
-cd v2/extensions/graphql
-go run github.com/99designs/gqlgen generate
+cd extensions/graphql
+GOWORK=off go test -race ./...
+GOWORK=off golangci-lint run ./...
 ```
 
-### Type Conflicts
-
-Rename conflicting types in `graphql.go` or use autobind in `gqlgen.yml`:
-
-```yaml
-autobind:
-  - github.com/xraph/forge/extensions/graphql/models
-```
-
-### High Memory Usage
-
-- Reduce `MaxCacheSize`
-- Lower `DataLoaderBatchSize`
-- Set reasonable `MaxComplexity`
-
-## Examples
-
-See `v2/examples/graphql-*/` for complete examples:
-- `graphql-basic/` - Simple query and mutation
-- `graphql-auth/` - Authentication and authorization
-- `graphql-dataloader/` - DataLoader optimization
-- `graphql-federation/` - Microservices composition
-- `graphql-subscriptions/` - Real-time subscriptions
-
-## API Reference
-
-### Extension Methods
-
-- `NewExtension(opts ...ConfigOption) forge.Extension`
-- `NewExtensionWithConfig(config Config) forge.Extension`
-
-### Config Options
-
-- `WithEndpoint(endpoint string)`
-- `WithPlayground(enable bool)`
-- `WithIntrospection(enable bool)`
-- `WithMaxComplexity(max int)`
-- `WithMaxDepth(max int)`
-- `WithTimeout(timeout time.Duration)`
-- `WithDataLoader(enable bool)`
-- `WithQueryCache(enable bool, ttl time.Duration)`
-- `WithCORS(origins ...string)`
-- `WithMetrics(enable bool)`
-- `WithTracing(enable bool)`
-- `WithRequireConfig(require bool)`
-- `WithConfig(config Config)`
+After you edit [`schema/schema.graphql`](schema/schema.graphql), regenerate the code with `go run github.com/99designs/gqlgen generate` from the same directory. [AGENTS.md](../../AGENTS.md) has the full build, lint and release rules for the repository, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has the contribution guidelines.
 
 ## License
 
-Part of the Forge framework - see main repository for license.
-
+Forge GraphQL is part of Forge and is available under the [Apache License 2.0](../../LICENSE).
