@@ -17,7 +17,7 @@ func TestRouterStampsRoutePattern(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/users/42", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil)
 	ctx, match := shared.EnsureRouteMatch(req.Context())
 	rec := httptest.NewRecorder()
 
@@ -35,7 +35,7 @@ func TestRouterStampsRoutePattern(t *testing.T) {
 func TestRouterLeavesPatternEmptyOn404(t *testing.T) {
 	r := NewRouter()
 
-	req := httptest.NewRequest(http.MethodGet, "/nope", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil)
 	ctx, match := shared.EnsureRouteMatch(req.Context())
 
 	r.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))

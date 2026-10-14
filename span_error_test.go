@@ -19,6 +19,7 @@ func TestRouteErrorsRecordedOnSpan(t *testing.T) {
 
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+
 	t.Cleanup(func() { _ = tp.Shutdown(t.Context()) })
 
 	r := NewRouter(WithRecovery())
@@ -29,7 +30,7 @@ func TestRouteErrorsRecordedOnSpan(t *testing.T) {
 	h := telemetry.ServerMiddleware(tp, telemetry.Settings{ExcludePaths: []string{"/_/"}})(r)
 
 	for _, p := range []string{"/boom", "/bad", "/panic"} {
-		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, p, nil))
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, p, nil))
 	}
 
 	events := map[string]int{}

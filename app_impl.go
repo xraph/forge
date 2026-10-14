@@ -903,7 +903,9 @@ func (a *app) gracefulShutdown() error {
 	// finish.
 	drained := make(chan error, 1)
 
-	if d, ok := a.router.(interface{ DrainStreams(ctx context.Context) error }); ok {
+	if d, ok := a.router.(interface {
+		DrainStreams(ctx context.Context) error
+	}); ok {
 		go func() { drained <- d.DrainStreams(ctx) }()
 	} else {
 		drained <- nil
