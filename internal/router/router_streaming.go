@@ -54,7 +54,7 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; without it every connection leaks them for process life.
-		ctx := forge_http.NewContext(w, req, r.container)
+		ctx := newContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler
@@ -108,7 +108,7 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived streams are exactly where leaking them hurts most.
-		ctx := forge_http.NewContext(w, req, r.container)
+		ctx := newContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// A route with a log configured replays the client's gap and then hands
@@ -185,7 +185,7 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived streams are exactly where leaking them hurts most.
-		ctx := forge_http.NewContext(w, req, r.container)
+		ctx := newContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler - user can now use ctx.WriteSSE()

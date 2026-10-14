@@ -56,7 +56,7 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived sessions are exactly where leaking them hurts most.
-		ctx := forge_http.NewContext(w, req, r.container)
+		ctx := newContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Call handler

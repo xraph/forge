@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/xraph/forge/internal/shared"
-	forge_http "github.com/xraph/go-utils/http"
 	"github.com/xraph/vessel"
 )
 
@@ -245,10 +244,7 @@ func convertStandardHandler(info *handlerInfo) http.Handler {
 
 // convertContextHandler converts func(ctx) error to http.Handler.
 func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := forge_http.NewContext(w, r, container)
-		defer ctx.(forge_http.ContextWithClean).Cleanup()
-
+	return &contextHandler{container: container, serve: func(ctx Context) {
 		var callErr error
 
 		if info.contextFn != nil {
@@ -265,15 +261,12 @@ func convertContextHandler(info *handlerInfo, container vessel.Vessel, errorHand
 				handleError(ctx, err)
 			}
 		}
-	})
+	}}
 }
 
 // convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler.
 func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := forge_http.NewContext(w, r, container)
-		defer ctx.(forge_http.ContextWithClean).Cleanup()
-
+	return &contextHandler{container: container, serve: func(ctx Context) {
 		// Create request instance
 		req := reflect.New(info.requestType)
 
@@ -312,15 +305,12 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 				_ = ctx.JSON(http.StatusOK, body)
 			}
 		}
-	})
+	}}
 }
 
 // convertServiceHandler converts func(ctx, svc) error to http.Handler.
 func convertServiceHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := forge_http.NewContext(w, r, container)
-		defer ctx.(forge_http.ContextWithClean).Cleanup()
-
+	return &contextHandler{container: container, serve: func(ctx Context) {
 		// Resolve service
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)
 		if err != nil {
@@ -343,15 +333,12 @@ func convertServiceHandler(info *handlerInfo, container vessel.Vessel, errorHand
 				handleError(ctx, err)
 			}
 		}
-	})
+	}}
 }
 
 // convertCombinedHandler converts func(ctx, svc, req) (resp, error) to http.Handler.
 func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := forge_http.NewContext(w, r, container)
-		defer ctx.(forge_http.ContextWithClean).Cleanup()
-
+	return &contextHandler{container: container, serve: func(ctx Context) {
 		// Resolve service
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)
 		if err != nil {
@@ -399,7 +386,7 @@ func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHan
 				_ = ctx.JSON(http.StatusOK, body)
 			}
 		}
-	})
+	}}
 }
 
 // Helper functions for type checking.

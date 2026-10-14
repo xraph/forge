@@ -881,9 +881,11 @@ func checkMiddleware(middleware []Middleware) error {
 }
 
 func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.Vessel, errorHandler ErrorHandler) http.Handler {
+	serve := terminal(h)
+
 	// Convert http.Handler to forge Handler
 	forgeHandler := func(ctx Context) error {
-		h.ServeHTTP(ctx.Response(), ctx.Request())
+		serve(ctx)
 
 		return nil
 	}
@@ -896,7 +898,7 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container vessel.V
 	// Convert back to http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create forge context
-		ctx := forge_http.NewContext(w, r, container)
+		ctx := newContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Execute the forge handler
@@ -957,6 +959,8 @@ func applyMiddlewareAndInterceptors(
 	errorHandler ErrorHandler,
 	maxBodySize int64,
 ) http.Handler {
+	serve := terminal(h)
+
 	// Convert http.Handler to forge Handler that includes interceptor execution
 	forgeHandler := func(ctx Context) error {
 		// Execute interceptors before the handler
@@ -966,8 +970,9 @@ func applyMiddlewareAndInterceptors(
 			}
 		}
 
-		// All interceptors passed, execute the handler
-		h.ServeHTTP(ctx.Response(), ctx.Request())
+		// All interceptors passed, execute the handler on the same Context
+		// the middleware ran on.
+		serve(ctx)
 
 		return nil
 	}
@@ -1010,7 +1015,7 @@ func applyMiddlewareAndInterceptors(
 		}
 
 		// Create forge context
-		ctx := forge_http.NewContext(w, r, container)
+		ctx := newContext(w, r, container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 		// Also set in forge context for direct access

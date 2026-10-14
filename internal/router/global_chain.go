@@ -66,7 +66,7 @@ func (gc *globalChain) recomposeLocked() {
 
 	next := gc.terminal
 	h := Handler(func(ctx Context) error {
-		next.ServeHTTP(ctx.Response(), ctx.Request())
+		next.ServeHTTP(ctx.Response(), handOffValues(ctx))
 
 		return nil
 	})
@@ -102,7 +102,7 @@ func (gc *globalChain) httpMiddleware(container vessel.Vessel, errorHandler Erro
 				return
 			}
 
-			ctx := forge_http.NewContext(w, r, container)
+			ctx := newContext(w, r, container)
 			defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 			if err := (*composed)(ctx); err != nil {

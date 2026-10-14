@@ -133,12 +133,12 @@ func ToPureMiddleware(m Middleware, container vessel.Vessel, errorHandler ErrorH
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create forge context from http request
-			ctx := forge_http.NewContext(w, r, container)
+			ctx := newContext(w, r, container)
 			defer ctx.(forge_http.ContextWithClean).Cleanup()
 
 			// Wrap the http.Handler as a forge.Handler
 			forgeHandler := func(ctx Context) error {
-				next.ServeHTTP(ctx.Response(), ctx.Request())
+				next.ServeHTTP(ctx.Response(), handOffValues(ctx))
 
 				return nil
 			}
