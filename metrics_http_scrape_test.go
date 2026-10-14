@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -152,4 +153,93 @@ func TestScrapeRacesRequests(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// histogramLabels returns the label sets of every series in a histogram
+// family, with the sample count of each.
+func histogramLabels(t *testing.T, a App, family string) []map[string]string {
+	t.Helper()
+
+	p := expfmt.NewTextParser(model.LegacyValidation)
+
+	families, err := p.TextToMetricFamilies(strings.NewReader(scrapeApp(t, a, false)))
+	if err != nil {
+		t.Fatalf("scrape does not parse: %v", err)
+	}
+
+	f, ok := families[family]
+	if !ok {
+		t.Fatalf("no %s family in the scrape", family)
+	}
+
+	var out []map[string]string
+
+	for _, m := range f.GetMetric() {
+		labels := map[string]string{"_count": strconv.FormatUint(m.GetHistogram().GetSampleCount(), 10)}
+		for _, l := range m.GetLabel() {
+			labels[l.GetName()] = l.GetValue()
+		}
+
+		out = append(out, labels)
+	}
+
+	return out
+}
+
+// The route on the metric and on the span come from the same match, so a
+// dashboard can join them.
+func TestScrapeRouteMatchesSpanRoute(t *testing.T) {
+	a, exp := newTracedApp(t, TracingConfig{})
+	_ = a.Router().GET("/users/:id", func(c Context) error { return c.String(http.StatusOK, "ok") })
+
+	a.Router().ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/7", nil))
+
+	spans := exp.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+
+	spanRoute := ""
+
+	for _, kv := range spans[0].Attributes {
+		if kv.Key == "http.route" {
+			spanRoute = kv.Value.AsString()
+		}
+	}
+
+	series := histogramLabels(t, a, "http_server_request_duration_seconds")
+	if len(series) != 1 {
+		t.Fatalf("duration series = %v, want one", series)
+	}
+
+	if spanRoute == "" || series[0]["http_route"] != spanRoute {
+		t.Fatalf("metric http_route = %q, span http.route = %q, want equal and non-empty", series[0]["http_route"], spanRoute)
+	}
+}
+
+// A global middleware that rejects a request without calling next, the way
+// an auth extension does, still sits inside the metrics middleware.
+func TestScrapeCountsRequestRejectedByGlobalMiddleware(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+	a := New(WithAppName("rejected"))
+	a.Router().UseGlobal(func(Handler) Handler {
+		return func(c Context) error { return c.String(http.StatusUnauthorized, "no") }
+	})
+	_ = a.Router().GET("/secret", func(c Context) error { return c.String(http.StatusOK, "ok") })
+
+	rec := httptest.NewRecorder()
+	a.Router().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/secret", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+
+	for _, s := range histogramLabels(t, a, "http_server_request_duration_seconds") {
+		if s["http_response_status_code"] == "401" && s["_count"] == "1" {
+			return
+		}
+	}
+
+	t.Fatalf("no duration series with status 401 and count 1: %v", histogramLabels(t, a, "http_server_request_duration_seconds"))
 }
