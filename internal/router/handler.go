@@ -450,6 +450,8 @@ func SetExposeInternalErrors(expose bool) {
 }
 
 func handleError(ctx Context, err error) {
+	recordSpanError(ctx.Context(), err)
+
 	// Check if the error implements the IHTTPError interface
 	// IHTTPError is the interface from errs package (go-utils)
 	type httpErrorInterface interface {

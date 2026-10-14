@@ -179,7 +179,7 @@ func newRouter(opts ...RouterOption) *router {
 		adapter:        cfg.adapter,
 		container:      cfg.container,
 		logger:         cfg.logger,
-		errorHandler:   cfg.errorHandler,
+		errorHandler:   wrapSpanErrors(cfg.errorHandler),
 		recovery:       cfg.recovery,
 		httpAddress:    cfg.httpAddress,
 		routes:         &routes, // Pointer to slice for sharing with groups
@@ -767,6 +767,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 							logger.Error(fmt.Sprintf("panic recovered: %v", rec))
 						}
 
+						recordSpanError(req.Context(), fmt.Errorf("panic: %v", rec))
 						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					}
 				}()
