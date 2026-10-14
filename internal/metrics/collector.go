@@ -138,20 +138,30 @@ func DefaultCollectorConfig() *CollectorConfig {
 }
 
 // New creates a new metrics collector.
-func New(config *CollectorConfig, logger logger.Logger) Metrics {
+func New(config *CollectorConfig, log logger.Logger) Metrics {
 	if config == nil {
 		config = DefaultCollectorConfig()
 	}
 
 	c := &collector{
 		Metrics: metrics.NewMetricsCollector(
-			shared.MetricsCollectorKey, metrics.WithConfig(config), metrics.WithLogger(logger),
+			shared.MetricsCollectorKey, metrics.WithConfig(config), metrics.WithLogger(log),
 		),
-		name:             shared.MetricsCollectorKey,
-		registry:         NewRegistry(),
+		name: shared.MetricsCollectorKey,
+		registry: NewRegistryWithConfig(&RegistryConfig{
+			MaxMetrics:         DefaultRegistryConfig().MaxMetrics,
+			EnableIndexing:     true,
+			MaxSeriesPerMetric: config.Limits.MaxSeriesPerMetric,
+			OnOverflow: func(name string, limit int) {
+				if log != nil {
+					log.Warn("metrics: series cap reached, new label sets fold into the overflow series",
+						logger.String("metric", name), logger.Int("limit", limit))
+				}
+			},
+		}),
 		customCollectors: make(map[string]metrics.CustomCollector),
 		exporters:        make(map[metrics.ExportFormat]metrics.Exporter),
-		logger:           logger,
+		logger:           log,
 		config:           config,
 		errors:           make([]error, 0),
 	}

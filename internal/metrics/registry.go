@@ -73,6 +73,7 @@ type RegisteredMetric struct {
 	Tags      map[string]string       `json:"tags"`
 	Metric    any                     `json:"-"`
 	Metadata  *metrics.MetricMetadata `json:"metadata"`
+	Unit      string                  `json:"unit,omitempty"`
 	CreatedAt time.Time               `json:"created_at"`
 	UpdatedAt time.Time               `json:"updated_at"`
 }
@@ -161,12 +162,20 @@ type registry struct {
 	mu         sync.RWMutex
 	started    bool
 	maxMetrics int
+
+	maxSeries  int
+	onOverflow func(string, int)
+	overflowed map[string]bool
 }
 
 // RegistryConfig contains configuration for the registry.
 type RegistryConfig struct {
 	MaxMetrics     int  `json:"max_metrics"     yaml:"max_metrics"`
 	EnableIndexing bool `json:"enable_indexing" yaml:"enable_indexing"`
+	// MaxSeriesPerMetric caps distinct label sets per metric name. 0 means 2000.
+	MaxSeriesPerMetric int `json:"max_series_per_metric" yaml:"max_series_per_metric"`
+	// OnOverflow is called once per metric name the first time it hits the cap.
+	OnOverflow func(name string, limit int) `json:"-" yaml:"-"`
 }
 
 // DefaultRegistryConfig returns default registry configuration.
@@ -184,12 +193,20 @@ func NewRegistry() Registry {
 
 // NewRegistryWithConfig creates a new metrics registry with custom configuration.
 func NewRegistryWithConfig(config *RegistryConfig) Registry {
+	maxSeries := config.MaxSeriesPerMetric
+	if maxSeries == 0 {
+		maxSeries = defaultMaxSeriesPerMetric
+	}
+
 	return &registry{
 		metrics:    make(map[string]*RegisteredMetric),
 		nameIndex:  make(map[string][]*RegisteredMetric),
 		typeIndex:  make(map[metrics.MetricType][]*RegisteredMetric),
 		tagIndex:   make(map[string]map[string][]*RegisteredMetric),
 		maxMetrics: config.MaxMetrics,
+		maxSeries:  maxSeries,
+		onOverflow: config.OnOverflow,
+		overflowed: make(map[string]bool),
 	}
 }
 
@@ -197,88 +214,123 @@ func NewRegistryWithConfig(config *RegistryConfig) Registry {
 // METRIC CREATION AND RETRIEVAL
 // =============================================================================
 
+// OverflowLabel marks the series that absorbs label sets past the cap.
+const OverflowLabel = "otel_metric_overflow"
+
+const defaultMaxSeriesPerMetric = 2000
+
+// capLocked returns the registry key and options to create a metric with. When
+// name already holds maxSeries series and tags names a new one, it swaps the
+// labels for the overflow label. The registry lock must be held.
+func (r *registry) capLocked(name string, tags map[string]string, opts []metrics.MetricOption) (string, []metrics.MetricOption) {
+	key := r.buildKey(name, tags)
+	if len(tags) == 0 || r.maxSeries <= 0 {
+		return key, opts
+	}
+
+	if _, exists := r.metrics[key]; exists {
+		return key, opts
+	}
+
+	if len(r.nameIndex[name]) < r.maxSeries {
+		return key, opts
+	}
+
+	if !r.overflowed[name] {
+		r.overflowed[name] = true
+
+		if r.onOverflow != nil {
+			r.onOverflow(name, r.maxSeries)
+		}
+	}
+
+	overflow := map[string]string{OverflowLabel: "true"}
+
+	return r.buildKey(name, overflow), append(slices.Clone(opts), metrics.WithLabels(overflow))
+}
+
 // GetOrCreateCounter creates or retrieves a counter metric.
 func (r *registry) GetOrCreateCounter(name string, opts ...metrics.MetricOption) metrics.Counter {
 	tags := metrics.ParseTagsOptions(nil, opts...)
-	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	key, opts := r.capLocked(name, tags, opts)
+
 	if registered, exists := r.metrics[key]; exists {
 		if counter, ok := registered.Metric.(metrics.Counter); ok {
-			return counter
+			return &regCounter{Counter: counter, reg: r, name: name, opts: opts}
 		}
 	}
 
-	// Create new counter
 	counter := metrics.NewCounter(name, opts...)
 	_ = r.registerMetricInternal(name, counter, metrics.MetricTypeCounter, opts...)
 
-	return counter
+	return &regCounter{Counter: counter, reg: r, name: name, opts: opts}
 }
 
 // GetOrCreateGauge creates or retrieves a gauge metric.
 func (r *registry) GetOrCreateGauge(name string, opts ...metrics.MetricOption) metrics.Gauge {
 	tags := metrics.ParseTagsOptions(nil, opts...)
-	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	key, opts := r.capLocked(name, tags, opts)
+
 	if registered, exists := r.metrics[key]; exists {
 		if gauge, ok := registered.Metric.(metrics.Gauge); ok {
-			return gauge
+			return &regGauge{Gauge: gauge, reg: r, name: name, opts: opts}
 		}
 	}
 
-	// Create new gauge
 	gauge := metrics.NewGauge(name, opts...)
 	_ = r.registerMetricInternal(name, gauge, metrics.MetricTypeGauge, opts...)
 
-	return gauge
+	return &regGauge{Gauge: gauge, reg: r, name: name, opts: opts}
 }
 
 // GetOrCreateHistogram creates or retrieves a histogram metric.
 func (r *registry) GetOrCreateHistogram(name string, opts ...metrics.MetricOption) metrics.Histogram {
 	tags := metrics.ParseTagsOptions(nil, opts...)
-	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	key, opts := r.capLocked(name, tags, opts)
+
 	if registered, exists := r.metrics[key]; exists {
 		if histogram, ok := registered.Metric.(metrics.Histogram); ok {
-			return histogram
+			return &regHistogram{Histogram: histogram, reg: r, name: name, opts: opts}
 		}
 	}
 
-	// Create new histogram
 	histogram := metrics.NewHistogram(name, opts...)
 	_ = r.registerMetricInternal(name, histogram, metrics.MetricTypeHistogram, opts...)
 
-	return histogram
+	return &regHistogram{Histogram: histogram, reg: r, name: name, opts: opts}
 }
 
 // GetOrCreateTimer creates or retrieves a timer metric.
 func (r *registry) GetOrCreateTimer(name string, opts ...metrics.MetricOption) metrics.Timer {
 	tags := metrics.ParseTagsOptions(nil, opts...)
-	key := r.buildKey(name, tags)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	key, opts := r.capLocked(name, tags, opts)
+
 	if registered, exists := r.metrics[key]; exists {
 		if timer, ok := registered.Metric.(metrics.Timer); ok {
-			return timer
+			return &regTimer{Timer: timer, reg: r, name: name, opts: opts}
 		}
 	}
 
-	// Create new timer
 	timer := metrics.NewTimer(name, opts...)
 	_ = r.registerMetricInternal(name, timer, metrics.MetricTypeTimer, opts...)
 
-	return timer
+	return &regTimer{Timer: timer, reg: r, name: name, opts: opts}
 }
 
 // =============================================================================
@@ -671,6 +723,11 @@ func (r *registry) buildKey(name string, tags map[string]string) string {
 func (r *registry) registerMetricInternal(name string, metric any, metricType metrics.MetricType, opts ...metrics.MetricOption) error {
 	tags := metrics.ParseTagsOptions(nil, opts...)
 
+	var mo metrics.MetricOptions
+	for _, o := range opts {
+		o(&mo)
+	}
+
 	if len(r.metrics) >= r.maxMetrics {
 		return errors.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
 	}
@@ -690,6 +747,7 @@ func (r *registry) registerMetricInternal(name string, metric any, metricType me
 		Tags:      tags,
 		Metric:    metric,
 		Metadata:  r.createMetadata(name, metricType, tags),
+		Unit:      mo.Unit,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
