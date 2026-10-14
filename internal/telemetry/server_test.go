@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -275,7 +276,12 @@ func TestServerMiddlewareKeepsFlusher(t *testing.T) {
 func TestServerMiddlewareKeepsHijacker(t *testing.T) {
 	exp, mw := setup(t, Settings{})
 
-	srv := httptest.NewServer(mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// httptest.Server stops tracking a connection once it is hijacked, so
+	// srv.Close can return before the middleware has ended the span. Signal
+	// from outside the middleware instead.
+	done := make(chan struct{})
+
+	inner := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			t.Error("ResponseWriter lost http.Hijacker")
@@ -293,7 +299,13 @@ func TestServerMiddlewareKeepsHijacker(t *testing.T) {
 
 		_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\n\r\n")
 		_ = buf.Flush()
-	})))
+	}))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(done)
+
+		inner.ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", srv.Listener.Addr().String())
@@ -309,9 +321,18 @@ func TestServerMiddlewareKeepsHijacker(t *testing.T) {
 		t.Fatalf("got %q", line)
 	}
 
-	srv.Close() // wait for the handler, so the span has ended
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the hijacking handler to return")
+	}
 
-	if v, _ := attrOf(exp.GetSpans()[0].Attributes, "http.response.status_code"); v.AsInt64() != 101 {
+	spans := exp.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no span was recorded after the handler returned")
+	}
+
+	if v, _ := attrOf(spans[0].Attributes, "http.response.status_code"); v.AsInt64() != 101 {
 		t.Fatalf("status = %d, want 101 for a hijacked connection", v.AsInt64())
 	}
 }
