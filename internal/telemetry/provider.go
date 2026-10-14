@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -19,6 +20,10 @@ import (
 
 // ErrTracingDisabled is returned by RegisterSpanProcessor when tracing is off.
 var ErrTracingDisabled = errors.New("telemetry: tracing is disabled")
+
+// ErrInvalidEndpoint is wrapped by NewProvider when the OTLP endpoint is not
+// an http or https URL with a host.
+var ErrInvalidEndpoint = errors.New("telemetry: invalid OTLP endpoint")
 
 const shutdownCap = 5 * time.Second
 
@@ -51,6 +56,10 @@ func NewProvider(ctx context.Context, s Settings, res *resource.Resource, log lo
 	}
 
 	if s.Endpoint != "" {
+		if err := validateEndpoint(s.Endpoint); err != nil {
+			return nil, err
+		}
+
 		exp, err := otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpointURL(s.Endpoint),
 			otlptracehttp.WithHeaders(s.Headers),
@@ -103,6 +112,18 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	defer cancel()
 
 	return p.sdk.Shutdown(ctx)
+}
+
+// validateEndpoint rejects what otlptracehttp would accept and then export
+// nowhere useful: a schemeless "localhost:4318" parses with "localhost" as
+// the scheme and an empty host, and an unparsable URL is only logged.
+func validateEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+		return nil
+	}
+
+	return fmt.Errorf("telemetry: OTLP endpoint %q must be an http or https URL: %w", endpoint, ErrInvalidEndpoint)
 }
 
 func buildPropagator(names []string) propagation.TextMapPropagator {

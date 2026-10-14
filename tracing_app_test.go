@@ -64,13 +64,42 @@ func TestAppProvidesTracerProviderInDI(t *testing.T) {
 }
 
 func TestAppBadEndpointStillBoots(t *testing.T) {
-	a, exp := newTracedApp(t, TracingConfig{Endpoint: "localhost:4318"})
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	log, ok := logger.NewTestLogger().(*logger.TestLogger)
+	if !ok {
+		t.Fatal("logger.NewTestLogger did not return a *logger.TestLogger")
+	}
+
+	a := New(WithAppName("bad-endpoint"), WithAppLogger(log), WithAppTracingConfig(TracingConfig{Endpoint: "localhost:4318"}))
+
+	exp := tracetest.NewInMemoryExporter()
+	if err := RegisterSpanProcessor(a, sdktrace.NewSimpleSpanProcessor(exp)); err != nil {
+		t.Fatal(err)
+	}
 
 	_ = a.Router().GET("/x", func(c Context) error { return c.String(http.StatusOK, "ok") })
 	a.Router().ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil))
 
 	if len(exp.GetSpans()) != 1 {
 		t.Fatal("spans should still be created when the exporter could not be built")
+	}
+
+	exportErrors := 0
+
+	for _, e := range log.GetLogsByLevel("ERROR") {
+		if e.Message == "telemetry: tracing export disabled" {
+			exportErrors++
+		}
+	}
+
+	if exportErrors != 1 {
+		t.Fatalf("logged %d export-disabled errors, want 1; errors: %v", exportErrors, log.GetLogsByLevel("ERROR"))
+	}
+
+	if ep := a.(*app).tracing.Settings().Endpoint; ep != "" {
+		t.Fatalf("fallback provider kept endpoint %q, want none", ep)
 	}
 }
 

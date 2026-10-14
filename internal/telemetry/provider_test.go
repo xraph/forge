@@ -108,3 +108,19 @@ func TestProviderShutdownDisabledIsNil(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProviderRejectsEndpointsThatAreNotHTTPURLs(t *testing.T) {
+	for _, ep := range []string{"localhost:4318", "://bad"} {
+		_, err := NewProvider(t.Context(), Settings{Enabled: true, Endpoint: ep}, resource.Empty(), logger.NewNoopLogger())
+		if !errors.Is(err, ErrInvalidEndpoint) {
+			t.Errorf("NewProvider(%q) err = %v, want ErrInvalidEndpoint", ep, err)
+		}
+	}
+
+	p, err := NewProvider(t.Context(), Settings{Enabled: true, Endpoint: "http://localhost:4318/v1/traces"}, resource.Empty(), logger.NewNoopLogger())
+	if err != nil {
+		t.Fatalf("NewProvider(valid URL) err = %v", err)
+	}
+
+	_ = p.Shutdown(t.Context())
+}
