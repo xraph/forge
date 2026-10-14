@@ -34,8 +34,18 @@ func TestRouteErrorsRecordedOnSpan(t *testing.T) {
 	}
 
 	events := map[string]int{}
+	stacks := map[string]bool{}
+
 	for _, s := range exp.GetSpans() {
 		events[s.Name] = len(s.Events)
+
+		for _, e := range s.Events {
+			for _, kv := range e.Attributes {
+				if kv.Key == "exception.stacktrace" && kv.Value.AsString() != "" {
+					stacks[s.Name] = true
+				}
+			}
+		}
 	}
 
 	if events["GET /boom"] == 0 {
@@ -48,5 +58,13 @@ func TestRouteErrorsRecordedOnSpan(t *testing.T) {
 
 	if events["GET /panic"] == 0 {
 		t.Error("recovered panic was not recorded on the span")
+	}
+
+	if !stacks["GET /panic"] {
+		t.Error("recovered panic was recorded without a stack trace")
+	}
+
+	if stacks["GET /boom"] {
+		t.Error("a 5xx error should be recorded without a stack trace")
 	}
 }

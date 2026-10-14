@@ -51,7 +51,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 			}
 
 			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-			ctx, match := shared.EnsureRouteMatch(ctx)
+			ctx, match := shared.NewRouteMatch(ctx)
 
 			method, original := NormalizeMethod(r.Method)
 
@@ -112,6 +112,19 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 			}
 
 			span.End()
+		})
+	}
+}
+
+// PropagationMiddleware only extracts the incoming trace context, so a
+// traceparent still reaches outbound calls made with HTTPClient when tracing
+// is turned off. It starts no span and writes no response header.
+func PropagationMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

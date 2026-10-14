@@ -315,6 +315,9 @@ func newApp(config AppConfig) *app {
 		router.UseGlobal(internalrouter.PureMiddleware(
 			telemetry.ServerMiddleware(tracing.TracerProvider(), tracing.Settings()),
 		).ToMiddleware())
+	} else {
+		// No spans, but an incoming traceparent still reaches HTTPClient calls.
+		router.UseGlobal(internalrouter.PureMiddleware(telemetry.PropagationMiddleware()).ToMiddleware())
 	}
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)

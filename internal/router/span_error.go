@@ -3,12 +3,24 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/forge/internal/shared"
 )
+
+// recordSpanPanic adds a recovered panic to the request's span, with the
+// stack trace of the goroutine that panicked.
+func recordSpanPanic(ctx context.Context, rec any) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+
+	span.RecordError(fmt.Errorf("panic: %v", rec), trace.WithStackTrace(true))
+}
 
 // recordSpanError adds err to the request's span when it maps to a 5xx.
 // Client errors are part of normal traffic and would only add noise.

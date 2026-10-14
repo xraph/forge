@@ -10,7 +10,7 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **resource.go**: `BuildResource`, the one resource every signal shares.
 - **sampler.go**: `BuildSampler`, maps a sampler name to an SDK sampler.
 - **provider.go**: `NewProvider`, `Provider.RegisterSpanProcessor`, `Provider.Shutdown`.
-- **server.go**: `ServerMiddleware`, `NormalizeMethod`.
+- **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `NormalizeMethod`.
 - **client.go**: `InstrumentTransport`, `HTTPClient`.
 - **recorder.go**: `statusRecorder`, captures the status and keeps Flusher, Hijacker and Unwrap working.
 - **errorhandler.go**: the OTel error handler, rate limited to one warn per minute.
@@ -47,16 +47,18 @@ Resource order, later wins: `service.name` (app name), `deployment.environment.n
 
 ## Server middleware
 
-`ServerMiddleware(tp, settings)` is registered with `router.UseGlobal` so it is the outermost global middleware, and only when `Settings.Enabled` is true. For each request:
+`ServerMiddleware(tp, settings)` is registered with `router.UseGlobal` so it is the outermost global middleware, and only when `Settings.Enabled` is true. When tracing is off, `PropagationMiddleware()` goes in its place. It extracts the incoming context with the global propagator and does nothing else: no span, no `RouteMatch`, no response header. That's what lets an incoming `traceparent` reach `HTTPClient` calls in an app with tracing disabled.
+
+For each request, `ServerMiddleware` does this:
 
 1. A path starting with any `ExcludePaths` prefix skips tracing entirely.
-2. It extracts the incoming context with the global propagator, then calls `shared.EnsureRouteMatch(ctx)`. The router fills the `shared.RouteMatch` holder with the matched pattern, so the middleware can read it after `next` returns even though the match happens inside the router.
+2. It extracts the incoming context with the global propagator, then calls `shared.NewRouteMatch(ctx)`. The router fills the `shared.RouteMatch` holder with the matched pattern, so the middleware can read it after `next` returns even though the match happens inside the router. `NewRouteMatch` always installs a fresh holder. A handler that dispatches a second request through the router with its own context (the orpc extension does this) would otherwise share the outer holder, and the inner route would rename the outer span. Inner middleware that wants the pattern calls `shared.EnsureRouteMatch` to share the holder the outermost one made.
 3. It starts a span named after the method (`_OTHER` methods are named `HTTP`) with `SpanKindServer`. After the handler returns, the span is renamed `METHOD pattern` and `http.route` is set, but only if a pattern matched.
 4. It puts `trace_id` and `span_id` on the context through `logger.WithTraceID` and `logger.WithSpanID`, so a request-scoped logger writes them on every line.
 5. It writes `ResponseHeader` (default `traceparent`) before calling the handler, from the span context.
 6. 5xx sets status Error and `error.type`. A panic that escapes records the error with a stack trace, ends the span, and re-panics.
 
-The router records errors on the span itself: `internal/router/span_error.go` wraps the error handler (`wrapSpanErrors`) and records any error that maps to a 5xx, and the recovery wrapper in `router_impl.go` records recovered panics with `recordSpanError`. 4xx errors are not recorded.
+The router records errors on the span itself: `internal/router/span_error.go` wraps the error handler (`wrapSpanErrors`) and records any error that maps to a 5xx, and the recovery wrapper in `router_impl.go` records recovered panics with `recordSpanPanic`, which adds a stack trace. The 5xx error path records no stack. 4xx errors are not recorded.
 
 ### Span attribute keys
 

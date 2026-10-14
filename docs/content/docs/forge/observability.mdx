@@ -209,7 +209,7 @@ Every key is optional. This is the `tracing:` block with its defaults:
 
 ```yaml
 tracing:
-  enabled: true                  # false turns tracing off completely
+  enabled: true                  # false: no spans, but traceparent still passes through
   endpoint: ""                   # full OTLP/HTTP traces URL; empty means no export
   headers: {}                    # sent with every export request
   sample_ratio: 1.0              # 1.0 in dev, test and local; 0.1 anywhere else
@@ -218,6 +218,8 @@ tracing:
   response_header: traceparent   # set to "" to stop writing it
   resource: {}                   # extra resource attributes, e.g. service.namespace: payments
 ```
+
+With `enabled: false` you get no spans and no `traceparent` response header. An incoming `traceparent` still passes through, though, so calls you make with `forge.HTTPClient()` carry the caller's trace on to the next service.
 
 When the same setting comes from more than one place, the first of these wins:
 

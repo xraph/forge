@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -193,5 +194,91 @@ func TestAppTracingConfigFromConfigManager(t *testing.T) {
 
 	if err := RegisterSpanProcessor(a, sdktrace.NewSimpleSpanProcessor(tracetest.NewInMemoryExporter())); err == nil {
 		t.Fatal("tracing.enabled: false in the config file should turn tracing off")
+	}
+}
+
+// A handler that dispatches a second request through the router with its own
+// context (the way the orpc extension does) must not rename the outer span.
+func TestAppNestedDispatchKeepsOuterRoute(t *testing.T) {
+	a, exp := newTracedApp(t, TracingConfig{})
+
+	_ = a.Router().GET("/users/:id", func(c Context) error { return c.String(http.StatusOK, "user") })
+	_ = a.Router().POST("/rpc", func(c Context) error {
+		inner := httptest.NewRequestWithContext(c.Context(), http.MethodGet, "/users/7", nil)
+		a.Router().ServeHTTP(httptest.NewRecorder(), inner)
+
+		return c.String(http.StatusOK, "rpc")
+	})
+
+	a.Router().ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rpc", nil))
+
+	names := map[string]string{}
+
+	for _, s := range exp.GetSpans() {
+		route := ""
+
+		for _, kv := range s.Attributes {
+			if kv.Key == "http.route" {
+				route = kv.Value.AsString()
+			}
+		}
+
+		names[s.Name] = route
+	}
+
+	if len(names) != 2 || names["POST /rpc"] != "/rpc" || names["GET /users/:id"] != "/users/:id" {
+		t.Fatalf("span name -> http.route = %v, want POST /rpc -> /rpc and GET /users/:id -> /users/:id", names)
+	}
+}
+
+func TestAppTracingDisabledStillPropagates(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	var downstream atomic.Value
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downstream.Store(r.Header.Get("Traceparent"))
+	}))
+	t.Cleanup(srv.Close)
+
+	off := false
+	a := New(WithAppName("propagate-only"), WithAppTracingConfig(TracingConfig{Enabled: &off}))
+
+	client := HTTPClient()
+
+	_ = a.Router().GET("/call", func(c Context) error {
+		req, err := http.NewRequestWithContext(c.Context(), http.MethodGet, srv.URL, nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+
+		_ = resp.Body.Close()
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/call", nil)
+	req.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+
+	rec := httptest.NewRecorder()
+	a.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	if rec.Header().Get("Traceparent") != "" {
+		t.Fatal("disabled tracing wrote a traceparent response header")
+	}
+
+	got, _ := downstream.Load().(string)
+	if !strings.HasPrefix(got, "00-4bf92f3577b34da6a3ce929d0e0e4736-") {
+		t.Fatalf("downstream traceparent = %q, want trace id 4bf92f3577b34da6a3ce929d0e0e4736", got)
 	}
 }

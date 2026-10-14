@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
@@ -312,5 +313,29 @@ func TestServerMiddlewareKeepsHijacker(t *testing.T) {
 
 	if v, _ := attrOf(exp.GetSpans()[0].Attributes, "http.response.status_code"); v.AsInt64() != 101 {
 		t.Fatalf("status = %d, want 101 for a hijacked connection", v.AsInt64())
+	}
+}
+
+func TestPropagationMiddlewareExtractsOnly(t *testing.T) {
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	var got trace.SpanContext
+
+	h := PropagationMiddleware()(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = trace.SpanContextFromContext(r.Context())
+	}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/a", nil)
+	req.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got.TraceID().String() != "4bf92f3577b34da6a3ce929d0e0e4736" || !got.IsRemote() {
+		t.Fatalf("span context = %v, want the remote caller's", got)
+	}
+
+	if rec.Header().Get("Traceparent") != "" {
+		t.Fatal("PropagationMiddleware wrote a response header")
 	}
 }

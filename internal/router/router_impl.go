@@ -767,7 +767,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 							logger.Error(fmt.Sprintf("panic recovered: %v", rec))
 						}
 
-						recordSpanError(req.Context(), fmt.Errorf("panic: %v", rec))
+						recordSpanPanic(req.Context(), rec)
 						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					}
 				}()
