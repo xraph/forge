@@ -287,9 +287,9 @@ tracing:
 
 ### Metrics push
 
-Set an OTLP endpoint and `forge.New` also pushes your metrics over OTLP/HTTP
-to `<endpoint>/v1/metrics`, every 60 seconds by default. The same
-`OTEL_EXPORTER_OTLP_ENDPOINT` you set for traces turns it on, so no new
+Set an OTLP endpoint and your app also pushes its metrics over OTLP/HTTP
+to `<endpoint>/v1/metrics`, every 60 seconds by default, from `Start` until
+`Stop`. The same `OTEL_EXPORTER_OTLP_ENDPOINT` you set for traces turns it on, so no new
 setting is needed. Precedence is `WithAppMetricsExportConfig(MetricsExportConfig{...})`,
 then the `metrics_export:` key of the config file, then `OTEL_*` env
 (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_METRIC_EXPORT_INTERVAL`, ...).
@@ -306,9 +306,16 @@ metrics_export:
   headers: { X-Api-Key: k }
 ```
 
-`Stop` pushes once more after the extensions stop and before the container and
-the collector stop, then flushes spans. A bad endpoint is logged and the app
-boots without pushing.
+`forge.New` resolves the settings, logs any warnings and checks the endpoint,
+but sends nothing. `Start` begins pushing once the metrics collector runs and
+logs `telemetry: pushing metrics over OTLP` with the endpoint, interval and
+temporality (never the headers). `Stop` pushes once more after the extensions
+stop and before the container and the collector stop, then flushes spans. An
+app you build and never start never pushes, and if `Start` returns an error
+the push is stopped again before it returns. A bad endpoint is logged once at
+`New` and the app boots without pushing. The pusher can start again after a
+`Stop`, but the app itself can't be started twice yet: a second `Start`
+returns "app already started".
 
 ## Dependencies
 
