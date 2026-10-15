@@ -64,15 +64,15 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 			}
 
 			// One allocation holds the request's tracing state, the status
-			// recorder, the start options and both attribute buffers included.
-			// The options live here because a variadic slice passed through
-			// the Tracer interface escapes.
+			// recorder and the start options included. The options live here
+			// because a variadic slice passed through the Tracer interface
+			// escapes. The request attributes are captured as strings and only
+			// built in finish, once the span is known to be recording, so an
+			// unsampled request never builds or copies them.
 			st := &serverSpan{match: match, method: method}
 			st.rec.ResponseWriter = w
-			st.startOpts = [...]trace.SpanStartOption{
-				serverKind,
-				trace.WithAttributes(st.requestAttributes(r, method, original)...),
-			}
+			st.captureRequest(r, original)
+			st.startOpts = [...]trace.SpanStartOption{serverKind}
 
 			ctx, st.span = tracer.Start(ctx, spanName, st.startOpts[:]...) //nolint:spancheck // st.finish or st.recoverPanic ends it
 
@@ -93,7 +93,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				if s.SpanLabels && sc.IsSampled() {
 					labelSpanID = spanID
 
-					st.span.SetAttributes(attribute.String(profileIDAttribute, spanID))
+					st.profileID = spanID
 				}
 			}
 
@@ -130,9 +130,11 @@ type serverSpan struct {
 	method string
 	rec    StatusRecorder
 
-	startOpts [2]trace.SpanStartOption
-	reqAttrs  [7]attribute.KeyValue
-	endAttrs  [4]attribute.KeyValue
+	startOpts [1]trace.SpanStartOption
+
+	// Request values captured at start, turned into attributes only when
+	// the span is recording.
+	original, scheme, path, proto, host, userAgent, profileID string
 }
 
 // finish names and ends the span.
@@ -146,7 +148,7 @@ func (st *serverSpan) finish(status int) {
 		return
 	}
 
-	attrs := st.endAttrs[:0]
+	attrs := st.appendRequestAttributes(make([]attribute.KeyValue, 0, 12))
 
 	if match.Pattern != "" {
 		if st.method != "_OTHER" {
@@ -186,6 +188,12 @@ func (st *serverSpan) recoverPanic() {
 	if st.match.Established() {
 		// The span ended at the handshake.
 		panic(p)
+	}
+
+	// The request attributes go on at the end, so a panicking request needs
+	// them here too.
+	if st.span.IsRecording() {
+		st.span.SetAttributes(st.appendRequestAttributes(make([]attribute.KeyValue, 0, 8))...)
 	}
 
 	st.span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
@@ -230,30 +238,42 @@ func RouteMatchMiddleware(excludePaths []string) func(http.Handler) http.Handler
 	}
 }
 
-// requestAttributes fills st.reqAttrs with the span's start attributes.
-func (st *serverSpan) requestAttributes(r *http.Request, method, original string) []attribute.KeyValue {
-	scheme := "http"
+func (st *serverSpan) captureRequest(r *http.Request, original string) {
+	st.original = original
+	st.scheme = "http"
+
 	if r.TLS != nil {
-		scheme = "https"
+		st.scheme = "https"
 	}
 
-	attrs := append(st.reqAttrs[:0],
-		attribute.String("http.request.method", method),
-		attribute.String("url.scheme", scheme),
-		attribute.String("url.path", r.URL.Path),
-		attribute.String("network.protocol.version", strings.TrimPrefix(r.Proto, "HTTP/")),
+	st.path = r.URL.Path
+	st.proto = strings.TrimPrefix(r.Proto, "HTTP/")
+	st.host = serverAddress(r.Host)
+	st.userAgent = r.UserAgent()
+}
+
+func (st *serverSpan) appendRequestAttributes(attrs []attribute.KeyValue) []attribute.KeyValue {
+	attrs = append(attrs,
+		attribute.String("http.request.method", st.method),
+		attribute.String("url.scheme", st.scheme),
+		attribute.String("url.path", st.path),
+		attribute.String("network.protocol.version", st.proto),
 	)
 
-	if original != "" {
-		attrs = append(attrs, attribute.String("http.request.method_original", original))
+	if st.original != "" {
+		attrs = append(attrs, attribute.String("http.request.method_original", st.original))
 	}
 
-	if host := serverAddress(r.Host); host != "" {
-		attrs = append(attrs, attribute.String("server.address", host))
+	if st.host != "" {
+		attrs = append(attrs, attribute.String("server.address", st.host))
 	}
 
-	if ua := r.UserAgent(); ua != "" {
-		attrs = append(attrs, attribute.String("user_agent.original", ua))
+	if st.userAgent != "" {
+		attrs = append(attrs, attribute.String("user_agent.original", st.userAgent))
+	}
+
+	if st.profileID != "" {
+		attrs = append(attrs, attribute.String(profileIDAttribute, st.profileID))
 	}
 
 	return attrs
