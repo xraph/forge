@@ -1,0 +1,165 @@
+---
+title: Migrating dashboards
+description: Old Forge metric names, what replaced them, and the PromQL to rewrite your panels and alerts
+icon: ArrowRightLeft
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Forge moved its HTTP and gRPC metrics onto the OpenTelemetry semantic conventions, and stopped timing stream connections as if they were requests. None of the old series are emitted under their old names any more. A panel or alert that reads one goes blank, so rewrite those queries before you roll the upgrade out.
+
+There are three changes, and each section below covers one:
+
+1. The `forge_http_*` series, and the flat `http.requests.*` keys behind them, became `http_server_*` series labelled by route.
+2. The `forge_grpc_*` series became one histogram, `rpc_server_call_duration_seconds`.
+3. WebSocket, SSE and WebTransport routes are now timed by their handshake, and the connection has series of its own.
+
+Your Go code doesn't change for any of them.
+
+## HTTP
+
+The old collector kept one unlabelled histogram and a flat set of counters, one per status code, method and path. It reported them as dotted keys, which is how they appear in `Metrics().Export` and the snapshot APIs, and the Prometheus bridge turned each key into a `forge_` series. Both forms are gone.
+
+| Old key | Old series | Now |
+|---|---|---|
+| `http.requests.total` | `forge_http_requests_total` | `http_server_request_duration_seconds_count` |
+| `http.request.duration` | `forge_http_request_duration_bucket`, `_sum`, `_count` | `http_server_request_duration_seconds_bucket`, `_sum`, `_count` |
+| `http.requests.active` | `forge_http_requests_active` | `http_server_active_requests` |
+| `http.request.size` | `forge_http_request_size_*` | `http_server_request_body_size_bytes_*`, with `http_body_sizes` on |
+| `http.response.size` | `forge_http_response_size_*` | `http_server_response_body_size_bytes_*`, with `http_body_sizes` on |
+| `http.requests.status.<code>` | `forge_http_requests_status_<code>` | the `http_response_status_code` label |
+| `http.requests.method.<method>` | `forge_http_requests_method_<method>` | the `http_request_method` label |
+| `http.requests.path.<path>` | `forge_http_requests_path_<path>` | the `http_route` label |
+| `http.requests.error_rate` | `forge_http_requests_error_rate` | a query, below |
+| `http.requests.avg_duration` | `forge_http_requests_avg_duration` | `_sum / _count` of the duration |
+| `http.request.avg_size` | `forge_http_request_avg_size` | `_sum / _count` of the request body size |
+| `http.response.avg_size` | `forge_http_response_avg_size` | `_sum / _count` of the response body size |
+
+In the snapshot APIs the new metrics are keyed by their semconv name with the labels in braces, such as `http.server.request.duration{error.type=,http.request.method=GET,http.response.status_code=200,http.route=/users/:id,url.scheme=http}`.
+
+Every new request series carries `http_request_method`, `http_route`, `http_response_status_code`, `url_scheme` and `error_type`. `http_route` is the pattern you registered, so `/users/:id` replaces however many `forge_http_requests_path_users_*` series you had.
+
+### Replacement queries
+
+```promql
+# forge_http_requests_total, as a rate
+sum(rate(http_server_request_duration_seconds_count[5m]))
+
+# forge_http_requests_status_<code>, all codes at once
+sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count[5m]))
+
+# forge_http_requests_method_<method>
+sum by (http_request_method) (rate(http_server_request_duration_seconds_count[5m]))
+
+# forge_http_requests_path_<path>, now by route pattern
+sum by (http_route) (rate(http_server_request_duration_seconds_count[5m]))
+
+# forge_http_requests_active
+sum(http_server_active_requests)
+
+# forge_http_requests_avg_duration, in seconds
+sum(rate(http_server_request_duration_seconds_sum[5m]))
+  / sum(rate(http_server_request_duration_seconds_count[5m]))
+
+# p95 latency, which the old histogram couldn't give you
+histogram_quantile(0.95,
+  sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
+```
+
+The old error rate counted 4xx and 5xx together and reported a percentage. If an alert threshold depends on that meaning, this is the same number:
+
+```promql
+100 * sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"[45].."}[5m]))
+  / sum(rate(http_server_request_duration_seconds_count[5m]))
+```
+
+Most people want server errors only. `error_type` is set on 5xx responses and nothing else, so this is the ratio of those:
+
+```promql
+sum(rate(http_server_request_duration_seconds_count{error_type!=""}[5m]))
+  / sum(rate(http_server_request_duration_seconds_count[5m]))
+```
+
+Don't try to carry old latency panels across by renaming them. The old histogram recorded seconds against buckets from 5 to 10000, so nearly every request sat in the first bucket and any quantile you took from it was meaningless. Rebuild those panels from the queries above.
+
+### Config to remove
+
+`track_paths`, `group_similar_paths` and the path allow and block lists no longer exist. With the route as a label you don't need them. Take them out of your config.
+
+### Numbers that move without a rename
+
+Request counts can go up. The old middleware sat inside the middleware your extensions add, so a 401 from an auth extension or a 403 from a CSRF check never reached it. The new one sits outside and counts those.
+
+Some 200s turn into 4xx and 5xx. When a middleware added with `UseGlobal` returned an error, such as `forge.Unauthorized`, the client used to get an empty 200, and that's what the metrics and the span recorded. The error now goes through the router's error handler, so the client gets the real status and `http_response_status_code` carries it.
+
+You may also see HTTP series on an app that had none. The old collector only built its middleware once the metrics service had started, and a plain `forge.New` app often never started it.
+
+## gRPC
+
+The [gRPC extension](/docs/extensions/grpc) used to export its own counters, histograms and a gauge. Every served call now lands in one histogram.
+
+| Old series | Now |
+|---|---|
+| `forge_grpc_unary_started_total{method}` | `rpc_server_call_duration_seconds_count` |
+| `forge_grpc_unary_succeeded_total{method}` | `rpc_server_call_duration_seconds_count{rpc_response_status_code="OK"}` |
+| `forge_grpc_unary_failed_total{method, code}` | `rpc_server_call_duration_seconds_count{rpc_response_status_code!="OK"}` |
+| `forge_grpc_unary_duration_seconds{method}` | `rpc_server_call_duration_seconds` |
+| `forge_grpc_stream_succeeded_total{method}` | `rpc_server_call_duration_seconds_count{rpc_response_status_code="OK"}` |
+| `forge_grpc_stream_failed_total{method, code}` | `rpc_server_call_duration_seconds_count{rpc_response_status_code!="OK"}` |
+| `forge_grpc_stream_duration_seconds{method}` | `rpc_server_call_duration_seconds` |
+| `forge_grpc_stream_active{method}` | dropped, no replacement |
+
+Unary and streaming calls share the series now. A call is counted when it finishes, so there's no separate "started" count; `_count` is calls that completed, whatever their status. The streams in flight are still in the extension's `GetStats().ActiveStreams`, they just aren't exported.
+
+The labels changed shape too, and any relabeling you do on them needs updating:
+
+| Old | Now |
+|---|---|
+| `method="/billing.Invoices/Get"` | `rpc_method="billing.Invoices/Get"`, no leading slash |
+| `code="NotFound"`, `code="Canceled"` | `rpc_response_status_code="NOT_FOUND"`, `"CANCELLED"` |
+| none | `rpc_system_name="grpc"` |
+
+The buckets run from 0.005 to 10 seconds. The old histograms used the millisecond-scaled defaults, so old quantiles don't compare with new ones. Health and reflection calls aren't recorded.
+
+### Replacement queries
+
+```promql
+# Calls per second, by method
+sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count[5m]))
+
+# Failed calls per second, by method and code
+sum by (rpc_method, rpc_response_status_code) (
+  rate(rpc_server_call_duration_seconds_count{rpc_response_status_code!="OK"}[5m]))
+
+# p99 latency, by method
+histogram_quantile(0.99,
+  sum by (le, rpc_method) (rate(rpc_server_call_duration_seconds_bucket[5m])))
+```
+
+## Stream routes
+
+On a WebSocket, SSE or WebTransport route, `http_server_request_duration_seconds` used to cover the whole connection, and `http_server_active_requests` counted every open stream. Now the request ends at the handshake: the 101 for a WebSocket, the moment the stream is ready to write for SSE, and the upgrade for WebTransport. The connection is recorded in its own series.
+
+| What you were measuring | Old query | Now |
+|---|---|---|
+| Connected clients | `http_server_active_requests` on a stream route | `forge_stream_connections_active` |
+| Connection lifetime | `http_server_request_duration_seconds` on a stream route | `forge_stream_connection_duration_seconds` |
+| Messages | none | `forge_stream_messages_total` |
+
+```promql
+# Connected clients, by route
+sum by (http_route) (forge_stream_connections_active)
+
+# Median connection lifetime, by route
+histogram_quantile(0.5,
+  sum by (le, http_route) (rate(forge_stream_connection_duration_seconds_bucket[1h])))
+
+# Connections that ended in a handler error
+sum by (http_route) (rate(forge_stream_connection_duration_seconds_count{error_type="handler_error"}[5m]))
+```
+
+<Callout type="warn">
+Your HTTP latency percentiles will drop on any app with long-lived streams. Those observations used to be connections measured in minutes or hours, and now they are handshakes measured in milliseconds. If an alert was tuned around the old numbers, retune it.
+</Callout>
+
+The `forge_` prefix on the stream series is your metrics namespace, so it follows `metrics.collection.namespace` if you've changed it. The [metric reference](/docs/forge/metric-reference) has every new series with its labels and buckets.
