@@ -111,7 +111,14 @@ func TestConduitCreateSendProcessIsOneTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := <-seen
+	var handler trace.SpanContext
+
+	select {
+	case handler = <-seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the handler never ran")
+	}
+
 	create, send, process := spanNamed(t, exp, "create orders"), spanNamed(t, exp, "send orders"), spanNamed(t, exp, "process orders")
 
 	if process.Parent().SpanID() != create.SpanContext().SpanID() || handler.SpanID() != process.SpanContext().SpanID() {
@@ -164,8 +171,13 @@ func TestConduitLaterSendJoinsCreatingTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := <-seen; got.TraceID() != caller.SpanContext().TraceID() {
-		t.Fatal("the handler didn't join the trace that created the message")
+	select {
+	case got := <-seen:
+		if got.TraceID() != caller.SpanContext().TraceID() {
+			t.Fatal("the handler didn't join the trace that created the message")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the handler never ran")
 	}
 
 	if s := spanNamed(t, exp, "send orders"); s.Parent().IsValid() {

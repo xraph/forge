@@ -177,6 +177,30 @@ func TestKafkaSendMessagesBatchShape(t *testing.T) {
 	}
 }
 
+func TestKafkaSendMessagesEmptyBatchHasNoTelemetry(t *testing.T) {
+	for name, batch := range map[string][]*ProducerMessage{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			client, m, exp := tracedClient(t)
+			client.producer = mocks.NewSyncProducer(t, nil)
+
+			if err := client.SendMessagesContext(t.Context(), batch); err != nil {
+				t.Fatalf("an empty batch should still return nil, got %v", err)
+			}
+
+			if n := len(exp.GetSpans().Snapshots()); n != 0 {
+				t.Fatalf("%d spans for an empty batch, want none", n)
+			}
+
+			rec := httptest.NewRecorder()
+			m.(shared.PrometheusProvider).PrometheusHandler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+
+			if body := rec.Body.String(); strings.Contains(body, "messaging_client_operation_duration_seconds_count{") {
+				t.Fatalf("an empty batch recorded a send observation:\n%s", body)
+			}
+		})
+	}
+}
+
 func TestKafkaMixedTopicBatchHasNoDestination(t *testing.T) {
 	client, _, exp := tracedClient(t)
 	producer := mocks.NewSyncProducer(t, nil)

@@ -273,8 +273,14 @@ func (c *kafkaClient) SendMessagesContext(ctx context.Context, messages []*Produ
 		}
 	}
 
-	_, op := c.telemetry.StartSend(ctx, batchDestination(messages), "send",
-		messaging.WithBatchSize(len(messages)), messaging.WithLinks(links...))
+	// An empty batch sends nothing, so it gets no span and no observation. A nil
+	// operation is safe to End.
+	var op *messaging.Operation
+
+	if len(messages) > 0 {
+		_, op = c.telemetry.StartSend(ctx, batchDestination(messages), "send",
+			messaging.WithBatchSize(len(messages)), messaging.WithLinks(links...))
+	}
 
 	err := c.producer.SendMessages(saramaMessages)
 	op.End(err)
