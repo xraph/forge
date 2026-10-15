@@ -249,7 +249,8 @@ client span. Both read the OpenTelemetry globals when called, so call them after
   while grpc-go drains, so calls finishing during shutdown don't deadlock it.
 - If TLS is on and the cert, key or CA file fails to load (bad path, bad PEM), Start returns
   `failed to load TLS credentials: ...` and the server doesn't listen. No plaintext fallback.
-- `Watch` sends one SERVING message and returns; `List` returns an empty list.
+- `Watch` sends the status, polls the checker every 5s and sends on change. On stop it sends
+  NOT_SERVING and ends the stream. `List` returns "" plus every service with a checker.
 - `TotalConnections` in `GetStats()` is never updated.
 
 ## Dependencies

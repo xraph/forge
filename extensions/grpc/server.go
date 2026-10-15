@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 // rpcDurationBuckets are the bucket bounds, in seconds, the semconv spec
@@ -463,31 +464,82 @@ type healthServer struct {
 }
 
 func (h *healthServer) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
-	service := req.GetService()
+	return &grpc_health_v1.HealthCheckResponse{Status: h.status(ctx, req.GetService())}, nil
+}
 
+// status runs the checker for service. A failing checker is a health result,
+// not an RPC failure: the client learns about it through NOT_SERVING. The
+// empty name and a service with no checker are SERVING.
+func (h *healthServer) status(ctx context.Context, service string) grpc_health_v1.HealthCheckResponse_ServingStatus {
 	h.s.mu.RLock()
 	checker, exists := h.s.healthCheckers[service]
 	h.s.mu.RUnlock()
 
-	// A failing checker is a health result, not an RPC failure: the client
-	// learns about it through the NOT_SERVING status.
-	status := grpc_health_v1.HealthCheckResponse_SERVING
 	if service != "" && exists && checker.Check(ctx) != nil {
-		status = grpc_health_v1.HealthCheckResponse_NOT_SERVING
+		return grpc_health_v1.HealthCheckResponse_NOT_SERVING
 	}
 
-	return &grpc_health_v1.HealthCheckResponse{Status: status}, nil
+	return grpc_health_v1.HealthCheckResponse_SERVING
 }
 
+// healthWatchInterval is how often Watch runs the checker again. Checkers
+// are polled, so a change reaches watchers within one interval.
+var healthWatchInterval = 5 * time.Second
+
+// Watch sends the service's status, then a new message each time it changes.
+// When the server stops it sends NOT_SERVING and ends the stream, so a
+// watcher never holds GracefulStop open.
 func (h *healthServer) Watch(req *grpc_health_v1.HealthCheckRequest, stream grpc_health_v1.Health_WatchServer) error {
-	// Simplified implementation - always return SERVING
-	return stream.Send(&grpc_health_v1.HealthCheckResponse{
-		Status: grpc_health_v1.HealthCheckResponse_SERVING,
-	})
+	ctx := stream.Context()
+	service := req.GetService()
+
+	h.s.mu.RLock()
+	done := h.s.done
+	h.s.mu.RUnlock()
+
+	last := h.status(ctx, service)
+	if err := stream.Send(&grpc_health_v1.HealthCheckResponse{Status: last}); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(healthWatchInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return status.FromContextError(ctx.Err()).Err()
+		case <-done:
+			return stream.Send(&grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING})
+		case <-ticker.C:
+			if current := h.status(ctx, service); current != last {
+				if err := stream.Send(&grpc_health_v1.HealthCheckResponse{Status: current}); err != nil {
+					return err
+				}
+
+				last = current
+			}
+		}
+	}
 }
 
+// List reports the overall status under the empty name and every service
+// that has a checker.
 func (h *healthServer) List(ctx context.Context, req *grpc_health_v1.HealthListRequest) (*grpc_health_v1.HealthListResponse, error) {
-	// Return list of registered health check services
-	// Note: The actual field name depends on the protobuf definition
-	return &grpc_health_v1.HealthListResponse{}, nil
+	h.s.mu.RLock()
+	services := make([]string, 0, len(h.s.healthCheckers)+1)
+
+	services = append(services, "")
+	for service := range h.s.healthCheckers {
+		services = append(services, service)
+	}
+
+	h.s.mu.RUnlock()
+
+	statuses := make(map[string]*grpc_health_v1.HealthCheckResponse, len(services))
+	for _, service := range services {
+		statuses[service] = &grpc_health_v1.HealthCheckResponse{Status: h.status(ctx, service)}
+	}
+
+	return &grpc_health_v1.HealthListResponse{Statuses: statuses}, nil
 }

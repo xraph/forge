@@ -155,7 +155,7 @@ With `enable_health_check` on (the default), the server answers the [gRPC health
 | A service whose checker returns an error | `NOT_SERVING` |
 | A service with no checker registered | `SERVING` |
 
-`Watch` sends one `SERVING` message and returns, and `List` returns an empty list. Neither reflects your checkers yet.
+`Watch` sends the current status, runs the checker again every five seconds and sends a new message whenever the answer changes. When the server stops it sends `NOT_SERVING` and closes the stream, so a watching probe never holds up shutdown. `List` returns the empty name and every service that has a checker, each with its current status.
 
 The extension's own `Health` method only reports whether the extension has started. It doesn't call your checkers.
 
