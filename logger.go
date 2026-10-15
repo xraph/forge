@@ -126,6 +126,8 @@ var (
 	WithRequestID        = logger.WithRequestID
 	RequestIDFromContext = logger.RequestIDFromContext
 	WithTraceID          = logger.WithTraceID
+	WithSpanID           = logger.WithSpanID
+	SpanIDFromContext    = logger.SpanIDFromContext
 	TraceIDFromContext   = logger.TraceIDFromContext
 	WithUserID           = logger.WithUserID
 	UserIDFromContext    = logger.UserIDFromContext

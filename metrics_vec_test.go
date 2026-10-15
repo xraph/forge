@@ -55,3 +55,15 @@ type fakeTB struct {
 
 func (f *fakeTB) Errorf(string, ...any) { f.failed = true }
 func (f *fakeTB) Helper()               {}
+
+func TestHistogramVecUnitGivesSemconvSuffix(t *testing.T) {
+	a := forge.New(forge.WithAppName("vec-unit"))
+	h := forge.HistogramVec(a.Metrics(), "rpc.server.call.duration",
+		forge.HistogramOpts{Buckets: []float64{0.1, 1}, Unit: "s"}, "rpc.method")
+
+	h.With("Ping").Observe(0.05)
+
+	if body := scrapeText(t, a.Metrics()); !strings.Contains(body, `rpc_server_call_duration_seconds_count{rpc_method="Ping"} 1`) {
+		t.Fatalf("scrape:\n%s", body)
+	}
+}

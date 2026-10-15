@@ -1,6 +1,8 @@
 package forge
 
 import (
+	"slices"
+
 	"github.com/xraph/forge/internal/metrics/vec"
 	gometrics "github.com/xraph/go-utils/metrics"
 )
@@ -13,6 +15,9 @@ type Vec[T any] = vec.Vec[T]
 type HistogramOpts struct {
 	Buckets []float64
 	Help    string
+	// Unit is the OTel unit, such as "s" or "By". Under a semconv namespace
+	// the Prometheus name gets the matching suffix (_seconds, _bytes).
+	Unit string
 }
 
 // CounterVec declares a counter with label names.
@@ -42,6 +47,12 @@ func HistogramVec(m Metrics, name string, opts HistogramOpts, labelNames ...stri
 	if opts.Help != "" {
 		base = append(base, gometrics.WithDescription(opts.Help))
 	}
+
+	if opts.Unit != "" {
+		base = append(base, gometrics.WithUnit(opts.Unit))
+	}
+
+	base = slices.Clip(base)
 
 	return vec.New(name, labelNames, func(l map[string]string) Histogram {
 		return m.Histogram(name, append(base, gometrics.WithLabels(l))...)
