@@ -426,8 +426,14 @@ missing, because the traffic would otherwise be dropped silently.
 
 The block only works on Kubernetes targets. One thing to know: if you turn
 `service_monitor.enabled` off after applying, Forge doesn't remove the
-ServiceMonitors it already created. Delete them with `kubectl delete
-servicemonitor -l app.kubernetes.io/managed-by=forge -n <namespace>`.
+ServiceMonitors it already created. Delete them with a selector that names this
+project, target and environment, so you don't take out another project's
+monitors in a shared namespace:
+
+```bash
+kubectl delete servicemonitor -n <namespace> -l \
+  app.kubernetes.io/managed-by=forge,forge.xraph.io/project=<project>,forge.xraph.io/target=<target>,forge.xraph.io/environment=<environment>
+```
 
 To run the same dashboard and alerts against that Prometheus, see
 `forge obs export` in [development](/docs/forge/development#your-own-grafana).
