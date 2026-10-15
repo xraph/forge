@@ -218,3 +218,43 @@ func TestStreamMetricsWithTracingAndHTTPMetricsOff(t *testing.T) {
 	require.NotContains(t, body, "http_server_request_duration_seconds", "HTTP metrics are off")
 	require.Contains(t, body, `forge_stream_connections_active{http_route="/ws",stream_kind="websocket"} 1`)
 }
+
+func TestStreamMetricsSkipExcludedPathWithTracingAndHTTPMetricsOff(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+	off := false
+	cfg := DefaultMetricsConfig()
+	cfg.Features.HTTPMetrics = false
+
+	a := New(
+		WithAppName("streams-bare-excluded"),
+		WithAppTracingConfig(TracingConfig{Enabled: &off}),
+		WithAppMetricsConfig(cfg),
+	)
+	open := make(chan struct{})
+	release := make(chan struct{})
+
+	require.NoError(t, a.Router().WebSocket("/_/ws", func(ctx Context, conn Connection) error {
+		close(open)
+		<-release
+
+		return nil
+	}))
+
+	srv := httptest.NewServer(a.Router())
+	t.Cleanup(srv.Close)
+
+	conn, _, _, err := ws.Dial(t.Context(), "ws"+strings.TrimPrefix(srv.URL, "http")+"/_/ws")
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	<-open
+
+	body := scrapeApp(t, a, false)
+
+	close(release)
+
+	require.False(t, strings.Contains(body, "forge_stream_connections_active"),
+		"/_/ is excluded, as it is for the tracing and HTTP metrics middleware")
+}

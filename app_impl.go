@@ -342,7 +342,7 @@ func newApp(config AppConfig) *app {
 	// the stream observer needs. With both off, install a bare one, or no
 	// stream would ever be recorded.
 	if metricsConfig.Enabled && !metricsConfig.Features.HTTPMetrics && !tracing.Settings().Enabled {
-		router.UseGlobal(internalrouter.PureMiddleware(telemetry.RouteMatchMiddleware()).ToMiddleware())
+		router.UseGlobal(internalrouter.PureMiddleware(telemetry.RouteMatchMiddleware(tracing.Settings().ExcludePaths)).ToMiddleware())
 	}
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)

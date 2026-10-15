@@ -101,7 +101,10 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 					attrs = append(attrs, attribute.String("http.route", match.Pattern))
 				}
 
-				if match.Kind != shared.KindHTTP {
+				// The router stamps the kind before it checks the upgrade, so a
+				// rejected one (a disallowed Origin, say) still carries it. Only a
+				// stream that actually opened is a stream span.
+				if match.Kind != shared.KindHTTP && match.Established() {
 					attrs = append(attrs, attribute.String("forge.stream.kind", match.Kind.String()))
 				}
 
@@ -161,10 +164,18 @@ func PropagationMiddleware() func(http.Handler) http.Handler {
 // RouteMatchMiddleware only installs a fresh shared.RouteMatch holder, so the
 // router can report the matched route to the stream observer. forge.New uses
 // it when metrics are on but neither the tracing nor the HTTP metrics
-// middleware is installed, since those install the holder otherwise.
-func RouteMatchMiddleware() func(http.Handler) http.Handler {
+// middleware is installed, since those install the holder otherwise. A path
+// under excludePaths gets no holder, the same as the tracing and HTTP metrics
+// middleware skip it, so a stream served there is not recorded.
+func RouteMatchMiddleware(excludePaths []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if Excluded(r.URL.Path, excludePaths) {
+				next.ServeHTTP(w, r)
+
+				return
+			}
+
 			ctx, _ := shared.NewRouteMatch(r.Context())
 
 			next.ServeHTTP(w, r.WithContext(ctx))
