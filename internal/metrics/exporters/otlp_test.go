@@ -322,3 +322,109 @@ func equalUints(a, b []uint64) bool {
 
 	return true
 }
+
+func TestOTLPDeltaCounter(t *testing.T) {
+	s := fakeStream{"c": {Kind: SampleCounter, Value: 5}}
+	p, clock := newTestProducer(s, Delta)
+	created := clock.now()
+
+	sum := produce(t, p)["forge_c"].Data.(metricdata.Sum[float64])
+	if sum.Temporality != metricdata.DeltaTemporality {
+		t.Fatalf("temporality = %v, want delta", sum.Temporality)
+	}
+
+	if pt := sum.DataPoints[0]; pt.Value != 5 || !pt.StartTime.Equal(created) {
+		t.Fatalf("first point = %+v, want 5 since creation", pt)
+	}
+
+	first := clock.now()
+
+	clock.advance(time.Minute)
+
+	s["c"] = Sample{Kind: SampleCounter, Value: 8}
+
+	if pt := produce(t, p)["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 3 || !pt.StartTime.Equal(first) {
+		t.Fatalf("second point = %+v, want 3 since the first produce", pt)
+	}
+}
+
+func TestOTLPDeltaCounterReset(t *testing.T) {
+	s := fakeStream{"c": {Kind: SampleCounter, Value: 8}}
+	p, clock := newTestProducer(s, Delta)
+
+	produce(t, p)
+
+	prev := clock.now()
+
+	clock.advance(time.Minute)
+
+	s["c"] = Sample{Kind: SampleCounter, Value: 2}
+
+	if pt := produce(t, p)["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 2 || !pt.StartTime.Equal(prev) {
+		t.Fatalf("point = %+v, want 2 since the previous produce: the registry reset", pt)
+	}
+}
+
+func TestOTLPCumulativeResetMovesStartTime(t *testing.T) {
+	s := fakeStream{"c": {Kind: SampleCounter, Value: 8}}
+	p, clock := newTestProducer(s, Cumulative)
+
+	produce(t, p)
+
+	prev := clock.now()
+
+	clock.advance(time.Minute)
+
+	s["c"] = Sample{Kind: SampleCounter, Value: 2}
+
+	if pt := produce(t, p)["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 2 || !pt.StartTime.Equal(prev) {
+		t.Fatalf("point = %+v, want 2 with a new start time", pt)
+	}
+}
+
+func TestOTLPDeltaHistogram(t *testing.T) {
+	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 3, Sum: 1, Buckets: []Bucket{{UpperBound: 1, Count: 2}}}}
+	p, clock := newTestProducer(s, Delta)
+
+	produce(t, p)
+	clock.advance(time.Minute)
+
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 7, Sum: 4, Buckets: []Bucket{{UpperBound: 1, Count: 5}}}
+
+	h := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64])
+	if h.Temporality != metricdata.DeltaTemporality {
+		t.Fatalf("temporality = %v", h.Temporality)
+	}
+
+	pt := h.DataPoints[0]
+	if !equalUints(pt.BucketCounts, []uint64{3, 1}) || pt.Count != 4 || pt.Sum != 3 {
+		t.Fatalf("point = counts %v, count %d, sum %v; want [3 1], 4, 3", pt.BucketCounts, pt.Count, pt.Sum)
+	}
+}
+
+func TestOTLPDeltaBucketLayoutChangeIsReset(t *testing.T) {
+	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 2, Buckets: []Bucket{{UpperBound: 1, Count: 2}}}}
+	p, clock := newTestProducer(s, Delta)
+
+	produce(t, p)
+	clock.advance(time.Minute)
+
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 5, Buckets: []Bucket{{UpperBound: 1, Count: 2}, {UpperBound: 2, Count: 3}}}
+
+	pt := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalUints(pt.BucketCounts, []uint64{2, 3, 0}) || pt.Count != 5 {
+		t.Fatalf("counts = %v, count = %d; want the full new counts", pt.BucketCounts, pt.Count)
+	}
+}
+
+func TestOTLPDeltaLeavesGaugesAlone(t *testing.T) {
+	s := fakeStream{"g": {Kind: SampleGauge, Value: 4}}
+	p, clock := newTestProducer(s, Delta)
+
+	produce(t, p)
+	clock.advance(time.Minute)
+
+	if pt := produce(t, p)["forge_g"].Data.(metricdata.Gauge[float64]).DataPoints[0]; pt.Value != 4 {
+		t.Fatalf("gauge = %v, want 4", pt.Value)
+	}
+}

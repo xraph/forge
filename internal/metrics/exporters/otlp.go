@@ -185,13 +185,20 @@ func (p *OTLPProducer) prune() {
 func (p *OTLPProducer) sumPoint(key seriesKey, attrs attribute.Set, v float64,
 	now time.Time) metricdata.DataPoint[float64] {
 	st, fresh := p.state(key)
-	if !fresh && v < st.value {
-		st.start = p.since() // the registry reset this series
+
+	reset := !fresh && v < st.value // the registry reset this series
+	if reset {
+		st.start = p.since()
+	}
+
+	pt := metricdata.DataPoint[float64]{Attributes: attrs, StartTime: st.start, Time: now, Value: v}
+	if p.cfg.Temporality == Delta && !fresh && !reset {
+		pt.StartTime, pt.Value = st.last, v-st.value
 	}
 
 	st.value, st.last = v, now
 
-	return metricdata.DataPoint[float64]{Attributes: attrs, StartTime: st.start, Time: now, Value: v}
+	return pt
 }
 
 func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
@@ -199,7 +206,9 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 	bounds, counts, count := otlpBuckets(s)
 
 	st, fresh := p.state(key)
-	if !fresh && (count < st.count || len(counts) != len(st.buckets)) {
+
+	reset := !fresh && (count < st.count || len(counts) != len(st.buckets))
+	if reset {
 		st.start = p.since()
 	}
 
@@ -212,6 +221,22 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		Bounds:       bounds,
 		BucketCounts: counts,
 		Exemplars:    p.exemplars(s.Exemplars),
+	}
+
+	if p.cfg.Temporality == Delta && !fresh && !reset {
+		deltas := make([]uint64, len(counts))
+
+		var total uint64
+
+		for i, c := range counts {
+			if c > st.buckets[i] {
+				deltas[i] = c - st.buckets[i]
+			}
+
+			total += deltas[i]
+		}
+
+		pt.StartTime, pt.Count, pt.Sum, pt.BucketCounts = st.last, total, s.Sum-st.sum, deltas
 	}
 
 	st.count, st.sum, st.buckets, st.last = count, s.Sum, counts, now
