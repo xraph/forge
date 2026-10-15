@@ -66,8 +66,8 @@ func (k *Kubernetes) Preflight(ctx context.Context, d *model.Deployment) error {
 	}
 
 	if d.Target.Observability.MonitorEnabled() {
-		if _, err := k.run(ctx, d, nil, "get", "crd", "servicemonitors.monitoring.coreos.com"); err != nil {
-			return errors.New("cannot find the ServiceMonitor CRD; install the Prometheus Operator CRDs, grant read on customresourcedefinitions, or set observability.service_monitor.enabled: false")
+		if err := k.serviceMonitorPreflight(ctx, d); err != nil {
+			return err
 		}
 	}
 

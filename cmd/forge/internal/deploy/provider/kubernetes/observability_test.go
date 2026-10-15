@@ -191,17 +191,34 @@ func TestServiceMonitorLifecycleWiring(t *testing.T) {
 func TestPreflightRequiresServiceMonitorCRD(t *testing.T) {
 	k, p, _, f := fixtureApply(t)
 	p.Deployment.Target.Observability = &spec.Observability{ServiceMonitor: &spec.ServiceMonitor{Enabled: true}}
-	f.fail = "get crd servicemonitors.monitoring.coreos.com"
+
+	f.apiResources = "podmonitors.monitoring.coreos.com\n"
 
 	err := k.Preflight(context.Background(), p.Deployment)
 	if err == nil || !strings.Contains(err.Error(), "service_monitor.enabled: false") {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("missing CRD: err = %v", err)
+	}
+
+	f.fail = "api-resources"
+
+	err = k.Preflight(context.Background(), p.Deployment)
+	if err == nil || !strings.Contains(err.Error(), "simulated cluster denial") {
+		t.Fatalf("a kubectl failure should keep its cause, not read as a missing CRD: %v", err)
 	}
 
 	f.fail = ""
+	f.apiResources = "podmonitors.monitoring.coreos.com\nservicemonitors.monitoring.coreos.com\n"
 
 	if err := k.Preflight(context.Background(), p.Deployment); err != nil {
 		t.Fatalf("CRD present: %v", err)
+	}
+
+	// Discovery works for a deployer scoped to one namespace; reading
+	// customresourcedefinitions needs cluster-wide rights.
+	for _, line := range f.CallLines() {
+		if strings.Contains(line, "get crd") {
+			t.Fatalf("preflight read CRDs cluster-wide: %s", line)
+		}
 	}
 }
 

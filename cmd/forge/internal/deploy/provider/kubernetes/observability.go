@@ -1,9 +1,13 @@
 package kubernetes
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/model"
 )
@@ -117,4 +121,22 @@ func otlpEgress(d *model.Deployment) (object, bool) {
 	rule["ports"] = ports
 
 	return rule, true
+}
+
+// serviceMonitorPreflight checks that the cluster serves ServiceMonitors. It
+// asks API discovery, which any authenticated user can read, so a deployer
+// scoped to one namespace doesn't need cluster-wide read on CRDs.
+func (k *Kubernetes) serviceMonitorPreflight(ctx context.Context, d *model.Deployment) error {
+	res, err := k.run(ctx, d, nil, "api-resources", "--api-group=monitoring.coreos.com", "-o", "name")
+	if err != nil {
+		return fmt.Errorf("cannot list the cluster's monitoring.coreos.com resources: %w", err)
+	}
+
+	for line := range strings.Lines(res.Stdout) {
+		if strings.TrimSpace(line) == "servicemonitors.monitoring.coreos.com" {
+			return nil
+		}
+	}
+
+	return errors.New("the cluster has no ServiceMonitor resource; install the Prometheus Operator CRDs or set observability.service_monitor.enabled: false")
 }

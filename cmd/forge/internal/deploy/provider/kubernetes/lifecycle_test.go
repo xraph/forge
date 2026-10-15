@@ -26,6 +26,8 @@ type kubeRunner struct {
 	applied    []string
 	payloads   []string
 	routeReady bool
+	// apiResources answers kubectl api-resources, one resource per line.
+	apiResources string
 }
 
 func (f *kubeRunner) Run(_ context.Context, c execx.Command) (execx.Result, error) {
@@ -44,6 +46,10 @@ func (f *kubeRunner) Run(_ context.Context, c execx.Command) (execx.Result, erro
 
 	if c.Name != "kubectl" {
 		return execx.Result{}, errors.New("unexpected command")
+	}
+
+	if slices.Contains(c.Args, "api-resources") {
+		return execx.Result{Stdout: f.apiResources}, nil
 	}
 
 	if slices.Contains(c.Args, "get") {
