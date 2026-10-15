@@ -400,8 +400,9 @@ Here's what `-O` does for you:
 - starts `forge-lgtm` if it isn't running, and leaves it running when dev exits, so your data survives restarts
 - adds the app to Prometheus's scrape targets at `/_/metrics`, on the port the app uses (`--port` or `PORT`, then `dev.port`, then 8080)
 - sets `OTEL_EXPORTER_OTLP_ENDPOINT` to the collector and `OTEL_SERVICE_NAME` to the app's name
+- sets `OTEL_METRICS_EXPORTER=none`, because Prometheus already scrapes the app (that's the path that carries exemplars) and pushing too would land every series twice
 
-It won't touch either variable if you've already set it, and it tells you when it leaves one alone. Mind you, `OTEL_SERVICE_NAME` overrides `forge.WithAppName` for the dev run. That's on purpose: Grafana's link from a trace to its service's metrics matches Tempo's `service.name` against the Prometheus job, and both come out as the app's name this way.
+It won't touch any of these if you've already set them, and it tells you when it leaves one alone. Mind you, `OTEL_SERVICE_NAME` overrides `forge.WithAppName` for the dev run. That's on purpose: Grafana's link from a trace to its service's metrics matches Tempo's `service.name` against the Prometheus job, and both come out as the app's name this way.
 
 Logs show up in Loki once your app exports them over OTLP. Until then they go to stdout only, and **Logs for this span** in Tempo stays empty.
 

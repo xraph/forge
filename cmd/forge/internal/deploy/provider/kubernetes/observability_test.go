@@ -204,3 +204,28 @@ func TestPreflightRequiresServiceMonitorCRD(t *testing.T) {
 		t.Fatalf("CRD present: %v", err)
 	}
 }
+
+func TestMetricsPushOffOnlyWhenScraped(t *testing.T) {
+	k, d := fixture(t)
+	d.Target.Observability = &spec.Observability{OTLPEndpoint: "http://c.monitoring:4318"}
+
+	b, err := k.Render(context.Background(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if v, ok := containerEnv(t, objects(t, b)["Deployment/"+d.Services[0].Name])["OTEL_METRICS_EXPORTER"]; ok {
+		t.Fatalf("without a ServiceMonitor, push is how metrics leave the pod; got OTEL_METRICS_EXPORTER=%q", v)
+	}
+
+	d.Target.Observability.ServiceMonitor = &spec.ServiceMonitor{Enabled: true}
+
+	b, err = k.Render(context.Background(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if v := containerEnv(t, objects(t, b)["Deployment/"+d.Services[0].Name])["OTEL_METRICS_EXPORTER"]; v != "none" {
+		t.Fatalf("scraped and pushed series would double; OTEL_METRICS_EXPORTER = %q", v)
+	}
+}

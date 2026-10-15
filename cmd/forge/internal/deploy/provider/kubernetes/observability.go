@@ -29,6 +29,12 @@ func observabilityEnv(d *model.Deployment, s model.Service) map[string]string {
 		env["OTEL_TRACES_SAMPLER_ARG"] = strconv.FormatFloat(*o.SampleRatio, 'f', -1, 64)
 	}
 
+	// Prometheus scrapes through the ServiceMonitor, so push stays off or
+	// every series lands twice. Without one, push is how metrics get out.
+	if o.MonitorEnabled() {
+		env["OTEL_METRICS_EXPORTER"] = "none"
+	}
+
 	return env
 }
 

@@ -413,7 +413,9 @@ environment's `env`, yours wins.
 With `service_monitor.enabled`, each service with an HTTP port gets a Prometheus
 Operator `ServiceMonitor` that scrapes `/_/metrics` on that port. The Operator
 names the job after the Service, which is the service name, so it lines up with
-`OTEL_SERVICE_NAME` and Grafana's trace-to-metrics links work. You need the
+`OTEL_SERVICE_NAME` and Grafana's trace-to-metrics links work. With both on,
+pods also get `OTEL_METRICS_EXPORTER=none`, so they don't push the same series
+over OTLP that Prometheus scrapes. You need the
 Operator's CRDs in the cluster; apply checks for them first and stops with a
 clear error when they're missing.
 

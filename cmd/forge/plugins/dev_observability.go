@@ -12,7 +12,9 @@ import (
 )
 
 // observabilityEnv returns the variables dev sets for an app with the local
-// stack on, and the names it left alone because they were already set.
+// stack on, and the names it left alone because they were already set. The
+// stack's Prometheus scrapes the app, which is what carries exemplars, so OTLP
+// metrics push goes off; with both on every series would land twice.
 func observabilityEnv(getenv func(string) string, endpoint, service string) (map[string]string, []string) {
 	set := map[string]string{}
 	kept := []string{}
@@ -20,6 +22,7 @@ func observabilityEnv(getenv func(string) string, endpoint, service string) (map
 	for key, value := range map[string]string{
 		"OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
 		"OTEL_SERVICE_NAME":           service,
+		"OTEL_METRICS_EXPORTER":       "none",
 	} {
 		if getenv(key) != "" {
 			kept = append(kept, key)
@@ -100,6 +103,12 @@ func (p *DevPlugin) startObservability(ctx cli.CommandContext, app *AppInfo, inD
 	}
 
 	for _, key := range kept {
+		if key == "OTEL_METRICS_EXPORTER" {
+			ctx.Warning("OTEL_METRICS_EXPORTER is already set, so dev left it alone; if the app pushes metrics to the stack too, every series lands twice")
+
+			continue
+		}
+
 		if key == "OTEL_SERVICE_NAME" {
 			ctx.Warning("OTEL_SERVICE_NAME is already set, so dev left it alone; Grafana's trace-to-metrics link needs it to match the Prometheus job, " + app.Name)
 

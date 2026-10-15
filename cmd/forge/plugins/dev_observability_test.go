@@ -12,7 +12,9 @@ func fakeEnv(m map[string]string) func(string) string {
 
 func TestObservabilityEnvSetsBoth(t *testing.T) {
 	set, kept := observabilityEnv(fakeEnv(nil), "http://localhost:4318", "shop-api")
-	if set["OTEL_EXPORTER_OTLP_ENDPOINT"] != "http://localhost:4318" || set["OTEL_SERVICE_NAME"] != "shop-api" || len(kept) != 0 {
+	// Prometheus scrapes the app, so OTLP metrics push stays off or every
+	// series lands twice.
+	if set["OTEL_EXPORTER_OTLP_ENDPOINT"] != "http://localhost:4318" || set["OTEL_SERVICE_NAME"] != "shop-api" || set["OTEL_METRICS_EXPORTER"] != "none" || len(kept) != 0 {
 		t.Fatalf("set %v kept %v", set, kept)
 	}
 }
