@@ -663,6 +663,17 @@ func (a *app) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Metrics push begins further down. A Start that returns an error stops
+	// it again, even when an after-start hook fails once the app counts as
+	// started, so no push outlives a failed Start.
+	startOK := false
+
+	defer func() {
+		if !startOK {
+			a.stopMetricsPush(context.WithoutCancel(ctx))
+		}
+	}()
+
 	// Execute before start hooks
 	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStart, a); err != nil {
 		return fmt.Errorf("before start hooks failed: %w", err)
@@ -804,6 +815,9 @@ func (a *app) Start(ctx context.Context) error {
 		}
 	}
 
+	// Push only once the collector runs, so the first push carries its series.
+	a.startMetricsPush(ctx)
+
 	// Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
 
@@ -833,7 +847,38 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.logger.Info("application started successfully")
 
+	startOK = true
+
 	return nil
+}
+
+// startMetricsPush starts pushing metrics when push is configured. Like
+// tracing, it never fails Start: an exporter that can't be built is logged
+// and the app runs without pushing.
+func (a *app) startMetricsPush(ctx context.Context) {
+	if a.metricsPush == nil {
+		return
+	}
+
+	if err := a.metricsPush.Start(ctx); err != nil {
+		a.logger.Error("telemetry: metrics push disabled", F("error", err))
+
+		return
+	}
+
+	s := a.metricsPush.Settings()
+	a.logger.Info("telemetry: pushing metrics over OTLP",
+		F("endpoint", s.Endpoint),
+		F("interval", s.Interval.String()),
+		F("temporality", s.Temporality))
+}
+
+// stopMetricsPush pushes one last time and stops pushing. It does nothing when
+// push isn't running.
+func (a *app) stopMetricsPush(ctx context.Context) {
+	if err := a.metricsPush.Shutdown(ctx); err != nil {
+		a.logger.Warn("metrics push shutdown did not finish", F("error", err))
+	}
 }
 
 // startableService is a core service the app starts and stops itself, because
@@ -870,11 +915,10 @@ func (a *app) Stop(ctx context.Context) error {
 	// 2. Stop extensions in reverse order
 	a.stopExtensions(ctx)
 
-	// 3. Push metrics one last time, while the collector still holds them: its
-	// Stop resets the registry. The drain and the extension stops are counted.
-	if err := a.metricsPush.Shutdown(ctx); err != nil {
-		a.logger.Warn("metrics push shutdown did not finish", F("error", err))
-	}
+	// 3. Push metrics one last time and stop pushing, while the collector
+	// still holds them: its Stop resets the registry. The drain and the
+	// extension stops are counted.
+	a.stopMetricsPush(ctx)
 
 	// 4. Stop DI container (stops all services in reverse order)
 	if err := a.container.Stop(ctx); err != nil {
@@ -2129,8 +2173,9 @@ type otlpProducerSource interface {
 	OTLPProducer(temporality exporters.Temporality) *exporters.OTLPProducer
 }
 
-// buildMetricsExport resolves metrics push and starts it when an endpoint is
-// configured. Like tracing, it never stops the app from booting.
+// buildMetricsExport resolves metrics push and, when an endpoint is
+// configured, returns a pusher that app.Start starts. Nothing is pushed
+// before Start. Like tracing, it never stops the app from booting.
 func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *telemetry.Provider,
 	log Logger) *telemetry.MetricsPusher {
 	var fromFile shared.MetricsExportConfig
@@ -2173,17 +2218,12 @@ func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *
 		res = tracing.Resource()
 	}
 
-	pusher, err := telemetry.NewMetricsPusher(context.Background(), settings, res, source.OTLPProducer(temporality), log)
+	pusher, err := telemetry.NewMetricsPusher(settings, res, source.OTLPProducer(temporality), log)
 	if err != nil {
 		log.Error("telemetry: metrics push disabled", F("error", err))
 
 		return nil
 	}
-
-	log.Info("telemetry: pushing metrics over OTLP",
-		F("endpoint", settings.Endpoint),
-		F("interval", settings.Interval.String()),
-		F("temporality", settings.Temporality))
 
 	return pusher
 }

@@ -1,9 +1,13 @@
 package forge
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -48,6 +52,13 @@ func newMetricsReceiver(t *testing.T) *metricsReceiver {
 	t.Cleanup(r.Close)
 
 	return r
+}
+
+func (r *metricsReceiver) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.got)
 }
 
 func clearOTELEnv(t *testing.T) {
@@ -219,6 +230,14 @@ func TestAppBadMetricsEndpointStillBoots(t *testing.T) {
 		t.Fatal("an invalid endpoint must not build a pusher")
 	}
 
+	if err := a.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
 	errs := 0
 
 	for _, e := range log.GetLogsByLevel("ERROR") {
@@ -229,5 +248,170 @@ func TestAppBadMetricsEndpointStillBoots(t *testing.T) {
 
 	if errs != 1 {
 		t.Fatalf("logged %d push-disabled errors, want 1", errs)
+	}
+}
+
+// pushEvery50ms points push at recv and makes it tick every 50ms, so a test
+// can tell within 300ms whether anything is pushing.
+func pushEvery50ms(t *testing.T, recv *metricsReceiver) {
+	t.Helper()
+
+	clearOTELEnv(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", recv.URL)
+	t.Setenv("OTEL_METRIC_EXPORT_INTERVAL", "50")
+}
+
+func TestAppNeverStartedDoesNotPush(t *testing.T) {
+	recv := newMetricsReceiver(t)
+	pushEvery50ms(t, recv)
+
+	a := New(WithAppName("never-started"))
+	if a.(*app).metricsPush == nil {
+		t.Fatal("an endpoint is set, so New should configure a pusher")
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if n := recv.count(); n != 0 {
+		t.Fatalf("an app that was never started pushed %d times, want 0", n)
+	}
+}
+
+func TestAppFailedExtensionStartDoesNotPush(t *testing.T) {
+	recv := newMetricsReceiver(t)
+	pushEvery50ms(t, recv)
+
+	ext := newMockExtension("broken", "1.0.0")
+	ext.startError = errors.New("boom")
+
+	a := New(WithAppName("failed-start"), WithExtensions(ext))
+	if err := a.Start(t.Context()); err == nil {
+		t.Fatal("Start should fail when an extension fails to start")
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if n := recv.count(); n != 0 {
+		t.Fatalf("an app whose Start failed pushed %d times, want 0", n)
+	}
+}
+
+func TestAppFailedStartAfterPushBeganStopsPushing(t *testing.T) {
+	recv := newMetricsReceiver(t)
+	pushEvery50ms(t, recv)
+
+	a := New(WithAppName("failed-after-start"))
+	if err := a.RegisterHookFn(PhaseAfterStart, "fail", func(context.Context, App) error {
+		return errors.New("boom")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Start(t.Context()); err == nil {
+		t.Fatal("Start should fail when an after-start hook fails")
+	}
+
+	after := recv.count()
+
+	time.Sleep(300 * time.Millisecond)
+
+	if n := recv.count(); n != after {
+		t.Fatalf("push kept running after Start failed: %d posts after the failure", n-after)
+	}
+}
+
+func TestAppMetricsDisabledWithEndpointWarnsOnce(t *testing.T) {
+	recv := newMetricsReceiver(t)
+	pushEvery50ms(t, recv)
+
+	log, ok := logger.NewTestLogger().(*logger.TestLogger)
+	if !ok {
+		t.Fatal("logger.NewTestLogger did not return a *logger.TestLogger")
+	}
+
+	cfg := DefaultMetricsConfig()
+	cfg.Enabled = false
+
+	a := New(WithAppName("metrics-off"), WithAppLogger(log), WithAppMetricsConfig(cfg))
+	if a.(*app).metricsPush != nil {
+		t.Fatal("metrics are disabled, so no pusher should be built")
+	}
+
+	if err := a.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	warns := 0
+
+	for _, e := range log.GetLogsByLevel("WARN") {
+		if e.Message == "telemetry: metrics are disabled, so nothing is pushed" {
+			warns++
+		}
+	}
+
+	if warns != 1 {
+		t.Fatalf("logged %d metrics-disabled warnings, want 1", warns)
+	}
+
+	if n := recv.count(); n != 0 {
+		t.Fatalf("metrics are disabled but the receiver got %d posts", n)
+	}
+}
+
+func TestAppLogsPushAtStartWithoutHeaders(t *testing.T) {
+	recv := newMetricsReceiver(t)
+	pushEvery50ms(t, recv)
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_HEADERS", "X-Api-Key=secret")
+
+	log, ok := logger.NewTestLogger().(*logger.TestLogger)
+	if !ok {
+		t.Fatal("logger.NewTestLogger did not return a *logger.TestLogger")
+	}
+
+	pushing := func() []logger.LogEntry {
+		var out []logger.LogEntry
+
+		for _, e := range log.GetLogsByLevel("INFO") {
+			if e.Message == "telemetry: pushing metrics over OTLP" {
+				out = append(out, e)
+			}
+		}
+
+		return out
+	}
+
+	a := New(WithAppName("push-log"), WithAppLogger(log))
+
+	if n := len(pushing()); n != 0 {
+		t.Fatalf("New logged the push line %d times, want 0: nothing pushes before Start", n)
+	}
+
+	if err := a.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := pushing()
+	if len(entries) != 1 {
+		t.Fatalf("Start logged the push line %d times, want 1", len(entries))
+	}
+
+	if v, _ := entries[0].Field("endpoint"); v != recv.URL+"/v1/metrics" {
+		t.Fatalf("endpoint field = %v, want %s/v1/metrics", v, recv.URL)
+	}
+
+	for _, f := range entries[0].Fields {
+		if strings.Contains(fmt.Sprint(f.Value()), "secret") {
+			t.Fatalf("the push line logs a header value in field %q", f.Key())
+		}
 	}
 }

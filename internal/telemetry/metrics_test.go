@@ -77,6 +77,13 @@ func (r *otlpReceiver) names() map[string]bool {
 	return out
 }
 
+func (r *otlpReceiver) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.got)
+}
+
 type stubProducer struct{}
 
 func (stubProducer) Produce(context.Context) ([]metricdata.ScopeMetrics, error) {
@@ -93,13 +100,17 @@ func TestMetricsPusherFlushesOnShutdown(t *testing.T) {
 	recv := newOTLPReceiver(t)
 	res := resource.NewSchemaless(attribute.String("service.name", "pusher-test"))
 
-	p, err := NewMetricsPusher(t.Context(), MetricsSettings{
+	p, err := NewMetricsPusher(MetricsSettings{
 		Enabled:  true,
 		Endpoint: recv.srv.URL + "/v1/metrics",
 		Headers:  map[string]string{"X-Api-Key": "secret"},
 		Interval: time.Hour, // only the shutdown flush exports
 	}, res, stubProducer{}, logger.NewNoopLogger())
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,17 +142,131 @@ func TestMetricsPusherFlushesOnShutdown(t *testing.T) {
 	}
 }
 
+// newHourlyPusher builds a pusher whose interval never fires in a test, so
+// every post the receiver sees comes from a Shutdown.
+func newHourlyPusher(t *testing.T, recv *otlpReceiver) *MetricsPusher {
+	t.Helper()
+
+	p, err := NewMetricsPusher(MetricsSettings{
+		Enabled:  true,
+		Endpoint: recv.srv.URL + "/v1/metrics",
+		Interval: time.Hour,
+	}, resource.Empty(), stubProducer{}, logger.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return p
+}
+
+func TestMetricsPusherNeverStartedExportsNothing(t *testing.T) {
+	recv := newOTLPReceiver(t)
+	p := newHourlyPusher(t, recv)
+
+	if err := p.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := recv.count(); n != 0 {
+		t.Fatalf("a pusher that never started posted %d times, want 0", n)
+	}
+}
+
+func TestMetricsPusherNeverStartedDoesNotTick(t *testing.T) {
+	recv := newOTLPReceiver(t)
+
+	_, err := NewMetricsPusher(MetricsSettings{
+		Enabled:  true,
+		Endpoint: recv.srv.URL + "/v1/metrics",
+		Interval: 10 * time.Millisecond,
+	}, resource.Empty(), stubProducer{}, logger.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	if n := recv.count(); n != 0 {
+		t.Fatalf("a pusher that never started posted %d times, want 0", n)
+	}
+}
+
+func TestMetricsPusherRestarts(t *testing.T) {
+	recv := newOTLPReceiver(t)
+	p := newHourlyPusher(t, recv)
+
+	for round := 1; round <= 2; round++ {
+		if err := p.Start(t.Context()); err != nil {
+			t.Fatalf("start %d: %v", round, err)
+		}
+
+		if err := p.Shutdown(t.Context()); err != nil {
+			t.Fatalf("shutdown %d: %v", round, err)
+		}
+
+		if n := recv.count(); n != round {
+			t.Fatalf("after shutdown %d the receiver has %d posts, want %d", round, n, round)
+		}
+	}
+}
+
+func TestMetricsPusherShutdownTwice(t *testing.T) {
+	recv := newOTLPReceiver(t)
+	p := newHourlyPusher(t, recv)
+
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 2 {
+		if err := p.Shutdown(t.Context()); err != nil {
+			t.Fatalf("shutdown %d: %v", i+1, err)
+		}
+	}
+
+	if n := recv.count(); n != 1 {
+		t.Fatalf("receiver has %d posts, want 1: the second Shutdown has nothing to flush", n)
+	}
+}
+
+func TestMetricsPusherStartTwiceKeepsOneReader(t *testing.T) {
+	recv := newOTLPReceiver(t)
+	p := newHourlyPusher(t, recv)
+
+	for i := range 2 {
+		if err := p.Start(t.Context()); err != nil {
+			t.Fatalf("start %d: %v", i+1, err)
+		}
+	}
+
+	if err := p.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := recv.count(); n != 1 {
+		t.Fatalf("receiver has %d posts, want 1: a second Start while running must not add a reader", n)
+	}
+}
+
 func TestMetricsPusherRejectsSchemelessEndpoint(t *testing.T) {
-	_, err := NewMetricsPusher(t.Context(), MetricsSettings{Enabled: true, Endpoint: "localhost:4318"},
+	_, err := NewMetricsPusher(MetricsSettings{Enabled: true, Endpoint: "localhost:4318"},
 		resource.Empty(), stubProducer{}, logger.NewNoopLogger())
 	if !errors.Is(err, ErrInvalidEndpoint) {
 		t.Fatalf("err = %v, want ErrInvalidEndpoint", err)
 	}
 }
 
-func TestMetricsPusherNilShutdown(t *testing.T) {
+func TestMetricsPusherNil(t *testing.T) {
 	var p *MetricsPusher
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := p.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+
+	if s := p.Settings(); s.Enabled || s.Endpoint != "" {
+		t.Fatalf("settings = %+v, want the zero value", s)
 	}
 }

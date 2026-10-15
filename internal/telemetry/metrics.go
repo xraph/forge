@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -13,64 +14,108 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// MetricsPusher pushes metrics over OTLP/HTTP on an interval.
+// MetricsPusher pushes metrics over OTLP/HTTP on an interval between Start
+// and Shutdown. It can be started again after a Shutdown, and the same
+// producer serves every run.
 type MetricsPusher struct {
-	mp       *sdkmetric.MeterProvider
 	settings MetricsSettings
+	res      *resource.Resource
+	producer sdkmetric.Producer
+	log      logger.Logger
+
+	mu sync.Mutex
+	mp *sdkmetric.MeterProvider // nil when not pushing
 }
 
-// NewMetricsPusher builds the OTLP exporter and a periodic reader over
-// producer. The MeterProvider that holds them is never installed as the OTel
-// global, so only what producer returns is pushed and a push always carries
-// the series a scrape shows.
-//
-// otlpmetrichttp reads its own OTEL_EXPORTER_OTLP_METRICS_* settings for what
-// is not passed here, such as the timeout, compression and TLS certificates.
-func NewMetricsPusher(ctx context.Context, s MetricsSettings, res *resource.Resource,
-	producer sdkmetric.Producer, log logger.Logger) (*MetricsPusher, error) {
+// NewMetricsPusher checks the endpoint and keeps what Start needs. Nothing is
+// exported until Start.
+func NewMetricsPusher(s MetricsSettings, res *resource.Resource, producer sdkmetric.Producer,
+	log logger.Logger) (*MetricsPusher, error) {
 	if err := validateEndpoint(s.Endpoint); err != nil {
 		return nil, err
 	}
 
+	if s.Interval <= 0 {
+		s.Interval = defaultMetricsInterval
+	}
+
+	return &MetricsPusher{settings: s, res: res, producer: producer, log: log}, nil
+}
+
+// Start builds the OTLP exporter and a periodic reader over the producer, and
+// pushes every interval until Shutdown. A pusher that is already running is
+// left as it is. The MeterProvider that holds them is never installed as the
+// OTel global, so only what the producer returns is pushed and a push always
+// carries the series a scrape shows.
+//
+// otlpmetrichttp reads its own OTEL_EXPORTER_OTLP_METRICS_* settings for what
+// is not passed here, such as the timeout, compression and TLS certificates.
+func (p *MetricsPusher) Start(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.mp != nil {
+		return nil
+	}
+
 	exp, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithEndpointURL(s.Endpoint),
-		otlpmetrichttp.WithHeaders(s.Headers),
+		otlpmetrichttp.WithEndpointURL(p.settings.Endpoint),
+		otlpmetrichttp.WithHeaders(p.settings.Headers),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("telemetry: create OTLP metrics exporter for %q: %w", s.Endpoint, err)
+		return fmt.Errorf("telemetry: create OTLP metrics exporter for %q: %w", p.settings.Endpoint, err)
 	}
 
-	interval := s.Interval
-	if interval <= 0 {
-		interval = defaultMetricsInterval
-	}
-
-	reader := sdkmetric.NewPeriodicReader(exp, sdkmetric.WithProducer(producer), sdkmetric.WithInterval(interval))
+	reader := sdkmetric.NewPeriodicReader(exp,
+		sdkmetric.WithProducer(p.producer), sdkmetric.WithInterval(p.settings.Interval))
 
 	opts := []sdkmetric.Option{sdkmetric.WithReader(reader)}
-	if res != nil {
-		opts = append(opts, sdkmetric.WithResource(res))
+	if p.res != nil {
+		opts = append(opts, sdkmetric.WithResource(p.res))
 	}
 
 	// Export failures (a backend down, a bad key) log at most once a minute,
 	// even when tracing is off and hasn't installed this already.
-	otel.SetErrorHandler(newRateLimitedErrorHandler(log, time.Minute))
+	otel.SetErrorHandler(newRateLimitedErrorHandler(p.log, time.Minute))
 
-	return &MetricsPusher{mp: sdkmetric.NewMeterProvider(opts...), settings: s}, nil
+	p.mp = sdkmetric.NewMeterProvider(opts...)
+
+	return nil
 }
 
 // Settings returns the resolved settings the pusher was built with.
-func (p *MetricsPusher) Settings() MetricsSettings { return p.settings }
+func (p *MetricsPusher) Settings() MetricsSettings {
+	if p == nil {
+		return MetricsSettings{}
+	}
 
-// Shutdown collects and exports one last time, waiting at most five seconds
-// or until ctx is done.
+	return p.settings
+}
+
+// Shutdown collects and exports one last time and stops pushing, waiting at
+// most five seconds or until ctx is done. It does nothing when the pusher
+// isn't running, and Start may be called again afterwards.
 func (p *MetricsPusher) Shutdown(ctx context.Context) error {
 	if p == nil {
 		return nil
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.mp == nil {
+		return nil
+	}
+
+	mp := p.mp
+	p.mp = nil
+
 	ctx, cancel := context.WithTimeout(ctx, shutdownCap)
 	defer cancel()
 
-	return p.mp.Shutdown(ctx)
+	return mp.Shutdown(ctx)
 }
