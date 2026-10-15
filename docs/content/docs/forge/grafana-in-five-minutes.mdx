@@ -9,51 +9,9 @@ import { Steps, Step } from 'fumadocs-ui/components/steps';
 
 By the end of this page you'll have a Forge app sending traces to Tempo, Prometheus scraping its metrics, and Grafana taking you from a slow request on a latency graph to the trace of that exact request. Everything runs on your machine in one container, `grafana/otel-lgtm`, which bundles Grafana, Tempo, Loki, Prometheus and an OpenTelemetry Collector.
 
-You'll need Docker and a Forge app. A one-command version of this setup is planned.
+You'll need Docker and a Forge app.
 
-<Steps>
-<Step>
-
-### Write a Prometheus config
-
-Forge does not push metrics. It serves them at `/_/metrics`, and Prometheus has to come and scrape them. The image's own Prometheus config has no scrape jobs, so write one that points at your app:
-
-```yaml title="prometheus.yaml"
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: forge
-    metrics_path: /_/metrics
-    static_configs:
-      - targets: ["host.docker.internal:8080"]
-```
-
-`host.docker.internal` is your machine as seen from inside the container. Change `8080` if your app listens somewhere else.
-
-</Step>
-<Step>
-
-### Start the stack
-
-```bash
-docker run -d --name lgtm \
-  -p 3000:3000 -p 4318:4318 -p 9090:9090 \
-  --add-host=host.docker.internal:host-gateway \
-  -v "$PWD/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro" \
-  grafana/otel-lgtm:0.36.0
-```
-
-Port 3000 is Grafana, 4318 is the collector's OTLP/HTTP receiver, and 9090 is Prometheus. Docker Desktop resolves `host.docker.internal` on its own; on Linux the `--add-host` flag is what makes it work, and it's harmless elsewhere. If something on your machine already holds one of these ports, change the left-hand number, as in `-p 19090:9090`.
-
-Your file replaces the image's `prometheus.yaml`. The original only holds settings for metrics that arrive over OTLP, which Forge doesn't send, so nothing here needs them.
-
-The stack takes about twenty seconds to come up. `docker logs -f lgtm` prints a line per component as it gets ready.
-
-</Step>
-<Step>
-
-### Point your app at the collector
+## An app to try it with
 
 Any Forge app works. If you want something to try it with, this one has a fast route, a slow route, a failing route and an SSE stream:
 
@@ -105,18 +63,17 @@ func main() {
 }
 ```
 
-Run it with one environment variable:
+## Start it with the forge CLI
+
+In a Forge project (the kind `forge init` makes), put that file at `cmd/shop-api/main.go` and run this from the project root:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run .
+forge dev --observability
 ```
 
-Forge adds `/v1/traces` to that URL and starts exporting. Tracing samples every request when the app's environment is empty or `development`, which is what you have here, so every request you send shows up.
+That's all the setup. The CLI starts the stack in a container called `forge-lgtm`, tells Prometheus to scrape your app's `/_/metrics`, and starts the app with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the collector. The first run pulls the image, about 3.5 GB, and the stack takes around twenty seconds to come up. After that it stays running between `forge dev` sessions, so your traces survive a restart.
 
-</Step>
-<Step>
-
-### Send some traffic
+Now send some traffic:
 
 ```bash
 for i in $(seq 1 50); do curl -s -o /dev/null localhost:8080/users/$i; done
@@ -125,14 +82,81 @@ for i in $(seq 1 3); do curl -s -o /dev/null localhost:8080/boom; done
 curl -sN localhost:8080/ticks
 ```
 
-Wait for one scrape, fifteen seconds, then open [localhost:9090/targets](http://localhost:9090/targets). The `forge` job should say `UP`. If it says `DOWN`, the error next to it is usually a port that doesn't match the one in `prometheus.yaml`.
+Open [localhost:3000](http://localhost:3000) and you land on the **Forge Service** dashboard: request rate, errors and latency per route, the SSE stream, gRPC if you have it, and the Go runtime. The latency graphs already show exemplar dots, and the tables at the bottom list recent error traces and slow spans.
+
+`forge obs status` lists every scrape target and whether Prometheus can reach it. If something on your machine already holds port 3000, 4318 or 9090, the CLI stops and tells you; start the stack with `forge obs up --prometheus-port 19090` (or `--grafana-port`, `--otlp-port`) and run `forge dev --observability` again. It reuses the running stack. The [development docs](/docs/forge/development#local-observability-stack) cover the rest.
+
+## Without the CLI
+
+You can wire up the same stack by hand. It's a good way to see what the CLI does for you, and it works for an app that isn't in a Forge project.
+
+<Steps>
+<Step>
+
+### Write a Prometheus config
+
+Forge serves metrics at `/_/metrics` for Prometheus to scrape. The image's own Prometheus config has no scrape jobs, so write one that points at your app:
+
+```yaml title="prometheus.yaml"
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: forge
+    metrics_path: /_/metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+```
+
+`host.docker.internal` is your machine as seen from inside the container. Change `8080` if your app listens somewhere else.
+
+</Step>
+<Step>
+
+### Start the stack
+
+```bash
+docker run -d --name lgtm \
+  -p 3000:3000 -p 4318:4318 -p 9090:9090 \
+  --add-host=host.docker.internal:host-gateway \
+  -v "$PWD/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro" \
+  grafana/otel-lgtm:0.36.0
+```
+
+Port 3000 is Grafana, 4318 is the collector's OTLP/HTTP receiver, and 9090 is Prometheus. Docker Desktop resolves `host.docker.internal` on its own; on Linux the `--add-host` flag is what makes it work, and it's harmless elsewhere. If something on your machine already holds one of these ports, change the left-hand number, as in `-p 19090:9090`.
+
+Your file replaces the image's `prometheus.yaml`. The original only holds settings for metrics that arrive over OTLP, and you won't be sending any, so nothing here needs them.
+
+The stack takes about twenty seconds to come up. `docker logs -f lgtm` prints a line per component as it gets ready.
+
+</Step>
+<Step>
+
+### Point your app at the collector
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 OTEL_METRICS_EXPORTER=none go run .
+```
+
+Forge adds `/v1/traces` to that URL and starts exporting. Tracing samples every request when the app's environment is empty or `development`, which is what you have here, so every request you send shows up.
+
+The second variable matters. With an OTLP endpoint set, Forge also pushes its metrics there, and Prometheus is already scraping them. Leave push on and every series lands twice under the same job, so every sum doubles. `forge dev --observability` sets it for you.
+
+</Step>
+<Step>
+
+### Send some traffic
+
+Use the same `curl` loops as above, wait for one scrape, fifteen seconds, then open [localhost:9090/targets](http://localhost:9090/targets). The `forge` job should say `UP`. If it says `DOWN`, the error next to it is usually a port that doesn't match the one in `prometheus.yaml`.
 
 </Step>
 </Steps>
 
+You can import the Forge Service dashboard into this Grafana too: `forge obs export --out ./obs` writes it, along with Prometheus alert rules.
+
 ## Look at it in Grafana
 
-Open [localhost:3000](http://localhost:3000). There's no login, and every data source is already set up.
+Open [localhost:3000](http://localhost:3000). There's no login, and every data source is already set up. The steps below use **Explore**, so they work the same whichever way you started the stack.
 
 ### Traces
 
@@ -194,11 +218,20 @@ Forge writes logs to stdout and doesn't send them to Loki. That's why **Logs for
 
 ## Clean up
 
+If you used the CLI:
+
+```bash
+forge obs down          # remove the container, keep the data
+forge obs down --purge  # throw the data away too
+```
+
+If you started it by hand:
+
 ```bash
 docker rm -f lgtm
 ```
 
-The container keeps its data inside itself, so removing it throws away every trace and metric you sent.
+That container keeps its data inside itself, so removing it throws away every trace and metric you sent.
 
 ## Next
 
