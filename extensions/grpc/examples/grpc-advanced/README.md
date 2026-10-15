@@ -101,7 +101,7 @@ ERROR:
 
 ## Test Health Check
 
-Health checks bypass authentication:
+Health checks bypass authentication, for every method of `grpc.health.v1.Health`:
 
 ```bash
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
@@ -206,7 +206,7 @@ grpcext.NewExtension(
 )
 ```
 
-The extension calls `registerGreeter` once, while it builds the server inside `app.Start`, and nothing you add after that point reaches the server. A server can't take services once it's serving, so `RegisterService` returns `ErrRegisterAfterStart` after that, and interceptors added later are never called. If the registrar returns an error, `app.Start` fails with it. Once the app has started, the example resolves `grpcext.GRPC` from the container to print the services and the statistics.
+The extension calls `registerGreeter` once, while it builds the server during `app.Start`. The server starts listening at the very end of `app.Start`, and it can't take services after that: `RegisterService` returns `ErrRegisterAfterStart`, and interceptors added later are never called. If the registrar returns an error, `app.Start` fails with it. Once the app has started, the example resolves `grpcext.GRPC` from the container to print the services and the statistics.
 
 ### 1. Custom Interceptor
 

@@ -41,7 +41,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 | Method | Description |
 |---|---|
 | `Server() GRPC` | The server |
-| `Start(ctx) error` | Start the server on the configured address. The extension calls it |
+| `Start(ctx) error` | Start the server on the configured address. vessel calls it on the first resolve. Under the extension it does nothing, because the extension starts the server from its last `PhaseAfterStart` hook |
 | `Stop(ctx) error` | `GracefulStop(ctx)`, which stops hard if `ctx` ends first. A server that never started is a no-op. The extension calls it |
 | `Health(ctx) error` | Whether the server exists |
 | `RegisterService`, `AddUnaryInterceptor`, `AddStreamInterceptor`, `RegisterHealthChecker`, `GetServer`, `IsRunning`, `GetStats`, `GetServices`, `Ping` | Pass through to the server |
@@ -50,7 +50,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 
 | Method | Description |
 |---|---|
-| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service before `Start`. Afterwards it returns `ErrRegisterAfterStart`, and a registration grpc-go would reject returns `ErrInvalidService`. With the extension, call it from a `WithServiceRegistrar` function. See [registering your own services](/docs/extensions/grpc#registering-your-own-services) |
+| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service before `Start`. Afterwards it returns `ErrRegisterAfterStart`, and a registration grpc-go would reject returns `ErrInvalidService`. With the extension, call it from a `WithServiceRegistrar` function, another extension's `Register` or `Start`, or a hook, before `app.Start` returns. See [registering your own services](/docs/extensions/grpc#registering-your-own-services) |
 | `GetServices() []ServiceInfo` | Registered services and their methods |
 
 ## `GRPC`: lifecycle

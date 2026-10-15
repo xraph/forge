@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,5 +178,175 @@ func TestWithConfigDropsEarlierServices(t *testing.T) {
 
 	if got := len(cfg.Services); got != 1 {
 		t.Fatalf("len(Services) = %d, want 1", got)
+	}
+}
+
+// contributorExtension adds the TestService to the gRPC extension's server,
+// from Register or from Start.
+type contributorExtension struct {
+	*forge.BaseExtension
+
+	inStart bool
+}
+
+func newContributor(inStart bool) *contributorExtension {
+	ext := &contributorExtension{
+		BaseExtension: forge.NewBaseExtension("grpc-contributor", "1.0.0", "adds a gRPC service"),
+		inStart:       inStart,
+	}
+	ext.SetDependencies([]string{"grpc"})
+
+	return ext
+}
+
+func (e *contributorExtension) contribute() error {
+	server, err := forge.Inject[GRPC](e.App().Container())
+	if err != nil {
+		return err
+	}
+
+	return server.RegisterService(&testgrpc.TestService_ServiceDesc, testService{})
+}
+
+func (e *contributorExtension) Register(app forge.App) error {
+	if err := e.BaseExtension.Register(app); err != nil {
+		return err
+	}
+
+	if e.inStart {
+		return nil
+	}
+
+	return e.contribute()
+}
+
+func (e *contributorExtension) Start(context.Context) error {
+	if e.inStart {
+		if err := e.contribute(); err != nil {
+			return err
+		}
+	}
+
+	e.MarkStarted()
+
+	return nil
+}
+
+// startAppWith runs an app with the gRPC extension and extra options, and
+// returns a client connection to the extension's server.
+func startAppWith(t *testing.T, setup func(forge.App), appOpts ...forge.AppOption) *grpc.ClientConn {
+	t.Helper()
+
+	opts := append([]forge.AppOption{
+		forge.WithAppName("grpc-services-test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	}, appOpts...)
+
+	app := forge.New(opts...)
+
+	if err := app.RegisterExtension(NewExtension(WithAddress("127.0.0.1:0"))); err != nil {
+		t.Fatal(err)
+	}
+
+	if setup != nil {
+		setup(app)
+	}
+
+	if err := app.Start(t.Context()); err != nil {
+		t.Fatalf("app.Start: %v", err)
+	}
+
+	t.Cleanup(func() { _ = app.Stop(context.Background()) })
+
+	svc, err := forge.Inject[*GRPCService](app.Container())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := grpc.NewClient(svc.Server().(*grpcServer).listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return conn
+}
+
+func TestAppServesServicesFromOtherExtensions(t *testing.T) {
+	lifecycles := map[string][]forge.AppOption{
+		"default":           nil,
+		"central migrations": {forge.WithCentralMigrations()},
+	}
+
+	for lifecycle, appOpts := range lifecycles {
+		for _, inStart := range []bool{false, true} {
+			name := lifecycle + "/register"
+			if inStart {
+				name = lifecycle + "/start"
+			}
+
+			t.Run(name, func(t *testing.T) {
+				conn := startAppWith(t, func(app forge.App) {
+					if err := app.RegisterExtension(newContributor(inStart)); err != nil {
+						t.Fatal(err)
+					}
+				}, appOpts...)
+
+				if err := emptyCall(t, conn); err != nil {
+					t.Fatalf("EmptyCall: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestAppServesServicesFromHooks(t *testing.T) {
+	for _, phase := range []forge.LifecyclePhase{forge.PhaseAfterRegister, forge.PhaseAfterStart} {
+		t.Run(string(phase), func(t *testing.T) {
+			conn := startAppWith(t, func(app forge.App) {
+				err := app.RegisterHookFn(phase, "register-test-service", func(_ context.Context, a forge.App) error {
+					server, err := forge.Inject[GRPC](a.Container())
+					if err != nil {
+						return err
+					}
+
+					return server.RegisterService(&testgrpc.TestService_ServiceDesc, testService{})
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+
+			if err := emptyCall(t, conn); err != nil {
+				t.Fatalf("EmptyCall: %v", err)
+			}
+		})
+	}
+}
+
+func TestAppStartFailsWhenServerCantListen(t *testing.T) {
+	taken, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = taken.Close() })
+
+	app := forge.New(
+		forge.WithAppName("grpc-services-test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(NewExtension(WithAddress(taken.Addr().String()))),
+	)
+
+	t.Cleanup(func() { _ = app.Stop(context.Background()) })
+
+	if err := app.Start(t.Context()); err == nil {
+		t.Fatal("app.Start succeeded with the gRPC address taken")
 	}
 }

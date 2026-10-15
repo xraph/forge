@@ -16,6 +16,10 @@ type GRPCService struct {
 	server  GRPC
 	logger  forge.Logger
 	metrics forge.Metrics
+
+	// deferServe makes Start a no-op. The extension sets it and serves from
+	// a lifecycle hook instead, once every extension has registered.
+	deferServe bool
 }
 
 // NewGRPCService creates a new gRPC service with the given configuration.
@@ -42,9 +46,20 @@ func (s *GRPCService) Name() string {
 	return "grpc-service"
 }
 
-// Start starts the gRPC service.
-// This is called automatically by Vessel during container.Start().
+// Start starts the gRPC service. Vessel calls it the first time anything
+// resolves the service. Under the extension it does nothing, because the
+// extension starts the server at the end of app.Start, so services that
+// other extensions and hooks register on the way still make it onto it.
 func (s *GRPCService) Start(ctx context.Context) error {
+	if s.deferServe {
+		return nil
+	}
+
+	return s.serve(ctx)
+}
+
+// serve starts the server on the configured address.
+func (s *GRPCService) serve(ctx context.Context) error {
 	s.logger.Info("starting grpc service",
 		forge.F("address", s.config.Address),
 		forge.F("tls", s.config.EnableTLS),

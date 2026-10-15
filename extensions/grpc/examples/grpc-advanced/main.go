@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/xraph/forge"
@@ -31,8 +32,8 @@ func (s *server) SayHello(ctx context.Context, in *helloworld.HelloRequest) (*he
 // Custom authentication interceptor
 func authInterceptor(logger forge.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// Skip auth for health checks
-		if info.FullMethod == "/grpc.health.v1.Health/Check" {
+		// Skip auth for health checks, so probes don't need the key
+		if strings.HasPrefix(info.FullMethod, "/grpc.health.v1.Health/") {
 			return handler(ctx, req)
 		}
 

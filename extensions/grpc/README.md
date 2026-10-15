@@ -47,23 +47,14 @@ func main() {
 				grpcext.WithAddress(":50051"),
 				grpcext.WithReflection(true),
 				grpcext.WithHealthCheck(true),
+				grpcext.WithServiceRegistrar(func(app forge.App, s grpcext.GRPC) error {
+					s.RegisterHealthChecker("billing.db", dbCheck{})
+
+					return nil
+				}),
 			),
 		},
 	})
-
-	err := app.RegisterHookFn(forge.PhaseAfterStart, "grpc-health", func(ctx context.Context, a forge.App) error {
-		srv, err := forge.Inject[grpcext.GRPC](a.Container())
-		if err != nil {
-			return err
-		}
-
-		srv.RegisterHealthChecker("billing.db", dbCheck{})
-
-		return nil
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
@@ -116,9 +107,30 @@ A registrar that returns an error fails `app.Start` with that error wrapped. So 
 
 The registrar runs inside the constructor of the gRPC service, so it can resolve anything you provided on the container before `app.Start` and anything an earlier extension registered. Resolving `grpcext.GRPC` or `*grpcext.GRPCService` from inside it is a circular dependency. `WithConfig` replaces the whole config, registrars included, so put `WithService` and `WithServiceRegistrar` after it.
 
-You can't do this from a lifecycle hook. grpc-go can't add a service to a server that's already serving, and the extension's server starts inside `app.Start`, right after the extension registers. Resolving it from the container starts it too, so even a `PhaseAfterRegister` hook finds it running. Here's what each call does on either side of `Start`:
+### From another extension or a hook
 
-| What | Before `Start` | After `Start` |
+The server doesn't listen until the very end of `app.Start`. The extension starts it from a `PhaseAfterStart` hook with priority `math.MinInt`, so it runs after every other hook, and until then you can register from anywhere that reaches the container. An extension that lists `grpc` in its dependencies resolves the server in its `Register` or its `Start`:
+
+```go
+func (e *Extension) Register(app forge.App) error {
+	if err := e.BaseExtension.Register(app); err != nil {
+		return err
+	}
+
+	srv, err := forge.Inject[grpcext.GRPC](app.Container())
+	if err != nil {
+		return err
+	}
+
+	return srv.RegisterService(&pb.Ledger_ServiceDesc, e.ledger)
+}
+```
+
+A `PhaseAfterRegister` hook works too, and so does a `PhaseAfterStart` hook at any higher priority. Once `app.Start` returns, the server is serving and `RegisterService` returns `ErrRegisterAfterStart`. The flip side is that nothing can dial the server from inside `app.Start`: an extension's `Start` or an after-start hook runs before the port is open. If the port is taken or the TLS files don't load, `app.Start` fails with the error from that last hook.
+
+grpc-go can't add a service to a server that's already serving, which is why all of this has to happen first. Here's what each call does on either side of the server's start:
+
+| What | Before it serves | Once it serves |
 | --- | --- | --- |
 | `RegisterService` | Buffered and served | Returns `ErrRegisterAfterStart` |
 | `AddUnaryInterceptor`, `AddStreamInterceptor` | Chained onto the server | Stored, never called |

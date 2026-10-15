@@ -53,8 +53,11 @@ func NewGRPCService(config Config, logger forge.Logger, metrics forge.Metrics) (
 - `GRPC`, the interface, backed by the same `*GRPCService` singleton.
 
 Resolve with `forge.Inject[grpcext.GRPC](app.Container())` or
-`forge.Inject[*grpcext.GRPCService](app.Container())`. The extension's `Start` resolves
-`*GRPCService` and starts it, so the server listens once the app starts.
+`forge.Inject[*grpcext.GRPCService](app.Container())`. Resolving builds the service but doesn't
+start the server: under the extension, GRPCService.Start is a no-op. The extension's Register adds
+a PhaseAfterStart hook named "grpc-serve" with Priority math.MinInt, which starts the server
+after every other hook, so the server listens when app.Start returns. A listen or TLS error
+fails app.Start from that hook.
 
 ## Key types
 
@@ -89,27 +92,25 @@ ErrInvalidService.
 
 ## Usage
 
-Add a health checker once the app has started:
+Add a health checker with the server's setup:
 
 ```go
 app := forge.NewApp(forge.AppConfig{
     Name: "billing",
     Extensions: []forge.Extension{
-        grpcext.NewExtension(grpcext.WithAddress(":50051")),
+        grpcext.NewExtension(
+            grpcext.WithAddress(":50051"),
+            grpcext.WithServiceRegistrar(func(app forge.App, s grpcext.GRPC) error {
+                s.RegisterHealthChecker("billing.db", dbCheck{})
+                return nil
+            }),
+        ),
     },
-})
-
-_ = app.RegisterHookFn(forge.PhaseAfterStart, "grpc-health", func(ctx context.Context, a forge.App) error {
-    srv, err := forge.Inject[grpcext.GRPC](a.Container())
-    if err != nil {
-        return err
-    }
-    srv.RegisterHealthChecker("billing.db", dbCheck{})
-    return nil
 })
 ```
 
-Checkers are looked up on every call, so you can add them at any time.
+Checkers are looked up on every call, so you can also add them later, from anywhere that
+resolves grpcext.GRPC.
 
 ## Config
 
@@ -165,8 +166,13 @@ grpcext.NewExtension(
 - Config.Services holds the registrars (json/yaml/mapstructure "-"). WithConfig replaces it, so
   put WithService and WithServiceRegistrar after WithConfig. NewGRPCService and NewGRPCServer
   ignore the field.
-- Lifecycle hooks are too late. The server starts inside app.Start right after the extension
-  registers, and resolving it starts it, so a PhaseAfterRegister hook finds it serving.
+
+From another extension or a hook, resolve GRPC and call RegisterService. Anything before the
+"grpc-serve" hook works: another extension's Register or Start (list "grpc" in its
+dependencies), a PhaseAfterRegister hook, a PhaseAfterStart hook at any priority above
+math.MinInt. Tested under both the default and the central-migrations lifecycle. Once app.Start
+returns, RegisterService returns ErrRegisterAfterStart. Nothing can dial the server from inside
+app.Start, since the port isn't open until that last hook.
 
 On the server itself:
 

@@ -28,7 +28,7 @@ type GRPC interface {
 
 grpc-go supports unary, server streaming, client streaming and bidirectional streaming calls. Register your service with `RegisterService(&pb.Xxx_ServiceDesc, impl)` before `Start`: the server buffers it and serves it once it starts. After `Start` the call returns `ErrRegisterAfterStart`. `GetServer()` is `nil` until `Start`, and registering a generated service on a serving server stops the process with `grpc: Server.RegisterService after Server.Serve`.
 
-With the extension, pass the service when you create it: `grpcext.WithService(&pb.Xxx_ServiceDesc, impl)`, or `grpcext.WithServiceRegistrar(fn)` when the implementation needs dependencies from the container or you want interceptors and health checkers added in the same place. The extension calls them while it builds the server inside `app.Start`. See [registering your own services](/docs/extensions/grpc#registering-your-own-services).
+With the extension, pass the service when you create it: `grpcext.WithService(&pb.Xxx_ServiceDesc, impl)`, or `grpcext.WithServiceRegistrar(fn)` when the implementation needs dependencies from the container or you want interceptors and health checkers added in the same place. The extension calls them while it builds the server. Another extension, or a lifecycle hook, can resolve `grpcext.GRPC` and call `RegisterService` itself any time before `app.Start` returns, because the server only starts listening in the last `PhaseAfterStart` hook. See [registering your own services](/docs/extensions/grpc#registering-your-own-services).
 
 ## TLS and mutual TLS
 

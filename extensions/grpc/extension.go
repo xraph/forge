@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/vessel"
@@ -73,9 +74,8 @@ func (e *Extension) Register(app forge.App) error {
 			return nil, err
 		}
 
-		// Vessel starts the service as soon as anything resolves it, so this
-		// constructor is the last point where the server can still take
-		// services, interceptors and health checkers.
+		svc.deferServe = true
+
 		for _, register := range finalConfig.Services {
 			if register == nil {
 				continue
@@ -98,6 +98,17 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register grpc interface: %w", err)
 	}
 
+	// Serve last, after every other after-start hook, so anything registered
+	// while the app starts is on the server: services from the options,
+	// from extensions that registered or started after this one, and from
+	// hooks up to and including PhaseAfterStart.
+	if err := app.RegisterHook(forge.PhaseAfterStart, e.serve, forge.LifecycleHookOptions{
+		Name:     "grpc-serve",
+		Priority: math.MinInt,
+	}); err != nil {
+		return fmt.Errorf("grpc: failed to register serve hook: %w", err)
+	}
+
 	e.Logger().Info("grpc extension registered",
 		forge.F("address", finalConfig.Address),
 		forge.F("tls", finalConfig.EnableTLS),
@@ -107,18 +118,29 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start resolves and starts the gRPC service, then marks the extension as started.
+// Start builds the gRPC service, which runs the registrars from the options,
+// and marks the extension as started. The server listens later, at the end of
+// app.Start, from the hook Register adds.
 func (e *Extension) Start(ctx context.Context) error {
-	svc, err := forge.Inject[*GRPCService](e.App().Container())
-	if err != nil {
+	if _, err := forge.Inject[*GRPCService](e.App().Container()); err != nil {
 		return fmt.Errorf("failed to resolve grpc service: %w", err)
 	}
 
-	if err := svc.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start grpc service: %w", err)
+	e.MarkStarted()
+
+	return nil
+}
+
+// serve starts the server. It runs as the last PhaseAfterStart hook.
+func (e *Extension) serve(ctx context.Context, app forge.App) error {
+	svc, err := forge.Inject[*GRPCService](app.Container())
+	if err != nil {
+		return fmt.Errorf("grpc: failed to resolve grpc service: %w", err)
 	}
 
-	e.MarkStarted()
+	if err := svc.serve(ctx); err != nil {
+		return fmt.Errorf("grpc: %w", err)
+	}
 
 	return nil
 }
