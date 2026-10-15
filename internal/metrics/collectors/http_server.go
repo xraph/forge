@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"time"
@@ -94,50 +95,28 @@ func (h *HTTPServerMetrics) Middleware() func(http.Handler) http.Handler {
 				scheme = "https"
 			}
 
-			active := h.active.With(method, scheme)
-			active.Inc()
-
-			decremented := false
-			dec := func() {
-				if !decremented {
-					decremented = true
-
-					active.Dec()
-				}
+			// One allocation holds everything the request needs, the status
+			// recorder included. Separate closures for decrementing and
+			// recording cost one allocation each.
+			req := &serverRequest{
+				h:      h,
+				r:      r,
+				match:  match,
+				method: method,
+				scheme: scheme,
+				active: h.active.With(method, scheme),
+				rec:    telemetry.StatusRecorder{ResponseWriter: w},
 			}
 
-			defer dec()
+			req.active.Inc()
+			defer req.finishActive()
 
-			start := time.Now()
-
-			record := func(status int, bytesWritten int64) {
-				elapsed := time.Since(start).Seconds()
-
-				errType := ""
-				if status >= http.StatusInternalServerError {
-					errType = strconv.Itoa(status)
-				}
-
-				values := []string{method, match.Pattern, strconv.Itoa(status), scheme, errType}
-
-				observe(h.duration.With(values...), elapsed, r)
-
-				if h.reqSize != nil {
-					if r.ContentLength > 0 {
-						h.reqSize.With(values...).Observe(float64(r.ContentLength))
-					}
-
-					h.respSize.With(values...).Observe(float64(bytesWritten))
-				}
-			}
+			req.start = time.Now()
 
 			// A stream route is recorded once, at the handshake. Its
 			// connection can stay open for hours, so the request neither
 			// counts as active nor reports a duration after that.
-			match.OnEstablished(func(status int) {
-				record(status, 0)
-				dec()
-			})
+			match.OnEstablished(req.established)
 
 			// Behind the tracing middleware the holder is already on the
 			// context, and copying the request would buy nothing.
@@ -146,17 +125,84 @@ func (h *HTTPServerMetrics) Middleware() func(http.Handler) http.Handler {
 				inner = r.WithContext(ctx)
 			}
 
-			rec := telemetry.NewStatusRecorder(w)
-
-			next.ServeHTTP(rec, inner)
+			next.ServeHTTP(&req.rec, inner)
 
 			if match.Established() {
 				return
 			}
 
-			record(rec.Status(), rec.BytesWritten())
+			req.record(req.rec.Status(), req.rec.BytesWritten())
 		})
 	}
+}
+
+// serverRequest is the per-request state of the HTTP server metrics.
+type serverRequest struct {
+	h      *HTTPServerMetrics
+	r      *http.Request
+	match  *shared.RouteMatch
+	method string
+	scheme string
+	active metrics.Gauge
+	start  time.Time
+	rec    telemetry.StatusRecorder
+
+	decremented bool
+}
+
+// finishActive takes the request off the active gauge, once.
+func (s *serverRequest) finishActive() {
+	if !s.decremented {
+		s.decremented = true
+
+		s.active.Dec()
+	}
+}
+
+func (s *serverRequest) established(status int) {
+	s.record(status, 0)
+	s.finishActive()
+}
+
+func (s *serverRequest) record(status int, bytesWritten int64) {
+	elapsed := time.Since(s.start).Seconds()
+
+	code := statusCode(status)
+
+	errType := ""
+	if status >= http.StatusInternalServerError {
+		errType = code
+	}
+
+	values := [...]string{s.method, s.match.Pattern, code, s.scheme, errType}
+
+	observe(s.h.duration.With(values[:]...), elapsed, s.r)
+
+	if s.h.reqSize != nil {
+		if s.r.ContentLength > 0 {
+			s.h.reqSize.With(values[:]...).Observe(float64(s.r.ContentLength))
+		}
+
+		s.h.respSize.With(values[:]...).Observe(float64(bytesWritten))
+	}
+}
+
+// statusCodes holds the decimal text of every status from 100 to 599, so
+// labelling a response doesn't format an integer on every request.
+var statusCodes = func() (t [600]string) {
+	for code := 100; code < len(t); code++ {
+		t[code] = strconv.Itoa(code)
+	}
+
+	return t
+}()
+
+func statusCode(status int) string {
+	if status >= 100 && status < len(statusCodes) {
+		return statusCodes[status]
+	}
+
+	return strconv.Itoa(status)
 }
 
 func (h *HTTPServerMetrics) routeMatch(r *http.Request) (context.Context, *shared.RouteMatch) {
@@ -175,10 +221,27 @@ func observe(hist metrics.Histogram, v float64, r *http.Request) {
 		return
 	}
 
+	traceID, spanID := exemplarIDs(sc)
+
 	hist.ObserveWithExemplar(v, metrics.Exemplar{
 		Value:     v,
 		Timestamp: time.Now(),
-		TraceID:   sc.TraceID().String(),
-		SpanID:    sc.SpanID().String(),
+		TraceID:   traceID,
+		SpanID:    spanID,
 	})
+}
+
+// exemplarIDs hex-encodes both IDs into one string and slices it, one
+// allocation where TraceID.String and SpanID.String cost one each.
+func exemplarIDs(sc trace.SpanContext) (traceID, spanID string) {
+	tid, sid := sc.TraceID(), sc.SpanID()
+
+	var buf [2*len(tid) + 2*len(sid)]byte
+
+	hex.Encode(buf[:2*len(tid)], tid[:])
+	hex.Encode(buf[2*len(tid):], sid[:])
+
+	ids := string(buf[:])
+
+	return ids[:2*len(tid)], ids[2*len(tid):]
 }

@@ -340,3 +340,73 @@ func histogramCount(t *testing.T, m shared.Metrics, name string, labels map[stri
 
 	return metric(t, m, name, labels).GetHistogram().GetSampleCount()
 }
+
+// The middleware runs on every request. Behind the tracing middleware (a
+// holder already on the context, a sampled span) it allocates once for its
+// per-request state, once for the establish callback and once for the
+// exemplar IDs. go-utils adds 4 more: metricCore.updateTimestamp on Inc, Dec
+// and Observe, and the exemplar store. If this climbs, something on the hot
+// path regressed.
+func TestHTTPServerMetricsAllocations(t *testing.T) {
+	m := newCollector(t)
+	mw := collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{}).Middleware()
+	// routedHandler's []byte conversion allocates; this handler doesn't, so
+	// the count below is the middleware's alone.
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shared.RouteMatchFromContext(r.Context()).Pattern = "/users/:id"
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled,
+	})
+	// One request per run, each with its own holder, the way the tracing
+	// middleware hands them over.
+	const runs = 200
+
+	reqs := make([]*http.Request, runs+1)
+	for i := range reqs {
+		ctx, _ := shared.EnsureRouteMatch(trace.ContextWithSpanContext(t.Context(), sc))
+		reqs[i] = httptest.NewRequestWithContext(ctx, http.MethodGet, "/users/7", nil)
+	}
+
+	w := discardWriter{header: http.Header{}}
+	next := 0
+
+	allocs := testing.AllocsPerRun(runs, func() {
+		h.ServeHTTP(w, reqs[next])
+		next++
+	})
+
+	if allocs > 7 {
+		t.Fatalf("middleware allocated %.0f times per request, want at most 7", allocs)
+	}
+}
+
+type discardWriter struct{ header http.Header }
+
+func (d discardWriter) Header() http.Header         { return d.header }
+func (d discardWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (d discardWriter) WriteHeader(int)             {}
+
+// Exemplars carry the hex trace and span IDs of a sampled request.
+func TestHTTPServerMetricsExemplarIDs(t *testing.T) {
+	m := newCollector(t)
+	mw := collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{}).Middleware()
+
+	tid := trace.TraceID{0xde, 0xad, 0xbe, 0xef, 15: 0x01}
+	sid := trace.SpanID{0xca, 0xfe, 7: 0x02}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: tid, SpanID: sid, TraceFlags: trace.FlagsSampled})
+
+	req := httptest.NewRequestWithContext(trace.ContextWithSpanContext(t.Context(), sc), http.MethodGet, "/x", nil)
+	mw(routedHandler("/x", http.StatusOK)).ServeHTTP(httptest.NewRecorder(), req)
+
+	om := scrape(t, m, true)
+
+	for _, want := range []string{`trace_id="` + tid.String() + `"`, `span_id="` + sid.String() + `"`} {
+		if !strings.Contains(om, want) {
+			t.Fatalf("exemplar is missing %s:\n%s", want, om)
+		}
+	}
+}

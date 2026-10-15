@@ -24,6 +24,10 @@ type RouteMatch struct {
 
 	established bool
 	onEstablish []func(status int)
+
+	// inline backs onEstablish for the usual case, tracing and HTTP metrics
+	// registering one callback each, so a request doesn't allocate for them.
+	inline [2]func(status int)
 }
 
 // OnEstablished registers fn to run when the router reports a stream route as
@@ -33,6 +37,10 @@ type RouteMatch struct {
 func (m *RouteMatch) OnEstablished(fn func(status int)) {
 	if m == nil {
 		return
+	}
+
+	if m.onEstablish == nil {
+		m.onEstablish = m.inline[:0]
 	}
 
 	m.onEstablish = append(m.onEstablish, fn)
