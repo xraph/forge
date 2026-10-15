@@ -21,9 +21,9 @@ The default hook logs an error through the global go-utils logger with the metri
 
 ### Cache bound
 
-Children are cached in a `sync.Map` keyed by the values joined with `\xff`, so repeat calls cost one map load and no collector lock. The cache holds at most `maxCached` (4096) children. Past that, `With` still returns a correct child (built through the registry, which applies `metrics.limits.max_series_per_metric`), it is just not cached, so the call is slower. The cap exists so a label fed by user input can't grow this map without limit. The registry's series cap is what bounds exported series.
+Children are cached in a copy-on-write map keyed by the values joined with `\xff`. A repeat call joins the values into a stack buffer, loads the map through an atomic pointer and indexes it with `string(key)`, so a cache hit takes no lock and allocates nothing. Keys over 128 bytes still work, they just allocate. An insert copies the map under a mutex. That makes filling the cache quadratic, about 0.3s of CPU in total to reach the cap, paid once while new label sets show up. The cache holds at most `maxCached` (4096) children. Past that, `With` still returns a correct child (built through the registry, which applies `metrics.limits.max_series_per_metric`), it is just not cached, so the call is slower. The cap exists so a label fed by user input can't grow this map without limit. The registry's series cap is what bounds exported series.
 
-Two goroutines asking for the same new tuple can both build a child; `LoadOrStore` keeps one and both get it. Because the registry hands back the same series for the same name and labels, the duplicate is harmless.
+Two goroutines asking for the same new tuple can both build a child. The insert keeps the first one cached, and both get it. Because the registry hands back the same series for the same name and labels, the duplicate is harmless.
 
 ## Public API
 

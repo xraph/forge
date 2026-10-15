@@ -4,7 +4,7 @@
 package vec
 
 import (
-	"strings"
+	"maps"
 	"sync"
 	"sync/atomic"
 
@@ -39,10 +39,19 @@ type Vec[T any] struct {
 	labels []string
 	build  func(map[string]string) T
 	sink   T
-	cache  sync.Map // joined values -> T
-	cached atomic.Int64
 	warned atomic.Bool
+
+	// cache maps the joined label values to the child. It is copy on write:
+	// readers load the map and index it with no lock, and an insert copies it
+	// under mu. Indexing a plain map with string(bytes) doesn't allocate,
+	// where a sync.Map lookup needs the key as a string first.
+	cache atomic.Pointer[map[string]T]
+	mu    sync.Mutex
 }
+
+// keyBufSize covers the usual joined key without a heap allocation. A longer
+// key still works; it just allocates.
+const keyBufSize = 128
 
 // New declares a vector. build builds the child for one label set; sink is
 // returned on a wrong-arity call.
@@ -64,9 +73,14 @@ func (v *Vec[T]) With(values ...string) T {
 		return v.sink
 	}
 
-	key := strings.Join(values, "\xff")
-	if m, ok := v.cache.Load(key); ok {
-		return m.(T)
+	var buf [keyBufSize]byte
+
+	key := appendKey(buf[:0], values)
+
+	if m := v.cache.Load(); m != nil {
+		if child, ok := (*m)[string(key)]; ok {
+			return child
+		}
 	}
 
 	labels := make(map[string]string, len(values))
@@ -74,16 +88,55 @@ func (v *Vec[T]) With(values ...string) T {
 		labels[n] = values[i]
 	}
 
-	child := v.build(labels)
+	return v.store(string(key), v.build(labels))
+}
 
-	if v.cached.Load() >= maxCached {
-		return child
+// store caches child under key unless another goroutine got there first, in
+// which case it returns theirs. Past maxCached it returns child uncached.
+func (v *Vec[T]) store(key string, child T) T {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	old := v.cache.Load()
+	if old != nil {
+		if existing, ok := (*old)[key]; ok {
+			return existing
+		}
+
+		if len(*old) >= maxCached {
+			return child
+		}
 	}
 
-	actual, loaded := v.cache.LoadOrStore(key, child)
-	if !loaded {
-		v.cached.Add(1)
+	next := make(map[string]T, cachedLen(old)+1)
+	if old != nil {
+		maps.Copy(next, *old)
 	}
 
-	return actual.(T)
+	next[key] = child
+	v.cache.Store(&next)
+
+	return child
+}
+
+func cachedLen[T any](m *map[string]T) int {
+	if m == nil {
+		return 0
+	}
+
+	return len(*m)
+}
+
+// appendKey joins values with \xff, a byte that never appears in UTF-8, so
+// ("ab", "c") and ("a", "bc") stay apart.
+func appendKey(dst []byte, values []string) []byte {
+	for i, s := range values {
+		if i > 0 {
+			dst = append(dst, 0xff)
+		}
+
+		dst = append(dst, s...)
+	}
+
+	return dst
 }

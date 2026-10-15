@@ -1,6 +1,8 @@
 package vec
 
 import (
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -61,7 +63,70 @@ func TestCacheIsBounded(t *testing.T) {
 		v.With(string(rune('a'+i%26)) + string(rune(i)))
 	}
 
-	if n := v.cached.Load(); n > maxCached {
-		t.Fatalf("cache grew to %d, cap is %d", n, maxCached)
+	if n := cachedLen(v.cache.Load()); n != maxCached {
+		t.Fatalf("cache holds %d children, want the cap of %d", n, maxCached)
+	}
+}
+
+// The HTTP server metrics call With on every request, so a cache hit must
+// not allocate.
+func TestWithCacheHitDoesNotAllocate(t *testing.T) {
+	v := New("requests", []string{"method", "route", "status", "scheme", "error"}, func(map[string]string) *fake {
+		return &fake{}
+	}, &fake{})
+
+	v.With("GET", "/users/:id", "200", "http", "")
+
+	allocs := testing.AllocsPerRun(100, func() {
+		v.With("GET", "/users/:id", "200", "http", "")
+	})
+
+	if allocs != 0 {
+		t.Fatalf("With on a cached tuple allocated %.0f times, want 0", allocs)
+	}
+}
+
+// Values that join to the same bytes under a naive separator must stay
+// distinct children.
+func TestWithKeepsAdjacentValuesApart(t *testing.T) {
+	v := New("pairs", []string{"a", "b"}, func(l map[string]string) *fake {
+		return &fake{labels: l}
+	}, &fake{})
+
+	x := v.With("ab", "c")
+	y := v.With("a", "bc")
+
+	if x == y {
+		t.Fatal(`With("ab", "c") and With("a", "bc") returned the same child`)
+	}
+}
+
+// Goroutines racing on the same new tuples all get the child that was cached.
+func TestWithConcurrentInsertsAgree(t *testing.T) {
+	v := New("racing", []string{"id"}, func(map[string]string) *fake { return &fake{} }, &fake{})
+
+	const workers, ids = 8, 64
+
+	got := make([][ids]*fake, workers)
+
+	var wg sync.WaitGroup
+
+	for w := range workers {
+		wg.Go(func() {
+			for i := range ids {
+				got[w][i] = v.With(strconv.Itoa(i))
+			}
+		})
+	}
+
+	wg.Wait()
+
+	for i := range ids {
+		want := v.With(strconv.Itoa(i))
+		for w := range workers {
+			if got[w][i] != want {
+				t.Fatalf("worker %d got a different child for id %d", w, i)
+			}
+		}
 	}
 }
