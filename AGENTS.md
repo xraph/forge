@@ -26,7 +26,7 @@ The CLI module has no tags of its own. `go install github.com/xraph/forge/cmd/fo
 
 `models` requires grove, not forge, and is consumed at pseudo-versions.
 
-Eighteen of the extensions resolve the root through `replace github.com/xraph/forge => ../..`, and a few also replace sibling extensions. graphql has no replace, so it builds against the published root its go.mod names, even inside this repo. Your replace disappears once the module is someone else's dependency. They resolve the require line, so raise it when an extension starts using root API from a newer release.
+All nineteen extensions resolve the root through `replace github.com/xraph/forge => ../..`, and a few also replace sibling extensions. The example modules under `extensions/*/examples/` replace both the root and their own extension. Your replace disappears once the module is someone else's dependency. They resolve the require line, so raise it when an extension starts using root API from a newer release.
 
 Outside Go:
 
