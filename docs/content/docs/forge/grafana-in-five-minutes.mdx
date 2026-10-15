@@ -1,0 +1,207 @@
+---
+title: Grafana in five minutes
+description: Traces, metrics and exemplars from a Forge app in a local Grafana stack
+icon: Rocket
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+By the end of this page you'll have a Forge app sending traces to Tempo, Prometheus scraping its metrics, and Grafana taking you from a slow request on a latency graph to the trace of that exact request. Everything runs on your machine in one container, `grafana/otel-lgtm`, which bundles Grafana, Tempo, Loki, Prometheus and an OpenTelemetry Collector.
+
+You'll need Docker and a Forge app. A one-command version of this setup is planned.
+
+<Steps>
+<Step>
+
+### Write a Prometheus config
+
+Forge does not push metrics. It serves them at `/_/metrics`, and Prometheus has to come and scrape them. The image's own Prometheus config has no scrape jobs, so write one that points at your app:
+
+```yaml title="prometheus.yaml"
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: forge
+    metrics_path: /_/metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+```
+
+`host.docker.internal` is your machine as seen from inside the container. Change `8080` if your app listens somewhere else.
+
+</Step>
+<Step>
+
+### Start the stack
+
+```bash
+docker run -d --name lgtm \
+  -p 3000:3000 -p 4318:4318 -p 9090:9090 \
+  --add-host=host.docker.internal:host-gateway \
+  -v "$PWD/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro" \
+  grafana/otel-lgtm:0.36.0
+```
+
+Port 3000 is Grafana, 4318 is the collector's OTLP/HTTP receiver, and 9090 is Prometheus. Docker Desktop resolves `host.docker.internal` on its own; on Linux the `--add-host` flag is what makes it work, and it's harmless elsewhere. If something on your machine already holds one of these ports, change the left-hand number, as in `-p 19090:9090`.
+
+Your file replaces the image's `prometheus.yaml`. The original only holds settings for metrics that arrive over OTLP, which Forge doesn't send, so nothing here needs them.
+
+The stack takes about twenty seconds to come up. `docker logs -f lgtm` prints a line per component as it gets ready.
+
+</Step>
+<Step>
+
+### Point your app at the collector
+
+Any Forge app works. If you want something to try it with, this one has a fast route, a slow route, a failing route and an SSE stream:
+
+```go title="main.go"
+package main
+
+import (
+    "errors"
+    "math/rand/v2"
+    "time"
+
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New(forge.WithAppName("shop-api"))
+    r := app.Router()
+
+    r.GET("/users/:id", func(ctx forge.Context) error {
+        app.Logger().WithContext(ctx.Context()).Info("loaded user",
+            forge.String("id", ctx.Param("id")))
+
+        return ctx.JSON(200, map[string]string{"id": ctx.Param("id")})
+    })
+
+    r.POST("/orders", func(ctx forge.Context) error {
+        time.Sleep(time.Duration(200+rand.IntN(600)) * time.Millisecond)
+
+        return ctx.JSON(201, map[string]string{"status": "created"})
+    })
+
+    r.GET("/boom", func(ctx forge.Context) error {
+        return forge.InternalError(errors.New("boom"))
+    })
+
+    r.EventStream("/ticks", func(ctx forge.Context, s forge.Stream) error {
+        for i := range 3 {
+            if err := s.SendJSON("tick", map[string]int{"n": i}); err != nil {
+                return err
+            }
+
+            time.Sleep(200 * time.Millisecond)
+        }
+
+        return nil
+    })
+
+    app.Run()
+}
+```
+
+Run it with one environment variable:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run .
+```
+
+Forge adds `/v1/traces` to that URL and starts exporting. Tracing samples every request when the app's environment is empty or `development`, which is what you have here, so every request you send shows up.
+
+</Step>
+<Step>
+
+### Send some traffic
+
+```bash
+for i in $(seq 1 50); do curl -s -o /dev/null localhost:8080/users/$i; done
+for i in $(seq 1 5); do curl -s -o /dev/null -X POST localhost:8080/orders; done
+for i in $(seq 1 3); do curl -s -o /dev/null localhost:8080/boom; done
+curl -sN localhost:8080/ticks
+```
+
+Wait for one scrape, fifteen seconds, then open [localhost:9090/targets](http://localhost:9090/targets). The `forge` job should say `UP`. If it says `DOWN`, the error next to it is usually a port that doesn't match the one in `prometheus.yaml`.
+
+</Step>
+</Steps>
+
+## Look at it in Grafana
+
+Open [localhost:3000](http://localhost:3000). There's no login, and every data source is already set up.
+
+### Traces
+
+Go to **Explore**, pick **Tempo**, switch the query type to **TraceQL** and run:
+
+```
+{resource.service.name="shop-api"}
+```
+
+Each request is one trace with a server span named after the route pattern, `GET /users/:id` or `POST /orders`, never the raw URL. Open one. The span carries `http.route`, `http.response.status_code`, `url.path` and the rest, and the resource carries `service.name`, `service.version` and `deployment.environment.name`. The three `/boom` traces have their spans marked as errors.
+
+### Metrics
+
+Switch Explore to **Prometheus**, set the editor to **Code**, and try the queries that cover most dashboards:
+
+```promql
+# Requests per second, by route
+sum by (http_route) (rate(http_server_request_duration_seconds_count[5m]))
+
+# Share of requests that returned a 5xx
+sum(rate(http_server_request_duration_seconds_count{error_type!=""}[5m]))
+  / sum(rate(http_server_request_duration_seconds_count[5m]))
+
+# p95 latency, by route
+histogram_quantile(0.95,
+  sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
+```
+
+These are the OpenTelemetry HTTP server metrics, and their names have no `forge_` prefix. The SSE route shows up twice. Its handshake is an ordinary request in the series above, and the connection itself is in the stream series:
+
+```promql
+sum by (http_route, stream_kind) (forge_stream_connections_active)
+sum by (http_route, direction) (forge_stream_messages_total)
+```
+
+Every series, with its labels and buckets, is on the [metric reference](/docs/forge/metric-reference).
+
+### From a slow request to its trace
+
+Keep the p95 query in Explore, open **Options** under it and turn on **Exemplars**. Dots appear on the graph. Each one is a single real request that landed in that latency bucket, and it remembers its trace.
+
+Click a dot near the top of the `/orders` line. The tooltip lists the request's labels, its `trace_id` and `span_id`, and a **Trace** link. Click the link, and Tempo opens that request's trace in a split pane next to the graph.
+
+Three things make this work, and the image does two of them for you. Prometheus runs with `--enable-feature=exemplar-storage`, so it keeps the exemplars Forge sends. The Prometheus data source maps the `trace_id` exemplar label to Tempo. The third is on Forge's side: the duration histogram attaches an exemplar for every sampled request, and Prometheus asks for the OpenMetrics format that carries them. Requests that tracing didn't sample have no exemplar, so in production, where the default ratio is 0.1, you'll see fewer dots.
+
+### Logs with the trace ID
+
+Look at your app's output. A line written through the request's logger carries the same IDs as the trace:
+
+```json
+{"level":"INFO","msg":"loaded user","trace_id":"fd2c1a8856ded4ab47f394d8680aa25e","span_id":"d166df5b1d93ee59","id":"7"}
+```
+
+Paste a `trace_id` into Tempo's **TraceQL** box, in place of the query, and you get the trace for that line. The handler above gets those fields from `app.Logger().WithContext(ctx.Context())`, which reads them from the context the tracing middleware set up.
+
+<Callout type="info">
+Forge writes logs to stdout and doesn't send them to Loki. That's why **Logs for this span** in Tempo comes up empty here, even though the data source link is configured. To fill it, ship stdout to Loki with Grafana Alloy or promtail, and keep `trace_id` as a field.
+</Callout>
+
+## Clean up
+
+```bash
+docker rm -f lgtm
+```
+
+The container keeps its data inside itself, so removing it throws away every trace and metric you sent.
+
+## Next
+
+- [Shipping telemetry](/docs/forge/shipping-telemetry) has the variables for Grafana Cloud, Honeycomb, Datadog, New Relic and the rest.
+- [Observability](/docs/forge/observability) covers tracing configuration, sampling and your own spans.
+- [Metrics](/docs/forge/metrics) covers your own metrics, label vectors and the series cap.
