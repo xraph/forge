@@ -80,8 +80,52 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 			rec := NewStatusRecorder(w)
 
+			// finish names and ends the span. A stream route runs it from the
+			// router's establishment callback, so the span covers the handshake
+			// and not the connection's lifetime.
+			finish := func(status int) {
+				// An unsampled span drops everything set on it, so skip the work.
+				if !span.IsRecording() {
+					span.End()
+
+					return
+				}
+
+				attrs := make([]attribute.KeyValue, 0, 4)
+
+				if match.Pattern != "" {
+					if method != "_OTHER" {
+						span.SetName(method + " " + match.Pattern)
+					}
+
+					attrs = append(attrs, attribute.String("http.route", match.Pattern))
+				}
+
+				if match.Kind != shared.KindHTTP {
+					attrs = append(attrs, attribute.String("forge.stream.kind", match.Kind.String()))
+				}
+
+				attrs = append(attrs, attribute.Int("http.response.status_code", status))
+
+				if status >= http.StatusInternalServerError {
+					span.SetStatus(codes.Error, "")
+
+					attrs = append(attrs, attribute.String("error.type", strconv.Itoa(status)))
+				}
+
+				span.SetAttributes(attrs...)
+				span.End()
+			}
+
+			match.OnEstablished(finish)
+
 			defer func() {
 				if p := recover(); p != nil {
+					if match.Established() {
+						// The span ended at the handshake.
+						panic(p)
+					}
+
 					span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
 					span.SetStatus(codes.Error, "panic")
 					span.End()
@@ -92,34 +136,11 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 			next.ServeHTTP(rec, r.WithContext(ctx))
 
-			// An unsampled span drops everything set on it, so skip the work.
-			if !span.IsRecording() {
-				span.End()
-
-				return
+			if match.Established() {
+				return // the span ended at the handshake
 			}
 
-			status := rec.Status()
-			attrs := make([]attribute.KeyValue, 0, 3)
-
-			if match.Pattern != "" {
-				if method != "_OTHER" {
-					span.SetName(method + " " + match.Pattern)
-				}
-
-				attrs = append(attrs, attribute.String("http.route", match.Pattern))
-			}
-
-			attrs = append(attrs, attribute.Int("http.response.status_code", status))
-
-			if status >= http.StatusInternalServerError {
-				span.SetStatus(codes.Error, "")
-
-				attrs = append(attrs, attribute.String("error.type", strconv.Itoa(status)))
-			}
-
-			span.SetAttributes(attrs...)
-			span.End()
+			finish(rec.Status())
 		})
 	}
 }
