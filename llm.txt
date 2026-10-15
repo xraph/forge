@@ -245,6 +245,30 @@ tracing:
   response_header: traceparent   # "" sends no header
 ```
 
+### Metrics push
+
+Set an OTLP endpoint and `forge.New` also pushes your metrics over OTLP/HTTP
+to `<endpoint>/v1/metrics`, every 60 seconds by default. The same
+`OTEL_EXPORTER_OTLP_ENDPOINT` you set for traces turns it on, so no new
+setting is needed. Precedence is `WithAppMetricsExportConfig(MetricsExportConfig{...})`,
+then the `metrics_export:` key of the config file, then `OTEL_*` env
+(`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_METRIC_EXPORT_INTERVAL`, ...).
+`OTEL_METRICS_EXPORTER=none` or `metrics_export.enabled: false` turns it off.
+If your backend also scrapes `/_/metrics`, it counts everything twice.
+
+```yaml
+metrics_export:
+  enabled: true
+  endpoint: http://collector:4318/v1/metrics
+  interval: 30s
+  temporality: delta       # cumulative (default) or delta
+  headers: { X-Api-Key: k }
+```
+
+`Stop` pushes once more after the extensions stop and before the container
+stops the collector, then flushes spans. A bad endpoint is logged and the app
+boots without pushing.
+
 ## Dependencies
 
 ### External

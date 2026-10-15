@@ -79,10 +79,11 @@ type AppConfig struct {
 	RouterOptions []RouterOption
 
 	// Observability
-	MetricsConfig   MetricsConfig
-	HealthConfig    HealthConfig
-	TracingConfig   TracingConfig
-	ProfilingConfig ProfilingConfig
+	MetricsConfig       MetricsConfig
+	HealthConfig        HealthConfig
+	TracingConfig       TracingConfig
+	MetricsExportConfig MetricsExportConfig
+	ProfilingConfig     ProfilingConfig
 
 	// Profiling
 	EnablePprof bool   // Enable pprof profiling endpoints at /_/debug/pprof (default: false)

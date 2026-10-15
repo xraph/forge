@@ -23,11 +23,13 @@ import (
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/metrics/collectors"
+	"github.com/xraph/forge/internal/metrics/exporters"
 	"github.com/xraph/forge/internal/profiling"
 	internalrouter "github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/forge/internal/telemetry"
 	"github.com/xraph/vessel"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +48,7 @@ type app struct {
 	healthManager    HealthManager
 	lifecycleManager LifecycleManager
 	tracing          *telemetry.Provider
+	metricsPush      *telemetry.MetricsPusher // nil when metrics aren't pushed
 	profiler         *profiling.Profiler
 
 	// codeMetrics is the metrics config the caller passed, or nil when they
@@ -231,6 +234,9 @@ func newApp(config AppConfig) *app {
 	// global middleware, and before extensions register so they can trace.
 	tracing := buildTracing(config, configManager, logger)
 
+	// Metrics push. Built after tracing so it shares the tracer's Resource.
+	metricsPush := buildMetricsExport(config, configManager, metrics, tracing, logger)
+
 	// Profiling needs to know whether tracing is on, since span labels hang
 	// off the server span. Nothing runs until Start.
 	profiler := buildProfiling(config, configManager, logger, tracing.Settings().Enabled)
@@ -397,6 +403,7 @@ func newApp(config AppConfig) *app {
 		healthManager:    healthManager,
 		lifecycleManager: lm,
 		tracing:          tracing,
+		metricsPush:      metricsPush,
 		profiler:         profiler,
 		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
@@ -862,7 +869,13 @@ func (a *app) Stop(ctx context.Context) error {
 	// 2. Stop extensions in reverse order
 	a.stopExtensions(ctx)
 
-	// 3. Stop DI container (stops all services in reverse order)
+	// 3. Push metrics one last time, while the collector still holds them: its
+	// Stop resets the registry. The drain and the extension stops are counted.
+	if err := a.metricsPush.Shutdown(ctx); err != nil {
+		a.logger.Warn("metrics push shutdown did not finish", F("error", err))
+	}
+
+	// 4. Stop DI container (stops all services in reverse order)
 	if err := a.container.Stop(ctx); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
 	}
@@ -875,14 +888,14 @@ func (a *app) Stop(ctx context.Context) error {
 		}
 	}
 
-	// 4. Flush spans last, so the drain and the extension stops are exported.
+	// 5. Flush spans last, so the drain and the extension stops are exported.
 	if a.tracing != nil {
 		if err := a.tracing.Shutdown(ctx); err != nil {
 			a.logger.Warn("tracing shutdown did not finish", F("error", err))
 		}
 	}
 
-	// 5. Stop profiling last, so shutdown shows up in the final profiles.
+	// 6. Stop profiling last, so shutdown shows up in the final profiles.
 	a.stopProfiler(ctx)
 
 	a.started = false
@@ -2095,6 +2108,71 @@ func loadForgeYAMLConfig(config AppConfig, logger Logger) AppConfig {
 	}
 
 	return config
+}
+
+// otlpProducerSource is what the metrics collector offers the push path. The
+// no-op collector doesn't implement it.
+type otlpProducerSource interface {
+	OTLPProducer(temporality exporters.Temporality) *exporters.OTLPProducer
+}
+
+// buildMetricsExport resolves metrics push and starts it when an endpoint is
+// configured. Like tracing, it never stops the app from booting.
+func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *telemetry.Provider,
+	log Logger) *telemetry.MetricsPusher {
+	var fromFile shared.MetricsExportConfig
+	if cm != nil {
+		if err := cm.Bind("metrics_export", &fromFile); err != nil && cm.HasKey("metrics_export") {
+			log.Warn("telemetry: could not read metrics_export config, using defaults", F("error", err))
+
+			fromFile = shared.MetricsExportConfig{}
+		}
+	}
+
+	settings := telemetry.ResolveMetrics(telemetry.MetricsInputs{
+		Code:   config.MetricsExportConfig,
+		File:   fromFile,
+		Getenv: os.Getenv,
+	})
+
+	for _, w := range settings.Warnings {
+		log.Warn(w)
+	}
+
+	if !settings.Enabled {
+		return nil
+	}
+
+	source, ok := m.(otlpProducerSource)
+	if !ok {
+		log.Warn("telemetry: metrics are disabled, so nothing is pushed", F("endpoint", settings.Endpoint))
+
+		return nil
+	}
+
+	temporality := exporters.Cumulative
+	if settings.Temporality == telemetry.TemporalityDelta {
+		temporality = exporters.Delta
+	}
+
+	var res *resource.Resource
+	if tracing != nil {
+		res = tracing.Resource()
+	}
+
+	pusher, err := telemetry.NewMetricsPusher(context.Background(), settings, res, source.OTLPProducer(temporality), log)
+	if err != nil {
+		log.Error("telemetry: metrics push disabled", F("error", err))
+
+		return nil
+	}
+
+	log.Info("telemetry: pushing metrics over OTLP",
+		F("endpoint", settings.Endpoint),
+		F("interval", settings.Interval.String()),
+		F("temporality", settings.Temporality))
+
+	return pusher
 }
 
 // buildTracing resolves the tracing config and builds the provider. Telemetry
