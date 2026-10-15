@@ -83,6 +83,37 @@ func startH3With(t *testing.T, r *router, config WebTransportConfig) (string, *x
 	return "https://127.0.0.1:" + strconv.Itoa(addr.(*net.UDPAddr).Port), pool
 }
 
+// loopbackTransport returns a QUIC transport on a new socket bound to
+// 127.0.0.1, and addr resolved for it to dial.
+//
+// quic-go's own dial binds 0.0.0.0, and macOS can give that socket a port
+// that another socket already holds on 127.0.0.1, sometimes the test server's
+// own. Every reply the server sends to 127.0.0.1 then goes to the other
+// socket and the handshake times out. A socket bound to 127.0.0.1 can't be
+// given a port that's taken there, and nothing wildcard can take its packets.
+func loopbackTransport(ctx context.Context, t *testing.T, addr string) (*quic.Transport, net.Addr, error) {
+	t.Helper()
+
+	raddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tr := &quic.Transport{Conn: conn}
+
+	t.Cleanup(func() {
+		_ = tr.Close()
+		_ = conn.Close()
+	})
+
+	return tr, raddr, nil
+}
+
 // dialWT opens a WebTransport session the way a webtransport-go client does
 // and returns the response status.
 func dialWT(t *testing.T, pool *x509.CertPool, url string) (int, *webtransport.Session, error) {
@@ -95,6 +126,15 @@ func dialWT(t *testing.T, pool *x509.CertPool, url string) (int, *webtransport.S
 			NextProtos: []string{http3.NextProtoH3},
 		},
 		QUICConfig: &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
+		DialAddr: func(ctx context.Context, addr string, tlsConf *tls.Config, conf *quic.Config) (*quic.Conn, error) {
+			tr, raddr, err := loopbackTransport(ctx, t, addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// webtransport-go's default dial is the early one too.
+			return tr.DialEarly(ctx, raddr, tlsConf, conf)
+		},
 	}
 
 	t.Cleanup(func() { _ = d.Close() })
@@ -523,7 +563,12 @@ func dialWTLikeBrowser(t *testing.T, pool *x509.CertPool, url string) *webtransp
 		},
 		QUICConfig: &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
 		DialAddr: func(ctx context.Context, addr string, tlsConf *tls.Config, conf *quic.Config) (*quic.Conn, error) {
-			conn, err := quic.DialAddr(ctx, addr, tlsConf, conf)
+			tr, raddr, err := loopbackTransport(ctx, t, addr)
+			if err != nil {
+				return nil, err
+			}
+
+			conn, err := tr.Dial(ctx, raddr, tlsConf, conf)
 			if err != nil {
 				return nil, err
 			}
