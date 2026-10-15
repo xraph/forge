@@ -90,9 +90,10 @@ The server chains these onto every call, in this order, when it's built:
 
 | Interceptor | Turned on by | What it does |
 |---|---|---|
-| Logging | `enable_logging` | A debug line when a call starts and ends, an error line with method, duration and error when it fails |
+| Log IDs | `enable_tracing` | Puts `trace_id` and `span_id` on the call's context. It runs first, so every interceptor after it sees them. The span itself comes from an otelgrpc stats handler, see [Tracing](#tracing) |
+| Logging | `enable_logging` | A debug line when a call starts and ends, an error line with method, duration and error when it fails. The lines carry `trace_id` and `span_id` |
 | Metrics | `enable_metrics` | The `rpc.server.call.duration` histogram, plus the `GetStats` counters |
-| Tracing | `enable_tracing` | Puts `trace_id` and `span_id` on the call's context. The span itself comes from an otelgrpc stats handler, see [Tracing](#tracing) |
+| Yours | `AddUnaryInterceptor`, `AddStreamInterceptor` | Whatever you added, in the order you added it. They run last, so they sit closest to the handler |
 
 There's no panic recovery interceptor, so a panic in a handler is grpc-go's to deal with.
 
@@ -106,6 +107,8 @@ Server-side error codes such as `INTERNAL` mark the span as an error. Client-err
 
 The server uses the OpenTelemetry globals that `forge.New` installs, and reads them when it starts. If you already run your own otelgrpc server handler, remove it, or you get two spans per call.
 
+Leave `OTEL_SEMCONV_STABILITY_OPT_IN` unset. If it holds `rpc/old` or `rpc/dup`, otelgrpc puts the older attributes on the span (`rpc.service`, a short `rpc.method` and a numeric status code), while `rpc_server_call_duration_seconds` keeps the v1.43 labels. The span and the metric then stop lining up.
+
 ### Metrics
 
 With `enable_metrics` on, every served call is recorded in one histogram, `rpc.server.call.duration`, through the app's Forge metrics registry. Prometheus exports it as `rpc_server_call_duration_seconds`.
@@ -117,6 +120,8 @@ With `enable_metrics` on, every served call is recorded in one histogram, `rpc.s
 | `rpc_response_status_code` | `OK`, `NOT_FOUND`, and so on |
 
 The buckets run from 5ms to 10s. Health and reflection calls aren't recorded, a stream records the whole call, and a handler that returns a bare `context.Canceled` or `context.DeadlineExceeded` is recorded as `CANCELLED` or `DEADLINE_EXCEEDED`. With metrics off nothing is recorded.
+
+Two cases show up on the span and not in the metric, or the other way round. A call to a service or method the server doesn't have gets a span with `UNIMPLEMENTED`, but no observation, because grpc-go rejects it before any interceptor runs. And a unary call whose handler succeeds but whose response then fails to send is recorded as `OK`, while the wire and the span say otherwise.
 
 ```promql
 # Calls per second, by method
@@ -149,7 +154,7 @@ conn, err := grpc.NewClient("billing:50051",
 	append(forgegrpc.ClientDialOptions(), grpc.WithTransportCredentials(creds))...)
 ```
 
-Conduit's `Services.GRPC` adds the same handler for you. Both read the OpenTelemetry globals when called, so call them after `forge.New`.
+Conduit's `Services.GRPC` adds the same handler for you, so don't pass `ClientDialOptions()` into it. gRPC appends stats handlers rather than replacing them, and a second one gives every call a second client span. Both read the OpenTelemetry globals when called, so call them after `forge.New`.
 
 ## Keepalive and connection limits
 

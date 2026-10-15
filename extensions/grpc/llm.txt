@@ -167,9 +167,14 @@ With enable_tracing (default), every served call gets an otelgrpc server span na
 NOT_FOUND). An incoming traceparent in the metadata joins the caller's trace. Health and reflection
 calls get no span. Server-side codes such as INTERNAL mark the span as an error; client-error codes
 such as NOT_FOUND don't. The call's context carries trace_id and span_id for a request-scoped
-logger. The server reads the OpenTelemetry globals that forge.New installs, when it starts.
+logger, and the server's own logging lines carry them. The server reads the OpenTelemetry globals
+that forge.New installs, when it starts.
 
 If you already run your own otelgrpc server handler, remove it, or you get two spans per call.
+
+Leave OTEL_SEMCONV_STABILITY_OPT_IN unset. If it holds rpc/old or rpc/dup, otelgrpc puts the older
+attributes on spans (rpc.service, a short rpc.method, a numeric status code) while
+rpc_server_call_duration_seconds keeps the v1.43 labels, so spans and metrics stop lining up.
 
 ## Metrics
 
@@ -179,6 +184,11 @@ rpc_system_name, rpc_method, rpc_response_status_code, buckets 5ms to 10s. Healt
 are excluded. A stream records the whole call. A handler that returns a bare context.Canceled or
 DeadlineExceeded is recorded as CANCELLED or DEADLINE_EXCEEDED. enable_metrics=false records
 nothing. `GetStats()` is unchanged.
+
+Two cases differ from the span. A call to an unknown service or method gets a span (UNIMPLEMENTED)
+but no observation, because grpc-go rejects it before interceptors run. A unary call whose handler
+succeeds but whose response fails to send is recorded as OK, while the wire and the span say
+otherwise.
 
 ```promql
 sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count[5m]))
@@ -202,8 +212,9 @@ conn, err := grpc.NewClient(target,
 ```
 
 `ClientDialOptions()` adds an otelgrpc client handler: a client span per outbound call and the
-trace context on the wire. Conduit's `Services.GRPC` adds the same handler for you. Both read the
-OpenTelemetry globals when called, so call them after forge.New.
+trace context on the wire. Conduit's `Services.GRPC` adds the same handler for you, so don't pass
+ClientDialOptions() into it: gRPC appends stats handlers, and a second one gives every call a second
+client span. Both read the OpenTelemetry globals when called, so call them after forge.New.
 
 ## Gotchas
 

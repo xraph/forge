@@ -184,6 +184,8 @@ The call's context also carries `trace_id` and `span_id`, as it does for HTTP re
 
 If you already added your own otelgrpc server handler, remove it. You'd get two spans per call.
 
+Leave `OTEL_SEMCONV_STABILITY_OPT_IN` unset. If it holds `rpc/old` or `rpc/dup`, otelgrpc puts the older attributes on the span (`rpc.service`, a short `rpc.method` and a numeric status code), while `rpc_server_call_duration_seconds` keeps the v1.43 labels. Spans and metrics stop lining up.
+
 ### Metrics
 
 Every served call lands in one histogram, `rpc.server.call.duration`, recorded through the app's Forge metrics registry. Prometheus exports it as `rpc_server_call_duration_seconds`:
@@ -195,6 +197,8 @@ Every served call lands in one histogram, `rpc.server.call.duration`, recorded t
 | `rpc_response_status_code` | `OK`, `NOT_FOUND`, and so on |
 
 The buckets run from 5ms to 10s. Health and reflection calls aren't recorded. A stream records the whole call, from open to close. A handler that returns a bare `context.Canceled` or `context.DeadlineExceeded` is recorded as `CANCELLED` or `DEADLINE_EXCEEDED`, which is what the client sees. With `enable_metrics` off nothing is recorded.
+
+Two cases differ from the span. A call to a service or method the server doesn't have gets a span with `UNIMPLEMENTED` but no observation, because grpc-go rejects it before any interceptor runs. And a unary call whose handler succeeds but whose response fails to send is recorded as `OK`, while the wire and the span say otherwise.
 
 The labels are the same keys and values that sit on the span, so a slow bucket and its trace line up. Two queries to start with:
 
@@ -229,7 +233,7 @@ conn, err := grpc.NewClient("billing:50051",
 	append(forgegrpc.ClientDialOptions(), grpc.WithTransportCredentials(creds))...)
 ```
 
-Import the extension as `forgegrpc "github.com/xraph/forge/extensions/grpc"` here, to keep it apart from grpc-go. If you use [conduit](../conduit/), `Services.GRPC` adds this handler for you. Both read the OpenTelemetry globals when you call them, so call them after `forge.New`.
+Import the extension as `forgegrpc "github.com/xraph/forge/extensions/grpc"` here, to keep it apart from grpc-go. If you use [conduit](../conduit/), `Services.GRPC` adds this handler for you, so don't pass `ClientDialOptions()` into it. gRPC appends stats handlers rather than replacing them, and a second one gives every call a second client span. Both read the OpenTelemetry globals when you call them, so call them after `forge.New`.
 
 ## Configuration
 
