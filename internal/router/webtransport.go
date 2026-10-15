@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/quic-go/webtransport-go"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // WebTransportSession represents a WebTransport session.
@@ -77,6 +79,9 @@ type webTransportSession struct {
 	ctx     context.Context //nolint:containedctx // context needed for WebTransport session lifecycle and cancellation
 	cancel  context.CancelFunc
 	mu      sync.RWMutex
+
+	// handle counts datagrams. Set by the router once the session is open.
+	handle shared.StreamHandle
 }
 
 // newWebTransportSession creates a new WebTransport session wrapper.
@@ -88,6 +93,7 @@ func newWebTransportSession(id string, session *webtransport.Session, ctx contex
 		session: session,
 		ctx:     sessionCtx,
 		cancel:  cancel,
+		handle:  shared.NoopStreamHandle,
 	}
 }
 
@@ -152,6 +158,8 @@ func (s *webTransportSession) ReceiveDatagram(ctx context.Context) ([]byte, erro
 		return nil, fmt.Errorf("failed to receive datagram: %w", err)
 	}
 
+	s.handle.Received()
+
 	return data, nil
 }
 
@@ -162,6 +170,8 @@ func (s *webTransportSession) SendDatagram(data []byte) error {
 	if err := s.session.SendDatagram(data); err != nil {
 		return fmt.Errorf("failed to send datagram: %w", err)
 	}
+
+	s.handle.Sent()
 
 	return nil
 }

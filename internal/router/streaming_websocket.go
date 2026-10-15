@@ -12,6 +12,8 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/google/uuid"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // wsConnection implements Connection using gobwas/ws.
@@ -32,6 +34,9 @@ type wsConnection struct {
 	writeTimeout time.Duration
 	remoteAddr   string
 	localAddr    string
+
+	// handle counts messages. Set by the router once the connection is open.
+	handle shared.StreamHandle
 }
 
 // limitedConn caps how many bytes may be read from a connection for one
@@ -83,6 +88,7 @@ func newWSConnection(id string, conn net.Conn, ctx context.Context) *wsConnectio
 		writeTimeout: DefaultWebSocketWriteTimeout,
 		remoteAddr:   remoteAddr,
 		localAddr:    localAddr,
+		handle:       shared.NoopStreamHandle,
 	}
 }
 
@@ -160,6 +166,8 @@ func (c *wsConnection) Read() ([]byte, error) {
 		return nil, err
 	}
 
+	c.handle.Received()
+
 	return data, nil
 }
 
@@ -198,7 +206,15 @@ func (c *wsConnection) write(op ws.OpCode, data []byte) error {
 
 	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
 
-	return wsutil.WriteServerMessage(c.conn, op, data)
+	if err := wsutil.WriteServerMessage(c.conn, op, data); err != nil {
+		return err
+	}
+
+	if op == ws.OpText || op == ws.OpBinary {
+		c.handle.Sent()
+	}
+
+	return nil
 }
 
 // Write sends a message to the WebSocket as a text frame.

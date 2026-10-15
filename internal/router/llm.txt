@@ -119,6 +119,7 @@ func WithMetadata(key string, value interface{}) RouteOption
 func WithOpenAPI(enabled bool) RouterOption
 func WithAsyncAPI(enabled bool) RouterOption
 func WithBaseURL(url string) RouterOption
+func WithStreamObserver(o shared.StreamObserver) RouterOption // stream open, close, sent and received counts
 
 // Handler conversion
 func HandlerFunc(handler func(Context) error) http.Handler

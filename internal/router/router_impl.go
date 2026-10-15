@@ -94,6 +94,9 @@ type router struct {
 	// WebSocket origin allow-list. Empty means same-origin only; see origin.go.
 	webSocketOrigins []string
 
+	// streamObserver records stream connections. Nil means none.
+	streamObserver shared.StreamObserver
+
 	// maxBodySize caps request bodies for every route. 0 means use
 	// DefaultMaxRequestBodySize; negative means unlimited.
 	maxBodySize int64
@@ -191,6 +194,7 @@ func newRouter(opts ...RouterOption) *router {
 		healthConfig:   cfg.healthConfig,
 
 		webSocketOrigins: cfg.webSocketOrigins,
+		streamObserver:   cfg.streamObserver,
 		maxBodySize:      cfg.maxBodySize,
 
 		globalChain: &globalChain{},
@@ -377,6 +381,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		// Groups inherit the parent's WebSocket origin policy; otherwise a
 		// group-registered socket would silently fall back to same-origin only.
 		webSocketOrigins: r.webSocketOrigins,
+		streamObserver:   r.streamObserver,
 		maxBodySize:      r.maxBodySize,
 		drain:            r.drain,
 
@@ -1043,4 +1048,14 @@ func applyMiddlewareAndInterceptors(
 			}
 		}
 	})
+}
+
+// openStream starts observing a stream, or returns a no-op handle when no
+// observer is configured.
+func (r *router) openStream(kind shared.RouteKind, route string) shared.StreamHandle {
+	if r.streamObserver == nil || route == "" {
+		return shared.NoopStreamHandle
+	}
+
+	return r.streamObserver.Opened(kind, route)
 }

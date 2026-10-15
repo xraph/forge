@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	forge_http "github.com/xraph/go-utils/http"
@@ -42,10 +43,17 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 
 		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusSwitchingProtocols)
 
+		handle := r.openStream(shared.KindWebSocket, shared.RouteMatchFromContext(req.Context()).PatternOrEmpty())
+
+		var handlerErr error
+		defer closeStream(handle, &handlerErr)
+
 		// Create WebSocket connection wrapper
 		connID := generateConnectionID()
 
 		wsConn := newWSConnection(connID, conn, req.Context())
+		wsConn.handle = handle
+
 		defer wsConn.Close()
 
 		// Shutdown does not track a hijacked connection, so a drain tells the
@@ -63,6 +71,8 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 
 		// Call handler
 		if err := handler(ctx, wsConn); err != nil {
+			handlerErr = err
+
 			if r.logger != nil {
 				r.logger.Error("websocket handler error")
 			}
@@ -112,6 +122,12 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
+		handle := r.openStream(shared.KindSSE, shared.RouteMatchFromContext(req.Context()).PatternOrEmpty())
+		stream.handle = handle
+
+		var handlerErr error
+		defer closeStream(handle, &handlerErr)
+
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived streams are exactly where leaking them hurts most.
 		ctx := newContext(w, req, r.container)
@@ -149,6 +165,8 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 		// Call handler
 		if err := handler(ctx, handlerStream); err != nil {
+			handlerErr = err
+
 			if r.logger != nil {
 				r.logger.Error("SSE handler error")
 			}
@@ -196,8 +214,15 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 
 		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
+		handle := r.openStream(shared.KindSSE, shared.RouteMatchFromContext(req.Context()).PatternOrEmpty())
+
+		var handlerErr error
+		defer closeStream(handle, &handlerErr)
+
 		// Call handler - user can now use ctx.WriteSSE()
 		if err := handler(ctx); err != nil {
+			handlerErr = err
+
 			if r.logger != nil {
 				r.logger.Error("SSE handler error")
 			}
@@ -209,4 +234,17 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 
 	// Register with configurable method
 	return r.register(method, path, wrappedHandler, optsWithType...)
+}
+
+// closeStream closes a stream's observer handle with the handler's error. Defer
+// it directly, so its recover sees a handler panic: the handle then closes with
+// the panic as its error, and the panic carries on to the router's recovery.
+func closeStream(handle shared.StreamHandle, handlerErr *error) {
+	if p := recover(); p != nil {
+		handle.Closed(fmt.Errorf("panic: %v", p))
+
+		panic(p)
+	}
+
+	handle.Closed(*handlerErr)
 }

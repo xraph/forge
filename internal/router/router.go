@@ -246,6 +246,9 @@ type routerConfig struct {
 	// Empty means same-origin only; see origin.go.
 	webSocketOrigins []string
 
+	// streamObserver records stream connections. Nil means none.
+	streamObserver shared.StreamObserver
+
 	// maxBodySize caps request bodies. 0 means DefaultMaxRequestBodySize;
 	// negative means unlimited.
 	maxBodySize int64
@@ -407,6 +410,12 @@ func WithHTTPAddress(address string) RouterOption {
 // send one, and browsers always do.
 func WithWebSocketOrigins(origins ...string) RouterOption {
 	return &webSocketOriginsOpt{origins}
+}
+
+// WithStreamObserver records stream connections (open, close, messages) on
+// every SSE, WebSocket and WebTransport route this router serves.
+func WithStreamObserver(o shared.StreamObserver) RouterOption {
+	return &streamObserverOpt{o}
 }
 
 // WithMaxRequestBodySize caps the request body for every route on this router,

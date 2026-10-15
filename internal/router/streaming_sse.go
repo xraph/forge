@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // sseWriteTimeout is the maximum time allowed for a single SSE write+flush.
@@ -31,6 +33,9 @@ type sseStream struct {
 	// lastEventID is the client's Last-Event-ID header, captured once at
 	// construction. Immutable thereafter, so it is read without the mutex.
 	lastEventID string
+
+	// handle counts events sent. Set by the router once the stream is open.
+	handle shared.StreamHandle
 }
 
 // lastEventID reads the client's resume position, header first.
@@ -76,6 +81,7 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 		// Captured before any handler runs: this is the only point where the
 		// request is still in hand, and it tells the handler where to resume.
 		lastEventID: lastEventID(r),
+		handle:      shared.NoopStreamHandle,
 	}
 
 	// Send initial retry interval
@@ -195,6 +201,10 @@ func (s *sseStream) SendWithID(id, event string, data []byte) error {
 
 	// Flush
 	s.flusher.Flush()
+
+	if s.handle != nil {
+		s.handle.Sent()
+	}
 
 	return nil
 }

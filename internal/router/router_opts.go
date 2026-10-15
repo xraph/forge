@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/xraph/vessel"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // Route option implementations.
@@ -160,6 +162,12 @@ type webSocketOriginsOpt struct{ origins []string }
 
 func (o *webSocketOriginsOpt) Apply(cfg *routerConfig) {
 	cfg.webSocketOrigins = append(cfg.webSocketOrigins, o.origins...)
+}
+
+type streamObserverOpt struct{ o shared.StreamObserver }
+
+func (o *streamObserverOpt) Apply(cfg *routerConfig) {
+	cfg.streamObserver = o.o
 }
 
 type maxBodySizeOpt struct{ bytes int64 }

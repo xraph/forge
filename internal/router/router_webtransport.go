@@ -52,10 +52,17 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 
 		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
+		handle := r.openStream(shared.KindWebTransport, shared.RouteMatchFromContext(req.Context()).PatternOrEmpty())
+
+		var handlerErr error
+		defer closeStream(handle, &handlerErr)
+
 		// Create WebTransport session wrapper
 		sessionID := generateConnectionID()
 
 		wtSession := newWebTransportSession(sessionID, session, req.Context())
+		wtSession.handle = handle
+
 		defer wtSession.Close()
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
@@ -65,6 +72,8 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 
 		// Call handler
 		if err := handler(ctx, wtSession); err != nil {
+			handlerErr = err
+
 			if r.logger != nil {
 				r.logger.Error("webtransport handler error",
 					logger.String("error", err.Error()),

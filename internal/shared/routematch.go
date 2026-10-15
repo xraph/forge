@@ -48,6 +48,15 @@ func (m *RouteMatch) Established() bool {
 	return m != nil && m.established
 }
 
+// PatternOrEmpty returns the stamped pattern, or "" on a nil holder.
+func (m *RouteMatch) PatternOrEmpty() string {
+	if m == nil {
+		return ""
+	}
+
+	return m.Pattern
+}
+
 // NewRouteMatch always puts a fresh holder on ctx, hiding any holder an outer
 // request left there. The outermost middleware for a request calls this, so a
 // handler that dispatches a second request through the router with its own
