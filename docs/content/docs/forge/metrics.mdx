@@ -299,6 +299,7 @@ A few details that change how you read the numbers:
 - `error_type` is the status code (`"503"`) for 5xx responses and empty otherwise.
 - Paths under the tracing `exclude_paths` (default `/_/`) are not recorded, so scraping `/_/metrics` doesn't count itself.
 - The request body size is only observed when the request carries a `Content-Length`.
+- On a WebSocket, SSE or WebTransport route the duration covers the handshake only, and an open stream isn't an active request. Its lifetime is in the [stream series](#stream-connections).
 
 These names are never prefixed. Your own metrics keep the `forge_` prefix, or whatever you set in `metrics.collection.namespace`, and the `go_` and `process_` runtime series stay unprefixed as before.
 
@@ -343,6 +344,47 @@ Earlier releases exposed a flat set of `forge_http_*` series, with a gauge per p
 | `forge_http_requests_avg_duration`, `forge_http_response_avg_size` | `rate(..._sum[5m]) / rate(..._count[5m])` |
 
 The old duration histogram used buckets from 5 to 10000 while recording seconds, so nearly every request landed in the first bucket and its quantiles told you nothing. Don't try to carry old panels over by renaming. Rebuild them from the queries above.
+
+### Stream Connections
+
+A WebSocket, SSE or WebTransport connection can stay open for hours, so a request duration tells you nothing about it. Forge records streams separately, and you get the three series below without any setup.
+
+| Series | Type | Labels |
+|--------|------|--------|
+| `forge_stream_connections_active` | gauge | `http_route`, `stream_kind` |
+| `forge_stream_connection_duration_seconds` | histogram, buckets 1s, 5s, 15s, 30s, 1m, 5m, 15m, 30m, 1h, 2h, 4h | `http_route`, `stream_kind`, `error_type` |
+| `forge_stream_messages_total` | counter | `http_route`, `stream_kind`, `direction` |
+
+`stream_kind` is `sse`, `websocket` or `webtransport`, and `direction` is `sent` or `received`. `http_route` is the route pattern, the same as in the HTTP series.
+
+```promql
+# Open connections, by route
+sum by (http_route) (forge_stream_connections_active)
+
+# Median connection lifetime, by route
+histogram_quantile(0.5,
+  sum by (le, http_route) (rate(forge_stream_connection_duration_seconds_bucket[1h])))
+
+# Messages per second, by route and direction
+sum by (http_route, direction) (rate(forge_stream_messages_total[5m]))
+```
+
+The duration is observed when the connection closes, so a stream that's still open isn't in the histogram yet. Use the gauge for that.
+
+`error_type` is `handler_error` when your handler returns an error. It's empty for a clean close, and also when the error only means the client went away: an EOF, a canceled context, a closed connection or a WebSocket close frame. Someone shutting their laptop lid isn't a failure, so it doesn't show up as one.
+
+What counts as a message depends on the route:
+
+| Route | Counted |
+|-------|---------|
+| `EventStream` (SSE) | Every event you send with `Send`, `SendJSON` or `SendWithID`. That includes the `forge.resumed` and `forge.gap` markers a replay sends. Comments aren't counted. |
+| `SSE()` | Nothing. These routes write with `ctx.WriteSSE`, which bypasses the counter. |
+| WebSocket | Data frames read and written. Ping, pong and close frames aren't counted. |
+| WebTransport | Datagrams only. |
+
+If you want message counts on an SSE route, register it with `EventStream`. A route registered with `SSE()` still gets the connection gauge and the duration histogram.
+
+Stream metrics follow `metrics.enabled`, not `metrics.features.http_metrics`. Turn the HTTP series off and the stream series keep recording, and so do they with tracing off. A request the router rejects before the upgrade, such as a bad `Origin` that gets a 403, never becomes a stream. It's an ordinary request in the HTTP series.
 
 ## Custom Metrics in Handlers
 

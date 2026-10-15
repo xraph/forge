@@ -267,6 +267,8 @@ Requests whose path starts with anything in `exclude_paths` get no span. The def
 
 Incoming `traceparent` and `baggage` headers are honoured, so your spans join the caller's trace.
 
+A WebSocket, SSE or WebTransport route is the exception to "one span for the request". Its server span ends at the handshake: after the upgrade for a WebSocket (status 101), once the stream is writable for `EventStream`, right before your handler runs for `SSE()`, and after the upgrade for WebTransport. It carries `forge.stream.kind` (`sse`, `websocket` or `webtransport`) as well as the usual attributes, so a trace of a connection that stays open all day is still a few milliseconds long. Spans you start for each message with `forge.StartSpan` are children of that span. For how long the connection lived and how many messages crossed it, use the [stream metrics](/docs/forge/metrics#stream-connections). A rejected upgrade, a 403 for a bad `Origin` say, is an ordinary request with an ordinary span.
+
 ### Add your own spans
 
 `forge.StartSpan` starts a child of whatever span the context carries. Pass it the request's context and end the span when the work is done.

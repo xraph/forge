@@ -480,6 +480,12 @@ func getUser(ctx router.Context) error {
 - ✅ Automatic OpenAPI/AsyncAPI generation
 - ✅ Streaming protocol support
 
+### Stream observer and establishment
+
+A stream route (`WebSocket`, `EventStream`, `SSE`, `WebTransport`) is observed from the handshake on. When the router matches a route it stamps `shared.RouteMatch.Pattern` and `RouteMatch.Kind` (`KindHTTP` unless the route is a stream kind). The stream handlers then call `shared.RouteMatchFromContext(ctx).Establish(status)` at the point the stream is up: 101 after the WebSocket upgrade, 200 once an `EventStream` is writable, 200 right before an `SSE()` handler runs, 200 after the WebTransport upgrade. `Establish` runs the callbacks middleware registered with `RouteMatch.OnEstablished` (once, on the request goroutine). That is how the tracing middleware ends its span and the HTTP metrics middleware records the duration at the handshake instead of at disconnect. `Established()` tells middleware that already happened. A rejected upgrade (a bad Origin, 403) never establishes.
+
+`WithStreamObserver(o)` sets a `shared.StreamObserver`. The router calls `o.Opened(kind, route)` right after `Establish` and uses the returned `shared.StreamHandle` for that connection: `Sent()` per outbound message, `Received()` per inbound one, and `Closed(err)` once, after the router has closed the connection. `Sent` and `Received` never follow `Closed`, and they may run on several goroutines. With no observer, or when the request has no route pattern (no `RouteMatch` holder on the context), the router uses `shared.NoopStreamHandle`. What counts as a message: `EventStream` events sent through `Send`/`SendJSON`/`SendWithID` (including the `forge.resumed` and `forge.gap` markers, not comments; `SSE()` handlers write with `ctx.WriteSSE` and count none), WebSocket data frames in both directions (not ping, pong or close), WebTransport datagrams only. The `err` given to `Closed` is the handler's error, with a WebSocket close frame (`wsutil.ClosedError`) already turned into `io.EOF`. `collectors.StreamMetrics` in `internal/metrics/collectors` is the one observer forge installs.
+
 ### Performance Characteristics
 - Route matching: <1μs for typical paths
 - OpenAPI generation: ~10ms (cached after first generation)
