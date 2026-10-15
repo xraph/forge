@@ -2,10 +2,13 @@ package grpc
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -100,52 +103,21 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
-		// Increment started counter
 		s.mu.Lock()
 		s.stats.RPCsStarted++
 		s.mu.Unlock()
 
-		if s.metrics != nil {
-			s.metrics.Counter("grpc_unary_started_total",
-				forge.WithLabel("method", info.FullMethod),
-			).Inc()
-		}
-
 		resp, err := handler(ctx, req)
 
-		duration := time.Since(start)
+		s.recordCall(info.FullMethod, start, err)
 
-		// Record duration
-		if s.metrics != nil {
-			s.metrics.Histogram("grpc_unary_duration_seconds",
-				forge.WithLabel("method", info.FullMethod),
-			).Observe(duration.Seconds())
-		}
-
-		// Increment success/failure counter
+		s.mu.Lock()
 		if err != nil {
-			s.mu.Lock()
 			s.stats.RPCsFailed++
-			s.mu.Unlock()
-
-			if s.metrics != nil {
-				code := status.Code(err)
-				s.metrics.Counter("grpc_unary_failed_total",
-					forge.WithLabel("method", info.FullMethod),
-					forge.WithLabel("code", code.String()),
-				).Inc()
-			}
 		} else {
-			s.mu.Lock()
 			s.stats.RPCsSucceeded++
-			s.mu.Unlock()
-
-			if s.metrics != nil {
-				s.metrics.Counter("grpc_unary_succeeded_total",
-					forge.WithLabel("method", info.FullMethod),
-				).Inc()
-			}
 		}
+		s.mu.Unlock()
 
 		return resp, err
 	}
@@ -188,45 +160,92 @@ func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 
-		// Track active streams
 		s.mu.Lock()
 		s.stats.ActiveStreams++
-		activeStreams := s.stats.ActiveStreams
 		s.mu.Unlock()
-
-		if s.metrics != nil {
-			s.metrics.Gauge("grpc_stream_active",
-				forge.WithLabel("method", info.FullMethod),
-			).Set(float64(activeStreams))
-		}
 
 		err := handler(srv, ss)
 
-		// Decrement active streams
 		s.mu.Lock()
 		s.stats.ActiveStreams--
 		s.mu.Unlock()
 
-		duration := time.Since(start)
-
-		if s.metrics != nil {
-			s.metrics.Histogram("grpc_stream_duration_seconds",
-				forge.WithLabel("method", info.FullMethod),
-			).Observe(duration.Seconds())
-
-			if err != nil {
-				code := status.Code(err)
-				s.metrics.Counter("grpc_stream_failed_total",
-					forge.WithLabel("method", info.FullMethod),
-					forge.WithLabel("code", code.String()),
-				).Inc()
-			} else {
-				s.metrics.Counter("grpc_stream_succeeded_total",
-					forge.WithLabel("method", info.FullMethod),
-				).Inc()
-			}
-		}
+		s.recordCall(info.FullMethod, start, err)
 
 		return err
+	}
+}
+
+// recordCall observes rpc.server.call.duration for one finished call. The
+// attributes follow OTel semconv v1.43 and match the server span, so a metric
+// and its trace share rpc.method and the status code spelling.
+func (s *grpcServer) recordCall(fullMethod string, start time.Time, err error) {
+	if s.rpcDuration == nil || isInfraMethod(fullMethod) {
+		return
+	}
+
+	s.rpcDuration.
+		With("grpc", strings.TrimPrefix(fullMethod, "/"), canonicalCode(callCode(err))).
+		Observe(time.Since(start).Seconds())
+}
+
+// callCode is the status code grpc-go sends for err. A handler that returns a
+// bare context.Canceled or context.DeadlineExceeded is not a status error, but
+// the server turns it into Canceled or DeadlineExceeded on the wire, so the
+// metric does the same.
+func callCode(err error) codes.Code {
+	if err == nil {
+		return codes.OK
+	}
+
+	if _, ok := status.FromError(err); ok {
+		return status.Code(err)
+	}
+
+	return status.FromContextError(err).Code()
+}
+
+// canonicalCode spells a gRPC code the way semconv and otelgrpc do
+// (CANCELLED, NOT_FOUND), which codes.Code.String does not (Canceled,
+// NotFound). It mirrors otelgrpc's own mapping so the span and the metric
+// carry the same rpc.response.status_code.
+func canonicalCode(code codes.Code) string {
+	switch code {
+	case codes.OK:
+		return "OK"
+	case codes.Canceled:
+		return "CANCELLED"
+	case codes.Unknown:
+		return "UNKNOWN"
+	case codes.InvalidArgument:
+		return "INVALID_ARGUMENT"
+	case codes.DeadlineExceeded:
+		return "DEADLINE_EXCEEDED"
+	case codes.NotFound:
+		return "NOT_FOUND"
+	case codes.AlreadyExists:
+		return "ALREADY_EXISTS"
+	case codes.PermissionDenied:
+		return "PERMISSION_DENIED"
+	case codes.ResourceExhausted:
+		return "RESOURCE_EXHAUSTED"
+	case codes.FailedPrecondition:
+		return "FAILED_PRECONDITION"
+	case codes.Aborted:
+		return "ABORTED"
+	case codes.OutOfRange:
+		return "OUT_OF_RANGE"
+	case codes.Unimplemented:
+		return "UNIMPLEMENTED"
+	case codes.Internal:
+		return "INTERNAL"
+	case codes.Unavailable:
+		return "UNAVAILABLE"
+	case codes.DataLoss:
+		return "DATA_LOSS"
+	case codes.Unauthenticated:
+		return "UNAUTHENTICATED"
+	default:
+		return "CODE(" + strconv.FormatInt(int64(code), 10) + ")"
 	}
 }
