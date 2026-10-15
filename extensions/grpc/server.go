@@ -43,6 +43,8 @@ type grpcServer struct {
 	customUnaryInterceptors  []grpc.UnaryServerInterceptor
 	customStreamInterceptors []grpc.StreamServerInterceptor
 	pending                  []serviceRegistration
+	draining                 *grpc.Server  // set while GracefulStop waits for calls in flight
+	done                     chan struct{} // closed when the server stops, ends health watches
 	stats                    ServerStats
 	rpcDuration              *forge.Vec[forge.Histogram]
 	mu                       sync.RWMutex
@@ -187,6 +189,7 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 
 	s.listener = lis
 	s.running = true
+	s.done = make(chan struct{})
 
 	// Start server in background
 	go func() {
@@ -200,38 +203,94 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	return nil
 }
 
+// Stop stops the server at once, cancelling calls in flight. Called while a
+// GracefulStop is still draining, it cuts the drain short.
 func (s *grpcServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	if !s.running {
+	srv := s.server
+
+	switch {
+	case s.running:
+		s.markStopped()
+	case s.draining != nil:
+		srv = s.draining
+	default:
+		s.mu.Unlock()
+
 		return ErrNotStarted
 	}
 
-	if s.server != nil {
-		s.server.Stop()
-	}
+	s.mu.Unlock()
 
-	s.running = false
+	// Outside s.mu: the interceptors of the calls being cancelled take it on
+	// their way out.
+	if srv != nil {
+		srv.Stop()
+	}
 
 	return nil
 }
 
+// GracefulStop stops taking new calls and waits for the ones in flight. If
+// ctx ends first, it stops the server hard and returns ctx's error.
 func (s *grpcServer) GracefulStop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if !s.running {
+		s.mu.Unlock()
+
 		return ErrNotStarted
 	}
 
-	if s.server != nil {
-		s.server.GracefulStop()
+	srv := s.server
+	s.markStopped()
+	s.draining = srv
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		if s.draining == srv {
+			s.draining = nil
+		}
+		s.mu.Unlock()
+	}()
+
+	if srv == nil {
+		return nil
 	}
 
+	// The drain runs without s.mu held, because every call in flight takes
+	// it in the interceptors on its way out.
+	drained := make(chan struct{})
+
+	go func() {
+		srv.GracefulStop()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		// Stop cancels the calls in flight and returns without waiting for
+		// their handlers. grpc-go's GracefulStop does wait for them, so the
+		// goroutine above finishes once the last handler returns.
+		srv.Stop()
+
+		return fmt.Errorf("grpc: graceful stop cut short: %w", ctx.Err())
+	}
+}
+
+// markStopped flips the server to stopped and ends health watches. s.mu must
+// be held.
+func (s *grpcServer) markStopped() {
 	s.running = false
 
-	return nil
+	if s.done != nil {
+		close(s.done)
+		s.done = nil
+	}
 }
 
 func (s *grpcServer) AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor) {

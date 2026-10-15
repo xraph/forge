@@ -66,13 +66,11 @@ func (s *GRPCService) Start(ctx context.Context) error {
 func (s *GRPCService) Stop(ctx context.Context) error {
 	s.logger.Info("stopping grpc service")
 
+	// GracefulStop stops the server hard itself when ctx ends first, and a
+	// server that never started has nothing to stop.
 	if s.server != nil {
-		if err := s.server.GracefulStop(ctx); err != nil {
-			s.logger.Error("failed to stop grpc server gracefully", forge.F("error", err))
-			// Force stop
-			if err := s.server.Stop(ctx); err != nil {
-				s.logger.Error("failed to force stop grpc server", forge.F("error", err))
-			}
+		if err := s.server.GracefulStop(ctx); err != nil && !errors.Is(err, ErrNotStarted) {
+			s.logger.Warn("grpc server stopped before calls in flight finished", forge.F("error", err))
 		}
 	}
 

@@ -23,7 +23,7 @@ Register your generated services with `WithService` or `WithServiceRegistrar` wh
 | gRPC service | `grpc` | `*grpcext.GRPCService` |
 | gRPC server | by type | `grpcext.GRPC`, backed by the same server |
 
-The extension's `Start` starts the server on the configured address. Its `Stop` drains it with `GracefulStop` and falls back to a hard stop if that fails.
+The extension's `Start` starts the server on the configured address. Its `Stop` drains it with `GracefulStop`, and stops it hard if the app's shutdown timeout runs out first.
 
 ## Quick start
 

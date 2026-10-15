@@ -83,7 +83,7 @@ grpcurl -plaintext -d '{"service":"billing.db"}' localhost:50051 grpc.health.v1.
 # { "status": "SERVING" }
 ```
 
-When you stop the app, the server drains with `GracefulStop` and falls back to a hard stop if that fails.
+When you stop the app, the server stops taking new calls and waits for the ones in flight. If the app's shutdown timeout runs out first, it stops hard and cancels what's left.
 
 ## Registering your own services
 

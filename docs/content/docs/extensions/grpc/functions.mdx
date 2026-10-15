@@ -42,7 +42,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 |---|---|
 | `Server() GRPC` | The server |
 | `Start(ctx) error` | Start the server on the configured address. The extension calls it |
-| `Stop(ctx) error` | `GracefulStop`, then `Stop` if that fails. The extension calls it |
+| `Stop(ctx) error` | `GracefulStop(ctx)`, which stops hard if `ctx` ends first. A server that never started is a no-op. The extension calls it |
 | `Health(ctx) error` | Whether the server exists |
 | `RegisterService`, `AddUnaryInterceptor`, `AddStreamInterceptor`, `RegisterHealthChecker`, `GetServer`, `IsRunning`, `GetStats`, `GetServices`, `Ping` | Pass through to the server |
 
@@ -58,8 +58,8 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 | Method | Description |
 |---|---|
 | `Start(ctx, addr string) error` | Build a fresh `grpc.Server` with the configured options and serve on `addr`. Does nothing if already running |
-| `Stop(ctx) error` | Hard stop. `ErrNotStarted` when not running |
-| `GracefulStop(ctx) error` | Drain, then stop. `ErrNotStarted` when not running |
+| `Stop(ctx) error` | Hard stop, cancelling calls in flight. Cuts a running `GracefulStop` short. `ErrNotStarted` when not running |
+| `GracefulStop(ctx) error` | Stop taking calls and wait for the ones in flight. If `ctx` ends first it stops hard and returns `ctx`'s error. `ErrNotStarted` when not running |
 | `IsRunning() bool` | Whether it's serving |
 | `Ping(ctx) error` | `ErrNotStarted` when not running |
 | `GetServer() *grpc.Server` | The underlying grpc-go server. `nil` until `Start`. Don't register generated services on it, use `RegisterService` |
