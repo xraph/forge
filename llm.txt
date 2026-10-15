@@ -238,7 +238,14 @@ config file, then `PYROSCOPE_SERVER_ADDRESS`, `PYROSCOPE_APPLICATION_NAME`,
 `PYROSCOPE_TENANT_ID`. `tags` and `profile_types` have no env var and take
 the first non-empty source whole: set in code, they replace the file's.
 `application_name` defaults to the app name, so Pyroscope's `service_name`
-matches the traces' `service.name`.
+matches the traces' `service.name`. `,`, `{`, `}` and `=` in a tag value
+(forge's `service_version` and `environment` included) become `_` with a
+warning, because they break the upload's `name=app{k=v,...}` query.
+`PYROSCOPE_SERVER_ADDRESS` alone turns push on, so an app that calls
+`pyroscope.Start` itself should drop that call, or two sessions fight over the
+CPU profiler. Pull (Alloy scraping pprof) only reads `span_labels`; set
+`runtime.SetMutexProfileFraction` and `runtime.SetBlockProfileRate` yourself
+for mutex and block profiles.
 
 ```yaml
 profiling:
@@ -249,9 +256,10 @@ profiling:
 ```
 
 `app.Start` starts the profiler before the before-start hooks, and a failed
-Start stops it again. `app.Stop` stops it last, after the tracing flush. An
-unreachable Pyroscope never fails Start; upload errors log
-"profiling: upload failed" at warn, at most once a minute. With push holding
+Start stops it again. `app.Stop` stops it last, after the tracing flush. The
+final upload is capped at 5 seconds both times, and a failed Start's attempt
+ignores a cancelled context. An unreachable Pyroscope never fails Start; SDK
+errors log "profiling: pyroscope client error" at warn, at most once a minute. With push holding
 the CPU profiler, `/_/debug/pprof/profile` answers "cpu profiling already in
 use", and Start logs a warning when pprof is on. Span labels (`span_id`,
 `span_name`, `pyroscope.profile.id`) are in `internal/telemetry/llm.txt`; the

@@ -82,7 +82,7 @@ With `Settings.SpanLabels` on and a sampled span, the middleware sets `pyroscope
 - `OnMatched` relabels the goroutine with `span_name` added, built by `spanName(method, pattern)` from the same cache the span rename uses, so the label equals the span's final name. `_OTHER` methods give `HTTP`. The router calls `Match` before the route's middleware, so route middleware runs labelled.
 - `OnEstablished` relabels a stream route's goroutine to `span_name` only (no labels at all when no pattern matched). The span ends at the handshake while the handler can run for hours, and that CPU must not land on the span.
 
-`pprof.Do` restores the previous labels when `next` returns, panics included, so nothing leaks into the next request `net/http` serves on that goroutine.
+When `next` returns, panics included, `pprof.Do` sets the goroutine's labels to the ones on `ctx`. That isn't always what the goroutine had before (a label set on the goroutine and never put on `ctx` is gone), but it means nothing leaks into the next request `net/http` serves on that goroutine.
 
 `span_name` lives only on the goroutine, not on the request context. A handler or middleware that adds its own labels with `pprof.Do(r.Context(), ...)` loses `span_name` inside that `Do` and for the rest of the request after it returns, because `Do` restores the context's labels and the context only has `span_id`. `span_id`, the trace link, survives. Labels reach CPU and goroutine profiles only, and goroutines a handler starts inherit them while an existing worker pool does not.
 

@@ -372,14 +372,14 @@ Every key is optional. This is the `profiling:` block:
 ```yaml
 profiling:
   server_address: http://pyroscope:4040   # empty means no push
-  application_name: user-api      # defaults to the app's name
-  basic_auth_user: "123456"       # Grafana Cloud wants the instance ID here
-  basic_auth_password: ""         # keep it in PYROSCOPE_BASIC_AUTH_PASSWORD instead
-  tenant_id: ""                   # sent as X-Scope-OrgID to a multi-tenant Pyroscope
+  application_name: user-api              # defaults to the app's name
+  basic_auth_user: "123456"               # Grafana Cloud wants the instance ID here
+  basic_auth_password: ""                 # keep it in PYROSCOPE_BASIC_AUTH_PASSWORD instead
+  tenant_id: ""                           # sent as X-Scope-OrgID to a multi-tenant Pyroscope
   tags:
     region: eu-west-1
   profile_types: [cpu, alloc_objects, alloc_space, inuse_objects, inuse_space]
-  span_labels: true               # follows push when you leave it out
+  span_labels: true                       # follows push when you leave it out
 ```
 
 When the same setting comes from more than one place, the first of these wins:
@@ -414,11 +414,15 @@ These environment variables are read when the matching key isn't set above them:
 | `PYROSCOPE_BASIC_AUTH_PASSWORD` | `basic_auth_password` |
 | `PYROSCOPE_TENANT_ID` | `tenant_id` |
 
-`tags`, `profile_types` and `span_labels` have no variable. Mind you, tags and profile types don't merge between sources: a map or list you set in code replaces the file's entirely, the same way `headers` and `resource` work for tracing, so if your code sets one tag, every tag in your config file is ignored.
+Setting `PYROSCOPE_SERVER_ADDRESS` on its own turns push on, with nothing in your code or config file. If your app already calls `pyroscope.Start` itself, drop that call when you move to Forge's profiler. Otherwise you run two sessions in one process, and they fight over Go's single CPU profiler.
+
+`tags`, `profile_types` and `span_labels` have no variable. Tags and profile types don't merge between sources: a map or list you set in code replaces the file's entirely, the same way `headers` and `resource` work for tracing, so if your code sets one tag, every tag in your config file is ignored.
 
 Forge adds two tags of its own, `service_version` from the app's version and `environment` from its environment, each only when the app has one. If you set a tag with the same key, yours wins.
 
-Pyroscope only accepts letters, digits, `_`, `.`, `/` and `-` in an application name. Forge turns any other character into `_` and logs a warning, so an app named `My App` profiles as `My_App`. Tag keys are stricter, letters, digits, `_` and `.` only, and a key outside that set or the reserved `__name__` is dropped with a warning.
+Pyroscope only accepts letters, digits, `_`, `.`, `/` and `-` in an application name. Forge turns any other character into `_` and logs a warning, so an app named `My App` profiles as `My_App`. Tag keys are stricter and take letters, digits, `_` and `.` only. A key outside that set, or the reserved `__name__`, is dropped with a warning.
+
+Tag values can hold anything except `,`, `{`, `}` and `=`. The SDK sends tags in the upload's query as `name=app{key=value,...}`, so one of those characters breaks the query and Pyroscope refuses every upload. Forge turns each of them into `_` and logs a warning naming the key and the value you gave. That covers its own `service_version` and `environment` too, so a version of `1.0,rc1` profiles as `1.0_rc1`.
 
 ### Profile types
 
@@ -436,7 +440,7 @@ Asking for `mutex_count` or `mutex_duration` calls `runtime.SetMutexProfileFract
 
 ### From a trace to its profile
 
-With span labels on, every sampled server span gets a `pyroscope.profile.id` attribute set to its span ID, and the CPU samples taken while its handler ran carry two pprof labels: `span_id`, and `span_name` holding the span's final name, such as `GET /users/:id`. Grafana reads both to put "Profiles for this span" on the span.
+With span labels on, every sampled server span gets a `pyroscope.profile.id` attribute set to its span ID, and the CPU samples taken while its handler ran carry two pprof labels: `span_id`, and `span_name` holding the span's final name, such as `GET /users/:id`. Grafana puts "Profiles for this span" on a span that has the `pyroscope.profile.id` attribute, and finds its samples through the `span_id` label. `span_name` is for per-route flame graphs: filter on it in Pyroscope and you see what one route costs across every sampled request.
 
 To turn the link on in Grafana:
 
@@ -488,6 +492,8 @@ pyroscope.write "default" {
 
 Set `service_name` on the target to the app's `service.name`, for the same reason as above.
 
+Pull reads `span_labels` and nothing else from the `profiling:` block. `profile_types`, `tags` and `application_name` only shape what push sends, and the mutex and block rates only get set when push asks for a `mutex_*` or `block_*` type. Go records neither by default, so if you want mutex or block profiles from the pprof endpoints, call `runtime.SetMutexProfileFraction` and `runtime.SetBlockProfileRate` yourself before `app.Start`.
+
 ### Limits
 
 Before you trust a flame graph filtered to one span or one route, know where the link between a span and its samples breaks down.
@@ -496,14 +502,14 @@ Before you trust a flame graph filtered to one span or one route, know where the
 - Go's CPU profiler samples at 100 Hz, so a span shorter than about 10ms usually has no samples at all.
 - Goroutines a handler starts inherit its labels. Work handed to a goroutine that already exists, such as a worker pool, loses the link.
 - A per-route flame graph filtered by `span_name` only covers the requests tracing sampled. At a ratio of 0.1, that is about one in ten.
-- A WebSocket, SSE or WebTransport span ends at the handshake, so its profile link covers the handshake too. Once the stream is up, the goroutine drops `span_id` and keeps `span_name`, which keeps hours of stream CPU off a span that lasted a few milliseconds.
+- A WebSocket, SSE or WebTransport span ends at the handshake, so its profile link covers the handshake too. Once the stream is up, the goroutine drops `span_id` and keeps `span_name`, which keeps hours of stream CPU off a span that lasted a few milliseconds. The request context still carries `span_id`, though. A stream handler that calls `pprof.Do(r.Context(), ...)` brings `span_id` back, and it stays on the goroutine for the rest of the stream after that `Do` returns.
 - `span_name` lives on the goroutine and not on the request context. If a handler or middleware adds labels of its own with `pprof.Do(r.Context(), ...)`, it loses `span_name` inside that `Do` and for the rest of the request after it returns. `span_id`, which is what links the trace, survives.
 
 ### Start, stop and failures
 
-The profiler starts in `app.Start`, right after the "starting application" log line and before the before-start hooks, so extension startup shows up in the first profiles. If `app.Start` fails, it stops the profiler again. `app.Stop` stops it last, after the tracing flush, and uploads what is left. That upload gets as long as your stop context allows, and if the context runs out first, Forge logs `profiling: final upload did not finish` and returns.
+The profiler starts in `app.Start`, right after the "starting application" log line and before the before-start hooks, so extension startup shows up in the first profiles. If `app.Start` fails, it stops the profiler again. `app.Stop` stops it last, after the tracing flush, and uploads what is left. That upload gets at most 5 seconds, the same cap as the tracing flush, or less when your stop context ends sooner. When time runs out, Forge logs `profiling: final upload did not finish` and returns. A failed `app.Start` gets the same capped attempt, even with a cancelled context, so a Pyroscope that takes the connection and never answers can't hold your boot error for 30 seconds.
 
-An unreachable Pyroscope never fails `app.Start`. Uploads happen in the background, so a Pyroscope that's down shows up in your logs as `profiling: upload failed` at warn, at most once a minute, with a `suppressed` count of the failures in between. If the Pyroscope client can't start at all, Forge logs `profiling: push disabled` at error and keeps booting.
+An unreachable Pyroscope never fails `app.Start`. Uploads happen in the background, so a Pyroscope that's down shows up in your logs as `profiling: pyroscope client error` at warn, at most once a minute. The `error` field holds the SDK's own message, and `suppressed` counts the errors in between. The same line covers the SDK's other complaints, such as a full upload queue. If the Pyroscope client can't start at all, Forge logs `profiling: push disabled` at error and keeps booting.
 
 <Callout type="warn">
 Go has one CPU profiler per process, and push holds it. While push includes `cpu`, the pprof endpoint `/_/debug/pprof/profile` answers "cpu profiling already in use". Forge logs a warning saying so at start when the pprof endpoints are on. The heap, goroutine and other pprof endpoints still work.

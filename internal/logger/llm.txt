@@ -360,11 +360,11 @@ For a failure that repeats while a backend is down. `Report` logs `msg` at warn 
 func NewRateLimited(log Logger, msg string, every time.Duration) *RateLimited
 func (r *RateLimited) Report(detail string)
 
-lim := logger.NewRateLimited(log, "profiling: upload failed", time.Minute)
+lim := logger.NewRateLimited(log, "profiling: pyroscope client error", time.Minute)
 lim.Report(err.Error())
 ```
 
-Two users, both at one minute: `internal/telemetry`'s OTel error handler ("telemetry: export failed") and `internal/profiling`'s Pyroscope SDK logger ("profiling: upload failed"). It lives here so `internal/profiling` doesn't import `internal/telemetry`.
+Two users, both at one minute: `internal/telemetry`'s OTel error handler ("telemetry: export failed") and `internal/profiling`'s Pyroscope SDK logger ("profiling: pyroscope client error"). It lives here so `internal/profiling` doesn't import `internal/telemetry`.
 
 ## Configuration
 

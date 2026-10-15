@@ -28,7 +28,7 @@ Scalars take code, then file, then env, then default. Maps and lists take the fi
 | `Push` | `ServerAddress != ""` |
 | `ApplicationName` | code, file, `PYROSCOPE_APPLICATION_NAME`, then `AppName`, then `forge`. Runes outside `[A-Za-z0-9_./-]` become `_` with a warning (`My App` gives `My_App`) |
 | `BasicAuthUser`, `BasicAuthPassword`, `TenantID` | code, file, `PYROSCOPE_BASIC_AUTH_USER`, `PYROSCOPE_BASIC_AUTH_PASSWORD`, `PYROSCOPE_TENANT_ID` |
-| `Tags` | `service_version` (from `AppVersion`) and `environment` (from `Environment`) when set, then the user's map from code or else file, which wins on a clash. A key outside `[A-Za-z0-9_.]`, or `__name__`, is dropped with a warning |
+| `Tags` | `service_version` (from `AppVersion`) and `environment` (from `Environment`) when set, then the user's map from code or else file, which wins on a clash. A key outside `[A-Za-z0-9_.]`, or `__name__`, is dropped with a warning. After the merge, `,`, `{`, `}` and `=` in any value become `_` with a warning naming the key and the original value, since they break the SDK's `name=app{k=v,...}` ingest query |
 | `ProfileTypes` | code or else file. Allowed: `DefaultProfileTypes` (`cpu`, `alloc_objects`, `alloc_space`, `inuse_objects`, `inuse_space`) plus `goroutines`, `mutex_count`, `mutex_duration`, `block_count`, `block_duration`. An unknown name is dropped with a warning; an empty result falls back to the defaults |
 | `SpanLabels` | code, file (`*bool`, so false counts as set), else `Push`. Forced false with a warning when `TracingEnabled` is false |
 | `Warnings` | messages for the caller to log |
@@ -40,13 +40,13 @@ Scalars take code, then file, then env, then default. Maps and lists take the fi
 - `New(settings, log)` starts nothing. Tests that build an app and never start it spawn no profiler goroutines.
 - `Start()` does nothing unless `Push`, or when already running. It calls `runtime.SetMutexProfileFraction(5)` for a `mutex_*` type and `runtime.SetBlockProfileRate(5)` for a `block_*` type (process-wide, never reset), then `pyroscope.Start`. It returns an error only when the SDK refuses to start; an unreachable server is not an error, since uploads happen in the background every 15 seconds (the SDK default; `uploadRate` is a test hook).
 - `Stop(ctx)` takes the running profiler out under the lock, then runs `pyroscope.Profiler.Stop` (which takes no context and uploads what is left) on a goroutine. It returns when that finishes or `ctx.Err()` when the context ends first; the upload then gives up on the SDK's 30 second HTTP timeout. Stopping a profiler that isn't running returns nil.
-- The SDK logger sends `Infof` and `Debugf` to debug and `Errorf` to `logger.RateLimited` with "profiling: upload failed": warn, at most once a minute, with a `suppressed` count.
+- The SDK logger sends `Infof` and `Debugf` to debug and `Errorf` to `logger.RateLimited` with "profiling: pyroscope client error": warn, at most once a minute, with the SDK's message in `error` and a `suppressed` count. The message is neutral because `Errorf` reports more than failed uploads ("upload queue is full", "failed to start CPU profiling").
 
 Wiring in the root package (`profiling.go`, `app_impl.go`):
 
 - `buildProfiling` runs after `buildTracing`, binds the `profiling` key (a key that exists but won't bind is a warning, and defaults apply), resolves, logs each warning and returns `New(...)`. `forge.New` copies `SpanLabels` into `telemetry.Settings` before building `ServerMiddleware`, which is only installed when tracing is on.
-- `app.Start` calls `startProfiler` right after the "starting application" log line and before the before-start hooks. When push includes `cpu` and `EnablePprof` is on, it first logs a warning that `/_/debug/pprof/profile` answers "cpu profiling already in use", because Go has one CPU profiler per process. A `Start` error is logged as "profiling: push disabled" and the app boots on. If `app.Start` fails after that, a deferred `stopProfiler` stops it again.
-- `app.Stop` calls `stopProfiler` as its last step, after the tracing flush, so shutdown is profiled. A context that runs out logs "profiling: final upload did not finish".
+- `app.Start` calls `startProfiler` right after the "starting application" log line and before the before-start hooks. When push includes `cpu` and `EnablePprof` is on, it first logs a warning that `/_/debug/pprof/profile` answers "cpu profiling already in use", because Go has one CPU profiler per process. A `Start` error is logged as "profiling: push disabled" and the app boots on. If `app.Start` fails after that, a deferred `stopProfiler(context.WithoutCancel(ctx))` stops it again, so a cancelled start context still gets the capped final upload.
+- `app.Stop` calls `stopProfiler` as its last step, after the tracing flush, so shutdown is profiled. `stopProfiler` caps the stop with `context.WithTimeout(ctx, profilerStopCap)`, 5 seconds like the tracing flush. A context that runs out logs "profiling: final upload did not finish".
 - The profiler is not in DI and has no public accessor.
 
 ## Testing
