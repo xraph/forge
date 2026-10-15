@@ -766,6 +766,16 @@ func (a *app) Start(ctx context.Context) error {
 		}
 	}
 
+	// The metrics collector is lazy too, so container.Start only starts it
+	// when something resolved it first. Start it here; until it runs, the
+	// built-in system collector is never registered and nothing feeds the
+	// time-series storage.
+	if svc, ok := a.metrics.(startableService); ok && !svc.IsStarted() {
+		if err := svc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start metrics collector: %w", err)
+		}
+	}
+
 	// Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
 
@@ -798,6 +808,14 @@ func (a *app) Start(ctx context.Context) error {
 	return nil
 }
 
+// startableService is a core service the app starts and stops itself, because
+// it is registered lazily and the container may never have started it.
+type startableService interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+	IsStarted() bool
+}
+
 // Stop stops the application.
 func (a *app) Stop(ctx context.Context) error {
 	a.mu.Lock()
@@ -827,6 +845,14 @@ func (a *app) Stop(ctx context.Context) error {
 	// 3. Stop DI container (stops all services in reverse order)
 	if err := a.container.Stop(ctx); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
+	}
+
+	// The container stops the metrics collector only when it started it, so
+	// stop whatever Start started here.
+	if svc, ok := a.metrics.(startableService); ok && svc.IsStarted() {
+		if err := svc.Stop(ctx); err != nil {
+			a.logger.Error("failed to stop metrics collector", F("error", err))
+		}
 	}
 
 	// 4. Flush spans last, so the drain and the extension stops are exported.

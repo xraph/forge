@@ -258,6 +258,14 @@ func (c *collector) Start(ctx context.Context) error {
 	return nil
 }
 
+// IsStarted reports whether Start has run and Stop has not.
+func (c *collector) IsStarted() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.started
+}
+
 // Stop stops the metrics collector service.
 func (c *collector) Stop(ctx context.Context) error {
 	c.mu.Lock()
@@ -272,6 +280,12 @@ func (c *collector) Stop(ctx context.Context) error {
 	if c.cancelCollection != nil {
 		c.cancelCollection()
 		c.cancelCollection = nil
+	}
+
+	if c.tsStorage != nil {
+		if err := c.tsStorage.Stop(ctx); err != nil && c.logger != nil {
+			c.logger.Warn("failed to stop time-series storage", logger.Error(err))
+		}
 	}
 
 	// Stop all custom collectors
@@ -801,7 +815,10 @@ func (c *collector) initializeBuiltinCollectors() error {
 	// Register system metrics collector
 	// NOTE: Uses registerCollectorLocked because this method is called from
 	// Start() which already holds c.mu.Lock(). Go mutexes are not reentrant.
-	if c.config.Features.SystemMetrics {
+	//
+	// A Reload before Start may already have registered it, so an existing
+	// one is kept rather than reported as a conflict.
+	if _, exists := c.customCollectors["system"]; c.config.Features.SystemMetrics && !exists {
 		systemCollector := collectors.NewSystemCollector()
 		if err := c.registerCollectorLocked(systemCollector); err != nil {
 			return fmt.Errorf("failed to register system collector: %w", err)

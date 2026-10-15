@@ -100,9 +100,36 @@ On when `metrics.features.runtime_metrics` is true, the default. These come stra
 
 Linux reports the full process set. Other platforms report whatever subset the Go client supports there.
 
-<Callout type="warn">
-`metrics.features.system_metrics` is on by default, but today a `forge.New` app exports no host CPU, memory, disk or load series. The collector that gathers them only runs once the metrics service is started, and nothing in `forge.New` starts it. Use `process_*` for the process, or a node exporter for the host.
-</Callout>
+## Host
+
+On when `metrics.features.system_metrics` is true, the default. `app.Start` starts the collector, which reads the host every 30 seconds; a scrape in between gets the last reading. These carry the namespace prefix, so with the default namespace they start with `forge_system_`.
+
+| Series | Type | Labels | What it is |
+|---|---|---|---|
+| `forge_system_cpu_utilization` | gauge | `mode` | share of CPU time each mode took since the previous reading, 0 to 1 |
+| `forge_system_memory_size_bytes` | gauge | | physical memory |
+| `forge_system_memory_available_bytes` | gauge | | memory the kernel can hand out without swapping (`MemAvailable` on Linux) |
+| `forge_system_memory_used_bytes` | gauge | | size minus available |
+| `forge_system_memory_free_bytes` | gauge | | memory holding nothing at all, page cache excluded |
+| `forge_system_memory_buffers_bytes`, `forge_system_memory_cached_bytes` | gauge | | the page cache |
+| `forge_system_swap_size_bytes`, `forge_system_swap_used_bytes`, `forge_system_swap_free_bytes` | gauge | | swap |
+| `forge_system_load1`, `forge_system_load5`, `forge_system_load15` | gauge | | load averages |
+| `forge_system_filesystem_size_bytes`, `forge_system_filesystem_used_bytes`, `forge_system_filesystem_available_bytes` | gauge | `mountpoint` | filesystem usage |
+
+`mode` is one of `user`, `nice`, `system`, `idle`, `iowait`, `irq`, `softirq` and `steal`, and the modes add up to 1. CPU needs two readings to compare, so you won't see it on a scrape in the first 30 seconds after start.
+
+Not every platform can measure everything. Where the collector has no way to read a figure, that series is missing from the scrape, so a dashboard shows no data for it on that platform.
+
+| | Linux | macOS and other Unix | Windows |
+|---|---|---|---|
+| CPU and load | yes | no | no |
+| memory | yes | no | yes, without page cache |
+| swap | yes | no | no |
+| filesystem | yes | yes | yes |
+
+The filesystem series cover `/`, `/home`, `/var` and `/tmp` on Unix and `C:\` on Windows, but only a path that's a mount of its own. In a container `/home` usually sits on the overlay root, so you get `mountpoint="/"` and nothing else. Available is what an unprivileged process can still write, which is why used plus available can come in under size on a filesystem that reserves blocks for root.
+
+Inside a container, `/proc` describes the node. `forge_system_memory_size_bytes` is the node's memory and not your pod's limit, and load and CPU are the node's too. Compare `process_resident_memory_bytes` with the limit, and use cAdvisor or a node exporter when you want per-container or full host figures.
 
 ## Health checks
 

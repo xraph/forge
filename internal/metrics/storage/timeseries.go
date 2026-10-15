@@ -33,7 +33,6 @@ type TimeSeriesStorage struct {
 	compressionDelay   time.Duration
 	cleanupInterval    time.Duration
 	started            bool
-	stopCh             chan struct{}
 	stats              *TimeSeriesStorageStats
 
 	// capacityWarned keeps the at-capacity warning to one line per episode
@@ -151,7 +150,6 @@ func NewTimeSeriesStorageWithConfig(config *TimeSeriesStorageConfig) *TimeSeries
 		compressionEnabled: config.CompressionEnabled,
 		compressionDelay:   config.CompressionDelay,
 		cleanupInterval:    config.CleanupInterval,
-		stopCh:             make(chan struct{}),
 		stats: &TimeSeriesStorageStats{
 			startTime: time.Now(),
 		},
@@ -502,7 +500,6 @@ func (ts *TimeSeriesStorage) Stop(ctx context.Context) error {
 	}
 
 	ts.started = false
-	close(ts.stopCh)
 
 	for _, cancel := range ts.cancelJobs {
 		cancel()

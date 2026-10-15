@@ -254,7 +254,17 @@ When enabled in `MetricsFeatures`, Forge automatically collects the series below
 
 ### System Metrics (`SystemMetrics: true`)
 
-This is on by default, but today a `forge.New` app exports no host CPU, memory, disk or load series, because the collector that gathers them never starts. Use the `process_*` runtime series for the process, or a node exporter for the host.
+On by default. Once the app starts, it reads host CPU, memory, swap, load and filesystem usage every 30 seconds and exports them as `forge_system_*` gauges. The CPU mode and the mount point are labels, so one query covers every mount:
+
+```promql
+# Share of CPU time not idle
+1 - forge_system_cpu_utilization{mode="idle"}
+
+# Percent used, per filesystem
+100 * forge_system_filesystem_used_bytes / forge_system_filesystem_size_bytes
+```
+
+Linux reports every series. macOS and the other Unix systems report filesystem usage only, and Windows reports memory and filesystem usage. In a container these describe the node, not the container, so compare `process_resident_memory_bytes` with your memory limit. The [metric reference](/docs/forge/metric-reference#host) lists every series and what each platform reports.
 
 ### Runtime Metrics (`RuntimeMetrics: true`)
 

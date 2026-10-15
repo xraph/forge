@@ -10,7 +10,7 @@ The metrics collector behind `app.Metrics()`. It owns a registry of counters, ga
 - **registry** (`registry.go`, `registry_wrap.go`): keyed by name plus sorted labels. Caps distinct label sets per name, captures units, and wraps every metric it returns so `WithLabels` goes back through the registry.
 - **Prometheus bridge** (`exporters/prometheus.go`): a client_golang collector that streams registry samples on each scrape. Decides the exported name, adds the unit suffix, attaches exemplars.
 - **Other exporters** (`exporters/json.go`, `influx.go`, `statsd.go`): format-only. They render a snapshot for `Export(format)`. Nothing pushes. There are no CloudWatch or Datadog exporters.
-- **Collectors** (`collectors/`): `system.go` (CPU, memory, disk, network, load, per platform), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics), `stream.go` (stream connections, a `shared.StreamObserver`).
+- **Collectors** (`collectors/`): `system.go` (CPU, memory, swap, load and filesystem usage; the probes are per platform in `system_linux.go`, `system_statfs.go`, `system_windows.go` and `system_other.go`, and a platform without one reports nothing), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics), `stream.go` (stream connections, a `shared.StreamObserver`).
 - **vec** (`vec/`): label vectors. See `vec/llm.txt`.
 - **Storage** (`storage/`): in-memory, Redis and time-series backends for metric history.
 - **noop** (`noop.go`): `NewNoOpMetrics()` for tests and disabled metrics.
@@ -23,8 +23,8 @@ app.Metrics()  (collector)
 │   ├── GetOrCreateCounter/Gauge/Histogram/Timer   (series cap applied here)
 │   ├── regCounter/regGauge/regHistogram/regTimer  (WithLabels re-enters the registry)
 │   └── RegisteredMetric{Name, Type, Tags, Unit, Metric}
-├── built-in collectors, started by collector.Start
-│   ├── system (system_metrics)
+├── built-in collectors, registered by collector.Start, which app.Start calls
+│   ├── system (system_metrics) -> forge_system_*, mount point and CPU mode as labels
 │   └── custom callbacks
 ├── HTTP server metrics, installed by forge.New (not by the collector)
 │   ├── collectors.HTTPServerMetrics -> router outer slot, inside tracing

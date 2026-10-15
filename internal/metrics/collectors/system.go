@@ -1,19 +1,10 @@
-//go:build !windows
-
 package collectors
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
 	"maps"
-	"math"
-	"os"
-	"runtime"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	metrics "github.com/xraph/go-utils/metrics"
@@ -23,11 +14,23 @@ import (
 // SYSTEM COLLECTOR
 // =============================================================================
 
-// SystemCollector collects system metrics (CPU, memory, disk).
+// errUnsupported is what a platform probe returns when the platform has no
+// implementation. The collector then reports nothing for that probe, never a
+// made-up value.
+var errUnsupported = errors.New("not supported on this platform")
+
+// SystemCollector collects host CPU, memory, swap, load and filesystem metrics.
+//
+// It reports only what the platform can measure. Linux reads /proc for CPU,
+// memory, swap and load. Every Unix reads filesystem usage with statfs.
+// Windows reports memory and filesystem usage.
+//
+// Series names carry no host detail. The mount point and the CPU mode are
+// labels, in the key form the Prometheus bridge parses: name{label="value"}.
 type SystemCollector struct {
 	mu                 sync.Mutex
 	name               string
-	interval           time.Duration
+	config             SystemCollectorConfig
 	lastCPUStats       *CPUStats
 	lastCollectionTime time.Time
 	metrics            map[string]any
@@ -36,17 +39,15 @@ type SystemCollector struct {
 
 // SystemCollectorConfig contains configuration for the system collector.
 type SystemCollectorConfig struct {
-	Interval          time.Duration `json:"interval"           yaml:"interval"`
-	CollectCPU        bool          `json:"collect_cpu"        yaml:"collect_cpu"`
-	CollectMemory     bool          `json:"collect_memory"     yaml:"collect_memory"`
-	CollectDisk       bool          `json:"collect_disk"       yaml:"collect_disk"`
-	CollectNetwork    bool          `json:"collect_network"    yaml:"collect_network"`
-	CollectLoad       bool          `json:"collect_load"       yaml:"collect_load"`
-	DiskMountPoints   []string      `json:"disk_mount_points"  yaml:"disk_mount_points"`
-	NetworkInterfaces []string      `json:"network_interfaces" yaml:"network_interfaces"`
+	Interval        time.Duration `json:"interval"          yaml:"interval"`
+	CollectCPU      bool          `json:"collect_cpu"       yaml:"collect_cpu"`
+	CollectMemory   bool          `json:"collect_memory"    yaml:"collect_memory"`
+	CollectDisk     bool          `json:"collect_disk"      yaml:"collect_disk"`
+	CollectLoad     bool          `json:"collect_load"      yaml:"collect_load"`
+	DiskMountPoints []string      `json:"disk_mount_points" yaml:"disk_mount_points"`
 }
 
-// CPUStats represents CPU statistics.
+// CPUStats holds cumulative CPU time in clock ticks, as /proc/stat reports it.
 type CPUStats struct {
 	User      uint64
 	Nice      uint64
@@ -58,10 +59,13 @@ type CPUStats struct {
 	Steal     uint64
 	Guest     uint64
 	GuestNice uint64
-	Total     uint64
+
+	// Total is every mode except guest and guest_nice, which the kernel
+	// already counts inside user and nice.
+	Total uint64
 }
 
-// MemoryStats represents memory statistics.
+// MemoryStats represents memory statistics in bytes.
 type MemoryStats struct {
 	Total     uint64
 	Available uint64
@@ -72,29 +76,20 @@ type MemoryStats struct {
 	SwapTotal uint64
 	SwapFree  uint64
 	SwapUsed  uint64
+
+	// HasPageCache is set when Buffers and Cached were measured.
+	HasPageCache bool
+
+	// HasSwap is set when the swap fields were measured.
+	HasSwap bool
 }
 
-// DiskStats represents disk statistics.
+// DiskStats represents filesystem usage for one mount point, in bytes.
 type DiskStats struct {
-	MountPoint  string
-	Device      string
-	Total       uint64
-	Used        uint64
-	Available   uint64
-	UsedPercent float64
-}
-
-// NetworkStats represents network interface statistics.
-type NetworkStats struct {
-	Interface   string
-	BytesRecv   uint64
-	BytesSent   uint64
-	PacketsRecv uint64
-	PacketsSent uint64
-	ErrorsRecv  uint64
-	ErrorsSent  uint64
-	DropsRecv   uint64
-	DropsSent   uint64
+	MountPoint string
+	Total      uint64
+	Used       uint64
+	Available  uint64
 }
 
 // LoadStats represents system load statistics.
@@ -107,14 +102,12 @@ type LoadStats struct {
 // DefaultSystemCollectorConfig returns default configuration.
 func DefaultSystemCollectorConfig() *SystemCollectorConfig {
 	return &SystemCollectorConfig{
-		Interval:          time.Second * 30,
-		CollectCPU:        true,
-		CollectMemory:     true,
-		CollectDisk:       true,
-		CollectNetwork:    false,
-		CollectLoad:       true,
-		DiskMountPoints:   []string{"/", "/home", "/var"},
-		NetworkInterfaces: []string{"eth0", "wlan0"},
+		Interval:        time.Second * 30,
+		CollectCPU:      true,
+		CollectMemory:   true,
+		CollectDisk:     true,
+		CollectLoad:     true,
+		DiskMountPoints: defaultMountPoints(),
 	}
 }
 
@@ -125,11 +118,15 @@ func NewSystemCollector() metrics.CustomCollector {
 
 // NewSystemCollectorWithConfig creates a new system collector with configuration.
 func NewSystemCollectorWithConfig(config *SystemCollectorConfig) metrics.CustomCollector {
+	if config == nil {
+		config = DefaultSystemCollectorConfig()
+	}
+
 	return &SystemCollector{
-		name:     "system",
-		interval: config.Interval,
-		metrics:  make(map[string]any),
-		enabled:  true,
+		name:    "system",
+		config:  *config,
+		metrics: make(map[string]any),
+		enabled: true,
 	}
 }
 
@@ -142,60 +139,55 @@ func (sc *SystemCollector) Name() string {
 	return sc.name
 }
 
-// Collect collects system metrics.
+// Collect collects system metrics. Between two collections closer together
+// than the interval it returns the previous result, so a scrape and the
+// scheduler loop can both call it without reading /proc twice.
 func (sc *SystemCollector) Collect() map[string]any {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
-	if !sc.enabled {
-		result := make(map[string]any, len(sc.metrics))
-		maps.Copy(result, sc.metrics)
-
-		return result
-	}
-
 	now := time.Now()
 
-	// Only collect if enough time has passed
-	if !sc.lastCollectionTime.IsZero() && now.Sub(sc.lastCollectionTime) < sc.interval {
-		result := make(map[string]any, len(sc.metrics))
-		maps.Copy(result, sc.metrics)
-
-		return result
+	fresh := sc.lastCollectionTime.IsZero() || now.Sub(sc.lastCollectionTime) >= sc.config.Interval
+	if sc.enabled && fresh {
+		sc.lastCollectionTime = now
+		sc.metrics = sc.collect()
 	}
 
-	sc.lastCollectionTime = now
-
-	// Collect CPU metrics
-	if cpuStats, err := sc.collectCPUStats(); err == nil {
-		sc.addCPUMetrics(cpuStats)
-	}
-
-	// Collect memory metrics
-	if memStats, err := sc.collectMemoryStats(); err == nil {
-		sc.addMemoryMetrics(memStats)
-	}
-
-	// Collect disk metrics
-	if diskStats, err := sc.collectDiskStats(); err == nil {
-		sc.addDiskMetrics(diskStats)
-	}
-
-	// Collect network metrics
-	if networkStats, err := sc.collectNetworkStats(); err == nil {
-		sc.addNetworkMetrics(networkStats)
-	}
-
-	// Collect load metrics
-	if loadStats, err := sc.collectLoadStats(); err == nil {
-		sc.addLoadMetrics(loadStats)
-	}
-
-	// Return a copy to prevent concurrent access to the internal map
 	result := make(map[string]any, len(sc.metrics))
 	maps.Copy(result, sc.metrics)
 
 	return result
+}
+
+// collect runs every enabled probe into a new map, so a mount point that goes
+// away stops being reported.
+func (sc *SystemCollector) collect() map[string]any {
+	out := make(map[string]any)
+
+	if sc.config.CollectCPU {
+		if stats, err := readCPUStats(); err == nil {
+			sc.addCPUMetrics(out, stats)
+		}
+	}
+
+	if sc.config.CollectMemory {
+		if stats, err := readMemoryStats(); err == nil {
+			addMemoryMetrics(out, stats)
+		}
+	}
+
+	if sc.config.CollectDisk {
+		addDiskMetrics(out, collectDiskStats(sc.config.DiskMountPoints))
+	}
+
+	if sc.config.CollectLoad {
+		if stats, err := readLoadStats(); err == nil {
+			addLoadMetrics(out, stats)
+		}
+	}
+
+	return out
 }
 
 // Reset resets the collector.
@@ -211,451 +203,109 @@ func (sc *SystemCollector) Reset() error {
 }
 
 // =============================================================================
-// CPU METRICS COLLECTION
+// SERIES
 // =============================================================================
 
-// collectCPUStats collects CPU statistics.
-func (sc *SystemCollector) collectCPUStats() (*CPUStats, error) {
-	// Different implementations for different operating systems
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxCPUStats()
-	case "darwin":
-		return sc.collectDarwinCPUStats()
-	case "windows":
-		return sc.collectWindowsCPUStats()
-	default:
-		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
-
-// collectLinuxCPUStats collects CPU statistics on Linux.
-func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
-	file, err := os.Open("/proc/stat")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open /proc/stat: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return nil, errors.New("failed to read first line from /proc/stat")
-	}
-
-	line := scanner.Text()
-	if !strings.HasPrefix(line, "cpu ") {
-		return nil, errors.New("invalid format in /proc/stat")
-	}
-
-	// Parse CPU stats: cpu user nice system idle iowait irq softirq steal guest guest_nice
-	fields := strings.Fields(line)
-	if len(fields) < 5 {
-		return nil, errors.New("insufficient fields in /proc/stat")
-	}
-
-	stats := &CPUStats{}
-	values := []uint64{}
-
-	for i := 1; i < len(fields) && i <= 10; i++ {
-		val, err := strconv.ParseUint(fields[i], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CPU stat: %w", err)
-		}
-
-		values = append(values, val)
-	}
-
-	// Map values to struct fields
-	if len(values) >= 4 {
-		stats.User = values[0]
-		stats.Nice = values[1]
-		stats.System = values[2]
-		stats.Idle = values[3]
-	}
-
-	if len(values) >= 5 {
-		stats.IOWait = values[4]
-	}
-
-	if len(values) >= 6 {
-		stats.IRQ = values[5]
-	}
-
-	if len(values) >= 7 {
-		stats.SoftIRQ = values[6]
-	}
-
-	if len(values) >= 8 {
-		stats.Steal = values[7]
-	}
-
-	if len(values) >= 9 {
-		stats.Guest = values[8]
-	}
-
-	if len(values) >= 10 {
-		stats.GuestNice = values[9]
-	}
-
-	// Calculate total
-	stats.Total = stats.User + stats.Nice + stats.System + stats.Idle +
-		stats.IOWait + stats.IRQ + stats.SoftIRQ + stats.Steal + stats.Guest + stats.GuestNice
-
-	return stats, nil
-}
-
-// collectDarwinCPUStats collects CPU statistics on Darwin/macOS.
-func (sc *SystemCollector) collectDarwinCPUStats() (*CPUStats, error) {
-	// Placeholder implementation for macOS
-	// In a real implementation, this would use system calls or parse system files
-	return &CPUStats{
-		User:   1000,
-		System: 500,
-		Idle:   8500,
-		Total:  10000,
-	}, nil
-}
-
-// collectWindowsCPUStats collects CPU statistics on Windows.
-func (sc *SystemCollector) collectWindowsCPUStats() (*CPUStats, error) {
-	// Placeholder implementation for Windows
-	// In a real implementation, this would use Windows API calls
-	return &CPUStats{
-		User:   1000,
-		System: 500,
-		Idle:   8500,
-		Total:  10000,
-	}, nil
-}
-
-// addCPUMetrics adds CPU metrics to the collection.
-func (sc *SystemCollector) addCPUMetrics(stats *CPUStats) {
-	// Calculate CPU usage percentages
-	if sc.lastCPUStats != nil {
-		totalDiff := stats.Total - sc.lastCPUStats.Total
-		if totalDiff > 0 {
-			userDiff := stats.User - sc.lastCPUStats.User
-			systemDiff := stats.System - sc.lastCPUStats.System
-			idleDiff := stats.Idle - sc.lastCPUStats.Idle
-			iowaitDiff := stats.IOWait - sc.lastCPUStats.IOWait
-
-			sc.metrics["system.cpu.user"] = float64(userDiff) / float64(totalDiff) * 100
-			sc.metrics["system.cpu.system"] = float64(systemDiff) / float64(totalDiff) * 100
-			sc.metrics["system.cpu.idle"] = float64(idleDiff) / float64(totalDiff) * 100
-			sc.metrics["system.cpu.iowait"] = float64(iowaitDiff) / float64(totalDiff) * 100
-			sc.metrics["system.cpu.usage"] = float64(totalDiff-(idleDiff+iowaitDiff)) / float64(totalDiff) * 100
-		}
-	}
-
-	// Store raw values
-	sc.metrics["system.cpu.user_raw"] = stats.User
-	sc.metrics["system.cpu.system_raw"] = stats.System
-	sc.metrics["system.cpu.idle_raw"] = stats.Idle
-	sc.metrics["system.cpu.iowait_raw"] = stats.IOWait
-	sc.metrics["system.cpu.total_raw"] = stats.Total
-
+// addCPUMetrics reports the share of CPU time each mode took since the
+// previous collection, as a ratio from 0 to 1. The first collection has
+// nothing to compare against and reports no CPU series.
+func (sc *SystemCollector) addCPUMetrics(out map[string]any, stats *CPUStats) {
+	prev := sc.lastCPUStats
 	sc.lastCPUStats = stats
-}
 
-// =============================================================================
-// MEMORY METRICS COLLECTION
-// =============================================================================
-
-// collectMemoryStats collects memory statistics.
-func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxMemoryStats()
-	case "darwin":
-		return sc.collectDarwinMemoryStats()
-	case "windows":
-		return sc.collectWindowsMemoryStats()
-	default:
-		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
-
-// collectLinuxMemoryStats collects memory statistics on Linux.
-func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/meminfo: %w", err)
+	if prev == nil || stats.Total <= prev.Total {
+		return
 	}
 
-	lines := strings.Split(string(data), "\n")
-	values := make(map[string]uint64)
+	total := float64(stats.Total - prev.Total)
 
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+	modes := []struct {
+		name      string
+		cur, last uint64
+	}{
+		{"user", stats.User, prev.User},
+		{"nice", stats.Nice, prev.Nice},
+		{"system", stats.System, prev.System},
+		{"idle", stats.Idle, prev.Idle},
+		{"iowait", stats.IOWait, prev.IOWait},
+		{"irq", stats.IRQ, prev.IRQ},
+		{"softirq", stats.SoftIRQ, prev.SoftIRQ},
+		{"steal", stats.Steal, prev.Steal},
+	}
+
+	for _, m := range modes {
+		if m.cur < m.last {
 			continue
 		}
 
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-
-		key := strings.TrimSuffix(fields[0], ":")
-
-		value, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			continue
-		}
-
-		// Convert from kB to bytes
-		values[key] = value * 1024
-	}
-
-	stats := &MemoryStats{
-		Total:     values["MemTotal"],
-		Free:      values["MemFree"],
-		Available: values["MemAvailable"],
-		Buffers:   values["Buffers"],
-		Cached:    values["Cached"],
-		SwapTotal: values["SwapTotal"],
-		SwapFree:  values["SwapFree"],
-	}
-
-	// Calculate used memory
-	stats.Used = stats.Total - stats.Available
-	stats.SwapUsed = stats.SwapTotal - stats.SwapFree
-
-	return stats, nil
-}
-
-// collectDarwinMemoryStats collects memory statistics on Darwin/macOS.
-func (sc *SystemCollector) collectDarwinMemoryStats() (*MemoryStats, error) {
-	// Placeholder implementation for macOS
-	return &MemoryStats{
-		Total:     8 * 1024 * 1024 * 1024, // 8GB
-		Available: 4 * 1024 * 1024 * 1024, // 4GB
-		Used:      4 * 1024 * 1024 * 1024, // 4GB
-		Free:      4 * 1024 * 1024 * 1024, // 4GB
-	}, nil
-}
-
-// collectWindowsMemoryStats collects memory statistics on Windows.
-func (sc *SystemCollector) collectWindowsMemoryStats() (*MemoryStats, error) {
-	// Placeholder implementation for Windows
-	return &MemoryStats{
-		Total:     8 * 1024 * 1024 * 1024, // 8GB
-		Available: 4 * 1024 * 1024 * 1024, // 4GB
-		Used:      4 * 1024 * 1024 * 1024, // 4GB
-		Free:      4 * 1024 * 1024 * 1024, // 4GB
-	}, nil
-}
-
-// addMemoryMetrics adds memory metrics to the collection.
-func (sc *SystemCollector) addMemoryMetrics(stats *MemoryStats) {
-	sc.metrics["system.memory.total"] = stats.Total
-	sc.metrics["system.memory.available"] = stats.Available
-	sc.metrics["system.memory.used"] = stats.Used
-	sc.metrics["system.memory.free"] = stats.Free
-	sc.metrics["system.memory.buffers"] = stats.Buffers
-	sc.metrics["system.memory.cached"] = stats.Cached
-
-	// Calculate percentages
-	if stats.Total > 0 {
-		sc.metrics["system.memory.used_percent"] = float64(stats.Used) / float64(stats.Total) * 100
-		sc.metrics["system.memory.available_percent"] = float64(stats.Available) / float64(stats.Total) * 100
-	}
-
-	// Swap metrics
-	sc.metrics["system.swap.total"] = stats.SwapTotal
-	sc.metrics["system.swap.free"] = stats.SwapFree
-	sc.metrics["system.swap.used"] = stats.SwapUsed
-
-	if stats.SwapTotal > 0 {
-		sc.metrics["system.swap.used_percent"] = float64(stats.SwapUsed) / float64(stats.SwapTotal) * 100
+		out[labelled("system.cpu.utilization", "mode", m.name)] = float64(m.cur-m.last) / total
 	}
 }
 
-// =============================================================================
-// DISK METRICS COLLECTION
-// =============================================================================
+// addMemoryMetrics adds memory and swap metrics to the collection.
+func addMemoryMetrics(out map[string]any, stats *MemoryStats) {
+	out["system.memory.size_bytes"] = stats.Total
+	out["system.memory.available_bytes"] = stats.Available
+	out["system.memory.used_bytes"] = stats.Used
+	out["system.memory.free_bytes"] = stats.Free
 
-// collectDiskStats collects disk statistics.
-func (sc *SystemCollector) collectDiskStats() ([]DiskStats, error) {
-	var allStats []DiskStats
-
-	// Common mount points to check
-	mountPoints := []string{"/", "/home", "/var", "/tmp"}
-
-	for _, mountPoint := range mountPoints {
-		if stats, err := sc.collectDiskStatsForPath(mountPoint); err == nil {
-			allStats = append(allStats, *stats)
-		}
+	if stats.HasPageCache {
+		out["system.memory.buffers_bytes"] = stats.Buffers
+		out["system.memory.cached_bytes"] = stats.Cached
 	}
 
-	return allStats, nil
+	if stats.HasSwap {
+		out["system.swap.size_bytes"] = stats.SwapTotal
+		out["system.swap.free_bytes"] = stats.SwapFree
+		out["system.swap.used_bytes"] = stats.SwapUsed
+	}
 }
 
-// collectDiskStatsForPath collects disk statistics for a specific path.
-func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return nil, fmt.Errorf("failed to get disk stats for %s: %w", path, err)
-	}
-
-	stats, err := diskStatsFromStat(path, &stat)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get disk stats for %s: %w", path, err)
-	}
-
-	return stats, nil
-}
-
-// diskStatsFromStat validates filesystem counters before calculating disk usage.
-func diskStatsFromStat(path string, stat *syscall.Statfs_t) (*DiskStats, error) {
-	size := stat.Bsize
-	if size <= 0 {
-		return nil, errors.New("invalid disk stats: block size must be positive")
-	}
-
-	if stat.Blocks == 0 {
-		return nil, errors.New("invalid disk stats: total blocks must be positive")
-	}
-
-	if stat.Bavail > stat.Blocks {
-		return nil, errors.New("invalid disk stats: available blocks exceed total blocks")
-	}
-
-	blockSize := uint64(size)
-	if stat.Blocks > math.MaxUint64/blockSize {
-		return nil, errors.New("invalid disk stats: disk byte count overflows uint64")
-	}
-
-	total := stat.Blocks * blockSize
-	available := stat.Bavail * blockSize
-	used := total - available
-
-	usedPercent := float64(used) / float64(total) * 100
-
-	return &DiskStats{
-		MountPoint:  path,
-		Device:      "unknown", // Would need additional system calls to get device name
-		Total:       total,
-		Used:        used,
-		Available:   available,
-		UsedPercent: usedPercent,
-	}, nil
-}
-
-// addDiskMetrics adds disk metrics to the collection.
-func (sc *SystemCollector) addDiskMetrics(stats []DiskStats) {
+// addDiskMetrics adds one labelled series per mount point and measure.
+func addDiskMetrics(out map[string]any, stats []DiskStats) {
 	for _, stat := range stats {
-		prefix := "system.disk." + strings.ReplaceAll(stat.MountPoint, "/", "_")
-		if prefix == "system.disk._" {
-			prefix = "system.disk.root"
-		}
-
-		sc.metrics[prefix+".total"] = stat.Total
-		sc.metrics[prefix+".used"] = stat.Used
-		sc.metrics[prefix+".available"] = stat.Available
-		sc.metrics[prefix+".used_percent"] = stat.UsedPercent
+		out[labelled("system.filesystem.size_bytes", "mountpoint", stat.MountPoint)] = stat.Total
+		out[labelled("system.filesystem.used_bytes", "mountpoint", stat.MountPoint)] = stat.Used
+		out[labelled("system.filesystem.available_bytes", "mountpoint", stat.MountPoint)] = stat.Available
 	}
-}
-
-// =============================================================================
-// NETWORK METRICS COLLECTION
-// =============================================================================
-
-// collectNetworkStats collects network statistics.
-func (sc *SystemCollector) collectNetworkStats() ([]NetworkStats, error) {
-	// This is a simplified implementation
-	// In a real implementation, this would parse /proc/net/dev on Linux
-	return []NetworkStats{
-		{
-			Interface:   "eth0",
-			BytesRecv:   1024000,
-			BytesSent:   512000,
-			PacketsRecv: 1000,
-			PacketsSent: 800,
-		},
-	}, nil
-}
-
-// addNetworkMetrics adds network metrics to the collection.
-func (sc *SystemCollector) addNetworkMetrics(stats []NetworkStats) {
-	for _, stat := range stats {
-		prefix := "system.network." + stat.Interface
-
-		sc.metrics[prefix+".bytes_recv"] = stat.BytesRecv
-		sc.metrics[prefix+".bytes_sent"] = stat.BytesSent
-		sc.metrics[prefix+".packets_recv"] = stat.PacketsRecv
-		sc.metrics[prefix+".packets_sent"] = stat.PacketsSent
-		sc.metrics[prefix+".errors_recv"] = stat.ErrorsRecv
-		sc.metrics[prefix+".errors_sent"] = stat.ErrorsSent
-		sc.metrics[prefix+".drops_recv"] = stat.DropsRecv
-		sc.metrics[prefix+".drops_sent"] = stat.DropsSent
-	}
-}
-
-// =============================================================================
-// LOAD METRICS COLLECTION
-// =============================================================================
-
-// collectLoadStats collects system load statistics.
-func (sc *SystemCollector) collectLoadStats() (*LoadStats, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxLoadStats()
-	case "darwin":
-		return sc.collectDarwinLoadStats()
-	default:
-		return nil, fmt.Errorf("load statistics not supported on %s", runtime.GOOS)
-	}
-}
-
-// collectLinuxLoadStats collects load statistics on Linux.
-func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
-	data, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/loadavg: %w", err)
-	}
-
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return nil, errors.New("invalid format in /proc/loadavg")
-	}
-
-	load1, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load1: %w", err)
-	}
-
-	load5, err := strconv.ParseFloat(fields[1], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load5: %w", err)
-	}
-
-	load15, err := strconv.ParseFloat(fields[2], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load15: %w", err)
-	}
-
-	return &LoadStats{
-		Load1:  load1,
-		Load5:  load5,
-		Load15: load15,
-	}, nil
-}
-
-// collectDarwinLoadStats collects load statistics on Darwin/macOS.
-func (sc *SystemCollector) collectDarwinLoadStats() (*LoadStats, error) {
-	// Placeholder implementation for macOS
-	return &LoadStats{
-		Load1:  1.0,
-		Load5:  1.2,
-		Load15: 1.5,
-	}, nil
 }
 
 // addLoadMetrics adds load metrics to the collection.
-func (sc *SystemCollector) addLoadMetrics(stats *LoadStats) {
-	sc.metrics["system.load.1"] = stats.Load1
-	sc.metrics["system.load.5"] = stats.Load5
-	sc.metrics["system.load.15"] = stats.Load15
+func addLoadMetrics(out map[string]any, stats *LoadStats) {
+	out["system.load1"] = stats.Load1
+	out["system.load5"] = stats.Load5
+	out["system.load15"] = stats.Load15
+}
+
+// collectDiskStats measures each path that is a mount point of its own. A
+// path on the same filesystem as its parent (/home on a container's overlay
+// root, say) would only repeat the parent's numbers under another label.
+func collectDiskStats(paths []string) []DiskStats {
+	stats := make([]DiskStats, 0, len(paths))
+
+	for _, path := range paths {
+		if !labelSafe(path) || !isMountPoint(path) {
+			continue
+		}
+
+		if s, err := readDiskStats(path); err == nil {
+			stats = append(stats, *s)
+		}
+	}
+
+	return stats
+}
+
+// labelled builds a metric key with one label, the form parseMetricKey in
+// the Prometheus bridge reads back.
+func labelled(name, key, value string) string {
+	return name + "{" + key + `="` + value + `"}`
+}
+
+// labelSafe reports whether value survives the bridge's key parser, which
+// splits on these characters and has no escaping.
+func labelSafe(value string) bool {
+	return value != "" && !strings.ContainsAny(value, `",={}`)
 }
 
 // =============================================================================
@@ -664,27 +314,42 @@ func (sc *SystemCollector) addLoadMetrics(stats *LoadStats) {
 
 // Enable enables the collector.
 func (sc *SystemCollector) Enable() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	sc.enabled = true
 }
 
-// Disable disables the collector.
+// Disable disables the collector. Collect keeps returning the last result.
 func (sc *SystemCollector) Disable() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	sc.enabled = false
 }
 
 // IsEnabled returns whether the collector is enabled.
 func (sc *SystemCollector) IsEnabled() bool {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
 	return sc.enabled
 }
 
 // SetInterval sets the collection interval.
 func (sc *SystemCollector) SetInterval(interval time.Duration) {
-	sc.interval = interval
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	sc.config.Interval = interval
 }
 
 // GetInterval returns the collection interval.
 func (sc *SystemCollector) GetInterval() time.Duration {
-	return sc.interval
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	return sc.config.Interval
 }
 
 // GetLastCollectionTime returns the last collection time.

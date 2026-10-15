@@ -14,7 +14,6 @@ func TestDiskStatsFromStat(t *testing.T) {
 		stat          syscall.Statfs_t
 		wantTotal     uint64
 		wantAvailable uint64
-		wantPercent   float64
 		wantError     bool
 	}{
 		{
@@ -22,13 +21,11 @@ func TestDiskStatsFromStat(t *testing.T) {
 			stat:          syscall.Statfs_t{Bsize: 4096, Blocks: 10, Bavail: 4},
 			wantTotal:     40960,
 			wantAvailable: 16384,
-			wantPercent:   60,
 		},
 		{
-			name:        "full disk",
-			stat:        syscall.Statfs_t{Bsize: 4096, Blocks: 10},
-			wantTotal:   40960,
-			wantPercent: 100,
+			name:      "full disk",
+			stat:      syscall.Statfs_t{Bsize: 4096, Blocks: 10},
+			wantTotal: 40960,
 		},
 		{
 			name:          "all blocks available",
@@ -89,10 +86,6 @@ func TestDiskStatsFromStat(t *testing.T) {
 				t.Errorf("unexpected byte counts: %+v", stats)
 			}
 
-			if stats.UsedPercent != tt.wantPercent {
-				t.Errorf("used percent = %g, want %g", stats.UsedPercent, tt.wantPercent)
-			}
-
 			if stats.MountPoint != "test" {
 				t.Errorf("mount point = %q, want test", stats.MountPoint)
 			}
@@ -100,19 +93,13 @@ func TestDiskStatsFromStat(t *testing.T) {
 	}
 }
 
-func TestCollectDiskStatsForPath(t *testing.T) {
-	collector := &SystemCollector{}
-
-	stats, err := collector.collectDiskStatsForPath(t.TempDir())
+func TestReadDiskStats(t *testing.T) {
+	stats, err := readDiskStats(t.TempDir())
 	if err != nil {
-		t.Fatalf("collectDiskStatsForPath: %v", err)
+		t.Fatalf("readDiskStats: %v", err)
 	}
 
 	if stats.Total == 0 || stats.Available > stats.Total || stats.Used != stats.Total-stats.Available {
 		t.Errorf("invalid disk byte counts: %+v", stats)
-	}
-
-	if math.IsNaN(stats.UsedPercent) || stats.UsedPercent < 0 || stats.UsedPercent > 100 {
-		t.Errorf("invalid disk usage percentage: %g", stats.UsedPercent)
 	}
 }
