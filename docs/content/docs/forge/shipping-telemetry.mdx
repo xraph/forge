@@ -1,0 +1,251 @@
+---
+title: Shipping telemetry
+description: Environment variables for sending Forge traces to Grafana Cloud, Honeycomb, Datadog, New Relic and others, and how each one gets your metrics
+icon: Send
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Forge sends traces over OTLP and serves metrics for scraping. Those are two different routes, and every backend below needs both set up if you want both signals. Traces take a couple of environment variables. Metrics take a scraper that reads `/_/metrics`.
+
+## Traces
+
+Every backend here accepts OTLP over HTTP, so the setup is the same shape each time: an endpoint, sometimes a header, and a restart.
+
+A few things hold for all of them, because they're about Forge and not the backend:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is a base URL. Forge appends `/v1/traces`. If you set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` instead, it's used exactly as written, so it has to include `/v1/traces` itself.
+- The endpoint must be a full `http://` or `https://` URL. A bare `host:4318` is rejected with one logged error, and the app runs on without exporting.
+- OTLP over HTTP with protobuf bodies is the only transport. Forge doesn't read `OTEL_EXPORTER_OTLP_PROTOCOL`, so setting it does nothing, and a gRPC port such as 4317 won't work.
+- Header values are percent-encoded. A space is `%20`, so `Basic abc` is written `Basic%20abc`. Separate several headers with commas.
+- `OTEL_EXPORTER_OTLP_COMPRESSION=gzip` compresses the export. The OpenTelemetry exporter Forge uses reads it directly.
+- `service.name` comes from your app's name. `OTEL_SERVICE_NAME` overrides it.
+
+The [Observability](/docs/forge/observability#configuration) page has the full list of variables and the `tracing:` config block, which takes the same values without the encoding.
+
+### Grafana Cloud
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://otlp-gateway-<zone>.grafana.net/otlp`, for example `https://otlp-gateway-prod-us-east-0.grafana.net/otlp` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Basic%20<base64 value from the portal>` |
+
+The zone depends on your stack's region and when it was created, so copy it rather than guessing. Your stack's OpenTelemetry connection page in the Grafana Cloud portal generates both values. Copy them, and check the space after `Basic` is written `%20`.
+
+### Grafana Tempo
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://<tempo-host>:4318` |
+
+No header is needed unless you've put auth in front of Tempo. Since Tempo 2.7 the OTLP receiver listens on `localhost:4318` by default, so a Tempo in another container never hears from your app. Set the receiver's endpoint in Tempo's config:
+
+```yaml
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: "tempo:4318"
+```
+
+`0.0.0.0:4318` also works. Tempo's docs warn it exposes the receiver on every interface.
+
+### Jaeger
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://<jaeger-host>:4318` |
+
+Jaeger v2's all-in-one image takes OTLP over HTTP on 4318 and serves its UI on 16686:
+
+```bash
+docker run --rm --name jaeger -p 16686:16686 -p 4318:4318 \
+  cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
+```
+
+### Honeycomb
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://api.honeycomb.io`, or `https://api.eu1.honeycomb.io` for the EU |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `x-honeycomb-team=<api key>` |
+
+A Honeycomb Classic team also needs `x-honeycomb-dataset=<name>` in the headers, comma separated after the key.
+
+### Datadog Agent
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318`, or `http://<agent-host>:4318` when the Agent runs in another container |
+
+The Agent doesn't accept OTLP until you turn it on. You need Agent 7.32 or later, with this in `datadog.yaml`:
+
+```yaml
+otlp_config:
+  receiver:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+```
+
+Or set `DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318` on both the core Agent and the trace Agent. Datadog's docs use `localhost:4318` for an Agent installed on the host and `0.0.0.0:4318` for one in a container.
+
+Datadog also takes OTLP traces with no Agent at all:
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://otlp.<your Datadog site>`, for example `https://otlp.datadoghq.com` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `dd-api-key=<api key>,compute_stats=true` |
+
+Without `compute_stats=true`, Datadog doesn't compute trace metrics from your spans. A 403 usually means the site in the URL doesn't match your account's. Datadog recommends sending production traffic through an Agent or a Collector.
+
+### New Relic
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://otlp.nr-data.net` (US), `https://otlp.eu01.nr-data.net` (EU), `https://otlp.jp.nr-data.net` (JP) or `https://gov-otlp.nr-data.net` (US FedRAMP) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `api-key=<license key>` |
+| `OTEL_EXPORTER_OTLP_COMPRESSION` | `gzip` |
+
+New Relic caps a payload at 1 MB and asks you to compress to stay under it. Leaving the port off is fine, since 443 takes OTLP over HTTP.
+
+### OpenTelemetry Collector
+
+| Variable | Value |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://<collector-host>:4318` |
+
+The Collector binds its receivers to `localhost` by default. Give the OTLP receiver an address your app can reach:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+```
+
+## Metrics
+
+Forge doesn't push metrics. It serves them at `/_/metrics`, in the Prometheus text format or in OpenMetrics when the scraper asks for it, and something has to scrape that endpoint. Each backend has its own scraper.
+
+<Callout type="info">
+The HTTP latency histogram carries `trace_id` exemplars only in the OpenMetrics format. Prometheus asks for that format on its own. With any other scraper, check its docs before you count on seeing exemplars.
+</Callout>
+
+### Prometheus
+
+```yaml
+scrape_configs:
+  - job_name: forge
+    metrics_path: /_/metrics
+    static_configs:
+      - targets: ["shop-api:8080"]
+```
+
+Start Prometheus with `--enable-feature=exemplar-storage` if you want the exemplars kept. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) walks through it with a local Grafana.
+
+### Grafana Cloud, through Grafana Alloy
+
+Alloy scrapes the endpoint and remote-writes to your stack's Prometheus:
+
+```hcl
+prometheus.scrape "forge" {
+  targets = [{
+    __address__      = "shop-api:8080",
+    __metrics_path__ = "/_/metrics",
+  }]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "https://prometheus-<zone>.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = sys.env("REMOTE_WRITE_USERNAME")
+      password = sys.env("REMOTE_WRITE_PASSWORD")
+    }
+  }
+}
+```
+
+The remote-write URL, username and token come from your stack's Prometheus details in the portal. Without `__metrics_path__` Alloy scrapes `/metrics`, and without `scrape_interval` it scrapes once a minute.
+
+### Datadog Agent
+
+The Agent's OpenMetrics check reads the endpoint. Put this in `conf.d/openmetrics.d/conf.yaml`:
+
+```yaml
+instances:
+  - openmetrics_endpoint: http://shop-api:8080/_/metrics
+    namespace: shop_api
+    metrics:
+      - http_server_.*
+      - forge_.*
+      - rpc_server_.*
+```
+
+`metrics` takes names or regular expressions, and only what matches is collected. From Agent 7.32 on, write counter names without their `_total` suffix. Running in Docker, you can put the same instance in a `com.datadoghq.ad.instances` label on your app's container instead.
+
+### New Relic
+
+Run Prometheus as above and add a remote write to New Relic:
+
+```yaml
+remote_write:
+  - url: https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=shop-api
+    authorization:
+      credentials: <license key>
+```
+
+The EU host is `metric-api.eu.newrelic.com` and the JP host is `metric-api.jp.nr-data.net`. New Relic also documents a Prometheus agent for Kubernetes and an OpenMetrics integration for Docker, if you'd rather not run Prometheus yourself.
+
+### Honeycomb, or anything else through a Collector
+
+The Collector's `prometheus` receiver scrapes the endpoint, and an OTLP exporter sends the result on. For Honeycomb, give metrics their own dataset:
+
+```yaml
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: shop-api
+          metrics_path: /_/metrics
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["shop-api:8080"]
+
+processors:
+  batch: {}
+
+exporters:
+  otlp/metrics:
+    endpoint: api.honeycomb.io:443
+    headers:
+      x-honeycomb-team: <api key>
+      x-honeycomb-dataset: shop-api-metrics
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlp/metrics]
+```
+
+The same receiver works in front of any backend that takes OTLP metrics. Swap the exporter. A `$` anywhere in the receiver's config has to be written `$$`.
+
+## Where these values come from
+
+We checked every endpoint and header on this page against the vendor's documentation on 2026-10-15. Vendors move things, so if one of them disagrees with this page, trust the vendor.
+
+- Grafana Cloud: [Send data using OTLP](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/), [Collect Prometheus metrics with Alloy](https://grafana.com/docs/alloy/latest/collect/prometheus-metrics/), [prometheus.scrape](https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.scrape/)
+- Tempo: [Configuration](https://grafana.com/docs/tempo/latest/configuration/), [Tempo 2.7 release notes](https://grafana.com/docs/tempo/latest/release-notes/version-2/v2-7/)
+- Jaeger: [Getting started](https://www.jaegertracing.io/docs/latest/getting-started/), [APIs](https://www.jaegertracing.io/docs/latest/architecture/apis/)
+- Honeycomb: [Send data with OpenTelemetry](https://docs.honeycomb.io/send-data/opentelemetry/), [Prometheus metrics](https://docs.honeycomb.io/integrations/metrics/prometheus)
+- Datadog: [OTLP ingestion by the Agent](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/), [OTLP traces intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/traces/), [OpenMetrics check](https://docs.datadoghq.com/integrations/openmetrics/), [Prometheus and OpenMetrics in Docker](https://docs.datadoghq.com/containers/docker/prometheus/)
+- New Relic: [OTLP endpoint](https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/), [Send Prometheus data](https://docs.newrelic.com/docs/infrastructure/prometheus-integrations/get-started/send-prometheus-metric-data-new-relic/), [Remote write setup](https://docs.newrelic.com/docs/infrastructure/prometheus-integrations/install-configure-remote-write/set-your-prometheus-remote-write-integration/)
+- OpenTelemetry Collector: [Configuration](https://opentelemetry.io/docs/collector/configuration/), [Prometheus receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/prometheusreceiver/README.md)
