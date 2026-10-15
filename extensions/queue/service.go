@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/messaging"
 )
 
 // QueueService wraps a Queue implementation and provides lifecycle management.
@@ -16,6 +17,8 @@ type QueueService struct {
 	queue   Queue
 	logger  forge.Logger
 	metrics forge.Metrics
+
+	telemetry *messaging.Telemetry
 }
 
 // NewQueueService creates a new queue service with the given configuration.
@@ -26,6 +29,8 @@ func NewQueueService(config Config, queue Queue, logger forge.Logger, metrics fo
 		queue:   queue,
 		logger:  logger,
 		metrics: metrics,
+
+		telemetry: newTelemetry(config, metrics),
 	}
 }
 
@@ -123,20 +128,47 @@ func (s *QueueService) PurgeQueue(ctx context.Context, name string) error {
 	return s.queue.PurgeQueue(ctx, name)
 }
 
+// Publish sends a message inside a producer span and writes the trace context into a copy of
+// the message headers, so the caller's map is never modified.
 func (s *QueueService) Publish(ctx context.Context, queue string, message Message) error {
-	return s.queue.Publish(ctx, queue, message)
+	ctx, op := s.telemetry.StartSend(ctx, queue, "publish")
+	message.Headers = messaging.WithTraceContext(ctx, message.Headers)
+
+	err := s.queue.Publish(ctx, queue, message)
+	op.End(err)
+
+	return err
 }
 
+// PublishBatch publishes each message in turn, so each gets its own send span.
 func (s *QueueService) PublishBatch(ctx context.Context, queue string, messages []Message) error {
-	return s.queue.PublishBatch(ctx, queue, messages)
+	if len(messages) == 0 {
+		// Keep the backend's own answer for an empty batch, such as ErrNotConnected.
+		return s.queue.PublishBatch(ctx, queue, messages)
+	}
+
+	for _, msg := range messages {
+		if err := s.Publish(ctx, queue, msg); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *QueueService) PublishDelayed(ctx context.Context, queue string, message Message, delay time.Duration) error {
-	return s.queue.PublishDelayed(ctx, queue, message, delay)
+	ctx, op := s.telemetry.StartSend(ctx, queue, "publish")
+	message.Headers = messaging.WithTraceContext(ctx, message.Headers)
+
+	err := s.queue.PublishDelayed(ctx, queue, message, delay)
+	op.End(err)
+
+	return err
 }
 
+// Consume runs every delivery inside a consumer span that continues the publisher's trace.
 func (s *QueueService) Consume(ctx context.Context, queue string, handler MessageHandler, opts ConsumeOptions) error {
-	return s.queue.Consume(ctx, queue, handler, opts)
+	return s.queue.Consume(ctx, queue, s.traceHandler(queue, handler), opts)
 }
 
 func (s *QueueService) StopConsuming(ctx context.Context, queue string) error {

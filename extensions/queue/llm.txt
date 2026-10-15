@@ -149,11 +149,35 @@ Key `extensions.queue`, falling back to `queue`. File overrides defaults, option
 
 URLs are redacted in logs and connection errors.
 
+## Tracing and metrics
+
+`QueueService` traces every message and times it, through `forge/messaging`. `enable_tracing` and
+`enable_metrics` (both default true) gate it. `messaging.system` is the driver, with `inmemory`
+reported as `memory`.
+
+- `Publish` and `PublishDelayed` start a producer span `publish <queue>` and write `traceparent`
+  (and `tracestate` when set) into a copy of `Message.Headers`. The map you pass is never modified,
+  so you can reuse one headers map across publishes and goroutines. A nil map stays nil when
+  there is no trace context to add.
+- `PublishBatch` loops over the service's `Publish`, so each message gets its own span. An empty
+  batch goes straight to the backend's `PublishBatch`, so it still answers `ErrNotConnected` when disconnected.
+- `Consume` wraps your handler in a consumer span `process <queue>`, a child of the publisher's
+  span. Spans you start from the handler's `ctx` nest under it, and `trace_id` and `span_id` are on
+  the context for logging. A message with no `traceparent` (an old publisher) gets a root span. A
+  handler error marks the span as an error.
+- Two histograms: `messaging.client.operation.duration` for publishes and
+  `messaging.process.duration` for handlers. The Prometheus names are
+  `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds`.
+- With `enable_tracing` off, no spans start but `traceparent` still passes through the headers.
+  With `enable_metrics` off, nothing is recorded.
+- Only calls through `QueueService` are instrumented. A backend you build with `NewInMemoryQueue`
+  and the like, and use directly, gets no spans and no headers.
+
 ## Not implemented yet
 
 - No driver reads: enable_tls and tls_cert_file/tls_key_file/tls_ca_file, insecure_skip_verify,
   enable_priority, enable_delayed, enable_persistence, dead_letter_suffix, default_timeout,
-  retry_backoff, retry_multiplier, max_retry_backoff, keep_alive, enable_metrics, enable_tracing.
+  retry_backoff, retry_multiplier, max_retry_backoff, keep_alive.
   For TLS use a `rediss://`, `amqps://` or `tls://` URL.
 - PublishDelayed on redis writes to a sorted set no consumer reads, so delayed messages are never
   delivered.
