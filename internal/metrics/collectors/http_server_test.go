@@ -88,6 +88,23 @@ func series(t *testing.T, m shared.Metrics) map[string]uint64 {
 	return out
 }
 
+// activeRequests sums the http_server_active_requests gauge across label sets.
+func activeRequests(t *testing.T, m shared.Metrics) float64 {
+	t.Helper()
+
+	f := family(t, m, "http_server_active_requests")
+	if f == nil {
+		return 0
+	}
+
+	var sum float64
+	for _, mt := range f.GetMetric() {
+		sum += mt.GetGauge().GetValue()
+	}
+
+	return sum
+}
+
 func serve(t *testing.T, mw func(http.Handler) http.Handler, h http.Handler, method, path string) {
 	t.Helper()
 

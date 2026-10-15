@@ -97,7 +97,47 @@ func (h *HTTPServerMetrics) Middleware() func(http.Handler) http.Handler {
 			active := h.active.With(method, scheme)
 			active.Inc()
 
-			defer active.Dec()
+			decremented := false
+			dec := func() {
+				if !decremented {
+					decremented = true
+
+					active.Dec()
+				}
+			}
+
+			defer dec()
+
+			start := time.Now()
+
+			record := func(status int, bytesWritten int64) {
+				elapsed := time.Since(start).Seconds()
+
+				errType := ""
+				if status >= http.StatusInternalServerError {
+					errType = strconv.Itoa(status)
+				}
+
+				values := []string{method, match.Pattern, strconv.Itoa(status), scheme, errType}
+
+				observe(h.duration.With(values...), elapsed, r)
+
+				if h.reqSize != nil {
+					if r.ContentLength > 0 {
+						h.reqSize.With(values...).Observe(float64(r.ContentLength))
+					}
+
+					h.respSize.With(values...).Observe(float64(bytesWritten))
+				}
+			}
+
+			// A stream route is recorded once, at the handshake. Its
+			// connection can stay open for hours, so the request neither
+			// counts as active nor reports a duration after that.
+			match.OnEstablished(func(status int) {
+				record(status, 0)
+				dec()
+			})
 
 			// Behind the tracing middleware the holder is already on the
 			// context, and copying the request would buy nothing.
@@ -107,29 +147,14 @@ func (h *HTTPServerMetrics) Middleware() func(http.Handler) http.Handler {
 			}
 
 			rec := telemetry.NewStatusRecorder(w)
-			start := time.Now()
 
 			next.ServeHTTP(rec, inner)
 
-			elapsed := time.Since(start).Seconds()
-			status := rec.Status()
-
-			errType := ""
-			if status >= http.StatusInternalServerError {
-				errType = strconv.Itoa(status)
+			if match.Established() {
+				return
 			}
 
-			values := []string{method, match.Pattern, strconv.Itoa(status), scheme, errType}
-
-			observe(h.duration.With(values...), elapsed, r)
-
-			if h.reqSize != nil {
-				if r.ContentLength > 0 {
-					h.reqSize.With(values...).Observe(float64(r.ContentLength))
-				}
-
-				h.respSize.With(values...).Observe(float64(rec.BytesWritten()))
-			}
+			record(rec.Status(), rec.BytesWritten())
 		})
 	}
 }
