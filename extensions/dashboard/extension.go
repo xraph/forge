@@ -45,6 +45,7 @@ type Extension struct {
 	history        *collector.DataHistory
 	csrfMgr        *security.CSRFManager
 	traceStore     *collector.TraceStore
+	spanProcessor  *collector.SpanProcessor
 	authChecker    dashauth.AuthChecker
 	tenantResolver dashauth.TenantResolver
 
@@ -202,6 +203,21 @@ func (e *Extension) Register(app forge.App) error {
 		})
 	}
 
+	// Feed the trace viewer from the app's own spans. With tracing off there
+	// are none, so the traces page stays empty; say so once and carry on.
+	if e.spanProcessor == nil {
+		p := collector.NewSpanProcessor(e.traceStore, e.config.BasePath)
+		if err := forge.RegisterSpanProcessor(app, p); err != nil {
+			_ = p.Shutdown(context.Background())
+
+			e.Logger().Info("dashboard: traces page stays empty because tracing is off",
+				forge.F("reason", err.Error()),
+			)
+		} else {
+			e.spanProcessor = p
+		}
+	}
+
 	if e.config.EnableCSRF {
 		e.csrfMgr = security.NewCSRFManager()
 		e.Logger().Debug("CSRF protection initialized")
@@ -294,7 +310,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	// routes read it when they attach the auth middleware.
 	e.discoverExtensionContributors()
 
-	// Register tracing middleware to auto-capture request traces
+	// Capture request headers and bodies for the trace viewer
 	if e.traceStore != nil {
 		e.app.Router().UseGlobal(TracingMiddleware(e.traceStore, e.config.BasePath, e.config.TraceCaptureRequestBody))
 		e.Logger().Debug("dashboard tracing middleware registered")
@@ -557,6 +573,14 @@ func (e *Extension) Stop(ctx context.Context) error {
 	// Stop data collector
 	if e.collector != nil {
 		e.collector.Stop()
+	}
+
+	// Store what is queued before the store closes. The app's provider still
+	// holds the processor and shuts it down again later, which is a no-op.
+	if e.spanProcessor != nil {
+		if err := e.spanProcessor.Shutdown(ctx); err != nil {
+			e.Logger().Warn("dashboard: span processor shutdown did not finish", forge.F("error", err))
+		}
 	}
 
 	if e.traceStore != nil {
