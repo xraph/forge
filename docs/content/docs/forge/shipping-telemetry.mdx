@@ -6,7 +6,7 @@ icon: Send
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Forge sends traces over OTLP and serves metrics for scraping. Those are two different routes, and every backend below needs both set up if you want both signals. Traces take a couple of environment variables. Metrics take a scraper that reads `/_/metrics`.
+Forge sends traces over OTLP, and it can push metrics over OTLP too. It also serves metrics at `/_/metrics` for scraping. For each backend below you pick one route for metrics: push them with the same endpoint your traces use, or point a scraper at `/_/metrics`. Traces take a couple of environment variables. Metrics take one more setting, or a scraper.
 
 ## Traces
 
@@ -128,11 +128,31 @@ receivers:
 
 ## Metrics
 
-Forge doesn't push metrics. It serves them at `/_/metrics`, in the Prometheus text format or in OpenMetrics when the scraper asks for it, and something has to scrape that endpoint. Each backend has its own scraper.
+Forge serves metrics at `/_/metrics`, in the Prometheus text format or in OpenMetrics when the scraper asks for it. If the backend takes OTLP, you can skip the scraper and let Forge push. Either way, use one route per backend. Do both into the same place and every series counts twice.
 
 <Callout type="info">
 The HTTP latency histogram carries `trace_id` exemplars only in the OpenMetrics format. Prometheus asks for that format on its own. With any other scraper, check its docs before you count on seeing exemplars.
 </Callout>
+
+### Pushing metrics
+
+Pushing needs an endpoint, and the one your traces use already works. `OTEL_EXPORTER_OTLP_ENDPOINT` is a base URL, so Forge sends metrics to `/v1/metrics` under it, every 60 seconds, and `/_/metrics` keeps serving. `OTEL_EXPORTER_OTLP_HEADERS` applies to metrics as well. Set `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_METRICS_HEADERS` when metrics need something different from traces. The [metrics page](/docs/forge/metrics#pushing-over-otlp) has the rest: the `metrics_export:` keys, the interval, and how names come out.
+
+If you want traces pushed and metrics left to a scraper, set `OTEL_METRICS_EXPORTER=none`.
+
+| Backend | What to set for metrics |
+|---|---|
+| Grafana Cloud | Nothing new. The OTLP gateway endpoint and `Authorization` header from the Traces section carry metrics too. Cumulative, the default, is what you want |
+| Datadog Agent | Nothing new on the endpoint. The Agent's OTLP receiver on 4318 takes metrics as well as traces. Add `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` |
+| Honeycomb | `OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-honeycomb-team=<api key>,x-honeycomb-dataset=<metrics dataset>`. Metrics need a dataset header, so use the metrics variable and leave the traces header alone |
+| New Relic | Same endpoint and `api-key` header as traces. Add `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, which New Relic's docs recommend. Cumulative is accepted, but their pages say it can raise SDK memory use and data ingest |
+| OpenTelemetry Collector | Nothing extra. The Collector needs a `metrics` pipeline that uses its `otlp` receiver, next to the traces one |
+
+Datadog is stricter about metrics than traces. It wants delta, so set the preference even though the traces side needed nothing. Datadog documents an Agent-free route in [OTLP metrics intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/metrics/). We haven't verified its endpoint against Forge, so we don't list one here. Going through an Agent or a Collector sidesteps it.
+
+### Scraping instead
+
+Each backend below has its own scraper. Use these when you'd rather not push.
 
 ### Prometheus
 
@@ -238,6 +258,8 @@ service:
 
 The same receiver works in front of any backend that takes OTLP metrics. Swap the exporter. A `$` anywhere in the receiver's config has to be written `$$`.
 
+This config scrapes `/_/metrics`. If Forge also pushes to this Collector, as it does when `OTEL_EXPORTER_OTLP_ENDPOINT` points here, the same series arrive twice. Remove the `prometheus` receiver and let Forge push, or set `OTEL_METRICS_EXPORTER=none` on the app and keep the scrape.
+
 ## Where these values come from
 
 We checked every endpoint and header on this page against the vendor's documentation on 2026-10-15. Vendors move things, so if one of them disagrees with this page, trust the vendor.
@@ -245,7 +267,7 @@ We checked every endpoint and header on this page against the vendor's documenta
 - Grafana Cloud: [Send data using OTLP](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/), [Collect Prometheus metrics with Alloy](https://grafana.com/docs/alloy/latest/collect/prometheus-metrics/), [prometheus.scrape](https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.scrape/)
 - Tempo: [Configuration](https://grafana.com/docs/tempo/latest/configuration/), [Tempo 2.7 release notes](https://grafana.com/docs/tempo/latest/release-notes/version-2/v2-7/)
 - Jaeger: [Getting started](https://www.jaegertracing.io/docs/latest/getting-started/), [APIs](https://www.jaegertracing.io/docs/latest/architecture/apis/)
-- Honeycomb: [Send data with OpenTelemetry](https://docs.honeycomb.io/send-data/opentelemetry/), [Prometheus metrics](https://docs.honeycomb.io/integrations/metrics/prometheus)
-- Datadog: [OTLP ingestion by the Agent](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/), [OTLP traces intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/traces/), [OpenMetrics check](https://docs.datadoghq.com/integrations/openmetrics/), [Prometheus and OpenMetrics in Docker](https://docs.datadoghq.com/containers/docker/prometheus/)
+- Honeycomb: [Send data with OpenTelemetry](https://docs.honeycomb.io/send-data/opentelemetry/), [Prometheus metrics](https://docs.honeycomb.io/integrations/metrics/prometheus), [OpenTelemetry Collector](https://docs.honeycomb.io/send-data/opentelemetry/collector)
+- Datadog: [OTLP ingestion by the Agent](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/), [OTLP traces intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/traces/), [OTLP metrics intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/metrics/), [OTLP delta temporality](https://docs.datadoghq.com/opentelemetry/guide/otlp_delta_temporality/), [OpenMetrics check](https://docs.datadoghq.com/integrations/openmetrics/), [Prometheus and OpenMetrics in Docker](https://docs.datadoghq.com/containers/docker/prometheus/)
 - New Relic: [OTLP endpoint](https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/), [Send Prometheus data](https://docs.newrelic.com/docs/infrastructure/prometheus-integrations/get-started/send-prometheus-metric-data-new-relic/), [Remote write setup](https://docs.newrelic.com/docs/infrastructure/prometheus-integrations/install-configure-remote-write/set-your-prometheus-remote-write-integration/)
 - OpenTelemetry Collector: [Configuration](https://opentelemetry.io/docs/collector/configuration/), [Prometheus receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/prometheusreceiver/README.md)

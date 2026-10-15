@@ -9,7 +9,7 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Forge includes a built-in metrics system for collecting counters, gauges, and histograms. Metrics are exposed via the `/_/metrics` endpoint in Prometheus format and can be exported to various backends.
+Forge includes a built-in metrics system for collecting counters, gauges, and histograms. Metrics are exposed via the `/_/metrics` endpoint in Prometheus format, and can be pushed to any backend that takes OTLP.
 
 ## Metrics Endpoint
 
@@ -20,6 +20,83 @@ GET /_/metrics
 ```
 
 It returns metrics in Prometheus exposition format by default, and in OpenMetrics when the scraper asks for it (Prometheus does). That matters for [exemplars](#exemplars).
+
+## Pushing over OTLP
+
+If your backend takes OTLP and you'd rather not run a scraper, set an endpoint and Forge pushes the same metrics to it every 60 seconds:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.internal:4318
+```
+
+That's the whole setup. The base URL gets `/v1/metrics` appended, the Collector's HTTP port is 4318, and `/_/metrics` keeps serving while push runs. Export is OTLP over HTTP with protobuf bodies. There's no gRPC exporter, so a collector port like 4317 won't work.
+
+To set it in code, pass a `MetricsExportConfig`:
+
+```go
+app := forge.New(
+    forge.WithAppMetricsExportConfig(forge.MetricsExportConfig{
+        Endpoint:    "https://collector.internal:4318/v1/metrics",
+        Headers:     map[string]string{"Authorization": "Bearer " + os.Getenv("OTLP_TOKEN")},
+        Interval:    30 * time.Second,
+        Temporality: "delta",
+    }),
+)
+```
+
+Or in a config file:
+
+```yaml
+metrics_export:
+  endpoint: https://collector.internal:4318/v1/metrics
+  headers:
+    Authorization: Bearer <token>
+  interval: 30s
+  temporality: delta
+```
+
+`endpoint` here is the full URL, so it includes `/v1/metrics`. `headers` take plain values and need no percent-encoding. Set `enabled: false` to turn push off even when the environment sets an endpoint. If you set `enabled: true` with no endpoint anywhere, Forge logs a warning and pushes nothing.
+
+### Environment variables
+
+Forge reads these when the matching key isn't set in code or in the file. Precedence runs code first, then the config file, then the environment.
+
+| Variable | What it does |
+|---|---|
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, used exactly as written, so it must end in `/v1/metrics` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL. Forge appends `/v1/metrics` |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Headers for metrics only, such as `api-key=abc`. Percent-encoded, comma separated |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Headers for every signal, used when the metrics variable is empty |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between pushes. Default 60000 |
+| `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | `cumulative` (default), `delta`, or `lowmemory`, which Forge treats as `delta` |
+| `OTEL_METRICS_EXPORTER` | Set to `none` to turn metrics push off |
+| `OTEL_SDK_DISABLED` | Set to `true` to turn off metrics push and tracing together |
+
+`OTEL_METRICS_EXPORTER=none` is the one to remember. It keeps traces flowing while metrics stay scrape-only. A value that doesn't parse, such as `OTEL_METRIC_EXPORT_INTERVAL=soon`, is ignored with a logged warning and the default applies. A bad endpoint is logged once and the app boots without pushing.
+
+### Temporality
+
+Cumulative is the default: each push reports the running total since the process started, which is what Prometheus-style backends expect. Some backends want deltas instead, meaning the change since the last push. Datadog does, and New Relic prefers them. Set `temporality: delta` in code or the file, or `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` in the environment. Gauges don't change either way.
+
+### What the names look like
+
+Metrics follow the OpenTelemetry names where there is one, and your own names where there isn't:
+
+- Names in the semantic-convention namespaces (`http.server.`, `http.client.`, `rpc.`, `messaging.` and `db.client.`) keep their dotted form. `http.server.request.duration` goes out with that name, the unit `s`, and dotted attributes such as `http.route`.
+- Your own metrics go out under the name the scrape shows. A counter you create as `orders_created_total` arrives as `forge_orders_created_total`, with your namespace in front.
+- The Go runtime and process series (`go_goroutines`, `process_cpu_seconds_total`) keep their Prometheus names, with no prefix.
+
+A Prometheus-compatible backend translates the dots to underscores and lands the semconv series on the same names the scrape produces. That's why `http_server_request_duration_seconds` looks the same whichever way it got there. Two edge cases come from that translation, and the scrape doesn't have either one. A counter whose name doesn't end in `_total` gets the suffix added. A metric outside the semconv namespaces that has a unit gets the unit appended, so a histogram recorded in milliseconds becomes `..._milliseconds`.
+
+Histograms keep their `trace_id` exemplars when a request was sampled, so the jump from a slow bucket to its trace works over push too.
+
+On shutdown, Forge pushes once more after the extensions stop and before the metrics collector does, so the last interval and the drain are counted. That final push waits up to five seconds.
+
+<Callout type="warn">
+Don't scrape and push into the same backend. Every series arrives twice, and sums, rates and counts all read double. Pick one route per backend. If you only want traces pushed, set `OTEL_METRICS_EXPORTER=none`.
+</Callout>
+
+Push sends what the Forge collector holds: your metrics, the built-in ones, and the Go and process series. Metrics that third-party libraries record through the OpenTelemetry API aren't included, because Forge doesn't install a global MeterProvider. [Shipping telemetry](/docs/forge/shipping-telemetry#metrics) has the settings for Grafana Cloud, Datadog, Honeycomb, New Relic and a plain Collector.
 
 ## Metrics Interface
 
@@ -460,14 +537,12 @@ func (e *CacheExtension) Start(ctx context.Context) error {
 
 ## Export Formats
 
-Forge supports multiple export formats:
+Forge has two export formats. To push over OTLP instead, see [Pushing over OTLP](#pushing-over-otlp).
 
 | Format | Constant | Description |
 |--------|----------|-------------|
 | Prometheus | `ExportFormatPrometheus` | Standard Prometheus exposition format |
 | JSON | `ExportFormatJSON` | JSON format for custom consumers |
-| InfluxDB | `ExportFormatInflux` | InfluxDB line protocol |
-| StatsD | `ExportFormatStatsD` | StatsD format |
 
 ## Complete Example
 
