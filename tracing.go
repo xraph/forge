@@ -20,10 +20,14 @@ type TracingConfig = shared.TracingConfig
 // ErrTracingDisabled is returned by RegisterSpanProcessor when tracing is off.
 var ErrTracingDisabled = telemetry.ErrTracingDisabled
 
-// UnsampledSpanProcessor is a span processor that also receives spans the
-// sampler would drop, for as long as WantsUnsampled returns true. Those spans
-// are recorded but never exported, so your OTLP backend sees the same sample
-// as before. WantsUnsampled runs for every dropped span; keep it cheap.
+// UnsampledSpanProcessor is a span processor that also wants the spans the
+// sampler would drop, for as long as WantsUnsampled returns true. While any
+// registered processor wants them, those spans are recorded and reach every
+// registered processor, including ones that never asked, with IsRecording
+// true. None of them is exported, so your OTLP backend sees the same sample as
+// before. A processor that wants only exported spans checks
+// s.SpanContext().IsSampled() in OnEnd. WantsUnsampled runs for every dropped
+// span; keep it cheap.
 type UnsampledSpanProcessor interface {
 	sdktrace.SpanProcessor
 	WantsUnsampled() bool

@@ -473,22 +473,38 @@ if err := forge.RegisterSpanProcessor(app, myProcessor); err != nil {
 
 The provider is also in the container as `trace.TracerProvider` (from `go.opentelemetry.io/otel/trace`) if you'd rather start spans from your own tracer.
 
-A processor can ask for more than the sampled spans. Implement `forge.UnsampledSpanProcessor`, which is `sdktrace.SpanProcessor` plus `WantsUnsampled() bool`, and while that returns true your processor also gets the spans the sampler dropped. Those spans are recorded for your processor and never exported, and downstream services still see "not sampled", so your OTLP backend gets the same sample as before. `WantsUnsampled` runs for every dropped span, so keep it to something like an atomic load.
+A processor can ask for more than the sampled spans. Implement `forge.UnsampledSpanProcessor`, which is `sdktrace.SpanProcessor` plus `WantsUnsampled() bool`, and while that returns true the app also records the spans the sampler dropped. They're never exported, and downstream services still see "not sampled", so your OTLP backend gets the same sample as before. `WantsUnsampled` runs for every dropped span, so keep it to something like an atomic load.
 
 ```go
 type watcher struct {
-	sdktrace.SpanProcessor
+	sdktrace.SpanProcessor // your real processor; a nil one panics on the first span
 	active atomic.Bool
+}
+
+func newWatcher(inner sdktrace.SpanProcessor) *watcher {
+	return &watcher{SpanProcessor: inner}
 }
 
 func (w *watcher) WantsUnsampled() bool { return w.active.Load() }
 ```
 
-Register it with `forge.RegisterSpanProcessor` as before. The dashboard does exactly this to show every request while somebody is looking at it.
+Register it with `forge.RegisterSpanProcessor(app, newWatcher(myProcessor))`. The dashboard does exactly this to show every request while somebody is looking at it.
+
+Those extra spans reach every processor you've registered, including ones that never asked for them, because the SDK hands each recording span to all of them. So while the dashboard is open (or all the time, if its `trace_idle_ttl` is zero or less), your own processor gets unsampled spans too, and `span.IsRecording()` is true for them. If you only want what gets exported, check the sampled flag in `OnEnd`:
+
+```go
+func (p *myProcessor) OnEnd(s sdktrace.ReadOnlySpan) {
+	if !s.SpanContext().IsSampled() {
+		return // recorded for a processor that asked, never exported
+	}
+
+	p.store(s)
+}
+```
 
 ### Sampling
 
-Without any configuration the ratio is 1.0 (every trace) when the app's environment is empty, `development`, `dev`, `local` or `test`, and 0.1 for every other environment. Sampling is always parent-based: if a caller sent a sampled trace, you keep it, and if they sent an unsampled one, you drop it. The ratio only decides for requests that start a new trace.
+Without any configuration the ratio is 1.0 (every trace) when the app's environment is empty, `development`, `dev`, `local` or `test`, and 0.1 for every other environment. By default sampling is parent-based: if a caller sent a sampled trace, you keep it, and if they sent an unsampled one, you drop it. The ratio only decides for requests that start a new trace. One exception: the `forge.start` and `forge.stop` roots are always sampled unless sampling is off (see [Boot and shutdown traces](#boot-and-shutdown-traces)). A sampler you name without the `parentbased_` prefix, below, ignores the caller's choice too.
 
 To change it, set `sample_ratio` in code or config. A value outside 0 to 1 is clamped and logged as a warning. To pick a sampler by name, use `OTEL_TRACES_SAMPLER` with `OTEL_TRACES_SAMPLER_ARG` for the ratio:
 
