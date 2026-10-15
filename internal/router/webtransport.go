@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/webtransport-go"
 
 	"github.com/xraph/forge/internal/shared"
@@ -91,6 +92,10 @@ type webTransportSession struct {
 
 	// handle counts datagrams. Set by the router once the session is open.
 	handle shared.StreamHandle
+
+	// maxDatagramSize is WebTransportConfig.MaxDatagramFrameSize. Zero or
+	// less means no limit beyond QUIC's own. Set by the router.
+	maxDatagramSize int64
 }
 
 // newWebTransportSession creates a new WebTransport session wrapper.
@@ -146,18 +151,36 @@ func (s *webTransportSession) AcceptUniStream(ctx context.Context) (WebTransport
 	return newWebTransportReceiveStream(stream), nil
 }
 
+// ReceiveDatagram returns the next datagram within the size limit. A larger
+// one is dropped and not counted. Datagrams are unreliable anyway, and an
+// error here would let a client end a handler's receive loop by sending one
+// big datagram.
 func (s *webTransportSession) ReceiveDatagram(ctx context.Context) ([]byte, error) {
-	data, err := s.session.ReceiveDatagram(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to receive datagram: %w", err)
+	for {
+		data, err := s.session.ReceiveDatagram(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive datagram: %w", err)
+		}
+
+		if s.datagramTooLarge(data) {
+			continue
+		}
+
+		s.count(s.handle.Received)
+
+		return data, nil
 	}
-
-	s.count(s.handle.Received)
-
-	return data, nil
 }
 
+// SendDatagram sends data as one datagram. Over the size limit it fails with
+// the *quic.DatagramTooLargeError quic-go returns for its own limit, so a
+// caller handles both the same way.
 func (s *webTransportSession) SendDatagram(data []byte) error {
+	if s.datagramTooLarge(data) {
+		return fmt.Errorf("failed to send datagram: %w",
+			&quic.DatagramTooLargeError{MaxDatagramPayloadSize: s.maxDatagramSize})
+	}
+
 	if err := s.session.SendDatagram(data); err != nil {
 		return fmt.Errorf("failed to send datagram: %w", err)
 	}
@@ -165,6 +188,10 @@ func (s *webTransportSession) SendDatagram(data []byte) error {
 	s.count(s.handle.Sent)
 
 	return nil
+}
+
+func (s *webTransportSession) datagramTooLarge(data []byte) bool {
+	return s.maxDatagramSize > 0 && int64(len(data)) > s.maxDatagramSize
 }
 
 // count records one datagram unless the session is already closed.
@@ -408,7 +435,12 @@ type WebTransportConfig struct {
 	// in a session at once. Zero means 100 and a negative value allows none.
 	MaxUniStreams int64
 
-	// Maximum datagram frame size
+	// MaxDatagramFrameSize caps a datagram's payload in bytes, both ways. A
+	// larger SendDatagram fails with *quic.DatagramTooLargeError, and a larger
+	// incoming datagram is dropped. Zero or less means no limit beyond QUIC's,
+	// which a datagram has to fit in one packet for (about 1200 bytes at
+	// first). quic-go doesn't let the server advertise its own limit, so
+	// clients don't learn this one.
 	MaxDatagramFrameSize int64
 
 	// Enable datagram support

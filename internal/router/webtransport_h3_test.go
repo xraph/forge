@@ -645,3 +645,109 @@ func TestQUICStreamLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestWebTransportMaxDatagramFrameSize(t *testing.T) {
+	obs := &fakeObserver{}
+	r := newRouter(WithStreamObserver(obs))
+	probe := &establishProbe{}
+	sendErr := make(chan error, 1)
+	received := make(chan string, 1)
+
+	r.UseGlobal(PureMiddleware(probe.wrap).ToMiddleware())
+
+	require.NoError(t, r.WebTransport("/wt", func(ctx Context, s WebTransportSession) error {
+		sendErr <- s.SendDatagram(make([]byte, 33))
+
+		// The client sends an oversized datagram first. It's dropped, so this
+		// returns the one after it.
+		data, err := s.ReceiveDatagram(s.Context())
+		if err != nil {
+			return err
+		}
+
+		received <- string(data)
+
+		return s.SendDatagram(data)
+	}))
+
+	config := DefaultWebTransportConfig()
+	config.MaxDatagramFrameSize = 32
+
+	base, pool := startH3With(t, r, config)
+
+	_, sess, err := dialWT(t, pool, base+"/wt")
+	require.NoError(t, err)
+
+	defer sess.CloseWithError(0, "")
+
+	select {
+	case err := <-sendErr:
+		var tooLarge *quic.DatagramTooLargeError
+
+		require.ErrorAs(t, err, &tooLarge)
+		require.Equal(t, int64(32), tooLarge.MaxDatagramPayloadSize)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never sent")
+	}
+
+	require.NoError(t, sess.SendDatagram(make([]byte, 33)))
+
+	// Datagrams can be reordered, so give the big one a head start.
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, sess.SendDatagram([]byte("small")))
+
+	select {
+	case got := <-received:
+		require.Equal(t, "small", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never received the small datagram")
+	}
+
+	recvCtx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	echo, err := sess.ReceiveDatagram(recvCtx)
+	require.NoError(t, err)
+	require.Equal(t, "small", string(echo))
+
+	// Only the datagrams that went through count.
+	h := obs.only(t)
+
+	require.Equal(t, int64(1), h.received.Load())
+	require.Equal(t, int64(1), h.sent.Load())
+}
+
+func TestWebTransportMaxDatagramFrameSizeZeroIsUnlimited(t *testing.T) {
+	r := newRouter()
+	got := make(chan int, 1)
+
+	require.NoError(t, r.WebTransport("/wt", func(ctx Context, s WebTransportSession) error {
+		data, err := s.ReceiveDatagram(s.Context())
+		if err != nil {
+			return err
+		}
+
+		got <- len(data)
+
+		return nil
+	}))
+
+	config := DefaultWebTransportConfig()
+	config.MaxDatagramFrameSize = 0
+
+	base, pool := startH3With(t, r, config)
+
+	_, sess, err := dialWT(t, pool, base+"/wt")
+	require.NoError(t, err)
+
+	defer sess.CloseWithError(0, "")
+
+	require.NoError(t, sess.SendDatagram(make([]byte, 1000)))
+
+	select {
+	case n := <-got:
+		require.Equal(t, 1000, n)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never received the datagram")
+	}
+}

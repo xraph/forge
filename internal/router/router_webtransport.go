@@ -62,8 +62,13 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 		// Create WebTransport session wrapper
 		sessionID := generateConnectionID()
 
+		r.mu.RLock()
+		maxDatagramSize := r.webTransportConfig.MaxDatagramFrameSize
+		r.mu.RUnlock()
+
 		wtSession := newWebTransportSession(sessionID, session, req.Context())
 		wtSession.handle = handle
+		wtSession.maxDatagramSize = maxDatagramSize
 
 		defer wtSession.Close()
 

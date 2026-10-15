@@ -239,11 +239,13 @@ config.AllowedOrigins = []string{"https://app.example.com"}
 | `MaxIdleTimeout` | 60000 | How long a connection may sit idle before it's closed, in milliseconds |
 | `AllowedOrigins` | empty | Origins a browser may connect from. Empty means same-origin only, and `"*"` allows any origin. A request with no `Origin` header, from a non-browser client, is always allowed |
 | `EnableDatagrams` | true | Has no effect. Every WebTransport session needs datagrams, so they're always on |
-| `MaxDatagramFrameSize` | 65536 | Not used yet |
+| `MaxDatagramFrameSize` | 65536 | Largest datagram payload you can send or receive, in bytes. Zero or less means no limit beyond QUIC's |
 
 The stream limits are QUIC's. The server lets a connection carry one session, so a limit on the connection is a limit on the session. HTTP/3 takes a few streams of its own: the CONNECT request that opened the session holds a bidirectional one, and the client's control stream and QPACK encoder and decoder streams hold three unidirectional ones. Forge adds those on top of what you set, so a browser gets exactly `MaxBidiStreams` and `MaxUniStreams`. A quic-go client doesn't open the QPACK streams, so it gets two unidirectional streams more than you set. Any other HTTP/3 request the client sends on the same connection uses a bidirectional stream while it runs.
 
 When a webtransport-go client is at a limit, its `OpenStream` and `OpenUniStream` fail with a stream limit error and the `Sync` variants wait. A stream stops counting against the limit once both sides are done with it.
+
+A datagram has to fit in one QUIC packet, so QUIC caps its payload at about 1200 bytes until the connection learns it can send bigger packets. The 65536 default never gets a say, then. Set `MaxDatagramFrameSize` lower when you want a smaller cap of your own. A `SendDatagram` over it fails with `*quic.DatagramTooLargeError`, the same error QUIC returns over its own cap, and `MaxDatagramPayloadSize` on the error tells you the limit you hit. An incoming datagram over it is dropped and `ReceiveDatagram` waits for the next one, so a client can't end your receive loop by sending one big datagram, and dropped datagrams don't count in `forge_stream_messages_total`. Clients aren't told your limit: quic-go always advertises its own.
 
 ## When to Use WebTransport
 
