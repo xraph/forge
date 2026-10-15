@@ -279,15 +279,25 @@ func (s *Scheduler) runDue(ctx context.Context) {
 			defer func() {
 				// A job is arbitrary subsystem code. A panic here would take
 				// the process down from a goroutine nobody can recover in.
-				if r := recover(); r != nil {
-					reportPanic(j.name, r, debug.Stack())
+				r := recover()
+
+				var stack []byte
+				if r != nil {
+					stack = debug.Stack()
 				}
 
+				// Bookkeeping goes first, so a handler that panics or blocks
+				// can't skip it. A blocking handler still holds this
+				// goroutine, but the job runs again and Stop doesn't wait on it.
 				s.mu.Lock()
 				j.running = false
 				s.mu.Unlock()
 
 				s.inWork.Done()
+
+				if r != nil {
+					reportPanicSafely(j.name, r, stack)
+				}
 			}()
 
 			// Cancel may have landed between runDue picking this job and this
@@ -369,7 +379,9 @@ func Default() *Scheduler {
 }
 
 // PanicHandler is told about a job that panicked. The scheduler has already
-// recovered, and the job runs again at its next interval.
+// recovered, and the job runs again at its next interval. A panic inside the
+// handler is recovered and dropped. The handler runs after the job's run is
+// marked finished, so Stop may return while a slow handler is still going.
 type PanicHandler func(job string, recovered any, stack []byte)
 
 var panicHandler atomic.Pointer[PanicHandler]
@@ -384,6 +396,14 @@ func SetPanicHandler(h PanicHandler) {
 	}
 
 	panicHandler.Store(&h)
+}
+
+// reportPanicSafely calls reportPanic and swallows a panic from the handler,
+// which would otherwise escape the scheduler's recover and end the process.
+func reportPanicSafely(job string, recovered any, stack []byte) {
+	defer func() { _ = recover() }()
+
+	reportPanic(job, recovered, stack)
 }
 
 func reportPanic(job string, recovered any, stack []byte) {

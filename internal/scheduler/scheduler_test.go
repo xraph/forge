@@ -395,3 +395,84 @@ func TestScheduler_PanicWithoutHandlerUsesDefault(t *testing.T) {
 		}
 	}
 }
+
+// A panic handler that panics itself must not take the process down, and the
+// job has to stay schedulable.
+func TestScheduler_PanickingPanicHandlerIsContained(t *testing.T) {
+	SetPanicHandler(func(string, any, []byte) { panic("handler exploded") })
+	t.Cleanup(func() { SetPanicHandler(nil) })
+
+	s := New("panic-handler-panics")
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	ran := make(chan struct{}, 4)
+	cancel := s.Every("double-panic", 5*time.Millisecond, func(context.Context) {
+		select {
+		case ran <- struct{}{}:
+		default:
+		}
+
+		panic("job exploded")
+	})
+	t.Cleanup(cancel)
+
+	for range 2 {
+		select {
+		case <-ran:
+		case <-time.After(2 * time.Second):
+			t.Fatal("job did not run again after its panic handler panicked")
+		}
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(t.Context()), 2*time.Second)
+	defer stopCancel()
+
+	if err := s.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+// A panic handler that never returns holds its own goroutine and nothing
+// else: the job keeps running and Stop returns.
+func TestScheduler_BlockingPanicHandlerDoesNotWedge(t *testing.T) {
+	release := make(chan struct{})
+
+	SetPanicHandler(func(string, any, []byte) { <-release })
+	t.Cleanup(func() {
+		close(release)
+		SetPanicHandler(nil)
+	})
+
+	s := New("panic-handler-blocks")
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	ran := make(chan struct{}, 4)
+	cancel := s.Every("blocked-report", 5*time.Millisecond, func(context.Context) {
+		select {
+		case ran <- struct{}{}:
+		default:
+		}
+
+		panic("job exploded")
+	})
+	t.Cleanup(cancel)
+
+	for range 2 {
+		select {
+		case <-ran:
+		case <-time.After(2 * time.Second):
+			t.Fatal("job did not run again while its panic handler was blocked")
+		}
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(t.Context()), 2*time.Second)
+	defer stopCancel()
+
+	if err := s.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop wedged behind a blocked panic handler: %v", err)
+	}
+}
