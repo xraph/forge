@@ -24,7 +24,7 @@ func (s *Services) GRPC(service string, creds credentials.TransportCredentials, 
 	}
 
 	builder := &serviceBuilder{services: s, service: service, protocol: protocol}
-	options := []grpc.DialOption{grpc.WithTransportCredentials(creds), grpc.WithResolvers(builder), grpc.WithDefaultServiceConfig(`{"loadBalancingConfig":[{"round_robin":{}}]}`)}
+	options := []grpc.DialOption{grpc.WithTransportCredentials(creds), grpc.WithResolvers(builder), grpc.WithDefaultServiceConfig(`{"loadBalancingConfig":[{"round_robin":{}}]}`), grpcClientTracing()}
 	options = append(options, opts...)
 
 	return grpc.NewClient("forge:///"+url.PathEscape(service), options...)
