@@ -13,6 +13,12 @@ import (
 func (s *grpcServer) buildUnaryInterceptors() []grpc.UnaryServerInterceptor {
 	var interceptors []grpc.UnaryServerInterceptor
 
+	// Log correlation first, so logging, metrics and custom interceptors all
+	// see the trace and span IDs.
+	if s.config.EnableTracing {
+		interceptors = append(interceptors, s.logIDsUnaryInterceptor())
+	}
+
 	// Logging interceptor
 	if s.config.EnableLogging {
 		interceptors = append(interceptors, s.loggingUnaryInterceptor())
@@ -21,11 +27,6 @@ func (s *grpcServer) buildUnaryInterceptors() []grpc.UnaryServerInterceptor {
 	// Metrics interceptor
 	if s.config.EnableMetrics {
 		interceptors = append(interceptors, s.metricsUnaryInterceptor())
-	}
-
-	// Tracing interceptor
-	if s.config.EnableTracing {
-		interceptors = append(interceptors, s.tracingUnaryInterceptor())
 	}
 
 	// Add custom interceptors
@@ -40,6 +41,12 @@ func (s *grpcServer) buildUnaryInterceptors() []grpc.UnaryServerInterceptor {
 func (s *grpcServer) buildStreamInterceptors() []grpc.StreamServerInterceptor {
 	var interceptors []grpc.StreamServerInterceptor
 
+	// Log correlation first, so logging, metrics and custom interceptors all
+	// see the trace and span IDs.
+	if s.config.EnableTracing {
+		interceptors = append(interceptors, s.logIDsStreamInterceptor())
+	}
+
 	// Logging interceptor
 	if s.config.EnableLogging {
 		interceptors = append(interceptors, s.loggingStreamInterceptor())
@@ -48,11 +55,6 @@ func (s *grpcServer) buildStreamInterceptors() []grpc.StreamServerInterceptor {
 	// Metrics interceptor
 	if s.config.EnableMetrics {
 		interceptors = append(interceptors, s.metricsStreamInterceptor())
-	}
-
-	// Tracing interceptor
-	if s.config.EnableTracing {
-		interceptors = append(interceptors, s.tracingStreamInterceptor())
 	}
 
 	// Add custom interceptors
@@ -149,18 +151,6 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// tracingUnaryInterceptor adds tracing to unary RPCs.
-func (s *grpcServer) tracingUnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		// Extract trace context from metadata
-		// Add trace span
-		// TODO: Integrate with Forge's tracing system when available
-		s.logger.Debug("grpc tracing interceptor", forge.F("method", info.FullMethod))
-
-		return handler(ctx, req)
-	}
-}
-
 // loggingStreamInterceptor logs stream RPCs.
 func (s *grpcServer) loggingStreamInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -238,15 +228,5 @@ func (s *grpcServer) metricsStreamInterceptor() grpc.StreamServerInterceptor {
 		}
 
 		return err
-	}
-}
-
-// tracingStreamInterceptor adds tracing to stream RPCs.
-func (s *grpcServer) tracingStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		// TODO: Integrate with Forge's tracing system
-		s.logger.Debug("grpc stream tracing", forge.F("method", info.FullMethod))
-
-		return handler(srv, ss)
 	}
 }

@@ -300,6 +300,11 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 		}
 	}
 
+	// Server spans. The stats handler runs before the interceptors.
+	if s.config.EnableTracing {
+		opts = append(opts, serverStatsHandler())
+	}
+
 	// Add interceptors for observability
 	if s.config.EnableMetrics || s.config.EnableLogging || s.config.EnableTracing {
 		unaryInterceptors := s.buildUnaryInterceptors()
