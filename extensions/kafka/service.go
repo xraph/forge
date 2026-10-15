@@ -119,6 +119,26 @@ func (s *KafkaService) ConsumePartition(ctx context.Context, topic string, parti
 	return s.client.ConsumePartition(ctx, topic, partition, offset, handler)
 }
 
+func (s *KafkaService) SendMessageContext(ctx context.Context, topic string, key, value []byte) error {
+	return s.client.SendMessageContext(ctx, topic, key, value)
+}
+
+func (s *KafkaService) SendMessageAsyncContext(ctx context.Context, topic string, key, value []byte) error {
+	return s.client.SendMessageAsyncContext(ctx, topic, key, value)
+}
+
+func (s *KafkaService) SendMessagesContext(ctx context.Context, messages []*ProducerMessage) error {
+	return s.client.SendMessagesContext(ctx, messages)
+}
+
+func (s *KafkaService) ConsumeContext(ctx context.Context, topics []string, handler ContextMessageHandler) error {
+	return s.client.ConsumeContext(ctx, topics, handler)
+}
+
+func (s *KafkaService) ConsumePartitionContext(ctx context.Context, topic string, partition int32, offset int64, handler ContextMessageHandler) error {
+	return s.client.ConsumePartitionContext(ctx, topic, partition, offset, handler)
+}
+
 func (s *KafkaService) StopConsume() error {
 	return s.client.StopConsume()
 }

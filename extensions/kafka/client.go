@@ -143,6 +143,11 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 }
 
 func (c *kafkaClient) SendMessage(topic string, key, value []byte) error {
+	return c.SendMessageContext(context.Background(), topic, key, value)
+}
+
+// SendMessageContext sends one message and waits for the broker to acknowledge it.
+func (c *kafkaClient) SendMessageContext(_ context.Context, topic string, key, value []byte) error {
 	if c.producer == nil {
 		return errors.New("producer not enabled")
 	}
@@ -189,6 +194,11 @@ func (c *kafkaClient) SendMessage(topic string, key, value []byte) error {
 }
 
 func (c *kafkaClient) SendMessageAsync(topic string, key, value []byte) error {
+	return c.SendMessageAsyncContext(context.Background(), topic, key, value)
+}
+
+// SendMessageAsyncContext queues one message on the async producer.
+func (c *kafkaClient) SendMessageAsyncContext(_ context.Context, topic string, key, value []byte) error {
 	if c.asyncProducer == nil {
 		return errors.New("async producer not enabled")
 	}
@@ -214,6 +224,11 @@ func (c *kafkaClient) SendMessageAsync(topic string, key, value []byte) error {
 }
 
 func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
+	return c.SendMessagesContext(context.Background(), messages)
+}
+
+// SendMessagesContext sends a batch of messages, including their headers and timestamps.
+func (c *kafkaClient) SendMessagesContext(_ context.Context, messages []*ProducerMessage) error {
 	if c.producer == nil {
 		return errors.New("producer not enabled")
 	}
@@ -224,7 +239,9 @@ func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
 			Topic:     msg.Topic,
 			Key:       sarama.ByteEncoder(msg.Key),
 			Value:     sarama.ByteEncoder(msg.Value),
+			Headers:   toRecordHeaders(msg.Headers),
 			Partition: msg.Partition,
+			Timestamp: msg.Timestamp,
 		}
 	}
 
@@ -247,6 +264,35 @@ func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
 }
 
 func (c *kafkaClient) Consume(ctx context.Context, topics []string, handler MessageHandler) error {
+	return c.ConsumeContext(ctx, topics, dropContext(handler))
+}
+
+func (c *kafkaClient) ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error {
+	return c.ConsumePartitionContext(ctx, topic, partition, offset, dropContext(handler))
+}
+
+// dropContext adapts a handler that takes no context.
+func dropContext(handler MessageHandler) ContextMessageHandler {
+	return func(_ context.Context, msg *sarama.ConsumerMessage) error { return handler(msg) }
+}
+
+// toRecordHeaders converts headers to sarama's form. nil stays nil.
+func toRecordHeaders(h []MessageHeader) []sarama.RecordHeader {
+	if len(h) == 0 {
+		return nil
+	}
+
+	out := make([]sarama.RecordHeader, len(h))
+	for i, header := range h {
+		out[i] = sarama.RecordHeader{Key: []byte(header.Key), Value: header.Value}
+	}
+
+	return out
+}
+
+// ConsumeContext starts a consumer on every partition of the topics and hands each
+// message to handler with a context derived from ctx.
+func (c *kafkaClient) ConsumeContext(ctx context.Context, topics []string, handler ContextMessageHandler) error {
 	if c.consumer == nil {
 		return errors.New("consumer not enabled")
 	}
@@ -278,7 +324,9 @@ func (c *kafkaClient) Consume(ctx context.Context, topics []string, handler Mess
 	return nil
 }
 
-func (c *kafkaClient) ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error {
+// ConsumePartitionContext starts a consumer on one partition and hands each message
+// to handler with a context derived from ctx.
+func (c *kafkaClient) ConsumePartitionContext(ctx context.Context, topic string, partition int32, offset int64, handler ContextMessageHandler) error {
 	if c.consumer == nil {
 		return errors.New("consumer not enabled")
 	}
@@ -298,7 +346,7 @@ func (c *kafkaClient) ConsumePartition(ctx context.Context, topic string, partit
 	return nil
 }
 
-func (c *kafkaClient) consumePartition(ctx context.Context, pc sarama.PartitionConsumer, handler MessageHandler) {
+func (c *kafkaClient) consumePartition(ctx context.Context, pc sarama.PartitionConsumer, handler ContextMessageHandler) {
 	defer pc.Close()
 
 	for {
@@ -316,7 +364,7 @@ func (c *kafkaClient) consumePartition(ctx context.Context, pc sarama.PartitionC
 					c.recordReceiveMetric(msg.Topic, len(msg.Value))
 				}
 
-				if err := handler(msg); err != nil {
+				if err := handler(ctx, msg); err != nil {
 					c.logger.Error("kafka message handler error",
 						forge.F("topic", msg.Topic),
 						forge.F("partition", msg.Partition),

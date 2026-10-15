@@ -58,8 +58,13 @@ type Kafka interface {
     SendMessage(topic string, key, value []byte) error
     SendMessageAsync(topic string, key, value []byte) error
     SendMessages(messages []*ProducerMessage) error
+    SendMessageContext(ctx context.Context, topic string, key, value []byte) error
+    SendMessageAsyncContext(ctx context.Context, topic string, key, value []byte) error
+    SendMessagesContext(ctx context.Context, messages []*ProducerMessage) error
     Consume(ctx context.Context, topics []string, handler MessageHandler) error
     ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error
+    ConsumeContext(ctx context.Context, topics []string, handler ContextMessageHandler) error
+    ConsumePartitionContext(ctx context.Context, topic string, partition int32, offset int64, handler ContextMessageHandler) error
     StopConsume() error
     JoinConsumerGroup(ctx context.Context, groupID string, topics []string, handler ConsumerGroupHandler) error
     LeaveConsumerGroup(ctx context.Context) error
@@ -80,6 +85,7 @@ type Kafka interface {
 }
 
 type MessageHandler func(message *sarama.ConsumerMessage) error
+type ContextMessageHandler func(ctx context.Context, message *sarama.ConsumerMessage) error
 type ConsumerGroupHandler interface {   // same shape as sarama.ConsumerGroupHandler
     Setup(sarama.ConsumerGroupSession) error
     Cleanup(sarama.ConsumerGroupSession) error
@@ -103,6 +109,13 @@ ErrConnectionFailed, ErrClientClosed.
 ## Behaviour
 
 - SendMessage uses the sync producer and returns once the broker acks (`producer_acks`).
+- SendMessages sends Headers and Timestamp with each message. A zero Timestamp leaves it to the
+  producer. Partition is copied but only a manual partitioner reads it.
+- The *Context variants (SendMessageContext, SendMessageAsyncContext, SendMessagesContext,
+  ConsumeContext, ConsumePartitionContext) take a ctx first. The plain methods call them, the
+  sends with context.Background() and the consumers with the ctx you pass. A
+  ContextMessageHandler receives a context derived from the one given to ConsumeContext or
+  ConsumePartitionContext.
 - SendMessageAsync puts the message on the async producer's channel and returns. Delivery errors
   are logged and counted in GetStats().Errors, never returned.
 - Consume and ConsumePartition read partitions directly: no consumer group, no committed offsets.
@@ -151,8 +164,6 @@ Metrics (enable_metrics): counters `kafka.messages.sent`, `kafka.messages.receiv
 
 ## Gotchas
 
-- SendMessages copies only Topic, Key, Value and Partition to Sarama. Headers and Timestamp are
-  ignored; build a `sarama.ProducerMessage` and use `GetProducer()` if you need headers.
 - With TLS on and skip-verify off, validation requires both a client cert and key, so TLS
   without a client certificate doesn't pass validation today.
 

@@ -118,8 +118,8 @@ The app's log shows the message coming back from the `orders` topic. If no broke
 
 | You need | Forge Kafka gives you |
 | --- | --- |
-| To publish events from handlers | `SendMessage` (waits for the broker), `SendMessageAsync` (fire and forget) and `SendMessages` for a batch |
-| To read a topic | `Consume` across every partition, or `ConsumePartition` from an offset you choose |
+| To publish events from handlers | `SendMessage` (waits for the broker), `SendMessageAsync` (fire and forget) and `SendMessages` for a batch, each with a `*Context` twin |
+| To read a topic | `Consume` across every partition, or `ConsumePartition` from an offset you choose, with `ConsumeContext` and `ConsumePartitionContext` for handlers that take a context |
 | Load-balanced consumers with commits | `JoinConsumerGroup` with your own Sarama `ConsumerGroupHandler` |
 | Topic setup from code | `CreateTopic`, `DeleteTopic`, `ListTopics`, `DescribeTopic`, `GetPartitions`, `GetOffset` |
 | Secure clusters | TLS with client certificates and a custom CA, SASL PLAIN and SCRAM |
@@ -161,7 +161,13 @@ err := k.SendMessages([]*kafka.ProducerMessage{
 })
 ```
 
-Mind you, `SendMessages` only copies `Topic`, `Key`, `Value` and `Partition` across to Sarama today. `Headers` and `Timestamp` on `ProducerMessage` are ignored, so if you need record headers, build a `sarama.ProducerMessage` yourself and send it through `k.GetProducer()`. The `Partition` you set is copied but not honoured: Sarama's default hash partitioner picks the partition from the key, and only a manual partitioner reads the field.
+`SendMessages` sends each message's `Headers` and `Timestamp` along with the rest. A zero `Timestamp` leaves the choice to the producer, as it does for `SendMessage`. The `Partition` you set is copied but not honoured: Sarama's default hash partitioner picks the partition from the key, and only a manual partitioner reads the field.
+
+Each of the three has a context-aware twin: `SendMessageContext`, `SendMessageAsyncContext` and `SendMessagesContext`. They take the `ctx` of the request you're serving as their first argument, and the plain methods call them with `context.Background()`. Use the twins in handler code: they're where the context you pass in gets picked up.
+
+```go
+err := k.SendMessageContext(ctx, "orders", []byte("customer-17"), payload)
+```
 
 Sarama's default partitioner hashes the key. If you give related events the same key, they land on one partition and you read them back in the order you sent them.
 
@@ -175,6 +181,15 @@ You have two ways to read a topic, and they behave differently.
 err := k.ConsumePartition(ctx, "orders", 0, sarama.OffsetOldest,
 	func(msg *sarama.ConsumerMessage) error {
 		return process(msg.Value)
+	})
+```
+
+If your handler needs a context, use `ConsumeContext` and `ConsumePartitionContext`. They take a `kafka.ContextMessageHandler`, `func(ctx context.Context, msg *sarama.ConsumerMessage) error`, and pass it a context derived from the one you started the consumer with:
+
+```go
+err := k.ConsumePartitionContext(ctx, "orders", 0, sarama.OffsetOldest,
+	func(ctx context.Context, msg *sarama.ConsumerMessage) error {
+		return process(ctx, msg.Value)
 	})
 ```
 

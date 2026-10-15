@@ -13,10 +13,15 @@ type Kafka interface {
 	SendMessage(topic string, key, value []byte) error
 	SendMessageAsync(topic string, key, value []byte) error
 	SendMessages(messages []*ProducerMessage) error
+	SendMessageContext(ctx context.Context, topic string, key, value []byte) error
+	SendMessageAsyncContext(ctx context.Context, topic string, key, value []byte) error
+	SendMessagesContext(ctx context.Context, messages []*ProducerMessage) error
 
 	// Consumer operations
 	Consume(ctx context.Context, topics []string, handler MessageHandler) error
 	ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error
+	ConsumeContext(ctx context.Context, topics []string, handler ContextMessageHandler) error
+	ConsumePartitionContext(ctx context.Context, topic string, partition int32, offset int64, handler ContextMessageHandler) error
 	StopConsume() error
 
 	// Consumer group operations
@@ -48,6 +53,10 @@ type Kafka interface {
 
 // MessageHandler processes incoming Kafka messages.
 type MessageHandler func(message *sarama.ConsumerMessage) error
+
+// ContextMessageHandler processes a Kafka message with a context that carries
+// the consumer span, so the spans you start in it join the producer's trace.
+type ContextMessageHandler func(ctx context.Context, message *sarama.ConsumerMessage) error
 
 // ConsumerGroupHandler handles consumer group messages.
 type ConsumerGroupHandler interface {
