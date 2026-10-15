@@ -566,7 +566,19 @@ func TestOTLPRuntimeSkippedWhenCutShortKeepsState(t *testing.T) {
 		t.Fatalf("first start = %v, want %v", first.StartTime, created)
 	}
 
+	// A complete Produce a minute later moves lastRun past created. A series
+	// pruned and then seen again would now start at lastRun, not at created.
+	clock.advance(time.Minute)
+
+	second := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+	if !second.StartTime.Equal(created) {
+		t.Fatalf("second start = %v, want %v", second.StartTime, created)
+	}
+
 	// A cancelled Produce skips the gather, so it must not prune the series.
+	clock.advance(time.Minute)
+	c.Add(1)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -585,7 +597,7 @@ func TestOTLPRuntimeSkippedWhenCutShortKeepsState(t *testing.T) {
 	c.Add(1)
 
 	pt := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
-	if !pt.StartTime.Equal(created) || pt.Value != 1 {
-		t.Fatalf("after cut-short produce: start %v value %v, want %v and 1", pt.StartTime, pt.Value, created)
+	if !pt.StartTime.Equal(created) || pt.Value != 2 {
+		t.Fatalf("after cut-short produce: start %v value %v, want %v and 2", pt.StartTime, pt.Value, created)
 	}
 }
