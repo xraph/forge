@@ -8,6 +8,7 @@ replace github.com/xraph/forge => ../..
 
 require (
 	github.com/xraph/forge v1.9.13
+	github.com/xraph/go-utils v1.4.0
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel v1.45.0
@@ -87,7 +88,6 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.0.3 // indirect
-	github.com/xraph/go-utils v1.4.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect

@@ -72,8 +72,9 @@ func (s *grpcServer) buildStreamInterceptors() []grpc.StreamServerInterceptor {
 func (s *grpcServer) loggingUnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
+		logger := s.logger.WithContext(ctx)
 
-		s.logger.Debug("grpc unary call start",
+		logger.Debug("grpc unary call start",
 			forge.F("method", info.FullMethod),
 		)
 
@@ -82,13 +83,13 @@ func (s *grpcServer) loggingUnaryInterceptor() grpc.UnaryServerInterceptor {
 		duration := time.Since(start)
 
 		if err != nil {
-			s.logger.Error("grpc unary call failed",
+			logger.Error("grpc unary call failed",
 				forge.F("method", info.FullMethod),
 				forge.F("duration", duration),
 				forge.F("error", err),
 			)
 		} else {
-			s.logger.Debug("grpc unary call complete",
+			logger.Debug("grpc unary call complete",
 				forge.F("method", info.FullMethod),
 				forge.F("duration", duration),
 			)
@@ -127,8 +128,9 @@ func (s *grpcServer) metricsUnaryInterceptor() grpc.UnaryServerInterceptor {
 func (s *grpcServer) loggingStreamInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
+		logger := s.logger.WithContext(ss.Context())
 
-		s.logger.Debug("grpc stream call start",
+		logger.Debug("grpc stream call start",
 			forge.F("method", info.FullMethod),
 			forge.F("client_stream", info.IsClientStream),
 			forge.F("server_stream", info.IsServerStream),
@@ -139,13 +141,13 @@ func (s *grpcServer) loggingStreamInterceptor() grpc.StreamServerInterceptor {
 		duration := time.Since(start)
 
 		if err != nil {
-			s.logger.Error("grpc stream call failed",
+			logger.Error("grpc stream call failed",
 				forge.F("method", info.FullMethod),
 				forge.F("duration", duration),
 				forge.F("error", err),
 			)
 		} else {
-			s.logger.Debug("grpc stream call complete",
+			logger.Debug("grpc stream call complete",
 				forge.F("method", info.FullMethod),
 				forge.F("duration", duration),
 			)
