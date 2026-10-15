@@ -296,6 +296,10 @@ func TestWebTransportObservesSessionAndDatagrams(t *testing.T) {
 			}
 		}
 
+		// Returning closes the session, and a datagram still in flight is
+		// dropped with it. Wait for the client to close it.
+		<-s.Context().Done()
+
 		return nil
 	}))
 
@@ -317,6 +321,9 @@ func TestWebTransportObservesSessionAndDatagrams(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, msg, string(got))
 	}
+
+	// The handler waits for this before it returns and the session closes.
+	require.NoError(t, sess.CloseWithError(0, ""))
 
 	h := obs.only(t)
 
@@ -452,7 +459,15 @@ func TestWebTransportStreamJSONOverHTTP3(t *testing.T) {
 			return err
 		}
 
-		return bidi.Close()
+		if err := bidi.Close(); err != nil {
+			return err
+		}
+
+		// Returning closes the session, which resets the stream before the
+		// client may have read the reply. Wait for the client to close it.
+		<-s.Context().Done()
+
+		return nil
 	}))
 
 	base, pool := startH3(t, r)
@@ -667,7 +682,15 @@ func TestWebTransportMaxDatagramFrameSize(t *testing.T) {
 
 		received <- string(data)
 
-		return s.SendDatagram(data)
+		if err := s.SendDatagram(data); err != nil {
+			return err
+		}
+
+		// Returning closes the session, and a datagram still in flight is
+		// dropped with it. Wait for the client to close it.
+		<-s.Context().Done()
+
+		return nil
 	}))
 
 	config := DefaultWebTransportConfig()
@@ -709,6 +732,9 @@ func TestWebTransportMaxDatagramFrameSize(t *testing.T) {
 	echo, err := sess.ReceiveDatagram(recvCtx)
 	require.NoError(t, err)
 	require.Equal(t, "small", string(echo))
+
+	// The handler waits for this before it returns and the session closes.
+	require.NoError(t, sess.CloseWithError(0, ""))
 
 	// Only the datagrams that went through count.
 	h := obs.only(t)
@@ -761,7 +787,15 @@ func TestWebTransportDatagramsIgnoreEnableDatagrams(t *testing.T) {
 			return err
 		}
 
-		return s.SendDatagram(data)
+		if err := s.SendDatagram(data); err != nil {
+			return err
+		}
+
+		// Returning closes the session, and a datagram still in flight is
+		// dropped with it. Wait for the client to close it.
+		<-s.Context().Done()
+
+		return nil
 	}))
 
 	// WebTransport needs datagrams, so they work whatever this says.
