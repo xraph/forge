@@ -305,10 +305,10 @@ func newApp(config AppConfig) *app {
 	// Enable panic recovery to prevent unhandled panics from crashing the server
 	routerOpts = append(routerOpts, internalrouter.WithRecovery())
 
-	// Stream connections are recorded whenever metrics are on. The router
-	// names a stream by its route, which it learns from the route-match holder
-	// that the tracing or HTTP metrics middleware installs, so with both of
-	// those off no stream is recorded.
+	// Stream connections are recorded whenever metrics are on, whatever
+	// features.http_metrics says. The router names a stream by its route,
+	// which it reports through a route-match holder; see below for where the
+	// holder comes from.
 	if metricsConfig.Enabled {
 		routerOpts = append(routerOpts, internalrouter.WithStreamObserver(collectors.NewStreamMetrics(metrics)))
 	}
@@ -336,6 +336,13 @@ func newApp(config AppConfig) *app {
 		})
 
 		router.UseGlobal(internalrouter.PureMiddleware(httpMetrics.Middleware()).ToMiddleware())
+	}
+
+	// The tracing and HTTP metrics middleware install the route-match holder
+	// the stream observer needs. With both off, install a bare one, or no
+	// stream would ever be recorded.
+	if metricsConfig.Enabled && !metricsConfig.Features.HTTPMetrics && !tracing.Settings().Enabled {
+		router.UseGlobal(internalrouter.PureMiddleware(telemetry.RouteMatchMiddleware()).ToMiddleware())
 	}
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)

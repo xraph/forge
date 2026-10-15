@@ -10,7 +10,7 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **resource.go**: `BuildResource`, the one resource every signal shares.
 - **sampler.go**: `BuildSampler`, maps a sampler name to an SDK sampler.
 - **provider.go**: `NewProvider`, `Provider.RegisterSpanProcessor`, `Provider.Shutdown`.
-- **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `NormalizeMethod`, `Excluded` (the path-prefix check, shared with the HTTP server metrics middleware).
+- **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `RouteMatchMiddleware`, `NormalizeMethod`, `Excluded` (the path-prefix check, shared with the HTTP server metrics middleware).
 - **client.go**: `InstrumentTransport`, `HTTPClient`.
 - **recorder.go**: `StatusRecorder` (`NewStatusRecorder`), captures the status and body bytes (`Status`, `BytesWritten`) and keeps Flusher, Hijacker and Unwrap working. The HTTP server metrics middleware in `internal/metrics/collectors` uses it too. A 1xx other than 101 is forwarded but not recorded, so 103 Early Hints never becomes the final status. Flush and Hijack go through `http.ResponseController`, so a wrapper below that only has `Unwrap` still works; a failed hijack returns the controller's error (wrapping `http.ErrNotSupported`) and records nothing, a successful one records 101.
 - **errorhandler.go**: the OTel error handler, rate limited to one warn per minute.
@@ -47,7 +47,7 @@ Resource order, later wins: `service.name` (app name), `deployment.environment.n
 
 ## Server middleware
 
-`ServerMiddleware(tp, settings)` is registered with `router.UseGlobal` so it is the outermost global middleware, and only when `Settings.Enabled` is true. When tracing is off, `PropagationMiddleware()` goes in its place. It extracts the incoming context with the global propagator and does nothing else: no span, no `RouteMatch`, no response header. That's what lets an incoming `traceparent` reach `HTTPClient` calls in an app with tracing disabled.
+`ServerMiddleware(tp, settings)` is registered with `router.UseGlobal` so it is the outermost global middleware, and only when `Settings.Enabled` is true. When tracing is off, `PropagationMiddleware()` goes in its place. It extracts the incoming context with the global propagator and does nothing else: no span, no `RouteMatch`, no response header. That's what lets an incoming `traceparent` reach `HTTPClient` calls in an app with tracing disabled. If metrics are on and `features.http_metrics` is off as well, nothing else would install a `RouteMatch`, so `forge.New` adds `RouteMatchMiddleware()` after it. That one only calls `shared.NewRouteMatch`, which is all the router's stream observer needs to name a stream.
 
 For each request, `ServerMiddleware` does this:
 

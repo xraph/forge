@@ -158,6 +158,20 @@ func PropagationMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
+// RouteMatchMiddleware only installs a fresh shared.RouteMatch holder, so the
+// router can report the matched route to the stream observer. forge.New uses
+// it when metrics are on but neither the tracing nor the HTTP metrics
+// middleware is installed, since those install the holder otherwise.
+func RouteMatchMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx, _ := shared.NewRouteMatch(r.Context())
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func requestAttributes(r *http.Request, method, original string) []attribute.KeyValue {
 	scheme := "http"
 	if r.TLS != nil {
