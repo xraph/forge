@@ -386,7 +386,13 @@ func TestOTLPDeltaHistogram(t *testing.T) {
 	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 3, Sum: 1, Buckets: []Bucket{{UpperBound: 1, Count: 2}}}}
 	p, clock := newTestProducer(s, Delta)
 
+	// Creation comes before the first produce, so a start time taken from
+	// creation would not match the previous produce.
+	clock.advance(time.Second)
 	produce(t, p)
+
+	prev := clock.now()
+
 	clock.advance(time.Minute)
 
 	s["lat"] = Sample{Kind: SampleHistogram, Count: 7, Sum: 4, Buckets: []Bucket{{UpperBound: 1, Count: 5}}}
@@ -400,13 +406,23 @@ func TestOTLPDeltaHistogram(t *testing.T) {
 	if !equalUints(pt.BucketCounts, []uint64{3, 1}) || pt.Count != 4 || pt.Sum != 3 {
 		t.Fatalf("point = counts %v, count %d, sum %v; want [3 1], 4, 3", pt.BucketCounts, pt.Count, pt.Sum)
 	}
+
+	if !pt.StartTime.Equal(prev) {
+		t.Fatalf("start = %v, want %v: the previous produce", pt.StartTime, prev)
+	}
 }
 
 func TestOTLPDeltaBucketLayoutChangeIsReset(t *testing.T) {
 	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 2, Buckets: []Bucket{{UpperBound: 1, Count: 2}}}}
 	p, clock := newTestProducer(s, Delta)
 
+	// Creation comes before the first produce, so a start time taken from
+	// creation would not match the previous produce.
+	clock.advance(time.Second)
 	produce(t, p)
+
+	prev := clock.now()
+
 	clock.advance(time.Minute)
 
 	s["lat"] = Sample{Kind: SampleHistogram, Count: 5, Buckets: []Bucket{{UpperBound: 1, Count: 2}, {UpperBound: 2, Count: 3}}}
@@ -414,6 +430,67 @@ func TestOTLPDeltaBucketLayoutChangeIsReset(t *testing.T) {
 	pt := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
 	if !equalUints(pt.BucketCounts, []uint64{2, 3, 0}) || pt.Count != 5 {
 		t.Fatalf("counts = %v, count = %d; want the full new counts", pt.BucketCounts, pt.Count)
+	}
+
+	if !pt.StartTime.Equal(prev) {
+		t.Fatalf("start = %v, want %v: the reset began at the previous produce", pt.StartTime, prev)
+	}
+}
+
+func TestOTLPDeltaThirdProduceAndClamp(t *testing.T) {
+	s := fakeStream{
+		"c":   {Kind: SampleCounter, Value: 5},
+		"lat": {Kind: SampleHistogram, Count: 2, Sum: 1, Buckets: []Bucket{{UpperBound: 1, Count: 2}}},
+	}
+	p, clock := newTestProducer(s, Delta)
+
+	produce(t, p)
+
+	first := clock.now()
+
+	clock.advance(time.Minute)
+
+	s["c"] = Sample{Kind: SampleCounter, Value: 8}
+	// The overflow bucket is 1 here and 0 in the next produce, while the
+	// total count rises from 4 to 5: a dip the delta has to clamp.
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 4, Sum: 3, Buckets: []Bucket{{UpperBound: 1, Count: 3}}}
+
+	got := produce(t, p)
+	second := clock.now()
+
+	if pt := got["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 3 || !pt.StartTime.Equal(first) {
+		t.Fatalf("counter second point = %+v, want 3 since the first produce", pt)
+	}
+
+	if pt := got["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]; !equalUints(pt.BucketCounts, []uint64{1, 1}) || pt.Count != 2 || pt.Sum != 2 {
+		t.Fatalf("histogram second point = counts %v, count %d, sum %v; want [1 1], 2, 2", pt.BucketCounts, pt.Count, pt.Sum)
+	}
+
+	clock.advance(time.Minute)
+
+	s["c"] = Sample{Kind: SampleCounter, Value: 12}
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 5, Sum: 6, Buckets: []Bucket{{UpperBound: 1, Count: 5}}}
+
+	got = produce(t, p)
+
+	// Against the second cumulative value, not the delta of the second delta.
+	if pt := got["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 4 || !pt.StartTime.Equal(second) {
+		t.Fatalf("counter third point = %+v, want 4 since the second produce", pt)
+	}
+
+	pt := got["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalUints(pt.BucketCounts, []uint64{2, 0}) || pt.Sum != 3 || !pt.StartTime.Equal(second) {
+		t.Fatalf("histogram third point = counts %v, sum %v, start %v; want [2 0], 3, since the second produce",
+			pt.BucketCounts, pt.Sum, pt.StartTime)
+	}
+
+	var total uint64
+	for _, c := range pt.BucketCounts {
+		total += c
+	}
+
+	if pt.Count != total {
+		t.Fatalf("count = %d, want the sum of the bucket counts %d", pt.Count, total)
 	}
 }
 
