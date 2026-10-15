@@ -262,7 +262,7 @@ This config scrapes `/_/metrics`. If Forge also pushes to this Collector, as it 
 
 ## Where these values come from
 
-We checked every endpoint and header on this page against the vendor's documentation on 2026-10-15. Vendors move things, so if one of them disagrees with this page, trust the vendor.
+We checked every trace endpoint and header on this page, and every scrape setup, against the vendor's documentation on 2026-10-15. The table under [Pushing metrics](#pushing-metrics) wasn't checked the same way, so treat those rows as a starting point and confirm them against your vendor's OTLP metrics docs. Vendors move things, so if one of them disagrees with this page, trust the vendor.
 
 - Grafana Cloud: [Send data using OTLP](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/), [Collect Prometheus metrics with Alloy](https://grafana.com/docs/alloy/latest/collect/prometheus-metrics/), [prometheus.scrape](https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.scrape/)
 - Tempo: [Configuration](https://grafana.com/docs/tempo/latest/configuration/), [Tempo 2.7 release notes](https://grafana.com/docs/tempo/latest/release-notes/version-2/v2-7/)
