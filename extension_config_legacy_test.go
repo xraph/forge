@@ -125,3 +125,44 @@ func TestRenameLegacyKeys(t *testing.T) {
 		t.Fatalf("legacy = %+v for a section with no old keys", legacy)
 	}
 }
+
+func loadLegacyWithLog(t *testing.T, yaml string) (legacyConfig, []string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	writeTemp(t, dir, "config.yaml", yaml)
+
+	app := New(WithAppName("legacyapp"), WithConfigSearchPaths(dir))
+	log := captureLogger(t)
+
+	cfg := legacyConfig{MaxSize: 10, Enabled: true}
+	if err := NewExtensionConfigLoader(app, log).LoadConfig("x", &cfg, nil, nil, false); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	return cfg, warnedKeys(log)
+}
+
+func TestExtensionConfigInvalidValueKeepsDefault(t *testing.T) {
+	t.Run("tag name", func(t *testing.T) {
+		got, keys := loadLegacyWithLog(t, "extensions:\n  x:\n    max_size: big\n    tool_prefix: shop_\n")
+		if got.MaxSize != 10 || got.ToolPrefix != "shop_" {
+			t.Fatalf("got %+v", got)
+		}
+
+		if len(keys) != 1 || keys[0] != "extensions.x.max_size" {
+			t.Fatalf("warned for %v", keys)
+		}
+	})
+
+	t.Run("legacy Go field name", func(t *testing.T) {
+		got, keys := loadLegacyWithLog(t, "extensions:\n  x:\n    MaxSize: big\n")
+		if got.MaxSize != 10 {
+			t.Fatalf("got %+v", got)
+		}
+
+		if len(keys) != 1 || keys[0] != "extensions.x.max_size" {
+			t.Fatalf("warned for %v, want the real key, not section.max_size", keys)
+		}
+	})
+}

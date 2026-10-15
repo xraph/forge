@@ -19,7 +19,7 @@ type ProfilingConfig = shared.ProfilingConfig
 func buildProfiling(config AppConfig, cm ConfigManager, log Logger, tracingEnabled bool) *profiling.Profiler {
 	var fromFile shared.ProfilingConfig
 	if cm != nil {
-		if err := cm.Bind("profiling", &fromFile); err != nil && cm.HasKey("profiling") {
+		if _, err := bindConfig(cm, "profiling", &fromFile, log); err != nil && cm.HasKey("profiling") {
 			log.Warn("profiling: could not read profiling config, using defaults", F("error", err))
 
 			fromFile = shared.ProfilingConfig{}

@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/telemetry"
 )
 
 func newTracedApp(t *testing.T, cfg TracingConfig) (App, *tracetest.InMemoryExporter) {
@@ -315,5 +316,52 @@ func TestAppWarnsOnUnreadableTracingConfig(t *testing.T) {
 
 	if warned(NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)) {
 		t.Fatal("a config with no tracing block should not warn")
+	}
+}
+
+func TestTracingIgnoresInvalidSampleRatio(t *testing.T) {
+	cm := NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)
+	cm.Set("tracing", map[string]any{"sample_ratio": "lots", "endpoint": "http://collector:4318"})
+
+	log := captureLogger(t)
+	file := readTracingFile(cm, log)
+
+	if file.SampleRatio != nil {
+		t.Fatalf("SampleRatio = %v, want nil so the default applies", *file.SampleRatio)
+	}
+
+	if file.Endpoint != "http://collector:4318" {
+		t.Fatalf("Endpoint = %q, the good key in the same block should still apply", file.Endpoint)
+	}
+
+	if got := telemetry.Resolve(telemetry.Inputs{File: file}).SampleRatio; got != 1.0 {
+		t.Fatalf("resolved ratio = %v, want the development default 1.0, not 0", got)
+	}
+
+	if keys := warnedKeys(log); len(keys) != 1 || keys[0] != "tracing.sample_ratio" {
+		t.Fatalf("warned for %v, want [tracing.sample_ratio]", keys)
+	}
+}
+
+func TestAppWarnsOnInvalidSampleRatio(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	cm := NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)
+	cm.Set("tracing", map[string]any{"sample_ratio": "lots"})
+
+	log := captureLogger(t)
+	New(WithAppName("bad-ratio"), WithAppLogger(log), WithAppConfigManager(cm))
+
+	found := false
+
+	for _, e := range log.GetLogsByLevel("WARN") {
+		if v, _ := e.Field("value"); e.Message == invalidValueMsg && v == "lots" {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatal("New should warn about tracing.sample_ratio: lots")
 	}
 }

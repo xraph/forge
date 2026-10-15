@@ -255,6 +255,34 @@ These environment variables are read when the matching key isn't set above them:
 
 The resource always carries `service.name` (the app's name), `service.version` and `deployment.environment.name`, plus host and process details. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override those, and the `resource` key overrides both.
 
+### When a value doesn't parse
+
+A scalar value (a number, bool, duration or string) that can't be read as its field's type is ignored, the field keeps its default, and Forge logs a warning. A list, mapping or block given a value of the wrong shape, like `hosts: "a,b"` for a list, is still ignored without a warning in this release. Here's a scalar that fails:
+
+```yaml
+tracing:
+  sample_ratio: "lots"
+  endpoint: https://collector.internal:4318/v1/traces
+```
+
+You get a warning like this one. Your logger decides the exact layout:
+
+```text
+WARN config: ignoring invalid value, using the default key=tracing.sample_ratio value=lots expected=float64
+```
+
+The `endpoint` still applies. Only the key that failed falls back, and each bad key warns once per boot.
+
+For `sample_ratio`, "the default" means the same thing it does when the key is missing. A ratio set in code still wins. Otherwise `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` are read next (the ratio argument is only read for a `traceidratio` sampler), and if neither is set you get 1.0 in an empty, `development`, `dev`, `local` or `test` environment and 0.1 anywhere else.
+
+The `metrics` and `health` blocks work the same way, and so does every extension's block. The warning names the full key, such as `metrics.collection.interval` or `extensions.cache.max_size`, and that field keeps its default while the rest of the block loads.
+
+`enabled` is the exception, because it decides whether Forge reads the file block at all. Forge only reads the `health` block when it says `enabled: true`, so a bad `health.enabled` skips the whole block, and health runs on your code config or Forge's defaults. `metrics` does the same when you also pass a metrics config in code. Without one, a bad `metrics.enabled` keeps its default like any other key.
+
+When you pass a metrics config in code and the file block loads, the code value stays for any key the file got wrong. A key that's wrong in the file and not set in code is treated as if the file never mentioned it.
+
+Before this release, Forge bound a value like `"lots"` as 0. For `sample_ratio` that meant no traces at all, and nothing in the log said why. If you're upgrading and traces or limits start behaving differently, search your boot logs for `ignoring invalid value`.
+
 ### What a request produces
 
 Each request gets one server span, named `METHOD /route/pattern` once the router has matched, such as `GET /users/:id`. The name uses the pattern and not the URL, so traffic to a thousand different user IDs lands on one span name. A request that matches nothing keeps the bare method as its name.

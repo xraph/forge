@@ -250,3 +250,45 @@ func TestMetricsConfigNewWithConfigCodeWins(t *testing.T) {
 		t.Fatal("namespace set in code should win over the file")
 	}
 }
+
+func TestMetricsConfigInvalidFileValueKeepsDefault(t *testing.T) {
+	cm := metricsFile(map[string]any{
+		"collection": map[string]any{"interval": "soon"},
+		"limits":     map[string]any{"max_metrics": 50},
+	})
+
+	log := captureLogger(t)
+
+	got, fromFile := resolveMetricsConfig(nil, cm, log)
+	if !fromFile {
+		t.Fatal("the file should still count as contributing")
+	}
+
+	if want := DefaultMetricsConfig().Collection.Interval; got.Collection.Interval != want {
+		t.Fatalf("Interval = %v, want the default %v, not 0", got.Collection.Interval, want)
+	}
+
+	if got.Limits.MaxMetrics != 50 {
+		t.Fatalf("MaxMetrics = %d, the good key should still apply", got.Limits.MaxMetrics)
+	}
+
+	if keys := warnedKeys(log); len(keys) != 1 || keys[0] != "metrics.collection.interval" {
+		t.Fatalf("warned for %v", keys)
+	}
+}
+
+func TestMetricsConfigInvalidFileValueWithCodeConfig(t *testing.T) {
+	code := DefaultMetricsConfig()
+	cm := metricsFile(map[string]any{"enabled": true, "limits": map[string]any{"max_metrics": "lots"}})
+
+	log := captureLogger(t)
+
+	got, _ := resolveMetricsConfig(&code, cm, log)
+	if got.Limits.MaxMetrics != code.Limits.MaxMetrics {
+		t.Fatalf("MaxMetrics = %d, want the code value %d", got.Limits.MaxMetrics, code.Limits.MaxMetrics)
+	}
+
+	if keys := warnedKeys(log); len(keys) != 1 || keys[0] != "metrics.limits.max_metrics" {
+		t.Fatalf("warned for %v", keys)
+	}
+}

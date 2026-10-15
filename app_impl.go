@@ -209,7 +209,7 @@ func newApp(config AppConfig) *app {
 		codeMetrics = &code
 	}
 
-	metricsConfig, _ := resolveMetricsConfig(codeMetrics, configManager)
+	metricsConfig, _ := resolveMetricsConfig(codeMetrics, configManager, logger)
 	config.MetricsConfig = *metricsConfig // Update config for banner display
 
 	if metricsConfig.Enabled {
@@ -264,7 +264,7 @@ func newApp(config AppConfig) *app {
 	// Try to load from ConfigManager first
 	if configManager != nil {
 		var runtimeConfig shared.HealthConfig
-		if err := configManager.Bind("health", &runtimeConfig); err == nil {
+		if _, err := bindConfig(configManager, "health", &runtimeConfig, logger); err == nil {
 			if runtimeConfig.Enabled {
 				healthConfig = mergeHealthConfig(&runtimeConfig, healthConfig)
 				config.HealthConfig = *healthConfig // Update config for banner display
@@ -1535,7 +1535,10 @@ func metricsConfigFromCode(config AppConfig) bool {
 // metrics block replaces its default, so the file can turn a feature off. With
 // a code config the file is read only when it says enabled: true, and code
 // values win (see mergeMetricsConfig).
-func resolveMetricsConfig(code *shared.MetricsConfig, cm ConfigManager) (*shared.MetricsConfig, bool) {
+//
+// A file value that doesn't convert to its field's type is logged to log and
+// treated as absent, so the field keeps its default (or the code value).
+func resolveMetricsConfig(code *shared.MetricsConfig, cm ConfigManager, log Logger) (*shared.MetricsConfig, bool) {
 	if code == nil {
 		defaults := DefaultMetricsConfig()
 
@@ -1544,11 +1547,16 @@ func resolveMetricsConfig(code *shared.MetricsConfig, cm ConfigManager) (*shared
 		}
 
 		var file shared.MetricsConfig
-		if err := cm.Bind("metrics", &file); err != nil {
+
+		bad, err := bindConfig(cm, "metrics", &file, log)
+		if err != nil {
 			return &defaults, false
 		}
 
-		return overlayMetricsFile(&defaults, &file, cm.HasKey), true
+		// A key whose value didn't convert counts as absent, so it keeps its default.
+		present := func(key string) bool { return cm.HasKey(key) && !bad[key] }
+
+		return overlayMetricsFile(&defaults, &file, present), true
 	}
 
 	if cm == nil {
@@ -1556,7 +1564,7 @@ func resolveMetricsConfig(code *shared.MetricsConfig, cm ConfigManager) (*shared
 	}
 
 	var file shared.MetricsConfig
-	if err := cm.Bind("metrics", &file); err != nil || !file.Enabled {
+	if _, err := bindConfig(cm, "metrics", &file, log); err != nil || !file.Enabled {
 		return code, false
 	}
 
@@ -1802,8 +1810,12 @@ func (a *app) reloadConfigsFromManager() error {
 		return nil
 	}
 
+	// This runs from Start and re-reads the config newApp already read, so
+	// the binds below pass a nil logger: the warnings about invalid values
+	// were logged when the app was built.
+
 	// Reload metrics config, resolved the same way newApp resolved it.
-	if metricsConfig, fromFile := resolveMetricsConfig(a.codeMetrics, a.configManager); fromFile && metricsConfig.Enabled {
+	if metricsConfig, fromFile := resolveMetricsConfig(a.codeMetrics, a.configManager, nil); fromFile && metricsConfig.Enabled {
 		if err := a.metrics.Reload(metricsConfig); err != nil {
 			a.logger.Warn("failed to reload metrics config", F("error", err))
 		} else {
@@ -1813,7 +1825,7 @@ func (a *app) reloadConfigsFromManager() error {
 
 	// Reload health config
 	var healthConfig shared.HealthConfig
-	if err := a.configManager.Bind("health", &healthConfig); err == nil {
+	if _, err := bindConfig(a.configManager, "health", &healthConfig, nil); err == nil {
 		if healthConfig.Enabled {
 			if err := a.healthManager.Reload(&healthConfig); err != nil {
 				a.logger.Warn("failed to reload health config", F("error", err))
@@ -2180,16 +2192,7 @@ func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *
 // never stops the app from booting: an exporter that can't be built is
 // logged and the app carries on creating spans without exporting them.
 func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Provider {
-	var fromFile shared.TracingConfig
-	if cm != nil {
-		// Bind also fails when there is no tracing key, which is the normal
-		// case, so only a key that exists and won't bind is worth a warning.
-		if err := cm.Bind("tracing", &fromFile); err != nil && cm.HasKey("tracing") {
-			log.Warn("telemetry: could not read tracing config, using defaults", F("error", err))
-
-			fromFile = shared.TracingConfig{}
-		}
-	}
+	fromFile := readTracingFile(cm, log)
 
 	settings := telemetry.Resolve(telemetry.Inputs{
 		Code:        config.TracingConfig,
@@ -2218,4 +2221,24 @@ func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Pro
 	}
 
 	return provider
+}
+
+// readTracingFile returns the tracing block from the config file. A block that
+// won't bind at all is logged and ignored. A value that won't convert is logged
+// and left unset, so its default applies.
+func readTracingFile(cm ConfigManager, log Logger) shared.TracingConfig {
+	var fromFile shared.TracingConfig
+	if cm == nil {
+		return fromFile
+	}
+
+	// Bind also fails when there is no tracing key, which is the normal
+	// case, so only a key that exists and won't bind is worth a warning.
+	if _, err := bindConfig(cm, "tracing", &fromFile, log); err != nil && cm.HasKey("tracing") {
+		log.Warn("telemetry: could not read tracing config, using defaults", F("error", err))
+
+		return shared.TracingConfig{}
+	}
+
+	return fromFile
 }

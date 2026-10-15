@@ -226,10 +226,11 @@ func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, targ
 				}
 			}
 
+			// Bind under the real key so a warning names extensions.<name>.<field>.
 			scratch := confy.New()
-			scratch.Set("section", renamed)
+			scratch.Set(key, renamed)
 
-			if err := scratch.Bind("section", target); err != nil {
+			if _, err := bindConfig(scratch, key, target, l.logger); err != nil {
 				return false, err
 			}
 
@@ -238,7 +239,7 @@ func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, targ
 	}
 
 	// Try to bind
-	if err := cm.Bind(key, target); err != nil {
+	if _, err := bindConfig(cm, key, target, l.logger); err != nil {
 		return false, err
 	}
 
