@@ -34,6 +34,7 @@ func TestUpCreatesContainer(t *testing.T) {
 	f := execx.NewFake(t)
 	f.Script("docker container inspect forge-lgtm", noSuch())
 	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker network inspect forge-observability", execx.Result{})
 	f.Script("docker run", execx.Result{Stdout: "abc"})
 	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{})
 
@@ -64,6 +65,7 @@ func TestUpCreatesContainer(t *testing.T) {
 		":/forge/dashboards:ro", ":/forge/targets:ro",
 		"GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/forge/dashboards/forge-service.json",
 		"--label forge.ports=3000,4318,9090",
+		"--network forge-observability",
 		Image,
 	} {
 		if !strings.Contains(line, want) {
@@ -85,7 +87,7 @@ func TestUpReusesMatchingContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.Script("docker container inspect forge-lgtm", execx.Result{Stdout: strings.Replace(inspectRunning, "%s", configHash(files, Image, DefaultPorts()), 1)})
+	f.Script("docker container inspect forge-lgtm", execx.Result{Stdout: strings.Replace(inspectRunning, "%s", configHash(files, Image, DefaultPorts(), NetworkName), 1)})
 	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{})
 
 	if _, err := s.Up(context.Background()); err != nil {
@@ -104,6 +106,7 @@ func TestUpRecreatesChangedContainerBeforePortCheck(t *testing.T) {
 	f.Script("docker container inspect forge-lgtm", execx.Result{Stdout: `[{"State":{"Running":true},"Config":{"Labels":{}}}]`})
 	f.Script("docker rm -f forge-lgtm", execx.Result{})
 	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker network inspect forge-observability", execx.Result{})
 	f.Script("docker run", execx.Result{})
 	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{})
 
@@ -153,6 +156,7 @@ func TestUpAnnouncesPull(t *testing.T) {
 	f := execx.NewFake(t)
 	f.Script("docker container inspect forge-lgtm", noSuch())
 	f.Script("docker image inspect "+Image, execx.Result{ExitCode: 1, Stderr: "No such image"})
+	f.Script("docker network inspect forge-observability", execx.Result{})
 	f.Script("docker run", execx.Result{})
 	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{})
 
@@ -170,6 +174,7 @@ func TestUpTimesOutWithLogs(t *testing.T) {
 	f := execx.NewFake(t)
 	f.Script("docker container inspect forge-lgtm", noSuch())
 	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker network inspect forge-observability", execx.Result{})
 	f.Script("docker run", execx.Result{})
 	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{ExitCode: 1})
 	f.Script("docker logs --tail 40 forge-lgtm", execx.Result{Stdout: "tempo failed to start"})
@@ -270,6 +275,7 @@ func TestUpRemovesContainerWhenRunFails(t *testing.T) {
 	f := execx.NewFake(t)
 	f.Script("docker container inspect forge-lgtm", noSuch())
 	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker network inspect forge-observability", execx.Result{})
 	f.Script("docker run", execx.Result{ExitCode: 125, Stderr: "docker: Error response from daemon: Bind for 0.0.0.0:9090 failed: port is already allocated"})
 	f.Script("docker rm -f forge-lgtm", execx.Result{})
 
@@ -284,5 +290,27 @@ func TestUpRemovesContainerWhenRunFails(t *testing.T) {
 
 	if !slices.Contains(f.CallLines(), "docker rm -f forge-lgtm") {
 		t.Fatalf("a failed run left the created container behind: %v", f.CallLines())
+	}
+}
+
+func TestUpCreatesTheSharedNetwork(t *testing.T) {
+	f := execx.NewFake(t)
+	f.Script("docker container inspect forge-lgtm", noSuch())
+	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker network inspect forge-observability", execx.Result{ExitCode: 1, Stderr: "Error response from daemon: network forge-observability not found"})
+	f.Script("docker network create forge-observability", execx.Result{})
+	f.Script("docker run", execx.Result{})
+	f.Script("docker exec forge-lgtm test -f /tmp/ready", execx.Result{})
+
+	if _, err := newStack(t, f).Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := f.CallLines()
+	create := slices.Index(lines, "docker network create forge-observability")
+
+	run := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "docker run") })
+	if create < 0 || run < create {
+		t.Fatalf("the network must exist before the container joins it: %v", lines)
 	}
 }

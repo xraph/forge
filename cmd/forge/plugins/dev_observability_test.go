@@ -49,3 +49,25 @@ func TestAppPortOrder(t *testing.T) {
 		t.Errorf("a bad PORT falls through, got %d", got)
 	}
 }
+
+func TestDockerObservabilityWiring(t *testing.T) {
+	for _, tc := range []struct {
+		network                       string
+		wantNetwork, endpoint, target string
+		connect                       bool
+	}{
+		// Default bridge has no container DNS, so the dev container joins
+		// the stack's own network and both sides use container names.
+		{"", "forge-observability", "http://forge-lgtm:4318", "forge-dev-shop:9000", false},
+		{"bridge", "forge-observability", "http://forge-lgtm:4318", "forge-dev-shop:9000", false},
+		// A network you chose stays; the stack joins it instead.
+		{"forge-net", "forge-net", "http://forge-lgtm:4318", "forge-dev-shop:9000", true},
+		// Host networking shares the host's ports, like plain forge dev.
+		{"host", "host", "http://localhost:14318", "host.docker.internal:9000", false},
+	} {
+		w := dockerObservabilityWiring(tc.network, "shop", 9000, 14318)
+		if w.network != tc.wantNetwork || w.endpoint != tc.endpoint || w.target != tc.target || w.connect != tc.connect {
+			t.Errorf("network %q: got %+v", tc.network, w)
+		}
+	}
+}

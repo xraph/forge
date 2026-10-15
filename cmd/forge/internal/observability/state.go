@@ -24,6 +24,9 @@ const (
 	ContainerName = "forge-lgtm"
 	// VolumeName holds the stack's data across recreates.
 	VolumeName = "forge-lgtm-data"
+	// NetworkName is the user network the stack runs on. Dev containers
+	// join it so they reach the stack, and it them, by container name.
+	NetworkName = "forge-observability"
 
 	labelHash  = "forge.config-hash"
 	labelPorts = "forge.ports"

@@ -36,6 +36,7 @@ type Stack struct {
 	Dir          string // state directory, see DefaultStateDir
 	Name         string // container name, ContainerName when empty
 	Volume       string // data volume, VolumeName when empty
+	Network      string // user network, NetworkName when empty
 	Image        string // Image when empty
 	Ports        Ports
 	Out          io.Writer     // progress lines, discarded when nil
@@ -56,6 +57,8 @@ type ContainerState struct {
 func (s *Stack) name() string   { return or(s.Name, ContainerName) }
 func (s *Stack) volume() string { return or(s.Volume, VolumeName) }
 func (s *Stack) image() string  { return or(s.Image, Image) }
+
+func (s *Stack) network() string { return or(s.Network, NetworkName) }
 
 func or(v, fallback string) string {
 	if v == "" {
@@ -81,17 +84,23 @@ func (s *Stack) docker(ctx context.Context, args ...string) (execx.Result, error
 	return s.Runner.Run(ctx, execx.Command{Name: "docker", Args: args})
 }
 
-// notFound reports docker's "No such container/volume/image" answers.
+// notFound reports docker's "No such container/volume/image" and "network
+// ... not found" answers.
 func notFound(err error) bool {
 	var exit *execx.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
 
-	return errors.As(err, &exit) && strings.Contains(strings.ToLower(exit.Result.Stderr), "no such")
+	msg := strings.ToLower(exit.Result.Stderr)
+
+	return strings.Contains(msg, "no such") || strings.Contains(msg, "not found")
 }
 
 // configHash identifies a container's configuration: the generated files,
-// the image and the published ports.
-func configHash(files, image string, ports Ports) string {
-	h := sha256.Sum256([]byte(files + "\n" + image + "\n" + ports.String()))
+// the image, the published ports and the network.
+func configHash(files, image string, ports Ports, network string) string {
+	h := sha256.Sum256([]byte(files + "\n" + image + "\n" + ports.String() + "\n" + network))
 
 	return hex.EncodeToString(h[:])[:16]
 }
@@ -135,7 +144,7 @@ func (s *Stack) Up(ctx context.Context) (Ports, error) {
 		return Ports{}, err
 	}
 
-	want := configHash(files, s.image(), s.Ports)
+	want := configHash(files, s.image(), s.Ports, s.network())
 
 	st, err := s.Inspect(ctx)
 	if err != nil {
@@ -167,6 +176,10 @@ func (s *Stack) Up(ctx context.Context) (Ports, error) {
 		s.sayf("Pulling %s (about 3.5 GB, first run only)", s.image())
 	}
 
+	if err := s.ensureNetwork(ctx); err != nil {
+		return Ports{}, err
+	}
+
 	if _, err := s.docker(ctx, s.runArgs(want)...); err != nil {
 		// docker run can fail after it has created the container, for
 		// example when a port is taken. Left behind, the next Up would find
@@ -190,6 +203,7 @@ func (s *Stack) runArgs(hash string) []string {
 		"--add-host=host.docker.internal:host-gateway",
 		"--label", labelHash + "=" + hash,
 		"--label", labelPorts + "=" + s.Ports.String(),
+		"--network", s.network(),
 		"-p", publish(s.Ports.Grafana, 3000),
 		"-p", publish(s.Ports.OTLP, 4318),
 		"-p", publish(s.Ports.Prometheus, 9090),
@@ -202,6 +216,24 @@ func (s *Stack) runArgs(hash string) []string {
 		"-e", "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/forge/dashboards/forge-service.json",
 		s.image(),
 	}
+}
+
+// ensureNetwork creates the stack's user network when it doesn't exist yet.
+func (s *Stack) ensureNetwork(ctx context.Context) error {
+	_, err := s.docker(ctx, "network", "inspect", s.network())
+	if err == nil {
+		return nil
+	}
+
+	if !notFound(err) {
+		return fmt.Errorf("observability: inspect network %s: %w", s.network(), err)
+	}
+
+	if _, err := s.docker(ctx, "network", "create", s.network()); err != nil {
+		return fmt.Errorf("observability: create network %s: %s", s.network(), dockerMessage(err))
+	}
+
+	return nil
 }
 
 func (s *Stack) checkPorts(ctx context.Context) error {

@@ -50,7 +50,7 @@ func newDockerAppWatcher(
 		delay = cfg.Dev.HotReload.Delay
 	}
 
-	containerName := "forge-dev-" + app.Name
+	containerName := devContainerName(app.Name)
 	imageName := "forge-dev-" + app.Name + ":latest"
 
 	dw := &dockerAppWatcher{
@@ -466,4 +466,10 @@ func (dw *dockerAppWatcher) streamLogs(ctx context.Context) {
 // project's own .forge.yaml and app layout, never from a remote source.
 func dockerCommand(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "docker", args...)
+}
+
+// devContainerName is the container forge dev --docker runs an app in. The
+// observability stack scrapes it by this name.
+func devContainerName(app string) string {
+	return "forge-dev-" + app
 }

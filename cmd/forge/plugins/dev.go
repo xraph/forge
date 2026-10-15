@@ -129,21 +129,29 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 	}
 
 	// Observability: start the local stack if needed and point the app at it.
-	var obsEnv map[string]string
+	var (
+		obsEnv     map[string]string
+		obsNetwork string
+	)
 
 	if ctx.Bool("observability") {
-		env, cleanup, err := p.startObservability(ctx, app, ctx.Bool("docker"))
+		env, network, cleanup, err := p.startObservability(ctx, app, ctx.Bool("docker"))
 		if err != nil {
 			return err
 		}
 		defer cleanup()
 
-		obsEnv = env
+		obsEnv, obsNetwork = env, network
 	}
 
 	// Docker mode: build and run inside a Docker container with live reload.
 	if ctx.Bool("docker") {
-		return p.runWithDocker(ctx, app, watch, port, ctx.String("network"), obsEnv)
+		network := ctx.String("network")
+		if obsNetwork != "" {
+			network = obsNetwork
+		}
+
+		return p.runWithDocker(ctx, app, watch, port, network, obsEnv)
 	}
 
 	// The app inherits this process's environment. startObservability only
