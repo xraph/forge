@@ -35,6 +35,8 @@ func TestRawSampleShapes(t *testing.T) {
 			Sample{Kind: SampleTimer, Count: 2, Sum: 2, P50: 1, P95: 2, P99: 3},
 			true,
 		},
+		{"counter map with a string value", map[string]any{"_type": "counter", "value": "seven"}, Sample{}, false},
+		{"histogram map without a count", map[string]any{"sum": 1.5, "buckets": map[float64]uint64{1: 1}}, Sample{}, false},
 		{"string", "x", Sample{}, false},
 		{"empty map", map[string]any{}, Sample{}, false},
 	}

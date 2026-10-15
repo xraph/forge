@@ -107,8 +107,11 @@ func rawSample(v any) (Sample, bool) {
 func rawMapSample(v map[string]any) (Sample, bool) {
 	if t, _ := v["_type"].(string); t == "counter" {
 		val, ok := toFloat(v["value"])
+		if !ok {
+			return Sample{}, false
+		}
 
-		return Sample{Kind: SampleCounter, Value: val}, ok
+		return Sample{Kind: SampleCounter, Value: val}, true
 	}
 
 	if raw, ok := v["buckets"].(map[float64]uint64); ok {

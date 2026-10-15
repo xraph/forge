@@ -708,6 +708,11 @@ func (c *collector) PrometheusHandler() http.Handler {
 // registry, custom collectors and, with runtime metrics on, the Go and
 // process collectors. They sit in a registry of their own so the producer
 // doesn't read forge's metrics through the bridge a second time.
+//
+// Each call returns an independent producer with its own series state, its
+// start times and delta baselines. Hold one per pusher: two pushers sharing a
+// producer would split its deltas between them, and a second producer made per
+// push would restart every series each time.
 func (c *collector) OTLPProducer(temporality exporters.Temporality) *exporters.OTLPProducer {
 	c.mu.RLock()
 	cfg := exporters.OTLPConfig{Namespace: c.config.Collection.Namespace, Temporality: temporality}

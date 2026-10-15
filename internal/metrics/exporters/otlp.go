@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,7 @@ type seriesState struct {
 	value   float64   // previous counter value
 	count   uint64    // previous histogram or summary count
 	sum     float64   // previous histogram sum
+	bounds  []float64 // previous histogram bounds
 	buckets []uint64  // previous histogram bucket counts, overflow last
 }
 
@@ -105,7 +107,7 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 	if p.stream != nil {
 		p.stream(func(key string, s Sample) bool {
 			name, labels := parseMetricKey(key)
-			b.add(p.otlpName(name), s.Unit, labels, s)
+			b.queue(key, p.otlpName(name), s.Unit, labels, s, false)
 
 			if ctx.Err() != nil {
 				complete = false
@@ -126,6 +128,10 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 	if complete && p.cfg.Runtime != nil {
 		b.addGathered(p.cfg.Runtime)
 	}
+
+	// Nothing has touched series state yet: flush settles name collisions first,
+	// so the same sample wins on every Produce.
+	b.flush()
 
 	// A walk cut short didn't see every series, so an unvisited one isn't gone.
 	// Pruning it, or moving lastRun, would restart its start time and look to
@@ -223,7 +229,7 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 
 	st, fresh := p.state(key)
 
-	reset := !fresh && (count < st.count || len(counts) != len(st.buckets))
+	reset := !fresh && (count < st.count || !slices.Equal(bounds, st.bounds))
 	if reset {
 		st.start = p.since()
 	}
@@ -239,7 +245,8 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		Exemplars:    p.exemplars(s.Exemplars),
 	}
 
-	baseline := counts
+	// The state keeps its own copies: the point's slices belong to the consumer.
+	baseline := slices.Clone(counts)
 
 	if p.cfg.Temporality == Delta && !fresh && !reset {
 		deltas := make([]uint64, len(counts))
@@ -267,7 +274,7 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		pt.StartTime, pt.Count, pt.Sum, pt.BucketCounts = st.last, total, s.Sum-st.sum, deltas
 	}
 
-	st.count, st.sum, st.buckets, st.last = count, s.Sum, baseline, now
+	st.count, st.sum, st.bounds, st.buckets, st.last = count, s.Sum, slices.Clone(bounds), baseline, now
 
 	return pt
 }
@@ -327,12 +334,13 @@ func (p *OTLPProducer) exemplars(in []Exemplar) []metricdata.Exemplar[float64] {
 // observation landing between the two reads can leave the buckets ahead of
 // the count; the count then rises to match instead of the overflow wrapping.
 // An explicit +Inf bound folds into the overflow, since OTLP bounds are
-// finite.
+// finite. A -Inf bound folds into the first finite bucket, or into the
+// overflow when there is none.
 func otlpBuckets(s Sample) ([]float64, []uint64, uint64) {
 	bounds := make([]float64, 0, len(s.Buckets))
 	counts := make([]uint64, 0, len(s.Buckets)+1)
 
-	var bucketed, inf uint64
+	var bucketed, inf, negInf uint64
 
 	for _, b := range s.Buckets {
 		if math.IsInf(b.UpperBound, 1) || math.IsNaN(b.UpperBound) {
@@ -341,9 +349,22 @@ func otlpBuckets(s Sample) ([]float64, []uint64, uint64) {
 			continue
 		}
 
+		if math.IsInf(b.UpperBound, -1) {
+			negInf += b.Count
+
+			continue
+		}
+
 		bounds = append(bounds, b.UpperBound)
 		counts = append(counts, b.Count)
 		bucketed += b.Count
+	}
+
+	if len(counts) > 0 {
+		counts[0] += negInf
+		bucketed += negInf
+	} else {
+		inf += negInf
 	}
 
 	overflow := inf
@@ -371,12 +392,26 @@ func attributeSet(labels map[string]string) attribute.Set {
 	return attribute.NewSet(kvs...)
 }
 
-// otlpBatch gathers one Produce's metrics by name, in first-seen order.
+// otlpBatch gathers one Produce's metrics by name, in the order of the keys
+// they came from.
 type otlpBatch struct {
-	p     *OTLPProducer
-	now   time.Time
-	order []string
-	fams  map[string]*otlpFamily
+	p       *OTLPProducer
+	now     time.Time
+	pending []otlpEntry
+	order   []string
+	fams    map[string]*otlpFamily
+}
+
+// otlpEntry is one sample waiting to become a point. Its kind and series are
+// settled, and no series state has been touched.
+type otlpEntry struct {
+	origKey    string // the registry key, or a runtime family's name
+	name, unit string
+	kind       SampleKind
+	attrs      attribute.Set
+	key        seriesKey
+	sample     Sample
+	quantiles  []metricdata.QuantileValue // a runtime summary's own; nil means a timer's three
 }
 
 // otlpFamily holds one name's points. kind is SampleCounter for a monotonic
@@ -408,7 +443,10 @@ func (b *otlpBatch) family(name, unit string, kind SampleKind) *otlpFamily {
 	return f
 }
 
-func (b *otlpBatch) add(name, unit string, labels map[string]string, s Sample) {
+// queue settles what one sample is and holds it for flush. typed says the
+// sample's kind is declared, as a client_golang family's is, rather than
+// guessed from a registry value.
+func (b *otlpBatch) queue(origKey, name, unit string, labels map[string]string, s Sample, typed bool) {
 	if s.Kind == SampleRaw {
 		raw, ok := rawSample(s.Raw)
 		if !ok {
@@ -419,7 +457,7 @@ func (b *otlpBatch) add(name, unit string, labels map[string]string, s Sample) {
 	}
 
 	kind := s.Kind
-	if kind == SampleGauge && strings.HasSuffix(name, "_total") {
+	if !typed && kind == SampleGauge && strings.HasSuffix(name, "_total") {
 		kind = SampleCounter // the bridge's rule: scrapers read _total as a counter
 	}
 
@@ -427,29 +465,66 @@ func (b *otlpBatch) add(name, unit string, labels map[string]string, s Sample) {
 		return
 	}
 
-	f := b.family(name, unit, kind)
+	attrs := attributeSet(labels)
+
+	b.pending = append(b.pending, otlpEntry{
+		origKey: origKey, name: name, unit: unit, kind: kind, attrs: attrs,
+		key: seriesKey{name: name, attrs: attrs.Equivalent()}, sample: s,
+	})
+}
+
+// flush turns the queued samples into points. Two registry names can sanitize
+// to the same exported name and so to the same series, and the registry hands
+// them over in a different order every time. Walking the entries by original
+// key and letting the first one claim its series makes the lowest key win on
+// every Produce, so the series never flips between two values and fakes a reset.
+func (b *otlpBatch) flush() {
+	slices.SortStableFunc(b.pending, func(x, y otlpEntry) int {
+		return strings.Compare(x.origKey, y.origKey)
+	})
+
+	claimed := make(map[seriesKey]struct{}, len(b.pending))
+
+	for _, e := range b.pending {
+		if _, dup := claimed[e.key]; dup {
+			continue
+		}
+
+		claimed[e.key] = struct{}{}
+
+		b.add(e)
+	}
+
+	b.pending = nil
+}
+
+func (b *otlpBatch) add(e otlpEntry) {
+	f := b.family(e.name, e.unit, e.kind)
 	if f == nil {
 		return
 	}
 
-	attrs := attributeSet(labels)
-	key := seriesKey{name: name, attrs: attrs.Equivalent()}
-
-	switch kind {
+	switch e.kind {
 	case SampleCounter:
-		f.putPoint(attrs, b.p.sumPoint(key, attrs, s.Value, b.now))
+		f.putPoint(e.attrs, b.p.sumPoint(e.key, e.attrs, e.sample.Value, b.now))
 	case SampleGauge:
-		f.putPoint(attrs, metricdata.DataPoint[float64]{Attributes: attrs, Time: b.now, Value: s.Value})
+		f.putPoint(e.attrs, metricdata.DataPoint[float64]{Attributes: e.attrs, Time: b.now, Value: e.sample.Value})
 	case SampleHistogram:
-		f.putHist(attrs, b.p.histPoint(key, attrs, s, b.now))
+		f.putHist(e.attrs, b.p.histPoint(e.key, e.attrs, e.sample, b.now))
 	case SampleTimer:
-		f.putSummary(attrs, b.p.summaryPoint(key, attrs, s.Count, s.Sum, timerQuantiles(s), b.now))
+		quantiles := e.quantiles
+		if quantiles == nil {
+			quantiles = timerQuantiles(e.sample)
+		}
+
+		f.putSummary(e.attrs, b.p.summaryPoint(e.key, e.attrs, e.sample.Count, e.sample.Sum, quantiles, b.now))
+	case SampleUnknown, SampleRaw:
+		// queue never lets these through.
 	}
 }
 
-// putPoint and its siblings keep the last point for an attribute set, as the
-// bridge keeps the last series for a label set: two registry names can
-// sanitize to the same exported name.
+// putPoint and its siblings keep one point per attribute set. flush already
+// settled collisions, so a repeat here would be a bug, and the last one wins.
 func (f *otlpFamily) putPoint(attrs attribute.Set, pt metricdata.DataPoint[float64]) {
 	if i, ok := f.index[attrs.Equivalent()]; ok {
 		f.points[i] = pt
@@ -512,9 +587,10 @@ func (b *otlpBatch) metrics() []metricdata.Metrics {
 	return out
 }
 
-// addGathered converts the Go and process collectors' families. They keep
-// their Prometheus names, as on the scrape: no namespace prefix and no unit,
-// because the name already carries it.
+// addGathered queues the Go and process collectors' families. They keep their
+// Prometheus names, as on the scrape: no namespace prefix and no unit, because
+// the name already carries it. It runs under the producer's mutex, so a slow
+// collector delays this Produce and any other call waiting on the lock.
 func (b *otlpBatch) addGathered(g prometheus.Gatherer) {
 	mfs, _ := g.Gather() // a partial gather is still worth sending
 
@@ -533,13 +609,13 @@ func (b *otlpBatch) addGathered(g prometheus.Gatherer) {
 func (b *otlpBatch) addDTO(name string, typ dto.MetricType, m *dto.Metric, labels map[string]string) {
 	switch typ {
 	case dto.MetricType_COUNTER:
-		b.add(name, "", labels, Sample{Kind: SampleCounter, Value: m.GetCounter().GetValue()})
+		b.queue(name, name, "", labels, Sample{Kind: SampleCounter, Value: m.GetCounter().GetValue()}, true)
 	case dto.MetricType_GAUGE:
-		b.add(name, "", labels, Sample{Kind: SampleGauge, Value: m.GetGauge().GetValue()})
+		b.queue(name, name, "", labels, Sample{Kind: SampleGauge, Value: m.GetGauge().GetValue()}, true)
 	case dto.MetricType_UNTYPED:
-		b.add(name, "", labels, Sample{Kind: SampleGauge, Value: m.GetUntyped().GetValue()})
+		b.queue(name, name, "", labels, Sample{Kind: SampleGauge, Value: m.GetUntyped().GetValue()}, true)
 	case dto.MetricType_HISTOGRAM:
-		b.add(name, "", labels, dtoHistogram(m.GetHistogram()))
+		b.queue(name, name, "", labels, dtoHistogram(m.GetHistogram()), true)
 	case dto.MetricType_SUMMARY:
 		b.addSummary(name, labels, m.GetSummary())
 	case dto.MetricType_GAUGE_HISTOGRAM:
@@ -574,14 +650,9 @@ func dtoHistogram(h *dto.Histogram) Sample {
 	return s
 }
 
-// addSummary keeps a client_golang summary's own quantiles, which differ from
-// a timer's three.
+// addSummary queues a client_golang summary with its own quantiles, which
+// differ from a timer's three.
 func (b *otlpBatch) addSummary(name string, labels map[string]string, s *dto.Summary) {
-	f := b.family(name, "", SampleTimer)
-	if f == nil {
-		return
-	}
-
 	qs := make([]metricdata.QuantileValue, 0, len(s.GetQuantile()))
 
 	for _, q := range s.GetQuantile() {
@@ -593,6 +664,10 @@ func (b *otlpBatch) addSummary(name string, labels map[string]string, s *dto.Sum
 	}
 
 	attrs := attributeSet(labels)
-	key := seriesKey{name: name, attrs: attrs.Equivalent()}
-	f.putSummary(attrs, b.p.summaryPoint(key, attrs, s.GetSampleCount(), s.GetSampleSum(), qs, b.now))
+
+	b.pending = append(b.pending, otlpEntry{
+		origKey: name, name: name, kind: SampleTimer, attrs: attrs,
+		key:    seriesKey{name: name, attrs: attrs.Equivalent()},
+		sample: Sample{Kind: SampleTimer, Count: s.GetSampleCount(), Sum: s.GetSampleSum()}, quantiles: qs,
+	})
 }

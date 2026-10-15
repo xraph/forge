@@ -643,3 +643,244 @@ func TestOTLPRuntimeSkippedWhenCutShortKeepsState(t *testing.T) {
 		t.Fatalf("after cut-short produce: start %v value %v, want %v and 2", pt.StartTime, pt.Value, created)
 	}
 }
+
+// flippingStream yields the same two samples in the opposite order each time
+// it is walked, the worst case for a producer that lets the last or first
+// sample win.
+func flippingStream(a, b kv) StreamFunc {
+	var calls int
+
+	return func(yield func(string, Sample) bool) {
+		first, second := a, b
+		if calls%2 == 1 {
+			first, second = b, a
+		}
+
+		calls++
+
+		if !yield(first.key, first.s) {
+			return
+		}
+
+		yield(second.key, second.s)
+	}
+}
+
+type kv struct {
+	key string
+	s   Sample
+}
+
+func TestOTLPSanitizeCollisionLowestKeyWins(t *testing.T) {
+	for _, temporality := range []Temporality{Cumulative, Delta} {
+		stream := flippingStream(
+			kv{"jobs_done", Sample{Kind: SampleCounter, Value: 3}},
+			kv{"jobs.done", Sample{Kind: SampleCounter, Value: 10}},
+		)
+		clock := &fakeClock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+		p := NewOTLPProducer(stream, OTLPConfig{Namespace: "forge", Temporality: temporality, Now: clock.now})
+		created := clock.now()
+
+		wantDelta := []float64{10, 0, 0}
+
+		for i := range 3 {
+			sum := produce(t, p)["forge_jobs_done"].Data.(metricdata.Sum[float64])
+			if len(sum.DataPoints) != 1 {
+				t.Fatalf("temporality %v produce %d: %d points, want 1", temporality, i, len(sum.DataPoints))
+			}
+
+			pt := sum.DataPoints[0]
+
+			switch temporality {
+			case Cumulative:
+				if pt.Value != 10 || !pt.StartTime.Equal(created) {
+					t.Fatalf("cumulative produce %d = %+v, want 10 since %v: jobs.done sorts first and always wins", i, pt, created)
+				}
+			case Delta:
+				if pt.Value != wantDelta[i] {
+					t.Fatalf("delta produce %d = %v, want %v", i, pt.Value, wantDelta[i])
+				}
+			}
+
+			clock.advance(time.Minute)
+		}
+	}
+}
+
+func TestOTLPRuntimeFamilyCollidingWithRegistrySeries(t *testing.T) {
+	// Both resolve to jobs_done_total with no namespace. The runtime family keeps its own
+	// name as its key, and the lowest key wins: "jobs.done_total" sorts below it, "jobs~done_total" above.
+	for _, tt := range []struct {
+		regKey string
+		want   float64
+	}{{"jobs.done_total", 4}, {"jobs~done_total", 99}} {
+		reg := prometheus.NewRegistry()
+		c := prometheus.NewCounter(prometheus.CounterOpts{Name: "jobs_done_total", Help: "Runtime counter."})
+		reg.MustRegister(c)
+		c.Add(99)
+
+		s := fakeStream{tt.regKey: {Kind: SampleCounter, Value: 4}}
+		p := NewOTLPProducer(s.stream, OTLPConfig{Runtime: reg})
+
+		for i := range 3 {
+			pt := produce(t, p)["jobs_done_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+			if pt.Value != tt.want {
+				t.Fatalf("registry key %q produce %d = %v, want %v", tt.regKey, i, pt.Value, tt.want)
+			}
+		}
+	}
+}
+
+func TestOTLPHistogramNegInfBoundFolds(t *testing.T) {
+	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 5, Buckets: []Bucket{
+		{UpperBound: math.Inf(-1), Count: 2},
+		{UpperBound: 1, Count: 1},
+		{UpperBound: 2, Count: 2},
+	}}}
+	p, _ := newTestProducer(s, Cumulative)
+
+	pt := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalFloats(pt.Bounds, []float64{1, 2}) || !equalUints(pt.BucketCounts, []uint64{3, 2, 0}) || pt.Count != 5 {
+		t.Fatalf("bounds = %v, counts = %v, count = %d; want [1 2], [3 2 0], 5", pt.Bounds, pt.BucketCounts, pt.Count)
+	}
+
+	// With no finite bucket the -Inf count has nowhere lower to go but the overflow.
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 2, Buckets: []Bucket{{UpperBound: math.Inf(-1), Count: 2}}}
+
+	pt = produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if len(pt.Bounds) != 0 || !equalUints(pt.BucketCounts, []uint64{2}) || pt.Count != 2 {
+		t.Fatalf("bounds = %v, counts = %v, count = %d; want none, [2], 2", pt.Bounds, pt.BucketCounts, pt.Count)
+	}
+}
+
+func TestOTLPDeltaBoundsChangeIsReset(t *testing.T) {
+	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 4, Buckets: []Bucket{{UpperBound: 1, Count: 1}, {UpperBound: 2, Count: 3}}}}
+	p, clock := newTestProducer(s, Delta)
+
+	clock.advance(time.Second)
+	produce(t, p)
+
+	prev := clock.now()
+
+	clock.advance(time.Minute)
+
+	// Same bucket count, different bounds: the counts are not comparable.
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 6, Buckets: []Bucket{{UpperBound: 1, Count: 2}, {UpperBound: 5, Count: 4}}}
+
+	pt := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalFloats(pt.Bounds, []float64{1, 5}) || !equalUints(pt.BucketCounts, []uint64{2, 4, 0}) || pt.Count != 6 {
+		t.Fatalf("bounds = %v, counts = %v, count = %d; want the full counts for [1 5]", pt.Bounds, pt.BucketCounts, pt.Count)
+	}
+
+	if !pt.StartTime.Equal(prev) {
+		t.Fatalf("start = %v, want %v: the bounds change began a new series", pt.StartTime, prev)
+	}
+}
+
+func TestOTLPMutatingExportedSlicesDoesNotCorruptNextDelta(t *testing.T) {
+	s := fakeStream{"lat": {Kind: SampleHistogram, Count: 3, Buckets: []Bucket{{UpperBound: 1, Count: 2}}}}
+	p, clock := newTestProducer(s, Delta)
+
+	first := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	for i := range first.BucketCounts {
+		first.BucketCounts[i] = 1000
+	}
+
+	for i := range first.Bounds {
+		first.Bounds[i] = 1000
+	}
+
+	clock.advance(time.Minute)
+
+	s["lat"] = Sample{Kind: SampleHistogram, Count: 7, Buckets: []Bucket{{UpperBound: 1, Count: 5}}}
+
+	pt := produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalUints(pt.BucketCounts, []uint64{3, 1}) || pt.Count != 4 || !equalFloats(pt.Bounds, []float64{1}) {
+		t.Fatalf("bounds = %v, counts = %v, count = %d; want [1], [3 1], 4", pt.Bounds, pt.BucketCounts, pt.Count)
+	}
+}
+
+func TestOTLPTypedRuntimeGaugeNamedTotalStaysGauge(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	//nolint:promlinter // a typed gauge with a _total name is the case under test
+	g := prometheus.NewGauge(prometheus.GaugeOpts{Name: "queue_items_total", Help: "A gauge despite the name."})
+	reg.MustRegister(g)
+	g.Set(7)
+
+	got := produce(t, NewOTLPProducer(nil, OTLPConfig{Runtime: reg}))
+
+	if gauge, ok := got["queue_items_total"].Data.(metricdata.Gauge[float64]); !ok || gauge.DataPoints[0].Value != 7 {
+		t.Fatalf("queue_items_total = %+v, want a gauge of 7: the family is typed", got["queue_items_total"].Data)
+	}
+}
+
+func TestOTLPRuntimeSummaryKeepsQuantilesAndDropsNaN(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	objectives := map[float64]float64{0.5: 0.05, 0.9: 0.01}
+	seen := prometheus.NewSummary(prometheus.SummaryOpts{Name: "rt_seen_seconds", Help: "Observed.", Objectives: objectives})
+	empty := prometheus.NewSummary(prometheus.SummaryOpts{Name: "rt_empty_seconds", Help: "No observations.", Objectives: objectives})
+	reg.MustRegister(seen, empty)
+
+	for _, v := range []float64{1, 2, 3} {
+		seen.Observe(v)
+	}
+
+	got := produce(t, NewOTLPProducer(nil, OTLPConfig{Runtime: reg}))
+
+	pt := got["rt_seen_seconds"].Data.(metricdata.Summary).DataPoints[0]
+	if pt.Count != 3 || pt.Sum != 6 || len(pt.QuantileValues) != 2 {
+		t.Fatalf("seen = %+v, want count 3, sum 6 and two quantiles", pt)
+	}
+
+	for _, q := range pt.QuantileValues {
+		if math.IsNaN(q.Value) || q.Value < 1 || q.Value > 3 {
+			t.Fatalf("quantile %v = %v, want a value from the observations", q.Quantile, q.Value)
+		}
+	}
+
+	if pt.QuantileValues[0].Quantile != 0.5 || pt.QuantileValues[1].Quantile != 0.9 {
+		t.Fatalf("quantiles = %+v, want 0.5 then 0.9", pt.QuantileValues)
+	}
+
+	pt = got["rt_empty_seconds"].Data.(metricdata.Summary).DataPoints[0]
+	if len(pt.QuantileValues) != 0 {
+		t.Fatalf("empty = %+v, want the NaN quantiles dropped", pt.QuantileValues)
+	}
+}
+
+func TestOTLPRuntimeLabelsBecomeAttributes(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rt_info", Help: "Labelled."}, []string{"version"})
+	reg.MustRegister(g)
+	g.WithLabelValues("go1.26").Set(1)
+
+	pt := produce(t, NewOTLPProducer(nil, OTLPConfig{Runtime: reg}))["rt_info"].Data.(metricdata.Gauge[float64]).DataPoints[0]
+	if attr(pt.Attributes, "version") != "go1.26" {
+		t.Fatalf("attributes = %v, want version=go1.26", pt.Attributes)
+	}
+}
+
+func TestOTLPDeltaRuntimeCounter(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	c := prometheus.NewCounter(prometheus.CounterOpts{Name: "rt_total", Help: "Runtime counter."})
+	reg.MustRegister(c)
+
+	clock := &fakeClock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+	p := NewOTLPProducer(nil, OTLPConfig{Temporality: Delta, Runtime: reg, Now: clock.now})
+
+	c.Add(5)
+
+	if pt := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]; pt.Value != 5 {
+		t.Fatalf("first = %v, want 5", pt.Value)
+	}
+
+	first := clock.now()
+
+	clock.advance(time.Minute)
+	c.Add(3)
+
+	pt := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+	if pt.Value != 3 || !pt.StartTime.Equal(first) {
+		t.Fatalf("second = %+v, want 3 since the first produce", pt)
+	}
+}
