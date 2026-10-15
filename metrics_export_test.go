@@ -170,6 +170,38 @@ func TestAppMetricsExportFromConfigFile(t *testing.T) {
 	if len(recv.headers) == 0 || recv.headers[0].Get("X-Api-Key") != "k" {
 		t.Fatalf("headers = %v, want X-Api-Key from the file", recv.headers)
 	}
+
+	// The setting has to reach the wire too, not only the pusher's copy of it.
+	var sums, hists int
+
+	for _, md := range recv.got {
+		for _, rm := range md.GetResourceMetrics() {
+			for _, sm := range rm.GetScopeMetrics() {
+				for _, m := range sm.GetMetrics() {
+					var temporality metricspb.AggregationTemporality
+
+					switch {
+					case m.GetSum() != nil:
+						sums++
+						temporality = m.GetSum().GetAggregationTemporality()
+					case m.GetHistogram() != nil:
+						hists++
+						temporality = m.GetHistogram().GetAggregationTemporality()
+					default:
+						continue
+					}
+
+					if temporality != metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA {
+						t.Errorf("%s has temporality %v on the wire, want DELTA", m.GetName(), temporality)
+					}
+				}
+			}
+		}
+	}
+
+	if sums+hists == 0 {
+		t.Fatal("no Sum or Histogram reached the receiver, so the temporality went unchecked")
+	}
 }
 
 func TestAppBadMetricsEndpointStillBoots(t *testing.T) {

@@ -496,6 +496,48 @@ func TestOTLPDeltaThirdProduceAndClamp(t *testing.T) {
 	}
 }
 
+func TestOTLPDeltaOverflowDipKeepsBaseline(t *testing.T) {
+	hist := func(count uint64, finite uint64) Sample {
+		return Sample{Kind: SampleHistogram, Count: count, Buckets: []Bucket{{UpperBound: 1, Count: finite}}}
+	}
+
+	// Overflow is 5, then 4 with the count unchanged (the count was read before a
+	// finite-bucket observation landed), then 5 again with one more in the finite bucket.
+	run := func(temporality Temporality) (second, third metricdata.HistogramDataPoint[float64]) {
+		s := fakeStream{"lat": hist(10, 5)}
+		p, clock := newTestProducer(s, temporality)
+
+		produce(t, p)
+		clock.advance(time.Minute)
+
+		s["lat"] = hist(10, 6)
+		second = produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+
+		clock.advance(time.Minute)
+
+		s["lat"] = hist(11, 6)
+		third = produce(t, p)["forge_lat"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+
+		return second, third
+	}
+
+	second, third := run(Delta)
+	if !equalUints(second.BucketCounts, []uint64{1, 0}) {
+		t.Fatalf("delta second counts = %v, want [1 0]: the dip clamps to zero", second.BucketCounts)
+	}
+
+	if !equalUints(third.BucketCounts, []uint64{0, 0}) || third.Count != 0 {
+		t.Fatalf("delta third counts = %v, count %d; want [0 0], 0: the overflow never grew past its old baseline",
+			third.BucketCounts, third.Count)
+	}
+
+	// Cumulative reports the counts as read.
+	second, third = run(Cumulative)
+	if !equalUints(second.BucketCounts, []uint64{6, 4}) || !equalUints(third.BucketCounts, []uint64{6, 5}) {
+		t.Fatalf("cumulative counts = %v then %v; want [6 4] then [6 5]", second.BucketCounts, third.BucketCounts)
+	}
+}
+
 func TestOTLPDeltaLeavesGaugesAlone(t *testing.T) {
 	s := fakeStream{"g": {Kind: SampleGauge, Value: 4}}
 	p, clock := newTestProducer(s, Delta)

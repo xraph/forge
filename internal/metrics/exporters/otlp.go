@@ -239,14 +239,26 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		Exemplars:    p.exemplars(s.Exemplars),
 	}
 
+	baseline := counts
+
 	if p.cfg.Temporality == Delta && !fresh && !reset {
 		deltas := make([]uint64, len(counts))
+		baseline = make([]uint64, len(counts))
 
 		var total uint64
 
 		for i, c := range counts {
-			if c > st.buckets[i] {
+			baseline[i] = c
+
+			switch {
+			case c > st.buckets[i]:
 				deltas[i] = c - st.buckets[i]
+			case c < st.buckets[i]:
+				// The registry reads a histogram's count before its buckets, so a
+				// derived overflow bucket can read one low. Report nothing for it and
+				// keep the old baseline, or the next push reports an observation that
+				// never happened.
+				baseline[i] = st.buckets[i]
 			}
 
 			total += deltas[i]
@@ -255,7 +267,7 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		pt.StartTime, pt.Count, pt.Sum, pt.BucketCounts = st.last, total, s.Sum-st.sum, deltas
 	}
 
-	st.count, st.sum, st.buckets, st.last = count, s.Sum, counts, now
+	st.count, st.sum, st.buckets, st.last = count, s.Sum, baseline, now
 
 	return pt
 }

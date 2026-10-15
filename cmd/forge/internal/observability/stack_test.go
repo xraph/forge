@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -248,4 +249,40 @@ func (r runnerWrap) Run(ctx context.Context, c execx.Command) (execx.Result, err
 
 func runnerFunc(run func(context.Context, execx.Command) (execx.Result, error), f *execx.Fake) execx.Runner {
 	return runnerWrap{Fake: f, run: run}
+}
+
+func TestPortFreeSeesWildcardListener(t *testing.T) {
+	// Docker Desktop publishes ports on 0.0.0.0. A probe that only binds
+	// 127.0.0.1 can succeed next to it on macOS and miss the conflict.
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	port := l.Addr().(*net.TCPAddr).Port
+	if portFree(t.Context(), port) {
+		t.Fatalf("port %d is held on 0.0.0.0 but portFree says it is free", port)
+	}
+}
+
+func TestUpRemovesContainerWhenRunFails(t *testing.T) {
+	f := execx.NewFake(t)
+	f.Script("docker container inspect forge-lgtm", noSuch())
+	f.Script("docker image inspect "+Image, execx.Result{})
+	f.Script("docker run", execx.Result{ExitCode: 125, Stderr: "docker: Error response from daemon: Bind for 0.0.0.0:9090 failed: port is already allocated"})
+	f.Script("docker rm -f forge-lgtm", execx.Result{})
+
+	_, err := newStack(t, f).Up(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "port is already allocated") {
+		t.Fatalf("err = %v", err)
+	}
+
+	if strings.Contains(err.Error(), "--add-host") {
+		t.Errorf("error repeats the whole docker command: %v", err)
+	}
+
+	if !slices.Contains(f.CallLines(), "docker rm -f forge-lgtm") {
+		t.Fatalf("a failed run left the created container behind: %v", f.CallLines())
+	}
 }

@@ -168,7 +168,12 @@ func (s *Stack) Up(ctx context.Context) (Ports, error) {
 	}
 
 	if _, err := s.docker(ctx, s.runArgs(want)...); err != nil {
-		return Ports{}, fmt.Errorf("observability: run %s: %w", s.name(), err)
+		// docker run can fail after it has created the container, for
+		// example when a port is taken. Left behind, the next Up would find
+		// it with a matching hash and try to start it forever.
+		_, _ = s.docker(ctx, "rm", "-f", s.name())
+
+		return Ports{}, fmt.Errorf("observability: start %s: %s", s.name(), dockerMessage(err))
 	}
 
 	return s.Ports, s.waitReady(ctx)
@@ -221,15 +226,33 @@ func (s *Stack) checkPorts(ctx context.Context) error {
 	return nil
 }
 
+// portFree probes the loopback address the stack binds and the wildcard
+// address. Docker Desktop publishes on 0.0.0.0, and on macOS a loopback-only
+// probe can bind next to that listener and miss the conflict.
 func portFree(ctx context.Context, port int) bool {
-	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		return false
+	for _, host := range []string{"127.0.0.1", "0.0.0.0"} {
+		l, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			return false
+		}
+
+		_ = l.Close()
 	}
 
-	_ = l.Close()
-
 	return true
+}
+
+// dockerMessage is docker's own stderr for a failed command, without the
+// command line, which for docker run is long enough to bury the reason.
+func dockerMessage(err error) string {
+	var exit *execx.ExitError
+	if errors.As(err, &exit) {
+		if msg := strings.TrimSpace(exit.Result.Stderr); msg != "" {
+			return msg
+		}
+	}
+
+	return err.Error()
 }
 
 func (s *Stack) waitReady(ctx context.Context) error {

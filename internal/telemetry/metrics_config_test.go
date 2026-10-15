@@ -103,6 +103,50 @@ func TestResolveMetrics(t *testing.T) {
 			endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
 		},
 		{
+			name: "metrics exporter prometheus is off",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "prometheus",
+			})},
+			endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "metrics exporter otlp with prometheus is on",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "otlp,prometheus",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "metrics exporter none with spaces is off",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": " none ",
+			})},
+			endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "metrics exporter uppercase otlp is on",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "OTLP",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "metrics exporter list without otlp is off and warns",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "bogus",
+			})},
+			endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+			warning: "bogus",
+		},
+		{
+			name: "metrics exporter otlp with an unknown entry is on and warns",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "otlp,bogus",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+			warning: "bogus",
+		},
+		{
 			name: "code enabled beats env off",
 			in: MetricsInputs{
 				Code:   shared.MetricsExportConfig{Enabled: &on},

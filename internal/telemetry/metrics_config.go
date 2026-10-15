@@ -77,8 +77,8 @@ func resolveMetricsEnabled(in MetricsInputs, getenv func(string) string, endpoin
 	switch {
 	case explicit != nil && !*explicit:
 		return false
-	case explicit == nil && (strings.EqualFold(getenv("OTEL_SDK_DISABLED"), "true") ||
-		strings.EqualFold(getenv("OTEL_METRICS_EXPORTER"), "none")):
+	case explicit == nil && (strings.EqualFold(strings.TrimSpace(getenv("OTEL_SDK_DISABLED")), "true") ||
+		!metricsExporterListAllowsOTLP(getenv("OTEL_METRICS_EXPORTER"), warnings)):
 		return false
 	case endpoint == "":
 		if explicit != nil {
@@ -90,6 +90,43 @@ func resolveMetricsEnabled(in MetricsInputs, getenv func(string) string, endpoin
 	default:
 		return true
 	}
+}
+
+// metricsExporterListAllowsOTLP reads OTEL_METRICS_EXPORTER, a comma-separated list
+// of exporter names. An unset or blank value allows push. A list allows it only when
+// it names otlp, so none, prometheus and console all turn push off. Entries OTel
+// doesn't define are named in one warning.
+func metricsExporterListAllowsOTLP(raw string, warnings *[]string) bool {
+	var (
+		entries []string
+		unknown []string
+		otlp    bool
+	)
+
+	for e := range strings.SplitSeq(raw, ",") {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e == "" {
+			continue
+		}
+
+		entries = append(entries, e)
+
+		switch e {
+		case "otlp":
+			otlp = true
+		case "prometheus", "console", "none":
+		default:
+			unknown = append(unknown, e)
+		}
+	}
+
+	if len(unknown) > 0 {
+		*warnings = append(*warnings, fmt.Sprintf(
+			"telemetry: OTEL_METRICS_EXPORTER has unknown entries %q (known: otlp, prometheus, console, none)",
+			strings.Join(unknown, ",")))
+	}
+
+	return len(entries) == 0 || otlp
 }
 
 func resolveMetricsInterval(in MetricsInputs, getenv func(string) string, warnings *[]string) time.Duration {
