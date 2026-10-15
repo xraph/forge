@@ -94,17 +94,32 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 	now := p.cfg.Now()
 	b := &otlpBatch{p: p, now: now, fams: make(map[string]*otlpFamily)}
 
+	complete := true
+
 	if p.stream != nil {
 		p.stream(func(key string, s Sample) bool {
 			name, labels := parseMetricKey(key)
 			b.add(p.otlpName(name), s.Unit, labels, s)
 
-			return ctx.Err() == nil
+			if ctx.Err() != nil {
+				complete = false
+
+				return false
+			}
+
+			return true
 		})
 	}
 
-	p.prune()
-	p.lastRun = now
+	// A walk cut short didn't see every series, so an unvisited one isn't gone.
+	// Pruning it, or moving lastRun, would restart its start time and look to
+	// the backend like a counter reset.
+	if complete {
+		p.prune()
+		p.lastRun = now
+	} else {
+		p.clearSeen()
+	}
 
 	return []metricdata.ScopeMetrics{{
 		Scope:   instrumentation.Scope{Name: otlpScope},
@@ -144,6 +159,13 @@ func (p *OTLPProducer) state(key seriesKey) (*seriesState, bool) {
 	p.series[key] = st
 
 	return st, true
+}
+
+// clearSeen unmarks every series without forgetting any.
+func (p *OTLPProducer) clearSeen() {
+	for _, st := range p.series {
+		st.seen = false
+	}
 }
 
 // prune forgets series the stream no longer reports, so label churn can't

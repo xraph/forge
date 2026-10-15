@@ -1,6 +1,7 @@
 package exporters
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -262,6 +263,35 @@ func TestOTLPSeriesThatReturnsGetsNewStartTime(t *testing.T) {
 	pt := produce(t, p)["forge_c"].Data.(metricdata.Sum[float64]).DataPoints[0]
 	if !pt.StartTime.Equal(gone) {
 		t.Fatalf("start = %v, want %v: the series was forgotten and began after that produce", pt.StartTime, gone)
+	}
+}
+
+func TestOTLPCutShortProduceKeepsSeriesState(t *testing.T) {
+	s := fakeStream{
+		"a": {Kind: SampleCounter, Value: 10},
+		"b": {Kind: SampleCounter, Value: 20},
+	}
+	p, clock := newTestProducer(s, Cumulative)
+	created := clock.now()
+
+	produce(t, p)
+	clock.advance(time.Minute)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := p.Produce(ctx); err != nil {
+		t.Fatalf("a cancelled produce returned %v, want a partial batch and no error", err)
+	}
+
+	clock.advance(time.Minute)
+
+	got := produce(t, p)
+	for _, name := range []string{"forge_a", "forge_b"} {
+		pt := got[name].Data.(metricdata.Sum[float64]).DataPoints[0]
+		if !pt.StartTime.Equal(created) {
+			t.Fatalf("%s start = %v, want %v: a cut short walk must not fake a reset", name, pt.StartTime, created)
+		}
 	}
 }
 
