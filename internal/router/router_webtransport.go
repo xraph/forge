@@ -192,7 +192,6 @@ func (r *router) EnableWebTransport(config WebTransportConfig) error {
 		r.logger.Info("webtransport support enabled",
 			logger.Int64("max_bidi_streams", config.MaxBidiStreams),
 			logger.Int64("max_uni_streams", config.MaxUniStreams),
-			logger.Bool("enable_datagrams", config.EnableDatagrams),
 		)
 	}
 
@@ -219,9 +218,10 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 		return errors.New("HTTP/3 server already running")
 	}
 
-	// webtransport-go turns datagrams on whatever EnableDatagrams says,
-	// because every WebTransport session needs them. Its clients also refuse
-	// a server without stream resets with partial delivery.
+	// Every WebTransport session needs datagrams, so they're on whatever the
+	// deprecated EnableDatagrams says, and webtransport-go would turn them on
+	// anyway. Its clients also refuse a server without stream resets with
+	// partial delivery.
 	//
 	// The stream limits are QUIC's, and a server allows one session per
 	// connection, so they cap the session too. webtransport.Server.Config
@@ -231,7 +231,7 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 	quicConfig := &quic.Config{
 		MaxIdleTimeout:                   time.Duration(config.MaxIdleTimeout) * time.Millisecond,
 		KeepAlivePeriod:                  time.Duration(config.KeepAliveInterval) * time.Millisecond,
-		EnableDatagrams:                  config.EnableDatagrams,
+		EnableDatagrams:                  true,
 		MaxIncomingStreams:               quicStreamLimit(config.MaxBidiStreams, h3BidiStreams),
 		MaxIncomingUniStreams:            quicStreamLimit(config.MaxUniStreams, h3UniStreams),
 		MaxStreamReceiveWindow:           config.StreamReceiveWindow,

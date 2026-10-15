@@ -751,3 +751,36 @@ func TestWebTransportMaxDatagramFrameSizeZeroIsUnlimited(t *testing.T) {
 		t.Fatal("handler never received the datagram")
 	}
 }
+
+func TestWebTransportDatagramsIgnoreEnableDatagrams(t *testing.T) {
+	r := newRouter()
+
+	require.NoError(t, r.WebTransport("/wt", func(ctx Context, s WebTransportSession) error {
+		data, err := s.ReceiveDatagram(s.Context())
+		if err != nil {
+			return err
+		}
+
+		return s.SendDatagram(data)
+	}))
+
+	// WebTransport needs datagrams, so they work whatever this says.
+	config := DefaultWebTransportConfig()
+	config.EnableDatagrams = false
+
+	base, pool := startH3With(t, r, config)
+
+	_, sess, err := dialWT(t, pool, base+"/wt")
+	require.NoError(t, err)
+
+	defer sess.CloseWithError(0, "")
+
+	require.NoError(t, sess.SendDatagram([]byte("ping")))
+
+	recvCtx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	echo, err := sess.ReceiveDatagram(recvCtx)
+	require.NoError(t, err)
+	require.Equal(t, "ping", string(echo))
+}

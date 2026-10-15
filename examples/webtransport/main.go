@@ -54,7 +54,6 @@ func main() {
 	wtConfig := forge.DefaultWebTransportConfig()
 	wtConfig.MaxBidiStreams = 200
 	wtConfig.MaxUniStreams = 200
-	wtConfig.EnableDatagrams = true
 
 	if err := router.EnableWebTransport(wtConfig); err != nil {
 		log.Fatal(err)

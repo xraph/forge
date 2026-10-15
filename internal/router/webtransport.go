@@ -443,7 +443,11 @@ type WebTransportConfig struct {
 	// clients don't learn this one.
 	MaxDatagramFrameSize int64
 
-	// Enable datagram support
+	// EnableDatagrams has no effect.
+	//
+	// Deprecated: WebTransport needs datagrams, so webtransport-go always
+	// turns them on and refuses clients that don't support them. To keep a
+	// handler off datagrams, don't call SendDatagram or ReceiveDatagram.
 	EnableDatagrams bool
 
 	// Stream receive window
