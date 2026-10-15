@@ -305,6 +305,14 @@ func newApp(config AppConfig) *app {
 	// Enable panic recovery to prevent unhandled panics from crashing the server
 	routerOpts = append(routerOpts, internalrouter.WithRecovery())
 
+	// Stream connections are recorded whenever metrics are on. The router
+	// names a stream by its route, which it learns from the route-match holder
+	// that the tracing or HTTP metrics middleware installs, so with both of
+	// those off no stream is recorded.
+	if metricsConfig.Enabled {
+		routerOpts = append(routerOpts, internalrouter.WithStreamObserver(collectors.NewStreamMetrics(metrics)))
+	}
+
 	router := NewRouter(routerOpts...)
 
 	if tracing.Settings().Enabled {

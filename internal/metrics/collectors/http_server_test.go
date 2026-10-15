@@ -252,6 +252,9 @@ func TestHTTPServerMetricsSharesRouteMatchByDefault(t *testing.T) {
 	}
 }
 
+// getHTTP is the label set of a plain GET over http.
+var getHTTP = map[string]string{"http_request_method": "GET", "url_scheme": "http"}
+
 func TestHTTPServerMetricsActiveRequests(t *testing.T) {
 	m := newCollector(t)
 	mw := collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{}).Middleware()
@@ -259,7 +262,7 @@ func TestHTTPServerMetricsActiveRequests(t *testing.T) {
 	var during float64
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		during = gaugeValue(t, m, "http_server_active_requests")
+		during = gaugeValue(t, m, "http_server_active_requests", getHTTP)
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -270,18 +273,70 @@ func TestHTTPServerMetricsActiveRequests(t *testing.T) {
 		t.Fatalf("active requests during the handler = %v, want 1", during)
 	}
 
-	if after := gaugeValue(t, m, "http_server_active_requests"); after != 0 {
+	if after := gaugeValue(t, m, "http_server_active_requests", getHTTP); after != 0 {
 		t.Fatalf("active requests after the handler = %v, want 0", after)
 	}
 }
 
-func gaugeValue(t *testing.T, m shared.Metrics, name string) float64 {
+// metric returns the series of name whose labels equal want. A label missing
+// from want must be missing or empty on the series.
+func metric(t *testing.T, m shared.Metrics, name string, want map[string]string) *dto.Metric {
 	t.Helper()
 
 	f := family(t, m, name)
-	if f == nil || len(f.GetMetric()) == 0 {
+	if f == nil {
 		t.Fatalf("%s missing from the scrape", name)
 	}
 
-	return f.GetMetric()[0].GetGauge().GetValue()
+	for _, mt := range f.GetMetric() {
+		got := map[string]string{}
+
+		for _, p := range mt.GetLabel() {
+			if p.GetValue() != "" {
+				got[p.GetName()] = p.GetValue()
+			}
+		}
+
+		if sameLabels(got, want) {
+			return mt
+		}
+	}
+
+	t.Fatalf("no %s series with labels %v", name, want)
+
+	return nil
+}
+
+func sameLabels(got, want map[string]string) bool {
+	for k, v := range want {
+		if got[k] != v {
+			return false
+		}
+	}
+
+	for k := range got {
+		if _, ok := want[k]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func gaugeValue(t *testing.T, m shared.Metrics, name string, labels map[string]string) float64 {
+	t.Helper()
+
+	return metric(t, m, name, labels).GetGauge().GetValue()
+}
+
+func counterValue(t *testing.T, m shared.Metrics, name string, labels map[string]string) float64 {
+	t.Helper()
+
+	return metric(t, m, name, labels).GetCounter().GetValue()
+}
+
+func histogramCount(t *testing.T, m shared.Metrics, name string, labels map[string]string) uint64 {
+	t.Helper()
+
+	return metric(t, m, name, labels).GetHistogram().GetSampleCount()
 }

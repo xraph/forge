@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The metrics collector behind `app.Metrics()`. It owns a registry of counters, gauges, histograms and timers, runs the system collector, and serves the registry at `/_/metrics` through a client_golang bridge. The `go_*` and `process_*` runtime series come from that bridge's Go and process collectors when `features.runtime_metrics` is on. The HTTP server metrics live in `collectors/http_server.go`, but `forge.New` installs them, not the collector. The metric types and the `Metrics` interface come from `github.com/xraph/go-utils/metrics`; this package aliases them.
+The metrics collector behind `app.Metrics()`. It owns a registry of counters, gauges, histograms and timers, runs the system collector, and serves the registry at `/_/metrics` through a client_golang bridge. The `go_*` and `process_*` runtime series come from that bridge's Go and process collectors when `features.runtime_metrics` is on. The HTTP server metrics live in `collectors/http_server.go` and the stream connection metrics in `collectors/stream.go`, but `forge.New` installs both, not the collector. The metric types and the `Metrics` interface come from `github.com/xraph/go-utils/metrics`; this package aliases them.
 
 ## Key Components
 
@@ -10,7 +10,7 @@ The metrics collector behind `app.Metrics()`. It owns a registry of counters, ga
 - **registry** (`registry.go`, `registry_wrap.go`): keyed by name plus sorted labels. Caps distinct label sets per name, captures units, and wraps every metric it returns so `WithLabels` goes back through the registry.
 - **Prometheus bridge** (`exporters/prometheus.go`): a client_golang collector that streams registry samples on each scrape. Decides the exported name, adds the unit suffix, attaches exemplars.
 - **Other exporters** (`exporters/json.go`, `influx.go`, `statsd.go`): format-only. They render a snapshot for `Export(format)`. Nothing pushes. There are no CloudWatch or Datadog exporters.
-- **Collectors** (`collectors/`): `system.go` (CPU, memory, disk, network, load, per platform), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics).
+- **Collectors** (`collectors/`): `system.go` (CPU, memory, disk, network, load, per platform), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics), `stream.go` (stream connections, a `shared.StreamObserver`).
 - **vec** (`vec/`): label vectors. See `vec/llm.txt`.
 - **Storage** (`storage/`): in-memory, Redis and time-series backends for metric history.
 - **noop** (`noop.go`): `NewNoOpMetrics()` for tests and disabled metrics.
@@ -27,7 +27,8 @@ app.Metrics()  (collector)
 │   ├── system (system_metrics)
 │   └── custom callbacks
 ├── HTTP server metrics, installed by forge.New (not by the collector)
-│   └── collectors.HTTPServerMetrics -> router.UseGlobal, inside tracing
+│   ├── collectors.HTTPServerMetrics -> router.UseGlobal, inside tracing
+│   └── collectors.StreamMetrics -> router.WithStreamObserver
 ├── exporters
 │   ├── Prometheus bridge -> /_/metrics (text, or OpenMetrics when asked)
 │   │   └── Go and process collectors, go_* and process_* (runtime_metrics)
@@ -119,6 +120,20 @@ go-utils' own `WithLabels` builds a fresh, unregistered metric, so values record
 - With `BodySizes` (`metrics.features.http_body_sizes`, off by default): `http.server.request.body.size` and `http.server.response.body.size` (By, histograms, same labels as the duration). The request size is only observed when `Content-Length` is positive.
 
 `forge.New` installs it with `router.UseGlobal` when metrics and `features.http_metrics` are on: after the tracing middleware, so exemplars see the span, and before every extension middleware, so requests an auth extension rejects are counted. The route comes from `shared.RouteMatch`. By default the middleware shares the holder the tracing middleware installed (`shared.EnsureRouteMatch`); `FreshRouteMatch` is set when tracing is off and this is the outermost middleware, so a nested in-process dispatch can't reuse the outer request's holder. Methods outside the standard nine collapse to `_OTHER` (`telemetry.NormalizeMethod`), unmatched requests get an empty `http.route`, `error.type` is the status code for 5xx and empty otherwise, and paths with an `ExcludePaths` prefix (the tracing `exclude_paths`, default `/_/`) are not recorded. A sampled span on the request context adds an exemplar to the duration observation. The response status and byte count come from `telemetry.StatusRecorder`.
+
+On a stream route (WebSocket, SSE, WebTransport) the duration observation ends at the handshake: the router marks the match established after the upgrade or first flush, and the middleware observes then. The active-requests gauge drops at the same point, so an open stream isn't an active request. Stream lifetime is in the stream metrics below.
+
+### Stream metrics (`collectors/stream.go`)
+
+`collectors.NewStreamMetrics(m)` implements `shared.StreamObserver`. `forge.New` passes it to the router with `internalrouter.WithStreamObserver` whenever metrics are on, whatever `features.http_metrics` says. Three series, all prefixed `forge_`:
+
+- `forge_stream_connections_active` (gauge), labels `http_route`, `stream_kind`.
+- `forge_stream_connection_duration_seconds` (histogram, buckets 1 s to 4 h), labels `http_route`, `stream_kind`, `error_type`.
+- `forge_stream_messages_total` (counter), labels `http_route`, `stream_kind`, `direction` (`sent` or `received`).
+
+`stream_kind` is `websocket`, `sse` or `webtransport`. `error_type` is `handler_error` when the handler returned an error or panicked, and empty for a clean close or an error that only means the client left (`context.Canceled`, `io.EOF`, `io.ErrUnexpectedEOF`, `net.ErrClosed`, matched with `errors.Is`). The router turns a WebSocket close frame (`wsutil.ClosedError`) into `io.EOF` first, so this package never imports gobwas. Messages are counted by the router: SSE events sent through the `Stream` (comments and the convenience `SSE` route aren't), WebSocket text and binary frames read and written, and WebTransport datagrams.
+
+The router names a stream by the route pattern in `shared.RouteMatch`, so it needs the holder the tracing or HTTP metrics middleware installs. With tracing off and `features.http_metrics` off there's no holder, and no stream is recorded. A rejected upgrade (a bad Origin, say) never opens a stream either.
 
 The older `forge_http_*` series, the `http.requests.path.*` flat keys and the `track_paths` / `group_similar_paths` / path allow and block list settings are gone. Do not reintroduce a raw-path label.
 
