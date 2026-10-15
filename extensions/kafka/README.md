@@ -220,6 +220,34 @@ err := k.JoinConsumerGroup(ctx, "order-workers", []string{"orders"}, orderHandle
 
 The call returns once the group's consume loop is running in the background. A new group with no committed offsets starts from `consumer_offsets` (`newest` or `oldest`), and partitions are assigned with `consumer_group_rebalance` (`range`, `roundrobin` or `sticky`). One client joins one group at a time. Call `k.LeaveConsumerGroup(ctx)` to leave it before joining another.
 
+## Tracing
+
+With `enable_tracing` on (it is by default), every send starts a producer span and writes the trace context into the record's headers as `traceparent`, plus `tracestate` when there is one. `SendMessage` and `SendMessageAsync` get a `send {topic}` span. The async span covers the hand-off to the producer only, because delivery errors show up later on the producer's own error channel.
+
+`SendMessages` gets one `create {topic}` span per record, injected into that record, and a single `send {topic}` span that links to all of them. A batch that spans several topics gets a plain `send` span with no destination. Pass the `ctx` of the request you're serving to the `*Context` methods and these spans join its trace.
+
+On the consuming side, `Consume`, `ConsumePartition` and their `*Context` twins run every handler inside a `process {topic}` span that continues the producer's trace. A record with no `traceparent` header starts a new trace. If your handler takes a context, that context carries the consumer span, so anything you start in it is a child. A handler without one still gets the span and the timing.
+
+Consumer groups are your own `ConsumerGroupHandler`, so the extension can't wrap them. Use `kafka.ConsumerHeaderCarrier` with `forge/messaging` to do the same thing in `ConsumeClaim`:
+
+```go
+func (h handler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	mt := messaging.New("kafka", messaging.WithMetrics(h.metrics))
+
+	for msg := range claim.Messages() {
+		err := mt.Process(sess.Context(), kafka.ConsumerHeaderCarrier(msg), msg.Topic, "process",
+			func(ctx context.Context) error { return h.handle(ctx, msg) })
+		if err == nil {
+			sess.MarkMessage(msg, "")
+		}
+	}
+
+	return nil
+}
+```
+
+`kafka.ProducerHeaderCarrier` is the same adapter for an outgoing `*sarama.ProducerMessage`, if you build records yourself and send them through `GetProducer()`.
+
 ## Manage topics
 
 ```go
@@ -296,9 +324,13 @@ These are the fields of `kafka.Config`, with their YAML names:
 | `enable_metrics` | `true` | Record the metrics below |
 | `enable_logging` | `true` | Log failed and successful sync sends |
 
-Unknown values for compression, acks, offsets, isolation or rebalance fail validation when the extension registers, so a typo stops the app at startup. `WithTracing` and `consumer_group_id` are stored on the config but nothing reads them yet: the group ID you pass to `JoinConsumerGroup` is the one that counts.
+Unknown values for compression, acks, offsets, isolation or rebalance fail validation when the extension registers, so a typo stops the app at startup. `consumer_group_id` is stored on the config but nothing reads it yet: the group ID you pass to `JoinConsumerGroup` is the one that counts.
 
-With `enable_metrics` on, the extension records `kafka.messages.sent` and `kafka.messages.received` counters and `kafka.bytes.sent` and `kafka.bytes.received` gauges (the size of the last message), each labelled by `topic`. `GetStats()` returns running totals for the client: messages and bytes in both directions, error count and the last error.
+With `enable_metrics` on, the extension records two duration histograms, `messaging.client.operation.duration` for sends and `messaging.process.duration` for handlers. A scrape spells them `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds`, and they carry `messaging_system="kafka"` along with the destination, operation and error type. It also keeps the `kafka.bytes.sent` and `kafka.bytes.received` gauges (the size of the last message), labelled by `topic`.
+
+The `kafka.messages.sent` and `kafka.messages.received` counters are gone. The `_count` series of the two histograms replaces them, so a query like `sum(rate(messaging_process_duration_seconds_count{messaging_system="kafka"}[5m]))` gives you the receive rate.
+
+`GetStats()` returns running totals for the client: messages and bytes in both directions, error count and the last error.
 
 ## Documentation
 

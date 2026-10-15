@@ -12,7 +12,10 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/xdg-go/scram"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/messaging"
 )
 
 // kafkaClient implements Kafka interface.
@@ -20,6 +23,7 @@ type kafkaClient struct {
 	config        Config
 	logger        forge.Logger
 	metrics       forge.Metrics
+	telemetry     *messaging.Telemetry
 	client        sarama.Client
 	producer      sarama.SyncProducer
 	asyncProducer sarama.AsyncProducer
@@ -77,10 +81,11 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 	}
 
 	kc := &kafkaClient{
-		config:  config,
-		logger:  logger,
-		metrics: metrics,
-		client:  client,
+		config:    config,
+		logger:    logger,
+		metrics:   metrics,
+		telemetry: newTelemetry(config, metrics),
+		client:    client,
 		stats: ClientStats{
 			Connected:   true,
 			ConnectTime: time.Now(),
@@ -147,7 +152,7 @@ func (c *kafkaClient) SendMessage(topic string, key, value []byte) error {
 }
 
 // SendMessageContext sends one message and waits for the broker to acknowledge it.
-func (c *kafkaClient) SendMessageContext(_ context.Context, topic string, key, value []byte) error {
+func (c *kafkaClient) SendMessageContext(ctx context.Context, topic string, key, value []byte) error {
 	if c.producer == nil {
 		return errors.New("producer not enabled")
 	}
@@ -158,7 +163,12 @@ func (c *kafkaClient) SendMessageContext(_ context.Context, topic string, key, v
 		Value: sarama.ByteEncoder(value),
 	}
 
+	ctx, op := c.telemetry.StartSend(ctx, topic, "send")
+	messaging.Inject(ctx, ProducerHeaderCarrier(msg))
+
 	partition, offset, err := c.producer.SendMessage(msg)
+	op.End(err)
+
 	if err != nil {
 		c.mu.Lock()
 		c.stats.Errors++
@@ -198,7 +208,7 @@ func (c *kafkaClient) SendMessageAsync(topic string, key, value []byte) error {
 }
 
 // SendMessageAsyncContext queues one message on the async producer.
-func (c *kafkaClient) SendMessageAsyncContext(_ context.Context, topic string, key, value []byte) error {
+func (c *kafkaClient) SendMessageAsyncContext(ctx context.Context, topic string, key, value []byte) error {
 	if c.asyncProducer == nil {
 		return errors.New("async producer not enabled")
 	}
@@ -209,7 +219,13 @@ func (c *kafkaClient) SendMessageAsyncContext(_ context.Context, topic string, k
 		Value: sarama.ByteEncoder(value),
 	}
 
+	_, op := c.telemetry.StartSend(ctx, topic, "send")
+	messaging.Inject(ctx, ProducerHeaderCarrier(msg))
+
 	c.asyncProducer.Input() <- msg
+	// The span covers the hand-off to the producer only. Delivery errors arrive
+	// on the async producer's own error channel, after this call has returned.
+	op.End(nil)
 
 	c.mu.Lock()
 	c.stats.MessagesSent++
@@ -228,12 +244,14 @@ func (c *kafkaClient) SendMessages(messages []*ProducerMessage) error {
 }
 
 // SendMessagesContext sends a batch of messages, including their headers and timestamps.
-func (c *kafkaClient) SendMessagesContext(_ context.Context, messages []*ProducerMessage) error {
+func (c *kafkaClient) SendMessagesContext(ctx context.Context, messages []*ProducerMessage) error {
 	if c.producer == nil {
 		return errors.New("producer not enabled")
 	}
 
 	saramaMessages := make([]*sarama.ProducerMessage, len(messages))
+	links := make([]trace.Link, 0, len(messages))
+
 	for i, msg := range messages {
 		saramaMessages[i] = &sarama.ProducerMessage{
 			Topic:     msg.Topic,
@@ -243,9 +261,24 @@ func (c *kafkaClient) SendMessagesContext(_ context.Context, messages []*Produce
 			Partition: msg.Partition,
 			Timestamp: msg.Timestamp,
 		}
+
+		// Each record gets its own create span, so a consumer's trace parents
+		// on the record it read and not on the whole batch.
+		createCtx, create := c.telemetry.StartCreate(ctx, msg.Topic)
+		messaging.Inject(createCtx, ProducerHeaderCarrier(saramaMessages[i]))
+		create.End(nil)
+
+		if sc := trace.SpanContextFromContext(createCtx); sc.IsValid() && sc.SpanID() != trace.SpanContextFromContext(ctx).SpanID() {
+			links = append(links, trace.Link{SpanContext: sc})
+		}
 	}
 
+	_, op := c.telemetry.StartSend(ctx, batchDestination(messages), "send",
+		messaging.WithBatchSize(len(messages)), messaging.WithLinks(links...))
+
 	err := c.producer.SendMessages(saramaMessages)
+	op.End(err)
+
 	if err != nil {
 		c.mu.Lock()
 		c.stats.Errors++
@@ -364,7 +397,9 @@ func (c *kafkaClient) consumePartition(ctx context.Context, pc sarama.PartitionC
 					c.recordReceiveMetric(msg.Topic, len(msg.Value))
 				}
 
-				if err := handler(ctx, msg); err != nil {
+				err := c.telemetry.Process(ctx, ConsumerHeaderCarrier(msg), msg.Topic, "process",
+					func(ctx context.Context) error { return handler(ctx, msg) })
+				if err != nil {
 					c.logger.Error("kafka message handler error",
 						forge.F("topic", msg.Topic),
 						forge.F("partition", msg.Partition),
@@ -690,7 +725,6 @@ func (c *kafkaClient) recordSendMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.sent", forge.WithLabel("topic", topic)).Inc()
 	c.metrics.Gauge("kafka.bytes.sent", forge.WithLabel("topic", topic)).Set(float64(size))
 }
 
@@ -699,7 +733,6 @@ func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.received", forge.WithLabel("topic", topic)).Inc()
 	c.metrics.Gauge("kafka.bytes.received", forge.WithLabel("topic", topic)).Set(float64(size))
 }
 

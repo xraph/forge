@@ -230,14 +230,20 @@ log.Printf("sent %d, received %d, errors %d", stats.MessagesSent, stats.Messages
 
 ## Metrics
 
-With `enable_metrics` on, the extension records these through Forge's metrics, each labelled by `topic`:
+With `enable_metrics` on, the extension records these through Forge's metrics:
 
 | Metric | Kind | Recorded by |
 |---|---|---|
-| `kafka.messages.sent` | counter | `SendMessage`, `SendMessageAsync` |
-| `kafka.bytes.sent` | gauge, size of the last message | `SendMessage`, `SendMessageAsync` |
-| `kafka.messages.received` | counter | `Consume`, `ConsumePartition` |
-| `kafka.bytes.received` | gauge, size of the last message | `Consume`, `ConsumePartition` |
+| `messaging.client.operation.duration` | histogram, seconds | `SendMessage`, `SendMessageAsync`, `SendMessages` |
+| `messaging.process.duration` | histogram, seconds | `Consume`, `ConsumePartition` and their `*Context` twins |
+| `kafka.bytes.sent` | gauge, size of the last message, labelled by `topic` | `SendMessage`, `SendMessageAsync` |
+| `kafka.bytes.received` | gauge, size of the last message, labelled by `topic` | `Consume`, `ConsumePartition` |
+
+A scrape spells the histograms `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds`. They carry `messaging_system="kafka"`, the topic as `messaging_destination_name`, the operation and `error_type`. The `kafka.messages.sent` and `kafka.messages.received` counters are gone: use the histograms' `_count` series.
+
+## Tracing
+
+With `enable_tracing` on, each send starts a producer span and writes `traceparent` into the record's headers. `SendMessages` starts a `create` span per record and one `send` span that links to them. `Consume` and `ConsumePartition` (and the `*Context` twins) run each handler in a `process` span that continues the producer's trace, and a `ContextMessageHandler` receives a context carrying that span. A consumer-group handler is yours, so use `kafka.ConsumerHeaderCarrier` with `forge/messaging` to trace it.
 
 ## Metadata Refresh
 

@@ -144,8 +144,8 @@ Source: `config.go`
 | `MetadataRetryBackoff` | `metadata_retry_backoff` | `time.Duration` | `250ms` | Wait between metadata retries |
 | `MetadataRefreshFreq` | `metadata_refresh_freq` | `time.Duration` | `10m` | Background metadata refresh |
 | `MetadataFullRefresh` | `metadata_full_refresh` | `bool` | `true` | Keep metadata for every topic |
-| `EnableMetrics` | `enable_metrics` | `bool` | `true` | Record the `kafka.*` metrics |
-| `EnableTracing` | `enable_tracing` | `bool` | `true` | Stored but not read (see below) |
+| `EnableMetrics` | `enable_metrics` | `bool` | `true` | Record the send and process duration histograms and the byte gauges |
+| `EnableTracing` | `enable_tracing` | `bool` | `true` | Start producer and consumer spans and carry `traceparent` in record headers |
 | `EnableLogging` | `enable_logging` | `bool` | `true` | Log failed and successful sync sends |
 | `RequireConfig` | none | `bool` | `false` | Fail when the config section is missing |
 
@@ -153,7 +153,6 @@ Source: `config.go`
 
 - `producer_idempotent` / `WithIdempotent(true)`: Sarama requires `Net.MaxOpenRequests` to be 1 for an idempotent producer, and the extension leaves it at 5, so turning this on makes client creation fail.
 - `consumer_group_id` / `WithConsumerGroup(id)`: nothing reads the ID. The group that counts is the one you pass to `JoinConsumerGroup`. `WithConsumerGroup` also sets `ConsumerEnabled` to `true`, which is already the default.
-- `enable_tracing` / `WithTracing`: no tracing is wired up.
 - `consumer_offsets` has no effect on `Consume`, which always starts at the newest offset. It only applies to a consumer group with no committed offsets.
 
 ## Option Helpers
@@ -171,6 +170,6 @@ Source: `config.go`
 | `WithCompression(compression string)` | `ProducerCompression` |
 | `WithIdempotent(enabled bool)` | `ProducerIdempotent` (fails client creation when `true`) |
 | `WithMetrics(enable bool)` | `EnableMetrics` |
-| `WithTracing(enable bool)` | `EnableTracing` (unused) |
+| `WithTracing(enable bool)` | `EnableTracing` |
 | `WithRequireConfig(require bool)` | `RequireConfig` |
 | `WithConfig(config Config)` | Replaces the whole config |

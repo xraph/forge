@@ -104,6 +104,12 @@ ErrConsumerNotEnabled, ErrAlreadyConsuming, ErrNotConsuming, ErrInConsumerGroup,
 ErrNotInConsumerGroup, ErrSendFailed, ErrConsumeFailed, ErrTopicNotFound, ErrInvalidPartition,
 ErrConnectionFailed, ErrClientClosed.
 
+ConsumerHeaderCarrier(msg *sarama.ConsumerMessage) propagation.TextMapCarrier
+ProducerHeaderCarrier(msg *sarama.ProducerMessage) propagation.TextMapCarrier
+Both adapt record headers to an OpenTelemetry carrier: Get, Set (replaces a header with the same
+key, or appends one) and Keys. Use them with messaging.Inject, messaging.Extract and
+Telemetry.Process.
+
 `XDGSCRAMClient` (scram.go) is the SCRAM client Sarama uses for SASL SCRAM.
 
 ## Behaviour
@@ -124,6 +130,15 @@ ErrConnectionFailed, ErrClientClosed.
   retried. Stop with StopConsume or by cancelling ctx.
 - JoinConsumerGroup runs the group loop in the background. You call `session.MarkMessage` in
   your handler. One group per client; LeaveConsumerGroup before joining another.
+- Tracing (enable_tracing, default true): every send starts a producer span ("send {topic}") and
+  injects traceparent into the record headers. SendMessageAsync's span covers the hand-off only.
+  SendMessages starts a "create {topic}" span per record, injected into that record, plus one
+  "send {topic}" span linking them all with messaging.batch.message_count. A batch across several
+  topics is named just "send". Consume, ConsumePartition and their *Context twins run each
+  handler inside a "process {topic}" span that continues the producer's trace; a ContextMessageHandler
+  receives a ctx carrying that span. A record without traceparent starts a root span.
+- JoinConsumerGroup handlers are yours, so they are not traced for you. Use
+  ConsumerHeaderCarrier(msg) with forge/messaging's Telemetry.Process in ConsumeClaim.
 - CreateTopic and DeleteTopic go to the first broker in the client's list.
 
 ## Config
@@ -159,8 +174,12 @@ Key `extensions.kafka`, falling back to `kafka`. File overrides defaults, option
 Unknown values for compression, acks, offsets, isolation or rebalance fail validation at
 registration.
 
-Metrics (enable_metrics): counters `kafka.messages.sent`, `kafka.messages.received` and gauges
-`kafka.bytes.sent`, `kafka.bytes.received` (size of the last message), labelled by `topic`.
+Metrics (enable_metrics): histograms `messaging.client.operation.duration` (sends) and
+`messaging.process.duration` (handlers), scraped as `messaging_client_operation_duration_seconds`
+and `messaging_process_duration_seconds` with `messaging_system="kafka"`. Gauges `kafka.bytes.sent`
+and `kafka.bytes.received` (size of the last message) stay, labelled by `topic`. The
+`kafka.messages.sent` and `kafka.messages.received` counters were removed: use the histograms'
+`_count` series.
 
 ## Gotchas
 
@@ -171,8 +190,8 @@ Metrics (enable_metrics): counters `kafka.messages.sent`, `kafka.messages.receiv
 
 - `WithIdempotent(true)` makes client creation fail: Sarama needs `Net.MaxOpenRequests` of 1 and
   the extension leaves Sarama's default of 5.
-- `enable_tracing` / `WithTracing` and `consumer_group_id` are stored but nothing reads them.
-  The group ID you pass to JoinConsumerGroup is the one that counts.
+- `consumer_group_id` is stored but nothing reads it. The group ID you pass to JoinConsumerGroup
+  is the one that counts.
 
 ## Dependencies
 
