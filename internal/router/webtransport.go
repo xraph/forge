@@ -425,7 +425,7 @@ type WebTransportConfig struct {
 	MaxIdleTimeout int // milliseconds
 
 	// AllowedOrigins is the list of allowed origins for WebTransport connections.
-	// If empty, all origins are allowed.
+	// If empty, only same-origin requests are allowed. "*" allows any origin.
 	AllowedOrigins []string
 }
 

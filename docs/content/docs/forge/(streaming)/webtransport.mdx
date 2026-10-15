@@ -17,26 +17,30 @@ WebTransport requires HTTP/3 (QUIC) support. Currently supported in Chrome 97+, 
 
 ## Enabling WebTransport
 
-WebTransport is disabled by default. Enable it through `StreamConfig` or `WebTransportConfig`.
+WebTransport is off until you call `EnableWebTransport` on the router, and your WebTransport routes are only served by the router's own HTTP/3 server, which you start with `StartHTTP3`. It listens on UDP next to your regular HTTP server.
 
 ```go
-app := forge.New(
-    forge.WithAppName("wt-server"),
-    forge.WithAppRouterOptions(
-        forge.WithStreamConfig(forge.StreamConfig{
-            EnableWebTransport:      true,
-            MaxBidiStreams:          100,
-            MaxUniStreams:           100,
-            MaxDatagramFrameSize:    65536,
-            EnableDatagrams:         true,
-            StreamReceiveWindow:     6 * 1024 * 1024,  // 6MB
-            ConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB
-            WebTransportKeepAlive:   30000, // 30s
-            WebTransportMaxIdle:     60000, // 60s
-        }),
-    ),
-)
+app := forge.New(forge.WithAppName("wt-server"))
+r := app.Router()
+
+if err := r.EnableWebTransport(forge.DefaultWebTransportConfig()); err != nil {
+    log.Fatal(err)
+}
+
+// Register WebTransport routes with r.WebTransport, before or after StartHTTP3.
+
+cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+if err != nil {
+    log.Fatal(err)
+}
+
+if err := r.StartHTTP3(":443", &tls.Config{Certificates: []tls.Certificate{cert}}); err != nil {
+    log.Fatal(err)
+}
+defer r.StopHTTP3()
 ```
+
+`StartHTTP3` binds the UDP socket before it returns, so a port that's already taken comes back as its error, and then serves in the background. Call it again while it's running and you get an error. `StopHTTP3` closes every open session, then the socket.
 
 ## WebTransportHandler Signature
 
@@ -214,46 +218,28 @@ r.WebTransport("/wt/logs", func(ctx forge.Context, session forge.WebTransportSes
 })
 ```
 
-## Starting HTTP/3
-
-WebTransport requires HTTP/3. Start it alongside your regular HTTP server.
-
-```go
-// StartHTTP3 starts the QUIC/HTTP3 server for WebTransport
-app.StartHTTP3(forge.HTTP3Config{
-    Addr:     ":443",
-    CertFile: "cert.pem",
-    KeyFile:  "key.pem",
-})
-
-// StopHTTP3 gracefully shuts down the HTTP/3 server
-defer app.StopHTTP3()
-```
-
 ## WebTransportConfig
 
-Fine-tune WebTransport behavior with the dedicated config.
+Start from the defaults and change what you need before you pass it to `EnableWebTransport`.
 
 ```go
 config := forge.DefaultWebTransportConfig()
-
-// Customize
 config.MaxBidiStreams = 200
 config.MaxUniStreams = 50
-config.MaxDatagramFrameSize = 1200 // MTU-friendly for datagrams
-config.EnableDatagrams = true
+config.AllowedOrigins = []string{"https://app.example.com"}
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MaxBidiStreams` | 100 | Maximum concurrent bidirectional streams |
-| `MaxUniStreams` | 100 | Maximum concurrent unidirectional streams |
-| `MaxDatagramFrameSize` | 65536 | Maximum datagram size in bytes |
-| `EnableDatagrams` | true | Enable unreliable datagram support |
+| `MaxBidiStreams` | 100 | With `MaxUniStreams`, caps the bidirectional streams a client may open: the cap is the sum of the two |
+| `MaxUniStreams` | 100 | Doesn't cap unidirectional streams yet. It only adds to the bidirectional cap above |
 | `StreamReceiveWindow` | 6MB | Per-stream flow control window |
 | `ConnectionReceiveWindow` | 15MB | Per-connection flow control window |
-| `WebTransportKeepAlive` | 30000ms | Keep-alive interval |
-| `WebTransportMaxIdle` | 60000ms | Max idle time before closing |
+| `KeepAliveInterval` | 30000 | Keep-alive interval, in milliseconds |
+| `MaxIdleTimeout` | 60000 | How long a connection may sit idle before it's closed, in milliseconds |
+| `AllowedOrigins` | empty | Origins a browser may connect from. Empty means same-origin only, and `"*"` allows any origin. A request with no `Origin` header, from a non-browser client, is always allowed |
+| `EnableDatagrams` | true | Has no effect. Every WebTransport session needs datagrams, so they're always on |
+| `MaxDatagramFrameSize` | 65536 | Not used yet |
 
 ## When to Use WebTransport
 
