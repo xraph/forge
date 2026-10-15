@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xraph/forge"
@@ -60,9 +61,11 @@ type Extension struct {
 	// dispatcher below are non-nil after construction; the dispatcher acts as
 	// the StreamBroker's SubscriptionSource so the SSE multiplex routes serve
 	// real subscriptions registered via dispatcher.RegisterSubscription.
+	// streamBroker is atomic because the trace ingest gate reads it from
+	// whatever goroutine ends a span, while Register replaces it.
 	contractRegistry contract.Registry
 	wardenRegistry   contract.WardenRegistry
-	streamBroker     *transport.StreamBroker
+	streamBroker     atomic.Pointer[transport.StreamBroker]
 	auditEmitter     contract.AuditEmitter
 	auditStore       contract.AuditStore
 	dispatcher       *dispatcher.Dispatcher
@@ -126,7 +129,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	// SSE multiplex routes serve real subscriptions registered via the
 	// dispatcher (see registerRoutes — the broker-bound stream/control routes
 	// activate now that streamBroker is non-nil).
-	ext.streamBroker = transport.NewStreamBroker(ext.contractRegistry, ext.wardenRegistry, ext.dispatcher)
+	ext.streamBroker.Store(transport.NewStreamBroker(ext.contractRegistry, ext.wardenRegistry, ext.dispatcher))
 
 	return ext
 }
@@ -183,39 +186,14 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize trace store for dashboard tracing UI
 	e.traceStore = collector.NewTraceStore(e.config.TraceMaxCount, e.config.TraceRetention, collector.WithMaxSpansPerTrace(e.config.TraceMaxSpansPerTrace))
 
-	// Retain spans only while somebody is actually using the dashboard. The
-	// marker is stamped by TracingMiddleware on any request under BasePath, and
-	// an open contract stream counts too: a client that only streams issues no
-	// further requests after it connects, so without this the gate would shut
-	// under an active viewer. A service nobody ever visits pays nothing.
-	//
-	// The closure reads e.streamBroker when it runs rather than capturing it
-	// here, because the broker is rebuilt against the upgraded dispatcher
-	// further down this method.
+	// A processor from an earlier Register still feeds the store just
+	// replaced. Retire it now, so a Register that fails further down doesn't
+	// leave it running. The new one is registered at the end.
+	e.retireSpanProcessor()
+
+	// Retain spans only while somebody is actually using the dashboard.
 	if ttl := e.config.TraceIdleTTL; ttl > 0 {
-		ts := e.traceStore
-		ts.SetIngestGate(func() bool {
-			if b := e.streamBroker; b != nil && b.ConnectionCount() > 0 {
-				return true
-			}
-
-			return time.Since(ts.LastAccessed()) < ttl
-		})
-	}
-
-	// Feed the trace viewer from the app's own spans. With tracing off there
-	// are none, so the traces page stays empty; say so once and carry on.
-	if e.spanProcessor == nil {
-		p := collector.NewSpanProcessor(e.traceStore, e.config.BasePath)
-		if err := forge.RegisterSpanProcessor(app, p); err != nil {
-			_ = p.Shutdown(context.Background())
-
-			e.Logger().Info("dashboard: traces page stays empty because tracing is off",
-				forge.F("reason", err.Error()),
-			)
-		} else {
-			e.spanProcessor = p
-		}
+		e.traceStore.SetIngestGate(traceIngestGate(e.traceStore, &e.streamBroker, ttl))
 	}
 
 	if e.config.EnableCSRF {
@@ -256,7 +234,7 @@ func (e *Extension) Register(app forge.App) error {
 	// The streamBroker captured the old dispatcher at NewExtension time;
 	// rebind it to the upgraded dispatcher so SSE subscriptions resolve
 	// against the same handler registry the POST endpoint uses.
-	e.streamBroker = transport.NewStreamBroker(e.contractRegistry, e.wardenRegistry, e.dispatcher)
+	e.streamBroker.Store(transport.NewStreamBroker(e.contractRegistry, e.wardenRegistry, e.dispatcher))
 
 	// Register the contract-track pilot contributor (core-contract). This
 	// loads the embedded manifest, validates it against the warden registry,
@@ -286,6 +264,11 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register dashboard service: %w", err)
 	}
 
+	// The span processor goes last. From the moment it is registered, every
+	// span the app ends runs the ingest gate on its own goroutine, so
+	// everything the gate reads has to exist by then.
+	e.registerSpanProcessor(app)
+
 	e.Logger().Info("dashboard extension registered",
 		forge.F("base_path", e.config.BasePath),
 		forge.F("export", e.config.EnableExport),
@@ -293,6 +276,62 @@ func (e *Extension) Register(app forge.App) error {
 	)
 
 	return nil
+}
+
+// traceIngestGate keeps the trace store open while somebody uses the
+// dashboard. TracingMiddleware stamps the store on any request under BasePath,
+// and an open contract stream counts too: a client that only streams issues no
+// further requests after it connects, so without that the gate would shut
+// under an active viewer. A service nobody ever visits pays nothing.
+//
+// The gate runs for every span the app ends and every span the sampler drops,
+// on whatever goroutine does it, so it takes no lock. It loads the broker on
+// each call because Register replaces the broker after the gate is built.
+func traceIngestGate(ts *collector.TraceStore, broker *atomic.Pointer[transport.StreamBroker], ttl time.Duration) collector.IngestGateFunc {
+	return func() bool {
+		if b := broker.Load(); b != nil && b.ConnectionCount() > 0 {
+			return true
+		}
+
+		return time.Since(ts.LastAccessed()) < ttl
+	}
+}
+
+// retireSpanProcessor shuts down the processor an earlier Register left
+// behind, which is bound to that Register's trace store. The provider has no
+// way to remove a processor, so the old one stays registered as a closed
+// no-op.
+func (e *Extension) retireSpanProcessor() {
+	old := e.spanProcessor
+	if old == nil {
+		return
+	}
+
+	e.spanProcessor = nil
+
+	if err := old.Shutdown(context.Background()); err != nil {
+		e.Logger().Warn("dashboard: previous span processor shutdown did not finish", forge.F("error", err))
+	}
+}
+
+// registerSpanProcessor feeds the trace viewer from the app's own spans,
+// through a processor bound to the current trace store. With tracing off there
+// are none, so the traces page stays empty; it says so once and carries on.
+func (e *Extension) registerSpanProcessor(app forge.App) {
+	e.retireSpanProcessor()
+
+	p := collector.NewSpanProcessor(e.traceStore, e.config.BasePath)
+	if err := forge.RegisterSpanProcessor(app, p); err != nil {
+		_ = p.Shutdown(context.Background())
+
+		e.Logger().Info("dashboard: traces page stays empty because tracing is off",
+			forge.F("reason", err.Error()),
+		)
+
+		return
+	}
+
+	e.spanProcessor = p
 }
 
 // Start starts the dashboard extension.
@@ -843,9 +882,9 @@ func (e *Extension) registerRoutes() {
 		must(router.POST(base+"/api/dashboard/v1", e.handleContractPOST(), routeOpts...))
 		must(router.GET(base+"/api/dashboard/v1/capabilities", e.handleContractCapabilities(), routeOpts...))
 
-		if e.streamBroker != nil {
-			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(e.streamBroker.ServeStream), routeOpts...))
-			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(e.streamBroker.ServeControl), routeOpts...))
+		if broker := e.streamBroker.Load(); broker != nil {
+			must(router.GET(base+"/api/dashboard/v1/stream", http.HandlerFunc(broker.ServeStream), routeOpts...))
+			must(router.POST(base+"/api/dashboard/v1/stream/control", http.HandlerFunc(broker.ServeControl), routeOpts...))
 		}
 		// Slice (b) Phase 6: surface CSRF tokens to the client only when the
 		// security stack is wired (csrfMgr is non-nil iff EnableCSRF is true,

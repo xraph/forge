@@ -89,11 +89,11 @@ func truncateAttr(s string, limit int) string {
 }
 
 // isDashboardPath reports whether a request path belongs to the dashboard: an
-// exact match on basePath, or basePath followed by a "/". This is deliberately
-// stricter than collector.SkipTracePath, which only decides whether to trace a
-// request that is already known to be a dashboard request, whereas this decides whether an unrelated sibling route (e.g. a
-// "/dashboard-admin" service that gets polled) is allowed to hold the ingest
-// gate open, which a bare prefix match would do incorrectly.
+// exact match on basePath, or basePath followed by a "/". A bare prefix match
+// would let a sibling route such as a polled "/dashboard-admin" hold the ingest
+// gate open. collector.SkipTracePath answers a different question, whether to
+// leave any request (dashboard or not) out of the trace viewer, so the two
+// don't share a rule.
 func isDashboardPath(path, basePath string) bool {
 	return path == basePath || strings.HasPrefix(path, basePath+"/")
 }

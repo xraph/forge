@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -27,6 +28,10 @@ type StreamBroker struct {
 
 	mu      sync.Mutex
 	streams map[string]*streamConn
+
+	// open mirrors len(streams), written under mu, so ConnectionCount can
+	// answer without taking the lock.
+	open atomic.Int64
 }
 
 type streamConn struct {
@@ -75,11 +80,13 @@ func (b *StreamBroker) ServeStream(w http.ResponseWriter, r *http.Request) {
 
 	b.mu.Lock()
 	b.streams[id] = conn
+	b.open.Store(int64(len(b.streams)))
 
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
 		delete(b.streams, id)
+		b.open.Store(int64(len(b.streams)))
 		b.mu.Unlock()
 		conn.mu.Lock()
 		for _, s := range conn.subs {
@@ -102,12 +109,11 @@ func (b *StreamBroker) ServeStream(w http.ResponseWriter, r *http.Request) {
 
 // ConnectionCount reports how many stream connections are open right now.
 // The dashboard reads it to tell whether somebody is watching: a client that
-// only streams issues no further requests after it connects.
+// only streams issues no further requests after it connects. It takes no
+// lock, because the dashboard's trace ingest gate calls it for every span the
+// app ends.
 func (b *StreamBroker) ConnectionCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return len(b.streams)
+	return int(b.open.Load())
 }
 
 // SnapshotIDs returns currently-active stream IDs (test helper / introspection).

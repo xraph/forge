@@ -66,7 +66,8 @@ type TraceStore struct {
 	ingestGate atomic.Pointer[IngestGateFunc]
 
 	// droppedSpans counts spans refused because their trace was already at
-	// maxSpansPerTrace. Read it with DroppedSpans.
+	// maxSpansPerTrace, and spans the SpanProcessor dropped because its queue
+	// was full. Read it with DroppedSpans.
 	droppedSpans atomic.Uint64
 
 	// exchanges holds request and response data captured by the middleware,
@@ -132,8 +133,9 @@ func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOpt
 	return ts
 }
 
-// DroppedSpans returns the number of spans refused because their trace had
-// already reached maxSpansPerTrace.
+// DroppedSpans returns the number of spans lost on the way in: refused because
+// their trace had already reached maxSpansPerTrace, or dropped by the
+// SpanProcessor because its queue was full.
 func (ts *TraceStore) DroppedSpans() uint64 {
 	return ts.droppedSpans.Load()
 }
