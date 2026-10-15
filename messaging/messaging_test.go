@@ -367,6 +367,52 @@ func TestProcessPanicEndsSpanAndRepanics(t *testing.T) {
 	}
 }
 
+type sentinelError struct{ code int }
+
+func (e *sentinelError) Error() string { return fmt.Sprintf("sentinel %d", e.code) }
+
+func TestPanicErrorUnwrapsAnErrorValue(t *testing.T) {
+	sentinel := errors.New("sentinel")
+
+	var err error = &messaging.PanicError{Value: sentinel}
+	if !errors.Is(err, sentinel) {
+		t.Fatal("errors.Is can't reach the panicked error")
+	}
+
+	typed := &sentinelError{code: 7}
+
+	var target *sentinelError
+	if !errors.As(fmt.Errorf("wrapped: %w", &messaging.PanicError{Value: typed}), &target) || target != typed {
+		t.Fatal("errors.As can't reach the panicked error")
+	}
+
+	if errors.Unwrap(&messaging.PanicError{Value: "boom"}) != nil {
+		t.Fatal("a non-error panic value should not unwrap")
+	}
+}
+
+func TestPanicWithAnErrorValueStillReportsPanicError(t *testing.T) {
+	m := newMetrics(t)
+	exp := installTracing(t)
+	mt := messaging.New("memory", messaging.WithMetrics(m))
+
+	func() {
+		defer func() { _ = recover() }()
+
+		_ = mt.Process(t.Context(), propagation.MapCarrier{}, "orders", "process",
+			func(context.Context) error { panic(context.Canceled) })
+	}()
+
+	if got := attrs(exp.GetSpans().Snapshots()[0])["error.type"]; got != "*messaging.PanicError" {
+		t.Fatalf("error.type %q, want *messaging.PanicError", got)
+	}
+
+	if v, _ := seriesValue(scrape(t, m), "messaging_process_duration_seconds_count",
+		map[string]string{"error_type": "*messaging.PanicError"}); v != "1" {
+		t.Fatalf("count %q, want 1", v)
+	}
+}
+
 func TestProcessWithoutOrMalformedTraceparent(t *testing.T) {
 	exp := installTracing(t)
 	mt := messaging.New("memory")

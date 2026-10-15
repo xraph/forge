@@ -86,7 +86,8 @@ func WithLinks(links ...trace.Link) StartOption {
 	return func(c *startConfig) { c.links = append(c.links, links...) }
 }
 
-// WithBatchSize sets messaging.batch.message_count.
+// WithBatchSize sets messaging.batch.message_count. An n of zero or less is
+// ignored and leaves the attribute off.
 func WithBatchSize(n int) StartOption { return func(c *startConfig) { c.batch = n } }
 
 // WithSpanKind overrides the span kind. Request and reply use client and
@@ -132,6 +133,15 @@ func (t *Telemetry) StartProcess(ctx context.Context, carrier propagation.TextMa
 type PanicError struct{ Value any }
 
 func (e *PanicError) Error() string { return fmt.Sprintf("messaging: handler panicked: %v", e.Value) }
+
+// Unwrap returns the panic value when it is an error, so errors.Is and
+// errors.As can reach it through the error End records. It returns nil for any
+// other value.
+func (e *PanicError) Unwrap() error {
+	err, _ := e.Value.(error)
+
+	return err
+}
 
 // Process runs fn inside a process operation and returns fn's error. A panic
 // in fn ends the operation with a *PanicError and is re-raised.

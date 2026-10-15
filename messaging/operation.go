@@ -58,6 +58,13 @@ func (o *Operation) End(err error) {
 // anything else is the type of the innermost error, so a wrapped broker error
 // reports the broker's type rather than *fmt.wrapError.
 func errorType(err error) string {
+	// A panic keeps its own name even when the panic value is an error, which
+	// PanicError.Unwrap would otherwise let win.
+	var pe *PanicError
+	if errors.As(err, &pe) {
+		return "*messaging.PanicError"
+	}
+
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "context.DeadlineExceeded"

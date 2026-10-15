@@ -50,12 +50,14 @@ still flows to the logs.
 
 `Process` wraps `StartProcess` and `End` around `fn` and returns fn's error. If `fn` panics, the
 operation ends with a `*messaging.PanicError` and the panic is re-raised unchanged.
+`(*PanicError).Unwrap` returns the panic value when it is an error (nil otherwise), so `errors.Is` and
+`errors.As` reach it. `error.type` stays `*messaging.PanicError` even then.
 
 Start options:
 
 ```go
 func WithLinks(links ...trace.Link) StartOption   // for example each message's create span in a batch send
-func WithBatchSize(n int) StartOption             // sets messaging.batch.message_count when n > 0
+func WithBatchSize(n int) StartOption             // sets messaging.batch.message_count; n <= 0 is ignored
 func WithSpanKind(kind trace.SpanKind) StartOption // request and reply use client and server
 ```
 
@@ -81,7 +83,9 @@ func Extract(ctx context.Context, carrier propagation.TextMapCarrier) context.Co
 func WithTraceContext(ctx context.Context, headers map[string]string) map[string]string
 ```
 
-`Inject` and `Extract` use the global propagator and ignore a nil carrier. Injecting into a nil
+`Inject` and `Extract` use the global propagator and ignore a nil carrier. With the default
+propagators (`tracecontext`, `baggage`) a message carries `traceparent`, `tracestate` when set, and
+`baggage` when the context has any. Injecting into a nil
 `propagation.MapCarrier` still panics, as it does anywhere, so use `WithTraceContext` for maps.
 `WithTraceContext` never modifies `headers`: it returns a copy with the trace context added, or
 `headers` itself (so nil stays nil) when there's nothing to add. That makes it safe to call with a
