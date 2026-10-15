@@ -157,8 +157,8 @@ and `forge.Inject[cache.Cache](container)` all return the same singleton.
 - The in-memory backend records counters named `cache_hit`, `cache_miss`, `cache_set`,
   `cache_delete`, `cache_clear` and `cache_evict` through Forge metrics.
 - `Keys()` takes a glob with at most one `*`. A pattern with two wildcards matches nothing.
-- YAML keys are the Go field names (`DefaultTTL`, `MaxSize`), because `Config` has no YAML tags.
-  See [Configuration](/docs/extensions/cache/configuration).
+- YAML keys are snake_case (`default_ttl`, `max_size`). The old Go field names still apply with a
+  warning. See [Configuration](/docs/extensions/cache/configuration).
 
 ## Detailed Pages
 

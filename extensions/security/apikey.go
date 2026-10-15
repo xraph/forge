@@ -27,31 +27,31 @@ var (
 // APIKeyConfig holds API key authentication configuration.
 type APIKeyConfig struct {
 	// Enabled determines if API key authentication is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// KeyLookup defines where to find the API key:
 	// - "header:<name>" - look in header (default: "header:X-API-Key")
 	// - "query:<name>" - look in query parameter
 	// - "cookie:<name>" - look in cookie
 	// Can specify multiple separated by comma
-	KeyLookup string
+	KeyLookup string `yaml:"key_lookup"`
 
 	// KeyPrefix is the prefix before the key (optional)
 	// Example: "ApiKey" or "Bearer"
-	KeyPrefix string
+	KeyPrefix string `yaml:"key_prefix"`
 
 	// SkipPaths is a list of paths to skip API key authentication
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies API key middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 
 	// ErrorHandler is called when API key validation fails
-	ErrorHandler func(forge.Context, error) error
+	ErrorHandler func(forge.Context, error) error `yaml:"-"`
 
 	// Validator is a custom function to validate API keys
 	// If not set, uses the built-in validator
-	Validator func(ctx context.Context, key string) (*APIKeyInfo, error)
+	Validator func(ctx context.Context, key string) (*APIKeyInfo, error) `yaml:"-"`
 }
 
 // DefaultAPIKeyConfig returns the default API key configuration.

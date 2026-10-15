@@ -76,12 +76,6 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
-	if !e.config.Enabled {
-		e.Logger().Info("security extension disabled")
-
-		return nil
-	}
-
 	// Load config from ConfigManager with dual-key support
 	programmaticConfig := e.config
 
@@ -97,6 +91,12 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	e.config = finalConfig
+
+	if !e.config.Enabled {
+		e.Logger().Info("security extension disabled")
+
+		return nil
+	}
 
 	// Validate config
 	if err := e.config.Validate(); err != nil {

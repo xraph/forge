@@ -13,42 +13,42 @@ import (
 // AuditConfig holds audit logging configuration.
 type AuditConfig struct {
 	// Enabled determines if audit logging is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// Level determines what events to log
 	// Options: "all", "auth", "data", "admin"
-	Level string
+	Level string `yaml:"level"`
 
 	// IncludePaths is a list of path patterns to audit (empty = all paths)
 	// Example: ["/api/admin/*", "/api/users/*"]
-	IncludePaths []string
+	IncludePaths []string `yaml:"include_paths"`
 
 	// ExcludePaths is a list of path patterns to exclude from auditing
 	// Example: ["/health", "/metrics"]
-	ExcludePaths []string
+	ExcludePaths []string `yaml:"exclude_paths"`
 
 	// LogRequestBody logs the request body (be careful with sensitive data)
-	LogRequestBody bool
+	LogRequestBody bool `yaml:"log_request_body"`
 
 	// LogResponseBody logs the response body (be careful with sensitive data)
-	LogResponseBody bool
+	LogResponseBody bool `yaml:"log_response_body"`
 
 	// SensitiveHeaders are headers that should be redacted in logs
-	SensitiveHeaders []string
+	SensitiveHeaders []string `yaml:"sensitive_headers"`
 
 	// SensitiveFields are JSON fields that should be redacted in logs
-	SensitiveFields []string
+	SensitiveFields []string `yaml:"sensitive_fields"`
 
 	// MaxBodySize is the maximum body size to log (in bytes)
 	// Default: 1024 (1KB)
-	MaxBodySize int
+	MaxBodySize int `yaml:"max_body_size"`
 
 	// AutoApplyMiddleware automatically applies audit middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 
 	// Handler is called for each audit log entry
 	// If not set, uses the default logger
-	Handler func(*AuditEntry)
+	Handler func(*AuditEntry) `yaml:"-"`
 }
 
 // DefaultAuditConfig returns the default audit configuration.

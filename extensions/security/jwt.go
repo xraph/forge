@@ -26,15 +26,15 @@ var (
 // JWTConfig holds JWT configuration.
 type JWTConfig struct {
 	// Enabled determines if JWT authentication is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// SigningKey is the secret key for signing tokens (for HS256/HS384/HS512)
-	SigningKey string
+	SigningKey string `yaml:"signing_key"`
 
 	// SigningMethod is the JWT signing algorithm
 	// Options: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384, ES512
 	// Default: HS256
-	SigningMethod string
+	SigningMethod string `yaml:"signing_method"`
 
 	// TokenLookup defines where to find the token:
 	// - "header:<name>" - look in header (default: "header:Authorization")
@@ -42,34 +42,34 @@ type JWTConfig struct {
 	// - "cookie:<name>" - look in cookie
 	// - "form:<name>" - look in form field
 	// Can specify multiple separated by comma: "header:Authorization,cookie:jwt"
-	TokenLookup string
+	TokenLookup string `yaml:"token_lookup"`
 
 	// TokenPrefix is the prefix before the token in Authorization header
 	// Default: "Bearer"
-	TokenPrefix string
+	TokenPrefix string `yaml:"token_prefix"`
 
 	// Issuer is the JWT issuer (iss claim)
-	Issuer string
+	Issuer string `yaml:"issuer"`
 
 	// Audience is the JWT audience (aud claim)
-	Audience string
+	Audience string `yaml:"audience"`
 
 	// TTL is the token time-to-live
 	// Default: 1 hour
-	TTL time.Duration
+	TTL time.Duration `yaml:"ttl"`
 
 	// RefreshTTL is the refresh token time-to-live
 	// Default: 7 days
-	RefreshTTL time.Duration
+	RefreshTTL time.Duration `yaml:"refresh_ttl"`
 
 	// SkipPaths is a list of paths to skip JWT authentication
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies JWT middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 
 	// ErrorHandler is called when JWT validation fails
-	ErrorHandler func(forge.Context, error) error
+	ErrorHandler func(forge.Context, error) error `yaml:"-"`
 }
 
 // DefaultJWTConfig returns the default JWT configuration.

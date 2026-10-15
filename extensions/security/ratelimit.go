@@ -14,26 +14,26 @@ import (
 // RateLimitConfig holds rate limiting configuration.
 type RateLimitConfig struct {
 	// Enabled determines if rate limiting is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// RequestsPerWindow is the maximum number of requests allowed per window
-	RequestsPerWindow int
+	RequestsPerWindow int `yaml:"requests_per_window"`
 
 	// Window is the time window for rate limiting
-	Window time.Duration
+	Window time.Duration `yaml:"window"`
 
 	// Note: Rate limit key extraction is handled internally using IP address
 	// For custom key extraction, wrap the middleware with your own logic
 
 	// SkipPaths is a list of paths to skip rate limiting
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies rate limiting middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 
 	// Store specifies the rate limit store backend ("memory", "redis")
 	// For now, only memory is implemented
-	Store string
+	Store string `yaml:"store"`
 }
 
 // RateLimitInfo contains information about the current rate limit status.

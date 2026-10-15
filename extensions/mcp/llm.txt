@@ -115,8 +115,9 @@ Metrics: `mcp_tools_total`, `mcp_tool_calls_total{status}`.
 ## Config
 
 Key `extensions.mcp`, falling back to `mcp`. Options override the file, the file overrides
-defaults. `Config` has no yaml tags, so keys are Go field names exactly (`ToolPrefix`, not
-`tool_prefix`). An option set to exactly its default value looks like no option, so the file
+defaults. Keys are snake_case (`tool_prefix`, `base_path`, `max_tool_name_length`). The old Go
+field names (`ToolPrefix`) still apply and log a deprecation warning naming the new key; when
+both are set the snake_case one wins. An option set to exactly its default value looks like no option, so the file
 wins for that field.
 
 ## Not implemented yet

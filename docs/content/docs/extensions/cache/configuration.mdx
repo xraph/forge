@@ -5,20 +5,20 @@ description: Config fields, YAML keys and option helpers for Cache
 
 ## YAML Configuration Example
 
-`Config` has no YAML tags, so the keys in your file are the Go field names, spelled and capitalised
-exactly as in the table below. `DefaultTTL` works. `defaultTTL` and `default_ttl` are silently
-ignored, and the field keeps its default.
+Keys are the snake_case form of each field name, listed in the table below. Older configs used the
+Go field names (`DefaultTTL`, `MaxSize`), and those still apply. Each one logs a warning at startup
+naming the key to switch to, and if a section sets both spellings the snake_case one wins.
 
 ```yaml title="config.yaml"
 extensions:
   cache:
-    Driver: inmemory           # inmemory works; redis and memcached aren't implemented yet
-    DefaultTTL: 10m            # used when Set gets a TTL of 0
-    MaxSize: 50000             # entries, 0 for no limit
-    CleanupInterval: 1m        # how often expired entries are swept
-    MaxKeySize: 250            # bytes, 0 for no limit
-    MaxValueSize: 1048576      # bytes (1 MiB), 0 for no limit
-    Prefix: "orders:"          # added to every key
+    driver: inmemory           # inmemory works; redis and memcached aren't implemented yet
+    default_ttl: 10m           # used when Set gets a TTL of 0
+    max_size: 50000            # entries, 0 for no limit
+    cleanup_interval: 1m       # how often expired entries are swept
+    max_key_size: 250          # bytes, 0 for no limit
+    max_value_size: 1048576    # bytes (1 MiB), 0 for no limit
+    prefix: "orders:"          # added to every key
 ```
 
 The extension reads `extensions.cache` first and falls back to a top-level `cache` key.
@@ -60,21 +60,21 @@ ext := cache.NewExtensionWithConfig(cfg)
 
 Source: `extensions/cache/config.go`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `Driver` | `string` | `"inmemory"` | `"inmemory"`, `"redis"` or `"memcached"`. Only `inmemory` is implemented |
-| `URL` | `string` | `""` | Connection string. Validation requires it for `redis` and `memcached` |
-| `DefaultTTL` | `time.Duration` | `5m` | Used when `Set` gets a TTL of `0` |
-| `MaxSize` | `int` | `10000` | Maximum number of entries. `0` means no limit |
-| `CleanupInterval` | `time.Duration` | `1m` | How often expired entries are swept |
-| `MaxKeySize` | `int` | `250` | Maximum key size in bytes. `0` means no limit |
-| `MaxValueSize` | `int` | `1048576` | Maximum value size in bytes (1 MiB). `0` means no limit |
-| `Prefix` | `string` | `""` | Added to every key |
-| `ConnectionPoolSize` | `int` | `10` | Reserved for the network drivers. Nothing reads it yet |
-| `ConnectionTimeout` | `time.Duration` | `5s` | Reserved for the network drivers. Nothing reads it yet |
-| `ReadTimeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
-| `WriteTimeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
-| `RequireConfig` | `bool` | `false` | When `true`, `Register` fails if neither `extensions.cache` nor `cache` is in your config |
+| Field | YAML key | Type | Default | Description |
+|---|---|---|---|---|
+| `Driver` | `driver` | `string` | `"inmemory"` | `"inmemory"`, `"redis"` or `"memcached"`. Only `inmemory` is implemented |
+| `URL` | `url` | `string` | `""` | Connection string. Validation requires it for `redis` and `memcached` |
+| `DefaultTTL` | `default_ttl` | `time.Duration` | `5m` | Used when `Set` gets a TTL of `0` |
+| `MaxSize` | `max_size` | `int` | `10000` | Maximum number of entries. `0` means no limit |
+| `CleanupInterval` | `cleanup_interval` | `time.Duration` | `1m` | How often expired entries are swept |
+| `MaxKeySize` | `max_key_size` | `int` | `250` | Maximum key size in bytes. `0` means no limit |
+| `MaxValueSize` | `max_value_size` | `int` | `1048576` | Maximum value size in bytes (1 MiB). `0` means no limit |
+| `Prefix` | `prefix` | `string` | `""` | Added to every key |
+| `ConnectionPoolSize` | `connection_pool_size` | `int` | `10` | Reserved for the network drivers. Nothing reads it yet |
+| `ConnectionTimeout` | `connection_timeout` | `time.Duration` | `5s` | Reserved for the network drivers. Nothing reads it yet |
+| `ReadTimeout` | `read_timeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
+| `WriteTimeout` | `write_timeout` | `time.Duration` | `3s` | Reserved for the network drivers. Nothing reads it yet |
+| `RequireConfig` | (code only) | `bool` | `false` | When `true`, `Register` fails if neither `extensions.cache` nor `cache` is in your config |
 
 ## Validation
 

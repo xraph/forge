@@ -13,44 +13,44 @@ import (
 // CORSConfig holds CORS configuration.
 type CORSConfig struct {
 	// Enabled determines if CORS is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// AllowOrigins is a list of allowed origins
 	// Use ["*"] to allow all origins (not recommended for production)
 	// Example: ["https://example.com", "https://app.example.com"]
-	AllowOrigins []string
+	AllowOrigins []string `yaml:"allow_origins"`
 
 	// AllowMethods is a list of allowed HTTP methods
 	// Default: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-	AllowMethods []string
+	AllowMethods []string `yaml:"allow_methods"`
 
 	// AllowHeaders is a list of allowed request headers
 	// Use ["*"] to allow all headers (not recommended for production, and cannot be used with AllowCredentials)
 	// Default: ["Origin", "Content-Type", "Accept", "Authorization"]
-	AllowHeaders []string
+	AllowHeaders []string `yaml:"allow_headers"`
 
 	// ExposeHeaders is a list of headers exposed to the browser
 	// Default: []
-	ExposeHeaders []string
+	ExposeHeaders []string `yaml:"expose_headers"`
 
 	// AllowCredentials indicates if credentials are allowed
 	// Default: false
 	// Note: Cannot be true when AllowOrigins is ["*"]
-	AllowCredentials bool
+	AllowCredentials bool `yaml:"allow_credentials"`
 
 	// MaxAge indicates how long (in seconds) the results of a preflight request can be cached
 	// Default: 3600 (1 hour)
-	MaxAge int
+	MaxAge int `yaml:"max_age"`
 
 	// AllowPrivateNetwork allows requests from private networks
 	// Default: false
-	AllowPrivateNetwork bool
+	AllowPrivateNetwork bool `yaml:"allow_private_network"`
 
 	// SkipPaths is a list of paths to skip CORS handling
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies CORS middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 }
 
 // DefaultCORSConfig returns the default CORS configuration.

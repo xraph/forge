@@ -14,52 +14,52 @@ const (
 // Config configures the cache extension.
 type Config struct {
 	// Driver specifies the cache backend: "inmemory", "redis", "memcached"
-	Driver string
+	Driver string `yaml:"driver"`
 
 	// URL is the connection string for the cache backend
 	// Examples:
 	//   - Redis: "redis://localhost:6379/0"
 	//   - Memcached: "memcached://localhost:11211"
 	//   - In-Memory: "" (not used)
-	URL string
+	URL string `yaml:"url"`
 
 	// DefaultTTL is the default time-to-live for cache entries
 	// Used when Set() is called with ttl=0
-	DefaultTTL time.Duration
+	DefaultTTL time.Duration `yaml:"default_ttl"`
 
 	// MaxSize is the maximum number of items in the cache (in-memory only)
 	// 0 means unlimited
-	MaxSize int
+	MaxSize int `yaml:"max_size"`
 
 	// CleanupInterval is how often to clean up expired items (in-memory only)
-	CleanupInterval time.Duration
+	CleanupInterval time.Duration `yaml:"cleanup_interval"`
 
 	// MaxKeySize is the maximum allowed key size in bytes
-	MaxKeySize int
+	MaxKeySize int `yaml:"max_key_size"`
 
 	// MaxValueSize is the maximum allowed value size in bytes
-	MaxValueSize int
+	MaxValueSize int `yaml:"max_value_size"`
 
 	// Prefix is prepended to all keys
 	// Useful for namespacing in shared cache instances
-	Prefix string
+	Prefix string `yaml:"prefix"`
 
 	// ConnectionPoolSize is the number of connections to maintain (Redis/Memcached)
-	ConnectionPoolSize int
+	ConnectionPoolSize int `yaml:"connection_pool_size"`
 
 	// ConnectionTimeout is the timeout for establishing a connection
-	ConnectionTimeout time.Duration
+	ConnectionTimeout time.Duration `yaml:"connection_timeout"`
 
 	// ReadTimeout is the timeout for read operations
-	ReadTimeout time.Duration
+	ReadTimeout time.Duration `yaml:"read_timeout"`
 
 	// WriteTimeout is the timeout for write operations
-	WriteTimeout time.Duration
+	WriteTimeout time.Duration `yaml:"write_timeout"`
 
 	// RequireConfig determines if config must exist in ConfigManager
 	// If true, extension fails to start without config
 	// If false, uses defaults when config is missing
-	RequireConfig bool
+	RequireConfig bool `yaml:"-"`
 }
 
 // DefaultConfig returns a default configuration for in-memory cache.

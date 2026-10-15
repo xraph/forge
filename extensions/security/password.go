@@ -29,17 +29,17 @@ const (
 type PasswordHasherConfig struct {
 	// Algorithm specifies the hashing algorithm ("argon2id", "bcrypt")
 	// Default: "argon2id" (recommended)
-	Algorithm string
+	Algorithm string `yaml:"algorithm"`
 
 	// Argon2 parameters
-	Argon2Memory      uint32 // Memory in KiB (default: 64MB = 65536)
-	Argon2Iterations  uint32 // Number of iterations (default: 3)
-	Argon2Parallelism uint8  // Degree of parallelism (default: 4)
-	Argon2SaltLength  uint32 // Salt length in bytes (default: 16)
-	Argon2KeyLength   uint32 // Derived key length (default: 32)
+	Argon2Memory      uint32 `yaml:"argon2_memory"`      // Memory in KiB (default: 64MB = 65536)
+	Argon2Iterations  uint32 `yaml:"argon2_iterations"`  // Number of iterations (default: 3)
+	Argon2Parallelism uint8  `yaml:"argon2_parallelism"` // Degree of parallelism (default: 4)
+	Argon2SaltLength  uint32 `yaml:"argon2_salt_length"` // Salt length in bytes (default: 16)
+	Argon2KeyLength   uint32 `yaml:"argon2_key_length"`  // Derived key length (default: 32)
 
 	// Bcrypt parameters
-	BcryptCost int // Cost factor 4-31 (default: 12)
+	BcryptCost int `yaml:"bcrypt_cost"` // Cost factor 4-31 (default: 12)
 }
 
 // DefaultPasswordHasherConfig returns the default password hasher configuration.

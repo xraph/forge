@@ -2,10 +2,14 @@ package forge
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
+	"strings"
+
+	"github.com/xraph/confy"
+	"github.com/xraph/vessel"
 
 	"github.com/xraph/forge/errors"
-	"github.com/xraph/vessel"
 )
 
 // ExtensionConfigLoader provides helper methods for loading extension configuration
@@ -207,12 +211,140 @@ func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, targ
 		return false, nil
 	}
 
+	// A section written with Go field names where the struct now has tags
+	// (mcp, cache and security used to have none) still applies, with a
+	// warning that names the new key.
+	if section, ok := cm.Get(key).(map[string]any); ok {
+		renamed, legacy := renameLegacyKeys(section, reflect.TypeOf(target), key+".")
+		if len(legacy) > 0 {
+			for _, k := range legacy {
+				if l.logger != nil {
+					l.logger.Warn("config key is deprecated, use the new name",
+						F("key", k.old),
+						F("use", k.new),
+					)
+				}
+			}
+
+			scratch := confy.New()
+			scratch.Set("section", renamed)
+
+			if err := scratch.Bind("section", target); err != nil {
+				return false, err
+			}
+
+			return true, nil
+		}
+	}
+
 	// Try to bind
 	if err := cm.Bind(key, target); err != nil {
 		return false, err
 	}
 
 	return true, nil
+}
+
+// legacyKey is a config key written as a Go field name for a field whose tag
+// names a different key.
+type legacyKey struct {
+	old, new string
+}
+
+// renameLegacyKeys returns a copy of section with every key that matches a
+// field's Go name moved to the key confy binds that field from, recursing
+// into nested structs. When both spellings are present the tag's key wins.
+// prefix is prepended to the reported key paths. It returns nil for legacy
+// when section has no old keys, and never modifies section.
+func renameLegacyKeys(section map[string]any, t reflect.Type, prefix string) (map[string]any, []legacyKey) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return section, nil
+	}
+
+	// A key that is some field's bound name is never treated as an old one.
+	bound := make(map[string]bool, t.NumField())
+
+	for f := range t.Fields() {
+		if f.IsExported() {
+			bound[configKeyName(f)] = true
+		}
+	}
+
+	var (
+		out    map[string]any
+		legacy []legacyKey
+	)
+
+	clone := func() {
+		if out == nil {
+			out = maps.Clone(section)
+		}
+	}
+
+	for f := range t.Fields() {
+		if !f.IsExported() {
+			continue
+		}
+
+		name := configKeyName(f)
+
+		if name != f.Name && !bound[f.Name] {
+			if v, ok := section[f.Name]; ok {
+				clone()
+
+				if _, both := section[name]; !both {
+					out[name] = v
+				}
+
+				delete(out, f.Name)
+
+				legacy = append(legacy, legacyKey{old: prefix + f.Name, new: prefix + name})
+			}
+		}
+
+		current := section
+		if out != nil {
+			current = out
+		}
+
+		sub, ok := current[name].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		renamedSub, subLegacy := renameLegacyKeys(sub, f.Type, prefix+name+".")
+		if len(subLegacy) == 0 {
+			continue
+		}
+
+		clone()
+
+		out[name] = renamedSub
+
+		legacy = append(legacy, subLegacy...)
+	}
+
+	if out == nil {
+		return section, nil
+	}
+
+	return out, legacy
+}
+
+// configKeyName is the key confy binds a struct field from: the yaml tag,
+// then the json tag, then the config tag, then the Go field name.
+func configKeyName(f reflect.StructField) string {
+	for _, tag := range []string{"yaml", "json", "config"} {
+		if v := f.Tag.Get(tag); v != "" && v != "-" {
+			return strings.Split(v, ",")[0]
+		}
+	}
+
+	return f.Name
 }
 
 // copyConfig copies config from source to target.

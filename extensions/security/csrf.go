@@ -25,52 +25,52 @@ var (
 // CSRFConfig holds CSRF protection configuration.
 type CSRFConfig struct {
 	// Enabled determines if CSRF protection is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// TokenLength is the length of the CSRF token in bytes (default: 32)
-	TokenLength int
+	TokenLength int `yaml:"token_length"`
 
 	// TokenLookup defines where to find the token:
 	// - "header:<name>" - look in header
 	// - "form:<name>" - look in form field
 	// - "query:<name>" - look in query parameter
 	// Default: "header:X-CSRF-Token"
-	TokenLookup string
+	TokenLookup string `yaml:"token_lookup"`
 
 	// CookieName is the name of the CSRF cookie (default: "csrf_token")
-	CookieName string
+	CookieName string `yaml:"cookie_name"`
 
 	// CookiePath is the path for the CSRF cookie (default: "/")
-	CookiePath string
+	CookiePath string `yaml:"cookie_path"`
 
 	// CookieDomain is the domain for the CSRF cookie
-	CookieDomain string
+	CookieDomain string `yaml:"cookie_domain"`
 
 	// CookieSecure indicates if the cookie should only be sent over HTTPS
-	CookieSecure bool
+	CookieSecure bool `yaml:"cookie_secure"`
 
 	// CookieHTTPOnly indicates if the cookie should be inaccessible to JavaScript
 	// Note: For CSRF tokens, this should be false so JavaScript can read it
-	CookieHTTPOnly bool
+	CookieHTTPOnly bool `yaml:"cookie_http_only"`
 
 	// CookieSameSite specifies the SameSite attribute
-	CookieSameSite string
+	CookieSameSite string `yaml:"cookie_same_site"`
 
 	// TTL is the token time-to-live (default: 12 hours)
-	TTL time.Duration
+	TTL time.Duration `yaml:"ttl"`
 
 	// SafeMethods are HTTP methods that don't require CSRF protection
 	// Default: GET, HEAD, OPTIONS, TRACE
-	SafeMethods []string
+	SafeMethods []string `yaml:"safe_methods"`
 
 	// SkipPaths is a list of paths to skip CSRF protection
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies CSRF middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 
 	// ErrorHandler is called when CSRF validation fails
-	ErrorHandler func(forge.Context, error) error
+	ErrorHandler func(forge.Context, error) error `yaml:"-"`
 }
 
 // DefaultCSRFConfig returns the default CSRF configuration.

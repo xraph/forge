@@ -98,29 +98,29 @@ ErrValueTooLarge, ErrUnsupportedOperation. An empty key on Set returns a plain e
 ## Config
 
 Key `extensions.cache`, falling back to `cache`. File overrides defaults, options override the file.
-`Config` has no yaml tags, so YAML keys are the Go field names exactly (`MaxSize`, not `max_size`;
-a snake_case key is silently ignored).
+Keys are snake_case. The old Go field names (`MaxSize`) still apply and log a deprecation
+warning naming the new key; when both are set the snake_case one wins.
 
-| Field | Default |
+| Key | Default |
 | --- | --- |
-| Driver | "inmemory" |
-| URL | "" |
-| DefaultTTL | 5m |
-| MaxSize | 10000 (0 = no limit) |
-| CleanupInterval | 1m |
-| MaxKeySize | 250 bytes (0 = no limit) |
-| MaxValueSize | 1048576 bytes (0 = no limit) |
-| Prefix | "" |
-| ConnectionPoolSize | 10 (network drivers only) |
-| ConnectionTimeout, ReadTimeout, WriteTimeout | 5s, 3s, 3s (network drivers only) |
+| driver | "inmemory" |
+| url | "" |
+| default_ttl | 5m |
+| max_size | 10000 (0 = no limit) |
+| cleanup_interval | 1m |
+| max_key_size | 250 bytes (0 = no limit) |
+| max_value_size | 1048576 bytes (0 = no limit) |
+| prefix | "" |
+| connection_pool_size | 10 (network drivers only) |
+| connection_timeout, read_timeout, write_timeout | 5s, 3s, 3s (network drivers only) |
 
 ```yaml
 extensions:
   cache:
-    Driver: inmemory
-    DefaultTTL: 10m
-    MaxSize: 50000
-    Prefix: "orders:"
+    driver: inmemory
+    default_ttl: 10m
+    max_size: 50000
+    prefix: "orders:"
 ```
 
 Forge only reads config.yaml when `EnableConfigAutoDiscovery` is on.

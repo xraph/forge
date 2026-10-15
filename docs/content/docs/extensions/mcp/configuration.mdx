@@ -7,41 +7,39 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## How Config Is Loaded
 
-The extension reads `extensions.mcp` from your config, and falls back to a top-level `mcp` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`. So `BasePath: /mcp` or `Enabled: false` in YAML takes effect with a plain `mcp.NewExtension()`, and fields you leave out keep their defaults. One edge case: when the file has an `mcp` section, an option set to exactly its default value looks the same as no option at all, and the file wins for that field. A zero value that differs from the default, like `WithEnabled(false)`, still beats the file.
+The extension reads `extensions.mcp` from your config, and falls back to a top-level `mcp` key. Options you set in code win over the file, and the file wins over `DefaultConfig()`. So `base_path: /mcp` or `enabled: false` in YAML takes effect with a plain `mcp.NewExtension()`, and fields you leave out keep their defaults. One edge case: when the file has an `mcp` section, an option set to exactly its default value looks the same as no option at all, and the file wins for that field. A zero value that differs from the default, like `WithEnabled(false)`, still beats the file.
 
 Forge reads `config.yaml` only when `EnableConfigAutoDiscovery` is on. `forge.DefaultAppConfig()` turns it on, but an `AppConfig` literal leaves it off. `WithRequireConfig(true)` makes a missing section an error at startup.
 
 ## YAML Keys
 
-<Callout type="warn">
-`mcp.Config` has no `yaml` or `json` tags, so the keys are the Go field names, spelled exactly. `ToolPrefix` works. `toolPrefix` and `tool_prefix` are silently ignored.
-</Callout>
+Keys are the snake_case form of each field name, listed in the table below. Older configs used the Go field names (`ToolPrefix`, `BasePath`), and those still apply. Each one logs a warning at startup naming the key to switch to, and if a section sets both spellings the snake_case one wins.
 
 ```yaml title="config.yaml"
 extensions:
   mcp:
-    Enabled: true
-    BasePath: /_/mcp
-    ServerName: orders-api        # defaults to the app name
-    ServerVersion: 1.0.0          # defaults to the app version
+    enabled: true
+    base_path: /_/mcp
+    server_name: orders-api       # defaults to the app name
+    server_version: 1.0.0         # defaults to the app version
 
-    AutoExposeRoutes: true
-    ToolPrefix: shop_
-    ExcludePatterns: ["/_/*", "/internal/*"]
-    IncludePatterns: []
-    MaxToolNameLength: 64
+    auto_expose_routes: true
+    tool_prefix: shop_
+    exclude_patterns: ["/_/*", "/internal/*"]
+    include_patterns: []
+    max_tool_name_length: 64
 
-    EnableResources: false
-    EnablePrompts: false
+    enable_resources: false
+    enable_prompts: false
 
     # Validated, but not applied to the endpoints (see below)
-    RequireAuth: false
-    AuthHeader: Authorization
-    AuthTokens: []
-    RateLimitPerMinute: 0         # 0 means unlimited
+    require_auth: false
+    auth_header: Authorization
+    auth_tokens: []
+    rate_limit_per_minute: 0      # 0 means unlimited
 
-    EnableMetrics: true           # not read
-    SchemaCache: true
+    enable_metrics: true          # not read
+    schema_cache: true
 ```
 
 ## Programmatic Configuration
@@ -59,26 +57,26 @@ ext := mcp.NewExtension(
 
 ## Config Struct Reference
 
-| Field | Type | Default | What it does |
-|---|---|---|---|
-| `Enabled` | `bool` | `true` | When false, the extension registers nothing |
-| `BasePath` | `string` | `"/_/mcp"` | Prefix for every MCP endpoint. Can't be empty |
-| `ServerName` | `string` | `""` | Name in `/info`. Empty means the app's name |
-| `ServerVersion` | `string` | `""` | Version in `/info`. Empty means the app's version |
-| `AutoExposeRoutes` | `bool` | `true` | Turns routes into tools at start |
-| `ToolPrefix` | `string` | `""` | Prefix for generated tool names |
-| `ExcludePatterns` | `[]string` | none | Exact paths or `/prefix/*` globs to leave out. Checked first |
-| `IncludePatterns` | `[]string` | none | When set, only matching paths become tools |
-| `MaxToolNameLength` | `int` | `64` | Longer names are rejected. Must be at least 1 |
-| `EnableResources` | `bool` | `false` | Mounts `/resources` and `/resources/read` |
-| `EnablePrompts` | `bool` | `false` | Mounts `/prompts` and `/prompts/:name` |
-| `RequireAuth` | `bool` | `false` | Not applied. Read by `AuthMiddleware` if you wire it |
-| `AuthHeader` | `string` | `"Authorization"` | Header `AuthMiddleware` checks |
-| `AuthTokens` | `[]string` | none | Accepted tokens. Required when `RequireAuth` is true |
-| `RateLimitPerMinute` | `int` | `0` | Not applied. Read by `RateLimitMiddleware` if you wire it. Can't be negative |
-| `EnableMetrics` | `bool` | `true` | Not read. Metrics are recorded whenever the app has a metrics backend |
-| `SchemaCache` | `bool` | `true` | Gates `CacheSchema` and `GetCachedSchema`, which the extension doesn't call itself |
-| `RequireConfig` | `bool` | `false` | Fail at startup when no config section is found |
+| Field | YAML key | Type | Default | What it does |
+|---|---|---|---|---|
+| `Enabled` | `enabled` | `bool` | `true` | When false, the extension registers nothing |
+| `BasePath` | `base_path` | `string` | `"/_/mcp"` | Prefix for every MCP endpoint. Can't be empty |
+| `ServerName` | `server_name` | `string` | `""` | Name in `/info`. Empty means the app's name |
+| `ServerVersion` | `server_version` | `string` | `""` | Version in `/info`. Empty means the app's version |
+| `AutoExposeRoutes` | `auto_expose_routes` | `bool` | `true` | Turns routes into tools at start |
+| `ToolPrefix` | `tool_prefix` | `string` | `""` | Prefix for generated tool names |
+| `ExcludePatterns` | `exclude_patterns` | `[]string` | none | Exact paths or `/prefix/*` globs to leave out. Checked first |
+| `IncludePatterns` | `include_patterns` | `[]string` | none | When set, only matching paths become tools |
+| `MaxToolNameLength` | `max_tool_name_length` | `int` | `64` | Longer names are rejected. Must be at least 1 |
+| `EnableResources` | `enable_resources` | `bool` | `false` | Mounts `/resources` and `/resources/read` |
+| `EnablePrompts` | `enable_prompts` | `bool` | `false` | Mounts `/prompts` and `/prompts/:name` |
+| `RequireAuth` | `require_auth` | `bool` | `false` | Not applied. Read by `AuthMiddleware` if you wire it |
+| `AuthHeader` | `auth_header` | `string` | `"Authorization"` | Header `AuthMiddleware` checks |
+| `AuthTokens` | `auth_tokens` | `[]string` | none | Accepted tokens. Required when `RequireAuth` is true |
+| `RateLimitPerMinute` | `rate_limit_per_minute` | `int` | `0` | Not applied. Read by `RateLimitMiddleware` if you wire it. Can't be negative |
+| `EnableMetrics` | `enable_metrics` | `bool` | `true` | Not read. Metrics are recorded whenever the app has a metrics backend |
+| `SchemaCache` | `schema_cache` | `bool` | `true` | Gates `CacheSchema` and `GetCachedSchema`, which the extension doesn't call itself |
+| `RequireConfig` | (code only) | `bool` | `false` | Fail at startup when no config section is found |
 
 ## Option Helpers
 

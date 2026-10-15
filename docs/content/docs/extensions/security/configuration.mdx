@@ -9,11 +9,7 @@ You can configure the extension with options in code, or under `extensions.secur
 
 ## YAML keys
 
-<Callout type="warn">
-Only the `session` and `cookie` sections have snake_case keys. Every other section binds to the Go field names, case and all, so the JWT key is `jwt.SigningKey`. A key the binder doesn't recognise, such as `jwt.signing_key` or `rate_limit.requestsPerWindow`, is silently ignored.
-</Callout>
-
-The section names themselves follow the struct tags: `rate_limit`, `security_headers`, `password_hasher` and `api_key` are snake_case.
+Every key is snake_case, the section names and the fields inside them: `jwt.signing_key`, `rate_limit.requests_per_window`, `cors.allow_origins`. Older configs used the Go field names inside `jwt`, `csrf`, `rate_limit` and the other sections (`jwt.SigningKey`), and those still apply. Each one logs a warning at startup naming the key to switch to, and if a section sets both spellings the snake_case one wins.
 
 ```yaml title="config.yaml"
 extensions:
@@ -37,76 +33,76 @@ extensions:
       max_age: 0
 
     jwt:
-      Enabled: true
-      SigningKey: change-me      # required while JWT is enabled
-      SigningMethod: HS256
-      TokenLookup: header:Authorization
-      TokenPrefix: Bearer
-      Issuer: ""
-      Audience: ""
-      TTL: 1h
-      RefreshTTL: 168h
-      SkipPaths: []
-      AutoApplyMiddleware: false
+      enabled: true
+      signing_key: change-me      # required while JWT is enabled
+      signing_method: HS256
+      token_lookup: header:Authorization
+      token_prefix: Bearer
+      issuer: ""
+      audience: ""
+      ttl: 1h
+      refresh_ttl: 168h
+      skip_paths: []
+      auto_apply_middleware: false
 
     csrf:
-      Enabled: true
-      TokenLength: 32
-      TokenLookup: header:X-CSRF-Token
-      CookieName: csrf_token
-      CookieSecure: true
-      CookieSameSite: strict
-      TTL: 12h
-      SafeMethods: [GET, HEAD, OPTIONS, TRACE]
-      SkipPaths: []
-      AutoApplyMiddleware: false
+      enabled: true
+      token_length: 32
+      token_lookup: header:X-CSRF-Token
+      cookie_name: csrf_token
+      cookie_secure: true
+      cookie_same_site: strict
+      ttl: 12h
+      safe_methods: [GET, HEAD, OPTIONS, TRACE]
+      skip_paths: []
+      auto_apply_middleware: false
 
     rate_limit:
-      Enabled: true
-      RequestsPerWindow: 100
-      Window: 1m
-      SkipPaths: ["/health", "/metrics"]
-      AutoApplyMiddleware: false
+      enabled: true
+      requests_per_window: 100
+      window: 1m
+      skip_paths: ["/health", "/metrics"]
+      auto_apply_middleware: false
 
     security_headers:
-      Enabled: true
-      XFrameOptions: SAMEORIGIN
-      ContentSecurityPolicy: "default-src 'self'"
-      AutoApplyMiddleware: false
+      enabled: true
+      x_frame_options: SAMEORIGIN
+      content_security_policy: "default-src 'self'"
+      auto_apply_middleware: false
 
     cors:
-      Enabled: true
-      AllowOrigins: ["https://app.example.com"]
-      AllowMethods: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
-      AllowHeaders: [Origin, Content-Type, Accept, Authorization]
-      ExposeHeaders: []
-      AllowCredentials: true
-      MaxAge: 3600               # seconds
-      AutoApplyMiddleware: false
+      enabled: true
+      allow_origins: ["https://app.example.com"]
+      allow_methods: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      allow_headers: [Origin, Content-Type, Accept, Authorization]
+      expose_headers: []
+      allow_credentials: true
+      max_age: 3600               # seconds
+      auto_apply_middleware: false
 
     api_key:
-      Enabled: true
-      KeyLookup: header:X-API-Key
-      KeyPrefix: ""
-      AutoApplyMiddleware: false
+      enabled: true
+      key_lookup: header:X-API-Key
+      key_prefix: ""
+      auto_apply_middleware: false
 
     password_hasher:
-      Algorithm: argon2id        # or bcrypt
-      Argon2Memory: 65536        # KiB
-      Argon2Iterations: 3
-      Argon2Parallelism: 4
-      BcryptCost: 12
+      algorithm: argon2id        # or bcrypt
+      argon2_memory: 65536        # KiB
+      argon2_iterations: 3
+      argon2_parallelism: 4
+      bcrypt_cost: 12
 
     audit:
-      Enabled: true
-      Level: auth                # auth, data, admin, security or all
-      ExcludePaths: ["/health", "/metrics"]
-      AutoApplyMiddleware: false
+      enabled: true
+      level: auth                # auth, data, admin, security or all
+      exclude_paths: ["/health", "/metrics"]
+      auto_apply_middleware: false
 ```
 
 Durations take Go duration strings (`30s`, `1h`). The function fields (`ErrorHandler`, `APIKeyConfig.Validator`, `AuditConfig.Handler`) can only be set in code.
 
-The top-level `enabled` key has no effect from the file. The extension checks `Enabled` before it reads the file, so turn the whole extension off with `WithEnabled(false)` in code.
+Set the top-level `enabled: false` to turn the whole extension off from the file. `WithEnabled(false)` in code does the same and wins over the file.
 
 ## Options
 

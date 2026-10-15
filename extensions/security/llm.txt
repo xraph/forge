@@ -121,10 +121,10 @@ ConstantTimeCompare.
 ## Config
 
 Key `extensions.security`, falling back to `security`. Options win over the file, the file over
-defaults, field by field. Section keys are snake_case (session, cookie, csrf, rate_limit,
-security_headers, password_hasher, jwt, cors, api_key, audit), but only `session` and `cookie`
-have snake_case field tags. Inside the other sections use Go field names: `jwt.SigningKey`, not
-`jwt.signing_key` (silently ignored).
+defaults, field by field. Section and field keys are snake_case (session, cookie, csrf,
+rate_limit, security_headers, password_hasher, jwt, cors, api_key, audit; `jwt.signing_key`,
+`cors.allow_origins`). The old Go field names (`jwt.SigningKey`) still apply and log a
+deprecation warning. Function fields (ErrorHandler, Validator, Handler) are code only.
 
 Defaults: every feature enabled, every auto-apply off; session in memory, cookie
 `forge_session`, 24h TTL, 30m idle, auto-renew; rate limit 100/min per client, skipping /health

@@ -10,81 +10,81 @@ import (
 // SecurityHeadersConfig holds security headers configuration.
 type SecurityHeadersConfig struct {
 	// Enabled determines if security headers are enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// XFrameOptions prevents clickjacking attacks
 	// Values: "DENY", "SAMEORIGIN", "ALLOW-FROM https://example.com"
 	// Default: "SAMEORIGIN"
-	XFrameOptions string
+	XFrameOptions string `yaml:"x_frame_options"`
 
 	// XContentTypeOptions prevents MIME-sniffing attacks
 	// Value: "nosniff"
 	// Default: "nosniff"
-	XContentTypeOptions string
+	XContentTypeOptions string `yaml:"x_content_type_options"`
 
 	// XSSProtection enables XSS filter in older browsers
 	// Values: "0" (disable), "1" (enable), "1; mode=block" (enable and block)
 	// Default: "1; mode=block"
 	// Note: Modern browsers use CSP instead
-	XSSProtection string
+	XSSProtection string `yaml:"xss_protection"`
 
 	// ContentSecurityPolicy defines CSP rules
 	// Example: "default-src 'self'; script-src 'self' 'unsafe-inline'"
 	// Default: "" (not set)
-	ContentSecurityPolicy string
+	ContentSecurityPolicy string `yaml:"content_security_policy"`
 
 	// ContentSecurityPolicyReportOnly enables CSP in report-only mode
 	// Useful for testing CSP without breaking the site
-	ContentSecurityPolicyReportOnly string
+	ContentSecurityPolicyReportOnly string `yaml:"content_security_policy_report_only"`
 
 	// StrictTransportSecurity enforces HTTPS
 	// Example: "max-age=31536000; includeSubDomains; preload"
 	// Default: "max-age=31536000; includeSubDomains"
-	StrictTransportSecurity string
+	StrictTransportSecurity string `yaml:"strict_transport_security"`
 
 	// ReferrerPolicy controls referrer information
 	// Values: "no-referrer", "no-referrer-when-downgrade", "origin",
 	//         "origin-when-cross-origin", "same-origin", "strict-origin",
 	//         "strict-origin-when-cross-origin", "unsafe-url"
 	// Default: "strict-origin-when-cross-origin"
-	ReferrerPolicy string
+	ReferrerPolicy string `yaml:"referrer_policy"`
 
 	// PermissionsPolicy controls browser features
 	// Example: "geolocation=(self), microphone=()"
 	// Default: ""
-	PermissionsPolicy string
+	PermissionsPolicy string `yaml:"permissions_policy"`
 
 	// CrossOriginEmbedderPolicy controls document embedding
 	// Values: "unsafe-none", "require-corp", "credentialless"
 	// Default: "" (not set)
-	CrossOriginEmbedderPolicy string
+	CrossOriginEmbedderPolicy string `yaml:"cross_origin_embedder_policy"`
 
 	// CrossOriginOpenerPolicy controls cross-origin window interaction
 	// Values: "unsafe-none", "same-origin-allow-popups", "same-origin"
 	// Default: "" (not set)
-	CrossOriginOpenerPolicy string
+	CrossOriginOpenerPolicy string `yaml:"cross_origin_opener_policy"`
 
 	// CrossOriginResourcePolicy controls resource loading
 	// Values: "same-site", "same-origin", "cross-origin"
 	// Default: "" (not set)
-	CrossOriginResourcePolicy string
+	CrossOriginResourcePolicy string `yaml:"cross_origin_resource_policy"`
 
 	// RemoveServerHeader removes the Server header
 	// Default: true
-	RemoveServerHeader bool
+	RemoveServerHeader bool `yaml:"remove_server_header"`
 
 	// RemovePoweredBy removes the X-Powered-By header
 	// Default: true
-	RemovePoweredBy bool
+	RemovePoweredBy bool `yaml:"remove_powered_by"`
 
 	// CustomHeaders allows setting custom security headers
-	CustomHeaders map[string]string
+	CustomHeaders map[string]string `yaml:"custom_headers"`
 
 	// SkipPaths is a list of paths to skip security headers
-	SkipPaths []string
+	SkipPaths []string `yaml:"skip_paths"`
 
 	// AutoApplyMiddleware automatically applies security headers middleware globally
-	AutoApplyMiddleware bool
+	AutoApplyMiddleware bool `yaml:"auto_apply_middleware"`
 }
 
 // DefaultSecurityHeadersConfig returns the default security headers configuration.

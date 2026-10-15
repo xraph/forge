@@ -11,77 +11,77 @@ const (
 // Config configures the MCP extension.
 type Config struct {
 	// Enabled enables or disables the MCP server
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// BasePath is the base path for MCP endpoints
 	// Default: "/_/mcp"
-	BasePath string
+	BasePath string `yaml:"base_path"`
 
 	// ServerName is the name of the MCP server
 	// Default: app name
-	ServerName string
+	ServerName string `yaml:"server_name"`
 
 	// ServerVersion is the version of the MCP server
 	// Default: app version
-	ServerVersion string
+	ServerVersion string `yaml:"server_version"`
 
 	// AutoExposeRoutes automatically exposes routes as MCP tools
 	// Default: true
-	AutoExposeRoutes bool
+	AutoExposeRoutes bool `yaml:"auto_expose_routes"`
 
 	// ToolPrefix is a prefix to add to all tool names
 	// Example: "myapi_" -> "myapi_create_user"
-	ToolPrefix string
+	ToolPrefix string `yaml:"tool_prefix"`
 
 	// ExcludePatterns are route patterns to exclude from MCP
 	// Example: []string{"/_/*", "/internal/*"}
-	ExcludePatterns []string
+	ExcludePatterns []string `yaml:"exclude_patterns"`
 
 	// IncludePatterns are route patterns to explicitly include in MCP
 	// If set, only matching routes are exposed
-	IncludePatterns []string
+	IncludePatterns []string `yaml:"include_patterns"`
 
 	// MaxToolNameLength is the maximum length for tool names
 	// Default: 64
-	MaxToolNameLength int
+	MaxToolNameLength int `yaml:"max_tool_name_length"`
 
 	// EnableResources enables MCP resources (data access)
 	// Default: false
-	EnableResources bool
+	EnableResources bool `yaml:"enable_resources"`
 
 	// EnablePrompts enables MCP prompts (templates)
 	// Default: false
-	EnablePrompts bool
+	EnablePrompts bool `yaml:"enable_prompts"`
 
 	// RequireAuth requires authentication for MCP endpoints
 	// Default: false
-	RequireAuth bool
+	RequireAuth bool `yaml:"require_auth"`
 
 	// AuthHeader is the header to check for authentication
 	// Default: "Authorization"
-	AuthHeader string
+	AuthHeader string `yaml:"auth_header"`
 
 	// AuthTokens are valid authentication tokens
 	// Only used if RequireAuth is true
-	AuthTokens []string
+	AuthTokens []string `yaml:"auth_tokens"`
 
 	// RateLimitPerMinute limits MCP tool calls per minute
 	// 0 means unlimited
 	// Default: 0
-	RateLimitPerMinute int
+	RateLimitPerMinute int `yaml:"rate_limit_per_minute"`
 
 	// EnableMetrics enables metrics collection for MCP operations
 	// Default: true
-	EnableMetrics bool
+	EnableMetrics bool `yaml:"enable_metrics"`
 
 	// SchemaCache enables caching of generated JSON schemas
 	// Default: true
-	SchemaCache bool
+	SchemaCache bool `yaml:"schema_cache"`
 
 	// RequireConfig determines if config must exist in ConfigManager
 	// If true, extension fails to start without config
 	// If false, uses defaults when config is missing
-	RequireConfig bool
+	RequireConfig bool `yaml:"-"`
 }
 
 // DefaultConfig returns a default MCP configuration.
