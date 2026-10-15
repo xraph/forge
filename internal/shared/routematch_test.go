@@ -76,8 +76,9 @@ func TestRouteMatchNilIsSafe(t *testing.T) {
 	}
 }
 
-// Tracing and HTTP metrics each register one callback per request, and both
-// run in registration order. Two registrations must not allocate.
+// Tracing and HTTP metrics each register one callback per request, profiling
+// a third on a labelled one, and they run in registration order. Three
+// registrations must not allocate.
 func TestOnEstablishedRunsInOrderWithoutAllocating(t *testing.T) {
 	var order []int
 
@@ -106,10 +107,11 @@ func TestOnEstablishedRunsInOrderWithoutAllocating(t *testing.T) {
 		_, h := NewRouteMatch(ctx)
 		h.OnEstablished(first)
 		h.OnEstablished(second)
+		h.OnEstablished(third)
 	})
 
 	if withCallbacks != holderOnly {
-		t.Fatalf("two OnEstablished calls added %.0f allocations, want 0", withCallbacks-holderOnly)
+		t.Fatalf("three OnEstablished calls added %.0f allocations, want 0", withCallbacks-holderOnly)
 	}
 }
 

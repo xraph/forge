@@ -26,10 +26,11 @@ type RouteMatch struct {
 	onEstablish []func(status int)
 	onMatch     []func(pattern string)
 
-	// inline backs onEstablish for the usual case, tracing and HTTP metrics
-	// registering one callback each, so a request doesn't allocate for them.
-	// inlineMatch does the same for onMatch, where profiling registers one.
-	inline      [2]func(status int)
+	// inline backs onEstablish for the usual case, so a request doesn't
+	// allocate for its callbacks: tracing and HTTP metrics register one
+	// each, and profiling a third on a labelled request. inlineMatch does the
+	// same for onMatch, where profiling registers one.
+	inline      [3]func(status int)
 	inlineMatch [1]func(pattern string)
 }
 
