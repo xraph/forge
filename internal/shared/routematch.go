@@ -12,6 +12,40 @@ type routeMatchKey struct{}
 // it once the handler returns.
 type RouteMatch struct {
 	Pattern string
+	Kind    RouteKind // KindHTTP unless the router stamped a stream kind
+
+	established bool
+	onEstablish []func(status int)
+}
+
+// OnEstablished registers fn to run when the router reports a stream route as
+// set up: after a WebSocket or WebTransport upgrade, or once an SSE stream is
+// writable. Middleware registers before passing the request on. Everything runs
+// on the request goroutine, so there is no locking.
+func (m *RouteMatch) OnEstablished(fn func(status int)) {
+	if m == nil {
+		return
+	}
+
+	m.onEstablish = append(m.onEstablish, fn)
+}
+
+// Establish runs the registered callbacks once. Later calls do nothing.
+func (m *RouteMatch) Establish(status int) {
+	if m == nil || m.established {
+		return
+	}
+
+	m.established = true
+
+	for _, fn := range m.onEstablish {
+		fn(status)
+	}
+}
+
+// Established reports whether Establish has run.
+func (m *RouteMatch) Established() bool {
+	return m != nil && m.established
 }
 
 // NewRouteMatch always puts a fresh holder on ctx, hiding any holder an outer

@@ -40,3 +40,38 @@ func TestRouteMatchFromContextAbsent(t *testing.T) {
 		t.Fatal("want nil when no holder is present")
 	}
 }
+
+func TestEstablishRunsCallbacksOnce(t *testing.T) {
+	_, m := NewRouteMatch(context.Background())
+
+	var got []int
+
+	m.OnEstablished(func(status int) { got = append(got, status) })
+	m.OnEstablished(func(status int) { got = append(got, status+1) })
+
+	if m.Established() {
+		t.Fatal("Established before Establish")
+	}
+
+	m.Establish(101)
+	m.Establish(200)
+
+	if !m.Established() {
+		t.Fatal("Established false after Establish")
+	}
+
+	if len(got) != 2 || got[0] != 101 || got[1] != 102 {
+		t.Fatalf("callbacks ran as %v, want [101 102] once", got)
+	}
+}
+
+func TestRouteMatchNilIsSafe(t *testing.T) {
+	var m *RouteMatch
+
+	m.OnEstablished(func(int) { t.Fatal("callback on nil holder") })
+	m.Establish(200)
+
+	if m.Established() {
+		t.Fatal("nil holder reports established")
+	}
+}

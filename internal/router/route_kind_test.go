@@ -1,11 +1,15 @@
 package router
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 func TestRouteInfo_KindIsSetByTheStreamingConstructors(t *testing.T) {
@@ -88,5 +92,23 @@ func TestRouteKind_NoRouteTypeMetadataRemains(t *testing.T) {
 	for _, info := range r.Routes() {
 		_, found := info.Metadata["route.type"]
 		assert.Falsef(t, found, "route %s still carries a route.type metadata string", info.Path)
+	}
+}
+
+func TestRouterStampsRouteKind(t *testing.T) {
+	r := newRouter()
+
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error { return nil }))
+	require.NoError(t, r.GET("/plain", func(ctx Context) error { return ctx.String(http.StatusOK, "ok") }))
+
+	for path, want := range map[string]shared.RouteKind{"/events": shared.KindSSE, "/plain": shared.KindHTTP} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		ctx, m := shared.NewRouteMatch(req.Context())
+
+		r.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+
+		if m.Kind != want {
+			t.Errorf("%s: Kind = %v, want %v", path, m.Kind, want)
+		}
 	}
 }
