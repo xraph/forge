@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/forge/internal/logger"
@@ -43,6 +43,7 @@ func NormalizeMethod(m string) (method, original string) {
 func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) http.Handler {
 	tracer := tp.Tracer(instrumentationName)
 	responseHeader := http.CanonicalHeaderKey(s.ResponseHeader)
+	serverKind := trace.WithSpanKind(trace.SpanKindServer)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +53,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				return
 			}
 
-			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			ctx := otel.GetTextMapPropagator().Extract(r.Context(), headerCarrier(r.Header))
 			ctx, match := shared.NewRouteMatch(ctx)
 
 			method, original := NormalizeMethod(r.Method)
@@ -62,106 +63,136 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				spanName = "HTTP"
 			}
 
-			ctx, span := tracer.Start(ctx, spanName,
-				trace.WithSpanKind(trace.SpanKindServer),
-				trace.WithAttributes(requestAttributes(r, method, original)...),
-			)
+			// One allocation holds the request's tracing state, the status
+			// recorder, the start options and both attribute buffers included.
+			// The options live here because a variadic slice passed through
+			// the Tracer interface escapes.
+			st := &serverSpan{match: match, method: method}
+			st.rec.ResponseWriter = w
+			st.startOpts = [...]trace.SpanStartOption{
+				serverKind,
+				trace.WithAttributes(st.requestAttributes(r, method, original)...),
+			}
+
+			ctx, st.span = tracer.Start(ctx, spanName, st.startOpts[:]...) //nolint:spancheck // st.finish or st.recoverPanic ends it
 
 			var labelSpanID string
 
-			sc := span.SpanContext()
+			sc := st.span.SpanContext()
 			if sc.IsValid() {
-				traceID, spanID := sc.TraceID().String(), sc.SpanID().String()
+				header, traceID, spanID := traceparentIDs(sc)
 
 				ctx = logger.WithTraceID(ctx, traceID)
 				ctx = logger.WithSpanID(ctx, spanID)
 
 				if responseHeader != "" {
-					w.Header()[responseHeader] = []string{traceparent(traceID, spanID, sc.IsSampled())}
+					w.Header()[responseHeader] = []string{header}
 				}
 
 				// Only a sampled span reaches Tempo, so only it can link to a profile.
 				if s.SpanLabels && sc.IsSampled() {
 					labelSpanID = spanID
 
-					span.SetAttributes(attribute.String(profileIDAttribute, spanID))
+					st.span.SetAttributes(attribute.String(profileIDAttribute, spanID))
 				}
 			}
 
-			rec := NewStatusRecorder(w)
+			// A stream route ends the span from the router's establishment
+			// callback, so it covers the handshake and not the connection's
+			// lifetime.
+			match.OnEstablished(st.finish)
 
-			// finish names and ends the span. A stream route runs it from the
-			// router's establishment callback, so the span covers the handshake
-			// and not the connection's lifetime.
-			finish := func(status int) {
-				// An unsampled span drops everything set on it, so skip the work.
-				if !span.IsRecording() {
-					span.End()
-
-					return
-				}
-
-				attrs := make([]attribute.KeyValue, 0, 4)
-
-				if match.Pattern != "" {
-					if method != "_OTHER" {
-						span.SetName(method + " " + match.Pattern)
-					}
-
-					attrs = append(attrs, attribute.String("http.route", match.Pattern))
-				}
-
-				// The router stamps the kind before it checks the upgrade, so a
-				// rejected one (a disallowed Origin, say) still carries it. Only a
-				// stream that actually opened is a stream span.
-				if match.Kind != shared.KindHTTP && match.Established() {
-					attrs = append(attrs, attribute.String("forge.stream.kind", match.Kind.String()))
-				}
-
-				attrs = append(attrs, attribute.Int("http.response.status_code", status))
-
-				if status >= http.StatusInternalServerError {
-					span.SetStatus(codes.Error, "")
-
-					attrs = append(attrs, attribute.String("error.type", strconv.Itoa(status)))
-				}
-
-				span.SetAttributes(attrs...)
-				span.End()
-			}
-
-			match.OnEstablished(finish)
-
-			defer func() {
-				if p := recover(); p != nil {
-					if match.Established() {
-						// The span ended at the handshake.
-						panic(p)
-					}
-
-					span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
-					span.SetStatus(codes.Error, "panic")
-					span.End()
-
-					panic(p)
-				}
-			}()
+			defer st.recoverPanic()
 
 			if labelSpanID != "" {
 				serveLabelled(ctx, labelSpanID, method, match, func(c context.Context) {
-					next.ServeHTTP(rec, r.WithContext(c))
+					next.ServeHTTP(&st.rec, r.WithContext(c))
 				})
 			} else {
-				next.ServeHTTP(rec, r.WithContext(ctx))
+				next.ServeHTTP(&st.rec, r.WithContext(ctx))
 			}
 
 			if match.Established() {
 				return // the span ended at the handshake
 			}
 
-			finish(rec.Status())
+			st.finish(st.rec.Status())
 		})
 	}
+}
+
+// serverSpan is the tracing middleware's per-request state. Closures for
+// finishing the span and recovering a panic, plus a separate status recorder,
+// cost one allocation each.
+type serverSpan struct {
+	span   trace.Span
+	match  *shared.RouteMatch
+	method string
+	rec    StatusRecorder
+
+	startOpts [2]trace.SpanStartOption
+	reqAttrs  [7]attribute.KeyValue
+	endAttrs  [4]attribute.KeyValue
+}
+
+// finish names and ends the span.
+func (st *serverSpan) finish(status int) {
+	span, match := st.span, st.match
+
+	// An unsampled span drops everything set on it, so skip the work.
+	if !span.IsRecording() {
+		span.End()
+
+		return
+	}
+
+	attrs := st.endAttrs[:0]
+
+	if match.Pattern != "" {
+		if st.method != "_OTHER" {
+			span.SetName(spanName(st.method, match.Pattern))
+		}
+
+		attrs = append(attrs, attribute.String("http.route", match.Pattern))
+	}
+
+	// The router stamps the kind before it checks the upgrade, so a rejected
+	// one (a disallowed Origin, say) still carries it. Only a stream that
+	// actually opened is a stream span.
+	if match.Kind != shared.KindHTTP && match.Established() {
+		attrs = append(attrs, attribute.String("forge.stream.kind", match.Kind.String()))
+	}
+
+	attrs = append(attrs, attribute.Int("http.response.status_code", status))
+
+	if status >= http.StatusInternalServerError {
+		span.SetStatus(codes.Error, "")
+
+		attrs = append(attrs, attribute.String("error.type", strconv.Itoa(status)))
+	}
+
+	span.SetAttributes(attrs...)
+	span.End()
+}
+
+// recoverPanic records a handler panic on the span and panics on. It must be
+// deferred directly, or recover returns nil.
+func (st *serverSpan) recoverPanic() {
+	p := recover()
+	if p == nil {
+		return
+	}
+
+	if st.match.Established() {
+		// The span ended at the handshake.
+		panic(p)
+	}
+
+	st.span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
+	st.span.SetStatus(codes.Error, "panic")
+	st.span.End()
+
+	panic(p)
 }
 
 // PropagationMiddleware only extracts the incoming trace context, so a
@@ -170,7 +201,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 func PropagationMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			ctx := otel.GetTextMapPropagator().Extract(r.Context(), headerCarrier(r.Header))
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -199,14 +230,14 @@ func RouteMatchMiddleware(excludePaths []string) func(http.Handler) http.Handler
 	}
 }
 
-func requestAttributes(r *http.Request, method, original string) []attribute.KeyValue {
+// requestAttributes fills st.reqAttrs with the span's start attributes.
+func (st *serverSpan) requestAttributes(r *http.Request, method, original string) []attribute.KeyValue {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
 
-	attrs := make([]attribute.KeyValue, 0, 7)
-	attrs = append(attrs,
+	attrs := append(st.reqAttrs[:0],
 		attribute.String("http.request.method", method),
 		attribute.String("url.scheme", scheme),
 		attribute.String("url.path", r.URL.Path),
@@ -217,11 +248,7 @@ func requestAttributes(r *http.Request, method, original string) []attribute.Key
 		attrs = append(attrs, attribute.String("http.request.method_original", original))
 	}
 
-	if host := r.Host; host != "" {
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-
+	if host := serverAddress(r.Host); host != "" {
 		attrs = append(attrs, attribute.String("server.address", host))
 	}
 
@@ -232,15 +259,44 @@ func requestAttributes(r *http.Request, method, original string) []attribute.Key
 	return attrs
 }
 
-// traceparent builds the W3C header value for a valid span context, the same
-// bytes propagation.TraceContext would inject, without a carrier map.
-func traceparent(traceID, spanID string, sampled bool) string {
-	flags := "00"
-	if sampled {
-		flags = "01"
+// serverAddress drops the port from a Host header value. net.SplitHostPort
+// allocates an error for a host with no port, the usual case behind a proxy,
+// so it only runs when a port can be present. A value it can't split is kept
+// as sent.
+func serverAddress(host string) string {
+	if !strings.Contains(host, ":") || strings.HasSuffix(host, "]") {
+		return host
 	}
 
-	return "00-" + traceID + "-" + spanID + "-" + flags
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+
+	return host
+}
+
+// traceparentIDs builds the W3C traceparent for a valid span context, the
+// same bytes propagation.TraceContext would inject, and returns the trace and
+// span IDs as slices of it: one allocation where three strings cost three.
+func traceparentIDs(sc trace.SpanContext) (header, traceID, spanID string) {
+	tid, sid := sc.TraceID(), sc.SpanID()
+
+	// "00-" trace "-" span "-" flags.
+	var buf [3 + 32 + 1 + 16 + 3]byte
+
+	copy(buf[:], "00-")
+	hex.Encode(buf[3:35], tid[:])
+	buf[35] = '-'
+	hex.Encode(buf[36:52], sid[:])
+	copy(buf[52:], "-00")
+
+	if sc.IsSampled() {
+		buf[54] = '1'
+	}
+
+	header = string(buf[:])
+
+	return header, header[3:35], header[36:52]
 }
 
 // Excluded reports whether path starts with any of prefixes. The tracing and

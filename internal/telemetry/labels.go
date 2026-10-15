@@ -47,5 +47,5 @@ func spanName(method, pattern string) string {
 		return "HTTP"
 	}
 
-	return method + " " + pattern
+	return spanNames.get(method, pattern)
 }
