@@ -2,9 +2,11 @@ package spec
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/xraph/forge/cmd/forge/internal/deploy/output"
 )
@@ -215,6 +217,8 @@ func Validate(doc *Document, apps []string) output.Diagnostics {
 		if t.Provider == "" {
 			add(output.CodeUnknownKey, "deploy.targets."+name+".provider", "target has no provider", "set provider: compose, kubernetes, render or digitalocean")
 		}
+
+		validateObservability(add, f, t)
 	}
 
 	switch d.Workbench.Persistence.Backend {
@@ -241,4 +245,45 @@ func knownService(d *Deploy, name string) bool {
 	_, ok := d.Services[name]
 
 	return ok
+}
+
+// validateObservability checks a target's observability block. The rules
+// that depend on network_policy live in the Kubernetes provider.
+func validateObservability(add func(code, field, msg, fix string), f string, t Target) {
+	o := t.Observability
+	if o == nil {
+		return
+	}
+
+	const code = "DEPLOY_OBSERVABILITY_INVALID"
+
+	field := f + ".observability"
+
+	if t.Provider != "kubernetes" {
+		add(code, field, "observability settings apply to kubernetes targets only", "move the block to a kubernetes target or remove it")
+	}
+
+	if o.OTLPEndpoint != "" {
+		u, err := url.Parse(o.OTLPEndpoint)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			add(code, field+".otlp_endpoint", "otlp_endpoint must be an absolute http or https URL", "use a URL such as http://otel-collector.monitoring:4318")
+		}
+	}
+
+	switch o.Sampler {
+	case "", "always_on", "always_off", "traceidratio", "parentbased_always_on", "parentbased_always_off", "parentbased_traceidratio":
+	default:
+		add(code, field+".sampler", "unknown sampler", "use always_on, always_off, traceidratio, parentbased_always_on, parentbased_always_off or parentbased_traceidratio")
+	}
+
+	ratioSampler := o.Sampler == "traceidratio" || o.Sampler == "parentbased_traceidratio"
+	if r := o.SampleRatio; r != nil && (*r < 0 || *r > 1 || !ratioSampler) {
+		add(code, field+".sample_ratio", "sample_ratio must be between 0 and 1 and needs a ratio sampler", "set sampler to traceidratio or parentbased_traceidratio and a ratio from 0 to 1")
+	}
+
+	if m := o.ServiceMonitor; m != nil && m.Interval != "" {
+		if d, err := time.ParseDuration(m.Interval); err != nil || d <= 0 {
+			add(code, field+".service_monitor.interval", "interval must be a positive duration", "use a value such as 15s or 1m")
+		}
+	}
 }

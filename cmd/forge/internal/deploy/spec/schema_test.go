@@ -55,6 +55,7 @@ func TestSchemaCoversEveryField(t *testing.T) {
 		"Health": reflect.TypeFor[Health](), "Binding": reflect.TypeFor[Binding](), "Resource": reflect.TypeFor[Resource](),
 		"Connection": reflect.TypeFor[Connection](), "Environment": reflect.TypeFor[Environment](),
 		"ResourceOverride": reflect.TypeFor[ResourceOverride](), "Target": reflect.TypeFor[Target](), "Secrets": reflect.TypeFor[Secrets](),
+		"Observability": reflect.TypeFor[Observability](), "ServiceMonitor": reflect.TypeFor[ServiceMonitor](),
 	} {
 		p := props(t, schema, def)
 		for _, name := range tags(typ) {

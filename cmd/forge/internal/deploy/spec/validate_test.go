@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -83,5 +84,50 @@ func TestConnectionRetryBoundsMatchRuntimeClients(t *testing.T) {
 		if !found {
 			t.Fatalf("unbounded connection retry accepted: %d", attempts)
 		}
+	}
+}
+
+func TestValidateObservability(t *testing.T) {
+	kube := func(block string) string {
+		return "deploy:\n  version: 2\n  targets:\n    k8s:\n      provider: kubernetes\n      observability: " + block + "\n  environments: {dev: {target: k8s}}\n"
+	}
+
+	cases := []struct{ name, body, field string }{
+		{"compose target", "deploy:\n  version: 2\n  targets: {local: {provider: compose, observability: {otlp_endpoint: \"http://c:4318\"}}}\n  environments: {dev: {target: local}}\n", "deploy.targets.local.observability"},
+		{"relative endpoint", kube(`{otlp_endpoint: "collector:4318"}`), "deploy.targets.k8s.observability.otlp_endpoint"},
+		{"unknown sampler", kube(`{sampler: sometimes}`), "deploy.targets.k8s.observability.sampler"},
+		{"ratio out of range", kube(`{sampler: traceidratio, sample_ratio: 1.5}`), "deploy.targets.k8s.observability.sample_ratio"},
+		{"ratio without ratio sampler", kube(`{sample_ratio: 0.1}`), "deploy.targets.k8s.observability.sample_ratio"},
+		{"bad interval", kube(`{service_monitor: {enabled: true, interval: often}}`), "deploy.targets.k8s.observability.service_monitor.interval"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := Validate(parseString(t, tc.body), []string{"api"})
+			for _, d := range diags {
+				if d.Code == "DEPLOY_OBSERVABILITY_INVALID" && d.Field == tc.field {
+					return
+				}
+			}
+
+			t.Fatalf("no DEPLOY_OBSERVABILITY_INVALID on %s: %+v", tc.field, diags)
+		})
+	}
+
+	ok := kube(`{otlp_endpoint: "http://otel-collector.monitoring:4318", sampler: parentbased_traceidratio, sample_ratio: 0.1, service_monitor: {enabled: true, interval: 15s, labels: {release: prometheus}}}`)
+	for _, d := range Validate(parseString(t, ok), []string{"api"}) {
+		if d.Code == "DEPLOY_OBSERVABILITY_INVALID" {
+			t.Fatalf("valid block rejected: %+v", d)
+		}
+	}
+}
+
+func TestTargetWithoutObservabilityMarshalsUnchanged(t *testing.T) {
+	raw, err := json.Marshal(Target{Provider: "kubernetes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(string(raw), "observability") {
+		t.Fatalf("absent block leaks into JSON (and plan hashes): %s", raw)
 	}
 }

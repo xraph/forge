@@ -64,7 +64,9 @@
           "$ref": "#/$defs/Workbench"
         }
       },
-      "required": ["version"]
+      "required": [
+        "version"
+      ]
     },
     "Defaults": {
       "type": "object",
@@ -87,7 +89,13 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["web", "worker", "job", "cron", "gateway"]
+          "enum": [
+            "web",
+            "worker",
+            "job",
+            "cron",
+            "gateway"
+          ]
         },
         "ports": {
           "type": "object",
@@ -140,7 +148,10 @@
           "type": "string"
         }
       },
-      "required": ["app", "kind"]
+      "required": [
+        "app",
+        "kind"
+      ]
     },
     "Port": {
       "type": "object",
@@ -154,15 +165,24 @@
         "protocol": {
           "type": "string",
           "description": "\"http\" default, \"grpc\", \"tcp\"",
-          "enum": ["http", "grpc", "tcp"]
+          "enum": [
+            "http",
+            "grpc",
+            "tcp"
+          ]
         },
         "exposure": {
           "type": "string",
-          "enum": ["public", "private"],
+          "enum": [
+            "public",
+            "private"
+          ],
           "description": "private default"
         }
       },
-      "required": ["port"]
+      "required": [
+        "port"
+      ]
     },
     "Health": {
       "type": "object",
@@ -226,7 +246,10 @@
           "description": "trove"
         }
       },
-      "required": ["resource", "extension"]
+      "required": [
+        "resource",
+        "extension"
+      ]
     },
     "Resource": {
       "type": "object",
@@ -248,7 +271,9 @@
           "type": "string"
         }
       },
-      "required": ["type"]
+      "required": [
+        "type"
+      ]
     },
     "Connection": {
       "type": "object",
@@ -276,7 +301,10 @@
           "$ref": "#/$defs/Retry"
         }
       },
-      "required": ["from", "to"]
+      "required": [
+        "from",
+        "to"
+      ]
     },
     "Retry": {
       "type": "object",
@@ -329,10 +357,17 @@
           "uniqueItems": true
         },
         "purpose": {
-          "enum": ["development", "staging", "production"]
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ]
         },
         "environment_action": {
-          "enum": ["existing", "create"]
+          "enum": [
+            "existing",
+            "create"
+          ]
         },
         "external_services": {
           "type": "object",
@@ -356,7 +391,9 @@
           }
         }
       },
-      "required": ["target"]
+      "required": [
+        "target"
+      ]
     },
     "ResourceOverride": {
       "type": "object",
@@ -364,7 +401,11 @@
       "properties": {
         "lifecycle": {
           "type": "string",
-          "enum": ["container", "external", "managed"]
+          "enum": [
+            "container",
+            "external",
+            "managed"
+          ]
         },
         "secret": {
           "type": "string"
@@ -440,6 +481,9 @@
         "docker_context": {
           "type": "string"
         },
+        "observability": {
+          "$ref": "#/$defs/Observability"
+        },
         "build": {
           "$ref": "#/$defs/Build"
         },
@@ -493,7 +537,67 @@
           "description": "Hosted secret reference names mapped to existing vault keys."
         }
       },
-      "required": ["provider"]
+      "required": [
+        "provider"
+      ]
+    },
+    "Observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Kubernetes only. OTLP export settings injected as OTEL_* variables, and a Prometheus Operator ServiceMonitor.",
+      "properties": {
+        "otlp_endpoint": {
+          "type": "string",
+          "description": "OTLP/HTTP base URL, injected as OTEL_EXPORTER_OTLP_ENDPOINT"
+        },
+        "sampler": {
+          "type": "string",
+          "enum": [
+            "always_on",
+            "always_off",
+            "traceidratio",
+            "parentbased_always_on",
+            "parentbased_always_off",
+            "parentbased_traceidratio"
+          ]
+        },
+        "sample_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "otlp_namespace": {
+          "type": "string",
+          "description": "namespace the collector runs in, for network_policy egress"
+        },
+        "service_monitor": {
+          "$ref": "#/$defs/ServiceMonitor"
+        }
+      }
+    },
+    "ServiceMonitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "description": "scrape interval, 30s by default"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "labels your Prometheus selects ServiceMonitors by"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "namespace Prometheus runs in, for network_policy ingress"
+        }
+      }
     },
     "Secrets": {
       "type": "object",
@@ -502,7 +606,11 @@
         "resolver": {
           "type": "string",
           "description": "\"env\" default, \"file\", \"kubernetes\"",
-          "enum": ["env", "file", "kubernetes"]
+          "enum": [
+            "env",
+            "file",
+            "kubernetes"
+          ]
         },
         "file": {
           "type": "string",
@@ -521,10 +629,19 @@
       "additionalProperties": false,
       "properties": {
         "source": {
-          "enum": ["local", "remote", "ci", "existing", "git"]
+          "enum": [
+            "local",
+            "remote",
+            "ci",
+            "existing",
+            "git"
+          ]
         },
         "delivery": {
-          "enum": ["local", "registry"]
+          "enum": [
+            "local",
+            "registry"
+          ]
         },
         "platforms": {
           "type": "array",
@@ -554,7 +671,11 @@
           "type": "string"
         },
         "trigger": {
-          "enum": ["off", "checksPass", "commit"]
+          "enum": [
+            "off",
+            "checksPass",
+            "commit"
+          ]
         },
         "config_path": {
           "type": "string"
@@ -617,7 +738,10 @@
       "additionalProperties": false,
       "properties": {
         "mode": {
-          "enum": ["direct", "gitops"]
+          "enum": [
+            "direct",
+            "gitops"
+          ]
         },
         "repo": {
           "type": "string"
@@ -662,7 +786,11 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "enum": ["files", "sqlite", "postgres"]
+          "enum": [
+            "files",
+            "sqlite",
+            "postgres"
+          ]
         },
         "reference": {
           "type": "string"

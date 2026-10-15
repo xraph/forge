@@ -172,6 +172,7 @@ type Target struct {
 	NetworkPolicy bool           `json:"network_policy,omitempty" yaml:"network_policy,omitempty"`
 	Project       string         `json:"project,omitempty"        yaml:"project,omitempty"` // compose project name
 	DockerContext string         `json:"docker_context,omitempty" yaml:"docker_context,omitempty"`
+	Observability *Observability `json:"observability,omitempty"  yaml:"observability,omitempty"`
 	Extra         map[string]any `json:"extra,omitempty"          yaml:",inline"`
 }
 
@@ -234,4 +235,36 @@ type Workbench struct {
 type Persistence struct {
 	Backend   string `json:"backend,omitempty"   yaml:"backend,omitempty"`
 	Reference string `json:"reference,omitempty" yaml:"reference,omitempty"`
+}
+
+// Observability opts a Kubernetes target into OTLP export settings and a
+// Prometheus Operator ServiceMonitor for each service with an HTTP port.
+type Observability struct {
+	OTLPEndpoint   string          `json:"otlp_endpoint,omitempty"   yaml:"otlp_endpoint,omitempty"`
+	Sampler        string          `json:"sampler,omitempty"         yaml:"sampler,omitempty"`
+	SampleRatio    *float64        `json:"sample_ratio,omitempty"    yaml:"sample_ratio,omitempty"`
+	OTLPNamespace  string          `json:"otlp_namespace,omitempty"  yaml:"otlp_namespace,omitempty"`
+	ServiceMonitor *ServiceMonitor `json:"service_monitor,omitempty" yaml:"service_monitor,omitempty"`
+}
+
+// ServiceMonitor configures the monitoring.coreos.com/v1 ServiceMonitor.
+type ServiceMonitor struct {
+	Enabled   bool              `json:"enabled,omitempty"   yaml:"enabled,omitempty"`
+	Interval  string            `json:"interval,omitempty"  yaml:"interval,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"    yaml:"labels,omitempty"`
+	Namespace string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+}
+
+// MonitorEnabled reports whether a ServiceMonitor should be rendered.
+func (o *Observability) MonitorEnabled() bool {
+	return o != nil && o.ServiceMonitor != nil && o.ServiceMonitor.Enabled
+}
+
+// MonitorInterval is the scrape interval, 30s when unset.
+func (o *Observability) MonitorInterval() string {
+	if o == nil || o.ServiceMonitor == nil || o.ServiceMonitor.Interval == "" {
+		return "30s"
+	}
+
+	return o.ServiceMonitor.Interval
 }
