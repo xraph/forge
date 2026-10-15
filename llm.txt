@@ -293,7 +293,8 @@ to `<endpoint>/v1/metrics`, every 60 seconds by default. The same
 setting is needed. Precedence is `WithAppMetricsExportConfig(MetricsExportConfig{...})`,
 then the `metrics_export:` key of the config file, then `OTEL_*` env
 (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_METRIC_EXPORT_INTERVAL`, ...).
-`OTEL_METRICS_EXPORTER=none` or `metrics_export.enabled: false` turns it off.
+`OTEL_METRICS_EXPORTER=none` (any list without `otlp`) or `metrics_export.enabled: false`
+turns it off.
 If your backend also scrapes `/_/metrics`, it counts everything twice.
 
 ```yaml
@@ -305,8 +306,8 @@ metrics_export:
   headers: { X-Api-Key: k }
 ```
 
-`Stop` pushes once more after the extensions stop and before the container
-stops the collector, then flushes spans. A bad endpoint is logged and the app
+`Stop` pushes once more after the extensions stop and before the container and
+the collector stop, then flushes spans. A bad endpoint is logged and the app
 boots without pushing.
 
 ## Dependencies

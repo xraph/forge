@@ -136,7 +136,7 @@ The HTTP latency histogram carries `trace_id` exemplars only in the OpenMetrics 
 
 ### Pushing metrics
 
-Pushing needs an endpoint, and the one your traces use already works. `OTEL_EXPORTER_OTLP_ENDPOINT` is a base URL, so Forge sends metrics to `/v1/metrics` under it, every 60 seconds, and `/_/metrics` keeps serving. `OTEL_EXPORTER_OTLP_HEADERS` applies to metrics as well. Set `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_METRICS_HEADERS` when metrics need something different from traces. The [metrics page](/docs/forge/metrics#pushing-over-otlp) has the rest: the `metrics_export:` keys, the interval, and how names come out.
+Pushing needs an endpoint. If your traces use `OTEL_EXPORTER_OTLP_ENDPOINT`, metrics follow it. It's a base URL, so Forge sends metrics to `/v1/metrics` under it, every 60 seconds, and `/_/metrics` keeps serving. `OTEL_EXPORTER_OTLP_HEADERS` applies to metrics as well. An endpoint set in the `tracing:` block, in code, or in `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` doesn't carry over, so set `metrics_export.endpoint` or `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` for those. Set `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_METRICS_HEADERS` when metrics need something different from traces. The [metrics page](/docs/forge/metrics#pushing-over-otlp) has the rest: the `metrics_export:` keys, the interval, and how names come out.
 
 If you want traces pushed and metrics left to a scraper, set `OTEL_METRICS_EXPORTER=none`.
 

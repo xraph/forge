@@ -31,6 +31,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.internal:4318
 
 That's the whole setup. The base URL gets `/v1/metrics` appended, the Collector's HTTP port is 4318, and `/_/metrics` keeps serving while push runs. Export is OTLP over HTTP with protobuf bodies. There's no gRPC exporter, so a collector port like 4317 won't work.
 
+<Callout type="warn" title="Upgrading">
+If your app already sets `OTEL_EXPORTER_OTLP_ENDPOINT` for traces, metrics start pushing to `<endpoint>/v1/metrics` every 60 seconds the first time you run this version. A backend that also scrapes `/_/metrics` now counts every series twice. Traces sent to Datadog with no Agent will log a failing metrics export about once a minute ([Shipping telemetry](/docs/forge/shipping-telemetry#pushing-metrics) explains why). Set `OTEL_METRICS_EXPORTER=none` or `metrics_export.enabled: false` to turn push off.
+</Callout>
+
 To set it in code, pass a `MetricsExportConfig`:
 
 ```go
@@ -63,16 +67,16 @@ Forge reads these when the matching key isn't set in code or in the file. Preced
 
 | Variable | What it does |
 |---|---|
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, used exactly as written, so it must end in `/v1/metrics` |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, used exactly as written. It must be the full URL, usually ending in `/v1/metrics` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL. Forge appends `/v1/metrics` |
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Headers for metrics only, such as `api-key=abc`. Percent-encoded, comma separated |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Headers for every signal, used when the metrics variable is empty |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between pushes. Default 60000 |
 | `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | `cumulative` (default), `delta`, or `lowmemory`, which Forge treats as `delta` |
-| `OTEL_METRICS_EXPORTER` | Set to `none` to turn metrics push off |
-| `OTEL_SDK_DISABLED` | Set to `true` to turn off metrics push and tracing together |
+| `OTEL_METRICS_EXPORTER` | A comma-separated list. Push stays on only when the list includes `otlp`, so `none` or `prometheus` turns it off. Ignored when `enabled` is set in code or the file |
+| `OTEL_SDK_DISABLED` | Set to `true` to turn off metrics push and tracing together. Ignored for push when `enabled` is set in code or the file |
 
-`OTEL_METRICS_EXPORTER=none` is the one to remember. It keeps traces flowing while metrics stay scrape-only. A value that doesn't parse, such as `OTEL_METRIC_EXPORT_INTERVAL=soon`, is ignored with a logged warning and the default applies. A bad endpoint is logged once and the app boots without pushing.
+`OTEL_METRICS_EXPORTER=none` is the one to remember. It keeps traces flowing while metrics stay scrape-only. Case and spaces don't matter, and a name outside `otlp`, `prometheus`, `console` and `none` is logged in a warning. A value that doesn't parse, such as `OTEL_METRIC_EXPORT_INTERVAL=soon`, is ignored with a logged warning and the default applies. A bad endpoint is logged once and the app boots without pushing.
 
 ### Temporality
 
