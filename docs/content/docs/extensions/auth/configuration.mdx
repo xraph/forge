@@ -6,9 +6,23 @@ description: Extension options, what they do today, and the LDAP config referenc
 ## What Configures Auth Today
 
 Most of auth is configured in code: you build providers with their options, register them on a
-registry from `auth.NewRegistry`, and pick middleware per route. The extension itself doesn't read
-your config file. Its `Register` never loads `extensions.auth` or `auth`, so a YAML block for it has
-no effect.
+registry from `auth.NewRegistry`, and pick middleware per route. The extension's own settings can
+also come from `extensions.auth` (or a top-level `auth`) in your config file. Options you set in code
+win over the file, and the file wins over `DefaultConfig()`.
+
+```yaml title="config.yaml"
+extensions:
+  auth:
+    enabled: true
+    default_provider: jwt
+    providers:
+      - name: jwt
+        type: bearer
+        enabled: true
+```
+
+`providers` and `default_provider` are stored on `Config` but `Register` doesn't use them yet, the
+same as `WithProviders` and `WithDefaultProvider`. The authorizer has no YAML form; set it in code.
 
 The one piece of real config is `providers.LDAPConfig`, which has YAML and JSON tags. You decode it
 yourself and pass it to `NewLDAPProvider`.

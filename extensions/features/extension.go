@@ -45,6 +45,23 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
+	// Load config from ConfigManager with dual-key support
+	// Tries "extensions.features", then "features", with programmatic config overrides
+	programmaticConfig := e.config
+
+	finalConfig := DefaultConfig()
+	if err := e.LoadConfig("features", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
+		if programmaticConfig.RequireConfig {
+			return fmt.Errorf("features: failed to load required config: %w", err)
+		}
+
+		e.Logger().Warn("features: using default/programmatic config",
+			forge.F("error", err.Error()),
+		)
+	}
+
+	e.config = finalConfig
+
 	if !e.config.Enabled {
 		e.Logger().Info("features extension disabled")
 

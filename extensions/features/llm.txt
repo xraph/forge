@@ -30,6 +30,7 @@ WithLaunchDarkly(sdkKey string)
 WithUnleash(url, apiToken, appName string)
 WithFlagsmith(apiURL, environmentKey string)
 WithPostHog(apiKey, host string)
+WithRequireConfig(require bool)                   // Register fails without a config section
 WithConfig(config Config)
 ```
 
@@ -102,8 +103,11 @@ always outside; Percentage <= 0 is nobody, >= 100 is everybody.
 
 - Types match exactly. GetInt only returns values stored as Go `int`, GetFloat only `float64`.
   A mismatch silently returns your default with no log line.
-- No YAML: the extension doesn't read `extensions.features` even though Config has yaml tags.
-  Configure it in code.
+- Config comes from `extensions.features` (falling back to `features`) as well as options.
+  Options win over the file, the file over defaults. WithRequireConfig(true) makes a missing
+  section a Register error.
+- A flag's `value` (and a targeting rule's `value`) can't come from YAML yet: confy drops values
+  bound into `any` fields. Boolean flags (`enabled`) work from the file; define the others in code.
 - No public way to change local flags at runtime.
 
 ## Not implemented yet

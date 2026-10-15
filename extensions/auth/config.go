@@ -11,29 +11,29 @@ const (
 // Config holds auth extension configuration.
 type Config struct {
 	// Enabled determines if auth extension is enabled
-	Enabled bool
+	Enabled bool `yaml:"enabled"`
 
 	// Providers holds provider-specific configurations
-	Providers []ProviderConfig
+	Providers []ProviderConfig `yaml:"providers"`
 
 	// DefaultProvider is the default provider name to use
-	DefaultProvider string
+	DefaultProvider string `yaml:"default_provider"`
 
 	// RequireConfig requires config from ConfigManager
-	RequireConfig bool
+	RequireConfig bool `yaml:"-"`
 
 	// Authorizer, when set, replaces the built-in set-membership authorizer.
 	// This is the seam a policy engine such as warden plugs into.
-	Authorizer Authorizer
+	Authorizer Authorizer `yaml:"-"`
 }
 
 // ProviderConfig holds configuration for a single auth provider.
 type ProviderConfig struct {
-	Name        string
-	Type        string
-	Enabled     bool
-	Description string
-	Config      map[string]any
+	Name        string         `yaml:"name"`
+	Type        string         `yaml:"type"`
+	Enabled     bool           `yaml:"enabled"`
+	Description string         `yaml:"description"`
+	Config      map[string]any `yaml:"config"`
 }
 
 // DefaultConfig returns the default auth configuration.

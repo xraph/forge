@@ -145,7 +145,7 @@ A value your route middleware stores with `ctx.Set` reaches the handler through 
 - Targeting rules match `user_id`, `email`, `name`, `ip`, `country`, `group` or a custom string attribute with `equals`, `contains`, `in` and `not_in`. The first rule that matches and has a value of the right type wins.
 - Percentage rollouts apply to boolean flags. They hash the user's ID (or another attribute) with MD5 into 100 buckets.
 - For a boolean flag the base value is `Enabled`. For every other type it's `Value`.
-- Flags come from `WithLocalFlags` and are fixed for the life of the process. Nothing reads `extensions.features` from your config file.
+- Flags come from `WithLocalFlags` or from `extensions.features.local.flags` in your config file, and are fixed for the life of the process.
 - The service runs a refresh loop every `RefreshInterval` (30 seconds by default), but the local provider's `Refresh` does nothing, so the loop has no effect today.
 
 ## Detailed pages

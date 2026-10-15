@@ -45,6 +45,9 @@ type Config struct {
 
 	// DefaultFlags are default flag values (used as fallback)
 	DefaultFlags map[string]any `json:"default_flags" yaml:"default_flags"`
+
+	// RequireConfig requires config from ConfigManager
+	RequireConfig bool `json:"-" yaml:"-"`
 }
 
 // LocalProviderConfig for local in-memory provider.
@@ -253,6 +256,13 @@ func WithPostHog(apiKey, host string) ConfigOption {
 func WithDefaultFlags(flags map[string]any) ConfigOption {
 	return func(c *Config) {
 		c.DefaultFlags = flags
+	}
+}
+
+// WithRequireConfig requires config from ConfigManager.
+func WithRequireConfig(require bool) ConfigOption {
+	return func(c *Config) {
+		c.RequireConfig = require
 	}
 }
 

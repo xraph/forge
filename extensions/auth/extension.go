@@ -54,6 +54,23 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
+	// Load config from ConfigManager with dual-key support
+	// Tries "extensions.auth", then "auth", with programmatic config overrides
+	programmaticConfig := e.config
+
+	finalConfig := DefaultConfig()
+	if err := e.LoadConfig("auth", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
+		if programmaticConfig.RequireConfig {
+			return fmt.Errorf("auth: failed to load required config: %w", err)
+		}
+
+		e.Logger().Warn("auth: using default/programmatic config",
+			forge.F("error", err.Error()),
+		)
+	}
+
+	e.config = finalConfig
+
 	if !e.config.Enabled {
 		e.Logger().Info("auth extension disabled")
 

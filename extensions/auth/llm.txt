@@ -148,7 +148,9 @@ WithEnabled(bool), WithAuthorizer(Authorizer), WithProviders(...ProviderConfig),
 WithDefaultProvider(string), WithRequireConfig(bool), WithConfig(Config)
 ```
 
-Config is code only (no YAML). When enabled, Register adds a `Registry` constructor under the
+Config comes from `extensions.auth` (falling back to `auth`) and from options. Options win over
+the file, the file over defaults. Keys are snake_case: enabled, default_provider, providers
+(name, type, enabled, description, config). Authorizer is code only. When enabled, Register adds a `Registry` constructor under the
 names `auth:registry` (RegistryKey) and `auth.Registry` (RegistryKeyLegacy). Helpers:
 GetRegistry(c), MustGetRegistry(c), GetRegistryFromApp(app), MustGetRegistryFromApp(app).
 
@@ -159,5 +161,6 @@ GetRegistry(c), MustGetRegistry(c), GetRegistryFromApp(app), MustGetRegistryFrom
   `auth.NewRegistry(app.Container(), app.Logger())` and keep the reference. Because of this the
   OpenAPI generator's lookup of `auth:registry` finds nothing, so security scheme definitions
   aren't added to components (operations still get `security` requirements).
-- `WithProviders` and `WithDefaultProvider` are stored on Config but Register doesn't read them.
+- `providers` and `default_provider` (from options or YAML) are stored on Config but Register
+  doesn't read them.
 - `examples/auth_example` resolves the registry from the container and won't run unmodified.
