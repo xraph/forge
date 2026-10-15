@@ -76,6 +76,9 @@ app.Metrics() Metrics
 func WithAppTracingConfig(c TracingConfig) AppOption
 func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span)
 func SpanFromContext(ctx context.Context) trace.Span
+func InjectTraceContext(ctx context.Context, carrier map[string]string)           // write ctx's trace context into message headers; works with tracing off, nil carrier ignored
+func ExtractTraceContext(ctx context.Context, carrier map[string]string) context.Context // join the publisher's trace; ctx unchanged when there is none
+// For spans and duration metrics around publishing and processing, use github.com/xraph/forge/messaging.
 func HTTPClient() *http.Client                                  // outbound requests traced, trace context injected
 func InstrumentTransport(rt http.RoundTripper) http.RoundTripper // nil means http.DefaultTransport
 func RegisterSpanProcessor(a App, sp sdktrace.SpanProcessor) error // ErrTracingDisabled when tracing is off

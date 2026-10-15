@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
@@ -52,4 +53,26 @@ func RegisterSpanProcessor(a App, sp sdktrace.SpanProcessor) error {
 	}
 
 	return impl.tracing.RegisterSpanProcessor(sp)
+}
+
+// InjectTraceContext writes ctx's trace context into carrier, such as a
+// message's headers, with the global propagator. It works with tracing off, so
+// a pass-through hop keeps the caller's trace. A nil carrier is ignored.
+func InjectTraceContext(ctx context.Context, carrier map[string]string) {
+	if carrier == nil {
+		return
+	}
+
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
+}
+
+// ExtractTraceContext returns ctx with the remote span context found in
+// carrier, or ctx unchanged when there is none. Start the consumer's span from
+// the returned context to join the publisher's trace.
+func ExtractTraceContext(ctx context.Context, carrier map[string]string) context.Context {
+	if len(carrier) == 0 {
+		return ctx
+	}
+
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(carrier))
 }

@@ -1,0 +1,150 @@
+# Forge messaging
+
+## Purpose
+
+Package `github.com/xraph/forge/messaging` traces and times message publishing and processing the
+way the OpenTelemetry messaging semantic conventions describe. Forge's queue, events, conduit and
+kafka extensions use it. You can use it too, in any producer or consumer you write yourself. It
+lives in the root module, so there is nothing extra to require.
+
+It does three things: producer spans for create and send, consumer spans for process, and two
+duration histograms. Trace context travels between them in the message's headers through any
+`propagation.TextMapCarrier`.
+
+## Creating a Telemetry
+
+```go
+func New(system string, opts ...Option) *Telemetry
+
+func WithTracing(enabled bool) Option          // default true
+func WithMetrics(m gometrics.Metrics) Option   // forge.Metrics is this type; nil records nothing
+```
+
+`system` becomes `messaging.system`: "kafka", "rabbitmq", "redis", "nats", "memory" and so on.
+Build one `Telemetry` per system and reuse it. With tracing off, no spans start, but trace context
+still passes through `Inject` and `Extract`, so a hop that doesn't trace keeps the caller's trace.
+
+```go
+mt := messaging.New("kafka", messaging.WithMetrics(app.Metrics()))
+```
+
+## Starting operations
+
+Each method returns the context to use from then on and an `*Operation` to end.
+
+| Method | Span name | Kind | `messaging.operation.type` | Metric |
+|---|---|---|---|---|
+| `StartCreate(ctx, destination, opts...)` | `create {destination}` | producer | `create` | none |
+| `StartSend(ctx, destination, operation, opts...)` | `{operation} {destination}` | producer | `send` | `messaging.client.operation.duration` |
+| `StartProcess(ctx, carrier, destination, operation, opts...)` | `{operation} {destination}` | consumer | `process` | `messaging.process.duration` |
+| `Process(ctx, carrier, destination, operation, fn, opts...)` | same as StartProcess | consumer | `process` | same |
+
+An empty destination drops the name suffix and the `messaging.destination.name` attribute, so the
+span is just `{operation}`.
+
+`StartProcess` extracts the trace context from the carrier first, so the consumer span is a child
+of the publisher's span. It also puts `trace_id` and `span_id` on the returned context, so a
+request-scoped logger prints them. A message with no `traceparent`, or a malformed one, gives a
+root span and no error. An unsampled parent stays unsampled: nothing is exported, but the trace ID
+still flows to the logs.
+
+`Process` wraps `StartProcess` and `End` around `fn` and returns fn's error. If `fn` panics, the
+operation ends with a `*messaging.PanicError` and the panic is re-raised unchanged.
+
+Start options:
+
+```go
+func WithLinks(links ...trace.Link) StartOption   // for example each message's create span in a batch send
+func WithBatchSize(n int) StartOption             // sets messaging.batch.message_count when n > 0
+func WithSpanKind(kind trace.SpanKind) StartOption // request and reply use client and server
+```
+
+## Ending an operation
+
+```go
+func (o *Operation) End(err error)
+```
+
+`End` is nil-safe and idempotent: a nil `*Operation` does nothing, and a second call does nothing.
+It ends the span and records one histogram observation. A non-nil `err` records the error on the
+span, sets an Error status and sets `error.type`.
+
+`error.type` is `context.DeadlineExceeded` or `context.Canceled` when the error wraps one of them.
+Otherwise it's the `%T` of the innermost error in the chain, so a wrapped broker error reports the
+broker's type and not `*fmt.wrapError`.
+
+## Propagation
+
+```go
+func Inject(ctx context.Context, carrier propagation.TextMapCarrier)
+func Extract(ctx context.Context, carrier propagation.TextMapCarrier) context.Context
+func WithTraceContext(ctx context.Context, headers map[string]string) map[string]string
+```
+
+`Inject` and `Extract` use the global propagator and ignore a nil carrier. Injecting into a nil
+`propagation.MapCarrier` still panics, as it does anywhere, so use `WithTraceContext` for maps.
+`WithTraceContext` never modifies `headers`: it returns a copy with the trace context added, or
+`headers` itself (so nil stays nil) when there's nothing to add. That makes it safe to call with a
+map the caller reuses across publishes or goroutines.
+
+If you only have a `map[string]string` and don't need spans, the root package has two helpers:
+`forge.InjectTraceContext(ctx, map)` and `forge.ExtractTraceContext(ctx, map)`.
+
+## Metrics
+
+Two histograms, unit `s`, with these buckets: 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
+0.75, 1, 2.5, 5, 7.5, 10.
+
+- `messaging.client.operation.duration`: sends.
+- `messaging.process.duration`: processing.
+
+Labels, in order: `messaging.system`, `messaging.destination.name`, `messaging.operation.name`,
+`messaging.operation.type`, `error.type`. `error.type` is empty on success. The Prometheus scrape
+spells them `messaging_client_operation_duration_seconds` and so on, with underscores in the label
+names. Every extension declares the same label set, so two extensions on one registry share series.
+
+## Nil receivers
+
+A nil `*Telemetry` is valid. Its start methods return the context unchanged and a nil
+`*Operation`. `StartProcess` and `Process` still extract the caller's trace context and add the log
+IDs, and `Process` still calls `fn`. Extensions can hold a nil `Telemetry` when observability is
+off and skip the checks.
+
+## Example: a hand-written kafka consumer-group loop
+
+```go
+mt := messaging.New("kafka", messaging.WithMetrics(app.Metrics()))
+
+for {
+    msg, err := reader.FetchMessage(ctx)
+    if err != nil {
+        return err
+    }
+
+    carrier := propagation.MapCarrier{}
+    for _, h := range msg.Headers {
+        carrier[h.Key] = string(h.Value)
+    }
+
+    err = mt.Process(ctx, carrier, msg.Topic, "process", func(ctx context.Context) error {
+        return handle(ctx, msg) // spans started from ctx are children of the producer's send span
+    })
+    if err != nil {
+        log.Error("handle failed", forge.F("topic", msg.Topic), forge.Err(err))
+        continue
+    }
+
+    if err := reader.CommitMessages(ctx, msg); err != nil {
+        return err
+    }
+}
+```
+
+The producing side:
+
+```go
+ctx, op := mt.StartSend(ctx, "orders", "publish")
+headers := messaging.WithTraceContext(ctx, baseHeaders)
+err := writer.WriteMessages(ctx, build(headers))
+op.End(err)
+```
