@@ -90,7 +90,7 @@ If you'd rather tune for the memory you have than set each value, `WithMemoryPro
 | `TraceMaxCount` | `int` | `200` | `WithTraceMaxCount()` | Most traces kept in memory |
 | `TraceRetention` | `time.Duration` | `30m` | `WithTraceRetention()` | How long a trace is kept |
 | `TraceMaxSpansPerTrace` | `int` | `200` | `WithTraceMaxSpansPerTrace()` | Most spans one trace keeps, so a long-lived trace can't grow without bound |
-| `TraceIdleTTL` | `time.Duration` | `5m` | `WithTraceIdleTTL()` | How long after the last dashboard request or open stream spans are still recorded. Zero or negative records always |
+| `TraceIdleTTL` | `time.Duration` | `5m` | `WithTraceIdleTTL()` | How long after the last dashboard request or open stream spans are still recorded. Zero or negative never closes the gate, so every request records, which costs a recording span on each one at any sample ratio |
 | `TraceCaptureRequestBody` | `bool` | `false` | `WithTraceCaptureRequestBody()` | Keep a size-limited, redacted JSON request body on each trace |
 
 ### Security

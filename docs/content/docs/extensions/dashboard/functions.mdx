@@ -14,7 +14,7 @@ description: Public API reference for the Dashboard extension
 
 | Function | Signature | Description |
 |---|---|---|
-| `TracingMiddleware` | `(store *collector.TraceStore, basePath string, captureRequestBody ...bool) forge.Middleware` | The middleware `Start()` installs to record request traces. Requests under `basePath` also keep the trace gate open |
+| `TracingMiddleware` | `(store *collector.TraceStore, basePath string, captureRequestBody ...bool) forge.Middleware` | The middleware `Start()` installs, so you don't call it yourself. It starts no spans: your app's tracing already does. It stamps dashboard activity (requests under `basePath` keep the trace gate open) and captures allowlisted headers, plus a redacted body when `captureRequestBody` is true, for the span that tracing started |
 | `AdaptIdempotencyStore` | `(s idempotency.Store) dispatcher.IdempotencyStore` | Wrap a `contract/idempotency` store for `dispatcher.WithIdempotencyStore`, the same way the extension wires its own dispatcher. A store that can claim keys comes back as a `dispatcher.IdempotencyClaimer` |
 
 ## Extension Methods

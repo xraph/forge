@@ -168,9 +168,13 @@ Every envelope is capped at `ContractMaxBodyBytes`, 1 MiB unless you change it. 
 
 ## Request Tracing
 
-The dashboard records request traces from the whole app, not just its own routes, and serves them through `traces.list` and `traces.detail`. To keep that cheap, spans are kept only while somebody is using the dashboard: a dashboard request or an open stream holds the gate open, and it shuts `TraceIdleTTL` after the last one (five minutes by default). A negative `TraceIdleTTL` keeps tracing on all the time.
+The trace viewer shows your app's own OpenTelemetry spans, served through `traces.list` and `traces.detail`. That covers HTTP, gRPC, stream and messaging spans, nested the way they ran. The trace IDs are the ones in your `traceparent` headers, your logs and your OTLP backend, so you can paste one from any of them.
 
-Request bodies aren't captured unless you turn on `TraceCaptureRequestBody`. Even then, the body is size-limited and credential-shaped keys are redacted.
+Tracing has to be on. With `tracing.enabled: false` or `OTEL_SDK_DISABLED=true` there are no spans, the page stays empty, and the dashboard logs that once at startup.
+
+While somebody has the dashboard open, it records every request, including the ones your sampler would drop. Those extra spans stay in the process and are never exported, so your backend sees the same sample as before. The recording gate stays open while a viewer is connected, and for `TraceIdleTTL` after the last dashboard request (five minutes by default). Once it shuts, a request your sampler drops costs nothing again. Set `TraceIdleTTL` to zero or less and the gate never shuts, so every request records at any sample ratio. See [Configuration](/docs/extensions/dashboard/configuration) before you do that on a busy service.
+
+Each trace also keeps the request and response headers on its allowlist. Request bodies aren't captured unless you turn on `TraceCaptureRequestBody`, and even then the body is size-limited and credential-shaped keys are redacted. Headers and bodies live in the dashboard only. They are never put on the OpenTelemetry span, so they never reach your tracing backend.
 
 ## Data Export
 

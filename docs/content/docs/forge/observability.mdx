@@ -316,6 +316,27 @@ func charge(ctx forge.Context) error {
 
 `forge.SpanFromContext(ctx)` returns the current span, or a no-op span when there isn't one, so you can add attributes without checking.
 
+### Boot and shutdown traces
+
+Slow boot? Open the `forge.start` trace. Every `Start` produces one, with a `register <ext>` and a `start <ext>` child for each extension, so the long bar is the extension that held things up. Every `Stop` does the same under `forge.stop`, with a `stop <ext>` child per extension. Each extension span carries `forge.extension.name` and `forge.extension.version`, and a failed or panicking call is recorded on its span.
+
+These two root spans are sampled whatever `sample_ratio` says, because a boot happens once per process and the slow one is the one you want to see. The exception is sampling that is off (`sample_ratio: 0`, `always_off` or `parentbased_always_off`), where you get nothing. Under the default parent-based sampler the children follow their root, so the whole trace ships. A plain `traceidratio` sampler isn't parent-based and rolls again for each child, so you'd see only some of them.
+
+Spans you start with the context your extension's `Start` receives nest under `start <ext>`:
+
+```go
+func (e *Extension) Start(ctx context.Context) error {
+	ctx, span := forge.StartSpan(ctx, "warm-cache")
+	defer span.End()
+
+	return e.cache.Warm(ctx)
+}
+```
+
+Don't hand that context to a goroutine that outlives `Start`. It belongs to the caller, so every span the goroutine starts later would land in the boot trace. Start it from `context.Background()` instead. `context.WithoutCancel(ctx)` won't do, because it keeps the span.
+
+The boot trace starts at the top of `Start`, before the before-start hooks, but only the extension calls get its context. Hooks, the container and health checks don't, so nothing long-lived they start ends up in it. `Stop` ends the `forge.stop` span before it flushes the exporter, so shutdown spans are exported rather than lost.
+
 ### Trace outgoing calls
 
 `forge.HTTPClient()` returns an `*http.Client` whose requests get a client span and carry the trace headers to the next service. Build it once and reuse it.
@@ -358,6 +379,19 @@ if err := forge.RegisterSpanProcessor(app, myProcessor); err != nil {
 ```
 
 The provider is also in the container as `trace.TracerProvider` (from `go.opentelemetry.io/otel/trace`) if you'd rather start spans from your own tracer.
+
+A processor can ask for more than the sampled spans. Implement `forge.UnsampledSpanProcessor`, which is `sdktrace.SpanProcessor` plus `WantsUnsampled() bool`, and while that returns true your processor also gets the spans the sampler dropped. Those spans are recorded for your processor and never exported, and downstream services still see "not sampled", so your OTLP backend gets the same sample as before. `WantsUnsampled` runs for every dropped span, so keep it to something like an atomic load.
+
+```go
+type watcher struct {
+	sdktrace.SpanProcessor
+	active atomic.Bool
+}
+
+func (w *watcher) WantsUnsampled() bool { return w.active.Load() }
+```
+
+Register it with `forge.RegisterSpanProcessor` as before. The dashboard does exactly this to show every request while somebody is looking at it.
 
 ### Sampling
 
