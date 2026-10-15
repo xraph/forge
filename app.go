@@ -79,9 +79,10 @@ type AppConfig struct {
 	RouterOptions []RouterOption
 
 	// Observability
-	MetricsConfig MetricsConfig
-	HealthConfig  HealthConfig
-	TracingConfig TracingConfig
+	MetricsConfig   MetricsConfig
+	HealthConfig    HealthConfig
+	TracingConfig   TracingConfig
+	ProfilingConfig ProfilingConfig
 
 	// Profiling
 	EnablePprof bool   // Enable pprof profiling endpoints at /_/debug/pprof (default: false)
@@ -287,6 +288,14 @@ func WithAppMetricsConfig(config MetricsConfig) AppOption {
 func WithAppTracingConfig(config TracingConfig) AppOption {
 	return func(c *AppConfig) {
 		c.TracingConfig = config
+	}
+}
+
+// WithAppProfilingConfig sets the profiling configuration. Values set here win
+// over the forge config file and PYROSCOPE_* environment variables.
+func WithAppProfilingConfig(config ProfilingConfig) AppOption {
+	return func(c *AppConfig) {
+		c.ProfilingConfig = config
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/metrics/collectors"
+	"github.com/xraph/forge/internal/profiling"
 	internalrouter "github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 	"github.com/xraph/forge/internal/telemetry"
@@ -45,6 +46,7 @@ type app struct {
 	healthManager    HealthManager
 	lifecycleManager LifecycleManager
 	tracing          *telemetry.Provider
+	profiler         *profiling.Profiler
 
 	// codeMetrics is the metrics config the caller passed, or nil when they
 	// passed none and the defaults applied. Reloads resolve against it.
@@ -229,6 +231,10 @@ func newApp(config AppConfig) *app {
 	// global middleware, and before extensions register so they can trace.
 	tracing := buildTracing(config, configManager, logger)
 
+	// Profiling needs to know whether tracing is on, since span labels hang
+	// off the server span. Nothing runs until Start.
+	profiler := buildProfiling(config, configManager, logger, tracing.Settings().Enabled)
+
 	// Create health manager with full config support
 	var healthManager HealthManager
 
@@ -319,8 +325,11 @@ func newApp(config AppConfig) *app {
 	// middleware whenever that is registered, and runs as plain http.Handler
 	// middleware with no forge Context of its own. See UseOuterMiddleware.
 	if tracing.Settings().Enabled {
+		tracingSettings := tracing.Settings()
+		tracingSettings.SpanLabels = profiler.Settings().SpanLabels
+
 		internalrouter.UseOuterMiddleware(router,
-			telemetry.ServerMiddleware(tracing.TracerProvider(), tracing.Settings()))
+			telemetry.ServerMiddleware(tracing.TracerProvider(), tracingSettings))
 	} else {
 		// No spans, but an incoming traceparent still reaches HTTPClient calls.
 		internalrouter.UseOuterMiddleware(router, telemetry.PropagationMiddleware())
@@ -388,6 +397,7 @@ func newApp(config AppConfig) *app {
 		healthManager:    healthManager,
 		lifecycleManager: lm,
 		tracing:          tracing,
+		profiler:         profiler,
 		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
@@ -635,6 +645,16 @@ func (a *app) Start(ctx context.Context) error {
 		F("extensions", len(a.extensions)),
 	)
 
+	// Profile startup too. A Start that fails stops the profiler again, so it
+	// doesn't outlive an app that never ran.
+	a.startProfiler()
+
+	defer func() {
+		if !a.started {
+			a.stopProfiler(ctx)
+		}
+	}()
+
 	// Execute before start hooks
 	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStart, a); err != nil {
 		return fmt.Errorf("before start hooks failed: %w", err)
@@ -861,6 +881,9 @@ func (a *app) Stop(ctx context.Context) error {
 			a.logger.Warn("tracing shutdown did not finish", F("error", err))
 		}
 	}
+
+	// 5. Stop profiling last, so shutdown shows up in the final profiles.
+	a.stopProfiler(ctx)
 
 	a.started = false
 
