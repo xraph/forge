@@ -10,6 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
+
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/collectors"
@@ -699,6 +702,25 @@ func (c *collector) PrometheusHandler() http.Handler {
 	}
 
 	return c.promBridge.Handler()
+}
+
+// OTLPProducer returns a producer that pushes what /_/metrics serves: the
+// registry, custom collectors and, with runtime metrics on, the Go and
+// process collectors. They sit in a registry of their own so the producer
+// doesn't read forge's metrics through the bridge a second time.
+func (c *collector) OTLPProducer(temporality exporters.Temporality) *exporters.OTLPProducer {
+	c.mu.RLock()
+	cfg := exporters.OTLPConfig{Namespace: c.config.Collection.Namespace, Temporality: temporality}
+	runtime := c.config.Features.RuntimeMetrics
+	c.mu.RUnlock()
+
+	if runtime {
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(promcollectors.NewGoCollector(), promcollectors.NewProcessCollector(promcollectors.ProcessCollectorOpts{}))
+		cfg.Runtime = reg
+	}
+
+	return exporters.NewOTLPProducer(c.streamMetrics, cfg)
 }
 
 // ExportToFile exports metrics to a file.
