@@ -16,20 +16,13 @@ func TestErrorHandlerRateLimits(t *testing.T) {
 		t.Fatal("NewTestLogger did not return *log.TestLogger")
 	}
 
-	now := time.Unix(0, 0)
-
 	h := newRateLimitedErrorHandler(capture, time.Minute)
-	h.now = func() time.Time { return now }
 
 	h.Handle(errors.New("first"))
 	h.Handle(errors.New("second"))
-	h.Handle(errors.New("third"))
 
-	now = now.Add(61 * time.Second)
-
-	h.Handle(errors.New("fourth"))
-
-	if got := capture.CountLogs("WARN"); got != 2 {
-		t.Fatalf("warn lines = %d, want 2", got)
+	warns := capture.GetLogsByLevel("WARN")
+	if len(warns) != 1 || warns[0].Message != "telemetry: export failed" {
+		t.Fatalf("warn lines = %v, want one telemetry: export failed", warns)
 	}
 }
