@@ -375,6 +375,11 @@ main().catch((err) => { console.error(err); process.exit(1); });
 //
 // Measured BEFORE the fix: aborting 20ms into a 300ms backoff still took
 // ~300ms to reject. After the fix it must reject in roughly 20ms.
+//
+// The backoff here is 2000ms and the bound 1000ms, so a busy CI runner can
+// delay the abort timer by most of a second without a false failure, while
+// an unabortable sleep still takes the full 2000ms. A 300ms backoff with a
+// 150ms bound failed once on a loaded macOS runner at 192ms.
 func TestBackoffSleepAbortsPromptly(t *testing.T) {
 	dir := writeFetchOnly(t)
 
@@ -397,7 +402,7 @@ async function main() {
       method: 'GET',
       url: '/x',
       signal: controller.signal,
-      retry: { maxAttempts: 5, delay: 300, maxDelay: 300, retryableStatusCodes: [503] },
+      retry: { maxAttempts: 5, delay: 2000, maxDelay: 2000, retryableStatusCodes: [503] },
     });
     console.log(JSON.stringify({ outcome: 'resolved', elapsedMs: Date.now() - start }));
   } catch (err) {
@@ -423,8 +428,8 @@ main().catch((err) => { console.error(err); process.exit(1); });
 		decodeLastLine(t, stdout, &result)
 
 		assert.Equal(t, "rejected", result.Outcome)
-		assert.Less(t, result.ElapsedMs, 150,
-			"measured before the fix: aborting 20ms into a 300ms backoff still took ~300ms to reject; elapsedMs=%d", result.ElapsedMs)
+		assert.Less(t, result.ElapsedMs, 1000,
+			"an unabortable sleep would wait out the full 2000ms backoff; elapsedMs=%d", result.ElapsedMs)
 	})
 
 	// Positive control: without an abort, the retry/backoff flow itself must
