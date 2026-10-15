@@ -77,9 +77,14 @@ func TestInitNonInteractiveListsAnswers(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, out)
 	}
 
+	// grove/extension links the MongoDB, SQLite and go-redis drivers, so they
+	// show up as resources. atlas only uses Postgres and the Redis-backed cache.
 	out, code = runDeploy(t, root, "init", "--non-interactive", "--yes",
 		"--answer", "deploy.services.worker.health=heartbeat",
-		"--answer", "deploy.resources.cache.features=json,search")
+		"--answer", "deploy.resources.cache.features=json,search",
+		"--answer", "deploy.resources.mongodb=skip",
+		"--answer", "deploy.resources.redis=skip",
+		"--answer", "deploy.resources.sqlite=skip")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
