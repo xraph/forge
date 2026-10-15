@@ -7,6 +7,8 @@ import (
 
 	forge_http "github.com/xraph/go-utils/http"
 	logger "github.com/xraph/go-utils/log"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // WebSocket registers a WebSocket handler.
@@ -37,6 +39,8 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 			// client, so do not write a second status line here.
 			return
 		}
+
+		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusSwitchingProtocols)
 
 		// Create WebSocket connection wrapper
 		connID := generateConnectionID()
@@ -105,6 +109,8 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 			return
 		}
 		defer stream.Close()
+
+		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived streams are exactly where leaking them hurts most.
@@ -187,6 +193,8 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 		// files; long-lived streams are exactly where leaking them hurts most.
 		ctx := newContext(w, req, r.container)
 		defer ctx.(forge_http.ContextWithClean).Cleanup()
+
+		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
 		// Call handler - user can now use ctx.WriteSSE()
 		if err := handler(ctx); err != nil {

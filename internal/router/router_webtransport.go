@@ -12,6 +12,8 @@ import (
 	"github.com/quic-go/webtransport-go"
 	forge_http "github.com/xraph/go-utils/http"
 	logger "github.com/xraph/go-utils/log"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 // WebTransport registers a WebTransport handler.
@@ -47,6 +49,8 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 
 			return
 		}
+
+		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
 		// Create WebTransport session wrapper
 		sessionID := generateConnectionID()
