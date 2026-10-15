@@ -317,6 +317,8 @@ The [gRPC extension](/docs/extensions/grpc) gives every served call a server spa
 
 `forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider, so you can copy spans into your own store or log.
 
+Read a server span's attributes in `OnEnd`. The HTTP request attributes (`http.request.method`, `url.path` and the rest) are set when the span ends, so in `OnStart` the span only has its name and kind.
+
 ```go
 app := forge.New(forge.WithAppName("user-api"))
 
