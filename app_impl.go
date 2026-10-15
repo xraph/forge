@@ -637,7 +637,7 @@ func (a *app) Uptime() time.Duration {
 }
 
 // Start starts the application.
-func (a *app) Start(ctx context.Context) error {
+func (a *app) Start(ctx context.Context) (err error) {
 	a.mu.Lock()
 	if a.started || a.starting {
 		a.mu.Unlock()
@@ -647,6 +647,12 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.starting = true
 	a.mu.Unlock()
+
+	// One trace per boot. Only the extension calls get this context, so
+	// nothing long-lived started by hooks, the container or health checks
+	// parents its spans to the boot trace.
+	lctx, bootSpan := a.startLifecycleSpan(ctx, "forge.start")
+	defer func() { endLifecycleSpan(bootSpan, err) }()
 
 	a.logger.Info("starting application",
 		F("name", a.config.Name),
@@ -702,7 +708,7 @@ func (a *app) Start(ctx context.Context) error {
 				F("version", ext.Version()),
 			)
 
-			if err := ext.Register(a); err != nil {
+			if err := a.traceExtension(lctx, "register", ext, func(context.Context) error { return ext.Register(a) }); err != nil {
 				return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 			}
 
@@ -724,7 +730,7 @@ func (a *app) Start(ctx context.Context) error {
 				F("extension", ext.Name()),
 			)
 
-			if err := ext.Start(ctx); err != nil {
+			if err := a.traceExtension(lctx, "start", ext, ext.Start); err != nil {
 				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
 			}
 
@@ -746,7 +752,7 @@ func (a *app) Start(ctx context.Context) error {
 				F("version", ext.Version()),
 			)
 
-			if err := ext.Register(a); err != nil {
+			if err := a.traceExtension(lctx, "register", ext, func(context.Context) error { return ext.Register(a) }); err != nil {
 				return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 			}
 
@@ -755,7 +761,7 @@ func (a *app) Start(ctx context.Context) error {
 				F("extension", ext.Name()),
 			)
 
-			if err := ext.Start(ctx); err != nil {
+			if err := a.traceExtension(lctx, "start", ext, ext.Start); err != nil {
 				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
 			}
 
@@ -903,6 +909,8 @@ func (a *app) Stop(ctx context.Context) error {
 
 	a.logger.Info("stopping application")
 
+	lctx, stopSpan := a.startLifecycleSpan(ctx, "forge.stop")
+
 	// Execute before stop hooks
 	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a); err != nil {
 		a.logger.Warn("before stop hooks failed", F("error", err))
@@ -916,7 +924,7 @@ func (a *app) Stop(ctx context.Context) error {
 	}
 
 	// 2. Stop extensions in reverse order
-	a.stopExtensions(ctx)
+	a.stopExtensions(lctx)
 
 	// 3. Push metrics one last time and stop pushing, while the collector
 	// still holds them: its Stop resets the registry. The drain and the
@@ -935,6 +943,9 @@ func (a *app) Stop(ctx context.Context) error {
 			a.logger.Error("failed to stop metrics collector", F("error", err))
 		}
 	}
+
+	// End the shutdown span before the flush, so it is exported with the rest.
+	stopSpan.End()
 
 	// 5. Flush spans last, so the drain and the extension stops are exported.
 	if a.tracing != nil {
@@ -1415,7 +1426,7 @@ func (a *app) stopExtensions(ctx context.Context) {
 			ext := v
 			a.logger.Info("stopping extension", F("extension", ext.Name()))
 
-			if err := ext.Stop(ctx); err != nil {
+			if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
 				a.logger.Error("failed to stop extension",
 					F("extension", ext.Name()),
 					F("error", err),
@@ -1439,7 +1450,7 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("extension", ext.Name()),
 		)
 
-		if err := ext.Stop(ctx); err != nil {
+		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
 			a.logger.Error("failed to stop extension",
 				F("extension", ext.Name()),
 				F("error", err),
