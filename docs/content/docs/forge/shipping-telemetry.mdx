@@ -150,11 +150,9 @@ If you want traces pushed and metrics left to a scraper, set `OTEL_METRICS_EXPOR
 
 Datadog is stricter about metrics than traces. It wants delta, so set the preference even though the traces side needed nothing. Datadog documents an Agent-free route in [OTLP metrics intake](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/metrics/). We haven't verified its endpoint against Forge, so we don't list one here. Going through an Agent or a Collector sidesteps it.
 
-If you send traces to Datadog with no Agent, as in the second table above, metrics push is already on. `https://otlp.<your Datadog site>` is a base endpoint, so Forge now pushes metrics to `/v1/metrics` under it, cumulative, with the same `dd-api-key` header. Datadog's intake wants delta and we haven't verified that URL, so expect the push to fail, with Forge logging an export error about once a minute. Pick one fix. Set `OTEL_METRICS_EXPORTER=none` to keep traces flowing and drop the metrics push. Or set `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` to the URL on Datadog's metrics intake page together with `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`.
+If you send traces to Datadog with no Agent, using the Agent-free setup under [Datadog Agent](#datadog-agent) in the Traces section, metrics push is already on. `https://otlp.<your Datadog site>` is a base endpoint, so Forge now pushes metrics to `/v1/metrics` under it, cumulative, with the same `dd-api-key` header. Datadog's intake wants delta and we haven't verified that URL, so expect the push to fail, with Forge logging an export error about once a minute. Pick one fix. Set `OTEL_METRICS_EXPORTER=none` to keep traces flowing and drop the metrics push. Or set `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` to the URL on Datadog's metrics intake page together with `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`.
 
-### Scraping instead
-
-Each backend below has its own scraper. Use these when you'd rather not push.
+Prefer to scrape? Each backend below has its own scraper, and you use it in place of the push above.
 
 ### Prometheus
 

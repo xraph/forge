@@ -31,8 +31,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.internal:4318
 
 That's the whole setup. The base URL gets `/v1/metrics` appended, the Collector's HTTP port is 4318, and `/_/metrics` keeps serving while push runs. Export is OTLP over HTTP with protobuf bodies. There's no gRPC exporter, so a collector port like 4317 won't work.
 
+Push runs from `app.Start` to `app.Stop`. An app you build and never start pushes nothing, and if `Start` fails, push stops again before it returns.
+
 <Callout type="warn" title="Upgrading">
-If your app already sets `OTEL_EXPORTER_OTLP_ENDPOINT` for traces, metrics start pushing to `<endpoint>/v1/metrics` every 60 seconds the first time you run this version. A backend that also scrapes `/_/metrics` now counts every series twice. Traces sent to Datadog with no Agent will log a failing metrics export about once a minute ([Shipping telemetry](/docs/forge/shipping-telemetry#pushing-metrics) explains why). Set `OTEL_METRICS_EXPORTER=none` or `metrics_export.enabled: false` to turn push off.
+If your app already sets `OTEL_EXPORTER_OTLP_ENDPOINT` for traces, metrics start pushing to `<endpoint>/v1/metrics` every 60 seconds as soon as the app starts on this version. A backend that also scrapes `/_/metrics` now counts every series twice. Traces sent to Datadog with no Agent will log a failing metrics export about once a minute ([Shipping telemetry](/docs/forge/shipping-telemetry#pushing-metrics) explains why). Set `OTEL_METRICS_EXPORTER=none` or `metrics_export.enabled: false` to turn push off.
 </Callout>
 
 To set it in code, pass a `MetricsExportConfig`:
@@ -92,9 +94,9 @@ Metrics follow the OpenTelemetry names where there is one, and your own names wh
 
 A Prometheus-compatible backend translates the dots to underscores and lands the semconv series on the same names the scrape produces. That's why `http_server_request_duration_seconds` looks the same whichever way it got there. Two edge cases come from that translation, and the scrape doesn't have either one. A counter whose name doesn't end in `_total` gets the suffix added. A metric outside the semconv namespaces that has a unit gets the unit appended, so a histogram recorded in milliseconds becomes `..._milliseconds`.
 
-Histograms keep their `trace_id` exemplars when a request was sampled, so the jump from a slow bucket to its trace works over push too.
+Histograms keep their `trace_id` exemplars when a request was sampled, so in a backend that keeps OTLP exemplars, the jump from a slow bucket to its trace works over push too.
 
-On shutdown, Forge pushes once more after the extensions stop and before the metrics collector does, so the last interval and the drain are counted. That final push waits up to five seconds.
+`app.Stop` pushes once more, after the extensions stop and before the metrics collector does, so the last interval and the drain are counted. That final push waits up to five seconds.
 
 <Callout type="warn">
 Don't scrape and push into the same backend. Every series arrives twice, and sums, rates and counts all read double. Pick one route per backend. If you only want traces pushed, set `OTEL_METRICS_EXPORTER=none`.

@@ -104,7 +104,7 @@ Tests read labels from `pprof.Lookup("goroutine").WriteTo(buf, 1)`, the handler'
 - An app that set up its own tracer provider in code before `forge.New` loses it. Forge replaces it, and spans from `otel.Tracer(...)` go to Forge's provider, which exports only when an endpoint is configured. With tracing disabled, `NewProvider` still installs a `noop` provider and the propagator as globals, so an app that wants to keep its own provider sets it up after `forge.New`.
 - An app that already runs its own `otelhttp` server middleware gets two server spans per request. It should remove its own, or turn forge's off with `tracing.enabled: false`.
 
-With more than one forge app in a process, the last one built wins the tracer provider, the `propagators` setting and the error handler. The error handler is set when tracing is on, and also each time a metrics pusher starts. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
+With more than one forge app in a process, the last one built wins the tracer provider and the `propagators` setting. The error handler is set when tracing is on (at build) and each time a metrics pusher starts (at `Start`), so whichever of those happened last wins it. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
 
 `InstrumentTransport` and `HTTPClient` capture the provider and propagator that are current when you call them. A client built before any `forge.New` still traces: OTel's global delegate forwards to the first provider set. In a process with several apps a client stays with whichever provider was current when it was built.
 
@@ -114,7 +114,7 @@ With more than one forge app in a process, the last one built wins the tracer pr
 
 | Field | Source and default |
 |---|---|
-| `Endpoint` | code, file, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (as is), `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/metrics`; both env values are trimmed of spaces first; empty means no push |
+| `Endpoint` | code, file, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (used without adding `/v1/metrics`), `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/metrics`; both env values are trimmed of spaces first; empty means no push |
 | `Headers` | code, file, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS`; always a copy, so changing it never touches your map |
 | `Interval` | code, file, `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds), default 60s; zero or negative in code or file falls through; a bad env value is a warning |
 | `Temporality` | code, file, `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`; `cumulative` (default) or `delta` (`lowmemory` counts as delta) |
