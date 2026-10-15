@@ -106,8 +106,8 @@ always outside; Percentage <= 0 is nobody, >= 100 is everybody.
 - Config comes from `extensions.features` (falling back to `features`) as well as options.
   Options win over the file, the file over defaults. WithRequireConfig(true) makes a missing
   section a Register error.
-- A flag's `value` (and a targeting rule's `value`) can't come from YAML yet: confy drops values
-  bound into `any` fields. Boolean flags (`enabled`) work from the file; define the others in code.
+- A flag's `value` (and a targeting rule's `value`) can come from YAML. A bare `50` decodes as Go
+  `int` and `50.0` as `float64`, so write the number in the form your getter expects.
 - No public way to change local flags at runtime.
 
 ## Not implemented yet

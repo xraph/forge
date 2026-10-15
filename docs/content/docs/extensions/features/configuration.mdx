@@ -20,9 +20,15 @@ extensions:
           key: new-dashboard
           type: boolean
           enabled: true
+        max-items:
+          key: max-items
+          type: number
+          value: 50
 ```
 
-Boolean flags work from the file. A flag's `value` doesn't yet: the config binder drops anything bound into an `any` field, so a `value: 50` (or a targeting rule's `value`) comes back empty. Define string, number and JSON flags in code until that's fixed, like `max-items` here. `WithLocalFlags` replaces the whole flag map, file flags included, so keep every flag in one place:
+Every flag type works from the file, `value` included, and so does a targeting rule's `value`. Mind how you write numbers, though. The typed getters match Go types exactly, and YAML picks the type from the literal: `50` decodes as `int`, so `GetInt` finds it and `GetFloat` returns your default, while `50.0` decodes as `float64` and only `GetFloat` finds it.
+
+You can define the same flags in code instead. `WithLocalFlags` replaces the whole flag map, file flags included, so keep every flag in one place:
 
 ```go
 ext := features.NewExtension(

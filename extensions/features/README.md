@@ -202,7 +202,7 @@ The `providers` package has client code for the four remote services, but the ex
 
 ## Configuration
 
-Configure the extension with options on `features.NewExtension`, or under `extensions.features` (falling back to `features`) in your config file. Your options win over the file and the file wins over the defaults. Boolean flags can live in YAML under `local.flags`, but a flag's `value` can't yet, because the config binder drops anything bound into an `any` field, so define string, number and JSON flags in code. `WithRequireConfig(true)` turns a missing section into a startup error.
+Configure the extension with options on `features.NewExtension`, or under `extensions.features` (falling back to `features`) in your config file. Your options win over the file and the file wins over the defaults. Flags can live in YAML under `local.flags`, `value` included. Write a number the way your getter expects it: `50` decodes as `int` and `50.0` as `float64`. `WithRequireConfig(true)` turns a missing section into a startup error.
 
 | Option | Effect |
 | --- | --- |
