@@ -219,7 +219,7 @@ func (s *Stack) checkPorts(ctx context.Context) error {
 		{s.Ports.Prometheus, "Prometheus", "--prometheus-port"},
 	} {
 		if !free(ctx, p.port) {
-			return fmt.Errorf("%w: %d (%s); stop whatever holds it or pass %s", ErrPortInUse, p.port, p.what, p.flag)
+			return fmt.Errorf("%w: %d (%s); stop whatever holds it, or start the stack with forge obs up %s <port>", ErrPortInUse, p.port, p.what, p.flag)
 		}
 	}
 

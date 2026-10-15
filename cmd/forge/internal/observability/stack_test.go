@@ -144,7 +144,7 @@ func TestUpReportsBusyPort(t *testing.T) {
 	s.PortFree = func(_ context.Context, port int) bool { return port != 4318 }
 
 	_, err := s.Up(context.Background())
-	if !errors.Is(err, ErrPortInUse) || !strings.Contains(err.Error(), "--otlp-port") || !strings.Contains(err.Error(), "4318") {
+	if !errors.Is(err, ErrPortInUse) || !strings.Contains(err.Error(), "forge obs up --otlp-port") || !strings.Contains(err.Error(), "4318") {
 		t.Fatalf("err = %v", err)
 	}
 }
