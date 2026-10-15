@@ -166,7 +166,15 @@ func (c *wsConnection) Read() ([]byte, error) {
 		return nil, err
 	}
 
-	c.handle.Received()
+	// Counted under the lock Close takes, so a read that finishes as the
+	// connection closes is never reported after the handle's Closed.
+	c.mu.Lock()
+
+	if !c.closed {
+		c.handle.Received()
+	}
+
+	c.mu.Unlock()
 
 	return data, nil
 }

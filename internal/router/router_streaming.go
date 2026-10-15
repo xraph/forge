@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
+	"github.com/gobwas/ws/wsutil"
 	forge_http "github.com/xraph/go-utils/http"
 	logger "github.com/xraph/go-utils/log"
 
@@ -71,7 +73,7 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 
 		// Call handler
 		if err := handler(ctx, wsConn); err != nil {
-			handlerErr = err
+			handlerErr = clientCloseAsEOF(err)
 
 			if r.logger != nil {
 				r.logger.Error("websocket handler error")
@@ -118,7 +120,6 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 			return
 		}
-		defer stream.Close()
 
 		shared.RouteMatchFromContext(req.Context()).Establish(http.StatusOK)
 
@@ -127,6 +128,11 @@ func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOptio
 
 		var handlerErr error
 		defer closeStream(handle, &handlerErr)
+
+		// Deferred after closeStream so it runs first: once the stream is
+		// closed, a goroutine still calling Send gets an error and counts
+		// nothing, so no Sent can follow the handle's Closed.
+		defer stream.Close()
 
 		// Create context. Cleanup releases the DI scope and any multipart temp
 		// files; long-lived streams are exactly where leaking them hurts most.
@@ -238,13 +244,32 @@ func (r *router) SSE(path string, handler Handler, opts ...RouteOption) error {
 
 // closeStream closes a stream's observer handle with the handler's error. Defer
 // it directly, so its recover sees a handler panic: the handle then closes with
-// the panic as its error, and the panic carries on to the router's recovery.
+// the panic as its error, and the panic carries on to the router's recovery. A
+// panic with an error value is wrapped, so observers can match it with
+// errors.Is (http.ErrAbortHandler, for one).
 func closeStream(handle shared.StreamHandle, handlerErr *error) {
 	if p := recover(); p != nil {
-		handle.Closed(fmt.Errorf("panic: %v", p))
+		if err, ok := p.(error); ok {
+			handle.Closed(fmt.Errorf("panic: %w", err))
+		} else {
+			handle.Closed(fmt.Errorf("panic: %v", p))
+		}
 
 		panic(p)
 	}
 
 	handle.Closed(*handlerErr)
+}
+
+// clientCloseAsEOF reports a WebSocket close frame from the client as io.EOF.
+// gobwas returns wsutil.ClosedError when the client closes cleanly, and a
+// handler that returns its Read error passes that on. To an observer it means
+// the same as a dropped connection: the client went away.
+func clientCloseAsEOF(err error) error {
+	var closed wsutil.ClosedError
+	if errors.As(err, &closed) {
+		return io.EOF
+	}
+
+	return err
 }

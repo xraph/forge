@@ -79,6 +79,7 @@ type webTransportSession struct {
 	ctx     context.Context //nolint:containedctx // context needed for WebTransport session lifecycle and cancellation
 	cancel  context.CancelFunc
 	mu      sync.RWMutex
+	closed  bool
 
 	// handle counts datagrams. Set by the router once the session is open.
 	handle shared.StreamHandle
@@ -158,7 +159,11 @@ func (s *webTransportSession) ReceiveDatagram(ctx context.Context) ([]byte, erro
 		return nil, fmt.Errorf("failed to receive datagram: %w", err)
 	}
 
-	s.handle.Received()
+	// Close takes the write lock and sets closed, so nothing is counted
+	// after the router reports the session closed.
+	if !s.closed {
+		s.handle.Received()
+	}
 
 	return data, nil
 }
@@ -171,7 +176,9 @@ func (s *webTransportSession) SendDatagram(data []byte) error {
 		return fmt.Errorf("failed to send datagram: %w", err)
 	}
 
-	s.handle.Sent()
+	if !s.closed {
+		s.handle.Sent()
+	}
 
 	return nil
 }
@@ -180,6 +187,7 @@ func (s *webTransportSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.closed = true
 	s.cancel()
 
 	return s.session.CloseWithError(0, "session closed")

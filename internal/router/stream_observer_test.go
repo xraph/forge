@@ -76,17 +76,54 @@ func withHolder(next http.Handler) http.Handler {
 	})
 }
 
+// served wraps next and closes the returned channel once a request through it
+// has finished, so a test can wait for the whole handler before asserting that
+// something never happened.
+func served(next http.Handler) (http.Handler, <-chan struct{}) {
+	done := make(chan struct{})
+
+	var once sync.Once
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer once.Do(func() { close(done) })
+
+		next.ServeHTTP(w, r)
+	}), done
+}
+
+func waitServed(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not finish")
+	}
+}
+
 func TestObserverNoHolderUsesNoop(t *testing.T) {
 	obs := &fakeObserver{}
 	r := newRouter(WithStreamObserver(obs))
 
-	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error { return s.Send("x", []byte("1")) }))
+	var sent atomic.Bool
 
-	srv := httptest.NewServer(r) // deliberately no holder
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error {
+		sent.Store(true)
+
+		return s.Send("x", []byte("1"))
+	}))
+
+	h, done := served(r) // deliberately no holder
+
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	resp := openSSE(t, srv.URL+"/events")
+	_, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
+
+	waitServed(t, done)
+	require.True(t, sent.Load(), "the stream handler must have run")
 
 	obs.mu.Lock()
 	defer obs.mu.Unlock()
@@ -254,7 +291,9 @@ func TestObserverNotOpenedOnRejectedOrigin(t *testing.T) {
 
 	require.NoError(t, r.WebSocket("/ws", func(ctx Context, conn Connection) error { return nil }))
 
-	srv := httptest.NewServer(withHolder(r))
+	h, done := served(withHolder(r))
+
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	header := map[string][]string{"Origin": {"https://evil.example"}}
@@ -265,6 +304,7 @@ func TestObserverNotOpenedOnRejectedOrigin(t *testing.T) {
 	}
 
 	require.Error(t, err)
+	waitServed(t, done)
 
 	obs.mu.Lock()
 	defer obs.mu.Unlock()
@@ -298,4 +338,221 @@ func TestObserverCountsReplayedEvents(t *testing.T) {
 	// client received forge.resumed.
 	h := obs.only(t)
 	require.EqualValues(t, 4, h.sent.Load(), "2 replayed + forge.resumed + 1 handler send")
+}
+
+// lateHandle counts any Sent or Received that arrives after Closed. Closed
+// lingers, so a stream still open past it has time to show up.
+type lateHandle struct {
+	closed atomic.Bool
+	sent   atomic.Int64
+	late   atomic.Int64
+	done   chan struct{}
+}
+
+func (h *lateHandle) Sent() {
+	if h.closed.Load() {
+		h.late.Add(1)
+	}
+
+	h.sent.Add(1)
+}
+
+func (h *lateHandle) Received() {
+	if h.closed.Load() {
+		h.late.Add(1)
+	}
+}
+
+func (h *lateHandle) Closed(error) {
+	h.closed.Store(true)
+	time.Sleep(100 * time.Millisecond)
+	close(h.done)
+}
+
+type lateObserver struct{ h *lateHandle }
+
+func (o lateObserver) Opened(shared.RouteKind, string) shared.StreamHandle { return o.h }
+
+// waitSent polls from a handler goroutine, where require cannot be used. A
+// timeout only means the late check below has less to work with.
+func waitSent(h *lateHandle, n int64) {
+	deadline := time.Now().Add(2 * time.Second)
+
+	for h.sent.Load() < n && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func waitClosed(t *testing.T, h *lateHandle) {
+	t.Helper()
+
+	select {
+	case <-h.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handle never closed")
+	}
+}
+
+func TestObserverNoSendAfterClosedEventStream(t *testing.T) {
+	h := &lateHandle{done: make(chan struct{})}
+	r := newRouter(WithStreamObserver(lateObserver{h}))
+	stopped := make(chan struct{})
+
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error {
+		// A sender the handler does not wait for, which keeps sending until
+		// the stream refuses.
+		go func() {
+			defer close(stopped)
+
+			for s.Send("tick", []byte("1")) == nil {
+			}
+		}()
+
+		waitSent(h, 3)
+
+		return nil
+	}))
+
+	srv := httptest.NewServer(withHolder(r))
+	t.Cleanup(srv.Close)
+
+	resp := openSSE(t, srv.URL+"/events")
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	waitClosed(t, h)
+	<-stopped
+
+	require.Zero(t, h.late.Load(), "Sent reported after Closed")
+}
+
+func TestObserverNoSendAfterClosedWebSocket(t *testing.T) {
+	h := &lateHandle{done: make(chan struct{})}
+	r := newRouter(WithStreamObserver(lateObserver{h}))
+	stopped := make(chan struct{})
+
+	require.NoError(t, r.WebSocket("/ws", func(ctx Context, conn Connection) error {
+		go func() {
+			defer close(stopped)
+
+			for conn.Write([]byte("x")) == nil {
+			}
+		}()
+
+		waitSent(h, 3)
+
+		return nil
+	}))
+
+	srv := httptest.NewServer(withHolder(r))
+	t.Cleanup(srv.Close)
+
+	conn, _, _, err := ws.Dial(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws")
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	go func() {
+		for {
+			if _, err := wsutil.ReadServerText(conn); err != nil {
+				return
+			}
+		}
+	}()
+
+	waitClosed(t, h)
+	<-stopped
+
+	require.Zero(t, h.late.Load(), "Sent reported after Closed")
+}
+
+type nilObserver struct{ opened atomic.Int64 }
+
+func (o *nilObserver) Opened(shared.RouteKind, string) shared.StreamHandle {
+	o.opened.Add(1)
+
+	return nil
+}
+
+func TestObserverNilHandleUsesNoop(t *testing.T) {
+	obs := &nilObserver{}
+	r := newRouter(WithStreamObserver(obs))
+
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error {
+		return s.Send("tick", []byte("1"))
+	}))
+	require.NoError(t, r.WebSocket("/ws", func(ctx Context, conn Connection) error {
+		if _, err := conn.Read(); err != nil {
+			return err
+		}
+
+		return conn.Write([]byte("pong"))
+	}))
+
+	srv := httptest.NewServer(withHolder(r))
+	t.Cleanup(srv.Close)
+
+	resp := openSSE(t, srv.URL+"/events")
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	require.NoError(t, err)
+	require.Contains(t, string(body), "event: tick")
+
+	conn, _, _, err := ws.Dial(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws")
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	require.NoError(t, wsutil.WriteClientText(conn, []byte("ping")))
+
+	msg, err := wsutil.ReadServerText(conn)
+	require.NoError(t, err)
+	require.Equal(t, "pong", string(msg))
+
+	require.EqualValues(t, 2, obs.opened.Load())
+}
+
+func TestObserverPanicErrorIsWrapped(t *testing.T) {
+	obs := &fakeObserver{}
+	r := newRouter(WithStreamObserver(obs), WithRecovery())
+	boom := errors.New("boom")
+
+	require.NoError(t, r.EventStream("/events", func(ctx Context, s Stream) error {
+		panic(boom)
+	}))
+
+	srv := httptest.NewServer(withHolder(r))
+	t.Cleanup(srv.Close)
+
+	resp := openSSE(t, srv.URL+"/events")
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	h := obs.only(t)
+	require.ErrorIs(t, h.closeErr.Load().(error), boom)
+}
+
+func TestObserverClientCloseFrameIsEOF(t *testing.T) {
+	obs := &fakeObserver{}
+	r := newRouter(WithStreamObserver(obs))
+
+	require.NoError(t, r.WebSocket("/ws", func(ctx Context, conn Connection) error {
+		_, err := conn.Read() // returns once the client's close frame arrives
+
+		return err
+	}))
+
+	srv := httptest.NewServer(withHolder(r))
+	t.Cleanup(srv.Close)
+
+	conn, _, _, err := ws.Dial(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http")+"/ws")
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	require.NoError(t, wsutil.WriteClientMessage(conn, ws.OpClose, ws.NewCloseFrameBody(ws.StatusNormalClosure, "bye")))
+
+	h := obs.only(t)
+	require.Equal(t, io.EOF, h.closeErr.Load(), "a client close frame means the client went away")
 }

@@ -202,9 +202,7 @@ func (s *sseStream) SendWithID(id, event string, data []byte) error {
 	// Flush
 	s.flusher.Flush()
 
-	if s.handle != nil {
-		s.handle.Sent()
-	}
+	s.handle.Sent()
 
 	return nil
 }

@@ -1051,11 +1051,15 @@ func applyMiddlewareAndInterceptors(
 }
 
 // openStream starts observing a stream, or returns a no-op handle when no
-// observer is configured.
+// observer is configured or the observer returns none.
 func (r *router) openStream(kind shared.RouteKind, route string) shared.StreamHandle {
 	if r.streamObserver == nil || route == "" {
 		return shared.NoopStreamHandle
 	}
 
-	return r.streamObserver.Opened(kind, route)
+	if h := r.streamObserver.Opened(kind, route); h != nil {
+		return h
+	}
+
+	return shared.NoopStreamHandle
 }

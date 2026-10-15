@@ -8,7 +8,8 @@ type StreamObserver interface {
 }
 
 // StreamHandle receives one stream's events. Sent and Received may be called
-// from several goroutines at once. Closed is called exactly once.
+// from several goroutines at once. Closed is called exactly once, after the
+// router has closed the connection, so Sent and Received never follow it.
 type StreamHandle interface {
 	Sent()
 	Received()
