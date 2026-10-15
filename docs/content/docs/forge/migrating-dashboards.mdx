@@ -8,11 +8,12 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Forge moved its HTTP and gRPC metrics onto the OpenTelemetry semantic conventions, and stopped timing stream connections as if they were requests. None of the old series are emitted under their old names any more. A panel or alert that reads one goes blank, so rewrite those queries before you roll the upgrade out.
 
-There are three changes, and each section below covers one:
+There are four changes, and each section below covers one:
 
 1. The `forge_http_*` series, and the flat `http.requests.*` keys behind them, became `http_server_*` series labelled by route.
 2. The `forge_grpc_*` series became one histogram, `rpc_server_call_duration_seconds`.
 3. WebSocket, SSE and WebTransport routes are now timed by their handshake, and the connection has series of its own.
+4. The health series lost a doubled prefix, `forge_forge_health_*` became `forge_health_*`, and their duration histograms got seconds buckets.
 
 Your Go code doesn't change for any of them.
 
@@ -163,3 +164,28 @@ Your HTTP latency percentiles will drop on any app with long-lived streams. Thos
 </Callout>
 
 The `forge_` prefix on the stream series is your metrics namespace, so it follows `metrics.collection.namespace` if you've changed it. The [metric reference](/docs/forge/metric-reference) has every new series with its labels and buckets.
+
+## Health checks
+
+The health service, its alert notifiers and its middleware used to name their metrics `forge.health.*`. The Prometheus bridge puts your namespace in front of every name, so the scrape carried `forge_` twice. Drop the second one and you have the new name.
+
+| Old series | Now |
+|---|---|
+| `forge_forge_health_service_<name>` | `forge_health_service_<name>` |
+| `forge_forge_health_registered_checks` | `forge_health_service_registered_checks` |
+| `forge_forge_health_<name>`, for notifiers, middleware, circuit breaker and persistence | `forge_health_<name>` |
+
+`forge_forge_health_registered_checks` doesn't get a counterpart of its own. It was a second copy of the registered check count, only set when the service started, so it went stale as soon as a check was added or removed. Read `forge_health_service_registered_checks`.
+
+```promql
+# forge_forge_health_service_overall_status
+max(forge_health_service_overall_status)
+
+# p95 of a full round of checks, which the old buckets couldn't give you
+histogram_quantile(0.95,
+  sum by (le) (rate(forge_health_service_check_duration_bucket[5m])))
+```
+
+The duration histograms (`check_duration`, `single_check_duration`, and the `_duration` series from webhooks, Slack, email, the middleware and the circuit breaker) observed seconds against buckets that ran from 0 to 10000, so nearly every observation fell between 0 and 5. They now use the 0.005 to 10 second buckets the HTTP server histogram uses. Buckets from before and after the upgrade don't line up, so a quantile over a window that spans the rollout will be off until the old samples age out. `_sum` and `_count` are unaffected.
+
+If you use the health persistence metrics collector, its `metric_prefix` default changed from `forge.health` to `health` for the same reason. A prefix you set yourself is kept.

@@ -154,8 +154,8 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 
 					// Record metrics
 					if hm.metrics != nil {
-						hm.metrics.Counter("forge.health.middleware_checks").Inc()
-						hm.metrics.Gauge("forge.health.middleware_status").Set(float64(currentStatus.Severity()))
+						hm.metrics.Counter("health.middleware_checks").Inc()
+						hm.metrics.Gauge("health.middleware_status").Set(float64(currentStatus.Severity()))
 					}
 				} else {
 					currentStatus = health.HealthStatusUnknown
@@ -196,11 +196,11 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 				duration := time.Since(start)
 
 				if hm.metrics != nil {
-					hm.metrics.Counter("forge.health.middleware_requests").Inc()
-					hm.metrics.Histogram("forge.health.middleware_duration").Observe(duration.Seconds())
+					hm.metrics.Counter("health.middleware_requests").Inc()
+					hm.metrics.Histogram("health.middleware_duration", health.DurationBuckets()).Observe(duration.Seconds())
 
 					if wrapper, ok := wrappedWriter.(*responseWriterWrapper); ok {
-						hm.metrics.Histogram("forge.health.middleware_response_status").Observe(float64(wrapper.statusCode))
+						hm.metrics.Histogram("health.middleware_response_status").Observe(float64(wrapper.statusCode))
 					}
 				}
 			}
@@ -283,7 +283,7 @@ func (hm *HealthMiddleware) handleUnhealthyRequest(w http.ResponseWriter, r *htt
 
 	// Record metrics
 	if hm.metrics != nil {
-		hm.metrics.Counter("forge.health.middleware_rejected_requests").Inc()
+		hm.metrics.Counter("health.middleware_rejected_requests").Inc()
 	}
 
 	// Log request rejection
@@ -461,7 +461,7 @@ func (rm *ReadinessMiddleware) handleNotReadyRequest(w http.ResponseWriter, r *h
 
 	// Record metrics
 	if rm.metrics != nil {
-		rm.metrics.Counter("forge.health.readiness_rejected_requests").Inc()
+		rm.metrics.Counter("health.readiness_rejected_requests").Inc()
 	}
 
 	// Log request rejection

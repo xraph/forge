@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
@@ -273,20 +274,20 @@ func (en *EmailNotifier) Send(ctx context.Context, alert *Alert) error {
 
 	// Record metrics
 	if en.metrics != nil {
-		en.metrics.Counter("forge.health.email_requests").Inc()
-		en.metrics.Histogram("forge.health.email_duration").Observe(duration.Seconds())
+		en.metrics.Counter("health.email_requests").Inc()
+		en.metrics.Histogram("health.email_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if en.metrics != nil {
-			en.metrics.Counter("forge.health.email_errors").Inc()
+			en.metrics.Counter("health.email_errors").Inc()
 		}
 
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
 	if en.metrics != nil {
-		en.metrics.Counter("forge.health.email_success").Inc()
+		en.metrics.Counter("health.email_success").Inc()
 	}
 
 	if en.logger != nil {
@@ -322,20 +323,20 @@ func (en *EmailNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 
 	// Record metrics
 	if en.metrics != nil {
-		en.metrics.Counter("forge.health.email_batch_requests").Inc()
-		en.metrics.Histogram("forge.health.email_batch_duration").Observe(duration.Seconds())
+		en.metrics.Counter("health.email_batch_requests").Inc()
+		en.metrics.Histogram("health.email_batch_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if en.metrics != nil {
-			en.metrics.Counter("forge.health.email_batch_errors").Inc()
+			en.metrics.Counter("health.email_batch_errors").Inc()
 		}
 
 		return fmt.Errorf("failed to send batch email: %w", err)
 	}
 
 	if en.metrics != nil {
-		en.metrics.Counter("forge.health.email_batch_success").Inc()
+		en.metrics.Counter("health.email_batch_success").Inc()
 	}
 
 	if en.logger != nil {

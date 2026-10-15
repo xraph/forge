@@ -194,8 +194,8 @@ func (hem *HealthEndpointManager) wrapHandler(handler func(http.ResponseWriter, 
 		if hem.metrics != nil {
 			duration := time.Since(start)
 
-			hem.metrics.Counter("forge.health.endpoint_requests").Inc()
-			hem.metrics.Histogram("forge.health.endpoint_duration").Observe(duration.Seconds())
+			hem.metrics.Counter("health.endpoint_requests").Inc()
+			hem.metrics.Histogram("health.endpoint_duration", DurationBuckets()).Observe(duration.Seconds())
 		}
 	}
 }

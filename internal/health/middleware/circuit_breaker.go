@@ -269,7 +269,7 @@ func (cbm *CircuitBreakerMiddleware) handleOpenCircuit(w http.ResponseWriter, r 
 
 	// Record metrics
 	if cbm.config.EnableMetrics && cbm.metrics != nil {
-		cbm.metrics.Counter("forge.health.circuit_breaker_rejected").Inc()
+		cbm.metrics.Counter("health.circuit_breaker_rejected").Inc()
 	}
 
 	// Log request rejection
@@ -381,8 +381,8 @@ func (cbm *CircuitBreakerMiddleware) transitionTo(newState CircuitState) {
 
 	// Record metrics
 	if cbm.config.EnableMetrics && cbm.metrics != nil {
-		cbm.metrics.Counter("forge.health.circuit_breaker_state_changes").Inc()
-		cbm.metrics.Gauge("forge.health.circuit_breaker_state").Set(float64(newState))
+		cbm.metrics.Counter("health.circuit_breaker_state_changes").Inc()
+		cbm.metrics.Gauge("health.circuit_breaker_state").Set(float64(newState))
 	}
 
 	// Send notification if enabled
@@ -472,13 +472,13 @@ func (cbm *CircuitBreakerMiddleware) sendStateChangeNotification(oldState, newSt
 
 // updateMetrics updates circuit breaker metrics.
 func (cbm *CircuitBreakerMiddleware) updateMetrics(success bool, duration time.Duration) {
-	cbm.metrics.Counter("forge.health.circuit_breaker_requests").Inc()
-	cbm.metrics.Histogram("forge.health.circuit_breaker_duration").Observe(duration.Seconds())
+	cbm.metrics.Counter("health.circuit_breaker_requests").Inc()
+	cbm.metrics.Histogram("health.circuit_breaker_duration", health.DurationBuckets()).Observe(duration.Seconds())
 
 	if success {
-		cbm.metrics.Counter("forge.health.circuit_breaker_successes").Inc()
+		cbm.metrics.Counter("health.circuit_breaker_successes").Inc()
 	} else {
-		cbm.metrics.Counter("forge.health.circuit_breaker_failures").Inc()
+		cbm.metrics.Counter("health.circuit_breaker_failures").Inc()
 	}
 }
 

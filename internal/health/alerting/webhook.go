@@ -15,6 +15,7 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
+	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
@@ -141,13 +142,13 @@ func (wn *WebhookNotifier) Send(ctx context.Context, alert *Alert) error {
 
 	// Record metrics
 	if wn.metrics != nil {
-		wn.metrics.Counter("forge.health.webhook_requests").Inc()
-		wn.metrics.Histogram("forge.health.webhook_duration").Observe(duration.Seconds())
+		wn.metrics.Counter("health.webhook_requests").Inc()
+		wn.metrics.Histogram("health.webhook_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if wn.metrics != nil {
-			wn.metrics.Counter("forge.health.webhook_errors").Inc()
+			wn.metrics.Counter("health.webhook_errors").Inc()
 		}
 
 		return fmt.Errorf("failed to send webhook request: %w", err)
@@ -158,7 +159,7 @@ func (wn *WebhookNotifier) Send(ctx context.Context, alert *Alert) error {
 	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if wn.metrics != nil {
-			wn.metrics.Counter("forge.health.webhook_errors").Inc()
+			wn.metrics.Counter("health.webhook_errors").Inc()
 		}
 
 		// Read response body for error details
@@ -168,7 +169,7 @@ func (wn *WebhookNotifier) Send(ctx context.Context, alert *Alert) error {
 	}
 
 	if wn.metrics != nil {
-		wn.metrics.Counter("forge.health.webhook_success").Inc()
+		wn.metrics.Counter("health.webhook_success").Inc()
 	}
 
 	if wn.logger != nil {
@@ -234,13 +235,13 @@ func (wn *WebhookNotifier) SendBatch(ctx context.Context, alerts []*Alert) error
 
 	// Record metrics
 	if wn.metrics != nil {
-		wn.metrics.Counter("forge.health.webhook_batch_requests").Inc()
-		wn.metrics.Histogram("forge.health.webhook_batch_duration").Observe(duration.Seconds())
+		wn.metrics.Counter("health.webhook_batch_requests").Inc()
+		wn.metrics.Histogram("health.webhook_batch_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if wn.metrics != nil {
-			wn.metrics.Counter("forge.health.webhook_batch_errors").Inc()
+			wn.metrics.Counter("health.webhook_batch_errors").Inc()
 		}
 
 		return fmt.Errorf("failed to send batch webhook request: %w", err)
@@ -251,7 +252,7 @@ func (wn *WebhookNotifier) SendBatch(ctx context.Context, alerts []*Alert) error
 	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if wn.metrics != nil {
-			wn.metrics.Counter("forge.health.webhook_batch_errors").Inc()
+			wn.metrics.Counter("health.webhook_batch_errors").Inc()
 		}
 
 		body, _ := io.ReadAll(resp.Body)
@@ -260,7 +261,7 @@ func (wn *WebhookNotifier) SendBatch(ctx context.Context, alerts []*Alert) error
 	}
 
 	if wn.metrics != nil {
-		wn.metrics.Counter("forge.health.webhook_batch_success").Inc()
+		wn.metrics.Counter("health.webhook_batch_success").Inc()
 	}
 
 	if wn.logger != nil {

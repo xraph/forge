@@ -85,7 +85,7 @@ func (mhs *MemoryHealthStore) StoreResult(ctx context.Context, result *health.He
 	}
 
 	if mhs.metrics != nil {
-		mhs.metrics.Counter("forge.health.results_stored").Inc()
+		mhs.metrics.Counter("health.results_stored").Inc()
 	}
 
 	return nil
@@ -102,7 +102,7 @@ func (mhs *MemoryHealthStore) StoreReport(ctx context.Context, report *health.He
 	}
 
 	if mhs.metrics != nil {
-		mhs.metrics.Counter("forge.health.reports_stored").Inc()
+		mhs.metrics.Counter("health.reports_stored").Inc()
 	}
 
 	return nil
@@ -399,7 +399,7 @@ func (fhs *FileHealthStore) StoreResult(ctx context.Context, result *health.Heal
 	}
 
 	if fhs.metrics != nil {
-		fhs.metrics.Counter("forge.health.results_stored").Inc()
+		fhs.metrics.Counter("health.results_stored").Inc()
 	}
 
 	return nil
@@ -431,7 +431,7 @@ func (fhs *FileHealthStore) StoreReport(ctx context.Context, report *health.Heal
 	}
 
 	if fhs.metrics != nil {
-		fhs.metrics.Counter("forge.health.reports_stored").Inc()
+		fhs.metrics.Counter("health.reports_stored").Inc()
 	}
 
 	return nil

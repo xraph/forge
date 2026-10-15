@@ -106,18 +106,24 @@ Linux reports the full process set. Other platforms report whatever subset the G
 
 ## Health checks
 
-On when health checks are enabled, the default. The health service names its metrics `forge.health.*`, and the namespace prefix is added in front of that, so with the default namespace they carry `forge_` twice.
+On when health checks are enabled, the default. The health service names its metrics `health.service.*` and the namespace goes in front, so with the default namespace you get `forge_health_service_*`.
 
 | Series | Type | What it is |
 |---|---|---|
-| `forge_forge_health_service_started` | counter | the health service started |
-| `forge_forge_health_registered_checks`, `forge_forge_health_service_registered_checks` | gauge | checks registered |
-| `forge_forge_health_service_checks_registered` | counter | registrations so far |
-| `forge_forge_health_service_checks_performed` | counter | checks run |
-| `forge_forge_health_service_check_duration` | histogram | how long a full round of checks took |
-| `forge_forge_health_service_overall_status` | gauge | 0 healthy, 1 degraded, 2 unhealthy, 3 unknown |
+| `forge_health_service_started`, `forge_health_service_stopped` | counter | the health service started or stopped |
+| `forge_health_service_registered_checks` | gauge | checks registered right now |
+| `forge_health_service_checks_registered`, `forge_health_service_checks_unregistered` | counter | registrations and removals so far |
+| `forge_health_service_checks_performed` | counter | checks run as part of a full round |
+| `forge_health_service_check_duration` | histogram | how long a full round of checks took, in seconds |
+| `forge_health_service_single_check_performed` | counter | checks run one at a time through `CheckOne` |
+| `forge_health_service_single_check_duration` | histogram | how long one of those took, in seconds |
+| `forge_health_service_overall_status` | gauge | 0 healthy, 1 degraded, 2 unhealthy, 3 unknown |
 
-The check duration is observed in seconds but uses the default buckets described below, 0 to 10000, so almost every observation lands in the first bucket. Read it as `_sum / _count`, not by quantile. Alerting webhooks, email notifiers and the health middleware add more `forge_forge_health_*` series when you turn them on.
+Both histograms use the same buckets as the HTTP server histogram: 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5 and 10 seconds. A round of checks that takes longer than 10 seconds only shows up in `+Inf`, so if your checks have long timeouts, watch `_sum / _count` as well as the quantiles.
+
+Alerting webhooks, Slack and email notifiers, the health middleware and the circuit breaker add more `forge_health_*` series when you turn them on, and every one of their `_duration` histograms uses the same seconds buckets. The one health histogram on the default buckets is `forge_health_middleware_response_status`, because it records status codes.
+
+Releases up to v1.12.8 exported all of these as `forge_forge_health_*`, with the duration histograms on the default buckets. [Migrating dashboards](/docs/forge/migrating-dashboards#health-checks) has the rename.
 
 ## Your own metrics
 

@@ -573,7 +573,7 @@ func (am *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 	}
 
 	if am.metrics != nil {
-		am.metrics.Counter("forge.health.alerts_sent").Inc()
+		am.metrics.Counter("health.alerts_sent").Inc()
 	}
 
 	return nil

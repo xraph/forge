@@ -159,6 +159,10 @@ func (hc *ManagerImpl) Name() string {
 	return "forge.health.service"
 }
 
+// metricPrefix starts every metric the manager records. It leaves out
+// "forge." because the exporter puts its namespace in front.
+const metricPrefix = "health.service."
+
 // Start starts the health checker service.
 func (hc *ManagerImpl) Start(ctx context.Context) error {
 	hc.mu.Lock()
@@ -250,8 +254,8 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	}
 
 	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".started").Inc()
-		hc.metrics.Gauge("forge.health.registered_checks").Set(float64(len(hc.checks)))
+		hc.metrics.Counter(metricPrefix + "started").Inc()
+		hc.metrics.Gauge(metricPrefix + "registered_checks").Set(float64(len(hc.checks)))
 	}
 
 	return nil
@@ -317,7 +321,7 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	}
 
 	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".stopped").Inc()
+		hc.metrics.Counter(metricPrefix + "stopped").Inc()
 	}
 
 	return nil
@@ -391,8 +395,8 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 	}
 
 	if metrics != nil {
-		metrics.Counter(hc.Name() + ".checks_registered").Inc()
-		metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(checkCount))
+		metrics.Counter(metricPrefix + "checks_registered").Inc()
+		metrics.Gauge(metricPrefix + "registered_checks").Set(float64(checkCount))
 	}
 
 	return nil
@@ -440,8 +444,8 @@ func (hc *ManagerImpl) Unregister(name string) error {
 	}
 
 	if metrics != nil {
-		metrics.Counter(hc.Name() + ".checks_unregistered").Inc()
-		metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(checkCount))
+		metrics.Counter(metricPrefix + "checks_unregistered").Inc()
+		metrics.Gauge(metricPrefix + "registered_checks").Set(float64(checkCount))
 	}
 
 	return nil
@@ -554,9 +558,9 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	}
 
 	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".checks_performed").Add(float64(len(results)))
-		hc.metrics.Histogram(hc.Name() + ".check_duration").Observe(report.Duration.Seconds())
-		hc.metrics.Gauge(hc.Name() + ".overall_status").Set(float64(report.Overall.Severity()))
+		hc.metrics.Counter(metricPrefix + "checks_performed").Add(float64(len(results)))
+		hc.metrics.Histogram(metricPrefix+"check_duration", healthinternal.DurationBuckets()).Observe(report.Duration.Seconds())
+		hc.metrics.Gauge(metricPrefix + "overall_status").Set(float64(report.Overall.Severity()))
 	}
 
 	return report
@@ -591,8 +595,8 @@ func (hc *ManagerImpl) CheckOne(ctx context.Context, name string) *healthinterna
 	}
 
 	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".single_check_performed").Inc()
-		hc.metrics.Histogram(hc.Name() + ".single_check_duration").Observe(result.Duration.Seconds())
+		hc.metrics.Counter(metricPrefix + "single_check_performed").Inc()
+		hc.metrics.Histogram(metricPrefix+"single_check_duration", healthinternal.DurationBuckets()).Observe(result.Duration.Seconds())
 	}
 
 	return result

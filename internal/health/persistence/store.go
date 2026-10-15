@@ -180,7 +180,7 @@ func (hps *HealthPersistenceService) Start(ctx context.Context) error {
 	go hps.cleanupLoop()
 
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.persistence_started").Inc()
+		hps.metrics.Counter("health.persistence_started").Inc()
 	}
 
 	return nil
@@ -212,7 +212,7 @@ func (hps *HealthPersistenceService) Stop(ctx context.Context) error {
 	}
 
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.persistence_stopped").Inc()
+		hps.metrics.Counter("health.persistence_stopped").Inc()
 	}
 
 	return nil
@@ -251,14 +251,14 @@ func (hps *HealthPersistenceService) performCleanup() {
 		}
 
 		if hps.metrics != nil {
-			hps.metrics.Counter("forge.health.cleanup_errors").Inc()
+			hps.metrics.Counter("health.cleanup_errors").Inc()
 		}
 
 		return
 	}
 
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.cleanup_completed").Inc()
+		hps.metrics.Counter("health.cleanup_completed").Inc()
 	}
 }
 
@@ -270,7 +270,7 @@ func (hps *HealthPersistenceService) GetStore() HealthStore {
 // StoreResult stores a health check result.
 func (hps *HealthPersistenceService) StoreResult(ctx context.Context, result *health.HealthResult) error {
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.results_stored").Inc()
+		hps.metrics.Counter("health.results_stored").Inc()
 	}
 
 	return hps.store.StoreResult(ctx, result)
@@ -279,7 +279,7 @@ func (hps *HealthPersistenceService) StoreResult(ctx context.Context, result *he
 // StoreReport stores a health report.
 func (hps *HealthPersistenceService) StoreReport(ctx context.Context, report *health.HealthReport) error {
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.reports_stored").Inc()
+		hps.metrics.Counter("health.reports_stored").Inc()
 	}
 
 	return hps.store.StoreReport(ctx, report)
@@ -288,7 +288,7 @@ func (hps *HealthPersistenceService) StoreReport(ctx context.Context, report *he
 // GetHealthHistory returns health history for a check.
 func (hps *HealthPersistenceService) GetHealthHistory(ctx context.Context, checkName string, from, to time.Time, interval time.Duration) ([]*HealthHistoryPoint, error) {
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.history_queries").Inc()
+		hps.metrics.Counter("health.history_queries").Inc()
 	}
 
 	return hps.store.GetHealthHistory(ctx, checkName, from, to, interval)
@@ -297,7 +297,7 @@ func (hps *HealthPersistenceService) GetHealthHistory(ctx context.Context, check
 // GetHealthTrend returns health trend analysis.
 func (hps *HealthPersistenceService) GetHealthTrend(ctx context.Context, checkName string, duration time.Duration) (*HealthTrend, error) {
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.trend_queries").Inc()
+		hps.metrics.Counter("health.trend_queries").Inc()
 	}
 
 	return hps.store.GetHealthTrend(ctx, checkName, duration)
@@ -306,7 +306,7 @@ func (hps *HealthPersistenceService) GetHealthTrend(ctx context.Context, checkNa
 // GetHealthStatistics returns health statistics.
 func (hps *HealthPersistenceService) GetHealthStatistics(ctx context.Context, checkName string, from, to time.Time) (*HealthStatistics, error) {
 	if hps.metrics != nil {
-		hps.metrics.Counter("forge.health.statistics_queries").Inc()
+		hps.metrics.Counter("health.statistics_queries").Inc()
 	}
 
 	return hps.store.GetHealthStatistics(ctx, checkName, from, to)

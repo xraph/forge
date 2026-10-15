@@ -10,6 +10,7 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
+	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
@@ -226,13 +227,13 @@ func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error
 
 	// Record metrics
 	if sn.metrics != nil {
-		sn.metrics.Counter("forge.health.slack_webhook_requests").Inc()
-		sn.metrics.Histogram("forge.health.slack_webhook_duration").Observe(duration.Seconds())
+		sn.metrics.Counter("health.slack_webhook_requests").Inc()
+		sn.metrics.Histogram("health.slack_webhook_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if sn.metrics != nil {
-			sn.metrics.Counter("forge.health.slack_webhook_errors").Inc()
+			sn.metrics.Counter("health.slack_webhook_errors").Inc()
 		}
 
 		return fmt.Errorf("webhook request failed: %w", err)
@@ -242,14 +243,14 @@ func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error
 
 	if resp.StatusCode != http.StatusOK {
 		if sn.metrics != nil {
-			sn.metrics.Counter("forge.health.slack_webhook_errors").Inc()
+			sn.metrics.Counter("health.slack_webhook_errors").Inc()
 		}
 
 		return fmt.Errorf("webhook request failed with status %d", resp.StatusCode)
 	}
 
 	if sn.metrics != nil {
-		sn.metrics.Counter("forge.health.slack_webhook_success").Inc()
+		sn.metrics.Counter("health.slack_webhook_success").Inc()
 	}
 
 	if sn.logger != nil {
@@ -285,13 +286,13 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 
 	// Record metrics
 	if sn.metrics != nil {
-		sn.metrics.Counter("forge.health.slack_api_requests").Inc()
-		sn.metrics.Histogram("forge.health.slack_api_duration").Observe(duration.Seconds())
+		sn.metrics.Counter("health.slack_api_requests").Inc()
+		sn.metrics.Histogram("health.slack_api_duration", health.DurationBuckets()).Observe(duration.Seconds())
 	}
 
 	if err != nil {
 		if sn.metrics != nil {
-			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
+			sn.metrics.Counter("health.slack_api_errors").Inc()
 		}
 
 		return fmt.Errorf("API request failed: %w", err)
@@ -308,7 +309,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		if sn.metrics != nil {
-			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
+			sn.metrics.Counter("health.slack_api_errors").Inc()
 		}
 
 		return fmt.Errorf("failed to decode response: %w", err)
@@ -316,14 +317,14 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 
 	if !response.OK {
 		if sn.metrics != nil {
-			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
+			sn.metrics.Counter("health.slack_api_errors").Inc()
 		}
 
 		return fmt.Errorf("slack API error: %s", response.Error)
 	}
 
 	if sn.metrics != nil {
-		sn.metrics.Counter("forge.health.slack_api_success").Inc()
+		sn.metrics.Counter("health.slack_api_success").Inc()
 	}
 
 	if sn.logger != nil {

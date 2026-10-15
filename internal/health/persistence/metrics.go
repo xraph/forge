@@ -48,7 +48,7 @@ func DefaultMetricsCollectorConfig() *MetricsCollectorConfig {
 		HistoryDuration:    24 * time.Hour,
 		EnableTrends:       true,
 		EnableStatistics:   true,
-		MetricPrefix:       "forge.health",
+		MetricPrefix:       "health",
 		Tags:               []string{},
 		ServicesFilter:     []string{},
 		ExcludeServices:    []string{},
@@ -168,7 +168,7 @@ func (hmc *HealthMetricsCollector) collectMetrics(ctx context.Context) {
 	duration := time.Since(start)
 
 	hmc.metrics.Counter(hmc.metricName("collection_runs")).Inc()
-	hmc.metrics.Histogram(hmc.metricName("collection_duration")).Observe(duration.Seconds())
+	hmc.metrics.Histogram(hmc.metricName("collection_duration"), health.DurationBuckets()).Observe(duration.Seconds())
 
 	if hmc.logger != nil {
 		hmc.logger.Debug("health metrics collected",
@@ -224,7 +224,7 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 		hmc.recordHealthStatus(hmc.metricName("service_status"), result.Status, tagsMap)
 
 		// Service response time
-		hmc.metrics.Histogram(hmc.metricName("service_duration"), metrics.WithLabels(tagsMap)).
+		hmc.metrics.Histogram(hmc.metricName("service_duration"), metrics.WithLabels(tagsMap), health.DurationBuckets()).
 			Observe(result.Duration.Seconds())
 
 		// Service uptime (1 for healthy, 0 for unhealthy)
@@ -248,7 +248,7 @@ func (hmc *HealthMetricsCollector) collectCurrentMetrics(ctx context.Context) {
 
 	// Report-level metrics
 	hmc.metrics.Counter(hmc.metricName("reports_processed")).Inc()
-	hmc.metrics.Histogram(hmc.metricName("report_duration")).Observe(report.Duration.Seconds())
+	hmc.metrics.Histogram(hmc.metricName("report_duration"), health.DurationBuckets()).Observe(report.Duration.Seconds())
 	hmc.metrics.Gauge(hmc.metricName("services_total")).Set(float64(len(report.Services)))
 	hmc.metrics.Gauge(hmc.metricName("services_healthy")).Set(float64(healthReportAnalyzer.HealthyCount()))
 	hmc.metrics.Gauge(hmc.metricName("services_degraded")).Set(float64(healthReportAnalyzer.DegradedCount()))
@@ -285,7 +285,7 @@ func (hmc *HealthMetricsCollector) collectTrendMetrics(ctx context.Context) {
 		hmc.metrics.Gauge(hmc.metricName("trend_error_rate"), metrics.WithLabels(tags)).Set(trend.ErrorRate)
 		hmc.metrics.Gauge(hmc.metricName("trend_total_checks"), metrics.WithLabels(tags)).Set(float64(trend.TotalChecks))
 		hmc.metrics.Gauge(hmc.metricName("trend_consecutive_failures"), metrics.WithLabels(tags)).Set(float64(trend.ConsecutiveFailures))
-		hmc.metrics.Histogram(hmc.metricName("trend_avg_duration"), metrics.WithLabels(tags)).Observe(trend.AvgDuration.Seconds())
+		hmc.metrics.Histogram(hmc.metricName("trend_avg_duration"), metrics.WithLabels(tags), health.DurationBuckets()).Observe(trend.AvgDuration.Seconds())
 
 		// Status distribution
 		for status, count := range trend.StatusDistribution {
@@ -334,7 +334,7 @@ func (hmc *HealthMetricsCollector) collectStatisticsMetrics(ctx context.Context)
 		hmc.metrics.Gauge(hmc.metricName("stats_success_rate"), metrics.WithLabels(tags)).Set(stats.SuccessRate)
 
 		// Duration statistics
-		hmc.metrics.Histogram(hmc.metricName("stats_avg_duration"), metrics.WithLabels(tags)).Observe(stats.AvgDuration.Seconds())
+		hmc.metrics.Histogram(hmc.metricName("stats_avg_duration"), metrics.WithLabels(tags), health.DurationBuckets()).Observe(stats.AvgDuration.Seconds())
 		hmc.metrics.Gauge(hmc.metricName("stats_min_duration"), metrics.WithLabels(tags)).Set(stats.MinDuration.Seconds())
 		hmc.metrics.Gauge(hmc.metricName("stats_max_duration"), metrics.WithLabels(tags)).Set(stats.MaxDuration.Seconds())
 
