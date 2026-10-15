@@ -88,19 +88,10 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 	mb.mu.Unlock()
 	defer mb.wg.Done()
 
-	start := time.Now()
-
 	// Publish event to topic
 	select {
 	case topicChan <- event:
 		// Successfully published
-		if mb.metrics != nil {
-			duration := time.Since(start)
-
-			mb.metrics.Counter("forge.events.broker.published", forge.WithLabel("broker", mb.name), forge.WithLabel("topic", topic)).Inc()
-			mb.metrics.Histogram("forge.events.broker.publish_duration", forge.WithLabel("broker", mb.name)).Observe(duration.Seconds())
-		}
-
 		if mb.logger != nil {
 			mb.logger.Debug("event published to memory broker", forge.F("broker", mb.name), forge.F("topic", topic), forge.F("event_id", event.ID))
 		}

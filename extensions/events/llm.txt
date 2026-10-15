@@ -125,7 +125,8 @@ extensions:
   events:
     bus:
       default_broker: memory   # empty = publish to every broker
-      enable_metrics: true
+      enable_metrics: true     # records the two messaging duration histograms
+      enable_tracing: true     # producer and consumer spans; default true
     store:
       type: memory             # anything else needs WithEventStore or WithEventStoreFactory
       database: ""
@@ -149,6 +150,29 @@ Broker `config` keys:
   stream_max_deliveries (5), stream_claim_idle, stream_poll_interval, stream_lease_duration,
   stream_ordering. Streams mode refuses Redis Cluster.
 
+## Tracing and metrics
+
+Implemented with `github.com/xraph/forge/messaging`; one `messaging.Telemetry` per registered broker,
+with `messaging.system` set to the broker's name.
+
+- Each broker a publish reaches gets a producer span `publish <event type>`. The broker receives a
+  copy of the event whose `Metadata` carries `traceparent` (and `tracestate`). The caller's event
+  and its Metadata map are never modified.
+- Every handler runs inside a consumer span `process <event type>`, a child of the producer span.
+  The bus wraps the handler at each `broker.Subscribe`; `Name()` and `LogicalName()` are forwarded,
+  so unsubscribe and Redis Streams consumer groups behave as before.
+- An event with nil Metadata, or with no or a malformed `traceparent`, gives a root consumer span.
+- `bus.enable_tracing` defaults to true (it was false and unread). With it off, context still
+  propagates through Metadata.
+- `bus.enable_metrics` (true) records `messaging_client_operation_duration_seconds` (publish) and
+  `messaging_process_duration_seconds` (handler), filter by `messaging_system`. The consumer
+  observation lands after the handler returns.
+- Removed series: forge_forge_events_publish_duration, _published_total, _publish_success,
+  _broker_published, _broker_publish_duration, _nats_messages_published, _nats_publish_duration,
+  _nats_messages_received, _nats_receive_duration, _redis_messages_published,
+  _redis_publish_duration, _redis_messages_received. Kept: publish_failures,
+  publish_broker_errors, handler and receive error counters, subscription and connection series.
+
 ## Delivery
 
 - memory, NATS, Redis Pub/Sub: at most once. Each matching handler runs in its own goroutine
@@ -162,7 +186,7 @@ Broker `config` keys:
 ## Not implemented yet
 
 - `bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`,
-  `bus.worker_count`, `bus.enable_tracing`, `brokers[].priority` and the whole `metrics` section
+  `bus.worker_count`, `brokers[].priority` and the whole `metrics` section
   exist on the config structs but the bus ignores them.
 - `bus.buffer_size` and `bus.worker_count` are deprecated. The bus has no worker pool, and
   `GetStats` no longer returns `workers` or `workers_count`.

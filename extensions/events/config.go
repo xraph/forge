@@ -81,7 +81,7 @@ func DefaultConfig() Config {
 			MaxRetries:        3,
 			RetryDelay:        time.Second * 5,
 			EnableMetrics:     true,
-			EnableTracing:     false,
+			EnableTracing:     true,
 			BufferSize:        1000,
 			WorkerCount:       10,
 			ProcessingTimeout: time.Second * 30,

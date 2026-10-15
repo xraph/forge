@@ -219,11 +219,6 @@ func (nb *NATSBroker) Publish(ctx context.Context, topic string, event core.Even
 		nb.stats.AvgPublishTime = nb.stats.TotalPublishTime / time.Duration(nb.stats.MessagesPublished)
 	}
 
-	if nb.metrics != nil {
-		nb.metrics.Counter("forge.events.nats.messages_published", forge.WithLabel("topic", topic)).Inc()
-		nb.metrics.Histogram("forge.events.nats.publish_duration", forge.WithLabel("topic", topic)).Observe(duration.Seconds())
-	}
-
 	if nb.logger != nil {
 		nb.logger.Debug("published event to NATS", forge.F("topic", topic), forge.F("event_id", event.ID), forge.F("event_type", event.Type), forge.F("duration", duration))
 	}
@@ -471,11 +466,6 @@ func (nb *NATSBroker) createMessageHandler(topic string) nats.MsgHandler {
 		}
 
 		duration := time.Since(start)
-
-		if nb.metrics != nil {
-			nb.metrics.Counter("forge.events.nats.messages_received", forge.WithLabel("topic", topic)).Inc()
-			nb.metrics.Histogram("forge.events.nats.receive_duration", forge.WithLabel("topic", topic)).Observe(duration.Seconds())
-		}
 
 		if nb.logger != nil {
 			nb.logger.Debug("processed NATS message", forge.F("topic", topic), forge.F("event_id", event.ID), forge.F("event_type", event.Type), forge.F("handlers", len(handlers)), forge.F("duration", duration))

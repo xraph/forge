@@ -260,16 +260,50 @@ When you replace the broker list, set `bus.default_broker` to one of your names 
 | Key | Default | What it does |
 | --- | --- | --- |
 | `bus.default_broker` | `memory` | Where `Publish` sends. Empty means every broker |
-| `bus.enable_metrics` | `true` | Accepted, but nothing reads it yet |
+| `bus.enable_metrics` | `true` | Records the two messaging duration histograms. See [Tracing and metrics](#tracing-and-metrics) |
+| `bus.enable_tracing` | `true` | Starts a producer span per broker publish and a consumer span per handler run |
 | `store.type` | `memory` | `memory` is built in. Anything else needs `WithEventStore` or `WithEventStoreFactory` |
 | `store.database`, `store.table` | empty, `events` | Passed to a store factory through `StoreConfig` |
 | `brokers[].name`, `type`, `enabled`, `config` | one `memory` broker | The brokers to connect |
 
-`bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`, `bus.worker_count`, `bus.enable_tracing`, `brokers[].priority` and the `metrics` section exist on the config structs, but the bus doesn't act on them today. Retries come from a handler's `RetryPolicy` (or from Redis Streams redelivery).
+`bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`, `bus.worker_count`, `brokers[].priority` and the `metrics` section exist on the config structs, but the bus doesn't act on them today. Retries come from a handler's `RetryPolicy` (or from Redis Streams redelivery).
 
 The bus has no worker pool, so `bus.buffer_size` and `bus.worker_count` are deprecated. Setting them still loads, and they do nothing. `GetStats` no longer returns `workers` or `workers_count`.
 
 In code, build an `events.Config` (start from `events.DefaultConfig()`) and pass it to `events.NewExtensionWithConfig(cfg, opts...)`. That's also where the store options go. A config file section still binds over what you pass.
+
+## Tracing and metrics
+
+Tracing is on by default. Every broker a publish reaches gets its own producer span, named `publish <event type>`, and every handler run happens inside a consumer span named `process <event type>`. The consumer span is a child of the producer span, so one trace follows an event from the `Publish` call to each handler, across brokers and services. Handler errors and panics mark the consumer span as failed.
+
+The producer puts `traceparent` (and `tracestate`, when there is one) into the event's `Metadata`. Your `*core.Event` and its map are never modified: the broker gets a copy. The values are plain strings, so they survive the JSON hop through NATS and Redis. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing.
+
+`messaging.system` is the broker's name, so two brokers show up as two systems.
+
+With `bus.enable_metrics` on, the same spans feed two histograms, both in seconds:
+
+- `messaging_client_operation_duration_seconds` for publishes
+- `messaging_process_duration_seconds` for handler runs
+
+Filter them by `messaging_system` to get one broker's numbers. Both carry `messaging_destination_name` (the event type), `messaging_operation_name`, `messaging_operation_type` and `error_type`.
+
+To turn spans off, set `bus.enable_tracing: false`. Trace context still passes through the event, so a service that doesn't trace doesn't break the trace of the services around it.
+
+### Series that went away
+
+These had their own timers and counters, and the histograms above replace them. The scrape names carry the `forge_` prefix twice, once from the app and once from the metric name:
+
+| Removed | Use instead |
+| --- | --- |
+| `forge_forge_events_publish_duration` | `messaging_client_operation_duration_seconds` |
+| `forge_forge_events_published_total`, `forge_forge_events_publish_success` | the `_count` of `messaging_client_operation_duration_seconds` with `error_type=""` |
+| `forge_forge_events_broker_published`, `forge_forge_events_broker_publish_duration` | the same histogram, filtered by `messaging_system` |
+| `forge_forge_events_nats_messages_published`, `forge_forge_events_nats_publish_duration` | the same histogram, filtered by `messaging_system` |
+| `forge_forge_events_nats_messages_received`, `forge_forge_events_nats_receive_duration` | `messaging_process_duration_seconds` |
+| `forge_forge_events_redis_messages_published`, `forge_forge_events_redis_publish_duration` | the same histogram, filtered by `messaging_system` |
+| `forge_forge_events_redis_messages_received` | `messaging_process_duration_seconds` |
+
+`publish_failures`, `publish_broker_errors`, the handler and receive error counters, and the subscription and connection series are still there.
 
 ## Schema validation
 

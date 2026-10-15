@@ -372,13 +372,8 @@ func (rb *RedisBroker) Publish(ctx context.Context, topic string, event core.Eve
 	}
 	rb.mu.Unlock()
 
-	if rb.metrics != nil {
-		if err != nil {
-			rb.metrics.Counter("forge.events.redis.publish_errors", forge.WithLabel("topic", topic)).Inc()
-		} else {
-			rb.metrics.Counter("forge.events.redis.messages_published", forge.WithLabel("topic", topic)).Inc()
-			rb.metrics.Histogram("forge.events.redis.publish_duration", forge.WithLabel("topic", topic)).Observe(time.Since(start).Seconds())
-		}
+	if err != nil && rb.metrics != nil {
+		rb.metrics.Counter("forge.events.redis.publish_errors", forge.WithLabel("topic", topic)).Inc()
 	}
 
 	if err != nil {
@@ -516,12 +511,8 @@ func (rb *RedisBroker) handleMessage(ctx context.Context, topic, payload string)
 }
 
 func (rb *RedisBroker) recordReceive(success bool, topic string) {
-	if rb.metrics != nil {
-		if success {
-			rb.metrics.Counter("forge.events.redis.messages_received", forge.WithLabel("topic", topic)).Inc()
-		} else {
-			rb.metrics.Counter("forge.events.redis.receive_errors", forge.WithLabel("topic", topic)).Inc()
-		}
+	if !success && rb.metrics != nil {
+		rb.metrics.Counter("forge.events.redis.receive_errors", forge.WithLabel("topic", topic)).Inc()
 	}
 
 	rb.mu.Lock()

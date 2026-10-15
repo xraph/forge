@@ -54,6 +54,7 @@ type EventBusImpl struct {
 	pendingRemovals map[subscriptionKey]*pendingSubscriptionRemoval
 	stopping        bool
 	mu              sync.RWMutex
+	telemetry       sync.Map // broker name to *messaging.Telemetry
 }
 
 type subscriptionKey struct {
@@ -218,7 +219,7 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 			}
 
 			for _, name := range names {
-				if err := brokers[name].Subscribe(runCtx, topic, transportHandler(handler)); err != nil {
+				if err := brokers[name].Subscribe(runCtx, topic, eb.traced(name, transportHandler(handler))); err != nil {
 					return fail(fmt.Errorf("failed to restore subscription on broker %s: %w", name, err))
 				}
 			}
@@ -432,14 +433,14 @@ func (eb *EventBusImpl) PublishTo(ctx context.Context, brokerName string, event 
 }
 
 func (eb *EventBusImpl) publishToBrokers(ctx context.Context, brokers map[string]core.MessageBroker, event *core.Event) error {
-	start := time.Now()
-
 	var publishErr error
 
 	for _, name := range brokerNames(brokers) {
 		err := ctx.Err()
 		if err == nil {
-			err = brokers[name].Publish(ctx, event.Type, *event)
+			sendCtx, op := eb.telemetryFor(name).StartSend(ctx, event.Type, "publish")
+			err = brokers[name].Publish(sendCtx, event.Type, withTraceMetadata(sendCtx, event))
+			op.End(err)
 		}
 
 		if err != nil {
@@ -450,15 +451,8 @@ func (eb *EventBusImpl) publishToBrokers(ctx context.Context, brokers map[string
 		}
 	}
 
-	if eb.metrics != nil {
-		eb.metrics.Histogram("forge.events.publish_duration").Observe(time.Since(start).Seconds())
-
-		if publishErr == nil {
-			eb.metrics.Counter("forge.events.published_total", metrics.WithLabel("event_type", event.Type)).Inc()
-			eb.metrics.Counter("forge.events.publish_success").Inc()
-		} else {
-			eb.metrics.Counter("forge.events.publish_failures").Inc()
-		}
+	if publishErr != nil && eb.metrics != nil {
+		eb.metrics.Counter("forge.events.publish_failures").Inc()
 	}
 
 	return publishErr
@@ -511,7 +505,7 @@ func (eb *EventBusImpl) Subscribe(eventType string, handler core.EventHandler) e
 	var subscribed []string
 
 	for _, name := range brokerNames(brokers) {
-		if err := brokers[name].Subscribe(runCtx, eventType, transport); err != nil {
+		if err := brokers[name].Subscribe(runCtx, eventType, eb.traced(name, transport)); err != nil {
 			result := fmt.Errorf("failed to subscribe to broker %s: %w", name, err)
 			// A failed Subscribe may have admitted the handler before returning an error.
 			for _, previous := range append(subscribed, name) {
@@ -697,6 +691,7 @@ func (eb *EventBusImpl) RegisterBroker(name string, broker core.MessageBroker) e
 	}
 
 	eb.brokers[name] = broker
+	eb.telemetry.Store(name, eb.newTelemetry(name))
 
 	if eb.logger != nil {
 		eb.logger.Info("broker registered",
@@ -734,6 +729,7 @@ func (eb *EventBusImpl) UnregisterBroker(name string) error {
 	}
 
 	delete(eb.brokers, name)
+	eb.telemetry.Delete(name)
 
 	if eb.defaultBroker == name {
 		eb.defaultBroker = ""
