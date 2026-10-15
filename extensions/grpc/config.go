@@ -2,7 +2,11 @@ package grpc
 
 import (
 	"errors"
+	"slices"
 	"time"
+
+	"github.com/xraph/forge"
+	"google.golang.org/grpc"
 )
 
 // DI container keys for gRPC extension services.
@@ -39,9 +43,26 @@ type Config struct {
 	EnableTracing bool `json:"enable_tracing" mapstructure:"enable_tracing" yaml:"enable_tracing"`
 	EnableLogging bool `json:"enable_logging" mapstructure:"enable_logging" yaml:"enable_logging"`
 
+	// Services set up the server before it starts. Add them with WithService
+	// and WithServiceRegistrar. Only the extension applies them:
+	// NewGRPCService and NewGRPCServer ignore this field.
+	Services []ServiceRegistrar `json:"-" mapstructure:"-" yaml:"-"`
+
 	// Config loading flags
 	RequireConfig bool `json:"-" mapstructure:"-" yaml:"-"`
 }
+
+// ServiceRegistrar sets up the extension's server before it starts. It can
+// register services, add interceptors and register health checkers. app is
+// the app the extension is registered with, so an implementation can resolve
+// what it needs from app.Container().
+//
+// The extension calls each registrar once, in order, when it builds the
+// server. That happens the first time anything resolves the gRPC service,
+// which is no later than the extension's Start. A registrar that resolves GRPC
+// or *GRPCService, directly or through another constructor, gets a circular
+// dependency error.
+type ServiceRegistrar func(app forge.App, server GRPC) error
 
 // KeepaliveConfig contains keepalive settings.
 type KeepaliveConfig struct {
@@ -156,6 +177,24 @@ func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) { c.RequireConfig = require }
 }
 
+// WithService registers a service on the extension's server before it
+// starts. desc is the generated descriptor, such as pb.Greeter_ServiceDesc,
+// and impl implements its server interface.
+func WithService(desc *grpc.ServiceDesc, impl any) ConfigOption {
+	return WithServiceRegistrar(func(_ forge.App, server GRPC) error {
+		return server.RegisterService(desc, impl)
+	})
+}
+
+// WithServiceRegistrar adds a function that sets up the extension's server
+// before it starts. Use it when an implementation needs dependencies from the
+// container, or to add interceptors and health checkers next to the service.
+func WithServiceRegistrar(register ServiceRegistrar) ConfigOption {
+	return func(c *Config) { c.Services = append(slices.Clip(c.Services), register) }
+}
+
+// WithConfig replaces the whole config, including any services earlier
+// options added. Put WithService and WithServiceRegistrar after it.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) { *c = config }
 }

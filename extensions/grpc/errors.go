@@ -7,6 +7,7 @@ var (
 	ErrNotStarted         = errors.New("grpc: server not started")
 	ErrAlreadyStarted     = errors.New("grpc: server already started")
 	ErrRegisterAfterStart = errors.New("grpc: services must be registered before Start")
+	ErrInvalidService     = errors.New("grpc: invalid service registration")
 	ErrServiceNotFound    = errors.New("grpc: service not found")
 	ErrInvalidConfig      = errors.New("grpc: invalid configuration")
 	ErrStartFailed        = errors.New("grpc: failed to start server")

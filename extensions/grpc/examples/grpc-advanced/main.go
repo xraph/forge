@@ -71,65 +71,59 @@ func (h *customHealthChecker) Check(ctx context.Context) error {
 	return nil
 }
 
+// registerGreeter sets up the extension's server before it starts. The
+// extension calls it once, while it builds the server inside app.Start.
+func registerGreeter(app forge.App, s grpcext.GRPC) error {
+	logger := app.Logger()
+
+	// Add custom interceptor for authentication
+	s.AddUnaryInterceptor(authInterceptor(logger))
+
+	// Register custom health checker
+	s.RegisterHealthChecker("greeter-service", &customHealthChecker{logger: logger})
+
+	// Register the greeter service
+	return s.RegisterService(&helloworld.Greeter_ServiceDesc, &server{logger: logger})
+}
+
 func main() {
-	// Create Forge app. forge.NewApp installs the OpenTelemetry globals the
-	// gRPC server reads for spans when it starts.
+	// Create Forge app with the gRPC extension. forge.NewApp installs the
+	// OpenTelemetry globals the gRPC server reads for spans when it starts.
 	app := forge.NewApp(forge.AppConfig{
 		Name:    "grpc-advanced-example",
 		Version: "1.0.0",
+		Extensions: []forge.Extension{
+			grpcext.NewExtension(
+				grpcext.WithAddress(":50051"),
+				grpcext.WithReflection(true),
+				grpcext.WithHealthCheck(true),
+				grpcext.WithMetrics(true),
+				// grpcext.WithMaxMessageSize(8*1024*1024), // 8MB each way
+				grpcext.WithMaxConcurrentStreams(100),
+				// Uncomment to enable TLS:
+				// grpcext.WithTLS("server.crt", "server.key", ""),
+				// Uncomment for mTLS:
+				// grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
+				// grpcext.WithClientAuth(true),
+
+				// The service, interceptor and health checker all have to be
+				// in place before the server starts, so they go in here.
+				grpcext.WithServiceRegistrar(registerGreeter),
+			),
+		},
 	})
 
 	logger := app.Logger()
 
-	// Configure gRPC with advanced settings. The extension starts its server
-	// inside app.Start and gives you no point before that to register a
-	// service, so this example builds the server itself, registers everything,
-	// and then starts it. The options are the same ones NewExtension takes.
-	cfg := grpcext.DefaultConfig()
-	for _, opt := range []grpcext.ConfigOption{
-		grpcext.WithAddress(":50051"),
-		grpcext.WithReflection(true),
-		grpcext.WithHealthCheck(true),
-		grpcext.WithMetrics(true),
-		// grpcext.WithMaxMessageSize(8*1024*1024), // 8MB each way
-		grpcext.WithMaxConcurrentStreams(100),
-		// Uncomment to enable TLS:
-		// grpcext.WithTLS("server.crt", "server.key", ""),
-		// Uncomment for mTLS:
-		// grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
-		// grpcext.WithClientAuth(true),
-	} {
-		opt(&cfg)
-	}
-
-	grpcServer := grpcext.NewGRPCServer(cfg, logger, app.Metrics())
-
-	// Everything below has to happen before the server starts. RegisterService
-	// returns ErrRegisterAfterStart afterwards, and interceptors added later
-	// are never called.
-
-	// Add custom interceptor for authentication
-	grpcServer.AddUnaryInterceptor(authInterceptor(logger))
-	logger.Info("custom auth interceptor registered")
-
-	// Register custom health checker
-	grpcServer.RegisterHealthChecker("greeter-service", &customHealthChecker{logger: logger})
-	logger.Info("custom health checker registered")
-
-	// Register the greeter service. GetServer returns nil until Start, so
-	// don't register generated services on it.
-	if err := grpcServer.RegisterService(&helloworld.Greeter_ServiceDesc, &server{logger: logger}); err != nil {
-		log.Fatalf("Failed to register greeter service: %v", err)
-	}
-
-	// Start app, then the gRPC server
+	// Start app, which starts the gRPC server
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
 		log.Fatalf("Failed to start: %v", err)
 	}
 
-	if err := grpcServer.Start(ctx, cfg.Address); err != nil {
-		log.Fatalf("Failed to start gRPC server: %v", err)
+	grpcServer, err := forge.Inject[grpcext.GRPC](app.Container())
+	if err != nil {
+		log.Fatalf("Failed to resolve gRPC server: %v", err)
 	}
 
 	// Display server info
@@ -191,10 +185,7 @@ func main() {
 	fmt.Printf("  RPCs Failed:    %d\n", stats.RPCsFailed)
 	fmt.Printf("  Active Streams: %d\n", stats.ActiveStreams)
 
-	if err := grpcServer.GracefulStop(ctx); err != nil {
-		log.Printf("Error stopping gRPC server: %v", err)
-	}
-
+	// Stopping the app stops the gRPC server gracefully
 	if err := app.Stop(ctx); err != nil {
 		log.Printf("Error during shutdown: %v", err)
 	}

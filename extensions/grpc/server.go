@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 
@@ -17,6 +18,12 @@ import (
 // rpcDurationBuckets are the bucket bounds, in seconds, the semconv spec
 // recommends for rpc.server.call.duration.
 var rpcDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
+
+// Names of the services reflection.Register adds.
+const (
+	reflectionV1      = "grpc.reflection.v1.ServerReflection"
+	reflectionV1Alpha = "grpc.reflection.v1alpha.ServerReflection"
+)
 
 // serviceRegistration is a service held back until Start builds the server.
 type serviceRegistration struct {
@@ -63,7 +70,8 @@ func NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GR
 
 // RegisterService buffers a service until Start builds the server. grpc-go
 // can't add services once Serve has been called, so a running server returns
-// ErrRegisterAfterStart.
+// ErrRegisterAfterStart. grpc-go also ends the process when Start applies a
+// registration it rejects, so those come back here as ErrInvalidService.
 func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -72,8 +80,46 @@ func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl any) error {
 		return ErrRegisterAfterStart
 	}
 
+	if err := s.checkRegistration(desc, impl); err != nil {
+		return err
+	}
+
 	s.pending = append(s.pending, serviceRegistration{desc: desc, impl: impl})
 	s.logger.Info("registered grpc service", forge.F("service", desc.ServiceName))
+
+	return nil
+}
+
+// checkRegistration rejects what grpc-go's RegisterService would log.Fatalf
+// on: an implementation that doesn't satisfy the descriptor's handler type,
+// and a service name that is already taken, by a pending registration or by
+// the health or reflection service the config turns on. s.mu must be held.
+func (s *grpcServer) checkRegistration(desc *grpc.ServiceDesc, impl any) error {
+	if desc == nil {
+		return fmt.Errorf("%w: nil service descriptor", ErrInvalidService)
+	}
+
+	if impl != nil {
+		if desc.HandlerType == nil {
+			return fmt.Errorf("%w: %s has no handler type", ErrInvalidService, desc.ServiceName)
+		}
+
+		want := reflect.TypeOf(desc.HandlerType).Elem()
+		if got := reflect.TypeOf(impl); !got.Implements(want) {
+			return fmt.Errorf("%w: %v does not implement %v", ErrInvalidService, got, want)
+		}
+	}
+
+	taken := s.config.EnableHealthCheck && desc.ServiceName == grpc_health_v1.Health_ServiceDesc.ServiceName ||
+		s.config.EnableReflection && (desc.ServiceName == reflectionV1 || desc.ServiceName == reflectionV1Alpha)
+
+	for _, reg := range s.pending {
+		taken = taken || reg.desc.ServiceName == desc.ServiceName
+	}
+
+	if taken {
+		return fmt.Errorf("%w: %s is already registered", ErrInvalidService, desc.ServiceName)
+	}
 
 	return nil
 }

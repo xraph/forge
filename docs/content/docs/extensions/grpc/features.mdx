@@ -28,7 +28,7 @@ type GRPC interface {
 
 grpc-go supports unary, server streaming, client streaming and bidirectional streaming calls. Register your service with `RegisterService(&pb.Xxx_ServiceDesc, impl)` before `Start`: the server buffers it and serves it once it starts. After `Start` the call returns `ErrRegisterAfterStart`. `GetServer()` is `nil` until `Start`, and registering a generated service on a serving server stops the process with `grpc: Server.RegisterService after Server.Serve`.
 
-The extension's own server starts inside `app.Start`, so build a server with `grpcext.NewGRPCServer`, register on it and start it yourself. See [registering your own services](/docs/extensions/grpc#registering-your-own-services).
+With the extension, pass the service when you create it: `grpcext.WithService(&pb.Xxx_ServiceDesc, impl)`, or `grpcext.WithServiceRegistrar(fn)` when the implementation needs dependencies from the container or you want interceptors and health checkers added in the same place. The extension calls them while it builds the server inside `app.Start`. See [registering your own services](/docs/extensions/grpc#registering-your-own-services).
 
 ## TLS and mutual TLS
 
@@ -199,5 +199,6 @@ The RPC and stream counts come from the metrics interceptor, so they stay at zer
 |---|---|
 | `ErrNotStarted` | `Stop`, `GracefulStop` and `Ping` when the server isn't running |
 | `ErrRegisterAfterStart` | `RegisterService` once the server is running |
+| `ErrInvalidService` | `RegisterService` with a nil descriptor, an implementation that doesn't satisfy the descriptor's server interface, or a service name that's already registered (health and reflection count when they're on) |
 
 `ErrAlreadyStarted`, `ErrServiceNotFound`, `ErrInvalidConfig`, `ErrStartFailed`, `ErrStopFailed` and `ErrHealthCheckFailed` are exported, but nothing returns them today.

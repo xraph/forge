@@ -4,7 +4,7 @@
 
 # Forge gRPC: a gRPC server for Go apps built on Forge
 
-Forge gRPC is the gRPC extension for [Forge](https://github.com/xraph/forge), the Go backend framework. It runs a [grpc-go](https://github.com/grpc/grpc-go) server next to your HTTP server and ties it to the app's lifecycle, with the standard gRPC health checking protocol, server reflection for tools like grpcurl, TLS and mutual TLS, keepalive and message size limits, request logging, OpenTelemetry spans and metrics, and graceful shutdown. Read [registering your own services](#registering-your-own-services) before you plan around it: the extension's own server starts inside `app.Start`, so your generated services need a server you start yourself.
+Forge gRPC is the gRPC extension for [Forge](https://github.com/xraph/forge), the Go backend framework. It runs a [grpc-go](https://github.com/grpc/grpc-go) server next to your HTTP server and ties it to the app's lifecycle, with the standard gRPC health checking protocol, server reflection for tools like grpcurl, TLS and mutual TLS, keepalive and message size limits, request logging, OpenTelemetry spans and metrics, and graceful shutdown. You hand it your generated services with `WithService` or `WithServiceRegistrar`, and it registers them before the server starts.
 
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/grpc.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/grpc) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
@@ -87,7 +87,36 @@ When you stop the app, the server drains with `GracefulStop` and falls back to a
 
 ## Registering your own services
 
-Register services, interceptors and health checkers before the server starts. grpc-go can't add a service to a server that is already serving, so the extension buffers what you register and applies it when `Start` builds the server.
+Pass your services to the extension when you create it. `WithService` takes the generated descriptor and your implementation:
+
+```go
+grpcext.NewExtension(
+	grpcext.WithAddress(":50051"),
+	grpcext.WithService(&pb.Greeter_ServiceDesc, &greeter{}),
+)
+```
+
+If the implementation needs something from the container, or you want an interceptor or a health checker next to it, use `WithServiceRegistrar`. Your function gets the app and the server, and the extension calls it once, while it builds the server inside `app.Start`:
+
+```go
+grpcext.WithServiceRegistrar(func(app forge.App, s grpcext.GRPC) error {
+	db, err := forge.Inject[*sql.DB](app.Container())
+	if err != nil {
+		return err
+	}
+
+	s.AddUnaryInterceptor(authInterceptor)
+	s.RegisterHealthChecker("greeter", greeterCheck{db: db})
+
+	return s.RegisterService(&pb.Greeter_ServiceDesc, &greeter{db: db})
+}),
+```
+
+A registrar that returns an error fails `app.Start` with that error wrapped. So does a service the server can't take, which comes back as `ErrInvalidService`: an implementation that doesn't satisfy the descriptor's server interface, or a service name that's already registered. The health and reflection services count when they're on. grpc-go would end the process for either one at `Start`, so the extension checks them when you register.
+
+The registrar runs inside the constructor of the gRPC service, so it can resolve anything you provided on the container before `app.Start` and anything an earlier extension registered. Resolving `grpcext.GRPC` or `*grpcext.GRPCService` from inside it is a circular dependency. `WithConfig` replaces the whole config, registrars included, so put `WithService` and `WithServiceRegistrar` after it.
+
+You can't do this from a lifecycle hook. grpc-go can't add a service to a server that's already serving, and the extension's server starts inside `app.Start`, right after the extension registers. Resolving it from the container starts it too, so even a `PhaseAfterRegister` hook finds it running. Here's what each call does on either side of `Start`:
 
 | What | Before `Start` | After `Start` |
 | --- | --- | --- |
@@ -98,27 +127,9 @@ Register services, interceptors and health checkers before the server starts. gr
 
 Don't call a generated `pb.RegisterXxxServer` on `GetServer()`. It's `nil` until `Start`, and on a serving server grpc-go stops the process with `grpc: Server.RegisterService after Server.Serve`. Use `RegisterService(&pb.Xxx_ServiceDesc, impl)` instead.
 
-The catch is the extension's own server. It starts inside `app.Start`, right after the extension registers, and resolving it from the container starts it too. So by the time you can reach it, it's running. For your own services, build the server, register everything and start it yourself:
+If you'd like to own the server's start and stop yourself, `grpcext.NewGRPCServer(cfg, app.Logger(), app.Metrics())` gives you one outside the extension, and you call `Start` and `GracefulStop` on it. Create it after `forge.NewApp`, because it reads the OpenTelemetry globals `NewApp` installs when it starts.
 
-```go
-cfg := grpcext.DefaultConfig()
-cfg.Address = ":50051"
-
-srv := grpcext.NewGRPCServer(cfg, app.Logger(), app.Metrics())
-srv.AddUnaryInterceptor(authInterceptor)
-srv.RegisterHealthChecker("greeter", greeterCheck{})
-
-if err := srv.RegisterService(&pb.Greeter_ServiceDesc, &greeter{}); err != nil {
-	return err
-}
-
-if err := srv.Start(ctx, cfg.Address); err != nil {
-	return err
-}
-defer srv.GracefulStop(ctx)
-```
-
-Create it after `forge.NewApp`, because the server reads the OpenTelemetry globals that `NewApp` installs when it starts. The [`grpc-advanced`](examples/grpc-advanced/) example is this pattern end to end, with an auth interceptor and a health checker.
+The [`grpc-advanced`](examples/grpc-advanced/) example registers a greeter, an auth interceptor and a health checker through `WithServiceRegistrar`.
 
 ## Features
 
@@ -283,7 +294,7 @@ extensions:
 
 `keepalive.time` also sets the server's maximum idle time for a connection, and twice that value is the maximum connection age, with `keepalive.timeout` as the grace period. With the defaults, an idle connection closes after two hours and any connection is recycled after four.
 
-`WithConfig` replaces the whole config and `WithRequireConfig(true)` makes a missing config section an error at startup. The container holds `*grpcext.GRPCService` (also under the name `grpc`) and the `grpcext.GRPC` interface, backed by the same server.
+`WithConfig` replaces the whole config and `WithRequireConfig(true)` makes a missing config section an error at startup. `WithService` and `WithServiceRegistrar` have no key: a registrar is code, and the file can't set or remove one. The container holds `*grpcext.GRPCService` (also under the name `grpc`) and the `grpcext.GRPC` interface, backed by the same server.
 
 ## Documentation
 
@@ -299,7 +310,7 @@ extensions:
 
 ### How do I add a gRPC server to a Go app built on Forge?
 
-Add `grpcext.NewExtension()` to your app's `Extensions` and it listens on `:50051` with health checks and reflection on. For your own services, read [registering your own services](#registering-your-own-services) first.
+Add `grpcext.NewExtension()` to your app's `Extensions` and it listens on `:50051` with health checks and reflection on. Add your services with `grpcext.WithService(&pb.Xxx_ServiceDesc, impl)`, as [registering your own services](#registering-your-own-services) shows.
 
 ### Does Forge gRPC support the gRPC health checking protocol?
 

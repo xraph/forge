@@ -11,7 +11,13 @@ description: Public API reference for the gRPC extension
 | `NewExtensionWithConfig(config Config) forge.Extension` | The extension with a complete config |
 | `DefaultConfig() Config` | The defaults |
 
-The options are listed on the [Configuration](/docs/extensions/grpc/configuration#options) page.
+The options are listed on the [Configuration](/docs/extensions/grpc/configuration#options) page. Two of them register your services:
+
+| Function | Description |
+|---|---|
+| `WithService(desc *grpc.ServiceDesc, impl any) ConfigOption` | Register a generated service before the server starts |
+| `WithServiceRegistrar(register ServiceRegistrar) ConfigOption` | Run `register` once while the extension builds the server |
+| `type ServiceRegistrar func(app forge.App, server GRPC) error` | Sets up the server: services, interceptors, health checkers. An error fails `app.Start` |
 
 ## Resolving the server
 
@@ -44,7 +50,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 
 | Method | Description |
 |---|---|
-| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service before `Start`. Afterwards it returns `ErrRegisterAfterStart`. See [registering your own services](/docs/extensions/grpc#registering-your-own-services) |
+| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service before `Start`. Afterwards it returns `ErrRegisterAfterStart`, and a registration grpc-go would reject returns `ErrInvalidService`. With the extension, call it from a `WithServiceRegistrar` function. See [registering your own services](/docs/extensions/grpc#registering-your-own-services) |
 | `GetServices() []ServiceInfo` | Registered services and their methods |
 
 ## `GRPC`: lifecycle

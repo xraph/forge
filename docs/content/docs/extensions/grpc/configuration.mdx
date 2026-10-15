@@ -105,6 +105,10 @@ If TLS is configured but the files can't be loaded, the server starts in plainte
 | `WithMetrics(enable bool)` | Call duration metric |
 | `WithTracing(enable bool)` | Server spans |
 | `WithRequireConfig(require bool)` | Fail when the config section is missing |
-| `WithConfig(config Config)` | Replace the whole config |
+| `WithConfig(config Config)` | Replace the whole config, registrars included |
+| `WithService(desc *grpc.ServiceDesc, impl any)` | Register a service before the server starts |
+| `WithServiceRegistrar(register ServiceRegistrar)` | Run `register(app, server)` before the server starts |
 
 `connection_timeout`, `keepalive` and `enable_logging` have no option. Set them in the file or through `WithConfig`.
+
+`WithService` and `WithServiceRegistrar` append to `Config.Services`, which has no key. A registrar is code, so the file can't set or remove one. Put them after `WithConfig`, which replaces the list along with everything else.

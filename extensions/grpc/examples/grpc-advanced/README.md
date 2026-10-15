@@ -11,7 +11,7 @@ Advanced gRPC service demonstrating authentication, custom health checkers, inte
 - Concurrent stream limits
 - Graceful shutdown with stats display
 - Ready for TLS/mTLS (commented out)
-- Registers the service, interceptor and health checker before the server starts (see the note below)
+- Registers the service, interceptor and health checker through `WithServiceRegistrar`, before the server starts
 
 ## Prerequisites
 
@@ -132,7 +132,7 @@ Final Statistics:
 Uncomment the TLS lines in `main.go`:
 
 ```go
-grpc.WithTLS("server.crt", "server.key", ""),
+grpcext.WithTLS("server.crt", "server.key", ""),
 ```
 
 Generate certificates:
@@ -153,8 +153,8 @@ grpcurl -insecure localhost:50051 helloworld.Greeter/SayHello -H 'x-api-key: sec
 Uncomment the mTLS lines in `main.go`:
 
 ```go
-grpc.WithTLS("server.crt", "server.key", "ca.crt"),
-grpc.WithClientAuth(true),
+grpcext.WithTLS("server.crt", "server.key", "ca.crt"),
+grpcext.WithClientAuth(true),
 ```
 
 Generate CA and client certificates:
@@ -188,7 +188,25 @@ grpcurl -cert client.crt -key client.key -cacert ca.crt localhost:50051 \
 
 ### Startup order
 
-The example builds the gRPC server itself with `grpcext.NewGRPCServer`, registers the service, the interceptor and the health checker, and only then starts it. A server can't take services once it's serving: `RegisterService` returns `ErrRegisterAfterStart`, and interceptors added later are never called. The extension's own server starts inside `app.Start`, so it can't be used this way.
+The service, the interceptor and the health checker all go in through one registrar:
+
+```go
+func registerGreeter(app forge.App, s grpcext.GRPC) error {
+    logger := app.Logger()
+
+    s.AddUnaryInterceptor(authInterceptor(logger))
+    s.RegisterHealthChecker("greeter-service", &customHealthChecker{logger: logger})
+
+    return s.RegisterService(&helloworld.Greeter_ServiceDesc, &server{logger: logger})
+}
+
+grpcext.NewExtension(
+    grpcext.WithAddress(":50051"),
+    grpcext.WithServiceRegistrar(registerGreeter),
+)
+```
+
+The extension calls `registerGreeter` once, while it builds the server inside `app.Start`, and nothing you add after that point reaches the server. A server can't take services once it's serving, so `RegisterService` returns `ErrRegisterAfterStart` after that, and interceptors added later are never called. If the registrar returns an error, `app.Start` fails with it. Once the app has started, the example resolves `grpcext.GRPC` from the container to print the services and the statistics.
 
 ### 1. Custom Interceptor
 

@@ -56,6 +56,9 @@ func (e *Extension) Register(app forge.App) error {
 		e.Logger().Warn("grpc: using default/programmatic config", forge.F("error", err.Error()))
 	}
 
+	// Registrars are code, not config: no file can set them, and a failed
+	// load above may have left finalConfig without the options' copy.
+	finalConfig.Services = programmaticConfig.Services
 	e.config = finalConfig
 
 	// Validate config before registering constructor
@@ -65,7 +68,25 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register GRPCService constructor with Vessel
 	if err := e.RegisterConstructor(func(logger forge.Logger, metrics forge.Metrics) (*GRPCService, error) {
-		return NewGRPCService(finalConfig, logger, metrics)
+		svc, err := NewGRPCService(finalConfig, logger, metrics)
+		if err != nil {
+			return nil, err
+		}
+
+		// Vessel starts the service as soon as anything resolves it, so this
+		// constructor is the last point where the server can still take
+		// services, interceptors and health checkers.
+		for _, register := range finalConfig.Services {
+			if register == nil {
+				continue
+			}
+
+			if err := register(app, svc.Server()); err != nil {
+				return nil, fmt.Errorf("grpc: failed to register service: %w", err)
+			}
+		}
+
+		return svc, nil
 	}, vessel.WithAliases(ServiceKey)); err != nil {
 		return fmt.Errorf("failed to register grpc service: %w", err)
 	}
@@ -80,6 +101,7 @@ func (e *Extension) Register(app forge.App) error {
 	e.Logger().Info("grpc extension registered",
 		forge.F("address", finalConfig.Address),
 		forge.F("tls", finalConfig.EnableTLS),
+		forge.F("registrars", len(finalConfig.Services)),
 	)
 
 	return nil

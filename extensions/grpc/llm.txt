@@ -8,8 +8,8 @@ reflection, TLS and mutual TLS, keepalive and message size limits, logging, Open
 spans, the rpc.server.call.duration metric, client dial options that trace outbound calls, and
 graceful shutdown.
 
-Services, interceptors and the server's start have an order that matters. Read "Registering
-services" before you plan around it.
+Register your services with WithService or WithServiceRegistrar when you create the extension.
+The server can't take a service once it's serving. See "Registering services".
 
 Module: github.com/xraph/forge/extensions/grpc (package `grpc`; import it as `grpcext` so it
 doesn't clash with google.golang.org/grpc).
@@ -32,7 +32,11 @@ WithReflection(enable bool)
 WithMetrics(enable bool)
 WithTracing(enable bool)
 WithRequireConfig(require bool)
-WithConfig(config Config)                 // replaces the whole config
+WithConfig(config Config)                 // replaces the whole config, registrars included
+WithService(desc *grpc.ServiceDesc, impl any)
+WithServiceRegistrar(register ServiceRegistrar)
+
+type ServiceRegistrar func(app forge.App, server GRPC) error
 ```
 
 Lower level, if you want the server without the extension:
@@ -80,7 +84,8 @@ type ServerStats struct {
 ```
 
 Sentinel errors (errors.go): ErrNotStarted, ErrAlreadyStarted, ErrServiceNotFound,
-ErrInvalidConfig, ErrStartFailed, ErrStopFailed, ErrHealthCheckFailed, ErrRegisterAfterStart.
+ErrInvalidConfig, ErrStartFailed, ErrStopFailed, ErrHealthCheckFailed, ErrRegisterAfterStart,
+ErrInvalidService.
 
 ## Usage
 
@@ -136,28 +141,49 @@ when the checker errors. The extension's own `Health(ctx)` only reports whether 
 
 ## Registering services
 
-Register before Start. grpc-go can't add a service to a serving server.
+Pass services to the extension. It applies them inside the *GRPCService constructor, before the
+server can start:
+
+```go
+grpcext.NewExtension(
+    grpcext.WithService(&pb.Greeter_ServiceDesc, &greeter{}),
+    grpcext.WithServiceRegistrar(func(app forge.App, s grpcext.GRPC) error {
+        db, err := forge.Inject[*sql.DB](app.Container())
+        if err != nil {
+            return err
+        }
+        s.AddUnaryInterceptor(auth)
+        return s.RegisterService(&pb.Billing_ServiceDesc, &billing{db: db})
+    }),
+)
+```
+
+- Each registrar runs once, in order, the first time anything resolves the service (no later than
+  the extension's Start). An error fails app.Start, wrapped.
+- A registrar can resolve what was provided before app.Start and what earlier extensions
+  registered. Resolving GRPC or *GRPCService inside it is a circular dependency.
+- Config.Services holds the registrars (json/yaml/mapstructure "-"). WithConfig replaces it, so
+  put WithService and WithServiceRegistrar after WithConfig. NewGRPCService and NewGRPCServer
+  ignore the field.
+- Lifecycle hooks are too late. The server starts inside app.Start right after the extension
+  registers, and resolving it starts it, so a PhaseAfterRegister hook finds it serving.
+
+On the server itself:
 
 - `RegisterService(&pb.X_ServiceDesc, impl)` before Start is buffered and served. After Start it
-  returns ErrRegisterAfterStart.
+  returns ErrRegisterAfterStart. A nil descriptor, an impl that doesn't satisfy desc.HandlerType,
+  or a name already taken (pending, or health/reflection when on) returns ErrInvalidService,
+  where grpc-go would log.Fatalf at Start.
 - `AddUnaryInterceptor` and `AddStreamInterceptor` before Start are chained onto the server. After
   Start they are stored and never called.
 - `RegisterHealthChecker` works at any time.
 - `GetServer()` is nil until Start. Don't call a generated `pb.RegisterXServer` on it: on a serving
   server grpc-go aborts the process with `grpc: Server.RegisterService after Server.Serve`.
-- The extension's own server starts inside `app.Start`, right after the extension registers, and
-  resolving it from the container starts it too. So there is no point where the container's server
-  is reachable and not yet serving. Serve your own services from a server you build and start:
+- NewGRPCServer gives you a server outside the extension that you Start and GracefulStop
+  yourself. Create it after forge.NewApp, which installs the OpenTelemetry globals it reads.
 
-```go
-cfg := grpcext.DefaultConfig()
-srv := grpcext.NewGRPCServer(cfg, app.Logger(), app.Metrics()) // after forge.NewApp
-srv.AddUnaryInterceptor(auth)
-_ = srv.RegisterService(&pb.Greeter_ServiceDesc, &greeter{})
-_ = srv.Start(ctx, cfg.Address)
-```
-
-`examples/grpc-advanced` does this.
+`examples/grpc-advanced` registers a greeter, an auth interceptor and a health checker through
+WithServiceRegistrar.
 
 ## Tracing
 
