@@ -127,6 +127,12 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	// Listen on address
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
 	if err != nil {
+		// Drop the server built above, so GetServer and GetServices don't
+		// report one that never started. The pending registrations stay, and
+		// a later Start applies them to a fresh server.
+		s.server = nil
+		s.stats.StartTime = 0
+
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
