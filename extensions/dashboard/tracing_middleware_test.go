@@ -199,3 +199,94 @@ func TestTracingMiddleware_TruncatesCapturedHeaders(t *testing.T) {
 		t.Fatalf("exchange %+v", got)
 	}
 }
+
+// TestTracingMiddleware_CapturesAllowlistedExchange checks what the middleware
+// keeps for the trace viewer: allowlisted headers only, and a redacted body
+// only when the caller opts in. The secrets are checked by value, so a
+// redaction that leaves them in place fails here.
+func TestTracingMiddleware_CapturesAllowlistedExchange(t *testing.T) {
+	const (
+		body      = `{"name":"Ada","password":"top-secret-pw","nested":{"api_key":"top-secret-key"}}`
+		secretPW  = "top-secret-pw"
+		secretKey = "top-secret-key"
+	)
+
+	for _, captureBody := range []bool{false, true} {
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+
+		t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+		store := collector.NewTraceStore(10, time.Hour)
+
+		reqCtx, span := tp.Tracer("t").Start(t.Context(), "POST /api/users")
+		req := httptest.NewRequestWithContext(reqCtx, http.MethodPost, "/api/users", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer private")
+		req.Header.Set("X-Request-ID", "req_42")
+
+		handler := TracingMiddleware(store, "/dashboard", captureBody)(func(ctx forge.Context) error {
+			got, err := io.ReadAll(ctx.Request().Body)
+			if err != nil || string(got) != body {
+				t.Errorf("capture=%v: handler received body %q, error %v", captureBody, got, err)
+			}
+
+			ctx.Response().Header().Set("Content-Type", "application/json")
+			ctx.Response().Header().Set("Set-Cookie", "session=private")
+
+			return nil
+		})
+		if err := handler(forge_http.NewContext(httptest.NewRecorder(), req, nil)); err != nil {
+			t.Fatal(err)
+		}
+
+		span.End()
+		// A zero StartTime reads as already expired and is evicted on insert.
+		store.AddSpan(&collector.SpanView{
+			TraceID:   span.SpanContext().TraceID().String(),
+			SpanID:    span.SpanContext().SpanID().String(),
+			StartTime: time.Now(),
+		})
+
+		detail := store.GetTrace(span.SpanContext().TraceID().String())
+		if detail == nil {
+			t.Fatalf("capture=%v: span was not stored", captureBody)
+		}
+
+		got := detail.RootSpan.HTTP
+		if got == nil {
+			t.Fatalf("capture=%v: HTTP exchange missing", captureBody)
+		}
+
+		if got.Request.Headers["X-Request-Id"] != "req_42" {
+			t.Errorf("capture=%v: request id missing: %+v", captureBody, got.Request.Headers)
+		}
+
+		if _, ok := got.Request.Headers["Authorization"]; ok {
+			t.Errorf("capture=%v: authorization header was retained", captureBody)
+		}
+
+		if got.Response.Headers["Content-Type"] != "application/json" {
+			t.Errorf("capture=%v: response content type missing: %+v", captureBody, got.Response.Headers)
+		}
+
+		if _, ok := got.Response.Headers["Set-Cookie"]; ok {
+			t.Errorf("capture=%v: cookie header was retained", captureBody)
+		}
+
+		if !captureBody {
+			if got.Request.Body != "" {
+				t.Errorf("body captured without opt-in: %q", got.Request.Body)
+			}
+
+			continue
+		}
+
+		if got.Request.Body == "" || !strings.Contains(got.Request.Body, "[redacted]") {
+			t.Errorf("body not captured and redacted: %q", got.Request.Body)
+		}
+
+		if strings.Contains(got.Request.Body, secretPW) || strings.Contains(got.Request.Body, secretKey) {
+			t.Errorf("secret survived redaction: %q", got.Request.Body)
+		}
+	}
+}
