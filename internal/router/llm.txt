@@ -412,6 +412,14 @@ r.GET("/admin/sensitive", sensitiveHandler,
 // Middleware execution order: global -> group -> route
 ```
 
+### Outer middleware
+
+`UseOuterMiddleware(r, mw...)` takes plain `func(http.Handler) http.Handler` middleware and runs it ahead of every `UseGlobal` middleware, whichever you registered first. It also runs before route matching, so it sees 404s and 405s. `forge.New` puts tracing, trace propagation, HTTP metrics and the bare route-match holder here. They have to see a request before an extension can reject it.
+
+It's cheaper too. The outer slot lives inside the same single adapter wrapper as the `UseGlobal` chain, and it calls the `http.Handler` middleware directly. Wrapping one in `PureMiddleware(mw).ToMiddleware()` builds a second forge Context on every request. When nothing is registered through `UseGlobal`, the wrapper builds no Context at all before routing. A `Router` forge didn't build falls back to `UseGlobal` through `PureMiddleware`, in registration order.
+
+An error a `UseGlobal` middleware returns goes through the router's error handler, and the outer middleware sees the status that produces.
+
 ## Configuration
 
 ```go

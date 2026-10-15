@@ -91,7 +91,7 @@ func TestUseGlobal_NilMiddlewareFailsAtTheCall(t *testing.T) {
 func TestGlobalChain_PanicWhileComposingReleasesTheLock(t *testing.T) {
 	gc := &globalChain{middleware: []Middleware{nil}}
 
-	assert.Panics(t, func() { gc.install(http.NotFoundHandler()) })
+	assert.Panics(t, func() { gc.install(http.NotFoundHandler(), nil, nil) })
 
 	locked := gc.mu.TryLock()
 	require.True(t, locked, "the chain must not stay locked after a panic")

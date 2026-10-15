@@ -455,6 +455,53 @@ func (r *router) UseGlobal(middleware ...Middleware) {
 	}
 }
 
+// useOuter adds http.Handler middleware outside every UseGlobal middleware.
+// See globalChain.outer.
+func (r *router) useOuter(middleware ...func(http.Handler) http.Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.adapter == nil || len(middleware) == 0 {
+		return
+	}
+
+	for i, mw := range middleware {
+		if mw == nil {
+			panic(fmt.Sprintf("router: UseOuterMiddleware: middleware %d is nil", i))
+		}
+	}
+
+	if r.globalChain == nil {
+		r.globalChain = &globalChain{}
+	}
+
+	if r.globalChain.addOuter(middleware) {
+		r.adapter.UseGlobal(r.globalChain.httpMiddleware(r.container, r.errorHandler))
+	}
+}
+
+// UseOuterMiddleware installs http.Handler middleware that runs before every
+// global middleware, whichever order the two were registered in, and before
+// route matching, so it sees 404s and 405s too. forge.New installs tracing
+// and HTTP metrics this way: they must observe a request before any extension
+// can reject it, and as plain http.Handler middleware they cost no forge
+// Context per request.
+//
+// A Router that forge did not build falls back to UseGlobal through
+// PureMiddleware, which keeps the order of registration and pays for a
+// Context per middleware.
+func UseOuterMiddleware(r Router, middleware ...func(http.Handler) http.Handler) {
+	if fr, ok := r.(*router); ok {
+		fr.useOuter(middleware...)
+
+		return
+	}
+
+	for _, mw := range middleware {
+		r.UseGlobal(PureMiddleware(mw).ToMiddleware())
+	}
+}
+
 // RegisterController registers a controller.
 func (r *router) RegisterController(controller Controller) error {
 	// Create a router for the controller

@@ -315,13 +315,15 @@ func newApp(config AppConfig) *app {
 
 	router := NewRouter(routerOpts...)
 
+	// Telemetry goes in the router's outer slot, ahead of every UseGlobal
+	// middleware whenever that is registered, and runs as plain http.Handler
+	// middleware with no forge Context of its own. See UseOuterMiddleware.
 	if tracing.Settings().Enabled {
-		router.UseGlobal(internalrouter.PureMiddleware(
-			telemetry.ServerMiddleware(tracing.TracerProvider(), tracing.Settings()),
-		).ToMiddleware())
+		internalrouter.UseOuterMiddleware(router,
+			telemetry.ServerMiddleware(tracing.TracerProvider(), tracing.Settings()))
 	} else {
 		// No spans, but an incoming traceparent still reaches HTTPClient calls.
-		router.UseGlobal(internalrouter.PureMiddleware(telemetry.PropagationMiddleware()).ToMiddleware())
+		internalrouter.UseOuterMiddleware(router, telemetry.PropagationMiddleware())
 	}
 
 	// HTTP server metrics sit inside tracing, so exemplars see the span, and
@@ -335,14 +337,14 @@ func newApp(config AppConfig) *app {
 			FreshRouteMatch: !tracing.Settings().Enabled,
 		})
 
-		router.UseGlobal(internalrouter.PureMiddleware(httpMetrics.Middleware()).ToMiddleware())
+		internalrouter.UseOuterMiddleware(router, httpMetrics.Middleware())
 	}
 
 	// The tracing and HTTP metrics middleware install the route-match holder
 	// the stream observer needs. With both off, install a bare one, or no
 	// stream would ever be recorded.
 	if metricsConfig.Enabled && !metricsConfig.Features.HTTPMetrics && !tracing.Settings().Enabled {
-		router.UseGlobal(internalrouter.PureMiddleware(telemetry.RouteMatchMiddleware(tracing.Settings().ExcludePaths)).ToMiddleware())
+		internalrouter.UseOuterMiddleware(router, telemetry.RouteMatchMiddleware(tracing.Settings().ExcludePaths))
 	}
 
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)

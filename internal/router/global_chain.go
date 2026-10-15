@@ -33,13 +33,24 @@ type globalChain struct {
 	middleware []Middleware
 	installed  bool
 
-	// terminal is the adapter's downstream handler, captured when the adapter
-	// installs the wrapper. Nil until then.
-	terminal http.Handler
+	// outer holds http.Handler middleware that wraps the whole chain,
+	// whatever order it was registered in. Tracing and HTTP metrics live
+	// here so they see every request first, including 404s and requests an
+	// extension middleware rejects. They are plain http.Handler middleware,
+	// so running them here costs no forge Context; installing them through
+	// PureMiddleware built one per middleware per request.
+	outer []func(http.Handler) http.Handler
 
-	// composed is the forge handler chain built over terminal. Requests read
-	// it with a single atomic load.
-	composed atomic.Pointer[Handler]
+	// terminal is the adapter's downstream handler, captured when the adapter
+	// installs the wrapper. Nil until then. container and errorHandler come
+	// with it, for the Context the forge chain runs on.
+	terminal     http.Handler
+	container    vessel.Vessel
+	errorHandler ErrorHandler
+
+	// composed is the full chain, outer middleware included, built over
+	// terminal. Requests read it with a single atomic load.
+	composed atomic.Pointer[http.Handler]
 }
 
 // add appends middleware and returns true if the caller must install the
@@ -51,7 +62,23 @@ func (gc *globalChain) add(mw []Middleware) (install bool) {
 	gc.middleware = append(gc.middleware, mw...)
 	gc.recomposeLocked()
 
-	install = !gc.installed
+	return gc.claimInstallLocked()
+}
+
+// addOuter appends http.Handler middleware to the outer slot. It returns
+// true under the same rule as add.
+func (gc *globalChain) addOuter(mw []func(http.Handler) http.Handler) (install bool) {
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+
+	gc.outer = append(gc.outer, mw...)
+	gc.recomposeLocked()
+
+	return gc.claimInstallLocked()
+}
+
+func (gc *globalChain) claimInstallLocked() bool {
+	install := !gc.installed
 	gc.installed = true
 
 	return install
@@ -64,6 +91,23 @@ func (gc *globalChain) recomposeLocked() {
 		return
 	}
 
+	h := gc.terminal
+	if len(gc.middleware) > 0 {
+		h = gc.forgeHandlerLocked()
+	}
+
+	for _, v := range slices.Backward(gc.outer) {
+		h = v(h)
+	}
+
+	gc.composed.Store(&h)
+}
+
+// forgeHandlerLocked composes the forge middleware over terminal and returns
+// it as an http.Handler that builds the one Context they share. With no forge
+// middleware registered the chain skips this, so an app whose only global
+// middleware is in the outer slot builds no Context before routing.
+func (gc *globalChain) forgeHandlerLocked() http.Handler {
 	next := gc.terminal
 	h := Handler(func(ctx Context) error {
 		next.ServeHTTP(ctx.Response(), handOffValues(ctx))
@@ -75,24 +119,41 @@ func (gc *globalChain) recomposeLocked() {
 		h = v(h)
 	}
 
-	gc.composed.Store(&h)
+	container, errorHandler := gc.container, gc.errorHandler
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := newContext(w, r, container)
+		defer ctx.(forge_http.ContextWithClean).Cleanup()
+
+		if err := h(ctx); err != nil {
+			if errorHandler != nil {
+				_ = errorHandler.HandleError(ctx.Context(), err)
+			} else {
+				// See applyMiddleware. Global middleware maps
+				// errors the same way route middleware does.
+				handleError(ctx, err)
+			}
+		}
+	})
 }
 
 // install records the adapter's downstream handler and composes the chain
 // over it. The unlock is deferred so a panic while composing cannot leave the
 // chain locked, which would hang the next UseGlobal instead of failing it.
-func (gc *globalChain) install(next http.Handler) {
+func (gc *globalChain) install(next http.Handler, container vessel.Vessel, errorHandler ErrorHandler) {
 	gc.mu.Lock()
 	defer gc.mu.Unlock()
 
 	gc.terminal = next
+	gc.container = container
+	gc.errorHandler = errorHandler
 	gc.recomposeLocked()
 }
 
 // httpMiddleware returns the single adapter-level wrapper for the whole chain.
 func (gc *globalChain) httpMiddleware(container vessel.Vessel, errorHandler ErrorHandler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		gc.install(next)
+		gc.install(next, container, errorHandler)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			composed := gc.composed.Load()
@@ -102,18 +163,7 @@ func (gc *globalChain) httpMiddleware(container vessel.Vessel, errorHandler Erro
 				return
 			}
 
-			ctx := newContext(w, r, container)
-			defer ctx.(forge_http.ContextWithClean).Cleanup()
-
-			if err := (*composed)(ctx); err != nil {
-				if errorHandler != nil {
-					_ = errorHandler.HandleError(ctx.Context(), err)
-				} else {
-					// See applyMiddleware. Global middleware maps
-					// errors the same way route middleware does.
-					handleError(ctx, err)
-				}
-			}
+			(*composed).ServeHTTP(w, r)
 		})
 	}
 }
