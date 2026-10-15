@@ -1,6 +1,8 @@
 package forge
 
 import (
+	"bufio"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -94,6 +96,60 @@ func TestStreamMetricsDisconnectIsNotAnError(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return strings.Contains(scrapeApp(t, a, false),
 			`forge_stream_connection_duration_seconds_count{error_type="",http_route="/ws",stream_kind="websocket"} 1`)
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestStreamMetricsWriteToGoneClientIsNotAnError(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+	a := New(WithAppName("streams-write-gone"))
+	handlerErr := make(chan error, 1)
+
+	require.NoError(t, a.Router().EventStream("/events", func(ctx Context, s Stream) error {
+		for {
+			if err := s.Send("tick", []byte("hello")); err != nil {
+				handlerErr <- err
+
+				return err
+			}
+
+			time.Sleep(time.Millisecond)
+		}
+	}))
+
+	srv := httptest.NewServer(a.Router())
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/events", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	// Read one whole event, then hang up while the handler is still writing.
+	r := bufio.NewReader(resp.Body)
+
+	for {
+		line, err := r.ReadString('\n')
+		require.NoError(t, err)
+
+		if line == "\n" {
+			break
+		}
+	}
+
+	require.NoError(t, resp.Body.Close())
+
+	select {
+	case err := <-handlerErr:
+		t.Logf("handler returned %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never saw the client go")
+	}
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(scrapeApp(t, a, false),
+			`forge_stream_connection_duration_seconds_count{error_type="",http_route="/events",stream_kind="sse"} 1`)
 	}, 2*time.Second, 20*time.Millisecond)
 }
 

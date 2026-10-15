@@ -3,8 +3,12 @@ package collectors_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/xraph/forge/internal/metrics/collectors"
@@ -63,6 +67,16 @@ func TestStreamMetricsErrorType(t *testing.T) {
 		"unexpected":  {io.ErrUnexpectedEOF, ""},
 		"closed conn": {net.ErrClosed, ""},
 		"wrapped eof": {errors.Join(errors.New("read"), io.EOF), ""},
+		"broken pipe": {
+			&net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", syscall.EPIPE)}, "",
+		},
+		"conn reset": {
+			&net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}, "",
+		},
+		"write deadline": {
+			&net.OpError{Op: "write", Net: "tcp", Err: os.ErrDeadlineExceeded}, "",
+		},
+		"aborted handler": {fmt.Errorf("panic: %w", http.ErrAbortHandler), ""},
 	}
 
 	for name, tc := range cases {

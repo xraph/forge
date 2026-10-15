@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"os"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/xraph/go-utils/metrics"
@@ -96,9 +99,19 @@ func streamErrorType(err error) string {
 	return "handler_error"
 }
 
+// isClientGone reports whether err only says the client went away. A write to
+// a closed connection fails with EPIPE or ECONNRESET wrapped in *net.OpError
+// and *os.SyscallError, which errors.Is sees through; a client too slow to
+// take a write hits the write deadline; and a handler that panics with
+// http.ErrAbortHandler has deliberately aborted the response, which the router
+// wraps with %w.
 func isClientGone(err error) bool {
 	return errors.Is(err, context.Canceled) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, net.ErrClosed)
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, os.ErrDeadlineExceeded) ||
+		errors.Is(err, http.ErrAbortHandler)
 }
