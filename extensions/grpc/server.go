@@ -14,6 +14,12 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+// serviceRegistration is a service held back until Start builds the server.
+type serviceRegistration struct {
+	desc *grpc.ServiceDesc
+	impl any
+}
+
 // grpcServer implements GRPC interface.
 type grpcServer struct {
 	config                   Config
@@ -25,6 +31,7 @@ type grpcServer struct {
 	healthCheckers           map[string]HealthChecker
 	customUnaryInterceptors  []grpc.UnaryServerInterceptor
 	customStreamInterceptors []grpc.StreamServerInterceptor
+	pending                  []serviceRegistration
 	stats                    ServerStats
 	mu                       sync.RWMutex
 }
@@ -39,15 +46,18 @@ func NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GR
 	}
 }
 
+// RegisterService buffers a service until Start builds the server. grpc-go
+// can't add services once Serve has been called, so a running server returns
+// ErrRegisterAfterStart.
 func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.server == nil {
-		s.server = grpc.NewServer()
+	if s.running {
+		return ErrRegisterAfterStart
 	}
 
-	s.server.RegisterService(desc, impl)
+	s.pending = append(s.pending, serviceRegistration{desc: desc, impl: impl})
 	s.logger.Info("registered grpc service", forge.F("service", desc.ServiceName))
 
 	return nil
@@ -81,6 +91,11 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	// Create server with options
 	s.server = grpc.NewServer(opts...)
 	s.stats.StartTime = time.Now().Unix()
+
+	// Apply services registered before Start.
+	for _, reg := range s.pending {
+		s.server.RegisterService(reg.desc, reg.impl)
+	}
 
 	// Register health check
 	if s.config.EnableHealthCheck {
