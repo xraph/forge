@@ -278,7 +278,7 @@ func startAppWith(t *testing.T, setup func(forge.App), appOpts ...forge.AppOptio
 
 func TestAppServesServicesFromOtherExtensions(t *testing.T) {
 	lifecycles := map[string][]forge.AppOption{
-		"default":           nil,
+		"default":            nil,
 		"central migrations": {forge.WithCentralMigrations()},
 	}
 
