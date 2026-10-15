@@ -168,6 +168,109 @@ func TestResolveMetrics(t *testing.T) {
 			interval: defaultMetricsInterval, temporality: TemporalityCumulative,
 			warning: "no OTLP endpoint",
 		},
+		{
+			name: "non-positive intervals in code and file fall through to env",
+			in: MetricsInputs{
+				Code: shared.MetricsExportConfig{Interval: -time.Second},
+				File: shared.MetricsExportConfig{Interval: 0},
+				Getenv: envOf(map[string]string{
+					"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRIC_EXPORT_INTERVAL": "15000",
+				}),
+			},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: 15 * time.Second, temporality: TemporalityCumulative,
+		},
+		{
+			name: "non-positive intervals in code and file fall through to the default",
+			in: MetricsInputs{
+				Code:   shared.MetricsExportConfig{Endpoint: "http://c:4318/v1/metrics", Interval: -time.Second},
+				File:   shared.MetricsExportConfig{Interval: 0},
+				Getenv: envOf(nil),
+			},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "zero interval env warns",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRIC_EXPORT_INTERVAL": "0",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+			warning: "OTEL_METRIC_EXPORT_INTERVAL",
+		},
+		{
+			name: "negative interval env warns",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRIC_EXPORT_INTERVAL": "-5",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+			warning: "OTEL_METRIC_EXPORT_INTERVAL",
+		},
+		{
+			name: "bad interval env with push off does not warn",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_METRIC_EXPORT_INTERVAL": "fast",
+			})},
+			interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "bad temporality env with push off does not warn",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "sideways",
+			})},
+			interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "sdk disabled in upper case is off",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "TRUE",
+			})},
+			endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "sdk disabled false is on",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_SDK_DISABLED": "false",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "code temporality beats env",
+			in: MetricsInputs{
+				Code: shared.MetricsExportConfig{Temporality: "cumulative"},
+				Getenv: envOf(map[string]string{
+					"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",
+				}),
+			},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "file enabled beats env off",
+			in: MetricsInputs{
+				File:   shared.MetricsExportConfig{Enabled: &on},
+				Getenv: envOf(map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318", "OTEL_METRICS_EXPORTER": "none"}),
+			},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "metrics endpoint env is trimmed",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "  http://m:9000/push \t",
+			})},
+			enabled: true, endpoint: "http://m:9000/push", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "base endpoint env is trimmed",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT": " http://c:4318/ ",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
+		{
+			name: "blank metrics endpoint env falls back to the base",
+			in: MetricsInputs{Getenv: envOf(map[string]string{
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "   ", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://c:4318",
+			})},
+			enabled: true, endpoint: "http://c:4318/v1/metrics", interval: defaultMetricsInterval, temporality: TemporalityCumulative,
+		},
 	}
 
 	for _, tt := range tests {
@@ -207,5 +310,39 @@ func TestResolveMetricsHeaders(t *testing.T) {
 	})
 	if s.Headers["k"] != "file" {
 		t.Fatalf("headers = %v, want the file's", s.Headers)
+	}
+
+	s = ResolveMetrics(MetricsInputs{
+		Code: shared.MetricsExportConfig{Headers: map[string]string{"k": "code"}},
+		File: shared.MetricsExportConfig{Headers: map[string]string{"k": "file"}},
+	})
+	if !reflect.DeepEqual(s.Headers, map[string]string{"k": "code"}) {
+		t.Fatalf("headers = %v, want the code's", s.Headers)
+	}
+}
+
+func TestResolveMetricsHeadersAreACopy(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		in   func(h map[string]string) MetricsInputs
+	}{
+		{"code", func(h map[string]string) MetricsInputs {
+			return MetricsInputs{Code: shared.MetricsExportConfig{Headers: h}}
+		}},
+		{"file", func(h map[string]string) MetricsInputs {
+			return MetricsInputs{File: shared.MetricsExportConfig{Headers: h}}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input := map[string]string{"k": "v"}
+
+			s := ResolveMetrics(tt.in(input))
+			s.Headers["k"] = "changed"
+			s.Headers["extra"] = "added"
+
+			if !reflect.DeepEqual(input, map[string]string{"k": "v"}) {
+				t.Fatalf("input headers = %v after changing the result, want them untouched", input)
+			}
+		})
 	}
 }

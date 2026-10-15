@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -43,25 +44,35 @@ func ResolveMetrics(in MetricsInputs) MetricsSettings {
 		getenv = func(string) string { return "" }
 	}
 
+	// The result never shares the caller's headers map.
 	s := MetricsSettings{
 		Endpoint: resolveMetricsEndpoint(in, getenv),
-		Headers: firstMap(in.Code.Headers, in.File.Headers, parseHeaders(firstNonEmpty(
-			getenv("OTEL_EXPORTER_OTLP_METRICS_HEADERS"), getenv("OTEL_EXPORTER_OTLP_HEADERS")))),
+		Headers: maps.Clone(firstMap(in.Code.Headers, in.File.Headers, parseHeaders(firstNonEmpty(
+			getenv("OTEL_EXPORTER_OTLP_METRICS_HEADERS"), getenv("OTEL_EXPORTER_OTLP_HEADERS"))))),
 	}
 
-	s.Interval = resolveMetricsInterval(in, getenv, &s.Warnings)
-	s.Temporality = resolveTemporality(in, getenv, &s.Warnings)
+	// Interval and temporality warnings only matter when something is pushed,
+	// so a stray env value doesn't log for a feature that is off.
+	var pushWarnings []string
+
+	s.Interval = resolveMetricsInterval(in, getenv, &pushWarnings)
+	s.Temporality = resolveTemporality(in, getenv, &pushWarnings)
 	s.Enabled = resolveMetricsEnabled(in, getenv, s.Endpoint, &s.Warnings)
+
+	if s.Enabled {
+		s.Warnings = append(s.Warnings, pushWarnings...)
+	}
 
 	return s
 }
 
 func resolveMetricsEndpoint(in MetricsInputs, getenv func(string) string) string {
-	if v := firstNonEmpty(in.Code.Endpoint, in.File.Endpoint, getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")); v != "" {
+	if v := firstNonEmpty(in.Code.Endpoint, in.File.Endpoint,
+		strings.TrimSpace(getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"))); v != "" {
 		return v
 	}
 
-	if base := getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); base != "" {
+	if base := strings.TrimSpace(getenv("OTEL_EXPORTER_OTLP_ENDPOINT")); base != "" {
 		return strings.TrimRight(base, "/") + "/v1/metrics"
 	}
 
