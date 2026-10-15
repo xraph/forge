@@ -267,6 +267,8 @@ When you replace the broker list, set `bus.default_broker` to one of your names 
 
 `bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`, `bus.worker_count`, `bus.enable_tracing`, `brokers[].priority` and the `metrics` section exist on the config structs, but the bus doesn't act on them today. Retries come from a handler's `RetryPolicy` (or from Redis Streams redelivery).
 
+The bus has no worker pool, so `bus.buffer_size` and `bus.worker_count` are deprecated. Setting them still loads, and they do nothing. `GetStats` no longer returns `workers` or `workers_count`.
+
 In code, build an `events.Config` (start from `events.DefaultConfig()`) and pass it to `events.NewExtensionWithConfig(cfg, opts...)`. That's also where the store options go. A config file section still binds over what you pass.
 
 ## Schema validation

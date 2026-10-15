@@ -37,12 +37,14 @@ type Config struct {
 
 // BusConfig defines configuration for the event bus.
 type BusConfig struct {
-	DefaultBroker     string        `json:"default_broker"     yaml:"default_broker"`
-	MaxRetries        int           `json:"max_retries"        yaml:"max_retries"`
-	RetryDelay        time.Duration `json:"retry_delay"        yaml:"retry_delay"`
-	EnableMetrics     bool          `json:"enable_metrics"     yaml:"enable_metrics"`
-	EnableTracing     bool          `json:"enable_tracing"     yaml:"enable_tracing"`
-	BufferSize        int           `json:"buffer_size"        yaml:"buffer_size"`
+	DefaultBroker string        `json:"default_broker" yaml:"default_broker"`
+	MaxRetries    int           `json:"max_retries"    yaml:"max_retries"`
+	RetryDelay    time.Duration `json:"retry_delay"    yaml:"retry_delay"`
+	EnableMetrics bool          `json:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing bool          `json:"enable_tracing" yaml:"enable_tracing"`
+	// Deprecated: the bus has no worker pool; this field does nothing.
+	BufferSize int `json:"buffer_size" yaml:"buffer_size"`
+	// Deprecated: the bus has no worker pool; this field does nothing.
 	WorkerCount       int           `json:"worker_count"       yaml:"worker_count"`
 	ProcessingTimeout time.Duration `json:"processing_timeout" yaml:"processing_timeout"`
 }

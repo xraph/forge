@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,12 +21,14 @@ import (
 
 // EventBusConfig defines configuration for the event bus.
 type EventBusConfig struct {
-	DefaultBroker     string        `json:"default_broker"     yaml:"default_broker"`
-	MaxRetries        int           `json:"max_retries"        yaml:"max_retries"`
-	RetryDelay        time.Duration `json:"retry_delay"        yaml:"retry_delay"`
-	EnableMetrics     bool          `json:"enable_metrics"     yaml:"enable_metrics"`
-	EnableTracing     bool          `json:"enable_tracing"     yaml:"enable_tracing"`
-	BufferSize        int           `json:"buffer_size"        yaml:"buffer_size"`
+	DefaultBroker string        `json:"default_broker" yaml:"default_broker"`
+	MaxRetries    int           `json:"max_retries"    yaml:"max_retries"`
+	RetryDelay    time.Duration `json:"retry_delay"    yaml:"retry_delay"`
+	EnableMetrics bool          `json:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing bool          `json:"enable_tracing" yaml:"enable_tracing"`
+	// Deprecated: the bus has no worker pool; this field does nothing.
+	BufferSize int `json:"buffer_size" yaml:"buffer_size"`
+	// Deprecated: the bus has no worker pool; this field does nothing.
 	WorkerCount       int           `json:"worker_count"       yaml:"worker_count"`
 	ProcessingTimeout time.Duration `json:"processing_timeout" yaml:"processing_timeout"`
 }
@@ -42,8 +43,6 @@ type EventBusImpl struct {
 	config          EventBusConfig
 	logger          forge.Logger
 	metrics         forge.Metrics
-	workers         []*EventWorker
-	eventQueue      chan *core.EventEnvelope
 	started         bool
 	starting        bool
 	runCtx          context.Context //nolint:containedctx // A bus run owns broker and worker cancellation.
@@ -55,7 +54,6 @@ type EventBusImpl struct {
 	pendingRemovals map[subscriptionKey]*pendingSubscriptionRemoval
 	stopping        bool
 	mu              sync.RWMutex
-	wg              sync.WaitGroup
 }
 
 type subscriptionKey struct {
@@ -116,8 +114,6 @@ func NewEventBus(config EventBusOptions) (core.EventBus, error) {
 		return nil, errors.New("buffer size and worker count cannot be negative")
 	}
 
-	eventQueue := make(chan *core.EventEnvelope, config.Config.BufferSize)
-
 	bus := &EventBusImpl{
 		name:            "event-bus",
 		defaultBroker:   config.Config.DefaultBroker,
@@ -127,14 +123,6 @@ func NewEventBus(config EventBusOptions) (core.EventBus, error) {
 		config:          config.Config,
 		logger:          config.Logger,
 		metrics:         config.Metrics,
-		eventQueue:      eventQueue,
-		workers:         make([]*EventWorker, 0),
-	}
-
-	// Create workers
-	for i := range config.Config.WorkerCount {
-		worker := NewEventWorker(i, eventQueue, bus.processEvent, config.Logger, config.Metrics)
-		bus.workers = append(bus.workers, worker)
 	}
 
 	return bus, nil
@@ -243,16 +231,6 @@ func (eb *EventBusImpl) Start(ctx context.Context) error {
 
 	eb.mu.Lock()
 	eb.runCtx, eb.cancel = runCtx, cancel
-	eb.eventQueue = make(chan *core.EventEnvelope, eb.config.BufferSize)
-
-	eb.workers = make([]*EventWorker, 0, eb.config.WorkerCount)
-	for i := range eb.config.WorkerCount {
-		worker := NewEventWorker(i, eb.eventQueue, eb.processEvent, eb.logger, eb.metrics)
-		eb.workers = append(eb.workers, worker)
-
-		eb.wg.Go(func() { worker.Start(runCtx) })
-	}
-
 	eb.started, eb.starting = true, false
 	eb.mu.Unlock()
 
@@ -301,7 +279,6 @@ func (eb *EventBusImpl) Stop(ctx context.Context) error {
 func (eb *EventBusImpl) finishStop(ctx context.Context) {
 	// Admission is closed before Wait, so no operation can race Add with Wait.
 	eb.active.Wait()
-	eb.wg.Wait()
 	eb.mu.RLock()
 
 	brokers := make(map[string]core.MessageBroker)
@@ -815,12 +792,11 @@ func (eb *EventBusImpl) GetStats() map[string]any {
 	stats := map[string]any{
 		"name": eb.name, "started": eb.started, "stopping": eb.stopping,
 		"brokers_count": len(eb.brokers), "default_broker": eb.defaultBroker,
-		"workers_count": len(eb.workers), "buffer_size": eb.config.BufferSize,
+		"buffer_size":                   eb.config.BufferSize,
 		"pending_subscription_removals": len(eb.pendingRemovals),
 	}
 	brokers := make(map[string]core.MessageBroker)
 	maps.Copy(brokers, eb.brokers)
-	workers := append([]*EventWorker(nil), eb.workers...)
 	eb.mu.RUnlock()
 
 	brokerStats := make(map[string]any)
@@ -831,183 +807,5 @@ func (eb *EventBusImpl) GetStats() map[string]any {
 	stats["brokers"] = brokerStats
 	stats["handlers"] = eb.handlerRegistry.Stats()
 
-	workerStats := make([]map[string]any, 0, len(workers))
-	for _, worker := range workers {
-		workerStats = append(workerStats, worker.GetStats())
-	}
-
-	stats["workers"] = workerStats
-
 	return stats
-}
-
-// processEvent processes an event from the queue.
-func (eb *EventBusImpl) processEvent(ctx context.Context, envelope *core.EventEnvelope) error {
-	start := time.Now()
-
-	// Handle the event using registered handlers
-	if err := eb.handlerRegistry.HandleEvent(ctx, envelope.Event); err != nil {
-		if eb.logger != nil {
-			eb.logger.Error("failed to process event",
-				logger.String("event_id", envelope.Event.ID),
-				logger.String("event_type", envelope.Event.Type),
-				logger.Error(err),
-			)
-		}
-
-		if eb.metrics != nil {
-			eb.metrics.Counter("forge.events.processing_errors", metrics.WithLabel("event_type", envelope.Event.Type)).Inc()
-		}
-
-		return err
-	}
-
-	// Record metrics
-	if eb.metrics != nil {
-		duration := time.Since(start)
-		eb.metrics.Histogram("forge.events.processing_duration", metrics.WithLabel("event_type", envelope.Event.Type)).Observe(duration.Seconds())
-		eb.metrics.Counter("forge.events.processed_total", metrics.WithLabel("event_type", envelope.Event.Type)).Inc()
-	}
-
-	if eb.logger != nil {
-		eb.logger.Debug("event processed successfully",
-			logger.String("event_id", envelope.Event.ID),
-			logger.String("event_type", envelope.Event.Type),
-			logger.Duration("duration", time.Since(start)),
-		)
-	}
-
-	return nil
-}
-
-// EventWorker processes events from the queue.
-type EventWorker struct {
-	id         int
-	eventQueue <-chan *core.EventEnvelope
-	processor  func(context.Context, *core.EventEnvelope) error
-	logger     forge.Logger
-	metrics    forge.Metrics
-	stats      *WorkerStats
-	mu         sync.RWMutex
-}
-
-// WorkerStats contains worker statistics.
-type WorkerStats struct {
-	ID                    int           `json:"id"`
-	EventsProcessed       int64         `json:"events_processed"`
-	ErrorsEncountered     int64         `json:"errors_encountered"`
-	TotalProcessingTime   time.Duration `json:"total_processing_time"`
-	AverageProcessingTime time.Duration `json:"average_processing_time"`
-	LastEventTime         *time.Time    `json:"last_event_time,omitempty"`
-	IsRunning             bool          `json:"is_running"`
-}
-
-// NewEventWorker creates a new event worker.
-func NewEventWorker(id int, eventQueue <-chan *core.EventEnvelope, processor func(context.Context, *core.EventEnvelope) error, logger forge.Logger, metrics forge.Metrics) *EventWorker {
-	return &EventWorker{
-		id:         id,
-		eventQueue: eventQueue,
-		processor:  processor,
-		logger:     logger,
-		metrics:    metrics,
-		stats: &WorkerStats{
-			ID:        id,
-			IsRunning: false,
-		},
-	}
-}
-
-// Start starts the worker.
-func (ew *EventWorker) Start(ctx context.Context) {
-	ew.mu.Lock()
-	ew.stats.IsRunning = true
-	ew.mu.Unlock()
-
-	if ew.logger != nil {
-		ew.logger.Info("event worker started",
-			logger.Int("worker_id", ew.id),
-		)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			ew.mu.Lock()
-			ew.stats.IsRunning = false
-			ew.mu.Unlock()
-
-			return
-		case envelope, ok := <-ew.eventQueue:
-			if !ok {
-				// Channel closed, worker should stop
-				ew.mu.Lock()
-				ew.stats.IsRunning = false
-				ew.mu.Unlock()
-
-				return
-			}
-
-			ew.processEvent(ctx, envelope)
-		}
-	}
-}
-
-// processEvent processes a single event.
-func (ew *EventWorker) processEvent(ctx context.Context, envelope *core.EventEnvelope) {
-	start := time.Now()
-
-	ew.mu.Lock()
-
-	now := start
-	ew.stats.LastEventTime = &now
-	ew.mu.Unlock()
-
-	err := ew.processor(ctx, envelope)
-
-	duration := time.Since(start)
-
-	ew.mu.Lock()
-	ew.stats.EventsProcessed++
-	ew.stats.TotalProcessingTime += duration
-	ew.stats.AverageProcessingTime = ew.stats.TotalProcessingTime / time.Duration(ew.stats.EventsProcessed)
-
-	if err != nil {
-		ew.stats.ErrorsEncountered++
-	}
-
-	ew.mu.Unlock()
-
-	if ew.metrics != nil {
-		ew.metrics.Counter("forge.events.worker_events_processed", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Inc()
-		ew.metrics.Histogram("forge.events.worker_processing_duration", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Observe(duration.Seconds())
-
-		if err != nil {
-			ew.metrics.Counter("forge.events.worker_errors", metrics.WithLabel("worker_id", strconv.Itoa(ew.id))).Inc()
-		}
-	}
-
-	if err != nil && ew.logger != nil {
-		ew.logger.Error("worker failed to process event",
-			logger.Int("worker_id", ew.id),
-			logger.String("event_id", envelope.Event.ID),
-			logger.String("event_type", envelope.Event.Type),
-			logger.Error(err),
-		)
-	}
-}
-
-// GetStats returns worker statistics.
-func (ew *EventWorker) GetStats() map[string]any {
-	ew.mu.RLock()
-	defer ew.mu.RUnlock()
-
-	return map[string]any{
-		"id":                      ew.stats.ID,
-		"events_processed":        ew.stats.EventsProcessed,
-		"errors_encountered":      ew.stats.ErrorsEncountered,
-		"total_processing_time":   ew.stats.TotalProcessingTime.String(),
-		"average_processing_time": ew.stats.AverageProcessingTime.String(),
-		"last_event_time":         ew.stats.LastEventTime,
-		"is_running":              ew.stats.IsRunning,
-	}
 }

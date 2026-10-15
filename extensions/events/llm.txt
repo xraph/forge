@@ -164,6 +164,8 @@ Broker `config` keys:
 - `bus.max_retries`, `bus.retry_delay`, `bus.processing_timeout`, `bus.buffer_size`,
   `bus.worker_count`, `bus.enable_tracing`, `brokers[].priority` and the whole `metrics` section
   exist on the config structs but the bus ignores them.
+- `bus.buffer_size` and `bus.worker_count` are deprecated. The bus has no worker pool, and
+  `GetStats` no longer returns `workers` or `workers_count`.
 - `stores.NewPostgresEventStore` and `stores.NewMongoEventStore` don't implement the full
   `core.EventStore` interface, so you can't pass them to the service. The only built-in store
   is in memory and is lost on restart.
