@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -66,6 +67,8 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				trace.WithAttributes(requestAttributes(r, method, original)...),
 			)
 
+			var labelSpanID string
+
 			sc := span.SpanContext()
 			if sc.IsValid() {
 				traceID, spanID := sc.TraceID().String(), sc.SpanID().String()
@@ -75,6 +78,13 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 
 				if responseHeader != "" {
 					w.Header()[responseHeader] = []string{traceparent(traceID, spanID, sc.IsSampled())}
+				}
+
+				// Only a sampled span reaches Tempo, so only it can link to a profile.
+				if s.SpanLabels && sc.IsSampled() {
+					labelSpanID = spanID
+
+					span.SetAttributes(attribute.String(profileIDAttribute, spanID))
 				}
 			}
 
@@ -137,7 +147,13 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 				}
 			}()
 
-			next.ServeHTTP(rec, r.WithContext(ctx))
+			if labelSpanID != "" {
+				serveLabelled(ctx, labelSpanID, method, match, func(c context.Context) {
+					next.ServeHTTP(rec, r.WithContext(c))
+				})
+			} else {
+				next.ServeHTTP(rec, r.WithContext(ctx))
+			}
 
 			if match.Established() {
 				return // the span ended at the handshake

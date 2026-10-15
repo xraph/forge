@@ -13,7 +13,7 @@ import (
 func streamHandler(pattern string, kind shared.RouteKind, status int, hold time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m := shared.RouteMatchFromContext(r.Context())
-		m.Pattern, m.Kind = pattern, kind
+		m.Match(pattern, kind)
 
 		m.Establish(status)
 		time.Sleep(hold)

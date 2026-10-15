@@ -40,8 +40,8 @@ func setup(t *testing.T, s Settings) (*tracetest.InMemoryExporter, func(http.Han
 // routed simulates the router: it stamps a pattern and writes a status.
 func routed(pattern string, status int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m := shared.RouteMatchFromContext(r.Context()); m != nil && pattern != "" {
-			m.Pattern = pattern
+		if pattern != "" {
+			shared.RouteMatchFromContext(r.Context()).Match(pattern, shared.KindHTTP)
 		}
 
 		w.WriteHeader(status)

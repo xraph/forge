@@ -33,8 +33,12 @@ type Settings struct {
 	Propagators    []string
 	ExcludePaths   []string
 	ResponseHeader string
-	Resource       map[string]string
-	Warnings       []string
+	// SpanLabels labels each sampled request's goroutine with span_id and
+	// span_name for the CPU profiler. Resolve never sets it; forge.New copies
+	// it from the profiling settings.
+	SpanLabels bool
+	Resource   map[string]string
+	Warnings   []string
 }
 
 var supportedSamplers = map[string]bool{

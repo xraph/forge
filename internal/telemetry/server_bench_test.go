@@ -37,3 +37,13 @@ func BenchmarkServerMiddlewareUnsampled(b *testing.B) {
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
 	benchServe(b, ServerMiddleware(tp, Settings{ExcludePaths: []string{"/_/"}, ResponseHeader: "traceparent"})(benchHandler))
 }
+
+func BenchmarkServerMiddlewareSpanLabels(b *testing.B) {
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	benchServe(b, ServerMiddleware(tp, Settings{ExcludePaths: []string{"/_/"}, ResponseHeader: "traceparent", SpanLabels: true})(benchHandler))
+}
+
+func BenchmarkServerMiddlewareSpanLabelsUnsampled(b *testing.B) {
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
+	benchServe(b, ServerMiddleware(tp, Settings{ExcludePaths: []string{"/_/"}, ResponseHeader: "traceparent", SpanLabels: true})(benchHandler))
+}
