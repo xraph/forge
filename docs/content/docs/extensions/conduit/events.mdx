@@ -25,10 +25,10 @@ Return `conduit.Permanent(err)` for a terminal failure. Other errors use the sub
 
 ```go
 conduit.WithHooks(conduit.HookFuncs{
-    HookName: "trace-and-policy",
+    HookName: "tenant-and-policy",
     OnPublish: func(ctx context.Context, draft *conduit.Envelope) error {
         if draft.Headers == nil { draft.Headers = map[string]string{} }
-        draft.Headers["traceparent"] = traceHeader(ctx)
+        draft.Headers["tenant"] = tenantFrom(ctx)
         return nil
     },
     OnHandle: func(ctx context.Context, msg conduit.Envelope, info conduit.DeliveryInfo) error {
@@ -45,6 +45,21 @@ Publish hooks can enrich metadata or reject a draft. They cannot change the mess
 Observers receive copied outcomes for startup, connections, publication, handling, acknowledgement, retries, dead letters and replay. Their queue is bounded, and observer panics are isolated. `ObserverDrops` exposes dropped observations under backpressure. Put mandatory policy in control hooks and mandatory audit writes in your business transaction.
 
 Hooks receive the logical service, handling instance, subscription, consumer identity and attempt. Handler success and confirmed acknowledgement are separate outcomes.
+
+## Tracing
+
+Conduit carries trace context for you, so a hook doesn't need to copy `traceparent` into the headers by hand. `Prepare` records a `create {stream}` span and writes its context into `Envelope.Headers` before your publish hooks run. That is what keeps the trace intact through the transactional outbox, a backfill and dead letter replay: whatever sends the envelope later, the consumer still joins the trace that created it.
+
+For one `conduit.Publish` you'll see:
+
+- `create {stream}`, the producer span, in your request's trace.
+- `send {stream}`, which wraps the provider's publish and carries a link to the create span. When an outbox relay calls `Send` there's no caller span, so `send` is a root span with that link, and the trace still connects through create.
+- `process {stream}`, a child of the create span, around your handler. Each retry gets its own process span, and ack, retry and dead letter settlement run after it has ended.
+- `call {service}.{method}` and `serve {service}.{method}` for a typed RPC. These are a client span and a server span, and the server span is a child of the call.
+
+A failed publish, handler or RPC marks its span as an error and sets `error.type`. A message from an older publisher has no `traceparent`, so it gives you a root process span and no error. Because the trace lives in `Headers`, a publish hook that replaces the whole map replaces `traceparent` too. Add to the map instead.
+
+`messaging_system` is the provider's name: `memory`, `redis-streams`, `nats-jetstream`, `postgres` or `kafka`. Sends and RPC calls feed `messaging_client_operation_duration_seconds`, and handlers and RPC servers feed `messaging_process_duration_seconds`. See [Observability](/docs/forge/observability#messaging) for the trace shape and the [metrics page](/docs/forge/metrics#messaging) for the series.
 
 ## PostgreSQL transactions
 

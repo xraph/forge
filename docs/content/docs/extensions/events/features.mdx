@@ -195,6 +195,23 @@ handler.WithRetryPolicy(policy)
 
 `NewRetryPolicy(maxRetries, initialDelay)` doubles the delay on every attempt, up to five minutes unless you cap it with `WithMaxDelay`. By default it retries any error except context cancellation and deadline errors. `WithRetryableErrors` and `WithShouldRetryFunc` narrow that down. `CalculateDelay(attempt)` and `ShouldRetry(err)` are the two methods the handler calls.
 
+## Tracing and metrics
+
+Tracing is on by default. Every broker a publish reaches gets its own `publish {event type}` producer span, and every handler run happens inside a `process {event type}` consumer span that is a child of the producer's. One trace follows an event from the `Publish` call to each handler, across brokers and across services. A handler error or panic marks the consumer span as failed.
+
+The bus puts `traceparent` (and `tracestate`, when there is one) into the event's `Metadata` as plain strings, so they survive the JSON hop through NATS and Redis. Your `*core.Event` and its map are never modified: each broker gets its own copy, which matters on the memory broker where handlers share the map. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing. If a test of yours asserts the exact `Metadata` of a published event, allow for the new keys.
+
+`messaging_system` is the broker's name, so two brokers show up as two systems. With `bus.enable_metrics` on, the same spans feed two histograms:
+
+| Series | Measures |
+|---|---|
+| `messaging_client_operation_duration_seconds` | each publish to a broker |
+| `messaging_process_duration_seconds` | each handler run |
+
+Both carry `messaging_destination_name` (the event type), the operation labels and `error_type`. They replace the old `forge.events.*` publish and receive timers and counters, which are gone. The [metrics page](/docs/forge/metrics#removed-in-this-release) lists each removed series with its replacement. The error counters, `publish_failures` and `publish_broker_errors` among them, and the subscription and connection series stay.
+
+Set `bus.enable_tracing: false` to turn the spans off. The trace context still passes through the event, so a service that doesn't trace doesn't break the trace of the services around it. See [Observability](/docs/forge/observability#messaging) for how this looks next to the other extensions.
+
 ## Event model
 
 ```go

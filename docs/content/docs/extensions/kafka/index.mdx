@@ -169,7 +169,9 @@ err := forge.ProvideConstructor(app.Container(), NewEventPublisher)
 
 - You can turn the producers and the partition consumer off independently with `WithProducer(false)` and `WithConsumer(false)`.
 - Async producer errors are logged and counted in `GetStats().Errors`, never returned to you. Use `SendMessage` when the caller has to know the write landed.
-- `WithIdempotent(true)` makes client creation fail today, `consumer_group_id` and `WithTracing` are stored but unused, and `SendMessages` drops `Headers` and `Timestamp`. The [features page](/docs/extensions/kafka/features) has the details.
+- `WithIdempotent(true)` makes client creation fail today, and `consumer_group_id` is stored but unused.
+- With `enable_tracing` on (the default), sends and `Consume` handlers are traced and records carry a `traceparent` header. Pass a context to the `*Context` methods to join your request's trace. See [Tracing](/docs/extensions/kafka/features#tracing).
+- The [features page](/docs/extensions/kafka/features) has the details.
 
 ## Detailed Pages
 

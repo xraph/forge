@@ -66,3 +66,9 @@ Services using a stream must agree on its subjects, retention and replica count.
 Set `start_at` to `all`, `new` or `sequence`. Sequence replay also needs `start_sequence`. Kafka sequences are one-based partition offsets. Redis uses a monotonic per-stream sequence, and JetStream uses its native stream sequence. PostgreSQL gives each stream its own sequence. Numbers rise for each publisher, but delivery follows commit order, so with several publishers a consumer can see 42 before 41.
 
 See [provider limits](/docs/extensions/conduit/providers) before choosing retention settings.
+
+## Tracing and metrics
+
+Conduit has no `enable_tracing` or `enable_metrics` flag. Spans follow the app's `tracing.enabled`, and the two messaging histograms are recorded whenever the app has metrics. Trace context goes into `Envelope.Headers` either way, so a service with tracing off still passes the trace along. If you build a `core.Runtime` yourself instead of using the extension, call `Runtime.RegisterMetrics(metrics)` before `Start` to get the histograms.
+
+The old `forge_forge_conduit_processing_duration_seconds` histogram is gone. Use `messaging_process_duration_seconds` for handler time. `forge_forge_conduit_outcomes_total` is unchanged. The [metrics page](/docs/forge/metrics#removed-in-this-release) has the full list.

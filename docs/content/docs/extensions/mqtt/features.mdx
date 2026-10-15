@@ -169,6 +169,12 @@ With `enable_metrics` on, the extension records:
 | `mqtt.connections` | counter | `status` = `connected` or `disconnected` |
 | `mqtt.reconnects` | counter | none |
 
+## Tracing
+
+The mqtt extension starts no spans and the messages it publishes carry no trace context. MQTT 3.1.1, the version the Paho client speaks, has no user properties or headers, so there is nowhere to put a `traceparent`. `enable_tracing` and `WithTracing` are deprecated and do nothing. A trace that reaches a publish call ends there, and the subscriber's handler starts a new one.
+
+If you need a trace across an MQTT hop today, put the `traceparent` in your payload yourself with `forge.InjectTraceContext` on the way out and `forge.ExtractTraceContext` on the way in. See [Observability](/docs/forge/observability#mqtt) for the extensions that do carry context.
+
 ## Message Store
 
 Paho keeps in-flight QoS 1 and 2 messages in a store:

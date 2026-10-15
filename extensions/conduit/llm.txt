@@ -10,7 +10,7 @@ depends on.
 ## Tracing
 
 Conduit uses github.com/xraph/forge/messaging, one `*messaging.Telemetry` per configured
-provider, named by the provider's `Name()` (`memory`, `jetstream`, `kafka` and so on). Trace
+provider, named by the provider's `Name()` (`memory`, `redis-streams`, `nats-jetstream`, `postgres`, `kafka`). Trace
 context travels in `Envelope.Headers` (`traceparent`, and `tracestate` when set).
 
 | Where | Span | Kind |
@@ -41,5 +41,5 @@ records `messaging.client.operation.duration` (send and call) and `messaging.pro
 `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds`, with
 `messaging_system` set to the provider's name. See messaging/llm.txt for labels and buckets.
 
-`forge_conduit_processing_duration_seconds` no longer exists. `forge_conduit_outcomes_total`
-is unchanged.
+`forge_forge_conduit_processing_duration_seconds` no longer exists.
+`forge_forge_conduit_outcomes_total` is unchanged.

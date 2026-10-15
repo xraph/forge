@@ -42,7 +42,12 @@ You only need these when you build a client outside the extension, in a test for
 |---|---|
 | `SendMessage(topic string, key, value []byte) error` | Send through the sync producer and wait for the acknowledgement |
 | `SendMessageAsync(topic string, key, value []byte) error` | Queue on the async producer and return; delivery errors are only logged |
-| `SendMessages(messages []*ProducerMessage) error` | Send a batch through the sync producer (`Headers` and `Timestamp` are ignored) |
+| `SendMessages(messages []*ProducerMessage) error` | Send a batch through the sync producer, with each message's `Headers` and `Timestamp` |
+| `SendMessageContext(ctx context.Context, topic string, key, value []byte) error` | `SendMessage` under the caller's trace |
+| `SendMessageAsyncContext(ctx context.Context, topic string, key, value []byte) error` | `SendMessageAsync` under the caller's trace; the span ends at the hand-off |
+| `SendMessagesContext(ctx context.Context, messages []*ProducerMessage) error` | `SendMessages` under the caller's trace |
+
+The methods without a context call the `*Context` ones with `context.Background()`.
 
 ## Kafka Interface: Consumer
 
@@ -50,7 +55,18 @@ You only need these when you build a client outside the extension, in a test for
 |---|---|
 | `Consume(ctx context.Context, topics []string, handler MessageHandler) error` | Read every partition of each topic from the newest offset |
 | `ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handler MessageHandler) error` | Read one partition from `offset` |
+| `ConsumeContext(ctx context.Context, topics []string, handler ContextMessageHandler) error` | `Consume`, with a handler that receives the consumer span's context |
+| `ConsumePartitionContext(ctx context.Context, topic string, partition int32, offset int64, handler ContextMessageHandler) error` | `ConsumePartition`, with a `ContextMessageHandler` |
 | `StopConsume() error` | Cancel the readers started by the last `Consume` call |
+
+`ContextMessageHandler` is `func(ctx context.Context, message *sarama.ConsumerMessage) error`.
+
+## Trace Header Carriers
+
+| Function | Description |
+|---|---|
+| `ConsumerHeaderCarrier(msg *sarama.ConsumerMessage) propagation.TextMapCarrier` | Read the record's headers for `messaging.Telemetry.Process`, in a consumer-group handler you write |
+| `ProducerHeaderCarrier(msg *sarama.ProducerMessage) propagation.TextMapCarrier` | Write headers into an outgoing record, replacing a header with the same key |
 
 ## Kafka Interface: Consumer Group
 
@@ -99,10 +115,10 @@ You only need these when you build a client outside the extension, in a test for
 | `Topic` | `string` | Target topic |
 | `Key` | `[]byte` | Partitioning key |
 | `Value` | `[]byte` | Payload |
-| `Headers` | `[]MessageHeader` | Ignored by `SendMessages` |
+| `Headers` | `[]MessageHeader` | Sent with the record |
 | `Partition` | `int32` | Copied, then overwritten by the hash partitioner |
 | `Offset` | `int64` | Not used when sending |
-| `Timestamp` | `time.Time` | Ignored by `SendMessages` |
+| `Timestamp` | `time.Time` | Sent with the record; zero lets the producer pick |
 
 `MessageHeader` has `Key string` and `Value []byte`.
 

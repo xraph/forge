@@ -81,12 +81,12 @@ This extension doesn't use the framework's `LoadConfig`. When `extensions.events
 | Field | YAML key | Default | Description |
 |---|---|---|---|
 | `DefaultBroker` | `default_broker` | `"memory"` | Where `Publish` sends. Empty means every broker |
-| `BufferSize` | `buffer_size` | `1000` | Size of an internal queue that nothing feeds today. Must not be negative |
-| `WorkerCount` | `worker_count` | `10` | Idle workers on that queue. Must not be negative |
+| `BufferSize` | `buffer_size` | `1000` | Deprecated. The bus has no worker pool, so this does nothing. It still loads, and still must not be negative |
+| `WorkerCount` | `worker_count` | `10` | Deprecated, same as `buffer_size` |
 | `MaxRetries` | `max_retries` | `3` | Not read |
 | `RetryDelay` | `retry_delay` | `5s` | Not read |
-| `EnableMetrics` | `enable_metrics` | `true` | Not read. The bus records its metrics either way |
-| `EnableTracing` | `enable_tracing` | `false` | Not read |
+| `EnableMetrics` | `enable_metrics` | `true` | Record `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds` for each broker. The bus's own counters (`publish_failures` and so on) are recorded either way |
+| `EnableTracing` | `enable_tracing` | `true` | Start a `publish` span for each broker a publish reaches and a `process` span around each handler, and carry `traceparent` in the event's `Metadata`. Off means no spans; the trace still passes through the event. It was `false` and unread before this release |
 | `ProcessingTimeout` | `processing_timeout` | `30s` | Not read |
 
 Retries come from a handler's `RetryPolicy` or from Redis Streams redelivery, not from the bus settings.

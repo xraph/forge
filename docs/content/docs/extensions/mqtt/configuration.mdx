@@ -119,7 +119,7 @@ Source: `config.go`
 | `WillQoS` | `will_qos` | `byte` | `0` | Will QoS |
 | `WillRetained` | `will_retained` | `bool` | `false` | Retain the will message |
 | `EnableMetrics` | `enable_metrics` | `bool` | `true` | Record the `mqtt.*` metrics |
-| `EnableTracing` | `enable_tracing` | `bool` | `true` | Not read (see below) |
+| `EnableTracing` | `enable_tracing` | `bool` | `true` | Deprecated, does nothing (see below) |
 | `EnableLogging` | `enable_logging` | `bool` | `true` | Log connects, drops, reconnects and publishes |
 | `RequireConfig` | none | `bool` | `false` | Fail when the config section is missing |
 
@@ -127,7 +127,7 @@ Source: `config.go`
 
 - `default_qos` / `WithQoS`: validated (0 to 2) and stored, but nothing reads it. Pass the QoS you want on each `Publish` and `Subscribe`.
 - `max_reconnect_attempts`: nothing reads it, so Paho keeps reconnecting with no limit while `auto_reconnect` is on.
-- `enable_tracing` / `WithTracing`: no tracing is wired up.
+- `enable_tracing` / `WithTracing`: deprecated, and the extension doesn't trace. Unlike queue, events, conduit and kafka, mqtt can't carry trace context. Paho v1.5.1 speaks MQTT 3.1.1, which has no user properties, so a message has nowhere to hold a `traceparent`. Your existing config keeps loading. Real support has to wait for an MQTT v5 client.
 
 ## Option Helpers
 
@@ -143,6 +143,6 @@ Source: `config.go`
 | `WithAutoReconnect(enable bool)` | `AutoReconnect` |
 | `WithWill(topic, payload string, qos byte, retained bool)` | `WillEnabled` plus the four will fields |
 | `WithMetrics(enable bool)` | `EnableMetrics` |
-| `WithTracing(enable bool)` | `EnableTracing` (unused) |
+| `WithTracing(enable bool)` | `EnableTracing` (deprecated, unused) |
 | `WithRequireConfig(require bool)` | `RequireConfig` |
 | `WithConfig(config Config)` | Replaces the whole config |

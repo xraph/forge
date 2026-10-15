@@ -94,7 +94,8 @@ calling the matching option, changes nothing today.
 | `enable_priority` | `false` | Priority works on RabbitMQ through `QueueOptions.MaxPriority` |
 | `enable_delayed` | `false` | `PublishDelayed` doesn't check it |
 | `enable_tls`, `tls_cert_file`, `tls_key_file`, `tls_ca_file`, `insecure_skip_verify` | off | Use a `rediss://`, `amqps://` or `tls://` URL instead |
-| `enable_metrics`, `enable_tracing` | `true`, `true` | |
+| `enable_tracing` | `true` | Start a `publish` span for each `Publish` and a `process` span around each handler, and carry `traceparent` in the message headers. Off means no spans; the headers still pass the trace through |
+| `enable_metrics` | `true` | Record `messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds` |
 
 ## Validation
 
@@ -124,5 +125,5 @@ negative.
 | `WithPriority(enable bool)` | `EnablePriority` (not used yet) |
 | `WithDelayed(enable bool)` | `EnableDelayed` (not used yet) |
 | `WithTLS(certFile, keyFile, caFile string)` | `EnableTLS` and the `TLS*File` fields (not used yet) |
-| `WithMetrics(enable bool)` | `EnableMetrics` (not used yet) |
-| `WithTracing(enable bool)` | `EnableTracing` (not used yet) |
+| `WithMetrics(enable bool)` | `EnableMetrics` |
+| `WithTracing(enable bool)` | `EnableTracing` |

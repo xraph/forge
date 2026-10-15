@@ -362,6 +362,99 @@ A client captures the tracer provider and propagators that are current when you 
 
 The [gRPC extension](/docs/extensions/grpc) gives every served call a server span named like the method (`billing.Invoices/Get`), with the `rpc.system.name`, `rpc.method` and `rpc.response.status_code` attributes, and records its duration in `rpc_server_call_duration_seconds` with the same three labels. Health and reflection calls are left out of both. For calls going out, add `grpcext.ClientDialOptions()` to your `grpc.NewClient`, or use conduit's `Services.GRPC`, which does it for you. Both read the OpenTelemetry globals when you call them, so call them after `forge.New`.
 
+### Messaging
+
+A message you publish in one service and handle in another shows up as one trace. The publisher records a producer span, the handler runs inside a consumer span that is its child, and the trace context travels in the message's own headers as `traceparent` (plus `tracestate` when there is one). The queue, events, conduit and kafka extensions do this for you. You don't add a hook or copy a header by hand.
+
+| Extension | Spans you'll see | `messaging_system` |
+|---|---|---|
+| [queue](/docs/extensions/queue) | `publish {queue}`, then `process {queue}` | the driver: `memory`, `redis`, `nats` or `rabbitmq` |
+| [events](/docs/extensions/events) | `publish {event type}` for each broker the event reaches, then `process {event type}` for each handler | the broker's name |
+| [conduit](/docs/extensions/conduit) | `create {stream}`, `send {stream}` and `process {stream}`; for typed RPC, `call {service}.{method}` and `serve {service}.{method}` | the provider's name, such as `memory`, `redis-streams`, `nats-jetstream`, `postgres` or `kafka` |
+| [kafka](/docs/extensions/kafka) | `send {topic}`, then `process {topic}`; a `SendMessages` batch adds a `create {topic}` per record | `kafka` |
+
+The create, send and publish spans are producer spans and the process spans are consumer spans. The RPC pair is the exception: `call` is a client span and `serve` is a server span, and the server span is the call's child.
+
+Every span carries `messaging.system`, `messaging.destination.name` (the queue, event type, stream or topic), `messaging.operation.name` and `messaging.operation.type`. A batch send adds `messaging.batch.message_count`. A failed publish or handler marks its span as an error, records the error and sets `error.type`; a handler that panics does the same with `error.type` set to `*messaging.PanicError`, and the panic carries on up unchanged.
+
+Conduit records two producer spans per message. `Prepare` writes the `create` span's context into the envelope before your publish hooks run, so an envelope that waits in the transactional outbox, gets backfilled or comes back through dead letter replay still joins the trace that made it. The `send` span carries a link to `create`. When an outbox relay sends the envelope later there's no caller span to be a child of, so `send` is a root span with that link, and the trace still connects through `create`. Each retry gets its own `process` span. A publish hook that replaces `Headers` wholesale throws `traceparent` away with the rest, so add to the map.
+
+Kafka's `SendMessageAsync` span covers the hand-off to the producer only. Delivery errors come back on the producer's own error channel, so they don't reach that span. Pass your request's context to the `*Context` methods (`SendMessageContext`, `SendMessagesContext` and so on) to make the send a child of the request. `Consume` and `ConsumePartition` still trace a handler that takes no context, but only a `ContextMessageHandler` gets the consumer span's context to start children from.
+
+A few cases you can count on:
+
+- A message from a publisher that sends no `traceparent`, or a garbled one, gives a root consumer span and no error.
+- A publisher whose trace wasn't sampled stays unsampled downstream. Nothing is exported, but the trace ID still reaches your logs.
+- The headers or metadata you pass to a publish call are never modified. The extension copies them first, so reusing one map across publishes or goroutines is safe.
+- Messages now carry `traceparent`, so a test that asserts the exact set of headers or metadata needs to allow for it.
+
+`enable_tracing: false` on the queue, events or kafka extension turns the spans off and leaves propagation on. A hop that doesn't trace still hands the trace on, so a service with tracing off doesn't break the trace of the services around it. Conduit has no flag and follows the app's `tracing.enabled`. Events used to default to `false` (and never read it); it's `true` now.
+
+#### Your own maps
+
+If you run your own broker client and just want the trace to survive the hop, copy it into whatever string map your messages carry.
+
+```go
+func publish(ctx context.Context, body []byte) error {
+    headers := map[string]string{}
+    forge.InjectTraceContext(ctx, headers)
+
+    return broker.Send(ctx, body, headers)
+}
+
+func handle(ctx context.Context, body []byte, headers map[string]string) error {
+    ctx = forge.ExtractTraceContext(ctx, headers)
+
+    ctx, span := forge.StartSpan(ctx, "handle-order")
+    defer span.End()
+
+    return process(ctx, body)
+}
+```
+
+Both work with tracing turned off, which is what makes them right for a service that only passes messages along. A nil map is ignored. `ExtractTraceContext` hands the context back unchanged when the map holds no trace.
+
+#### Your own producers and consumers
+
+The extensions all run on the `github.com/xraph/forge/messaging` package, and you can use it too. It gives you the spans in the table above and the two duration histograms in the [metrics reference](/docs/forge/metrics#messaging), with the same labels the extensions use, so your hand-written consumer lands on the same dashboards.
+
+Build one `Telemetry` per messaging system and reuse it. `Process` wraps a handler: it extracts the trace from a carrier, starts the consumer span, runs your function with the span's context and ends the span with the function's error.
+
+```go
+mt := messaging.New("kafka", messaging.WithMetrics(app.Metrics()))
+
+func (h handler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+    for msg := range claim.Messages() {
+        err := mt.Process(sess.Context(), kafka.ConsumerHeaderCarrier(msg), msg.Topic, "process",
+            func(ctx context.Context) error { return h.handle(ctx, msg) })
+        if err == nil {
+            sess.MarkMessage(msg, "")
+        }
+    }
+
+    return nil
+}
+```
+
+Kafka consumer groups are your own `ConsumerGroupHandler`, so the extension can't wrap them. That's why `kafka.ConsumerHeaderCarrier` exists: it lets `Process` read the record's headers. `kafka.ProducerHeaderCarrier` does the same for an outgoing `*sarama.ProducerMessage`.
+
+For a producer, start the send, add the trace context to a copy of your headers and end the operation with the result:
+
+```go
+ctx, op := mt.StartSend(ctx, "orders", "publish")
+headers := messaging.WithTraceContext(ctx, baseHeaders)
+err := broker.Send(ctx, body, headers)
+op.End(err)
+```
+
+`WithTraceContext` never touches `baseHeaders`. It returns a copy with the trace added, or the same map when there's nothing to add. `End` is safe on a nil operation and safe to call twice. With `messaging.WithTracing(false)` no spans start, and `Inject` and `Extract` still pass the trace through.
+
+#### MQTT
+
+The mqtt extension can't carry trace context. Its client (paho v1.5.1) speaks MQTT 3.1.1, which has no user properties, so a message has nowhere to hold a `traceparent`. `enable_tracing` on the mqtt extension is deprecated and does nothing. If you need a trace across an MQTT hop today, put the `traceparent` in your payload yourself with `forge.InjectTraceContext` and `forge.ExtractTraceContext`. Real support has to wait for an MQTT v5 client.
+
+The timing side is in the [messaging metrics](/docs/forge/metrics#messaging).
+
 ### Send spans somewhere else too
 
 `forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider, so you can copy spans into your own store or log.

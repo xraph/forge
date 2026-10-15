@@ -492,6 +492,57 @@ If you want message counts on an SSE route, register it with `EventStream`. A ro
 
 Stream metrics follow `metrics.enabled`, not `metrics.features.http_metrics`. Turn the HTTP series off and the stream series keep recording, and so do they with tracing off. They skip the tracing `exclude_paths` the same way the HTTP series do, whatever else is on. A request the router rejects before the upgrade, such as a bad `Origin` that gets a 403, never becomes a stream. It's an ordinary request in the HTTP series.
 
+### Messaging
+
+The queue, events, conduit and kafka extensions record the same two histograms, so one set of panels covers all four. You get them without any setup. Each extension's `enable_metrics` turns its own off, and conduit records them whenever the app has metrics.
+
+| Series | Type | Measures |
+|--------|------|----------|
+| `messaging_client_operation_duration_seconds` | histogram, buckets 0.005 to 10 s | A send: queue `Publish`, an events publish to one broker, a conduit send or RPC call, a kafka send |
+| `messaging_process_duration_seconds` | histogram, buckets 0.005 to 10 s | One handler run, or a conduit RPC served |
+
+Both carry the same labels: `messaging_system`, `messaging_destination_name`, `messaging_operation_name`, `messaging_operation_type` and `error_type`. The buckets are 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5 and 10 seconds, the same ones the HTTP histogram uses.
+
+- `messaging_system` says which messaging system the number belongs to: the queue driver (`memory`, `redis`, `nats`, `rabbitmq`), the events broker's name, the conduit provider's name, or `kafka`. Two extensions on one app share the series, so filter on this label when you want one of them.
+- `messaging_destination_name` is the queue, event type, stream or topic. A kafka `SendMessages` batch that spans several topics has an empty destination.
+- `messaging_operation_type` is `send` or `process`. `messaging_operation_name` is the verb the extension uses: `publish` and `process` for queue and events, `send`, `call`, `process` and `serve` for conduit, `send` and `process` for kafka.
+- `error_type` is empty on success. On a failure it's `context.DeadlineExceeded` or `context.Canceled` when the error wraps one of those, and otherwise the Go type of the innermost error, so a wrapped broker error reports the broker's type. A handler that panics reports `*messaging.PanicError`.
+
+These names are never prefixed, the same as the HTTP series. Conduit's `create` spans have no histogram.
+
+The same three queries work for every extension.
+
+```promql
+# Messages handled per second, by system and destination
+sum by (messaging_system, messaging_destination_name) (rate(messaging_process_duration_seconds_count[5m]))
+
+# Handler failures per second, by destination
+sum by (messaging_destination_name) (rate(messaging_process_duration_seconds_count{error_type!=""}[5m]))
+
+# p99 send latency, by destination
+histogram_quantile(0.99,
+  sum by (le, messaging_destination_name) (rate(messaging_client_operation_duration_seconds_bucket[5m])))
+```
+
+Queue records these only for calls that go through `*queue.QueueService`, which is what `queue.GetQueue` hands you. A backend you construct yourself, such as `NewInMemoryQueue`, gets no spans and no series. For a producer or consumer of your own, the [`messaging` package](/docs/forge/observability#your-own-producers-and-consumers) records the same two histograms with the same labels.
+
+#### Removed in this release
+
+The extensions had their own timers and counters for the same events. The two histograms replace them, so a dashboard or alert built on one of the old series goes empty until you point it at the replacement. Rebuild the panel from the queries above rather than renaming the metric.
+
+The events and conduit names start with `forge.events` or `forge_conduit` and the app adds its own `forge_` prefix, which is why the exported names below say `forge_forge_`.
+
+| Removed | Use instead |
+|---------|-------------|
+| `forge_forge_events_publish_duration`, `forge_forge_events_broker_publish_duration`, `forge_forge_events_nats_publish_duration`, `forge_forge_events_redis_publish_duration` | `messaging_client_operation_duration_seconds` filtered by `messaging_system` |
+| `forge_forge_events_published_total`, `forge_forge_events_publish_success`, `forge_forge_events_broker_published`, `forge_forge_events_nats_messages_published`, `forge_forge_events_redis_messages_published` | the `_count` of `messaging_client_operation_duration_seconds`, with `error_type=""` for successes |
+| `forge_forge_events_nats_messages_received`, `forge_forge_events_nats_receive_duration`, `forge_forge_events_redis_messages_received` | `messaging_process_duration_seconds` |
+| `forge_kafka_messages_sent{topic}` | `messaging_client_operation_duration_seconds_count{messaging_system="kafka"}` |
+| `forge_kafka_messages_received{topic}` | `messaging_process_duration_seconds_count{messaging_system="kafka"}` |
+| `forge_forge_conduit_processing_duration_seconds` | `messaging_process_duration_seconds` for handler time, `messaging_client_operation_duration_seconds` for sends and calls |
+
+What stays: the events error counters (`publish_failures`, `publish_broker_errors`, the handler and receive errors) and its subscription and connection series, kafka's `kafka.bytes.sent` and `kafka.bytes.received` gauges, and conduit's `forge_forge_conduit_outcomes_total`. The events worker series (`processing_duration`, `processed_total` and the rest) never reported anything, because the worker pool they belonged to never received an event, and the pool is gone.
+
 ## Custom Metrics in Handlers
 
 ```go
