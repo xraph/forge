@@ -1,27 +1,34 @@
-# Observability: Prometheus + Grafana
+# Observability: Prometheus, Grafana and Tempo
 
-Forge serves Prometheus metrics at `/_/metrics`.
+The quickest way to see this working is from a Forge project:
 
-## Scrape with Prometheus
-Use `prometheus.yml` (note `metrics_path: /_/metrics`, not the default `/metrics`).
+```sh
+forge dev --observability
+```
 
-## Kubernetes (Prometheus Operator)
-Apply `servicemonitor.yaml` (adjust the selector to match your Service labels).
+That starts a local Grafana stack, points your app at it and prints the Grafana URL. The [development docs](https://www.xraph.com/docs/forge/development#local-observability-stack) have the details.
 
-## Grafana
-Import `grafana-dashboard.json` and pick your Prometheus data source. It includes
-HTTP RED panels and Go runtime panels (`go_*`, `process_*`).
+The files here are for when you run your own Prometheus and Grafana.
+
+| File | What it is |
+|---|---|
+| `grafana-dashboard.json` | The Forge Service dashboard, the same one `forge obs` provisions. Import it and pick your Prometheus, Tempo and Loki data sources. |
+| `forge-rules.yaml` | Prometheus recording rules and alerts: error budget burn (fast and slow) for a 99.9% objective and a p95 latency alert at one second. |
+| `prometheus.yml` | A scrape config. Note `metrics_path: /_/metrics`, not the default `/metrics`. |
+| `servicemonitor.yaml` | A Prometheus Operator ServiceMonitor. Adjust the selector to your Service's labels. `forge deploy` can render one for you with `observability.service_monitor`. |
+
+The dashboard and rules are generated from the CLI, so don't edit them here. To get rules for a different objective or threshold, run:
+
+```sh
+forge obs export --out ./obs --slo 99.5 --p95-threshold 500ms
+```
+
+If you imported the older version of this dashboard, its uid was `forge-overview`. The new one is `forge-service`, so importing it adds a second dashboard; delete the old one.
 
 ## Metric naming
-HTTP server metrics follow the OpenTelemetry semantic conventions and carry no
-prefix: `http_server_request_duration_seconds` (a histogram, so its `_count` is the
-request count) and `http_server_active_requests`. They're labelled with
-`http_route`, `http_request_method`, `http_response_status_code`, `url_scheme` and
-`error_type`, so you can break any panel down by route.
 
-Metrics you create yourself are emitted under the `forge_` namespace prefix. The
-namespace is configurable via `metrics.collection.namespace` in your Forge config.
+HTTP server metrics follow the OpenTelemetry semantic conventions and carry no prefix: `http_server_request_duration_seconds` (a histogram, so its `_count` is the request count) and `http_server_active_requests`. They're labelled with `http_route`, `http_request_method`, `http_response_status_code`, `url_scheme` and `error_type`, so you can break any panel down by route.
 
-Go runtime and process metrics (`go_goroutines`, `go_memstats_*`,
-`process_cpu_seconds_total`, etc.) use their standard unprefixed names; they come
-from the Go and Process collectors registered directly with the Prometheus registry.
+Metrics you create yourself get the `forge_` namespace prefix. You can change it with `metrics.collection.namespace` in your Forge config.
+
+Go runtime and process metrics (`go_goroutines`, `go_memstats_*`, `process_cpu_seconds_total` and so on) keep their standard unprefixed names; they come from the Go and Process collectors registered directly with the Prometheus registry.
