@@ -217,12 +217,18 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 	// webtransport-go turns datagrams on whatever EnableDatagrams says,
 	// because every WebTransport session needs them. Its clients also refuse
 	// a server without stream resets with partial delivery.
+	//
+	// The stream limits are QUIC's, and a server allows one session per
+	// connection, so they cap the session too. webtransport.Server.Config
+	// would set per-session limits instead, but they only hold when the
+	// client sends WebTransport flow control settings of its own, and
+	// turning them on lets one connection carry several sessions.
 	quicConfig := &quic.Config{
-		MaxIdleTimeout:  time.Duration(config.MaxIdleTimeout) * time.Millisecond,
-		KeepAlivePeriod: time.Duration(config.KeepAliveInterval) * time.Millisecond,
-		EnableDatagrams: config.EnableDatagrams,
-		MaxIncomingStreams: config.MaxBidiStreams +
-			config.MaxUniStreams,
+		MaxIdleTimeout:                   time.Duration(config.MaxIdleTimeout) * time.Millisecond,
+		KeepAlivePeriod:                  time.Duration(config.KeepAliveInterval) * time.Millisecond,
+		EnableDatagrams:                  config.EnableDatagrams,
+		MaxIncomingStreams:               quicStreamLimit(config.MaxBidiStreams, h3BidiStreams),
+		MaxIncomingUniStreams:            quicStreamLimit(config.MaxUniStreams, h3UniStreams),
 		MaxStreamReceiveWindow:           config.StreamReceiveWindow,
 		MaxConnectionReceiveWindow:       config.ConnectionReceiveWindow,
 		EnableStreamResetPartialDelivery: true,
@@ -275,6 +281,35 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 	}()
 
 	return nil
+}
+
+// The streams HTTP/3 takes from a client's QUIC stream limits before
+// WebTransport gets any. The CONNECT request that carries the session is
+// bidirectional. The control stream and the QPACK encoder and decoder streams
+// are unidirectional (RFC 9114 section 6.2, RFC 9204 section 4.2).
+const (
+	h3BidiStreams = 1
+	h3UniStreams  = 3
+)
+
+// quicStreamLimit turns a WebTransportConfig stream limit into the QUIC one,
+// with room for the streams HTTP/3 needs. Zero means the default of 100 and a
+// negative value allows no WebTransport streams, the way quic-go reads its
+// own limits.
+func quicStreamLimit(limit, reserved int64) int64 {
+	const (
+		defaultLimit = 100
+		maxLimit     = 1 << 60
+	)
+
+	switch {
+	case limit == 0:
+		limit = defaultLimit
+	case limit < 0:
+		limit = 0
+	}
+
+	return min(limit, maxLimit-reserved) + reserved
 }
 
 // http3Addr returns the address the HTTP/3 server listens on, or nil when it

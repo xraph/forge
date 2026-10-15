@@ -400,10 +400,12 @@ func (s *webTransportReceiveStream) Close() error {
 
 // WebTransportConfig configures WebTransport behavior.
 type WebTransportConfig struct {
-	// Maximum bidirectional streams
+	// MaxBidiStreams caps the bidirectional streams a client may have open
+	// in a session at once. Zero means 100 and a negative value allows none.
 	MaxBidiStreams int64
 
-	// Maximum unidirectional streams
+	// MaxUniStreams caps the unidirectional streams a client may have open
+	// in a session at once. Zero means 100 and a negative value allows none.
 	MaxUniStreams int64
 
 	// Maximum datagram frame size

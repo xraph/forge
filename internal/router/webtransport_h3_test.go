@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -62,7 +63,14 @@ func h3TLS(t *testing.T) (*tls.Config, *x509.CertPool) {
 func startH3(t *testing.T, r *router) (string, *x509.CertPool) {
 	t.Helper()
 
-	require.NoError(t, r.EnableWebTransport(DefaultWebTransportConfig()))
+	return startH3With(t, r, DefaultWebTransportConfig())
+}
+
+// startH3With is startH3 with a WebTransport config of your own.
+func startH3With(t *testing.T, r *router, config WebTransportConfig) (string, *x509.CertPool) {
+	t.Helper()
+
+	require.NoError(t, r.EnableWebTransport(config))
 
 	serverTLS, pool := h3TLS(t)
 
@@ -483,4 +491,157 @@ func TestWebTransportStreamJSONOverHTTP3(t *testing.T) {
 	reply, err := io.ReadAll(bidi)
 	require.NoError(t, err)
 	require.Equal(t, "7\n8\n", string(reply))
+}
+
+// dialWTLikeBrowser is dialWT for a client that opens the QPACK encoder and
+// decoder streams, as browsers do. quic-go's own client opens only the
+// control stream, so without them a test would see two spare
+// unidirectional streams that a browser never gets.
+func dialWTLikeBrowser(t *testing.T, pool *x509.CertPool, url string) *webtransport.Session {
+	t.Helper()
+
+	d := &webtransport.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS13,
+			RootCAs:    pool,
+			NextProtos: []string{http3.NextProtoH3},
+		},
+		QUICConfig: &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
+		DialAddr: func(ctx context.Context, addr string, tlsConf *tls.Config, conf *quic.Config) (*quic.Conn, error) {
+			conn, err := quic.DialAddr(ctx, addr, tlsConf, conf)
+			if err != nil {
+				return nil, err
+			}
+
+			// Stream types 0x02 and 0x03 from RFC 9204 section 4.2.
+			for _, streamType := range []byte{0x02, 0x03} {
+				str, err := conn.OpenUniStream()
+				if err != nil {
+					return nil, err
+				}
+
+				if _, err := str.Write([]byte{streamType}); err != nil {
+					return nil, err
+				}
+			}
+
+			return conn, nil
+		},
+	}
+
+	t.Cleanup(func() { _ = d.Close() })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	rsp, sess, err := d.Dial(ctx, url, nil) //nolint:bodyclose // closing the body ends the session
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rsp.StatusCode)
+
+	t.Cleanup(func() { _ = sess.CloseWithError(0, "") })
+
+	return sess
+}
+
+func TestWebTransportStreamLimits(t *testing.T) {
+	const limit = 5
+
+	tests := []struct {
+		name   string
+		config func(*WebTransportConfig)
+		accept func(WebTransportSession) (WebTransportStream, error)
+		open   func(*webtransport.Session) (io.Writer, error)
+	}{
+		{
+			name:   "bidirectional",
+			config: func(c *WebTransportConfig) { c.MaxBidiStreams = limit },
+			accept: func(s WebTransportSession) (WebTransportStream, error) {
+				return s.AcceptStream(s.Context())
+			},
+			open: func(s *webtransport.Session) (io.Writer, error) { return s.OpenStream() },
+		},
+		{
+			name:   "unidirectional",
+			config: func(c *WebTransportConfig) { c.MaxUniStreams = limit },
+			accept: func(s WebTransportSession) (WebTransportStream, error) {
+				return s.AcceptUniStream(s.Context())
+			},
+			open: func(s *webtransport.Session) (io.Writer, error) { return s.OpenUniStream() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRouter()
+			accepted := make(chan int, 1)
+
+			// The handler reads one byte from each stream and leaves it open,
+			// so every stream keeps its place under the limit.
+			require.NoError(t, r.WebTransport("/wt", func(ctx Context, s WebTransportSession) error {
+				for i := range limit {
+					str, err := tt.accept(s)
+					if err != nil {
+						return err
+					}
+
+					if _, err := io.ReadFull(str, make([]byte, 1)); err != nil {
+						return err
+					}
+
+					accepted <- i + 1
+				}
+
+				<-s.Context().Done()
+
+				return nil
+			}))
+
+			// The other limit stays at its default of 100. Before the fix it
+			// either raised this one or did nothing.
+			config := DefaultWebTransportConfig()
+			tt.config(&config)
+
+			base, pool := startH3With(t, r, config)
+			sess := dialWTLikeBrowser(t, pool, base+"/wt")
+
+			for i := range limit {
+				str, err := tt.open(sess)
+				require.NoError(t, err, "stream %d of %d", i+1, limit)
+
+				_, err = str.Write([]byte("x"))
+				require.NoError(t, err)
+
+				select {
+				case n := <-accepted:
+					require.Equal(t, i+1, n)
+				case <-time.After(5 * time.Second):
+					t.Fatalf("handler never accepted stream %d", i+1)
+				}
+			}
+
+			_, err := tt.open(sess)
+
+			var limitErr *quic.StreamLimitReachedError
+			require.ErrorAs(t, err, &limitErr)
+		})
+	}
+}
+
+func TestQUICStreamLimit(t *testing.T) {
+	tests := []struct {
+		name            string
+		limit, reserved int64
+		want            int64
+	}{
+		{"set", 5, 3, 8},
+		{"zero takes the default", 0, 3, 103},
+		{"negative allows none", -1, 3, 3},
+		{"huge stays at quic-go's maximum", math.MaxInt64, 3, 1 << 60},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, quicStreamLimit(tt.limit, tt.reserved))
+		})
+	}
 }

@@ -231,8 +231,8 @@ config.AllowedOrigins = []string{"https://app.example.com"}
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MaxBidiStreams` | 100 | With `MaxUniStreams`, caps the bidirectional streams a client may open: the cap is the sum of the two |
-| `MaxUniStreams` | 100 | Doesn't cap unidirectional streams yet. It only adds to the bidirectional cap above |
+| `MaxBidiStreams` | 100 | Bidirectional streams a client may have open in a session at once. Zero means 100 and a negative value allows none |
+| `MaxUniStreams` | 100 | Unidirectional streams a client may have open in a session at once. Zero means 100 and a negative value allows none |
 | `StreamReceiveWindow` | 6MB | Per-stream flow control window |
 | `ConnectionReceiveWindow` | 15MB | Per-connection flow control window |
 | `KeepAliveInterval` | 30000 | Keep-alive interval, in milliseconds |
@@ -240,6 +240,10 @@ config.AllowedOrigins = []string{"https://app.example.com"}
 | `AllowedOrigins` | empty | Origins a browser may connect from. Empty means same-origin only, and `"*"` allows any origin. A request with no `Origin` header, from a non-browser client, is always allowed |
 | `EnableDatagrams` | true | Has no effect. Every WebTransport session needs datagrams, so they're always on |
 | `MaxDatagramFrameSize` | 65536 | Not used yet |
+
+The stream limits are QUIC's. The server lets a connection carry one session, so a limit on the connection is a limit on the session. HTTP/3 takes a few streams of its own: the CONNECT request that opened the session holds a bidirectional one, and the client's control stream and QPACK encoder and decoder streams hold three unidirectional ones. Forge adds those on top of what you set, so a browser gets exactly `MaxBidiStreams` and `MaxUniStreams`. A quic-go client doesn't open the QPACK streams, so it gets two unidirectional streams more than you set. Any other HTTP/3 request the client sends on the same connection uses a bidirectional stream while it runs.
+
+When a webtransport-go client is at a limit, its `OpenStream` and `OpenUniStream` fail with a stream limit error and the `Sync` variants wait. A stream stops counting against the limit once both sides are done with it.
 
 ## When to Use WebTransport
 
