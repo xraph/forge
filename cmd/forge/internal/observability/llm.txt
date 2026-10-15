@@ -1,0 +1,11 @@
+Forge local observability stack and Grafana assets
+forge observability (alias obs) runs grafana/otel-lgtm:0.36.0 (Grafana, Tempo, Loki, Prometheus, OTel Collector) as one container, forge-lgtm, with data in the volume forge-lgtm-data.
+  forge obs up [--target name=host:port] [--grafana-port 3000] [--otlp-port 4318] [--prometheus-port 9090] [--image ref]
+  forge obs status
+  forge obs down [--purge]
+  forge obs export --out ./obs [--slo 99.9] [--p95-threshold 1s] [--force]
+  forge dev -O    (start the stack if needed, add the app as a scrape target, set OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_SERVICE_NAME when unset)
+Ports publish on 127.0.0.1 only; 4317 is never published. WriteState writes prometheus.yaml, grafana-datasources.yaml, grafana-dashboards-forge.yaml and dashboards/forge-service.json into <user cache dir>/forge/observability and returns a hash. The container carries forge.config-hash and forge.ports labels; Up reuses a matching container and recreates a different one, keeping the volume. Scrape targets are file_sd JSON in targets/, read live with no restart; ParseTarget rewrites localhost to host.docker.internal.
+The data sources keep the image's UIDs (prometheus, tempo, loki, pyroscope) and links, and add Tempo tracesToMetrics (service.name to job). Prometheus scrapes OpenMetrics first so exemplars arrive. Logs reach Loki only when the app exports them over OTLP.
+DashboardJSON builds the Forge Service dashboard (uid forge-service) from Go; every data source is a variable. RenderRules renders a plain Prometheus rule file. examples/observability/grafana-dashboard.json and forge-rules.yaml are generated: cd cmd/forge && GOWORK=off go generate ./internal/observability. TestExamplesMatchEmbeddedAssets fails when they drift.
+Tests against the real image skip unless FORGE_OBS_DOCKER_TEST=1 and docker is on PATH.

@@ -23,6 +23,7 @@ forge dev -a api -p 8080     # Run on specific port
 forge dev --watch            # With hot reload (default)
 forge dev --docker           # Run inside Docker container
 forge dev -d -a api --network forge-net  # Docker with custom network
+forge dev -O                 # Send traces and metrics to a local Grafana stack
 ```
 
 **Flags:**
@@ -31,6 +32,7 @@ forge dev -d -a api --network forge-net  # Docker with custom network
 - `-p, --port` - Port number
 - `-d, --docker` - Run inside Docker container
 - `--network` - Docker network name (requires `--docker`)
+- `-O, --observability` - Start the local Grafana stack and send this app's telemetry to it
 
 **Behavior:**
 - If no app is specified, shows an interactive app selector
@@ -38,6 +40,7 @@ forge dev -d -a api --network forge-net  # Docker with custom network
 - Supports both single-module and multi-module layouts
 - Sets `PORT` environment variable if specified
 - With `--docker`, builds a dev image and runs the app in a container with bind-mount hot reload
+- With `--observability`, starts the local stack if it isn't running and points the app at it (see [Local observability stack](#local-observability-stack))
 
 ## Subcommands
 
@@ -381,6 +384,50 @@ Forge injects the following environment variables into every Docker dev containe
 | `PORT` | `<port>` | Only set if `--port` flag was provided |
 
 Additional variables from `dev.docker.env` are appended after these defaults.
+
+## Local observability stack
+
+```bash
+forge dev -O
+```
+
+That's the whole setup. Open the Grafana URL it prints, usually [localhost:3000](http://localhost:3000), and you land on the Forge Service dashboard with your app's request rate, errors, latency, streams, gRPC calls and Go runtime. Click an exemplar dot on a latency graph and Tempo opens the trace of that exact request.
+
+The stack is one container, `forge-lgtm`, running the `grafana/otel-lgtm` image: Grafana, Tempo, Loki, Prometheus and an OpenTelemetry Collector together. The first run pulls about 3.5 GB, and the stack takes around twenty seconds to come up.
+
+Here's what `-O` does for you:
+
+- starts `forge-lgtm` if it isn't running, and leaves it running when dev exits, so your data survives restarts
+- adds the app to Prometheus's scrape targets at `/_/metrics`, on the port the app uses (`--port` or `PORT`, then `dev.port`, then 8080)
+- sets `OTEL_EXPORTER_OTLP_ENDPOINT` to the collector and `OTEL_SERVICE_NAME` to the app's name
+
+It won't touch either variable if you've already set it, and it tells you when it leaves one alone. Mind you, `OTEL_SERVICE_NAME` overrides `forge.WithAppName` for the dev run. That's on purpose: Grafana's link from a trace to its service's metrics matches Tempo's `service.name` against the Prometheus job, and both come out as the app's name this way.
+
+Logs show up in Loki once your app exports them over OTLP. Until then they go to stdout only, and **Logs for this span** in Tempo stays empty.
+
+### Managing the stack
+
+```bash
+forge obs status                 # URLs, and how every scrape target is doing
+forge obs up                     # start it without running an app
+forge obs up --target web=localhost:9000   # scrape an app you run yourself
+forge obs down                   # remove the container, keep the data
+forge obs down --purge           # remove the data and generated files too
+```
+
+`forge obs` is short for `forge observability`. Ports bind to `127.0.0.1` only: 3000 for Grafana, 4318 for OTLP over HTTP and 9090 for Prometheus. If something already holds one, `up` stops before starting anything and names the flag that moves it: `--grafana-port`, `--otlp-port` or `--prometheus-port`.
+
+A `--target` with `localhost` or `127.0.0.1` gets rewritten to `host.docker.internal`, because inside the container `localhost` is the container. A target showing `down` in `forge obs status` usually means the port is wrong; the error next to it says what Prometheus saw.
+
+The CLI keeps the files it mounts into the container in your user cache directory, under `forge/observability`. They're regenerated on every `up`.
+
+### Your own Grafana
+
+```bash
+forge obs export --out ./obs
+```
+
+This writes `forge-service-dashboard.json` and `forge-rules.yaml`. The dashboard picks its Prometheus, Tempo and Loki data sources from variables, so it imports into any Grafana. The rules file holds recording rules plus three alerts: a fast and a slow error budget burn, and a p95 latency alert. `--slo 99.5` and `--p95-threshold 500ms` change the objective and the threshold, and `--force` overwrites existing files.
 
 ## Project Requirements
 

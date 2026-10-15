@@ -381,6 +381,55 @@ backends or excluded services, provide `external_cidrs.<name>`. Discovery needs
 Check these addresses against your CNI's translation behavior. Policy enforcement
 requires a compatible CNI and must be tested on your cluster.
 
+### Metrics and traces
+
+Add an `observability` block to a Kubernetes target to send traces to your
+collector and have Prometheus scrape your services:
+
+```yaml
+deploy:
+  targets:
+    prod:
+      provider: kubernetes
+      observability:
+        otlp_endpoint: http://otel-collector.monitoring:4318
+        sampler: parentbased_traceidratio   # optional
+        sample_ratio: 0.1                   # optional
+        otlp_namespace: monitoring          # needed with network_policy
+        service_monitor:
+          enabled: true
+          interval: 30s                     # 30s when unset
+          labels: {release: prometheus}     # what your Prometheus selects on
+          namespace: monitoring             # needed with network_policy
+```
+
+With `otlp_endpoint` set, every app container (migration Jobs too) gets
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` set to the service name, and
+`OTEL_RESOURCE_ATTRIBUTES` with `deployment.environment.name` and
+`k8s.namespace.name`. `sampler` and `sample_ratio` become `OTEL_TRACES_SAMPLER`
+and `OTEL_TRACES_SAMPLER_ARG`. If you set any of these in a service's or an
+environment's `env`, yours wins.
+
+With `service_monitor.enabled`, each service with an HTTP port gets a Prometheus
+Operator `ServiceMonitor` that scrapes `/_/metrics` on that port. The Operator
+names the job after the Service, which is the service name, so it lines up with
+`OTEL_SERVICE_NAME` and Grafana's trace-to-metrics links work. You need the
+Operator's CRDs in the cluster; apply checks for them first and stops with a
+clear error when they're missing.
+
+With `network_policy: true`, the policy lets the `service_monitor.namespace`
+reach the metrics port and lets your pods reach the collector's port, either in
+`otlp_namespace` or at `external_cidrs.otlp`. Plan fails when one of those is
+missing, because the traffic would otherwise be dropped silently.
+
+The block only works on Kubernetes targets. One thing to know: if you turn
+`service_monitor.enabled` off after applying, Forge doesn't remove the
+ServiceMonitors it already created. Delete them with `kubectl delete
+servicemonitor -l app.kubernetes.io/managed-by=forge -n <namespace>`.
+
+To run the same dashboard and alerts against that Prometheus, see
+`forge obs export` in [development](/docs/forge/development#your-own-grafana).
+
 ## GitOps controller handoff
 
 A Kubernetes profile can export a reviewed Kustomize bundle for an existing controller.
