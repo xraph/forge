@@ -13,7 +13,8 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **server.go**: `ServerMiddleware`, `PropagationMiddleware`, `RouteMatchMiddleware`, `NormalizeMethod`, `Excluded` (the path-prefix check, shared with the HTTP server metrics middleware).
 - **client.go**: `InstrumentTransport`, `HTTPClient`.
 - **recorder.go**: `StatusRecorder` (`NewStatusRecorder`), captures the status and body bytes (`Status`, `BytesWritten`) and keeps Flusher, Hijacker and Unwrap working. The HTTP server metrics middleware in `internal/metrics/collectors` uses it too. A 1xx other than 101 is forwarded but not recorded, so 103 Early Hints never becomes the final status. Flush and Hijack go through `http.ResponseController`, so a wrapper below that only has `Unwrap` still works; a failed hijack returns the controller's error (wrapping `http.ErrNotSupported`) and records nothing, a successful one records 101.
-- **errorhandler.go**: the OTel error handler, rate limited to one warn per minute.
+- **errorhandler.go**: the OTel error handler, rate limited to one warn per minute through `logger.RateLimited` (`internal/logger/ratelimit.go`, shared with the profiler's upload errors).
+- **labels.go**: `serveLabelled` and `spanName`, the pprof span labels for profiling.
 - **metrics_config.go**: `ResolveMetrics(MetricsInputs) MetricsSettings`, the precedence chain for metrics push.
 - **metrics.go**: `NewMetricsPusher`, `MetricsPusher`, the OTLP/HTTP metrics push.
 
@@ -41,6 +42,7 @@ For every setting the first source that has a value wins:
 | `ExcludePaths` | code, file, default `"/_/"` |
 | `ResponseHeader` | code, file, default `traceparent`; empty string disables it |
 | `Resource` | code, file; merged over the detected resource |
+| `SpanLabels` | never set by `Resolve`; `forge.New` copies it from `profiling.Settings.SpanLabels` |
 | `Warnings` | messages for the caller to log (unsupported sampler, an `OTEL_TRACES_SAMPLER_ARG` that is not a number, NaN or out of range ratio) |
 
 A code or file `SampleRatio` always pairs with `parentbased_traceidratio` and ignores `OTEL_TRACES_SAMPLER`. A ratio outside [0, 1] is clamped with a warning; NaN falls back to the environment default.
@@ -70,6 +72,21 @@ The router records errors on the span itself: `internal/router/span_error.go` wr
 Set at start: `http.request.method`, `url.scheme`, `url.path`, `network.protocol.version`, `server.address`, `user_agent.original`, and `http.request.method_original` when the method is outside the standard nine (the method attribute is then `_OTHER`).
 
 Set at end, in one `SetAttributes` call: `http.route` (when matched), `forge.stream.kind` (stream routes that established only), `http.response.status_code`, and `error.type` (the status code as a string) for 5xx. An unsampled span isn't recording, so the middleware skips the rename, the attributes and the status and just ends it.
+
+### Span labels
+
+With `Settings.SpanLabels` on and a sampled span, the middleware sets `pyroscope.profile.id` (the span ID) on the span and serves the request through `serveLabelled`. The names match `grafana/otel-profiling-go`, so Grafana's Tempo "Profiles for this span" works without that module. Labels off or an unsampled span cost the bool and `IsSampled` checks and nothing else; excluded paths get no span and no labels.
+
+`serveLabelled` runs `next` inside `pprof.Do(ctx, pprof.Labels("span_id", id), ...)` and hands the labelled context to the request. Two callbacks on the `RouteMatch`:
+
+- `OnMatched` relabels the goroutine with `span_name` added, built by `spanName(method, pattern)` from the same cache the span rename uses, so the label equals the span's final name. `_OTHER` methods give `HTTP`. The router calls `Match` before the route's middleware, so route middleware runs labelled.
+- `OnEstablished` relabels a stream route's goroutine to `span_name` only (no labels at all when no pattern matched). The span ends at the handshake while the handler can run for hours, and that CPU must not land on the span.
+
+`pprof.Do` restores the previous labels when `next` returns, panics included, so nothing leaks into the next request `net/http` serves on that goroutine.
+
+`span_name` lives only on the goroutine, not on the request context. A handler or middleware that adds its own labels with `pprof.Do(r.Context(), ...)` loses `span_name` inside that `Do` and for the rest of the request after it returns, because `Do` restores the context's labels and the context only has `span_id`. `span_id`, the trace link, survives. Labels reach CPU and goroutine profiles only, and goroutines a handler starts inherit them while an existing worker pool does not.
+
+Tests read labels from `pprof.Lookup("goroutine").WriteTo(buf, 1)`, the handler's own `# labels:` line, since CPU sampling is too flaky to assert on.
 
 ## Provider lifecycle
 
@@ -136,7 +153,9 @@ func WithAppTracingConfig(config TracingConfig) AppOption // app.go
 
 ## Related
 
-- `internal/shared/routematch.go`: the `RouteMatch` holder.
+- `internal/shared/routematch.go`: the `RouteMatch` holder, with `Match` and `OnMatched`.
+- `internal/profiling`: resolves `span_labels` and pushes the profiles the labels land in.
+- `internal/logger/ratelimit.go`: `RateLimited`, behind the error handler.
 - `internal/shared/tracing.go`: `TracingConfig`.
 - `internal/router/span_error.go`: error recording on the request span.
 - `docs/content/docs/forge/observability.mdx`: the user-facing page.

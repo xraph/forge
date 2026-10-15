@@ -1,0 +1,62 @@
+# Forge Profiling - Internal Implementation
+
+## Purpose
+
+Continuous profiling for Forge apps. It resolves the profiling config and runs the Pyroscope push profiler through `github.com/grafana/pyroscope-go`. `forge.New` builds one `Profiler` per app (`buildProfiling` in the root `profiling.go`); the public types are `forge.ProfilingConfig` and `forge.WithAppProfilingConfig`.
+
+The span labels that link a trace to its CPU profile are not here. They live in `internal/telemetry/labels.go`, next to the server span, and read `SpanLabels` from these settings through `telemetry.Settings`.
+
+## Key Components
+
+- **config.go**: `Resolve(Inputs) Settings`, the precedence chain and `PYROSCOPE_*` parsing. `DefaultProfileTypes`.
+- **profiler.go**: `New`, `Profiler.Start`, `Profiler.Stop`, `Settings`, `Running`. Sets the mutex and block profile rates.
+- **sdklogger.go**: adapts forge's logger to `pyroscope.Logger`.
+
+## Import boundary
+
+`internal/profiling` imports `internal/shared` and `internal/logger`. It must not import `internal/telemetry`. The rate-limited warn logger both packages use is `logger.RateLimited` for that reason.
+
+## Resolve
+
+`Inputs` holds `Code` (`WithAppProfilingConfig`), `File` (the forge config `profiling` key), `AppName`, `AppVersion`, `Environment`, `TracingEnabled` and `Getenv`. `Resolve` takes `Getenv`, so tests never touch the real environment.
+
+Scalars take code, then file, then env, then default. Maps and lists take the first non-empty source whole, as tracing does: tags or profile types set in code replace the file's, with no merging.
+
+| Field | Source and default |
+|---|---|
+| `ServerAddress` | code, file, `PYROSCOPE_SERVER_ADDRESS`; empty means no push |
+| `Push` | `ServerAddress != ""` |
+| `ApplicationName` | code, file, `PYROSCOPE_APPLICATION_NAME`, then `AppName`, then `forge`. Runes outside `[A-Za-z0-9_./-]` become `_` with a warning (`My App` gives `My_App`) |
+| `BasicAuthUser`, `BasicAuthPassword`, `TenantID` | code, file, `PYROSCOPE_BASIC_AUTH_USER`, `PYROSCOPE_BASIC_AUTH_PASSWORD`, `PYROSCOPE_TENANT_ID` |
+| `Tags` | `service_version` (from `AppVersion`) and `environment` (from `Environment`) when set, then the user's map from code or else file, which wins on a clash. A key outside `[A-Za-z0-9_.]`, or `__name__`, is dropped with a warning |
+| `ProfileTypes` | code or else file. Allowed: `DefaultProfileTypes` (`cpu`, `alloc_objects`, `alloc_space`, `inuse_objects`, `inuse_space`) plus `goroutines`, `mutex_count`, `mutex_duration`, `block_count`, `block_duration`. An unknown name is dropped with a warning; an empty result falls back to the defaults |
+| `SpanLabels` | code, file (`*bool`, so false counts as set), else `Push`. Forced false with a warning when `TracingEnabled` is false |
+| `Warnings` | messages for the caller to log |
+
+`ApplicationName` defaulting to `AppName` is what makes Pyroscope's `service_name` equal the traces' `service.name`. Tempo's traces-to-profiles join depends on that, so don't change the default.
+
+## Profiler lifecycle
+
+- `New(settings, log)` starts nothing. Tests that build an app and never start it spawn no profiler goroutines.
+- `Start()` does nothing unless `Push`, or when already running. It calls `runtime.SetMutexProfileFraction(5)` for a `mutex_*` type and `runtime.SetBlockProfileRate(5)` for a `block_*` type (process-wide, never reset), then `pyroscope.Start`. It returns an error only when the SDK refuses to start; an unreachable server is not an error, since uploads happen in the background every 15 seconds (the SDK default; `uploadRate` is a test hook).
+- `Stop(ctx)` takes the running profiler out under the lock, then runs `pyroscope.Profiler.Stop` (which takes no context and uploads what is left) on a goroutine. It returns when that finishes or `ctx.Err()` when the context ends first; the upload then gives up on the SDK's 30 second HTTP timeout. Stopping a profiler that isn't running returns nil.
+- The SDK logger sends `Infof` and `Debugf` to debug and `Errorf` to `logger.RateLimited` with "profiling: upload failed": warn, at most once a minute, with a `suppressed` count.
+
+Wiring in the root package (`profiling.go`, `app_impl.go`):
+
+- `buildProfiling` runs after `buildTracing`, binds the `profiling` key (a key that exists but won't bind is a warning, and defaults apply), resolves, logs each warning and returns `New(...)`. `forge.New` copies `SpanLabels` into `telemetry.Settings` before building `ServerMiddleware`, which is only installed when tracing is on.
+- `app.Start` calls `startProfiler` right after the "starting application" log line and before the before-start hooks. When push includes `cpu` and `EnablePprof` is on, it first logs a warning that `/_/debug/pprof/profile` answers "cpu profiling already in use", because Go has one CPU profiler per process. A `Start` error is logged as "profiling: push disabled" and the app boots on. If `app.Start` fails after that, a deferred `stopProfiler` stops it again.
+- `app.Stop` calls `stopProfiler` as its last step, after the tracing flush, so shutdown is profiled. A context that runs out logs "profiling: final upload did not finish".
+- The profiler is not in DI and has no public accessor.
+
+## Testing
+
+- `config_test.go` is a table test over `Resolve` with a fake `Getenv`.
+- `profiler_test.go` stands up an `httptest` server as Pyroscope, shortens `uploadRate`, and checks each upload's `name` query (app name plus tags, sanitized names included) and basic auth user. A hanging server checks that `Stop` returns when its context ends.
+
+## Related
+
+- `internal/telemetry/labels.go`: `span_id` and `span_name` pprof labels and the `pyroscope.profile.id` attribute.
+- `internal/shared/profiling.go`: `ProfilingConfig`.
+- `internal/logger/ratelimit.go`: `RateLimited`.
+- `docs/content/docs/forge/observability.mdx`: the user-facing page, section "Profiling".

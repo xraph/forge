@@ -68,6 +68,25 @@ type HealthManager interface {
 }
 ```
 
+### RouteMatch (routematch.go)
+
+Carries the matched route back up to the outer middleware, which runs before the router matches. The outermost middleware calls `NewRouteMatch(ctx)`, inner ones `EnsureRouteMatch(ctx)`, and anyone reads it with `RouteMatchFromContext(ctx)`.
+
+```go
+func (m *RouteMatch) OnMatched(fn func(pattern string))  // register before calling next
+func (m *RouteMatch) Match(pattern string, kind RouteKind) // router only: sets Pattern and Kind, runs OnMatched callbacks in order
+func (m *RouteMatch) OnEstablished(fn func(status int))
+func (m *RouteMatch) Establish(status int)                 // once; later calls do nothing
+func (m *RouteMatch) Established() bool
+func (m *RouteMatch) PatternOrEmpty() string
+```
+
+The router calls `Match` once per request, just before the route's middleware and handler. The telemetry span labels use `OnMatched` to add `span_name` to the goroutine's pprof labels. Every method is nil-safe and there is no locking: callbacks run on the request goroutine, so middleware that calls `next` on another goroutine (`middleware.Timeout`) must not sit in front of a stream route. The callback slices start on inline arrays, so a request with the usual callbacks doesn't allocate for them.
+
+### ProfilingConfig (profiling.go)
+
+The `profiling` config key and `forge.ProfilingConfig`: `ServerAddress`, `ApplicationName`, `BasicAuthUser`, `BasicAuthPassword`, `TenantID`, `Tags`, `ProfileTypes`, and `SpanLabels *bool` (nil means "follow push", so false counts as set). Snake_case `json` and `yaml` tags. `internal/profiling.Resolve` turns it into settings.
+
 ## Usage Examples
 
 ### Using Shared Interfaces

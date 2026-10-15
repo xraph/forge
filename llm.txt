@@ -80,6 +80,10 @@ func HTTPClient() *http.Client                                  // outbound requ
 func InstrumentTransport(rt http.RoundTripper) http.RoundTripper // nil means http.DefaultTransport
 func RegisterSpanProcessor(a App, sp sdktrace.SpanProcessor) error // ErrTracingDisabled when tracing is off
 // DI: Inject[trace.TracerProvider](app.Container())
+
+// Profiling
+type ProfilingConfig = shared.ProfilingConfig
+func WithAppProfilingConfig(c ProfilingConfig) AppOption
 ```
 
 ## Usage Examples
@@ -225,6 +229,34 @@ shutdown_timeout: 30s
 - `/_/metrics` - Prometheus metrics endpoint
 - `/_/health` - Health check status with component details
 
+### Profiling
+
+Push to Pyroscope is on when a server address is set, and off otherwise.
+Precedence is `WithAppProfilingConfig`, then the `profiling:` block of the
+config file, then `PYROSCOPE_SERVER_ADDRESS`, `PYROSCOPE_APPLICATION_NAME`,
+`PYROSCOPE_BASIC_AUTH_USER`, `PYROSCOPE_BASIC_AUTH_PASSWORD` and
+`PYROSCOPE_TENANT_ID`. `tags` and `profile_types` have no env var and take
+the first non-empty source whole: set in code, they replace the file's.
+`application_name` defaults to the app name, so Pyroscope's `service_name`
+matches the traces' `service.name`.
+
+```yaml
+profiling:
+  server_address: http://pyroscope:4040
+  tags: { region: eu-west-1 }
+  profile_types: [cpu, inuse_space, mutex_duration]  # five defaults when empty
+  span_labels: true   # defaults to push; needs tracing on
+```
+
+`app.Start` starts the profiler before the before-start hooks, and a failed
+Start stops it again. `app.Stop` stops it last, after the tracing flush. An
+unreachable Pyroscope never fails Start; upload errors log
+"profiling: upload failed" at warn, at most once a minute. With push holding
+the CPU profiler, `/_/debug/pprof/profile` answers "cpu profiling already in
+use", and Start logs a warning when pprof is on. Span labels (`span_id`,
+`span_name`, `pyroscope.profile.id`) are in `internal/telemetry/llm.txt`; the
+resolver and profiler are in `internal/profiling/llm.txt`.
+
 ### Tracing
 
 `forge.New` builds an OpenTelemetry tracer provider and installs a server
@@ -334,6 +366,7 @@ router.Use(forge.RequestID())
 - `/internal/router` - Router implementation with OpenAPI
 - `/internal/health` - Health check system
 - `/internal/telemetry` - OpenTelemetry tracing (see its llm.txt)
+- `/internal/profiling` - Pyroscope push profiling (see its llm.txt)
 
 ## Notes
 
