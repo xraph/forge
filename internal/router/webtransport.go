@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -207,9 +208,81 @@ func (s *webTransportSession) LocalAddr() string {
 	return s.session.LocalAddr().String()
 }
 
+// streamReader reads raw bytes and JSON values from one stream without
+// losing data between them.
+//
+// A json.Decoder reads ahead of the value it returns. One decoder per
+// ReadJSON call threw that read-ahead away, so two messages that arrived in
+// one QUIC frame came out as one, and a Read after ReadJSON skipped bytes.
+// streamReader keeps one decoder across ReadJSON calls and hands its
+// read-ahead back to Read when the caller switches.
+//
+// Like the stream underneath, it supports one reader at a time.
+type streamReader struct {
+	r io.Reader
+
+	// dec is the decoder ReadJSON uses, nil after a raw Read.
+	dec *json.Decoder
+
+	// pending holds bytes a dropped decoder had read ahead. They come
+	// before anything still on r.
+	pending *bytes.Reader
+}
+
+func (s *streamReader) Read(p []byte) (int, error) {
+	if s.dec != nil {
+		// Switching from JSON to raw reads. What the decoder buffered
+		// comes first, then whatever of pending it hadn't reached.
+		buffered, _ := io.ReadAll(s.dec.Buffered())
+
+		if s.pending != nil {
+			rest, _ := io.ReadAll(s.pending)
+			buffered = append(buffered, rest...)
+		}
+
+		s.pending = bytes.NewReader(buffered)
+		s.dec = nil
+	}
+
+	if s.pending != nil && s.pending.Len() > 0 {
+		return s.pending.Read(p)
+	}
+
+	return s.r.Read(p)
+}
+
+func (s *streamReader) ReadJSON(v any) error {
+	if s.dec == nil {
+		src := s.r
+		if s.pending != nil && s.pending.Len() > 0 {
+			src = io.MultiReader(s.pending, s.r)
+		}
+
+		s.dec = json.NewDecoder(src)
+	}
+
+	return s.dec.Decode(v)
+}
+
+// writeJSONLine writes v and a newline in one Write. The newline keeps values
+// apart: two numbers back to back would otherwise read as one, and a client
+// that splits the stream on newlines, as the generated TypeScript client's
+// receiveIterator does, would never see a complete message.
+func writeJSONLine(w io.Writer, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	_, err = w.Write(append(data, '\n'))
+
+	return err
+}
+
 // webTransportStream implements WebTransportStream.
 type webTransportStream struct {
 	stream *webtransport.Stream
+	reader streamReader
 
 	// mu guards the send side only: quic-go's Close must not run alongside
 	// Write. Reads skip it, so a Read blocked on the peer can't hold up Close.
@@ -220,11 +293,12 @@ type webTransportStream struct {
 func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
 	return &webTransportStream{
 		stream: stream,
+		reader: streamReader{r: stream},
 	}
 }
 
 func (s *webTransportStream) Read(p []byte) (n int, err error) {
-	return s.stream.Read(p)
+	return s.reader.Read(p)
 }
 
 func (s *webTransportStream) Write(p []byte) (n int, err error) {
@@ -235,23 +309,14 @@ func (s *webTransportStream) Write(p []byte) (n int, err error) {
 }
 
 func (s *webTransportStream) ReadJSON(v any) error {
-	decoder := json.NewDecoder(s.stream)
-
-	return decoder.Decode(v)
+	return s.reader.ReadJSON(v)
 }
 
 func (s *webTransportStream) WriteJSON(v any) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	_, err = s.stream.Write(data)
-
-	return err
+	return writeJSONLine(s.stream, v)
 }
 
 func (s *webTransportStream) Close() error {
@@ -290,14 +355,7 @@ func (s *webTransportSendStream) WriteJSON(v any) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	_, err = s.stream.Write(data)
-
-	return err
+	return writeJSONLine(s.stream, v)
 }
 
 func (s *webTransportSendStream) Close() error {
@@ -311,14 +369,15 @@ func (s *webTransportSendStream) Close() error {
 // CancelRead is safe alongside Read and unblocks it.
 type webTransportReceiveStream struct {
 	stream *webtransport.ReceiveStream
+	reader streamReader
 }
 
 func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransportReceiveStream {
-	return &webTransportReceiveStream{stream: stream}
+	return &webTransportReceiveStream{stream: stream, reader: streamReader{r: stream}}
 }
 
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {
-	return s.stream.Read(p)
+	return s.reader.Read(p)
 }
 
 func (s *webTransportReceiveStream) Write(p []byte) (n int, err error) {
@@ -326,9 +385,7 @@ func (s *webTransportReceiveStream) Write(p []byte) (n int, err error) {
 }
 
 func (s *webTransportReceiveStream) ReadJSON(v any) error {
-	decoder := json.NewDecoder(s.stream)
-
-	return decoder.Decode(v)
+	return s.reader.ReadJSON(v)
 }
 
 func (s *webTransportReceiveStream) WriteJSON(v any) error {

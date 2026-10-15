@@ -82,16 +82,20 @@ A stream provides ordered, reliable, bidirectional byte transfer within a sessio
 
 ```go
 type WebTransportStream interface {
-    // Read reads data from the stream
-    Read(buf []byte) (int, error)
+    // Read, Write and Close move raw bytes
+    io.ReadWriteCloser
 
-    // Write writes data to the stream
-    Write(data []byte) (int, error)
+    // ReadJSON decodes the next JSON value from the stream
+    ReadJSON(v any) error
 
-    // Close closes the stream
-    Close() error
+    // WriteJSON writes v as JSON, followed by a newline
+    WriteJSON(v any) error
 }
 ```
+
+`WriteJSON` ends every value with a newline, so a stream you write with it is newline-delimited JSON. That's what the generated TypeScript client's `receiveIterator` expects, and a JSON decoder on the other end reads one value per call.
+
+`ReadJSON` doesn't need the newlines. It reads values back to back however the client sent them, two in one packet or one split across several, and you can switch between it and `Read` on the same stream without losing bytes. Read a stream from one goroutine at a time.
 
 ## Basic Usage
 

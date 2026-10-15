@@ -404,3 +404,83 @@ func TestWebTransportStreamCloseDoesNotWaitForRead(t *testing.T) {
 
 	require.ElementsMatch(t, []string{"bidi closed", "uni closed"}, got)
 }
+
+func TestWebTransportStreamJSONOverHTTP3(t *testing.T) {
+	r := newRouter()
+	results := make(chan []int, 2)
+
+	require.NoError(t, r.WebTransport("/wt", func(ctx Context, s WebTransportSession) error {
+		bidi, err := s.AcceptStream(s.Context())
+		if err != nil {
+			return err
+		}
+
+		uni, err := s.AcceptUniStream(s.Context())
+		if err != nil {
+			return err
+		}
+
+		for _, str := range []WebTransportStream{bidi, uni} {
+			var got []int
+
+			for {
+				var msg jsonMsg
+				if err := str.ReadJSON(&msg); err != nil {
+					break
+				}
+
+				got = append(got, msg.N)
+			}
+
+			results <- got
+		}
+
+		// Reply on the bidirectional stream with two bare numbers.
+		if err := bidi.WriteJSON(7); err != nil {
+			return err
+		}
+
+		if err := bidi.WriteJSON(8); err != nil {
+			return err
+		}
+
+		return bidi.Close()
+	}))
+
+	base, pool := startH3(t, r)
+
+	_, sess, err := dialWT(t, pool, base+"/wt")
+	require.NoError(t, err)
+
+	defer sess.CloseWithError(0, "")
+
+	// Each stream gets three values in one write, then the client finishes it.
+	bidi, err := sess.OpenStream()
+	require.NoError(t, err)
+
+	_, err = bidi.Write([]byte(`{"n":1}{"n":2}{"n":3}`))
+	require.NoError(t, err)
+	require.NoError(t, bidi.Close())
+
+	uni, err := sess.OpenUniStream()
+	require.NoError(t, err)
+
+	_, err = uni.Write([]byte(`{"n":4}` + "\n" + `{"n":5}` + "\n" + `{"n":6}` + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, uni.Close())
+
+	for _, want := range [][]int{{1, 2, 3}, {4, 5, 6}} {
+		select {
+		case got := <-results:
+			require.Equal(t, want, got)
+		case <-time.After(5 * time.Second):
+			t.Fatal("handler never read the stream")
+		}
+	}
+
+	require.NoError(t, bidi.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+	reply, err := io.ReadAll(bidi)
+	require.NoError(t, err)
+	require.Equal(t, "7\n8\n", string(reply))
+}
