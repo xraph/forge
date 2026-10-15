@@ -224,6 +224,34 @@ func TestSpanLabelsMergeWithHandlerLabels(t *testing.T) {
 	}
 }
 
+// span_name is goroutine-only, so a handler's own pprof.Do on a matched route
+// drops it. span_id rides the context and must survive.
+func TestSpanLabelsMatchedHandlerLabelsKeepSpanID(t *testing.T) {
+	_, mw := labelledSetup(t, sdktrace.AlwaysSample(), true)
+
+	var id, inner, after string
+
+	serve(t, mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id = spanIDOf(r)
+
+		shared.RouteMatchFromContext(r.Context()).Match("/users/:id", shared.KindHTTP)
+
+		pprof.Do(r.Context(), pprof.Labels("tenant", "acme"), func(context.Context) {
+			inner = labelsWithSpan(t, id)
+		})
+
+		after = labelsWithSpan(t, id)
+	})), http.MethodGet, "/users/7")
+
+	if !strings.Contains(inner, `"tenant":"acme"`) {
+		t.Fatalf("inside the handler's Do, labels = %q, want span_id and tenant", inner)
+	}
+
+	if after == "" || strings.Contains(after, "tenant") {
+		t.Fatalf("after the handler's Do, labels = %q, want span_id without tenant", after)
+	}
+}
+
 func TestSpanLabelsConcurrentRequestsKeepTheirOwn(t *testing.T) {
 	_, mw := labelledSetup(t, sdktrace.AlwaysSample(), true)
 

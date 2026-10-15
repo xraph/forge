@@ -20,6 +20,11 @@ const (
 // span_id when a stream is established, because the span ends at the
 // handshake while the goroutine keeps running. pprof.Do puts the previous
 // labels back when serve returns, panics included.
+//
+// span_name lives only on the goroutine, not on the request context. A handler
+// that adds its own labels with pprof.Do therefore loses span_name inside that
+// Do and for the rest of the request after it returns. span_id, the trace
+// link, survives because the context carries it.
 func serveLabelled(ctx context.Context, spanID, method string, match *shared.RouteMatch, serve func(context.Context)) {
 	pprof.Do(ctx, pprof.Labels(spanIDLabel, spanID), func(labelled context.Context) {
 		match.OnMatched(func(pattern string) {
