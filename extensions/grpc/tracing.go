@@ -31,8 +31,9 @@ func isInfraMethod(fullMethod string) bool {
 	return false
 }
 
-// otelOptions builds the otelgrpc options. Metrics are off because the server
-// records its own grpc_* series through the forge metrics registry.
+// otelOptions builds the otelgrpc options. otelgrpc's own metrics are off
+// because the server records rpc.server.call.duration through the forge
+// metrics registry.
 func otelOptions() []otelgrpc.Option {
 	return []otelgrpc.Option{
 		otelgrpc.WithTracerProvider(otel.GetTracerProvider()),

@@ -13,6 +13,10 @@ import (
 )
 
 // GRPC binds generated protobuf clients to a service name with explicit credentials.
+//
+// The connection traces outbound calls and carries the caller's trace context.
+// The client handler reads the OpenTelemetry globals when GRPC is called, so
+// call it after forge.New has installed them.
 func (s *Services) GRPC(service string, creds credentials.TransportCredentials, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	if creds == nil {
 		return nil, errors.New("conduit: gRPC transport credentials are required")

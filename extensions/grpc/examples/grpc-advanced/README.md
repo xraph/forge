@@ -11,6 +11,7 @@ Advanced gRPC service demonstrating authentication, custom health checkers, inte
 - Concurrent stream limits
 - Graceful shutdown with stats display
 - Ready for TLS/mTLS (commented out)
+- Registers the service, interceptor and health checker before the server starts (see the note below)
 
 ## Prerequisites
 
@@ -23,7 +24,7 @@ go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 ## Run
 
 ```bash
-cd v2/examples/grpc-advanced
+cd extensions/grpc/examples/grpc-advanced
 go run main.go
 ```
 
@@ -35,10 +36,11 @@ You should see:
 ✓ Reflection enabled
 ✓ Authentication interceptor enabled
 ✓ Metrics and logging enabled
-✓ Registered 3 services:
-  - helloworld.Greeter (1 methods)
+✓ Registered 4 services:
   - grpc.health.v1.Health (3 methods)
   - grpc.reflection.v1alpha.ServerReflection (1 methods)
+  - grpc.reflection.v1.ServerReflection (1 methods)
+  - helloworld.Greeter (1 methods)
 
 Test with:
   # Without auth (will fail):
@@ -183,6 +185,10 @@ grpcurl -cert client.crt -key client.key -cacert ca.crt localhost:50051 \
 ```
 
 ## Code Walkthrough
+
+### Startup order
+
+The example builds the gRPC server itself with `grpcext.NewGRPCServer`, registers the service, the interceptor and the health checker, and only then starts it. A server can't take services once it's serving: `RegisterService` returns `ErrRegisterAfterStart`, and interceptors added later are never called. The extension's own server starts inside `app.Start`, so it can't be used this way.
 
 ### 1. Custom Interceptor
 

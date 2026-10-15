@@ -203,6 +203,10 @@ func (s *grpcServer) RegisterHealthChecker(service string, checker HealthChecker
 	s.logger.Debug("registered health checker", forge.F("service", service))
 }
 
+// GetServer returns the underlying grpc.Server. It is nil until Start has
+// built it, and a server that is already serving can't take new services, so
+// registering a generated service on it crashes the process. Register
+// services with RegisterService before Start instead.
 func (s *grpcServer) GetServer() *grpc.Server {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

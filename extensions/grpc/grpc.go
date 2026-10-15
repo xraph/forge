@@ -23,7 +23,9 @@ type GRPC interface {
 	// Health checking
 	RegisterHealthChecker(service string, checker HealthChecker)
 
-	// Server info
+	// Server info. GetServer is nil until Start, and registering a generated
+	// service on it once it serves crashes the process: use RegisterService
+	// before Start.
 	GetServer() *grpc.Server
 	IsRunning() bool
 	GetStats() ServerStats

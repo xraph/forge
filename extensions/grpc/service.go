@@ -113,6 +113,9 @@ func (s *GRPCService) RegisterHealthChecker(service string, checker HealthChecke
 	s.server.RegisterHealthChecker(service, checker)
 }
 
+// GetServer returns the underlying grpc.Server. It is nil until Start has
+// built it, and registering a generated service on a serving server crashes
+// the process. Use RegisterService before Start.
 func (s *GRPCService) GetServer() *grpc.Server {
 	return s.server.GetServer()
 }
