@@ -1,6 +1,7 @@
 package exporters
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"math"
@@ -71,6 +72,7 @@ type seriesState struct {
 	start   time.Time // StartTime of cumulative points
 	last    time.Time // Time of the previous point
 	seen    bool      // touched by the current Produce
+	owner   string    // original registry key whose samples feed this series
 	value   float64   // previous counter value
 	count   uint64    // previous histogram or summary count
 	sum     float64   // previous histogram sum
@@ -100,7 +102,11 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 	defer p.mu.Unlock()
 
 	now := p.cfg.Now()
-	b := &otlpBatch{p: p, now: now, fams: make(map[string]*otlpFamily)}
+	b := &otlpBatch{
+		p: p, now: now,
+		pending: make([]otlpEntry, 0, len(p.series)+16),
+		fams:    make(map[string]*otlpFamily),
+	}
 
 	complete := true
 
@@ -129,9 +135,8 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 		b.addGathered(p.cfg.Runtime)
 	}
 
-	// Nothing has touched series state yet: flush settles name collisions first,
-	// so the same sample wins on every Produce.
-	b.flush()
+	// Nothing has touched series state yet: flush settles name collisions first.
+	b.flush(complete)
 
 	// A walk cut short didn't see every series, so an unvisited one isn't gone.
 	// Pruning it, or moving lastRun, would restart its start time and look to
@@ -229,7 +234,9 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 
 	st, fresh := p.state(key)
 
-	reset := !fresh && (count < st.count || !slices.Equal(bounds, st.bounds))
+	sameBounds := slices.Equal(bounds, st.bounds)
+
+	reset := !fresh && (count < st.count || !sameBounds)
 	if reset {
 		st.start = p.since()
 	}
@@ -245,36 +252,39 @@ func (p *OTLPProducer) histPoint(key seriesKey, attrs attribute.Set, s Sample,
 		Exemplars:    p.exemplars(s.Exemplars),
 	}
 
-	// The state keeps its own copies: the point's slices belong to the consumer.
-	baseline := slices.Clone(counts)
+	// The state keeps copies of what it needs: the point's slices belong to the
+	// consumer, and a write through them must not reach the next delta.
+	if !sameBounds {
+		st.bounds = slices.Clone(bounds)
+	}
 
 	if p.cfg.Temporality == Delta && !fresh && !reset {
+		// The bounds match, so the state's counts line up with these.
 		deltas := make([]uint64, len(counts))
-		baseline = make([]uint64, len(counts))
 
 		var total uint64
 
 		for i, c := range counts {
-			baseline[i] = c
-
-			switch {
-			case c > st.buckets[i]:
-				deltas[i] = c - st.buckets[i]
-			case c < st.buckets[i]:
+			switch prev := st.buckets[i]; {
+			case c > prev:
+				deltas[i] = c - prev
+				st.buckets[i] = c
+			case c < prev:
 				// The registry reads a histogram's count before its buckets, so a
 				// derived overflow bucket can read one low. Report nothing for it and
 				// keep the old baseline, or the next push reports an observation that
 				// never happened.
-				baseline[i] = st.buckets[i]
 			}
 
 			total += deltas[i]
 		}
 
 		pt.StartTime, pt.Count, pt.Sum, pt.BucketCounts = st.last, total, s.Sum-st.sum, deltas
+	} else {
+		st.buckets = append(st.buckets[:0], counts...)
 	}
 
-	st.count, st.sum, st.bounds, st.buckets, st.last = count, s.Sum, slices.Clone(bounds), baseline, now
+	st.count, st.sum, st.last = count, s.Sum, now
 
 	return pt
 }
@@ -411,7 +421,11 @@ type otlpEntry struct {
 	attrs      attribute.Set
 	key        seriesKey
 	sample     Sample
-	quantiles  []metricdata.QuantileValue // a runtime summary's own; nil means a timer's three
+
+	// quantiles are a runtime summary's own, flagged by ownQuantiles because a
+	// summary with every quantile NaN has none left. A timer reports its three.
+	quantiles    []metricdata.QuantileValue
+	ownQuantiles bool
 }
 
 // otlpFamily holds one name's points. kind is SampleCounter for a monotonic
@@ -419,7 +433,7 @@ type otlpEntry struct {
 type otlpFamily struct {
 	name, unit string
 	kind       SampleKind
-	index      map[attribute.Distinct]int
+	seen       map[attribute.Distinct]struct{}
 	points     []metricdata.DataPoint[float64]
 	hists      []metricdata.HistogramDataPoint[float64]
 	summaries  []metricdata.SummaryDataPoint
@@ -436,7 +450,7 @@ func (b *otlpBatch) family(name, unit string, kind SampleKind) *otlpFamily {
 		return f
 	}
 
-	f := &otlpFamily{name: name, unit: unit, kind: kind, index: make(map[attribute.Distinct]int)}
+	f := &otlpFamily{name: name, unit: unit, kind: kind, seen: make(map[attribute.Distinct]struct{})}
 	b.fams[name] = f
 	b.order = append(b.order, name)
 
@@ -476,86 +490,68 @@ func (b *otlpBatch) queue(origKey, name, unit string, labels map[string]string, 
 // flush turns the queued samples into points. Two registry names can sanitize
 // to the same exported name and so to the same series, and the registry hands
 // them over in a different order every time. Walking the entries by original
-// key and letting the first one claim its series makes the lowest key win on
-// every Produce, so the series never flips between two values and fakes a reset.
-func (b *otlpBatch) flush() {
-	slices.SortStableFunc(b.pending, func(x, y otlpEntry) int {
-		return strings.Compare(x.origKey, y.origKey)
+// key and keeping the first one per attribute set makes the lowest key win
+// whenever every sample is present, so a full walk never flips a series between
+// two values and fakes a reset.
+//
+// A walk cut short may reach only the loser. A series remembers the key that
+// last fed it, and a cut-short flush skips an entry from any other key, so the
+// loser can't write its value into the state the winner's next delta is
+// measured against.
+func (b *otlpBatch) flush(complete bool) {
+	idx := make([]int, len(b.pending))
+	for i := range idx {
+		idx[i] = i
+	}
+
+	slices.SortFunc(idx, func(i, j int) int {
+		return cmp.Or(strings.Compare(b.pending[i].origKey, b.pending[j].origKey), cmp.Compare(i, j))
 	})
 
-	claimed := make(map[seriesKey]struct{}, len(b.pending))
-
-	for _, e := range b.pending {
-		if _, dup := claimed[e.key]; dup {
-			continue
-		}
-
-		claimed[e.key] = struct{}{}
-
-		b.add(e)
+	for _, i := range idx {
+		b.add(&b.pending[i], complete)
 	}
 
 	b.pending = nil
 }
 
-func (b *otlpBatch) add(e otlpEntry) {
+func (b *otlpBatch) add(e *otlpEntry, complete bool) {
+	if st, ok := b.p.series[e.key]; ok && !complete && st.owner != e.origKey {
+		return
+	}
+
 	f := b.family(e.name, e.unit, e.kind)
 	if f == nil {
 		return
 	}
 
+	if _, taken := f.seen[e.key.attrs]; taken {
+		return // a lower key already supplied this series
+	}
+
+	f.seen[e.key.attrs] = struct{}{}
+
 	switch e.kind {
 	case SampleCounter:
-		f.putPoint(e.attrs, b.p.sumPoint(e.key, e.attrs, e.sample.Value, b.now))
+		f.points = append(f.points, b.p.sumPoint(e.key, e.attrs, e.sample.Value, b.now))
 	case SampleGauge:
-		f.putPoint(e.attrs, metricdata.DataPoint[float64]{Attributes: e.attrs, Time: b.now, Value: e.sample.Value})
+		f.points = append(f.points, metricdata.DataPoint[float64]{Attributes: e.attrs, Time: b.now, Value: e.sample.Value})
 	case SampleHistogram:
-		f.putHist(e.attrs, b.p.histPoint(e.key, e.attrs, e.sample, b.now))
+		f.hists = append(f.hists, b.p.histPoint(e.key, e.attrs, e.sample, b.now))
 	case SampleTimer:
 		quantiles := e.quantiles
-		if quantiles == nil {
+		if !e.ownQuantiles {
 			quantiles = timerQuantiles(e.sample)
 		}
 
-		f.putSummary(e.attrs, b.p.summaryPoint(e.key, e.attrs, e.sample.Count, e.sample.Sum, quantiles, b.now))
+		f.summaries = append(f.summaries, b.p.summaryPoint(e.key, e.attrs, e.sample.Count, e.sample.Sum, quantiles, b.now))
 	case SampleUnknown, SampleRaw:
 		// queue never lets these through.
 	}
-}
 
-// putPoint and its siblings keep one point per attribute set. flush already
-// settled collisions, so a repeat here would be a bug, and the last one wins.
-func (f *otlpFamily) putPoint(attrs attribute.Set, pt metricdata.DataPoint[float64]) {
-	if i, ok := f.index[attrs.Equivalent()]; ok {
-		f.points[i] = pt
-
-		return
+	if st, ok := b.p.series[e.key]; ok {
+		st.owner = e.origKey
 	}
-
-	f.index[attrs.Equivalent()] = len(f.points)
-	f.points = append(f.points, pt)
-}
-
-func (f *otlpFamily) putHist(attrs attribute.Set, pt metricdata.HistogramDataPoint[float64]) {
-	if i, ok := f.index[attrs.Equivalent()]; ok {
-		f.hists[i] = pt
-
-		return
-	}
-
-	f.index[attrs.Equivalent()] = len(f.hists)
-	f.hists = append(f.hists, pt)
-}
-
-func (f *otlpFamily) putSummary(attrs attribute.Set, pt metricdata.SummaryDataPoint) {
-	if i, ok := f.index[attrs.Equivalent()]; ok {
-		f.summaries[i] = pt
-
-		return
-	}
-
-	f.index[attrs.Equivalent()] = len(f.summaries)
-	f.summaries = append(f.summaries, pt)
 }
 
 func (b *otlpBatch) metrics() []metricdata.Metrics {
@@ -667,7 +663,8 @@ func (b *otlpBatch) addSummary(name string, labels map[string]string, s *dto.Sum
 
 	b.pending = append(b.pending, otlpEntry{
 		origKey: name, name: name, kind: SampleTimer, attrs: attrs,
-		key:    seriesKey{name: name, attrs: attrs.Equivalent()},
-		sample: Sample{Kind: SampleTimer, Count: s.GetSampleCount(), Sum: s.GetSampleSum()}, quantiles: qs,
+		key:       seriesKey{name: name, attrs: attrs.Equivalent()},
+		sample:    Sample{Kind: SampleTimer, Count: s.GetSampleCount(), Sum: s.GetSampleSum()},
+		quantiles: qs, ownQuantiles: true,
 	})
 }

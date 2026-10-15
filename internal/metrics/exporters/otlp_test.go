@@ -708,26 +708,131 @@ func TestOTLPSanitizeCollisionLowestKeyWins(t *testing.T) {
 }
 
 func TestOTLPRuntimeFamilyCollidingWithRegistrySeries(t *testing.T) {
-	// Both resolve to jobs_done_total with no namespace. The runtime family keeps its own
-	// name as its key, and the lowest key wins: "jobs.done_total" sorts below it, "jobs~done_total" above.
+	// Both resolve to jobs_done_total with no namespace. The runtime family keeps its
+	// own name as its key, and the lowest key wins: "jobs.done_total" sorts below it,
+	// "jobs~done_total" above. Neither value may ever flip to the other, so a
+	// cumulative series keeps its start time and a delta series reports 0.
 	for _, tt := range []struct {
 		regKey string
 		want   float64
 	}{{"jobs.done_total", 4}, {"jobs~done_total", 99}} {
-		reg := prometheus.NewRegistry()
-		c := prometheus.NewCounter(prometheus.CounterOpts{Name: "jobs_done_total", Help: "Runtime counter."})
-		reg.MustRegister(c)
-		c.Add(99)
+		for _, temporality := range []Temporality{Cumulative, Delta} {
+			reg := prometheus.NewRegistry()
+			c := prometheus.NewCounter(prometheus.CounterOpts{Name: "jobs_done_total", Help: "Runtime counter."})
+			reg.MustRegister(c)
+			c.Add(99)
 
-		s := fakeStream{tt.regKey: {Kind: SampleCounter, Value: 4}}
-		p := NewOTLPProducer(s.stream, OTLPConfig{Runtime: reg})
+			s := fakeStream{tt.regKey: {Kind: SampleCounter, Value: 4}}
+			clock := &fakeClock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+			p := NewOTLPProducer(s.stream, OTLPConfig{Temporality: temporality, Runtime: reg, Now: clock.now})
+			created := clock.now()
 
-		for i := range 3 {
-			pt := produce(t, p)["jobs_done_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
-			if pt.Value != tt.want {
-				t.Fatalf("registry key %q produce %d = %v, want %v", tt.regKey, i, pt.Value, tt.want)
+			for i := range 3 {
+				pt := produce(t, p)["jobs_done_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+
+				switch {
+				case temporality == Cumulative && (pt.Value != tt.want || !pt.StartTime.Equal(created)):
+					t.Fatalf("key %q cumulative produce %d = %+v, want %v since %v", tt.regKey, i, pt, tt.want, created)
+				case temporality == Delta && i == 0 && pt.Value != tt.want:
+					t.Fatalf("key %q delta produce 0 = %v, want %v", tt.regKey, pt.Value, tt.want)
+				case temporality == Delta && i > 0 && pt.Value != 0:
+					t.Fatalf("key %q delta produce %d = %v, want 0: the winner never changes", tt.regKey, i, pt.Value)
+				}
+
+				clock.advance(time.Minute)
 			}
 		}
+	}
+}
+
+// scriptedStream yields a different list of samples on each walk and honours a
+// false return from yield, like the registry does.
+func scriptedStream(walks ...[]kv) StreamFunc {
+	var calls int
+
+	return func(yield func(string, Sample) bool) {
+		walk := walks[min(calls, len(walks)-1)]
+		calls++
+
+		for _, e := range walk {
+			if !yield(e.key, e.s) {
+				return
+			}
+		}
+	}
+}
+
+func TestOTLPCutShortProduceDoesNotLetLoserClaimSeries(t *testing.T) {
+	winner := kv{"jobs.done", Sample{Kind: SampleCounter, Value: 10}}
+	loser := kv{"jobs_done", Sample{Kind: SampleCounter, Value: 3}}
+
+	for _, temporality := range []Temporality{Cumulative, Delta} {
+		// Walk 2 reaches only the loser before the context is cancelled.
+		stream := scriptedStream([]kv{winner, loser}, []kv{loser, winner}, []kv{winner, loser})
+		clock := &fakeClock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+		p := NewOTLPProducer(stream, OTLPConfig{Namespace: "forge", Temporality: temporality, Now: clock.now})
+		created := clock.now()
+
+		first := produce(t, p)["forge_jobs_done"].Data.(metricdata.Sum[float64]).DataPoints[0]
+		if first.Value != 10 {
+			t.Fatalf("temporality %v first = %+v, want 10", temporality, first)
+		}
+
+		clock.advance(time.Minute)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		sms, err := p.Produce(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, m := range sms[0].Metrics {
+			if m.Name == "forge_jobs_done" {
+				t.Fatalf("temporality %v: the cut-short produce exported %+v; the loser must not claim the series", temporality, m.Data)
+			}
+		}
+
+		clock.advance(time.Minute)
+
+		third := produce(t, p)["forge_jobs_done"].Data.(metricdata.Sum[float64]).DataPoints[0]
+
+		switch temporality {
+		case Cumulative:
+			if third.Value != 10 || !third.StartTime.Equal(created) {
+				t.Fatalf("cumulative third = %+v, want 10 since %v", third, created)
+			}
+		case Delta:
+			if third.Value != 0 {
+				t.Fatalf("delta third = %v, want 0: no phantom 7 from a loser that was never the owner", third.Value)
+			}
+		}
+	}
+}
+
+func TestOTLPKindClashDoesNotBlockCompatibleCollider(t *testing.T) {
+	// All three export as forge_a_b. The lowest key is a counter, the next a
+	// gauge the counter family refuses, and the last a counter with another label.
+	s := fakeStream{
+		"a.b":        {Kind: SampleCounter, Value: 1},
+		`a.b{x="1"}`: {Kind: SampleGauge, Value: 2},
+		`a_b{x="1"}`: {Kind: SampleCounter, Value: 3},
+	}
+	p, _ := newTestProducer(s, Cumulative)
+
+	sum, ok := produce(t, p)["forge_a_b"].Data.(metricdata.Sum[float64])
+	if !ok || len(sum.DataPoints) != 2 {
+		t.Fatalf("forge_a_b = %+v, want a counter with the {} and {x=1} points", sum)
+	}
+
+	values := map[string]float64{}
+	for _, pt := range sum.DataPoints {
+		values[attr(pt.Attributes, "x")] = pt.Value
+	}
+
+	if values[""] != 1 || values["1"] != 3 {
+		t.Fatalf("values = %v, want {}=1 and {x=1}=3", values)
 	}
 }
 
