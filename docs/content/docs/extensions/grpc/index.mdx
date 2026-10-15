@@ -8,12 +8,12 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/grpc` runs a [grpc-go](https://github.com/grpc/grpc-go) server next to your HTTP server and ties it to the app's lifecycle. It gives you the standard gRPC health checking protocol, server reflection for tools like grpcurl, TLS and mutual TLS, keepalive and message size limits, request logging and metrics, and graceful shutdown.
+`github.com/xraph/forge/extensions/grpc` runs a [grpc-go](https://github.com/grpc/grpc-go) server next to your HTTP server and ties it to the app's lifecycle. It gives you the standard gRPC health checking protocol, server reflection for tools like grpcurl, TLS and mutual TLS, keepalive and message size limits, request logging, OpenTelemetry spans and metrics, and graceful shutdown.
 
 The server listens on its own port (`:50051` by default), separate from the Forge HTTP router.
 
 <Callout type="warn">
-Registering your own generated services on the server this extension manages doesn't work reliably yet. Read [the known issue](#known-issue-registering-your-own-services) before you plan around it.
+The extension's own server starts inside `app.Start`, so your generated services need a server you start yourself. Read [registering your own services](#registering-your-own-services) before you plan around it.
 </Callout>
 
 ## What it registers
@@ -96,18 +96,38 @@ grpcurl -plaintext -d '{"service":"billing.db"}' localhost:50051 grpc.health.v1.
 # { "status": "SERVING" }
 ```
 
-## Known issue: registering your own services
+## Registering your own services
 
-There's no dependable point at which you can register a generated service (`pb.RegisterUserServiceServer`) on the managed server:
+Register services, interceptors and health checkers before the server starts. grpc-go can't add a service to a server that is already serving, so the extension buffers what you register and applies it when `Start` builds the server.
 
-| When you register | What happens |
-|---|---|
-| Before the extension starts | You can't reach the server yet: it's only in the container once the extension registers, and resolving it starts it. If you call `RegisterService` on a server you built with `grpcext.NewGRPCServer` before `Start`, `Start` builds a new `grpc.Server` and your registration is dropped |
-| After the extension starts | The server is already serving, and grpc-go stops the process with `grpc: Server.RegisterService after Server.Serve` |
+| What | Before `Start` | After `Start` |
+|---|---|---|
+| `RegisterService` | Buffered and served | Returns `ErrRegisterAfterStart` |
+| `AddUnaryInterceptor`, `AddStreamInterceptor` | Chained onto the server | Stored, never called |
+| `RegisterHealthChecker` | Works | Works, checkers are looked up on each call |
+| `GetServer` | `nil` | The `grpc.Server` |
 
-`AddUnaryInterceptor` and `AddStreamInterceptor` have the same timing problem. Interceptors are chained when the server is built, so one you add once it's running is stored and never called.
+Don't call a generated `pb.RegisterXxxServer` on `GetServer()`. It's `nil` until `Start`, and on a serving server grpc-go stops the process with `grpc: Server.RegisterService after Server.Serve`. Use `RegisterService(&pb.Xxx_ServiceDesc, impl)` instead.
 
-Until that's fixed, keep your application services on a `grpc.Server` you create and start yourself (in a Forge `RunnableExtension` or a lifecycle hook), and use this extension for what works today: health checks, reflection, TLS, limits, logging and metrics on its own server.
+The catch is the extension's own server. It starts inside `app.Start`, right after the extension registers, and resolving it from the container starts it too. So by the time you can reach it, it's running. For your own services, build the server, register everything and start it yourself:
+
+```go
+cfg := grpcext.DefaultConfig()
+cfg.Address = ":50051"
+
+srv := grpcext.NewGRPCServer(cfg, app.Logger(), app.Metrics())
+srv.AddUnaryInterceptor(authInterceptor)
+
+if err := srv.RegisterService(&pb.Greeter_ServiceDesc, &greeter{}); err != nil {
+	return err
+}
+
+if err := srv.Start(ctx, cfg.Address); err != nil {
+	return err
+}
+```
+
+Create it after `forge.NewApp`, because the server reads the OpenTelemetry globals that `NewApp` installs when it starts. The extension's `examples/grpc-advanced` is this pattern end to end.
 
 ## TLS and mTLS
 
@@ -125,7 +145,7 @@ If the certificate or key can't be loaded, the extension logs `failed to load TL
 - The gRPC server binds its own TCP port, independent of the Forge HTTP router.
 - The `grpc.health.v1.Health` service is on by default. Register a checker per service name with `RegisterHealthChecker`.
 - Reflection is on by default for `grpcurl`, `grpcui` and similar tools.
-- Logging, metrics and a placeholder tracing interceptor are chained onto every call. There's no panic recovery interceptor.
+- Logging, a server span and the `rpc.server.call.duration` metric cover every call. There's no panic recovery interceptor.
 - Keepalive settings also set the maximum idle time and age of a connection.
 
 ## Detailed pages

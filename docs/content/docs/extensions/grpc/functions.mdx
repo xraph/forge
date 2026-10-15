@@ -28,6 +28,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 |---|---|
 | `NewGRPCService(config Config, logger forge.Logger, metrics forge.Metrics) (*GRPCService, error)` | The service the extension registers. Validates the config |
 | `NewGRPCServer(config Config, logger forge.Logger, metrics forge.Metrics) GRPC` | A bare server you start yourself with `Start(ctx, addr)` |
+| `ClientDialOptions() []grpc.DialOption` | Dial options that trace outbound calls and carry the trace context. Reads the OpenTelemetry globals when called, so call it after `forge.New` |
 
 ## `GRPCService`
 
@@ -43,7 +44,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 
 | Method | Description |
 |---|---|
-| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service. Not reliable on the managed server, see the [known issue](/docs/extensions/grpc#known-issue-registering-your-own-services) |
+| `RegisterService(desc *grpc.ServiceDesc, impl any) error` | Register a service before `Start`. Afterwards it returns `ErrRegisterAfterStart`. See [registering your own services](/docs/extensions/grpc#registering-your-own-services) |
 | `GetServices() []ServiceInfo` | Registered services and their methods |
 
 ## `GRPC`: lifecycle
@@ -55,7 +56,7 @@ srv, err := forge.Inject[grpcext.GRPC](app.Container())         // the same serv
 | `GracefulStop(ctx) error` | Drain, then stop. `ErrNotStarted` when not running |
 | `IsRunning() bool` | Whether it's serving |
 | `Ping(ctx) error` | `ErrNotStarted` when not running |
-| `GetServer() *grpc.Server` | The underlying grpc-go server |
+| `GetServer() *grpc.Server` | The underlying grpc-go server. `nil` until `Start`. Don't register generated services on it, use `RegisterService` |
 
 ## `GRPC`: interceptors
 

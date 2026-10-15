@@ -4,11 +4,12 @@
 
 Runs a grpc-go server (google.golang.org/grpc) next to the app's HTTP server and ties it to the
 Forge lifecycle. It gives you the gRPC health checking protocol with per-service checkers, server
-reflection, TLS and mutual TLS, keepalive and message size limits, logging and metrics
-interceptors, and graceful shutdown.
+reflection, TLS and mutual TLS, keepalive and message size limits, logging, OpenTelemetry server
+spans, the rpc.server.call.duration metric, client dial options that trace outbound calls, and
+graceful shutdown.
 
-Registering your own generated services on the managed server does not work reliably yet. Read
-"Not implemented yet" before you plan around it.
+Services, interceptors and the server's start have an order that matters. Read "Registering
+services" before you plan around it.
 
 Module: github.com/xraph/forge/extensions/grpc (package `grpc`; import it as `grpcext` so it
 doesn't clash with google.golang.org/grpc).
@@ -62,7 +63,7 @@ type GRPC interface {
     AddUnaryInterceptor(interceptor grpc.UnaryServerInterceptor)
     AddStreamInterceptor(interceptor grpc.StreamServerInterceptor)
     RegisterHealthChecker(service string, checker HealthChecker)
-    GetServer() *grpc.Server
+    GetServer() *grpc.Server   // nil until Start; never register generated services on it
     IsRunning() bool
     GetStats() ServerStats
     GetServices() []ServiceInfo
@@ -79,7 +80,7 @@ type ServerStats struct {
 ```
 
 Sentinel errors (errors.go): ErrNotStarted, ErrAlreadyStarted, ErrServiceNotFound,
-ErrInvalidConfig, ErrStartFailed, ErrStopFailed, ErrHealthCheckFailed.
+ErrInvalidConfig, ErrStartFailed, ErrStopFailed, ErrHealthCheckFailed, ErrRegisterAfterStart.
 
 ## Usage
 
@@ -133,28 +134,83 @@ With enable_health_check on, `grpc.health.v1.Health` is registered. Check return
 empty service name, for a service with no checker, and when the checker returns nil; NOT_SERVING
 when the checker errors. The extension's own `Health(ctx)` only reports whether it has started.
 
+## Registering services
+
+Register before Start. grpc-go can't add a service to a serving server.
+
+- `RegisterService(&pb.X_ServiceDesc, impl)` before Start is buffered and served. After Start it
+  returns ErrRegisterAfterStart.
+- `AddUnaryInterceptor` and `AddStreamInterceptor` before Start are chained onto the server. After
+  Start they are stored and never called.
+- `RegisterHealthChecker` works at any time.
+- `GetServer()` is nil until Start. Don't call a generated `pb.RegisterXServer` on it: on a serving
+  server grpc-go aborts the process with `grpc: Server.RegisterService after Server.Serve`.
+- The extension's own server starts inside `app.Start`, right after the extension registers, and
+  resolving it from the container starts it too. So there is no point where the container's server
+  is reachable and not yet serving. Serve your own services from a server you build and start:
+
+```go
+cfg := grpcext.DefaultConfig()
+srv := grpcext.NewGRPCServer(cfg, app.Logger(), app.Metrics()) // after forge.NewApp
+srv.AddUnaryInterceptor(auth)
+_ = srv.RegisterService(&pb.Greeter_ServiceDesc, &greeter{})
+_ = srv.Start(ctx, cfg.Address)
+```
+
+`examples/grpc-advanced` does this.
+
+## Tracing
+
+With enable_tracing (default), every served call gets an otelgrpc server span named
+`pkg.Service/Method` with semconv v1.43 attributes: rpc.system.name=grpc, rpc.method (full
+`pkg.Service/Method`, no leading slash), rpc.response.status_code (canonical, such as OK or
+NOT_FOUND). An incoming traceparent in the metadata joins the caller's trace. Health and reflection
+calls get no span. Server-side codes such as INTERNAL mark the span as an error; client-error codes
+such as NOT_FOUND don't. The call's context carries trace_id and span_id for a request-scoped
+logger. The server reads the OpenTelemetry globals that forge.New installs, when it starts.
+
+If you already run your own otelgrpc server handler, remove it, or you get two spans per call.
+
 ## Metrics
 
-From the metrics interceptors, all labelled by `method`: grpc_unary_started_total,
-grpc_unary_succeeded_total, grpc_unary_failed_total (plus `code`),
-grpc_unary_duration_seconds, grpc_stream_active, grpc_stream_succeeded_total,
-grpc_stream_failed_total, grpc_stream_duration_seconds.
+With enable_metrics (default), every served call is recorded in one histogram through forge's
+registry: `rpc_server_call_duration_seconds` (OTel name rpc.server.call.duration), labels
+rpc_system_name, rpc_method, rpc_response_status_code, buckets 5ms to 10s. Health and reflection
+are excluded. A stream records the whole call. A handler that returns a bare context.Canceled or
+DeadlineExceeded is recorded as CANCELLED or DEADLINE_EXCEEDED. enable_metrics=false records
+nothing. `GetStats()` is unchanged.
+
+```promql
+sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count[5m]))
+sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count{rpc_response_status_code!="OK"}[5m]))
+```
+
+Every old forge_grpc_* series is gone (forge_grpc_unary_started/succeeded/failed_total,
+forge_grpc_unary_duration_seconds, forge_grpc_stream_succeeded/failed_total,
+forge_grpc_stream_duration_seconds, forge_grpc_stream_active). Started, succeeded and failed counts
+now come from the histogram's _count split by rpc_response_status_code. forge_grpc_stream_active has
+no replacement; GetStats().ActiveStreams still reports it. The status label is the canonical name
+(NOT_FOUND), not the Go spelling (NotFound), and rpc_method has no leading slash.
+
+## Client dial options
+
+```go
+import forgegrpc "github.com/xraph/forge/extensions/grpc"
+
+conn, err := grpc.NewClient(target,
+    append(forgegrpc.ClientDialOptions(), grpc.WithTransportCredentials(creds))...)
+```
+
+`ClientDialOptions()` adds an otelgrpc client handler: a client span per outbound call and the
+trace context on the wire. Conduit's `Services.GRPC` adds the same handler for you. Both read the
+OpenTelemetry globals when called, so call them after forge.New.
 
 ## Gotchas
 
 - If TLS files are configured but fail to load (bad path, bad PEM), the server logs
   `failed to load TLS credentials` and starts in plaintext. Check your logs.
-- The tracing interceptor only writes a debug log line. It creates no spans.
 - `Watch` sends one SERVING message and returns; `List` returns an empty list.
-
-## Not implemented yet
-
-- No dependable point to register your own services. Before Start, `Start` builds a fresh
-  `grpc.Server` and drops what you registered; after Start, grpc-go aborts the process with
-  `grpc: Server.RegisterService after Server.Serve`. Run your application services on a
-  `grpc.Server` you create and start yourself for now. `examples/grpc-advanced` hits this.
-- `AddUnaryInterceptor` and `AddStreamInterceptor` have the same timing problem: interceptors are
-  chained when the server is built, so ones added later are stored and never called.
+- `TotalConnections` in `GetStats()` is never updated.
 
 ## Dependencies
 

@@ -26,9 +26,9 @@ type GRPC interface {
 
 ## Registering services
 
-Not reliable yet. grpc-go supports unary, server streaming, client streaming and bidirectional streaming calls, but there's no dependable moment to put your own service on the managed server: before the extension starts you can't reach it (and `Start` would replace a server you registered on), and after it starts grpc-go refuses with `grpc: Server.RegisterService after Server.Serve` and stops the process. See [the known issue](/docs/extensions/grpc#known-issue-registering-your-own-services).
+grpc-go supports unary, server streaming, client streaming and bidirectional streaming calls. Register your service with `RegisterService(&pb.Xxx_ServiceDesc, impl)` before `Start`: the server buffers it and serves it once it starts. After `Start` the call returns `ErrRegisterAfterStart`. `GetServer()` is `nil` until `Start`, and registering a generated service on a serving server stops the process with `grpc: Server.RegisterService after Server.Serve`.
 
-Until it's fixed, serve your own services from a `grpc.Server` you create and start yourself.
+The extension's own server starts inside `app.Start`, so build a server with `grpcext.NewGRPCServer`, register on it and start it yourself. See [registering your own services](/docs/extensions/grpc#registering-your-own-services).
 
 ## TLS and mutual TLS
 
@@ -91,24 +91,65 @@ The server chains these onto every call, in this order, when it's built:
 | Interceptor | Turned on by | What it does |
 |---|---|---|
 | Logging | `enable_logging` | A debug line when a call starts and ends, an error line with method, duration and error when it fails |
-| Metrics | `enable_metrics` | The Forge metrics below, plus the `GetStats` counters |
-| Tracing | `enable_tracing` | A placeholder that writes a debug line. It doesn't create spans |
+| Metrics | `enable_metrics` | The `rpc.server.call.duration` histogram, plus the `GetStats` counters |
+| Tracing | `enable_tracing` | Puts `trace_id` and `span_id` on the call's context. The span itself comes from an otelgrpc stats handler, see [Tracing](#tracing) |
 
 There's no panic recovery interceptor, so a panic in a handler is grpc-go's to deal with.
 
-`AddUnaryInterceptor` and `AddStreamInterceptor` append to the chain, but the chain is fixed when the server is built. On the extension's server that happens before you can reach it, so interceptors you add there are stored and never called.
+`AddUnaryInterceptor` and `AddStreamInterceptor` append to the chain, but the chain is fixed when `Start` builds the server. Add yours before `Start`. On a server that's already running they're stored and never called.
+
+### Tracing
+
+With `enable_tracing` on, every served call gets an otelgrpc server span named after the method, such as `billing.Invoices/Get`. It carries the semconv v1.43 attributes `rpc.system.name` (`grpc`), `rpc.method` (the full `pkg.Service/Method`) and `rpc.response.status_code` (`OK`, `NOT_FOUND`, and so on). A `traceparent` in the incoming metadata joins the caller's trace. Health and reflection calls get no span.
+
+Server-side error codes such as `INTERNAL` mark the span as an error. Client-error codes such as `NOT_FOUND` don't. The call's context carries `trace_id` and `span_id`, so a request-scoped logger stamps them on its lines.
+
+The server uses the OpenTelemetry globals that `forge.New` installs, and reads them when it starts. If you already run your own otelgrpc server handler, remove it, or you get two spans per call.
 
 ### Metrics
 
-| Metric | Type | Labels |
-|---|---|---|
-| `grpc_unary_started_total` | counter | `method` |
-| `grpc_unary_succeeded_total` | counter | `method` |
-| `grpc_unary_failed_total` | counter | `method`, `code` |
-| `grpc_unary_duration_seconds` | histogram | `method` |
-| `grpc_stream_active` | gauge | `method` |
-| `grpc_stream_succeeded_total`, `grpc_stream_failed_total` | counter | `method` |
-| `grpc_stream_duration_seconds` | histogram | `method` |
+With `enable_metrics` on, every served call is recorded in one histogram, `rpc.server.call.duration`, through the app's Forge metrics registry. Prometheus exports it as `rpc_server_call_duration_seconds`.
+
+| Label | Value |
+|---|---|
+| `rpc_system_name` | `grpc` |
+| `rpc_method` | `billing.Invoices/Get` |
+| `rpc_response_status_code` | `OK`, `NOT_FOUND`, and so on |
+
+The buckets run from 5ms to 10s. Health and reflection calls aren't recorded, a stream records the whole call, and a handler that returns a bare `context.Canceled` or `context.DeadlineExceeded` is recorded as `CANCELLED` or `DEADLINE_EXCEEDED`. With metrics off nothing is recorded.
+
+```promql
+# Calls per second, by method
+sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count[5m]))
+
+# Failures per second, by method
+sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count{rpc_response_status_code!="OK"}[5m]))
+```
+
+Every old `forge_grpc_*` series is gone, and nothing is emitted under the old names:
+
+| Old series | Now |
+|---|---|
+| `forge_grpc_unary_started_total`, `_succeeded_total`, `_failed_total` | `rpc_server_call_duration_seconds_count`, split by `rpc_response_status_code` |
+| `forge_grpc_unary_duration_seconds` | `rpc_server_call_duration_seconds` |
+| `forge_grpc_stream_succeeded_total`, `_failed_total` | `rpc_server_call_duration_seconds_count`, split by `rpc_response_status_code` |
+| `forge_grpc_stream_duration_seconds` | `rpc_server_call_duration_seconds` |
+| `forge_grpc_stream_active` | No replacement. `GetStats().ActiveStreams` still has it |
+
+The status code is the canonical name (`NOT_FOUND`), not the Go spelling (`NotFound`) the old `code` label held, and `rpc_method` has no leading slash where the old `method` label had one.
+
+### Tracing outbound calls
+
+`ClientDialOptions()` returns dial options that put a client span on every outbound call and send the trace context on:
+
+```go
+import forgegrpc "github.com/xraph/forge/extensions/grpc"
+
+conn, err := grpc.NewClient("billing:50051",
+	append(forgegrpc.ClientDialOptions(), grpc.WithTransportCredentials(creds))...)
+```
+
+Conduit's `Services.GRPC` adds the same handler for you. Both read the OpenTelemetry globals when called, so call them after `forge.New`.
 
 ## Keepalive and connection limits
 
@@ -152,5 +193,6 @@ The RPC and stream counts come from the metrics interceptor, so they stay at zer
 | Error | Returned by |
 |---|---|
 | `ErrNotStarted` | `Stop`, `GracefulStop` and `Ping` when the server isn't running |
+| `ErrRegisterAfterStart` | `RegisterService` once the server is running |
 
 `ErrAlreadyStarted`, `ErrServiceNotFound`, `ErrInvalidConfig`, `ErrStartFailed`, `ErrStopFailed` and `ErrHealthCheckFailed` are exported, but nothing returns them today.

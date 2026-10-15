@@ -33,7 +33,7 @@ extensions:
     enable_reflection: true
 
     enable_metrics: true
-    enable_tracing: true         # placeholder, writes a debug line
+    enable_tracing: true         # a server span per call
     enable_logging: true
 ```
 
@@ -74,8 +74,8 @@ The extension starts from `DefaultConfig()`, applies the config file section, th
 | `ClientAuth` | `client_auth` | `false` | Require and verify client certificates. Needs `tls_ca_file` |
 | `EnableHealthCheck` | `enable_health_check` | `true` | Register `grpc.health.v1.Health` |
 | `EnableReflection` | `enable_reflection` | `true` | Register server reflection |
-| `EnableMetrics` | `enable_metrics` | `true` | Metrics interceptors |
-| `EnableTracing` | `enable_tracing` | `true` | Placeholder tracing interceptor |
+| `EnableMetrics` | `enable_metrics` | `true` | The `rpc.server.call.duration` histogram and the `GetStats` counters |
+| `EnableTracing` | `enable_tracing` | `true` | A server span per call, and trace IDs on the log context |
 | `EnableLogging` | `enable_logging` | `true` | Logging interceptors |
 | `RequireConfig` | none | `false` | Set with `WithRequireConfig` |
 
@@ -102,8 +102,8 @@ If TLS is configured but the files can't be loaded, the server starts in plainte
 | `WithClientAuth(enable bool)` | Require client certificates |
 | `WithHealthCheck(enable bool)` | Health service |
 | `WithReflection(enable bool)` | Server reflection |
-| `WithMetrics(enable bool)` | Metrics interceptors |
-| `WithTracing(enable bool)` | Tracing interceptor |
+| `WithMetrics(enable bool)` | Call duration metric |
+| `WithTracing(enable bool)` | Server spans |
 | `WithRequireConfig(require bool)` | Fail when the config section is missing |
 | `WithConfig(config Config)` | Replace the whole config |
 

@@ -309,6 +309,10 @@ Already have a client with its own transport? Wrap the transport with `forge.Ins
 
 A client captures the tracer provider and propagators that are current when you build it. One built before `forge.New` still traces, because OpenTelemetry's global hands its spans on to the first provider anyone sets. In a process with several apps, though, a client stays with whichever provider was current when you built it, so build it after the app you want it to follow.
 
+### gRPC calls
+
+The [gRPC extension](/docs/extensions/grpc) gives every served call a server span named like the method (`billing.Invoices/Get`), with the `rpc.system.name`, `rpc.method` and `rpc.response.status_code` attributes, and records its duration in `rpc_server_call_duration_seconds` with the same three labels. Health and reflection calls are left out of both. For calls going out, add `grpcext.ClientDialOptions()` to your `grpc.NewClient`, or use conduit's `Services.GRPC`, which does it for you. Both read the OpenTelemetry globals when you call them, so call them after `forge.New`.
+
 ### Send spans somewhere else too
 
 `forge.RegisterSpanProcessor` adds an OpenTelemetry span processor to an app's tracer provider, so you can copy spans into your own store or log.
