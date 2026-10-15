@@ -166,12 +166,12 @@ Use `conduit.WithHooks` at construction or `Runtime.RegisterHook` before startup
 
 ```go
 conduit.WithHooks(conduit.HookFuncs{
-	HookName: "trace-and-audit",
+	HookName: "tenant-and-audit",
 	OnPublish: func(ctx context.Context, draft *conduit.Envelope) error {
 		if draft.Headers == nil {
 			draft.Headers = map[string]string{}
 		}
-		draft.Headers["traceparent"] = traceHeader(ctx)
+		draft.Headers["tenant"] = tenantFrom(ctx)
 
 		return nil
 	},
@@ -186,7 +186,24 @@ conduit.WithHooks(conduit.HookFuncs{
 
 Publish hooks run before final typed validation. They can enrich metadata or reject a draft, but they can't change its message ID, source or type. Handle hooks can reject an attempt before your handler runs. `conduit.AroundHandle` wraps individual subscriptions with middleware in outermost-first order.
 
-Observers receive copied outcomes for lifecycle, provider connections, subscription startup, publication, processing, acknowledgement, retry, dead letter storage and replay. Observer panics are isolated. Their bounded queue drops observations under sustained backpressure, which you can see through `ObserverDrops`. An observer is best effort, so put mandatory policy or audit work in a control hook or your business transaction. The Forge extension also counts every outcome in `forge_conduit_outcomes_total`, labelled by namespace, service and outcome, and records a `forge_conduit_processing_duration_seconds` histogram.
+Observers receive copied outcomes for lifecycle, provider connections, subscription startup, publication, processing, acknowledgement, retry, dead letter storage and replay. Observer panics are isolated. Their bounded queue drops observations under sustained backpressure, which you can see through `ObserverDrops`. An observer is best effort, so put mandatory policy or audit work in a control hook or your business transaction. The Forge extension also counts every outcome in `forge_conduit_outcomes_total`, labelled by namespace, service and outcome.
+
+## Tracing
+
+Conduit carries trace context for you, so a hook doesn't need to copy `traceparent` by hand. `Prepare` records a `create` span and writes its context into `Envelope.Headers`. Because that happens before the publish hooks run, the trace survives the transactional outbox, a backfill and dead letter replay: whatever sends the envelope later, the consumer still joins the trace that created it.
+
+Here's what you'll see for one `conduit.Publish`:
+
+- `create {stream}` is the producer span, recorded by `Prepare` in your request's trace.
+- `send {stream}` wraps the provider's publish. It carries a link to the create span. When you call `Send` from an outbox relay there's no caller span, so `send` becomes a root span with that link, and the trace still connects through create.
+- `process {stream}` wraps your handler and is a child of the create span. Retries each get their own process span. Ack, retry and dead letter settlement run after it has ended.
+- `call {service}.{method}` and `serve {service}.{method}` are the client and server spans of a typed RPC. The server span is a child of the call span.
+
+A failed publish, handler or RPC marks its span as an error and sets `error.type`. If a publish hook replaces `Headers` wholesale, it replaces `traceparent` too, so add to the map instead. Messages from older publishers have no `traceparent`; they give you a root process span and no error.
+
+The extension records two histograms, labelled with the OpenTelemetry messaging attributes. `messaging_client_operation_duration_seconds` times sends and RPC calls, and `messaging_process_duration_seconds` times handlers and RPC servers. `messaging_system` is the provider's name, such as `memory`, `jetstream` or `kafka`. If you build a runtime yourself, call `Runtime.RegisterMetrics(metrics)` before `Start` to get the same histograms.
+
+The old `forge_conduit_processing_duration_seconds` histogram (exported as `forge_forge_conduit_processing_duration_seconds`) is gone. For handler time, query `histogram_quantile(0.95, sum by (le, messaging_destination_name) (rate(messaging_process_duration_seconds_bucket[5m])))`. The counter above is unchanged.
 
 ## Call a service by name
 

@@ -1,0 +1,45 @@
+# Forge Conduit Extension
+
+## Purpose
+
+Typed events, durable streams, broker RPC and service clients for Go. Module:
+github.com/xraph/forge/extensions/conduit (package `conduit`). The README covers the whole
+surface. This file records the tracing and metrics behaviour that code outside the package
+depends on.
+
+## Tracing
+
+Conduit uses github.com/xraph/forge/messaging, one `*messaging.Telemetry` per configured
+provider, named by the provider's `Name()` (`memory`, `jetstream`, `kafka` and so on). Trace
+context travels in `Envelope.Headers` (`traceparent`, and `tracestate` when set).
+
+| Where | Span | Kind |
+|---|---|---|
+| `Runtime.Prepare` | `create {stream}` | producer |
+| `Runtime.Send` | `send {stream}`, linked to the create span | producer |
+| consumer, around the handler | `process {stream}`, child of the create span | consumer |
+| `Runtime.CallRPC` | `call {service}.{method}` | client |
+| RPC server, around the handler | `serve {service}.{method}`, child of the call span | server |
+
+- Prepare writes the context into Headers before the BeforePublish hooks run, so the trace
+  survives the transactional outbox, backfill and dead-letter replay. A hook that replaces
+  `Headers` wholesale drops `traceparent`; that is allowed.
+- Send called with a ctx that has no span (an outbox relay) gives a root send span with a link
+  to create.
+- Settlement (ack, retry, dead letter) runs after the process span has ended.
+- A message without `traceparent`, or with a malformed one, gives a root process span.
+
+## Metrics
+
+```go
+func (r *Runtime) RegisterMetrics(m gometrics.Metrics) error // before Start; ErrConflict after
+```
+
+The forge extension calls it with the app's metrics. With metrics registered, the runtime
+records `messaging.client.operation.duration` (send and call) and `messaging.process.duration`
+(process and serve). On a Prometheus scrape these are
+`messaging_client_operation_duration_seconds` and `messaging_process_duration_seconds`, with
+`messaging_system` set to the provider's name. See messaging/llm.txt for labels and buckets.
+
+`forge_conduit_processing_duration_seconds` no longer exists. `forge_conduit_outcomes_total`
+is unchanged.

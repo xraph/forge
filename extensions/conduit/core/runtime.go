@@ -9,6 +9,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	gometrics "github.com/xraph/go-utils/metrics"
+	"go.opentelemetry.io/otel/propagation"
+
+	"github.com/xraph/forge/messaging"
 )
 
 // Config separates stream topology, logical subscriptions and replica settings.
@@ -121,6 +126,8 @@ type Runtime struct {
 	rpcHandled        atomic.Uint64
 	rpcFailed         atomic.Uint64
 	rpcTimedOut       atomic.Uint64
+	metrics           gometrics.Metrics
+	telemetry         map[string]*messaging.Telemetry
 }
 
 // WithRegistry enables registration, discovery and instance inspection.
@@ -469,6 +476,8 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("%w: runtime already started", ErrConflict)
 	}
 
+	r.buildTelemetry()
+
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	observeCtx, observerCancel := context.WithCancel(context.WithoutCancel(ctx))
 	r.cancel, r.observerCancel = cancel, observerCancel
@@ -730,6 +739,11 @@ func (r *Runtime) Prepare(ctx context.Context, streamName string, draft Envelope
 		msg.CreatedAt = time.Now().UTC()
 	}
 
+	createCtx, create := r.telemetryFor(stream.Provider).StartCreate(ctx, streamName)
+	msg.Headers = messaging.WithTraceContext(createCtx, msg.Headers)
+
+	create.End(nil)
+
 	id, source, kind := msg.ID, msg.Source, msg.Type
 
 	for _, hook := range r.hooks {
@@ -820,9 +834,13 @@ func (r *Runtime) Send(ctx context.Context, streamName string, msg Envelope) (Re
 	}
 
 	source := msg.Source
+
+	ctx, op := r.telemetryFor(stream.Provider).StartSend(ctx, streamName, "send", creationLinks(ctx, msg.Headers)...)
 	r.emit(ctx, HookEvent{Stage: Publishing, Provider: stream.Provider, Message: &msg})
 
 	receipt, err := r.providers[stream.Provider].Publish(ctx, source.Namespace, stream, msg)
+	op.End(err)
+
 	if err != nil {
 		r.emit(ctx, HookEvent{Stage: PublishFailed, Provider: stream.Provider, Message: &msg, Error: err.Error()})
 
@@ -874,6 +892,8 @@ func (r *Runtime) process(ctx context.Context, delivery Delivery, cfg Subscripti
 	}()
 
 	msg, info := delivery.Message(), delivery.Info()
+
+	ctx, op := r.telemetryFor(r.config.Streams[cfg.Stream].Provider).StartProcess(ctx, propagation.MapCarrier(msg.Headers), cfg.Stream, "process")
 	r.emit(ctx, HookEvent{Stage: Received, Message: &msg, Delivery: &info})
 
 	handleCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
@@ -899,6 +919,8 @@ func (r *Runtime) process(ctx context.Context, delivery Delivery, cfg Subscripti
 	if err == nil && handleCtx.Err() != nil {
 		err = handleCtx.Err()
 	}
+
+	op.End(err)
 
 	if err == nil {
 		r.handled.Add(1)

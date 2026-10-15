@@ -7,6 +7,11 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/xraph/forge/messaging"
 )
 
 // RPCConfig bounds each instance's transient request/reply work.
@@ -238,6 +243,8 @@ func (r *Runtime) handleRPC(ctx context.Context, provider, method string, reques
 		return response
 	}
 
+	ctx, op := r.telemetryFor(provider).StartProcess(ctx, propagation.MapCarrier(msg.Headers), request.Service+"."+method, "serve", messaging.WithSpanKind(trace.SpanKindServer))
+
 	ctx = context.WithValue(ctx, handlerRuntimeKey{}, r)
 	r.emit(ctx, HookEvent{Stage: RPCReceived, Provider: provider, Message: &msg})
 
@@ -273,6 +280,9 @@ func (r *Runtime) handleRPC(ctx context.Context, provider, method string, reques
 
 		return ctx.Err()
 	})
+
+	op.End(err)
+
 	if err != nil {
 		response.Data = nil
 		response.Error = PublicRPCError(err)
@@ -288,7 +298,11 @@ func (r *Runtime) handleRPC(ctx context.Context, provider, method string, reques
 }
 
 // CallRPC sends once by service name. A canceled call may already have caused an effect.
-func (r *Runtime) CallRPC(ctx context.Context, service, method string, draft Envelope, validate func(Envelope) error) (RPCResponse, error) {
+func (r *Runtime) CallRPC(ctx context.Context, service, method string, draft Envelope, validate func(Envelope) error) (_ RPCResponse, err error) {
+	var op *messaging.Operation
+
+	defer func() { op.End(err) }()
+
 	r.mu.RLock()
 
 	if !r.canSend(ctx) {
@@ -332,6 +346,9 @@ func (r *Runtime) CallRPC(ctx context.Context, service, method string, draft Env
 	msg.Type = method
 	msg.ContentType = "application/json"
 	msg.CreatedAt = time.Now().UTC()
+
+	ctx, op = r.telemetryFor(name).StartSend(ctx, service+"."+method, "call", messaging.WithSpanKind(trace.SpanKindClient))
+	msg.Headers = messaging.WithTraceContext(ctx, msg.Headers)
 	original := msg.Clone()
 
 	if err := protect(func() error {
