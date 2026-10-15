@@ -10,6 +10,14 @@ type routeMatchKey struct{}
 // the pattern on the way in. It puts a RouteMatch on the context, the router
 // fills Pattern just before the route's handler runs, and the middleware reads
 // it once the handler returns.
+//
+// The holder has no locking. It assumes every middleware between the one that
+// installed it and the router calls next on the request goroutine. Middleware
+// that runs next on another goroutine, as middleware.Timeout does, breaks
+// that: Establish and its callbacks then race with the outer middleware
+// reading Established, and on a timeout the outer middleware finishes the
+// request while the stream is still opening. Stream routes must not sit
+// behind such middleware.
 type RouteMatch struct {
 	Pattern string
 	Kind    RouteKind // KindHTTP unless the router stamped a stream kind

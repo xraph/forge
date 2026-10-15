@@ -357,6 +357,8 @@ A WebSocket, SSE or WebTransport connection can stay open for hours, so a reques
 
 `stream_kind` is `sse`, `websocket` or `webtransport`, and `direction` is `sent` or `received`. `http_route` is the route pattern, the same as in the HTTP series.
 
+Forge can't complete a WebTransport upgrade right now (a known issue we're fixing separately), so you won't see `webtransport` stream series or spans until it can.
+
 ```promql
 # Open connections, by route
 sum by (http_route) (forge_stream_connections_active)
@@ -371,20 +373,29 @@ sum by (http_route, direction) (rate(forge_stream_messages_total[5m]))
 
 The duration is observed when the connection closes, so a stream that's still open isn't in the histogram yet. Use the gauge for that.
 
-`error_type` is `handler_error` when your handler returns an error. It's empty for a clean close, and also when the error only means the client went away: an EOF, a canceled context, a closed connection or a WebSocket close frame. Someone shutting their laptop lid isn't a failure, so it doesn't show up as one.
+`error_type` is empty for a clean close, and also when the error only means the client went away:
+
+- an EOF, `io.EOF` or `io.ErrUnexpectedEOF`
+- a canceled context or a closed connection
+- a WebSocket close frame
+- a broken pipe or a connection reset, which is what you get when you write to a client that already left
+- a client too slow to accept writes, so a write hit its deadline
+- a handler that panics with `http.ErrAbortHandler`, which aborts the response on purpose
+
+Anything else your handler returns is `handler_error`, and so is any other panic. Someone shutting their laptop lid isn't a failure, so it doesn't show up as one.
 
 What counts as a message depends on the route:
 
 | Route | Counted |
 |-------|---------|
-| `EventStream` (SSE) | Every event you send with `Send`, `SendJSON` or `SendWithID`. That includes the `forge.resumed` and `forge.gap` markers a replay sends. Comments aren't counted. |
+| `EventStream` (SSE) | Every event you send with `Send`, `SendJSON`, `SendWithID` or `SendJSONWithID`. That includes the `forge.resumed` and `forge.gap` markers a replay sends. Comments aren't counted. |
 | `SSE()` | Nothing. These routes write with `ctx.WriteSSE`, which bypasses the counter. |
 | WebSocket | Data frames read and written. Ping, pong and close frames aren't counted. |
 | WebTransport | Datagrams only. |
 
 If you want message counts on an SSE route, register it with `EventStream`. A route registered with `SSE()` still gets the connection gauge and the duration histogram.
 
-Stream metrics follow `metrics.enabled`, not `metrics.features.http_metrics`. Turn the HTTP series off and the stream series keep recording, and so do they with tracing off. A request the router rejects before the upgrade, such as a bad `Origin` that gets a 403, never becomes a stream. It's an ordinary request in the HTTP series.
+Stream metrics follow `metrics.enabled`, not `metrics.features.http_metrics`. Turn the HTTP series off and the stream series keep recording, and so do they with tracing off. They skip the tracing `exclude_paths` the same way the HTTP series do, whatever else is on. A request the router rejects before the upgrade, such as a bad `Origin` that gets a 403, never becomes a stream. It's an ordinary request in the HTTP series.
 
 ## Custom Metrics in Handlers
 

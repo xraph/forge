@@ -10,6 +10,11 @@ type StreamObserver interface {
 // StreamHandle receives one stream's events. Sent and Received may be called
 // from several goroutines at once. Closed is called exactly once, after the
 // router has closed the connection, so Sent and Received never follow it.
+//
+// The router opens the handle under the route pattern it finds on the
+// request's RouteMatch, which assumes middleware calls next on the request
+// goroutine. Middleware that runs next on another goroutine
+// (middleware.Timeout) breaks that, so stream routes must not sit behind it.
 type StreamHandle interface {
 	Sent()
 	Received()
