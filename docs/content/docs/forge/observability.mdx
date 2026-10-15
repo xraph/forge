@@ -269,7 +269,7 @@ Incoming `traceparent` and `baggage` headers are honoured, so your spans join th
 
 A WebSocket, SSE or WebTransport route is the exception to "one span for the request". Its server span ends at the handshake: after the upgrade for a WebSocket (status 101), once the stream is writable for `EventStream`, right before your handler runs for `SSE()`, and after the upgrade for WebTransport. It carries `forge.stream.kind` (`sse`, `websocket` or `webtransport`) as well as the usual attributes, so a trace of a connection that stays open all day is still a few milliseconds long. Spans you start for each message with `forge.StartSpan` are children of that span. For how long the connection lived and how many messages crossed it, use the [stream metrics](/docs/forge/metrics#stream-connections). A rejected upgrade, a 403 for a bad `Origin` say, is an ordinary request with an ordinary span and no `forge.stream.kind`.
 
-Forge can't complete a WebTransport upgrade right now (a known issue we're fixing separately), so you won't see WebTransport stream spans until it can.
+WebTransport sessions run on the router's own HTTP/3 server. Call `EnableWebTransport` and then `StartHTTP3`, and each upgrade gets its span the same way a WebSocket does.
 
 ### Add your own spans
 

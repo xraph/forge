@@ -1,9 +1,11 @@
 package router
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -30,14 +32,14 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 			return
 		}
 
-		if req.Proto != "webtransport" {
+		if !isWebTransportProtocol(req.Proto) {
 			http.Error(w, "WebTransport protocol required", http.StatusBadRequest)
 
 			return
 		}
 
 		// Upgrade to WebTransport
-		session, err := upgradeToWebTransport(w, req, r.webTransportConfig)
+		session, err := r.upgradeToWebTransport(w, req)
 		if err != nil {
 			if r.logger != nil {
 				r.logger.Error("failed to upgrade webtransport session",
@@ -89,20 +91,88 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 	return r.register(http.MethodConnect, path, httpHandler, optsWithType...)
 }
 
-// upgradeToWebTransport upgrades an HTTP request to WebTransport.
-func upgradeToWebTransport(w http.ResponseWriter, r *http.Request, config WebTransportConfig) (*webtransport.Session, error) {
-	// Create a WebTransport server
-	server := &webtransport.Server{
-		CheckOrigin: checkWebTransportOrigin(config.AllowedOrigins),
+// isWebTransportProtocol reports whether proto is an Extended CONNECT
+// :protocol that opens a WebTransport session. Draft 15 renamed "webtransport"
+// to "webtransport-h3". webtransport-go clients send the new name, and older
+// clients and browsers still send the old one, so both are accepted.
+func isWebTransportProtocol(proto string) bool {
+	return proto == "webtransport-h3" || proto == "webtransport"
+}
+
+// upgradeToWebTransport upgrades an HTTP/3 request to a WebTransport session.
+// It needs the server StartHTTP3 runs, because only that server knows the
+// QUIC connection the request arrived on.
+func (r *router) upgradeToWebTransport(w http.ResponseWriter, req *http.Request) (*webtransport.Session, error) {
+	hw, err := newWebTransportWriter(w)
+	if err != nil {
+		return nil, err
 	}
 
-	// Upgrade to WebTransport session
-	session, err := server.Upgrade(w, r)
+	r.mu.RLock()
+	server := r.webTransportServer
+	r.mu.RUnlock()
+
+	if server == nil {
+		return nil, errors.New("webtransport: HTTP/3 server not running, call StartHTTP3")
+	}
+
+	session, err := server.Upgrade(hw, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upgrade: %w", err)
 	}
 
 	return session, nil
+}
+
+// h3ResponseWriter is what webtransport-go's Upgrade type-asserts its writer
+// to, besides http.Flusher.
+type h3ResponseWriter interface {
+	http3.Settingser
+	http3.HTTPStreamer
+}
+
+// webTransportWriter gives Upgrade the HTTP/3 writer's own methods while the
+// status still goes through every wrapper above it.
+//
+// Upgrade never sees the raw HTTP/3 writer in forge. The router wraps it in a
+// before-write writer, and the tracing and metrics middleware wrap that in
+// status recorders. None of them has the HTTP/3 methods, and Upgrade used to
+// panic on the type assertion. They all have Unwrap, so we walk down to the
+// HTTP/3 writer and keep the outermost one for the 200. Writing the status at
+// the top is what lets before-write hooks run and status recorders see it.
+type webTransportWriter struct {
+	http.ResponseWriter
+
+	h3 h3ResponseWriter
+}
+
+func newWebTransportWriter(w http.ResponseWriter) (*webTransportWriter, error) {
+	for inner := w; inner != nil; {
+		if h3, ok := inner.(h3ResponseWriter); ok {
+			return &webTransportWriter{ResponseWriter: w, h3: h3}, nil
+		}
+
+		u, ok := inner.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			break
+		}
+
+		inner = u.Unwrap()
+	}
+
+	return nil, errors.New("webtransport: request did not arrive over HTTP/3")
+}
+
+func (w *webTransportWriter) ReceivedSettings() <-chan struct{} { return w.h3.ReceivedSettings() }
+
+func (w *webTransportWriter) Settings() *http3.Settings { return w.h3.Settings() }
+
+func (w *webTransportWriter) HTTPStream() *http3.Stream { return w.h3.HTTPStream() }
+
+// Flush sends the 200 down the whole chain. The client can't use the session
+// until it has the response.
+func (w *webTransportWriter) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 // EnableWebTransport configures the router to support WebTransport.
@@ -124,9 +194,15 @@ func (r *router) EnableWebTransport(config WebTransportConfig) error {
 	return nil
 }
 
-// StartHTTP3 starts an HTTP/3 server for WebTransport support.
+// StartHTTP3 starts an HTTP/3 server for WebTransport support. It binds the
+// UDP socket before it returns, so a bad or busy address is reported here,
+// and serves in the background.
 func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
-	if !r.webTransportEnabled {
+	r.mu.RLock()
+	enabled, config, running := r.webTransportEnabled, r.webTransportConfig, r.webTransportServer != nil
+	r.mu.RUnlock()
+
+	if !enabled {
 		return errors.New("webtransport not enabled")
 	}
 
@@ -134,56 +210,95 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 		return errors.New("TLS config required for HTTP/3")
 	}
 
-	// Configure QUIC
-	quicConfig := &quic.Config{
-		MaxIdleTimeout:  time.Duration(r.webTransportConfig.MaxIdleTimeout) * time.Millisecond,
-		KeepAlivePeriod: time.Duration(r.webTransportConfig.KeepAliveInterval) * time.Millisecond,
-		EnableDatagrams: r.webTransportConfig.EnableDatagrams,
-		MaxIncomingStreams: r.webTransportConfig.MaxBidiStreams +
-			r.webTransportConfig.MaxUniStreams,
-		MaxStreamReceiveWindow:     r.webTransportConfig.StreamReceiveWindow,
-		MaxConnectionReceiveWindow: r.webTransportConfig.ConnectionReceiveWindow,
+	if running {
+		return errors.New("HTTP/3 server already running")
 	}
 
-	// Create HTTP/3 server
-	server := &http3.Server{
-		Addr:       addr,
-		TLSConfig:  tlsConfig,
-		QUICConfig: quicConfig,
-		Handler:    r,
+	// webtransport-go turns datagrams on whatever EnableDatagrams says,
+	// because every WebTransport session needs them. Its clients also refuse
+	// a server without stream resets with partial delivery.
+	quicConfig := &quic.Config{
+		MaxIdleTimeout:  time.Duration(config.MaxIdleTimeout) * time.Millisecond,
+		KeepAlivePeriod: time.Duration(config.KeepAliveInterval) * time.Millisecond,
+		EnableDatagrams: config.EnableDatagrams,
+		MaxIncomingStreams: config.MaxBidiStreams +
+			config.MaxUniStreams,
+		MaxStreamReceiveWindow:           config.StreamReceiveWindow,
+		MaxConnectionReceiveWindow:       config.ConnectionReceiveWindow,
+		EnableStreamResetPartialDelivery: true,
+	}
+
+	// One webtransport.Server for the life of the HTTP/3 server. It accepts
+	// the QUIC connections itself, so it knows the connection behind each
+	// CONNECT when Upgrade runs. It also calls ConfigureHTTP3Server on h3,
+	// which advertises WebTransport in the HTTP/3 SETTINGS and puts the QUIC
+	// connection into every request's context. A server built per request has
+	// neither, and every upgrade failed.
+	server := &webtransport.Server{
+		H3: &http3.Server{
+			Addr:       addr,
+			TLSConfig:  http3.ConfigureTLSConfig(tlsConfig),
+			QUICConfig: quicConfig,
+			Handler:    r,
+		},
+		CheckOrigin: checkWebTransportOrigin(config.AllowedOrigins),
+	}
+
+	conn, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp", addr)
+	if err != nil {
+		return fmt.Errorf("HTTP/3 listen on %s: %w", addr, err)
 	}
 
 	r.mu.Lock()
-	r.http3Server = server
+	r.webTransportServer = server
+	r.http3Conn = conn
 	r.mu.Unlock()
 
 	if r.logger != nil {
 		r.logger.Info("starting HTTP/3 server for webtransport",
-			logger.String("address", addr),
+			logger.String("address", conn.LocalAddr().String()),
 		)
 	}
 
-	// Start server in background
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			if r.logger != nil {
-				r.logger.Error("HTTP/3 server error",
-					logger.String("error", err.Error()),
-				)
-			}
+		err := server.Serve(conn)
+
+		r.mu.RLock()
+		stopped := r.webTransportServer != server
+		r.mu.RUnlock()
+
+		if err != nil && !stopped && r.logger != nil {
+			r.logger.Error("HTTP/3 server error",
+				logger.String("error", err.Error()),
+			)
 		}
 	}()
 
 	return nil
 }
 
-// StopHTTP3 stops the HTTP/3 server.
+// http3Addr returns the address the HTTP/3 server listens on, or nil when it
+// isn't running.
+func (r *router) http3Addr() net.Addr {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.http3Conn == nil {
+		return nil
+	}
+
+	return r.http3Conn.LocalAddr()
+}
+
+// StopHTTP3 stops the HTTP/3 server. It closes every WebTransport session and
+// QUIC connection, then the UDP socket.
 func (r *router) StopHTTP3() error {
 	r.mu.Lock()
-	serverInterface := r.http3Server
+	server, conn := r.webTransportServer, r.http3Conn
+	r.webTransportServer, r.http3Conn = nil, nil
 	r.mu.Unlock()
 
-	if serverInterface == nil {
+	if server == nil {
 		return nil
 	}
 
@@ -191,12 +306,13 @@ func (r *router) StopHTTP3() error {
 		r.logger.Info("stopping HTTP/3 server")
 	}
 
-	// Type assert to get the actual server
-	if server, ok := serverInterface.(*http3.Server); ok {
-		return server.Close()
+	err := server.Close()
+
+	if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
+		err = errors.Join(err, cerr)
 	}
 
-	return nil
+	return err
 }
 
 // checkWebTransportOrigin returns an origin checker function.

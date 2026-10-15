@@ -78,8 +78,15 @@ type webTransportSession struct {
 	session *webtransport.Session
 	ctx     context.Context //nolint:containedctx // context needed for WebTransport session lifecycle and cancellation
 	cancel  context.CancelFunc
-	mu      sync.RWMutex
-	closed  bool
+
+	// mu orders datagram counting against Close. Close sets closed under the
+	// write lock and a datagram is counted under the read lock, so nothing is
+	// counted once Close has returned and the router has reported the session
+	// closed. It is never held across a call that blocks. ReceiveDatagram used
+	// to hold the read lock while it waited, and a Close from another
+	// goroutine then waited for a datagram that might never come.
+	mu     sync.RWMutex
+	closed bool
 
 	// handle counts datagrams. Set by the router once the session is open.
 	handle shared.StreamHandle
@@ -103,9 +110,6 @@ func (s *webTransportSession) ID() string {
 }
 
 func (s *webTransportSession) OpenStream() (WebTransportStream, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	stream, err := s.session.OpenStream()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open stream: %w", err)
@@ -115,9 +119,6 @@ func (s *webTransportSession) OpenStream() (WebTransportStream, error) {
 }
 
 func (s *webTransportSession) OpenUniStream() (WebTransportStream, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	stream, err := s.session.OpenUniStream()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open uni stream: %w", err)
@@ -127,9 +128,6 @@ func (s *webTransportSession) OpenUniStream() (WebTransportStream, error) {
 }
 
 func (s *webTransportSession) AcceptStream(ctx context.Context) (WebTransportStream, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	stream, err := s.session.AcceptStream(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to accept stream: %w", err)
@@ -139,9 +137,6 @@ func (s *webTransportSession) AcceptStream(ctx context.Context) (WebTransportStr
 }
 
 func (s *webTransportSession) AcceptUniStream(ctx context.Context) (WebTransportStream, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	stream, err := s.session.AcceptUniStream(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to accept uni stream: %w", err)
@@ -151,43 +146,50 @@ func (s *webTransportSession) AcceptUniStream(ctx context.Context) (WebTransport
 }
 
 func (s *webTransportSession) ReceiveDatagram(ctx context.Context) ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	data, err := s.session.ReceiveDatagram(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive datagram: %w", err)
 	}
 
-	// Close takes the write lock and sets closed, so nothing is counted
-	// after the router reports the session closed.
-	if !s.closed {
-		s.handle.Received()
-	}
+	s.count(s.handle.Received)
 
 	return data, nil
 }
 
 func (s *webTransportSession) SendDatagram(data []byte) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if err := s.session.SendDatagram(data); err != nil {
 		return fmt.Errorf("failed to send datagram: %w", err)
 	}
 
-	if !s.closed {
-		s.handle.Sent()
-	}
+	s.count(s.handle.Sent)
 
 	return nil
 }
 
+// count records one datagram unless the session is already closed.
+func (s *webTransportSession) count(record func()) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.closed {
+		record()
+	}
+}
+
+// Close closes the session. A ReceiveDatagram or Accept blocked in another
+// goroutine returns an error. Closing twice is a no-op; the router closes
+// every session when its handler returns, so a handler that closed it too
+// still ends cleanly.
 func (s *webTransportSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	closed := s.closed
 	s.closed = true
+	s.mu.Unlock()
+
+	if closed {
+		return nil
+	}
+
 	s.cancel()
 
 	return s.session.CloseWithError(0, "session closed")
@@ -208,7 +210,10 @@ func (s *webTransportSession) LocalAddr() string {
 // webTransportStream implements WebTransportStream.
 type webTransportStream struct {
 	stream *webtransport.Stream
-	mu     sync.RWMutex
+
+	// mu guards the send side only: quic-go's Close must not run alongside
+	// Write. Reads skip it, so a Read blocked on the peer can't hold up Close.
+	mu sync.RWMutex
 }
 
 // newWebTransportStream creates a new WebTransport stream wrapper.
@@ -219,9 +224,6 @@ func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
 }
 
 func (s *webTransportStream) Read(p []byte) (n int, err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.stream.Read(p)
 }
 
@@ -233,9 +235,6 @@ func (s *webTransportStream) Write(p []byte) (n int, err error) {
 }
 
 func (s *webTransportStream) ReadJSON(v any) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	decoder := json.NewDecoder(s.stream)
 
 	return decoder.Decode(v)
@@ -308,10 +307,10 @@ func (s *webTransportSendStream) Close() error {
 	return s.stream.Close()
 }
 
-// webTransportReceiveStream wraps a receive-only stream.
+// webTransportReceiveStream wraps a receive-only stream. It needs no lock:
+// CancelRead is safe alongside Read and unblocks it.
 type webTransportReceiveStream struct {
 	stream *webtransport.ReceiveStream
-	mu     sync.RWMutex
 }
 
 func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransportReceiveStream {
@@ -319,9 +318,6 @@ func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransp
 }
 
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.stream.Read(p)
 }
 
@@ -330,9 +326,6 @@ func (s *webTransportReceiveStream) Write(p []byte) (n int, err error) {
 }
 
 func (s *webTransportReceiveStream) ReadJSON(v any) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	decoder := json.NewDecoder(s.stream)
 
 	return decoder.Decode(v)
@@ -343,9 +336,6 @@ func (s *webTransportReceiveStream) WriteJSON(v any) error {
 }
 
 func (s *webTransportReceiveStream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.stream.CancelRead(0)
 
 	return nil

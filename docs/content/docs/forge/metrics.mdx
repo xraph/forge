@@ -357,7 +357,7 @@ A WebSocket, SSE or WebTransport connection can stay open for hours, so a reques
 
 `stream_kind` is `sse`, `websocket` or `webtransport`, and `direction` is `sent` or `received`. `http_route` is the route pattern, the same as in the HTTP series.
 
-Forge can't complete a WebTransport upgrade right now (a known issue we're fixing separately), so you won't see `webtransport` stream series or spans until it can.
+WebTransport sessions run on the router's own HTTP/3 server, so you'll only see `webtransport` series once you've called `EnableWebTransport` and then `StartHTTP3`. The upgrade also lands in the HTTP series, as a `CONNECT` with status 200 and `url_scheme="https"`.
 
 ```promql
 # Open connections, by route

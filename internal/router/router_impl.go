@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/quic-go/webtransport-go"
 
 	"github.com/xraph/forge/internal/pathspec"
 	"github.com/xraph/forge/internal/router/forgemux"
@@ -89,7 +92,8 @@ type router struct {
 	// WebTransport support
 	webTransportEnabled bool
 	webTransportConfig  WebTransportConfig
-	http3Server         any // *http3.Server
+	webTransportServer  *webtransport.Server
+	http3Conn           net.PacketConn
 
 	// WebSocket origin allow-list. Empty means same-origin only; see origin.go.
 	webSocketOrigins []string
