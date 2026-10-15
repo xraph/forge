@@ -452,13 +452,10 @@ func TestObserverNoSendAfterClosedWebSocket(t *testing.T) {
 
 	defer conn.Close()
 
-	go func() {
-		for {
-			if _, err := wsutil.ReadServerText(conn); err != nil {
-				return
-			}
-		}
-	}()
+	// Drain raw bytes rather than frames: the frames are not the point, and a
+	// reader that stopped on a framing error would let the server's writes
+	// back up into the write timeout.
+	go func() { _, _ = io.Copy(io.Discard, conn) }()
 
 	waitClosed(t, h)
 	<-stopped
