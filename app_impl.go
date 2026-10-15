@@ -230,6 +230,9 @@ func newApp(config AppConfig) *app {
 	// This runs BEFORE server initialization to ensure port is configured
 	config = loadForgeYAMLConfig(config, logger)
 
+	// The shared scheduler reports panicking jobs through the app logger.
+	installSchedulerPanicLog(logger)
+
 	// Tracing. Built before the router so its middleware is the outermost
 	// global middleware, and before extensions register so they can trace.
 	tracing := buildTracing(config, configManager, logger)

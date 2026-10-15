@@ -15,7 +15,10 @@ package scheduler
 import (
 	"container/heap"
 	"context"
+	"log/slog"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -276,7 +279,9 @@ func (s *Scheduler) runDue(ctx context.Context) {
 			defer func() {
 				// A job is arbitrary subsystem code. A panic here would take
 				// the process down from a goroutine nobody can recover in.
-				_ = recover()
+				if r := recover(); r != nil {
+					reportPanic(j.name, r, debug.Stack())
+				}
 
 				s.mu.Lock()
 				j.running = false
@@ -346,7 +351,7 @@ func (h *jobHeap) Pop() any {
 // goroutine and timer would be per subsystem again rather than per ticker.
 var (
 	defaultOnce      sync.Once
-	defaultSchedular *Scheduler
+	defaultScheduler *Scheduler
 )
 
 // Default returns the shared scheduler, starting it on first use.
@@ -356,9 +361,37 @@ var (
 // the function Every returns.
 func Default() *Scheduler {
 	defaultOnce.Do(func() {
-		defaultSchedular = New("forge")
-		_ = defaultSchedular.Start(context.Background())
+		defaultScheduler = New("forge")
+		_ = defaultScheduler.Start(context.Background())
 	})
 
-	return defaultSchedular
+	return defaultScheduler
+}
+
+// PanicHandler is told about a job that panicked. The scheduler has already
+// recovered, and the job runs again at its next interval.
+type PanicHandler func(job string, recovered any, stack []byte)
+
+var panicHandler atomic.Pointer[PanicHandler]
+
+// SetPanicHandler sets who hears about panicking jobs, for every scheduler in
+// the process. Nil restores the default, which logs through slog.
+func SetPanicHandler(h PanicHandler) {
+	if h == nil {
+		panicHandler.Store(nil)
+
+		return
+	}
+
+	panicHandler.Store(&h)
+}
+
+func reportPanic(job string, recovered any, stack []byte) {
+	if h := panicHandler.Load(); h != nil {
+		(*h)(job, recovered, stack)
+
+		return
+	}
+
+	slog.Error("scheduler: job panicked", "job", job, "panic", recovered, "stack", string(stack))
 }

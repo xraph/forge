@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -319,5 +320,78 @@ func TestScheduler_CancelBeatsACommittedRun(t *testing.T) {
 
 	if ran.Load() {
 		t.Error("a cancelled job ran after its cancel function returned")
+	}
+}
+
+func TestScheduler_PanicReachesHandler(t *testing.T) {
+	type report struct {
+		job       string
+		recovered any
+		stack     []byte
+	}
+
+	got := make(chan report, 1)
+
+	SetPanicHandler(func(job string, recovered any, stack []byte) {
+		select {
+		case got <- report{job, recovered, stack}:
+		default:
+		}
+	})
+	t.Cleanup(func() { SetPanicHandler(nil) })
+
+	s := New("panic-test")
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = s.Stop(context.WithoutCancel(t.Context())) })
+
+	cancel := s.Every("exploding-job", 5*time.Millisecond, func(context.Context) { panic("kaboom") })
+	t.Cleanup(cancel)
+
+	select {
+	case r := <-got:
+		if r.job != "exploding-job" {
+			t.Errorf("job = %q, want exploding-job", r.job)
+		}
+
+		if r.recovered != "kaboom" {
+			t.Errorf("recovered = %v, want kaboom", r.recovered)
+		}
+
+		if !strings.Contains(string(r.stack), "scheduler") {
+			t.Errorf("stack does not look like a stack: %q", r.stack)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("panic handler was never called")
+	}
+}
+
+func TestScheduler_PanicWithoutHandlerUsesDefault(t *testing.T) {
+	SetPanicHandler(nil)
+
+	s := New("panic-default")
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = s.Stop(context.WithoutCancel(t.Context())) })
+
+	ran := make(chan struct{}, 4)
+	cancel := s.Every("default-panics", 5*time.Millisecond, func(context.Context) {
+		ran <- struct{}{}
+
+		panic("still survives")
+	})
+	t.Cleanup(cancel)
+
+	// Two runs prove the first panic was recovered and the job rescheduled.
+	for range 2 {
+		select {
+		case <-ran:
+		case <-time.After(2 * time.Second):
+			t.Fatal("job did not run again after panicking")
+		}
 	}
 }
