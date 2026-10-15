@@ -10,7 +10,7 @@ The metrics collector behind `app.Metrics()`. It owns a registry of counters, ga
 - **registry** (`registry.go`, `registry_wrap.go`): keyed by name plus sorted labels. Caps distinct label sets per name, captures units, and wraps every metric it returns so `WithLabels` goes back through the registry.
 - **Prometheus bridge** (`exporters/prometheus.go`): a client_golang collector that streams registry samples on each scrape. Decides the exported name, adds the unit suffix, attaches exemplars.
 - **OTLP producer** (`exporters/otlp.go`): `OTLPProducer` implements `sdkmetric.Producer` and reads the same stream the Prometheus bridge does, so a series has the same name in both places. Semconv names (`http.server.`, `http.client.`, `rpc.`, `messaging.`, `db.client.`) keep their dotted form and unit. Every other name is `namespace_name`, the scrape name. Cumulative or delta is kept per series, and an exemplar goes out once. The `go_*` and `process_*` families come from a separate client_golang registry, which `collector.OTLPProducer(temporality)` builds when `features.runtime_metrics` is on. That method hands the producer out, and `internal/telemetry` pushes it.
-- **Other exporters** (`exporters/json.go`, `influx.go`, `statsd.go`): format-only. They render a snapshot for `Export(format)`. Nothing pushes. There are no CloudWatch or Datadog exporters.
+- **JSON exporter** (`exporters/json.go`): format-only. It renders a snapshot for `Export(format)` and nothing pushes it. InfluxDB and StatsD formatters are gone, so `Export` on either format returns a not-found error. Point the OTLP push at an OTel collector to reach those backends.
 - **Collectors** (`collectors/`): `system.go` (CPU, memory, swap, load and filesystem usage; the probes are per platform in `system_linux.go`, `system_statfs.go`, `system_windows.go` and `system_other.go`, and a platform without one reports nothing), `custom.go` (callback and business metrics), `http_server.go` (the HTTP server semconv metrics), `stream.go` (stream connections, a `shared.StreamObserver`).
 - **vec** (`vec/`): label vectors. See `vec/llm.txt`.
 - **Storage** (`storage/`): in-memory, Redis and time-series backends for metric history.
@@ -33,7 +33,7 @@ app.Metrics()  (collector)
 ├── exporters
 │   ├── Prometheus bridge -> /_/metrics (text, or OpenMetrics when asked)
 │   │   └── Go and process collectors, go_* and process_* (runtime_metrics)
-│   └── JSON, InfluxDB line protocol, StatsD text (Export only)
+│   └── JSON (Export only)
 └── storage (memory | redis | timeseries)
 ```
 

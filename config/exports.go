@@ -44,8 +44,6 @@ const (
 
 // ExportFormatPrometheus   = config.ExportFormatPrometheus
 // ExportFormatJSON         = config.ExportFormatJSON
-// ExportFormatInflux       = config.ExportFormatInflux
-// ExportFormatStatsD       = config.ExportFormatStatsD
 // MetricTypeCounter        = config.MetricTypeCounter
 // MetricTypeGauge          = config.MetricTypeGauge
 // MetricTypeHistogram      = config.MetricTypeHistogram

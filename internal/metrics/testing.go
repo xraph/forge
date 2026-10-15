@@ -944,8 +944,6 @@ func NewMetricsTestFixture() *MetricsTestFixture {
 		Exporters: map[metrics.ExportFormat]metrics.Exporter{
 			metrics.ExportFormatPrometheus: NewMockExporter("prometheus"),
 			metrics.ExportFormatJSON:       NewMockExporter("json"),
-			metrics.ExportFormatInflux:     NewMockExporter("influx"),
-			metrics.ExportFormatStatsD:     NewMockExporter("statsd"),
 		},
 		Logger: logger.NewNoopLogger(),
 		ctx:    ctx,
@@ -1276,9 +1274,7 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 		registry = NewRegistry()
 		collector = New(DefaultCollectorConfig(), logger.NewNoopLogger())
 		exporterz = map[metrics.ExportFormat]metrics.Exporter{
-			metrics.ExportFormatJSON:   exporters.NewJSONExporter(),
-			metrics.ExportFormatInflux: exporters.NewInfluxExporter(),
-			metrics.ExportFormatStatsD: exporters.NewStatsDExporter(),
+			metrics.ExportFormatJSON: exporters.NewJSONExporter(),
 		}
 	} else {
 		// Use mock implementations for unit tests
@@ -1287,8 +1283,6 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 		exporterz = map[metrics.ExportFormat]metrics.Exporter{
 			metrics.ExportFormatPrometheus: NewMockExporter("prometheus"),
 			metrics.ExportFormatJSON:       NewMockExporter("json"),
-			metrics.ExportFormatInflux:     NewMockExporter("influx"),
-			metrics.ExportFormatStatsD:     NewMockExporter("statsd"),
 		}
 	}
 
@@ -1460,10 +1454,6 @@ func ValidateExportFormat(data []byte, format metrics.ExportFormat) error {
 		return validatePrometheusFormat(data)
 	case metrics.ExportFormatJSON:
 		return validateJSONFormat(data)
-	case metrics.ExportFormatInflux:
-		return validateInfluxFormat(data)
-	case metrics.ExportFormatStatsD:
-		return validateStatsDFormat(data)
 	default:
 		return fmt.Errorf("unknown export format: %s", format)
 	}
@@ -1485,26 +1475,4 @@ func validateJSONFormat(data []byte) error {
 	var result map[string]any
 
 	return json.Unmarshal(data, &result)
-}
-
-// validateInfluxFormat validates InfluxDB format.
-func validateInfluxFormat(data []byte) error {
-	// Simple validation - would use proper InfluxDB parser in real implementation
-	content := string(data)
-	if len(content) == 0 {
-		return errors.New("empty InfluxDB format")
-	}
-
-	return nil
-}
-
-// validateStatsDFormat validates StatsD format.
-func validateStatsDFormat(data []byte) error {
-	// Simple validation - would use proper StatsD parser in real implementation
-	content := string(data)
-	if len(content) == 0 {
-		return errors.New("empty StatsD format")
-	}
-
-	return nil
 }

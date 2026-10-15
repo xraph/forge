@@ -12,8 +12,6 @@ type ExportFormat = metrics.ExportFormat
 const (
 	ExportFormatPrometheus metrics.ExportFormat = metrics.ExportFormatPrometheus
 	ExportFormatJSON       metrics.ExportFormat = metrics.ExportFormatJSON
-	ExportFormatInflux     metrics.ExportFormat = metrics.ExportFormatInflux
-	ExportFormatStatsD     metrics.ExportFormat = metrics.ExportFormatStatsD
 )
 
 // MetricType represents the type of metric.

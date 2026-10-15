@@ -490,7 +490,7 @@ type HealthMetricsExporter struct {
 
 // ExporterConfig contains configuration for health metrics export.
 type ExporterConfig struct {
-	Format         string            `json:"format"         yaml:"format"`         // prometheus, json, influx
+	Format         string            `json:"format"         yaml:"format"`         // prometheus, json
 	Endpoint       string            `json:"endpoint"       yaml:"endpoint"`       // Export endpoint
 	Interval       time.Duration     `json:"interval"       yaml:"interval"`       // Export interval
 	Timeout        time.Duration     `json:"timeout"        yaml:"timeout"`        // Request timeout

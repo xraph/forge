@@ -173,8 +173,6 @@ func TestNoOpExport(t *testing.T) {
 	}{
 		{"prometheus", shared.ExportFormatPrometheus},
 		{"json", shared.ExportFormatJSON},
-		{"influx", shared.ExportFormatInflux},
-		{"statsd", shared.ExportFormatStatsD},
 	}
 	for _, tc := range formats {
 		t.Run(tc.name, func(t *testing.T) {

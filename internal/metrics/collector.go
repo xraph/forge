@@ -824,12 +824,6 @@ func (c *collector) GetStats() CollectorStats {
 func (c *collector) initializeExporters() {
 	// Initialize JSON exporter
 	c.exporters[metrics.ExportFormatJSON] = exporters.NewJSONExporter()
-
-	// Initialize InfluxDB exporter
-	c.exporters[metrics.ExportFormatInflux] = exporters.NewInfluxExporter()
-
-	// Initialize StatsD exporter
-	c.exporters[metrics.ExportFormatStatsD] = exporters.NewStatsDExporter()
 }
 
 // initializeBuiltinCollectors initializes built-in collectors.
