@@ -55,6 +55,10 @@ type Config struct {
 
 	// Observability
 	EnableMetrics bool `json:"enable_metrics" mapstructure:"enable_metrics" yaml:"enable_metrics"`
+	// EnableTracing is ignored.
+	//
+	// Deprecated: MQTT 3.1.1 has no user properties, so this extension can't carry trace
+	// context. The field does nothing. It stays so existing config keeps loading.
 	EnableTracing bool `json:"enable_tracing" mapstructure:"enable_tracing" yaml:"enable_tracing"`
 	EnableLogging bool `json:"enable_logging" mapstructure:"enable_logging" yaml:"enable_logging"`
 
@@ -191,6 +195,10 @@ func WithMetrics(enable bool) ConfigOption {
 	return func(c *Config) { c.EnableMetrics = enable }
 }
 
+// WithTracing sets EnableTracing.
+//
+// Deprecated: MQTT 3.1.1 has no user properties, so this extension can't carry trace
+// context. The option does nothing. It stays so existing code keeps compiling.
 func WithTracing(enable bool) ConfigOption {
 	return func(c *Config) { c.EnableTracing = enable }
 }

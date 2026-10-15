@@ -31,7 +31,7 @@ WithKeepAlive(duration time.Duration)
 WithAutoReconnect(enable bool)
 WithWill(topic, payload string, qos byte, retained bool)     // sets will_enabled
 WithMetrics(enable bool)
-WithTracing(enable bool)                                     // not read
+WithTracing(enable bool)                                     // deprecated, does nothing
 WithRequireConfig(require bool)
 WithConfig(config Config)
 ```
@@ -140,5 +140,8 @@ Metrics: counters `mqtt.messages.published` and `mqtt.messages.received` (label 
 
 - SetOnConnectHandler, SetConnectionLostHandler, SetReconnectingHandler only log a warning: the
   client is already connected by the time you can call them.
-- default_qos, max_reconnect_attempts and enable_tracing are not read.
+- default_qos and max_reconnect_attempts are not read.
+- enable_tracing and WithTracing are deprecated and do nothing. paho v1.5.1 speaks MQTT 3.1.1, which
+  has no user properties, so a message can't carry a traceparent the way queue, events, conduit and
+  kafka messages do. The field stays so existing config loads. Real support waits on an MQTT v5 client.
 - MQTT 5.

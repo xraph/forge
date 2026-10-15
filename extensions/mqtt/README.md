@@ -249,7 +249,9 @@ These are the fields of `mqtt.Config`, with their YAML names:
 | `enable_metrics` | `true` | Record the metrics below |
 | `enable_logging` | `true` | Log connects, drops, reconnects and publishes |
 
-`max_reconnect_attempts` and `enable_tracing` exist on the struct, but nothing reads them yet.
+`max_reconnect_attempts` exists on the struct, but nothing reads it yet.
+
+`enable_tracing` and `WithTracing` are deprecated and do nothing. The queue, events, conduit and kafka extensions carry trace context in message headers, but this extension can't. The paho client we use (v1.5.1) speaks MQTT 3.1.1, and that version has no user properties, so a message has nowhere to hold a `traceparent`. The field stays so your existing config keeps loading. If you need traces across an MQTT hop today, put the `traceparent` in your payload yourself. Real support has to wait for an MQTT v5 client.
 
 With `enable_metrics` on, the extension records `mqtt.messages.published` and `mqtt.messages.received` counters labelled by `topic`, `mqtt.connections` labelled `status=connected` or `status=disconnected`, and `mqtt.reconnects`. `GetStats()` gives you the connection state, connect time, message counts, the time of the last message, the subscription count and reconnects.
 
