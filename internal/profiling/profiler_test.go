@@ -210,8 +210,13 @@ func TestSDKLoggerRateLimitsErrors(t *testing.T) {
 	l.Errorf("upload failed: %v", errors.New("refused"))
 	l.Errorf("upload failed: %v", errors.New("refused"))
 
-	if n := len(capture.GetLogsByLevel("WARN")); n != 1 {
-		t.Fatalf("warn lines = %d, want 1", n)
+	warns := capture.GetLogsByLevel("WARN")
+	if len(warns) != 1 {
+		t.Fatalf("warn lines = %d, want 1", len(warns))
+	}
+
+	if warns[0].Message != "profiling: pyroscope client error" {
+		t.Fatalf("warn message = %q, want %q", warns[0].Message, "profiling: pyroscope client error")
 	}
 
 	if n := len(capture.GetLogsByLevel("INFO")); n != 0 {

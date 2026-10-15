@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,6 +199,66 @@ func TestAppFailedStartStopsProfiler(t *testing.T) {
 
 	if a.(*app).profiler.Running() {
 		t.Fatal("a failed Start left the profiler running")
+	}
+}
+
+// TestAppFailedStartCapsFinalUpload points push at a Pyroscope that accepts
+// the upload and never answers. A failed Start must still return quickly,
+// and the final upload proves the profiler ran before the hooks.
+func TestAppFailedStartCapsFinalUpload(t *testing.T) {
+	clearProfilingEnv(t)
+
+	arrived := make(chan struct{}, 1)
+	release := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		select {
+		case arrived <- struct{}{}:
+		default:
+		}
+
+		<-release
+	}))
+	// Cleanups run last in, first out: release the handler, then close.
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+
+	a := New(WithAppName("hanging"), WithAppProfilingConfig(ProfilingConfig{ServerAddress: srv.URL}))
+
+	var runningInHook atomic.Bool
+
+	if err := a.RegisterHookFn(PhaseBeforeStart, "fail", func(context.Context, App) error {
+		runningInHook.Store(a.(*app).profiler.Running())
+
+		return errors.New("boom")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	err := a.Start(t.Context())
+	elapsed := time.Since(start)
+
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("Start = %v, want the hook's error", err)
+	}
+
+	if elapsed > 10*time.Second {
+		t.Fatalf("Start took %v to return the hook error, want the final upload capped", elapsed)
+	}
+
+	if !runningInHook.Load() {
+		t.Fatal("profiler was not running when the before-start hooks ran")
+	}
+
+	if a.(*app).profiler.Running() {
+		t.Fatal("a failed Start left the profiler running")
+	}
+
+	select {
+	case <-arrived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the hanging Pyroscope never saw the final upload")
 	}
 }
 

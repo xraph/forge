@@ -18,8 +18,10 @@ const (
 // serveLabelled runs serve with the goroutine labelled span_id for the CPU
 // profiler. It adds span_name once the router reports the match, and drops
 // span_id when a stream is established, because the span ends at the
-// handshake while the goroutine keeps running. pprof.Do puts the previous
-// labels back when serve returns, panics included.
+// handshake while the goroutine keeps running. When serve returns, panics
+// included, pprof.Do sets the goroutine's labels to the ones on ctx. Those
+// aren't always what the goroutine had before: a label set on the goroutine
+// and never put on ctx is gone.
 //
 // span_name lives only on the goroutine, not on the request context. A handler
 // that adds its own labels with pprof.Do therefore loses span_name inside that

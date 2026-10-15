@@ -653,12 +653,13 @@ func (a *app) Start(ctx context.Context) error {
 	)
 
 	// Profile startup too. A Start that fails stops the profiler again, so it
-	// doesn't outlive an app that never ran.
+	// doesn't outlive an app that never ran. WithoutCancel gives a cancelled
+	// start context the same short, capped attempt at the final upload.
 	a.startProfiler()
 
 	defer func() {
 		if !a.started {
-			a.stopProfiler(ctx)
+			a.stopProfiler(context.WithoutCancel(ctx))
 		}
 	}()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/xraph/forge/internal/profiling"
 	"github.com/xraph/forge/internal/shared"
@@ -62,11 +63,20 @@ func (a *app) startProfiler() {
 	}
 }
 
-// stopProfiler uploads the last profiles and stops.
+// profilerStopCap bounds the final upload, the same five seconds the tracing
+// flush gets. A Pyroscope that accepts the connection and never answers
+// would otherwise hold Stop, and a failed Start, until the HTTP client gives up.
+const profilerStopCap = 5 * time.Second
+
+// stopProfiler uploads the last profiles and stops, waiting at most
+// profilerStopCap or until ctx is done.
 func (a *app) stopProfiler(ctx context.Context) {
 	if a.profiler == nil {
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, profilerStopCap)
+	defer cancel()
 
 	if err := a.profiler.Stop(ctx); err != nil {
 		a.logger.Warn("profiling: final upload did not finish", F("error", err))

@@ -164,6 +164,41 @@ func TestResolveTags(t *testing.T) {
 	}
 }
 
+func TestResolveTagValues(t *testing.T) {
+	cases := []struct {
+		name        string
+		tags        map[string]string
+		version     string
+		environment string
+		key, want   string
+		warn        bool
+	}{
+		{"clean user value", map[string]string{"region": "eu-west.1"}, "", "", "region", "eu-west.1", false},
+		{"comma in user value", map[string]string{"team": "a,b"}, "", "", "team", "a_b", true},
+		{"braces and equals in user value", map[string]string{"query": "{x=y}"}, "", "", "query", "_x_y_", true},
+		{"comma in app version", nil, "1.0,rc1", "", "service_version", "1.0_rc1", true},
+		{"brace in environment", nil, "", "prod{eu}", "environment", "prod_eu_", true},
+		{"user replaces a bad environment", map[string]string{"environment": "blue"}, "", "prod=eu", "environment", "blue", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Resolve(Inputs{
+				Code:    shared.ProfilingConfig{Tags: tc.tags},
+				AppName: "orders", AppVersion: tc.version, Environment: tc.environment, TracingEnabled: true,
+			})
+
+			if got := s.Tags[tc.key]; got != tc.want {
+				t.Fatalf("tag %q = %q, want %q (tags %v)", tc.key, got, tc.want, s.Tags)
+			}
+
+			if got := hasWarning(s, "tag \""+tc.key+"\" value"); got != tc.warn {
+				t.Fatalf("value warning = %v, want %v (warnings %v)", got, tc.warn, s.Warnings)
+			}
+		})
+	}
+}
+
 func TestResolveTagsOmitEmptyVersionAndEnvironment(t *testing.T) {
 	s := Resolve(Inputs{AppName: "orders", TracingEnabled: true})
 

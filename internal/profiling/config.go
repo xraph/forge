@@ -144,7 +144,33 @@ func resolveTags(in Inputs, warnings *[]string) map[string]string {
 		return nil
 	}
 
+	// Clean after the merge, so a forge value the user replaced warns nothing.
+	for _, k := range slices.Sorted(maps.Keys(tags)) {
+		tags[k] = cleanTagValue(k, tags[k], warnings)
+	}
+
 	return tags
+}
+
+// cleanTagValue replaces the runes that break the ingest query. The SDK
+// sends tags as name=app{k=v,...}, and Pyroscope refuses every upload whose
+// query a value has split.
+func cleanTagValue(key, value string, warnings *[]string) string {
+	clean := strings.Map(func(r rune) rune {
+		switch r {
+		case ',', '{', '}', '=':
+			return '_'
+		}
+
+		return r
+	}, value)
+
+	if clean != value {
+		*warnings = append(*warnings, fmt.Sprintf(
+			"profiling: tag %q value %q has characters Pyroscope refuses, using %q", key, value, clean))
+	}
+
+	return clean
 }
 
 func resolveProfileTypes(in Inputs, warnings *[]string) []string {
