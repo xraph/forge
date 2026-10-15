@@ -46,7 +46,7 @@ grpcext.NewExtension(
 
 Startup fails if TLS is on without a certificate and key, or client auth is on without a CA file. The CA file is only read when `client_auth` is on.
 
-If the files are configured but can't be loaded (a wrong path, a bad PEM), the extension logs `failed to load TLS credentials` and starts the server without TLS, in plaintext. Watch for that line after you turn TLS on.
+If the files are configured but can't be loaded (a wrong path, a bad PEM), the server doesn't start and `app.Start` returns `failed to load TLS credentials` with the cause. It never serves plaintext when you asked for TLS.
 
 ## Health checks
 

@@ -79,7 +79,7 @@ The extension starts from `DefaultConfig()`, applies the config file section, th
 | `EnableLogging` | `enable_logging` | `true` | Logging interceptors |
 | `RequireConfig` | none | `false` | Set with `WithRequireConfig` |
 
-If TLS is configured but the files can't be loaded, the server starts in plaintext and logs `failed to load TLS credentials`.
+If TLS is configured but the files can't be loaded, the server doesn't start and `app.Start` fails with `failed to load TLS credentials`.
 
 ### `KeepaliveConfig`
 

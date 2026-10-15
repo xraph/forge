@@ -173,7 +173,7 @@ grpcext.NewExtension(
 )
 ```
 
-Config validation fails at startup if TLS is on without a certificate and key, or client auth is on without a CA file. Check your logs after you turn TLS on, though. If the files exist in config but can't be loaded (a wrong path, a bad PEM), the extension logs `failed to load TLS credentials` and starts the server without TLS, in plaintext.
+Config validation fails at startup if TLS is on without a certificate and key, or client auth is on without a CA file. If the files are set but can't be loaded (a wrong path, a bad PEM, a CA file with no certificates in it), the server doesn't start and `app.Start` returns `failed to load TLS credentials` with the cause. It never falls back to plaintext.
 
 ## Logging, tracing and metrics
 

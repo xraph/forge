@@ -244,8 +244,8 @@ client span. Both read the OpenTelemetry globals when called, so call them after
 
 ## Gotchas
 
-- If TLS files are configured but fail to load (bad path, bad PEM), the server logs
-  `failed to load TLS credentials` and starts in plaintext. Check your logs.
+- If TLS is on and the cert, key or CA file fails to load (bad path, bad PEM), Start returns
+  `failed to load TLS credentials: ...` and the server doesn't listen. No plaintext fallback.
 - `Watch` sends one SERVING message and returns; `List` returns an empty list.
 - `TotalConnections` in `GetStats()` is never updated.
 

@@ -151,7 +151,7 @@ grpcext.NewExtension(
 )
 ```
 
-If the certificate or key can't be loaded, the extension logs `failed to load TLS credentials` and starts the server in plaintext. Check your logs after you turn TLS on.
+If the certificate, key or CA file can't be loaded, the server doesn't start and `app.Start` returns `failed to load TLS credentials` with the cause. It never falls back to plaintext.
 
 ## Key concepts
 

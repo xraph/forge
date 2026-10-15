@@ -138,7 +138,10 @@ func (s *grpcServer) Start(ctx context.Context, addr string) error {
 	s.mu.RUnlock()
 
 	// Build server options from config (without holding lock to avoid deadlock)
-	opts := s.buildServerOptions()
+	opts, err := s.buildServerOptions()
+	if err != nil {
+		return err
+	}
 
 	// Now acquire write lock for modifications
 	s.mu.Lock()
@@ -319,8 +322,10 @@ func (s *grpcServer) GetServices() []ServiceInfo {
 	return services
 }
 
-// buildServerOptions creates gRPC server options from config.
-func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
+// buildServerOptions creates gRPC server options from config. It fails when
+// TLS is on and the credentials can't be loaded, so a bad path never leaves
+// the server listening in plaintext.
+func (s *grpcServer) buildServerOptions() ([]grpc.ServerOption, error) {
 	var opts []grpc.ServerOption
 
 	// Message size limits
@@ -363,12 +368,12 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 	if s.config.EnableTLS {
 		creds, err := s.loadTLSCredentials()
 		if err != nil {
-			s.logger.Error("failed to load TLS credentials", forge.F("error", err))
-		} else {
-			opts = append(opts, grpc.Creds(creds))
-
-			s.logger.Info("grpc TLS enabled")
+			return nil, fmt.Errorf("failed to load TLS credentials: %w", err)
 		}
+
+		opts = append(opts, grpc.Creds(creds))
+
+		s.logger.Info("grpc TLS enabled")
 	}
 
 	// Server spans. The stats handler runs before the interceptors.
@@ -390,7 +395,7 @@ func (s *grpcServer) buildServerOptions() []grpc.ServerOption {
 		}
 	}
 
-	return opts
+	return opts, nil
 }
 
 // healthServer implements grpc_health_v1.HealthServer.
