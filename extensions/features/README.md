@@ -202,7 +202,7 @@ The `providers` package has client code for the four remote services, but the ex
 
 ## Configuration
 
-The extension reads its settings from the options you pass to `features.NewExtension`. It doesn't load anything from `extensions.features` in YAML, even though `Config` carries `yaml` tags, so configure it in code.
+Configure the extension with options on `features.NewExtension`, or under `extensions.features` (falling back to `features`) in your config file. Your options win over the file and the file wins over the defaults. Boolean flags can live in YAML under `local.flags`, but a flag's `value` can't yet, because the config binder drops anything bound into an `any` field, so define string, number and JSON flags in code. `WithRequireConfig(true)` turns a missing section into a startup error.
 
 | Option | Effect |
 | --- | --- |
@@ -213,6 +213,7 @@ The extension reads its settings from the options you pass to `features.NewExten
 | `WithRefreshInterval(time.Duration)` | How often the service calls the provider's `Refresh`. `0` turns the loop off |
 | `WithCache(bool, time.Duration)` | Sets `EnableCache` and `CacheTTL`, which nothing reads yet |
 | `WithLaunchDarkly`, `WithUnleash`, `WithFlagsmith`, `WithPostHog` | Fill provider settings and select that provider |
+| `WithRequireConfig(bool)` | `true` makes `Register` fail when the config file has no `features` section |
 | `WithConfig(features.Config)` | Replaces the whole config. `NewExtensionWithConfig(cfg)` does the same |
 
 `DefaultConfig()` gives you `Enabled: true`, `Provider: "local"`, a 30-second refresh interval, and empty flag and default maps.

@@ -257,7 +257,7 @@ The audit logger writes entries through the app's logger, or to `AuditConfig.Han
 
 ## Configuration
 
-Configure the extension with options, or under `extensions.security` (falling back to `security`) in your config file. Your options win over the file and the file wins over the defaults, one field at a time, so `session.cookie_name: sid` in YAML renames the cookie and leaves the session TTL at 24 hours. Watch the keys inside each section. Only `session` and `cookie` have snake_case YAML tags. Every other section (`jwt`, `csrf`, `rate_limit`, `cors` and the rest) uses the Go field names, so the JWT key is `jwt.SigningKey` and `jwt.signing_key` is silently ignored.
+Configure the extension with options, or under `extensions.security` (falling back to `security`) in your config file. Your options win over the file and the file wins over the defaults, one field at a time, so `session.cookie_name: sid` in YAML renames the cookie and leaves the session TTL at 24 hours. Every key is snake_case, inside every section, so the JWT key is `jwt.signing_key`. Files that used the Go field names (`jwt.SigningKey`) still apply, with a warning at startup naming the new key. A top-level `enabled: false` turns the whole extension off.
 
 | Area | Options |
 | --- | --- |

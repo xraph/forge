@@ -202,15 +202,17 @@ You can configure the extension in code with options, or in YAML under `extensio
 
 `MaxToolNameLength` (64), `SchemaCache` (true) and `EnableMetrics` (true) have no option of their own; set them through `WithConfig`. `NewExtensionWithConfig(cfg)` is the same as `NewExtension(WithConfig(cfg))`.
 
-`mcp.Config` has no YAML tags, so the keys are the Go field names, spelled exactly. `ToolPrefix` works and `tool_prefix` is silently ignored:
+The YAML keys are the snake_case field names:
 
 ```yaml
 extensions:
   mcp:
-    ToolPrefix: shop_
-    ExcludePatterns: ["/_/*", "/internal/*"]
-    EnablePrompts: true
+    tool_prefix: shop_
+    exclude_patterns: ["/_/*", "/internal/*"]
+    enable_prompts: true
 ```
+
+Older configs spelled them as Go field names (`ToolPrefix`). Those still work, and each one logs a warning at startup telling you the new key.
 
 Options you set in code win over the file, and the file wins over `DefaultConfig()`, so `BasePath: /mcp` or `Enabled: false` in YAML takes effect with a plain `mcp.NewExtension()`. Fields you leave out keep their defaults. One edge case: an option set to exactly its default value looks the same as no option at all, so the file wins for that field.
 

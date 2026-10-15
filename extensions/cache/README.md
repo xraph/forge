@@ -243,16 +243,18 @@ You can configure the extension in code with options, or in YAML under `extensio
 
 ### YAML
 
-`Config` has no YAML tags, so the keys are the Go field names, spelled exactly as above. `MaxSize` works and `max_size` or `maxsize` is silently ignored:
+The keys are the snake_case field names:
 
 ```yaml
 extensions:
   cache:
-    Driver: inmemory
-    DefaultTTL: 10m
-    MaxSize: 50000
-    Prefix: "orders:"
+    driver: inmemory
+    default_ttl: 10m
+    max_size: 50000
+    prefix: "orders:"
 ```
+
+If your file still says `MaxSize` or `DefaultTTL`, it keeps working, and you'll get a warning at startup naming the snake_case key to switch to.
 
 A plain `cache.NewExtension()` picks up every key in that block. YAML overrides `DefaultConfig()` and options you set in code override YAML, and fields you leave out of the file keep their defaults.
 
