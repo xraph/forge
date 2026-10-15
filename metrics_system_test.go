@@ -2,6 +2,7 @@ package forge
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -10,9 +11,16 @@ import (
 )
 
 // A plain app has system_metrics on by default, so once it starts the scrape
-// carries the host series. Filesystem usage is the probe every Unix supports,
-// so it is the one this test can rely on.
+// carries the host series. Filesystem usage is the probe every platform
+// supports (statfs on Unix, GetDiskFreeSpaceExW on Windows), so it is the one
+// this test can rely on. The collector always measures the root volume: / on
+// Unix and C:\ on Windows.
 func TestStartedAppExportsSystemSeries(t *testing.T) {
+	rootMount := "/"
+	if runtime.GOOS == "windows" {
+		rootMount = `C:\`
+	}
+
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
 	a := New(WithAppName("system-metrics"))
@@ -40,14 +48,14 @@ func TestStartedAppExportsSystemSeries(t *testing.T) {
 
 	for _, m := range size.GetMetric() {
 		for _, l := range m.GetLabel() {
-			if l.GetName() == "mountpoint" && l.GetValue() == "/" {
+			if l.GetName() == "mountpoint" && l.GetValue() == rootMount {
 				root = m.GetGauge().GetValue()
 			}
 		}
 	}
 
 	if root <= 0 {
-		t.Fatalf("forge_system_filesystem_size_bytes{mountpoint=\"/\"} = %v, want a positive size", root)
+		t.Fatalf("forge_system_filesystem_size_bytes{mountpoint=%q} = %v, want a positive size", rootMount, root)
 	}
 
 	// The old series put the mount point in the metric name. None may remain.
