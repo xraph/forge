@@ -1,58 +1,1136 @@
 {
-  "uid": "forge-overview",
-  "title": "Forge Overview",
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"$job\"}[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Requests per second",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"$job\", error_type!=\"\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{job=\"$job\"}[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Error ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "p95 latency",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum(http_server_active_requests{job=\"$job\"})",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Active requests",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 6,
+      "panels": [],
+      "title": "HTTP by route",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 7,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"$job\", http_route=~\"$route\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{http_route}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Requests per second by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 8,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"$job\", http_route=~\"$route\", error_type!=\"\"}[$__rate_interval])) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"$job\", http_route=~\"$route\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{http_route}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Error ratio by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 9,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\", http_route=~\"$route\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\", http_route=~\"$route\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\", http_route=~\"$route\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Latency percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 10,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"$job\", http_route=~\"$route\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "{{http_route}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "p95 latency by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 11,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=\"$job\", http_route=~\"$route\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{http_response_status_code}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Responses by status code",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 12,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 31
+          },
+          "id": 13,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "sum by (http_route, stream_kind) (forge_stream_connections_active{job=\"$job\"})",
+              "instant": false,
+              "legendFormat": "{{stream_kind}} {{http_route}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Open connections",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 31
+          },
+          "id": 14,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "sum by (http_route, direction) (rate(forge_stream_messages_total{job=\"$job\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{direction}} {{http_route}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Messages per second",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 39
+          },
+          "id": 15,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(forge_stream_connection_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "{{http_route}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Connection duration p95",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 39
+          },
+          "id": 16,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "sum by (error_type) (rate(forge_stream_connection_duration_seconds_count{job=\"$job\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{error_type}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Closed connections by error",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Streams",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 17,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 32
+          },
+          "id": 18,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "sum by (rpc_method) (rate(rpc_server_call_duration_seconds_count{job=\"$job\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{rpc_method}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Calls per second by method",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 32
+          },
+          "id": 19,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": true,
+              "expr": "histogram_quantile(0.95, sum by (le, rpc_method) (rate(rpc_server_call_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "{{rpc_method}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "p95 latency by method",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 40
+          },
+          "id": 20,
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "exemplar": false,
+              "expr": "sum by (rpc_response_status_code) (rate(rpc_server_call_duration_seconds_count{job=\"$job\", rpc_response_status_code!=\"OK\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{rpc_response_status_code}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Failed calls by status code",
+          "type": "timeseries"
+        }
+      ],
+      "title": "gRPC",
+      "type": "row"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 21,
+      "panels": [],
+      "title": "Go runtime",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "id": 22,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "go_goroutines{job=\"$job\"}",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Goroutines",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "id": 23,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "go_memstats_heap_inuse_bytes{job=\"$job\"}",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Heap in use",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "id": 24,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "rate(go_gc_duration_seconds_sum{job=\"$job\"}[$__rate_interval]) / rate(go_gc_duration_seconds_count{job=\"$job\"}[$__rate_interval])",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "GC pause, average",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "id": 25,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "rate(process_cpu_seconds_total{job=\"$job\"}[$__rate_interval])",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "CPU, cores",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "id": 26,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "process_resident_memory_bytes{job=\"$job\"}",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Resident memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "id": 27,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "process_open_fds{job=\"$job\"}",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Open file descriptors",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 28,
+      "panels": [],
+      "title": "Traces",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "${tempo}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "id": 29,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "${tempo}"
+          },
+          "limit": 20,
+          "query": "{resource.service.name=\"$job\" \u0026\u0026 status=error}",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "traces"
+        }
+      ],
+      "title": "Recent error traces",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "${tempo}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "id": 30,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "${tempo}"
+          },
+          "limit": 20,
+          "query": "{resource.service.name=\"$job\" \u0026\u0026 kind=server \u0026\u0026 duration\u003e500ms}",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "traces"
+        }
+      ],
+      "title": "Server spans over 500ms",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 31,
+      "panels": [],
+      "title": "Logs",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "Fills once the app exports logs over OTLP. Until then forge writes logs to stdout only.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "id": 32,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{service_name=\"$job\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
   "schemaVersion": 39,
-  "version": 1,
-  "time": { "from": "now-1h", "to": "now" },
+  "tags": [
+    "forge"
+  ],
   "templating": {
     "list": [
       {
+        "current": {},
+        "hide": 0,
+        "label": "Prometheus",
         "name": "datasource",
-        "type": "datasource",
         "query": "prometheus",
-        "current": {}
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "label": "Tempo",
+        "name": "tempo",
+        "query": "tempo",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "label": "Loki",
+        "name": "loki",
+        "query": "loki",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(http_server_request_duration_seconds_count, job)",
+        "includeAll": false,
+        "label": "Service",
+        "multi": false,
+        "name": "job",
+        "query": {
+          "query": "label_values(http_server_request_duration_seconds_count, job)",
+          "refId": "job"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(http_server_request_duration_seconds_count{job=\"$job\"}, http_route)",
+        "includeAll": true,
+        "label": "Route",
+        "multi": true,
+        "name": "route",
+        "query": {
+          "query": "label_values(http_server_request_duration_seconds_count{job=\"$job\"}, http_route)",
+          "refId": "route"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
       }
     ]
   },
-  "panels": [
-    {
-      "type": "timeseries",
-      "title": "Request rate",
-      "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "targets": [
-        { "expr": "sum(rate(http_server_request_duration_seconds_count[5m]))", "legendFormat": "rps" }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Request p95 latency",
-      "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "targets": [
-        { "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Goroutines",
-      "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
-      "targets": [ { "expr": "go_goroutines", "legendFormat": "goroutines" } ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Heap in use",
-      "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
-      "targets": [ { "expr": "go_memstats_heap_inuse_bytes", "legendFormat": "heap" } ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Process CPU",
-      "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
-      "targets": [ { "expr": "rate(process_cpu_seconds_total[5m])", "legendFormat": "cpu" } ]
-    }
-  ]
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Forge Service",
+  "uid": "forge-service",
+  "version": 1
 }
