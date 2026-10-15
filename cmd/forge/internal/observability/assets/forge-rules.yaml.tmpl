@@ -1,0 +1,54 @@
+# Prometheus rules for forge services, written by `forge observability export`.
+# Availability objective: {{ .SLO }}%. The burn rate alerts follow the
+# multiwindow, multi-burn-rate pattern from the Google SRE workbook.
+groups:
+  - name: forge-http-recording
+    rules:
+      - record: job:http_server_requests:rate5m
+        expr: sum by (job) (rate(http_server_request_duration_seconds_count[5m]))
+      - record: job_route:http_server_requests:rate5m
+        expr: sum by (job, http_route) (rate(http_server_request_duration_seconds_count[5m]))
+{{- range .Windows }}
+      - record: job:http_server_request_errors:ratio_rate{{ . }}
+        expr: >-
+          sum by (job) (rate(http_server_request_duration_seconds_count{error_type!=""}[{{ . }}]))
+          / sum by (job) (rate(http_server_request_duration_seconds_count[{{ . }}]))
+{{- end }}
+      - record: job_route:http_server_request_duration_seconds:p95_5m
+        expr: >-
+          histogram_quantile(0.95,
+          sum by (job, http_route, le) (rate(http_server_request_duration_seconds_bucket[5m])))
+  - name: forge-http-alerts
+    rules:
+      - alert: ForgeHighErrorBurnFast
+        expr: >-
+          job:http_server_request_errors:ratio_rate1h > {{ .Fast }}
+          and job:http_server_request_errors:ratio_rate5m > {{ .Fast }}
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{"{{"}} $labels.job {{"}}"}} is burning its error budget fast'
+          description: >-
+            The error ratio has been above {{ .Fast }} over the last hour and the last five
+            minutes, 14.4 times the budget of a {{ .SLO }}% objective.
+      - alert: ForgeHighErrorBurnSlow
+        expr: >-
+          job:http_server_request_errors:ratio_rate6h > {{ .Slow }}
+          and job:http_server_request_errors:ratio_rate30m > {{ .Slow }}
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: '{{"{{"}} $labels.job {{"}}"}} is burning its error budget'
+          description: >-
+            The error ratio has been above {{ .Slow }} over the last six hours and the last
+            thirty minutes, 6 times the budget of a {{ .SLO }}% objective.
+      - alert: ForgeHighLatencyP95
+        expr: job_route:http_server_request_duration_seconds:p95_5m > {{ .P95 }}
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: '{{"{{"}} $labels.job {{"}}"}} {{"{{"}} $labels.http_route {{"}}"}} p95 is above {{ .P95 }}s'
+          description: The 95th percentile latency of this route has been above {{ .P95 }}s for ten minutes.
