@@ -236,7 +236,7 @@ func (k *Kubernetes) Rollback(ctx context.Context, _ provider.EnvRef, st *state.
 	return st.SaveSnapshot(snap)
 }
 func (k *Kubernetes) deleteObject(ctx context.Context, d *model.Deployment, obj object) error {
-	plural := map[string]string{"Deployment": "deployments", "StatefulSet": "statefulsets", "Service": "services", "ConfigMap": "configmaps", "Secret": "secrets", "ServiceAccount": "serviceaccounts", "Job": "jobs", "CronJob": "cronjobs", "Role": "roles", "RoleBinding": "rolebindings", "PodDisruptionBudget": "poddisruptionbudgets", "Ingress": "ingresses", "NetworkPolicy": "networkpolicies", "HTTPRoute": "httproutes", "PersistentVolumeClaim": "persistentvolumeclaims"}[obj["kind"].(string)]
+	plural := map[string]string{"Deployment": "deployments", "StatefulSet": "statefulsets", "Service": "services", "ConfigMap": "configmaps", "Secret": "secrets", "ServiceAccount": "serviceaccounts", "Job": "jobs", "CronJob": "cronjobs", "Role": "roles", "RoleBinding": "rolebindings", "PodDisruptionBudget": "poddisruptionbudgets", "Ingress": "ingresses", "NetworkPolicy": "networkpolicies", "HTTPRoute": "httproutes", "ServiceMonitor": "servicemonitors", "PersistentVolumeClaim": "persistentvolumeclaims"}[obj["kind"].(string)]
 	if plural == "" || !owned(d, obj) {
 		return errors.New("refusing to delete an unowned or unsupported Kubernetes object")
 	}

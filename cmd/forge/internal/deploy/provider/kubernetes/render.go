@@ -205,6 +205,12 @@ func (k *Kubernetes) render(ctx context.Context, d *model.Deployment, buildFiles
 			}
 		}
 
+		if sm, ok := serviceMonitorObject(d, s); ok {
+			if err := add("applications", "servicemonitor-"+s.Name, sm); err != nil {
+				return nil, err
+			}
+		}
+
 		if s.Replicas > 1 && (s.Kind == spec.KindWeb || s.Kind == spec.KindWorker || s.Kind == spec.KindGateway) {
 			obj := makeObject(d, "policy/v1", "PodDisruptionBudget", s.Name, object{"spec": object{"maxUnavailable": 1, "selector": object{"matchLabels": labels(d, s.Name, "app")}}})
 			if err := add("applications", "pdb-"+s.Name, obj); err != nil {
@@ -429,6 +435,7 @@ func applicationPod(d *model.Deployment, s model.Service, configName string, ove
 		}
 	}
 
+	maps.Copy(env, observabilityEnv(d, s))
 	maps.Copy(env, s.Env)
 	container := object{"name": s.Name, "image": images.Ref(s.Image), "imagePullPolicy": "IfNotPresent", "env": environment(d, env), "resources": resourceRequests(s), "securityContext": object{"runAsNonRoot": true, "runAsUser": 65532, "allowPrivilegeEscalation": false, "capabilities": object{"drop": []string{"ALL"}}}, "volumeMounts": []any{object{"name": "config", "mountPath": mount, "subPath": "overlay.yaml", "readOnly": true}}}
 

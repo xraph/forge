@@ -136,6 +136,23 @@ func networkObjects(d *model.Deployment) []object {
 		ingress[r.Service] = append(ingress[r.Service], object{"from": []any{object{"namespaceSelector": object{"matchLabels": object{"kubernetes.io/metadata.name": d.Target.IngressNamespace}}}}, "ports": []any{object{"protocol": "TCP", "port": p.Port}}})
 	}
 
+	if o := d.Target.Observability; o != nil {
+		egressRule, exports := otlpEgress(d)
+
+		for _, s := range d.Services {
+			if p, ok := metricsPort(s); ok && o.MonitorEnabled() {
+				ingress[s.Name] = append(ingress[s.Name], object{
+					"from":  []any{object{"namespaceSelector": object{"matchLabels": object{"kubernetes.io/metadata.name": o.ServiceMonitor.Namespace}}}},
+					"ports": []any{object{"protocol": "TCP", "port": p.Port}},
+				})
+			}
+
+			if exports {
+				egress[s.Name] = append(egress[s.Name], egressRule)
+			}
+		}
+	}
+
 	keys := []string{}
 	for name := range names {
 		keys = append(keys, name)

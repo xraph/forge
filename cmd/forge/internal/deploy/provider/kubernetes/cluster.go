@@ -42,6 +42,10 @@ func (k *Kubernetes) clusterObjects(ctx context.Context, d *model.Deployment, ow
 		kinds = append(kinds, "httproutes")
 	}
 
+	if d.Target.Observability.MonitorEnabled() {
+		kinds = append(kinds, "servicemonitors.monitoring.coreos.com")
+	}
+
 	args := []string{"get", strings.Join(kinds, ","), "-o", "json"}
 	if ownedOnly {
 		args = append(args, "--selector", selector(d))

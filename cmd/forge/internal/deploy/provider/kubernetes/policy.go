@@ -164,7 +164,7 @@ func workloadKey(d *model.Deployment, name, key string) bool {
 		}
 
 		return false
-	case "Deployment", "CronJob", "Service", "PodDisruptionBudget", "NetworkPolicy":
+	case "Deployment", "CronJob", "Service", "PodDisruptionBudget", "NetworkPolicy", "ServiceMonitor":
 		return objectName == name
 	}
 

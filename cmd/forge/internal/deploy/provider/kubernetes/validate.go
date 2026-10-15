@@ -217,6 +217,16 @@ func (*Kubernetes) Validate(_ context.Context, d *model.Deployment) output.Diagn
 		fail("local_cluster", "local image delivery requires context kind-"+d.Target.LocalCluster)
 	}
 
+	if o := d.Target.Observability; o != nil && d.Target.NetworkPolicy {
+		if o.OTLPEndpoint != "" && o.OTLPNamespace == "" && len(d.Target.ExternalCIDRs["otlp"]) == 0 {
+			fail("observability.otlp_namespace", "network_policy blocks OTLP export; set otlp_namespace or external_cidrs.otlp")
+		}
+
+		if o.MonitorEnabled() && o.ServiceMonitor.Namespace == "" {
+			fail("observability.service_monitor.namespace", "network_policy blocks scraping; set service_monitor.namespace to the namespace Prometheus runs in")
+		}
+	}
+
 	ds = append(ds, validateGitOps(d)...)
 
 	return ds
