@@ -65,14 +65,14 @@ func (w headerOnlyWriter) Header() http.Header         { return w.h }
 func (w headerOnlyWriter) Write(b []byte) (int, error) { return len(b), nil }
 func (w headerOnlyWriter) WriteHeader(int)             {}
 
-// The tracing middleware runs on every request. Of its 15 allocations, 5 are
+// The tracing middleware runs on every request. Of its 13 allocations, 5 are
 // its own: the per-request state, the traceparent string the IDs are sliced
 // from, the header value slice, the establish callback and the attribute
 // slice. The OpenTelemetry SDK makes 3 (the span, its attribute copy and the
-// span on the context), and 7 are context and request copies: the
-// route-match holder and its context, the request copy, and 4 for the log
-// trace and span IDs, which go-utils v1.4.0 boxes separately. If the count
-// climbs, the hot path regressed.
+// span on the context), and 5 are context and request copies: the
+// route-match holder and its context, the request copy, and the log context
+// node holding the trace and span IDs, which go-utils copies once to add the
+// span ID. If the count climbs, the hot path regressed.
 func TestServerMiddlewareAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("the race detector allocates on its own; counts are only meaningful without -race")
@@ -106,7 +106,7 @@ func TestServerMiddlewareAllocations(t *testing.T) {
 	}
 }
 
-const maxServerMiddlewareAllocs = 15
+const maxServerMiddlewareAllocs = 13
 
 // The propagators read lowercase keys; the carrier must find the canonical
 // header without allocating a canonicalized key per lookup.

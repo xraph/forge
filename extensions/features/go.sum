@@ -323,10 +323,10 @@ github.com/wsxiaoys/terminal v0.0.0-20160513160801-0940f3fc43a0 h1:3UeQBvD0TFrlV
 github.com/wsxiaoys/terminal v0.0.0-20160513160801-0940f3fc43a0/go.mod h1:IXCdmsXIht47RaVFLEdVnh1t+pgYtTAhQGj73kz+2DM=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
-github.com/xraph/confy v1.0.4 h1:EpVdquaGj1qjxUHlwFcKPivoRvU3tDeDZ745G1v+G5E=
-github.com/xraph/confy v1.0.4/go.mod h1:2uAWwkWmdQR9e5nJvXhrtpLfF/ZIeuJ9fyCsyRcZI9o=
-github.com/xraph/go-utils v1.4.0 h1:iPlnUqXsIRYvPVyCXwEvvl/kINCBjZy8DI8XR1feQFI=
-github.com/xraph/go-utils v1.4.0/go.mod h1:fMahP6kPUjJP5UmzVje2GSL7OGT9+xpYkukK2dLjSMM=
+github.com/xraph/confy v1.1.0 h1:xkWaujezyxi+8AcSgmkWarB6MacGlrhozJi+QcOD5P0=
+github.com/xraph/confy v1.1.0/go.mod h1:HZwQ/RixbBNtBMT7IcULVYbAkyFjeXcJDNJDYj6m5oI=
+github.com/xraph/go-utils v1.4.1 h1:uP4CD+AaCKThbfR8kdQUh0kKHCFFaGb300fKMEJoSJY=
+github.com/xraph/go-utils v1.4.1/go.mod h1:fMahP6kPUjJP5UmzVje2GSL7OGT9+xpYkukK2dLjSMM=
 github.com/xraph/vessel v1.0.4 h1:YVG80hm7bAKTwogwLXZMlp46tMHHJThUcvCUOWao9Yk=
 github.com/xraph/vessel v1.0.4/go.mod h1:5hgrMbuczxu2kRIM3iVJ3wPSb6HOvbMhV4nkRFaPNqs=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=

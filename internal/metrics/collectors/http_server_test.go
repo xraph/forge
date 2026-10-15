@@ -344,9 +344,9 @@ func histogramCount(t *testing.T, m shared.Metrics, name string, labels map[stri
 // The middleware runs on every request. Behind the tracing middleware (a
 // holder already on the context, a sampled span) it allocates once for its
 // per-request state, once for the establish callback and once for the
-// exemplar IDs. go-utils adds 4 more: metricCore.updateTimestamp on Inc, Dec
-// and Observe, and the exemplar store. If this climbs, something on the hot
-// path regressed.
+// exemplar IDs. Nothing inside go-utils allocates: Inc, Dec, Observe and the
+// exemplar store are allocation-free since v1.4.1. If this climbs, something
+// on the hot path regressed.
 func TestHTTPServerMetricsAllocations(t *testing.T) {
 	m := newCollector(t)
 	mw := collectors.NewHTTPServerMetrics(m, collectors.HTTPServerOptions{}).Middleware()
@@ -379,8 +379,8 @@ func TestHTTPServerMetricsAllocations(t *testing.T) {
 		next++
 	})
 
-	if allocs > 7 {
-		t.Fatalf("middleware allocated %.0f times per request, want at most 7", allocs)
+	if allocs > 3 {
+		t.Fatalf("middleware allocated %.0f times per request, want at most 3", allocs)
 	}
 }
 

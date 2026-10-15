@@ -273,10 +273,10 @@ github.com/uptrace/bunrouter v1.0.23 h1:Bi7NKw3uCQkcA/GUCtDNPq5LE5UdR9pe+UyWbjHB
 github.com/uptrace/bunrouter v1.0.23/go.mod h1:O3jAcl+5qgnF+ejhgkmbceEk0E/mqaK+ADOocdNpY8M=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
-github.com/xraph/confy v1.0.4 h1:EpVdquaGj1qjxUHlwFcKPivoRvU3tDeDZ745G1v+G5E=
-github.com/xraph/confy v1.0.4/go.mod h1:2uAWwkWmdQR9e5nJvXhrtpLfF/ZIeuJ9fyCsyRcZI9o=
-github.com/xraph/go-utils v1.4.0 h1:iPlnUqXsIRYvPVyCXwEvvl/kINCBjZy8DI8XR1feQFI=
-github.com/xraph/go-utils v1.4.0/go.mod h1:fMahP6kPUjJP5UmzVje2GSL7OGT9+xpYkukK2dLjSMM=
+github.com/xraph/confy v1.1.0 h1:xkWaujezyxi+8AcSgmkWarB6MacGlrhozJi+QcOD5P0=
+github.com/xraph/confy v1.1.0/go.mod h1:HZwQ/RixbBNtBMT7IcULVYbAkyFjeXcJDNJDYj6m5oI=
+github.com/xraph/go-utils v1.4.1 h1:uP4CD+AaCKThbfR8kdQUh0kKHCFFaGb300fKMEJoSJY=
+github.com/xraph/go-utils v1.4.1/go.mod h1:fMahP6kPUjJP5UmzVje2GSL7OGT9+xpYkukK2dLjSMM=
 github.com/xraph/trove v1.6.2 h1:NFen6PXBWP9DQGefKPwVk1JUd97KkV3Vf9HWBfVixMs=
 github.com/xraph/trove v1.6.2/go.mod h1:kkbYTmlqU7LBQWjsdhpH8KP+Bph9CjB/qAbTeFjUgV0=
 github.com/xraph/vessel v1.0.4 h1:YVG80hm7bAKTwogwLXZMlp46tMHHJThUcvCUOWao9Yk=

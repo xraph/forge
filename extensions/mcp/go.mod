@@ -5,9 +5,9 @@ go 1.26.0
 retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10-08; use a later version
 
 require (
-	github.com/xraph/confy v1.0.4
+	github.com/xraph/confy v1.1.0
 	github.com/xraph/forge v1.4.4
-	github.com/xraph/go-utils v1.4.0
+	github.com/xraph/go-utils v1.4.1
 	github.com/xraph/vessel v1.0.4
 )
 
