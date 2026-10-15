@@ -8,6 +8,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 This is every series Forge puts on `/_/metrics`, read from the code and checked against a live scrape. Each section says when its series are on, what they're called on the wire, and what their labels mean.
 
+The names here are the scrape's. When Forge pushes over OTLP, the semconv series go out with their dotted OpenTelemetry names, and a Prometheus-compatible backend turns them back into the names below. [Pushing over OTLP](/docs/forge/metrics#pushing-over-otlp) covers the two edge cases where push and scrape disagree.
+
 ## How names are built
 
 Two rules decide what a metric is called on the wire.
