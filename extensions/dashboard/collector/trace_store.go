@@ -60,7 +60,10 @@ type TraceStore struct {
 
 	mu           sync.RWMutex
 	onTraceAdded OnTraceAddedFunc
-	ingestGate   IngestGateFunc
+
+	// ingestGate is read on every span end, so it is an atomic pointer and
+	// Accepting never waits on mu. A nil pointer means no gate.
+	ingestGate atomic.Pointer[IngestGateFunc]
 
 	// droppedSpans counts spans refused because their trace was already at
 	// maxSpansPerTrace. Read it with DroppedSpans.
@@ -149,10 +152,13 @@ func (ts *TraceStore) SetOnTraceAdded(fn OnTraceAddedFunc) {
 // SetIngestGate installs the predicate that decides whether spans are retained.
 // Pass nil to retain everything.
 func (ts *TraceStore) SetIngestGate(fn IngestGateFunc) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+	if fn == nil {
+		ts.ingestGate.Store(nil)
 
-	ts.ingestGate = fn
+		return
+	}
+
+	ts.ingestGate.Store(&fn)
 }
 
 // MarkAccessed records that the dashboard was used just now. It is safe to call
@@ -174,13 +180,11 @@ func (ts *TraceStore) LastAccessed() time.Time {
 
 // Accepting reports whether the store currently keeps spans: true with no
 // ingest gate, otherwise whatever the gate says. It is cheap enough for the
-// request path.
+// request path: it takes no lock, so it never waits behind a writer.
 func (ts *TraceStore) Accepting() bool {
-	ts.mu.RLock()
-	gate := ts.ingestGate
-	ts.mu.RUnlock()
+	gate := ts.ingestGate.Load()
 
-	return gate == nil || gate()
+	return gate == nil || (*gate)()
 }
 
 // AttachExchange keeps ex until the span with spanID is added. When the map

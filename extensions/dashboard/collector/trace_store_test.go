@@ -200,6 +200,50 @@ func TestTraceStore_ClosedGateRejectsSpans(t *testing.T) {
 	}
 }
 
+// Clearing the gate restores accept-all, and swapping it while spans arrive
+// must be race free now that Accepting reads it without a lock.
+func TestTraceStore_NilGateAcceptsAndSwapIsRaceFree(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetIngestGate(func() bool { return false })
+
+	if ts.Accepting() {
+		t.Fatal("closed gate is accepting")
+	}
+
+	ts.SetIngestGate(nil)
+
+	if !ts.Accepting() {
+		t.Fatal("nil gate must accept everything")
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		for i := range 1000 {
+			if i%2 == 0 {
+				ts.SetIngestGate(func() bool { return true })
+			} else {
+				ts.SetIngestGate(nil)
+			}
+		}
+	}()
+
+	for !isClosed(done) {
+		_ = ts.Accepting()
+	}
+}
+
+func isClosed(c <-chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
+}
+
 func TestTraceStore_OpenGateAcceptsSpans(t *testing.T) {
 	ts := NewTraceStore(10, time.Hour)
 	ts.SetIngestGate(func() bool { return true })
