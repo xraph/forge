@@ -136,3 +136,24 @@ func TestMatchNilHolderIsSafe(t *testing.T) {
 	m.OnMatched(func(string) { t.Fatal("callback ran on a nil holder") })
 	m.Match("/x", KindHTTP)
 }
+
+// Profiling registers one OnMatched callback per labelled request; it must
+// not allocate on top of the holder.
+func TestOnMatchedOneCallbackDoesNotAllocate(t *testing.T) {
+	ctx := context.Background()
+	fn := func(string) {}
+
+	holderOnly := testing.AllocsPerRun(100, func() {
+		_, h := NewRouteMatch(ctx)
+		_ = h
+	})
+
+	withCallback := testing.AllocsPerRun(100, func() {
+		_, h := NewRouteMatch(ctx)
+		h.OnMatched(fn)
+	})
+
+	if withCallback != holderOnly {
+		t.Fatalf("one OnMatched call added %.0f allocations, want 0", withCallback-holderOnly)
+	}
+}
