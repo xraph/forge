@@ -1,0 +1,149 @@
+---
+title: Metric reference
+description: Every series a Forge app exports at /_/metrics, with its type, unit, labels, buckets and when it's on
+icon: List
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This is every series Forge puts on `/_/metrics`, read from the code and checked against a live scrape. Each section says when its series are on, what they're called on the wire, and what their labels mean.
+
+## How names are built
+
+Two rules decide what a metric is called on the wire.
+
+OpenTelemetry semantic-convention names are exported the way Grafana's stock dashboards expect them: no prefix, dots turned into underscores, and the unit added as a suffix. A metric whose name starts with `http.server.`, `http.client.`, `rpc.`, `messaging.` or `db.client.` gets this treatment. The unit suffix is `_seconds` for `s`, `_bytes` for `By` and `_milliseconds` for `ms`. A unit in braces, like `{request}`, adds nothing.
+
+Every other name is prefixed with the namespace in `metrics.collection.namespace`, which defaults to `forge`, and any character Prometheus doesn't allow becomes an underscore. So `cache.hits` comes out as `forge_cache_hits`. No unit suffix is added, so put it in the name yourself.
+
+The namespace rule covers Forge's own non-semconv series too. Set the namespace to `shop` and `forge_stream_connections_active` becomes `shop_stream_connections_active`. The tables below use the default.
+
+Label keys go through the same character rule. The semconv attribute `http.request.method` is the label `http_request_method`.
+
+## HTTP server
+
+On when `metrics.enabled` and `metrics.features.http_metrics` are both true, which is the default. Requests under the tracing `exclude_paths` (default `/_/`) aren't recorded, so the scrape doesn't count itself.
+
+| Series | Type | Unit | Labels |
+|---|---|---|---|
+| `http_server_request_duration_seconds` | histogram | seconds | `http_request_method`, `http_route`, `http_response_status_code`, `url_scheme`, `error_type` |
+| `http_server_active_requests` | gauge | requests | `http_request_method`, `url_scheme` |
+| `http_server_request_body_size_bytes` | histogram | bytes | same as the duration |
+| `http_server_response_body_size_bytes` | histogram | bytes | same as the duration |
+
+The two body size histograms are off unless you also set `metrics.features.http_body_sizes: true`. Each one adds a full set of buckets per route and status, which is why they're opt-in. The request size is only observed when the request has a `Content-Length`.
+
+Buckets:
+
+| Histogram | Bounds |
+|---|---|
+| Duration | 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 seconds |
+| Body sizes | 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216 bytes |
+
+What the label values are:
+
+- `http_route` is the pattern you registered, `/users/:id`, never the raw path. A request that matched no route has an empty `http_route`, so a scanner trying a thousand paths makes one series.
+- `http_request_method` is one of GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, TRACE and PATCH, or `_OTHER` for anything else.
+- `url_scheme` is `https` when the request came in over TLS and `http` otherwise.
+- `error_type` is the status code as a string (`"503"`) on a 5xx and empty on everything else.
+
+On a WebSocket, SSE or WebTransport route, the duration is the handshake only and the request stops counting as active once the stream is established. The connection itself is in the stream series below.
+
+The duration histogram carries a `trace_id` and `span_id` exemplar for every request tracing sampled. Exemplars only exist in the OpenMetrics format, so a plain `curl` won't show them unless you send `Accept: application/openmetrics-text`. No other Forge series carries exemplars.
+
+## Stream connections
+
+On whenever `metrics.enabled` is true. They don't depend on `http_metrics` or on tracing, and they skip the tracing `exclude_paths` like the HTTP series do.
+
+| Series | Type | Unit | Labels |
+|---|---|---|---|
+| `forge_stream_connections_active` | gauge | connections | `http_route`, `stream_kind` |
+| `forge_stream_connection_duration_seconds` | histogram | seconds | `http_route`, `stream_kind`, `error_type` |
+| `forge_stream_messages_total` | counter | messages | `http_route`, `stream_kind`, `direction` |
+
+The duration buckets are 1, 5, 15, 30, 60, 300, 900, 1800, 3600, 7200 and 14400 seconds, so one second up to four hours. A connection is observed when it closes, which means one that's still open is only in the gauge.
+
+- `stream_kind` is `sse`, `websocket` or `webtransport`.
+- `direction` is `sent` or `received`.
+- `error_type` is `handler_error` when the handler returned an error or panicked. It's empty for a clean close and for errors that only mean the client left: EOF, a canceled context, a closed connection, a WebSocket close frame, a broken pipe or reset, a write deadline, or a panic with `http.ErrAbortHandler`.
+
+What counts as a message depends on the route. `EventStream` counts every event sent, routes registered with `SSE()` count nothing, WebSocket counts data frames both ways, and WebTransport counts datagrams. [Metrics](/docs/forge/metrics#stream-connections) has the details.
+
+## gRPC server
+
+From the [gRPC extension](/docs/extensions/grpc), on when its `enable_metrics` is true (the default) and the app has metrics.
+
+| Series | Type | Unit | Labels |
+|---|---|---|---|
+| `rpc_server_call_duration_seconds` | histogram | seconds | `rpc_system_name`, `rpc_method`, `rpc_response_status_code` |
+
+The buckets are the same as the HTTP duration's, 0.005 to 10 seconds. Unary and streaming calls share the series.
+
+- `rpc_system_name` is always `grpc`.
+- `rpc_method` is the full method without the leading slash, such as `billing.Invoices/Get`.
+- `rpc_response_status_code` is the canonical code name: `OK`, `NOT_FOUND`, `CANCELLED`, `DEADLINE_EXCEEDED`. A handler that returns a bare `context.Canceled` or `context.DeadlineExceeded` is recorded with the code the client sees.
+
+Health and reflection calls aren't recorded. These are the same attribute names the server span carries, so a metric and its trace line up.
+
+## Go runtime and process
+
+On when `metrics.features.runtime_metrics` is true, the default. These come straight from the Prometheus Go client's own collectors, so they have their usual names, no prefix, and the namespace doesn't touch them.
+
+| Series | What it is |
+|---|---|
+| `go_goroutines`, `go_threads` | goroutines and OS threads |
+| `go_gc_duration_seconds` | GC pause durations, a summary |
+| `go_memstats_*` | heap, stack and allocator figures from `runtime.MemStats` |
+| `go_gc_gogc_percent`, `go_gc_gomemlimit_bytes`, `go_sched_gomaxprocs_threads` | the runtime's `GOGC`, `GOMEMLIMIT` and `GOMAXPROCS` |
+| `go_info` | the Go version, as a label |
+| `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_virtual_memory_bytes`, `process_open_fds`, `process_max_fds`, `process_start_time_seconds` | the process's own figures |
+
+Linux reports the full process set. Other platforms report whatever subset the Go client supports there.
+
+<Callout type="warn">
+`metrics.features.system_metrics` is on by default, but today a `forge.New` app exports no host CPU, memory, disk or load series. The collector that gathers them only runs once the metrics service is started, and nothing in `forge.New` starts it. Use `process_*` for the process, or a node exporter for the host.
+</Callout>
+
+## Health checks
+
+On when health checks are enabled, the default. The health service names its metrics `forge.health.*`, and the namespace prefix is added in front of that, so with the default namespace they carry `forge_` twice.
+
+| Series | Type | What it is |
+|---|---|---|
+| `forge_forge_health_service_started` | counter | the health service started |
+| `forge_forge_health_registered_checks`, `forge_forge_health_service_registered_checks` | gauge | checks registered |
+| `forge_forge_health_service_checks_registered` | counter | registrations so far |
+| `forge_forge_health_service_checks_performed` | counter | checks run |
+| `forge_forge_health_service_check_duration` | histogram | how long a full round of checks took |
+| `forge_forge_health_service_overall_status` | gauge | 0 healthy, 1 degraded, 2 unhealthy, 3 unknown |
+
+The check duration is observed in seconds but uses the default buckets described below, 0 to 10000, so almost every observation lands in the first bucket. Read it as `_sum / _count`, not by quantile. Alerting webhooks, email notifiers and the health middleware add more `forge_forge_health_*` series when you turn them on.
+
+## Your own metrics
+
+Anything you create through `app.Metrics()`, `forge.CounterVec`, `forge.GaugeVec` or `forge.HistogramVec` follows the naming rules at the top of this page. Read this before you build a dashboard on them.
+
+A histogram with no buckets set gets 0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500 and 10000. Those suit milliseconds or bytes. Observe seconds against them and everything piles into the first bucket, so pass `Buckets` in `forge.HistogramOpts`, or `metrics.WithBuckets(...)` from `github.com/xraph/go-utils/metrics` when you call `Histogram`.
+
+Give counters a name ending in `_total`. A counter called `cache.hits` is exported as `forge_cache_hits`, and in the OpenMetrics format (the one Prometheus asks for) a counter without the suffix is typed `unknown`. `rate()` still works on it, but anything that reads the metric type sees `unknown`. It works the other way round too: a gauge whose name ends in `_total` is exported as a counter, because that is what Prometheus assumes the suffix means.
+
+A timer is exported as a summary with 0.5, 0.95 and 0.99 quantiles plus `_sum` and `_count`. In our testing the quantiles read 0 after a single 30 ms observation, so use a histogram when you want percentiles.
+
+Two smaller things. The `HELP` line never carries your description, since every family's help text is `Forge <type> <name>`. And an empty label value is exported as an empty string: a series with `error_type=""` shows the label in the scrape, and Prometheus treats it the same as a series without the label.
+
+## The overflow label
+
+`metrics.limits.max_series_per_metric` (default 2000) caps how many label sets one metric name may hold. Past the cap, new label sets fold into one series with `otel_metric_overflow="true"` and every other label empty, and Forge logs one warning for that metric. Once a metric has overflowed, the series that got in under the cap carry `otel_metric_overflow=""`.
+
+```promql
+# Any metric that has hit its cap
+count by (__name__) ({otel_metric_overflow="true"})
+```
+
+This applies to every series in Forge's registry, the HTTP, stream and gRPC series included. The `go_` and `process_` series come from their own collectors and aren't capped. `metrics.limits.max_metrics` (default 10000) caps the registry as a whole; past it, new metrics and label sets are silently left off the scrape after one warning.
+
+## See also
+
+- [Metrics](/docs/forge/metrics) for recording your own metrics, label vectors and configuration.
+- [Migrating dashboards](/docs/forge/migrating-dashboards) if you have panels on the old `forge_http_*` or `forge_grpc_*` names.
+- [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) to see these series in a local Grafana.
