@@ -312,6 +312,9 @@ func TestAppFailedStartAfterPushBeganStopsPushing(t *testing.T) {
 	}
 
 	after := recv.count()
+	if after == 0 {
+		t.Fatal("push never began")
+	}
 
 	time.Sleep(300 * time.Millisecond)
 
