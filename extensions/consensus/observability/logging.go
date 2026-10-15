@@ -140,19 +140,10 @@ func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, messag
 	fieldMap["operation"] = operation
 
 	// Add trace context if available
-	traceID := ""
-	spanID := ""
-
-	if lm.config.EnableTracing && ctx != nil {
-		if tid, ok := GetTraceContext(ctx); ok {
-			traceID = tid
-			fieldMap["trace_id"] = traceID
-		}
-
-		if sid, ok := GetSpanContext(ctx); ok {
-			spanID = sid
-			fieldMap["span_id"] = spanID
-		}
+	traceID, spanID := traceFields(ctx, lm.config.EnableTracing)
+	if traceID != "" {
+		fieldMap["trace_id"] = traceID
+		fieldMap["span_id"] = spanID
 	}
 
 	// Create log entry
@@ -405,4 +396,19 @@ func (lm *LogManager) GetRecentLogs(duration time.Duration, limit int) []LogEntr
 	return lm.SearchLogs(LogFilter{
 		StartTime: time.Now().Add(-duration),
 	})
+}
+
+// traceFields returns the trace and span IDs of the OpenTelemetry span ctx
+// carries, or empty strings when tracing is off or there is no span.
+func traceFields(ctx context.Context, enabled bool) (traceID, spanID string) {
+	if !enabled || ctx == nil {
+		return "", ""
+	}
+
+	sc := forge.SpanFromContext(ctx).SpanContext()
+	if !sc.IsValid() {
+		return "", ""
+	}
+
+	return sc.TraceID().String(), sc.SpanID().String()
 }
