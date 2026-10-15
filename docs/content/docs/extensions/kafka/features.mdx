@@ -246,7 +246,7 @@ A scrape spells the histograms `messaging_client_operation_duration_seconds` and
 
 ## Tracing
 
-With `enable_tracing` on (the default), each send starts a `send {topic}` producer span and writes `traceparent` (and `tracestate`, when set) into the record's headers. Pass your request's context to `SendMessageContext`, `SendMessageAsyncContext` or `SendMessagesContext` and the send joins that trace. The async span covers the hand-off to the producer only, because delivery errors come back on the producer's own channel.
+With `enable_tracing` on (the default), each send starts a `send {topic}` producer span and writes the trace context into the record's headers (`traceparent`, `tracestate` when set, and `baggage` when the context has any). Pass your request's context to `SendMessageContext`, `SendMessageAsyncContext` or `SendMessagesContext` and the send joins that trace. The async span covers the hand-off to the producer only, because delivery errors come back on the producer's own channel.
 
 `SendMessages` starts a `create {topic}` span for each record, injects it into that record, and then starts one `send {topic}` span that links to all of them. A batch that spans several topics gets a plain `send` span with no destination, and its metrics carry an empty `messaging_destination_name`.
 

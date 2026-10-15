@@ -276,7 +276,7 @@ In code, build an `events.Config` (start from `events.DefaultConfig()`) and pass
 
 Tracing is on by default. Every broker a publish reaches gets its own producer span, named `publish <event type>`, and every handler run happens inside a consumer span named `process <event type>`. The consumer span is a child of the producer span, so one trace follows an event from the `Publish` call to each handler, across brokers and services. Handler errors and panics mark the consumer span as failed.
 
-The producer puts `traceparent` (and `tracestate`, when there is one) into the event's `Metadata`. Your `*core.Event` and its map are never modified: the broker gets a copy. The values are plain strings, so they survive the JSON hop through NATS and Redis. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing.
+The producer puts the trace context into the event's `Metadata`: `traceparent`, `tracestate` when there is one, and `baggage` when the context has any. Your `*core.Event` and its map are never modified: the broker gets a copy. The values are plain strings, so they survive the JSON hop through NATS and Redis. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing.
 
 `messaging.system` is the broker's name, so two brokers show up as two systems.
 
@@ -286,6 +286,8 @@ With `bus.enable_metrics` on, the same spans feed two histograms, both in second
 - `messaging_process_duration_seconds` for handler runs
 
 Filter them by `messaging_system` to get one broker's numbers. Both carry `messaging_destination_name` (the event type), `messaging_operation_name`, `messaging_operation_type` and `error_type`.
+
+If you register your own `core.MessageBroker`, it receives the bus's tracing wrapper in `Subscribe`, not the handler value you passed. The wrapper forwards `Name`, `CanHandle` and `LogicalName`, so identity checks keep working.
 
 To turn spans off, set `bus.enable_tracing: false`. Trace context still passes through the event, so a service that doesn't trace doesn't break the trace of the services around it.
 

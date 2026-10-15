@@ -11,7 +11,7 @@ depends on.
 
 Conduit uses github.com/xraph/forge/messaging, one `*messaging.Telemetry` per configured
 provider, named by the provider's `Name()` (`memory`, `redis-streams`, `nats-jetstream`, `postgres`, `kafka`). Trace
-context travels in `Envelope.Headers` (`traceparent`, and `tracestate` when set).
+context travels in `Envelope.Headers` (`traceparent`, `tracestate` when set, and `baggage` when the context has any).
 
 | Where | Span | Kind |
 |---|---|---|

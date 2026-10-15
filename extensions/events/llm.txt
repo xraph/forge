@@ -156,7 +156,7 @@ Implemented with `github.com/xraph/forge/messaging`; one `messaging.Telemetry` p
 with `messaging.system` set to the broker's name.
 
 - Each broker a publish reaches gets a producer span `publish <event type>`. The broker receives a
-  copy of the event whose `Metadata` carries `traceparent` (and `tracestate`). The caller's event
+  copy of the event whose `Metadata` carries `traceparent`, `tracestate` when set and `baggage` when the context has any. The caller's event
   and its Metadata map are never modified.
 - Every handler runs inside a consumer span `process <event type>`, a child of the producer span.
   The bus wraps the handler at each `broker.Subscribe`; `Name()` and `LogicalName()` are forwarded,

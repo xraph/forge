@@ -222,7 +222,7 @@ The call returns once the group's consume loop is running in the background. A n
 
 ## Tracing
 
-With `enable_tracing` on (it is by default), every send starts a producer span and writes the trace context into the record's headers as `traceparent`, plus `tracestate` when there is one. `SendMessage` and `SendMessageAsync` get a `send {topic}` span. The async span covers the hand-off to the producer only, because delivery errors show up later on the producer's own error channel.
+With `enable_tracing` on (it is by default), every send starts a producer span and writes the trace context into the record's headers as `traceparent`, plus `tracestate` when there is one and `baggage` when the context has any. `SendMessage` and `SendMessageAsync` get a `send {topic}` span. The async span covers the hand-off to the producer only, because delivery errors show up later on the producer's own error channel.
 
 `SendMessages` gets one `create {topic}` span per record, injected into that record, and a single `send {topic}` span that links to all of them. A batch that spans several topics gets a plain `send` span with no destination. Pass the `ctx` of the request you're serving to the `*Context` methods and these spans join its trace.
 
@@ -322,6 +322,7 @@ These are the fields of `kafka.Config`, with their YAML names:
 | `enable_tls`, `tls_cert_file`, `tls_key_file`, `tls_ca_file`, `tls_skip_verify` | off | TLS |
 | `enable_sasl`, `sasl_mechanism`, `sasl_username`, `sasl_password` | off, `PLAIN` | SASL |
 | `enable_metrics` | `true` | Record the metrics below |
+| `enable_tracing` | `true` | Start a `send` span for each send and a `process` span around each handler, and carry `traceparent` in the record headers. Off means no spans; the headers still pass the trace through |
 | `enable_logging` | `true` | Log failed and successful sync sends |
 
 Unknown values for compression, acks, offsets, isolation or rebalance fail validation when the extension registers, so a typo stops the app at startup. `consumer_group_id` is stored on the config but nothing reads it yet: the group ID you pass to `JoinConsumerGroup` is the one that counts.

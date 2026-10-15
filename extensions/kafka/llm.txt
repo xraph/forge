@@ -131,7 +131,8 @@ Telemetry.Process.
 - JoinConsumerGroup runs the group loop in the background. You call `session.MarkMessage` in
   your handler. One group per client; LeaveConsumerGroup before joining another.
 - Tracing (enable_tracing, default true): every send starts a producer span ("send {topic}") and
-  injects traceparent into the record headers. SendMessageAsync's span covers the hand-off only.
+  injects the trace context (traceparent, tracestate when set, baggage when the context has any)
+  into the record headers. SendMessageAsync's span covers the hand-off only.
   SendMessages starts a "create {topic}" span per record, injected into that record, plus one
   "send {topic}" span linking them all with messaging.batch.message_count. A batch across several
   topics is named just "send". Consume, ConsumePartition and their *Context twins run each

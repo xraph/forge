@@ -192,7 +192,7 @@ Read failed messages back with `q.GetDeadLetterQueue(ctx, "emails")`. On the in-
 
 Anything you publish or consume through `*queue.QueueService` (that's what `queue.GetQueue` hands you) is traced and timed. Set `enable_tracing: false` or `enable_metrics: false` to turn either off. Both default to on.
 
-A `Publish` or `PublishDelayed` starts a producer span named `publish emails`. It also adds `traceparent` (and `tracestate`, when there is one) to the message's `Headers`. Your handler then runs inside a `process emails` span that is a child of the publisher's, so a trace that starts in an HTTP handler carries on into the worker. Spans you start from the handler's `ctx` nest under it. An error from your handler marks the span as failed.
+A `Publish` or `PublishDelayed` starts a producer span named `publish emails`. It also adds the trace context headers to the message's `Headers`: `traceparent`, `tracestate` when there is one, and `baggage` when the context has any. Your handler then runs inside a `process emails` span that is a child of the publisher's, so a trace that starts in an HTTP handler carries on into the worker. Spans you start from the handler's `ctx` nest under it. An error from your handler marks the span as failed.
 
 `PublishBatch` publishes the messages one at a time, so every message gets its own span, and it stops at the first error the backend returns.
 
@@ -205,7 +205,9 @@ Two histograms record the timing, labelled with `messaging_system` (the driver, 
 | `messaging_client_operation_duration_seconds` | `Publish` and `PublishDelayed` |
 | `messaging_process_duration_seconds` | each handler call |
 
-If a test of yours asserts the exact headers on a published message, allow for `traceparent`. And if you call a backend like `NewInMemoryQueue` directly, without the service, you get no spans and no headers.
+The `inmemory` driver implements `PublishDelayed` by sleeping inside the send span, so the delay you ask for lands in `messaging_client_operation_duration_seconds`. The other drivers hand the message off and return.
+
+If a test of yours asserts the exact headers on a published message, allow for the trace context headers. And if you call a backend like `NewInMemoryQueue` directly, without the service, you get no spans and no headers.
 
 ## Configuration
 

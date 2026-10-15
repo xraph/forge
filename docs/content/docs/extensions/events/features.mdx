@@ -199,7 +199,7 @@ handler.WithRetryPolicy(policy)
 
 Tracing is on by default. Every broker a publish reaches gets its own `publish {event type}` producer span, and every handler run happens inside a `process {event type}` consumer span that is a child of the producer's. One trace follows an event from the `Publish` call to each handler, across brokers and across services. A handler error or panic marks the consumer span as failed.
 
-The bus puts `traceparent` (and `tracestate`, when there is one) into the event's `Metadata` as plain strings, so they survive the JSON hop through NATS and Redis. Your `*core.Event` and its map are never modified: each broker gets its own copy, which matters on the memory broker where handlers share the map. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing. If a test of yours asserts the exact `Metadata` of a published event, allow for the new keys.
+The bus puts the trace context into the event's `Metadata` as plain strings (`traceparent`, `tracestate` when there is one, and `baggage` when the context has any), so they survive the JSON hop through NATS and Redis. Your `*core.Event` and its map are never modified: each broker gets its own copy, which matters on the memory broker where handlers share the map. An event from an older publisher, with no `traceparent` or a malformed one, starts a fresh trace instead of failing. If a test of yours asserts the exact `Metadata` of a published event, allow for the new keys.
 
 `messaging_system` is the broker's name, so two brokers show up as two systems. With `bus.enable_metrics` on, the same spans feed two histograms:
 

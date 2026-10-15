@@ -230,7 +230,7 @@ the call. The in-memory `GetQueueInfo` always reports zero consumers.
 
 ## Tracing and metrics
 
-Anything you publish or consume through the queue the extension hands you (`queue.GetQueue`, or `*queue.QueueService`) is traced and timed. `Publish` and `PublishDelayed` start a `publish {queue}` span and add `traceparent` (and `tracestate`, when there is one) to the message's `Headers`. Your handler then runs inside a `process {queue}` span that is a child of the publisher's, so a trace that starts in an HTTP handler carries on into the worker, and spans you start from the handler's `ctx` nest under it. A handler error or panic marks the span as failed.
+Anything you publish or consume through the queue the extension hands you (`queue.GetQueue`, or `*queue.QueueService`) is traced and timed. `Publish` and `PublishDelayed` start a `publish {queue}` span and add the trace context headers to the message's `Headers`: `traceparent`, `tracestate` when there is one, and `baggage` when the context has any. Your handler then runs inside a `process {queue}` span that is a child of the publisher's, so a trace that starts in an HTTP handler carries on into the worker, and spans you start from the handler's `ctx` nest under it. A handler error or panic marks the span as failed.
 
 `PublishBatch` publishes the messages one at a time, so every message gets its own span, and it stops at the first error the backend returns. The service copies the headers before it adds anything, so the map you pass in is never touched. A message from a publisher that sends no trace headers starts a new trace in the worker.
 
@@ -241,7 +241,7 @@ Two histograms record the timing, with `messaging_system` set to the driver (`me
 | `messaging_client_operation_duration_seconds` | `Publish` and `PublishDelayed` |
 | `messaging_process_duration_seconds` | each handler call |
 
-Set `enable_tracing: false` or `enable_metrics: false` to turn either off. Both default to on, and propagation keeps working with tracing off. If you build a driver yourself (`NewInMemoryQueue` and friends) and use it without the service, you get no spans, no series and no headers. If a test of yours asserts the exact headers on a published message, allow for `traceparent`.
+Set `enable_tracing: false` or `enable_metrics: false` to turn either off. Both default to on, and propagation keeps working with tracing off. If you build a driver yourself (`NewInMemoryQueue` and friends) and use it without the service, you get no spans, no series and no headers. If a test of yours asserts the exact headers on a published message, allow for the trace context headers.
 
 The [observability page](/docs/forge/observability#messaging) has the full trace shape across extensions, and the [metrics page](/docs/forge/metrics#messaging) the series and PromQL.
 

@@ -364,7 +364,7 @@ The [gRPC extension](/docs/extensions/grpc) gives every served call a server spa
 
 ### Messaging
 
-A message you publish in one service and handle in another shows up as one trace. The publisher records a producer span, the handler runs inside a consumer span that is its child, and the trace context travels in the message's own headers as `traceparent` (plus `tracestate` when there is one). The queue, events, conduit and kafka extensions do this for you. You don't add a hook or copy a header by hand.
+A message you publish in one service and handle in another shows up as one trace. The publisher records a producer span, the handler runs inside a consumer span that is its child, and the trace context travels in the message's own headers: `traceparent`, `tracestate` when there is one, and `baggage` when the context has any (the default propagators are `tracecontext` and `baggage`). The queue, events, conduit and kafka extensions do this for you. You don't add a hook or copy a header by hand.
 
 | Extension | Spans you'll see | `messaging_system` |
 |---|---|---|
@@ -375,7 +375,7 @@ A message you publish in one service and handle in another shows up as one trace
 
 The create, send and publish spans are producer spans and the process spans are consumer spans. The RPC pair is the exception: `call` is a client span and `serve` is a server span, and the server span is the call's child.
 
-Every span carries `messaging.system`, `messaging.destination.name` (the queue, event type, stream or topic), `messaging.operation.name` and `messaging.operation.type`. A batch send adds `messaging.batch.message_count`. A failed publish or handler marks its span as an error, records the error and sets `error.type`; a handler that panics does the same with `error.type` set to `*messaging.PanicError`, and the panic carries on up unchanged.
+Every span carries `messaging.system`, `messaging.destination.name` (the queue, event type, stream or topic), `messaging.operation.name` and `messaging.operation.type`. A batch send adds `messaging.batch.message_count`. A failed publish or handler marks its span as an error, records the error and sets `error.type`; in the queue, events and kafka extensions a handler that panics does the same with `error.type` set to `*messaging.PanicError`, and the panic carries on up unchanged. Conduit recovers a handler or RPC panic into an ordinary error (`conduit: callback panic: ...`), so its span gets that error's Go type and the panic doesn't propagate.
 
 Conduit records two producer spans per message. `Prepare` writes the `create` span's context into the envelope before your publish hooks run, so an envelope that waits in the transactional outbox, gets backfilled or comes back through dead letter replay still joins the trace that made it. The `send` span carries a link to `create`. When an outbox relay sends the envelope later there's no caller span to be a child of, so `send` is a root span with that link, and the trace still connects through `create`. Each retry gets its own `process` span. A publish hook that replaces `Headers` wholesale throws `traceparent` away with the rest, so add to the map.
 
@@ -386,7 +386,8 @@ A few cases you can count on:
 - A message from a publisher that sends no `traceparent`, or a garbled one, gives a root consumer span and no error.
 - A publisher whose trace wasn't sampled stays unsampled downstream. Nothing is exported, but the trace ID still reaches your logs.
 - The headers or metadata you pass to a publish call are never modified. The extension copies them first, so reusing one map across publishes or goroutines is safe.
-- Messages now carry `traceparent`, so a test that asserts the exact set of headers or metadata needs to allow for it.
+- Messages now carry trace context (`traceparent`, and `tracestate` or `baggage` when there are any), so a test that asserts the exact set of headers or metadata needs to allow for it.
+- The context you publish with decides the trace. With tracing on, a publish from a context that has no span starts a new root and replaces a `traceparent` you put in the headers yourself. To forward a message you received, call `forge.ExtractTraceContext` (or `messaging.Extract`) on its headers first and publish with the context that returns.
 
 `enable_tracing: false` on the queue, events or kafka extension turns the spans off and leaves propagation on. A hop that doesn't trace still hands the trace on, so a service with tracing off doesn't break the trace of the services around it. Conduit has no flag and follows the app's `tracing.enabled`. Events used to default to `false` (and never read it); it's `true` now.
 

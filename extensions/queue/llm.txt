@@ -155,8 +155,8 @@ URLs are redacted in logs and connection errors.
 `enable_metrics` (both default true) gate it. `messaging.system` is the driver, with `inmemory`
 reported as `memory`.
 
-- `Publish` and `PublishDelayed` start a producer span `publish <queue>` and write `traceparent`
-  (and `tracestate` when set) into a copy of `Message.Headers`. The map you pass is never modified,
+- `Publish` and `PublishDelayed` start a producer span `publish <queue>` and write the trace context
+  headers (`traceparent`, `tracestate` when set, `baggage` when the context has any) into a copy of `Message.Headers`. The map you pass is never modified,
   so you can reuse one headers map across publishes and goroutines. A nil map stays nil when
   there is no trace context to add.
 - `PublishBatch` loops over the service's `Publish`, so each message gets its own span. An empty

@@ -503,10 +503,10 @@ The queue, events, conduit and kafka extensions record the same two histograms, 
 
 Both carry the same labels: `messaging_system`, `messaging_destination_name`, `messaging_operation_name`, `messaging_operation_type` and `error_type`. The buckets are 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5 and 10 seconds, the same ones the HTTP histogram uses.
 
-- `messaging_system` says which messaging system the number belongs to: the queue driver (`memory`, `redis`, `nats`, `rabbitmq`), the events broker's name, the conduit provider's name, or `kafka`. Two extensions on one app share the series, so filter on this label when you want one of them.
+- `messaging_system` names the broker technology or the broker, not the extension: the queue driver (`memory`, `redis`, `nats`, `rabbitmq`), the events broker's name, the conduit provider's name, or `kafka`. Several extensions can report the same value (`memory` is queue's inmemory driver, an events broker named `memory` and conduit's memory provider), so this label can't tell you which extension sent a number. If two of them share a system and a destination name, their numbers land in one series.
 - `messaging_destination_name` is the queue, event type, stream or topic. A kafka `SendMessages` batch that spans several topics has an empty destination.
 - `messaging_operation_type` is `send` or `process`. `messaging_operation_name` is the verb the extension uses: `publish` and `process` for queue and events, `send`, `call`, `process` and `serve` for conduit, `send` and `process` for kafka.
-- `error_type` is empty on success. On a failure it's `context.DeadlineExceeded` or `context.Canceled` when the error wraps one of those, and otherwise the Go type of the innermost error, so a wrapped broker error reports the broker's type. A handler that panics reports `*messaging.PanicError`.
+- `error_type` is empty on success. On a failure it's `context.DeadlineExceeded` or `context.Canceled` when the error wraps one of those, and otherwise the Go type of the innermost error, so a wrapped broker error reports the broker's type. In the queue, events and kafka extensions a handler that panics reports `*messaging.PanicError`, and the panic carries on. Conduit recovers a handler or RPC panic into an ordinary error (`conduit: callback panic: ...`), so it reports that error's Go type and the panic stops there.
 
 These names are never prefixed, the same as the HTTP series. Conduit's `create` spans have no histogram.
 
@@ -523,6 +523,8 @@ sum by (messaging_destination_name) (rate(messaging_process_duration_seconds_cou
 histogram_quantile(0.99,
   sum by (le, messaging_destination_name) (rate(messaging_client_operation_duration_seconds_bucket[5m])))
 ```
+
+One thing to know when you read send latency: the queue's inmemory driver implements `PublishDelayed` by sleeping inside the send span, so the delay you asked for shows up in `messaging_client_operation_duration_seconds`. The other drivers hand the message off and return.
 
 Queue records these only for calls that go through `*queue.QueueService`, which is what `queue.GetQueue` hands you. A backend you construct yourself, such as `NewInMemoryQueue`, gets no spans and no series. For a producer or consumer of your own, the [`messaging` package](/docs/forge/observability#your-own-producers-and-consumers) records the same two histograms with the same labels.
 
