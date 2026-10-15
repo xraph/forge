@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -32,6 +34,10 @@ type OTLPConfig struct {
 	// Prometheus bridge does, so both paths carry the same names.
 	Namespace   string
 	Temporality Temporality
+
+	// Runtime holds the Go and process collectors the scrape also serves.
+	// Nil leaves them out.
+	Runtime prometheus.Gatherer
 
 	// Now reads the clock. Nil means time.Now.
 	Now func() time.Time
@@ -109,6 +115,16 @@ func (p *OTLPProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 
 			return true
 		})
+	}
+
+	// A cancelled context after a full walk still counts as cut short, so the
+	// runtime families are skipped too and no series gets pruned.
+	if complete && ctx.Err() != nil {
+		complete = false
+	}
+
+	if complete && p.cfg.Runtime != nil {
+		b.addGathered(p.cfg.Runtime)
 	}
 
 	// A walk cut short didn't see every series, so an unvisited one isn't gone.
@@ -482,4 +498,89 @@ func (b *otlpBatch) metrics() []metricdata.Metrics {
 	}
 
 	return out
+}
+
+// addGathered converts the Go and process collectors' families. They keep
+// their Prometheus names, as on the scrape: no namespace prefix and no unit,
+// because the name already carries it.
+func (b *otlpBatch) addGathered(g prometheus.Gatherer) {
+	mfs, _ := g.Gather() // a partial gather is still worth sending
+
+	for _, mf := range mfs {
+		for _, m := range mf.GetMetric() {
+			labels := make(map[string]string, len(m.GetLabel()))
+			for _, lp := range m.GetLabel() {
+				labels[lp.GetName()] = lp.GetValue()
+			}
+
+			b.addDTO(mf.GetName(), mf.GetType(), m, labels)
+		}
+	}
+}
+
+func (b *otlpBatch) addDTO(name string, typ dto.MetricType, m *dto.Metric, labels map[string]string) {
+	switch typ {
+	case dto.MetricType_COUNTER:
+		b.add(name, "", labels, Sample{Kind: SampleCounter, Value: m.GetCounter().GetValue()})
+	case dto.MetricType_GAUGE:
+		b.add(name, "", labels, Sample{Kind: SampleGauge, Value: m.GetGauge().GetValue()})
+	case dto.MetricType_UNTYPED:
+		b.add(name, "", labels, Sample{Kind: SampleGauge, Value: m.GetUntyped().GetValue()})
+	case dto.MetricType_HISTOGRAM:
+		b.add(name, "", labels, dtoHistogram(m.GetHistogram()))
+	case dto.MetricType_SUMMARY:
+		b.addSummary(name, labels, m.GetSummary())
+	case dto.MetricType_GAUGE_HISTOGRAM:
+		// No OTLP equivalent, and the Go and process collectors never emit one.
+	}
+}
+
+// dtoHistogram turns client_golang's cumulative buckets into the per-bucket
+// counts a Sample holds.
+func dtoHistogram(h *dto.Histogram) Sample {
+	s := Sample{
+		Kind:    SampleHistogram,
+		Count:   h.GetSampleCount(),
+		Sum:     h.GetSampleSum(),
+		Buckets: make([]Bucket, 0, len(h.GetBucket())),
+	}
+
+	var prev uint64
+
+	for _, bk := range h.GetBucket() {
+		cum := bk.GetCumulativeCount()
+
+		var own uint64
+		if cum > prev {
+			own = cum - prev
+		}
+
+		s.Buckets = append(s.Buckets, Bucket{UpperBound: bk.GetUpperBound(), Count: own})
+		prev = cum
+	}
+
+	return s
+}
+
+// addSummary keeps a client_golang summary's own quantiles, which differ from
+// a timer's three.
+func (b *otlpBatch) addSummary(name string, labels map[string]string, s *dto.Summary) {
+	f := b.family(name, "", SampleTimer)
+	if f == nil {
+		return
+	}
+
+	qs := make([]metricdata.QuantileValue, 0, len(s.GetQuantile()))
+
+	for _, q := range s.GetQuantile() {
+		if math.IsNaN(q.GetValue()) {
+			continue
+		}
+
+		qs = append(qs, metricdata.QuantileValue{Quantile: q.GetQuantile(), Value: q.GetValue()})
+	}
+
+	attrs := attributeSet(labels)
+	key := seriesKey{name: name, attrs: attrs.Equivalent()}
+	f.putSummary(attrs, b.p.summaryPoint(key, attrs, s.GetSampleCount(), s.GetSampleSum(), qs, b.now))
 }

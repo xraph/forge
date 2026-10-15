@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -503,5 +505,87 @@ func TestOTLPDeltaLeavesGaugesAlone(t *testing.T) {
 
 	if pt := produce(t, p)["forge_g"].Data.(metricdata.Gauge[float64]).DataPoints[0]; pt.Value != 4 {
 		t.Fatalf("gauge = %v, want 4", pt.Value)
+	}
+}
+
+func TestOTLPRuntimeGoCollector(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+
+	p := NewOTLPProducer(nil, OTLPConfig{Namespace: "forge", Runtime: reg})
+	got := produce(t, p)
+
+	if g, ok := got["go_goroutines"].Data.(metricdata.Gauge[float64]); !ok || g.DataPoints[0].Value < 1 {
+		t.Fatalf("go_goroutines = %+v, want an unprefixed gauge", got["go_goroutines"])
+	}
+
+	if _, ok := got["forge_go_goroutines"]; ok {
+		t.Fatal("runtime families must not take the namespace prefix")
+	}
+
+	if _, ok := got["go_gc_duration_seconds"].Data.(metricdata.Summary); !ok {
+		t.Fatalf("go_gc_duration_seconds = %+v, want a summary", got["go_gc_duration_seconds"])
+	}
+}
+
+func TestOTLPRuntimeHistogramAndCounter(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	h := prometheus.NewHistogram(prometheus.HistogramOpts{Name: "rt_seconds", Help: "Runtime histogram.", Buckets: []float64{1, 2}})
+	c := prometheus.NewCounter(prometheus.CounterOpts{Name: "rt_total", Help: "Runtime counter."})
+	reg.MustRegister(h, c)
+
+	for _, v := range []float64{0.5, 1.5, 3} {
+		h.Observe(v)
+	}
+
+	c.Add(2)
+
+	got := produce(t, NewOTLPProducer(nil, OTLPConfig{Runtime: reg}))
+
+	pt := got["rt_seconds"].Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if !equalFloats(pt.Bounds, []float64{1, 2}) || !equalUints(pt.BucketCounts, []uint64{1, 1, 1}) || pt.Count != 3 {
+		t.Fatalf("histogram = bounds %v counts %v count %d", pt.Bounds, pt.BucketCounts, pt.Count)
+	}
+
+	if s, ok := got["rt_total"].Data.(metricdata.Sum[float64]); !ok || !s.IsMonotonic || s.DataPoints[0].Value != 2 {
+		t.Fatalf("rt_total = %+v", got["rt_total"])
+	}
+}
+
+func TestOTLPRuntimeSkippedWhenCutShortKeepsState(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	c := prometheus.NewCounter(prometheus.CounterOpts{Name: "rt_total", Help: "Runtime counter."})
+	reg.MustRegister(c)
+
+	clock := &fakeClock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+	p := NewOTLPProducer(nil, OTLPConfig{Runtime: reg, Now: clock.now})
+	created := clock.now()
+
+	first := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+	if !first.StartTime.Equal(created) {
+		t.Fatalf("first start = %v, want %v", first.StartTime, created)
+	}
+
+	// A cancelled Produce skips the gather, so it must not prune the series.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	sms, err := p.Produce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, m := range sms[0].Metrics {
+		if m.Name == "rt_total" {
+			t.Fatal("a cut-short Produce must not emit runtime families")
+		}
+	}
+
+	clock.advance(time.Minute)
+	c.Add(1)
+
+	pt := produce(t, p)["rt_total"].Data.(metricdata.Sum[float64]).DataPoints[0]
+	if !pt.StartTime.Equal(created) || pt.Value != 1 {
+		t.Fatalf("after cut-short produce: start %v value %v, want %v and 1", pt.StartTime, pt.Value, created)
 	}
 }
