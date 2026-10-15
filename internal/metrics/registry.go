@@ -110,9 +110,9 @@ func (rm *RegisteredMetric) GetValue() any {
 				"mean":  timer.Mean(),
 				"min":   timer.Min(),
 				"max":   timer.Max(),
-				"p50":   timer.Percentile(50),
-				"p95":   timer.Percentile(95),
-				"p99":   timer.Percentile(99),
+				"p50":   timer.Percentile(0.5),
+				"p95":   timer.Percentile(0.95),
+				"p99":   timer.Percentile(0.99),
 			}
 		}
 	}
@@ -445,9 +445,9 @@ func (rm *RegisteredMetric) Sample() exporters.Sample {
 				Unit:  rm.Unit,
 				Count: count,
 				Sum:   timer.Mean().Seconds() * float64(count),
-				P50:   timer.Percentile(50).Seconds(),
-				P95:   timer.Percentile(95).Seconds(),
-				P99:   timer.Percentile(99).Seconds(),
+				P50:   timer.Percentile(0.5).Seconds(),
+				P95:   timer.Percentile(0.95).Seconds(),
+				P99:   timer.Percentile(0.99).Seconds(),
 			}
 		}
 	}

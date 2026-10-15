@@ -127,7 +127,7 @@ A histogram with no buckets set gets 0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1
 
 Give counters a name ending in `_total`. A counter called `cache.hits` is exported as `forge_cache_hits`, and in the OpenMetrics format (the one Prometheus asks for) a counter without the suffix is typed `unknown`. `rate()` still works on it, but anything that reads the metric type sees `unknown`. It works the other way round too: a gauge whose name ends in `_total` is exported as a counter, because that is what Prometheus assumes the suffix means.
 
-A timer is exported as a summary with 0.5, 0.95 and 0.99 quantiles plus `_sum` and `_count`. In our testing the quantiles read 0 after a single 30 ms observation, so use a histogram when you want percentiles.
+A timer is exported as a summary with 0.5, 0.95 and 0.99 quantiles plus `_sum` and `_count`. The quantiles are coarse. Each one reports the upper edge of the bucket its rank falls in, and a timer counts in milliseconds against the same default buckets a histogram gets, so 30 ms queries show up as 0.05 seconds at all three. With only one observation recorded, every quantile reads 0 until the second one arrives. If you want percentiles you can put on a dashboard, use a histogram with buckets that fit your latencies and query it with `histogram_quantile()`.
 
 Two smaller things. The `HELP` line never carries your description, since every family's help text is `Forge <type> <name>`. And an empty label value is exported as an empty string: a series with `error_type=""` shows the label in the scrape, and Prometheus treats it the same as a series without the label.
 
