@@ -9,7 +9,7 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Forge gives you structured logging, OpenTelemetry tracing and a set of built-in diagnostic endpoints. Tracing is on from the first request and logs pick up its trace and span IDs; sending spans to a collector takes one environment variable.
+Forge gives you structured logging, OpenTelemetry tracing and a set of built-in diagnostic endpoints. Tracing is on from the first request and logs pick up its trace and span IDs; sending spans to a collector takes one environment variable. To see all of it in a local Grafana, follow [Grafana in five minutes](/docs/forge/grafana-in-five-minutes).
 
 ## Structured Logging
 
@@ -201,7 +201,7 @@ For Grafana Cloud, or any backend that wants an auth header, set the headers var
 | `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Basic%20<base64 of instance:token>` |
 | `OTEL_SERVICE_NAME` | `user-api` |
 
-Header values are percent-encoded, so the space after `Basic` is written `%20`. Separate several headers with commas. The `headers` key in YAML or code takes plain values and needs no encoding.
+Header values are percent-encoded, so the space after `Basic` is written `%20`. Separate several headers with commas. The `headers` key in YAML or code takes plain values and needs no encoding. [Shipping telemetry](/docs/forge/shipping-telemetry) has the variables for Tempo, Jaeger, Honeycomb, Datadog, New Relic and a plain Collector, and how each one scrapes your metrics.
 
 ### Configuration
 
@@ -362,7 +362,7 @@ histogram_quantile(0.95,
   sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
 ```
 
-Prometheus needs `--enable-feature=exemplar-storage` to keep the exemplars. The full series list, the label vectors for your own metrics, the series cap and the migration from the old `forge_http_*` names are on the [Metrics](/docs/forge/metrics) page.
+Prometheus needs `--enable-feature=exemplar-storage` to keep the exemplars. The label vectors for your own metrics and the series cap are on the [Metrics](/docs/forge/metrics) page. Every series with its labels and buckets is on the [metric reference](/docs/forge/metric-reference), and [Migrating dashboards](/docs/forge/migrating-dashboards) maps the old `forge_http_*` and `forge_grpc_*` names to the new ones.
 
 ## Built-in Endpoints
 

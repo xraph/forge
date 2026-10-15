@@ -250,21 +250,21 @@ config := forge.DefaultMetricsConfig()
 
 ## Built-in Metric Types
 
-When enabled in `MetricsFeatures`, Forge automatically collects:
+When enabled in `MetricsFeatures`, Forge automatically collects the series below. The [metric reference](/docs/forge/metric-reference) lists every one of them with its type, labels and buckets.
 
 ### System Metrics (`SystemMetrics: true`)
 
-- CPU usage
-- Memory usage (RSS, heap)
-- Disk I/O
-- Network I/O
+This is on by default, but today a `forge.New` app exports no host CPU, memory, disk or load series, because the collector that gathers them never starts. Use the `process_*` runtime series for the process, or a node exporter for the host.
 
 ### Runtime Metrics (`RuntimeMetrics: true`)
 
-- `go_goroutines` -- number of goroutines
-- `go_gc_duration_seconds` -- GC pause duration
-- `go_memstats_alloc_bytes` -- heap allocation
-- `go_memstats_heap_objects` -- number of heap objects
+The Prometheus Go client's Go and process collectors, with their usual unprefixed names:
+
+- `go_goroutines`: number of goroutines
+- `go_gc_duration_seconds`: GC pause duration
+- `go_memstats_alloc_bytes`: heap allocation
+- `go_memstats_heap_objects`: number of heap objects
+- `process_cpu_seconds_total`, `process_resident_memory_bytes` and the rest of the `process_*` series
 
 ### HTTP Metrics (`HTTPMetrics: true`)
 
@@ -309,7 +309,7 @@ Turn on the body size histograms with `metrics.features.http_body_sizes: true`. 
 
 The duration histogram carries `trace_id` and `span_id` exemplars for sampled requests, so you can jump from a slow bucket to the trace that landed in it. Exemplars only exist in the OpenMetrics format, which Prometheus asks for on its own. A plain `curl` of `/_/metrics` won't show them unless you send `Accept: application/openmetrics-text`.
 
-Prometheus has to be started with `--enable-feature=exemplar-storage` or it throws them away. In Grafana you switch on the Exemplars toggle per query, on the latency query. The link from `trace_id` to your tracing data source isn't set on the panel. It lives in the Prometheus data source settings, in the Exemplars section. Requests that tracing didn't sample have no exemplar.
+Prometheus has to be started with `--enable-feature=exemplar-storage` or it throws them away. In Grafana you switch on the Exemplars toggle per query, on the latency query. The link from `trace_id` to your tracing data source isn't set on the panel. It lives in the Prometheus data source settings, in the Exemplars section. Requests that tracing didn't sample have no exemplar. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) runs a local stack where all of this is already wired up.
 
 #### Series cap
 
@@ -344,6 +344,8 @@ Earlier releases exposed a flat set of `forge_http_*` series, with a gauge per p
 | `forge_http_requests_avg_duration`, `forge_http_response_avg_size` | `rate(..._sum[5m]) / rate(..._count[5m])` |
 
 The old duration histogram used buckets from 5 to 10000 while recording seconds, so nearly every request landed in the first bucket and its quantiles told you nothing. Don't try to carry old panels over by renaming. Rebuild them from the queries above.
+
+[Migrating dashboards](/docs/forge/migrating-dashboards) has replacement PromQL for each old series, plus the gRPC rename and the change to how stream routes are timed.
 
 ### Stream Connections
 
