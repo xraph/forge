@@ -2,15 +2,20 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"golang.org/x/mod/modfile"
+
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 )
@@ -261,6 +266,13 @@ func (dw *dockerAppWatcher) generateDevDockerfile() (string, error) {
 
 	mainDir := filepath.Dir(relMainFile)
 
+	// go mod download reads the go.mod of every directory replace, so each one
+	// has to be in the image before the download layer runs.
+	replaceDirs, err := localReplaceDirs(dw.config.RootDir)
+	if err != nil {
+		return "", err
+	}
+
 	// Discover config files that should be explicitly copied for caching.
 	configCopies := dw.discoverConfigCopyLines()
 
@@ -273,6 +285,11 @@ func (dw *dockerAppWatcher) generateDevDockerfile() (string, error) {
 	buf.WriteString("RUN apk add --no-cache git\n")
 	buf.WriteString("WORKDIR /app\n")
 	buf.WriteString("COPY go.mod go.sum* ./\n")
+
+	for _, dir := range replaceDirs {
+		buf.WriteString("COPY " + dir + "/go.mod ./" + dir + "/go.mod\n")
+	}
+
 	buf.WriteString("RUN go mod download\n")
 
 	if configCopies != "" {
@@ -299,6 +316,69 @@ func (dw *dockerAppWatcher) generateDevDockerfile() (string, error) {
 	tmpFile.Close()
 
 	return tmpFile.Name(), nil
+}
+
+// localReplaceDirs returns the directories the project's go.mod replaces
+// modules with, as slash-separated paths relative to rootDir, in go.mod order.
+// A directory outside rootDir is an error: neither the build context nor the
+// /app bind mount can reach it. A project without a go.mod has none.
+func localReplaceDirs(rootDir string) ([]string, error) {
+	goModPath := filepath.Join(rootDir, "go.mod")
+
+	data, err := os.ReadFile(goModPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read go.mod: %w", err)
+	}
+
+	mf, err := modfile.Parse(goModPath, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse go.mod: %w", err)
+	}
+
+	var dirs, outside []string
+
+	for _, r := range mf.Replace {
+		// A replacement with a version is another module, not a directory.
+		if r.New.Version != "" {
+			continue
+		}
+
+		target := r.New.Path
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(rootDir, target)
+		}
+
+		rel, err := filepath.Rel(rootDir, target)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			old := r.Old.Path
+			if r.Old.Version != "" {
+				old += " " + r.Old.Version
+			}
+
+			outside = append(outside, "  "+old+" => "+r.New.Path)
+
+			continue
+		}
+
+		dir := filepath.ToSlash(rel)
+		if dir != "." && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+
+	if len(outside) > 0 {
+		return nil, fmt.Errorf(
+			"go.mod replaces modules with directories outside the project root, "+
+				"which the dev image can't see:\n%s\n"+
+				"move each module inside the project, or set dev.docker.dockerfile to a Dockerfile of your own",
+			strings.Join(outside, "\n"))
+	}
+
+	return dirs, nil
 }
 
 // discoverConfigCopyLines probes the project filesystem for Forge configuration

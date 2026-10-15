@@ -227,6 +227,139 @@ func TestGenerateDevDockerfileNoConfigFiles(t *testing.T) {
 	assert.Contains(t, contentStr, "COPY . .")
 }
 
+func TestGenerateDevDockerfileLocalReplace(t *testing.T) {
+	const (
+		copyGoMod  = "COPY go.mod go.sum* ./\n"
+		goDownload = "RUN go mod download\n"
+	)
+
+	tests := []struct {
+		name string
+		// replaces are appended to go.mod; "{root}" expands to the project root.
+		replaces string
+		// dirs are created under the root with a go.mod of their own.
+		dirs []string
+		// wantCopies must appear, in order, between copyGoMod and goDownload.
+		wantCopies []string
+		// wantErr lists substrings of the error; empty means no error.
+		wantErr []string
+	}{
+		{
+			name: "no replace",
+		},
+		{
+			name:     "versioned replace is ignored",
+			replaces: "replace github.com/a/b => github.com/c/d v1.2.3\n",
+		},
+		{
+			name:       "relative replace inside the project",
+			replaces:   "replace github.com/xraph/forge => ./forge-root\n",
+			dirs:       []string{"forge-root"},
+			wantCopies: []string{"COPY forge-root/go.mod ./forge-root/go.mod\n"},
+		},
+		{
+			name: "replace block with nested and trailing-slash paths",
+			replaces: "replace (\n" +
+				"\tgithub.com/xraph/forge => ./third_party/forge/\n" +
+				"\tgithub.com/xraph/grove v1.0.0 => ./third_party/grove\n" +
+				")\n",
+			dirs: []string{"third_party/forge", "third_party/grove"},
+			wantCopies: []string{
+				"COPY third_party/forge/go.mod ./third_party/forge/go.mod\n",
+				"COPY third_party/grove/go.mod ./third_party/grove/go.mod\n",
+			},
+		},
+		{
+			name:       "absolute replace inside the project",
+			replaces:   "replace github.com/xraph/forge => {root}/vendored/forge\n",
+			dirs:       []string{"vendored/forge"},
+			wantCopies: []string{"COPY vendored/forge/go.mod ./vendored/forge/go.mod\n"},
+		},
+		{
+			name:     "relative replace outside the project",
+			replaces: "replace github.com/xraph/forge => ../forge\n",
+			wantErr:  []string{"github.com/xraph/forge", "../forge", "outside the project root", "dev.docker.dockerfile"},
+		},
+		{
+			name:     "sibling directory sharing the root's name prefix",
+			replaces: "replace github.com/xraph/forge => ../projx\n",
+			wantErr:  []string{"../projx"},
+		},
+		{
+			name:     "absolute replace outside the project",
+			replaces: "replace github.com/xraph/forge => /opt/src/forge\n",
+			wantErr:  []string{"/opt/src/forge"},
+		},
+		{
+			name: "every outside replace is named",
+			replaces: "replace (\n" +
+				"\tgithub.com/xraph/forge => ../forge\n" +
+				"\tgithub.com/xraph/grove => ./grove\n" +
+				"\tgithub.com/xraph/vessel => ../vessel\n" +
+				")\n",
+			dirs:    []string{"grove"},
+			wantErr: []string{"github.com/xraph/forge => ../forge", "github.com/xraph/vessel => ../vessel"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := filepath.Join(t.TempDir(), "proj")
+
+			mainFile := filepath.Join(rootDir, "cmd", "app", "main.go")
+			require.NoError(t, os.MkdirAll(filepath.Dir(mainFile), 0o755))
+			require.NoError(t, os.WriteFile(mainFile, []byte("package main\nfunc main() {}"), 0o644))
+
+			for _, dir := range tt.dirs {
+				require.NoError(t, os.MkdirAll(filepath.Join(rootDir, dir), 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(rootDir, dir, "go.mod"),
+					[]byte("module example.com/"+filepath.Base(dir)+"\n"), 0o644))
+			}
+
+			goMod := "module e2e\n\ngo 1.26\n\n" + strings.ReplaceAll(tt.replaces, "{root}", rootDir)
+			require.NoError(t, os.WriteFile(filepath.Join(rootDir, "go.mod"), []byte(goMod), 0o644))
+
+			dw := &dockerAppWatcher{
+				config:       &config.ForgeConfig{RootDir: rootDir},
+				dockerConfig: &config.DockerDevConfig{},
+				mainFile:     mainFile,
+			}
+
+			dockerfilePath, err := dw.generateDevDockerfile()
+			if len(tt.wantErr) > 0 {
+				require.Error(t, err)
+
+				for _, want := range tt.wantErr {
+					assert.Contains(t, err.Error(), want)
+				}
+
+				assert.Empty(t, dockerfilePath)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			t.Cleanup(func() { os.Remove(dockerfilePath) })
+
+			content, err := os.ReadFile(dockerfilePath)
+			require.NoError(t, err)
+
+			contentStr := string(content)
+
+			start := strings.Index(contentStr, copyGoMod)
+			end := strings.Index(contentStr, goDownload)
+
+			require.NotEqual(t, -1, start, "missing %q", copyGoMod)
+			require.Greater(t, end, start, "%q must follow %q", goDownload, copyGoMod)
+
+			between := contentStr[start+len(copyGoMod) : end]
+			assert.Equal(t, strings.Join(tt.wantCopies, ""), between)
+		})
+	}
+}
+
 func TestResolveDockerConfig(t *testing.T) {
 	tests := []struct {
 		name        string

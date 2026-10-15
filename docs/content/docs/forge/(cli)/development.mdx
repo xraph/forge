@@ -250,6 +250,8 @@ The generator automatically discovers and adds `COPY` directives for:
 
 This ensures Forge config files have their own Docker cache layer, so rebuilds after a source change do not re-download Go modules.
 
+If your `go.mod` replaces a module with a directory, as in `replace github.com/xraph/forge => ./forge-root`, the generator also copies that directory's `go.mod` in before `go mod download`, because Go reads it to resolve the module graph. The directory has to live inside the project. Docker only sees the build context, so a replace like `../forge`, or an absolute path outside the root, stops `forge dev --docker` before the build with an error that names the line. Move the module inside the project, or set `dev.docker.dockerfile` and build the image your own way.
+
 ### Docker Dev Configuration
 
 Configure Docker dev settings at the project level in `.forge.yaml`:
