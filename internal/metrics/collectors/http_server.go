@@ -223,12 +223,8 @@ func observe(hist metrics.Histogram, v float64, r *http.Request) {
 
 	traceID, spanID := exemplarIDs(sc)
 
-	hist.ObserveWithExemplar(v, metrics.Exemplar{
-		Value:     v,
-		Timestamp: time.Now(),
-		TraceID:   traceID,
-		SpanID:    spanID,
-	})
+	// ObserveWithExemplar stamps Value and Timestamp itself.
+	hist.ObserveWithExemplar(v, metrics.Exemplar{TraceID: traceID, SpanID: spanID})
 }
 
 // exemplarIDs hex-encodes both IDs into one string and slices it, one
