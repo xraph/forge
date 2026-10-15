@@ -3,6 +3,7 @@ package forge
 import (
 	"fmt"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -145,7 +146,7 @@ func TestStreamMetricsConcurrentConnections(t *testing.T) {
 	lifetimes := histogramLabels(t, a, "forge_stream_connection_duration_seconds")
 	require.Len(t, lifetimes, 1, "every close should be clean: %v", lifetimes)
 	require.Equal(t, "", lifetimes[0]["error_type"])
-	require.Equal(t, fmt.Sprint(clients), lifetimes[0]["_count"])
+	require.Equal(t, strconv.Itoa(clients), lifetimes[0]["_count"])
 }
 
 func TestStreamWithMetricsDisabled(t *testing.T) {
