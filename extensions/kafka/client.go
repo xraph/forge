@@ -219,7 +219,7 @@ func (c *kafkaClient) SendMessageAsyncContext(ctx context.Context, topic string,
 		Value: sarama.ByteEncoder(value),
 	}
 
-	_, op := c.telemetry.StartSend(ctx, topic, "send")
+	ctx, op := c.telemetry.StartSend(ctx, topic, "send")
 	messaging.Inject(ctx, ProducerHeaderCarrier(msg))
 
 	c.asyncProducer.Input() <- msg

@@ -86,6 +86,53 @@ func TestKafkaSendMessageContextInjectsAndSpans(t *testing.T) {
 	}
 }
 
+func TestKafkaSendMessageAsyncContextInjectsSendSpan(t *testing.T) {
+	client, _, exp := tracedClient(t)
+	producer := mocks.NewAsyncProducer(t, nil)
+	client.asyncProducer = producer
+
+	injected := make(chan trace.SpanContext, 1)
+
+	producer.ExpectInputWithMessageCheckerFunctionAndSucceed(func(msg *sarama.ProducerMessage) error {
+		injected <- trace.SpanContextFromContext(messaging.Extract(context.Background(), ProducerHeaderCarrier(msg)))
+
+		return nil
+	})
+
+	parentCtx, parent := otel.Tracer("test").Start(t.Context(), "caller")
+	defer parent.End()
+
+	if err := client.SendMessageAsyncContext(parentCtx, "orders", nil, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := producer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := <-injected
+
+	var send sdktrace.ReadOnlySpan
+
+	for _, s := range exp.GetSpans().Snapshots() {
+		if s.Name() == "send orders" && s.SpanKind() == trace.SpanKindProducer {
+			send = s
+		}
+	}
+
+	if send == nil {
+		t.Fatal("no send span")
+	}
+
+	if send.Parent().SpanID() != parent.SpanContext().SpanID() {
+		t.Fatalf("send span parent %v, want the caller span", send.Parent())
+	}
+
+	if got.SpanID() != send.SpanContext().SpanID() {
+		t.Fatalf("record carries span %s, want the send span %s", got.SpanID(), send.SpanContext().SpanID())
+	}
+}
+
 func TestKafkaSendMessagesBatchShape(t *testing.T) {
 	client, _, exp := tracedClient(t)
 	producer := mocks.NewSyncProducer(t, nil)
