@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"testing"
@@ -408,4 +409,111 @@ func TestTraceStore_MarkAccessedIsRaceFree(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestTraceStore_GetTraceConcurrentReadersDoNotRace(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	now := time.Now()
+
+	ts.AddSpan(&SpanView{TraceID: "t1", SpanID: "root", Name: "root", StartTime: now, EndTime: now.Add(time.Millisecond), Duration: time.Millisecond})
+	ts.AddSpan(&SpanView{TraceID: "t1", SpanID: "child", ParentSpanID: "root", Name: "child", StartTime: now, EndTime: now.Add(time.Microsecond), Duration: time.Microsecond})
+
+	var wg sync.WaitGroup
+
+	for range 4 {
+		wg.Go(func() {
+			for range 200 {
+				if d := ts.GetTrace("t1"); d == nil || d.SpanCount != 2 {
+					t.Error("trace missing")
+
+					return
+				}
+			}
+		})
+	}
+
+	wg.Wait()
+}
+
+func TestTraceStore_GetTraceLeavesStoredSpansUntouched(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	now := time.Now()
+	child := &SpanView{TraceID: "t1", SpanID: "child", ParentSpanID: "root", StartTime: now.Add(time.Millisecond), EndTime: now.Add(2 * time.Millisecond), Duration: time.Millisecond}
+
+	ts.AddSpan(&SpanView{TraceID: "t1", SpanID: "root", StartTime: now, EndTime: now.Add(4 * time.Millisecond), Duration: 4 * time.Millisecond})
+	ts.AddSpan(child)
+
+	d := ts.GetTrace("t1")
+
+	var got *SpanView
+
+	for _, s := range d.Spans {
+		if s.SpanID == "child" {
+			got = s
+		}
+	}
+
+	if got == nil || got.Depth != 1 || got.OffsetPercent == 0 {
+		t.Fatalf("detail child = %+v, want depth 1 and a non-zero offset", got)
+	}
+
+	if child.Depth != 0 || child.OffsetPercent != 0 {
+		t.Fatalf("stored span was written by GetTrace: %+v", child)
+	}
+}
+
+func TestTraceStore_AttachExchangeJoinsOnAddSpan(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ex := &HTTPExchange{Request: HTTPMessage{Headers: map[string]string{"X-Request-Id": "r1"}}}
+
+	ts.AttachExchange("s1", ex)
+	ts.AddSpan(&SpanView{TraceID: "t1", SpanID: "s1", StartTime: time.Now(), EndTime: time.Now()})
+
+	d := ts.GetTrace("t1")
+	if d == nil || d.Spans[0].HTTP == nil || d.Spans[0].HTTP.Request.Headers["X-Request-Id"] != "r1" {
+		t.Fatalf("exchange not joined: %+v", d)
+	}
+
+	// Consumed: a second span with the same ID gets nothing.
+	ts.AddSpan(&SpanView{TraceID: "t2", SpanID: "s1", StartTime: time.Now(), EndTime: time.Now()})
+
+	if ts.GetTrace("t2").Spans[0].HTTP != nil {
+		t.Fatal("exchange was joined twice")
+	}
+}
+
+func TestTraceStore_AttachExchangeIsBounded(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+
+	for i := range maxPendingExchanges + 50 {
+		ts.AttachExchange(fmt.Sprintf("s%d", i), &HTTPExchange{})
+	}
+
+	if n := ts.pendingExchangeCount(); n > maxPendingExchanges {
+		t.Fatalf("pending exchanges = %d, cap %d", n, maxPendingExchanges)
+	}
+}
+
+func TestTraceStore_ClosedGateStillConsumesExchange(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	ts.SetIngestGate(func() bool { return false })
+	ts.AttachExchange("s1", &HTTPExchange{})
+	ts.AddSpan(&SpanView{TraceID: "t1", SpanID: "s1"})
+
+	if n := ts.pendingExchangeCount(); n != 0 {
+		t.Fatalf("closed gate stranded %d exchanges", n)
+	}
+}
+
+func TestTraceStore_Accepting(t *testing.T) {
+	ts := NewTraceStore(10, time.Hour)
+	if !ts.Accepting() {
+		t.Fatal("no gate should accept")
+	}
+
+	ts.SetIngestGate(func() bool { return false })
+
+	if ts.Accepting() {
+		t.Fatal("closed gate accepted")
+	}
 }

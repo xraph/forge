@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard/collector"
@@ -17,7 +16,7 @@ import (
 // maxAttrValueLen bounds a single span attribute value. Query strings and user
 // agents come straight from the caller and are retained for the whole
 // retention window, so they need a ceiling.
-const maxAttrValueLen = 256
+const maxAttrValueLen = collector.MaxAttrValueLen
 const maxTraceBodyBytes = 4096
 
 type replayBody struct {
@@ -86,25 +85,7 @@ func captureRequestJSON(req *http.Request) string {
 // truncateAttr shortens s to at most limit bytes, ending on a rune boundary and
 // marking the cut. Values already within the limit are returned unchanged.
 func truncateAttr(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-
-	const marker = "..."
-	if limit <= len(marker) {
-		if limit <= 0 {
-			return ""
-		}
-
-		return marker[:limit]
-	}
-
-	cut := limit - len(marker)
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-
-	return s[:cut] + marker
+	return collector.Truncate(s, limit)
 }
 
 // isDashboardPath reports whether a request path belongs to the dashboard: an

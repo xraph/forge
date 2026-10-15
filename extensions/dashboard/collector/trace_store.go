@@ -27,6 +27,19 @@ const defaultMaxSpansPerTrace = 200
 // next poll, so dropping one costs a moment of staleness and nothing more.
 const notifyBuffer = 256
 
+// maxPendingExchanges bounds HTTP exchanges waiting for their span to end.
+// The middleware only stashes for recording spans, which end within the
+// request, so the map is normally near empty.
+const maxPendingExchanges = 1024
+
+// pendingExchangeTTL is how long an exchange waits for its span.
+const pendingExchangeTTL = time.Minute
+
+type pendingExchange struct {
+	ex *HTTPExchange
+	at time.Time
+}
+
 type traceNotification struct {
 	traceID   string
 	spanCount int
@@ -52,6 +65,11 @@ type TraceStore struct {
 	// droppedSpans counts spans refused because their trace was already at
 	// maxSpansPerTrace. Read it with DroppedSpans.
 	droppedSpans atomic.Uint64
+
+	// exchanges holds request and response data captured by the middleware,
+	// keyed by span ID, until AddSpan joins it to its span.
+	exMu      sync.Mutex
+	exchanges map[string]pendingExchange
 
 	// notify carries trace-added events to the single drain goroutine. AddSpan
 	// sends without blocking, so a stuck callback costs dropped notifications
@@ -102,6 +120,7 @@ func NewTraceStore(maxTraces int, retention time.Duration, opts ...TraceStoreOpt
 		order:            make([]string, 0, maxTraces),
 		notify:           make(chan traceNotification, notifyBuffer),
 		stop:             make(chan struct{}),
+		exchanges:        make(map[string]pendingExchange),
 	}
 	for _, opt := range opts {
 		opt(ts)
@@ -153,6 +172,67 @@ func (ts *TraceStore) LastAccessed() time.Time {
 	return time.Unix(0, ns)
 }
 
+// Accepting reports whether the store currently keeps spans: true with no
+// ingest gate, otherwise whatever the gate says. It is cheap enough for the
+// request path.
+func (ts *TraceStore) Accepting() bool {
+	ts.mu.RLock()
+	gate := ts.ingestGate
+	ts.mu.RUnlock()
+
+	return gate == nil || gate()
+}
+
+// AttachExchange keeps ex until the span with spanID is added. When the map
+// is full, expired entries are swept; if it is still full, ex is dropped.
+func (ts *TraceStore) AttachExchange(spanID string, ex *HTTPExchange) {
+	if spanID == "" || ex == nil {
+		return
+	}
+
+	now := time.Now()
+
+	ts.exMu.Lock()
+	defer ts.exMu.Unlock()
+
+	if len(ts.exchanges) >= maxPendingExchanges {
+		cutoff := now.Add(-pendingExchangeTTL)
+
+		for id, p := range ts.exchanges {
+			if p.at.Before(cutoff) {
+				delete(ts.exchanges, id)
+			}
+		}
+
+		if len(ts.exchanges) >= maxPendingExchanges {
+			return
+		}
+	}
+
+	ts.exchanges[spanID] = pendingExchange{ex: ex, at: now}
+}
+
+func (ts *TraceStore) takeExchange(spanID string) *HTTPExchange {
+	ts.exMu.Lock()
+	defer ts.exMu.Unlock()
+
+	p, ok := ts.exchanges[spanID]
+	if !ok {
+		return nil
+	}
+
+	delete(ts.exchanges, spanID)
+
+	return p.ex
+}
+
+func (ts *TraceStore) pendingExchangeCount() int {
+	ts.exMu.Lock()
+	defer ts.exMu.Unlock()
+
+	return len(ts.exchanges)
+}
+
 // drainNotifications runs the registered callback for queued events, one at a
 // time, until Close is called.
 func (ts *TraceStore) drainNotifications() {
@@ -190,11 +270,13 @@ func (ts *TraceStore) AddSpan(span *SpanView) {
 		return
 	}
 
-	ts.mu.RLock()
-	gate := ts.ingestGate
-	ts.mu.RUnlock()
+	// Take the exchange before the gate check, so a closed gate doesn't
+	// leave it waiting.
+	if ex := ts.takeExchange(span.SpanID); ex != nil && span.HTTP == nil {
+		span.HTTP = ex
+	}
 
-	if gate != nil && !gate() {
+	if !ts.Accepting() {
 		return
 	}
 
@@ -374,9 +456,17 @@ func (ts *TraceStore) buildSummary(traceID string, spans []*SpanView) TraceSumma
 
 // buildTraceDetail builds a full TraceDetail with computed waterfall positions.
 func (ts *TraceStore) buildTraceDetail(traceID string, spans []*SpanView) *TraceDetail {
-	// Sort spans by start time.
+	// Lay out copies. GetTrace holds only the read lock, so writing Depth and
+	// the waterfall fields onto the stored spans would race with every other
+	// reader. The copies share Attributes, Events and HTTP, which nothing
+	// writes after AddSpan.
 	sorted := make([]*SpanView, len(spans))
-	copy(sorted, spans)
+	for i, s := range spans {
+		c := *s
+		sorted[i] = &c
+	}
+
+	// Sort spans by start time.
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].StartTime.Before(sorted[j].StartTime)
 	})
