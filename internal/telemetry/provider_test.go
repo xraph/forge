@@ -1,11 +1,14 @@
 package telemetry
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -123,4 +126,62 @@ func TestProviderRejectsEndpointsThatAreNotHTTPURLs(t *testing.T) {
 	}
 
 	_ = p.Shutdown(t.Context())
+}
+
+type wantingProcessor struct {
+	sdktrace.SpanProcessor
+
+	want atomic.Bool
+}
+
+func (w *wantingProcessor) WantsUnsampled() bool { return w.want.Load() }
+
+func TestProviderRecordOnlySpansReachWantingProcessorButNotExporter(t *testing.T) {
+	p := newTestProvider(t, Settings{Enabled: true, SamplerName: defaultSamplerName, SampleRatio: 0})
+
+	exported := tracetest.NewInMemoryExporter()
+	if err := p.RegisterSpanProcessor(sdktrace.NewSimpleSpanProcessor(exported)); err != nil {
+		t.Fatal(err)
+	}
+
+	seen := &spanCollector{}
+	wp := &wantingProcessor{SpanProcessor: seen}
+	wp.want.Store(true)
+
+	if err := p.RegisterSpanProcessor(wp); err != nil {
+		t.Fatal(err)
+	}
+
+	_, span := p.TracerProvider().Tracer("t").Start(t.Context(), "unsampled-but-watched")
+	span.End()
+
+	if n := len(seen.names()); n != 1 {
+		t.Fatalf("wanting processor saw %d spans, want 1", n)
+	}
+
+	if n := len(exported.GetSpans()); n != 0 {
+		t.Fatalf("exporter got %d RecordOnly spans, want 0", n)
+	}
+}
+
+// spanCollector records the names of every span that ends, sampled or not.
+type spanCollector struct {
+	mu   sync.Mutex
+	list []string
+}
+
+func (c *spanCollector) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
+func (c *spanCollector) OnEnd(s sdktrace.ReadOnlySpan) {
+	c.mu.Lock()
+	c.list = append(c.list, s.Name())
+	c.mu.Unlock()
+}
+func (c *spanCollector) Shutdown(context.Context) error   { return nil }
+func (c *spanCollector) ForceFlush(context.Context) error { return nil }
+
+func (c *spanCollector) names() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return slices.Clone(c.list)
 }

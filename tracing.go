@@ -20,6 +20,15 @@ type TracingConfig = shared.TracingConfig
 // ErrTracingDisabled is returned by RegisterSpanProcessor when tracing is off.
 var ErrTracingDisabled = telemetry.ErrTracingDisabled
 
+// UnsampledSpanProcessor is a span processor that also receives spans the
+// sampler would drop, for as long as WantsUnsampled returns true. Those spans
+// are recorded but never exported, so your OTLP backend sees the same sample
+// as before. WantsUnsampled runs for every dropped span; keep it cheap.
+type UnsampledSpanProcessor interface {
+	sdktrace.SpanProcessor
+	WantsUnsampled() bool
+}
+
 const tracerName = "github.com/xraph/forge"
 
 // StartSpan starts a span as a child of whatever span ctx carries. End it
@@ -46,6 +55,8 @@ func InstrumentTransport(rt http.RoundTripper) http.RoundTripper {
 }
 
 // RegisterSpanProcessor adds a span processor to an app built by forge.New.
+// A processor that implements UnsampledSpanProcessor also receives the spans
+// the sampler drops while it asks for them.
 func RegisterSpanProcessor(a App, sp sdktrace.SpanProcessor) error {
 	impl, ok := a.(*app)
 	if !ok || impl.tracing == nil {

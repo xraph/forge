@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -33,6 +35,11 @@ type Provider struct {
 	tp       trace.TracerProvider
 	settings Settings
 	resource *resource.Resource
+
+	// wants holds WantsUnsampled of each processor that has one. The sampler
+	// reads it on every dropped span; registration copies and swaps it.
+	wants   atomic.Pointer[[]func() bool]
+	wantsMu sync.Mutex
 }
 
 // NewProvider builds the tracer provider and installs it, with the
@@ -52,7 +59,7 @@ func NewProvider(ctx context.Context, s Settings, res *resource.Resource, log lo
 
 	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(BuildSampler(s)),
+		sdktrace.WithSampler(NewForgeSampler(BuildSampler(s), SamplerOff(s), &p.wants)),
 	}
 
 	if s.Endpoint != "" {
@@ -89,11 +96,32 @@ func (p *Provider) Settings() Settings { return p.settings }
 // Resource returns the shared resource.
 func (p *Provider) Resource() *resource.Resource { return p.resource }
 
-// RegisterSpanProcessor adds a span processor after construction. It returns
-// ErrTracingDisabled when tracing is off.
+// unsampledWanter is a processor that also wants spans the sampler drops.
+type unsampledWanter interface {
+	WantsUnsampled() bool
+}
+
+// RegisterSpanProcessor adds a span processor after construction. A processor
+// with a WantsUnsampled method also receives spans the sampler would drop, for
+// as long as the method returns true; those spans are never exported. It
+// returns ErrTracingDisabled when tracing is off.
 func (p *Provider) RegisterSpanProcessor(sp sdktrace.SpanProcessor) error {
 	if p.sdk == nil {
 		return ErrTracingDisabled
+	}
+
+	if w, ok := sp.(unsampledWanter); ok {
+		p.wantsMu.Lock()
+
+		var next []func() bool
+		if cur := p.wants.Load(); cur != nil {
+			next = append(next, *cur...)
+		}
+
+		next = append(next, w.WantsUnsampled)
+		p.wants.Store(&next)
+
+		p.wantsMu.Unlock()
 	}
 
 	p.sdk.RegisterSpanProcessor(sp)
