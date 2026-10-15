@@ -14,6 +14,8 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **client.go**: `InstrumentTransport`, `HTTPClient`.
 - **recorder.go**: `StatusRecorder` (`NewStatusRecorder`), captures the status and body bytes (`Status`, `BytesWritten`) and keeps Flusher, Hijacker and Unwrap working. The HTTP server metrics middleware in `internal/metrics/collectors` uses it too. A 1xx other than 101 is forwarded but not recorded, so 103 Early Hints never becomes the final status. Flush and Hijack go through `http.ResponseController`, so a wrapper below that only has `Unwrap` still works; a failed hijack returns the controller's error (wrapping `http.ErrNotSupported`) and records nothing, a successful one records 101.
 - **errorhandler.go**: the OTel error handler, rate limited to one warn per minute.
+- **metrics_config.go**: `ResolveMetrics(MetricsInputs) MetricsSettings`, the precedence chain for metrics push.
+- **metrics.go**: `NewMetricsPusher`, `MetricsPusher`, the OTLP/HTTP metrics push.
 
 ## Precedence
 
@@ -88,6 +90,28 @@ Set at end, in one `SetAttributes` call: `http.route` (when matched), `forge.str
 With more than one forge app in a process, the last one built wins the tracer provider, the `propagators` setting and the error handler. The error handler is only set when tracing is on. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
 
 `InstrumentTransport` and `HTTPClient` capture the provider and propagator that are current when you call them. A client built before any `forge.New` still traces: OTel's global delegate forwards to the first provider set. In a process with several apps a client stays with whichever provider was current when it was built.
+
+## Metrics push
+
+`ResolveMetrics` in metrics_config.go works the way `Resolve` does: code (`forge.WithAppMetricsExportConfig`), then the forge config `metrics_export` key, then `OTEL_*` env, then defaults. `MetricsPusher` in metrics.go does the pushing.
+
+| Field | Source and default |
+|---|---|
+| `Endpoint` | code, file, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (as is), `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/metrics`; empty means no push |
+| `Headers` | code, file, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS` |
+| `Interval` | code, file, `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds), default 60s; a bad env value is a warning |
+| `Temporality` | code, file, `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`; `cumulative` (default) or `delta` (`lowmemory` counts as delta) |
+| `Enabled` | an explicit false in code or file wins; otherwise `OTEL_SDK_DISABLED=true` or `OTEL_METRICS_EXPORTER=none` turn it off; otherwise it needs an endpoint. An explicit true with no endpoint is a warning |
+
+`NewMetricsPusher(ctx, settings, res, producer, log)` checks the endpoint with `validateEndpoint` (an `http` or `https` URL with a host, or an error wrapping `ErrInvalidEndpoint`), builds an `otlpmetrichttp` exporter and wraps it in a periodic reader that pulls from `producer`. The pusher doesn't read `Settings.Temporality`: delta versus cumulative is decided by the producer (the `OTLPConfig` handed to the metrics collector), so pass that same value there. Pass the shared resource from `BuildResource` so metrics and traces carry the same `service.name`. A `nil` resource uses the SDK default. The exporter still reads its own `OTEL_EXPORTER_OTLP_METRICS_*` variables for what the settings don't cover: timeout, compression, TLS certificates.
+
+The `MeterProvider` inside the pusher is private. Nothing calls `otel.SetMeterProvider`, so `otel.Meter(...)` in your own code never reaches it, and only what the producer returns is pushed. That's what keeps a push identical to a scrape. Don't install it as the global.
+
+`Shutdown` runs one last collect and export, capped at `shutdownCap` (five seconds) or the caller's context, whichever ends first. A nil pusher returns nil, so the app can call it without checking whether push was on.
+
+Constructing a pusher also installs the rate limited OTel error handler (`otel.SetErrorHandler`), so a collector that is down logs one warn a minute even with tracing off. Like the tracer provider, the last one set wins.
+
+Tests: run the pusher against an `httptest` server that decodes the body into `metricspb.MetricsData`. That has the wire shape of an export request, so the collector package and its gRPC dependency stay out of the build. Set `Interval` to an hour and let `Shutdown` do the export.
 
 ## Public API (root `tracing.go`)
 
