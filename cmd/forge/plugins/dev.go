@@ -47,6 +47,7 @@ func (p *DevPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewIntFlag("port", "p", "Port number", 0)),
 		cli.WithFlag(cli.NewBoolFlag("docker", "d", "Run inside Docker container", false)),
 		cli.WithFlag(cli.NewStringFlag("network", "", "Docker network (with --docker)", "")),
+		cli.WithFlag(cli.NewBoolFlag("observability", "O", "Start the local Grafana stack and send this app's telemetry to it", false)),
 	)
 
 	// Add subcommands
@@ -127,9 +128,28 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 		ctx.Info(fmt.Sprintf("Using port %d from app configuration", appPort))
 	}
 
+	// Observability: start the local stack if needed and point the app at it.
+	var obsEnv map[string]string
+
+	if ctx.Bool("observability") {
+		env, cleanup, err := p.startObservability(ctx, app, ctx.Bool("docker"))
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		obsEnv = env
+	}
+
 	// Docker mode: build and run inside a Docker container with live reload.
 	if ctx.Bool("docker") {
-		return p.runWithDocker(ctx, app, watch, port, ctx.String("network"))
+		return p.runWithDocker(ctx, app, watch, port, ctx.String("network"), obsEnv)
+	}
+
+	// The app inherits this process's environment. startObservability only
+	// returns variables that aren't set yet.
+	for k, v := range obsEnv {
+		_ = os.Setenv(k, v)
 	}
 
 	if watch {
@@ -325,6 +345,14 @@ func (p *DevPlugin) findApp(name string) (*AppInfo, error) {
 }
 
 func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
+	// Let the child handle Ctrl-C and exit while this process waits for it,
+	// so deferred cleanup in runDev still runs. Notify, unlike Ignore, isn't
+	// inherited by the child.
+	sig := make(chan os.Signal, 1)
+
+	signal.Notify(sig, terminationSignals...)
+	defer signal.Stop(sig)
+
 	// Find the main.go file
 	mainPath, err := p.findMainFile(app.Path)
 	if err != nil {
@@ -390,7 +418,7 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	return nil
 }
 
-func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bool, port int, network string) error {
+func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bool, port int, network string, extraEnv map[string]string) error {
 	// Check Docker is available.
 	if err := checkDockerAvailable(ctx.Context()); err != nil {
 		return err
@@ -404,6 +432,23 @@ func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bo
 
 	// Resolve Docker config (project-level + app-level + CLI flag overrides).
 	dockerCfg := p.resolveDockerConfig(app, network)
+
+	// Extra env never replaces a key the docker config sets. The map is
+	// cloned first because resolveDockerConfig shares the project's.
+	if len(extraEnv) > 0 {
+		env := maps.Clone(dockerCfg.Env)
+		if env == nil {
+			env = map[string]string{}
+		}
+
+		for k, v := range extraEnv {
+			if _, ok := env[k]; !ok {
+				env[k] = v
+			}
+		}
+
+		dockerCfg.Env = env
+	}
 
 	// Create Docker watcher.
 	dw, err := newDockerAppWatcher(p.config, app, dockerCfg, mainFile, port)
