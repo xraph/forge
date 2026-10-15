@@ -1,6 +1,10 @@
 package exporters
 
-import "time"
+import (
+	"cmp"
+	"slices"
+	"time"
+)
 
 // Sample carries one metric's current value in the shape Prometheus exposition
 // needs.
@@ -80,3 +84,67 @@ type Bucket struct {
 // channel that Prometheus drains, and blocking there while holding the registry
 // lock would stall metric registration.
 type StreamFunc func(yield func(key string, sample Sample) bool)
+
+// rawSample reads a value a custom collector reported. Custom collectors
+// return untyped values, so the Prometheus bridge and the OTLP producer share
+// one reading of the shapes they use: a bare number, a counter map, a
+// histogram map with per-bucket counts and a timer map.
+func rawSample(v any) (Sample, bool) {
+	switch n := v.(type) {
+	case float64:
+		return Sample{Kind: SampleGauge, Value: n}, true
+	case int64:
+		return Sample{Kind: SampleGauge, Value: float64(n)}, true
+	case uint64:
+		return Sample{Kind: SampleGauge, Value: float64(n)}, true
+	case map[string]any:
+		return rawMapSample(n)
+	default:
+		return Sample{}, false
+	}
+}
+
+func rawMapSample(v map[string]any) (Sample, bool) {
+	if t, _ := v["_type"].(string); t == "counter" {
+		val, ok := toFloat(v["value"])
+
+		return Sample{Kind: SampleCounter, Value: val}, ok
+	}
+
+	if raw, ok := v["buckets"].(map[float64]uint64); ok {
+		count, countOK := toUint64(v["count"])
+		if !countOK {
+			return Sample{}, false
+		}
+
+		sum, _ := toFloat(v["sum"])
+
+		sample := Sample{Kind: SampleHistogram, Count: count, Sum: sum, Buckets: make([]Bucket, 0, len(raw))}
+		for bound, n := range raw {
+			sample.Buckets = append(sample.Buckets, Bucket{UpperBound: bound, Count: n})
+		}
+
+		slices.SortFunc(sample.Buckets, func(a, b Bucket) int {
+			return cmp.Compare(a.UpperBound, b.UpperBound)
+		})
+
+		return sample, true
+	}
+
+	if _, ok := v["count"]; ok {
+		count, _ := toUint64(v["count"])
+		sample := Sample{Kind: SampleTimer, Count: count}
+
+		if mean, ok := durationSeconds(v["mean"]); ok {
+			sample.Sum = mean * float64(count)
+		}
+
+		sample.P50, _ = durationSeconds(v["p50"])
+		sample.P95, _ = durationSeconds(v["p95"])
+		sample.P99, _ = durationSeconds(v["p99"])
+
+		return sample, true
+	}
+
+	return Sample{}, false
+}

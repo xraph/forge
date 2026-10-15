@@ -2,9 +2,7 @@ package exporters
 
 import (
 	"bytes"
-	"cmp"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -273,25 +271,9 @@ func (c *forgeCollector) emit(ch chan<- prometheus.Metric, fqName string,
 	case SampleTimer:
 		c.emitTimer(ch, fqName, keys, vals, sample)
 	case SampleRaw:
-		c.emitRaw(ch, fqName, keys, vals, sample.Raw)
-	}
-}
-
-// emitRaw handles a value from a custom collector, which reports untyped maps.
-func (c *forgeCollector) emitRaw(ch chan<- prometheus.Metric, fqName string,
-	keys, vals []string, value any) {
-	switch v := value.(type) {
-	case float64:
-		vt, kind := scalarValueType(fqName)
-		c.emitScalar(ch, fqName, keys, vals, vt, kind, v)
-	case int64:
-		vt, kind := scalarValueType(fqName)
-		c.emitScalar(ch, fqName, keys, vals, vt, kind, float64(v))
-	case uint64:
-		vt, kind := scalarValueType(fqName)
-		c.emitScalar(ch, fqName, keys, vals, vt, kind, float64(v))
-	case map[string]any:
-		c.emitComplex(ch, fqName, keys, vals, v)
+		if s, ok := rawSample(sample.Raw); ok {
+			c.emit(ch, fqName, keys, vals, s)
+		}
 	}
 }
 
@@ -309,59 +291,6 @@ func scalarValueType(fqName string) (prometheus.ValueType, string) {
 func (c *forgeCollector) emitScalar(ch chan<- prometheus.Metric, fqName string,
 	keys, vals []string, vt prometheus.ValueType, kind string, value float64) {
 	ch <- prometheus.MustNewConstMetric(c.desc(fqName, kind, keys), vt, value, vals...)
-}
-
-// emitComplex reads one of the map shapes a custom collector or the legacy
-// snapshot produces and emits it through the typed path.
-func (c *forgeCollector) emitComplex(ch chan<- prometheus.Metric, fqName string,
-	keys, vals []string, v map[string]any) {
-	if t, _ := v["_type"].(string); t == "counter" {
-		if val, ok := toFloat(v["value"]); ok {
-			c.emitScalar(ch, fqName, keys, vals, prometheus.CounterValue, "counter", val)
-		}
-
-		return
-	}
-
-	if raw, ok := v["buckets"].(map[float64]uint64); ok {
-		count, countOK := toUint64(v["count"])
-		if !countOK {
-			return
-		}
-
-		sum, _ := toFloat(v["sum"])
-
-		sample := Sample{Kind: SampleHistogram, Count: count, Sum: sum,
-			Buckets: make([]Bucket, 0, len(raw))}
-		for bound, n := range raw {
-			sample.Buckets = append(sample.Buckets, Bucket{UpperBound: bound, Count: n})
-		}
-
-		slices.SortFunc(sample.Buckets, func(a, b Bucket) int {
-			return cmp.Compare(a.UpperBound, b.UpperBound)
-		})
-
-		c.emitHistogram(ch, fqName, keys, vals, sample)
-
-		return
-	}
-
-	if _, ok := v["count"]; ok {
-		count, _ := toUint64(v["count"])
-		sample := Sample{Kind: SampleTimer, Count: count}
-
-		if mean, ok := durationSeconds(v["mean"]); ok {
-			sample.Sum = mean * float64(count)
-		}
-
-		sample.P50, _ = durationSeconds(v["p50"])
-		sample.P95, _ = durationSeconds(v["p95"])
-		sample.P99, _ = durationSeconds(v["p99"])
-
-		c.emitTimer(ch, fqName, keys, vals, sample)
-
-		return
-	}
 }
 
 func (c *forgeCollector) emitTimer(ch chan<- prometheus.Metric, fqName string,
