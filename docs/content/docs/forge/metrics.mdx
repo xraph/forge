@@ -378,7 +378,7 @@ The duration is observed when the connection closes, so a stream that's still op
 - an EOF, `io.EOF` or `io.ErrUnexpectedEOF`
 - a canceled context or a closed connection
 - a WebSocket close frame
-- a broken pipe or a connection reset, which is what you get when you write to a client that already left
+- a broken pipe or a connection reset, which is what you get when you write to a client that already left (on Windows that reset arrives as `WSAECONNRESET` or `WSAECONNABORTED`, and both count)
 - a client too slow to accept writes, so a write hit its deadline
 - a handler that panics with `http.ErrAbortHandler`, which aborts the response on purpose
 

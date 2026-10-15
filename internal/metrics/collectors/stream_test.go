@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -55,11 +56,15 @@ func TestStreamMetricsLifecycle(t *testing.T) {
 	}
 }
 
+// errorTypeCase is one error a stream closes with and the error_type it
+// should get.
+type errorTypeCase struct {
+	err  error
+	want string
+}
+
 func TestStreamMetricsErrorType(t *testing.T) {
-	cases := map[string]struct {
-		err  error
-		want string
-	}{
+	cases := map[string]errorTypeCase{
 		"nil":         {nil, ""},
 		"handler":     {errors.New("db down"), "handler_error"},
 		"canceled":    {context.Canceled, ""},
@@ -78,6 +83,8 @@ func TestStreamMetricsErrorType(t *testing.T) {
 		},
 		"aborted handler": {fmt.Errorf("panic: %w", http.ErrAbortHandler), ""},
 	}
+
+	maps.Copy(cases, platformErrorTypeCases())
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

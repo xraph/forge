@@ -104,8 +104,15 @@ func streamErrorType(err error) string {
 // and *os.SyscallError, which errors.Is sees through; a client too slow to
 // take a write hits the write deadline; and a handler that panics with
 // http.ErrAbortHandler has deliberately aborted the response, which the router
-// wraps with %w.
+// wraps with %w. On Windows a dropped client shows up as a Winsock code
+// instead, listed in clientGoneErrnos.
 func isClientGone(err error) bool {
+	for _, target := range clientGoneErrnos {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+
 	return errors.Is(err, context.Canceled) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
