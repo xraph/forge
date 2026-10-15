@@ -8,7 +8,7 @@ type routeMatchKey struct{}
 //
 // Global middleware runs before the router matches a route, so it cannot read
 // the pattern on the way in. It puts a RouteMatch on the context, the router
-// fills Pattern just before the route's handler runs, and the middleware reads
+// calls Match just before the route's handler runs, and the middleware reads
 // it once the handler returns.
 //
 // The holder has no locking. It assumes every middleware between the one that
@@ -24,6 +24,7 @@ type RouteMatch struct {
 
 	established bool
 	onEstablish []func(status int)
+	onMatch     []func(pattern string)
 
 	// inline backs onEstablish for the usual case, tracing and HTTP metrics
 	// registering one callback each, so a request doesn't allocate for them.
@@ -62,6 +63,31 @@ func (m *RouteMatch) Establish(status int) {
 // Established reports whether Establish has run.
 func (m *RouteMatch) Established() bool {
 	return m != nil && m.established
+}
+
+// OnMatched registers fn to run when the router stamps the matched route,
+// before the route's own middleware runs. Like OnEstablished, everything runs
+// on the request goroutine, so there is no locking.
+func (m *RouteMatch) OnMatched(fn func(pattern string)) {
+	if m == nil {
+		return
+	}
+
+	m.onMatch = append(m.onMatch, fn)
+}
+
+// Match records the matched route and runs the OnMatched callbacks. The router
+// calls it once per request, just before the route's handler chain.
+func (m *RouteMatch) Match(pattern string, kind RouteKind) {
+	if m == nil {
+		return
+	}
+
+	m.Pattern, m.Kind = pattern, kind
+
+	for _, fn := range m.onMatch {
+		fn(pattern)
+	}
 }
 
 // PatternOrEmpty returns the stamped pattern, or "" on a nil holder.

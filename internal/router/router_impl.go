@@ -840,10 +840,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 			routePattern := fullPath
 			routeKind := routeInfo.Kind
 			finalHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if m := shared.RouteMatchFromContext(req.Context()); m != nil {
-					m.Pattern = routePattern
-					m.Kind = routeKind
-				}
+				shared.RouteMatchFromContext(req.Context()).Match(routePattern, routeKind)
 
 				inner.ServeHTTP(w, req)
 			})

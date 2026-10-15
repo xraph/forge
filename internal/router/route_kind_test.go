@@ -112,3 +112,31 @@ func TestRouterStampsRouteKind(t *testing.T) {
 		}
 	}
 }
+
+// The router reports the match before the route's own middleware runs, so a
+// callback registered by outer middleware sees it first.
+func TestRouterRunsOnMatchedBeforeRouteMiddleware(t *testing.T) {
+	r := newRouter()
+
+	var order []string
+
+	require.NoError(t, r.GET("/users/:id", func(ctx Context) error {
+		order = append(order, "handler")
+
+		return ctx.String(http.StatusOK, "ok")
+	}, WithMiddleware(func(next Handler) Handler {
+		return func(ctx Context) error {
+			order = append(order, "route middleware")
+
+			return next(ctx)
+		}
+	})))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/users/7", nil)
+	ctx, m := shared.NewRouteMatch(req.Context())
+	m.OnMatched(func(p string) { order = append(order, "matched "+p) })
+
+	r.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+
+	assert.Equal(t, []string{"matched /users/:id", "route middleware", "handler"}, order)
+}

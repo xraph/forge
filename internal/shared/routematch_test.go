@@ -112,3 +112,27 @@ func TestOnEstablishedRunsInOrderWithoutAllocating(t *testing.T) {
 		t.Fatalf("two OnEstablished calls added %.0f allocations, want 0", withCallbacks-holderOnly)
 	}
 }
+
+func TestMatchStampsAndRunsCallbacksInOrder(t *testing.T) {
+	var got []string
+
+	m := &RouteMatch{}
+	m.OnMatched(func(p string) { got = append(got, "a:"+p) })
+	m.OnMatched(func(p string) { got = append(got, "b:"+p) })
+	m.Match("/users/:id", KindSSE)
+
+	if m.Pattern != "/users/:id" || m.Kind != KindSSE {
+		t.Fatalf("holder = %q %v, want /users/:id sse", m.Pattern, m.Kind)
+	}
+
+	if len(got) != 2 || got[0] != "a:/users/:id" || got[1] != "b:/users/:id" {
+		t.Fatalf("callbacks ran as %v", got)
+	}
+}
+
+func TestMatchNilHolderIsSafe(t *testing.T) {
+	var m *RouteMatch
+
+	m.OnMatched(func(string) { t.Fatal("callback ran on a nil holder") })
+	m.Match("/x", KindHTTP)
+}
