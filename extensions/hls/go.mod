@@ -8,9 +8,9 @@ replace github.com/xraph/forge => ../..
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/xraph/forge v1.9.13
-	github.com/xraph/forge/extensions/consensus v1.9.13
-	github.com/xraph/trove v1.6.2
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/consensus v1.12.9
+	github.com/xraph/trove v1.7.1
 	github.com/xraph/vessel v1.0.4
 )
 
@@ -51,7 +51,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/gofrs/uuid/v5 v5.3.2 // indirect
+	github.com/gofrs/uuid/v5 v5.5.1 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/grafana/pyroscope-go v1.4.3 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.11 // indirect
@@ -68,7 +68,7 @@ require (
 	github.com/hashicorp/serf v0.10.4 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

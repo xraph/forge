@@ -5,8 +5,8 @@ go 1.26.0
 replace github.com/xraph/forge/extensions/mcp => ./../..
 
 require (
-	github.com/xraph/forge v1.4.4
-	github.com/xraph/forge/extensions/mcp v1.2.0
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/mcp v1.12.9
 )
 
 require (

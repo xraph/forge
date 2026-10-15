@@ -9,7 +9,7 @@ replace github.com/xraph/forge => ../..
 require (
 	github.com/go-ldap/ldap/v3 v3.4.14
 	github.com/stretchr/testify v1.11.1
-	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge v1.12.9
 	github.com/xraph/go-utils v1.4.1
 	github.com/xraph/vessel v1.0.4
 )

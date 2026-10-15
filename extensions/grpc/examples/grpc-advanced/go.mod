@@ -5,8 +5,8 @@ go 1.26.0
 replace github.com/xraph/forge/extensions/grpc => ./../..
 
 require (
-	github.com/xraph/forge v1.9.13
-	github.com/xraph/forge/extensions/grpc v1.9.13
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/grpc v1.12.9
 	google.golang.org/grpc v1.83.2
 	google.golang.org/grpc/examples v0.0.0-20251021191511-58d4b2b1492d
 )

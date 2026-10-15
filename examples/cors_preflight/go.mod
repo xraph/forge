@@ -4,7 +4,7 @@ go 1.26.0
 
 replace github.com/xraph/forge => ../..
 
-require github.com/xraph/forge v1.2.0
+require github.com/xraph/forge v1.12.9
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect

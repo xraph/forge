@@ -9,7 +9,7 @@ replace github.com/xraph/forge => ../..
 require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xraph/confy v1.1.0
-	github.com/xraph/forge v1.4.4
+	github.com/xraph/forge v1.12.9
 	github.com/xraph/vessel v1.0.4
 )
 

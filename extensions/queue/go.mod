@@ -8,7 +8,7 @@ require (
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/xraph/forge v1.9.13
+	github.com/xraph/forge v1.12.9
 	github.com/xraph/vessel v1.0.4
 )
 

@@ -7,7 +7,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.14.8
 	github.com/nats-io/nats.go v1.53.1
 	github.com/segmentio/kafka-go v0.4.51
-	github.com/xraph/forge v1.12.4
+	github.com/xraph/forge v1.12.9
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel/metric v1.45.0
@@ -126,7 +126,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.1.0
-	github.com/xraph/forge/extensions/discovery v1.12.3
+	github.com/xraph/forge/extensions/discovery v1.12.9
 	github.com/xraph/go-utils v1.4.1 // indirect
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0

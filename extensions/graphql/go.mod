@@ -9,7 +9,7 @@ replace github.com/xraph/forge => ../..
 require (
 	github.com/99designs/gqlgen v0.17.45
 	github.com/vektah/gqlparser/v2 v2.5.14
-	github.com/xraph/forge v1.11.0
+	github.com/xraph/forge v1.12.9
 	github.com/xraph/vessel v1.0.4
 )
 

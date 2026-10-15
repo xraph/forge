@@ -7,8 +7,8 @@ replace github.com/xraph/forge/extensions/graphql => ./../..
 replace github.com/xraph/forge => ../../../..
 
 require (
-	github.com/xraph/forge v1.11.0
-	github.com/xraph/forge/extensions/graphql v1.2.0
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/graphql v1.12.9
 )
 
 require (

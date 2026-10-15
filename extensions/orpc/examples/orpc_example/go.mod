@@ -5,8 +5,8 @@ go 1.26.0
 replace github.com/xraph/forge/extensions/orpc => ./../..
 
 require (
-	github.com/xraph/forge v1.2.0
-	github.com/xraph/forge/extensions/orpc v0.0.0-20260115044919-4bf291c53376
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/orpc v1.12.9
 )
 
 require (

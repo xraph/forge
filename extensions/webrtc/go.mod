@@ -7,9 +7,9 @@ retract v1.12.1 // tagged at the wrong commit by a manual release run on 2026-10
 require (
 	github.com/pion/rtp v1.10.5
 	github.com/pion/webrtc/v4 v4.2.18
-	github.com/xraph/forge v1.9.13
-	github.com/xraph/forge/extensions/auth v1.9.13
-	github.com/xraph/forge/extensions/streaming v1.9.13
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/auth v1.12.9
+	github.com/xraph/forge/extensions/streaming v1.12.9
 )
 
 require (

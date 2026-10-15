@@ -7,8 +7,8 @@ replace github.com/xraph/forge => ../../
 replace github.com/xraph/forge/extensions/streaming => ../../extensions/streaming
 
 require (
-	github.com/xraph/forge v1.9.13
-	github.com/xraph/forge/extensions/streaming v1.2.0
+	github.com/xraph/forge v1.12.9
+	github.com/xraph/forge/extensions/streaming v1.12.9
 )
 
 require (
@@ -87,7 +87,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.1.0 // indirect
-	github.com/xraph/forge/extensions/auth v1.9.13 // indirect
+	github.com/xraph/forge/extensions/auth v1.12.9 // indirect
 	github.com/xraph/go-utils v1.4.1 // indirect
 	github.com/xraph/vessel v1.0.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
