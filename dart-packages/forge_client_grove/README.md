@@ -66,7 +66,7 @@ dependencies:
     git:
       url: https://github.com/xraph/grove.git
       path: crdt-dart
-      ref: c98e352065b354be48796ce8f64b5cca770dbbfd
+      ref: 5cf24a3a92672b91e7f926a01ef445a6bb4b34c6
 ```
 
 Keep the `ref` equal to the one in this package's `pubspec.yaml`. For local

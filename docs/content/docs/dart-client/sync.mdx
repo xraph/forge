@@ -93,10 +93,10 @@ dependencies:
     git:
       url: https://github.com/xraph/grove.git
       path: crdt-dart
-      ref: c98e352065b354be48796ce8f64b5cca770dbbfd
+      ref: 5cf24a3a92672b91e7f926a01ef445a6bb4b34c6
 ```
 
-That commit is on Grove's main branch. The pin moves when a Grove release carries the Dart client, so check `forge_client_grove`'s `pubspec.yaml` for the current one.
+That commit is the one Grove tagged `grove_crdt-v1.2.0`, so it's the same code pub.dev serves as `grove_crdt` 1.2.0. The pin moves with `grove_crdt` releases, so check `forge_client_grove`'s `pubspec.yaml` for the current one.
 
 Build the source from the generated `sync` table and `entities`, and bind each Grove entity to its codec:
 
