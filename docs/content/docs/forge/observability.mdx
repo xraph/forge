@@ -336,7 +336,7 @@ app := forge.New(
 )
 ```
 
-`allowed_query_keys` turns `url.query` on. Every key is recorded, the listed keys keep their values and every other value reads `REDACTED`, so `?page=2&t=abc` becomes `page=2&t=REDACTED`. Keys are matched after decoding. With the list empty there's no `url.query`, and there's no setting that records every value as sent. The span name stays `METHOD /route/pattern` whatever you set.
+`allowed_query_keys` turns `url.query` on. Every key is recorded, the listed keys keep their values and every other value reads `REDACTED`, so `?page=2&t=abc` becomes `page=2&t=REDACTED`. A key sent without a value is recorded only if you list it, since `?<token>` puts the secret where the key goes. Keys are matched after decoding. With the list empty there's no `url.query`, and there's no setting that records every value as sent. The span name stays `METHOD /route/pattern` whatever you set.
 
 Error text has no switch. When you know an error is safe to keep, record it on the span yourself:
 

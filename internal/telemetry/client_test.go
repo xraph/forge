@@ -124,6 +124,52 @@ func TestHTTPClientScrubsTheURL(t *testing.T) {
 	}
 }
 
+// Each part of a URL that needs masking triggers it on its own. A URL with
+// only userinfo, only a fragment or only a query must not reach url.full as
+// sent.
+func TestHTTPClientScrubsEachURLPart(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(srv.Close)
+
+	for _, tc := range []struct {
+		name string
+		edit func(*url.URL)
+		want string
+	}{
+		{"userinfo", func(u *url.URL) { u.User = url.UserPassword("svc", "SECRET-PASS") }, "/v1/items"},
+		{"fragment", func(u *url.URL) { u.Fragment = "SECRET-FRAGMENT" }, "/v1/items"},
+		{"bare query key", func(u *url.URL) { u.RawQuery = "SECRET-TOKEN" }, "/v1/items?REDACTED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exp := clientTracing(t)
+
+			u, _ := url.Parse(srv.URL)
+			u.Path = "/v1/items"
+			tc.edit(u)
+
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, u.String(), nil)
+
+			resp, err := HTTPClient().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+
+			s := exp.GetSpans()[0]
+
+			if leaks := spanLeaks(s, "SECRET"); len(leaks) > 0 {
+				t.Fatalf("the client span leaks a secret in %v", leaks)
+			}
+
+			if v, _ := attrOf(s.Attributes, "url.full"); v.AsString() != srv.URL+tc.want {
+				t.Fatalf("url.full = %q, want %q", v.AsString(), srv.URL+tc.want)
+			}
+		})
+	}
+}
+
 func TestInstrumentTransportMasksTransportErrors(t *testing.T) {
 	exp := clientTracing(t)
 
