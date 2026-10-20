@@ -2,14 +2,13 @@ package forge
 
 import (
 	"context"
-	"fmt"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/xraph/forge/internal/telemetry"
+	"github.com/xraph/forge/internal/telemetry/spanerror"
 )
 
 // lifecycleTracer is the app's own tracer, not the global one, so two apps in
@@ -31,19 +30,18 @@ func (a *app) startLifecycleSpan(ctx context.Context, name string) (context.Cont
 	)
 }
 
-// endLifecycleSpan records err, when there is one, and ends the span.
+// endLifecycleSpan records err, when there is one, and ends the span. Only
+// err's class reaches the span, as the status description and the exception
+// event's exception.type, never its message: an extension's Register or Start
+// error can quote a DSN or a credential, and the full error is logged anyway.
 func endLifecycleSpan(span trace.Span, err error) {
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-
+	spanerror.RecordError(span, err)
 	span.End()
 }
 
 // traceExtension runs fn inside a "<verb> <extension>" span. A panic is
-// recorded on the span and re-raised, so the caller's recovery (or lack of
-// it) is unchanged.
+// recorded on the span as spanerror.PanicClass, without its value, and
+// re-raised, so the caller's recovery (or lack of it) is unchanged.
 func (a *app) traceExtension(ctx context.Context, verb string, ext Extension, fn func(context.Context) error) (err error) {
 	ctx, span := a.lifecycleTracer().Start(ctx, verb+" "+ext.Name(), //nolint:spancheck // ended by the deferred endLifecycleSpan
 		trace.WithAttributes(
@@ -54,7 +52,8 @@ func (a *app) traceExtension(ctx context.Context, verb string, ext Extension, fn
 
 	defer func() {
 		if r := recover(); r != nil {
-			endLifecycleSpan(span, fmt.Errorf("panic: %v", r))
+			spanerror.RecordPanic(span, false)
+			span.End()
 			panic(r)
 		}
 
