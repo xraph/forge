@@ -205,6 +205,31 @@ func TestEndRecordsError(t *testing.T) {
 	}
 }
 
+func TestEndKeepsErrorTextOffTheSpan(t *testing.T) {
+	exp := installTracing(t)
+
+	_, op := messaging.New("nats").StartSend(t.Context(), "orders", "send")
+	op.End(fmt.Errorf("publish to nats://svc:SECRET@broker:4222: %w", &brokerError{}))
+
+	s := exp.GetSpans()[0]
+
+	if s.Status.Description != "*messaging_test.brokerError" {
+		t.Fatalf("status description = %q, want the error type", s.Status.Description)
+	}
+
+	if len(s.Events) != 1 || s.Events[0].Name != "exception" || len(s.Events[0].Attributes) != 1 ||
+		s.Events[0].Attributes[0].Key != "exception.type" ||
+		s.Events[0].Attributes[0].Value.AsString() != "*messaging_test.brokerError" {
+		t.Fatalf("events = %+v, want one exception event with exception.type only", s.Events)
+	}
+
+	for _, kv := range s.Attributes {
+		if strings.Contains(kv.Value.String(), "SECRET") {
+			t.Fatalf("attribute %s leaks the error text", kv.Key)
+		}
+	}
+}
+
 func TestContextErrorTypes(t *testing.T) {
 	exp := installTracing(t)
 	mt := messaging.New("memory")

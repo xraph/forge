@@ -3,27 +3,32 @@ package router
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/forge/internal/telemetry/spanerror"
 )
 
-// recordSpanPanic adds a recovered panic to the request's span, with the
-// stack trace of the goroutine that panicked.
-func recordSpanPanic(ctx context.Context, rec any) {
+// recordSpanPanic adds a recovered panic to the request's span as an
+// exception event of type spanerror.PanicClass, with the stack trace of the
+// goroutine that panicked. The panic value stays off the span; the recovery
+// logs it.
+func recordSpanPanic(ctx context.Context, _ any) {
 	span := trace.SpanFromContext(ctx)
 	if !span.IsRecording() {
 		return
 	}
 
-	span.RecordError(fmt.Errorf("panic: %v", rec), trace.WithStackTrace(true))
+	spanerror.AddException(span, spanerror.PanicClass, true)
 }
 
-// recordSpanError adds err to the request's span when it maps to a 5xx.
-// Client errors are part of normal traffic and would only add noise.
+// recordSpanError adds an exception event to the request's span when err
+// maps to a 5xx. The event carries the error's class (spanerror.ErrorClass)
+// and not its message, since a handler error often wraps a driver error that
+// quotes bound values. Client errors are part of normal traffic and would
+// only add noise. The status is the tracing middleware's to set.
 func recordSpanError(ctx context.Context, err error) {
 	if err == nil {
 		return
@@ -42,7 +47,7 @@ func recordSpanError(ctx context.Context, err error) {
 	}
 
 	if status >= http.StatusInternalServerError {
-		span.RecordError(err)
+		spanerror.AddException(span, spanerror.ErrorClass(err), false)
 	}
 }
 

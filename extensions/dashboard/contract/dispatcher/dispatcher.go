@@ -16,6 +16,7 @@ import (
 
 	"github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/transport"
+	"github.com/xraph/forge/internal/telemetry/spanerror"
 )
 
 // Dispatcher is the concrete implementation of transport.Dispatcher and
@@ -387,7 +388,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 				span.SetAttributes(attribute.String("forge.contract.error_code", string(ce.Code)))
 				span.SetStatus(codes.Error, string(ce.Code))
 			} else {
-				span.SetStatus(codes.Error, err.Error())
+				// The class only: a handler error can quote what it was
+				// given, and the response and logs carry the full error.
+				span.SetStatus(codes.Error, spanerror.ErrorClass(err))
 			}
 		} else {
 			span.SetStatus(codes.Ok, "")

@@ -68,8 +68,10 @@ func (o *Operation) End(err error)
 ```
 
 `End` is nil-safe and idempotent: a nil `*Operation` does nothing, and a second call does nothing.
-It ends the span and records one histogram observation. A non-nil `err` records the error on the
-span, sets an Error status and sets `error.type`.
+It ends the span and records one histogram observation. A non-nil `err` sets `error.type`, gives
+the span an Error status whose description is that same type, and adds an `exception` event whose
+only attribute is `exception.type`. The error's message never reaches the span, since a broker or
+handler error can quote a connection URL or a bound value; log it if you need it.
 
 `error.type` is `context.DeadlineExceeded` or `context.Canceled` when the error wraps one of them.
 Otherwise it's the `%T` of the innermost error in the chain, so a wrapped broker error reports the

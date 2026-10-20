@@ -283,7 +283,9 @@ queued spans last, after the container stops.
 By default a server span's `url.path` is the matched route template (the
 same value as `http.route`), a request that matched no route gets no
 `url.path`, and `url.query` and `user_agent.original` aren't recorded. The
-last three keys below turn each one on.
+last three keys below turn each one on. No forge span carries error text
+either: a status description or `exception.type` names the error's class,
+never its message, and a panic is recorded as `panic` without its value.
 
 ```yaml
 tracing:
