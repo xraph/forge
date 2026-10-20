@@ -217,7 +217,12 @@ tracing:
   exclude_paths: ["/_/"]         # path prefixes that get no span
   response_header: traceparent   # set to "" to stop writing it
   resource: {}                   # extra resource attributes, e.g. service.namespace: payments
+  record_raw_path: false         # true: url.path is the raw request path, not the route
+  record_user_agent: false       # true: record user_agent.original
+  allowed_query_keys: []         # non-empty: record url.query, with other keys' values REDACTED
 ```
+
+The last three decide how much of each request lands on its span. They're covered in [What stays off your spans](#what-stays-off-your-spans).
 
 With `enabled: false` you get no spans and no `traceparent` response header. An incoming `traceparent` still passes through, though, so calls you make with `forge.HTTPClient()` carry the caller's trace on to the next service.
 
@@ -287,9 +292,9 @@ Before this release, Forge bound a value like `"lots"` as 0. For `sample_ratio` 
 
 Each request gets one server span, named `METHOD /route/pattern` once the router has matched, such as `GET /users/:id`. The name uses the pattern and not the URL, so traffic to a thousand different user IDs lands on one span name. A request that matches nothing keeps the bare method as its name.
 
-The span carries these attributes: `http.request.method`, `url.scheme`, `url.path`, `network.protocol.version`, `server.address`, `user_agent.original`, `http.route` and `http.response.status_code`. A method outside the standard nine is recorded as `_OTHER`, with the original in `http.request.method_original`.
+The span carries these attributes: `http.request.method`, `url.scheme`, `url.path`, `network.protocol.version`, `server.address`, `http.route` and `http.response.status_code`. `url.path` holds the route pattern, the same value as `http.route`, and a request that matched no route has no `url.path` at all. A method outside the standard nine is recorded as `_OTHER`, with the original in `http.request.method_original`.
 
-A response with a 5xx status marks the span as an error and sets `error.type`. When a handler returns a 5xx error or panics and the router recovers, the error is recorded on the span as well, with a stack trace for panics. 4xx responses are normal traffic, so they don't mark the span.
+A response with a 5xx status marks the span as an error and sets `error.type`. When a handler returns a 5xx error or panics and the router recovers, the span also gets an `exception` event whose `exception.type` names the error's class (`panic` for a panic), with a stack trace for panics. 4xx responses are normal traffic, so they don't mark the span.
 
 Requests whose path starts with anything in `exclude_paths` get no span. The default, `/_/`, keeps Forge's own endpoints (health, metrics, info) out of your traces.
 
@@ -298,6 +303,55 @@ Incoming `traceparent` and `baggage` headers are honoured, so your spans join th
 A WebSocket, SSE or WebTransport route is the exception to "one span for the request". Its server span ends at the handshake: after the upgrade for a WebSocket (status 101), once the stream is writable for `EventStream`, right before your handler runs for `SSE()`, and after the upgrade for WebTransport. It carries `forge.stream.kind` (`sse`, `websocket` or `webtransport`) as well as the usual attributes, so a trace of a connection that stays open all day is still a few milliseconds long. Spans you start for each message with `forge.StartSpan` are children of that span. For how long the connection lived and how many messages crossed it, use the [stream metrics](/docs/forge/metrics#stream-connections). A rejected upgrade, a 403 for a bad `Origin` say, is an ordinary request with an ordinary span and no `forge.stream.kind`.
 
 WebTransport sessions run on the router's own HTTP/3 server. Call `EnableWebTransport` and then `StartHTTP3`, and each upgrade gets its span the same way a WebSocket does.
+
+### What stays off your spans
+
+Out of the box, a span never holds:
+
+- the raw request path. `url.path` is the route pattern, so `/v1/sessions/:id` and not the session ID, and the span name is `METHOD /route/pattern` or the bare method.
+- the query string. There's no `url.query` and no `url.full`.
+- the user agent. There's no `user_agent.original`.
+- error text. A status description or `exception.type` names the error's class: `context.Canceled`, `context.DeadlineExceeded`, or the Go type of the innermost error in the chain, so a wrapped driver error reads as the driver's type. A panic reads `panic`, and its value stays off. The call still hands you the full error, and Forge's default error handler and panic recovery still log it.
+
+Paths carry session IDs, passkey credential IDs and the occasional push secret, query strings carry tickets and tokens, a user agent is personal data, and error text quotes DSNs and bound query values. Your tracing backend probably keeps all of it for weeks, readable by more people than your database is.
+
+If you want any of the first three back, turn them on in the `tracing` block or in code:
+
+```yaml
+tracing:
+  record_raw_path: true          # url.path is the raw path, for matched and unmatched requests
+  record_user_agent: true        # user_agent.original is recorded
+  allowed_query_keys: [page, sort]
+```
+
+```go
+on := true
+
+app := forge.New(
+    forge.WithAppTracingConfig(forge.TracingConfig{
+        RecordRawPath:    &on,
+        RecordUserAgent:  &on,
+        AllowedQueryKeys: []string{"page", "sort"},
+    }),
+)
+```
+
+`allowed_query_keys` turns `url.query` on. Every key is recorded, the listed keys keep their values and every other value reads `REDACTED`, so `?page=2&t=abc` becomes `page=2&t=REDACTED`. Keys are matched after decoding. With the list empty there's no `url.query`, and there's no setting that records every value as sent. The span name stays `METHOD /route/pattern` whatever you set.
+
+Error text has no switch. When you know an error is safe to keep, record it on the span yourself:
+
+```go
+func charge(c forge.Context) error {
+    if err := billing.Charge(c.Context(), order); err != nil {
+        forge.SpanFromContext(c.Context()).RecordError(err) // message and all
+        return err
+    }
+
+    return c.JSON(http.StatusOK, order)
+}
+```
+
+Before Forge 1.12.10, `url.path` was the raw path, `user_agent.original` was always recorded, and errors went on spans with their message, as the status description and as `exception.message`. If a dashboard, an alert or a span processor of yours reads any of those, set the matching key above, or switch it to `http.route` and `exception.type`.
 
 ### Add your own spans
 
@@ -318,7 +372,7 @@ func charge(ctx forge.Context) error {
 
 ### Boot and shutdown traces
 
-Slow boot? Open the `forge.start` trace. Every `Start` produces one, with a `register <ext>` and a `start <ext>` child for each extension, so the long bar is the extension that held things up. Every `Stop` does the same under `forge.stop`, with a `stop <ext>` child per extension. Each extension span carries `forge.extension.name` and `forge.extension.version`, and a failed or panicking call is recorded on its span.
+Slow boot? Open the `forge.start` trace. Every `Start` produces one, with a `register <ext>` and a `start <ext>` child for each extension, so the long bar is the extension that held things up. Every `Stop` does the same under `forge.stop`, with a `stop <ext>` child per extension. Each extension span carries `forge.extension.name` and `forge.extension.version`, and a failed or panicking call is recorded on its span by class, never by message: an extension that fails to parse a DSN shows the error's Go type, and `Start` hands you the full error.
 
 These two root spans are sampled whatever `sample_ratio` says, because a boot happens once per process and the slow one is the one you want to see. The exception is sampling that is off (`sample_ratio: 0`, `always_off` or `parentbased_always_off`), where you get nothing. Under the default parent-based sampler the children follow their root, so the whole trace ships. A plain `traceidratio` sampler isn't parent-based and rolls again for each child, so you'd see only some of them.
 
@@ -356,6 +410,8 @@ func fetchUser(ctx context.Context, id string) (*http.Response, error) {
 
 Already have a client with its own transport? Wrap the transport with `forge.InstrumentTransport(rt)`. A nil transport means `http.DefaultTransport`.
 
+The client span's `url.full` keeps the scheme, host and path. It drops any username and password and the fragment, and every query value reads `REDACTED`, so a call to `https://api.example.com/v1/items?token=abc&page=2` shows up as `https://api.example.com/v1/items?token=REDACTED&page=REDACTED`. The request that goes out is untouched. A transport error, or one from reading the response body, sets the span's status and `error.type` to the error's class, and you get the original error back. The path isn't scrubbed, so if your URLs carry a secret in the path, a webhook URL say, put a transport of your own in front that hides it.
+
 A client captures the tracer provider and propagators that are current when you build it. One built before `forge.New` still traces, because OpenTelemetry's global hands its spans on to the first provider anyone sets. In a process with several apps, though, a client stays with whichever provider was current when you built it, so build it after the app you want it to follow.
 
 ### gRPC calls
@@ -375,7 +431,7 @@ A message you publish in one service and handle in another shows up as one trace
 
 The create, send and publish spans are producer spans and the process spans are consumer spans. The RPC pair is the exception: `call` is a client span and `serve` is a server span, and the server span is the call's child.
 
-Every span carries `messaging.system`, `messaging.destination.name` (the queue, event type, stream or topic), `messaging.operation.name` and `messaging.operation.type`. A batch send adds `messaging.batch.message_count`. A failed publish or handler marks its span as an error, records the error and sets `error.type`; in the queue, events and kafka extensions a handler that panics does the same with `error.type` set to `*messaging.PanicError`, and the panic carries on up unchanged. Conduit recovers a handler or RPC panic into an ordinary error (`conduit: callback panic: ...`), so its span gets that error's Go type and the panic doesn't propagate.
+Every span carries `messaging.system`, `messaging.destination.name` (the queue, event type, stream or topic), `messaging.operation.name` and `messaging.operation.type`. A batch send adds `messaging.batch.message_count`. A failed publish or handler marks its span as an error, sets `error.type` and adds an `exception` event, and the status description and `exception.type` carry that same type and never the error's message; in the queue, events and kafka extensions a handler that panics does the same with `error.type` set to `*messaging.PanicError`, and the panic carries on up unchanged. Conduit recovers a handler or RPC panic into an ordinary error (`conduit: callback panic: ...`), so its span gets that error's Go type and the panic doesn't propagate.
 
 Conduit records two producer spans per message. `Prepare` writes the `create` span's context into the envelope before your publish hooks run, so an envelope that waits in the transactional outbox, gets backfilled or comes back through dead letter replay still joins the trace that made it. The `send` span carries a link to `create`. When an outbox relay sends the envelope later there's no caller span to be a child of, so `send` is a root span with that link, and the trace still connects through `create`. Each retry gets its own `process` span. A publish hook that replaces `Headers` wholesale throws `traceparent` away with the rest, so add to the map.
 
