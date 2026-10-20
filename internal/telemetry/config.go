@@ -39,6 +39,16 @@ type Settings struct {
 	SpanLabels bool
 	Resource   map[string]string
 	Warnings   []string
+
+	// RecordRawPath puts the raw request path in url.path. When false,
+	// url.path holds the matched route template and a request that matched
+	// no route gets no url.path.
+	RecordRawPath bool
+	// RecordUserAgent puts the User-Agent header in user_agent.original.
+	RecordUserAgent bool
+	// AllowedQueryKeys turns url.query on, with every value whose key isn't
+	// listed replaced by REDACTED. Empty records no url.query.
+	AllowedQueryKeys []string
 }
 
 var supportedSamplers = map[string]bool{
@@ -68,6 +78,9 @@ func Resolve(in Inputs) Settings {
 	s.ExcludePaths = firstSlice(in.Code.ExcludePaths, in.File.ExcludePaths, nil, []string{"/_/"})
 	s.ResponseHeader = firstStringPtr(in.Code.ResponseHeader, in.File.ResponseHeader, "traceparent")
 	s.Resource = firstMap(in.Code.Resource, in.File.Resource, nil)
+	s.RecordRawPath = firstBoolPtr(in.Code.RecordRawPath, in.File.RecordRawPath, false)
+	s.RecordUserAgent = firstBoolPtr(in.Code.RecordUserAgent, in.File.RecordUserAgent, false)
+	s.AllowedQueryKeys = firstSlice(in.Code.AllowedQueryKeys, in.File.AllowedQueryKeys)
 
 	s.SamplerName, s.SampleRatio = resolveSampler(in, getenv, &s.Warnings)
 
@@ -225,6 +238,17 @@ func firstSlice(slices ...[]string) []string {
 	}
 
 	return nil
+}
+
+func firstBoolPtr(code, file *bool, def bool) bool {
+	switch {
+	case code != nil:
+		return *code
+	case file != nil:
+		return *file
+	default:
+		return def
+	}
 }
 
 func firstStringPtr(code, file *string, def string) string {

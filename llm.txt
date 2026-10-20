@@ -280,6 +280,11 @@ only when an endpoint is set. Precedence is `WithAppTracingConfig`, then the
 (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SDK_DISABLED`, ...). `Stop` flushes
 queued spans last, after the container stops.
 
+By default a server span's `url.path` is the matched route template (the
+same value as `http.route`), a request that matched no route gets no
+`url.path`, and `url.query` and `user_agent.original` aren't recorded. The
+last three keys below turn each one on.
+
 ```yaml
 tracing:
   enabled: true            # false turns tracing off entirely
@@ -287,6 +292,9 @@ tracing:
   sample_ratio: 0.1
   exclude_paths: ["/_/"]
   response_header: traceparent   # "" sends no header
+  record_raw_path: false         # true: url.path is the raw request path
+  record_user_agent: false       # true: record user_agent.original
+  allowed_query_keys: []         # non-empty: record url.query, other values REDACTED
 ```
 
 ### Metrics push
