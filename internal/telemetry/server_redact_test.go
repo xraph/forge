@@ -181,3 +181,36 @@ func TestScrubQuery(t *testing.T) {
 		t.Errorf("nil allowed: %q", got)
 	}
 }
+
+// A panic that escapes the router reaches the span as "panic" with a stack
+// trace, never the panic value.
+func TestServerSpanPanicValueStaysOff(t *testing.T) {
+	exp, mw := setup(t, Settings{})
+
+	h := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("session SECRET expired") })
+
+	func() {
+		defer func() { _ = recover() }()
+
+		mw(h).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/a", nil))
+	}()
+
+	s := exp.GetSpans()[0]
+
+	if s.Status.Description != "panic" {
+		t.Fatalf("status description = %q", s.Status.Description)
+	}
+
+	if leaks := spanLeaks(s, "SECRET"); len(leaks) > 0 {
+		t.Fatalf("the span leaks the panic value in %v", leaks)
+	}
+
+	attrs := map[string]string{}
+	for _, kv := range s.Events[0].Attributes {
+		attrs[string(kv.Key)] = kv.Value.AsString()
+	}
+
+	if attrs["exception.type"] != "panic" || attrs["exception.stacktrace"] == "" {
+		t.Fatalf("exception event = %v, want type panic with a stack trace", attrs)
+	}
+}

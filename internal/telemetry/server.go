@@ -3,7 +3,6 @@ package telemetry
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/forge/internal/telemetry/spanerror"
 )
 
 const instrumentationName = "github.com/xraph/forge"
@@ -194,7 +194,8 @@ func (st *serverSpan) finish(status int) {
 	span.End()
 }
 
-// recoverPanic records a handler panic on the span and panics on. It must be
+// recoverPanic records a handler panic on the span, as spanerror.PanicClass
+// with a stack trace and without the panic value, and panics on. It must be
 // deferred directly, or recover returns nil.
 func (st *serverSpan) recoverPanic() {
 	p := recover()
@@ -213,8 +214,7 @@ func (st *serverSpan) recoverPanic() {
 		st.span.SetAttributes(st.appendRequestAttributes(make([]attribute.KeyValue, 0, 9), st.match.Pattern)...)
 	}
 
-	st.span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
-	st.span.SetStatus(codes.Error, "panic")
+	spanerror.RecordPanic(st.span, true)
 	st.span.End()
 
 	panic(p)

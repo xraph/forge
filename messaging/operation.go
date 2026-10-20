@@ -14,6 +14,7 @@ import (
 	gometrics "github.com/xraph/go-utils/metrics"
 
 	"github.com/xraph/forge/internal/metrics/vec"
+	"github.com/xraph/forge/internal/telemetry/spanerror"
 )
 
 // Operation is one started create, send or process. End it once; a second
@@ -27,7 +28,9 @@ type Operation struct {
 }
 
 // End ends the span and records the duration. A non-nil err sets error.type,
-// records the error on the span and gives it an Error status.
+// gives the span an Error status described by that type and adds an exception
+// event carrying it as exception.type. The error's message never goes on the
+// span: a broker or handler error can quote a connection URL or a bound value.
 func (o *Operation) End(err error) {
 	if o == nil || o.ended.Swap(true) {
 		return
@@ -40,8 +43,8 @@ func (o *Operation) End(err error) {
 
 	if o.span != nil {
 		if err != nil {
-			o.span.RecordError(err)
-			o.span.SetStatus(codes.Error, err.Error())
+			spanerror.AddException(o.span, errType, false)
+			o.span.SetStatus(codes.Error, errType)
 			o.span.SetAttributes(attribute.String("error.type", errType))
 		}
 

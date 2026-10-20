@@ -2,6 +2,7 @@ package forge
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -66,5 +67,56 @@ func TestRouteErrorsRecordedOnSpan(t *testing.T) {
 
 	if stacks["GET /boom"] {
 		t.Error("a 5xx error should be recorded without a stack trace")
+	}
+}
+
+type queryError struct{ args string }
+
+func (e *queryError) Error() string { return "query failed with args " + e.args }
+
+// A handler's 5xx error and a recovered panic reach the span as their class.
+// The message and the panic value stay in the logs.
+func TestRouteErrorTextStaysOffTheSpan(t *testing.T) {
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+
+	t.Cleanup(func() { _ = tp.Shutdown(t.Context()) })
+
+	r := NewRouter(WithRecovery())
+	_ = r.GET("/boom", func(Context) error {
+		return InternalError(fmt.Errorf("load user: %w", &queryError{args: "[SECRET]"}))
+	})
+	_ = r.GET("/panic", func(Context) error { panic("token SECRET") })
+
+	h := telemetry.ServerMiddleware(tp, telemetry.Settings{ExcludePaths: []string{"/_/"}})(r)
+
+	for _, p := range []string{"/boom", "/panic"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, p, nil))
+	}
+
+	types := map[string]string{}
+
+	for _, s := range exp.GetSpans() {
+		if leaks := spanLeaks(s, "SECRET"); len(leaks) > 0 {
+			t.Errorf("%s leaks error text in %v", s.Name, leaks)
+		}
+
+		if v, ok := eventAttr(&s, "exception", "exception.type"); ok {
+			types[s.Name] = v
+		}
+
+		if _, ok := eventAttr(&s, "exception", "exception.message"); ok {
+			t.Errorf("%s carries exception.message", s.Name)
+		}
+	}
+
+	if types["GET /boom"] != "*forge.queryError" {
+		t.Errorf("GET /boom exception.type = %q, want *forge.queryError", types["GET /boom"])
+	}
+
+	if types["GET /panic"] != "panic" {
+		t.Errorf("GET /panic exception.type = %q, want panic", types["GET /panic"])
 	}
 }

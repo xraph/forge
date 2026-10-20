@@ -3,9 +3,12 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -84,5 +87,38 @@ func TestDispatcher_NilTracerIsNoop(t *testing.T) {
 	_, _, err := d.Dispatch(context.Background(), req, contract.Principal{})
 	if err != nil {
 		t.Errorf("nil tracer should not affect dispatch: %v", err)
+	}
+}
+
+type remoteError struct{ url string }
+
+func (e *remoteError) Error() string { return "forward to " + e.url + ": connection refused" }
+
+type failingRemote struct{ err error }
+
+func (f failingRemote) Dispatch(context.Context, contract.Request, contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
+	return nil, contract.ResponseMeta{}, f.err
+}
+
+// An error that isn't a contract error, here a remote contributor's transport
+// error naming its URL, used to become the span's status description word for
+// word.
+func TestDispatcher_SpanKeepsPlainErrorTextOff(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	d := NewWithOptions(NoopMetricsEmitter{}, WithTracer(tp.Tracer("test")))
+	d.SetRemoteDispatcher(failingRemote{err: fmt.Errorf("remote: %w", &remoteError{url: "https://svc:SECRET@reports.internal"})})
+
+	req := contract.Request{Envelope: "v1", Kind: contract.KindQuery, Contributor: "c", Intent: "i", IntentVersion: 1}
+	if err := dispatchErr(d, req); err == nil || !strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("dispatch error = %v, want the caller to keep the full error", err)
+	}
+
+	s := exporter.GetSpans()[0]
+	if s.Status.Code != codes.Error || s.Status.Description != "*dispatcher.remoteError" {
+		t.Fatalf("status = %v %q, want Error *dispatcher.remoteError", s.Status.Code, s.Status.Description)
 	}
 }
