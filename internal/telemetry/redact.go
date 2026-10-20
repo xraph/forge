@@ -10,9 +10,11 @@ import (
 const redacted = "REDACTED"
 
 // scrubQuery returns raw, a URL's encoded query string, with every value
-// replaced by redacted unless its key is in allowed. Keys, their order, bare
-// keys and empty values stay as sent. A key is matched after decoding, so
-// allowed holds plain names. A nil allowed redacts every value.
+// replaced by redacted unless its key is in allowed. Keys, their order and
+// empty values stay as sent. A bare key (no "=") reads redacted unless it is
+// allowed, because ?<token> puts the secret where the key goes. A key is
+// matched after decoding, so allowed holds plain names. A nil allowed redacts
+// every value and every bare key.
 func scrubQuery(raw string, allowed map[string]struct{}) string {
 	if raw == "" {
 		return ""
@@ -32,12 +34,17 @@ func scrubQuery(raw string, allowed map[string]struct{}) string {
 		first = false
 
 		key, value, hasValue := strings.Cut(part, "=")
-		b.WriteString(key)
-
 		if !hasValue {
+			if key == "" || queryKeyAllowed(key, allowed) {
+				b.WriteString(key)
+			} else {
+				b.WriteString(redacted)
+			}
+
 			continue
 		}
 
+		b.WriteString(key)
 		b.WriteByte('=')
 
 		if value == "" || queryKeyAllowed(key, allowed) {

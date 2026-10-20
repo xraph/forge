@@ -27,5 +27,6 @@ type TracingConfig struct {
 	RecordUserAgent *bool `json:"record_user_agent,omitempty" yaml:"record_user_agent,omitempty"`
 	// AllowedQueryKeys turns url.query on. Every key is kept, the values of
 	// the keys listed here are kept, and every other value reads REDACTED.
+	// A key sent without a value reads REDACTED unless it is listed.
 	AllowedQueryKeys []string `json:"allowed_query_keys,omitempty" yaml:"allowed_query_keys,omitempty"`
 }

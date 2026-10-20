@@ -165,7 +165,9 @@ func TestScrubQuery(t *testing.T) {
 		{"t=abc", "t=REDACTED"},
 		{"page=2", "page=2"},
 		{"page=2&t=abc&page=3", "page=2&t=REDACTED&page=3"},
-		{"flag&t=abc", "flag&t=REDACTED"},
+		{"flag&t=abc", "REDACTED&t=REDACTED"},
+		{"page&t=abc", "page&t=REDACTED"},
+		{"a=1&&b=2", "a=REDACTED&&b=REDACTED"},
 		{"t=&page=", "t=&page="},
 		{"sort+by=name&sort%20by=date", "sort+by=name&sort%20by=date"},
 		{"pa%67e=2", "pa%67e=2"},
@@ -177,7 +179,7 @@ func TestScrubQuery(t *testing.T) {
 		}
 	}
 
-	if got := scrubQuery("page=2&t=abc", nil); got != "page=REDACTED&t=REDACTED" {
+	if got := scrubQuery("page=2&t=abc&eyJhbGciOi", nil); got != "page=REDACTED&t=REDACTED&REDACTED" {
 		t.Errorf("nil allowed: %q", got)
 	}
 }
