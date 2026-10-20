@@ -98,7 +98,7 @@ class TagTest(unittest.TestCase):
         self.head = git(self.repo, "rev-parse", "HEAD")
         git(self.repo, "push", "-q", "origin", "HEAD:refs/heads/main")
 
-    def step(self, script, version="1.2.3", is_all="false", tag=None):
+    def step(self, script, version="1.2.3", is_all="false", tag=None, module_type="main"):
         env = {
             "PATH": os.environ["PATH"],
             "HOME": self.tmp.name,
@@ -106,6 +106,7 @@ class TagTest(unittest.TestCase):
             "TAG": tag or f"v{version}",
             "VERSION": version,
             "IS_ALL": is_all,
+            "MODULE_TYPE": module_type,
             "RELEASE_EXTENSIONS": " ".join(release_extensions()),
         }
         return subprocess.run(["bash", "-c", script], cwd=self.repo, env=env, capture_output=True, text=True)
@@ -165,7 +166,19 @@ class GuardTest(TagTest):
 
     def test_an_extension_release_checks_its_own_tag(self):
         git(self.repo, "tag", "extensions/auth/v1.2.3", self.old)
-        self.assertFails(self.step(GUARD, tag="extensions/auth/v1.2.3"), "extensions/auth/v1.2.3 already exists")
+        self.assertFails(self.step(GUARD, tag="extensions/auth/v1.2.3", module_type="extension"),
+                         "extensions/auth/v1.2.3 already exists")
+
+    def test_a_cli_tag_at_another_commit_fails_a_release_that_ships_the_cli(self):
+        git(self.repo, "tag", "cmd/forge/v1.2.3", self.old)
+        for module_type in ("main", "cli"):
+            self.assertFails(self.step(GUARD, module_type=module_type),
+                             f"Tag cmd/forge/v1.2.3 already exists at {self.old}")
+
+    def test_a_cli_tag_elsewhere_does_not_block_a_library_or_extension_release(self):
+        git(self.repo, "tag", "cmd/forge/v1.2.3", self.old)
+        self.assertPasses(self.step(GUARD, module_type="library"))
+        self.assertPasses(self.step(GUARD, tag="extensions/auth/v1.2.3", module_type="extension"))
 
     def test_a_branch_named_like_the_tag_is_not_mistaken_for_it(self):
         git(self.repo, "branch", "v1.2.3", self.old)
@@ -176,7 +189,7 @@ class CreateTest(TagTest):
     def test_all_mode_tags_every_module_at_head_and_pushes_them(self):
         self.assertPasses(self.step(GUARD, is_all="true"))
         self.assertPasses(self.step(CREATE, is_all="true"))
-        expected = {"v1.2.3": self.head}
+        expected = {"v1.2.3": self.head, "cmd/forge/v1.2.3": self.head}
         expected.update({f"extensions/{ext}/v1.2.3": self.head for ext in release_extensions()})
         self.assertEqual(self.tags(self.origin), expected)
 
@@ -203,8 +216,27 @@ class CreateTest(TagTest):
 
     def test_stray_local_tags_are_not_pushed(self):
         git(self.repo, "tag", "scratch", self.old)
-        self.assertPasses(self.step(CREATE))
+        self.assertPasses(self.step(CREATE, module_type="library"))
         self.assertEqual(self.tags(self.origin), {"v1.2.3": self.head})
+
+    # `go install github.com/xraph/forge/cmd/forge@latest` resolves cmd/forge's
+    # own tags. Without one it builds main's head as v0.0.0-<time>-<commit>.
+    def test_a_release_that_ships_the_cli_tags_the_cli_module(self):
+        for module_type in ("main", "cli"):
+            with self.subTest(module_type=module_type):
+                self.setUp()
+                self.assertPasses(self.step(CREATE, module_type=module_type))
+                self.assertEqual(self.tags(self.origin), {"v1.2.3": self.head, "cmd/forge/v1.2.3": self.head})
+
+    def test_a_library_release_leaves_the_cli_module_untagged(self):
+        self.assertPasses(self.step(CREATE, module_type="library"))
+        self.assertNotIn("cmd/forge/v1.2.3", self.tags(self.origin))
+
+    def test_a_missing_cli_tag_is_filled_in_at_head(self):
+        git(self.repo, "tag", "v1.2.3", self.head)
+        git(self.repo, "push", "-q", "origin", "refs/tags/v1.2.3")
+        self.assertPasses(self.step(CREATE))
+        self.assertEqual(self.tags(self.origin)["cmd/forge/v1.2.3"], self.head)
 
 
 class WiringTest(unittest.TestCase):
@@ -240,6 +272,15 @@ class WiringTest(unittest.TestCase):
         self.assertEqual(sorted(set(options) - {"forge", "forge-library", "cli", "all"}), sorted(listed))
         for ext in listed:
             self.assertTrue(os.path.exists(os.path.join(ROOT, "extensions", ext, "go.mod")), ext)
+
+    def test_the_tagged_cli_module_installs_and_goreleaser_skips_its_tags(self):
+        # go install refuses a module whose go.mod has a replace directive, so
+        # a cmd/forge/vX.Y.Z tag on such a go.mod would publish a version that
+        # cannot be installed.
+        gomod = read(os.path.join(ROOT, "cmd", "forge", "go.mod"))
+        self.assertIsNone(re.search(r"^\s*replace\b", gomod, re.M))
+        # GoReleaser has to keep reading the root vX.Y.Z tag as the release.
+        self.assertIn("- 'cmd/*'", read(os.path.join(ROOT, ".goreleaser.yml")))
 
     def test_the_guard_runs_on_every_dispatch_before_the_tag_step(self):
         text = read(RELEASE)

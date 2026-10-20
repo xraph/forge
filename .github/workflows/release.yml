@@ -260,11 +260,15 @@ jobs:
           TAG: ${{ steps.resolve.outputs.tag }}
           VERSION: ${{ steps.resolve.outputs.version }}
           IS_ALL: ${{ steps.resolve.outputs.is_all }}
+          MODULE_TYPE: ${{ steps.resolve.outputs.module_type }}
         run: |
           set -euo pipefail
 
           HEAD_SHA=$(git rev-parse HEAD)
           WANTED=("$TAG")
+          if [ "$MODULE_TYPE" = "main" ] || [ "$MODULE_TYPE" = "cli" ]; then
+            WANTED+=("cmd/forge/v${VERSION}")
+          fi
           if [ "$IS_ALL" = "true" ]; then
             read -ra EXTENSIONS <<< "$RELEASE_EXTENSIONS"
             for ext in "${EXTENSIONS[@]}"; do
@@ -290,15 +294,22 @@ jobs:
           fi
           echo "No tag for $VERSION points anywhere but HEAD ($HEAD_SHA)."
 
-      # Creates the main tag at HEAD, and in "all" mode every extension tag at
-      # that same commit, then pushes only the tags it created, in one atomic
-      # push. The guard above has already refused any tag at another commit.
+      # Creates the main tag at HEAD, the CLI module's tag when the release
+      # ships the CLI, and in "all" mode every extension tag, all at that same
+      # commit, then pushes only the tags it created, in one atomic push. The
+      # guard above has already refused any tag at another commit.
+      #
+      # cmd/forge is its own module, so Go versions it by `cmd/forge/vX.Y.Z`
+      # tags and ignores the root's `vX.Y.Z`. Without one,
+      # `go install github.com/xraph/forge/cmd/forge@latest` builds main's head
+      # as v0.0.0-<time>-<commit>, and that is what `forge --version` prints.
       - name: Create tags (manual dispatch)
         if: github.event_name == 'workflow_dispatch' && steps.resolve.outputs.dry_run == 'false'
         env:
           TAG: ${{ steps.resolve.outputs.tag }}
           VERSION: ${{ steps.resolve.outputs.version }}
           IS_ALL: ${{ steps.resolve.outputs.is_all }}
+          MODULE_TYPE: ${{ steps.resolve.outputs.module_type }}
         run: |
           set -euo pipefail
 
@@ -318,6 +329,16 @@ jobs:
           if [ "$TARGET" != "$HEAD_SHA" ]; then
             echo "::error::$TAG points at $TARGET, not HEAD $HEAD_SHA. Refusing to tag."
             exit 1
+          fi
+
+          if [ "$MODULE_TYPE" = "main" ] || [ "$MODULE_TYPE" = "cli" ]; then
+            CLI_TAG="cmd/forge/v${VERSION}"
+            if git rev-parse -q --verify "refs/tags/$CLI_TAG" >/dev/null; then
+              echo "Tag $CLI_TAG already exists at HEAD; not creating it again."
+            else
+              git tag "$CLI_TAG" "$TARGET"
+              NEW+=("refs/tags/$CLI_TAG")
+            fi
           fi
 
           if [ "$IS_ALL" = "true" ]; then

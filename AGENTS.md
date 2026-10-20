@@ -6,13 +6,13 @@ Every forgery repo requires `github.com/xraph/forge`: grove, chronicle, relay, k
 
 ## Modules
 
-There are 39 go.mod files outside `cmd/forge/internal/deploy/testdata/`. Release tags go on the root and the 19 extension modules.
+There are 39 go.mod files outside `cmd/forge/internal/deploy/testdata/`. Release tags go on the root, the CLI module and the 19 extension modules.
 
 | Module | Directory | Release tag |
 |---|---|---|
 | `github.com/xraph/forge` | `.` | `vX.Y.Z` |
 | `github.com/xraph/forge/extensions/<name>` | `extensions/<name>/` | `extensions/<name>/vX.Y.Z` |
-| `github.com/xraph/forge/cmd/forge` | `cmd/forge/` | none, binaries ship from the root tag |
+| `github.com/xraph/forge/cmd/forge` | `cmd/forge/` | `cmd/forge/vX.Y.Z`, for `go install` only; binaries ship from the root tag |
 | `github.com/xraph/forge/models` | `models/` | none |
 | examples (17 modules) | `examples/*/`, `extensions/*/examples/*/` | none |
 
@@ -22,7 +22,7 @@ The dashboard isn't one of them. `extensions/dashboard/` has no go.mod and ships
 
 Conduit's tags start at `extensions/conduit/v1.0.0` and then jump to the shared line, because an `all` release tags every extension at the root's version (`git tag -l 'extensions/conduit/*'`). `all` can't skip one. If you want an extension on its own version line, release `forge` and each extension separately, or take it out of `RELEASE_EXTENSIONS`.
 
-The CLI module has no tags of its own. `go install github.com/xraph/forge/cmd/forge@latest` resolves to a pseudo-version of main's head, so whatever lands on main is what `@latest` users install. Its go.mod carries no `replace` (go install refuses one) and pins the root at a published version or pseudo-version. When you need a root fix in the CLI, push the fix first, then bump that require with `cd cmd/forge && GOWORK=off go get github.com/xraph/forge@<commit>`.
+The release workflow tags the CLI module as `cmd/forge/vX.Y.Z` whenever a release ships the CLI (`forge`, `cli` or `all`). Go versions a nested module by its own directory's tags and never looks at the root `vX.Y.Z`, so `go install github.com/xraph/forge/cmd/forge@latest` gets the latest release from that tag, and `forge --version` prints it. The first of those tags comes with the first release after v1.12.10. Install `@main` and you get main's head as `v0.0.0-<time>-<commit>`, which is also what `@latest` gave you before those tags. GoReleaser ignores `cmd/*` tags, so it keeps reading the root tag as the release. Its go.mod carries no `replace` (go install refuses one) and pins the root at a published version or pseudo-version. When you need a root fix in the CLI, push the fix first, then bump that require with `cd cmd/forge && GOWORK=off go get github.com/xraph/forge@<commit>`.
 
 `models` requires grove, not forge, and is consumed at pseudo-versions.
 
@@ -196,11 +196,11 @@ gh run list --workflow release.yml --limit 1                 # then gh run watch
 
 | `module` | Tags | Ships |
 |---|---|---|
-| `forge` | `vX.Y.Z` | GoReleaser CLI archives, Homebrew, Scoop and nfpm (Docker images are skipped with `--skip=docker` for now), a Go proxy ping, `npm-publish.yml` and `dart-publish.yml` for stable versions, then a CHANGELOG.md commit to main |
+| `forge` | `vX.Y.Z` and `cmd/forge/vX.Y.Z` | GoReleaser CLI archives, Homebrew, Scoop and nfpm (Docker images are skipped with `--skip=docker` for now), a Go proxy ping, `npm-publish.yml` and `dart-publish.yml` for stable versions, then a CHANGELOG.md commit to main |
 | `forge-library` | `vX.Y.Z` | a GitHub release not marked latest, and the proxy ping |
-| `cli` | `vX.Y.Z` | GoReleaser only |
+| `cli` | `vX.Y.Z` and `cmd/forge/vX.Y.Z` | GoReleaser only |
 | `<extension>` | `extensions/<name>/vX.Y.Z` | a GitHub release and the proxy ping |
-| `all` | `vX.Y.Z` and every `extensions/<name>/vX.Y.Z`, on one commit | what `forge` ships; the extension tags get no release or proxy ping of their own |
+| `all` | `vX.Y.Z`, `cmd/forge/vX.Y.Z` and every `extensions/<name>/vX.Y.Z`, on one commit | what `forge` ships; the extension tags get no release or proxy ping of their own |
 
 `forge`, `forge-library` and `cli` all create the root `vX.Y.Z`, so a version one of them used is taken for the others. A guard refuses any tag that already exists at a different commit, dry runs included. The first job pushes the tags before the tests run, so a red test job leaves published tags with no release behind it. If the code was fine, rerun the same version with `--ref vX.Y.Z`; if it needs a fix, ship the next patch. After a `forge` or `all` release, pull before you push again, because the changelog commit has landed on main.
 
