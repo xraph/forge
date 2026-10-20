@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.12.10](https://github.com/xraph/forge/compare/v1.12.9...v1.12.10) (2026-10-20)
+
+
+### Bug Fixes
+
+* **telemetry:** redact bare query keys unless they are allowed ([ef2c4898](https://github.com/xraph/forge/commit/ef2c4898))
+* **tracing:** keep error text off request, messaging and dashboard spans ([308515b3](https://github.com/xraph/forge/commit/308515b3))
+* **telemetry:** scrub query values and transport errors from client spans ([0bb0fee5](https://github.com/xraph/forge/commit/0bb0fee5))
+* **telemetry:** keep raw paths, query strings and user agents off server spans ([3e07aa3b](https://github.com/xraph/forge/commit/3e07aa3b))
+* **telemetry:** keep error text off lifecycle spans ([159b1f1d](https://github.com/xraph/forge/commit/159b1f1d))
+
+
+### Maintenance
+
+* **changelog:** say which spans carry the error class and that gRPC still has its message ([82676cd5](https://github.com/xraph/forge/commit/82676cd5))
+* **tracing:** say what stays off forge's spans and how to opt back in ([ed67bd77](https://github.com/xraph/forge/commit/ed67bd77))
+* **client-grove:** pin grove_crdt to its 1.2.0 release ([7b3358ec](https://github.com/xraph/forge/commit/7b3358ec))
+* **changelog:** update CHANGELOG.md for v1.12.9 ([5fe1934c](https://github.com/xraph/forge/commit/5fe1934c))
+
 ## Unreleased
 
 ### Behaviour changes
