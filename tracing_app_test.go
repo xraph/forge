@@ -134,7 +134,8 @@ func TestAppStopFlushesSpans(t *testing.T) {
 }
 
 func TestAppConcurrentRequestsKeepTheirOwnIDs(t *testing.T) {
-	a, exp := newTracedApp(t, TracingConfig{})
+	// The raw path tells the requests apart; by default url.path is the route.
+	a, exp := newTracedApp(t, TracingConfig{RecordRawPath: new(true)})
 
 	var (
 		mu     sync.Mutex
@@ -363,5 +364,74 @@ func TestAppWarnsOnInvalidSampleRatio(t *testing.T) {
 
 	if !found {
 		t.Fatal("New should warn about tracing.sample_ratio: lots")
+	}
+}
+
+// The request capture keys bind from the config file like the rest of the
+// tracing block.
+func TestAppRequestCaptureFromConfigFile(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	cm := NewDefaultConfigManager(logger.NewTestLogger(), NewNoOpMetrics(), nil)
+	cm.Set("tracing", map[string]any{
+		"record_raw_path":    true,
+		"record_user_agent":  true,
+		"allowed_query_keys": []any{"page"},
+	})
+
+	a := New(WithAppName("capture"), WithAppConfigManager(cm))
+
+	exp := tracetest.NewInMemoryExporter()
+	if err := RegisterSpanProcessor(a, sdktrace.NewSimpleSpanProcessor(exp)); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = a.Router().GET("/users/:id", func(c Context) error { return c.String(http.StatusOK, "ok") })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/7?page=2&t=ticket", nil)
+	req.Header.Set("User-Agent", "probe/1.0")
+	a.Router().ServeHTTP(httptest.NewRecorder(), req)
+
+	got := map[string]string{}
+	for _, kv := range exp.GetSpans()[0].Attributes {
+		got[string(kv.Key)] = kv.Value.String()
+	}
+
+	for key, want := range map[string]string{
+		"url.path":            "/users/7",
+		"url.query":           "page=2&t=REDACTED",
+		"user_agent.original": "probe/1.0",
+	} {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
+// Without any capture settings an app's span has the route in url.path and
+// no query or user agent.
+func TestAppRequestCaptureDefaults(t *testing.T) {
+	a, exp := newTracedApp(t, TracingConfig{})
+
+	_ = a.Router().GET("/users/:id", func(c Context) error { return c.String(http.StatusOK, "ok") })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/7?t=ticket", nil)
+	req.Header.Set("User-Agent", "probe/1.0")
+	a.Router().ServeHTTP(httptest.NewRecorder(), req)
+
+	got := map[string]string{}
+	for _, kv := range exp.GetSpans()[0].Attributes {
+		got[string(kv.Key)] = kv.Value.String()
+	}
+
+	if got["url.path"] != "/users/:id" {
+		t.Errorf("url.path = %q, want the route", got["url.path"])
+	}
+
+	for _, key := range []string{"url.query", "user_agent.original"} {
+		if v, ok := got[key]; ok {
+			t.Errorf("%s = %q, want it left off", key, v)
+		}
 	}
 }

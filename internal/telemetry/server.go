@@ -39,11 +39,18 @@ func NormalizeMethod(m string) (method, original string) {
 
 // ServerMiddleware starts a server span for every request whose path is not
 // excluded. The span is renamed to "METHOD /route/pattern" once the router has
-// matched, which it reports through shared.RouteMatch.
+// matched, which it reports through shared.RouteMatch. Neither the name nor
+// any attribute carries the raw path, the query string or the user agent
+// unless the settings turn them on.
 func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) http.Handler {
 	tracer := tp.Tracer(instrumentationName)
 	responseHeader := http.CanonicalHeaderKey(s.ResponseHeader)
 	serverKind := trace.WithSpanKind(trace.SpanKindServer)
+	capture := &captureSettings{
+		rawPath:      s.RecordRawPath,
+		userAgent:    s.RecordUserAgent,
+		allowedQuery: keySet(s.AllowedQueryKeys),
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +76,7 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 			// escapes. The request attributes are captured as strings and only
 			// built in finish, once the span is known to be recording, so an
 			// unsampled request never builds or copies them.
-			st := &serverSpan{match: match, method: method}
+			st := &serverSpan{match: match, method: method, capture: capture}
 			st.rec.ResponseWriter = w
 			st.captureRequest(r, original)
 			st.startOpts = [...]trace.SpanStartOption{serverKind}
@@ -121,20 +128,30 @@ func ServerMiddleware(tp trace.TracerProvider, s Settings) func(http.Handler) ht
 	}
 }
 
+// captureSettings is what the middleware may copy from a request onto its
+// span beyond the defaults. It is built once per middleware.
+type captureSettings struct {
+	rawPath      bool
+	userAgent    bool
+	allowedQuery map[string]struct{} // nil records no url.query
+}
+
 // serverSpan is the tracing middleware's per-request state. Closures for
 // finishing the span and recovering a panic, plus a separate status recorder,
 // cost one allocation each.
 type serverSpan struct {
-	span   trace.Span
-	match  *shared.RouteMatch
-	method string
-	rec    StatusRecorder
+	span    trace.Span
+	match   *shared.RouteMatch
+	method  string
+	rec     StatusRecorder
+	capture *captureSettings
 
 	startOpts [1]trace.SpanStartOption
 
 	// Request values captured at start, turned into attributes only when
-	// the span is recording.
-	original, scheme, path, proto, host, userAgent, profileID string
+	// the span is recording. path, query and userAgent stay empty unless
+	// capture turns them on.
+	original, scheme, path, query, proto, host, userAgent, profileID string
 }
 
 // finish names and ends the span.
@@ -148,7 +165,7 @@ func (st *serverSpan) finish(status int) {
 		return
 	}
 
-	attrs := st.appendRequestAttributes(make([]attribute.KeyValue, 0, 12))
+	attrs := st.appendRequestAttributes(make([]attribute.KeyValue, 0, 13), match.Pattern)
 
 	if match.Pattern != "" {
 		if st.method != "_OTHER" {
@@ -193,7 +210,7 @@ func (st *serverSpan) recoverPanic() {
 	// The request attributes go on at the end, so a panicking request needs
 	// them here too.
 	if st.span.IsRecording() {
-		st.span.SetAttributes(st.appendRequestAttributes(make([]attribute.KeyValue, 0, 8))...)
+		st.span.SetAttributes(st.appendRequestAttributes(make([]attribute.KeyValue, 0, 9), st.match.Pattern)...)
 	}
 
 	st.span.RecordError(fmt.Errorf("panic: %v", p), trace.WithStackTrace(true))
@@ -246,19 +263,44 @@ func (st *serverSpan) captureRequest(r *http.Request, original string) {
 		st.scheme = "https"
 	}
 
-	st.path = r.URL.Path
 	st.proto = strings.TrimPrefix(r.Proto, "HTTP/")
 	st.host = serverAddress(r.Host)
-	st.userAgent = r.UserAgent()
+
+	if st.capture.rawPath {
+		st.path = r.URL.Path
+	}
+
+	if st.capture.allowedQuery != nil {
+		st.query = r.URL.RawQuery
+	}
+
+	if st.capture.userAgent {
+		st.userAgent = r.UserAgent()
+	}
 }
 
-func (st *serverSpan) appendRequestAttributes(attrs []attribute.KeyValue) []attribute.KeyValue {
+// appendRequestAttributes adds the request attributes. pattern is the matched
+// route, empty when nothing matched. url.path is the raw path only when
+// capture.rawPath is on; otherwise it is the route template, and a request
+// that matched no route gets none, since its path is whatever the client sent.
+func (st *serverSpan) appendRequestAttributes(attrs []attribute.KeyValue, pattern string) []attribute.KeyValue {
 	attrs = append(attrs,
 		attribute.String("http.request.method", st.method),
 		attribute.String("url.scheme", st.scheme),
-		attribute.String("url.path", st.path),
-		attribute.String("network.protocol.version", st.proto),
 	)
+
+	switch {
+	case st.capture.rawPath:
+		attrs = append(attrs, attribute.String("url.path", st.path))
+	case pattern != "":
+		attrs = append(attrs, attribute.String("url.path", pattern))
+	}
+
+	if st.query != "" {
+		attrs = append(attrs, attribute.String("url.query", scrubQuery(st.query, st.capture.allowedQuery)))
+	}
+
+	attrs = append(attrs, attribute.String("network.protocol.version", st.proto))
 
 	if st.original != "" {
 		attrs = append(attrs, attribute.String("http.request.method_original", st.original))

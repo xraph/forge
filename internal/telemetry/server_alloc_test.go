@@ -8,6 +8,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/xraph/forge/internal/shared"
 )
 
 func TestServerSpanServerAddress(t *testing.T) {
@@ -140,18 +142,18 @@ func TestHeaderCarrierGet(t *testing.T) {
 
 // The request attributes are set when the span ends. Every one of them must
 // still be on the exported span, in the order it had when they were set at
-// start.
+// start. The opt-in ones are turned on here so the order covers them too.
 func TestServerSpanCarriesRequestAttributes(t *testing.T) {
-	exp, mw := setup(t, Settings{})
+	exp, mw := setup(t, Settings{RecordRawPath: true, RecordUserAgent: true, AllowedQueryKeys: []string{"page"}})
 
-	req := httptest.NewRequestWithContext(t.Context(), "PURGE", "/users/7", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "PURGE", "/users/7?page=2&t=x", nil)
 	req.Host = "api.example.com:8443"
 	req.Header.Set("User-Agent", "probe/1.0")
 
 	mw(routed("/users/:id", http.StatusOK)).ServeHTTP(httptest.NewRecorder(), req)
 
 	want := []string{
-		"http.request.method", "url.scheme", "url.path", "network.protocol.version",
+		"http.request.method", "url.scheme", "url.path", "url.query", "network.protocol.version",
 		"http.request.method_original", "server.address", "user_agent.original",
 		"http.route", "http.response.status_code",
 	}
@@ -171,6 +173,7 @@ func TestServerSpanCarriesRequestAttributes(t *testing.T) {
 		"http.request.method":          "_OTHER",
 		"http.request.method_original": "PURGE",
 		"url.path":                     "/users/7",
+		"url.query":                    "page=2&t=REDACTED",
 		"server.address":               "api.example.com",
 		"user_agent.original":          "probe/1.0",
 	} {
@@ -185,12 +188,15 @@ func TestServerSpanCarriesRequestAttributes(t *testing.T) {
 func TestServerSpanPanicKeepsRequestAttributes(t *testing.T) {
 	exp, mw := setup(t, Settings{})
 
-	h := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("kaboom") })
+	h := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		shared.RouteMatchFromContext(r.Context()).Match("/boom/:id", shared.KindHTTP)
+		panic("kaboom")
+	})
 
 	func() {
 		defer func() { _ = recover() }()
 
-		mw(h).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom", nil))
+		mw(h).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom/7", nil))
 	}()
 
 	attrs := exp.GetSpans()[0].Attributes
@@ -198,5 +204,9 @@ func TestServerSpanPanicKeepsRequestAttributes(t *testing.T) {
 		if _, ok := attrOf(attrs, key); !ok {
 			t.Fatalf("panicked span is missing %s: %v", key, attrs)
 		}
+	}
+
+	if v, _ := attrOf(attrs, "url.path"); v.AsString() != "/boom/:id" {
+		t.Fatalf("url.path = %q, want the route template", v.AsString())
 	}
 }

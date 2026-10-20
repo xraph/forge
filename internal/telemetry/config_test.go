@@ -196,3 +196,35 @@ func TestResolveUnparseableSamplerArgWarns(t *testing.T) {
 		t.Fatalf("ratio %v warnings %q", s.SampleRatio, s.Warnings)
 	}
 }
+
+func TestResolveRequestCaptureDefaultsOff(t *testing.T) {
+	s := Resolve(Inputs{Getenv: env(nil)})
+
+	if s.RecordRawPath || s.RecordUserAgent || s.AllowedQueryKeys != nil {
+		t.Fatalf("request capture is on by default: %+v", s)
+	}
+}
+
+func TestResolveRequestCapturePrecedence(t *testing.T) {
+	s := Resolve(Inputs{
+		Code: shared.TracingConfig{RecordRawPath: new(false), AllowedQueryKeys: []string{"page"}},
+		File: shared.TracingConfig{
+			RecordRawPath:    new(true),
+			RecordUserAgent:  new(true),
+			AllowedQueryKeys: []string{"sort"},
+		},
+		Getenv: env(nil),
+	})
+
+	if s.RecordRawPath {
+		t.Fatal("code record_raw_path: false should beat the file's true")
+	}
+
+	if !s.RecordUserAgent {
+		t.Fatal("file record_user_agent: true should apply when code leaves it unset")
+	}
+
+	if !slices.Equal(s.AllowedQueryKeys, []string{"page"}) {
+		t.Fatalf("allowed_query_keys = %v, want the code value", s.AllowedQueryKeys)
+	}
+}
