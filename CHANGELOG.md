@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Behaviour changes
+
+If a dashboard, alert or span processor of yours reads `url.path`, `user_agent.original`, query values in `url.full` or `exception.message` off Forge's spans, this release changes what it sees. Each change below says how to get the old value back where there's a way.
+
+* **tracing:** server spans stop recording the raw request path and the user agent. `url.path` holds the matched route pattern, the same value as `http.route`, and a request that matched no route has no `url.path`. `user_agent.original` is off. `url.query` stays off as before. To opt back in, set `record_raw_path: true`, `record_user_agent: true` or `allowed_query_keys: [page, sort]` in the `tracing` block, or the matching `forge.TracingConfig` fields. With `allowed_query_keys` set, `url.query` is recorded and every value whose key isn't listed reads `REDACTED`.
+* **tracing:** no Forge span carries error text any more. Lifecycle (`forge.start`, `start <ext>` and friends), request, messaging and dashboard dispatch spans put the error's class in the status description and in `exception.type`: `context.Canceled`, `context.DeadlineExceeded`, `panic`, or the Go type of the innermost error. `exception.message` is never set. Callers still get the full error. There's no switch for this one; call `span.RecordError` yourself where a message is safe to keep.
+* **tracing:** `forge.HTTPClient()` and `forge.InstrumentTransport` scrub their client spans. `url.full` loses the userinfo and fragment, every query value reads `REDACTED`, and a transport or body read error reaches the span as its class. The request on the wire and the error you get back are unchanged. The path is kept, so a URL with a secret in its path needs a transport of your own in front.
+
 ## [1.12.9](https://github.com/xraph/forge/compare/v1.12.8...v1.12.9) (2026-10-16)
 
 

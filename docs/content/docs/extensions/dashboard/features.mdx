@@ -176,6 +176,8 @@ While somebody has the dashboard open, it records every request, including the o
 
 Each trace also keeps the request and response headers on its allowlist. Request bodies aren't captured unless you turn on `TraceCaptureRequestBody`, and even then the body is size-limited and credential-shaped keys are redacted. Headers and bodies live in the dashboard only. They are never put on the OpenTelemetry span, so they never reach your tracing backend.
 
+The spans follow your tracing settings, so the viewer shows the route pattern in `url.path` and an error's class where its message used to be. [What stays off your spans](/docs/forge/observability#what-stays-off-your-spans) has the rules and the keys that change them. `User-Agent` is on the dashboard's header allowlist, so you'll still see it here even though it's off the span.
+
 ## Data Export
 
 With `EnableExport` on, three routes serve a snapshot outside the contract:
