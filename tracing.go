@@ -50,10 +50,19 @@ func SpanFromContext(ctx context.Context) trace.Span {
 }
 
 // HTTPClient returns an HTTP client whose requests are traced and carry the
-// caller's trace context. Build it once and reuse it.
+// caller's trace context. Build it once and reuse it. The client span's
+// url.full has no userinfo or fragment and reads REDACTED for every query
+// value, and a transport error reaches the span as its class only; see
+// InstrumentTransport.
 func HTTPClient() *http.Client { return telemetry.HTTPClient() }
 
-// InstrumentTransport wraps rt with tracing. A nil rt means http.DefaultTransport.
+// InstrumentTransport wraps rt with tracing. A nil rt means
+// http.DefaultTransport. The request rt sends and the errors you get back are
+// untouched. Only the span is scrubbed: url.full keeps the scheme, host and
+// path, drops userinfo and the fragment and reads REDACTED for every query
+// value, and a transport or body read error shows up as its class (the Go
+// type of the innermost error) in the status and error.type. A secret in the
+// path stays visible, so give such URLs a transport of your own.
 func InstrumentTransport(rt http.RoundTripper) http.RoundTripper {
 	return telemetry.InstrumentTransport(rt)
 }
