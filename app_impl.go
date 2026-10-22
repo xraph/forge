@@ -2,6 +2,7 @@ package forge
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"maps"
 	"net/http"
@@ -2276,6 +2277,16 @@ func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *
 	return pusher
 }
 
+// runningUnderTest reports whether this binary was built by go test, using
+// the signal go-utils uses to pick its logger: the test.v flag the generated
+// test main registers. Importing testing would link it into every production
+// binary. Under test, log export needs an explicit Enabled true, because
+// go-utils hands go test -v a real logger and an OTLP endpoint in a CI
+// runner's env would otherwise ship every test's lines to that collector.
+func runningUnderTest() bool {
+	return flag.Lookup("test.v") != nil
+}
+
 // buildLogsExport resolves log export and, when an endpoint is configured,
 // attaches a pipeline to log so every line it writes is also sent over OTLP.
 // Like tracing, it never stops the app from booting: a pipeline that can't be
@@ -2295,9 +2306,10 @@ func buildLogsExport(config AppConfig, cm ConfigManager, tracing *telemetry.Prov
 	}
 
 	settings := telemetry.ResolveLogs(telemetry.LogsInputs{
-		Code:   config.LogsExportConfig,
-		File:   fromFile,
-		Getenv: os.Getenv,
+		Code:      config.LogsExportConfig,
+		File:      fromFile,
+		Getenv:    os.Getenv,
+		UnderTest: runningUnderTest(),
 	})
 
 	for _, w := range settings.Warnings {

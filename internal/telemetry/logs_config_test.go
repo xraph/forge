@@ -169,6 +169,43 @@ func TestResolveLogs(t *testing.T) {
 			warnings: []string{`telemetry: logs_export.level "loud" is not a level, exporting every written line`},
 		},
 		{
+			name:     "under test an env endpoint alone is off and quiet",
+			in:       LogsInputs{UnderTest: true, Getenv: withGeneric(map[string]string{"OTEL_LOGS_EXPORTER": "otlp,bogus"})},
+			endpoint: "http://c:4318/v1/logs",
+		},
+		{
+			name:     "under test a code endpoint without enabled is off",
+			in:       LogsInputs{UnderTest: true, Code: shared.LogsExportConfig{Endpoint: "http://code:4318/v1/logs", Level: "loud"}},
+			endpoint: "http://code:4318/v1/logs",
+		},
+		{
+			name: "under test code enabled is on",
+			in: LogsInputs{
+				UnderTest: true,
+				Code:      shared.LogsExportConfig{Enabled: &on, Level: "error"},
+				Getenv:    withGeneric(nil),
+			},
+			enabled: true, endpoint: "http://c:4318/v1/logs", level: "error",
+		},
+		{
+			name: "under test file enabled is on",
+			in: LogsInputs{
+				UnderTest: true,
+				File:      shared.LogsExportConfig{Enabled: &on, Endpoint: "http://file:4318/v1/logs"},
+			},
+			enabled: true, endpoint: "http://file:4318/v1/logs",
+		},
+		{
+			name: "under test explicit false is off",
+			in: LogsInputs{
+				UnderTest: true,
+				Code:      shared.LogsExportConfig{Enabled: &off},
+				File:      shared.LogsExportConfig{Enabled: &on},
+				Getenv:    withGeneric(nil),
+			},
+			endpoint: "http://c:4318/v1/logs",
+		},
+		{
 			name:     "unknown level with export off does not warn",
 			in:       LogsInputs{Code: shared.LogsExportConfig{Endpoint: "http://c:4318/v1/logs", Enabled: &off, Level: "loud"}},
 			endpoint: "http://c:4318/v1/logs",

@@ -162,11 +162,13 @@ Tests: run the pusher against an `httptest` server that decodes the body into `m
 | `Endpoint` | code, file, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (used as is), `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/logs`; both env values are trimmed of spaces first; empty means no export |
 | `Headers` | code, file, `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS`; values are URL-decoded; always a copy, so changing it never touches your map |
 | `Level` | code, file, else empty (every written line). `debug`, `info`, `warn` (or `warning`), `error` and `fatal` in any case; anything else is a warning and counts as empty |
-| `Enabled` | an explicit false in code or file wins; otherwise `OTEL_SDK_DISABLED=true` or an `OTEL_LOGS_EXPORTER` list with no `otlp` entry turns it off; otherwise it needs an endpoint. An explicit true with no endpoint is a warning |
+| `Enabled` | an explicit false in code or file wins; otherwise, in a test binary (`LogsInputs.UnderTest`), it's off with no warning; otherwise `OTEL_SDK_DISABLED=true` or an `OTEL_LOGS_EXPORTER` list with no `otlp` entry turns it off; otherwise it needs an endpoint. An explicit true with no endpoint is a warning |
+
+`buildLogsExport` sets `UnderTest` when the `test.v` flag exists, the signal go-utils uses, so in a test binary only an explicit `Enabled: true` in code or in the `logs_export` block turns export on, and an endpoint from env alone does not.
 
 `OTEL_LOGS_EXPORTER` knows `otlp`, `console` and `none`. An entry outside that list is named in one warning, and the list still counts as on when it also has `otlp`. Metrics and logs share `exporterListAllowsOTLP` in metrics_config.go, which picks the known list from the variable name (metrics adds `prometheus`).
 
-The level warning is only returned when export ends up on, so a stray value doesn't log for a feature that's off. The "enabled but no endpoint" warning and the unknown exporter entry warning come back either way. The level only narrows: the logger has no level getter, so forge can't tell when `logs_export.level` sits below the logger's own level, and a line the logger drops never reaches the exporter.
+The level warning is only returned when export ends up on, so a stray value doesn't log for a feature that's off. The "enabled but no endpoint" warning comes back whenever `Enabled` is an explicit true and no endpoint resolves. The unknown exporter entry warning is only produced when nothing explicit is set, `UnderTest` is false and `OTEL_SDK_DISABLED` isn't true, since that's the only path that reads `OTEL_LOGS_EXPORTER`. It still comes back when no endpoint resolves. The level only narrows: the logger has no level getter, so forge can't tell when `logs_export.level` sits below the logger's own level, and a line the logger drops never reaches the exporter.
 
 ## Logs export
 

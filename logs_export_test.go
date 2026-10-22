@@ -158,7 +158,7 @@ func TestAppLogLinesCarryServerSpanIDs(t *testing.T) {
 	recv := newLogsReceiver(t)
 
 	a := New(WithAppName("logged"), WithAppLogger(jsonLogger(io.Discard)),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
 
 	exp := tracetest.NewInMemoryExporter()
 	if err := RegisterSpanProcessor(a, sdktrace.NewSimpleSpanProcessor(exp)); err != nil {
@@ -233,13 +233,16 @@ func TestAppLogLinesCarryServerSpanIDs(t *testing.T) {
 	}
 }
 
+// The endpoint comes from the generic env var. Under test env alone does not
+// turn export on, so the code config says Enabled and nothing else.
 func TestAppLogsExportFromGenericEndpoint(t *testing.T) {
 	clearLogsEnv(t)
 
 	recv := newLogsReceiver(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", recv.URL)
 
-	a := New(WithAppName("generic"), WithAppLogger(jsonLogger(io.Discard)))
+	a := New(WithAppName("generic"), WithAppLogger(jsonLogger(io.Discard)),
+		WithAppLogsExportConfig(LogsExportConfig{Enabled: new(true)}))
 
 	if err := a.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -255,6 +258,34 @@ func TestAppLogsExportFromGenericEndpoint(t *testing.T) {
 
 	if !recv.sawPath("/v1/logs") {
 		t.Fatalf("paths = %v, want /v1/logs", recv.paths)
+	}
+}
+
+// A test binary with an OTLP endpoint in its env must not ship every test's
+// lines to a real collector, so env alone does not turn export on under test.
+func TestAppLogsExportOffUnderTestByDefault(t *testing.T) {
+	clearLogsEnv(t)
+
+	recv := newLogsReceiver(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", recv.URL)
+
+	a := New(WithAppName("under-test"), WithAppLogger(jsonLogger(io.Discard)))
+	if a.(*app).logsExport != nil {
+		t.Fatal("nothing set Enabled, so no logs pipeline should be built under test")
+	}
+
+	if err := a.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	a.Logger().Info("not exported")
+
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if recv.sawPath("/v1/logs") {
+		t.Fatalf("got a post on /v1/logs, want none: %v", recv.bodies())
 	}
 }
 
@@ -289,7 +320,7 @@ func TestAppStopFlushesLogs(t *testing.T) {
 	recv := newLogsReceiver(t)
 
 	a := New(WithAppName("flushed"), WithAppLogger(jsonLogger(io.Discard)),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
 
 	if err := a.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -320,7 +351,7 @@ func TestAppForeignLoggerSkipsLogExport(t *testing.T) {
 	}
 
 	a := New(WithAppName("foreign"), WithAppLogger(capture),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
 	if a.(*app).logsExport != nil {
 		t.Fatal("the capture logger can't carry a sink, so no pipeline should be kept")
 	}
@@ -358,7 +389,7 @@ func TestAppDeadLogEndpointWarnsOnce(t *testing.T) {
 	var buf lockedBuffer
 
 	a := New(WithAppName("dead"), WithAppLogger(jsonLogger(&buf)),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: "http://127.0.0.1:1/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: "http://127.0.0.1:1/v1/logs", Enabled: new(true)}))
 	if a.(*app).logsExport == nil {
 		t.Fatal("the endpoint is valid, so a pipeline should be built")
 	}
@@ -395,7 +426,7 @@ func TestAppLogAfterStopIsQuiet(t *testing.T) {
 	recv := newLogsReceiver(t)
 
 	a := New(WithAppName("late"), WithAppLogger(jsonLogger(io.Discard)),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
 
 	pipeline := a.(*app).logsExport
 	if pipeline == nil {
@@ -435,7 +466,7 @@ func TestAppFailedStartFlushesLogs(t *testing.T) {
 	recv := newLogsReceiver(t)
 
 	a := New(WithAppName("failed-start"), WithAppLogger(jsonLogger(io.Discard)),
-		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
 
 	pipeline := a.(*app).logsExport
 	if pipeline == nil {
