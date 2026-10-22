@@ -74,6 +74,7 @@ app.Metrics() Metrics
 
 // Tracing
 func WithAppTracingConfig(c TracingConfig) AppOption
+func WithAppLogsExportConfig(c LogsExportConfig) AppOption // or the logs_export: key; New attaches the app logger, Stop flushes it last
 func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span)
 func SpanFromContext(ctx context.Context) trace.Span
 func InjectTraceContext(ctx context.Context, carrier map[string]string)           // write ctx's trace context into message headers; works with tracing off, nil carrier ignored

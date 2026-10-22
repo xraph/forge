@@ -49,6 +49,7 @@ type app struct {
 	lifecycleManager LifecycleManager
 	tracing          *telemetry.Provider
 	metricsPush      *telemetry.MetricsPusher // nil when metrics aren't pushed
+	logsExport       *telemetry.LogsPipeline  // nil when logs aren't exported
 	profiler         *profiling.Profiler
 
 	// codeMetrics is the metrics config the caller passed, or nil when they
@@ -240,6 +241,10 @@ func newApp(config AppConfig) *app {
 	// Metrics push. Built after tracing so it shares the tracer's Resource.
 	metricsPush := buildMetricsExport(config, configManager, metrics, tracing, logger)
 
+	// Log export. Attached here, so boot lines from now on (extension
+	// registration, endpoint setup) are exported too.
+	logsExport := buildLogsExport(config, configManager, tracing, logger)
+
 	// Profiling needs to know whether tracing is on, since span labels hang
 	// off the server span. Nothing runs until Start.
 	profiler := buildProfiling(config, configManager, logger, tracing.Settings().Enabled)
@@ -407,6 +412,7 @@ func newApp(config AppConfig) *app {
 		lifecycleManager: lm,
 		tracing:          tracing,
 		metricsPush:      metricsPush,
+		logsExport:       logsExport,
 		profiler:         profiler,
 		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
@@ -890,6 +896,16 @@ func (a *app) stopMetricsPush(ctx context.Context) {
 	}
 }
 
+// stopLogsExport detaches the logs pipeline from the logger, exports what is
+// queued and shuts the pipeline down. It does nothing when logs aren't
+// exported. The sink is gone by the time a failure is logged, so that line
+// only reaches the logger's own output.
+func (a *app) stopLogsExport(ctx context.Context) {
+	if err := a.logsExport.Shutdown(ctx); err != nil {
+		a.logger.Warn("log export shutdown did not finish", F("error", err))
+	}
+}
+
 // startableService is a core service the app starts and stops itself, because
 // it is registered lazily and the container may never have started it.
 type startableService interface {
@@ -965,6 +981,9 @@ func (a *app) Stop(ctx context.Context) error {
 	}
 
 	a.logger.Info("application stopped")
+
+	// 7. Flush logs and detach last, so every line above is exported.
+	a.stopLogsExport(ctx)
 
 	return nil
 }
@@ -2240,6 +2259,67 @@ func buildMetricsExport(config AppConfig, cm ConfigManager, m Metrics, tracing *
 	}
 
 	return pusher
+}
+
+// buildLogsExport resolves log export and, when an endpoint is configured,
+// attaches a pipeline to log so every line it writes is also sent over OTLP.
+// Like tracing, it never stops the app from booting: a pipeline that can't be
+// built or attached is logged and the app runs without exporting logs.
+func buildLogsExport(config AppConfig, cm ConfigManager, tracing *telemetry.Provider,
+	log Logger) *telemetry.LogsPipeline {
+	var fromFile shared.LogsExportConfig
+	if cm != nil {
+		// Bind also fails when there is no logs_export key, which is the
+		// normal case, so only a key that exists and won't bind is worth a
+		// warning.
+		if _, err := bindConfig(cm, "logs_export", &fromFile, log); err != nil && cm.HasKey("logs_export") {
+			log.Warn("telemetry: could not read logs_export config, using defaults", F("error", err))
+
+			fromFile = shared.LogsExportConfig{}
+		}
+	}
+
+	settings := telemetry.ResolveLogs(telemetry.LogsInputs{
+		Code:   config.LogsExportConfig,
+		File:   fromFile,
+		Getenv: os.Getenv,
+	})
+
+	for _, w := range settings.Warnings {
+		log.Warn(w)
+	}
+
+	if !settings.Enabled {
+		return nil
+	}
+
+	var res *resource.Resource
+	if tracing != nil {
+		res = tracing.Resource()
+	}
+
+	pipeline, err := telemetry.NewLogsPipeline(context.Background(), settings, res, log)
+	if err != nil {
+		log.Error("telemetry: log export disabled", F("error", err))
+
+		return nil
+	}
+
+	if err := pipeline.Attach(log); err != nil {
+		if errors.Is(err, logger.ErrSinksUnsupported) {
+			log.Warn("telemetry: log export needs a go-utils logger, so logs are not exported")
+		} else {
+			log.Error("telemetry: log export disabled", F("error", err))
+		}
+
+		_ = pipeline.Shutdown(context.Background())
+
+		return nil
+	}
+
+	log.Info("telemetry: exporting logs over OTLP", F("endpoint", settings.Endpoint))
+
+	return pipeline
 }
 
 // buildTracing resolves the tracing config and builds the provider. Telemetry
