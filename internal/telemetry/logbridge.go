@@ -51,6 +51,13 @@ type logSink struct {
 	scopes map[string]otellog.Logger
 }
 
+// Fatal flushes a sink only through logger.Flusher, so losing Flush must not
+// compile.
+var (
+	_ logger.Sink    = (*logSink)(nil)
+	_ logger.Flusher = (*logSink)(nil)
+)
+
 var attrPool = sync.Pool{
 	New: func() any {
 		s := make([]attribute.KeyValue, 0, 16)
@@ -137,10 +144,18 @@ func (s *logSink) scopeLogger(name string) (lg otellog.Logger, cached bool) {
 
 	s.mu.RLock()
 	lg, ok := s.scopes[name]
+	full := len(s.scopes) >= maxScopes
 	s.mu.RUnlock()
 
 	if ok {
 		return lg, true
+	}
+
+	// The cache never shrinks, so once it's full an uncached name falls back
+	// without the write lock. A per-request name would otherwise take it on
+	// every line.
+	if full {
+		return s.root, false
 	}
 
 	s.mu.Lock()

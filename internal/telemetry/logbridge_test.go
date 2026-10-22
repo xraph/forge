@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -398,6 +399,73 @@ func TestBridgeScopeCacheIsBounded(t *testing.T) {
 
 		if scope != defaultScope || attr.AsString() != name {
 			t.Fatalf("record %d: scope %q, logger.name %q; want %q and %q", i+1, scope, attr.AsString(), defaultScope, name)
+		}
+	}
+}
+
+// Once the cache is full, a line from an uncached name must not take the
+// write lock: with unbounded names that is every such line, and each one
+// would queue behind every reader. The test holds a read lock while those
+// lines are emitted, so an Emit that wants the write lock can't finish.
+func TestBridgeScopeCacheFullSkipsWriteLock(t *testing.T) {
+	sink, exp := newTestSink(t, "")
+
+	for i := range maxScopes {
+		sink.Emit(logger.Record{Time: time.Now(), Level: logger.LevelInfo, Message: "fill",
+			Logger: "user." + strconv.Itoa(i)})
+	}
+
+	const writers, perWriter = 8, 50
+
+	var wg sync.WaitGroup
+
+	done := make(chan struct{})
+
+	sink.mu.RLock()
+
+	for w := range writers {
+		wg.Go(func() {
+			for i := range perWriter {
+				sink.Emit(logger.Record{Time: time.Now(), Level: logger.LevelInfo, Message: "overflow",
+					Logger: fmt.Sprintf("overflow.%d.%d", w, i)})
+			}
+		})
+	}
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		sink.mu.RUnlock()
+	case <-time.After(5 * time.Second):
+		sink.mu.RUnlock()
+		<-done
+		t.Fatal("Emit from an uncached name blocked behind a reader with the cache full, so it took the write lock")
+	}
+
+	sink.mu.RLock()
+	cached := len(sink.scopes)
+	sink.mu.RUnlock()
+
+	if cached != maxScopes {
+		t.Fatalf("scope cache holds %d loggers, want %d", cached, maxScopes)
+	}
+
+	recs := exp.records()
+	if want := maxScopes + writers*perWriter; len(recs) != want {
+		t.Fatalf("got %d records, want %d", len(recs), want)
+	}
+
+	for _, rec := range recs[maxScopes:] {
+		scope := rec.InstrumentationScope().Name
+		attr := attrsOf(&rec)["logger.name"]
+
+		if scope != defaultScope || !strings.HasPrefix(attr.AsString(), "overflow.") {
+			t.Fatalf("overflow record: scope %q, logger.name %q; want %q and the overflow name",
+				scope, attr.AsString(), defaultScope)
 		}
 	}
 }
