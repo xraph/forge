@@ -366,6 +366,20 @@ lim.Report(err.Error())
 
 Two users, both at one minute: `internal/telemetry`'s OTel error handler ("telemetry: export failed") and `internal/profiling`'s Pyroscope SDK logger ("profiling: pyroscope client error"). It lives here so `internal/profiling` doesn't import `internal/telemetry`.
 
+### Sinks (exports.go)
+
+`Record`, `Sink`, `Flusher`, `AttachSink` and `ErrSinksUnsupported` are go-utils' sink hook, re-exported. `AttachSink(l, s)` hands `s` every line the whole tree behind `l` writes (the root and every `With` and `Named` child, ones built earlier too) and returns the `detach` that removes it. `Emit` runs on the goroutine that logged, after the line is written, and `Record.Fields` is valid only during that call, so copy what you keep. Never log through the same tree from inside `Emit`: it recurses. `Fatal` calls `Flush` on every attached `Flusher` just before it exits. The noop logger, the capture logger and any custom `Logger` return `ErrSinksUnsupported`.
+
+```go
+detach, err := logger.AttachSink(log, sink)
+if errors.Is(err, logger.ErrSinksUnsupported) {
+    // not a go-utils logger, nothing attached
+}
+defer detach()
+```
+
+One user so far: `internal/telemetry`'s `LogsPipeline`, which ships lines over OTLP.
+
 ## Configuration
 
 ```yaml

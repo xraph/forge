@@ -48,6 +48,25 @@ type Field = log.Field
 // LoggingConfig represents logging configuration.
 type LoggingConfig = log.LoggingConfig
 
+// Record is one written log line, handed to every attached Sink. Its Fields
+// are valid only during Emit.
+type Record = log.Record
+
+// Sink receives every line a logger writes, after the level check.
+type Sink = log.Sink
+
+// Flusher is implemented by a Sink that buffers. Fatal flushes it before the
+// process exits.
+type Flusher = log.Flusher
+
+// ErrSinksUnsupported is returned by AttachSink for a logger that cannot carry
+// sinks, such as the noop logger.
+var ErrSinksUnsupported = log.ErrSinksUnsupported
+
+// AttachSink adds s to the whole logger tree that l belongs to and returns the
+// function that removes it again.
+var AttachSink = log.AttachSink
+
 var (
 	LoggerFromContext    = log.LoggerFromContext
 	WithRequestID        = log.WithRequestID

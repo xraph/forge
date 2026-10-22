@@ -20,6 +20,8 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **metrics_config.go**: `ResolveMetrics(MetricsInputs) MetricsSettings`, the precedence chain for metrics push.
 - **metrics.go**: `NewMetricsPusher`, `MetricsPusher` with `Start`, `Shutdown` and `Settings`, the OTLP/HTTP metrics push.
 - **logs_config.go**: `ResolveLogs(LogsInputs) LogsSettings`, the precedence chain for OTLP log export.
+- **logs.go**: `NewLogsPipeline`, `LogsPipeline` with `Attach`, `Flush`, `Shutdown` and `Settings`, the OTLP/HTTP log export.
+- **logbridge.go**: `logSink`, the go-utils `Sink` that turns each written line into an OTel log record.
 
 ## Precedence
 
@@ -121,7 +123,7 @@ The sampler runs inside `Start`, so it only sees attributes passed there. Set `f
 - An app that set up its own tracer provider in code before `forge.New` loses it. Forge replaces it, and spans from `otel.Tracer(...)` go to Forge's provider, which exports only when an endpoint is configured. With tracing disabled, `NewProvider` still installs a `noop` provider and the propagator as globals, so an app that wants to keep its own provider sets it up after `forge.New`.
 - An app that already runs its own `otelhttp` server middleware gets two server spans per request. It should remove its own, or turn forge's off with `tracing.enabled: false`.
 
-With more than one forge app in a process, the last one built wins the tracer provider and the `propagators` setting. The error handler is set when tracing is on (at build) and each time a metrics pusher starts (at `Start`), so whichever of those happened last wins it. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
+With more than one forge app in a process, the last one built wins the tracer provider and the `propagators` setting. The error handler is set when tracing is on (at build), each time a metrics pusher starts (at `Start`) and each time a logs pipeline is built, so whichever of those happened last wins it. `forge.StartSpan` reads the globals on every call, so it follows the last app. Each app's own request spans still go to that app's provider because `ServerMiddleware` is handed it directly.
 
 `InstrumentTransport` and `HTTPClient` capture the provider and propagator that are current when you call them. A client built before any `forge.New` still traces: OTel's global delegate forwards to the first provider set. In a process with several apps a client stays with whichever provider was current when it was built.
 
@@ -153,7 +155,7 @@ Tests: run the pusher against an `httptest` server that decodes the body into `m
 
 ## Logs export config
 
-`ResolveLogs` in logs_config.go is `ResolveMetrics` for logs: code (`forge.WithAppLogsExportConfig`), then the forge config `logs_export` key, then `OTEL_*` env, then defaults. It only resolves. Nothing here exports a line yet.
+`ResolveLogs` in logs_config.go is `ResolveMetrics` for logs: code (`forge.WithAppLogsExportConfig`), then the forge config `logs_export` key, then `OTEL_*` env, then defaults. It only resolves. `LogsPipeline` (see Logs export) does the exporting.
 
 | Field | Source and default |
 |---|---|
@@ -165,6 +167,37 @@ Tests: run the pusher against an `httptest` server that decodes the body into `m
 `OTEL_LOGS_EXPORTER` knows `otlp`, `console` and `none`. An entry outside that list is named in one warning, and the list still counts as on when it also has `otlp`. Metrics and logs share `exporterListAllowsOTLP` in metrics_config.go, which picks the known list from the variable name (metrics adds `prometheus`).
 
 The level warning is only returned when export ends up on, so a stray value doesn't log for a feature that's off. The "enabled but no endpoint" warning and the unknown exporter entry warning come back either way. The level only narrows: the logger has no level getter, so forge can't tell when `logs_export.level` sits below the logger's own level, and a line the logger drops never reaches the exporter.
+
+## Logs export
+
+`NewLogsPipeline(ctx, settings, res, log)` checks the endpoint with `validateEndpoint` (an error wrapping `ErrInvalidEndpoint` for anything that isn't an `http` or `https` URL with a host), builds an `otlploghttp` exporter with the endpoint and headers, and puts it behind an `sdklog.BatchProcessor` in a private `LoggerProvider` with the shared resource. It also installs the rate limited OTel error handler, as a metrics pusher does. Nothing is exported until you attach a logger.
+
+`Attach(l)` calls `logger.AttachSink` with the bridge sink and keeps the detach function. A sink reaches the whole logger tree, so attaching the root covers every `With` and `Named` child, ones built earlier included. The go-utils error comes back unchanged: check `errors.Is(err, logger.ErrSinksUnsupported)` for the noop logger, the capture logger or a custom `Logger`. Attaching after `Shutdown` returns an error.
+
+`Flush()` exports what is queued and waits at most `flushCap` (two seconds). The sink is a go-utils `Flusher` too, so `Fatal` flushes it before the process exits, and a dead collector holds a dying process for two seconds, not the five of `shutdownCap`. `Shutdown(ctx)` detaches from every logger first, then shuts the provider down within `shutdownCap` or the caller's context. A line logged after that never reaches the sink. `Shutdown` and `Flush` on a nil pipeline do nothing, and `Settings` returns the zero value.
+
+Logging never waits on the collector. `Emit` only converts the line and enqueues it, and a full queue (2048 records by default, `OTEL_BLRP_MAX_QUEUE_SIZE` changes it) drops the oldest. Against a collector that accepts the connection and never answers, your log calls stay as fast as they were, and lines start dropping once the queue fills.
+
+What `logSink.Emit` does with a go-utils `Record`:
+
+| OTel record | From |
+|---|---|
+| filter | `LogsSettings.Level`, checked before anything is converted; `""` keeps every line |
+| body | `Message`, as a string |
+| timestamp | `Time`; the observed timestamp is the time `Emit` ran |
+| severity | debug 5, info 9, warn 13, error 17, fatal 21, with text `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL` |
+| scope | the `Named` path, or `forge` (`defaultScope`) when it's empty |
+| `code.file.path`, `code.line.number` | `Caller` split at the last colon; a caller with no line number goes in `code.file.path` whole |
+| trace ID, span ID | `trace_id` and `span_id` fields, when both are valid non-zero hex IDs; they go into a `trace.SpanContext` on the `Emit` context and leave the attributes. If either is missing or bad, both stay attributes |
+| attributes | every other field: `string`, `int64`, `float64` and `bool` native; `uint64` as int64 when it fits, else its decimal string; `time.Duration` as `String()`; `time.Time` as UTC RFC 3339 with nanoseconds; `error` as its text, nil as an empty value; `fmt.Stringer` as `String()`; `[]string` as a string slice; anything else `fmt.Sprint` |
+
+A key that shows up twice keeps its last value, which is what the encoder prints. A field whose `Error()` or `String()` panics is exported as `<panic>` and the rest of the line goes out as usual.
+
+Scope loggers are cached per `Named` path, at most `maxScopes` (256) of them. `Named` with an unbounded name, a user ID per request say, would otherwise grow the cache forever. Once it's full, a line from a new name goes out under scope `forge` and carries its name as the `logger.name` attribute. Names already cached keep their scope.
+
+Export ships what stderr shows, error text included. The span redaction rules don't apply to logs.
+
+Tests: `logbridge_test.go` drives `logSink.Emit` by hand against an `sdklog.SimpleProcessor` over an in-memory exporter. `logs_test.go` runs the pipeline against an `httptest` server that decodes into `logspb.LogsData`, the wire shape of an export request, and against one that never answers, for the hung collector and the flush cap.
 
 ## Public API (root `tracing.go`)
 
