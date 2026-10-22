@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.13.0](https://github.com/xraph/forge/compare/v1.12.10...v1.13.0) (2026-10-22)
+
+
+### Features
+
+* **telemetry:** keep log export off in test binaries unless enabled ([9f62214f](https://github.com/xraph/forge/commit/9f62214f))
+* **telemetry:** export logs over OTLP when an endpoint is set ([56d1ffb8](https://github.com/xraph/forge/commit/56d1ffb8))
+* **telemetry:** bridge go-utils log lines to OTLP ([03b675a7](https://github.com/xraph/forge/commit/03b675a7))
+* **telemetry:** resolve OTLP log export settings ([9cfe4799](https://github.com/xraph/forge/commit/9cfe4799))
+
+
+### Bug Fixes
+
+* **telemetry:** export the reason a boot failed before detaching logs ([f7eb218d](https://github.com/xraph/forge/commit/f7eb218d))
+* **telemetry:** detach log export when Start fails early ([3f4c4b16](https://github.com/xraph/forge/commit/3f4c4b16))
+* **telemetry:** flush exported logs when Start fails ([e198cba7](https://github.com/xraph/forge/commit/e198cba7))
+* **release:** tag the CLI module so go install reports a real version ([c3429045](https://github.com/xraph/forge/commit/c3429045))
+
+
+### Maintenance
+
+* **observability:** say what log export does to traces-only backends and tests ([409692f9](https://github.com/xraph/forge/commit/409692f9))
+* **telemetry:** skip the write lock once the scope cache is full ([b0d49dc9](https://github.com/xraph/forge/commit/b0d49dc9))
+* **deps:** bump go-utils to v1.5.0 ([782729bb](https://github.com/xraph/forge/commit/782729bb))
+* **changelog:** move the 1.12.10 behaviour changes into its section ([ee47d124](https://github.com/xraph/forge/commit/ee47d124))
+* **changelog:** update CHANGELOG.md for v1.12.10 ([3ad8dc6c](https://github.com/xraph/forge/commit/3ad8dc6c))
+
 ## [1.12.10](https://github.com/xraph/forge/compare/v1.12.9...v1.12.10) (2026-10-20)
 
 
