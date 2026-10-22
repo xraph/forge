@@ -229,7 +229,9 @@ Each log line becomes one OTLP log record. The message is the body, the level be
 
 A logger you got from a request carries `trace_id` and `span_id`. On the exported record those become the record's own trace and span IDs rather than ordinary attributes, which is what lets Grafana link a log line to its trace and back. If either ID is missing or isn't valid hex, both stay plain attributes.
 
-The instrumentation scope is the path you built with `Named`, or `forge` for a logger with no name. Each line also gets `code.file.path` and `code.line.number` from its caller.
+The instrumentation scope is the logger's name. Forge's default logger is named after your app (`forge-app` when you don't set one), so an app called `user-api` exports its lines under scope `user-api`, and a child from `Named("db")` under `user-api.db`. Scope `forge` only shows up for a go-utils logger you built without a name, and for the overflow described below.
+
+Forge's default logger records the caller, so its lines also get `code.file.path` and `code.line.number`. A logger you build yourself with `log.New(log.Config{})` has `AddCaller` off, and its lines carry neither.
 
 Forge keeps a scope for at most 256 distinct names. That's plenty for packages and services. A `Named` call with a user ID in it would otherwise grow the cache for as long as the process runs, which is the one thing a log pipeline mustn't do. Past 256, a line from a new name goes out under scope `forge` and carries its name as a `logger.name` attribute instead. Names already cached keep their scope.
 
@@ -239,9 +241,13 @@ Export doesn't replace anything. Lines still go to stderr in the format they alw
 
 Export ships exactly what stderr shows, error text included. The redaction rules that keep values off your spans don't apply to logs, so if an error message can hold something sensitive, scrub it in a collector processor before it reaches storage.
 
-Logging never waits on the collector. Lines go into a queue (2048 records by default) and are sent in batches, and when the queue fills, the oldest lines drop. So the tail of the output can go missing if the process dies. `app.Stop` exports what is queued before it returns, a `Start` that fails flushes first so the lines that explain the failure leave before you exit on the error, and `Fatal` waits up to two seconds for the same reason. An app that never reaches `Stop` loses whatever hadn't been sent yet. Think of a process killed by a signal you don't handle.
+Logging never waits on the collector. Lines go into a queue (2048 records by default) and are sent in batches, and when the queue fills, the oldest lines drop. So the tail of the output can go missing if the process dies. `app.Stop` exports what is queued before it returns, a `Start` that fails exports the queue too, so the lines that explain the failure leave before you exit on the error, and `Fatal` waits up to two seconds for the same reason. An app that never reaches `Stop` loses whatever hadn't been sent yet. Think of a process killed by a signal you don't handle.
 
 Export needs Forge's own logger. If you pass a custom `Logger`, Forge logs a warning at boot and sends nothing.
+
+Mind where `OTEL_EXPORTER_OTLP_ENDPOINT` points. If it's a backend that takes traces but not logs (Jaeger's or Tempo's own OTLP port, or a collector with no logs pipeline), the app posts its logs to `/v1/logs` there anyway, every export fails, and you get one `telemetry: export failed` warning a minute. Set `OTEL_LOGS_EXPORTER=none` to stop it, or send logs somewhere that takes them with `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`.
+
+Tests work differently. In a `go test` binary, an endpoint alone doesn't turn export on, wherever it comes from. Only an explicit `Enabled: true` in `WithAppLogsExportConfig` or `enabled: true` in the `logs_export:` block does, so a CI runner with `OTEL_EXPORTER_OTLP_ENDPOINT` set won't ship every test's lines to your collector.
 
 With `forge dev -O` running, the lines show up in Loki, and the **Logs for this span** link on a trace in Tempo opens the ones from that request. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) walks through the stack.
 

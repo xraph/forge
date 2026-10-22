@@ -188,8 +188,8 @@ What `logSink.Emit` does with a go-utils `Record`:
 | body | `Message`, as a string |
 | timestamp | `Time`; the observed timestamp is the time `Emit` ran |
 | severity | debug 5, info 9, warn 13, error 17, fatal 21, with text `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL` |
-| scope | the `Named` path, or `forge` (`defaultScope`) when it's empty |
-| `code.file.path`, `code.line.number` | `Caller` split at the last colon; a caller with no line number goes in `code.file.path` whole |
+| scope | the logger's name: the root's `Name` joined with the `Named` path by dots. forge's default logger is named after the app (`forge-app` by default), so its lines carry `<app>` and a child's `<app>.<child>`. `forge` (`defaultScope`) only when the name is empty, which takes a go-utils logger built without a `Name`, or past the scope cache cap |
+| `code.file.path`, `code.line.number` | `Caller` split at the last colon; a caller with no line number goes in `code.file.path` whole. `Caller` is only set when the logger has `AddCaller` on: forge's default logger does, a bare `log.New(log.Config{})` doesn't, so its lines carry neither |
 | trace ID, span ID | `trace_id` and `span_id` fields, when both are valid non-zero hex IDs; they go into a `trace.SpanContext` on the `Emit` context and leave the attributes. If either is missing or bad, both stay attributes |
 | attributes | every other field: `string`, `int64`, `float64` and `bool` native; `uint64` as int64 when it fits, else its decimal string; `time.Duration` as `String()`; `time.Time` as UTC RFC 3339 with nanoseconds; `error` as its text, nil as an empty value; `fmt.Stringer` as `String()`; `[]string` as a string slice; anything else `fmt.Sprint` |
 
