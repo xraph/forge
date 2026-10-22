@@ -681,11 +681,17 @@ func (a *app) Start(ctx context.Context) (err error) {
 	// Metrics push begins further down. A Start that returns an error stops
 	// it again, even when an after-start hook fails once the app counts as
 	// started, so no push outlives a failed Start.
+	//
+	// A failed Start also flushes exported logs, so the lines that explain
+	// the failure leave before a caller exits on the error. It only flushes:
+	// an after-start hook failure leaves the app started, and Stop still
+	// needs the pipeline attached.
 	startOK := false
 
 	defer func() {
 		if !startOK {
 			a.stopMetricsPush(context.WithoutCancel(ctx))
+			a.logsExport.Flush()
 		}
 	}()
 

@@ -2,6 +2,8 @@ package forge
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -419,5 +421,52 @@ func TestAppLogAfterStopIsQuiet(t *testing.T) {
 
 	if slices.Contains(recv.bodies(), "late") {
 		t.Fatal("a line logged after Stop was exported")
+	}
+}
+
+// A failed Start flushes the lines that explain the failure, because a caller
+// that exits on the error never reaches Stop. It only flushes: the pipeline
+// stays attached for the Stop that may still follow.
+func TestAppFailedStartFlushesLogs(t *testing.T) {
+	clearLogsEnv(t)
+
+	recv := newLogsReceiver(t)
+
+	a := New(WithAppName("failed-start"), WithAppLogger(jsonLogger(io.Discard)),
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs"}))
+
+	pipeline := a.(*app).logsExport
+	if pipeline == nil {
+		t.Fatal("the endpoint is set, so a pipeline should be built")
+	}
+
+	t.Cleanup(func() { _ = pipeline.Shutdown(context.Background()) })
+
+	errRefused := errors.New("refused")
+
+	if err := a.RegisterHookFn(PhaseBeforeStart, "refuse", func(_ context.Context, app App) error {
+		app.Logger().Error("before start hook refused")
+
+		return errRefused
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Start(t.Context()); !errors.Is(err, errRefused) {
+		t.Fatalf("Start error = %v, want the hook's", err)
+	}
+
+	bodies := recv.bodies()
+	for _, want := range []string{"telemetry: exporting logs over OTLP", "starting application", "before start hook refused"} {
+		if !slices.Contains(bodies, want) {
+			t.Errorf("no record %q by the time Start returned: %v", want, bodies)
+		}
+	}
+
+	a.Logger().Info("still attached")
+	pipeline.Flush()
+
+	if !slices.Contains(recv.bodies(), "still attached") {
+		t.Fatal("a line logged after the failed Start was not exported, so the pipeline was shut down")
 	}
 }
