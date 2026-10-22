@@ -8,7 +8,7 @@ replace github.com/xraph/forge => ../..
 
 require (
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/go-utils v1.4.1
+	github.com/xraph/go-utils v1.5.0
 	github.com/xraph/vessel v1.0.4
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel v1.45.0
