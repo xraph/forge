@@ -249,7 +249,7 @@ Mind where `OTEL_EXPORTER_OTLP_ENDPOINT` points. If it's a backend that takes tr
 
 Tests work differently. In a `go test` binary, an endpoint alone doesn't turn export on, wherever it comes from. Only an explicit `Enabled: true` in `WithAppLogsExportConfig` or `enabled: true` in the `logs_export:` block does, so a CI runner with `OTEL_EXPORTER_OTLP_ENDPOINT` set won't ship every test's lines to your collector.
 
-With `forge dev -O` running, the lines show up in Loki, and the **Logs for this span** link on a trace in Tempo opens the ones from that request. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) walks through the stack.
+With `forge dev -O` running, the lines show up in Loki, and **Related logs**, in a span's **Links** menu in Tempo, opens the ones from that request. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) walks through the stack.
 
 ## Distributed Tracing
 

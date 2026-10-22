@@ -213,7 +213,7 @@ Look at your app's output. A line written through the request's logger carries t
 Paste a `trace_id` into Tempo's **TraceQL** box, in place of the query, and you get the trace for that line. The handler above gets those fields from `app.Logger().WithContext(ctx.Context())`, which reads them from the context the tracing middleware set up.
 
 <Callout type="info">
-With `OTEL_EXPORTER_OTLP_ENDPOINT` set, as it is in this walkthrough, Forge sends each log line to the collector over OTLP as well as writing it out. The lines land in Loki with the trace and span IDs attached, so a line written through the request's logger shows up when you open **Logs for this span** in Tempo. Give it a request or two first, since the lines go out in batches. If you turned export off with `OTEL_LOGS_EXPORTER=none`, that link comes up empty until you ship the output to Loki yourself with Grafana Alloy or promtail and keep `trace_id` as a field. The [observability docs](/docs/forge/observability#export-logs-over-otlp) cover what a record carries.
+With `OTEL_EXPORTER_OTLP_ENDPOINT` set, as it is in this walkthrough, Forge sends each log line to the collector over OTLP as well as writing it out. The lines land in Loki with the trace and span IDs attached, so a line written through the request's logger shows up when you open a span in Tempo and pick **Related logs** from its **Links** menu. Give it a request or two first, since the lines go out in batches. If you turned export off with `OTEL_LOGS_EXPORTER=none`, that link comes up empty until you ship the output to Loki yourself with Grafana Alloy or promtail and keep `trace_id` as a field. The [observability docs](/docs/forge/observability#export-logs-over-otlp) cover what a record carries.
 </Callout>
 
 ## Clean up
