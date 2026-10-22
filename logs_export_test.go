@@ -496,6 +496,27 @@ func TestAppFailedStartFlushesLogs(t *testing.T) {
 		}
 	}
 
+	// Start never logs why it failed, and the caller's own line comes too
+	// late once the sink is detached, so Start exports the cause itself.
+	var cause string
+
+	for _, rec := range recv.records() {
+		if rec.record.GetBody().GetStringValue() != "application failed to start" {
+			continue
+		}
+
+		for _, kv := range rec.record.GetAttributes() {
+			if kv.GetKey() == "error" {
+				cause = kv.GetValue().GetStringValue()
+			}
+		}
+	}
+
+	if !strings.Contains(cause, errRefused.Error()) {
+		t.Errorf("no %q record with an error attribute naming the hook's error by the time Start returned: %v",
+			"application failed to start", recv.bodies())
+	}
+
 	before := len(recv.records())
 
 	// Flush would export a queued line before it returns, so a line that

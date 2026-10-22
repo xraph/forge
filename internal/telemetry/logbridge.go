@@ -31,8 +31,8 @@ const (
 	// defaultScope is the instrumentation scope of a line whose logger has
 	// no name, and of a named line once the cache is full. forge's default
 	// logger is named after the app, so its lines carry the app name and a
-	// child's carry "<app>.<child>". Only a custom logger built without a
-	// name logs under defaultScope.
+	// child's carry "<app>.<child>". Apart from overflow, only a custom
+	// logger built without a name logs under defaultScope.
 	defaultScope = "forge"
 
 	// panicValue replaces a field value whose Error or String panicked.

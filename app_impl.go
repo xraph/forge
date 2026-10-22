@@ -701,6 +701,9 @@ func (a *app) Start(ctx context.Context) (err error) {
 		if a.started {
 			a.logsExport.Flush()
 		} else {
+			// Start returns its error without logging it, and the caller's
+			// own line comes after the sink is gone, so export the cause now.
+			a.logger.Error("application failed to start", F("error", err))
 			a.stopLogsExport(context.WithoutCancel(ctx))
 		}
 	}()
