@@ -185,7 +185,7 @@ Set the same endpoint variable you used for spans and restart.
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 ./my-app
 ```
 
-That alone is enough. Forge appends `/v1/logs` to the value, and every line the app's logger writes now also goes to the collector. That includes the boot lines, from extension registration onwards. Lines written before the app is built, while your own code loads config say, only reach stderr. If your logs live behind a different URL, set `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and it's used exactly as written. Headers come from `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, or from `OTEL_EXPORTER_OTLP_HEADERS` when that isn't set, and are percent-encoded the way they are for spans.
+That alone is enough. Forge appends `/v1/logs` to the value, and every line the app's logger writes now also goes to the collector. That includes the boot lines from extension registration onwards. A few lines come earlier, inside `forge.New` before the exporter is attached: config loading, the tracing and metrics warnings, and the exporter's own warnings about its settings. Those only reach stderr. If your logs live behind a different URL, set `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and it's used exactly as written. Headers come from `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, or from `OTEL_EXPORTER_OTLP_HEADERS` when that isn't set, and are percent-encoded the way they are for spans.
 
 The transport is OTLP over HTTP with protobuf bodies, same as tracing, so point it at the collector's HTTP port (4318 by default, never the gRPC one) and give it a full `http` or `https` URL. A bad endpoint logs one error. The app still boots.
 
@@ -235,7 +235,7 @@ Forge keeps a scope for at most 256 distinct names. That's plenty for packages a
 
 #### Before you rely on it
 
-Export doesn't replace anything. Lines still go to stderr in the format they always had, and they go to the collector as well. Scrape stdout into the same Loki already? Then you'll see every line twice until you drop one of the two paths.
+Export doesn't replace anything. Lines still go to stderr in the format they always had, and they go to the collector as well. If a collector also scrapes your container's output into the same Loki, you'll see every line twice until you drop one of the two paths.
 
 Export ships exactly what stderr shows, error text included. The redaction rules that keep values off your spans don't apply to logs, so if an error message can hold something sensitive, scrub it in a collector processor before it reaches storage.
 

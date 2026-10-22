@@ -406,7 +406,7 @@ Here's what `-O` does for you:
 
 It won't touch any of these if you've already set them, and it tells you when it leaves one alone. Mind you, `OTEL_SERVICE_NAME` overrides `forge.WithAppName` for the dev run. That's on purpose: Grafana's link from a trace to its service's metrics matches Tempo's `service.name` against the Prometheus job, and both come out as the app's name this way.
 
-Logs show up in Loki once your app exports them over OTLP. Until then they go to stdout only, and **Logs for this span** in Tempo stays empty.
+Because the endpoint is set, Forge also exports your app's log lines over OTLP, so they show up in Loki and **Logs for this span** in Tempo opens the ones from that request. Set `OTEL_LOGS_EXPORTER=none` if you'd rather keep them out. [Export logs over OTLP](/docs/forge/observability#export-logs-over-otlp) has the details.
 
 ### Managing the stack
 
