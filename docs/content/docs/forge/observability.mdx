@@ -177,6 +177,74 @@ defer forge.TrackWithFields(logger, "processOrder",
 )()
 ```
 
+### Export logs over OTLP
+
+Set the same endpoint variable you used for spans and restart.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 ./my-app
+```
+
+That alone is enough. Forge appends `/v1/logs` to the value, and every line the app's logger writes now also goes to the collector. That includes the boot lines, from extension registration onwards. Lines written before the app is built, while your own code loads config say, only reach stderr. If your logs live behind a different URL, set `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and it's used exactly as written. Headers come from `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, or from `OTEL_EXPORTER_OTLP_HEADERS` when that isn't set, and are percent-encoded the way they are for spans.
+
+The transport is OTLP over HTTP with protobuf bodies, same as tracing, so point it at the collector's HTTP port (4318 by default, never the gRPC one) and give it a full `http` or `https` URL. A bad endpoint logs one error. The app still boots.
+
+#### Configuration
+
+Every key is optional. This is the `logs_export:` block:
+
+```yaml
+logs_export:
+  enabled: true      # false: no export, even when OTEL_* sets an endpoint
+  endpoint: ""       # full OTLP/HTTP logs URL; empty falls back to OTEL_* env
+  headers: {}        # sent with every export request
+  level: ""          # debug, info, warn, error or fatal; empty exports every line
+```
+
+The first of these wins, as it does for tracing and profiling:
+
+1. Code: `forge.WithAppLogsExportConfig`
+2. The `logs_export:` block in your Forge config file
+3. `OTEL_*` environment variables
+4. The defaults
+
+```go
+app := forge.New(
+    forge.WithAppName("user-api"),
+    forge.WithAppLogsExportConfig(forge.LogsExportConfig{
+        Endpoint: "https://collector.internal:4318/v1/logs",
+        Headers:  map[string]string{"Authorization": "Bearer <token>"},
+        Level:    "info",
+    }),
+)
+```
+
+`level` only narrows. It drops lines below it before they are converted, but it can't export a line your logger already decided not to write, so a logger set to `info` never sends debug lines whatever `level` says.
+
+To turn export off, set `OTEL_LOGS_EXPORTER=none` or `enabled: false`. The file or code value wins over the environment, so `enabled: false` stays off even with an endpoint set. `OTEL_SDK_DISABLED=true` stops it too, unless `enabled` says otherwise. A list that leaves out `otlp` counts as off. Setting `enabled: true` with no endpoint anywhere logs a warning and exports nothing.
+
+#### What a record carries
+
+Each log line becomes one OTLP log record. The message is the body, the level becomes the severity (debug 5, info 9, warn 13, error 17, fatal 21), and your fields become attributes. The resource is the one your spans use, so `service.name`, `service.version` and `deployment.environment.name` match across all three signals.
+
+A logger you got from a request carries `trace_id` and `span_id`. On the exported record those become the record's own trace and span IDs rather than ordinary attributes, which is what lets Grafana link a log line to its trace and back. If either ID is missing or isn't valid hex, both stay plain attributes.
+
+The instrumentation scope is the path you built with `Named`, or `forge` for a logger with no name. Each line also gets `code.file.path` and `code.line.number` from its caller.
+
+Forge keeps a scope for at most 256 distinct names. That's plenty for packages and services. A `Named` call with a user ID in it would otherwise grow the cache for as long as the process runs, which is the one thing a log pipeline mustn't do. Past 256, a line from a new name goes out under scope `forge` and carries its name as a `logger.name` attribute instead. Names already cached keep their scope.
+
+#### Before you rely on it
+
+Export doesn't replace anything. Lines still go to stderr in the format they always had, and they go to the collector as well. Scrape stdout into the same Loki already? Then you'll see every line twice until you drop one of the two paths.
+
+Export ships exactly what stderr shows, error text included. The redaction rules that keep values off your spans don't apply to logs, so if an error message can hold something sensitive, scrub it in a collector processor before it reaches storage.
+
+Logging never waits on the collector. Lines go into a queue (2048 records by default) and are sent in batches, and when the queue fills, the oldest lines drop. So the tail of the output can go missing if the process dies. `app.Stop` exports what is queued before it returns, a `Start` that fails flushes first so the lines that explain the failure leave before you exit on the error, and `Fatal` waits up to two seconds for the same reason. An app that never reaches `Stop` loses whatever hadn't been sent yet. Think of a process killed by a signal you don't handle.
+
+Export needs Forge's own logger. If you pass a custom `Logger`, Forge logs a warning at boot and sends nothing.
+
+With `forge dev -O` running, the lines show up in Loki, and the **Logs for this span** link on a trace in Tempo opens the ones from that request. [Grafana in five minutes](/docs/forge/grafana-in-five-minutes) walks through the stack.
+
 ## Distributed Tracing
 
 Tracing is on by default. Start an app and send it a request: Forge has already opened a server span for that request, stamped `trace_id` and `span_id` on every log line written through the request's logger, and put a `traceparent` header on the response. Nothing leaves the process until you give it an endpoint.
