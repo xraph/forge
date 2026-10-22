@@ -682,16 +682,25 @@ func (a *app) Start(ctx context.Context) (err error) {
 	// it again, even when an after-start hook fails once the app counts as
 	// started, so no push outlives a failed Start.
 	//
-	// A failed Start also flushes exported logs, so the lines that explain
-	// the failure leave before a caller exits on the error. It only flushes:
-	// an after-start hook failure leaves the app started, and Stop still
-	// needs the pipeline attached.
+	// A failed Start also exports the queued log lines, so the ones that
+	// explain the failure leave before a caller exits on the error. When the
+	// app never counted as started, Stop returns early and would never
+	// detach the sink, so Start shuts the pipeline down itself. Otherwise an
+	// after-start hook failed, the app is started, and Stop still needs the
+	// pipeline attached, so Start only flushes.
 	startOK := false
 
 	defer func() {
-		if !startOK {
-			a.stopMetricsPush(context.WithoutCancel(ctx))
+		if startOK {
+			return
+		}
+
+		a.stopMetricsPush(context.WithoutCancel(ctx))
+
+		if a.started {
 			a.logsExport.Flush()
+		} else {
+			a.stopLogsExport(context.WithoutCancel(ctx))
 		}
 	}()
 

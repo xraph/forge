@@ -424,9 +424,11 @@ func TestAppLogAfterStopIsQuiet(t *testing.T) {
 	}
 }
 
-// A failed Start flushes the lines that explain the failure, because a caller
-// that exits on the error never reaches Stop. It only flushes: the pipeline
-// stays attached for the Stop that may still follow.
+// A Start that fails before the app counts as started exports the lines that
+// explain the failure, because a caller that exits on the error never reaches
+// Stop. Stop would do nothing for that app anyway, so Start detaches the sink
+// itself: a supervisor that retries New and Start with one logger must not
+// export every line once per attempt.
 func TestAppFailedStartFlushesLogs(t *testing.T) {
 	clearLogsEnv(t)
 
@@ -463,10 +465,76 @@ func TestAppFailedStartFlushesLogs(t *testing.T) {
 		}
 	}
 
-	a.Logger().Info("still attached")
+	before := len(recv.records())
+
+	// Flush would export a queued line before it returns, so a line that
+	// still isn't there after it never reached the pipeline.
+	a.Logger().Info("after the failed start")
 	pipeline.Flush()
 
-	if !slices.Contains(recv.bodies(), "still attached") {
-		t.Fatal("a line logged after the failed Start was not exported, so the pipeline was shut down")
+	if after := len(recv.records()); after != before {
+		t.Fatalf("records went from %d to %d after the failed Start, want no change: %v",
+			before, after, recv.bodies())
+	}
+
+	// Stop returns early for an app that never started, so it can't be what
+	// detaches the sink.
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	a.Logger().Info("after stop")
+	pipeline.Flush()
+
+	if slices.Contains(recv.bodies(), "after stop") {
+		t.Fatal("a line logged after the failed Start and Stop was exported")
+	}
+}
+
+// An after-start hook failure leaves the app started, so the Stop that
+// follows still runs in full. Start only flushes, and Stop exports its own
+// lines before it detaches.
+func TestAppAfterStartHookFailureKeepsLogExport(t *testing.T) {
+	clearLogsEnv(t)
+
+	recv := newLogsReceiver(t)
+
+	a := New(WithAppName("after-start-failed"), WithAppLogger(jsonLogger(io.Discard)),
+		WithAppLogsExportConfig(LogsExportConfig{Endpoint: recv.URL + "/v1/logs", Enabled: new(true)}))
+
+	pipeline := a.(*app).logsExport
+	if pipeline == nil {
+		t.Fatal("the endpoint is set, so a pipeline should be built")
+	}
+
+	t.Cleanup(func() { _ = pipeline.Shutdown(context.Background()) })
+
+	errRefused := errors.New("refused")
+
+	if err := a.RegisterHookFn(PhaseAfterStart, "refuse", func(_ context.Context, app App) error {
+		app.Logger().Error("after start hook refused")
+
+		return errRefused
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Start(t.Context()); !errors.Is(err, errRefused) {
+		t.Fatalf("Start error = %v, want the hook's", err)
+	}
+
+	bodies := recv.bodies()
+	for _, want := range []string{"starting application", "after start hook refused"} {
+		if !slices.Contains(bodies, want) {
+			t.Errorf("no record %q by the time Start returned: %v", want, bodies)
+		}
+	}
+
+	if err := a.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Contains(recv.bodies(), "application stopped") {
+		t.Fatalf("no record %q after Stop: %v", "application stopped", recv.bodies())
 	}
 }
