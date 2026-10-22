@@ -1,0 +1,58 @@
+# Changelog
+
+## [1.1.0](https://github.com/xraph/forge/compare/extensions/conduit/v1.0.0...extensions/conduit/v1.1.0) (2026-10-22)
+
+
+### Features
+
+* **conduit:** add a leased service registry to Redis Streams ([8d2247e](https://github.com/xraph/forge/commit/8d2247e960c84762fa6578458afe336a09193aec))
+* **conduit:** add a leased service registry to the PostgreSQL provider ([103030f](https://github.com/xraph/forge/commit/103030f18aba8646d28bb65bd2b13f853689b3d9))
+* **conduit:** add consumer controls and backfill to Redis Streams ([41ac764](https://github.com/xraph/forge/commit/41ac76443d92403c32094c87432dca522f42c488))
+* **conduit:** add consumer controls and backfill to the PostgreSQL provider ([6d76b8d](https://github.com/xraph/forge/commit/6d76b8d1a5f96f873dc9e3a2e530bc239115f627))
+* **conduit:** add dead letters and retention to the PostgreSQL provider ([26852dc](https://github.com/xraph/forge/commit/26852dc1ee1aa31d88cc5102e7a1942744b5f061))
+* **conduit:** add request and reply RPC to Redis Streams ([4c2bb0e](https://github.com/xraph/forge/commit/4c2bb0e74ea1bc3885db9ad6c514a6f1aace0f22))
+* **conduit:** add request and reply RPC to the PostgreSQL provider ([54717e4](https://github.com/xraph/forge/commit/54717e45116608e333f7918e3a2c564cbbbe1de7))
+* **conduit:** add the PostgreSQL provider's schema and streams ([5c54cba](https://github.com/xraph/forge/commit/5c54cba7ad6dfa1597c171b5188a7aa216c5b3bc))
+* **conduit:** carry trace context in envelope headers from prepare to handler ([c70a094](https://github.com/xraph/forge/commit/c70a094d97a1eb100c1a2d5f0486ae81033d5721))
+* **conduit:** deliver PostgreSQL messages in commit-safe order ([49b999b](https://github.com/xraph/forge/commit/49b999b32a800571ad0a9c7bc79ac570741fc571))
+* **conduit:** log PostgreSQL listener outages ([d612aae](https://github.com/xraph/forge/commit/d612aae4a36b117438825a1e7c726c1972f1dfd5))
+* **conduit:** publish to PostgreSQL with transactional wakeups ([f7b2dcb](https://github.com/xraph/forge/commit/f7b2dcb0c1f1955968b76da68683bc2448c7649d))
+* **conduit:** read PostgreSQL messages after a position ([4222652](https://github.com/xraph/forge/commit/42226524924941d9b06400d38c79b272417bf18f))
+* **conduit:** repair a restored PostgreSQL database with Rebase ([05e4a48](https://github.com/xraph/forge/commit/05e4a4803f329edd82de6f6bd6c27d8d770d225f))
+* **grpc:** trace outbound gRPC calls from conduit and ClientDialOptions ([6a83e26](https://github.com/xraph/forge/commit/6a83e26ca86d6a00096a110f3aad048ff85534a2))
+* **telemetry:** bridge go-utils log lines to OTLP ([03b675a](https://github.com/xraph/forge/commit/03b675a732ed631efd248324721447a7521ceca1))
+
+
+### Bug Fixes
+
+* bumped confy version ([23956ac](https://github.com/xraph/forge/commit/23956acc2994e5b71c156146ae03cc726bdf5df6))
+* **conduit:** accept pool settings in the PostgreSQL listener URL ([ffe531f](https://github.com/xraph/forge/commit/ffe531f1d2c2a9c96ab1de589b750d35e67740e2))
+* **conduit:** back off a PostgreSQL listener whose connection keeps dropping ([4ab0246](https://github.com/xraph/forge/commit/4ab02468a3fba3f5b80b6a470aa176ab46bc6598))
+* **conduit:** back off PostgreSQL re-polls while a transaction holds the horizon ([020f0ae](https://github.com/xraph/forge/commit/020f0ae8e63207a96c56bb3de849f4bc146b9995))
+* **conduit:** bound the PostgreSQL backlog window in the index scan ([70cb250](https://github.com/xraph/forge/commit/70cb25031809e30e8f0b4ea1b63ef965af38bf6a))
+* **conduit:** close PostgreSQL replay, stale reply and empty subject gaps ([72afed7](https://github.com/xraph/forge/commit/72afed762ec699d9ffcb8c0d1962ac31eb07c4a3))
+* **conduit:** fail loudly when a PostgreSQL cursor is ahead of the cluster ([a411066](https://github.com/xraph/forge/commit/a411066c0ca8f22715c3d7ba8910bb9e8743b865))
+* **conduit:** give a retried PostgreSQL RPC its own reply ([16485af](https://github.com/xraph/forge/commit/16485afa31d329842a62bf0623248a74857c168c))
+* **conduit:** keep automatic discovery and RPC choices working on upgrade ([66854d0](https://github.com/xraph/forge/commit/66854d0f8667dcf8ec4595e850eee2245ee9e28e))
+* **conduit:** keep the app's notification handler off the PostgreSQL listener ([c8cfb1b](https://github.com/xraph/forge/commit/c8cfb1b3b225955494d06edad8bc7ebcfb0180bc))
+* **conduit:** leave the memory provider out of automatic RPC selection ([7afd612](https://github.com/xraph/forge/commit/7afd6128d7bf6e02df4033a94118fcb4a10c7d95))
+* **conduit:** let the PostgreSQL listener connect to a direct URL ([6aefa96](https://github.com/xraph/forge/commit/6aefa96d1f7ae006ef978e2bec5064834f0b5f7c))
+* **conduit:** migrate PostgreSQL without the database CREATE privilege ([e699e92](https://github.com/xraph/forge/commit/e699e92fc304501db223b0bc17351cd59d186e7c))
+* **conduit:** order PostgreSQL delivery by transaction ID, not its text ([d68aa70](https://github.com/xraph/forge/commit/d68aa7029fb41ac7e23ffa78228c84bd4520a9fc))
+* **conduit:** patch dependencies and bound cluster polls ([728f493](https://github.com/xraph/forge/commit/728f49368348cbb556ead9815671af3933499de7))
+* **conduit:** prune only below the visibility horizon ([80d916b](https://github.com/xraph/forge/commit/80d916b595c90f9b24050de02acee067daf69910))
+* **conduit:** reject a conflicting PostgreSQL backfill before claiming it ([2ca61cc](https://github.com/xraph/forge/commit/2ca61cc3b08f0fcb10029b756fedfe95efe7bbb8))
+* **conduit:** repair start snapshots and reroute Redis requests from closing servers ([f3917e5](https://github.com/xraph/forge/commit/f3917e557da4a2b9e15306d7158fa22a825ab24b))
+* **conduit:** report a Redis read that hits the caller's deadline as a deadline ([59cb9cd](https://github.com/xraph/forge/commit/59cb9cd5adfbfcc794eee2ca93d2bf43b114aa16))
+* **conduit:** report the whole PostgreSQL listener outage and skip its PG13-only test ([0ce2989](https://github.com/xraph/forge/commit/0ce29899b36f64c59d6e963b9bc46d1b4edb95ee))
+* **conduit:** route Redis RPC replies to the call that sent them ([d4987f1](https://github.com/xraph/forge/commit/d4987f15119b6d70456001bc8964516b0ef7b6d8))
+* **conduit:** serve every Redis RPC procedure from one reader ([2f80c1e](https://github.com/xraph/forge/commit/2f80c1ed38419c01a9e7bc977de0d94b22e40c22))
+* **conduit:** skip PostgreSQL DDL when the schema is current ([07df295](https://github.com/xraph/forge/commit/07df2952853ebd4c5c225557ea17305c8ea01cc7))
+* **conduit:** stop idle PostgreSQL subscribers from busy polling and pinning the horizon ([9cc08fb](https://github.com/xraph/forge/commit/9cc08fbddd5868e811990b310fb9a8a241d41f5a))
+* **conduit:** stop Redis RPC from starting a reply reader after Close ([cc31742](https://github.com/xraph/forge/commit/cc31742c3053fb656991b85223ed1a0fbbb9495f))
+* **conduit:** sweep every aged-out PostgreSQL message on each pass ([77de49c](https://github.com/xraph/forge/commit/77de49cf3bb95721910f7c99e71606b34a3ca5dc))
+* **conduit:** track pruned positions so a read after one is never wrongly resumable ([0b2f776](https://github.com/xraph/forge/commit/0b2f776602817c05843d3cb3036f08e3fdf6a4d3))
+* **conduit:** wake only the PostgreSQL caller a reply belongs to ([6ad41dd](https://github.com/xraph/forge/commit/6ad41dddb4849843251c5d195b30497122a48519))
+* **conduit:** walk large PostgreSQL backlogs in bounded windows ([40d916a](https://github.com/xraph/forge/commit/40d916a8d0b4f0a255807c193b4b636c2bbf8e0b))
+* **grpc:** register the example's services before the server starts ([f867897](https://github.com/xraph/forge/commit/f8678975b07258994027abf73448443bcc7886db))
+* **kafka:** skip telemetry for an empty batch, bound conduit tracing test waits ([0b29c58](https://github.com/xraph/forge/commit/0b29c5858ceba58951ce831c8fffd355f90c17bb))
