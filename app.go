@@ -83,6 +83,7 @@ type AppConfig struct {
 	HealthConfig        HealthConfig
 	TracingConfig       TracingConfig
 	MetricsExportConfig MetricsExportConfig
+	LogsExportConfig    LogsExportConfig
 	ProfilingConfig     ProfilingConfig
 
 	// Profiling

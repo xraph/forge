@@ -3,6 +3,7 @@ package telemetry
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -89,7 +90,7 @@ func resolveMetricsEnabled(in MetricsInputs, getenv func(string) string, endpoin
 	case explicit != nil && !*explicit:
 		return false
 	case explicit == nil && (strings.EqualFold(strings.TrimSpace(getenv("OTEL_SDK_DISABLED")), "true") ||
-		!metricsExporterListAllowsOTLP(getenv("OTEL_METRICS_EXPORTER"), warnings)):
+		!exporterListAllowsOTLP("OTEL_METRICS_EXPORTER", getenv("OTEL_METRICS_EXPORTER"), warnings)):
 		return false
 	case endpoint == "":
 		if explicit != nil {
@@ -103,11 +104,16 @@ func resolveMetricsEnabled(in MetricsInputs, getenv func(string) string, endpoin
 	}
 }
 
-// metricsExporterListAllowsOTLP reads OTEL_METRICS_EXPORTER, a comma-separated list
-// of exporter names. An unset or blank value allows push. A list allows it only when
-// it names otlp, so none, prometheus and console all turn push off. Entries OTel
-// doesn't define are named in one warning.
-func metricsExporterListAllowsOTLP(raw string, warnings *[]string) bool {
+// exporterListAllowsOTLP reads an OTEL_*_EXPORTER variable, a comma-separated list
+// of exporter names. An unset or blank value allows export. A list allows it only
+// when it names otlp, so none, console and (for metrics) prometheus all turn it off.
+// Entries OTel doesn't define for that signal are named in one warning.
+func exporterListAllowsOTLP(envName, raw string, warnings *[]string) bool {
+	known := []string{"otlp", "console", "none"}
+	if envName == "OTEL_METRICS_EXPORTER" {
+		known = []string{"otlp", "prometheus", "console", "none"}
+	}
+
 	var (
 		entries []string
 		unknown []string
@@ -122,19 +128,19 @@ func metricsExporterListAllowsOTLP(raw string, warnings *[]string) bool {
 
 		entries = append(entries, e)
 
-		switch e {
-		case "otlp":
+		if e == "otlp" {
 			otlp = true
-		case "prometheus", "console", "none":
-		default:
+		}
+
+		if !slices.Contains(known, e) {
 			unknown = append(unknown, e)
 		}
 	}
 
 	if len(unknown) > 0 {
 		*warnings = append(*warnings, fmt.Sprintf(
-			"telemetry: OTEL_METRICS_EXPORTER has unknown entries %q (known: otlp, prometheus, console, none)",
-			strings.Join(unknown, ",")))
+			"telemetry: %s has unknown entries %q (known: %s)",
+			envName, strings.Join(unknown, ","), strings.Join(known, ", ")))
 	}
 
 	return len(entries) == 0 || otlp

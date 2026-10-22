@@ -19,6 +19,7 @@ OpenTelemetry tracing for Forge apps. It resolves the tracing config, builds the
 - **labels.go**: `serveLabelled` and `spanName`, the pprof span labels for profiling.
 - **metrics_config.go**: `ResolveMetrics(MetricsInputs) MetricsSettings`, the precedence chain for metrics push.
 - **metrics.go**: `NewMetricsPusher`, `MetricsPusher` with `Start`, `Shutdown` and `Settings`, the OTLP/HTTP metrics push.
+- **logs_config.go**: `ResolveLogs(LogsInputs) LogsSettings`, the precedence chain for OTLP log export.
 
 ## Precedence
 
@@ -149,6 +150,21 @@ Starting a pusher also installs the rate limited OTel error handler (`otel.SetEr
 In the app, `buildMetricsExport` (`app_impl.go`) runs in `forge.New`: it resolves the settings, logs the warnings, checks the endpoint, picks the temporality and builds the producer once. A bad endpoint logs one error, `telemetry: metrics push disabled`, and leaves the app without a pusher. `app.Start` calls `Start` right after it starts the metrics collector and logs `telemetry: pushing metrics over OTLP` with the endpoint, interval and temporality, never the headers. A `Start` that returns an error shuts the pusher down before it returns, after-start hook failures included. `app.Stop` calls `Shutdown` after the extensions stop and before the container and the collector stop, because the collector's `Stop` resets its registry.
 
 Tests: run the pusher against an `httptest` server that decodes the body into `metricspb.MetricsData`. That has the wire shape of an export request, so the collector package and its gRPC dependency stay out of the build. Set `Interval` to an hour, call `Start`, and let `Shutdown` do the export.
+
+## Logs export config
+
+`ResolveLogs` in logs_config.go is `ResolveMetrics` for logs: code (`forge.WithAppLogsExportConfig`), then the forge config `logs_export` key, then `OTEL_*` env, then defaults. It only resolves. Nothing here exports a line yet.
+
+| Field | Source and default |
+|---|---|
+| `Endpoint` | code, file, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (used as is), `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/logs`; both env values are trimmed of spaces first; empty means no export |
+| `Headers` | code, file, `OTEL_EXPORTER_OTLP_LOGS_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS`; values are URL-decoded; always a copy, so changing it never touches your map |
+| `Level` | code, file, else empty (every written line). `debug`, `info`, `warn` (or `warning`), `error` and `fatal` in any case; anything else is a warning and counts as empty |
+| `Enabled` | an explicit false in code or file wins; otherwise `OTEL_SDK_DISABLED=true` or an `OTEL_LOGS_EXPORTER` list with no `otlp` entry turns it off; otherwise it needs an endpoint. An explicit true with no endpoint is a warning |
+
+`OTEL_LOGS_EXPORTER` knows `otlp`, `console` and `none`. An entry outside that list is named in one warning, and the list still counts as on when it also has `otlp`. Metrics and logs share `exporterListAllowsOTLP` in metrics_config.go, which picks the known list from the variable name (metrics adds `prometheus`).
+
+The level warning is only returned when export ends up on, so a stray value doesn't log for a feature that's off. The "enabled but no endpoint" warning and the unknown exporter entry warning come back either way. The level only narrows: the logger has no level getter, so forge can't tell when `logs_export.level` sits below the logger's own level, and a line the logger drops never reaches the exporter.
 
 ## Public API (root `tracing.go`)
 
