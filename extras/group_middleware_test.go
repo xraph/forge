@@ -80,3 +80,64 @@ func TestAdapters_NestedGroupInheritsGroupMiddleware(t *testing.T) {
 		})
 	}
 }
+
+// plainController is a controller with middleware and no prefix.
+type plainController struct {
+	mw forge.Middleware
+	h  forge.Handler
+}
+
+func (c *plainController) Name() string { return "plain" }
+
+func (c *plainController) Middleware() []forge.Middleware { return []forge.Middleware{c.mw} }
+
+func (c *plainController) Routes(r forge.Router) error { return r.GET("/ctl", c.h) }
+
+// TestAdapters_PrefixlessControllerMiddlewareDoesNotLeak checks on each extras
+// backend that a prefix-less controller's middleware runs once on its own
+// routes and never on a route registered on the same router after it.
+func TestAdapters_PrefixlessControllerMiddlewareDoesNotLeak(t *testing.T) {
+	adapters := map[string]func() forge.RouterAdapter{
+		"chi":        NewChiAdapter,
+		"httprouter": NewHTTPRouterAdapter,
+		"bunrouter":  NewBunRouterAdapter,
+	}
+
+	for name, newAdapter := range adapters {
+		t.Run(name, func(t *testing.T) {
+			r := forge.NewRouter(forge.WithAdapter(newAdapter()))
+
+			var calls []string
+
+			ctl := func(next forge.Handler) forge.Handler {
+				return func(ctx forge.Context) error {
+					calls = append(calls, "ctl")
+
+					return next(ctx)
+				}
+			}
+			ok := func(ctx forge.Context) error {
+				calls = append(calls, "handler")
+
+				return ctx.String(http.StatusOK, "ok")
+			}
+
+			require.NoError(t, r.RegisterController(&plainController{mw: ctl, h: ok}))
+			require.NoError(t, r.GET("/after", ok))
+
+			for path, want := range map[string][]string{
+				"/ctl":   {"ctl", "handler"},
+				"/after": {"handler"},
+			} {
+				calls = nil
+
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+				rec := httptest.NewRecorder()
+				r.ServeHTTP(rec, req)
+
+				require.Equal(t, http.StatusOK, rec.Code, "GET %s", path)
+				assert.Equal(t, want, calls, "GET %s", path)
+			}
+		})
+	}
+}

@@ -520,13 +520,16 @@ func UseOuterMiddleware(r Router, middleware ...func(http.Handler) http.Handler)
 
 // RegisterController registers a controller.
 func (r *router) RegisterController(controller Controller) error {
-	// Create a router for the controller
-	cr := r
-
-	// Apply prefix if controller implements ControllerWithPrefix
+	// The controller always gets its own group, even without a prefix. Use on
+	// r itself would put the controller's middleware on every route registered
+	// through r afterwards, and the group also orders r's group middleware
+	// before the controller's, the same as for a prefixed controller.
+	prefix := ""
 	if pc, ok := controller.(ControllerWithPrefix); ok {
-		cr = r.Group(pc.Prefix()).(*router)
+		prefix = pc.Prefix()
 	}
+
+	cr := r.Group(prefix).(*router)
 
 	// Apply middleware if controller implements ControllerWithMiddleware
 	if mc, ok := controller.(ControllerWithMiddleware); ok {

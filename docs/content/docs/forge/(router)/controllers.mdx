@@ -112,6 +112,8 @@ func (c *UserController) Middleware() []forge.Middleware {
 }
 ```
 
+The middleware stays on the controller's routes, with or without a prefix. `RegisterController` puts the controller in a group of its own, so a route you register on the same router afterwards doesn't pick it up. When you register the controller on a group, the group's middleware runs first and the controller's runs inside it.
+
 ### ControllerWithTags
 
 Add tags to all routes in the controller. Tags appear in OpenAPI documentation and can be used for route lookup with `RoutesByTag`.
