@@ -344,12 +344,28 @@ func (r *router) Handle(path string, handler http.Handler) error {
 func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	cfg := &GroupConfig{}
 
+	// The child's chain starts as everything that wraps the parent's routes:
+	// the parent's Use middleware, then the parent's group middleware. The
+	// group middleware has to be folded in here. Leaving it in the parent's
+	// GroupConfig only would protect routes registered on the parent and
+	// silently skip every nested group, so WithGroupMiddleware(auth) on
+	// "/admin" would not guard "/admin/v1".
+	//
+	// It goes into the chain rather than into cfg.Middleware so that it runs
+	// before anything the child adds, Use included, and so that it is applied
+	// once: register combines r.middleware with r.groupConfig.Middleware, and
+	// copying it into both would run it twice.
+	middleware := slices.Clone(r.middleware)
+
 	// Inherit parent group config if this is a nested group
 	if r.groupConfig != nil {
+		middleware = append(middleware, r.groupConfig.Middleware...)
+
 		// Copy parent's tags
 		cfg.Tags = append([]string{}, r.groupConfig.Tags...)
 
-		// Copy parent's metadata (but NOT middleware - that's inherited via router.middleware)
+		// Copy parent's metadata. Middleware is not copied into cfg; it was
+		// folded into the child's chain above.
 		if len(r.groupConfig.Metadata) > 0 {
 			cfg.Metadata = make(map[string]any)
 			maps.Copy(cfg.Metadata, r.groupConfig.Metadata)
@@ -378,7 +394,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		recovery:     r.recovery,
 		routes:       r.routes,   // Share routes pointer (all groups use same slice)
 		routeRev:     r.routeRev, // Share the revision counter with the same slice
-		middleware:   append([]Middleware{}, r.middleware...),
+		middleware:   middleware,
 		prefix:       r.prefix + prefix,
 		groupConfig:  cfg,
 

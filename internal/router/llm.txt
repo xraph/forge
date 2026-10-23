@@ -179,6 +179,14 @@ adminGroup.GET("/stats", getStatsHandler)
 adminGroup.POST("/settings", updateSettingsHandler)
 ```
 
+A nested group inherits its parent's group middleware at any depth, so
+`authMiddleware` guards `/api/v1/admin/stats` too. For that route the chain is
+`apiV1`'s `Use` middleware, `authMiddleware`, anything `Use` added on
+`adminGroup`, `adminAuthMiddleware`, then route middleware: outer groups wrap
+inner ones, and each layer runs once. `WithGroupIdempotent` carries down the
+same way. Sibling groups get their parent's middleware and none of each
+other's.
+
 ### OpenAPI Documentation
 
 ```go

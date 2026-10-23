@@ -170,6 +170,8 @@ In this example:
 - All routes are tagged with both `v1` and `users`
 - All routes require JWT authentication
 
+Outer groups wrap inner ones. A request to `GET /api/v1/users` runs CORS, then logging, then any route middleware, and each runs once. Within one group, `Use` middleware runs before `WithGroupMiddleware`. So auth you put on a parent group, either way, runs before anything a nested group adds.
+
 ### Overriding Parent Configuration
 
 Nested groups can skip parent interceptors using `WithGroupSkipInterceptor`:
