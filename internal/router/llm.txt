@@ -185,7 +185,9 @@ A nested group inherits its parent's group middleware at any depth, so
 `adminGroup`, `adminAuthMiddleware`, then route middleware: outer groups wrap
 inner ones, and each layer runs once. `WithGroupIdempotent` carries down the
 same way. Sibling groups get their parent's middleware and none of each
-other's.
+other's. A nested group copies its parent's chain when you create it, so
+`apiV1.Use(x)` called after `apiV1.Group("/admin")` reaches `apiV1`'s routes
+and not `adminGroup`'s.
 
 ### OpenAPI Documentation
 

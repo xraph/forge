@@ -86,6 +86,12 @@ func WithIdempotency(opts ...IdempotencyOption) RouteOption {
 // on a route inside the group, has not run yet, every request looks anonymous,
 // and nothing is deduplicated; each response then carries
 // Idempotency-Skipped: anonymous.
+//
+// The same goes for nested groups. A nested group runs its parent's group
+// middleware first, so with WithGroupIdempotency on a parent and auth added
+// through WithGroupMiddleware on a child, idempotency runs before auth and the
+// child's writes are not deduplicated. Put auth on the parent, ahead of this
+// option, instead.
 func WithGroupIdempotency(opts ...IdempotencyOption) GroupOption {
 	return router.WithGroupIdempotent(idempotency.Middleware(nil, opts...))
 }

@@ -170,7 +170,11 @@ In this example:
 - All routes are tagged with both `v1` and `users`
 - All routes require JWT authentication
 
-Outer groups wrap inner ones. A request to `GET /api/v1/users` runs CORS, then logging, then any route middleware, and each runs once. Within one group, `Use` middleware runs before `WithGroupMiddleware`. So auth you put on a parent group, either way, runs before anything a nested group adds.
+Outer groups wrap inner ones. A request to `GET /api/v1/users` runs CORS, then logging, then any route middleware, and each runs once. Within one group, `Use` middleware runs before `WithGroupMiddleware`. So auth you put on a parent group runs before anything a nested group adds, whether you passed it to `WithGroupMiddleware` or called `Use` before creating the nested group.
+
+A nested group copies its parent's middleware when you create it. If you call `api.Use(x)` after `v1 := api.Group("/v1")`, routes on `api` get `x` and routes on `v1` don't, so add middleware to a parent before you create its children.
+
+There's no option to opt a nested group out of its parent's middleware. If you need a public route under a guarded prefix, say `/api/v1/health` next to authenticated `/api/v1` routes, register it on a group created from the root with the full prefix, `app.Group("/api/v1/health")`, and it won't pick up anything from `api`.
 
 ### Overriding Parent Configuration
 

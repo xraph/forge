@@ -247,8 +247,6 @@ func TestGroupMiddleware_NestedRouteInfo(t *testing.T) {
 	parent := r.Group("/p", WithGroupMiddleware(log.mw("m")))
 	child := parent.Group("/c", WithGroupMiddleware(log.mw("n")))
 
-	require.NoError(t, child.GET("/x", log.handler("h")))
-
 	require.NoError(t, child.GET("/y", log.handler("h"), WithName("nested")))
 
 	info, ok := r.RouteByName("nested")
@@ -274,4 +272,84 @@ func TestGroupMiddleware_NestedGroupKeepsIdempotency(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, []string{"idem", "h"}, log.snapshot())
+}
+
+// prefixedController is a ControllerWithPrefix and ControllerWithMiddleware
+// with one GET route, for checking that RegisterController on a group keeps the
+// group's middleware.
+type prefixedController struct {
+	prefix string
+	mw     []Middleware
+	h      Handler
+}
+
+func (c *prefixedController) Name() string { return "prefixed" }
+
+func (c *prefixedController) Prefix() string { return c.prefix }
+
+func (c *prefixedController) Middleware() []Middleware { return c.mw }
+
+func (c *prefixedController) Routes(r Router) error { return r.GET("/x", c.h) }
+
+// TestGroupMiddleware_PrefixedControllerOnGroup covers RegisterController with
+// a prefix, which builds a nested group under the hood. A rejecting group
+// middleware must guard it, and the controller's own middleware runs inside the
+// group's.
+func TestGroupMiddleware_PrefixedControllerOnGroup(t *testing.T) {
+	for name, newAdapter := range groupMiddlewareAdapters {
+		t.Run(name, func(t *testing.T) {
+			r := NewRouter(WithAdapter(newAdapter()))
+			log := &callLog{}
+
+			guarded := r.Group("/guarded", WithGroupMiddleware(rejectAll))
+			require.NoError(t, guarded.RegisterController(&prefixedController{
+				prefix: "/ctl",
+				mw:     []Middleware{log.mw("ctl-mw")},
+				h:      log.handler("h"),
+			}))
+
+			rec := doGet(t, r, "/guarded/ctl/x")
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Empty(t, log.snapshot(), "a controller route behind a rejecting group middleware ran")
+
+			g := r.Group("/g", WithGroupMiddleware(log.mw("g")))
+			g.Use(log.mw("g-use"))
+			require.NoError(t, g.RegisterController(&prefixedController{
+				prefix: "/ctl",
+				mw:     []Middleware{log.mw("ctl-mw")},
+				h:      log.handler("h"),
+			}))
+
+			rec = doGet(t, r, "/g/ctl/x")
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, []string{"g-use", "g", "ctl-mw", "h"}, log.snapshot())
+		})
+	}
+}
+
+// TestGroupMiddleware_LateUseDoesNotReachExistingChild pins the snapshot rule:
+// a nested group copies its parent's chain when it is created, so Use on the
+// parent afterwards reaches the parent's routes and not the child's.
+func TestGroupMiddleware_LateUseDoesNotReachExistingChild(t *testing.T) {
+	for name, newAdapter := range groupMiddlewareAdapters {
+		t.Run(name, func(t *testing.T) {
+			r := NewRouter(WithAdapter(newAdapter()))
+			log := &callLog{}
+
+			p := r.Group("/p")
+			c := p.Group("/c")
+			p.Use(log.mw("late"))
+
+			require.NoError(t, p.GET("/x", log.handler("h")))
+			require.NoError(t, c.GET("/x", log.handler("h")))
+
+			require.Equal(t, http.StatusOK, doGet(t, r, "/p/x").Code)
+			assert.Equal(t, []string{"late", "h"}, log.snapshot())
+
+			log.reset()
+
+			require.Equal(t, http.StatusOK, doGet(t, r, "/p/c/x").Code)
+			assert.Equal(t, []string{"h"}, log.snapshot())
+		})
+	}
 }
