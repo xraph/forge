@@ -595,16 +595,23 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	ctx.Println("")
 	ctx.Success("Created: " + path)
 
+	warnIfGroveTooOld(ctx, p.config.RootDir)
+
 	return nil
 }
 
 // writeGoMigrationFile writes a grove migration with empty up and down bodies
-// for the author to fill in.
+// for the author to fill in. The version lives only in the file name: grove's
+// Group.Add reads it, and the name, from there.
 func writeGoMigrationFile(dir, name string) (string, error) {
+	if err := checkMigrationName(name); err != nil {
+		return "", err
+	}
+
 	version := time.Now().Format("20060102150405")
 	path := filepath.Join(dir, version+"_"+name+".go")
 
-	src := fmt.Sprintf(`package migrations
+	const src = `package migrations
 
 import (
 	"context"
@@ -613,20 +620,18 @@ import (
 )
 
 func init() {
-	App.MustRegister(&migrate.Migration{
-		Name:    %q,
-		Version: %q,
-		Up: func(ctx context.Context, exec migrate.Executor) error {
+	App.Add(
+		func(ctx context.Context, db *migrate.DB) error {
 			// Write your up migration here.
 			return nil
 		},
-		Down: func(ctx context.Context, exec migrate.Executor) error {
+		func(ctx context.Context, db *migrate.DB) error {
 			// Write your down migration here.
 			return nil
 		},
-	})
+	)
 }
-`, name, version)
+`
 
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		return "", fmt.Errorf("failed to write migration: %w", err)

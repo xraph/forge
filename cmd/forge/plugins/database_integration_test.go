@@ -90,6 +90,22 @@ func buildRunner(t *testing.T) (binary, dsn string) {
 func buildRunnerWithGoMod(t *testing.T, goModContent string) (binary, dsn string) {
 	t.Helper()
 
+	return buildRunnerWithMigrations(t, goModContent, func(t *testing.T, migrationsDir string) {
+		t.Helper()
+
+		up, _, _, err := writeSQLMigrationFiles(migrationsDir, "create_widgets", false)
+		require.NoError(t, err)
+
+		require.NoError(t, os.WriteFile(up, []byte("CREATE TABLE widgets (id INTEGER PRIMARY KEY);"), 0o644))
+	})
+}
+
+// buildRunnerWithMigrations is buildRunnerWithGoMod with the migration files as a
+// parameter too: seed writes them into the project's migrations directory after
+// migrations.go is scaffolded and before the runner is generated.
+func buildRunnerWithMigrations(t *testing.T, goModContent string, seed func(t *testing.T, migrationsDir string)) (binary, dsn string) {
+	t.Helper()
+
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte(goModContent), 0o644))
 
@@ -100,12 +116,11 @@ func buildRunnerWithGoMod(t *testing.T, goModContent string) (binary, dsn string
 
 	require.NoError(t, p.createMigrationsGoFile(filepath.Join(migrationsDir, "migrations.go"), ""))
 
-	up, _, _, err := writeSQLMigrationFiles(migrationsDir, "create_widgets", false)
-	require.NoError(t, err)
-
-	require.NoError(t, os.WriteFile(up, []byte("CREATE TABLE widgets (id INTEGER PRIMARY KEY);"), 0o644))
+	seed(t, migrationsDir)
 
 	dsn = "sqlite://" + filepath.Join(root, "app.db")
+
+	var err error
 
 	binary, err = p.buildMigrationRunner(dsn, "")
 	require.NoError(t, err, "the runner must build")
@@ -251,4 +266,40 @@ func TestRunnerEndToEndPinsGroveVersionFromProjectGoMod(t *testing.T) {
 		"the generated runner must pin grove to the project's own required version")
 	assert.Contains(t, string(generatedGoMod), "github.com/xraph/grove/drivers/sqlitedriver "+pinnedVersion,
 		"the driver module must be pinned to the same version as grove core")
+}
+
+// forge db create-go writes a file that only works if grove's Add can read the
+// version and the name out of the file name, and only compiles against grove
+// v1.10.0 or newer. The parser-only tests cannot tell either, so build the real
+// runner against a pinned v1.10.0 and apply the file as written.
+func TestRunnerEndToEndAppliesACreateGoMigration(t *testing.T) {
+	goModContent := "module example.com/app\n\ngo 1.24\n\nrequire github.com/xraph/grove " + groveAddVersion + "\n"
+
+	var migrationFile string
+
+	binary, dsn := buildRunnerWithMigrations(t, goModContent, func(t *testing.T, migrationsDir string) {
+		t.Helper()
+
+		path, err := writeGoMigrationFile(migrationsDir, "backfill_emails")
+		require.NoError(t, err)
+
+		migrationFile = filepath.Base(path)
+	})
+
+	out, err := runCommand(t, binary, dsn, "migrate")
+	require.NoError(t, err, out)
+
+	out, err = runCommand(t, binary, dsn, "status")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "backfill_emails")
+
+	// Status does not print versions, so read the version Add took from the
+	// file name straight out of grove's tracking table. The sqlite3 CLI keeps a
+	// Go sqlite driver out of this module, as in seedLegacyTable.
+	rows, err := exec.CommandContext(t.Context(), "sqlite3", dsn[len("sqlite://"):], "SELECT version, name FROM grove_migrations;").CombinedOutput()
+	require.NoError(t, err, string(rows))
+	assert.Equal(t, migrationFile[:len("20060102150405")]+"|backfill_emails", strings.TrimSpace(string(rows)))
+
+	out, err = runCommand(t, binary, dsn, "rollback")
+	require.NoError(t, err, out)
 }

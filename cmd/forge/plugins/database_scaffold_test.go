@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -121,6 +122,10 @@ func TestCreateGoMigrationEmitsGroveMigration(t *testing.T) {
 	path, err := writeGoMigrationFile(dir, "backfill_emails")
 	require.NoError(t, err)
 
+	// The version is written once, in the file name, because Group.Add reads
+	// it from there.
+	assert.Regexp(t, `^\d{14}_backfill_emails\.go$`, filepath.Base(path))
+
 	parseGoSource(t, path)
 
 	src, err := os.ReadFile(path)
@@ -129,8 +134,16 @@ func TestCreateGoMigrationEmitsGroveMigration(t *testing.T) {
 	content := string(src)
 
 	assert.Contains(t, content, `"github.com/xraph/grove/migrate"`)
-	assert.Contains(t, content, "App.MustRegister")
-	assert.Contains(t, content, `Name:    "backfill_emails"`)
-	assert.Contains(t, content, "func(ctx context.Context, exec migrate.Executor) error")
+	assert.Contains(t, content, "App.Add(")
+	assert.Equal(t, 2, strings.Count(content, "func(ctx context.Context, db *migrate.DB) error"))
+	assert.Contains(t, content, "// Write your up migration here.")
+	assert.Contains(t, content, "// Write your down migration here.")
+
+	// The struct form carried the version and name in the source, which is
+	// what the Add form removes.
+	assert.NotContains(t, content, "Version:")
+	assert.NotContains(t, content, "Name:")
+	assert.NotContains(t, content, "MustRegister")
+	assert.NotContains(t, content, "migrate.Executor")
 	assert.NotContains(t, content, "extensions/database")
 }

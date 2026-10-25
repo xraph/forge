@@ -1724,8 +1724,10 @@ func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
 		ctx.Println("")
 	}
 
+	warnIfGroveTooOld(ctx, p.config.RootDir)
+
 	ctx.Info("💡 Next steps:")
-	ctx.Info("   1. Fill in the Up and Down function bodies")
+	ctx.Info("   1. Fill in the up and down functions passed to App.Add (the version is in the file name)")
 	ctx.Info("   2. Run: forge db migrate")
 
 	return nil
