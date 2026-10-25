@@ -327,8 +327,44 @@ forge db create-go populate_defaults --app=api-gateway
 - `--app` / `-a` -- Create migration in an app-scoped directory
 
 **Behavior:**
-- Creates a single `.go` migration file with `init()` function boilerplate
-- Go migrations can execute arbitrary Go code during migration (useful for data transformations, seeding, etc.)
+- Creates a single `{timestamp}_{name}.go` file whose `init()` registers an up and a down function with `App.Add`
+- Writes the version in the file name only. `App.Add` reads the timestamp and the name from it, so the source never repeats them
+- Passes each function a `*migrate.DB`: grove's schema builders plus `db.Exec` for raw SQL. Go migrations can execute arbitrary Go code during migration (useful for data transformations, seeding, etc.)
+- On Postgres, runs the migration in one transaction together with its applied record. Pass `migrate.NoTransaction()` as a third argument to `App.Add` when a statement cannot run inside one, such as `CREATE INDEX CONCURRENTLY`
+- `forge generate migration` writes the same file
+
+The generated file looks like this:
+
+```go
+package migrations
+
+import (
+    "context"
+
+    "github.com/xraph/grove/migrate"
+)
+
+func init() {
+    App.Add(
+        func(ctx context.Context, db *migrate.DB) error {
+            // Write your up migration here.
+            return nil
+        },
+        func(ctx context.Context, db *migrate.DB) error {
+            // Write your down migration here.
+            return nil
+        },
+    )
+}
+```
+
+<Callout type="warn">
+The generated file needs grove v1.10.0 or newer. `App.Add` and `migrate.DB` do not exist before it, so the file will not compile against an older grove. Run `go get github.com/xraph/grove@v1.10.0`, along with the same version of each grove driver module your project requires (for example `github.com/xraph/grove/drivers/pgdriver@v1.10.0`). When your `go.mod` requires an older grove, `create-go` and `forge generate migration` print that command after they write the file.
+</Callout>
+
+<Callout type="warn">
+Pick a name that does not end in `_test`, a GOOS value, or a GOARCH value. Go excludes a file whose name ends in `_test`, or in a value like `_linux`, `_arm64` or `_linux_amd64`, from every build. Grove takes the migration's name from the file name, so an excluded file is a migration that never registers, and nothing reports it. Forge refuses those names: `seed_linux` is rejected, while `linux_hosts` is fine.
+</Callout>
 
 <Callout type="info">
 Go migrations require a `migrations.go` file in the migrations directory. Run `forge db init` to generate it if missing.
@@ -520,7 +556,7 @@ This creates a `migrations.go` file with two package-level values: `Registry`, w
 forge db create-go seed_default_roles
 ```
 
-3. Edit the generated file:
+3. Fill in the two functions in the generated file, `20240120090000_seed_default_roles.go`:
 
 ```go
 package migrations
@@ -532,24 +568,24 @@ import (
 )
 
 func init() {
-    App.MustRegister(&migrate.Migration{
-        Name:    "seed_default_roles",
-        Version: "20240120090000",
-        Up: func(ctx context.Context, exec migrate.Executor) error {
-            // Up migration
-            _, err := exec.Exec(ctx, "INSERT INTO roles (name) VALUES ($1)", "admin")
+    App.Add(
+        func(ctx context.Context, db *migrate.DB) error {
+            _, err := db.Exec(ctx, "INSERT INTO roles (name) VALUES ($1)", "admin")
             return err
         },
-        Down: func(ctx context.Context, exec migrate.Executor) error {
-            // Down migration
-            _, err := exec.Exec(ctx, "DELETE FROM roles WHERE name = $1", "admin")
+        func(ctx context.Context, db *migrate.DB) error {
+            _, err := db.Exec(ctx, "DELETE FROM roles WHERE name = $1", "admin")
             return err
         },
-    })
+    )
 }
 ```
 
-`exec` is grove's `migrate.Executor`. It gives you `Exec` and `Query` for raw SQL, so anything you would otherwise script by hand, an insert loop, a data backfill, a bulk transformation, runs here as ordinary Go rather than a wall of SQL.
+There is no `Version` or `Name` to fill in. The version, `20240120090000`, and the name, `seed_default_roles`, come from the file name, which is the only place they are written. The first function is the up migration and the second is the down.
+
+`db` is grove's `*migrate.DB`. `db.Exec` and `db.Query` run raw SQL, so anything you would otherwise script by hand, an insert loop, a data backfill, a bulk transformation, runs here as ordinary Go rather than a wall of SQL. The same value carries the schema builders, such as `db.NewCreateTable("widgets")`, which turn a Go description of a table into SQL on PostgreSQL or commands on MongoDB. On PostgreSQL the whole migration runs in a transaction with its applied record, so a failed step leaves nothing behind.
+
+This needs grove v1.10.0 or newer in your `go.mod`. See [`forge db create-go`](#forge-db-create-go) for the upgrade command and the file-name rule.
 
 ### How Go migrations run
 

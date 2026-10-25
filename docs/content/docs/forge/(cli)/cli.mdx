@@ -98,7 +98,7 @@ forge g app              # Short alias
   - `forge db rollback` - Roll back the last migration group
   - `forge db status` - Show migration status
   - `forge db create-sql` - Create a SQL migration (writes a `.up.sql`, a `.down.sql`, and a `.go` file that registers them)
-  - `forge db create-go` - Create a Go migration
+  - `forge db create-go` - Create a Go migration (one `.go` file that calls `App.Add`, with the version in the file name; needs grove v1.10.0 or newer)
   - `forge db adopt` - Record a database's pre-grove migration history, once, after upgrading
   - `forge db reset` - Roll back and re-run every migration
 

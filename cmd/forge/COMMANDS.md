@@ -341,12 +341,44 @@ If you have `.sql` files left over from before grove, they stopped running the m
 
 **`forge db create-go`**
 
-Create a Go migration, registered directly with `App.MustRegister`, no SQL files involved.
+Create a Go migration that registers itself with grove's `App.Add`, no SQL files involved. It writes one file, `{timestamp}_{name}.go`, and you fill in the two functions:
 
 ```bash
 forge db create-go seed_default_roles
 forge db create-go populate_defaults --app=api-gateway
 ```
+
+```go
+package migrations
+
+import (
+	"context"
+
+	"github.com/xraph/grove/migrate"
+)
+
+func init() {
+	App.Add(
+		func(ctx context.Context, db *migrate.DB) error {
+			// Write your up migration here.
+			return nil
+		},
+		func(ctx context.Context, db *migrate.DB) error {
+			// Write your down migration here.
+			return nil
+		},
+	)
+}
+```
+
+The version lives in the file name. `App.Add` reads the timestamp and the name from it, so the source never repeats them, and you should not change the timestamp of a migration you have already applied. Each function receives a `*migrate.DB`: grove's schema builders (`db.NewCreateTable(...)`) plus `db.Exec` for raw SQL. On Postgres the migration runs in one transaction together with its applied record. When a statement cannot run inside a transaction, such as `CREATE INDEX CONCURRENTLY`, pass `migrate.NoTransaction()` as a third argument to `App.Add`.
+
+Two things to check before you build:
+
+- You need grove v1.10.0 or newer. `Add` and `migrate.DB` do not exist before it, so the file will not compile against an older grove. Run `go get github.com/xraph/grove@v1.10.0` and the same for each grove driver module your project requires. Forge prints that command when your `go.mod` is older.
+- The name has to survive `go build`. Go drops a file whose name ends in `_test`, or in a GOOS or GOARCH value such as `_linux`, `_arm64` or `_linux_amd64`. Grove takes the migration's name from the file, so a dropped file is a migration that never registers, and nothing reports it. Forge rejects those names for you: `seed_linux` fails, `linux_hosts` is fine.
+
+`forge generate migration` writes the same file.
 
 **`forge db lock`** / **`forge db unlock`**
 
