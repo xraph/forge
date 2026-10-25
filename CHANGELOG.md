@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.13.1](https://github.com/xraph/forge/compare/v1.13.0...v1.13.1) (2026-10-25)
+
+
+### Features
+
+* **cli:** generate grove v1.10 Add migrations from create-go ([c04cb2d3](https://github.com/xraph/forge/commit/c04cb2d3))
+
+
+### Bug Fixes
+
+* **router:** keep a prefix-less controller's middleware on its own routes ([0fde8984](https://github.com/xraph/forge/commit/0fde8984))
+* **router:** inherit group middleware in nested groups ([ce77f899](https://github.com/xraph/forge/commit/ce77f899))
+
+
+### Maintenance
+
+* **cli:** show the Add migration create-go writes ([ec511fcb](https://github.com/xraph/forge/commit/ec511fcb))
+* **router:** pin nested group middleware for controllers and late Use ([e4948676](https://github.com/xraph/forge/commit/e4948676))
+* **changelog:** update CHANGELOG.md for v1.13.0 ([35acdc29](https://github.com/xraph/forge/commit/35acdc29))
+
 ## [1.13.0](https://github.com/xraph/forge/compare/v1.12.10...v1.13.0) (2026-10-22)
 
 
