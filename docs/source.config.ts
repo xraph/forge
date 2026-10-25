@@ -3,6 +3,7 @@ import {
   defineCollections,
   defineDocs,
 } from "fumadocs-mdx/config";
+import { rehypeCodeDefaultOptions } from "fumadocs-core/mdx-plugins";
 import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
 import z from "zod";
 
@@ -35,6 +36,11 @@ export const blogPosts = defineCollections({
 
 export default defineConfig({
   mdxOptions: {
-    // MDX options
+    rehypeCodeOptions: {
+      ...rehypeCodeDefaultOptions,
+      // Shiki has no grammar for some fence languages we use (promql), and an
+      // unknown language fails the whole build. Render those as plain text.
+      fallbackLanguage: "plaintext",
+    },
   },
 });
