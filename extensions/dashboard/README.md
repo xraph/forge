@@ -162,6 +162,8 @@ err := dispatcher.RegisterCommand(disp, "reports", "reports.export", 1, exportRe
 
 Use `BypassIdempotency` only when your handler owns receipt and replay semantics. It skips all generic cache operations, including tombstone lookup, claim acquisition, storage and release. Kind checks and admission still run. `SecretResponse` commands keep their one-time response tombstones unless you also select bypass. Scope callbacks are skipped on bypass too.
 
+Use `dispatcher.CommandIdempotencyKey(ctx)` to pass the current envelope key to a service that owns durable command receipts. You do not need to copy it into the payload. The accessor returns an empty string outside dispatch, for queries and for keyless commands, including when they are dispatched inside another command. Payload fields and route parameters cannot replace the envelope value. Validate the key in your service and check current permissions on every retry; the key grants no authority.
+
 `RegisterQuery` and `RegisterCommand` enforce their declared kinds, even if you pass a conflicting `RequireKind` option. Raw `Register` remains unrestricted unless you pass `RequireKind(contract.KindQuery)` or `RequireKind(contract.KindCommand)`. For raw registrations, the last valid kind option wins. Invalid kinds, nil callbacks and nil options fail registration, including when a later option would override them. A wrong request kind returns `BAD_REQUEST` before admission or cache access.
 
 Requests without a local handler go directly to the remote dispatcher or return `NOT_FOUND`. They never read local cache entries.

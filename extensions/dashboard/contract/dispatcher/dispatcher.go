@@ -406,6 +406,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, req contract.Request, p contr
 // mapping, plus optional idempotency dedup for commands. Dispatch is a thin
 // wrapper that adds optional span instrumentation.
 func (d *Dispatcher) dispatchInner(ctx context.Context, req contract.Request, p contract.Principal) (json.RawMessage, contract.ResponseMeta, error) {
+	ctx = withCommandIdempotencyKey(ctx, req)
 	k := handlerKey{req.Contributor, req.Intent, req.IntentVersion}
 
 	d.mu.RLock()
