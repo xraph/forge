@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.3](https://github.com/xraph/forge/compare/v1.13.2...v1.13.3) (2026-11-05)
+
+
+### Maintenance
+
+* **deps:** move off the retracted mimetype v1.4.15 ([ae0f0539](https://github.com/xraph/forge/commit/ae0f0539))
+* **changelog:** update CHANGELOG.md for v1.13.2 ([c6eaeaff](https://github.com/xraph/forge/commit/c6eaeaff))
+
 ## [1.13.2](https://github.com/xraph/forge/compare/v1.13.1...v1.13.2) (2026-10-28)
 
 
