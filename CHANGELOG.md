@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.5](https://github.com/xraph/forge/compare/v1.13.4...v1.13.5) (2026-11-06)
+
+
+### Bug Fixes
+
+* **dart-client:** export the SSE parser, keep mutation bodies out of devtools (#116) ([941cbf0b](https://github.com/xraph/forge/commit/941cbf0b))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.13.4 ([3c55570d](https://github.com/xraph/forge/commit/3c55570d))
+
 ## [1.13.4](https://github.com/xraph/forge/compare/v1.13.3...v1.13.4) (2026-11-06)
 
 
