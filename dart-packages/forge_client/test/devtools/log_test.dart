@@ -89,7 +89,7 @@ void main() {
 
       await h.cache.mutate(
         Ops.orderCreate,
-        TagContext(body: {'note': 'y' * 5000}),
+        TagContext(path: {'note': 'y' * 5000}, body: {'note': 'z' * 5000}),
       );
       h.flush();
       await h.settle();
@@ -107,6 +107,7 @@ void main() {
 
       expect(mutation.args, endsWith('...'));
       expect(mutation.args.length, lessThan(220));
+      expect(mutation.args, isNot(contains('z' * 5)));
 
       await sub.cancel();
       devtools.dispose();
@@ -341,10 +342,14 @@ void main() {
       ]);
 
       // The premise: the planted string is in what the recorder holds, in the
-      // log (request body and query key) and in the frame ring.
+      // log (query key) and in the frame ring. The request body is not: a
+      // mutation body never reaches the devtools.
       final seen = devtools.log();
 
-      expect(seen.whereType<MutationLog>().single.args, contains(secret));
+      expect(
+        seen.whereType<MutationLog>().single.args,
+        isNot(contains(secret)),
+      );
       expect(
         seen.whereType<FetchLog>().any((entry) => entry.query.contains(secret)),
         isTrue,
