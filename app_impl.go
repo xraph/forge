@@ -708,6 +708,29 @@ func (a *app) Start(ctx context.Context) (err error) {
 		}
 	}()
 
+	// A Start that fails before the app counts as started stops the
+	// extensions that came up, newest first. Stop returns early for an app
+	// that never started, so their goroutines would otherwise outlive it.
+	var (
+		startedMu   sync.Mutex
+		startedExts []Extension
+	)
+
+	markStarted := func(ext Extension) {
+		startedMu.Lock()
+		defer startedMu.Unlock()
+
+		startedExts = append(startedExts, ext)
+	}
+
+	defer func() {
+		if a.started {
+			return
+		}
+
+		a.stopStartedExtensions(context.WithoutCancel(ctx), startedExts)
+	}()
+
 	// Execute before start hooks
 	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStart, a); err != nil {
 		return fmt.Errorf("before start hooks failed: %w", err)
@@ -759,6 +782,8 @@ func (a *app) Start(ctx context.Context) (err error) {
 				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
 			}
 
+			markStarted(ext)
+
 			a.logger.Info("extension ready",
 				F("extension", ext.Name()),
 			)
@@ -789,6 +814,8 @@ func (a *app) Start(ctx context.Context) (err error) {
 			if err := a.traceExtension(lctx, "start", ext, ext.Start); err != nil {
 				return fmt.Errorf("failed to start extension %s: %w", ext.Name(), err)
 			}
+
+			markStarted(ext)
 
 			a.logger.Info("extension ready",
 				F("extension", ext.Name()),
@@ -1451,6 +1478,30 @@ func (a *app) runExtensions(levels [][]string, extMap map[string]Extension, fn f
 }
 
 // stopExtensions stops all extensions in reverse dependency order.
+// stopStartedExtensions stops the extensions a failed Start brought up, in
+// the reverse of the order they finished starting. An extension starts only
+// after the ones it depends on, so that order stops dependents first. It
+// gets the shutdown timeout, as a graceful stop does.
+func (a *app) stopStartedExtensions(ctx context.Context, started []Extension) {
+	if len(started) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, a.config.ShutdownTimeout)
+	defer cancel()
+
+	for _, ext := range slices.Backward(started) {
+		a.logger.Info("stopping extension after failed start", F("extension", ext.Name()))
+
+		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
+			a.logger.Error("failed to stop extension",
+				F("extension", ext.Name()),
+				F("error", err),
+			)
+		}
+	}
+}
+
 func (a *app) stopExtensions(ctx context.Context) {
 	// Build dependency graph to get proper order
 	_, extMap, order, err := a.buildExtensionGraph()

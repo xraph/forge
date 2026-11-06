@@ -20,6 +20,7 @@ type startupExt struct {
 
 	deps    []string
 	onStart func(name string)
+	onStop  func(name string)
 	failOn  bool
 	panicOn bool
 }
@@ -40,6 +41,14 @@ func (e *startupExt) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (e *startupExt) Stop(ctx context.Context) error {
+	if e.onStop != nil {
+		e.onStop(e.Name())
+	}
+
+	return e.BaseExtension.Stop(ctx)
 }
 
 func newStartupExt(name string, deps []string) *startupExt {
@@ -223,5 +232,72 @@ func TestExtensionStartup_ParallelRecoversPanic(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "panicked") {
 		t.Errorf("error does not mention the panic: %v", err)
+	}
+}
+
+// A Start that fails stops the extensions that had started, newest first, and
+// leaves alone the one that failed. Stop does nothing for an app that never
+// started, so without this they would keep running.
+func TestExtensionStartup_FailureStopsStartedExtensions(t *testing.T) {
+	for _, parallel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("parallel=%v", parallel), func(t *testing.T) {
+			var (
+				mu      sync.Mutex
+				stopped []string
+			)
+
+			record := func(name string) {
+				mu.Lock()
+				defer mu.Unlock()
+
+				stopped = append(stopped, name)
+			}
+
+			a := newStartupExt("a", nil)
+			b := newStartupExt("b", []string{"a"})
+			c := newStartupExt("c", []string{"b"})
+			c.failOn = true
+
+			for _, e := range []*startupExt{a, b, c} {
+				e.onStop = record
+			}
+
+			app := newStartupApp(t, parallel, a, b, c)
+
+			if err := app.Start(context.Background()); err == nil {
+				_ = app.Stop(context.Background())
+
+				t.Fatal("Start succeeded despite a failing extension")
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if !slices.Equal(stopped, []string{"b", "a"}) {
+				t.Fatalf("stopped %v, want [b a]", stopped)
+			}
+		})
+	}
+}
+
+// In a parallel level, a sibling that started is stopped when another fails.
+func TestExtensionStartup_ParallelFailureStopsStartedSibling(t *testing.T) {
+	var stopped atomic.Int32
+
+	a := newStartupExt("a", nil)
+	a.onStop = func(string) { stopped.Add(1) }
+	b := newStartupExt("b", nil)
+	b.failOn = true
+
+	app := newStartupApp(t, true, a, b)
+
+	if err := app.Start(context.Background()); err == nil {
+		_ = app.Stop(context.Background())
+
+		t.Fatal("Start succeeded despite a failing extension")
+	}
+
+	if n := stopped.Load(); n != 1 {
+		t.Fatalf("a was stopped %d times, want 1", n)
 	}
 }
