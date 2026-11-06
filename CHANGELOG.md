@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.4](https://github.com/xraph/forge/compare/v1.13.3...v1.13.4) (2026-11-06)
+
+
+### Bug Fixes
+
+* stop started extensions when Start fails (#115) ([cc8027a7](https://github.com/xraph/forge/commit/cc8027a7))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.13.3 ([7c2638a5](https://github.com/xraph/forge/commit/7c2638a5))
+
 ## [1.13.3](https://github.com/xraph/forge/compare/v1.13.2...v1.13.3) (2026-11-05)
 
 
