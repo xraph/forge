@@ -69,6 +69,7 @@ var forgeClientTypeNames = []string{
 	"OverlayEntry", "OverlayHost", "OverlayLayer", "QueryEntry", "QueryInvalidated", "QueryPlaced",
 	"QuerySpec", "QueryTransition", "ReceiveOnlyConnection", "ResolvedPatches", "SettleResult",
 	"SocketSnapshot", "StagedWrite", "SubscribeOptions", "SyncStatusChanged", "Unmount",
+	"SseEvent", "SseParser",
 }
 
 // dartCoreTypeNames are dart:core and dart:async types the generated code

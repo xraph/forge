@@ -1,4 +1,4 @@
-import 'package:forge_client/src/sse.dart';
+import 'package:forge_client/forge_client.dart';
 import 'package:test/test.dart';
 
 Future<List<SseEvent>> _parse(List<String> chunks) =>

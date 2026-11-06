@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:forge_client/forge_client.dart';
 import 'package:forge_client/src/devtools/devtools.dart';
+import 'package:forge_client/src/devtools/explain.dart'
+    show argsKey, tagContextJson;
 import 'package:forge_client/src/devtools/tag.dart';
 import 'package:forge_client/src/devtools/types.dart';
 import 'package:test/test.dart';
@@ -9,6 +13,8 @@ import 'harness.dart';
 const _one = TagContext(path: {'id': 1});
 
 void main() {
+  _secretBodyTests();
+
   group('why did this query refetch', () {
     test('names the tag, the operation and the query it hit', () async {
       final h = Harness();
@@ -306,6 +312,55 @@ void main() {
         expect(covered.hits.firstWhere((hit) => hit.tag == 'Order[]').queries, [
           h.key(Ops.orderList),
         ]);
+
+        await sub.cancel();
+        devtools.dispose();
+      },
+    );
+  });
+}
+
+void _secretBodyTests() {
+  group('a mutation body never reaches the devtools', () {
+    const marker = 'sk-secret-marker';
+
+    test(
+      'the ring, its export and explain keep the call but not the body',
+      () async {
+        final h = Harness();
+        final devtools = attach(h.cache, clock: CounterClock());
+        final sub = h.mount(Ops.orderList);
+        await h.settle();
+
+        await h.cache.mutate(
+          Ops.orderUpdate,
+          const TagContext(path: {'id': 1}, body: {'apiKey': marker}),
+        );
+        h.flush();
+        await h.settle();
+
+        final mutation = devtools.log().whereType<MutationLog>().first;
+
+        // The operation and its path params still show.
+        expect(mutation.operation, 'PATCH /orders/{id}');
+        expect(mutation.args, contains('"id":1'));
+        expect(mutation.args, isNot(contains('body')));
+
+        final everything = [
+          mutation.args,
+          jsonEncode(
+            tagContextJson(
+              const TagContext(path: {'id': 1}, body: {'apiKey': marker}),
+            ),
+          ),
+          argsKey(const TagContext(body: {'apiKey': marker})),
+          devtools.whyRefetched(h.key(Ops.orderList))?.summary ?? '',
+          devtools.whyNotRefetched(h.key(Ops.orderList)).toString(),
+          for (final entry in devtools.log()) entry.toString(),
+          jsonEncode(devtools.snapshot()),
+        ].join('\n');
+
+        expect(everything, isNot(contains(marker)));
 
         await sub.cancel();
         devtools.dispose();

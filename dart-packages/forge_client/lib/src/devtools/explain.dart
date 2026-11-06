@@ -13,12 +13,11 @@ import 'seams.dart';
 import 'tag.dart';
 import 'types.dart';
 
-/// The JSON form of [args] the devtools keep: path, query and body. Headers
-/// are always left out.
+/// The JSON form of [args] the devtools keep: path and query. Never headers,
+/// never the body: a mutation body can hold an API key or a secret value.
 Json tagContextJson(TagContext args) => {
   if (args.path.isNotEmpty) 'path': args.path,
   if (args.query.isNotEmpty) 'query': args.query,
-  if (args.body != null) 'body': args.body,
 };
 
 /// A truncated argument key, so one enormous body cannot fill the ring.
