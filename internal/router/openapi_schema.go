@@ -85,6 +85,13 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) (*Schema, err
 		return schema, nil
 	}
 
+	// A json.RawMessage is written out as the JSON it holds, which can be
+	// any value, so it gets the empty schema rather than the string the
+	// json.Marshaler check below would give it.
+	if raw := reflect.TypeFor[json.RawMessage](); typ == raw || (typ.Kind() == reflect.Pointer && typ.Elem() == raw) {
+		return &Schema{}, nil
+	}
+
 	// Check if type implements encoding.TextMarshaler or json.Marshaler
 	// These types should be serialized as strings in JSON/OpenAPI
 	if implementsTextMarshaler(typ) || implementsJSONMarshaler(typ) {
