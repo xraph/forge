@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.6](https://github.com/xraph/forge/compare/v1.13.5...v1.13.6) (2026-11-10)
+
+
+### Bug Fixes
+
+* **router:** document json.RawMessage as any JSON (#117) ([f4db3964](https://github.com/xraph/forge/commit/f4db3964))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.13.5 ([c365bd95](https://github.com/xraph/forge/commit/c365bd95))
+
 ## [1.13.5](https://github.com/xraph/forge/compare/v1.13.4...v1.13.5) (2026-11-06)
 
 
