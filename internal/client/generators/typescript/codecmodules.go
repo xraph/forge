@@ -79,6 +79,41 @@ func newCodecModuleNaming(ids []string) codecModuleNaming {
 	return naming
 }
 
+// codecModuleNamingFor names the codecs one run writes, from the same table
+// GenerateModules writes them from.
+//
+// Anything that imports a codec module has to ask this rather than render the
+// id itself. The names are deduplicated across the whole table, so the file a
+// codec lands in depends on which other codecs exist: with `ShareResponse`
+// and `shareResponse` both in a document, the second one is written to
+// `shareResponse-2.ts`, and only the full list of ids can say so.
+func codecModuleNamingFor(spec *client.APISpec, config client.GeneratorConfig) codecModuleNaming {
+	return newCodecModuleNaming(sortedCodecIDs(buildCodecTable(spec, config).entries))
+}
+
+// file returns the module stem a codec id was written to.
+//
+// An id outside the table falls back to the undeduplicated stem. That import
+// does not resolve, but neither would any other name: there is no module to
+// point at, and tsc reporting it is better than a silent drop.
+func (n codecModuleNaming) file(id string) string {
+	if f, ok := n.files[id]; ok {
+		return f
+	}
+
+	return opFileStem(id)
+}
+
+// constName returns the identifier a codec id's module exports, with the same
+// fallback as file.
+func (n codecModuleNaming) constName(id string) string {
+	if c, ok := n.consts[id]; ok {
+		return c
+	}
+
+	return codecConstName(id)
+}
+
 // codecRefs returns the ids one entry names, sorted and deduplicated.
 //
 // Every position that can carry another codec is read, because a reference
