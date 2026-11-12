@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.13.7](https://github.com/xraph/forge/compare/v1.13.6...v1.13.7) (2026-11-12)
+
+
+### Bug Fixes
+
+* **client:** keep codec imports and files right when schemas differ by case (#118) ([f4f31729](https://github.com/xraph/forge/commit/f4f31729))
+
+
+### Maintenance
+
+* **cli:** pin the root at the case-collision fix ([de3091fc](https://github.com/xraph/forge/commit/de3091fc))
+* **changelog:** update CHANGELOG.md for v1.13.6 ([699026b1](https://github.com/xraph/forge/commit/699026b1))
+
 ## [1.13.6](https://github.com/xraph/forge/compare/v1.13.5...v1.13.6) (2026-11-10)
 
 
