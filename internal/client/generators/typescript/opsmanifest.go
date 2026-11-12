@@ -151,6 +151,15 @@ func (g *OpsManifestGenerator) GenerateModules(
 
 	naming := newOpModuleNaming(operationKeys(spec.Endpoints))
 
+	// The codec modules' own names, not ones rendered here from the id. The
+	// codec writer deduplicates filenames case-insensitively and identifiers
+	// exactly, so a stem rendered straight from the id names a file that
+	// was never written whenever two schemas differ only by case.
+	var codecNaming codecModuleNaming
+	if needsCodecs {
+		codecNaming = codecModuleNamingFor(spec, config)
+	}
+
 	for i := range spec.Endpoints {
 		var buf strings.Builder
 
@@ -165,12 +174,12 @@ func (g *OpsManifestGenerator) GenerateModules(
 		// kilobyte of the document's 333 rather than all of it.
 		for _, codecID := range operationCodecIDs(&spec.Endpoints[i], needsCodecs) {
 			fmt.Fprintf(&buf, "import { %s } from '../codecs/%s';\n",
-				codecConstName(codecID), opFileStem(codecID))
+				codecNaming.constName(codecID), codecNaming.file(codecID))
 		}
 
 		buf.WriteString("\n")
 		fmt.Fprintf(&buf, "export const %s = {\n", naming.consts[i])
-		writeOperationFields(&buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "  ", codecConstName)
+		writeOperationFields(&buf, &spec.Endpoints[i], spec, config, known, needsCodecs, "  ", codecNaming.constName)
 		buf.WriteString("} as const satisfies OperationMeta;\n")
 
 		files["src/ops/"+naming.files[i]+".ts"] = buf.String()

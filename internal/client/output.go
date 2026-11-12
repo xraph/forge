@@ -1,9 +1,12 @@
 package client
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/xraph/forge/internal/client/generators"
@@ -31,13 +34,28 @@ func NewOutputManager() *OutputManager {
 // GeneratedClient for any caller that wants them; this function just isn't
 // the one that decides how or when to surface them.
 func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDir string) error {
+	if err := checkCaseCollisions(client); err != nil {
+		return err
+	}
+
 	// Create output directory with restrictive permissions
 	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 
+	casing := caseFixer{}
+
+	// Sorted, so a run that fails partway fails at the same file every time.
+	filenames := make([]string, 0, len(client.Files))
+	for filename := range client.Files {
+		filenames = append(filenames, filename)
+	}
+
+	slices.Sort(filenames)
+
 	// Write each file
-	for filename, content := range client.Files {
+	for _, filename := range filenames {
+		content := client.Files[filename]
 		filePath := filepath.Join(outputDir, filename)
 
 		// Create subdirectories if needed
@@ -46,6 +64,10 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 			if err := os.MkdirAll(dir, 0750); err != nil {
 				return fmt.Errorf("create subdirectory %s: %w", dir, err)
 			}
+		}
+
+		if err := casing.clear(filePath); err != nil {
+			return fmt.Errorf("write file %s: %w", filename, err)
 		}
 
 		// Write file with restrictive permissions
@@ -57,6 +79,10 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 	// Write README if instructions are provided
 	if client.Instructions != "" {
 		readmePath := filepath.Join(outputDir, "README.md")
+		if err := casing.clear(readmePath); err != nil {
+			return fmt.Errorf("write README: %w", err)
+		}
+
 		if err := os.WriteFile(readmePath, []byte(client.Instructions), 0600); err != nil {
 			return fmt.Errorf("write README: %w", err)
 		}
@@ -64,6 +90,105 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 
 	if err := m.pruneExclusiveDirs(client, outputDir); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// checkCaseCollisions refuses a client with two files whose paths differ only
+// by case.
+//
+// macOS and Windows disks fold case, so those two files are one file there and
+// whichever is written second wins. The generators already keep their own
+// names apart (the TypeScript one writes `ShareResponse.ts` next to
+// `shareResponse-2.ts`), so this firing means a generator lost that, and
+// failing here beats a tree whose contents depend on which disk it landed on.
+func checkCaseCollisions(client *generators.GeneratedClient) error {
+	seen := make(map[string]string, len(client.Files)+1)
+
+	names := make([]string, 0, len(client.Files)+1)
+	for name := range client.Files {
+		names = append(names, name)
+	}
+
+	if client.Instructions != "" {
+		if _, ok := client.Files["README.md"]; !ok {
+			names = append(names, "README.md")
+		}
+	}
+
+	slices.Sort(names)
+
+	for _, name := range names {
+		key := strings.ToLower(filepath.ToSlash(name))
+		if other, ok := seen[key]; ok {
+			return fmt.Errorf("generated files %s and %s differ only by case and would overwrite "+
+				"each other on a case-insensitive disk", other, name)
+		}
+
+		seen[key] = name
+	}
+
+	return nil
+}
+
+// caseFixer removes a file's stale spelling before the file is written.
+//
+// On a case-insensitive disk, writing `ShareResponse.ts` over an existing
+// `shareResponse.ts` keeps the old name. The tree then carries a spelling no
+// import uses, and pruneExclusiveDirs, which compares names exactly, deletes
+// it as stale, taking the codec that was just written with it. The next run
+// writes it back, so the output depended on what was on disk before.
+//
+// A variant is removed only when it is the same file as the target. On a
+// case-sensitive disk the two are different files, and the other one belongs
+// to somebody else.
+type caseFixer map[string]map[string][]string
+
+func (c caseFixer) clear(path string) error {
+	target, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Nothing there under any spelling: the write creates it as named.
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	dir, base := filepath.Dir(path), filepath.Base(path)
+
+	byFold, ok := c[dir]
+	if !ok {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", dir, err)
+		}
+
+		byFold = make(map[string][]string, len(entries))
+		for _, entry := range entries {
+			key := strings.ToLower(entry.Name())
+			byFold[key] = append(byFold[key], entry.Name())
+		}
+
+		c[dir] = byFold
+	}
+
+	for _, name := range byFold[strings.ToLower(base)] {
+		if name == base {
+			continue
+		}
+
+		variant := filepath.Join(dir, name)
+
+		info, err := os.Stat(variant)
+		if err != nil || !os.SameFile(info, target) {
+			continue
+		}
+
+		if err := os.Remove(variant); err != nil {
+			return fmt.Errorf("remove %s, a stale spelling of %s: %w", name, base, err)
+		}
 	}
 
 	return nil
