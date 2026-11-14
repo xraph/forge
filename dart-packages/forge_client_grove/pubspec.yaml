@@ -14,7 +14,7 @@ dependencies:
     git:
       url: https://github.com/xraph/grove.git
       path: crdt-dart
-      ref: 5cf24a3a92672b91e7f926a01ef445a6bb4b34c6
+      ref: 5c35f67d6733ebdd2b3988f8922da04bde52ab42
   http: ^1.6.0
   meta: ^1.19.0
   uuid: ^4.6.0
