@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -73,6 +74,12 @@ type app struct {
 	// development one. It gates the defaults that trade safety for debugging
 	// convenience: internal error text in 5xx bodies and health check detail.
 	devEnvironment bool
+
+	// unhealthyLogged is the timestamp (UnixNano) of the last health report
+	// whose unhealthy status was logged. The endpoint serves a cached report
+	// on every probe, so logging per request would repeat the same line at
+	// the probe rate; logging once per report keeps it to one per check.
+	unhealthyLogged atomic.Int64
 }
 
 // newApp creates a new app instance.
@@ -1204,12 +1211,42 @@ func (a *app) printStartupBanner() {
 
 // setupBuiltinEndpoints sets up built-in endpoints.
 func (a *app) setupBuiltinEndpoints() error {
-	// Info endpoint
+	// /_/info is opt-in: it lists the services, extensions and versions the
+	// app runs, which is a map for anyone probing it.
+	if !a.config.EnableInfoEndpoint {
+		return nil
+	}
+
 	if err := a.router.GET("/_/info", a.handleInfo); err != nil {
 		return fmt.Errorf("failed to register info endpoint: %w", err)
 	}
 
+	if a.config.ObservabilityGuard == nil && !a.devEnvironment {
+		a.logger.Warn("/_/info enabled without ObservabilityGuard: services, extensions and versions are unauthenticated",
+			F("environment", a.config.Environment),
+		)
+	}
+
 	return nil
+}
+
+// observabilityAllowed reports whether r may see the guarded observability
+// endpoints. With no guard configured everyone may.
+func (a *app) observabilityAllowed(r *http.Request) bool {
+	return a.config.ObservabilityGuard == nil || a.config.ObservabilityGuard(r)
+}
+
+// healthDetailAllowed reports whether r gets the full health report, with
+// each check's message and details, or only the statuses. A guard decides
+// when there is one. Without one, only an explicit development environment
+// shows details: check messages and details are free text that commonly
+// carries connection strings and hostnames.
+func (a *app) healthDetailAllowed(r *http.Request) bool {
+	if a.config.ObservabilityGuard != nil {
+		return a.config.ObservabilityGuard(r)
+	}
+
+	return a.devEnvironment
 }
 
 // setupObservabilityEndpoints sets up observability endpoints.
@@ -1317,6 +1354,13 @@ func (a *app) setupPprofEndpoints() error {
 
 // handleInfo handles the /_/info endpoint.
 func (a *app) handleInfo(ctx Context) error {
+	// 404 rather than 403, as for pprof, so the endpoint is not discoverable.
+	if !a.observabilityAllowed(ctx.Request()) {
+		http.NotFound(ctx.Response(), ctx.Request())
+
+		return nil
+	}
+
 	// Get service names from container
 	services := a.container.Services()
 
@@ -1612,14 +1656,31 @@ func (a *app) registerExtensionHealthChecks() {
 		extRef := ext
 		extName := ext.Name()
 
+		// The error text stays out of the result. Health results are served
+		// over HTTP and a driver error routinely names the host, the user and
+		// sometimes the whole DSN with its password. It goes to the log
+		// instead, once per distinct error rather than once per check round.
+		var lastErr atomic.Pointer[string]
+
 		checkName := "extension:" + extName
 		if err := a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {
 			if err := extRef.Health(ctx); err != nil {
+				msg := err.Error()
+				if prev := lastErr.Swap(&msg); prev == nil || *prev != msg {
+					a.logger.Warn("extension health check failed",
+						F("extension", extName),
+						F("error", msg),
+					)
+				}
+
 				return &HealthResult{
 					Status:  HealthStatusUnhealthy,
 					Message: extName + " extension unhealthy",
-					Details: map[string]any{"error": err.Error()},
 				}
+			}
+
+			if lastErr.Swap(nil) != nil {
+				a.logger.Info("extension health check recovered", F("extension", extName))
 			}
 
 			return &HealthResult{
@@ -2005,6 +2066,12 @@ func (a *app) handleMetrics(ctx Context) error {
 		})
 	}
 
+	if !a.observabilityAllowed(ctx.Request()) {
+		http.NotFound(ctx.Response(), ctx.Request())
+
+		return nil
+	}
+
 	// If the collector implements PrometheusProvider, delegate to the real
 	// promhttp handler so that content negotiation (OpenMetrics, compression,
 	// etc.) is handled correctly by the Prometheus client library.
@@ -2033,6 +2100,36 @@ func (a *app) handleMetrics(ctx Context) error {
 	return nil
 }
 
+// healthSummary is what /_/health shows a caller that may not see details:
+// the overall status and the status of each check, nothing free-text.
+type healthSummary struct {
+	Overall   HealthStatus                  `json:"overall"`
+	Timestamp time.Time                     `json:"timestamp"`
+	Services  map[string]healthCheckSummary `json:"services"`
+}
+
+type healthCheckSummary struct {
+	Status HealthStatus `json:"status"`
+}
+
+func summarizeHealthReport(report *HealthReport) healthSummary {
+	out := healthSummary{
+		Overall:   report.Overall,
+		Timestamp: report.Timestamp,
+		Services:  make(map[string]healthCheckSummary, len(report.Services)),
+	}
+
+	for name, res := range report.Services {
+		if res == nil {
+			continue
+		}
+
+		out.Services[name] = healthCheckSummary{Status: res.Status}
+	}
+
+	return out
+}
+
 // handleHealth handles the /_/health endpoint.
 func (a *app) handleHealth(ctx Context) error {
 	if a.healthManager == nil {
@@ -2052,12 +2149,17 @@ func (a *app) handleHealth(ctx Context) error {
 
 	report, fresh := a.healthReport(ctx.Request().Context())
 
+	var body any = report
+	if !a.healthDetailAllowed(ctx.Request()) {
+		body = summarizeHealthReport(report)
+	}
+
 	if !fresh {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]any{
 			"status": "stale",
 			"error":  "health report is older than the staleness bound",
 			"age":    time.Since(report.Timestamp).String(),
-			"report": report,
+			"report": body,
 		})
 	}
 
@@ -2066,12 +2168,37 @@ func (a *app) handleHealth(ctx Context) error {
 	if report.Overall == HealthStatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
 
-		a.logger.Warn("health check reporting unhealthy status",
-			F("services", len(report.Services)),
-		)
+		a.logUnhealthyReport(report)
 	}
 
-	return ctx.JSON(statusCode, report)
+	return ctx.JSON(statusCode, body)
+}
+
+// logUnhealthyReport logs an unhealthy report once. Every probe is answered
+// from the same cached report until the next check round, so logging per
+// request would print the same line at whatever rate the probes arrive.
+func (a *app) logUnhealthyReport(report *HealthReport) {
+	ts := report.Timestamp.UnixNano()
+
+	prev := a.unhealthyLogged.Load()
+	if prev == ts || !a.unhealthyLogged.CompareAndSwap(prev, ts) {
+		return
+	}
+
+	failing := make([]string, 0, len(report.Services))
+
+	for name, res := range report.Services {
+		if res != nil && res.Status == HealthStatusUnhealthy {
+			failing = append(failing, name)
+		}
+	}
+
+	slices.Sort(failing)
+
+	a.logger.Warn("health check reporting unhealthy status",
+		F("services", len(report.Services)),
+		F("unhealthy", failing),
+	)
 }
 
 // healthStalenessBound is how far behind the background check loop a cached

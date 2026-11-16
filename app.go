@@ -126,6 +126,22 @@ type AppConfig struct {
 	ShutdownTimeout time.Duration // Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
 
+	// ObservabilityGuard authorizes access to the detailed observability
+	// endpoints: the per-check detail of /_/health, /_/info and /_/metrics.
+	// Return false to deny. A denied /_/health caller still gets the overall
+	// status and the status of each check, without messages or details, and a
+	// denied /_/info or /_/metrics caller gets a 404. /_/health/live and
+	// /_/health/ready never consult the guard, so orchestrator probes keep
+	// working without credentials.
+	//
+	// Nil means /_/metrics and an enabled /_/info are open, and /_/health
+	// shows details only when Environment is explicitly a development one
+	// (development, dev, local or test).
+	ObservabilityGuard func(*http.Request) bool
+
+	// EnableInfoEndpoint registers /_/info, which lists the services,
+	// extensions, versions and Go version the app runs. Default: false.
+	EnableInfoEndpoint bool
 	// ExposeInternalErrors decides whether 5xx responses carry the internal
 	// error text. Nil means it follows Environment: only an explicitly set
 	// development, dev, local or test environment exposes it. An unset or
@@ -498,6 +514,25 @@ func WithWebSocketOrigins(origins ...string) AppOption {
 	return func(c *AppConfig) {
 		c.WebSocketOrigins = append(c.WebSocketOrigins, origins...)
 	}
+}
+
+// WithObservabilityGuard restricts the detailed observability endpoints. The
+// guard runs on every request to /_/health, /_/info and /_/metrics; see
+// AppConfig.ObservabilityGuard for what a denied caller sees.
+//
+//	forge.WithObservabilityGuard(func(r *http.Request) bool {
+//	    return subtle.ConstantTimeCompare(
+//	        []byte(r.Header.Get("X-Ops-Token")), []byte(token)) == 1
+//	})
+func WithObservabilityGuard(guard func(*http.Request) bool) AppOption {
+	return func(c *AppConfig) { c.ObservabilityGuard = guard }
+}
+
+// WithInfoEndpoint registers /_/info. It is off by default because it lists
+// the app's services, extensions and versions to whoever asks; pair it with
+// WithObservabilityGuard anywhere beyond localhost.
+func WithInfoEndpoint() AppOption {
+	return func(c *AppConfig) { c.EnableInfoEndpoint = true }
 }
 
 // WithExposeInternalErrors overrides whether 5xx responses carry the internal
