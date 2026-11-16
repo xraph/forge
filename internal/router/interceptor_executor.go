@@ -25,7 +25,8 @@ func executeInterceptors(
 		}
 
 		if result.Blocked {
-			return result.Error
+			// A result built by hand can be blocked with no error.
+			return blockedError(result.Error)
 		}
 	}
 
