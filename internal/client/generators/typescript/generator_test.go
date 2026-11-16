@@ -464,10 +464,10 @@ func TestTypeScriptGeneratorSSEForwardsReplayControlEvents(t *testing.T) {
 	}
 
 	for _, expected := range []string{
-		"this.eventSource.addEventListener('forge.resumed'",
-		"this.eventSource.addEventListener('forge.gap'",
-		"this.emit('forge.resumed', data)",
-		"this.emit('forge.gap', data)",
+		"this.eventSource.addEventListener(\"forge.resumed\"",
+		"this.eventSource.addEventListener(\"forge.gap\"",
+		"this.emit(\"forge.resumed\", data)",
+		"this.emit(\"forge.gap\", data)",
 	} {
 		if !strings.Contains(sseCode, expected) {
 			t.Errorf("sse.ts should contain %q", expected)
@@ -476,7 +476,7 @@ func TestTypeScriptGeneratorSSEForwardsReplayControlEvents(t *testing.T) {
 
 	// One registration each. A duplicate would deliver every control event
 	// twice, and a second forge.gap is a second full resync.
-	if got := strings.Count(sseCode, "addEventListener('forge.resumed'"); got != 1 {
+	if got := strings.Count(sseCode, "addEventListener(\"forge.resumed\""); got != 1 {
 		t.Errorf("expected 1 forge.resumed registration, got %d", got)
 	}
 }

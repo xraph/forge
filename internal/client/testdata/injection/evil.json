@@ -1,0 +1,74 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Evil",
+  "version": "1.0.0"
+ },
+ "paths": {
+  "/items/{id}`+(globalThis.PWN_PATH=1)+`": {
+   "get": {
+    "operationId": "getItem",
+    "summary": "S1 */ static __p = (globalThis.PWN_SUMMARY = 1); /*",
+    "description": "D1\nfunc init() { panic(\"PWN_GO_DESC\") }",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "q'] = (globalThis.PWN_QUERY=1); queryParams['z",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Item"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Item": {
+    "type": "object",
+    "description": "Item desc\nvar PWN_GO_TYPEDESC = 1\r\n final pwnDartTypeDesc = 1;",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "pdesc\nvar PWN_GO_PROPDESC = 1\rfinal pwnDartProp = 1;"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b\"; globalThis.PWN_ENUM=1; \"",
+       "c'+PWN_ENUM2+'"
+      ]
+     },
+     "x\"`json:\"y\"` PWN_TAG int `z": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ]
+   }
+  }
+ }
+}

@@ -128,7 +128,7 @@ func (p *PresenceGenerator) generateTypes(spec *client.APISpec, config client.Ge
 	buf.WriteString("export enum PresenceStatus {\n")
 
 	for _, status := range statuses {
-		fmt.Fprintf(&buf, "  %s = '%s',\n", strings.ToUpper(status), status)
+		fmt.Fprintf(&buf, "  %s = %s,\n", tsPropertyKey(strings.ToUpper(status)), jsonString(status))
 	}
 
 	buf.WriteString("}\n\n")
@@ -268,7 +268,7 @@ func (p *PresenceGenerator) generatePresenceClient(spec *client.APISpec, config 
 		wsPath = spec.Streaming.Presence.Path
 	}
 
-	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + %s;\n\n", jsonString(wsPath))
 
 	if config.IncludeAuth {
 		buf.WriteString("      // Add auth to URL for browser compatibility\n")

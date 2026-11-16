@@ -213,7 +213,11 @@ func (p *PaginationGenerator) GeneratePaginatedMethods(endpoint client.Endpoint,
 // generateMethodName generates method name from endpoint.
 func (p *PaginationGenerator) generateMethodName(endpoint client.Endpoint) string {
 	if endpoint.OperationID != "" {
-		return p.toCamelCase(endpoint.OperationID)
+		// Printed as a method name, so only identifier characters survive; an
+		// operationId is free text in the specification.
+		if name := tsIdent(p.toCamelCase(endpoint.OperationID)); name != "" {
+			return name
+		}
 	}
 
 	path := strings.TrimPrefix(endpoint.Path, "/")
@@ -223,7 +227,11 @@ func (p *PaginationGenerator) generateMethodName(endpoint client.Endpoint) strin
 	path = strings.ReplaceAll(path, "-", "_")
 	method := strings.ToLower(endpoint.Method)
 
-	return p.toCamelCase(method + "_" + path)
+	if name := tsIdent(p.toCamelCase(method + "_" + path)); name != "" {
+		return name
+	}
+
+	return method
 }
 
 // getArrayItemType extracts the item type from a paginated response.
