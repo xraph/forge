@@ -523,16 +523,11 @@ func (e *Extension) Run(ctx context.Context) error {
 	// request that the gateway will immediately make upon receiving the push.
 	// Retries continuously with backoff until success or shutdown.
 	if e.config.FARP.Enabled && e.config.FARP.GatewayURL != "" && instance != nil && node != nil {
-		// Build the gateway client up front so a broken TLS configuration
-		// fails the run instead of being retried forever in the background.
+		// Build the gateway client up front so a broken TLS configuration, or
+		// a token that would go over plain http to another host, fails the
+		// run instead of being retried forever in the background.
 		if _, err := e.gatewayClient(); err != nil {
 			return err
-		}
-
-		if e.config.FARP.GatewayToken != "" && strings.HasPrefix(strings.ToLower(e.config.FARP.GatewayURL), "http://") {
-			e.Logger().Warn("FARP gateway token is sent over plain http; use an https gateway_url",
-				forge.F("gateway_url", e.config.FARP.GatewayURL),
-			)
 		}
 
 		enriched := e.enrichInstanceFromManifest(instance, node)

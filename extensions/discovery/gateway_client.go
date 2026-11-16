@@ -4,8 +4,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge/errors"
@@ -18,6 +21,10 @@ const gatewayRequestTimeout = 10 * time.Second
 // from config on first use. An invalid TLS configuration is returned as an
 // error rather than falling back to an unauthenticated client.
 func (e *Extension) gatewayClient() (*http.Client, error) {
+	if err := e.config.FARP.checkGatewayTransport(); err != nil {
+		return nil, err
+	}
+
 	e.gatewayClientMu.Lock()
 	defer e.gatewayClientMu.Unlock()
 
@@ -41,6 +48,42 @@ func (e *Extension) gatewayClient() (*http.Client, error) {
 	e.gatewayHTTP = client
 
 	return client, nil
+}
+
+// ErrInsecureGatewayToken is returned when a gateway token would be sent in
+// clear text to a host other than this machine.
+var ErrInsecureGatewayToken = errors.New(
+	"farp gateway token would be sent over plain http to a non-loopback host; " +
+		"use an https gateway_url or set allow_insecure_gateway")
+
+// checkGatewayTransport refuses to send the bearer token over plain http to
+// anything but loopback, where it would cross the network in clear text,
+// unless AllowInsecureGateway is set.
+func (c *FARPConfig) checkGatewayTransport() error {
+	if c.GatewayToken == "" || c.AllowInsecureGateway {
+		return nil
+	}
+
+	u, err := url.Parse(c.GatewayURL)
+	if err != nil {
+		return fmt.Errorf("farp gateway url: %w", err)
+	}
+
+	if !strings.EqualFold(u.Scheme, "http") || isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+
+	return fmt.Errorf("%w (gateway %s)", ErrInsecureGatewayToken, u.Host)
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
 }
 
 // authorizeGatewayRequest attaches the configured bearer token, if any.

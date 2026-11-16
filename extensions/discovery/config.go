@@ -87,6 +87,12 @@ type FARPConfig struct {
 	// authenticate pushes. Prefer an https GatewayURL when setting it.
 	GatewayToken string `json:"gateway_token,omitempty" yaml:"gateway_token,omitempty"`
 
+	// AllowInsecureGateway lets GatewayToken be sent over a plain http
+	// GatewayURL to a host other than loopback. Without it the extension
+	// refuses to start, and every gateway call fails, rather than put the
+	// token on the network in clear text.
+	AllowInsecureGateway bool `json:"allow_insecure_gateway,omitempty" yaml:"allow_insecure_gateway,omitempty"`
+
 	// GatewayTLS configures the TLS client used for gateway requests, for a
 	// private CA or mutual TLS. It only applies to https GatewayURLs.
 	GatewayTLS GatewayTLSConfig `json:"gateway_tls" yaml:"gateway_tls"`
@@ -507,6 +513,12 @@ func WithFARPGatewayURL(url string) ConfigOption {
 // deregister requests.
 func WithFARPGatewayToken(token string) ConfigOption {
 	return func(c *Config) { c.FARP.GatewayToken = token }
+}
+
+// WithFARPAllowInsecureGateway allows the gateway token to be sent over plain
+// http to a non-loopback gateway. Only use it on a network you trust.
+func WithFARPAllowInsecureGateway(allow bool) ConfigOption {
+	return func(c *Config) { c.FARP.AllowInsecureGateway = allow }
 }
 
 // WithFARPGatewayTLS sets the TLS client configuration for gateway requests.
