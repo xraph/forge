@@ -172,7 +172,13 @@ type AppConfig struct {
 	ExposeInternalErrors *bool
 
 	// Health
-	HealthGracePeriod time.Duration // Grace period after startup during which health endpoints always return 200. Default: 60s
+	// HealthGracePeriod is how long after startup /_/health answers 200 with
+	// status "starting" whatever the checks say, so a platform that uses it as
+	// a liveness probe does not kill an app whose dependencies are still
+	// warming up. Readiness (/_/health/ready) ignores it and reports the real
+	// result, so traffic is not routed to an instance that cannot serve it.
+	// Default: 60s
+	HealthGracePeriod time.Duration
 
 	// Extensions
 	Extensions []Extension // Extensions to register with the app

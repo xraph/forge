@@ -929,8 +929,13 @@ func (a *app) Start(ctx context.Context) (err error) {
 
 	a.registerExtensionHealthChecks()
 
-	// Note: Health manager is already started by container.Start()
-	// No need to start it again here
+	// The health manager ran its first round when it started, before the
+	// extension checks above existed, and the next scheduled round is a
+	// whole interval away. Run one now so readiness answers from a report
+	// that covers the extensions from the start.
+	if len(a.extensions) > 0 {
+		a.healthManager.Check(ctx)
+	}
 
 	a.started = true
 	a.startTime = time.Now()
@@ -2483,14 +2488,21 @@ func (a *app) handleHealthReady(ctx Context) error {
 		})
 	}
 
-	// During startup grace period, always return ready to prevent
-	// PaaS platforms from killing the app before health checks stabilize
-	if time.Since(a.startTime) < a.config.HealthGracePeriod {
-		return ctx.JSON(http.StatusOK, map[string]string{
-			"status": "starting",
+	// Once shutdown starts the instance stops taking new work, so tell the
+	// load balancer before the listener closes rather than after.
+	if a.shuttingDown.Load() {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"status":  "not ready",
+			"message": "shutting down",
 		})
 	}
 
+	// No startup grace here. A failed readiness probe only takes the
+	// instance out of rotation, it never restarts it, so there is nothing to
+	// protect against, and answering "ready" for the first minute whatever
+	// the checks say routes traffic to an instance that cannot serve it.
+	// Start runs a full check round, extension checks included, before the
+	// endpoint is reachable, so there is always a real report to answer from.
 	report, fresh := a.healthReport(ctx.Request().Context())
 
 	if !fresh {
