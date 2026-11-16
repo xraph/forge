@@ -152,6 +152,20 @@ const { data } = useQuery(useListOrders, undefined, { staleTime: 5_000 });
 
 Every framework adapter exposes the same option, under the same name, for the same reason: it is the one knob that can only make a query refresh more eagerly, never less.
 
+### Polling from a call site
+
+`refetchInterval` refetches a query on a timer for as long as the call site is mounted. It takes the same values as TanStack Query's option of the same name, `false` included, so a call site moves over unchanged:
+
+```tsx
+const { data } = useQuery(useGetExecution, { path: { id } }, {
+  refetchInterval: isExecuting ? 3_000 : false,
+});
+```
+
+`false`, `0` or leaving it out polls nothing. The timer is keyed on the query and the interval, never on the result, so a new response does not restart it. Each request starts one interval after the previous one started, not after it finished, so a three-second poll on a slow endpoint stays a three-second poll. A response slower than the interval is followed by the next request straight away, never overlapped by it. Polling pauses while the tab is hidden; pass `refetchIntervalInBackground: true` to keep it going.
+
+Vue takes a ref or getter for both options, and Angular a signal or any function, the same way they take `live` and `staleTime`. Where an operation has a channel, `{ live: true }` is the better answer: a push costs nothing between changes, and a poll costs a request whether or not anything moved.
+
 ### Installing the triggers
 
 `revalidateOnFocus` and `revalidateOnReconnect` both call `cache.revalidate()`, which refetches every mounted query that has actually gone stale and leaves the rest alone. `poll` does not: it calls `cache.refetch()` on its own interval, unconditionally, whether or not the query has gone stale and whether or not anyone is even watching it beyond the poll itself. Set `staleTime: 600_000` and poll every second, and you still get a request every second. If you use both on the same query, the shorter of the two wins: `poll`'s interval, not `staleTime`, decides how often the network gets hit.
@@ -167,7 +181,7 @@ revalidateOnReconnect(cache);
 poll(cache, ops.listOrders, undefined, 10_000);
 ```
 
-`revalidateOnFocus` listens for `visibilitychange`, not `focus`, on purpose: returning to a tab that never stopped being visible should not refetch data you were already looking at. `revalidateOnReconnect` listens for the browser's `online` event. `poll` refetches one query on an interval and pauses while the tab is hidden unless you pass `whileHidden: true`. All three return a disposer; call it on teardown to stop listening.
+`revalidateOnFocus` listens for `visibilitychange`, not `focus`, on purpose: returning to a tab that never stopped being visible should not refetch data you were already looking at. `revalidateOnReconnect` listens for the browser's `online` event. `poll` refetches one query on an interval, holding its cadence the way `refetchInterval` does, and pauses while the tab is hidden unless you pass `whileHidden: true`. `refetchInterval` is this installer, owned by a call site. All three return a disposer; call it on teardown to stop listening.
 
 ### Precedence, and the strictest subscriber
 
