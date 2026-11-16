@@ -13,12 +13,12 @@ helpers are aliases over `consensus/internal` (exports.go).
 
 ## Status
 
-- `raft`: leader election, log replication and applying entries work over the in-process, TCP and
-  HTTP transports (three node tests). Log, term and vote survive restarts. Followers behind the
+- `raft`: leader election, log replication and applying entries work over the in-process, TCP,
+  HTTP and gRPC transports (three node tests). Log, term and vote survive restarts. Followers behind the
   leader's snapshot catch up through chunked InstallSnapshot.
-- `consensus.NewExtension` builds storage (badger, boltdb, memory), the tcp or http transport
+- `consensus.NewExtension` builds storage (badger, boltdb, memory), the tcp, http or grpc transport
   (TLS/mTLS from security.*), a memory state machine and the Raft node from config.
-- Not implemented: gRPC transport, membership changes, leadership transfer, linearizable reads,
+- Not implemented: membership changes, leadership transfer, linearizable reads,
   encryption at rest, non-static discovery in the extension.
 
 ## Packages and constructors
@@ -84,7 +84,7 @@ WithNodeID(id string)
 WithClusterID(id string)
 WithBindAddress(addr string, port int)
 WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
-WithTransportType(transportType string)    // tcp, http (grpc is not implemented)
+WithTransportType(transportType string)    // tcp, http, grpc
 WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
 WithStorageType(storageType string)        // badger, boltdb, memory (pebble, postgres not implemented)
 WithStoragePath(path string)
@@ -103,7 +103,7 @@ the app has started.
 Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` queries the local
 state machine; `Snapshot` compacts; `StepDown` works; AddNode/RemoveNode return
 ErrMembershipChangeUnsupported; TransferLeadership is not implemented. NewConsensusService fails
-for grpc transport, pebble/postgres storage, non-static discovery and enable_encryption.
+for pebble/postgres storage, non-static discovery and enable_encryption.
 admin_api.enabled (default false) registers the admin routes on the app router.
 
 ## Config
@@ -111,7 +111,7 @@ admin_api.enabled (default false) registers the admin routes on the app router.
 Key `extensions.consensus`, falling back to `consensus`. Options override the file. Validation
 at registration: node_id set (no default); cluster_id set ("default"); bind_port 1..65535
 (7000); raft.heartbeat_interval < election_timeout_min < election_timeout_max (1s, 5s, 10s);
-bind_addr ("127.0.0.1"); transport.type tcp or http ("tcp", grpc rejected as not implemented); transport.max_message_size positive (4MB); discovery.type
+bind_addr ("127.0.0.1"); transport.type tcp, http or grpc ("tcp"); transport.max_message_size positive (4MB); discovery.type
 static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
 ("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
 ca_file; enable_encryption is rejected (not implemented); admin_api.enable_auth needs api_key.
@@ -130,5 +130,5 @@ dependency and publishes start and stop events when an event bus is present).
 
 ## Not implemented yet
 
-- gRPC transport, cluster membership changes, leadership transfer, linearizable reads,
+- Cluster membership changes, leadership transfer, linearizable reads,
   encryption at rest, and discovery other than the static peer list in the extension.
