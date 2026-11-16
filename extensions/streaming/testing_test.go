@@ -284,6 +284,8 @@ type fakeRoomStore struct {
 	removeMemberCalls []removeMemberCall
 	connectCalls      int
 	disconnectCalls   int
+
+	bans map[string]map[string]bool // roomID -> userID -> banned
 }
 
 type addMemberCall struct {
@@ -378,6 +380,41 @@ func (s *fakeRoomStore) AddMember(ctx context.Context, roomID string, member str
 	s.addMemberCalls = append(s.addMemberCalls, addMemberCall{roomID: roomID, userID: member.GetUserID()})
 	s.members[roomID] = append(s.members[roomID], member)
 	s.userRooms[member.GetUserID()] = append(s.userRooms[member.GetUserID()], roomID)
+
+	return nil
+}
+
+// IsBanned reports bans recorded by BanMember. The manager consults it on
+// joins and sends.
+func (s *fakeRoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.bans[roomID][userID], nil
+}
+
+func (s *fakeRoomStore) BanMember(ctx context.Context, roomID, userID string, ban streaming.RoomBan) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bans == nil {
+		s.bans = make(map[string]map[string]bool)
+	}
+
+	if s.bans[roomID] == nil {
+		s.bans[roomID] = make(map[string]bool)
+	}
+
+	s.bans[roomID][userID] = true
+
+	return nil
+}
+
+func (s *fakeRoomStore) UnbanMember(ctx context.Context, roomID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.bans[roomID], userID)
 
 	return nil
 }

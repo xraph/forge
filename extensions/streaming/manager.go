@@ -776,6 +776,17 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 		}
 	}
 
+	// A banned user may not rejoin, whichever path the join came by: a client
+	// frame, ?rooms= on an SSE connection, the subscribe endpoint or a
+	// resumed session. The default room authorizer does not look at bans.
+	if banned, bErr := m.roomStore.IsBanned(ctx, roomID, userID); bErr == nil && banned {
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.rooms.joins_denied").Inc()
+		}
+
+		return ErrUserBanned
+	}
+
 	// Check room limit. Counts store membership, which is only meaningful
 	// because the store write below actually happens.
 	userRooms, _ := m.roomStore.GetUserRooms(ctx, userID)
@@ -1326,15 +1337,18 @@ func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Co
 			}
 		}
 
-		// Moderation state, which the room already tracks and nothing consulted.
+		// Moderation state. Bans are read from the store, not the Room: the
+		// local Room's IsBanned only ever returned an error, which this check
+		// read as "not banned", and a store read also sees a ban made on
+		// another node for a connection that is still in the room here.
 		if userID != "" {
+			if banned, bErr := m.roomStore.IsBanned(ctx, message.RoomID, userID); bErr == nil && banned {
+				return ErrUserBanned
+			}
+
 			if room, err := m.roomStore.Get(ctx, message.RoomID); err == nil {
 				if muted, mErr := room.IsMuted(ctx, userID); mErr == nil && muted {
 					return ErrUserMuted
-				}
-
-				if banned, bErr := room.IsBanned(ctx, userID); bErr == nil && banned {
-					return ErrUserBanned
 				}
 			}
 		}
@@ -3096,17 +3110,39 @@ func (m *manager) UnmuteUser(ctx context.Context, userID, roomID string) error {
 	return nil
 }
 
+// BanUser bans a user from a room, removes their membership, and takes every
+// connection of theirs on this node out of the room.
+//
+// It goes through the room store rather than the Room object. The local
+// backend's Room returned ErrInvalidRoom from every ban method, so this failed
+// on every local room. It also used to leave the user's live connections in
+// the room, still receiving its traffic.
 func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason string, until *time.Time) error {
-	// Get the room to access moderation methods
-	room, err := m.GetRoom(ctx, roomID)
-	if err != nil {
+	if _, err := m.GetRoom(ctx, roomID); err != nil {
 		return err
 	}
 
-	// Use the room's ban functionality
-	if err := room.BanMember(ctx, userID, reason, until); err != nil {
+	ban := streaming.RoomBan{
+		UserID:    userID,
+		RoomID:    roomID,
+		Reason:    reason,
+		BannedAt:  time.Now(),
+		ExpiresAt: until,
+	}
+
+	if err := m.roomStore.BanMember(ctx, roomID, userID, ban); err != nil {
 		return err
 	}
+
+	// The bundled stores drop the membership as part of the ban. A custom
+	// store may not, and a banned user must not stay a member.
+	if err := m.roomStore.RemoveMember(ctx, roomID, userID); err != nil &&
+		!errors.Is(err, streaming.ErrNotRoomMember) &&
+		!errors.Is(err, streaming.ErrRoomNotFound) {
+		return fmt.Errorf("failed to remove banned member: %w", err)
+	}
+
+	m.evictFromRoom(ctx, userID, roomID, reason)
 
 	if m.logger != nil {
 		m.logger.Info("user banned",
@@ -3120,15 +3156,44 @@ func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason str
 	return nil
 }
 
+// evictFromRoom takes the user's connections on this node out of a room and
+// tells each one why. Connections on other nodes keep their local membership
+// until they reconnect, but the ban check in authorizeSend refuses their
+// sends, since it asks the shared store.
+func (m *manager) evictFromRoom(ctx context.Context, userID, roomID, reason string) {
+	for _, conn := range m.GetUserConnections(userID) {
+		if !conn.IsInRoom(roomID) {
+			continue
+		}
+
+		conn.RemoveRoom(roomID)
+		m.indexRoomLeave(roomID, conn.ID())
+
+		notice := NewLifecycleMessage(streaming.MessageTypeSystem, "room.banned")
+		notice.ID = fmt.Sprintf("ban_%d", time.Now().UnixNano())
+		notice.UserID = "system"
+		notice.RoomID = roomID
+		notice.Data = map[string]any{"reason": reason}
+
+		if err := conn.WriteJSON(notice); err != nil && m.logger != nil {
+			m.logger.Debug("failed to send ban notice",
+				forge.F("conn_id", conn.ID()),
+				forge.F("error", err),
+			)
+		}
+
+		if m.hooks != nil {
+			m.hooks.FireOnRoomLeave(ctx, conn, roomID)
+		}
+	}
+}
+
 func (m *manager) UnbanUser(ctx context.Context, userID, roomID string) error {
-	// Get the room to access moderation methods
-	room, err := m.GetRoom(ctx, roomID)
-	if err != nil {
+	if _, err := m.GetRoom(ctx, roomID); err != nil {
 		return err
 	}
 
-	// Use the room's unban functionality
-	if err := room.UnbanMember(ctx, userID); err != nil {
+	if err := m.roomStore.UnbanMember(ctx, roomID, userID); err != nil {
 		return err
 	}
 
