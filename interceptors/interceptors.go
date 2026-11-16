@@ -193,7 +193,9 @@ var (
 	// RateLimit creates a rate limit interceptor with a custom checker.
 	RateLimit = router.RateLimit
 
-	// RateLimitByIP creates a rate limit interceptor keyed by client IP.
+	// RateLimitByIP creates a rate limit interceptor keyed by client IP. The
+	// key is the address from RemoteAddr without its port, so every
+	// connection from one client shares a bucket.
 	RateLimitByIP = router.RateLimitByIP
 )
 
@@ -202,10 +204,15 @@ var (
 // ---------------------------------------------------------------------------
 
 var (
-	// AllowIPs only allows specific IP addresses.
+	// AllowIPs only allows the listed clients. Entries are single addresses
+	// or CIDR ranges, IPv4 or IPv6, matched against the address in
+	// RemoteAddr. X-Forwarded-For is not read. It panics on an invalid entry.
 	AllowIPs = router.AllowIPs
 
-	// DenyIPs blocks specific IP addresses.
+	// DenyIPs blocks the listed clients. Entries are single addresses or CIDR
+	// ranges, IPv4 or IPv6, matched against the address in RemoteAddr. A
+	// request whose address cannot be parsed is blocked too. It panics on an
+	// invalid entry.
 	DenyIPs = router.DenyIPs
 )
 
