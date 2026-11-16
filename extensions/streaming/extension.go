@@ -528,21 +528,7 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
 
-		defer func() {
-			// Detached from the request context on purpose: by the time this
-			// runs the request context is cancelled, so a presence write to a
-			// Redis backend would fail with "context canceled" and the user
-			// would be stuck online forever.
-			presenceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request().Context()), 5*time.Second)
-			defer cancel()
-
-			// Unregister has already run (deferred later, so it fires first),
-			// meaning this connection is out of the registry and any remaining
-			// entries are genuinely other live sockets.
-			if len(e.manager.GetUserConnections(userID)) == 0 {
-				_ = e.manager.SetPresence(presenceCtx, userID, StatusOffline)
-			}
-		}()
+		defer e.markOfflineIfLast(ctx.Request().Context(), userID, conn.ID())
 	}
 
 	// Heartbeat, scoped to the connection's lifetime.
@@ -664,6 +650,36 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 				e.hooks.FireOnError(reqCtx, enhanced, err)
 			}
 		}
+	}
+}
+
+// markOfflineIfLast marks userID offline unless the user still has a live
+// connection other than connID.
+//
+// connID is excluded explicitly rather than relying on Unregister having run
+// first. Deferred calls run last-in first-out, and this one is deferred after
+// the unregistration, so it runs before it: counting every registered
+// connection always found this one and the user never went offline.
+//
+// The context is detached from the request on purpose. By the time this runs
+// the request context is cancelled, so a presence write to a Redis backend
+// would fail with "context canceled" and leave the user online forever. It is
+// still bounded, so a slow backend cannot hold the handler open.
+func (e *Extension) markOfflineIfLast(reqCtx context.Context, userID, connID string) {
+	for _, c := range e.manager.GetUserConnections(userID) {
+		if c.ID() != connID && !c.IsClosed() {
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), 5*time.Second)
+	defer cancel()
+
+	if err := e.manager.SetPresence(ctx, userID, StatusOffline); err != nil {
+		e.Logger().Warn("failed to mark user offline",
+			forge.F("user_id", userID),
+			forge.F("error", err),
+		)
 	}
 }
 
@@ -933,17 +949,15 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 		}
 	}
 
-	// Set user online
+	// Set user online, and offline again only when this was the user's last
+	// connection, the same rule the WebSocket handler follows. The SSE handler
+	// used to mark the user offline on every disconnect, so closing one tab
+	// made a user with another tab open appear offline, and it did so with the
+	// request context, which is already cancelled by then.
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
-		defer func() {
-			if err := e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline); err != nil {
-				e.Logger().Warn("failed to mark SSE user offline",
-					forge.F("user_id", userID),
-					forge.F("error", err),
-				)
-			}
-		}()
+
+		defer e.markOfflineIfLast(ctx.Request().Context(), userID, sseConn.ID())
 	}
 
 	e.Logger().Debug("SSE connection established",
