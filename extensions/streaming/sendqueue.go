@@ -93,6 +93,13 @@ type sendFrame struct {
 	payload []byte
 	kind    frameKind
 
+	// roomID and seq carry a room message's sequence past the encode, for
+	// transports that tag frames with a resume position. SSE writes them into
+	// the event id; without them the writer saw only bytes and every event
+	// went out with no id at all.
+	roomID string
+	seq    int64
+
 	// done belongs to frameBarrier frames and is closed once the writer has
 	// reached this point in the queue.
 	done chan struct{}

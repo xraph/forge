@@ -167,11 +167,16 @@ func (c *enhancedConn) WriteJSON(v any) error {
 		return err
 	}
 
-	return c.queue.enqueue(sendFrame{
-		msgType: messageTypeOf(v),
-		payload: data,
-		kind:    frameJSON,
-	})
+	frame := sendFrame{payload: data, kind: frameJSON}
+	describeFrame(&frame, v)
+
+	return c.queue.enqueue(frame)
+}
+
+// sequencedJSONWriter is implemented by transports that tag a JSON frame with
+// the room sequence it carries. sseConnection does, to emit event ids.
+type sequencedJSONWriter interface {
+	writeSequencedJSON(data []byte, roomID string, seq int64) error
 }
 
 // WriteBinary queues a binary frame for the socket.
@@ -256,6 +261,10 @@ func (c *enhancedConn) SendQueueStats() SendQueueStats {
 func (c *enhancedConn) writeFrame(f sendFrame) error {
 	switch f.kind {
 	case frameJSON:
+		if sw, ok := c.Connection.(sequencedJSONWriter); ok {
+			return sw.writeSequencedJSON(f.payload, f.roomID, f.seq)
+		}
+
 		return c.Connection.WriteJSON(json.RawMessage(f.payload))
 
 	case frameBinary:
@@ -293,6 +302,22 @@ func (c *enhancedConn) closeUnderlying() error {
 	})
 
 	return c.closeErr
+}
+
+// describeFrame copies what the queue and the transport need to know about a
+// payload onto its frame: the message type for the overflow policy, and the
+// room and sequence for transports that emit resume ids.
+func describeFrame(f *sendFrame, v any) {
+	f.msgType = messageTypeOf(v)
+
+	switch msg := v.(type) {
+	case *internal.Message:
+		if msg != nil {
+			f.roomID, f.seq = msg.RoomID, msg.Sequence
+		}
+	case internal.Message:
+		f.roomID, f.seq = msg.RoomID, msg.Sequence
+	}
 }
 
 // messageTypeOf extracts the streaming message type from an outbound payload.

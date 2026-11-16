@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"maps"
 	"sync"
@@ -88,14 +89,36 @@ func (c *sseConnection) WriteBinary(data []byte) error {
 // never receive its backlog at all.
 func (c *sseConnection) WriteJSON(v any) error {
 	msg, ok := v.(*streaming.Message)
-	if !ok || msg.RoomID == "" || msg.Sequence <= 0 {
+	if !ok || msg == nil {
+		return c.send(v, "", 0)
+	}
+
+	return c.send(v, msg.RoomID, msg.Sequence)
+}
+
+// writeSequencedJSON sends a message that has already been encoded, with the
+// room and sequence it was encoded from.
+//
+// This is the path every message takes in production: the enhanced
+// connection's send queue encodes on the caller's goroutine and hands the
+// writer bytes, not a *Message. WriteJSON's type check therefore never
+// matched, and no event ever carried an id, so Last-Event-ID resume could not
+// work. The sequence now travels with the frame instead.
+func (c *sseConnection) writeSequencedJSON(data []byte, roomID string, seq int64) error {
+	return c.send(json.RawMessage(data), roomID, seq)
+}
+
+// send writes v as a "message" event, with a resume id when it carries a room
+// sequence.
+func (c *sseConnection) send(v any, roomID string, seq int64) error {
+	if roomID == "" || seq <= 0 {
 		// Unsequenced: presence, typing, system frames. These are not part of
 		// any room's ordered history, and inventing an id for them would move
 		// the client's resume point to a place it was never actually at.
 		return c.stream.SendJSON("message", v)
 	}
 
-	id := c.advanceCursor(msg.RoomID, msg.Sequence)
+	id := c.advanceCursor(roomID, seq)
 
 	// Fall back cleanly on a transport with no id support, so an SSE stream
 	// predating event ids still delivers — just without resumability.
