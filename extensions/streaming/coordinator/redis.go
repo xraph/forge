@@ -74,22 +74,26 @@ func (rc *redisCoordinator) Stop(ctx context.Context) error {
 }
 
 // BroadcastToNode sends message to specific node.
+//
+// NodeID is the sender and the channel carries the target. It used to be the
+// target, so the target's own-message check matched and it dropped every
+// message addressed to it.
 func (rc *redisCoordinator) BroadcastToNode(ctx context.Context, nodeID string, msg *streaming.Message) error {
-	coordMsg := &CoordinatorMessage{
+	return rc.publishToNode(ctx, nodeID, &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
-		NodeID:    nodeID,
+		NodeID:    rc.nodeID,
 		Payload:   msg,
 		Timestamp: time.Now(),
-	}
+	})
+}
 
+func (rc *redisCoordinator) publishToNode(ctx context.Context, nodeID string, coordMsg *CoordinatorMessage) error {
 	data, err := json.Marshal(coordMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	channel := "streaming:broadcast:node:" + nodeID
-
-	return rc.client.Publish(ctx, channel, data).Err()
+	return rc.client.Publish(ctx, "streaming:broadcast:node:"+nodeID, data).Err()
 }
 
 // BroadcastToUser sends to user across all nodes.
@@ -100,9 +104,17 @@ func (rc *redisCoordinator) BroadcastToUser(ctx context.Context, userID string, 
 		return err
 	}
 
-	// Broadcast to each node
+	// Broadcast to each node, naming the user. Without UserID the receiving
+	// manager treats a node message as global and would hand one user's
+	// message to every connection on that node.
 	for _, nodeID := range nodes {
-		if err := rc.BroadcastToNode(ctx, nodeID, msg); err != nil {
+		if err := rc.publishToNode(ctx, nodeID, &CoordinatorMessage{
+			Type:      MessageTypeBroadcast,
+			NodeID:    rc.nodeID,
+			UserID:    userID,
+			Payload:   msg,
+			Timestamp: time.Now(),
+		}); err != nil {
 			// Log error but continue
 			continue
 		}

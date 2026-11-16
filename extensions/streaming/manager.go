@@ -71,8 +71,10 @@ type manager struct {
 	hooks  *HookRegistry
 	codecs *CodecRegistry
 
-	// Message deduplication for distributed mode
-	dedup *messageDedup
+	// Message deduplication for distributed mode. Atomic because the
+	// coordinator's listener goroutine reads it while Stop swaps it out: a
+	// message in flight when the node stops raced with the plain field.
+	dedup atomic.Pointer[messageDedup]
 
 	// Connection registry
 	connections map[string]Connection // connID -> connection
@@ -2013,7 +2015,7 @@ func (m *manager) Start(ctx context.Context) error {
 
 	// Initialize message deduplication for distributed mode
 	if m.coordinator != nil {
-		m.dedup = newMessageDedup(10000, 30*time.Second)
+		m.dedup.Store(newMessageDedup(10000, 30*time.Second))
 	}
 
 	// Start coordinator if enabled
@@ -2195,9 +2197,8 @@ func (m *manager) Stop(ctx context.Context) error {
 	// in-memory session store run an unstoppable ticker loop until closed, so
 	// without this every start/stop cycle leaked one of each — most visibly in
 	// tests, which construct and discard managers repeatedly.
-	if m.dedup != nil {
-		_ = m.dedup.Close()
-		m.dedup = nil
+	if d := m.dedup.Swap(nil); d != nil {
+		_ = d.Close()
 	}
 
 	if closer, ok := m.sessionStore.(interface{ Close() error }); ok && m.sessionStore != nil {
@@ -3631,8 +3632,8 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 	}
 
 	// Check message-ID-level dedup (same message may arrive via multiple paths)
-	if m.dedup != nil && streamMsg.ID != "" {
-		if m.dedup.IsDuplicate(streamMsg.ID) {
+	if d := m.dedup.Load(); d != nil && streamMsg.ID != "" {
+		if d.IsDuplicate(streamMsg.ID) {
 			return nil
 		}
 	}

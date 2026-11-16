@@ -257,3 +257,40 @@ func TestHandleRoomBan_IgnoresExpiredBan(t *testing.T) {
 		t.Fatal("an expired ban event evicted the user")
 	}
 }
+
+// A user-targeted message relayed over Redis used to be dropped by the target
+// node, because BroadcastToNode put the target's id in NodeID and the target
+// took it for its own message. It also carried no UserID, so once delivered
+// it would have gone to every connection on that node.
+func TestSendToUser_ReachesUserOnAnotherNodeOnly(t *testing.T) {
+	srv := miniredis.RunT(t)
+	ctx := context.Background()
+
+	shared := goredis.NewClient(&goredis.Options{Addr: srv.Addr()})
+
+	t.Cleanup(func() { _ = shared.Close() })
+
+	rooms := redisbackend.NewRoomStore(shared, "cluster:rooms")
+
+	nodeA := newClusterNode(t, srv.Addr(), "node-a", rooms)
+	nodeB := newClusterNode(t, srv.Addr(), "node-b", rooms)
+
+	alice := newTestConn("alice-1", "alice")
+	carol := newTestConn("carol-1", "carol")
+
+	for _, c := range []*testConn{alice, carol} {
+		assertNoError(t, nodeB.Register(c))
+	}
+
+	eventually(t, "alice's message to arrive on node B", func() bool {
+		_ = nodeA.SendToUser(ctx, "alice", &Message{ID: newMessageID(), Type: MessageTypeMessage, Data: "for alice"})
+
+		return receivedData(alice, "for alice")
+	})
+
+	carol.waitQuiet(t)
+
+	if receivedData(carol, "for alice") {
+		t.Fatal("a message for alice was delivered to carol on the same node")
+	}
+}
