@@ -427,17 +427,8 @@ func (n *Node) applyNext() bool {
 
 	n.mu.Lock()
 	n.lastApplied = applyIndex
-	waiter, waiting := n.applyWaiters[applyIndex]
-	delete(n.applyWaiters, applyIndex)
+	n.resolveAppliedLocked(applyIndex, entry.Term, applyErr)
 	n.mu.Unlock()
-
-	if waiting {
-		if waiter.term == entry.Term {
-			waiter.ch <- applyErr
-		} else {
-			waiter.ch <- errors.New("entry was replaced after a leadership change and was not applied")
-		}
-	}
 
 	return true
 }

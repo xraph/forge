@@ -19,6 +19,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/extensions/consensus/raft"
 )
 
 func freePorts(t *testing.T, n int) []int {
@@ -128,14 +129,27 @@ func waitForServiceLeader(t *testing.T, services []*Service) *Service {
 func replicateAndRead(t *testing.T, services []*Service) {
 	t.Helper()
 
-	leader := waitForServiceLeader(t, services)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cmd := Command{Type: "set", Payload: map[string]any{"key": "greeting", "value": "hello"}}
-	if err := leader.Apply(ctx, cmd); err != nil {
-		t.Fatalf("apply on leader %s: %v", leader.config.NodeID, err)
+
+	// A leader elected a moment ago can lose its term before the entry
+	// commits. Apply then fails at once with ErrProposalDropped or a
+	// not-leader error, which a client retries on the new leader.
+	var leader *Service
+
+	for attempt := 0; ; attempt++ {
+		leader = waitForServiceLeader(t, services)
+
+		err := leader.Apply(ctx, cmd)
+		if err == nil {
+			break
+		}
+
+		if attempt == 4 || (!errors.Is(err, raft.ErrProposalDropped) && !IsNotLeaderError(err)) {
+			t.Fatalf("apply on leader %s: %v", leader.config.NodeID, err)
+		}
 	}
 
 	for _, s := range services {

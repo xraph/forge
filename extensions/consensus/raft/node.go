@@ -81,7 +81,7 @@ type Node struct {
 	// commitIndex moves; applyWaiters holds the Apply calls waiting for their
 	// entry, keyed by log index. Both are guarded by mu.
 	applyNotify  chan struct{}
-	applyWaiters map[uint64]applyWaiter
+	applyWaiters map[waiterKey]chan error
 
 	// applyMu serialises everything that changes the state machine: applying
 	// entries, taking a snapshot of it and restoring one. Lock order is
@@ -142,12 +142,6 @@ type snapshotReceive struct {
 	term       uint64
 	data       []byte
 	config     *internal.ClusterConfiguration
-}
-
-// applyWaiter is an Apply call waiting for its entry to be applied.
-type applyWaiter struct {
-	term uint64
-	ch   chan error
 }
 
 // ApplyMsg represents a message to apply to the state machine.
@@ -222,7 +216,7 @@ func NewNode(
 		peers:           make(map[string]*PeerState),
 		snapshotCh:      make(chan SnapshotMsg, 10),
 		applyNotify:     make(chan struct{}, 1),
-		applyWaiters:    make(map[uint64]applyWaiter),
+		applyWaiters:    make(map[waiterKey]chan error),
 		pendingRequests: make(map[pendingKey]chan any),
 	}
 
@@ -497,8 +491,11 @@ func (n *Node) reconcileEntriesLocked(entries []internal.LogEntry) error {
 		}
 
 		// Configurations take effect on append, so truncating their entries
-		// returns to the configuration before them.
+		// returns to the configuration before them. Callers still waiting on
+		// the removed entries, from when this node led, learn now that they
+		// were dropped instead of waiting for their deadline.
 		n.truncateConfigsLocked(entry.Index - 1)
+		n.failTruncatedWaitersLocked(entry.Index - 1)
 
 		return n.appendFromLeaderLocked(entries[i:])
 	}
@@ -661,13 +658,7 @@ func (n *Node) installSnapshot(index, term uint64, data []byte, config *internal
 	n.lastApplied = index
 	n.commitIndex = max(n.commitIndex, index)
 
-	for waitIndex, waiter := range n.applyWaiters {
-		if waitIndex <= index {
-			waiter.ch <- errors.New("entry was superseded by a snapshot from the leader; its result is unknown")
-
-			delete(n.applyWaiters, waitIndex)
-		}
-	}
+	n.failWaitersLocked(func(k waiterKey) bool { return k.index <= index }, errSupersededBySnapshot)
 
 	// A leader always sends its configuration; fall back to what this node
 	// knew at that index for one that did not.
@@ -685,6 +676,9 @@ func (n *Node) installSnapshot(index, term uint64, data []byte, config *internal
 	}
 
 	n.rebuildConfigsLocked(configEntry{index: index, cfg: cfg})
+
+	// Entries after the snapshot that disagreed with it were discarded.
+	n.failTruncatedWaitersLocked(n.log.LastIndex())
 
 	n.signalApply()
 
@@ -741,8 +735,7 @@ func (n *Node) appendAndWait(ctx context.Context, entry internal.LogEntry, skipT
 		onAppend(entry.Index)
 	}
 
-	resultCh := make(chan error, 1)
-	n.applyWaiters[entry.Index] = applyWaiter{term: entry.Term, ch: resultCh}
+	resultCh := n.addWaiterLocked(entry.Index, entry.Term)
 
 	// A single-node cluster is its own majority.
 	n.advanceCommitIndex()
@@ -767,9 +760,7 @@ func (n *Node) appendAndWait(ctx context.Context, entry internal.LogEntry, skipT
 	}
 
 	n.mu.Lock()
-	if w, ok := n.applyWaiters[entry.Index]; ok && w.ch == resultCh {
-		delete(n.applyWaiters, entry.Index)
-	}
+	n.removeWaiterLocked(entry.Index, entry.Term, resultCh)
 	n.mu.Unlock()
 
 	return err

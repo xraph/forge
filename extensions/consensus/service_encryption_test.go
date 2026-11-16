@@ -78,10 +78,10 @@ func stopServices(t *testing.T, services []*Service) {
 	}
 }
 
-// applySet applies a set command through the current leader. An attempt that
-// times out is retried: an entry appended by a leader that loses its term
-// right away is dropped, and raft does not fail its Apply call until a later
-// entry is applied at that index. The command is idempotent.
+// applySet applies a set command through the current leader, retrying when
+// an attempt fails: an entry appended by a leader that loses its term right
+// away is dropped and its Apply returns raft.ErrProposalDropped. The command
+// is idempotent.
 func applySet(t *testing.T, services []*Service, key, value string) {
 	t.Helper()
 
