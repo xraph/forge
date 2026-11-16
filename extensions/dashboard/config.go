@@ -89,6 +89,24 @@ type Config struct {
 	DiscoveryTag          string        `json:"discovery_tag"           yaml:"discovery_tag"`
 	DiscoveryPollInterval time.Duration `json:"discovery_poll_interval" yaml:"discovery_poll_interval"`
 
+	// Remote contributors, registered through RegisterRemoteContractContributor
+	// or discovery. AllowInsecureRemotes permits plain http to a contributor
+	// that is not on a loopback address; without it such a contributor is
+	// refused, because envelopes, the API key and the user's identity would
+	// cross the network in clear text. Discovery builds http URLs, so a
+	// discovered contributor on another host needs this until it is reached
+	// over https.
+	AllowInsecureRemotes bool `json:"allow_insecure_remotes" yaml:"allow_insecure_remotes"`
+	// RemoteForwardHeaders names inbound headers passed to remote
+	// contributors as X-Forwarded-<Name>. Empty by default, so the user's
+	// Cookie and Authorization stay with the host; only the authenticated
+	// subject is sent, as X-Forwarded-User.
+	RemoteForwardHeaders []string `json:"remote_forward_headers" yaml:"remote_forward_headers"`
+	// RemotePropagateSetCookie re-emits a remote contributor's Set-Cookie on
+	// the dashboard's origin. Off by default; turn it on when a trusted
+	// remote serves the login flow.
+	RemotePropagateSetCookie bool `json:"remote_propagate_set_cookie" yaml:"remote_propagate_set_cookie"`
+
 	// Export
 	EnableExport  bool     `json:"enable_export"  yaml:"enable_export"`
 	ExportFormats []string `json:"export_formats" yaml:"export_formats"`
@@ -175,6 +193,25 @@ func WithDiscoveryTag(tag string) ConfigOption {
 // changed or departed contributors.
 func WithDiscoveryPollInterval(interval time.Duration) ConfigOption {
 	return func(c *Config) { c.DiscoveryPollInterval = interval }
+}
+
+// WithAllowInsecureRemotes permits plain http to remote contributors that
+// are not on a loopback address.
+func WithAllowInsecureRemotes(allow bool) ConfigOption {
+	return func(c *Config) { c.AllowInsecureRemotes = allow }
+}
+
+// WithRemoteForwardHeaders names inbound headers passed to remote
+// contributors as X-Forwarded-<Name>, for example "Cookie" for an upstream
+// that shares the host's session store.
+func WithRemoteForwardHeaders(headers ...string) ConfigOption {
+	return func(c *Config) { c.RemoteForwardHeaders = append([]string(nil), headers...) }
+}
+
+// WithRemotePropagateSetCookie re-emits remote contributors' Set-Cookie
+// headers on the dashboard's origin.
+func WithRemotePropagateSetCookie(enabled bool) ConfigOption {
+	return func(c *Config) { c.RemotePropagateSetCookie = enabled }
 }
 
 // WithRefreshInterval sets the data collection refresh interval.

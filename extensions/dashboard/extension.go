@@ -673,12 +673,21 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // baseURL is the upstream service root (e.g. https://svc.internal:8443);
 // the manifest endpoint is fetched at <baseURL>/_forge/contract/manifest
 // and envelopes are POSTed to <baseURL>/_forge/contract/dispatch. apiKey,
-// when non-empty, is sent as Authorization: Bearer on dashboard→service
-// hops; end-user identity flows in parallel via X-Forwarded-Authorization
-// and X-Forwarded-Cookie.
+// when non-empty, is sent as Authorization: Bearer on dashboard-to-service
+// hops. The end user's subject is sent as X-Forwarded-User; the user's own
+// Cookie and Authorization are sent only for headers named in
+// Config.RemoteForwardHeaders.
+//
+// A plain http baseURL is refused unless its host is a loopback address or
+// Config.AllowInsecureRemotes is set, and the check runs before the manifest
+// fetch so the API key is never sent in clear text.
 func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseURL, apiKey string) error {
 	if e.contractRegistry == nil {
 		return errors.New("dashboard: contract registry not initialised")
+	}
+
+	if err := contractremote.CheckTransport(baseURL, e.config.AllowInsecureRemotes); err != nil {
+		return fmt.Errorf("dashboard: %w", err)
 	}
 
 	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
@@ -696,6 +705,13 @@ func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseU
 func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
 	if e.contractRegistry == nil {
 		return errors.New("dashboard: contract registry not initialised")
+	}
+
+	// Discovery builds the endpoint without knowing the dashboard's policy,
+	// so the policy is applied here, where both registration paths meet.
+	endpoint = e.applyRemotePolicy(endpoint)
+	if err := contractremote.CheckTransport(endpoint.BaseURL, endpoint.AllowInsecureHTTP); err != nil {
+		return fmt.Errorf("dashboard: %w", err)
 	}
 
 	if err := loader.Validate(m, e.wardenRegistry); err != nil {
@@ -716,6 +732,19 @@ func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoin
 	)
 
 	return nil
+}
+
+// applyRemotePolicy fills the forwarding policy of a remote endpoint from
+// the dashboard config wherever the endpoint does not set it itself.
+func (e *Extension) applyRemotePolicy(endpoint contract.RemoteEndpoint) contract.RemoteEndpoint {
+	if endpoint.ForwardHeaders == nil && len(e.config.RemoteForwardHeaders) > 0 {
+		endpoint.ForwardHeaders = append([]string(nil), e.config.RemoteForwardHeaders...)
+	}
+
+	endpoint.PropagateSetCookie = endpoint.PropagateSetCookie || e.config.RemotePropagateSetCookie
+	endpoint.AllowInsecureHTTP = endpoint.AllowInsecureHTTP || e.config.AllowInsecureRemotes
+
+	return endpoint
 }
 
 // SetDiscoveryService sets the discovery service used to find remote

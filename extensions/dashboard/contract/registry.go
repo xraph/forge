@@ -21,15 +21,34 @@ type RemoteEndpoint struct {
 
 	// APIKey, when non-empty, is sent as Authorization: Bearer <key> on
 	// every forwarded envelope so the upstream can authenticate the
-	// dashboard. Inbound user headers (Authorization, Cookie) are still
-	// forwarded so the upstream sees the end-user identity too — the
-	// API key authenticates the dashboard itself; user identity flows in
-	// parallel.
+	// dashboard. The end user's identity travels separately, as the
+	// subject in X-Forwarded-User; the user's own credentials are not sent
+	// unless ForwardHeaders names them.
 	APIKey string
 
 	// Client overrides the http.Client used to talk to this remote.
 	// nil = a default client with a 10s timeout.
 	Client *http.Client
+
+	// ForwardHeaders names inbound request headers to pass to the upstream,
+	// each sent as X-Forwarded-<Name>. Empty by default: the user's Cookie
+	// and Authorization headers are credentials for the dashboard host, and
+	// handing them to every contributor lets any one of them act as the
+	// user elsewhere. Name them here only for an upstream you trust with
+	// them, such as one that shares the host's session store.
+	ForwardHeaders []string
+
+	// PropagateSetCookie re-emits the upstream's Set-Cookie headers on the
+	// dashboard's own response. Off by default, because it lets a
+	// contributor plant cookies on the dashboard's origin. Turn it on for an
+	// upstream that serves the login flow (auth.login setting the session
+	// cookie) and is trusted to set cookies for this origin.
+	PropagateSetCookie bool
+
+	// AllowInsecureHTTP permits a plain http BaseURL whose host is not a
+	// loopback address. Off by default, because the envelope, the API key
+	// and the forwarded identity would cross the network in clear text.
+	AllowInsecureHTTP bool
 }
 
 // Registry holds all registered contributor manifests and provides
