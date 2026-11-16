@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -80,4 +81,26 @@ func BenchmarkRateLimiterParallel(b *testing.B) {
 			i++
 		}
 	})
+}
+
+func BenchmarkCompress(b *testing.B) {
+	// 1000 B sits just under the default minimum size, so after the fix it is
+	// sent uncompressed. 8000 B is compressed either way and isolates the cost
+	// of setting up a gzip.Writer.
+	for _, n := range []int{40, 320} {
+		payload := bytes.Repeat([]byte(`{"id":1,"name":"widget"},`), n)
+
+		for _, on := range []bool{false, true} {
+			b.Run(fmt.Sprintf("size=%d/compress=%v", len(payload), on), func(b *testing.B) {
+				r := forge.NewRouter()
+				if on {
+					r.Use(Compress(gzip.DefaultCompression))
+				}
+
+				_ = r.GET("/x", func(ctx forge.Context) error { return ctx.Bytes(http.StatusOK, payload) })
+
+				benchServe(b, r, map[string]string{"Accept-Encoding": "gzip"})
+			})
+		}
+	}
 }
