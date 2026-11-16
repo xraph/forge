@@ -98,6 +98,14 @@ type manager struct {
 	// the manager lock per message would serialise all delivery behind it.
 	messagesSent atomic.Int64
 
+	// userNodeLocks serialise the coordinator's per-user node tracking. The
+	// Redis calls run outside mu, so without these an Unregister that saw a
+	// user's last connection go could SREM after a concurrent Register had
+	// already SADDed for a new one, leaving a connected user untracked.
+	// Striped by user so unrelated users do not wait on each other's Redis
+	// round trips.
+	userNodeLocks [userNodeLockStripes]sync.Mutex
+
 	// Configuration
 	config Config
 	nodeID string
@@ -240,7 +248,88 @@ func (m *manager) channelAuthorizer() streamauth.ChannelAuthorizer {
 
 // Connection management
 
+// userNodeLockStripes is the number of locks userNodeLocks is striped over.
+const userNodeLockStripes = 64
+
+// coordinatorCallTimeout bounds one coordinator or session store call made on
+// the connect and disconnect path. These used to run with
+// context.Background() while holding the manager's write lock, so one slow
+// Redis round trip stalled every connect, disconnect and broadcast on the
+// node, and a hung one stalled them forever.
+const coordinatorCallTimeout = 2 * time.Second
+
 func (m *manager) Register(conn Connection) error {
+	if err := m.registerLocked(conn); err != nil {
+		return err
+	}
+
+	// Outside the lock: a network round trip.
+	if userID := conn.GetUserID(); userID != "" {
+		m.syncUserNode(userID)
+	}
+
+	return nil
+}
+
+// syncUserNode brings the coordinator's record of whether userID is on this
+// node in line with the registry, as it stands when the call runs. Reading
+// the registry under the user's stripe lock, rather than passing in what the
+// caller saw, is what keeps concurrent connects and disconnects of one user
+// from leaving a stale answer behind.
+func (m *manager) syncUserNode(userID string) {
+	if m.coordinator == nil || userID == "" || m.nodeID == "" {
+		return
+	}
+
+	type userNodeTracker interface {
+		TrackUserNode(ctx context.Context, userID, nodeID string) error
+		UntrackUserNode(ctx context.Context, userID, nodeID string) error
+	}
+
+	tracker, ok := m.coordinator.(userNodeTracker)
+	if !ok {
+		return
+	}
+
+	lock := &m.userNodeLocks[stripeOf(userID)]
+	lock.Lock()
+	defer lock.Unlock()
+
+	m.mu.RLock()
+	_, connected := m.userConns[userID]
+	m.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+	defer cancel()
+
+	var err error
+	if connected {
+		err = tracker.TrackUserNode(ctx, userID, m.nodeID)
+	} else {
+		err = tracker.UntrackUserNode(ctx, userID, m.nodeID)
+	}
+
+	if err != nil && m.logger != nil {
+		m.logger.Warn("coordinator user tracking failed",
+			forge.F("user_id", userID),
+			forge.F("connected", connected),
+			forge.F("error", err),
+		)
+	}
+}
+
+// stripeOf maps a user id to one of the userNodeLocks (FNV-1a).
+func stripeOf(userID string) int {
+	h := uint32(2166136261)
+	for i := range len(userID) {
+		h ^= uint32(userID[i])
+		h *= 16777619
+	}
+
+	return int(h % userNodeLockStripes)
+}
+
+func (m *manager) registerLocked(conn Connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -319,15 +408,6 @@ func (m *manager) Register(conn Connection) error {
 		}
 	}
 
-	// Track user on this node for coordinator
-	if m.coordinator != nil && userID != "" && m.nodeID != "" {
-		if tracker, ok := m.coordinator.(interface {
-			TrackUserNode(ctx context.Context, userID, nodeID string) error
-		}); ok {
-			_ = tracker.TrackUserNode(context.Background(), userID, m.nodeID)
-		}
-	}
-
 	// Track metrics
 	if m.metrics != nil {
 		m.metrics.Gauge("streaming.connections.active").Inc()
@@ -345,39 +425,69 @@ func (m *manager) Register(conn Connection) error {
 }
 
 func (m *manager) Unregister(connID string) error {
+	userID, snapshot, err := m.unregisterLocked(connID)
+	if err != nil {
+		return err
+	}
+
+	// Both of these can be network calls, so they run after the lock is
+	// released, each with a bounded context. They still complete before
+	// Unregister returns, so a reconnect that follows can resume the session.
+	if snapshot != nil {
+		m.saveSessionSnapshot(snapshot)
+	}
+
+	if userID != "" {
+		m.syncUserNode(userID)
+	}
+
+	return nil
+}
+
+func (m *manager) saveSessionSnapshot(snapshot *SessionSnapshot) {
+	ctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+	defer cancel()
+
+	if err := m.sessionStore.Save(ctx, snapshot, m.config.SessionResumptionTTL); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to save session snapshot",
+				forge.F("session_id", snapshot.SessionID),
+				forge.F("error", err),
+			)
+		}
+	} else if m.logger != nil {
+		m.logger.Debug("session snapshot saved for resumption",
+			forge.F("session_id", snapshot.SessionID),
+			forge.F("ttl", m.config.SessionResumptionTTL),
+		)
+	}
+}
+
+// unregisterLocked removes the connection from the registry and indexes. It
+// returns the user id and, when resumption is on, the session snapshot to
+// save, both taken while the connection's state is still consistent.
+func (m *manager) unregisterLocked(connID string) (string, *SessionSnapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	conn, exists := m.connections[connID]
 	if !exists {
-		return ErrConnectionNotFound
+		return "", nil, ErrConnectionNotFound
 	}
 
 	userID := conn.GetUserID()
 
-	// Save session snapshot for resumption before cleanup
+	// Snapshot for resumption before cleanup.
+	var snapshot *SessionSnapshot
+
 	if m.sessionStore != nil && m.config.EnableSessionResumption {
-		sessionID := conn.GetSessionID()
-		if sessionID != "" {
-			snapshot := &SessionSnapshot{
+		if sessionID := conn.GetSessionID(); sessionID != "" {
+			snapshot = &SessionSnapshot{
 				SessionID:      sessionID,
 				UserID:         userID,
 				Rooms:          conn.GetJoinedRooms(),
 				Channels:       conn.GetSubscriptions(),
 				DisconnectedAt: time.Now(),
-			}
-			if err := m.sessionStore.Save(context.Background(), snapshot, m.config.SessionResumptionTTL); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to save session snapshot",
-						forge.F("session_id", sessionID),
-						forge.F("error", err),
-					)
-				}
-			} else if m.logger != nil {
-				m.logger.Debug("session snapshot saved for resumption",
-					forge.F("session_id", sessionID),
-					forge.F("ttl", m.config.SessionResumptionTTL),
-				)
 			}
 		}
 	}
@@ -417,17 +527,6 @@ func (m *manager) Unregister(connID string) error {
 		}
 	}
 
-	// Untrack user from this node if no more connections
-	if m.coordinator != nil && userID != "" && m.nodeID != "" {
-		if _, stillHasConns := m.userConns[userID]; !stillHasConns {
-			if tracker, ok := m.coordinator.(interface {
-				UntrackUserNode(ctx context.Context, userID, nodeID string) error
-			}); ok {
-				_ = tracker.UntrackUserNode(context.Background(), userID, m.nodeID)
-			}
-		}
-	}
-
 	// Track metrics
 	if m.metrics != nil {
 		m.metrics.Gauge("streaming.connections.active").Dec()
@@ -440,7 +539,7 @@ func (m *manager) Unregister(connID string) error {
 		)
 	}
 
-	return nil
+	return userID, snapshot, nil
 }
 
 // ResumeSession restores room and channel state from a previous session.
