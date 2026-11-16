@@ -279,7 +279,14 @@ func dartStringList(items []string) string {
 // docComment renders text as `///` lines at indent, or fallback when text is
 // empty. Every generated public member carries one: the gate test runs the
 // analyzer with public_member_api_docs on.
+//
+// "\r\n" and a bare "\r" are turned into "\n" before the text is split. Dart
+// ends a `///` comment at either line break, so splitting on "\n" alone left a
+// bare "\r" inside a line where it ended the comment early, and whatever the
+// specification put after it compiled as code.
 func docComment(text, fallback, indent string) string {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = fallback
