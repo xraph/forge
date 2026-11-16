@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
 	"github.com/xraph/forge/extensions/consensus/observability"
+	"github.com/xraph/forge/extensions/consensus/security"
 )
 
 // API provides admin endpoints for consensus management.
@@ -17,6 +19,20 @@ type API struct {
 	healthChecker    *observability.HealthChecker
 	metricsCollector *observability.MetricsCollector
 	logger           forge.Logger
+
+	// apiKey, when set, is required on every admin route.
+	apiKey string
+}
+
+// Option configures an admin API.
+type Option func(*API)
+
+// WithAPIKey requires every admin route to present key, as a bearer token or
+// in the X-API-Key header.
+func WithAPIKey(key string) Option {
+	return func(a *API) {
+		a.apiKey = key
+	}
 }
 
 // NewAPI creates a new admin API.
@@ -25,13 +41,43 @@ func NewAPI(
 	healthChecker *observability.HealthChecker,
 	metricsCollector *observability.MetricsCollector,
 	logger forge.Logger,
+	opts ...Option,
 ) *API {
-	return &API{
+	a := &API{
 		service:          service,
 		healthChecker:    healthChecker,
 		metricsCollector: metricsCollector,
 		logger:           logger,
 	}
+
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	return a
+}
+
+// NewAPIFromConfig creates an admin API that honours AdminAPIConfig: with
+// EnableAuth set, every route requires APIKey, and an empty APIKey is an
+// error rather than an open API.
+func NewAPIFromConfig(
+	service internal.ConsensusService,
+	healthChecker *observability.HealthChecker,
+	metricsCollector *observability.MetricsCollector,
+	logger forge.Logger,
+	cfg internal.AdminAPIConfig,
+) (*API, error) {
+	var opts []Option
+
+	if cfg.EnableAuth {
+		if cfg.APIKey == "" {
+			return nil, errors.New("admin API auth is enabled but no API key is configured")
+		}
+
+		opts = append(opts, WithAPIKey(cfg.APIKey))
+	}
+
+	return NewAPI(service, healthChecker, metricsCollector, logger, opts...), nil
 }
 
 // HandleHealth handles health check requests.
@@ -350,10 +396,20 @@ func (a *API) RegisterRoutes(router forge.Router, prefix string) {
 		{router.POST, http.MethodPost, "/read", a.HandleReadQuery},
 	}
 
+	var opts []forge.RouteOption
+
+	if a.apiKey != "" {
+		opts = append(opts, forge.WithMiddleware(security.APIKeyMiddleware(a.apiKey)))
+	} else {
+		a.logger.Warn("admin API routes are registered without authentication; anyone who can reach them can add or remove nodes and apply commands",
+			forge.F("prefix", prefix),
+		)
+	}
+
 	failed := 0
 
 	for _, route := range routes {
-		if err := route.register(prefix+route.path, route.handler); err != nil {
+		if err := route.register(prefix+route.path, route.handler, opts...); err != nil {
 			failed++
 
 			a.logger.Error("failed to register admin API route",
@@ -367,5 +423,6 @@ func (a *API) RegisterRoutes(router forge.Router, prefix string) {
 	a.logger.Info("admin API routes registered",
 		forge.F("prefix", prefix),
 		forge.F("failed", failed),
+		forge.F("auth", a.apiKey != ""),
 	)
 }

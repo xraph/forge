@@ -88,7 +88,7 @@ WithNodeID(id string)
 WithClusterID(id string)
 WithBindAddress(addr string, port int)
 WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
-WithTransportType(transportType string)    // grpc, tcp
+WithTransportType(transportType string)    // tcp, http (grpc is not implemented)
 WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
 WithStorageType(storageType string)        // badger, boltdb, pebble, postgres
 WithStoragePath(path string)
@@ -113,10 +113,13 @@ TransferLeadership and StepDown return "not yet implemented".
 Key `extensions.consensus`, falling back to `consensus`. Options override the file. Validation
 at registration: node_id set (no default); cluster_id set ("default"); bind_port 1..65535
 (7000); raft.heartbeat_interval < election_timeout_min < election_timeout_max (1s, 5s, 10s);
-transport.type grpc or tcp ("grpc"); transport.max_message_size positive (4MB); discovery.type
+bind_addr ("127.0.0.1"); transport.type tcp or http ("tcp", grpc rejected as not implemented); transport.max_message_size positive (4MB); discovery.type
 static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
 ("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
-ca_file.
+ca_file; enable_encryption is rejected (not implemented); admin_api.enable_auth needs api_key.
+Service.Start fails when enable_tls or enable_mtls is set, because the service opens no transport
+yet. Secured clusters are built from raft.NewNode plus transport.NewTCPTransport/NewHTTPTransport
+with TLSConfig and RequirePeerIdentity (node ID as a DNS SAN in each node certificate).
 
 Other sections: election, health, observability, resilience, admin_api, events, advanced. Full
 keys and defaults in internal/config.go. The extension acts on: health.enabled and

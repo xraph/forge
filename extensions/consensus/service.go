@@ -74,6 +74,10 @@ func (s *Service) Start(ctx context.Context) error {
 		return ErrAlreadyStarted
 	}
 
+	if err := checkUnwiredSecurity(s.config); err != nil {
+		return err
+	}
+
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
 	s.logger.Info("starting consensus service",
@@ -81,6 +85,11 @@ func (s *Service) Start(ctx context.Context) error {
 		forge.F("cluster_id", s.config.ClusterID),
 		forge.F("bind_addr", s.config.BindAddr),
 		forge.F("bind_port", s.config.BindPort),
+	)
+
+	s.logger.Warn("the consensus service does not run a raft node or open a transport yet; "+
+		"build a cluster with raft.NewNode and the transport package to replicate data",
+		forge.F("node_id", s.config.NodeID),
 	)
 
 	// Initialize storage
@@ -809,4 +818,21 @@ func (s *Service) recordOperation(duration time.Duration, success bool) {
 func (s *Service) encodeCommand(cmd Command) []byte {
 	// TODO: Implement proper encoding
 	return fmt.Appendf(nil, "%v", cmd)
+}
+
+// checkUnwiredSecurity refuses to start when a security option is set that
+// the service cannot apply. The service does not build a raft node or a
+// network transport yet (its init steps only log), so TLS settings would be
+// silently ignored. Failing here keeps operators from believing cluster
+// traffic is protected. Applications that need a secured cluster today build
+// it from raft.NewNode with transport.NewTCPTransport or NewHTTPTransport and
+// their TLSConfig and RequirePeerIdentity options.
+func checkUnwiredSecurity(cfg internal.Config) error {
+	if cfg.Security.EnableTLS || cfg.Security.EnableMTLS {
+		return fmt.Errorf("%w: security.enable_tls and security.enable_mtls cannot be honoured because the consensus "+
+			"service does not start a network transport yet; wire raft.NewNode with the transport package's TLSConfig instead",
+			internal.ErrInvalidConfig)
+	}
+
+	return nil
 }

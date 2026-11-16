@@ -10,8 +10,10 @@ type Config struct {
 	// Node configuration
 	NodeID    string `json:"node_id"    yaml:"node_id"`
 	ClusterID string `json:"cluster_id" yaml:"cluster_id"`
-	BindAddr  string `default:"0.0.0.0" json:"bind_addr"  yaml:"bind_addr"`
-	BindPort  int    `default:"7000"    json:"bind_port"  yaml:"bind_port"`
+	// BindAddr defaults to loopback. Set it to a routable address (or 0.0.0.0)
+	// explicitly to accept peers from other hosts.
+	BindAddr string `default:"127.0.0.1" json:"bind_addr" yaml:"bind_addr"`
+	BindPort int    `default:"7000"      json:"bind_port" yaml:"bind_port"`
 
 	// Peers - initial cluster members
 	Peers []PeerConfig `json:"peers" yaml:"peers"`
@@ -82,7 +84,7 @@ type RaftConfig struct {
 
 // TransportConfig contains transport layer configuration.
 type TransportConfig struct {
-	Type               string        `default:"grpc"    json:"type"                yaml:"type"`             // grpc, tcp
+	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http (grpc is not implemented)
 	MaxMessageSize     int           `default:"4194304" json:"max_message_size"    yaml:"max_message_size"` // 4MB
 	Timeout            time.Duration `default:"10s"     json:"timeout"             yaml:"timeout"`
 	KeepAlive          bool          `default:"true"    json:"keep_alive"          yaml:"keep_alive"`
@@ -244,7 +246,7 @@ func DefaultConfig() Config {
 	return Config{
 		NodeID:    "",
 		ClusterID: "default",
-		BindAddr:  "0.0.0.0",
+		BindAddr:  "127.0.0.1",
 		BindPort:  7000,
 		Peers:     []PeerConfig{},
 		Raft: RaftConfig{
@@ -263,7 +265,7 @@ func DefaultConfig() Config {
 			DisablePipeline:      false,
 		},
 		Transport: TransportConfig{
-			Type:               "grpc",
+			Type:               "tcp",
 			MaxMessageSize:     4 * 1024 * 1024, // 4MB
 			Timeout:            10 * time.Second,
 			KeepAlive:          true,
@@ -409,7 +411,11 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate transport config
-	if c.Transport.Type != "grpc" && c.Transport.Type != "tcp" {
+	switch c.Transport.Type {
+	case "tcp", "http":
+	case "grpc":
+		return fmt.Errorf("%w: transport type grpc is not implemented, use tcp or http", ErrInvalidConfig)
+	default:
 		return fmt.Errorf("%w: invalid transport type: %s", ErrInvalidConfig, c.Transport.Type)
 	}
 
@@ -450,6 +456,16 @@ func (c *Config) Validate() error {
 
 	if c.Security.EnableMTLS && c.Security.CAFile == "" {
 		return fmt.Errorf("%w: security.ca_file is required when mTLS is enabled", ErrInvalidConfig)
+	}
+
+	// Nothing encrypts consensus data at rest, so accepting the option would
+	// promise protection that does not exist.
+	if c.Security.EnableEncryption {
+		return fmt.Errorf("%w: security.enable_encryption is not implemented", ErrInvalidConfig)
+	}
+
+	if c.AdminAPI.EnableAuth && c.AdminAPI.APIKey == "" {
+		return fmt.Errorf("%w: admin_api.api_key is required when admin_api.enable_auth is true", ErrInvalidConfig)
 	}
 
 	return nil

@@ -221,7 +221,7 @@ extensions:
       election_timeout_min: 5s
       election_timeout_max: 10s
     transport:
-      type: grpc          # grpc or tcp
+      type: tcp           # tcp or http
     storage:
       type: badger        # badger, boltdb, pebble or postgres
       path: ./data/consensus
@@ -239,11 +239,16 @@ Validation runs when the extension registers. If any of these rules fail, your a
 | `cluster_id` is set | `default` |
 | `bind_port` is between 1 and 65535 | `7000` |
 | `raft.heartbeat_interval` < `raft.election_timeout_min` < `raft.election_timeout_max` | `1s`, `5s`, `10s` |
-| `transport.type` is `grpc` or `tcp` | `grpc` |
+| `bind_addr` is the listen address; set it explicitly to accept other hosts | `127.0.0.1` |
+| `transport.type` is `tcp` or `http` (`grpc` is rejected because it is not implemented) | `tcp` |
 | `transport.max_message_size` is positive | 4MB |
 | `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
 | `storage.type` is `badger`, `boltdb`, `pebble` or `postgres`, and `storage.path` is set | `badger`, `./data/consensus` |
 | `security.cert_file` and `key_file` are set when `enable_tls` is on, and `ca_file` when `enable_mtls` is on | TLS off |
+| `security.enable_encryption` is off (encryption at rest is not implemented) | off |
+| `admin_api.api_key` is set when `admin_api.enable_auth` is on | auth off |
+
+The service does not start a raft node or a transport yet, so `Start` fails when `enable_tls` or `enable_mtls` is set rather than run without them. To run a secured cluster today, build it from `raft.NewNode` with `transport.NewTCPTransport` or `transport.NewHTTPTransport`, passing `TLSConfig` (from `transport.NewTLSManager`) and `RequirePeerIdentity`. With peer identity on, each node's certificate must name its node ID as a DNS subject alternative name. The admin API takes `admin.WithAPIKey` or `admin.NewAPIFromConfig` to require an API key on every route.
 
 The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `WithTransportType`, `WithDiscoveryType`, `WithStorageType`, `WithStoragePath`, `WithTLS`, `WithMTLS`, `WithConfig` and `WithRequireConfig`. The config also has `election`, `health`, `observability`, `resilience`, `admin_api`, `events` and `advanced` sections. Their full key list and defaults are in [`internal/config.go`](internal/config.go) and on the [configuration page](https://www.xraph.com/docs/forge/extensions/consensus/configuration). Today the extension acts on a handful of them: `health.enabled` and `health.check_interval` drive its health loop, `observability.metrics.enabled` and `collection_interval` drive metrics collection, and `advanced.enable_auto_snapshot` with `raft.snapshot_interval` drives the snapshot loop. `events.enabled` is on by default. It adds `events` to the extension's dependencies and publishes start and stop events when an event bus is in the container.
 
