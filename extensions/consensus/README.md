@@ -4,7 +4,7 @@
 
 # Forge Consensus: Raft consensus building blocks for Go
 
-Forge Consensus is the Raft consensus module for [Forge](https://github.com/xraph/forge), the Go backend framework. It holds a Raft implementation in Go with leader election, pre-vote, log replication and snapshots, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, TCP, HTTP, gRPC and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines. A Forge extension sits on top and runs a node from configuration. Read the [status](#status) before you pick it for a distributed system.
+Forge Consensus is the Raft consensus module for [Forge](https://github.com/xraph/forge), the Go backend framework. It holds a Raft implementation in Go with leader election, log replication, snapshots, membership changes and leadership transfer, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, TCP, HTTP, gRPC and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines. A Forge extension sits on top and runs a node from configuration. Read the [status](#status) before you pick it for a distributed system.
 
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/consensus.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/consensus) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
@@ -182,7 +182,7 @@ app := forge.NewApp(forge.AppConfig{
 		consensus.NewExtension(
 			consensus.WithNodeID("node-1"),
 			consensus.WithClusterID("orders"),
-			consensus.WithBindAddress("0.0.0.0", 7000),
+			consensus.WithBindAddress("10.0.0.1", 7000),
 			consensus.WithPeers([]consensus.PeerConfig{
 				{ID: "node-2", Address: "10.0.0.2", Port: 7000},
 				{ID: "node-3", Address: "10.0.0.3", Port: 7000},
@@ -208,7 +208,7 @@ All three network transports carry the same versioned JSON envelope. The gRPC tr
 
 `GetClusterManager` lists the members of the current configuration, learners included, and changes membership through the same log entries. Servers that are not voters, including removed ones that never learned of their removal, cannot disrupt the cluster: their vote requests are ignored, as are any that arrive while a leader is known to be alive.
 
-Settings the service cannot honour fail when it is created: storage `pebble` or `postgres`, and any discovery type other than `static`. The container entries for `RaftNode` and `StateMachine` are resolved from the service, so resolve them after the app has started. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
+Settings the service cannot honour fail when it is created: storage `pebble` or `postgres`, and any discovery type other than `static`. The container entries for `RaftNode`, `StateMachine` and `ClusterManager` are resolved from the service, and resolving the service from the container after the app has started fails with `consensus service already started` (the container tries to start it again), so take them from the extension's `Service()` with `GetRaftNode()`, `GetStateMachine()` and `GetClusterManager()`. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
 
 ### Encryption at rest
 
@@ -267,7 +267,7 @@ extensions:
   consensus:
     node_id: node-1
     cluster_id: orders
-    bind_addr: 0.0.0.0
+    bind_addr: 10.0.0.1
     bind_port: 7000
     peers:
       - {id: node-2, address: 10.0.0.2, port: 7000}
@@ -279,15 +279,13 @@ extensions:
     transport:
       type: tcp           # tcp, http or grpc
     storage:
-      type: badger        # badger, boltdb, pebble or postgres
+      type: badger        # badger, boltdb or memory
       path: ./data/consensus
     discovery:
-      type: static        # static, dns, consul, etcd or kubernetes
+      type: static        # only static is wired into the extension
     security:
       enable_encryption: true
       encryption_key_file: /etc/consensus/raft.key
-    advanced:
-      enable_auto_snapshot: false
 ```
 
 Validation runs when the extension registers. If any of these rules fail, your app won't start:
@@ -329,15 +327,15 @@ There is one in [`raft`](raft/), and the quick start shows a three-node cluster 
 
 ### How does leader election work?
 
-Nodes start as followers with a randomised election timeout between `election_timeout_min` and `election_timeout_max`. A follower that hears no heartbeat in that window becomes a candidate, runs a pre-vote if it's on, then asks its peers for votes, and the node with a majority becomes leader and sends heartbeats every `heartbeat_interval`.
+Nodes start as followers with a randomised election timeout between `election_timeout_min` and `election_timeout_max`. A follower that hears no heartbeat in that window becomes a candidate and asks the other voters for votes, and the node with a majority becomes leader and sends heartbeats every `heartbeat_interval`. There's no separate pre-vote round: `raft.pre_vote` is accepted but has no effect. A voter ignores vote requests while it has heard from a live leader recently, which keeps a server that was cut off from forcing a new election when it comes back.
 
 ### Can I use this for distributed locks or leader-only jobs?
 
-Not through the extension yet, because `IsLeader` stays false. With your own `raft.Node`, `IsLeader()` and `GetLeader()` tell you which node should run a leader-only job.
+Yes. `Service.IsLeader()` (or `IsLeader()` on your own `raft.Node`) tells you whether this node should run a leader-only job, and the `middleware` package's `RequireLeader` rejects requests on followers. Leadership can move at any time, so check it again before each run, and write the job's results through `Apply` so a new leader picks up where the old one stopped.
 
 ### Which storage backends are there?
 
-In memory, BadgerDB and BoltDB, plus a write-ahead log. The config validator also accepts `pebble` and `postgres`, but there's no implementation for either in this module.
+In memory, BadgerDB and BoltDB, plus a write-ahead log, and any of them can be encrypted at rest. The config validator also accepts `pebble` and `postgres`, but there's no implementation for either, so the service refuses them when it's created.
 
 ## Contributing
 

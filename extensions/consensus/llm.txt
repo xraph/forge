@@ -2,9 +2,10 @@
 
 ## Purpose
 
-Raft consensus building blocks in Go: a Raft node with leader election, pre-vote, log
-replication and snapshots, plus storage, transports, discovery and state machines to build a
-node from. A Forge extension sits on top and runs a node from configuration.
+Raft consensus building blocks in Go: a Raft node with leader election, log replication,
+snapshots, membership changes and leadership transfer, plus storage, transports, discovery and
+state machines to build a node from. There is no pre-vote round; raft.pre_vote has no effect.
+A Forge extension sits on top and runs a node from configuration.
 
 Read "Status" before you use any of it.
 
@@ -101,8 +102,10 @@ WithRequireConfig(require bool)
 Container entries: `*consensus.Service` (aliases `consensus`, `consensus:service`),
 `ClusterManager` (`consensus:cluster`, backed by the raft configuration), `RaftNode`
 (`consensus:raft`), `StateMachine` (`consensus:statemachine`), `*LeadershipChecker`
-(`consensus:leadership`). RaftNode and StateMachine are created by Start, so resolve them after
-the app has started.
+(`consensus:leadership`). RaftNode and StateMachine are created by Start. Resolving `*Service` from the
+container after start fails with "consensus service already started" (the container starts it
+again), and these entries resolve through it, so use `Service().GetRaftNode()`,
+`GetStateMachine()` and `GetClusterManager()` instead.
 
 Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` queries the local
 state machine; `Snapshot` compacts; `StepDown` works; AddNode (target started with join: true,
