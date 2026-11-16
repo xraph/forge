@@ -692,7 +692,7 @@ func (w *specWatcher) runPoll(ctx context.Context, out watchReporter) {
 					continue
 				}
 
-				content, err := fetchSpecFromURL(ctx, source.url, 0)
+				content, err := fetchSpecFromURL(ctx, source.url, 0, w.plan.allowInsecureHTTP)
 				if err != nil {
 					// A cancelled context is shutdown, not a poll failure:
 					// without this check, Ctrl+C during an in-flight fetch
