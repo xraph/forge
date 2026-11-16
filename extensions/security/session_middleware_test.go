@@ -319,3 +319,86 @@ func TestSessionMiddleware_AutoRenewStopsAtAbsoluteTimeout(t *testing.T) {
 		t.Fatal("session past its absolute timeout was accepted")
 	}
 }
+
+// End to end through a real forge router: log in, log out, and the old cookie
+// no longer opens a session.
+func TestSessionLogout_ThroughRouter(t *testing.T) {
+	off := false
+	app := forge.New(forge.WithAppName("logout"), forge.WithAppTracingConfig(forge.TracingConfig{Enabled: &off}))
+
+	store := NewInMemorySessionStore(logger.NewNoopLogger(), nil)
+	cm := NewCookieManager(DefaultCookieOptions())
+	cfg := DefaultConfig().Session
+
+	app.Router().UseGlobal(SessionMiddleware(SessionMiddlewareOptions{
+		Store: store, CookieManager: cm, Config: cfg, Logger: logger.NewNoopLogger(),
+	}))
+
+	mustRoute := func(err error) {
+		t.Helper()
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mustRoute(app.Router().POST("/login", func(c forge.Context) error {
+		if _, err := CreateSession(c.Context(), c.Response(), "alice", store, cm, cfg, nil); err != nil {
+			return err
+		}
+
+		return c.String(http.StatusOK, "in")
+	}))
+	mustRoute(app.Router().GET("/me", func(c forge.Context) error {
+		if s, ok := GetSession(c.Context()); ok {
+			return c.String(http.StatusOK, s.UserID)
+		}
+
+		return c.String(http.StatusUnauthorized, "none")
+	}))
+	mustRoute(app.Router().POST("/logout", func(c forge.Context) error {
+		if err := DestroySession(c.Context(), c.Response(), store, cm, cfg.CookieName); err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		return c.String(http.StatusOK, "bye")
+	}))
+
+	do := func(method, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+
+		w := httptest.NewRecorder()
+		app.Router().ServeHTTP(w, req)
+
+		return w
+	}
+
+	login := do(http.MethodPost, "/login", nil)
+
+	var cookie *http.Cookie
+
+	for _, c := range login.Result().Cookies() {
+		if c.Name == cfg.CookieName {
+			cookie = c
+		}
+	}
+
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+
+	if w := do(http.MethodGet, "/me", cookie); w.Code != http.StatusOK || w.Body.String() != "alice" {
+		t.Fatalf("/me before logout: %d %q", w.Code, w.Body.String())
+	}
+
+	if w := do(http.MethodPost, "/logout", cookie); w.Code != http.StatusOK {
+		t.Fatalf("/logout: %d %q", w.Code, w.Body.String())
+	}
+
+	if w := do(http.MethodGet, "/me", cookie); w.Code != http.StatusUnauthorized {
+		t.Fatalf("/me with the old cookie after logout: %d %q", w.Code, w.Body.String())
+	}
+}

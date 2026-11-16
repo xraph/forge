@@ -39,6 +39,9 @@ func main() {
 		security.WithAutoApplyMiddleware(true),
 		// Skip session handling for these paths
 		security.WithSkipPaths([]string{"/health", "/public"}),
+		// This example only uses sessions. JWT is on by default and needs a
+		// signing key, so without this the extension refuses to register.
+		security.WithJWTEnabled(false),
 	)
 
 	if err := app.RegisterExtension(securityExt); err != nil {
