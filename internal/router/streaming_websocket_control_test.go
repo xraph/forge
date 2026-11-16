@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -226,5 +227,32 @@ func TestWSConnection_PingBetweenFragmentsIsAnswered(t *testing.T) {
 
 	if h.OpCode != ws.OpPong || string(pong) != "p1" {
 		t.Fatalf("reply = %v %q, want pong %q", h.OpCode, pong, "p1")
+	}
+}
+
+// WriteJSON passes a json.RawMessage through untouched instead of marshalling
+// it a second time, and still encodes a nil one as null.
+func TestWSConnection_WriteJSONRawMessage(t *testing.T) {
+	srv, cli := wsPair(t)
+
+	if err := srv.WriteJSON(json.RawMessage(`{"a":1}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := srv.WriteJSON(json.RawMessage(nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = cli.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	for _, want := range []string{`{"a":1}`, `null`} {
+		got, _, err := wsutil.ReadServerData(cli)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if string(got) != want {
+			t.Fatalf("frame = %q, want %q", got, want)
+		}
 	}
 }

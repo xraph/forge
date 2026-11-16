@@ -173,6 +173,25 @@ func (c *enhancedConn) WriteJSON(v any) error {
 	return c.queue.enqueue(frame)
 }
 
+// writeEncodedJSON queues msg already encoded as JSON in data.
+//
+// A broadcast encodes its message once and hands every recipient the same
+// bytes through here, instead of each WriteJSON marshalling the same *Message
+// again. The queue only reads data, so sharing it is safe; callers must not
+// modify it afterwards.
+func (c *enhancedConn) writeEncodedJSON(data []byte, msg *internal.Message) error {
+	frame := sendFrame{payload: data, kind: frameJSON}
+	describeFrame(&frame, msg)
+
+	return c.queue.enqueue(frame)
+}
+
+// encodedJSONWriter is implemented by connections that can queue pre-encoded
+// JSON for a message, so a fan-out can share one encoding.
+type encodedJSONWriter interface {
+	writeEncodedJSON(data []byte, msg *internal.Message) error
+}
+
 // sequencedJSONWriter is implemented by transports that tag a JSON frame with
 // the room sequence it carries. sseConnection does, to emit event ids.
 type sequencedJSONWriter interface {

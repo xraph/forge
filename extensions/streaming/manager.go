@@ -1302,8 +1302,58 @@ func approximateMessageSize(msg *Message) int {
 	return len(data)
 }
 
+// sharedEncoding holds one message's encodings for the duration of a fan-out,
+// one per content type, so a broadcast encodes its message once rather than
+// once per recipient. Safe for the fan-out's concurrent workers.
+//
+// It only covers the message the broadcast started with. A filter that hands
+// a recipient a different message gets that message encoded on its own.
+type sharedEncoding struct {
+	msg *Message
+
+	mu     sync.Mutex
+	byType map[string]sharedFrame
+}
+
+type sharedFrame struct {
+	data []byte
+	err  error
+}
+
+func newSharedEncoding(msg *Message) *sharedEncoding {
+	return &sharedEncoding{msg: msg}
+}
+
+// get returns the encoding for contentType, running encode the first time.
+// The lock is held across encode on purpose: workers asking for the same
+// content type wait for one encode instead of all doing it.
+func (e *sharedEncoding) get(contentType string, encode func() ([]byte, error)) ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if f, ok := e.byType[contentType]; ok {
+		return f.data, f.err
+	}
+
+	data, err := encode()
+
+	if e.byType == nil {
+		e.byType = make(map[string]sharedFrame, 1)
+	}
+
+	e.byType[contentType] = sharedFrame{data: data, err: err}
+
+	return data, err
+}
+
 // deliverToConnection delivers a message to a single connection, applying per-recipient filters.
 func (m *manager) deliverToConnection(ctx context.Context, conn Connection, message *Message) error {
+	return m.deliverShared(ctx, conn, message, nil)
+}
+
+// deliverShared is deliverToConnection with an optional encoding shared
+// across a fan-out. enc may be nil.
+func (m *manager) deliverShared(ctx context.Context, conn Connection, message *Message, enc *sharedEncoding) error {
 	msg := message
 	if m.filterChain != nil {
 		filtered, err := m.filterChain.Apply(ctx, msg, conn)
@@ -1329,8 +1379,23 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		contentType = conn.GetContentType()
 	}
 
+	// The shared encoding applies only when the filters left the message as
+	// the broadcast sent it.
+	if enc != nil && msg != enc.msg {
+		enc = nil
+	}
+
 	// Use WriteJSON for default JSON or empty content type (backward compatible)
 	if contentType == "" || contentType == streaming.ContentTypeJSON {
+		if w, ok := conn.(encodedJSONWriter); ok && enc != nil {
+			data, err := enc.get(streaming.ContentTypeJSON, func() ([]byte, error) { return json.Marshal(msg) })
+			if err != nil {
+				return err
+			}
+
+			return w.writeEncodedJSON(data, msg)
+		}
+
 		return conn.WriteJSON(msg)
 	}
 
@@ -1342,7 +1407,19 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 	// The per-connection preference set via SetContentType therefore never
 	// reached a codec at all.
 	if m.codecs != nil {
-		data, err := m.codecs.EncodeWithType(contentType, msg)
+		encode := func() ([]byte, error) { return m.codecs.EncodeWithType(contentType, msg) }
+
+		var (
+			data []byte
+			err  error
+		)
+
+		if enc != nil {
+			data, err = enc.get(contentType, encode)
+		} else {
+			data, err = encode()
+		}
+
 		if err != nil {
 			return err
 		}
@@ -1483,6 +1560,10 @@ func (m *manager) fanOut(
 		return 0
 	}
 
+	// Encode once for the whole fan-out. Every recipient used to marshal the
+	// same *Message itself: a 1000-member room cost 1000 encodes per message.
+	enc := newSharedEncoding(message)
+
 	logFailure := func(c Connection, err error) {
 		if m.logger != nil {
 			m.logger.Error("failed to deliver message",
@@ -1499,7 +1580,7 @@ func (m *manager) fanOut(
 		var count int64
 
 		for _, conn := range conns {
-			if err := m.deliverToConnection(ctx, conn, message); err != nil {
+			if err := m.deliverShared(ctx, conn, message, enc); err != nil {
 				logFailure(conn, err)
 			} else {
 				count++
@@ -1523,7 +1604,7 @@ func (m *manager) fanOut(
 	for range workers {
 		wg.Go(func() {
 			for conn := range work {
-				if err := m.deliverToConnection(ctx, conn, message); err != nil {
+				if err := m.deliverShared(ctx, conn, message, enc); err != nil {
 					logFailure(conn, err)
 				} else {
 					count.Add(1)

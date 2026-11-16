@@ -342,7 +342,16 @@ func (c *wsConnection) WriteBinary(data []byte) error {
 }
 
 // WriteJSON sends JSON to the WebSocket.
+//
+// A json.RawMessage is written as is. Callers that encode once and fan the
+// same bytes out to many connections, such as the streaming extension's send
+// queue, hand over RawMessage, and marshalling it again would only copy and
+// re-validate bytes that are already JSON. The caller vouches for them.
 func (c *wsConnection) WriteJSON(v any) error {
+	if raw, ok := v.(json.RawMessage); ok && raw != nil {
+		return c.Write(raw)
+	}
+
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
