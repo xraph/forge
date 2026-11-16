@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/xraph/forge"
@@ -179,58 +181,11 @@ func (e *Extension) Register(app forge.App) error {
 			forge.WithTags("hls", "streaming"),
 			forge.WithSummary("Get HLS segment"),
 		),
-
-		// Stream management endpoints
-		router.POST(e.config.BasePath+"/streams", e.handleCreateStream,
-			forge.WithName("hls-create-stream"),
-			forge.WithTags("hls", "streaming", "management"),
-			forge.WithSummary("Create a new HLS stream"),
-		),
-
-		router.GET(e.config.BasePath+"/streams/:streamID", e.handleGetStream,
-			forge.WithName("hls-get-stream"),
-			forge.WithTags("hls", "streaming", "management"),
-			forge.WithSummary("Get HLS stream details"),
-		),
-
-		router.DELETE(e.config.BasePath+"/streams/:streamID", e.handleDeleteStream,
-			forge.WithName("hls-delete-stream"),
-			forge.WithTags("hls", "streaming", "management"),
-			forge.WithSummary("Delete an HLS stream"),
-		),
-
-		router.GET(e.config.BasePath+"/streams", e.handleListStreams,
-			forge.WithName("hls-list-streams"),
-			forge.WithTags("hls", "streaming", "management"),
-			forge.WithSummary("List all HLS streams"),
-		),
-
-		// Live streaming endpoints
-		router.POST(e.config.BasePath+"/streams/:streamID/start", e.handleStartLiveStream,
-			forge.WithName("hls-start-live"),
-			forge.WithTags("hls", "streaming", "live"),
-			forge.WithSummary("Start a live stream"),
-		),
-
-		router.POST(e.config.BasePath+"/streams/:streamID/stop", e.handleStopLiveStream,
-			forge.WithName("hls-stop-live"),
-			forge.WithTags("hls", "streaming", "live"),
-			forge.WithSummary("Stop a live stream"),
-		),
-
-		router.POST(e.config.BasePath+"/streams/:streamID/ingest", e.handleIngestSegment,
-			forge.WithName("hls-ingest-segment"),
-			forge.WithTags("hls", "streaming", "live"),
-			forge.WithSummary("Ingest a segment for live streaming"),
-		),
-
-		// Stats endpoint
-		router.GET(e.config.BasePath+"/streams/:streamID/stats", e.handleGetStats,
-			forge.WithName("hls-stream-stats"),
-			forge.WithTags("hls", "streaming", "stats"),
-			forge.WithSummary("Get stream statistics"),
-		),
 	)
+	if routeErr == nil {
+		routeErr = e.registerManagementRoutes(router)
+	}
+
 	if routeErr != nil {
 		return fmt.Errorf("failed to register hls routes: %w", routeErr)
 	}
@@ -244,6 +199,125 @@ func (e *Extension) Register(app forge.App) error {
 	)
 
 	return nil
+}
+
+// registerManagementRoutes mounts the stream management API when the config
+// asks for it. See Config.RequireAuth for when it is mounted and gated.
+func (e *Extension) registerManagementRoutes(router forge.Router) error {
+	if !e.config.EnableManagementAPI && !e.config.RequireAuth {
+		e.Logger().Info("hls: management API not mounted; enable it with WithManagementAPI(true) and WithAuth(true)",
+			forge.F("base_path", e.config.BasePath),
+		)
+
+		return nil
+	}
+
+	if !e.config.RequireAuth {
+		e.Logger().Warn("hls: management API is mounted WITHOUT authentication; anyone who can reach it can create, delete and write to streams. Set WithAuth(true) or keep it off untrusted networks.",
+			forge.F("base_path", e.config.BasePath+"/streams"),
+		)
+	}
+
+	managementMW := forge.WithMiddleware(requireAuthMiddleware(e.config.RequireAuth))
+
+	return errors.Join(
+		// Stream management endpoints
+		router.POST(e.config.BasePath+"/streams", e.handleCreateStream,
+			forge.WithName("hls-create-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Create a new HLS stream"),
+			managementMW,
+		),
+
+		router.GET(e.config.BasePath+"/streams/:streamID", e.handleGetStream,
+			forge.WithName("hls-get-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Get HLS stream details"),
+			managementMW,
+		),
+
+		router.DELETE(e.config.BasePath+"/streams/:streamID", e.handleDeleteStream,
+			forge.WithName("hls-delete-stream"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("Delete an HLS stream"),
+			managementMW,
+		),
+
+		router.GET(e.config.BasePath+"/streams", e.handleListStreams,
+			forge.WithName("hls-list-streams"),
+			forge.WithTags("hls", "streaming", "management"),
+			forge.WithSummary("List all HLS streams"),
+			managementMW,
+		),
+
+		// Live streaming endpoints
+		router.POST(e.config.BasePath+"/streams/:streamID/start", e.handleStartLiveStream,
+			forge.WithName("hls-start-live"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Start a live stream"),
+			managementMW,
+		),
+
+		router.POST(e.config.BasePath+"/streams/:streamID/stop", e.handleStopLiveStream,
+			forge.WithName("hls-stop-live"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Stop a live stream"),
+			managementMW,
+		),
+
+		router.POST(e.config.BasePath+"/streams/:streamID/ingest", e.handleIngestSegment,
+			forge.WithName("hls-ingest-segment"),
+			forge.WithTags("hls", "streaming", "live"),
+			forge.WithSummary("Ingest a segment for live streaming"),
+			managementMW,
+			// The segment travels base64-encoded inside JSON, so allow for
+			// that expansion plus room for the envelope, and no more.
+			forge.WithMaxBodySize(e.config.MaxSegmentSize/3*4+64<<10),
+		),
+
+		// Stats endpoint
+		router.GET(e.config.BasePath+"/streams/:streamID/stats", e.handleGetStats,
+			forge.WithName("hls-stream-stats"),
+			forge.WithTags("hls", "streaming", "stats"),
+			forge.WithSummary("Get stream statistics"),
+			managementMW,
+		),
+	)
+}
+
+// requireAuthMiddleware refuses a request with 401 when required is set and
+// no auth middleware ahead of it signed the caller in. "Signed in" means a
+// non-nil "auth_context" (what the auth extension's middleware sets) or a
+// non-empty "user_id" on the forge context. The HLS extension does no
+// authentication itself; it only refuses to serve the caller nobody vouched
+// for.
+func requireAuthMiddleware(required bool) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		if !required {
+			return next
+		}
+
+		return func(ctx forge.Context) error {
+			if !isAuthenticated(ctx) {
+				return forge.Unauthorized("authentication required")
+			}
+
+			return next(ctx)
+		}
+	}
+}
+
+func isAuthenticated(ctx forge.Context) bool {
+	if v := ctx.Get("auth_context"); v != nil {
+		rv := reflect.ValueOf(v)
+		if rv.Kind() != reflect.Pointer || !rv.IsNil() {
+			return true
+		}
+	}
+
+	uid, _ := ctx.Get("user_id").(string)
+
+	return uid != ""
 }
 
 // Start starts the HLS extension.
@@ -444,6 +518,13 @@ func (e *Extension) handleIngestSegment(ctx forge.Context) error {
 	segment.StreamID = streamID
 
 	if err := e.manager.IngestSegment(ctx.Request().Context(), streamID, &segment); err != nil {
+		switch {
+		case errors.Is(err, ErrUnknownVariant):
+			return forge.BadRequest(err.Error())
+		case errors.Is(err, ErrSegmentTooLarge):
+			return forge.NewHTTPError(http.StatusRequestEntityTooLarge, err.Error())
+		}
+
 		return forge.InternalError(fmt.Errorf("failed to ingest segment: %w", err))
 	}
 
