@@ -1213,9 +1213,11 @@ func (m *manager) ProcessInbound(ctx context.Context, message *Message, sender C
 		}
 	}
 
-	// 2. Rate limiting.
-	if m.rateLimiter != nil && userID != "" {
-		allowed, err := m.rateLimiter.Allow(ctx, userID, "message")
+	// 2. Rate limiting. Anonymous connections are limited too, per
+	// connection. They used to skip the limiter entirely, which made the
+	// cheapest identity to obtain the only one with no rate limit.
+	if key := rateLimitKey(sender); m.rateLimiter != nil && key != "" {
+		allowed, err := m.rateLimiter.Allow(ctx, key, "message")
 		if err != nil {
 			// A limiter that cannot answer must not become an open door in one
 			// direction or a hard outage in the other. Log and allow: the
@@ -1254,6 +1256,26 @@ func (m *manager) ProcessInbound(ctx context.Context, message *Message, sender C
 	}
 
 	return message, nil
+}
+
+// rateLimitKey is the identity a connection's inbound messages are rate
+// limited under: the user for an authenticated connection, so a user's
+// sockets share one budget, and the connection itself for an anonymous one.
+//
+// Per connection rather than per remote address on purpose. Behind a proxy or
+// a shared NAT every anonymous client has the same address, and one noisy
+// client would use up the budget for all of them. The number of anonymous
+// connections is capped separately by MaxAnonymousConnections.
+func rateLimitKey(conn Connection) string {
+	if conn == nil {
+		return ""
+	}
+
+	if userID := conn.GetUserID(); userID != "" {
+		return userID
+	}
+
+	return "anon:conn:" + conn.ID()
 }
 
 // authorizeSend checks that the sender may publish to the target the message

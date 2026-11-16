@@ -693,7 +693,7 @@ func (e *Extension) sendError(conn Connection, cause *Message, err error) {
 	// Attach retry guidance when the rejection was a rate limit, so the client
 	// backs off by the server's schedule rather than guessing at one.
 	if errors.Is(err, ErrRateLimitExceeded) {
-		if status, sErr := e.manager.GetRateLimitStatus(context.Background(), conn.GetUserID()); sErr == nil {
+		if status, sErr := e.manager.GetRateLimitStatus(context.Background(), rateLimitKey(conn)); sErr == nil {
 			if data, ok := frame.Data.(map[string]any); ok {
 				data["retry_after_ms"] = status.RetryAfter.Milliseconds()
 				data["reset_at"] = status.ResetAt
