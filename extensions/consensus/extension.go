@@ -7,6 +7,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/extensions/consensus/admin"
 	"github.com/xraph/forge/extensions/consensus/internal"
 	"github.com/xraph/vessel"
 )
@@ -85,10 +86,13 @@ func (e *Extension) Register(app forge.App) error {
 		return err
 	}
 
-	// TODO: Register admin API routes if enabled
-	// Admin API will be implemented in internal/admin package
 	if e.config.AdminAPI.Enabled {
-		e.Logger().Info("admin API enabled but not yet implemented")
+		api, err := admin.NewAPIFromConfig(service, nil, nil, e.Logger(), e.config.AdminAPI)
+		if err != nil {
+			return fmt.Errorf("consensus admin API: %w", err)
+		}
+
+		api.RegisterRoutes(app.Router(), e.config.AdminAPI.PathPrefix)
 	}
 
 	e.Logger().Info("consensus extension registered",

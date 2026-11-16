@@ -92,6 +92,10 @@ type Node struct {
 	// snapshotRecv assembles an incoming chunked snapshot. Guarded by mu.
 	snapshotRecv *snapshotReceive
 
+	// lastLeaderContact is when a valid leader last reached this node.
+	// Guarded by mu.
+	lastLeaderContact time.Time
+
 	// RPC correlation. Every outgoing request gets a fresh ID from requestSeq,
 	// which the peer echoes in its response, so a late response can never be
 	// matched to a newer request to the same peer.
@@ -408,6 +412,7 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 	n.setRole(internal.RoleFollower)
 	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
+	n.lastLeaderContact = time.Now()
 
 	resp.LastLogIndex = n.log.LastIndex()
 
@@ -550,6 +555,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 	n.setRole(internal.RoleFollower)
 	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
+	n.lastLeaderContact = time.Now()
 
 	if req.Offset == 0 {
 		n.snapshotRecv = &snapshotReceive{
@@ -1024,4 +1030,60 @@ func (n *Node) AddPeer(peerID string) {
 			forge.F("peer_id", peerID),
 		)
 	}
+}
+
+// PeerStatus is what this node knows about one peer.
+type PeerStatus struct {
+	ID string
+	// LastContact is when this node last got a response from the peer while
+	// leading. It is zero on followers.
+	LastContact time.Time
+	// MatchIndex is the highest entry known to be replicated on the peer. It
+	// is only maintained on the leader.
+	MatchIndex uint64
+}
+
+// Peers returns the status of every peer.
+func (n *Node) Peers() []PeerStatus {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	n.peersLock.RLock()
+	defer n.peersLock.RUnlock()
+
+	out := make([]PeerStatus, 0, len(n.peers))
+	for id, p := range n.peers {
+		out = append(out, PeerStatus{ID: id, LastContact: p.LastContact, MatchIndex: n.matchIndex[id]})
+	}
+
+	return out
+}
+
+// HasQuorum reports whether this node is in touch with a working majority.
+// A leader needs responses from a majority (itself included) within the
+// maximum election timeout; a follower needs to have heard from a leader
+// within that time.
+func (n *Node) HasQuorum() bool {
+	window := n.config.ElectionTimeoutMax
+	now := time.Now()
+
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.GetRole() != internal.RoleLeader {
+		return n.GetLeader() != "" && now.Sub(n.lastLeaderContact) <= window
+	}
+
+	n.peersLock.RLock()
+	defer n.peersLock.RUnlock()
+
+	reachable := 1
+
+	for _, p := range n.peers {
+		if now.Sub(p.LastContact) <= window {
+			reachable++
+		}
+	}
+
+	return reachable >= (len(n.peers)+1)/2+1
 }

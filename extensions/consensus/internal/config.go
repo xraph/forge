@@ -216,7 +216,10 @@ type ResilienceConfig struct {
 
 // AdminAPIConfig contains admin API configuration.
 type AdminAPIConfig struct {
-	Enabled    bool   `default:"true"       json:"enabled"     yaml:"enabled"`
+	// Enabled registers the admin routes on the app router. They can add
+	// commands to the replicated log, so set EnableAuth with an APIKey
+	// whenever the router is reachable by anyone else.
+	Enabled    bool   `default:"false"      json:"enabled"     yaml:"enabled"`
 	PathPrefix string `default:"/consensus" json:"path_prefix" yaml:"path_prefix"`
 	EnableAuth bool   `default:"false"      json:"enable_auth" yaml:"enable_auth"`
 	APIKey     string `json:"api_key"       yaml:"api_key"`
@@ -360,7 +363,7 @@ func DefaultConfig() Config {
 			CircuitBreakerTimeout:   30 * time.Second,
 		},
 		AdminAPI: AdminAPIConfig{
-			Enabled:    true,
+			Enabled:    false,
 			PathPrefix: "/consensus",
 			EnableAuth: false,
 		},
@@ -433,7 +436,7 @@ func (c *Config) Validate() error {
 
 	// Validate storage config
 	validStorageTypes := map[string]bool{
-		"badger": true, "boltdb": true, "pebble": true, "postgres": true,
+		"badger": true, "boltdb": true, "memory": true, "pebble": true, "postgres": true,
 	}
 	if !validStorageTypes[c.Storage.Type] {
 		return fmt.Errorf("%w: invalid storage type: %s", ErrInvalidConfig, c.Storage.Type)

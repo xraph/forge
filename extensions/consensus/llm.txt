@@ -4,26 +4,22 @@
 
 Raft consensus building blocks in Go: a Raft node with leader election, pre-vote, log
 replication and snapshots, plus storage, transports, discovery and state machines to build a
-node from. A Forge extension sits on top, but it does not wire those pieces together yet.
+node from. A Forge extension sits on top and runs a node from configuration.
 
-Read "Status" before you use any of it. Today the useful path is assembling `raft.Node`
-yourself on the in-process transport.
+Read "Status" before you use any of it.
 
 Module: github.com/xraph/forge/extensions/consensus (package `consensus`). Most root types and
 helpers are aliases over `consensus/internal` (exports.go).
 
 ## Status
 
-- `raft`: leader election and log replication work on the in-process transport. Three nodes
-  elect a leader and a proposed entry commits on a majority.
-- Followers advance their commit index but don't apply committed entries to their state
-  machine. Read from the leader.
-- `consensus.NewExtension`: validates config and registers services, but its storage,
-  transport, discovery, state machine and Raft node are never created (the init steps only log).
-- gRPC/TCP/HTTP transports, BadgerDB/BoltDB storage and the discovery backends compile, but
-  nothing in this repo runs a networked cluster on them.
-- `testing/` runs in-process clusters; `TestLogReplication` is skipped under `-short`, which is
-  how CI runs it.
+- `raft`: leader election, log replication and applying entries work over the in-process, TCP and
+  HTTP transports (three node tests). Log, term and vote survive restarts. Followers behind the
+  leader's snapshot catch up through chunked InstallSnapshot.
+- `consensus.NewExtension` builds storage (badger, boltdb, memory), the tcp or http transport
+  (TLS/mTLS from security.*), a memory state machine and the Raft node from config.
+- Not implemented: gRPC transport, membership changes, leadership transfer, linearizable reads,
+  encryption at rest, non-static discovery in the extension.
 
 ## Packages and constructors
 
@@ -90,7 +86,7 @@ WithBindAddress(addr string, port int)
 WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
 WithTransportType(transportType string)    // tcp, http (grpc is not implemented)
 WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
-WithStorageType(storageType string)        // badger, boltdb, pebble, postgres
+WithStorageType(storageType string)        // badger, boltdb, memory (pebble, postgres not implemented)
 WithStoragePath(path string)
 WithTLS(certFile, keyFile string)
 WithMTLS(caFile string)
@@ -99,14 +95,16 @@ WithRequireConfig(require bool)
 ```
 
 Container entries: `*consensus.Service` (aliases `consensus`, `consensus:service`),
-`ClusterManager` (`consensus:cluster`), `RaftNode` (`consensus:raft`), `StateMachine`
-(`consensus:statemachine`), `*LeadershipChecker` (`consensus:leadership`). Because the
-components are never built, the RaftNode and StateMachine entries are nil.
+`ClusterManager` (`consensus:cluster`, nil: membership is the static peer list), `RaftNode`
+(`consensus:raft`), `StateMachine` (`consensus:statemachine`), `*LeadershipChecker`
+(`consensus:leadership`). RaftNode and StateMachine are created by Start, so resolve them after
+the app has started.
 
-What you get from the service today: `Apply` always returns ErrNotLeader; `Read` panics on the
-nil state machine; `HealthCheck` returns "storage not initialized" (and the health loop logs it every
-health.check_interval); GetRaftNode/GetStateMachine/GetStorage/GetTransport return nil;
-TransferLeadership and StepDown return "not yet implemented".
+Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` queries the local
+state machine; `Snapshot` compacts; `StepDown` works; AddNode/RemoveNode return
+ErrMembershipChangeUnsupported; TransferLeadership is not implemented. NewConsensusService fails
+for grpc transport, pebble/postgres storage, non-static discovery and enable_encryption.
+admin_api.enabled (default false) registers the admin routes on the app router.
 
 ## Config
 
@@ -117,9 +115,8 @@ bind_addr ("127.0.0.1"); transport.type tcp or http ("tcp", grpc rejected as not
 static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
 ("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
 ca_file; enable_encryption is rejected (not implemented); admin_api.enable_auth needs api_key.
-Service.Start fails when enable_tls or enable_mtls is set, because the service opens no transport
-yet. Secured clusters are built from raft.NewNode plus transport.NewTCPTransport/NewHTTPTransport
-with TLSConfig and RequirePeerIdentity (node ID as a DNS SAN in each node certificate).
+enable_tls serves and dials over TLS; enable_mtls also requires client certificates and checks
+each message's sender against its certificate (node ID as a DNS SAN in each node certificate).
 
 Other sections: election, health, observability, resilience, admin_api, events, advanced. Full
 keys and defaults in internal/config.go. The extension acts on: health.enabled and
@@ -129,12 +126,9 @@ dependency and publishes start and stop events when an event bus is present).
 
 ## Gotchas
 
-- advanced.enable_auto_snapshot is on by default; every raft.snapshot_interval (30m) the snapshot
-  call panics on the nil state machine and takes the process down. Set it to false if you add
-  the extension.
+- bind_addr defaults to 127.0.0.1. Set it explicitly for a cluster spanning hosts.
 
 ## Not implemented yet
 
-- The extension's component wiring (storage, transport, discovery, state machine, Raft node).
-- The admin API under `admin_api`: turning it on only writes a log line.
-- Applying committed entries on followers.
+- gRPC transport, cluster membership changes, leadership transfer, linearizable reads,
+  encryption at rest, and discovery other than the static peer list in the extension.

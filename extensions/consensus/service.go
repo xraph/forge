@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/extensions/consensus/raft"
 )
 
 // Service implements internal.ConsensusService.
@@ -18,6 +20,7 @@ type Service struct {
 	metrics forge.Metrics
 
 	// Core components
+	node           *raft.Node
 	raftNode       internal.RaftNode
 	stateMachine   internal.StateMachine
 	clusterManager internal.ClusterManager
@@ -26,9 +29,6 @@ type Service struct {
 	storage        internal.Storage
 
 	// State
-	role      internal.NodeRole
-	term      uint64
-	leader    string
 	startTime time.Time
 	started   bool
 	mu        sync.RWMutex
@@ -54,11 +54,14 @@ func NewConsensusService(config internal.Config, logger forge.Logger, metrics fo
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	if err := checkSupported(config); err != nil {
+		return nil, err
+	}
+
 	s := &Service{
 		config:    config,
 		logger:    logger,
 		metrics:   metrics,
-		role:      RoleFollower,
 		startTime: time.Now(),
 	}
 
@@ -74,52 +77,22 @@ func (s *Service) Start(ctx context.Context) error {
 		return ErrAlreadyStarted
 	}
 
-	if err := checkUnwiredSecurity(s.config); err != nil {
-		return err
-	}
-
-	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.ctx, s.cancel = context.WithCancel(context.WithoutCancel(ctx))
 
 	s.logger.Info("starting consensus service",
 		forge.F("node_id", s.config.NodeID),
 		forge.F("cluster_id", s.config.ClusterID),
 		forge.F("bind_addr", s.config.BindAddr),
 		forge.F("bind_port", s.config.BindPort),
+		forge.F("transport", s.config.Transport.Type),
+		forge.F("storage", s.config.Storage.Type),
 	)
 
-	s.logger.Warn("the consensus service does not run a raft node or open a transport yet; "+
-		"build a cluster with raft.NewNode and the transport package to replicate data",
-		forge.F("node_id", s.config.NodeID),
-	)
+	if err := s.startComponents(ctx); err != nil {
+		s.cancel()
+		s.stopComponents(context.WithoutCancel(ctx))
 
-	// Initialize storage
-	if err := s.initStorage(); err != nil {
-		return fmt.Errorf("failed to initialize storage: %w", err)
-	}
-
-	// Initialize transport
-	if err := s.initTransport(); err != nil {
-		return fmt.Errorf("failed to initialize transport: %w", err)
-	}
-
-	// Initialize discovery
-	if err := s.initDiscovery(); err != nil {
-		return fmt.Errorf("failed to initialize discovery: %w", err)
-	}
-
-	// Initialize cluster manager
-	if err := s.initClusterManager(); err != nil {
-		return fmt.Errorf("failed to initialize cluster manager: %w", err)
-	}
-
-	// Initialize state machine
-	if err := s.initStateMachine(); err != nil {
-		return fmt.Errorf("failed to initialize state machine: %w", err)
-	}
-
-	// Initialize Raft node
-	if err := s.initRaftNode(); err != nil {
-		return fmt.Errorf("failed to initialize raft node: %w", err)
+		return err
 	}
 
 	// Start background tasks
@@ -171,30 +144,7 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.logger.Warn("timeout waiting for background tasks to stop")
 	}
 
-	// Stop components in reverse order
-	if s.raftNode != nil {
-		if err := s.raftNode.Stop(ctx); err != nil {
-			s.logger.Error("failed to stop raft node", forge.F("error", err))
-		}
-	}
-
-	if s.discovery != nil {
-		if err := s.discovery.Stop(ctx); err != nil {
-			s.logger.Error("failed to stop discovery", forge.F("error", err))
-		}
-	}
-
-	if s.transport != nil {
-		if err := s.transport.Stop(ctx); err != nil {
-			s.logger.Error("failed to stop transport", forge.F("error", err))
-		}
-	}
-
-	if s.storage != nil {
-		if err := s.storage.Stop(ctx); err != nil {
-			s.logger.Error("failed to stop storage", forge.F("error", err))
-		}
-	}
+	s.stopComponents(ctx)
 
 	s.logger.Info("consensus service stopped")
 
@@ -203,34 +153,53 @@ func (s *Service) Stop(ctx context.Context) error {
 
 // IsLeader returns true if this node is the leader.
 func (s *Service) IsLeader() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if node := s.raft(); node != nil {
+		return node.IsLeader()
+	}
 
-	return s.role == internal.RoleLeader
+	return false
 }
 
 // GetLeader returns the current leader node ID.
 func (s *Service) GetLeader() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if node := s.raft(); node != nil {
+		return node.GetLeader()
+	}
 
-	return s.leader
+	return ""
 }
 
 // GetRole returns the current role of this node.
 func (s *Service) GetRole() NodeRole {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if node := s.raft(); node != nil {
+		return node.GetRole()
+	}
 
-	return s.role
+	return internal.RoleFollower
 }
 
 // GetTerm returns the current term.
 func (s *Service) GetTerm() uint64 {
+	if node := s.raft(); node != nil {
+		return node.GetTerm()
+	}
+
+	return 0
+}
+
+// raft returns the running raft node, or nil before Start.
+func (s *Service) raft() *raft.Node {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.term
+	return s.node
+}
+
+// hasQuorum reports whether this node is in touch with a working majority.
+func (s *Service) hasQuorum() bool {
+	node := s.raft()
+
+	return node != nil && node.HasQuorum()
 }
 
 // Apply applies a command to the state machine.
@@ -256,10 +225,16 @@ func (s *Service) Apply(ctx context.Context, cmd Command) error {
 		s.recordOperation(time.Since(start), true)
 	}()
 
-	// Create log entry
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		s.recordOperation(time.Since(start), false)
+
+		return fmt.Errorf("failed to encode command: %w", err)
+	}
+
 	entry := LogEntry{
 		Type:    EntryNormal,
-		Data:    s.encodeCommand(cmd),
+		Data:    data,
 		Created: time.Now(),
 	}
 
@@ -285,9 +260,8 @@ func (s *Service) Read(ctx context.Context, query any) (any, error) {
 
 	s.mu.RUnlock()
 
-	// For now, allow reads from any node (eventually consistent)
-	// TODO: Implement linearizable reads with read index
-
+	// Reads are served from the local state machine, so a follower may lag
+	// the leader. Linearizable reads (read index) are not implemented.
 	return s.stateMachine.Query(query)
 }
 
@@ -304,11 +278,7 @@ func (s *Service) GetStats() internal.ConsensusStats {
 		raftStats = s.raftNode.GetStats()
 	}
 
-	var clusterSize, healthyNodes int
-	if s.clusterManager != nil {
-		clusterSize = s.clusterManager.GetClusterSize()
-		healthyNodes = s.clusterManager.GetHealthyNodes()
-	}
+	clusterSize, healthyNodes := s.clusterCounts(s.node)
 
 	uptime := time.Since(s.startTime)
 
@@ -325,17 +295,17 @@ func (s *Service) GetStats() internal.ConsensusStats {
 	return internal.ConsensusStats{
 		NodeID:           s.config.NodeID,
 		ClusterID:        s.config.ClusterID,
-		Role:             s.role,
+		Role:             raftStats.Role,
 		Status:           internal.StatusActive,
-		Term:             s.term,
-		LeaderID:         s.leader,
+		Term:             raftStats.Term,
+		LeaderID:         raftStats.Leader,
 		CommitIndex:      raftStats.CommitIndex,
 		LastApplied:      raftStats.LastApplied,
 		LastLogIndex:     raftStats.LastLogIndex,
 		LastLogTerm:      raftStats.LastLogTerm,
 		ClusterSize:      clusterSize,
 		HealthyNodes:     healthyNodes,
-		HasQuorum:        s.clusterManager != nil && s.clusterManager.HasQuorum(),
+		HasQuorum:        s.node != nil && s.node.HasQuorum(),
 		ElectionsTotal:   s.elections,
 		ElectionsFailed:  s.electionsFailed,
 		OperationsTotal:  s.operations,
@@ -371,8 +341,7 @@ func (s *Service) HealthCheck(ctx context.Context) error {
 		return errors.New("transport not initialized")
 	}
 
-	// Check if we have quorum (if not leader)
-	if !s.IsLeader() && s.clusterManager != nil && !s.clusterManager.HasQuorum() {
+	if !s.hasQuorum() {
 		return errors.New("no quorum")
 	}
 
@@ -426,7 +395,7 @@ func (s *Service) GetHealthStatus(ctx context.Context) HealthStatus {
 	}
 
 	// Quorum check
-	hasQuorum := s.clusterManager != nil && s.clusterManager.HasQuorum()
+	hasQuorum := s.hasQuorum()
 	checks = append(checks, HealthCheck{
 		Name:      "quorum",
 		Healthy:   hasQuorum,
@@ -434,11 +403,7 @@ func (s *Service) GetHealthStatus(ctx context.Context) HealthStatus {
 		CheckedAt: time.Now(),
 	})
 
-	var totalNodes, activeNodes int
-	if s.clusterManager != nil {
-		totalNodes = s.clusterManager.GetClusterSize()
-		activeNodes = s.clusterManager.GetHealthyNodes()
-	}
+	totalNodes, activeNodes := s.clusterCounts(s.raft())
 
 	status := "healthy"
 	if !healthy {
@@ -462,90 +427,66 @@ func (s *Service) GetHealthStatus(ctx context.Context) HealthStatus {
 
 // GetClusterInfo returns cluster information.
 func (s *Service) GetClusterInfo() ClusterInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var (
-		nodes                   []NodeInfo
-		totalNodes, activeNodes int
-	)
-
-	if s.clusterManager != nil {
-		nodes = s.clusterManager.GetNodes()
-
-		totalNodes = len(nodes)
-		for _, node := range nodes {
-			if node.Status == StatusActive {
-				activeNodes++
-			}
-		}
+	node := s.raft()
+	if node == nil {
+		return ClusterInfo{ID: s.config.ClusterID}
 	}
 
-	var commitIndex, lastApplied uint64
+	stats := node.GetStats()
+	nodes := s.clusterNodes(node)
 
-	if s.raftNode != nil {
-		stats := s.raftNode.GetStats()
-		commitIndex = stats.CommitIndex
-		lastApplied = stats.LastApplied
+	activeNodes := 0
+
+	for _, n := range nodes {
+		if n.Status == StatusActive {
+			activeNodes++
+		}
 	}
 
 	return ClusterInfo{
 		ID:          s.config.ClusterID,
-		Leader:      s.leader,
-		Term:        s.term,
+		Leader:      stats.Leader,
+		Term:        stats.Term,
 		Nodes:       nodes,
-		TotalNodes:  totalNodes,
+		TotalNodes:  len(nodes),
 		ActiveNodes: activeNodes,
-		HasQuorum:   s.clusterManager != nil && s.clusterManager.HasQuorum(),
-		CommitIndex: commitIndex,
-		LastApplied: lastApplied,
+		HasQuorum:   node.HasQuorum(),
+		CommitIndex: stats.CommitIndex,
+		LastApplied: stats.LastApplied,
 	}
 }
 
-// AddNode adds a node to the cluster.
+// AddNode is not supported: cluster membership comes from the static peer
+// list, and the raft implementation has no membership change protocol.
+// Changing membership outside the log would risk two majorities.
 func (s *Service) AddNode(ctx context.Context, nodeID, address string, port int) error {
-	if !s.IsLeader() {
-		return NewNotLeaderError(s.config.NodeID, s.GetLeader())
-	}
-
-	if s.clusterManager == nil {
-		return errors.New("cluster manager not initialized")
-	}
-
-	return s.clusterManager.AddNode(nodeID, address, port)
+	return ErrMembershipChangeUnsupported
 }
 
-// RemoveNode removes a node from the cluster.
+// RemoveNode is not supported, for the same reason as AddNode.
 func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
-	if !s.IsLeader() {
-		return NewNotLeaderError(s.config.NodeID, s.GetLeader())
-	}
-
-	if s.clusterManager == nil {
-		return errors.New("cluster manager not initialized")
-	}
-
-	return s.clusterManager.RemoveNode(nodeID)
+	return ErrMembershipChangeUnsupported
 }
 
-// TransferLeadership transfers leadership to another node.
+// TransferLeadership is not implemented. Use StepDown to let another node
+// win the next election.
 func (s *Service) TransferLeadership(ctx context.Context, targetNodeID string) error {
 	if !s.IsLeader() {
 		return ErrNotLeader
 	}
 
-	// TODO: Implement leadership transfer
-	return errors.New("leadership transfer not yet implemented")
+	return errors.New("leadership transfer is not implemented; use StepDown")
 }
 
-// StepDown causes the leader to step down.
+// StepDown makes the leader return to follower so another node can be
+// elected.
 func (s *Service) StepDown(ctx context.Context) error {
-	if !s.IsLeader() {
-		return ErrNotLeader
+	node := s.raft()
+	if node == nil {
+		return ErrNotStarted
 	}
 
-	// TODO: Implement step down
-	return errors.New("step down not yet implemented")
+	return node.StepDown(ctx)
 }
 
 // Snapshot creates a snapshot.
@@ -562,8 +503,7 @@ func (s *Service) Snapshot(ctx context.Context) error {
 
 	start := time.Now()
 
-	snapshot, err := s.stateMachine.Snapshot()
-	if err != nil {
+	if err := s.raft().Snapshot(); err != nil {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
@@ -573,9 +513,6 @@ func (s *Service) Snapshot(ctx context.Context) error {
 	s.metricsLock.Unlock()
 
 	s.logger.Info("snapshot created",
-		forge.F("index", snapshot.Index),
-		forge.F("term", snapshot.Term),
-		forge.F("size", snapshot.Size),
 		forge.F("duration", time.Since(start)),
 	)
 
@@ -611,7 +548,8 @@ func (s *Service) GetStateMachine() StateMachine {
 	return s.stateMachine
 }
 
-// GetClusterManager returns the cluster manager.
+// GetClusterManager returns nil: membership comes from the static peer list
+// and cluster state is read from the raft node (see GetClusterInfo).
 func (s *Service) GetClusterManager() ClusterManager {
 	return s.clusterManager
 }
@@ -631,60 +569,6 @@ func (s *Service) GetStorage() Storage {
 	return s.storage
 }
 
-// Initialize methods (placeholders - will be implemented in separate files)
-
-func (s *Service) initStorage() error {
-	// Will be implemented with actual storage backends
-	s.logger.Info("initializing storage",
-		forge.F("type", s.config.Storage.Type),
-		forge.F("path", s.config.Storage.Path),
-	)
-
-	return nil
-}
-
-func (s *Service) initTransport() error {
-	// Will be implemented with actual transport implementations
-	s.logger.Info("initializing transport",
-		forge.F("type", s.config.Transport.Type),
-		forge.F("bind", fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort)),
-	)
-
-	return nil
-}
-
-func (s *Service) initDiscovery() error {
-	// Will be implemented with actual discovery implementations
-	s.logger.Info("initializing discovery",
-		forge.F("type", s.config.Discovery.Type),
-	)
-
-	return nil
-}
-
-func (s *Service) initClusterManager() error {
-	// Will be implemented with actual cluster manager
-	s.logger.Info("initializing cluster manager")
-
-	return nil
-}
-
-func (s *Service) initStateMachine() error {
-	// Will be implemented with actual state machine
-	s.logger.Info("initializing state machine")
-
-	return nil
-}
-
-func (s *Service) initRaftNode() error {
-	// Will be implemented with actual Raft implementation
-	s.logger.Info("initializing raft node",
-		forge.F("node_id", s.config.NodeID),
-	)
-
-	return nil
-}
-
 func (s *Service) startBackgroundTasks() {
 	// Health check task
 	if s.config.Health.Enabled {
@@ -698,13 +582,6 @@ func (s *Service) startBackgroundTasks() {
 		s.wg.Add(1)
 
 		go s.metricsCollectionLoop()
-	}
-
-	// Auto snapshot task
-	if s.config.Advanced.EnableAutoSnapshot {
-		s.wg.Add(1)
-
-		go s.autoSnapshotLoop()
 	}
 }
 
@@ -738,24 +615,6 @@ func (s *Service) metricsCollectionLoop() {
 			return
 		case <-ticker.C:
 			s.collectMetrics()
-		}
-	}
-}
-
-func (s *Service) autoSnapshotLoop() {
-	defer s.wg.Done()
-
-	ticker := time.NewTicker(s.config.Raft.SnapshotInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.Snapshot(s.ctx); err != nil {
-				s.logger.Error("auto snapshot failed", forge.F("error", err))
-			}
 		}
 	}
 }
@@ -813,26 +672,4 @@ func (s *Service) recordOperation(duration time.Duration, success bool) {
 			s.metrics.Counter(namespace + ".operations.failed").Inc()
 		}
 	}
-}
-
-func (s *Service) encodeCommand(cmd Command) []byte {
-	// TODO: Implement proper encoding
-	return fmt.Appendf(nil, "%v", cmd)
-}
-
-// checkUnwiredSecurity refuses to start when a security option is set that
-// the service cannot apply. The service does not build a raft node or a
-// network transport yet (its init steps only log), so TLS settings would be
-// silently ignored. Failing here keeps operators from believing cluster
-// traffic is protected. Applications that need a secured cluster today build
-// it from raft.NewNode with transport.NewTCPTransport or NewHTTPTransport and
-// their TLSConfig and RequirePeerIdentity options.
-func checkUnwiredSecurity(cfg internal.Config) error {
-	if cfg.Security.EnableTLS || cfg.Security.EnableMTLS {
-		return fmt.Errorf("%w: security.enable_tls and security.enable_mtls cannot be honoured because the consensus "+
-			"service does not start a network transport yet; wire raft.NewNode with the transport package's TLSConfig instead",
-			internal.ErrInvalidConfig)
-	}
-
-	return nil
 }

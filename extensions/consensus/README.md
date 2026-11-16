@@ -4,7 +4,7 @@
 
 # Forge Consensus: Raft consensus building blocks for Go
 
-Forge Consensus is the Raft consensus module for [Forge](https://github.com/xraph/forge), the Go backend framework. It holds a Raft implementation in Go with leader election, pre-vote, log replication and snapshots, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, gRPC, TCP, HTTP and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines. A Forge extension sits on top, but it doesn't wire those pieces together yet, so read the [status](#status) before you pick it for a distributed system.
+Forge Consensus is the Raft consensus module for [Forge](https://github.com/xraph/forge), the Go backend framework. It holds a Raft implementation in Go with leader election, pre-vote, log replication and snapshots, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, TCP, HTTP and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines. A Forge extension sits on top and runs a node from configuration. Read the [status](#status) before you pick it for a distributed system.
 
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/) [![Go CI](https://github.com/xraph/forge/actions/workflows/go.yml/badge.svg)](https://github.com/xraph/forge/actions/workflows/go.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/xraph/forge/extensions/consensus.svg)](https://pkg.go.dev/github.com/xraph/forge/extensions/consensus) [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 
@@ -144,15 +144,15 @@ Entry 1 is the no-op every new leader writes, and entry 2 is your `set`. Calling
 
 ## Status
 
-This module isn't ready to run a production cluster. Here's what we checked against the code as it is today, piece by piece, so you can decide which parts are worth building on:
+This module has not run a production cluster yet. Here's what is covered by tests in this repository:
 
 | Piece | State |
 | --- | --- |
-| Leader election and log replication in `raft` | Works on the in-process transport. Three nodes elect a leader, and a proposed entry commits on a majority |
-| Applying entries on followers | Followers advance their commit index but don't apply committed entries to their state machine, so reads from a follower stay empty. Read from the leader |
-| `consensus.NewExtension` | Validates config and registers services, but its storage, transport, discovery, state machine and Raft node are never created. See [the Forge extension](#the-forge-extension) |
-| Network transports, BadgerDB and BoltDB storage, discovery backends | The code is here and compiles, but nothing in this repository runs a networked cluster on them yet |
-| Cluster tests | `testing/` runs in-process clusters. `TestLogReplication` is skipped under `-short`, which is how CI runs it |
+| Leader election, log replication and applying entries in `raft` | Three node clusters elect a leader and replicate commands to every state machine over the in-process, TCP and HTTP transports |
+| Durability | The log, term and vote are reloaded from storage on restart; a node only acknowledges entries and votes it has persisted |
+| Snapshots | Nodes compact their log into snapshots, and a follower that falls behind the snapshot catches up through InstallSnapshot, sent in chunks |
+| `consensus.NewExtension` | Builds storage, transport, state machine and Raft node from config and replicates over TCP or HTTP, with TLS and mTLS. See [the Forge extension](#the-forge-extension) |
+| Not implemented | The gRPC transport, membership changes (`AddNode`, `RemoveNode`), leadership transfer, linearizable reads, encryption at rest, and dynamic discovery in the extension (peers come from the static list) |
 
 ## Packages
 
@@ -162,7 +162,7 @@ You assemble a node from these packages yourself, the way the quick start does. 
 | --- | --- |
 | [`raft`](raft/) | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, replication, snapshots, `Propose`, `AddPeer` |
 | [`storage`](storage/) | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, and a write-ahead log (`NewWAL`) |
-| [`transport`](transport/) | `NewLocalTransport` (in process), `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, TLS helpers and serializers |
+| [`transport`](transport/) | `NewLocalTransport` (in process), `NewTCPTransport`, `NewHTTPTransport`, TLS helpers and serializers. `NewGRPCTransport` returns `ErrGRPCNotImplemented` from `Start` and `Send` |
 | [`statemachine`](statemachine/) | `NewMemoryStateMachine` (a key-value map with `set`, `delete` and `increment`) and `NewPersistentStateMachine` |
 | [`discovery`](discovery/) | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery` |
 | [`cluster`](cluster/) | Membership, quorum and topology tracking with `cluster.NewManager` |
@@ -190,17 +190,18 @@ app := forge.NewApp(forge.AppConfig{
 })
 ```
 
-That compiles and starts, and here's what you get today. The extension loads and validates your config, then puts `*consensus.Service` (also named `consensus` and `consensus:service`), `ClusterManager`, `RaftNode`, `StateMachine` and a `*consensus.LeadershipChecker` in the container. Starting it only logs each component it would initialise. Nothing listens on the bind port, the node stays a follower, and so:
+`Start` builds the node from config: storage (`badger` or `boltdb` under `storage.path`, or `memory`), the `tcp` or `http` transport on `bind_addr:bind_port` with `transport.max_message_size`, a memory state machine, and a Raft node whose peers are the `peers` list. With `security.enable_tls` the transport serves and dials over TLS; with `enable_mtls` it also requires client certificates and refuses messages whose sender is not named in the certificate (each node's certificate must carry its node ID as a DNS subject alternative name).
 
 | Call | Result |
 | --- | --- |
-| `Apply` | Always `ErrNotLeader` |
-| `Read` | Panics, because the state machine is nil |
-| `Health` | Returns `storage not initialized`, and the service's health loop logs that warning every `health.check_interval` |
-| `GetRaftNode`, `GetStateMachine`, `GetStorage`, `GetTransport` | `nil`, and so are the matching container entries |
-| `TransferLeadership`, `StepDown` | "not yet implemented" errors |
+| `Apply` | On the leader, appends the command and returns once it is committed and applied. Elsewhere `ErrNotLeader` |
+| `Read` | Queries the local state machine, which may lag the leader on a follower |
+| `Snapshot` | Snapshots the state machine and compacts the log |
+| `StepDown` | The leader returns to follower |
+| `AddNode`, `RemoveNode` | `ErrMembershipChangeUnsupported` |
+| `TransferLeadership` | Not implemented, use `StepDown` |
 
-One more thing to watch: with `advanced.enable_auto_snapshot` on (the default), the service takes a snapshot every `raft.snapshot_interval` (30 minutes by default) and that call panics on the nil state machine, which takes the process down. If you add the extension anyway, set `advanced.enable_auto_snapshot: false`. The admin API under `admin_api` isn't implemented either; turning it on only writes a log line.
+Settings the service cannot honour fail when it is created: transport `grpc`, storage `pebble` or `postgres`, any discovery type other than `static`, and `security.enable_encryption`. The container entries for `RaftNode` and `StateMachine` are resolved from the service, so resolve them after the app has started. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
 
 ## Configuration
 
@@ -243,12 +244,12 @@ Validation runs when the extension registers. If any of these rules fail, your a
 | `transport.type` is `tcp` or `http` (`grpc` is rejected because it is not implemented) | `tcp` |
 | `transport.max_message_size` is positive | 4MB |
 | `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
-| `storage.type` is `badger`, `boltdb`, `pebble` or `postgres`, and `storage.path` is set | `badger`, `./data/consensus` |
+| `storage.type` is `badger`, `boltdb` or `memory` (`pebble` and `postgres` are not implemented), and `storage.path` is set | `badger`, `./data/consensus` |
 | `security.cert_file` and `key_file` are set when `enable_tls` is on, and `ca_file` when `enable_mtls` is on | TLS off |
 | `security.enable_encryption` is off (encryption at rest is not implemented) | off |
 | `admin_api.api_key` is set when `admin_api.enable_auth` is on | auth off |
 
-The service does not start a raft node or a transport yet, so `Start` fails when `enable_tls` or `enable_mtls` is set rather than run without them. To run a secured cluster today, build it from `raft.NewNode` with `transport.NewTCPTransport` or `transport.NewHTTPTransport`, passing `TLSConfig` (from `transport.NewTLSManager`) and `RequirePeerIdentity`. With peer identity on, each node's certificate must name its node ID as a DNS subject alternative name. The admin API takes `admin.WithAPIKey` or `admin.NewAPIFromConfig` to require an API key on every route.
+When you assemble a node yourself, pass `TLSConfig` (from `transport.NewTLSManager`) and `RequirePeerIdentity` to `transport.NewTCPTransport` or `transport.NewHTTPTransport` to get the same protection. The admin API takes `admin.WithAPIKey` or `admin.NewAPIFromConfig` to require an API key on every route.
 
 The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `WithTransportType`, `WithDiscoveryType`, `WithStorageType`, `WithStoragePath`, `WithTLS`, `WithMTLS`, `WithConfig` and `WithRequireConfig`. The config also has `election`, `health`, `observability`, `resilience`, `admin_api`, `events` and `advanced` sections. Their full key list and defaults are in [`internal/config.go`](internal/config.go) and on the [configuration page](https://www.xraph.com/docs/forge/extensions/consensus/configuration). Today the extension acts on a handful of them: `health.enabled` and `health.check_interval` drive its health loop, `observability.metrics.enabled` and `collection_interval` drive metrics collection, and `advanced.enable_auto_snapshot` with `raft.snapshot_interval` drives the snapshot loop. `events.enabled` is on by default. It adds `events` to the extension's dependencies and publishes start and stop events when an event bus is in the container.
 
@@ -266,7 +267,7 @@ The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `
 
 ### Is there a Raft implementation in Go I can embed in a Forge service?
 
-There is one in [`raft`](raft/), and the quick start shows a three-node cluster electing a leader and committing an entry. Check the [status](#status) table first: follower state machines don't apply entries yet, and the networked transports haven't been run as a cluster here.
+There is one in [`raft`](raft/), and the quick start shows a three-node cluster electing a leader and committing an entry. Check the [status](#status) table first for what is not implemented.
 
 ### How does leader election work?
 
