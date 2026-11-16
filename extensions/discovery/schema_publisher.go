@@ -50,8 +50,8 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 	)
 
 	// Add capabilities
-	for _, cap := range p.config.Capabilities {
-		manifest.AddCapability(cap)
+	for _, capability := range p.config.Capabilities {
+		manifest.AddCapability(capability)
 	}
 
 	// Set endpoints with defaults.

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ type Extension struct {
 	serviceNode      *farpdiscovery.ServiceNode // FARP service node for schema publishing
 	serviceInstance  *ServiceInstance           // Store the registered service instance
 	discoveryService *Service                   // Resolved discovery service (stored for deferred FARP init)
+
+	gatewayClientMu sync.Mutex
+	gatewayHTTP     *http.Client // built from FARP gateway config on first use
 }
 
 // NewExtension creates a new service discovery extension.
@@ -453,10 +457,13 @@ func (e *Extension) Stop(ctx context.Context) error {
 			e.Logger().Info("FARP ServiceNode stopped")
 		}
 
-		// Also deregister from gateway if push was configured
+		// Also deregister from gateway if push was configured. The gateway
+		// keys registrations by instance ID, so deregister the instance that
+		// was actually registered rather than rebuilding one, whose generated
+		// ID may differ.
 		if e.config.FARP.GatewayURL != "" {
-			instance := e.createServiceInstance()
-			if err := e.deregisterFromGateway(ctx, instance.Name); err != nil {
+			instance := e.registeredInstance()
+			if err := e.deregisterFromGateway(ctx, instance.ID); err != nil {
 				e.Logger().Warn("failed to deregister from gateway",
 					forge.F("error", err),
 				)
@@ -466,7 +473,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 		// No ServiceNode — deregister manually
 		discoveryService, err := forge.InjectType[*Service](e.App().Container())
 		if err == nil {
-			instance := e.createServiceInstance()
+			instance := e.registeredInstance()
 			if err := discoveryService.Backend().Deregister(ctx, instance.ID); err != nil {
 				e.Logger().Warn("failed to deregister service",
 					forge.F("service_id", instance.ID),
@@ -516,6 +523,18 @@ func (e *Extension) Run(ctx context.Context) error {
 	// request that the gateway will immediately make upon receiving the push.
 	// Retries continuously with backoff until success or shutdown.
 	if e.config.FARP.Enabled && e.config.FARP.GatewayURL != "" && instance != nil && node != nil {
+		// Build the gateway client up front so a broken TLS configuration
+		// fails the run instead of being retried forever in the background.
+		if _, err := e.gatewayClient(); err != nil {
+			return err
+		}
+
+		if e.config.FARP.GatewayToken != "" && strings.HasPrefix(strings.ToLower(e.config.FARP.GatewayURL), "http://") {
+			e.Logger().Warn("FARP gateway token is sent over plain http; use an https gateway_url",
+				forge.F("gateway_url", e.config.FARP.GatewayURL),
+			)
+		}
+
 		enriched := e.enrichInstanceFromManifest(instance, node)
 
 		e.wg.Add(1)
@@ -1044,8 +1063,12 @@ func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	e.authorizeGatewayRequest(req)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client, err := e.gatewayClient()
+	if err != nil {
+		return err
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1060,22 +1083,33 @@ func (e *Extension) pushToGateway(ctx context.Context, instance *ServiceInstance
 	return nil
 }
 
-// deregisterFromGateway sends a DELETE to the gateway to remove this service.
-// Uses the FARP v1 push protocol (spec section 17.4):
+// deregisterFromGateway sends a DELETE to the gateway to remove this
+// instance. Uses the FARP v1 push protocol (spec section 17.4):
 //
 //	DELETE /_farp/v1/deregister/{id}
-func (e *Extension) deregisterFromGateway(ctx context.Context, serviceName string) error {
-	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/_farp/v1/deregister/" + serviceName
+//
+// The id is the instance ID used at registration, path escaped so IDs with
+// reserved characters address the right resource.
+func (e *Extension) deregisterFromGateway(ctx context.Context, instanceID string) error {
+	if instanceID == "" {
+		return errors.New("deregister from gateway: empty instance id")
+	}
 
-	//nolint:gosec // G704: the gateway URL comes from operator config (FARP.GatewayURL), not from request input
+	gatewayURL := strings.TrimRight(e.config.FARP.GatewayURL, "/") + "/_farp/v1/deregister/" + url.PathEscape(instanceID)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL, nil)
 	if err != nil {
 		return fmt.Errorf("create deregistration request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	e.authorizeGatewayRequest(req)
 
-	resp, err := client.Do(req) //nolint:gosec // G704: request targets the operator-configured gateway, see above
+	client, err := e.gatewayClient()
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("push deregistration to gateway: %w", err)
 	}

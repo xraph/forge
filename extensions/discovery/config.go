@@ -82,6 +82,15 @@ type FARPConfig struct {
 	// Example: "http://localhost:7903"
 	GatewayURL string `json:"gateway_url" yaml:"gateway_url"`
 
+	// GatewayToken is sent as "Authorization: Bearer <token>" on gateway
+	// register and deregister requests. Leave empty when the gateway does not
+	// authenticate pushes. Prefer an https GatewayURL when setting it.
+	GatewayToken string `json:"gateway_token,omitempty" yaml:"gateway_token,omitempty"`
+
+	// GatewayTLS configures the TLS client used for gateway requests, for a
+	// private CA or mutual TLS. It only applies to https GatewayURLs.
+	GatewayTLS GatewayTLSConfig `json:"gateway_tls" yaml:"gateway_tls"`
+
 	// ExcludeInternalPaths filters out internal framework paths (/_farp/*, /_/*, /docs/*, etc.)
 	// from the OpenAPI/AsyncAPI schemas published to the gateway.
 	// Default: true
@@ -105,6 +114,20 @@ type FARPConfig struct {
 	//       {Pattern: "/api/**", Action: farp.PathRuleInclude},
 	//   }
 	PathRules []farp.PathRule `json:"path_rules,omitempty" yaml:"path_rules,omitempty"`
+}
+
+// GatewayTLSConfig configures TLS for requests to the FARP gateway.
+type GatewayTLSConfig struct {
+	// CAFile is a PEM bundle used instead of the system roots to verify the gateway.
+	CAFile string `json:"ca_file,omitempty" yaml:"ca_file,omitempty"`
+
+	// CertFile and KeyFile are a PEM client certificate and key presented to
+	// the gateway for mutual TLS. Both must be set together.
+	CertFile string `json:"cert_file,omitempty" yaml:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"  yaml:"key_file,omitempty"`
+
+	// ServerName overrides the name used to verify the gateway certificate.
+	ServerName string `json:"server_name,omitempty" yaml:"server_name,omitempty"`
 }
 
 // ShouldExcludeInternalPaths returns whether internal paths should be filtered.
@@ -478,6 +501,17 @@ func WithFARPCapabilities(capabilities ...string) ConfigOption {
 // and send deregistration on shutdown.
 func WithFARPGatewayURL(url string) ConfigOption {
 	return func(c *Config) { c.FARP.GatewayURL = url }
+}
+
+// WithFARPGatewayToken sets the bearer token sent with gateway register and
+// deregister requests.
+func WithFARPGatewayToken(token string) ConfigOption {
+	return func(c *Config) { c.FARP.GatewayToken = token }
+}
+
+// WithFARPGatewayTLS sets the TLS client configuration for gateway requests.
+func WithFARPGatewayTLS(cfg GatewayTLSConfig) ConfigOption {
+	return func(c *Config) { c.FARP.GatewayTLS = cfg }
 }
 
 // WithFARPExcludeInternalPaths sets whether internal framework paths are filtered
