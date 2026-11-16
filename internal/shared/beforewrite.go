@@ -43,6 +43,14 @@ type beforeWriteWriter struct {
 	mu        sync.Mutex
 	hooks     []func()
 	committed bool
+
+	// writeFailed records that writing the body returned an error. By then
+	// the connection is broken (the client went away, or a write deadline
+	// fired), and the usual next step is an error handler trying to send a
+	// 500. That WriteHeader has nowhere to go, so it is dropped instead of
+	// reaching net/http, which would log it as a superfluous WriteHeader and
+	// point at this file.
+	writeFailed bool
 }
 
 // WrapBeforeWrite returns w as a BeforeWriter, wrapping it if needed.
@@ -143,16 +151,35 @@ func (w *beforeWriteWriter) discard() {
 
 func (w *beforeWriteWriter) WriteHeader(code int) {
 	w.commit()
-	// Deliberately not guarded against a second call. net/http already logs a
-	// superfluous WriteHeader, and swallowing it here would hide a handler bug
-	// that is visible without this wrapper in the chain.
+
+	w.mu.Lock()
+	failed := w.writeFailed
+	w.mu.Unlock()
+
+	if failed {
+		return
+	}
+	// Otherwise deliberately not guarded against a second call. net/http
+	// already logs a superfluous WriteHeader, and swallowing it here would
+	// hide a handler bug that is visible without this wrapper in the chain.
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *beforeWriteWriter) Write(b []byte) (int, error) {
 	w.commit()
 
-	return w.ResponseWriter.Write(b)
+	n, err := w.ResponseWriter.Write(b)
+	if err != nil {
+		w.markWriteFailed()
+	}
+
+	return n, err
+}
+
+func (w *beforeWriteWriter) markWriteFailed() {
+	w.mu.Lock()
+	w.writeFailed = true
+	w.mu.Unlock()
 }
 
 // Flush implements http.Flusher.
@@ -193,15 +220,27 @@ func (w *beforeWriteWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // the wrapper. Commits first, since the copy is a write.
 func (w *beforeWriteWriter) ReadFrom(src io.Reader) (int64, error) {
 	rf, ok := w.ResponseWriter.(io.ReaderFrom)
-	if !ok {
-		w.commit()
-
-		return io.Copy(w.ResponseWriter, src)
-	}
-
 	w.commit()
 
-	return rf.ReadFrom(src)
+	var (
+		n   int64
+		err error
+	)
+
+	if ok {
+		n, err = rf.ReadFrom(src)
+	} else {
+		n, err = io.Copy(w.ResponseWriter, src)
+	}
+
+	// A ReadFrom error can come from src as well as from the connection;
+	// only the connection side means the response is unwritable, but both
+	// end the response, so a following WriteHeader is no use either way.
+	if err != nil {
+		w.markWriteFailed()
+	}
+
+	return n, err
 }
 
 // Push implements http.Pusher.
