@@ -57,6 +57,11 @@ type Config struct {
 	// ContractMaxBodyBytes caps the contract envelope a client may POST.
 	// Zero or less means transport.DefaultMaxBodyBytes (1 MiB).
 	ContractMaxBodyBytes int64 `json:"contract_max_body_bytes" yaml:"contract_max_body_bytes"`
+	// TrustedOrigins lists browser origins (scheme://host[:port]) allowed to
+	// send contract commands cross-site. Commands a browser marks as
+	// cross-site are refused otherwise. Set it only when the dashboard client
+	// is served from a different site than this API.
+	TrustedOrigins []string `json:"trusted_origins" yaml:"trusted_origins"`
 
 	// Authentication. With EnableAuth on, every dashboard route (contract
 	// queries and commands, streams, capabilities, the CSRF token endpoint
@@ -234,6 +239,12 @@ func WithContractSecurity(enabled bool) ConfigOption {
 // keeps the 1 MiB default.
 func WithContractMaxBodyBytes(n int64) ConfigOption {
 	return func(c *Config) { c.ContractMaxBodyBytes = n }
+}
+
+// WithTrustedOrigins sets the browser origins allowed to send contract
+// commands cross-site, for a dashboard client served from another site.
+func WithTrustedOrigins(origins ...string) ConfigOption {
+	return func(c *Config) { c.TrustedOrigins = append([]string(nil), origins...) }
 }
 
 // WithExportFormats sets the supported export formats.

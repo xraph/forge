@@ -58,6 +58,7 @@ intents:
 
 		response := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Idempotency-Key", "header-key")
 		handler.ServeHTTP(response, request)
 

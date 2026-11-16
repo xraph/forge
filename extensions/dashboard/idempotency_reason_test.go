@@ -111,6 +111,7 @@ func (r *wireRig) send() (contract.ErrorResponse, error) {
 	body := `{"envelope":"v1","kind":"command","contributor":"keysmith","intent":"keys.create","intentVersion":1,"csrf":"c","idempotencyKey":"k1","payload":{}}`
 	ctx := dashauth.WithUser(context.Background(), &dashauth.UserInfo{Subject: "alice"})
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/dashboard/v1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
 	r.h.ServeHTTP(w, req)

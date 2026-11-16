@@ -912,7 +912,7 @@ func (e *Extension) registerRoutes() {
 		// and EnableContractSecurity gates the contract path's enforcement).
 		if e.csrfMgr != nil && e.config.EnableContractSecurity {
 			must(router.GET(base+"/api/dashboard/v1/csrf",
-				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP, routeOpts...))
+				transport.NewCSRFTokenHandler(e.csrfMgr, e.csrfMgr.MaxAge()).ServeHTTP, routeOpts...))
 		}
 
 		// The principal endpoint surfaces auth state to whatever client is
@@ -965,7 +965,8 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 	}
 
 	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr,
-		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes))
+		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes),
+		transport.WithTrustedOrigins(e.config.TrustedOrigins...))
 
 	return h.ServeHTTP
 }

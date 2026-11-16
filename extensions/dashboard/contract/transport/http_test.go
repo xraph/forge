@@ -61,6 +61,8 @@ func TestHandler_DispatchesQuery(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -96,6 +98,8 @@ func TestHandler_NormalizesOmittedIntentVersion(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -128,6 +132,8 @@ func TestHandler_RejectsKindCapabilityMismatch(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -152,6 +158,8 @@ func TestHandler_UnsupportedVersion(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -177,6 +185,8 @@ func TestHandler_CommandRequiresIdempotencyKey(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -199,6 +209,8 @@ func TestHandler_CommandRejectsInvalidCSRF(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -227,6 +239,8 @@ func TestHandler_CommandAcceptsValidCSRF(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
