@@ -3318,14 +3318,21 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 		return nil
 	}
 
-	// Extract the streaming message from payload
+	// Extract the streaming message from payload. The bundled coordinators
+	// decode a broadcast straight into a *Message (coordinator.DecodeMessage);
+	// the other shapes are kept for coordinators that hand over raw JSON or a
+	// generic map.
 	var streamMsg *streaming.Message
 
 	switch payload := msg.Payload.(type) {
 	case *streaming.Message:
 		streamMsg = payload
+	case json.RawMessage:
+		streamMsg = &streaming.Message{}
+		if err := json.Unmarshal(payload, streamMsg); err != nil {
+			return err
+		}
 	case map[string]any:
-		// Coordinator deserializes JSON into map — re-marshal and unmarshal
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return err
@@ -3353,29 +3360,21 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 		}
 	}
 
-	// Deliver to local connections based on message type
+	// Deliver to local connections based on message type.
+	//
+	// Room delivery uses the room index, as a local broadcast does. It used to
+	// walk every connection on the node testing IsInRoom, one at a time: with
+	// 20k sockets that was about 10 ms per relayed message whatever the room's
+	// size. fanOut also shares one encoding across the recipients and spreads
+	// slow sockets over its worker pool.
 	if msg.Type == coordinator.MessageTypeBroadcast {
 		switch {
 		case msg.RoomID != "":
-			// Room broadcast — deliver to local room members only
-			conns := m.GetAllConnections()
-			for _, conn := range conns {
-				if conn.IsInRoom(msg.RoomID) {
-					_ = m.deliverToConnection(ctx, conn, streamMsg)
-				}
-			}
+			m.fanOut(ctx, m.roomRecipients(msg.RoomID), streamMsg, "room", msg.RoomID)
 		case msg.UserID != "":
-			// User-targeted — deliver to local connections for this user
-			conns := m.GetUserConnections(msg.UserID)
-			for _, conn := range conns {
-				_ = m.deliverToConnection(ctx, conn, streamMsg)
-			}
+			m.fanOut(ctx, m.GetUserConnections(msg.UserID), streamMsg, "user", msg.UserID)
 		default:
-			// Global broadcast — deliver to all local connections
-			conns := m.GetAllConnections()
-			for _, conn := range conns {
-				_ = m.deliverToConnection(ctx, conn, streamMsg)
-			}
+			m.fanOut(ctx, m.GetAllConnections(), streamMsg, "broadcast", "global")
 		}
 	}
 

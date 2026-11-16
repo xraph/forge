@@ -437,8 +437,8 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 		return
 	}
 
-	var coordMsg CoordinatorMessage
-	if err := json.Unmarshal(msg.Data, &coordMsg); err != nil {
+	coordMsg, err := DecodeMessage(msg.Data)
+	if err != nil {
 		_ = msg.Nak()
 
 		return
@@ -453,7 +453,7 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 
 	// Call handler
 	ctx := context.Background()
-	if err := nc.handler(ctx, &coordMsg); err != nil {
+	if err := nc.handler(ctx, coordMsg); err != nil {
 		_ = msg.Nak()
 
 		return

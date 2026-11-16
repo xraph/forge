@@ -311,8 +311,8 @@ func (rc *redisCoordinator) handleMessage(ctx context.Context, payload string) {
 		return
 	}
 
-	var coordMsg CoordinatorMessage
-	if err := json.Unmarshal([]byte(payload), &coordMsg); err != nil {
+	coordMsg, err := DecodeMessage([]byte(payload))
+	if err != nil {
 		return
 	}
 
@@ -322,7 +322,7 @@ func (rc *redisCoordinator) handleMessage(ctx context.Context, payload string) {
 	}
 
 	// Call handler
-	_ = rc.handler(ctx, &coordMsg)
+	_ = rc.handler(ctx, coordMsg)
 }
 
 // TrackUserNode tracks user connection to node.

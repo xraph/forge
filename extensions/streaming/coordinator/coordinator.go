@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
@@ -82,3 +83,52 @@ const (
 	MessageTypeNodeRegister   = "node.register"
 	MessageTypeNodeUnregister = "node.unregister"
 )
+
+// rawCoordinatorMessage is CoordinatorMessage with the payload left encoded.
+// The outer Payload field shadows the embedded one for encoding/json.
+type rawCoordinatorMessage struct {
+	CoordinatorMessage
+
+	Payload json.RawMessage `json:"payload"`
+}
+
+// DecodeMessage decodes a coordinator message off the wire.
+//
+// A broadcast's payload is decoded straight into a *streaming.Message. Left to
+// encoding/json it became a map[string]any, which the receiving node then
+// marshalled back to JSON and unmarshalled again into a Message: two extra
+// passes and a map of interface values per relayed message. Other message
+// types keep the generic decode, since their payloads have no single shape.
+func DecodeMessage(data []byte) (*CoordinatorMessage, error) {
+	var raw rawCoordinatorMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	msg := raw.CoordinatorMessage
+	msg.Payload = nil
+
+	if len(raw.Payload) == 0 || string(raw.Payload) == "null" {
+		return &msg, nil
+	}
+
+	if msg.Type == MessageTypeBroadcast {
+		var sm streaming.Message
+		if err := json.Unmarshal(raw.Payload, &sm); err != nil {
+			return nil, err
+		}
+
+		msg.Payload = &sm
+
+		return &msg, nil
+	}
+
+	var payload any
+	if err := json.Unmarshal(raw.Payload, &payload); err != nil {
+		return nil, err
+	}
+
+	msg.Payload = payload
+
+	return &msg, nil
+}
