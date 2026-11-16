@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -92,15 +93,45 @@ func (info *APIKeyInfo) IsExpired() bool {
 	return time.Now().After(*info.ExpiresAt)
 }
 
+// clone returns a copy that shares no mutable state with info: the slices,
+// maps and time pointers are copied. Values inside Metadata are shared.
+func (info *APIKeyInfo) clone() *APIKeyInfo {
+	if info == nil {
+		return nil
+	}
+
+	c := *info
+	c.Scopes = slices.Clone(info.Scopes)
+	c.Metadata = maps.Clone(info.Metadata)
+
+	if info.ExpiresAt != nil {
+		t := *info.ExpiresAt
+		c.ExpiresAt = &t
+	}
+
+	if info.LastUsedAt != nil {
+		t := *info.LastUsedAt
+		c.LastUsedAt = &t
+	}
+
+	return &c
+}
+
 // HasScope checks if the API key has a specific scope.
 func (info *APIKeyInfo) HasScope(scope string) bool {
 	return slices.Contains(info.Scopes, scope)
 }
 
 // APIKeyManager manages API keys.
+//
+// The manager owns the *APIKeyInfo it stores. Every lookup returns a copy and
+// every change (last used, revoke) is made under mu, so concurrent requests
+// with the same key never write to an object another request is reading.
+// Change a key through the manager's methods, not through a returned copy.
 type APIKeyManager struct {
 	config  APIKeyConfig
-	keys    sync.Map // map[string]*APIKeyInfo
+	mu      sync.RWMutex
+	keys    map[string]*APIKeyInfo
 	logger  forge.Logger
 	lookups []tokenSource
 }
@@ -113,6 +144,7 @@ func NewAPIKeyManager(config APIKeyConfig, logger forge.Logger) *APIKeyManager {
 
 	return &APIKeyManager{
 		config:  config,
+		keys:    make(map[string]*APIKeyInfo),
 		logger:  logger,
 		lookups: parseTokenLookup(config.KeyLookup),
 	}
@@ -152,8 +184,11 @@ func (m *APIKeyManager) CreateAPIKey(info *APIKeyInfo) (string, error) {
 	// Set creation time
 	info.CreatedAt = time.Now()
 
-	// Store key
-	m.keys.Store(info.Key, info)
+	// Store a copy, so later changes to the caller's object cannot race with
+	// requests reading the stored one.
+	m.mu.Lock()
+	m.keys[info.Key] = info.clone()
+	m.mu.Unlock()
 
 	m.logger.Info("api key created",
 		forge.F("key_name", info.Name),
@@ -163,38 +198,49 @@ func (m *APIKeyManager) CreateAPIKey(info *APIKeyInfo) (string, error) {
 	return info.Key, nil
 }
 
-// GetAPIKey retrieves API key information.
+// GetAPIKey retrieves a copy of the API key information.
 func (m *APIKeyManager) GetAPIKey(key string) (*APIKeyInfo, bool) {
-	val, ok := m.keys.Load(key)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	info, ok := m.keys[key]
 	if !ok {
 		return nil, false
 	}
 
-	return val.(*APIKeyInfo), true
+	return info.clone(), true
 }
 
 // UpdateLastUsed updates the last used timestamp for an API key.
 func (m *APIKeyManager) UpdateLastUsed(key string) {
-	if val, ok := m.keys.Load(key); ok {
-		info := val.(*APIKeyInfo)
-		now := time.Now()
+	now := time.Now()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if info, ok := m.keys[key]; ok {
 		info.LastUsedAt = &now
 	}
 }
 
 // RevokeAPIKey revokes an API key.
 func (m *APIKeyManager) RevokeAPIKey(key string) error {
-	val, ok := m.keys.Load(key)
+	m.mu.Lock()
+
+	info, ok := m.keys[key]
 	if !ok {
+		m.mu.Unlock()
+
 		return errors.New("api key not found")
 	}
 
-	info := val.(*APIKeyInfo)
 	info.Revoked = true
+	name, userID := info.Name, info.UserID
+	m.mu.Unlock()
 
 	m.logger.Info("api key revoked",
-		forge.F("key_name", info.Name),
-		forge.F("user_id", info.UserID),
+		forge.F("key_name", name),
+		forge.F("user_id", userID),
 	)
 
 	return nil
@@ -202,7 +248,10 @@ func (m *APIKeyManager) RevokeAPIKey(key string) error {
 
 // DeleteAPIKey deletes an API key.
 func (m *APIKeyManager) DeleteAPIKey(key string) {
-	m.keys.Delete(key)
+	m.mu.Lock()
+	delete(m.keys, key)
+	m.mu.Unlock()
+
 	m.logger.Info("api key deleted", forge.F("key", redactAPIKey(key)))
 }
 
@@ -226,8 +275,12 @@ func (m *APIKeyManager) ValidateAPIKey(ctx context.Context, key string) (*APIKey
 		return m.config.Validator(ctx, key)
 	}
 
-	// Use built-in validation
-	info, ok := m.GetAPIKey(key)
+	// Use built-in validation. Check and record the use in one critical
+	// section, then hand the caller its own copy.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	info, ok := m.keys[key]
 	if !ok {
 		return nil, ErrAPIKeyInvalid
 	}
@@ -242,23 +295,24 @@ func (m *APIKeyManager) ValidateAPIKey(ctx context.Context, key string) (*APIKey
 		return nil, ErrAPIKeyExpired
 	}
 
-	// Update last used
-	m.UpdateLastUsed(key)
+	now := time.Now()
+	info.LastUsedAt = &now
 
-	return info, nil
+	return info.clone(), nil
 }
 
 // ListAPIKeys returns all API keys for a user.
 func (m *APIKeyManager) ListAPIKeys(userID string) []*APIKeyInfo {
-	var keys []*APIKeyInfo
-	m.keys.Range(func(key, value any) bool {
-		info := value.(*APIKeyInfo)
-		if info.UserID == userID {
-			keys = append(keys, info)
-		}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-		return true
-	})
+	var keys []*APIKeyInfo
+
+	for _, info := range m.keys {
+		if info.UserID == userID {
+			keys = append(keys, info.clone())
+		}
+	}
 
 	return keys
 }

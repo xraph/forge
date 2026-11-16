@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/xraph/forge"
@@ -108,5 +109,103 @@ func TestAPIKeyMiddleware_LookupAndStdContext(t *testing.T) {
 		if fromStd == nil || fromStd.UserID != "u1" {
 			t.Fatalf("%s: key info missing from the request context", name)
 		}
+	}
+}
+
+// Concurrent requests with the same key used to write LastUsedAt on one shared
+// *APIKeyInfo with no lock, while handlers read the same object. Run with -race.
+func TestAPIKeyMiddleware_ConcurrentRequestsOnOneKey(t *testing.T) {
+	m := NewAPIKeyManager(DefaultAPIKeyConfig(), logger.NewNoopLogger())
+
+	key, err := m.CreateAPIKey(&APIKeyInfo{Name: "svc", UserID: "u1", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := APIKeyMiddleware(m)(func(ctx forge.Context) error {
+		info, ok := GetAPIKeyInfo(ctx)
+		if !ok || info.LastUsedAt == nil || !info.HasScope("read") {
+			return ctx.String(http.StatusInternalServerError, "bad info")
+		}
+
+		_ = info.LastUsedAt.Unix()
+
+		return ctx.String(http.StatusOK, "ok")
+	})
+
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Go(func() {
+			for range 200 {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+				req.Header.Set("X-Api-Key", key)
+
+				w := httptest.NewRecorder()
+				_ = handler(forge_http.NewContext(w, req, nil))
+
+				if w.Code != http.StatusOK {
+					t.Errorf("status %d: %s", w.Code, w.Body.String())
+
+					return
+				}
+			}
+		})
+	}
+
+	// Management calls run alongside the requests.
+	wg.Go(func() {
+		for range 200 {
+			if info, ok := m.GetAPIKey(key); ok {
+				_ = info.LastUsedAt
+			}
+
+			for _, info := range m.ListAPIKeys("u1") {
+				_ = info.LastUsedAt
+			}
+		}
+	})
+
+	wg.Wait()
+
+	info, _ := m.GetAPIKey(key)
+	if info.LastUsedAt == nil {
+		t.Fatal("LastUsedAt was never recorded")
+	}
+}
+
+func TestAPIKeyManager_ReturnsCopies(t *testing.T) {
+	m := NewAPIKeyManager(DefaultAPIKeyConfig(), logger.NewNoopLogger())
+
+	orig := &APIKeyInfo{Name: "svc", UserID: "u1", Scopes: []string{"read"}}
+
+	key, _ := m.CreateAPIKey(orig)
+	if orig.Key != key || orig.CreatedAt.IsZero() {
+		t.Fatal("CreateAPIKey no longer fills in the caller's Key and CreatedAt")
+	}
+
+	// Neither the caller's object nor a returned copy reaches the stored key.
+	orig.Scopes[0] = "admin"
+
+	got, _ := m.GetAPIKey(key)
+	got.Scopes[0] = "admin"
+	got.Revoked = true
+
+	again, _ := m.GetAPIKey(key)
+	if again.Scopes[0] != "read" || again.Revoked {
+		t.Fatalf("stored key was changed through a copy: %+v", again)
+	}
+
+	if _, err := m.ValidateAPIKey(t.Context(), key); err != nil {
+		t.Fatalf("ValidateAPIKey: %v", err)
+	}
+
+	// Revoking through the manager still works.
+	if err := m.RevokeAPIKey(key); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.ValidateAPIKey(t.Context(), key); !errors.Is(err, ErrAPIKeyRevoked) {
+		t.Fatalf("revoked key: %v, want ErrAPIKeyRevoked", err)
 	}
 }
