@@ -283,6 +283,13 @@ type Endpoint struct {
 	// it describes the document, and describing it costs nothing when there is
 	// no entity beneath.
 	RootType string
+
+	// Stream is the protocol this endpoint holds its connection open over --
+	// StreamSSE, StreamWebSocket or StreamWebTransport -- or empty for an
+	// ordinary request. Read from x-forge-protocol, or from responses that are
+	// only text/event-stream or 101. Generator.Generate moves every endpoint
+	// with one set out of Endpoints; see APISpec.SeparateStreamEndpoints.
+	Stream string
 }
 
 // WebSocketEndpoint represents a WebSocket endpoint.

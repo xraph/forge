@@ -402,13 +402,21 @@
     },
     "/sse/notifications": {
       "get": {
-        "summary": "Notification feed",
         "operationId": "notifications",
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
-        }
+        },
+        "summary": "Notification feed",
+        "x-forge-protocol": "sse"
       }
     },
     "/tenants/{tenantId}/items": {
@@ -530,7 +538,6 @@
     },
     "/ws/orders/{roomId}": {
       "get": {
-        "summary": "Order room",
         "operationId": "orders",
         "parameters": [
           {
@@ -544,15 +551,16 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Success"
+          "101": {
+            "description": "Switching Protocols"
           }
-        }
+        },
+        "summary": "Order room",
+        "x-forge-protocol": "websocket"
       }
     },
     "/ws/trees/{treeId}": {
       "get": {
-        "summary": "Tree event stream",
         "operationId": "treeEvents",
         "parameters": [
           {
@@ -566,10 +574,12 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Success"
+          "101": {
+            "description": "Switching Protocols"
           }
-        }
+        },
+        "summary": "Tree event stream",
+        "x-forge-protocol": "websocket"
       }
     }
   },
