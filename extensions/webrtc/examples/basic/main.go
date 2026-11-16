@@ -110,6 +110,11 @@ func main() {
 		// Security
 		RequireAuth: true,
 		AllowGuests: false,
+
+		// Who may join (and so create) a call room through the signaling
+		// endpoint. This demo admits every signed-in user; a real app
+		// checks membership here.
+		RoomAuthorizer: webrtc.AllowAllRooms,
 	}
 
 	// Configure WebRTC extension
