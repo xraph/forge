@@ -394,6 +394,12 @@ func newApp(config AppConfig) *app {
 		internalrouter.UseOuterMiddleware(router, telemetry.RouteMatchMiddleware(tracing.Settings().ExcludePaths))
 	}
 
+	// Innermost of the outer middleware, so it shares the route-match holder
+	// tracing or HTTP metrics installed: when the router classifies a route
+	// as a stream, the write deadline Run puts on the response is lifted
+	// before the stream starts. Without Run's wrapper it does nothing.
+	internalrouter.UseOuterMiddleware(router, liftWriteDeadlineOnStreams)
+
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
 
 	// Key-based registration (backward compatibility)
@@ -1070,17 +1076,16 @@ func (a *app) Run() error {
 	}
 
 	// Create HTTP server.
-	// WriteTimeout is set to 0 (disabled) because SSE, WebSocket, and gRPC
-	// streaming handlers need indefinite write durations. A server-wide
-	// WriteTimeout kills ALL long-lived connections after the deadline,
-	// making streaming impossible. Regular REST handlers are protected by
-	// per-route timeouts applied at the router level instead.
+	// The server-wide WriteTimeout stays off because it would also cut SSE,
+	// WebSocket and gRPC streams. The per-request write deadline in
+	// serverHandler takes its place for everything that does not stream, so
+	// a client that never reads its response cannot pin a handler forever.
 	a.httpServer = &http.Server{
 		Addr:              a.config.HTTPAddress,
-		Handler:           a.router,
+		Handler:           a.serverHandler(),
 		ReadTimeout:       a.config.HTTPTimeout,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      0, // disabled — streaming requires indefinite writes
+		WriteTimeout:      0, // see serverHandler
 		IdleTimeout:       a.config.HTTPTimeout * 2,
 	}
 
@@ -1124,6 +1129,112 @@ func (a *app) Run() error {
 
 	// Graceful shutdown
 	return a.gracefulShutdown()
+}
+
+// defaultHTTPWriteTimeout is the write deadline for a non-streaming response
+// when AppConfig.HTTPWriteTimeout is left at zero.
+const defaultHTTPWriteTimeout = 60 * time.Second
+
+// serverHandler is the root handler Run serves: the router behind a write
+// deadline for every response that does not stream.
+func (a *app) serverHandler() http.Handler {
+	timeout := a.config.HTTPWriteTimeout
+	if timeout == 0 {
+		timeout = defaultHTTPWriteTimeout
+	}
+
+	return withWriteDeadline(a.router, timeout)
+}
+
+// writeDeadlineKey carries a request's *writeDeadline on its context.
+type writeDeadlineKey struct{}
+
+// writeDeadline lets middleware deeper in the chain lift the deadline once it
+// learns the request is a stream.
+type writeDeadline struct {
+	rc *http.ResponseController
+}
+
+func (d *writeDeadline) lift() {
+	_ = d.rc.SetWriteDeadline(time.Time{})
+}
+
+// withWriteDeadline puts a write deadline of timeout on every response that
+// does not stream. net/http only has a server-wide WriteTimeout, which would
+// also cut every SSE, WebSocket and gRPC stream, so the deadline is set per
+// request through http.ResponseController instead.
+//
+// net/http clears the connection's write deadline after each response, so a
+// deadline never carries over to the next request on a keep-alive connection.
+//
+// Requests are recognised as streams from their headers here, and from the
+// matched route's kind by liftWriteDeadlineOnStreams. A handler that streams
+// on an ordinary route can lift the deadline itself with
+// http.NewResponseController(w).SetWriteDeadline(time.Time{}).
+func withWriteDeadline(next http.Handler, timeout time.Duration) http.Handler {
+	if timeout <= 0 {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStreamingRequest(r) {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Now().Add(timeout))
+
+		ctx := context.WithValue(r.Context(), writeDeadlineKey{}, &writeDeadline{rc: rc})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// isStreamingRequest reports whether the request asks for a connection that
+// outlives an ordinary response: a protocol upgrade (WebSocket), an extended
+// CONNECT (WebSocket or WebTransport over HTTP/2 and HTTP/3), an event
+// stream, or gRPC.
+func isStreamingRequest(r *http.Request) bool {
+	if r.Method == http.MethodConnect || r.Header.Get("Upgrade") != "" {
+		return true
+	}
+
+	if strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") {
+		return true
+	}
+
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return true
+	}
+
+	return strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc")
+}
+
+// liftWriteDeadlineOnStreams lifts the write deadline when the router matches
+// a stream route (SSE, WebSocket, WebTransport), whatever headers the client
+// sent: a client is free to open an event stream without Accept:
+// text/event-stream. It runs inside the tracing and metrics middleware so it
+// shares their route-match holder, and the router stamps the route's kind on
+// that holder before any of the route's own code runs.
+func liftWriteDeadlineOnStreams(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d, ok := r.Context().Value(writeDeadlineKey{}).(*writeDeadline)
+		if !ok {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		ctx, m := shared.EnsureRouteMatch(r.Context())
+		m.OnMatched(func(string) {
+			if m.Kind.LongLived() {
+				d.lift()
+			}
+		})
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // gracefulShutdown performs a graceful shutdown.

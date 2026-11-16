@@ -122,6 +122,14 @@ type AppConfig struct {
 	// "*.example.com", or "*" to allow any origin.
 	WebSocketOrigins []string
 
+	// HTTPWriteTimeout bounds how long the server spends writing one response.
+	// A client that requests a large body and never reads it otherwise pins a
+	// handler goroutine and a connection forever. Responses that stream (a
+	// WebSocket or other Upgrade, an SSE request, gRPC, or any route the router
+	// classifies as a stream) are exempt, so long-lived connections keep
+	// working. Zero means the default of 60s; negative disables the deadline.
+	HTTPWriteTimeout time.Duration
+
 	// Shutdown
 	ShutdownTimeout time.Duration // Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
@@ -521,6 +529,13 @@ func WithWebSocketOrigins(origins ...string) AppOption {
 	return func(c *AppConfig) {
 		c.WebSocketOrigins = append(c.WebSocketOrigins, origins...)
 	}
+}
+
+// WithHTTPWriteTimeout bounds how long the server spends writing one
+// non-streaming response. See AppConfig.HTTPWriteTimeout. Pass a negative
+// value to disable it.
+func WithHTTPWriteTimeout(timeout time.Duration) AppOption {
+	return func(c *AppConfig) { c.HTTPWriteTimeout = timeout }
 }
 
 // WithObservabilityGuard restricts the detailed observability endpoints. The
