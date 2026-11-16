@@ -69,7 +69,8 @@ func goIdent(s string) string {
 // methodScopeNames are the names a generated REST method already uses in its
 // own scope: the receiver, its locals, and the packages its body calls into.
 // A parameter with one of these names would shadow it or be redeclared, and
-// the method would not compile.
+// the method would not compile; url in particular is now referenced by every
+// method with a path parameter.
 var methodScopeNames = map[string]bool{
 	"c": true, "ctx": true, "path": true, "q": true, "req": true,
 	"result": true, "err": true, "url": true, "fmt": true, "context": true,

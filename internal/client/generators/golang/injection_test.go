@@ -5,6 +5,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -110,7 +112,7 @@ func TestGoSpecTextCannotEscapeItsContext(t *testing.T) {
 		t.Errorf("query parameter name was not quoted:\n%s", rest)
 	}
 
-	if !strings.Contains(rest, "\"/items/\" + fmt.Sprint(id) + \"`+(globalThis.PWN_PATH=1)+`\"") {
+	if !strings.Contains(rest, "\"/items/\" + url.PathEscape(fmt.Sprint(id)) + \"`+(globalThis.PWN_PATH=1)+`\"") {
 		t.Errorf("path was not built from quoted segments:\n%s", rest)
 	}
 }
@@ -166,5 +168,101 @@ func TestGoStreamingSpecTextCannotEscapeItsContext(t *testing.T) {
 				t.Errorf("%s: spec text became an init function", name)
 			}
 		}
+	}
+}
+
+// TestGoPathParameterValuesAreEscaped builds the generated client and calls
+// it against a test server. A path parameter value used to be concatenated
+// into the path unescaped, so "../admin/users?role=admin#" moved the request
+// to another route and added a query string.
+func TestGoPathParameterValuesAreEscaped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping go run gate under -short")
+	}
+
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("no go toolchain on PATH: %v", err)
+	}
+
+	spec := &client.APISpec{
+		Info: client.APIInfo{Title: "T", Version: "1"},
+		Endpoints: []client.Endpoint{{
+			Method: "GET", Path: "/users/{id}/posts/{post}", OperationID: "getPost",
+			PathParams: []client.Parameter{
+				{Name: "id", In: "path", Required: true, Schema: &client.Schema{Type: "string"}},
+				{Name: "post", In: "path", Required: true, Schema: &client.Schema{Type: "string"}},
+			},
+			Responses: map[int]*client.Response{204: {Description: "none"}},
+		}},
+	}
+
+	cfg := injectionConfig()
+	cfg.Module = "example.com/generated"
+	cfg.PackageName = "generated"
+
+	out, err := golang.NewGenerator().Generate(context.Background(), spec, cfg)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	dir := t.TempDir()
+
+	for name, src := range out.Files {
+		if strings.HasSuffix(name, ".go") || name == "go.mod" {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	driverDir := filepath.Join(dir, "cmd", "driver")
+	if err := os.MkdirAll(driverDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	driver := `package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+
+	gen "example.com/generated"
+)
+
+func main() {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.EscapedPath() + "|" + r.URL.RawQuery
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := gen.NewClient(gen.WithBaseURL(srv.URL))
+	if err := c.GetPost(context.Background(), "../admin/users?role=admin#", "a/b c"); err != nil {
+		fmt.Println("error:", err)
+	}
+	fmt.Print(got)
+}
+`
+	if err := os.WriteFile(filepath.Join(driverDir, "main.go"), []byte(driver), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.CommandContext(t.Context(), goBin, "run", "./cmd/driver")
+	cmd.Dir = dir
+
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off", "GOSUMDB=off", "GOWORK=off")
+
+	got, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run: %v\n%s", err, got)
+	}
+
+	want := "/users/..%2Fadmin%2Fusers%3Frole=admin%23/posts/a%2Fb%20c|"
+	if string(got) != want {
+		t.Errorf("request reached %q, want %q", got, want)
 	}
 }

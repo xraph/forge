@@ -313,6 +313,10 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 // The literal parts of the path are Go string literals made by strconv.Quote,
 // because the path is specification text and printing it between bare quotes
 // let a path key close the string and add code of its own.
+//
+// Each parameter value is passed through url.PathEscape. Concatenated raw, a
+// value such as "../admin/users?role=admin#" changed which route the request
+// reached and added a query string the caller never asked for.
 func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string {
 	type placeholder struct {
 		text string
@@ -323,7 +327,7 @@ func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string 
 	for _, param := range endpoint.PathParams {
 		placeholders = append(placeholders, placeholder{
 			text: "{" + param.Name + "}",
-			expr: fmt.Sprintf("fmt.Sprint(%s)", r.toGoParamName(param.Name)),
+			expr: fmt.Sprintf("url.PathEscape(fmt.Sprint(%s))", r.toGoParamName(param.Name)),
 		})
 	}
 
