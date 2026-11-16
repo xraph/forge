@@ -1,5 +1,6 @@
 import { computed, onScopeDispose, shallowRef, toValue, watch } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from 'vue';
+import { poll } from '@forge-go/client-core';
 import type {
   QueryBinding,
   QueryCache,
@@ -44,6 +45,20 @@ export interface UseQueryOptions {
    * Read at construction and again whenever it changes.
    */
   readonly staleTime?: MaybeRefOrGetter<number | undefined>;
+  /**
+   * Refetch this query every so many milliseconds while its scope is alive.
+   * `false`, `0` or absent polls nothing, so `() => (executing.value ? 3000 : false)`
+   * reads the way it does in TanStack Query.
+   *
+   * The cadence holds: each request starts one interval after the previous one
+   * started, and a response slower than the interval is followed by the next
+   * request rather than overlapped by it. Changing the value, or the query's
+   * arguments, restarts the timer; a new response does not. Paused while the
+   * tab is hidden unless `refetchIntervalInBackground` is set.
+   */
+  readonly refetchInterval?: MaybeRefOrGetter<number | false | undefined>;
+  /** Keep polling while the tab is hidden. Defaults to false. */
+  readonly refetchIntervalInBackground?: MaybeRefOrGetter<boolean | undefined>;
 }
 
 /** What `useQuery` returns: the query's state as refs, plus the controls. */
@@ -238,9 +253,30 @@ export function useQuery<T>(
     attach();
   });
 
+  /**
+   * Polling, keyed on the query's identity and the two options and never on
+   * `state`: a timer that restarts on every response drifts by the response
+   * time (xraph/forge#100). `immediate` so the first value starts it, and the
+   * watcher's cleanup stops the previous loop before the next one begins.
+   */
+  const stopPolling = watch(
+    [
+      key,
+      computed(() => toValue(options?.refetchInterval)),
+      computed(() => toValue(options?.refetchIntervalInBackground) === true),
+    ],
+    ([, interval, inBackground], _previous, onCleanup) => {
+      if (typeof interval !== 'number') return;
+
+      onCleanup(poll(client, op.meta, toValue(args), interval, { whileHidden: inBackground }));
+    },
+    { immediate: true },
+  );
+
   function dispose(): void {
     stop();
     stopLive?.();
+    stopPolling();
     detach();
     detachLive();
   }

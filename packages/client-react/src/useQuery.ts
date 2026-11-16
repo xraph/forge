@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { poll } from '@forge-go/client-core';
 import type { QueryBinding, QueryCache, QueryState, TagContext } from '@forge-go/client-core';
 import { useClient } from './context.js';
 
@@ -24,6 +25,22 @@ export interface UseQueryOptions {
   readonly live?: boolean;
   /** Milliseconds this call considers the result fresh for. See the core's `QueryOptions`. */
   readonly staleTime?: number;
+  /**
+   * Refetch this query every so many milliseconds while the component is
+   * mounted. `false`, `0` or absent polls nothing, so
+   * `refetchInterval: isExecuting ? 3000 : false` reads the way it does in
+   * TanStack Query.
+   *
+   * The cadence holds: each request starts one interval after the previous one
+   * started, and a response slower than the interval is followed by the next
+   * request rather than overlapped by it. Changing the value restarts the
+   * timer; a new response does not. Paused while the tab is hidden unless
+   * `refetchIntervalInBackground` is set. Reach for `live` instead where the
+   * operation has a channel: a push costs nothing between changes.
+   */
+  readonly refetchInterval?: number | false;
+  /** Keep polling while the tab is hidden. Defaults to false. */
+  readonly refetchIntervalInBackground?: boolean;
 }
 
 /** What `useQuery` returns: the query's state, plus the manual refetch. */
@@ -179,6 +196,24 @@ export function useQuery<T>(
     return client.watchLive(op.meta, args);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is `args`'s identity
   }, [client, op, key, options?.live]);
+
+  /**
+   * Polling, keyed the way the live effect above is: on the query's identity
+   * and the two options, never on the result. A dependency on `state` or on
+   * `refetch`'s result object would clear and restart the timer on every
+   * response, which is the bug every hand-written polling hook ends up with
+   * (xraph/forge#100). `args` is read from the closure for the reason the live
+   * effect gives.
+   */
+  const refetchInterval = options?.refetchInterval;
+  const inBackground = options?.refetchIntervalInBackground === true;
+
+  useEffect(() => {
+    if (typeof refetchInterval !== 'number') return;
+
+    return poll(client, op.meta, args, refetchInterval, { whileHidden: inBackground });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is `args`'s identity
+  }, [client, op, key, refetchInterval, inBackground]);
 
   const refetch = useCallback(() => handle.refetch(), [handle]);
 

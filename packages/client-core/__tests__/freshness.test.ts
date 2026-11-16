@@ -419,6 +419,83 @@ describe('poll', () => {
     expect(transport.calls).toHaveLength(3);
   });
 
+  it('holds its cadence when the endpoint is slow', async () => {
+    const timers = manualClock();
+    // Each response takes 400ms on the same clock the poll measures.
+    const transport = fakeTransport(async () => {
+      await timers.sleep(400);
+
+      return [{ id: 7, total: 99 }];
+    });
+    const queries = new QueryCache({ transport, entities: schema });
+
+    const stop = poll(queries, orderList, undefined, 1_000, {
+      sleep: timers.sleep,
+      now: timers.now,
+      whileHidden: true,
+    });
+
+    await timers.advance(1_000);
+    expect(transport.calls).toHaveLength(1);
+
+    // The first response lands at 1400. The next request is due at 2000,
+    // one interval after the first STARTED -- not at 2400, one interval after
+    // it finished, which is the drift xraph/forge#100 describes.
+    await timers.advance(400);
+    await timers.advance(599);
+    expect(transport.calls).toHaveLength(1);
+
+    await timers.advance(1);
+    expect(transport.calls).toHaveLength(2);
+
+    stop();
+  });
+
+  it('never overlaps a response slower than the interval', async () => {
+    const timers = manualClock();
+    const transport = fakeTransport(async () => {
+      await timers.sleep(1_500);
+
+      return [{ id: 7, total: 99 }];
+    });
+    const queries = new QueryCache({ transport, entities: schema });
+
+    const stop = poll(queries, orderList, undefined, 1_000, {
+      sleep: timers.sleep,
+      now: timers.now,
+      whileHidden: true,
+    });
+
+    await timers.advance(1_000);
+    expect(transport.calls).toHaveLength(1);
+
+    // Two intervals pass while the first request is still running: no second
+    // request starts underneath it.
+    await timers.advance(1_000);
+    expect(transport.calls).toHaveLength(1);
+
+    // It lands at 2500 and the next goes out straight away.
+    await timers.advance(500);
+    await timers.advance(0);
+    expect(transport.calls).toHaveLength(2);
+
+    stop();
+  });
+
+  it('polls nothing for an interval that is not a positive number', async () => {
+    const { queries, transport } = cache();
+    const timers = manualClock();
+
+    for (const interval of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const stop = poll(queries, orderList, undefined, interval, { sleep: timers.sleep });
+
+      expect(timers.pending()).toBe(0);
+      stop();
+    }
+
+    expect(transport.calls).toHaveLength(0);
+  });
+
   it('keeps polling after a request fails', async () => {
     let call = 0;
     const transport = fakeTransport(() => {
