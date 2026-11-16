@@ -753,7 +753,10 @@ func (e *Extension) applyRemotePolicy(endpoint contract.RemoteEndpoint) contract
 //
 // A remote service takes part by serving its intents with contract/server
 // and registering itself in discovery under DiscoveryTag. An instance's
-// "forge-api-key" metadata, when set, is sent to it as a bearer token.
+// "forge-api-key" metadata, when set, is sent to it as a bearer token, but
+// never over plain http to another host. Discovery reaches instances over
+// plain http, so an instance not on a loopback address is skipped unless
+// AllowInsecureRemotes is set, and even then its API key is not sent.
 func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService) {
 	e.discoverySvc = svc
 }
@@ -768,7 +771,16 @@ func (e *Extension) startDiscovery(ctx context.Context) {
 		return
 	}
 
-	e.discoveryInteg = dashboarddiscovery.NewIntegration(e.discoverySvc, dashboarddiscovery.Config{
+	// The integration fetches each instance's manifest, with its API key,
+	// before handing it to registerRemoteManifest, so the transport policy
+	// is applied to what discovery returns rather than to what it registers.
+	svc := &transportPolicyDiscovery{
+		DiscoveryService: e.discoverySvc,
+		allowInsecure:    e.config.AllowInsecureRemotes,
+		logger:           e.Logger(),
+	}
+
+	e.discoveryInteg = dashboarddiscovery.NewIntegration(svc, dashboarddiscovery.Config{
 		Tag:          e.config.DiscoveryTag,
 		PollInterval: e.config.DiscoveryPollInterval,
 		Register:     e.registerRemoteManifest,

@@ -64,6 +64,26 @@ func CheckTransport(baseURL string, allowInsecure bool) error {
 	return fmt.Errorf("remote: refusing plain http to non-loopback contributor %s; use https or allow insecure remotes explicitly", u.Host)
 }
 
+// IsSecureTransport reports whether baseURL keeps what is sent to it off
+// the network in clear text: https, or plain http to a loopback address.
+// Credentials such as the dashboard's API key are only sent over a secure
+// transport, even when CheckTransport was told to allow an insecure one.
+func IsSecureTransport(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackHost(u.Hostname())
+	}
+
+	return false
+}
+
 func isLoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
@@ -182,8 +202,10 @@ func (f *ForwardingDispatcher) Dispatch(
 		}
 	}
 	// The dashboard's own credential authenticates the dashboard-to-service
-	// hop. The user's identity goes in X-Forwarded-User above.
-	if endpoint.APIKey != "" {
+	// hop. The user's identity goes in X-Forwarded-User above. It is never
+	// sent in clear text across a network, even to an endpoint allowed to
+	// use plain http; such an upstream sees an unauthenticated dashboard.
+	if endpoint.APIKey != "" && IsSecureTransport(endpoint.BaseURL) {
 		hr.Header.Set("Authorization", "Bearer "+endpoint.APIKey)
 	}
 

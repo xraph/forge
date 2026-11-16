@@ -46,8 +46,9 @@ type RemoteEndpoint struct {
 	PropagateSetCookie bool
 
 	// AllowInsecureHTTP permits a plain http BaseURL whose host is not a
-	// loopback address. Off by default, because the envelope, the API key
-	// and the forwarded identity would cross the network in clear text.
+	// loopback address. Off by default, because the envelope and the
+	// forwarded identity would cross the network in clear text. Even when it
+	// is on, APIKey is not sent over such a connection.
 	AllowInsecureHTTP bool
 }
 
