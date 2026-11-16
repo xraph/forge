@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"maps"
 	"time"
 )
 
@@ -42,6 +43,24 @@ type Session struct {
 
 	// UserAgent of the client that created the session
 	UserAgent string `json:"user_agent,omitempty"`
+}
+
+// Clone returns a copy of the session that shares no mutable state with s.
+// The Data map is copied, so writes to the copy never reach the original.
+// Values inside Data are copied shallowly.
+func (s *Session) Clone() *Session {
+	if s == nil {
+		return nil
+	}
+
+	c := *s
+	c.Data = maps.Clone(s.Data)
+
+	if c.Data == nil {
+		c.Data = make(map[string]any)
+	}
+
+	return &c
 }
 
 // IsExpired returns true if the session has expired.
