@@ -20,13 +20,12 @@ type Service struct {
 	metrics forge.Metrics
 
 	// Core components
-	node           *raft.Node
-	raftNode       internal.RaftNode
-	stateMachine   internal.StateMachine
-	clusterManager internal.ClusterManager
-	transport      internal.Transport
-	discovery      internal.Discovery
-	storage        internal.Storage
+	node         *raft.Node
+	raftNode     internal.RaftNode
+	stateMachine internal.StateMachine
+	transport    internal.Transport
+	discovery    internal.Discovery
+	storage      internal.Storage
 
 	// State
 	startTime time.Time
@@ -456,26 +455,41 @@ func (s *Service) GetClusterInfo() ClusterInfo {
 	}
 }
 
-// AddNode is not supported: cluster membership comes from the static peer
-// list, and the raft implementation has no membership change protocol.
-// Changing membership outside the log would risk two majorities.
+// AddNode adds a server to the cluster through the raft log. Call it on the
+// leader. The new server must already be running with join set, so it waits
+// to be added instead of electing itself; it joins as a learner and becomes a
+// voter once it has caught up.
 func (s *Service) AddNode(ctx context.Context, nodeID, address string, port int) error {
-	return ErrMembershipChangeUnsupported
-}
-
-// RemoveNode is not supported, for the same reason as AddNode.
-func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
-	return ErrMembershipChangeUnsupported
-}
-
-// TransferLeadership is not implemented. Use StepDown to let another node
-// win the next election.
-func (s *Service) TransferLeadership(ctx context.Context, targetNodeID string) error {
-	if !s.IsLeader() {
-		return ErrNotLeader
+	node := s.raft()
+	if node == nil {
+		return ErrNotStarted
 	}
 
-	return errors.New("leadership transfer is not implemented; use StepDown")
+	return node.AddNode(ctx, nodeID, address, port)
+}
+
+// RemoveNode removes a server from the cluster through the raft log. Call
+// it on the leader. Removing the leader itself is allowed; it steps down once
+// the change commits.
+func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
+	node := s.raft()
+	if node == nil {
+		return ErrNotStarted
+	}
+
+	return node.RemoveNode(ctx, nodeID)
+}
+
+// TransferLeadership hands leadership to targetNodeID. Client writes are
+// refused while it runs; if the target has not taken over within an election
+// timeout the transfer is abandoned and this node keeps leading.
+func (s *Service) TransferLeadership(ctx context.Context, targetNodeID string) error {
+	node := s.raft()
+	if node == nil {
+		return ErrNotStarted
+	}
+
+	return node.TransferLeadership(ctx, targetNodeID)
 }
 
 // StepDown makes the leader return to follower so another node can be
@@ -548,10 +562,11 @@ func (s *Service) GetStateMachine() StateMachine {
 	return s.stateMachine
 }
 
-// GetClusterManager returns nil: membership comes from the static peer list
-// and cluster state is read from the raft node (see GetClusterInfo).
+// GetClusterManager returns a ClusterManager backed by the raft
+// configuration. Its AddNode and RemoveNode change membership through the
+// log, like the service's.
 func (s *Service) GetClusterManager() ClusterManager {
-	return s.clusterManager
+	return &raftClusterManager{service: s}
 }
 
 // GetTransport returns the transport.

@@ -300,6 +300,76 @@ type RequestVoteRequest struct {
 	LastLogIndex uint64 `json:"last_log_index"`
 	LastLogTerm  uint64 `json:"last_log_term"`
 	PreVote      bool   `json:"pre_vote"`
+	// Transfer marks an election started by TimeoutNow during a leadership
+	// transfer. Voters grant it even though they heard from the leader
+	// recently, which they otherwise refuse (section 4.2.3).
+	Transfer bool `json:"transfer,omitempty"`
+}
+
+// TimeoutNowRequest asks the target of a leadership transfer to start an
+// election at once (Raft dissertation section 3.10).
+type TimeoutNowRequest struct {
+	Term     uint64 `json:"term"`
+	LeaderID string `json:"leader_id"`
+}
+
+// TimeoutNowResponse answers a TimeoutNowRequest.
+type TimeoutNowResponse struct {
+	Term    uint64 `json:"term"`
+	NodeID  string `json:"node_id"`
+	Success bool   `json:"success"`
+}
+
+// ClusterMember is one server in a cluster configuration.
+type ClusterMember struct {
+	ID      string `json:"id"`
+	Address string `json:"address,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	// Voter is false for a learner: it receives the log but does not vote or
+	// count towards a majority.
+	Voter bool `json:"voter"`
+}
+
+// ClusterConfiguration is the set of servers in a Raft cluster. It changes
+// one server at a time through configuration entries in the log.
+type ClusterConfiguration struct {
+	Members []ClusterMember `json:"members"`
+}
+
+// Member returns the member with the given ID.
+func (c ClusterConfiguration) Member(id string) (ClusterMember, bool) {
+	for _, m := range c.Members {
+		if m.ID == id {
+			return m, true
+		}
+	}
+
+	return ClusterMember{}, false
+}
+
+// IsVoter reports whether id is a voting member.
+func (c ClusterConfiguration) IsVoter(id string) bool {
+	m, ok := c.Member(id)
+
+	return ok && m.Voter
+}
+
+// Voters returns the IDs of the voting members.
+func (c ClusterConfiguration) Voters() []string {
+	out := make([]string, 0, len(c.Members))
+
+	for _, m := range c.Members {
+		if m.Voter {
+			out = append(out, m.ID)
+		}
+	}
+
+	return out
+}
+
+// Clone returns a deep copy.
+func (c ClusterConfiguration) Clone() ClusterConfiguration {
+	return ClusterConfiguration{Members: append([]ClusterMember(nil), c.Members...)}
 }
 
 // RequestVoteResponse represents a RequestVote RPC response.
@@ -318,6 +388,8 @@ type InstallSnapshotRequest struct {
 	Offset            uint64 `json:"offset"`
 	Data              []byte `json:"data"`
 	Done              bool   `json:"done"`
+	// Configuration is the cluster configuration as of LastIncludedIndex.
+	Configuration *ClusterConfiguration `json:"configuration,omitempty"`
 }
 
 // InstallSnapshotResponse represents an InstallSnapshot RPC response.
@@ -428,6 +500,11 @@ const (
 	MessageTypeInstallSnapshotResponse MessageType = "install_snapshot_response"
 	// MessageTypeHeartbeat is for heartbeat messages.
 	MessageTypeHeartbeat MessageType = "heartbeat"
+	// MessageTypeTimeoutNow asks the target of a leadership transfer to
+	// start an election at once.
+	MessageTypeTimeoutNow MessageType = "timeout_now"
+	// MessageTypeTimeoutNowResponse answers MessageTypeTimeoutNow.
+	MessageTypeTimeoutNowResponse MessageType = "timeout_now_response"
 )
 
 // Discovery defines the interface for service discovery.

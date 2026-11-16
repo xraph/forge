@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -88,6 +89,24 @@ func (n *Node) handleMessage(msg internal.Message) {
 
 		resp := n.handleInstallSnapshot(*req)
 		n.reply(msg, internal.MessageTypeInstallSnapshotResponse, &resp)
+
+	case internal.MessageTypeTimeoutNow:
+		req, ok := payloadAs[internal.TimeoutNowRequest](msg.Payload)
+		if !ok {
+			n.dropMalformed(msg)
+
+			return
+		}
+
+		resp := n.handleTimeoutNow(msg.From, *req)
+		n.reply(msg, internal.MessageTypeTimeoutNowResponse, &resp)
+
+	case internal.MessageTypeTimeoutNowResponse:
+		if resp, ok := payloadAs[internal.TimeoutNowResponse](msg.Payload); ok {
+			n.deliverResponse(msg.From, msg.RequestID, resp)
+		} else {
+			n.dropMalformed(msg)
+		}
 
 	case internal.MessageTypeInstallSnapshotResponse:
 		if resp, ok := payloadAs[internal.InstallSnapshotResponse](msg.Payload); ok {
@@ -227,6 +246,7 @@ func (n *Node) createSnapshot() error {
 	index := n.lastApplied
 	snapshotIndex := n.log.SnapshotIndex()
 	term, ok := n.log.Term(index)
+	cfg := n.configAtLocked(index).Clone()
 	n.mu.RUnlock()
 
 	if index <= snapshotIndex {
@@ -251,12 +271,16 @@ func (n *Node) createSnapshot() error {
 	snapshot.Term = term
 	snapshot.Created = time.Now()
 
-	if err := n.saveSnapshot(snapshot); err != nil {
+	if err := n.saveSnapshot(snapshot, cfg); err != nil {
 		return fmt.Errorf("failed to save snapshot: %w", err)
 	}
 
 	n.mu.Lock()
+
 	err = n.log.Compact(index, term)
+	if err == nil {
+		n.compactConfigsLocked(index)
+	}
 	n.mu.Unlock()
 
 	if err != nil {
@@ -274,166 +298,22 @@ func (n *Node) createSnapshot() error {
 	return nil
 }
 
-// saveSnapshot saves a snapshot to storage.
-func (n *Node) saveSnapshot(snapshot *internal.Snapshot) error {
-	// Save snapshot data
+// saveSnapshot saves a snapshot and its metadata, including the cluster
+// configuration as of the snapshot index, to storage.
+func (n *Node) saveSnapshot(snapshot *internal.Snapshot, cfg internal.ClusterConfiguration) error {
 	snapshotKey := fmt.Appendf(nil, "snapshot_%d", snapshot.Index)
 	if err := n.storage.Set(snapshotKey, snapshot.Data); err != nil {
 		return fmt.Errorf("failed to save snapshot data: %w", err)
 	}
 
-	// Save snapshot metadata
-	metaKey := []byte("snapshot_meta")
+	meta, err := json.Marshal(snapshotMeta{Index: snapshot.Index, Term: snapshot.Term, Config: &cfg})
+	if err != nil {
+		return fmt.Errorf("failed to encode snapshot metadata: %w", err)
+	}
 
-	metaValue := fmt.Sprintf(`{"index":%d,"term":%d}`, snapshot.Index, snapshot.Term)
-	if err := n.storage.Set(metaKey, []byte(metaValue)); err != nil {
+	if err := n.storage.Set([]byte(snapshotMetaKey), meta); err != nil {
 		return fmt.Errorf("failed to save snapshot metadata: %w", err)
 	}
-
-	return nil
-}
-
-// runConfigChangeProcessor processes configuration changes.
-func (n *Node) runConfigChangeProcessor() {
-	defer n.wg.Done()
-
-	for {
-		select {
-		case <-n.ctx.Done():
-			return
-
-		case msg := <-n.configChangeCh:
-			if err := n.processConfigChange(msg); err != nil {
-				n.logger.Error("failed to process config change",
-					forge.F("type", msg.Type),
-					forge.F("node_id", msg.NodeID),
-					forge.F("error", err),
-				)
-
-				msg.ResultCh <- err
-			} else {
-				msg.ResultCh <- nil
-			}
-		}
-	}
-}
-
-// processConfigChange processes a configuration change.
-func (n *Node) processConfigChange(msg ConfigChangeMsg) error {
-	// Configuration changes must go through Raft consensus
-	var configEntry internal.LogEntry
-
-	configEntry.Type = internal.EntryConfig
-
-	switch msg.Type {
-	case ConfigChangeAdd:
-		// Add node to configuration
-		n.peersLock.Lock()
-		n.peers[msg.NodeID] = &PeerState{
-			ID:         msg.NodeID,
-			Address:    msg.Address,
-			Port:       msg.Port,
-			NextIndex:  n.log.LastIndex() + 1,
-			MatchIndex: 0,
-		}
-		n.peersLock.Unlock()
-
-		n.logger.Info("added peer to cluster",
-			forge.F("peer_id", msg.NodeID),
-			forge.F("address", msg.Address),
-			forge.F("port", msg.Port),
-		)
-
-	case ConfigChangeRemove:
-		// Remove node from configuration
-		n.peersLock.Lock()
-		delete(n.peers, msg.NodeID)
-		n.peersLock.Unlock()
-
-		n.logger.Info("removed peer from cluster",
-			forge.F("peer_id", msg.NodeID),
-		)
-
-	default:
-		return fmt.Errorf("unknown config change type: %d", msg.Type)
-	}
-
-	return nil
-}
-
-// AddNode adds a node to the cluster (must be called on leader).
-func (n *Node) AddNode(ctx context.Context, nodeID, address string, port int) error {
-	if !n.IsLeader() {
-		return internal.NewNotLeaderError(n.id, n.GetLeader())
-	}
-
-	resultCh := make(chan error, 1)
-	msg := ConfigChangeMsg{
-		Type:     ConfigChangeAdd,
-		NodeID:   nodeID,
-		Address:  address,
-		Port:     port,
-		ResultCh: resultCh,
-	}
-
-	select {
-	case n.configChangeCh <- msg:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	select {
-	case err := <-resultCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// RemoveNode removes a node from the cluster (must be called on leader).
-func (n *Node) RemoveNode(ctx context.Context, nodeID string) error {
-	if !n.IsLeader() {
-		return internal.NewNotLeaderError(n.id, n.GetLeader())
-	}
-
-	resultCh := make(chan error, 1)
-	msg := ConfigChangeMsg{
-		Type:     ConfigChangeRemove,
-		NodeID:   nodeID,
-		ResultCh: resultCh,
-	}
-
-	select {
-	case n.configChangeCh <- msg:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	select {
-	case err := <-resultCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// TransferLeadership transfers leadership to another node.
-func (n *Node) TransferLeadership(ctx context.Context, targetNodeID string) error {
-	if !n.IsLeader() {
-		return internal.NewNotLeaderError(n.id, n.GetLeader())
-	}
-
-	n.logger.Info("transferring leadership",
-		forge.F("target", targetNodeID),
-	)
-
-	// Step down and let the target node win the next election
-	// In a production implementation, we would:
-	// 1. Ensure target is caught up
-	// 2. Stop sending heartbeats
-	// 3. Send a TimeoutNow message to target
-	// For now, just step down
-	n.stepDown(n.GetTerm())
 
 	return nil
 }

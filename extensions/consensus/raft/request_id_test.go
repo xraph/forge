@@ -219,7 +219,7 @@ func TestVoteFromOlderTermIsNotCounted(t *testing.T) {
 
 	granted := make(chan bool, 1)
 
-	go func() { granted <- n.requestVote(peer, 5, 10, 2) }()
+	go func() { granted <- n.requestVote(peer, 5, 10, 2, false) }()
 
 	req := tr.next(t)
 	n.handleMessage(internal.Message{

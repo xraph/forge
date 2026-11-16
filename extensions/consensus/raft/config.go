@@ -14,6 +14,17 @@ type Config struct {
 	NodeID    string `json:"node_id"    yaml:"node_id"`
 	ClusterID string `json:"cluster_id" yaml:"cluster_id"`
 
+	// Address and Port are where other members reach this node. They are
+	// recorded in configuration entries so servers added later can find it.
+	Address string `json:"address" yaml:"address"`
+	Port    int    `json:"port"    yaml:"port"`
+
+	// Join starts the node with an empty configuration: it never starts an
+	// election and waits for the leader to add it with AddNode. Use it for a
+	// server joining an existing cluster; a node that bootstraps with itself
+	// as a voter would disrupt the cluster it joins.
+	Join bool `json:"join" yaml:"join"`
+
 	// Timing parameters
 	ElectionTimeoutMin time.Duration `json:"election_timeout_min" yaml:"election_timeout_min"`
 	ElectionTimeoutMax time.Duration `json:"election_timeout_max" yaml:"election_timeout_max"`

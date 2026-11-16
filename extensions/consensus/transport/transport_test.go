@@ -119,6 +119,8 @@ func TestEnvelopeRoundTripsEveryRaftPayload(t *testing.T) {
 		internal.MessageTypeRequestVoteResponse:     &internal.RequestVoteResponse{Term: 3, VoteGranted: true},
 		internal.MessageTypeInstallSnapshot:         &internal.InstallSnapshotRequest{Term: 3, Data: []byte{1, 2}},
 		internal.MessageTypeInstallSnapshotResponse: &internal.InstallSnapshotResponse{Term: 3},
+		internal.MessageTypeTimeoutNow:              &internal.TimeoutNowRequest{Term: 3, LeaderID: "a"},
+		internal.MessageTypeTimeoutNowResponse:      &internal.TimeoutNowResponse{Term: 3, Success: true},
 	}
 
 	for typ, payload := range payloads {
@@ -154,6 +156,10 @@ func TestEnvelopeRoundTripsEveryRaftPayload(t *testing.T) {
 			_, ok = msg.Payload.(*internal.InstallSnapshotRequest)
 		case internal.MessageTypeInstallSnapshotResponse:
 			_, ok = msg.Payload.(*internal.InstallSnapshotResponse)
+		case internal.MessageTypeTimeoutNow:
+			_, ok = msg.Payload.(*internal.TimeoutNowRequest)
+		case internal.MessageTypeTimeoutNowResponse:
+			_, ok = msg.Payload.(*internal.TimeoutNowResponse)
 		}
 
 		if !ok {

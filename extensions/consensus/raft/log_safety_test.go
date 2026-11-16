@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
@@ -37,6 +38,18 @@ func newTestNode(t *testing.T, id string, st internal.Storage) *Node {
 	}
 
 	return n
+}
+
+// voteReady makes the candidates voting members and forgets the last leader
+// contact, so vote requests are judged on term and log alone.
+func voteReady(n *Node, candidates ...string) {
+	for _, c := range candidates {
+		n.AddPeer(c)
+	}
+
+	n.mu.Lock()
+	n.lastLeaderContact = time.Time{}
+	n.mu.Unlock()
 }
 
 func ents(term, from, to uint64) []internal.LogEntry {
@@ -115,6 +128,8 @@ func TestDelayedDuplicateDoesNotShrinkLog(t *testing.T) {
 	if n.commitIndex != 10 {
 		t.Fatalf("commitIndex = %d, want 10", n.commitIndex)
 	}
+
+	voteReady(n, "c")
 
 	vote, err := n.RequestVote(context.Background(), &internal.RequestVoteRequest{
 		Term: 3, CandidateID: "c", LastLogIndex: 5, LastLogTerm: 2,
@@ -195,6 +210,8 @@ func TestRestartReloadsLogAndState(t *testing.T) {
 		Term: 3, LeaderID: "l2", PrevLogIndex: 5, PrevLogTerm: 2, Entries: ents(3, 6, 6), LeaderCommit: 6,
 	})
 
+	voteReady(n, "c", "other")
+
 	if _, err := n.RequestVote(context.Background(), &internal.RequestVoteRequest{
 		Term: 4, CandidateID: "c", LastLogIndex: 6, LastLogTerm: 3,
 	}); err != nil {
@@ -202,6 +219,7 @@ func TestRestartReloadsLogAndState(t *testing.T) {
 	}
 
 	n2 := newTestNode(t, "f", st) // same storage, new process
+	voteReady(n2, "c", "other")
 
 	if n2.log.LastIndex() != 6 || n2.log.LastTerm() != 3 {
 		t.Fatalf("after restart LastIndex=%d LastTerm=%d, want 6 and 3", n2.log.LastIndex(), n2.log.LastTerm())
@@ -282,6 +300,7 @@ func TestVoteNotGrantedWhenPersistFails(t *testing.T) {
 	st := &flakyStorage{MemoryStorage: newMemStorage(t)}
 	n := newTestNode(t, "f", st)
 
+	voteReady(n, "c")
 	st.failWrites.Store(true)
 
 	vote, _ := n.RequestVote(context.Background(), &internal.RequestVoteRequest{Term: 1, CandidateID: "c"})
@@ -294,6 +313,7 @@ func TestVoteNotGrantedWhenPersistFails(t *testing.T) {
 func TestNoCandidateIsFavoured(t *testing.T) {
 	n := newTestNode(t, "f", newMemStorage(t))
 	n.handleAppendEntries(internal.AppendEntriesRequest{Term: 2, LeaderID: "l", Entries: ents(2, 1, 5)})
+	voteReady(n, "node-1")
 
 	vote, _ := n.RequestVote(context.Background(), &internal.RequestVoteRequest{
 		Term: 3, CandidateID: "node-1", LastLogIndex: 1, LastLogTerm: 1,
