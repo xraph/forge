@@ -47,6 +47,7 @@ func (p *DevPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewIntFlag("port", "p", "Port number", 0)),
 		cli.WithFlag(cli.NewBoolFlag("docker", "d", "Run inside Docker container", false)),
 		cli.WithFlag(cli.NewStringFlag("network", "", "Docker network (with --docker)", "")),
+		cli.WithFlag(cli.NewStringFlag("publish-address", "", "Host address to publish the app port on (with --docker; default 127.0.0.1, use 0.0.0.0 for every interface)", "")),
 		cli.WithFlag(cli.NewBoolFlag("observability", "O", "Start the local Grafana stack and send this app's telemetry to it", false)),
 	)
 
@@ -441,6 +442,11 @@ func (p *DevPlugin) runWithDocker(ctx cli.CommandContext, app *AppInfo, watch bo
 	// Resolve Docker config (project-level + app-level + CLI flag overrides).
 	dockerCfg := p.resolveDockerConfig(app, network)
 
+	// The flag overrides config, like --network does above.
+	if addr := ctx.String("publish-address"); addr != "" {
+		dockerCfg.PublishAddress = addr
+	}
+
 	// Extra env never replaces a key the docker config sets. The map is
 	// cloned first because resolveDockerConfig shares the project's.
 	if len(extraEnv) > 0 {
@@ -533,6 +539,10 @@ func (p *DevPlugin) resolveDockerConfig(app *AppInfo, networkFlag string) *confi
 
 		if appDocker.Platform != "" {
 			merged.Platform = appDocker.Platform
+		}
+
+		if appDocker.PublishAddress != "" {
+			merged.PublishAddress = appDocker.PublishAddress
 		}
 
 		// Merge maps (app overrides project).
