@@ -1,9 +1,11 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -161,7 +163,7 @@ func (c *wsConnection) Read() ([]byte, error) {
 	}
 
 	// Bound the read rather than trusting the advertised frame length.
-	data, _, err := wsutil.ReadClientData(newLimitedConn(c.conn, limit))
+	data, err := c.readClientData(newLimitedConn(c.conn, limit))
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +179,100 @@ func (c *wsConnection) Read() ([]byte, error) {
 	c.mu.Unlock()
 
 	return data, nil
+}
+
+// readClientData reads the next text or binary message from src, answering
+// control frames along the way.
+//
+// It mirrors wsutil.ReadClientData with one difference that matters: the
+// library writes ping and close replies straight to the socket from the
+// reading goroutine, without c.mu and without a write deadline. A pong could
+// then land in the middle of a data frame another goroutine was writing,
+// corrupting the stream for the client, and a peer that stopped reading
+// could block the reader on its reply forever. Replies here go through
+// writeControl instead.
+func (c *wsConnection) readClientData(src io.Reader) ([]byte, error) {
+	rd := wsutil.Reader{
+		Source:         src,
+		State:          ws.StateServerSide,
+		CheckUTF8:      true,
+		OnIntermediate: c.handleControlFrame,
+	}
+
+	for {
+		hdr, err := rd.NextFrame()
+		if err != nil {
+			return nil, err
+		}
+
+		if hdr.OpCode.IsControl() {
+			if err := c.handleControlFrame(hdr, &rd); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
+		if hdr.OpCode&(ws.OpText|ws.OpBinary) == 0 {
+			if err := rd.Discard(); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
+		return io.ReadAll(&rd)
+	}
+}
+
+// handleControlFrame answers a ping or close frame. The reply is built in
+// memory first and written as a single frame under the write lock, so it can
+// never interleave with an application write.
+func (c *wsConnection) handleControlFrame(h ws.Header, r io.Reader) error {
+	var reply bytes.Buffer
+
+	err := wsutil.ControlHandler{
+		Src:                 r,
+		Dst:                 &reply,
+		State:               ws.StateServerSide,
+		DisableSrcCiphering: true,
+	}.Handle(h)
+
+	if reply.Len() > 0 {
+		if werr := c.writeControl(reply.Bytes()); werr != nil && err == nil {
+			err = werr
+		}
+	}
+
+	return err
+}
+
+// writeControl writes an already framed control reply under the write lock
+// and the write deadline. Control frames are not messages, so the stream
+// handle does not count them.
+func (c *wsConnection) writeControl(frame []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("connection closed")
+	}
+
+	_ = c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeoutLocked()))
+
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
+
+	_, err := c.conn.Write(frame)
+
+	return err
+}
+
+func (c *wsConnection) writeTimeoutLocked() time.Duration {
+	if c.writeTimeout <= 0 {
+		return DefaultWebSocketWriteTimeout
+	}
+
+	return c.writeTimeout
 }
 
 // ReadJSON reads JSON from the WebSocket.
@@ -202,19 +298,25 @@ func (c *wsConnection) write(op ws.OpCode, data []byte) error {
 		return errors.New("connection closed")
 	}
 
-	timeout := c.writeTimeout
-	if timeout <= 0 {
-		timeout = DefaultWebSocketWriteTimeout
-	}
-
 	// Deadline errors are ignored rather than failing the write: not every
 	// net.Conn honours deadlines, and refusing to write to one that does not is
 	// worse than writing without the bound.
-	_ = c.conn.SetWriteDeadline(time.Now().Add(timeout))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeoutLocked()))
 
 	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
 
-	if err := wsutil.WriteServerMessage(c.conn, op, data); err != nil {
+	// Header and payload go out together. net.Buffers uses writev where the
+	// connection supports it, so this is one syscall and no payload copy,
+	// where WriteServerMessage made two writes.
+	var hdr [ws.MaxHeaderSize]byte
+
+	hb := bytes.NewBuffer(hdr[:0])
+	if err := ws.WriteHeader(hb, ws.Header{Fin: true, OpCode: op, Length: int64(len(data))}); err != nil {
+		return err
+	}
+
+	frame := net.Buffers{hb.Bytes(), data}
+	if _, err := frame.WriteTo(c.conn); err != nil {
 		return err
 	}
 
