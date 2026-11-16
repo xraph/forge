@@ -28,10 +28,13 @@ func bindConfig(cm ConfigManager, key string, target any, log Logger) (map[strin
 	for _, f := range bindErr.Fields {
 		bad[f.Key] = true
 
+		// The value itself is not logged. A value under the wrong key or of
+		// the wrong shape is often a secret (a token pasted into a headers
+		// map, a DSN in a numeric field), and the key and expected type are
+		// enough to find it.
 		if log != nil {
 			log.Warn("config: ignoring invalid value, using the default",
 				F("key", f.Key),
-				F("value", f.Value),
 				F("expected", f.Type),
 			)
 		}
