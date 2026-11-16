@@ -140,6 +140,60 @@ type fakeEtcdOps struct {
 	puts    []recordedPut
 	deletes []string
 	failPut bool
+
+	// Lease state: leases in alive are held by etcd.
+	alive     map[clientv3.LeaseID]bool
+	nextLease clientv3.LeaseID
+	grants    int
+	revoked   []clientv3.LeaseID
+}
+
+func (f *fakeEtcdOps) grant(context.Context, int64) (clientv3.LeaseID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.alive == nil {
+		f.alive = map[clientv3.LeaseID]bool{}
+	}
+
+	if f.nextLease == 0 {
+		f.nextLease = 100
+	}
+
+	f.nextLease++
+	f.grants++
+	f.alive[f.nextLease] = true
+
+	return f.nextLease, nil
+}
+
+func (f *fakeEtcdOps) remainingTTL(_ context.Context, lease clientv3.LeaseID) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.alive[lease] {
+		return 20, nil
+	}
+
+	return -1, nil
+}
+
+func (f *fakeEtcdOps) revoke(_ context.Context, lease clientv3.LeaseID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.revoked = append(f.revoked, lease)
+	delete(f.alive, lease)
+
+	return nil
+}
+
+// outstanding returns the leases etcd still holds.
+func (f *fakeEtcdOps) outstanding() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.alive)
 }
 
 func (f *fakeEtcdOps) put(_ context.Context, key, _ string, lease clientv3.LeaseID) error {
@@ -287,4 +341,81 @@ func TestEtcdLeaseAccessIsRaceFree(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// A keep-alive stream that breaks while etcd still holds the lease reuses it:
+// no new lease and no rewrites.
+func TestEtcdLeaseRecoveryReusesLiveLease(t *testing.T) {
+	b, ops := newFakeEtcdBackend(t)
+
+	first, _ := ops.grant(t.Context(), 30)
+	b.setLease(first)
+
+	if err := b.Register(t.Context(), &ServiceInstance{ID: "a", Name: "svc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ops.reset()
+
+	lease, err := b.recoverLease(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lease != first || ops.grants != 1 || len(ops.puts) != 0 || len(ops.revoked) != 0 {
+		t.Fatalf("lease=%d grants=%d puts=%d revoked=%v, want the live lease reused",
+			lease, ops.grants, len(ops.puts), ops.revoked)
+	}
+}
+
+// An expired lease is replaced, registrations move to the new lease, and the
+// old lease is revoked. Failed renewals never leave more than the current
+// lease outstanding.
+func TestEtcdLeaseRecoveryReplacesAndRevokes(t *testing.T) {
+	b, ops := newFakeEtcdBackend(t)
+
+	first, _ := ops.grant(t.Context(), 30)
+	b.setLease(first)
+
+	if err := b.Register(t.Context(), &ServiceInstance{ID: "a", Name: "svc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The lease expires.
+	ops.mu.Lock()
+	delete(ops.alive, first)
+	ops.mu.Unlock()
+
+	// Writing under the new lease fails three times before etcd recovers.
+	ops.failPut = true
+
+	for range 3 {
+		if _, err := b.recoverLease(t.Context()); err == nil {
+			t.Fatal("recovery reported success although re-registration failed")
+		}
+
+		if n := ops.outstanding(); n > 1 {
+			t.Fatalf("%d leases outstanding after a failed renewal", n)
+		}
+	}
+
+	ops.failPut = false
+	ops.reset()
+
+	lease, err := b.recoverLease(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if b.currentLease() != lease || lease == first {
+		t.Fatalf("current lease %d, recovered %d, first %d", b.currentLease(), lease, first)
+	}
+
+	if len(ops.puts) != 1 || ops.puts[0].lease != lease {
+		t.Fatalf("puts = %+v, want the registration under lease %d", ops.puts, lease)
+	}
+
+	if n := ops.outstanding(); n != 1 {
+		t.Fatalf("%d leases outstanding, want only the current one", n)
+	}
 }

@@ -44,6 +44,9 @@ type EtcdBackend struct {
 	leaseMu    sync.Mutex
 	leaseID    clientv3.LeaseID
 	registered map[string]etcdRegistration // key: instance ID
+	// reregisterPending is set when writing the registrations under the
+	// current lease failed, so the lease must not be reused as is.
+	reregisterPending bool
 
 	ops etcdOps
 }
@@ -53,11 +56,17 @@ type etcdRegistration struct {
 	value string
 }
 
-// etcdOps is the subset of etcd writes the backend performs. It exists so
-// lease and registration bookkeeping can be tested without an etcd server.
+// etcdOps is the subset of etcd calls the backend makes for registrations
+// and leases. It exists so lease and registration bookkeeping can be tested
+// without an etcd server.
 type etcdOps interface {
 	put(ctx context.Context, key, value string, lease clientv3.LeaseID) error
 	delete(ctx context.Context, key string) error
+	grant(ctx context.Context, ttl int64) (clientv3.LeaseID, error)
+	// remainingTTL returns the lease's remaining TTL in seconds, or a value
+	// below 1 when the lease has expired or does not exist.
+	remainingTTL(ctx context.Context, lease clientv3.LeaseID) (int64, error)
+	revoke(ctx context.Context, lease clientv3.LeaseID) error
 }
 
 type clientOps struct{ client *clientv3.Client }
@@ -70,6 +79,30 @@ func (c clientOps) put(ctx context.Context, key, value string, lease clientv3.Le
 
 func (c clientOps) delete(ctx context.Context, key string) error {
 	_, err := c.client.Delete(ctx, key)
+
+	return err
+}
+
+func (c clientOps) grant(ctx context.Context, ttl int64) (clientv3.LeaseID, error) {
+	resp, err := c.client.Grant(ctx, ttl)
+	if err != nil {
+		return 0, err
+	}
+
+	return resp.ID, nil
+}
+
+func (c clientOps) remainingTTL(ctx context.Context, lease clientv3.LeaseID) (int64, error) {
+	resp, err := c.client.TimeToLive(ctx, lease)
+	if err != nil {
+		return 0, err
+	}
+
+	return resp.TTL, nil
+}
+
+func (c clientOps) revoke(ctx context.Context, lease clientv3.LeaseID) error {
+	_, err := c.client.Revoke(ctx, lease)
 
 	return err
 }
@@ -549,23 +582,63 @@ func (b *EtcdBackend) keepAliveLease() {
 	}
 }
 
-// renewLease grants a new lease, re-registers every known instance under it,
-// and starts a keep-alive stream for it.
+// renewLease recovers the lease after its keep-alive stream ended and
+// starts a new keep-alive stream for it.
 func (b *EtcdBackend) renewLease() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
-	grantCtx, cancel := context.WithTimeout(b.ctx, etcdOpTimeout)
-	lease, err := b.client.Grant(grantCtx, b.leaseTTL)
+	lease, err := b.recoverLease(b.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.client.KeepAlive(b.ctx, lease)
+}
+
+// recoverLease reuses the current lease when etcd still holds it (the stream
+// broke but the lease did not expire), so the registered keys stay attached
+// and nothing is written. Otherwise it grants a new lease, writes every
+// registered instance under it and revokes the old one, so failed renewals
+// never leave a trail of leases waiting out their TTL.
+func (b *EtcdBackend) recoverLease(ctx context.Context) (clientv3.LeaseID, error) {
+	b.leaseMu.Lock()
+	old := b.leaseID
+	pending := b.reregisterPending
+	b.leaseMu.Unlock()
+
+	if old != 0 && !pending {
+		ttlCtx, cancel := context.WithTimeout(ctx, etcdOpTimeout)
+		ttl, err := b.ops.remainingTTL(ttlCtx, old)
+
+		cancel()
+
+		if err == nil && ttl > 0 {
+			return old, nil
+		}
+	}
+
+	grantCtx, cancel := context.WithTimeout(ctx, etcdOpTimeout)
+	lease, err := b.ops.grant(grantCtx, b.leaseTTL)
 
 	cancel()
 
 	if err != nil {
-		return nil, fmt.Errorf("grant etcd lease: %w", err)
+		return 0, fmt.Errorf("grant etcd lease: %w", err)
 	}
 
-	if err := b.reregisterAll(b.ctx, lease.ID); err != nil {
-		return nil, err
+	reregErr := b.reregisterAll(ctx, lease)
+
+	if old != 0 {
+		revokeCtx, cancel := context.WithTimeout(ctx, etcdOpTimeout)
+		// Best effort: an expired lease cannot be revoked and needs nothing.
+		_ = b.ops.revoke(revokeCtx, old)
+
+		cancel()
 	}
 
-	return b.client.KeepAlive(b.ctx, lease.ID)
+	if reregErr != nil {
+		return 0, reregErr
+	}
+
+	return lease, nil
 }
 
 // reregisterAll switches to lease and writes every registered instance under
@@ -576,6 +649,7 @@ func (b *EtcdBackend) reregisterAll(ctx context.Context, lease clientv3.LeaseID)
 	defer b.leaseMu.Unlock()
 
 	b.leaseID = lease
+	b.reregisterPending = false
 
 	var errs []error
 
@@ -589,6 +663,8 @@ func (b *EtcdBackend) reregisterAll(ctx context.Context, lease clientv3.LeaseID)
 			errs = append(errs, fmt.Errorf("re-register %s: %w", id, err))
 		}
 	}
+
+	b.reregisterPending = len(errs) > 0
 
 	return errors.Join(errs...)
 }
