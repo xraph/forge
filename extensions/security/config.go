@@ -2,6 +2,7 @@ package security
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -224,6 +225,10 @@ func (c *Config) Validate() error {
 		if c.Session.Store == "redis" && c.Session.Redis.Address == "" {
 			return errors.New("redis address is required when using redis store")
 		}
+	}
+
+	if c.CORS.Enabled && c.CORS.AllowCredentials && slices.Contains(c.CORS.AllowOrigins, "*") {
+		return errors.New("cors AllowOrigins [\"*\"] cannot be combined with AllowCredentials: list the trusted origins instead")
 	}
 
 	if c.Cookie.Enabled {

@@ -88,6 +88,14 @@ func SecureCORSConfig(allowedOrigins []string) CORSConfig {
 type CORSManager struct {
 	config CORSConfig
 	logger forge.Logger
+
+	// Derived once from config so preflights do not rebuild them.
+	hasWildcardOrigin bool
+	hasWildcardHeader bool
+	allowedHeaders    map[string]struct{} // lowercased
+	allowMethods      string
+	allowHeaders      string
+	maxAge            string
 }
 
 // NewCORSManager creates a new CORS manager.
@@ -105,10 +113,26 @@ func NewCORSManager(config CORSConfig, logger forge.Logger) *CORSManager {
 		config.MaxAge = 3600
 	}
 
-	return &CORSManager{
-		config: config,
-		logger: logger,
+	m := &CORSManager{
+		config:            config,
+		logger:            logger,
+		hasWildcardOrigin: slices.Contains(config.AllowOrigins, "*"),
+		hasWildcardHeader: slices.Contains(config.AllowHeaders, "*"),
+		allowedHeaders:    make(map[string]struct{}, len(config.AllowHeaders)),
+		allowMethods:      strings.Join(config.AllowMethods, ", "),
+		allowHeaders:      strings.Join(config.AllowHeaders, ", "),
+		maxAge:            strconv.Itoa(config.MaxAge),
 	}
+
+	for _, h := range config.AllowHeaders {
+		m.allowedHeaders[normalizeHeader(h)] = struct{}{}
+	}
+
+	if m.hasWildcardOrigin && config.AllowCredentials && logger != nil {
+		logger.Warn("cors: AllowOrigins [\"*\"] with AllowCredentials only answers listed origins with credentials; every other origin gets \"*\" without credentials")
+	}
+
+	return m
 }
 
 // shouldSkipPath checks if the path should skip CORS handling.
@@ -116,23 +140,29 @@ func (m *CORSManager) shouldSkipPath(path string) bool {
 	return shouldSkipPath(path, m.config.SkipPaths)
 }
 
-// isOriginAllowed checks if an origin is allowed.
+// isOriginAllowed checks if an origin is allowed, counting a "*" entry.
 func (m *CORSManager) isOriginAllowed(origin string) bool {
 	if len(m.config.AllowOrigins) == 0 {
 		return false
 	}
 
-	// Check for wildcard
+	return slices.Contains(m.config.AllowOrigins, "*") || m.isOriginListed(origin)
+}
+
+// isOriginListed checks whether an origin matches an explicit entry or a
+// "*.domain" pattern. A bare "*" does not count: it may answer any origin
+// with "*", but it must never be turned into a reflected origin.
+func (m *CORSManager) isOriginListed(origin string) bool {
 	for _, allowedOrigin := range m.config.AllowOrigins {
 		if allowedOrigin == "*" {
-			return true
+			continue
 		}
 
 		if allowedOrigin == origin {
 			return true
 		}
 		// Support wildcard subdomains like *.example.com. Match on the origin's
-		// host with a proper label boundary — NOT a bare string suffix. A bare
+		// host with a proper label boundary, NOT a bare string suffix. A bare
 		// suffix (strings.HasSuffix(origin, "example.com")) would also match an
 		// attacker-controlled "https://evilexample.com", which with credentials
 		// is a cross-origin read vector. The host must equal the base domain or
@@ -162,23 +192,39 @@ func originHost(origin string) string {
 }
 
 // getAllowOrigin returns the appropriate Access-Control-Allow-Origin value.
+//
+// An origin is only ever reflected when it is listed explicitly or matches a
+// "*.domain" pattern. A bare "*" entry answers with "*", which browsers never
+// combine with credentials. Reflecting any origin because the list said "*"
+// would let every site read credentialed responses.
 func (m *CORSManager) getAllowOrigin(origin string) string {
-	// If credentials are allowed, we must return the specific origin, not "*"
-	if m.config.AllowCredentials && m.isOriginAllowed(origin) {
-		return origin
+	if m.config.AllowCredentials {
+		if m.isOriginListed(origin) {
+			return origin
+		}
+
+		if m.hasWildcardOrigin {
+			return "*"
+		}
+
+		return ""
 	}
 
-	// Check for wildcard
-	if slices.Contains(m.config.AllowOrigins, "*") {
+	if m.hasWildcardOrigin {
 		return "*"
 	}
 
-	// Return the origin if it's allowed
-	if m.isOriginAllowed(origin) {
+	if m.isOriginListed(origin) {
 		return origin
 	}
 
 	return ""
+}
+
+// variesByOrigin reports whether the response depends on the Origin header.
+// Only a policy that always answers "*" does not.
+func (m *CORSManager) variesByOrigin() bool {
+	return !m.hasWildcardOrigin || m.config.AllowCredentials
 }
 
 // CORSMiddleware returns a middleware function for CORS handling.
@@ -195,6 +241,13 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 			// Skip CORS for specified paths
 			if manager.shouldSkipPath(r.URL.Path) {
 				return next(ctx)
+			}
+
+			// Caches must key on Origin whenever the answer depends on it,
+			// including when there is no Origin or it is refused. Otherwise a
+			// shared cache can serve one origin's response to another.
+			if manager.variesByOrigin() {
+				addVaryHeader(w.Header(), "Origin")
 			}
 
 			origin := r.Header.Get("Origin")
@@ -220,8 +273,8 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 			// Set CORS headers
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 
-			// Handle credentials
-			if manager.config.AllowCredentials {
+			// Credentials are only ever allowed for a specific origin.
+			if manager.config.AllowCredentials && allowOrigin != "*" {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 
@@ -232,11 +285,6 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 
 			// Handle preflight requests
 			if r.Method == http.MethodOptions {
-				manager.logger.Debug("cors preflight request detected",
-					forge.F("path", r.URL.Path),
-					forge.F("origin", origin),
-				)
-
 				return manager.handlePreflight(ctx)
 			}
 
@@ -257,28 +305,28 @@ func normalizeHeader(header string) string {
 // isHeaderAllowed checks if a header is in the allowed list (case-insensitive).
 func (m *CORSManager) isHeaderAllowed(requestedHeader string) bool {
 	// Check for wildcard first
-	if slices.Contains(m.config.AllowHeaders, "*") {
+	if m.hasWildcardHeader {
 		// Wildcard is only valid if credentials are not allowed
 		return !m.config.AllowCredentials
 	}
 
-	// Normalize requested header for comparison
-	normalizedRequested := normalizeHeader(requestedHeader)
+	_, ok := m.allowedHeaders[normalizeHeader(requestedHeader)]
 
-	// Check against allowed headers (case-insensitive)
-	for _, allowedHeader := range m.config.AllowHeaders {
-		if normalizeHeader(allowedHeader) == normalizedRequested {
-			return true
-		}
-	}
-
-	return false
+	return ok
 }
 
 // handlePreflight handles CORS preflight requests.
+//
+// This runs for every preflight, so it builds no log fields on the success
+// path and uses the method, header and max-age strings prepared in
+// NewCORSManager.
 func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	r := ctx.Request()
 	w := ctx.Response()
+
+	// The answer below depends on these request headers too.
+	addVaryHeader(w.Header(), "Access-Control-Request-Method")
+	addVaryHeader(w.Header(), "Access-Control-Request-Headers")
 
 	// Access-Control-Request-Method is required for preflight
 	requestMethod := r.Header.Get("Access-Control-Request-Method")
@@ -286,10 +334,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		return ctx.String(http.StatusBadRequest, "Access-Control-Request-Method header is required")
 	}
 
-	// Check if method is allowed
-	methodAllowed := slices.Contains(m.config.AllowMethods, requestMethod)
-
-	if !methodAllowed {
+	if !slices.Contains(m.config.AllowMethods, requestMethod) {
 		m.logger.Debug("cors method not allowed",
 			forge.F("method", requestMethod),
 			forge.F("path", r.URL.Path),
@@ -298,170 +343,58 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 		return ctx.String(http.StatusForbidden, "Method not allowed by CORS policy")
 	}
 
-	// Validate requested headers
-	requestHeadersStr := r.Header.Get("Access-Control-Request-Headers")
+	canUseWildcard := m.hasWildcardHeader && !m.config.AllowCredentials
 
-	var allowedHeadersList []string
+	var allowHeadersValue string
 
-	if requestHeadersStr != "" {
-		m.logger.Debug("cors preflight requested headers",
-			forge.F("requested_headers_raw", requestHeadersStr),
-			forge.F("allowed_headers_config", m.config.AllowHeaders),
-			forge.F("path", r.URL.Path),
-		)
-		// Parse requested headers (comma-separated, may have spaces)
-		// Handle both "header1,header2" and "header1, header2" formats
-		requestedHeaders := strings.Split(requestHeadersStr, ",")
-		m.logger.Debug("cors parsed requested headers",
-			forge.F("parsed_headers", requestedHeaders),
-			forge.F("count", len(requestedHeaders)),
+	if requested := r.Header.Get("Access-Control-Request-Headers"); requested != "" {
+		// Answer with the requested headers that are allowed, in the casing
+		// the browser sent and without duplicates.
+		var (
+			b    strings.Builder
+			seen []string
 		)
 
-		allowedHeadersSet := make(map[string]string) // map[lowercase] = original
-
-		// Check for wildcard in config
-		hasWildcard := slices.Contains(m.config.AllowHeaders, "*")
-		canUseWildcard := hasWildcard && !m.config.AllowCredentials
-
-		for i, reqHeader := range requestedHeaders {
+		for reqHeader := range strings.SplitSeq(requested, ",") {
 			reqHeader = strings.TrimSpace(reqHeader)
 			if reqHeader == "" {
-				m.logger.Debug("cors skipping empty header",
-					forge.F("index", i),
-					forge.F("raw", requestedHeaders[i]),
-				)
-
 				continue
 			}
 
-			normalizedReq := normalizeHeader(reqHeader)
-			headerFound := false
+			normalized := strings.ToLower(reqHeader)
+			if slices.Contains(seen, normalized) {
+				continue
+			}
 
-			m.logger.Debug("cors checking header",
-				forge.F("requested", reqHeader),
-				forge.F("normalized", normalizedReq),
-				forge.F("index", i),
-			)
-
-			// If wildcard is allowed, all headers are allowed
-			if canUseWildcard {
-				// Find the original casing from config if it exists, otherwise use requested casing
-				for _, allowedHeader := range m.config.AllowHeaders {
-					if normalizeHeader(allowedHeader) == normalizedReq {
-						allowedHeadersSet[normalizedReq] = allowedHeader
-						headerFound = true
-
-						break
-					}
-				}
-
-				if !headerFound {
-					// Use the requested header casing
-					allowedHeadersSet[normalizedReq] = reqHeader
-					headerFound = true
-				}
-			} else {
-				// Check if this specific header is allowed
-				for _, allowedHeader := range m.config.AllowHeaders {
-					if normalizeHeader(allowedHeader) == normalizedReq {
-						// Use the requested header casing (browsers expect this)
-						allowedHeadersSet[normalizedReq] = reqHeader
-						headerFound = true
-
-						break
-					}
+			if !canUseWildcard {
+				if _, ok := m.allowedHeaders[normalized]; !ok {
+					continue
 				}
 			}
 
-			// Log if header was not found (for debugging)
-			if !headerFound {
-				m.logger.Warn("cors requested header not in allowed list",
-					forge.F("requested_header", reqHeader),
-					forge.F("normalized", normalizedReq),
-					forge.F("allowed_headers", m.config.AllowHeaders),
-					forge.F("path", r.URL.Path),
-				)
+			seen = append(seen, normalized)
+
+			if b.Len() > 0 {
+				b.WriteString(", ")
 			}
+
+			b.WriteString(reqHeader)
 		}
 
-		// Convert set to list, preserving requested casing
-		for normalized, originalHeader := range allowedHeadersSet {
-			allowedHeadersList = append(allowedHeadersList, originalHeader)
-			m.logger.Debug("cors adding header to response",
-				forge.F("normalized", normalized),
-				forge.F("header", originalHeader),
-			)
-		}
-
-		m.logger.Debug("cors preflight allowed headers list",
-			forge.F("allowed_headers_response", allowedHeadersList),
-			forge.F("count", len(allowedHeadersList)),
-			forge.F("path", r.URL.Path),
-		)
-	} else {
-		// No headers requested, but we should still return allowed headers
-		// (or wildcard if applicable)
-		if slices.Contains(m.config.AllowHeaders, "*") && !m.config.AllowCredentials {
-			allowedHeadersList = []string{"*"}
-		} else {
-			allowedHeadersList = m.config.AllowHeaders
-		}
-	}
-
-	// Set preflight headers
-	// IMPORTANT: Check if headers were already set (another middleware might have set them)
-	existingAllowHeaders := w.Header().Get("Access-Control-Allow-Headers")
-	if existingAllowHeaders != "" {
-		m.logger.Warn("cors headers already set by another middleware, overwriting",
-			forge.F("existing_headers", existingAllowHeaders),
-			forge.F("our_headers", allowedHeadersList),
-			forge.F("path", r.URL.Path),
-		)
-	}
-
-	w.Header().Set("Access-Control-Allow-Methods", strings.Join(m.config.AllowMethods, ", "))
-
-	// Set allowed headers - use the validated list or wildcard
-	var allowHeadersValue string
-
-	switch {
-	case len(allowedHeadersList) == 1 && allowedHeadersList[0] == "*":
+		allowHeadersValue = b.String()
+	} else if canUseWildcard {
 		allowHeadersValue = "*"
-	case len(allowedHeadersList) == 0:
-		// No headers matched - this shouldn't happen, but log it
-		m.logger.Warn("cors no headers matched, returning empty list",
-			forge.F("requested", requestHeadersStr),
-			forge.F("allowed_config", m.config.AllowHeaders),
-			forge.F("path", r.URL.Path),
-		)
-
-		allowHeadersValue = ""
-	default:
-		allowHeadersValue = strings.Join(allowedHeadersList, ", ")
+	} else {
+		allowHeadersValue = m.allowHeaders
 	}
 
+	w.Header().Set("Access-Control-Allow-Methods", m.allowMethods)
 	w.Header().Set("Access-Control-Allow-Headers", allowHeadersValue)
-	w.Header().Set("Access-Control-Max-Age", strconv.Itoa(m.config.MaxAge))
-
-	// Log what we're actually sending back
-	m.logger.Debug("cors preflight response headers SET",
-		forge.F("allow_headers", allowHeadersValue),
-		forge.F("allow_methods", strings.Join(m.config.AllowMethods, ", ")),
-		forge.F("path", r.URL.Path),
-	)
-
-	// Double-check what's actually in the response
-	finalHeaders := w.Header().Get("Access-Control-Allow-Headers")
-	m.logger.Debug("cors preflight final response headers",
-		forge.F("final_allow_headers", finalHeaders),
-		forge.F("path", r.URL.Path),
-	)
+	w.Header().Set("Access-Control-Max-Age", m.maxAge)
 
 	// Handle private network access
-	if m.config.AllowPrivateNetwork {
-		if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
-			w.Header().Set("Access-Control-Allow-Private-Network", "true")
-		}
+	if m.config.AllowPrivateNetwork && r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	}
 
 	// Return 204 No Content for successful preflight
