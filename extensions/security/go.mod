@@ -8,7 +8,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/xraph/forge v1.12.9
 	github.com/xraph/go-utils v1.5.0
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/vessel v1.0.6
 	golang.org/x/crypto v0.57.0
 )
 

@@ -10,7 +10,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/vessel v1.0.6
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/otel/sdk v1.45.0
 	google.golang.org/grpc v1.83.2

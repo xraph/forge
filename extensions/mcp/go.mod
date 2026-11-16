@@ -8,7 +8,7 @@ require (
 	github.com/xraph/confy v1.1.0
 	github.com/xraph/forge v1.12.9
 	github.com/xraph/go-utils v1.5.0
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/vessel v1.0.6
 )
 
 require (
