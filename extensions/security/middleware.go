@@ -102,8 +102,13 @@ func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 				}
 			}
 
-			// Store session in Forge context
+			// Publish the session in both places handlers look for it. The
+			// forge context serves GetSessionFromForgeContext, and the request's
+			// context.Context serves GetSession, DestroySession and
+			// UpdateSession. Setting only the forge value left those helpers
+			// blind, so logout silently did nothing.
 			forgeCtx.Set("session", session)
+			forgeCtx.WithContext(WithSession(ctx, session))
 
 			// Track metrics
 			if opts.Metrics != nil {
@@ -149,11 +154,24 @@ func CreateSession(
 	return session, nil
 }
 
-// GetSession retrieves the session from standard context (for backward compatibility).
+// GetSession retrieves the session that SessionMiddleware placed in the
+// request's context.Context.
 func GetSession(ctx context.Context) (*Session, bool) {
 	session, ok := ctx.Value(SessionContextKey{}).(*Session)
+	if !ok || session == nil {
+		return nil, false
+	}
 
-	return session, ok
+	return session, true
+}
+
+// WithSession returns a copy of ctx that carries session under
+// SessionContextKey, so GetSession, DestroySession and UpdateSession can find
+// it. SessionMiddleware does this for every request with a valid session
+// cookie; call it yourself when you create a session mid-request and want
+// later code in the same request to see it.
+func WithSession(ctx context.Context, session *Session) context.Context {
+	return context.WithValue(ctx, SessionContextKey{}, session)
 }
 
 // GetSessionFromForgeContext retrieves the session from Forge context.
@@ -196,10 +214,11 @@ func DestroySession(
 	cookieManager *CookieManager,
 	cookieName string,
 ) error {
-	// Get session from context
+	// A missing session is reported rather than swallowed. Returning nil here
+	// made a logout handler believe it had ended the session when it had not.
 	session, ok := GetSession(ctx)
-	if !ok {
-		return nil // No session to destroy
+	if !ok || session == nil {
+		return ErrSessionNotFound
 	}
 
 	// Delete session from store
@@ -220,7 +239,7 @@ func UpdateSession(
 	ttl time.Duration,
 ) error {
 	session, ok := GetSession(ctx)
-	if !ok {
+	if !ok || session == nil {
 		return ErrSessionNotFound
 	}
 
