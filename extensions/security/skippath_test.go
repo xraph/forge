@@ -95,6 +95,7 @@ func TestSkipPaths_AllManagersUseSegmentBoundary(t *testing.T) {
 	}
 
 	rl := NewMemoryRateLimiter(rlCfg, log, nil)
+	defer rl.Stop()
 
 	checks := map[string]func(string) bool{
 		"csrf":    NewCSRFProtection(csrfCfg, log).shouldSkipPath,
