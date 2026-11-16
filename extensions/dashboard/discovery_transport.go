@@ -16,10 +16,14 @@ import (
 // The policy has to run before the integration fetches a manifest, not when
 // the fetched manifest is registered: the fetch is the first request to the
 // instance, and by then it has already crossed the network. The integration
-// reaches every instance at http://Address:Port, so an instance passes only
-// when that address is loopback or AllowInsecureRemotes is set. An instance
-// that is filtered out looks departed to the integration, which also drops a
-// contributor it registered earlier.
+// checks the same policy itself before fetching; filtering here as well means
+// an instance that fails it looks departed, so a contributor registered from
+// it earlier is dropped rather than kept on stale terms.
+//
+// An instance is judged by the address the integration will actually use
+// (ServiceInstance.BaseURL): https when it advertises it, plain http
+// otherwise. It passes when that is https, a loopback address, or
+// AllowInsecureRemotes is set.
 type transportPolicyDiscovery struct {
 	dashboarddiscovery.DiscoveryService
 
@@ -41,10 +45,10 @@ func (d *transportPolicyDiscovery) DiscoverWithTags(ctx context.Context, service
 			continue
 		}
 
-		target := inst.URL("http")
+		target := inst.BaseURL()
 		if err := contractremote.CheckTransport(target, d.allowInsecure); err != nil {
 			if d.logger != nil {
-				d.logger.Warn("dashboard discovery: skipping contributor reachable only over plain http; serve it on loopback or allow insecure remotes",
+				d.logger.Warn("dashboard discovery: skipping contributor reachable only over plain http; advertise https or allow insecure remotes",
 					forge.F("service_id", inst.ID),
 					forge.F("url", target),
 				)

@@ -754,9 +754,11 @@ func (e *Extension) applyRemotePolicy(endpoint contract.RemoteEndpoint) contract
 // A remote service takes part by serving its intents with contract/server
 // and registering itself in discovery under DiscoveryTag. An instance's
 // "forge-api-key" metadata, when set, is sent to it as a bearer token, but
-// never over plain http to another host. Discovery reaches instances over
-// plain http, so an instance not on a loopback address is skipped unless
-// AllowInsecureRemotes is set, and even then its API key is not sent.
+// never over plain http to another host. An instance is reached over https
+// when it advertises it (discovery.SchemeMetadata set to "https", or an
+// "https" tag); otherwise over plain http, which for an instance not on a
+// loopback address is refused unless AllowInsecureRemotes is set, and even
+// then its API key is not sent.
 func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService) {
 	e.discoverySvc = svc
 }
@@ -781,11 +783,12 @@ func (e *Extension) startDiscovery(ctx context.Context) {
 	}
 
 	e.discoveryInteg = dashboarddiscovery.NewIntegration(svc, dashboarddiscovery.Config{
-		Tag:          e.config.DiscoveryTag,
-		PollInterval: e.config.DiscoveryPollInterval,
-		Register:     e.registerRemoteManifest,
-		Unregister:   e.UnregisterRemoteContractContributor,
-		Logger:       e.Logger(),
+		Tag:           e.config.DiscoveryTag,
+		PollInterval:  e.config.DiscoveryPollInterval,
+		Register:      e.registerRemoteManifest,
+		Unregister:    e.UnregisterRemoteContractContributor,
+		Logger:        e.Logger(),
+		AllowInsecure: e.config.AllowInsecureRemotes,
 	})
 	e.discoveryInteg.Start(ctx)
 }

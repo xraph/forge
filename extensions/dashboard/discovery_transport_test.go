@@ -38,6 +38,13 @@ func instanceAt(id, addr string) *dashboarddiscovery.ServiceInstance {
 	}
 }
 
+func httpsInstanceAt(id, addr string) *dashboarddiscovery.ServiceInstance {
+	inst := instanceAt(id, addr)
+	inst.Metadata[dashboarddiscovery.SchemeMetadata] = "https"
+
+	return inst
+}
+
 func ids(instances []*dashboarddiscovery.ServiceInstance) []string {
 	out := make([]string, 0, len(instances))
 	for _, inst := range instances {
@@ -57,6 +64,7 @@ func TestTransportPolicyDiscovery_FiltersBeforeAnyFetch(t *testing.T) {
 			instanceAt("remote", "10.0.0.5"),
 			instanceAt("named", "svc.internal"),
 			instanceAt("loopback", "127.0.0.1"),
+			httpsInstanceAt("secure", "svc.internal"),
 		},
 		localID: "self",
 	}
@@ -68,8 +76,10 @@ func TestTransportPolicyDiscovery_FiltersBeforeAnyFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ids := ids(got); len(ids) != 1 || ids[0] != "loopback" {
-		t.Errorf("strict policy passed %v, want only loopback", ids)
+	// An instance on another host that advertises https is reached over
+	// it, so the strict policy keeps it.
+	if ids := ids(got); len(ids) != 2 || ids[0] != "loopback" || ids[1] != "secure" {
+		t.Errorf("strict policy passed %v, want loopback and secure", ids)
 	}
 
 	if strict.LocalServiceID() != "self" {
@@ -83,12 +93,12 @@ func TestTransportPolicyDiscovery_FiltersBeforeAnyFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(got) != 3 {
-		t.Errorf("AllowInsecureRemotes passed %v, want all three", ids(got))
+	if len(got) != 4 {
+		t.Errorf("AllowInsecureRemotes passed %v, want all four", ids(got))
 	}
 
 	// The source slice is not modified by filtering.
-	if len(src.instances) != 3 || src.instances[0].ID != "remote" {
+	if len(src.instances) != 4 || src.instances[0].ID != "remote" {
 		t.Errorf("source instances changed: %v", ids(src.instances))
 	}
 }

@@ -94,9 +94,10 @@ type Config struct {
 	// that is not on a loopback address; without it such a contributor is
 	// refused, before anything is sent to it, because envelopes, the API key
 	// and the user's identity would cross the network in clear text.
-	// Discovery builds http URLs, so a discovered contributor on another host
-	// needs this until it is reached over https. Even with it on, API keys
-	// are never sent over plain http to another host.
+	// A discovered instance is reached over https when it advertises it
+	// (discovery.SchemeMetadata set to "https", or an "https" tag), and only
+	// needs this when it does not. Even with it on, API keys are never sent
+	// over plain http to another host.
 	AllowInsecureRemotes bool `json:"allow_insecure_remotes" yaml:"allow_insecure_remotes"`
 	// RemoteForwardHeaders names inbound headers passed to remote
 	// contributors as X-Forwarded-<Name>. Empty by default, so the user's
