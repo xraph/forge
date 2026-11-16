@@ -120,18 +120,12 @@ func buildRunnerWithMigrations(t *testing.T, goModContent string, seed func(t *t
 
 	dsn = "sqlite://" + filepath.Join(root, "app.db")
 
-	var err error
-
-	binary, err = p.buildMigrationRunner(dsn, "")
+	binary, cleanup, err := p.buildMigrationRunner(dsn, "")
 	require.NoError(t, err, "the runner must build")
 
-	// buildMigrationRunner deliberately leaves its temp directory in place on success (a
-	// real "forge db migrate" invocation needs it there to run the binary), which is
-	// outside t.TempDir() and outside Go's test cleanup entirely. Without this, every
-	// call to buildRunner leaves a full compiled Go module under the OS temp dir forever.
-	t.Cleanup(func() {
-		os.RemoveAll(filepath.Dir(binary))
-	})
+	// buildMigrationRunner leaves its temp directory in place on success so the binary
+	// can run, and hands back cleanup to remove it, the way runWithGoMigrations does.
+	t.Cleanup(cleanup)
 
 	return binary, dsn
 }
