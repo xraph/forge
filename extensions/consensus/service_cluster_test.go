@@ -259,16 +259,6 @@ func TestServiceRejectsUnsupportedSettings(t *testing.T) {
 	}
 }
 
-// Membership changes are refused instead of being half applied.
-func TestServiceRefusesMembershipChanges(t *testing.T) {
-	cfg := clusterConfigs(t, "tcp", 1)[0]
-	s := startServices(t, []internal.Config{cfg})[0]
-
-	if err := s.AddNode(context.Background(), "n9", "127.0.0.1", 1); !errors.Is(err, ErrMembershipChangeUnsupported) {
-		t.Fatalf("AddNode returned %v", err)
-	}
-}
-
 type servicePKI struct {
 	dir    string
 	caFile string

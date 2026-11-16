@@ -9,19 +9,12 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
 	"github.com/xraph/forge/extensions/consensus/raft"
 	"github.com/xraph/forge/extensions/consensus/statemachine"
 	"github.com/xraph/forge/extensions/consensus/storage"
 	"github.com/xraph/forge/extensions/consensus/transport"
 )
-
-// ErrMembershipChangeUnsupported is returned by AddNode and RemoveNode. The
-// raft implementation has no membership change protocol, so the cluster is
-// the static peer list in the configuration.
-var ErrMembershipChangeUnsupported = errors.New(
-	"consensus: cluster membership changes are not supported; configure peers statically")
 
 // startComponents builds and starts storage, transport, state machine and
 // raft node from the configuration. On error the caller stops whatever was
@@ -70,7 +63,9 @@ func (s *Service) startComponents(ctx context.Context) error {
 			return fmt.Errorf("failed to add peer %s: %w", peer.ID, err)
 		}
 
-		node.AddPeer(peer.ID)
+		// A joining node only needs routes to the cluster; its membership
+		// arrives through the log when the leader adds it.
+		node.AddPeerAddress(peer.ID, peer.Address, peer.Port)
 	}
 
 	if err := node.Start(s.ctx); err != nil {
@@ -230,6 +225,9 @@ func raftConfig(cfg internal.Config) raft.Config {
 	return raft.Config{
 		NodeID:             cfg.NodeID,
 		ClusterID:          cfg.ClusterID,
+		Address:            cfg.BindAddr,
+		Port:               cfg.BindPort,
+		Join:               cfg.Join,
 		HeartbeatInterval:  cfg.Raft.HeartbeatInterval,
 		ElectionTimeoutMin: cfg.Raft.ElectionTimeoutMin,
 		ElectionTimeoutMax: cfg.Raft.ElectionTimeoutMax,
@@ -245,41 +243,28 @@ func raftConfig(cfg internal.Config) raft.Config {
 	}
 }
 
-// clusterCounts returns the cluster size and how many members this node
-// currently knows to be reachable.
+// clusterCounts returns the number of members in the current configuration
+// and how many of them this node currently knows to be reachable.
 func (s *Service) clusterCounts(node *raft.Node) (total, active int) {
-	total = len(s.peerConfigs()) + 1
-
 	if node == nil {
-		return total, 0
+		return len(s.config.Peers), 0
 	}
 
-	for _, n := range s.clusterNodes(node) {
+	nodes := s.clusterNodes(node)
+
+	for _, n := range nodes {
 		if n.Status == StatusActive {
 			active++
 		}
 	}
 
-	return total, active
+	return len(nodes), active
 }
 
-// peerConfigs returns the configured peers other than this node.
-func (s *Service) peerConfigs() []internal.PeerConfig {
-	peers := make([]internal.PeerConfig, 0, len(s.config.Peers))
-
-	for _, p := range s.config.Peers {
-		if p.ID != s.config.NodeID {
-			peers = append(peers, p)
-		}
-	}
-
-	return peers
-}
-
-// clusterNodes describes this node and its configured peers. A peer counts as
-// active when the leader heard from it within the election timeout; followers
-// cannot observe each other, so on a follower only itself and the current
-// leader are reported active.
+// clusterNodes describes every member of the current raft configuration,
+// learners included. A member counts as active when the leader heard from it
+// within the election timeout; followers cannot observe each other, so on a
+// follower only itself and the current leader are reported active.
 func (s *Service) clusterNodes(node *raft.Node) []NodeInfo {
 	stats := node.GetStats()
 	window := s.config.Raft.ElectionTimeoutMax
@@ -289,23 +274,22 @@ func (s *Service) clusterNodes(node *raft.Node) []NodeInfo {
 		contacts[p.ID] = p.LastContact
 	}
 
-	nodes := []NodeInfo{{
-		ID:      s.config.NodeID,
-		Address: s.config.BindAddr,
-		Port:    s.config.BindPort,
-		Role:    stats.Role,
-		Status:  StatusActive,
-		Term:    stats.Term,
-	}}
+	cfg := node.Configuration()
+	nodes := make([]NodeInfo, 0, len(cfg.Members))
 
-	for _, p := range s.peerConfigs() {
-		info := NodeInfo{ID: p.ID, Address: p.Address, Port: p.Port, Role: RoleFollower, Status: StatusInactive}
+	for _, m := range cfg.Members {
+		info := NodeInfo{
+			ID: m.ID, Address: m.Address, Port: m.Port,
+			Role: RoleFollower, Status: StatusInactive,
+			Metadata: map[string]any{"voter": m.Voter},
+		}
 
 		switch {
-		case p.ID == stats.Leader:
-			info.Role = RoleLeader
-			info.Status = StatusActive
-		case stats.Role == RoleLeader && time.Since(contacts[p.ID]) <= window:
+		case m.ID == s.config.NodeID:
+			info.Role, info.Status, info.Term = stats.Role, StatusActive, stats.Term
+		case m.ID == stats.Leader:
+			info.Role, info.Status = RoleLeader, StatusActive
+		case stats.Role == RoleLeader && time.Since(contacts[m.ID]) <= window:
 			info.Status = StatusActive
 		}
 

@@ -152,7 +152,8 @@ This module has not run a production cluster yet. Here's what is covered by test
 | Durability | The log, term and vote are reloaded from storage on restart; a node only acknowledges entries and votes it has persisted |
 | Snapshots | Nodes compact their log into snapshots, and a follower that falls behind the snapshot catches up through InstallSnapshot, sent in chunks |
 | `consensus.NewExtension` | Builds storage, transport, state machine and Raft node from config and replicates over TCP or HTTP, with TLS and mTLS. See [the Forge extension](#the-forge-extension) |
-| Not implemented | The gRPC transport, membership changes (`AddNode`, `RemoveNode`), leadership transfer, linearizable reads, encryption at rest, and dynamic discovery in the extension (peers come from the static list) |
+| Membership and leadership transfer | Servers are added (as a learner first, then promoted) and removed one at a time through the log, the leader included. `TransferLeadership` hands over to a chosen voter and gives up after an election timeout. Membership survives restarts and snapshots |
+| Not implemented | The gRPC transport, linearizable reads, encryption at rest, and dynamic discovery in the extension (the initial members come from the static list) |
 
 ## Packages
 
@@ -198,8 +199,11 @@ app := forge.NewApp(forge.AppConfig{
 | `Read` | Queries the local state machine, which may lag the leader on a follower |
 | `Snapshot` | Snapshots the state machine and compacts the log |
 | `StepDown` | The leader returns to follower |
-| `AddNode`, `RemoveNode` | `ErrMembershipChangeUnsupported` |
-| `TransferLeadership` | Not implemented, use `StepDown` |
+| `AddNode` | On the leader, adds a running server that was started with `join: true`. It joins as a learner and becomes a voter once it has caught up. Only one change runs at a time (`raft.ErrConfigChangeInProgress`) |
+| `RemoveNode` | On the leader, removes a server. Removing the leader is allowed; it steps down once the change commits |
+| `TransferLeadership` | On the leader, hands leadership to a voter. Writes are refused while it runs, and it fails with `raft.ErrLeadershipTransferFailed` if the target has not taken over within an election timeout |
+
+`GetClusterManager` lists the members of the current configuration, learners included, and changes membership through the same log entries. Servers that are not voters, including removed ones that never learned of their removal, cannot disrupt the cluster: their vote requests are ignored, as are any that arrive while a leader is known to be alive.
 
 Settings the service cannot honour fail when it is created: transport `grpc`, storage `pebble` or `postgres`, any discovery type other than `static`, and `security.enable_encryption`. The container entries for `RaftNode` and `StateMachine` are resolved from the service, so resolve them after the app has started. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
 
@@ -251,7 +255,7 @@ Validation runs when the extension registers. If any of these rules fail, your a
 
 When you assemble a node yourself, pass `TLSConfig` (from `transport.NewTLSManager`) and `RequirePeerIdentity` to `transport.NewTCPTransport` or `transport.NewHTTPTransport` to get the same protection. The admin API takes `admin.WithAPIKey` or `admin.NewAPIFromConfig` to require an API key on every route.
 
-The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `WithTransportType`, `WithDiscoveryType`, `WithStorageType`, `WithStoragePath`, `WithTLS`, `WithMTLS`, `WithConfig` and `WithRequireConfig`. The config also has `election`, `health`, `observability`, `resilience`, `admin_api`, `events` and `advanced` sections. Their full key list and defaults are in [`internal/config.go`](internal/config.go) and on the [configuration page](https://www.xraph.com/docs/forge/extensions/consensus/configuration). Today the extension acts on a handful of them: `health.enabled` and `health.check_interval` drive its health loop, `observability.metrics.enabled` and `collection_interval` drive metrics collection, and `advanced.enable_auto_snapshot` with `raft.snapshot_interval` drives the snapshot loop. `events.enabled` is on by default. It adds `events` to the extension's dependencies and publishes start and stop events when an event bus is in the container.
+The options are `WithNodeID`, `WithClusterID`, `WithBindAddress`, `WithPeers`, `WithJoin`, `WithTransportType`, `WithDiscoveryType`, `WithStorageType`, `WithStoragePath`, `WithTLS`, `WithMTLS`, `WithConfig` and `WithRequireConfig`. The config also has `election`, `health`, `observability`, `resilience`, `admin_api`, `events` and `advanced` sections. Their full key list and defaults are in [`internal/config.go`](internal/config.go) and on the [configuration page](https://www.xraph.com/docs/forge/extensions/consensus/configuration). Today the extension acts on a handful of them: `health.enabled` and `health.check_interval` drive its health loop, `observability.metrics.enabled` and `collection_interval` drive metrics collection, and `advanced.enable_auto_snapshot` with `raft.snapshot_interval` drives the snapshot loop. `events.enabled` is on by default. It adds `events` to the extension's dependencies and publishes start and stop events when an event bus is in the container.
 
 ## Documentation
 

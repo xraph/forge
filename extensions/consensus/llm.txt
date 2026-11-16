@@ -18,7 +18,9 @@ helpers are aliases over `consensus/internal` (exports.go).
   leader's snapshot catch up through chunked InstallSnapshot.
 - `consensus.NewExtension` builds storage (badger, boltdb, memory), the tcp or http transport
   (TLS/mTLS from security.*), a memory state machine and the Raft node from config.
-- Not implemented: gRPC transport, membership changes, leadership transfer, linearizable reads,
+- Membership: single-server changes through the log (learner, then voter), leader removal, and
+  TransferLeadership (TimeoutNow). Config entries take effect on append and persist in snapshots.
+- Not implemented: gRPC transport, linearizable reads,
   encryption at rest, non-static discovery in the extension.
 
 ## Packages and constructors
@@ -84,6 +86,7 @@ WithNodeID(id string)
 WithClusterID(id string)
 WithBindAddress(addr string, port int)
 WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
+WithJoin(join bool)                        // wait to be added with AddNode instead of bootstrapping
 WithTransportType(transportType string)    // tcp, http (grpc is not implemented)
 WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
 WithStorageType(storageType string)        // badger, boltdb, memory (pebble, postgres not implemented)
@@ -95,14 +98,15 @@ WithRequireConfig(require bool)
 ```
 
 Container entries: `*consensus.Service` (aliases `consensus`, `consensus:service`),
-`ClusterManager` (`consensus:cluster`, nil: membership is the static peer list), `RaftNode`
+`ClusterManager` (`consensus:cluster`, backed by the raft configuration), `RaftNode`
 (`consensus:raft`), `StateMachine` (`consensus:statemachine`), `*LeadershipChecker`
 (`consensus:leadership`). RaftNode and StateMachine are created by Start, so resolve them after
 the app has started.
 
 Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` queries the local
-state machine; `Snapshot` compacts; `StepDown` works; AddNode/RemoveNode return
-ErrMembershipChangeUnsupported; TransferLeadership is not implemented. NewConsensusService fails
+state machine; `Snapshot` compacts; `StepDown` works; AddNode (target started with join: true,
+added as learner then promoted), RemoveNode (leader included) and TransferLeadership work on the
+leader, one membership change at a time. NewConsensusService fails
 for grpc transport, pebble/postgres storage, non-static discovery and enable_encryption.
 admin_api.enabled (default false) registers the admin routes on the app router.
 
@@ -126,9 +130,12 @@ dependency and publishes start and stop events when an event bus is present).
 
 ## Gotchas
 
-- bind_addr defaults to 127.0.0.1. Set it explicitly for a cluster spanning hosts.
+- bind_addr defaults to 127.0.0.1. Set it explicitly for a cluster spanning hosts. It is also the
+  address recorded in membership entries, so other servers must be able to reach it.
+- peers only bootstrap the cluster. After the first membership change the log is the source of
+  truth; changing peers in config does nothing.
 
 ## Not implemented yet
 
-- gRPC transport, cluster membership changes, leadership transfer, linearizable reads,
+- gRPC transport, linearizable reads,
   encryption at rest, and discovery other than the static peer list in the extension.

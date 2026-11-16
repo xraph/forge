@@ -18,6 +18,10 @@ type Config struct {
 	// Peers - initial cluster members
 	Peers []PeerConfig `json:"peers" yaml:"peers"`
 
+	// Join starts this node as a server waiting to be added to an existing
+	// cluster with AddNode. Peers then only tell it where the cluster is.
+	Join bool `json:"join" yaml:"join"`
+
 	// Raft configuration
 	Raft RaftConfig `json:"raft" yaml:"raft"`
 
@@ -503,6 +507,14 @@ func WithBindAddress(addr string, port int) ConfigOption {
 func WithPeers(peers []PeerConfig) ConfigOption {
 	return func(c *Config) {
 		c.Peers = peers
+	}
+}
+
+// WithJoin starts the node as a server that waits to be added to an
+// existing cluster instead of bootstrapping one.
+func WithJoin(join bool) ConfigOption {
+	return func(c *Config) {
+		c.Join = join
 	}
 }
 
