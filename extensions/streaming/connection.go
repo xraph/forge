@@ -134,6 +134,13 @@ func NewConnectionWithTransport(conn forge.Connection, transport string, opts ..
 		func() { _ = c.closeUnderlying() },
 		c.onWriterExit,
 	)
+
+	// Tie the writer to the transport's lifetime, so it cannot outlive the
+	// connection even when the owner never calls Close.
+	if ctx := conn.Context(); ctx != nil {
+		c.queue.stopOn(ctx.Done())
+	}
+
 	c.queue.start()
 
 	return c

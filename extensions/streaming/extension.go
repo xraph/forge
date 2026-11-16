@@ -417,6 +417,14 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 
 	// Create enhanced connection
 	enhanced := NewConnection(conn)
+
+	// Close stops the connection's send queue writer. Registered first so it
+	// runs last, after unregistration and the disconnect hooks, and on every
+	// early return too: a rejected or unregistrable connection already has a
+	// writer goroutine running. Unregister does not close the connection, so
+	// without this each disconnect left the writer and its stack behind.
+	defer func() { _ = enhanced.Close() }()
+
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
 
@@ -785,6 +793,11 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 
 	// Wrap in enhanced connection with SSE transport type
 	enhanced := NewConnectionWithTransport(sseConn, TransportSSE)
+
+	// See handleWebSocket: the send queue writer has to be stopped on every
+	// exit path, and Unregister does not do it.
+	defer func() { _ = enhanced.Close() }()
+
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
 
