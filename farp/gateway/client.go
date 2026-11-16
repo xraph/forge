@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/xraph/farp"
@@ -24,6 +25,7 @@ type Client struct {
 	registry      farp.SchemaRegistry
 	manifestCache map[string]*farp.SchemaManifest // key: instanceID
 	schemaCache   *schemaLRU
+	logger        *slog.Logger
 	mu            sync.RWMutex
 }
 
@@ -35,6 +37,15 @@ type ClientOption func(*Client)
 func WithSchemaCacheSize(n int) ClientOption {
 	return func(c *Client) {
 		c.schemaCache = newSchemaLRU(n)
+	}
+}
+
+// WithLogger makes the client log schemas it skips because they could not be
+// fetched or their content did not match the descriptor hash. Without it the
+// client skips them silently.
+func WithLogger(logger *slog.Logger) ClientOption {
+	return func(c *Client) {
+		c.logger = logger
 	}
 }
 
@@ -125,6 +136,16 @@ func (c *Client) ConvertToRoutes(manifests []*farp.SchemaManifest) []ServiceRout
 			schema, err := c.resolveSchema(context.Background(), manifest.InstanceID, &schemaDesc)
 			if err != nil {
 				// Unfetchable or unverifiable schemas produce no routes.
+				if c.logger != nil {
+					c.logger.Warn("farp gateway: skipping schema",
+						slog.String("service", manifest.ServiceName),
+						slog.String("instance_id", manifest.InstanceID),
+						slog.String("schema_type", string(schemaDesc.Type)),
+						slog.String("hash", schemaDesc.Hash),
+						slog.Any("error", err),
+					)
+				}
+
 				continue
 			}
 
