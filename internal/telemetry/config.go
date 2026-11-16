@@ -21,6 +21,10 @@ type Inputs struct {
 	File        shared.TracingConfig // from the forge config "tracing" key
 	Environment string
 	Getenv      func(string) string
+
+	// TrustRemoteSampling is resolved by the caller from its own config and
+	// copied into Settings unchanged.
+	TrustRemoteSampling bool
 }
 
 // Settings is the resolved tracing configuration.
@@ -49,6 +53,11 @@ type Settings struct {
 	// AllowedQueryKeys turns url.query on, with every value whose key isn't
 	// listed replaced by REDACTED. Empty records no url.query.
 	AllowedQueryKeys []string
+
+	// TrustRemoteSampling makes the default sampler follow an incoming
+	// traceparent's sampled flag. When false a remote parent is sampled at
+	// SampleRatio like a root, so a client cannot force sampling.
+	TrustRemoteSampling bool
 }
 
 var supportedSamplers = map[string]bool{
@@ -81,6 +90,7 @@ func Resolve(in Inputs) Settings {
 	s.RecordRawPath = firstBoolPtr(in.Code.RecordRawPath, in.File.RecordRawPath, false)
 	s.RecordUserAgent = firstBoolPtr(in.Code.RecordUserAgent, in.File.RecordUserAgent, false)
 	s.AllowedQueryKeys = firstSlice(in.Code.AllowedQueryKeys, in.File.AllowedQueryKeys)
+	s.TrustRemoteSampling = in.TrustRemoteSampling
 
 	s.SamplerName, s.SampleRatio = resolveSampler(in, getenv, &s.Warnings)
 

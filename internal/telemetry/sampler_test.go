@@ -43,9 +43,78 @@ func TestDefaultSamplerFollowsParent(t *testing.T) {
 		t.Fatal("an unsampled parent must not be sampled, even at ratio 1.0")
 	}
 
-	s = BuildSampler(Settings{SamplerName: defaultSamplerName, SampleRatio: 0})
+	s = BuildSampler(Settings{SamplerName: defaultSamplerName, SampleRatio: 0, TrustRemoteSampling: true})
 	if !sampled(t, s, remoteParent(true)) {
-		t.Fatal("a sampled parent must be sampled, even at ratio 0")
+		t.Fatal("with trusted callers a sampled parent must be sampled, even at ratio 0")
+	}
+}
+
+// By default a remote "sampled" flag is not trusted: the sender is whoever
+// made the request, and following the flag let any client have every request
+// sampled and exported.
+func TestDefaultSamplerDoesNotTrustRemoteSampledFlag(t *testing.T) {
+	s := BuildSampler(Settings{SamplerName: defaultSamplerName, SampleRatio: 0})
+	if sampled(t, s, remoteParent(true)) {
+		t.Fatal("ratio 0 must drop a remote parent that claims to be sampled")
+	}
+
+	s = BuildSampler(Settings{SamplerName: defaultSamplerName, SampleRatio: 1.0})
+	if !sampled(t, s, remoteParent(true)) {
+		t.Fatal("ratio 1.0 must still sample a sampled remote parent")
+	}
+}
+
+// The remote ratio cannot be steered by choosing trace IDs. TraceIDRatioBased
+// samples every ID whose low bits are small, so sequential IDs, which is what
+// a client forcing sampling would send, were all sampled.
+func TestRemoteRatioSamplerIgnoresChosenTraceIDs(t *testing.T) {
+	s := BuildSampler(Settings{SamplerName: defaultSamplerName, SampleRatio: 0.1})
+
+	const n = 10000
+
+	got := 0
+
+	for i := range n {
+		var id trace.TraceID
+
+		id[15] = byte(i)
+		id[14] = byte(i >> 8)
+
+		parent := trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: id, SpanID: trace.SpanID{1}, TraceFlags: trace.FlagsSampled, Remote: true,
+		})
+
+		res := s.ShouldSample(sdktrace.SamplingParameters{
+			ParentContext: trace.ContextWithRemoteSpanContext(t.Context(), parent),
+			TraceID:       id,
+			Name:          "x",
+		})
+
+		if res.Decision == sdktrace.RecordAndSample {
+			got++
+		}
+	}
+
+	// 10% of 10000 is 1000; the binomial standard deviation is 30.
+	if got < 850 || got > 1150 {
+		t.Fatalf("sampled %d of %d remote parents with chosen IDs at ratio 0.1, want about 1000", got, n)
+	}
+}
+
+// One trace gets one decision, so a trace that is kept is kept whole here.
+func TestRemoteRatioSamplerIsConsistentPerTrace(t *testing.T) {
+	s := NewRemoteRatioSampler(0.5)
+
+	for i := range 200 {
+		id := trace.TraceID{byte(i), 7, byte(i * 3)}
+		p := sdktrace.SamplingParameters{TraceID: id, ParentContext: t.Context()}
+
+		first := s.ShouldSample(p).Decision
+		for range 5 {
+			if s.ShouldSample(p).Decision != first {
+				t.Fatalf("trace %v got different decisions", id)
+			}
+		}
 	}
 }
 

@@ -2792,10 +2792,11 @@ func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Pro
 	fromFile := readTracingFile(cm, log)
 
 	settings := telemetry.Resolve(telemetry.Inputs{
-		Code:        config.TracingConfig,
-		File:        fromFile,
-		Environment: config.Environment,
-		Getenv:      os.Getenv,
+		Code:                config.TracingConfig,
+		File:                fromFile,
+		Environment:         config.Environment,
+		Getenv:              os.Getenv,
+		TrustRemoteSampling: config.TrustRemoteSampling || trustRemoteSamplingFromFile(cm),
 	})
 
 	for _, w := range settings.Warnings {
@@ -2818,6 +2819,16 @@ func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Pro
 	}
 
 	return provider
+}
+
+// trustRemoteSamplingKey is the forge config key for
+// AppConfig.TrustRemoteSampling.
+const trustRemoteSamplingKey = "tracing.trust_remote_sampling"
+
+// trustRemoteSamplingFromFile reports whether the config file turns on
+// trusting incoming sampling decisions.
+func trustRemoteSamplingFromFile(cm ConfigManager) bool {
+	return cm != nil && cm.HasKey(trustRemoteSamplingKey) && cm.GetBool(trustRemoteSamplingKey)
 }
 
 // readTracingFile returns the tracing block from the config file. A block that

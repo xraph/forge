@@ -165,6 +165,15 @@ type AppConfig struct {
 	// default of 1s; negative disables the cache.
 	MetricsScrapeCacheTTL time.Duration
 
+	// TrustRemoteSampling makes the default trace sampler follow the sampled
+	// flag of an incoming traceparent. Off by default: the flag is whatever
+	// the client sent, so following it let any client have every request it
+	// made sampled and exported. Off, a request that carries a traceparent
+	// keeps its trace ID but is sampled at the configured ratio. Turn it on
+	// for a service only internal callers reach, so their traces stay whole.
+	// The forge config key tracing.trust_remote_sampling turns it on too.
+	TrustRemoteSampling bool
+
 	// ExposeInternalErrors decides whether 5xx responses carry the internal
 	// error text. Nil means it follows Environment: only an explicitly set
 	// development, dev, local or test environment exposes it. An unset or
@@ -581,6 +590,13 @@ func WithInfoEndpoint() AppOption {
 // reused. See AppConfig.MetricsScrapeCacheTTL.
 func WithMetricsScrapeCacheTTL(ttl time.Duration) AppOption {
 	return func(c *AppConfig) { c.MetricsScrapeCacheTTL = ttl }
+}
+
+// WithTrustRemoteSampling makes the default trace sampler follow the sampled
+// flag of incoming traceparent headers. Use it only for services that
+// untrusted clients cannot reach. See AppConfig.TrustRemoteSampling.
+func WithTrustRemoteSampling() AppOption {
+	return func(c *AppConfig) { c.TrustRemoteSampling = true }
 }
 
 // WithExposeInternalErrors overrides whether 5xx responses carry the internal

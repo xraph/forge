@@ -1,6 +1,9 @@
 package telemetry
 
 import (
+	"fmt"
+	"hash/maphash"
+	"math"
 	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -27,9 +30,67 @@ func BuildSampler(s Settings) sdktrace.Sampler {
 	case "parentbased_always_off":
 		return sdktrace.ParentBased(sdktrace.NeverSample())
 	default:
-		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(s.SampleRatio))
+		root := sdktrace.TraceIDRatioBased(s.SampleRatio)
+		if s.TrustRemoteSampling {
+			return sdktrace.ParentBased(root)
+		}
+
+		// A remote parent's sampled flag comes from whoever sent the
+		// request. Following it lets any client force every one of its
+		// requests to be sampled and exported. So unless the callers are
+		// trusted, a remote parent that says "sampled" is sampled at the
+		// configured ratio instead. One that says "not sampled" is still
+		// followed: a client can only lower its own share that way, and an
+		// upstream proxy that already sampled keeps its traces whole. The
+		// trace ID is the parent's either way, so propagation is unaffected.
+		return sdktrace.ParentBased(root,
+			sdktrace.WithRemoteParentSampled(NewRemoteRatioSampler(s.SampleRatio)),
+		)
 	}
 }
+
+// remoteRatioSampler samples a fraction of traces chosen by a keyed hash of
+// the trace ID. TraceIDRatioBased reads the trace ID's low bits directly,
+// which is fine for IDs this process generated but not for one a client
+// sent: picking IDs whose low bits are zero would get every request sampled.
+// The hash key is random per process, so the client cannot choose IDs that
+// pass, while every span of one trace still gets the same decision here.
+type remoteRatioSampler struct {
+	seed  maphash.Seed
+	bound uint64 // sample when hash < bound
+	all   bool   // ratio >= 1
+	desc  string
+}
+
+// NewRemoteRatioSampler returns a sampler that samples ratio of the traces it
+// sees, in a way the trace ID's sender cannot steer.
+func NewRemoteRatioSampler(ratio float64) sdktrace.Sampler {
+	s := &remoteRatioSampler{
+		seed: maphash.MakeSeed(),
+		desc: fmt.Sprintf("RemoteRatioSampler{%g}", ratio),
+	}
+
+	switch {
+	case ratio >= 1:
+		s.all = true
+	case ratio > 0:
+		s.bound = uint64(ratio * math.MaxUint64)
+	}
+
+	return s
+}
+
+func (s *remoteRatioSampler) ShouldSample(p sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	ts := trace.SpanContextFromContext(p.ParentContext).TraceState()
+
+	if s.all || maphash.Bytes(s.seed, p.TraceID[:]) < s.bound {
+		return sdktrace.SamplingResult{Decision: sdktrace.RecordAndSample, Tracestate: ts}
+	}
+
+	return sdktrace.SamplingResult{Decision: sdktrace.Drop, Tracestate: ts}
+}
+
+func (s *remoteRatioSampler) Description() string { return s.desc }
 
 // SamplerOff reports whether the settings turn sampling off entirely.
 func SamplerOff(s Settings) bool {
