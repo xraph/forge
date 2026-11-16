@@ -3144,6 +3144,12 @@ func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason str
 
 	m.evictFromRoom(ctx, userID, roomID, reason)
 
+	// Tell the other nodes. Each one holds its own connections and its own
+	// room index, so without this a banned user connected elsewhere kept
+	// receiving the room until they reconnected. Sent after the store write,
+	// so a node that checks the store on receipt finds the ban there.
+	m.publishRoomBan(ctx, userID, roomID, reason, until)
+
 	if m.logger != nil {
 		m.logger.Info("user banned",
 			forge.F("user_id", userID),
@@ -3156,10 +3162,91 @@ func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason str
 	return nil
 }
 
+// banRecheckDelay is how long a node waits before looking at the store again
+// after a ban event that the store did not yet reflect. See handleRoomBan.
+const banRecheckDelay = 500 * time.Millisecond
+
+// publishRoomBan announces a ban to the other nodes, when the coordinator can
+// carry it. A failure is logged and not returned: the ban is already stored,
+// and the send and join checks, which read the store, enforce it on every
+// node regardless.
+func (m *manager) publishRoomBan(ctx context.Context, userID, roomID, reason string, until *time.Time) {
+	pub, ok := m.coordinator.(coordinator.EventPublisher)
+	if !ok {
+		return
+	}
+
+	err := pub.PublishEvent(ctx, &coordinator.CoordinatorMessage{
+		Type:    coordinator.MessageTypeRoomBan,
+		NodeID:  m.nodeID,
+		UserID:  userID,
+		RoomID:  roomID,
+		Payload: &coordinator.RoomBanEvent{Reason: reason, ExpiresAt: until},
+	})
+	if err != nil && m.logger != nil {
+		m.logger.Warn("failed to publish room ban to other nodes",
+			forge.F("user_id", userID),
+			forge.F("room_id", roomID),
+			forge.F("error", err),
+		)
+	}
+}
+
+// handleRoomBan applies a ban made on another node to this node's
+// connections.
+//
+// It evicts on receipt without asking the store first. Normally the store
+// already has the ban, since the origin writes before it publishes, but a
+// deployment whose stores are not shared would never see it, and a
+// replicated store may lag. Eviction is idempotent: a connection that is not
+// in the room is left alone and gets no notice, so a duplicate or replayed
+// event does nothing.
+//
+// When the store does not show the ban yet, the node looks again after
+// banRecheckDelay and evicts once more if it does by then. That catches a
+// user who rejoined through this node in the gap, before JoinRoom could see
+// the ban. An event for a ban that has already expired is ignored. One that
+// arrives after an unban still evicts, which costs the user a rejoin and
+// nothing else.
+func (m *manager) handleRoomBan(ctx context.Context, msg *coordinator.CoordinatorMessage) {
+	if msg.UserID == "" || msg.RoomID == "" {
+		return
+	}
+
+	var reason string
+
+	switch ev := msg.Payload.(type) {
+	case *coordinator.RoomBanEvent:
+		if ev.ExpiresAt != nil && !ev.ExpiresAt.After(time.Now()) {
+			return
+		}
+
+		reason = ev.Reason
+	case map[string]any:
+		reason, _ = ev["reason"].(string)
+	}
+
+	m.evictFromRoom(ctx, msg.UserID, msg.RoomID, reason)
+
+	if banned, err := m.roomStore.IsBanned(ctx, msg.RoomID, msg.UserID); err == nil && banned {
+		return
+	}
+
+	userID, roomID := msg.UserID, msg.RoomID
+
+	time.AfterFunc(banRecheckDelay, func() {
+		rctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+		defer cancel()
+
+		if banned, err := m.roomStore.IsBanned(rctx, roomID, userID); err == nil && banned {
+			m.evictFromRoom(rctx, userID, roomID, reason)
+		}
+	})
+}
+
 // evictFromRoom takes the user's connections on this node out of a room and
-// tells each one why. Connections on other nodes keep their local membership
-// until they reconnect, but the ban check in authorizeSend refuses their
-// sends, since it asks the shared store.
+// tells each one why. Other nodes do the same for their own connections when
+// the ban event reaches them (handleRoomBan).
 func (m *manager) evictFromRoom(ctx context.Context, userID, roomID, reason string) {
 	for _, conn := range m.GetUserConnections(userID) {
 		if !conn.IsInRoom(roomID) {
@@ -3490,6 +3577,10 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 
 	// Handle node lifecycle events for load balancer
 	switch msg.Type {
+	case coordinator.MessageTypeRoomBan:
+		m.handleRoomBan(ctx, msg)
+
+		return nil
 	case coordinator.MessageTypeNodeRegister:
 		m.handleNodeRegister(ctx, msg)
 

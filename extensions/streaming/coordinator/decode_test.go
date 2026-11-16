@@ -3,6 +3,7 @@ package coordinator
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
@@ -56,5 +57,31 @@ func TestDecodeMessage_OtherPayloadsStayGeneric(t *testing.T) {
 
 	if got.Payload != nil {
 		t.Fatalf("null payload decoded to %#v", got.Payload)
+	}
+}
+
+func TestDecodeMessage_RoomBanPayload(t *testing.T) {
+	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+
+	wire, err := json.Marshal(CoordinatorMessage{
+		Type: MessageTypeRoomBan, NodeID: "n1", UserID: "alice", RoomID: "lobby",
+		Payload: &RoomBanEvent{Reason: "spam", ExpiresAt: &until},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := DecodeMessage(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ev, ok := got.Payload.(*RoomBanEvent)
+	if !ok {
+		t.Fatalf("payload is %T, want *RoomBanEvent", got.Payload)
+	}
+
+	if ev.Reason != "spam" || ev.ExpiresAt == nil || !ev.ExpiresAt.Equal(until) || got.UserID != "alice" || got.RoomID != "lobby" {
+		t.Fatalf("decoded %+v / %+v", got, ev)
 	}
 }

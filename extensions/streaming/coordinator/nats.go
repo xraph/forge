@@ -420,6 +420,30 @@ func (nc *natsCoordinator) UnregisterNode(ctx context.Context, nodeID string) er
 	return err
 }
 
+// PublishEvent implements EventPublisher on the global subject.
+//
+// Note that the global subject is consumed through the "streaming-workers"
+// queue group, so today one node rather than every node receives each global
+// message. That limits this event exactly as it limits BroadcastGlobal.
+func (nc *natsCoordinator) PublishEvent(ctx context.Context, msg *CoordinatorMessage) error {
+	if msg.NodeID == "" {
+		msg.NodeID = nc.nodeID
+	}
+
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal coordinator event: %w", err)
+	}
+
+	_, err = nc.js.Publish("streaming.broadcast.global", data, nats.Context(ctx))
+
+	return err
+}
+
 // Subscribe subscribes to coordinator events.
 func (nc *natsCoordinator) Subscribe(ctx context.Context, handler MessageHandler) error {
 	nc.handler = handler

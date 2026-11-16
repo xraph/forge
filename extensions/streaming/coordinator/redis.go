@@ -282,6 +282,25 @@ func (rc *redisCoordinator) UnregisterNode(ctx context.Context, nodeID string) e
 	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
 }
 
+// PublishEvent implements EventPublisher. Events go out on the global
+// channel, which every node subscribes to.
+func (rc *redisCoordinator) PublishEvent(ctx context.Context, msg *CoordinatorMessage) error {
+	if msg.NodeID == "" {
+		msg.NodeID = rc.nodeID
+	}
+
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal coordinator event: %w", err)
+	}
+
+	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
+}
+
 // Subscribe subscribes to coordinator events.
 func (rc *redisCoordinator) Subscribe(ctx context.Context, handler MessageHandler) error {
 	rc.handler = handler

@@ -82,7 +82,28 @@ const (
 	MessageTypeMemberLeave    = "room.member.leave"
 	MessageTypeNodeRegister   = "node.register"
 	MessageTypeNodeUnregister = "node.unregister"
+
+	// MessageTypeRoomBan tells every node a user was banned from a room, so
+	// each can take that user's local connections out of it. UserID and
+	// RoomID name the ban; the payload is a *RoomBanEvent.
+	MessageTypeRoomBan = "room.member.ban"
 )
+
+// RoomBanEvent is the payload of a MessageTypeRoomBan message.
+type RoomBanEvent struct {
+	Reason    string     `json:"reason,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+// EventPublisher is implemented by coordinators that can send a control event
+// to every other node. It is separate from StreamCoordinator so coordinators
+// written against that interface keep compiling; the manager checks for it
+// and does without when it is missing.
+type EventPublisher interface {
+	// PublishEvent sends msg to every node. NodeID and Timestamp are filled in
+	// when empty, so the sending node skips its own event.
+	PublishEvent(ctx context.Context, msg *CoordinatorMessage) error
+}
 
 // rawCoordinatorMessage is CoordinatorMessage with the payload left encoded.
 // The outer Payload field shadows the embedded one for encoding/json.
@@ -112,13 +133,24 @@ func DecodeMessage(data []byte) (*CoordinatorMessage, error) {
 		return &msg, nil
 	}
 
-	if msg.Type == MessageTypeBroadcast {
+	switch msg.Type {
+	case MessageTypeBroadcast:
 		var sm streaming.Message
 		if err := json.Unmarshal(raw.Payload, &sm); err != nil {
 			return nil, err
 		}
 
 		msg.Payload = &sm
+
+		return &msg, nil
+
+	case MessageTypeRoomBan:
+		var ev RoomBanEvent
+		if err := json.Unmarshal(raw.Payload, &ev); err != nil {
+			return nil, err
+		}
+
+		msg.Payload = &ev
 
 		return &msg, nil
 	}
