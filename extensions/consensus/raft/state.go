@@ -2,8 +2,6 @@ package raft
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"time"
 
 	"github.com/xraph/forge"
@@ -103,47 +101,45 @@ func (n *Node) startElection() {
 	)
 
 	// Request votes from all peers
-	votes := 1 // Vote for self
-	votesNeeded := (len(n.peers)+1)/2 + 1
-
-	// Channel to collect votes
-	voteCh := make(chan bool, len(n.peers))
-
-	// Wait group to track vote goroutines
-	var voteWg sync.WaitGroup
-
-	// Send RequestVote RPCs to all peers
 	n.peersLock.RLock()
 
-	peerCount := len(n.peers)
+	peers := make([]*PeerState, 0, len(n.peers))
 	for _, peer := range n.peers {
-		voteWg.Add(1)
-
-		go func(p *PeerState) {
-			defer voteWg.Done()
-
-			granted := n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm)
-			voteCh <- granted
-		}(peer)
+		peers = append(peers, peer)
 	}
 
 	n.peersLock.RUnlock()
 
-	// Goroutine to close voteCh when all votes are collected
-	go func() {
-		voteWg.Wait()
-		close(voteCh)
-	}()
+	peerCount := len(peers)
+	votes := 1 // Vote for self
+	votesNeeded := (peerCount+1)/2 + 1
+
+	// If we have no peers, we are the majority.
+	if peerCount == 0 {
+		n.becomeLeader(currentTerm)
+
+		return
+	}
+
+	// Buffered so vote goroutines never block once the election is decided.
+	voteCh := make(chan bool, peerCount)
+
+	for _, peer := range peers {
+		go func(p *PeerState) {
+			voteCh <- n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm)
+		}(peer)
+	}
 
 	// Collect votes with timeout
-	electionTimeoutTimer := time.After(electionTimeout)
+	electionTimeoutTimer := time.NewTimer(electionTimeout)
+	defer electionTimeoutTimer.Stop()
 
-	for votes < votesNeeded && peerCount > 0 {
+	for range peerCount {
 		select {
 		case <-n.ctx.Done():
 			return
 
-		case <-electionTimeoutTimer:
+		case <-electionTimeoutTimer.C:
 			n.logger.Warn("election timeout",
 				forge.F("node_id", n.id),
 				forge.F("term", currentTerm),
@@ -153,51 +149,38 @@ func (n *Node) startElection() {
 
 			return
 
-		case granted, ok := <-voteCh:
-			if !ok {
-				// Channel closed, all votes collected
-				break
+		case granted := <-voteCh:
+			if !granted {
+				continue
 			}
 
-			n.logger.Debug("received vote response",
+			votes++
+			n.logger.Info("vote granted",
 				forge.F("node_id", n.id),
-				forge.F("granted", granted),
-				forge.F("current_votes", votes),
+				forge.F("votes", votes),
 				forge.F("needed", votesNeeded),
 			)
 
-			if granted {
-				votes++
-				n.logger.Info("vote granted",
-					forge.F("node_id", n.id),
-					forge.F("votes", votes),
-					forge.F("needed", votesNeeded),
-				)
+			if votes >= votesNeeded {
+				// Do not wait for the remaining peers: an unreachable peer
+				// would hold leadership back until its RPC timed out.
+				n.becomeLeader(currentTerm)
 
-				if votes >= votesNeeded {
-					// Won election! Wait for all vote goroutines to finish
-					n.logger.Info("won election!",
-						forge.F("node_id", n.id),
-						forge.F("votes", votes),
-						forge.F("needed", votesNeeded),
-					)
-					// Wait for remaining vote goroutines to complete
-					voteWg.Wait()
-					n.becomeLeader(currentTerm)
-
-					return
-				}
+				return
 			}
 		}
 	}
 
-	// If we have no peers, become leader immediately
-	if peerCount == 0 {
-		n.becomeLeader(currentTerm)
-	}
+	n.logger.Info("election lost",
+		forge.F("node_id", n.id),
+		forge.F("term", currentTerm),
+		forge.F("votes", votes),
+		forge.F("needed", votesNeeded),
+	)
 }
 
-// requestVote sends a RequestVote RPC to a peer.
+// requestVote sends a RequestVote RPC to a peer and reports whether the peer
+// granted its vote for this term.
 func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint64) bool {
 	req := &internal.RequestVoteRequest{
 		Term:         term,
@@ -210,72 +193,30 @@ func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
 	defer cancel()
 
-	// Generate unique request ID
-	requestID := fmt.Sprintf("request_vote_%s_%s", n.id, peer.ID)
-	responseCh := make(chan any, 1)
-
-	// Register pending request
-	n.requestMu.Lock()
-	n.pendingRequests[requestID] = responseCh
-	n.requestMu.Unlock()
-
-	// Send RPC via transport
-	msg := internal.Message{
-		Type:    internal.MessageTypeRequestVote,
-		From:    n.id,
-		To:      peer.ID,
-		Payload: req,
-	}
-
-	err := n.transport.Send(ctx, peer.ID, msg)
+	response, err := n.call(ctx, peer.ID, internal.MessageTypeRequestVote, req)
 	if err != nil {
-		n.logger.Warn("failed to send RequestVote",
+		n.logger.Debug("RequestVote failed",
 			forge.F("peer", peer.ID),
+			forge.F("term", term),
 			forge.F("error", err),
 		)
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
 
 		return false
 	}
 
-	// Wait for response
-	select {
-	case response := <-responseCh:
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
-		if resp, ok := response.(*internal.RequestVoteResponse); ok {
-			n.logger.Debug("received vote response in requestVote",
-				forge.F("node_id", n.id),
-				forge.F("peer_id", peer.ID),
-				forge.F("granted", resp.VoteGranted),
-				forge.F("term", resp.Term),
-			)
-			// Check if we need to step down
-			if resp.Term > term {
-				n.stepDown(resp.Term)
-
-				return false
-			}
-
-			return resp.VoteGranted
-		}
-
+	resp, ok := response.(*internal.RequestVoteResponse)
+	if !ok {
 		return false
+	}
 
-	case <-ctx.Done():
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
+	if resp.Term > term {
+		n.stepDown(resp.Term)
 
 		return false
 	}
+
+	// Only a grant for this very term counts.
+	return resp.VoteGranted && resp.Term == term
 }
 
 // RequestVote handles a RequestVote RPC.
@@ -287,31 +228,6 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 		Term:        n.currentTerm,
 		VoteGranted: false,
 		NodeID:      n.id,
-	}
-
-	// For testing purposes, always grant votes to node-1
-	if req.CandidateID == "node-1" {
-		n.logger.Info("granted vote to node-1 for testing",
-			forge.F("candidate", req.CandidateID),
-			forge.F("term", req.Term),
-		)
-
-		// Update term if needed
-		if req.Term > n.currentTerm {
-			n.currentTerm = req.Term
-			n.votedFor = ""
-			n.setRole(internal.RoleFollower)
-			n.persistStateOrLog("vote request from newer term")
-		}
-
-		n.votedFor = req.CandidateID
-		n.persistStateOrLog("vote granted")
-		n.resetElectionTimerUnsafe()
-
-		resp.VoteGranted = true
-		resp.Term = n.currentTerm
-
-		return resp, nil
 	}
 
 	// Reply false if term < currentTerm
@@ -330,7 +246,17 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 		n.currentTerm = req.Term
 		n.votedFor = ""
 		n.setRole(internal.RoleFollower)
-		n.persistStateOrLog("vote request from newer term")
+		resp.Term = n.currentTerm
+
+		if err := n.persistState(); err != nil {
+			n.logger.Error("failed to persist term from RequestVote, denying vote",
+				forge.F("node_id", n.id),
+				forge.F("term", n.currentTerm),
+				forge.F("error", err),
+			)
+
+			return resp, nil
+		}
 	}
 
 	// Vote granted if:
@@ -339,8 +265,23 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 	logUpToDate := n.isLogUpToDate(req.LastLogIndex, req.LastLogTerm)
 
 	if (n.votedFor == "" || n.votedFor == req.CandidateID) && logUpToDate {
+		previousVote := n.votedFor
 		n.votedFor = req.CandidateID
-		n.persistStateOrLog("vote granted")
+
+		// The vote must be durable before it is granted, or a restart could
+		// let this node vote for a second candidate in the same term.
+		if err := n.persistState(); err != nil {
+			n.votedFor = previousVote
+			n.logger.Error("failed to persist vote, denying it",
+				forge.F("node_id", n.id),
+				forge.F("candidate", req.CandidateID),
+				forge.F("term", n.currentTerm),
+				forge.F("error", err),
+			)
+
+			return resp, nil
+		}
+
 		n.resetElectionTimerUnsafe()
 
 		resp.VoteGranted = true
@@ -380,20 +321,6 @@ func (n *Node) isLogUpToDate(candidateIndex, candidateTerm uint64) bool {
 
 // becomeLeader transitions to leader state.
 func (n *Node) becomeLeader(term uint64) {
-	// Step 1: Verify term and transition role (minimize lock time)
-	n.mu.Lock()
-
-	if n.currentTerm != term {
-		n.mu.Unlock()
-
-		return
-	}
-
-	n.setRole(internal.RoleLeader)
-	n.setLeader(n.id)
-	n.mu.Unlock()
-
-	// Step 2: Get peer list without holding n.mu
 	n.peersLock.RLock()
 
 	peerIDs := make([]string, 0, len(n.peers))
@@ -403,34 +330,35 @@ func (n *Node) becomeLeader(term uint64) {
 
 	n.peersLock.RUnlock()
 
-	// Step 3: Get log index (no locks needed for read-only operation)
+	n.mu.Lock()
+
+	// The election may have been overtaken by a newer term or a valid leader.
+	if n.currentTerm != term || n.GetRole() != internal.RoleCandidate {
+		n.mu.Unlock()
+
+		return
+	}
+
+	n.setRole(internal.RoleLeader)
+	n.setLeader(n.id)
+
 	lastLogIndex := n.log.LastIndex()
 
-	// Step 4: Initialize leader state (acquire lock only for this)
-	n.mu.Lock()
-	n.nextIndex = make(map[string]uint64)
+	n.nextIndex = make(map[string]uint64, len(peerIDs))
+	n.matchIndex = make(map[string]uint64, len(peerIDs))
 
-	n.matchIndex = make(map[string]uint64)
 	for _, peerID := range peerIDs {
 		n.nextIndex[peerID] = lastLogIndex + 1
 		n.matchIndex[peerID] = 0
 	}
 
-	// Stop old heartbeat ticker if exists
 	if n.heartbeatTicker != nil {
 		n.heartbeatTicker.Stop()
 	}
 
 	n.heartbeatTicker = time.NewTicker(n.config.HeartbeatInterval)
-	n.mu.Unlock()
 
-	n.logger.Info("became leader",
-		forge.F("node_id", n.id),
-		forge.F("term", term),
-		forge.F("last_log_index", lastLogIndex),
-	)
-
-	// Step 5: Append no-op entry (log has its own locking)
+	// A no-op from the new term lets entries from earlier terms commit (§5.4.2).
 	noop := internal.LogEntry{
 		Index:   lastLogIndex + 1,
 		Term:    term,
@@ -440,14 +368,26 @@ func (n *Node) becomeLeader(term uint64) {
 	}
 
 	if err := n.log.Append(noop); err != nil {
-		n.logger.Error("failed to append no-op entry",
+		n.logger.Error("failed to append no-op entry, stepping down",
+			forge.F("node_id", n.id),
+			forge.F("term", term),
 			forge.F("error", err),
 		)
+		n.stepDownLocked(term)
+		n.mu.Unlock()
 
 		return
 	}
 
-	// Step 6: Send initial heartbeats
+	n.advanceCommitIndex()
+	n.mu.Unlock()
+
+	n.logger.Info("became leader",
+		forge.F("node_id", n.id),
+		forge.F("term", term),
+		forge.F("last_log_index", lastLogIndex),
+	)
+
 	go n.sendHeartbeats()
 }
 

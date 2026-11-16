@@ -30,6 +30,11 @@ func (n *Node) runMessageProcessor() {
 }
 
 // handleMessage handles incoming messages.
+//
+// Requests are answered with a response that echoes the request ID. Responses
+// are only handed to the request that is waiting for that ID; they are not
+// processed a second time here, so replication state is updated exactly once
+// per response by the goroutine that sent the request.
 func (n *Node) handleMessage(msg internal.Message) {
 	n.logger.Debug("received message",
 		forge.F("from", msg.From),
@@ -39,90 +44,57 @@ func (n *Node) handleMessage(msg internal.Message) {
 
 	switch msg.Type {
 	case internal.MessageTypeAppendEntries:
-		if req, ok := msg.Payload.(*internal.AppendEntriesRequest); ok {
-			resp := n.handleAppendEntries(*req)
-			// Send response back to sender
-			responseMsg := internal.Message{
-				Type:    internal.MessageTypeAppendEntriesResponse,
-				From:    n.id,
-				To:      msg.From,
-				Payload: &resp,
-			}
-			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
-				n.logger.Error("failed to send AppendEntries response",
-					forge.F("error", err),
-					forge.F("to", msg.From),
-				)
-			}
+		req, ok := payloadAs[internal.AppendEntriesRequest](msg.Payload)
+		if !ok {
+			n.dropMalformed(msg)
+
+			return
 		}
 
+		resp := n.handleAppendEntries(*req)
+		n.reply(msg, internal.MessageTypeAppendEntriesResponse, &resp)
+
 	case internal.MessageTypeAppendEntriesResponse:
-		if resp, ok := msg.Payload.(*internal.AppendEntriesResponse); ok {
-			// Send response to pending request
-			requestID := fmt.Sprintf("append_entries_%s_%s", msg.To, msg.From)
-			n.sendResponse(requestID, resp)
-
-			// Also handle the response for replication logic
-			n.peersLock.RLock()
-			peer, exists := n.peers[msg.From]
-			n.peersLock.RUnlock()
-
-			if exists {
-				// Create a dummy request for the response handler
-				req := &internal.AppendEntriesRequest{
-					Term: resp.Term,
-				}
-				n.handleAppendEntriesResponse(peer, req, resp)
-			}
+		if resp, ok := payloadAs[internal.AppendEntriesResponse](msg.Payload); ok {
+			n.deliverResponse(msg.From, msg.RequestID, resp)
+		} else {
+			n.dropMalformed(msg)
 		}
 
 	case internal.MessageTypeRequestVote:
-		if req, ok := msg.Payload.(*internal.RequestVoteRequest); ok {
-			resp := n.handleRequestVote(*req)
-			// Send response back to sender
-			responseMsg := internal.Message{
-				Type:    internal.MessageTypeRequestVoteResponse,
-				From:    n.id,
-				To:      msg.From,
-				Payload: &resp,
-			}
-			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
-				n.logger.Error("failed to send RequestVote response",
-					forge.F("error", err),
-					forge.F("to", msg.From),
-				)
-			}
+		req, ok := payloadAs[internal.RequestVoteRequest](msg.Payload)
+		if !ok {
+			n.dropMalformed(msg)
+
+			return
 		}
 
-	case internal.MessageTypeRequestVoteResponse:
-		if resp, ok := msg.Payload.(*internal.RequestVoteResponse); ok {
-			// Send response to pending request
-			requestID := fmt.Sprintf("request_vote_%s_%s", msg.To, msg.From)
-			n.sendResponse(requestID, resp)
+		resp := n.handleRequestVote(*req)
+		n.reply(msg, internal.MessageTypeRequestVoteResponse, &resp)
 
-			n.logger.Debug("received vote response",
-				forge.F("from", msg.From),
-				forge.F("granted", resp.VoteGranted),
-				forge.F("term", resp.Term),
-			)
+	case internal.MessageTypeRequestVoteResponse:
+		if resp, ok := payloadAs[internal.RequestVoteResponse](msg.Payload); ok {
+			n.deliverResponse(msg.From, msg.RequestID, resp)
+		} else {
+			n.dropMalformed(msg)
 		}
 
 	case internal.MessageTypeInstallSnapshot:
-		if req, ok := msg.Payload.(*internal.InstallSnapshotRequest); ok {
-			resp := n.handleInstallSnapshot(*req)
-			// Send response back to sender
-			responseMsg := internal.Message{
-				Type:    internal.MessageTypeInstallSnapshotResponse,
-				From:    n.id,
-				To:      msg.From,
-				Payload: &resp,
-			}
-			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
-				n.logger.Error("failed to send InstallSnapshot response",
-					forge.F("error", err),
-					forge.F("to", msg.From),
-				)
-			}
+		req, ok := payloadAs[internal.InstallSnapshotRequest](msg.Payload)
+		if !ok {
+			n.dropMalformed(msg)
+
+			return
+		}
+
+		resp := n.handleInstallSnapshot(*req)
+		n.reply(msg, internal.MessageTypeInstallSnapshotResponse, &resp)
+
+	case internal.MessageTypeInstallSnapshotResponse:
+		if resp, ok := payloadAs[internal.InstallSnapshotResponse](msg.Payload); ok {
+			n.deliverResponse(msg.From, msg.RequestID, resp)
+		} else {
+			n.dropMalformed(msg)
 		}
 
 	default:
@@ -133,7 +105,49 @@ func (n *Node) handleMessage(msg internal.Message) {
 	}
 }
 
-// runStateMachine processes apply messages and applies them to the state machine.
+// reply sends a response to the sender of req, echoing its request ID.
+func (n *Node) reply(req internal.Message, msgType internal.MessageType, payload any) {
+	responseMsg := internal.Message{
+		Type:      msgType,
+		From:      n.id,
+		To:        req.From,
+		Payload:   payload,
+		Timestamp: time.Now().UnixNano(),
+		RequestID: req.RequestID,
+	}
+
+	if err := n.transport.Send(n.ctx, req.From, responseMsg); err != nil {
+		n.logger.Error("failed to send response",
+			forge.F("type", msgType),
+			forge.F("to", req.From),
+			forge.F("error", err),
+		)
+	}
+}
+
+func (n *Node) dropMalformed(msg internal.Message) {
+	n.logger.Warn("dropping message with unexpected payload",
+		forge.F("type", msg.Type),
+		forge.F("from", msg.From),
+		forge.F("payload_type", fmt.Sprintf("%T", msg.Payload)),
+	)
+}
+
+// payloadAs accepts a payload as either T or *T. Network transports always
+// decode to *T; in-process callers sometimes pass values.
+func payloadAs[T any](payload any) (*T, bool) {
+	switch p := payload.(type) {
+	case *T:
+		return p, p != nil
+	case T:
+		return &p, true
+	default:
+		return nil, false
+	}
+}
+
+// runStateMachine is the single applier goroutine. It applies committed
+// entries whenever commitIndex moves.
 func (n *Node) runStateMachine() {
 	defer n.wg.Done()
 
@@ -142,52 +156,8 @@ func (n *Node) runStateMachine() {
 		case <-n.ctx.Done():
 			return
 
-		case msg := <-n.applyCh:
-			// Wait for the entry to be committed
-			n.mu.RLock()
-			committed := n.commitIndex >= msg.Index
-			n.mu.RUnlock()
-
-			if !committed {
-				// Re-queue the message
-				select {
-				case n.applyCh <- msg:
-				case <-time.After(1 * time.Second):
-					msg.ResultCh <- errors.New("timeout waiting for commit")
-				}
-
-				continue
-			}
-
-			// Apply to state machine
-			err := n.stateMachine.Apply(msg.Entry)
-			if err != nil {
-				n.logger.Error("failed to apply entry to state machine",
-					forge.F("index", msg.Index),
-					forge.F("error", err),
-				)
-
-				msg.ResultCh <- err
-
-				continue
-			}
-
-			// Update lastApplied
-			n.mu.Lock()
-
-			if msg.Index > n.lastApplied {
-				n.lastApplied = msg.Index
-			}
-
-			n.mu.Unlock()
-
-			n.logger.Debug("applied entry to state machine",
-				forge.F("index", msg.Index),
-				forge.F("term", msg.Term),
-			)
-
-			// Signal completion
-			msg.ResultCh <- nil
+		case <-n.applyNotify:
+			n.applyCommitted()
 		}
 	}
 }

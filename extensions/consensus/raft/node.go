@@ -75,12 +75,20 @@ type Node struct {
 
 	// Synchronization
 	mu             sync.RWMutex
-	applyCh        chan ApplyMsg
 	snapshotCh     chan SnapshotMsg
 	configChangeCh chan ConfigChangeMsg
 
-	// RPC response channels
-	pendingRequests map[string]chan any
+	// Apply pipeline. applyNotify wakes the single applier goroutine when
+	// commitIndex moves; applyWaiters holds the Apply calls waiting for their
+	// entry, keyed by log index. Both are guarded by mu.
+	applyNotify  chan struct{}
+	applyWaiters map[uint64]applyWaiter
+
+	// RPC correlation. Every outgoing request gets a fresh ID from requestSeq,
+	// which the peer echoes in its response, so a late response can never be
+	// matched to a newer request to the same peer.
+	requestSeq      atomic.Uint64
+	pendingRequests map[pendingKey]chan any
 	requestMu       sync.RWMutex
 
 	// State
@@ -98,6 +106,18 @@ type PeerState struct {
 	LastContact   time.Time
 	Replicating   bool
 	ReplicationMu sync.Mutex
+}
+
+// pendingKey identifies one outstanding request to one peer.
+type pendingKey struct {
+	peer string
+	id   uint64
+}
+
+// applyWaiter is an Apply call waiting for its entry to be applied.
+type applyWaiter struct {
+	term uint64
+	ch   chan error
 }
 
 // ApplyMsg represents a message to apply to the state machine.
@@ -185,10 +205,11 @@ func NewNode(
 		transport:       transport,
 		storage:         storage,
 		peers:           make(map[string]*PeerState),
-		applyCh:         make(chan ApplyMsg, 100),
 		snapshotCh:      make(chan SnapshotMsg, 10),
 		configChangeCh:  make(chan ConfigChangeMsg, 10),
-		pendingRequests: make(map[string]chan any),
+		applyNotify:     make(chan struct{}, 1),
+		applyWaiters:    make(map[uint64]applyWaiter),
+		pendingRequests: make(map[pendingKey]chan any),
 	}
 
 	// Initialize role as follower
@@ -205,6 +226,10 @@ func NewNode(
 	// Restore persistent state
 	if err := n.restoreState(); err != nil {
 		return nil, fmt.Errorf("failed to restore state: %w", err)
+	}
+
+	if err := n.restoreSnapshot(); err != nil {
+		return nil, fmt.Errorf("failed to restore snapshot: %w", err)
 	}
 
 	return n, nil
@@ -316,7 +341,15 @@ func (n *Node) GetCurrentTerm() uint64 {
 	return n.GetTerm()
 }
 
-// handleAppendEntries handles an AppendEntries request.
+// handleAppendEntries handles an AppendEntries request following section 5.3
+// of the Raft paper.
+//
+// Entries the log already holds with the same term are skipped, so a
+// retransmitted or delayed request never duplicates entries or moves the log
+// backwards. The first entry whose term conflicts truncates the log from that
+// index before the remaining entries are appended. Success is only reported
+// once the new entries are durable, and commitIndex only advances to the last
+// entry this request vouched for, never to a stale tail that happens to follow.
 func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.AppendEntriesResponse {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -324,6 +357,7 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 	resp := internal.AppendEntriesResponse{
 		Term:    n.currentTerm,
 		Success: false,
+		NodeID:  n.id,
 	}
 
 	// Reply false if term < currentTerm (§5.1)
@@ -336,61 +370,119 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 	if req.Term > n.currentTerm {
 		n.currentTerm = req.Term
 		n.votedFor = ""
-		n.setRole(internal.RoleFollower)
-		n.persistStateOrLog("append entries from newer term")
-	}
+		resp.Term = n.currentTerm
 
-	// Reset election timer on valid AppendEntries
-	n.resetElectionTimerUnsafe()
-	n.setLeader(req.LeaderID)
+		if err := n.persistState(); err != nil {
+			n.logger.Error("failed to persist term from AppendEntries, rejecting request",
+				forge.F("node_id", n.id),
+				forge.F("term", n.currentTerm),
+				forge.F("error", err),
+			)
 
-	// Reply false if log doesn't contain an entry at prevLogIndex
-	// whose term matches prevLogTerm (§5.3)
-	if req.PrevLogIndex > 0 {
-		entry, err := n.log.Get(req.PrevLogIndex)
-		if err != nil || entry.Term != req.PrevLogTerm {
 			return resp
 		}
 	}
 
-	// If an existing entry conflicts with a new one (same index
-	// but different terms), delete the existing entry and all that
-	// follow it (§5.3)
-	for _, entry := range req.Entries {
-		existing, err := n.log.Get(entry.Index)
-		if err == nil && existing.Term != entry.Term {
-			// Delete conflicting entry and all that follow
-			if err := n.log.TruncateAfter(entry.Index - 1); err != nil {
-				n.logger.Warn("failed to truncate conflicting log entries",
-					forge.F("node_id", n.id),
-					forge.F("index", entry.Index),
-					forge.F("error", err),
-				)
-			}
-		}
-		// Append keeps the entry in memory even when the storage write fails,
-		// so the reply still reports success and only the durability gap is logged.
-		if err := n.log.Append(entry); err != nil {
-			n.logger.Error("failed to persist appended log entry",
+	// A valid leader exists for this term, so a candidate or a stale leader
+	// returns to follower.
+	n.setRole(internal.RoleFollower)
+	n.resetElectionTimerUnsafe()
+	n.setLeader(req.LeaderID)
+
+	resp.LastLogIndex = n.log.LastIndex()
+
+	// Reply false if log doesn't contain an entry at prevLogIndex
+	// whose term matches prevLogTerm (§5.3). Entries covered by the snapshot
+	// are committed, so they match by the Log Matching property.
+	if req.PrevLogIndex > n.log.SnapshotIndex() && !n.log.MatchesTerm(req.PrevLogIndex, req.PrevLogTerm) {
+		return resp
+	}
+
+	if req.PrevLogIndex == n.log.SnapshotIndex() && req.PrevLogIndex > 0 && req.PrevLogTerm != n.log.SnapshotTerm() {
+		return resp
+	}
+
+	// The entries must continue directly from prevLogIndex.
+	for i, entry := range req.Entries {
+		if entry.Index != req.PrevLogIndex+1+uint64(i) {
+			n.logger.Warn("rejecting AppendEntries with non-contiguous entries",
 				forge.F("node_id", n.id),
+				forge.F("leader", req.LeaderID),
+				forge.F("position", i),
 				forge.F("index", entry.Index),
-				forge.F("term", entry.Term),
-				forge.F("error", err),
 			)
+
+			return resp
 		}
+	}
+
+	if err := n.reconcileEntriesLocked(req.Entries); err != nil {
+		n.logger.Error("failed to store entries from AppendEntries, rejecting request",
+			forge.F("node_id", n.id),
+			forge.F("leader", req.LeaderID),
+			forge.F("error", err),
+		)
+
+		resp.LastLogIndex = n.log.LastIndex()
+
+		return resp
 	}
 
 	// If leaderCommit > commitIndex, set commitIndex =
 	// min(leaderCommit, index of last new entry)
+	lastNewIndex := req.PrevLogIndex + uint64(len(req.Entries))
 	if req.LeaderCommit > n.commitIndex {
-		lastNewIndex := n.log.LastIndex()
-		n.commitIndex = min(req.LeaderCommit, lastNewIndex)
+		if newCommit := min(req.LeaderCommit, lastNewIndex); newCommit > n.commitIndex {
+			n.commitIndex = newCommit
+			n.signalApply()
+		}
 	}
+
+	n.appendCount.Add(1)
 
 	resp.Success = true
 	resp.Term = n.currentTerm
+	resp.MatchIndex = lastNewIndex
+	resp.LastLogIndex = n.log.LastIndex()
 
 	return resp
+}
+
+// reconcileEntriesLocked merges a contiguous run of leader entries into the
+// log. Entries already present with the same term are skipped; the first
+// conflicting entry truncates the log there; everything after it is appended.
+// The caller holds n.mu.
+func (n *Node) reconcileEntriesLocked(entries []internal.LogEntry) error {
+	snapshotIndex := n.log.SnapshotIndex()
+	lastIndex := n.log.LastIndex()
+
+	for i, entry := range entries {
+		if entry.Index <= snapshotIndex {
+			continue
+		}
+
+		if entry.Index > lastIndex {
+			return n.log.AppendBatch(entries[i:])
+		}
+
+		term, _ := n.log.Term(entry.Index)
+		if term == entry.Term {
+			continue
+		}
+
+		if entry.Index <= n.commitIndex {
+			return fmt.Errorf("leader entry %d (term %d) conflicts with committed entry (term %d)",
+				entry.Index, entry.Term, term)
+		}
+
+		if err := n.log.TruncateAfter(entry.Index - 1); err != nil {
+			return fmt.Errorf("truncate conflicting entries from %d: %w", entry.Index, err)
+		}
+
+		return n.log.AppendBatch(entries[i:])
+	}
+
+	return nil
 }
 
 // handleRequestVote handles a RequestVote request.
@@ -401,12 +493,18 @@ func (n *Node) handleRequestVote(req internal.RequestVoteRequest) internal.Reque
 }
 
 // handleInstallSnapshot handles an InstallSnapshot request.
+//
+// Installing snapshots sent by a leader is not implemented. The request still
+// updates the term and leader like any RPC from a current leader, but the
+// snapshot itself is dropped and logged as an error rather than acknowledged
+// as if it had been installed.
 func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) internal.InstallSnapshotResponse {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	resp := internal.InstallSnapshotResponse{
-		Term: n.currentTerm,
+		Term:   n.currentTerm,
+		NodeID: n.id,
 	}
 
 	// Reply immediately if term < currentTerm
@@ -418,30 +516,37 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 	if req.Term > n.currentTerm {
 		n.currentTerm = req.Term
 		n.votedFor = ""
-		n.setRole(internal.RoleFollower)
 		n.persistStateOrLog("install snapshot from newer term")
 	}
 
-	// Reset election timer
+	n.setRole(internal.RoleFollower)
 	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
 
-	// Install snapshot
-	// In a real implementation, this would save the snapshot and update state
-	// For now, just acknowledge receipt
+	n.logger.Error("received InstallSnapshot, which is not implemented; the snapshot was dropped",
+		forge.F("node_id", n.id),
+		forge.F("leader", req.LeaderID),
+		forge.F("last_included_index", req.LastIncludedIndex),
+		forge.F("last_included_term", req.LastIncludedTerm),
+	)
+
 	resp.Term = n.currentTerm
 
 	return resp
 }
 
-// Apply applies a log entry.
+// Apply appends an entry on the leader and waits until it is committed and
+// applied to the local state machine. It returns the state machine's error for
+// that entry, or an error when leadership is lost and the entry is replaced.
 func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
-	if !n.IsLeader() {
+	n.mu.Lock()
+
+	if n.GetRole() != internal.RoleLeader {
+		n.mu.Unlock()
+
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
 	}
 
-	// Append to log
-	n.mu.Lock()
 	entry.Term = n.currentTerm
 	entry.Index = n.log.LastIndex() + 1
 	entry.Created = time.Now()
@@ -452,41 +557,50 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 		return fmt.Errorf("failed to append log entry: %w", err)
 	}
 
-	// Persist immediately
-	if err := n.persistState(); err != nil {
-		n.mu.Unlock()
+	resultCh := make(chan error, 1)
+	n.applyWaiters[entry.Index] = applyWaiter{term: entry.Term, ch: resultCh}
 
-		return fmt.Errorf("failed to persist state: %w", err)
-	}
-
+	// A single-node cluster is its own majority.
+	n.advanceCommitIndex()
 	n.mu.Unlock()
 
-	// Trigger replication
 	n.triggerReplication()
 
-	// Wait for commitment with timeout
-	resultCh := make(chan error, 1)
-	msg := ApplyMsg{
-		Index:    entry.Index,
-		Term:     entry.Term,
-		Entry:    entry,
-		ResultCh: resultCh,
-	}
+	timer := time.NewTimer(60 * time.Second)
+	defer timer.Stop()
+
+	var err error
 
 	select {
-	case n.applyCh <- msg:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	select {
-	case err := <-resultCh:
+	case err = <-resultCh:
 		return err
 	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(60 * time.Second):
-		return internal.NewTimeoutError("apply operation timed out")
+		err = ctx.Err()
+	case <-n.doneCh():
+		err = internal.ErrNotStarted
+	case <-timer.C:
+		err = internal.NewTimeoutError("apply operation timed out")
 	}
+
+	n.mu.Lock()
+	if w, ok := n.applyWaiters[entry.Index]; ok && w.ch == resultCh {
+		delete(n.applyWaiters, entry.Index)
+	}
+	n.mu.Unlock()
+
+	return err
+}
+
+// doneCh returns a channel closed when the node stops, or nil before Start.
+func (n *Node) doneCh() <-chan struct{} {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.ctx == nil {
+		return nil
+	}
+
+	return n.ctx.Done()
 }
 
 // GetStats returns Raft statistics.
@@ -536,25 +650,67 @@ func (n *Node) GetCommitIndex() uint64 {
 	return n.commitIndex
 }
 
-// restoreState restores persistent state from storage.
+// restoreState restores the persisted term and vote. A missing key means a
+// fresh node; any other read error fails startup, because guessing a term or
+// vote could let the node vote twice in one term.
 func (n *Node) restoreState() error {
-	// Restore current term
 	termBytes, err := n.storage.Get([]byte("currentTerm"))
-	if err == nil && len(termBytes) == 8 {
+
+	switch {
+	case err == nil:
+		if len(termBytes) != 8 {
+			return fmt.Errorf("stored currentTerm has %d bytes, want 8", len(termBytes))
+		}
+
 		n.currentTerm = bytesToUint64(termBytes)
+	case !isNotFound(err):
+		return fmt.Errorf("failed to read currentTerm: %w", err)
 	}
 
-	// Restore voted for
 	votedForBytes, err := n.storage.Get([]byte("votedFor"))
-	if err == nil {
+
+	switch {
+	case err == nil:
 		n.votedFor = string(votedForBytes)
+	case !isNotFound(err):
+		return fmt.Errorf("failed to read votedFor: %w", err)
 	}
 
 	n.logger.Info("restored raft state",
 		forge.F("node_id", n.id),
 		forge.F("term", n.currentTerm),
 		forge.F("voted_for", n.votedFor),
+		forge.F("last_log_index", n.log.LastIndex()),
+		forge.F("last_log_term", n.log.LastTerm()),
 	)
+
+	return nil
+}
+
+// restoreSnapshot loads the latest snapshot into the state machine so the
+// node resumes applying from the first entry after it.
+func (n *Node) restoreSnapshot() error {
+	index := n.log.SnapshotIndex()
+	if index == 0 {
+		return nil
+	}
+
+	data, err := n.storage.Get(fmt.Appendf(nil, "snapshot_%d", index))
+	if err != nil {
+		return fmt.Errorf("snapshot %d is recorded in metadata but cannot be read: %w", index, err)
+	}
+
+	if err := n.stateMachine.Restore(&internal.Snapshot{
+		Index: index,
+		Term:  n.log.SnapshotTerm(),
+		Data:  data,
+		Size:  int64(len(data)),
+	}); err != nil {
+		return fmt.Errorf("state machine rejected snapshot %d: %w", index, err)
+	}
+
+	n.commitIndex = index
+	n.lastApplied = index
 
 	return nil
 }
@@ -645,54 +801,65 @@ func bytesToUint64(b []byte) uint64 {
 	return v
 }
 
-// generateRequestID generates a unique request ID.
-func (n *Node) generateRequestID() string {
-	return fmt.Sprintf("%s-%d", n.id, time.Now().UnixNano())
-}
+// call sends a request to a peer and waits for the response carrying the
+// same request ID. Responses to earlier requests, which may still be in
+// flight, are dropped instead of being mistaken for this one.
+func (n *Node) call(ctx context.Context, peerID string, msgType internal.MessageType, payload any) (any, error) {
+	key := pendingKey{peer: peerID, id: n.requestSeq.Add(1)}
+	responseCh := make(chan any, 1)
 
-// waitForResponse waits for a response to a pending request.
-func (n *Node) waitForResponse(requestID string, timeout time.Duration) (any, error) {
-	n.requestMu.RLock()
-	responseCh, exists := n.pendingRequests[requestID]
-	n.requestMu.RUnlock()
+	n.requestMu.Lock()
+	n.pendingRequests[key] = responseCh
+	n.requestMu.Unlock()
 
-	if !exists {
-		return nil, fmt.Errorf("request %s not found", requestID)
+	defer func() {
+		n.requestMu.Lock()
+		delete(n.pendingRequests, key)
+		n.requestMu.Unlock()
+	}()
+
+	msg := internal.Message{
+		Type:      msgType,
+		From:      n.id,
+		To:        peerID,
+		Payload:   payload,
+		Timestamp: time.Now().UnixNano(),
+		RequestID: key.id,
+	}
+
+	if err := n.transport.Send(ctx, peerID, msg); err != nil {
+		return nil, err
 	}
 
 	select {
 	case response := <-responseCh:
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
 		return response, nil
-	case <-time.After(timeout):
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
-		return nil, fmt.Errorf("request %s timed out", requestID)
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
-// sendResponse sends a response to a pending request.
-func (n *Node) sendResponse(requestID string, response any) {
+// deliverResponse hands a response to the request waiting for it. A response
+// nobody is waiting for any more is stale and is dropped.
+func (n *Node) deliverResponse(from string, requestID uint64, response any) {
 	n.requestMu.RLock()
-	responseCh, exists := n.pendingRequests[requestID]
+	responseCh, exists := n.pendingRequests[pendingKey{peer: from, id: requestID}]
 	n.requestMu.RUnlock()
 
-	if exists {
-		select {
-		case responseCh <- response:
-		default:
-			// Channel is full or closed, clean up
-			n.requestMu.Lock()
-			delete(n.pendingRequests, requestID)
-			n.requestMu.Unlock()
-		}
+	if !exists {
+		n.logger.Debug("dropping response with no pending request",
+			forge.F("node_id", n.id),
+			forge.F("from", from),
+			forge.F("request_id", requestID),
+		)
+
+		return
+	}
+
+	select {
+	case responseCh <- response:
+	default:
+		// A duplicate response for a request that already has one.
 	}
 }
 

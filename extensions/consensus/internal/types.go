@@ -287,6 +287,10 @@ type AppendEntriesResponse struct {
 	Success    bool   `json:"success"`
 	MatchIndex uint64 `json:"match_index"`
 	NodeID     string `json:"node_id"`
+	// LastLogIndex is the follower's last log index. On a rejected request the
+	// leader uses it to skip nextIndex back in one step instead of one entry
+	// per round trip.
+	LastLogIndex uint64 `json:"last_log_index,omitempty"`
 }
 
 // RequestVoteRequest represents a RequestVote RPC request.
@@ -398,6 +402,9 @@ type Message struct {
 	To        string      `json:"to"`
 	Payload   any         `json:"payload"`
 	Timestamp int64       `json:"timestamp"`
+	// RequestID correlates a response with the request it answers. The
+	// sender picks a fresh value per request and the responder echoes it.
+	RequestID uint64 `json:"request_id,omitempty"`
 }
 
 // MessageType represents the type of message.
