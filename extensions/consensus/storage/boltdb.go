@@ -331,3 +331,17 @@ func hasPrefix(s, prefix []byte) bool {
 
 	return true
 }
+
+// Batch applies ops atomically. It lets BoltDBStorage satisfy internal.Storage, which
+// the Raft log needs for truncation and batched appends.
+func (bs *BoltDBStorage) Batch(ops []internal.BatchOp) error {
+	return bs.WriteBatch(ops)
+}
+
+// Close closes the database. It is Stop without a context, as internal.Storage
+// requires.
+func (bs *BoltDBStorage) Close() error {
+	return bs.Stop(context.Background())
+}
+
+var _ internal.Storage = (*BoltDBStorage)(nil)

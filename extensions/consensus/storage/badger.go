@@ -302,3 +302,17 @@ func (bs *BadgerStorage) Size() (int64, error) {
 func (bs *BadgerStorage) RunGC(discardRatio float64) error {
 	return bs.db.RunValueLogGC(discardRatio)
 }
+
+// Batch applies ops atomically. It lets BadgerStorage satisfy internal.Storage, which
+// the Raft log needs for truncation and batched appends.
+func (bs *BadgerStorage) Batch(ops []internal.BatchOp) error {
+	return bs.WriteBatch(ops)
+}
+
+// Close closes the database. It is Stop without a context, as internal.Storage
+// requires.
+func (bs *BadgerStorage) Close() error {
+	return bs.Stop(context.Background())
+}
+
+var _ internal.Storage = (*BadgerStorage)(nil)
