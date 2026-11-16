@@ -16,7 +16,7 @@ type Registry struct {
 	mu        sync.RWMutex
 	manifests map[string]*farp.SchemaManifest // key: instanceID
 	schemas   map[string]any                  // key: registry path
-	watchers  map[string][]chan *farp.ManifestEvent
+	watchers  map[string][]*watcher
 	closed    bool
 }
 
@@ -25,7 +25,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		manifests: make(map[string]*farp.SchemaManifest),
 		schemas:   make(map[string]any),
-		watchers:  make(map[string][]chan *farp.ManifestEvent),
+		watchers:  make(map[string][]*watcher),
 	}
 }
 
@@ -180,7 +180,17 @@ func (r *Registry) DeleteSchema(ctx context.Context, path string) error {
 }
 
 // WatchManifests watches for manifest changes for a service.
+//
+// Events are delivered on a goroutine owned by the watch. Delivery never
+// blocks the registry and never loses the latest state of an instance: when
+// the callback falls behind, pending events for the same instance are
+// coalesced so only the most recent one is delivered. The watch ends when ctx
+// is cancelled or the registry is closed.
 func (r *Registry) WatchManifests(ctx context.Context, serviceName string, onChange farp.ManifestChangeHandler) error {
+	if onChange == nil {
+		return errors.New("memory registry: onChange handler is required")
+	}
+
 	r.mu.Lock()
 
 	if r.closed {
@@ -189,20 +199,23 @@ func (r *Registry) WatchManifests(ctx context.Context, serviceName string, onCha
 		return farp.ErrBackendUnavailable
 	}
 
-	eventChan := make(chan *farp.ManifestEvent, 10)
-	r.watchers[serviceName] = append(r.watchers[serviceName], eventChan)
+	w := newWatcher()
+	r.watchers[serviceName] = append(r.watchers[serviceName], w)
 	r.mu.Unlock()
 
-	// Watch for events until context is cancelled
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
-				r.removeWatcher(serviceName, eventChan)
+				r.removeWatcher(serviceName, w)
 
 				return
-			case event := <-eventChan:
-				onChange(event)
+			case <-w.done:
+				return
+			case <-w.signal:
+				for _, event := range w.drain() {
+					onChange(event)
+				}
 			}
 		}
 	}()
@@ -228,10 +241,10 @@ func (r *Registry) Close() error {
 
 	r.closed = true
 
-	// Close all watcher channels
+	// Stop all watch goroutines
 	for _, watchers := range r.watchers {
-		for _, ch := range watchers {
-			close(ch)
+		for _, w := range watchers {
+			w.stop()
 		}
 	}
 
@@ -254,44 +267,97 @@ func (r *Registry) Health(ctx context.Context) error {
 
 // notifyWatchers notifies all watchers for a service (must be called with lock held).
 func (r *Registry) notifyWatchers(serviceName string, event *farp.ManifestEvent) {
-	// Notify specific service watchers
-	if watchers, ok := r.watchers[serviceName]; ok {
-		for _, ch := range watchers {
-			select {
-			case ch <- event:
-			default:
-				// Channel full, skip
-			}
-		}
+	for _, w := range r.watchers[serviceName] {
+		w.enqueue(event)
 	}
 
 	// Notify global watchers (empty service name)
-	if watchers, ok := r.watchers[""]; ok {
-		for _, ch := range watchers {
-			select {
-			case ch <- event:
-			default:
-				// Channel full, skip
-			}
+	if serviceName != "" {
+		for _, w := range r.watchers[""] {
+			w.enqueue(event)
 		}
 	}
 }
 
-// removeWatcher removes a watcher channel.
-func (r *Registry) removeWatcher(serviceName string, eventChan chan *farp.ManifestEvent) {
+// removeWatcher removes a watcher and stops its goroutine.
+func (r *Registry) removeWatcher(serviceName string, w *watcher) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	watchers := r.watchers[serviceName]
-	for i, ch := range watchers {
-		if ch == eventChan {
+	for i, candidate := range watchers {
+		if candidate == w {
 			r.watchers[serviceName] = append(watchers[:i], watchers[i+1:]...)
-
-			close(eventChan)
 
 			break
 		}
 	}
+
+	w.stop()
+}
+
+// watcher buffers events for one WatchManifests subscription.
+//
+// The queue holds at most one pending event per instance ID, so its size is
+// bounded by the number of instances while still preserving each instance's
+// latest state. A slow consumer therefore sees coalesced updates instead of
+// silently missing a removal or registration.
+type watcher struct {
+	mu      sync.Mutex
+	order   []string
+	pending map[string]*farp.ManifestEvent
+	signal  chan struct{}
+	done    chan struct{}
+	once    sync.Once
+}
+
+func newWatcher() *watcher {
+	return &watcher{
+		pending: make(map[string]*farp.ManifestEvent),
+		signal:  make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+}
+
+func (w *watcher) enqueue(event *farp.ManifestEvent) {
+	if event == nil || event.Manifest == nil {
+		return
+	}
+
+	id := event.Manifest.InstanceID
+
+	w.mu.Lock()
+	if _, ok := w.pending[id]; !ok {
+		w.order = append(w.order, id)
+	}
+
+	w.pending[id] = event
+	w.mu.Unlock()
+
+	select {
+	case w.signal <- struct{}{}:
+	default:
+		// A wake-up is already pending; the drain will pick this event up.
+	}
+}
+
+func (w *watcher) drain() []*farp.ManifestEvent {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	events := make([]*farp.ManifestEvent, 0, len(w.order))
+	for _, id := range w.order {
+		events = append(events, w.pending[id])
+	}
+
+	w.order = nil
+	w.pending = make(map[string]*farp.ManifestEvent)
+
+	return events
+}
+
+func (w *watcher) stop() {
+	w.once.Do(func() { close(w.done) })
 }
 
 // Clear removes all manifests and schemas (useful for testing).
