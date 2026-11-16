@@ -300,10 +300,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 		}
 
 		if !resp.IsNil() {
-			body := processResponse(ctx, resp)
-			if body != nil {
-				_ = ctx.JSON(http.StatusOK, body)
-			}
+			writeTypedResponse(ctx, resp)
 		}
 	}}
 }
@@ -381,10 +378,7 @@ func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHan
 		}
 
 		if !resp.IsNil() {
-			body := processResponse(ctx, resp)
-			if body != nil {
-				_ = ctx.JSON(http.StatusOK, body)
-			}
+			writeTypedResponse(ctx, resp)
 		}
 	}}
 }
@@ -482,26 +476,4 @@ func handleError(ctx Context, err error) {
 		"code":    "INTERNAL_SERVER_ERROR",
 		"message": message,
 	})
-}
-
-// processResponse handles response struct tags using shared logic.
-// - Sets header:"..." fields as HTTP response headers
-// - Unwraps body:"" fields to return just the body content
-// - Falls back to full struct serialization if no special tags found.
-// - Cleans sensitive fields if enabled for the route.
-func processResponse(ctx Context, resp reflect.Value) any {
-	if resp.Kind() == reflect.Pointer && resp.IsNil() {
-		return nil
-	}
-
-	// Check if sensitive field cleaning is enabled for this route
-	cleanSensitive := false
-
-	if v := ctx.Get(ContextKeySensitiveFieldCleaning); v != nil {
-		if b, ok := v.(bool); ok {
-			cleanSensitive = b
-		}
-	}
-
-	return shared.ProcessResponseValueWithSensitive(resp.Interface(), ctx.SetHeader, cleanSensitive)
 }
