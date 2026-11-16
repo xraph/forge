@@ -31,7 +31,9 @@ func TestGoGeneratorEmitsCapabilitiesWhenDeclared(t *testing.T) {
 		"func (c *Client) SetPrincipal(",
 		"func (c *Client) HasRole(",
 	} {
-		if !strings.Contains(src, want) {
+		// Whitespace is collapsed first: the file is gofmt'd, which aligns
+		// declarations into columns, so the gap between tokens is not fixed.
+		if !strings.Contains(strings.Join(strings.Fields(src), " "), want) {
 			t.Errorf("capabilities.go missing %q\n%s", want, src)
 		}
 	}

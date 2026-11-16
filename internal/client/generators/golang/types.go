@@ -122,7 +122,7 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 
 	// Add description as comment
 	if schema.Description != "" {
-		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
+		buf.WriteString(goComment(name + " " + schema.Description))
 	} else {
 		fmt.Fprintf(&buf, "// %s represents a %s\n", name, name)
 	}
@@ -167,11 +167,11 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 			// Add description as comment
 			comment := ""
 			if prop.Description != "" {
-				comment = " // " + prop.Description
+				comment = " // " + goInlineComment(prop.Description)
 			}
 
-			fmt.Fprintf(&buf, "\t%s %s `json:\"%s\"`%s\n",
-				fieldName, goType, jsonTag, comment)
+			fmt.Fprintf(&buf, "\t%s %s %s%s\n",
+				fieldName, goType, goJSONTag(jsonTag), comment)
 		}
 
 		buf.WriteString("}\n")
@@ -303,7 +303,7 @@ func (t *TypesGenerator) generateAnonymousStruct(schema *client.Schema, spec *cl
 			jsonTag += ",omitempty"
 		}
 
-		fmt.Fprintf(&buf, "\t\t%s %s `json:\"%s\"`\n", fieldName, goType, jsonTag)
+		fmt.Fprintf(&buf, "\t\t%s %s %s\n", fieldName, goType, goJSONTag(jsonTag))
 	}
 
 	buf.WriteString("\t}")
@@ -326,15 +326,18 @@ func (t *TypesGenerator) toGoFieldName(name string) string {
 		}
 	}
 
-	result := words.String()
+	// Field, method and type names all come through here, from property
+	// names and operationIds that are free text in the specification, so only
+	// identifier characters survive.
+	result := goIdent(words.String())
 
 	// If empty, return the original name capitalized
 	if result == "" {
-		if len(name) > 0 {
-			return strings.ToUpper(name[:1]) + name[1:]
+		if cleaned := goIdent(name); cleaned != "" {
+			return strings.ToUpper(cleaned[:1]) + cleaned[1:]
 		}
 
-		return name
+		return "Field"
 	}
 
 	return result
@@ -392,7 +395,7 @@ func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, s
 
 	// Generate interface
 	if schema.Description != "" {
-		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
+		buf.WriteString(goComment(name + " " + schema.Description))
 	} else {
 		fmt.Fprintf(&buf, "// %s is a union type (oneOf)\n", name)
 	}
@@ -419,7 +422,7 @@ func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, s
 
 	// Add discriminator support if present
 	if schema.Discriminator != nil && schema.Discriminator.PropertyName != "" {
-		fmt.Fprintf(&buf, "// Discriminator field: %s\n", schema.Discriminator.PropertyName)
+		fmt.Fprintf(&buf, "// Discriminator field: %s\n", goInlineComment(schema.Discriminator.PropertyName))
 	}
 
 	return buf.String()
@@ -431,7 +434,7 @@ func (t *TypesGenerator) generateAnyOfType(name string, schema *client.Schema, s
 
 	// AnyOf is similar to oneOf in Go - use interface
 	if schema.Description != "" {
-		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
+		buf.WriteString(goComment(name + " " + schema.Description))
 	} else {
 		fmt.Fprintf(&buf, "// %s is a union type (anyOf)\n", name)
 	}
@@ -462,7 +465,7 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 	var buf strings.Builder
 
 	if schema.Description != "" {
-		fmt.Fprintf(&buf, "// %s %s\n", name, schema.Description)
+		buf.WriteString(goComment(name + " " + schema.Description))
 	} else {
 		fmt.Fprintf(&buf, "// %s is a composition type (allOf)\n", name)
 	}
@@ -497,11 +500,11 @@ func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, s
 
 				comment := ""
 				if prop.Description != "" {
-					comment = " // " + prop.Description
+					comment = " // " + goInlineComment(prop.Description)
 				}
 
-				fmt.Fprintf(&buf, "\t%s %s `json:\"%s\"`%s\n",
-					fieldName, goType, jsonTag, comment)
+				fmt.Fprintf(&buf, "\t%s %s %s%s\n",
+					fieldName, goType, goJSONTag(jsonTag), comment)
 			}
 		} else {
 			// Create an embedded inline struct

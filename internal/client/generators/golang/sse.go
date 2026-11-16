@@ -3,6 +3,7 @@ package golang
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -77,13 +78,13 @@ func (s *SSEGenerator) generateSSEEventType() string {
 func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	clientName := client.GenerateSSEClientName(sse)
+	clientName := goIdent(client.GenerateSSEClientName(sse))
 
 	// Client struct
-	fmt.Fprintf(&buf, "// %s is an SSE client for %s\n", clientName, sse.Path)
+	fmt.Fprintf(&buf, "// %s is an SSE client for %s\n", clientName, goInlineComment(sse.Path))
 
 	if sse.Description != "" {
-		fmt.Fprintf(&buf, "// %s\n", sse.Description)
+		buf.WriteString(goComment(sse.Description))
 	}
 
 	fmt.Fprintf(&buf, "type %s struct {\n", clientName)
@@ -167,7 +168,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 		buf.WriteString("\tsse.setState(ConnectionStateConnecting)\n\n")
 	}
 
-	fmt.Fprintf(&buf, "\turl := sse.client.buildURL(\"%s\")\n\n", sse.Path)
+	fmt.Fprintf(&buf, "\turl := sse.client.buildURL(%s)\n\n", strconv.Quote(sse.Path))
 
 	buf.WriteString("\treq, err := http.NewRequestWithContext(ctx, \"GET\", url, nil)\n")
 	buf.WriteString("\tif err != nil {\n")
@@ -369,12 +370,12 @@ func (s *SSEGenerator) generateOnEventMethod(clientName, eventName string, sse c
 	schema := sse.EventSchemas[eventName]
 	typeName := s.getSchemaTypeName(schema, spec)
 
-	fmt.Fprintf(&buf, "// On%s registers a handler for %s events\n", methodName, eventName)
+	fmt.Fprintf(&buf, "// On%s registers a handler for %s events\n", methodName, goInlineComment(eventName))
 	fmt.Fprintf(&buf, "func (sse *%s) On%s(handler func(%s)) {\n", clientName, methodName, typeName)
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
 
-	fmt.Fprintf(&buf, "\tsse.handlers[\"%s\"] = append(sse.handlers[\"%s\"], func(data interface{}) {\n", eventName, eventName)
+	fmt.Fprintf(&buf, "\tsse.handlers[%s] = append(sse.handlers[%s], func(data interface{}) {\n", strconv.Quote(eventName), strconv.Quote(eventName))
 	fmt.Fprintf(&buf, "\t\tif typed, ok := data.(%s); ok {\n", typeName)
 	buf.WriteString("\t\t\thandler(typed)\n")
 	buf.WriteString("\t\t}\n")
