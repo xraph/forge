@@ -37,6 +37,18 @@ type RoomAuthorizer interface {
 	GetUserRole(ctx context.Context, userID, roomID string) (string, error)
 }
 
+// ChannelAuthorizer decides who may subscribe to a channel.
+//
+// The manager consults it on every Subscribe, whether the request came from a
+// client (an SSE ?channels= parameter, the subscribe endpoint, a resumed
+// session) or from server code. userID is empty for an anonymous connection,
+// which reaches the authorizer only when the manager is configured to admit
+// anonymous subscribers at all.
+type ChannelAuthorizer interface {
+	// CanSubscribe reports whether userID may subscribe to channelID.
+	CanSubscribe(ctx context.Context, userID, channelID string) (bool, error)
+}
+
 // MessageAuthorizer checks message-level permissions.
 type MessageAuthorizer interface {
 	// CanSend checks if user can send message to room/channel

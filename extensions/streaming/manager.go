@@ -54,6 +54,12 @@ type manager struct {
 	roomAuth    streamauth.RoomAuthorizer
 	messageAuth streamauth.MessageAuthorizer
 
+	// channelAuth decides channel subscriptions. Unlike the two above it is
+	// never left nil: NewManager falls back to the default policy, because a
+	// Subscribe with no check at all handed any channel, private ones
+	// included, to whoever named it.
+	channelAuth streamauth.ChannelAuthorizer
+
 	// Load balancer (optional, distributed mode)
 	loadBalancer  lb.LoadBalancer
 	healthChecker lb.HealthChecker
@@ -154,6 +160,13 @@ func WithMessageAuthorizer(ma streamauth.MessageAuthorizer) ManagerOption {
 	return func(m *manager) { m.messageAuth = ma }
 }
 
+// WithChannelAuthorizer sets the channel authorizer consulted on every
+// Subscribe. Without it the manager uses streamauth.NewChannelAuthorizer,
+// which admits public channels and refuses private ones.
+func WithChannelAuthorizer(ca streamauth.ChannelAuthorizer) ManagerOption {
+	return func(m *manager) { m.channelAuth = ca }
+}
+
 // WithManagerNodeID sets the node ID for distributed mode.
 func WithManagerNodeID(id string) ManagerOption {
 	return func(m *manager) { m.nodeID = id }
@@ -202,7 +215,27 @@ func NewManager(
 		opt(m)
 	}
 
+	if m.channelAuth == nil && channelStore != nil {
+		m.channelAuth = streamauth.NewChannelAuthorizer(channelStore)
+	}
+
 	return m
+}
+
+// setChannelAuthorizer replaces the channel authorizer after construction.
+// Used by Extension.SetChannelAuthorizer.
+func (m *manager) setChannelAuthorizer(ca streamauth.ChannelAuthorizer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.channelAuth = ca
+}
+
+func (m *manager) channelAuthorizer() streamauth.ChannelAuthorizer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.channelAuth
 }
 
 // Connection management
@@ -800,6 +833,18 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 
 	userID := conn.GetUserID()
 
+	// Authorization first, before the limit check or the store write, the
+	// same order JoinRoom uses. Subscribe used to check nothing, so an
+	// anonymous EventSource asking for ?channels=user-42-notifications got
+	// user 42's private notifications.
+	if err := m.authorizeSubscribe(ctx, userID, channelID); err != nil {
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.channels.subscribes_denied").Inc()
+		}
+
+		return err
+	}
+
 	// Check channel limit
 	userChannels, _ := m.channelStore.GetUserChannels(ctx, userID)
 	if m.config.MaxChannelsPerUser > 0 && len(userChannels) >= m.config.MaxChannelsPerUser {
@@ -825,6 +870,30 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.channels.subscriptions").Inc()
+	}
+
+	return nil
+}
+
+// authorizeSubscribe applies the anonymous-subscriber policy and then the
+// channel authorizer.
+func (m *manager) authorizeSubscribe(ctx context.Context, userID, channelID string) error {
+	if userID == "" && !m.config.AllowAnonymousSubscriptions {
+		return fmt.Errorf("%w: anonymous connections cannot subscribe to channels", ErrChannelAccessDenied)
+	}
+
+	ca := m.channelAuthorizer()
+	if ca == nil {
+		return nil
+	}
+
+	allowed, err := ca.CanSubscribe(ctx, userID, channelID)
+	if err != nil {
+		return fmt.Errorf("channel subscribe authorization failed: %w", err)
+	}
+
+	if !allowed {
+		return ErrChannelAccessDenied
 	}
 
 	return nil

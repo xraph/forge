@@ -43,6 +43,12 @@ func (s *ChannelStore) Create(ctx context.Context, channel streaming.Channel) er
 			created:      channel.GetCreated(),
 			messageCount: channel.GetMessageCount(),
 		}
+
+		// Keep the private flag across the copy. Dropping it would quietly
+		// turn a private channel into a public one.
+		if p, ok := channel.(interface{ IsPrivate() bool }); ok {
+			localChannel.private = p.IsPrivate()
+		}
 	}
 
 	s.channels[localChannel.id] = localChannel
@@ -260,6 +266,7 @@ type LocalChannel struct {
 	name         string
 	created      time.Time
 	messageCount int64
+	private      bool
 }
 
 func NewLocalChannel(opts streaming.ChannelOptions) *LocalChannel {
@@ -268,7 +275,19 @@ func NewLocalChannel(opts streaming.ChannelOptions) *LocalChannel {
 		name:         opts.Name,
 		created:      time.Now(),
 		messageCount: 0,
+		private:      opts.Private,
 	}
+}
+
+// IsPrivate reports whether the channel was created with
+// ChannelOptions.Private. The manager's default channel authorizer refuses
+// every subscriber to a private channel unless the application supplies an
+// authorizer that knows who belongs.
+func (c *LocalChannel) IsPrivate() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.private
 }
 
 func (c *LocalChannel) GetID() string {

@@ -92,6 +92,12 @@ func WithSessionResumption(ttl time.Duration) ConfigOption {
 	return internal.WithSessionResumption(ttl)
 }
 
+// WithAnonymousSubscriptions sets whether connections with no authenticated
+// user may subscribe to channels. Off by default.
+func WithAnonymousSubscriptions(allow bool) ConfigOption {
+	return internal.WithAnonymousSubscriptions(allow)
+}
+
 func WithLoadBalancer(strategy string) ConfigOption {
 	return internal.WithLoadBalancer(strategy)
 }

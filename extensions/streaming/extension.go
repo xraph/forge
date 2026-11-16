@@ -35,6 +35,10 @@ type Extension struct {
 	manager Manager
 	hooks   *HookRegistry
 	codecs  *CodecRegistry
+
+	// channelAuth, when set by SetChannelAuthorizer, replaces the default
+	// channel policy.
+	channelAuth streamauth.ChannelAuthorizer
 }
 
 // NewExtension creates a new streaming extension with functional options.
@@ -190,6 +194,17 @@ func (e *Extension) Register(app forge.App) error {
 	managerOpts = append(managerOpts, WithRoomAuthorizer(roomAuthorizer))
 	managerOpts = append(managerOpts,
 		WithMessageAuthorizer(streamauth.NewMessageAuthorizer(roomAuthorizer, newAuthMessageStore(messageStore))))
+
+	// Channel subscriptions get the same treatment. The default admits public
+	// channels and refuses private ones, since the store has no record of who
+	// belongs to a private channel; SetChannelAuthorizer supplies a policy
+	// that does.
+	channelAuthorizer := e.channelAuth
+	if channelAuthorizer == nil {
+		channelAuthorizer = streamauth.NewChannelAuthorizer(channelStore)
+	}
+
+	managerOpts = append(managerOpts, WithChannelAuthorizer(channelAuthorizer))
 
 	// Create rate limiter using config values
 	rlConfig := ratelimit.DefaultRateLimitConfig()
@@ -351,6 +366,25 @@ func (e *Extension) Health(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// SetChannelAuthorizer replaces the policy that decides who may subscribe to
+// which channel. Call it before Register, or after it to swap the policy on a
+// running manager. Passing nil restores the default, which admits public
+// channels and refuses private ones.
+func (e *Extension) SetChannelAuthorizer(ca streamauth.ChannelAuthorizer) {
+	e.channelAuth = ca
+
+	m, ok := e.manager.(*manager)
+	if !ok {
+		return
+	}
+
+	if ca == nil {
+		ca = streamauth.NewChannelAuthorizer(m.channelStore)
+	}
+
+	m.setChannelAuthorizer(ca)
 }
 
 // Manager returns the streaming manager (for advanced usage).
