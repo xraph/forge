@@ -11,9 +11,6 @@ import (
 	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 )
 
 // GRPCTransport implements gRPC-based network transport.
@@ -98,57 +95,19 @@ func NewGRPCTransport(config GRPCTransportConfig, logger forge.Logger) *GRPCTran
 	}
 }
 
-// Start starts the gRPC transport.
+// ErrGRPCNotImplemented is returned by the gRPC transport, which has no
+// message service behind it yet. Use the TCP or HTTP transport.
+var ErrGRPCNotImplemented = errors.New("consensus gRPC transport is not implemented: use the TCP or HTTP transport")
+
+// Start reports ErrGRPCNotImplemented. The transport used to start without
+// listening on anything, so a cluster configured with it looked healthy while
+// no node could reach another.
 func (gt *GRPCTransport) Start(ctx context.Context) error {
-	gt.mu.Lock()
-	defer gt.mu.Unlock()
-
-	if gt.started {
-		return internal.ErrAlreadyStarted
-	}
-
-	gt.ctx, gt.cancel = context.WithCancel(ctx)
-	gt.started = true
-
-	// Create gRPC server with options
-	serverOpts := []grpc.ServerOption{
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	}
-
-	// Add TLS credentials if configured
-	if gt.tlsConfig != nil {
-		creds := credentials.NewTLS(gt.tlsConfig)
-		serverOpts = append(serverOpts, grpc.Creds(creds))
-
-		gt.logger.Info("gRPC transport using TLS")
-	} else {
-		gt.logger.Warn("gRPC transport running without TLS - NOT RECOMMENDED FOR PRODUCTION")
-	}
-
-	gt.server = grpc.NewServer(serverOpts...)
-
-	// TODO: Register gRPC service implementation
-	// consensuspb.RegisterConsensusServiceServer(gt.server, gt)
-
-	// Start server goroutine
-	gt.wg.Add(1)
-
-	go gt.runServer()
-
-	gt.logger.Info("gRPC transport started",
+	gt.logger.Error("gRPC transport is not implemented",
 		forge.F("node_id", gt.id),
-		forge.F("address", gt.address),
-		forge.F("port", gt.port),
 	)
 
-	return nil
+	return ErrGRPCNotImplemented
 }
 
 // Stop stops the gRPC transport.
@@ -206,28 +165,10 @@ func (gt *GRPCTransport) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to a peer.
+// Send reports ErrGRPCNotImplemented instead of dropping the message and
+// returning success, as it used to.
 func (gt *GRPCTransport) Send(ctx context.Context, target string, message any) error {
-	peer, err := gt.getPeerConn(target)
-	if err != nil {
-		return fmt.Errorf("failed to get peer connection: %w", err)
-	}
-
-	msg, ok := message.(internal.Message)
-	if !ok {
-		return errors.New("invalid message type")
-	}
-
-	// TODO: Convert to protobuf and send via gRPC
-	// For now, log that we would send
-	gt.logger.Debug("would send gRPC message",
-		forge.F("target", target),
-		forge.F("type", msg.Type),
-	)
-
-	peer.lastUsed = time.Now()
-
-	return nil
+	return ErrGRPCNotImplemented
 }
 
 // Receive returns a channel for receiving messages.
@@ -292,67 +233,4 @@ func (gt *GRPCTransport) RemovePeer(nodeID string) error {
 // GetAddress returns the local address.
 func (gt *GRPCTransport) GetAddress() string {
 	return fmt.Sprintf("%s:%d", gt.address, gt.port)
-}
-
-// runServer runs the gRPC server.
-func (gt *GRPCTransport) runServer() {
-	defer gt.wg.Done()
-
-	// TODO: Implement actual server listen
-	// For now, just wait for context cancellation
-	<-gt.ctx.Done()
-}
-
-// getPeerConn gets or creates a connection to a peer.
-func (gt *GRPCTransport) getPeerConn(nodeID string) (*grpcPeerConn, error) {
-	gt.peersMu.RLock()
-	peer, exists := gt.peers[nodeID]
-	gt.peersMu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("peer %s not found", nodeID)
-	}
-
-	peer.connMu.Lock()
-	defer peer.connMu.Unlock()
-
-	// Create connection if not exists or closed
-	if peer.conn == nil {
-		target := fmt.Sprintf("%s:%d", peer.address, peer.port)
-
-		dialOpts := []grpc.DialOption{
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                30 * time.Second,
-				Timeout:             10 * time.Second,
-				PermitWithoutStream: true,
-			}),
-		}
-
-		// Add TLS credentials if configured
-		if gt.tlsConfig != nil {
-			creds := credentials.NewTLS(gt.tlsConfig)
-			dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
-		} else {
-			dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		}
-
-		ctx, cancel := context.WithTimeout(gt.ctx, 10*time.Second)
-		defer cancel()
-
-		// NewClient is not a drop-in swap: it resolves through dns instead of
-		// passthrough and ignores this dial context.
-		conn, err := grpc.DialContext(ctx, target, dialOpts...) //nolint:staticcheck // SA1019: NewClient changes resolver and dial semantics, migrate deliberately
-		if err != nil {
-			return nil, fmt.Errorf("failed to dial peer: %w", err)
-		}
-
-		peer.conn = conn
-
-		gt.logger.Info("connected to peer",
-			forge.F("peer_id", nodeID),
-			forge.F("address", target),
-		)
-	}
-
-	return peer, nil
 }

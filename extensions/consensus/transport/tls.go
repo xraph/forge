@@ -131,6 +131,16 @@ func (tm *TLSManager) loadTLSConfig() error {
 	if tm.config.RequireClientCert {
 		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 
+		// Without a client CA the server would verify peers against the
+		// system roots, which never sign a cluster's own certificates.
+		if tm.config.ClientCAFile == "" && tlsConfig.RootCAs != nil {
+			tlsConfig.ClientCAs = tlsConfig.RootCAs
+		}
+
+		if tm.config.ClientCAFile == "" && tlsConfig.ClientCAs == nil {
+			return errors.New("mTLS requires ClientCAFile or CAFile to verify peer certificates")
+		}
+
 		if tm.config.ClientCAFile != "" {
 			clientCACert, err := os.ReadFile(tm.config.ClientCAFile)
 			if err != nil {
