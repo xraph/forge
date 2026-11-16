@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/xraph/forge"
@@ -259,15 +258,4 @@ func RequireSessionSimple() forge.Middleware {
 			return next(ctx)
 		}
 	}
-}
-
-// shouldSkipPath checks if the path should skip session handling.
-func shouldSkipPath(path string, skipPaths []string) bool {
-	for _, skipPath := range skipPaths {
-		if strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
 }

@@ -190,13 +190,7 @@ func (rl *MemoryRateLimiter) Allow(key string) (bool, *RateLimitInfo) {
 
 // shouldSkipPath checks if the path should skip rate limiting.
 func (rl *MemoryRateLimiter) shouldSkipPath(path string) bool {
-	for _, skipPath := range rl.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, rl.config.SkipPaths)
 }
 
 // RateLimitMiddleware returns a middleware function for rate limiting.

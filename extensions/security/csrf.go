@@ -224,13 +224,7 @@ func (c *CSRFProtection) isSafeMethod(method string) bool {
 
 // shouldSkipPath checks if the path should skip CSRF protection.
 func (c *CSRFProtection) shouldSkipPath(path string) bool {
-	for _, skipPath := range c.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, c.config.SkipPaths)
 }
 
 // CSRFMiddleware returns a middleware function for CSRF protection.

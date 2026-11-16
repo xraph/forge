@@ -315,13 +315,7 @@ func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
 
 // shouldSkipPath checks if the path should skip JWT authentication.
 func (jm *JWTManager) shouldSkipPath(path string) bool {
-	for _, skipPath := range jm.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, jm.config.SkipPaths)
 }
 
 // jwtContextKey is the context key for JWT claims.

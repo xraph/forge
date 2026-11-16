@@ -113,13 +113,7 @@ func NewCORSManager(config CORSConfig, logger forge.Logger) *CORSManager {
 
 // shouldSkipPath checks if the path should skip CORS handling.
 func (m *CORSManager) shouldSkipPath(path string) bool {
-	for _, skipPath := range m.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, m.config.SkipPaths)
 }
 
 // isOriginAllowed checks if an origin is allowed.
