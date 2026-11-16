@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // SchemaValidator validates data against JSON schemas.
@@ -107,10 +108,9 @@ func (v *SchemaValidator) validateString(schema *Schema, value any, path string,
 		errors.AddWithCode(path, fmt.Sprintf("String length must be at most %d", schema.MaxLength), ErrCodeMaxLength, value)
 	}
 
-	// Pattern validation
+	// Pattern validation. An invalid pattern is skipped, as before.
 	if schema.Pattern != "" {
-		matched, err := regexp.MatchString(schema.Pattern, str)
-		if err == nil && !matched {
+		if re := compiledPattern(schema.Pattern); re != nil && !re.MatchString(str) {
 			errors.AddWithCode(path, "String does not match pattern: "+schema.Pattern, ErrCodePattern, value)
 		}
 	}
@@ -443,20 +443,48 @@ func toMap(value any) (map[string]any, bool) {
 	return nil, false
 }
 
-func isValidEmail(email string) bool {
-	// Basic email validation
-	pattern := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
-	matched, _ := regexp.MatchString(pattern, email)
+// Every regular expression here used to be compiled on every call, which
+// cost more than the rest of a validation pass put together. The fixed ones
+// are compiled once; schema patterns are compiled once each and cached.
+var (
+	// emailPattern is a basic email check.
+	emailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 
-	return matched
+	// uuidPattern matches a UUID v4 in lower case.
+	uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+	// patternCache maps a schema pattern to its *regexp.Regexp, or to a nil
+	// *regexp.Regexp when the pattern does not compile. Patterns come from
+	// schemas the application defines, so the set is bounded.
+	patternCache sync.Map
+)
+
+// compiledPattern returns pattern compiled, or nil when it is not a valid
+// regular expression. A Regexp is safe for concurrent use.
+func compiledPattern(pattern string) *regexp.Regexp {
+	if v, ok := patternCache.Load(pattern); ok {
+		re, _ := v.(*regexp.Regexp)
+
+		return re
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		re = nil
+	}
+
+	v, _ := patternCache.LoadOrStore(pattern, re)
+	re, _ = v.(*regexp.Regexp)
+
+	return re
+}
+
+func isValidEmail(email string) bool {
+	return emailPattern.MatchString(email)
 }
 
 func isValidUUID(uuid string) bool {
-	// UUID v4 pattern
-	pattern := `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
-	matched, _ := regexp.MatchString(pattern, strings.ToLower(uuid))
-
-	return matched
+	return uuidPattern.MatchString(strings.ToLower(uuid))
 }
 
 // ValidateRequestBody validates the request body against a schema.
