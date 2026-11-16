@@ -595,7 +595,10 @@ func (c *ldapCache) get(username, password string) *auth.AuthContext {
 		return nil
 	}
 
-	return entry.authCtx
+	// Hand out a copy. Every hit used to return the same object, so anything
+	// a caller wrote to it (scopes merged by the registry, for one) stuck to
+	// the cached login and showed up on the next request.
+	return entry.authCtx.Clone()
 }
 
 func (c *ldapCache) set(username, password string, authCtx *auth.AuthContext) {
@@ -608,7 +611,7 @@ func (c *ldapCache) set(username, password string, authCtx *auth.AuthContext) {
 
 	key := c.cacheKey(username, password)
 	c.entries[key] = &cacheEntry{
-		authCtx:   authCtx,
+		authCtx:   authCtx.Clone(),
 		expiresAt: time.Now().Add(c.ttl),
 	}
 }

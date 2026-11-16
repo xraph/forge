@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 
@@ -62,6 +63,28 @@ type AuthContext struct {
 
 	// ProviderName identifies which auth provider authenticated this request
 	ProviderName string
+}
+
+// Clone returns a copy of the auth context that can be modified without
+// affecting the original. Slices and maps are copied one level deep; Data and
+// the values inside Claims and Metadata are shared.
+//
+// Providers often return a context they also keep, for example a cached
+// lookup or a per-key value. The registry clones before it writes to one, so
+// that one request cannot change what the next request sees.
+func (a *AuthContext) Clone() *AuthContext {
+	if a == nil {
+		return nil
+	}
+
+	c := *a
+	c.Claims = maps.Clone(a.Claims)
+	c.Scopes = slices.Clone(a.Scopes)
+	c.Roles = slices.Clone(a.Roles)
+	c.Permissions = slices.Clone(a.Permissions)
+	c.Metadata = maps.Clone(a.Metadata)
+
+	return &c
 }
 
 // SecuritySchemeType represents OpenAPI 3.1 security scheme types.
