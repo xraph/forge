@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
 	"github.com/xraph/forge/extensions/consensus/raft"
 	"github.com/xraph/forge/extensions/consensus/statemachine"
@@ -64,12 +65,15 @@ func (s *Service) startComponents(ctx context.Context) error {
 			continue
 		}
 
-		if err := tr.AddPeer(peer.ID, peer.Address, peer.Port); err != nil {
+		// The node may already route to this peer: membership restored from
+		// the log or a snapshot on restart adds routes for every member.
+		if err := tr.AddPeer(peer.ID, peer.Address, peer.Port); err != nil && !errors.Is(err, internal.ErrPeerExists) {
 			return fmt.Errorf("failed to add peer %s: %w", peer.ID, err)
 		}
 
-		// A joining node only needs routes to the cluster; its membership
-		// arrives through the log when the leader adds it.
+		// Configured peers only seed the membership of a brand new cluster.
+		// Once the log or a snapshot holds a configuration this is ignored,
+		// and a joining node only needs the routes added above.
 		node.AddPeerAddress(peer.ID, peer.Address, peer.Port)
 	}
 
