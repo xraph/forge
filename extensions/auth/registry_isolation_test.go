@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/xraph/forge"
@@ -92,6 +93,31 @@ func TestMiddleware_DoesNotWriteProviderNameIntoProviderContext(t *testing.T) {
 
 	if fromStd == nil || fromStd.Subject != "svc" {
 		t.Fatal("auth context missing from the request context")
+	}
+}
+
+// The 403 body used to echo the authorizer's error, which lists the scopes,
+// roles or permissions the route requires.
+func TestMiddlewareWithRequirement_ForbiddenBodyIsGeneric(t *testing.T) {
+	reg := NewRegistry(nil, logger.NewTestLogger())
+	_ = reg.Register(&mockProvider{name: "jwt", authCtx: &AuthContext{Subject: "u"}})
+
+	w := serve(t, reg.MiddlewareWithRequirement(Requirement{
+		Providers:   []string{"jwt"},
+		Scopes:      []string{"billing:admin"},
+		Roles:       []string{"superuser"},
+		Permissions: []string{"secrets:read"},
+	}), okHandler)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", w.Code)
+	}
+
+	body := w.Body.String()
+	for _, leak := range []string{"billing:admin", "superuser", "secrets:read", "scopes", "roles"} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("403 body %q reveals %q", body, leak)
+		}
 	}
 }
 

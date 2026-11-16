@@ -303,9 +303,13 @@ func (r *registry) MiddlewareWithRequirement(req Requirement) forge.Middleware {
 			}
 
 			if err := r.Authorizer().Authorize(ctx.Context(), authCtx, req); err != nil {
-				r.logger.Warn("authorization denied")
+				// The reason names the scopes, roles or permissions the route
+				// needs. That is useful in the server log and a map of the
+				// authorization model for whoever is probing the API, so the
+				// client only learns that it was refused.
+				r.logger.Warn("authorization denied", forge.F("reason", err.Error()))
 
-				return ctx.String(http.StatusForbidden, err.Error())
+				return ctx.String(http.StatusForbidden, "Forbidden")
 			}
 
 			return next(ctx)
