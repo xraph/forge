@@ -19,8 +19,16 @@ const DefaultMaxMessageSize = 4 << 20
 // only listens on loopback unless it is told otherwise.
 const DefaultBindAddress = "127.0.0.1"
 
+// WireProtocolVersion is the version of the wire envelope this build sends
+// and accepts. Bump it whenever the envelope changes incompatibly.
+const WireProtocolVersion = 1
+
 // ErrMessageTooLarge is returned when a message exceeds the size limit.
 var ErrMessageTooLarge = errors.New("message exceeds the maximum message size")
+
+// ErrProtocolVersion is returned for a message in another wire protocol
+// version.
+var ErrProtocolVersion = errors.New("unsupported wire protocol version")
 
 // wireMessage is the network form of internal.Message.
 //
@@ -30,6 +38,7 @@ var ErrMessageTooLarge = errors.New("message exceeds the maximum message size")
 // instead has one typed, optional field per RPC, and exactly the one matching
 // Type is set.
 type wireMessage struct {
+	Version   int                  `json:"v"`
 	Type      internal.MessageType `json:"type"`
 	From      string               `json:"from"`
 	To        string               `json:"to"`
@@ -79,6 +88,7 @@ func encodeMessage(message any) ([]byte, internal.Message, error) {
 	}
 
 	w := wireMessage{
+		Version:   WireProtocolVersion,
 		Type:      msg.Type,
 		From:      msg.From,
 		To:        msg.To,
@@ -127,6 +137,11 @@ func decodeMessage(data []byte) (internal.Message, error) {
 	var w wireMessage
 	if err := json.Unmarshal(data, &w); err != nil {
 		return internal.Message{}, fmt.Errorf("failed to unmarshal message: %w", err)
+	}
+
+	if w.Version != WireProtocolVersion {
+		return internal.Message{}, fmt.Errorf("%w: peer %q sent version %d, this node speaks version %d",
+			ErrProtocolVersion, w.From, w.Version, WireProtocolVersion)
 	}
 
 	msg := internal.Message{

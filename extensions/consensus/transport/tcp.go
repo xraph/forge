@@ -512,6 +512,17 @@ func (tt *TCPTransport) handleConnection(conn net.Conn) {
 		}
 
 		msg, err := decodeMessage(data)
+		if errors.Is(err, ErrProtocolVersion) {
+			// TCP connections are one-way, so the mismatch can only be logged
+			// here; the sender sees its connection closed.
+			tt.logger.Error("closing inbound connection from a peer on another wire protocol version",
+				forge.F("remote", conn.RemoteAddr()),
+				forge.F("error", err),
+			)
+
+			return
+		}
+
 		if err != nil {
 			tt.logger.Warn("closing inbound connection after malformed message",
 				forge.F("remote", conn.RemoteAddr()),

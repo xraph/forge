@@ -395,6 +395,17 @@ func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := decodeMessage(body)
 	if err != nil {
+		if errors.Is(err, ErrProtocolVersion) {
+			// Tell the sender which versions disagree; its Send returns this.
+			ht.logger.Error("rejecting message from a peer on another wire protocol version",
+				forge.F("remote", r.RemoteAddr),
+				forge.F("error", err),
+			)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+
 		http.Error(w, "invalid message", http.StatusBadRequest)
 
 		return

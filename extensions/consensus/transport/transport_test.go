@@ -170,10 +170,10 @@ func TestEnvelopeRejectsInconsistentMessages(t *testing.T) {
 	}
 
 	for _, raw := range []string{
-		`{"type":"append_entries","from":"a"}`,
-		`{"type":"append_entries","from":"a","append_entries":{},"request_vote":{}}`,
-		`{"type":"append_entries","from":"a","payload":{"term":9}}`,
-		`{"type":"bogus","from":"a"}`,
+		`{"v":1,"type":"append_entries","from":"a"}`,
+		`{"v":1,"type":"append_entries","from":"a","append_entries":{},"request_vote":{}}`,
+		`{"v":1,"type":"append_entries","from":"a","payload":{"term":9}}`,
+		`{"v":1,"type":"bogus","from":"a"}`,
 	} {
 		if _, err := decodeMessage([]byte(raw)); err == nil {
 			t.Fatalf("decoded invalid message %s", raw)
@@ -511,7 +511,7 @@ func TestMTLSPeerIdentity(t *testing.T) {
 			}}}
 
 			if kind == "http" {
-				body := `{"type":"request_vote","from":"a","request_vote":{"term":9}}`
+				body := `{"v":1,"type":"request_vote","from":"a","request_vote":{"term":9}}`
 				if resp, err := postTest(t, plain, "https://"+b.GetAddress()+"/raft/message", strings.NewReader(body)); err == nil {
 					resp.Body.Close()
 					t.Fatalf("request without a client certificate got status %d", resp.StatusCode)
@@ -559,4 +559,59 @@ func postTest(t *testing.T, client *http.Client, url string, body io.Reader) (*h
 	req.Header.Set("Content-Type", "application/json")
 
 	return client.Do(req)
+}
+
+// A message in another wire protocol version is rejected with an error that
+// names both versions. Over HTTP the sender gets it back; over TCP the
+// receiver logs it and drops the connection.
+func TestWireProtocolVersionMismatchIsRejected(t *testing.T) {
+	future := []byte(`{"v":2,"type":"request_vote","from":"a","request_vote":{"term":9}}`)
+
+	_, err := decodeMessage(future)
+	if !errors.Is(err, ErrProtocolVersion) || !strings.Contains(err.Error(), "version 2") || !strings.Contains(err.Error(), "version 1") {
+		t.Fatalf("decode error %v does not name both versions", err)
+	}
+
+	missing := []byte(`{"type":"request_vote","from":"a","request_vote":{"term":9}}`)
+	if _, err := decodeMessage(missing); !errors.Is(err, ErrProtocolVersion) {
+		t.Fatalf("message without a version decoded: %v", err)
+	}
+
+	h := startHTTP(t, HTTPTransportConfig{NodeID: "b"})
+
+	resp, err := postTest(t, http.DefaultClient, "http://"+h.GetAddress()+"/raft/message", bytes.NewReader(future))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "version 2") {
+		t.Fatalf("HTTP status %d body %q, want 400 naming the versions", resp.StatusCode, body)
+	}
+
+	expectNothing(t, h)
+
+	tcp := startTCP(t, TCPTransportConfig{NodeID: "b"})
+
+	conn, err := dialTest(t, tcp.GetAddress())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(future)))
+
+	if _, err := conn.Write(append(header[:], future...)); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); isTimeout(err) {
+		t.Fatal("TCP connection stayed open after a version mismatch")
+	}
+
+	expectNothing(t, tcp)
 }
