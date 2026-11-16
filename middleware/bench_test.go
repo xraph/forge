@@ -62,3 +62,22 @@ func BenchmarkTimeout(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkRateLimiterParallel(b *testing.B) {
+	rl := NewRateLimiter(1_000_000_000, 1_000_000_000)
+	defer rl.Stop()
+
+	keys := make([]string, 1024)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+	}
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			rl.Allow(keys[i&1023])
+			i++
+		}
+	})
+}
