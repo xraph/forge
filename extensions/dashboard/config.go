@@ -58,16 +58,23 @@ type Config struct {
 	// Zero or less means transport.DefaultMaxBodyBytes (1 MiB).
 	ContractMaxBodyBytes int64 `json:"contract_max_body_bytes" yaml:"contract_max_body_bytes"`
 
-	// Authentication
+	// Authentication. With EnableAuth on, every dashboard route (contract
+	// queries and commands, streams, capabilities, the CSRF token endpoint
+	// and exports) refuses a caller nobody signed in as with 401, and one
+	// without a RequiredRoles match with 403. The principal endpoint keeps
+	// answering so a client can learn where to send the user. With it off,
+	// all of those routes are open and the dashboard logs a warning at
+	// startup saying so.
 	EnableAuth bool `json:"enable_auth" yaml:"enable_auth"`
 	// LoginPath is where a signed-out user is sent, relative to BasePath. The
 	// dashboard serves no login page itself: the principal endpoint reports
 	// this path in its 401 so the client knows where to redirect.
 	LoginPath string `json:"login_path" yaml:"login_path"`
 	// RequiredRoles, when non-empty, restricts dashboard access to users
-	// carrying at least one matching role. The principal endpoint returns
-	// 403 PERMISSION_DENIED for users who don't qualify. Rendering that as
-	// an "access denied" screen is the client's job.
+	// carrying at least one matching role. Every dashboard route, the
+	// principal endpoint included, returns 403 PERMISSION_DENIED for users
+	// who don't qualify. Rendering that as an "access denied" screen is the
+	// client's job. It has no effect while EnableAuth is off.
 	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Discovery. With EnableDiscovery on and a discovery service set through

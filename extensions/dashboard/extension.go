@@ -803,8 +803,10 @@ func (e *Extension) AuthChecker() dashauth.AuthChecker {
 }
 
 // EnableAuth turns on authentication support. Auth extensions such as authsome
-// call this from RegisterDashboardAuth. With auth on, the principal endpoint
-// answers 401 for a signed-out caller instead of an anonymous 200.
+// call this from RegisterDashboardAuth. With auth on, every dashboard route
+// refuses a signed-out caller with 401 and the principal endpoint answers 401
+// instead of an anonymous 200. It only takes effect if called before Start,
+// since the routes are mounted there.
 func (e *Extension) EnableAuth() {
 	e.config.EnableAuth = true
 }
@@ -812,7 +814,7 @@ func (e *Extension) EnableAuth() {
 // SetRequiredRoles restricts dashboard access to authenticated users that
 // hold at least one of the given roles. Pass nil/empty to clear the gate.
 // Auth extensions like authsome call this from RegisterDashboardAuth when
-// their own configuration declares a role list. The principal endpoint
+// their own configuration declares a role list. Every dashboard route
 // returns 403 PERMISSION_DENIED for users who don't qualify. Rendering that
 // as an "access denied" screen is the client's job.
 func (e *Extension) SetRequiredRoles(roles []string) {
@@ -854,19 +856,38 @@ func (e *Extension) registerRoutes() {
 		}
 	}
 
-	// The principal endpoint and the contract dispatch endpoint both call
-	// dashauth.UserFromContext at request time; without ForgeMiddleware on
-	// those routes the user is always nil and /principal 401s even with a
-	// valid auth_token cookie. The middleware is non-blocking (populates
-	// context on success, falls through silently on failure), so attaching
-	// it broadly is safe.
-	var routeOpts []forge.RouteOption
-	if e.config.EnableAuth && e.authChecker != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+	loginPath := e.config.BasePath + e.config.LoginPath
+
+	// With auth on, every route except the principal endpoint runs the
+	// blocking gate: it resolves the caller and refuses anonymous callers
+	// (401) and callers without a required role (403). The principal
+	// endpoint only gets the caller resolved, because answering "who am I"
+	// with its own 401 and loginPath is its whole job.
+	//
+	// With auth off, nothing is gated. That is the documented default for a
+	// dashboard on a private network, so it stays, but it is said loudly.
+	var routeOpts, principalOpts []forge.RouteOption
+
+	if e.config.EnableAuth {
+		routeOpts = append(routeOpts, forge.WithMiddleware(authGate(e.authChecker, e.config.RequiredRoles, loginPath, e.Logger())))
+
+		if e.authChecker != nil {
+			principalOpts = append(principalOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+		} else {
+			e.Logger().Warn("dashboard: auth is enabled but no AuthChecker is set; every request is refused unless middleware upstream of the dashboard puts a user in the context with dashauth.WithUser",
+				forge.F("base_path", base),
+			)
+		}
+	} else {
+		e.Logger().Warn("dashboard: AUTH IS DISABLED. Every dashboard route, including commands, streams and exports, answers anyone who can reach this server. Enable it with WithEnableAuth(true) and an AuthChecker, or keep the dashboard off untrusted networks.",
+			forge.F("base_path", base),
+		)
 	}
 
 	if e.tenantResolver != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
+		tenant := forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver))
+		routeOpts = append(routeOpts, tenant)
+		principalOpts = append(principalOpts, tenant)
 	}
 
 	// Contract envelope endpoints, gated on the contract registry being
@@ -891,7 +912,7 @@ func (e *Extension) registerRoutes() {
 		// and EnableContractSecurity gates the contract path's enforcement).
 		if e.csrfMgr != nil && e.config.EnableContractSecurity {
 			must(router.GET(base+"/api/dashboard/v1/csrf",
-				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
+				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP, routeOpts...))
 		}
 
 		// The principal endpoint surfaces auth state to whatever client is
@@ -902,20 +923,20 @@ func (e *Extension) registerRoutes() {
 		// loginPath to send the user to. RequiredRoles, if set, gets a 403 for
 		// authenticated users without a matching role.
 
-		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
 			AuthEnabled:   e.config.EnableAuth,
 			LoginPath:     loginPath,
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
-		}), routeOpts...))
+		}), principalOpts...))
 	}
 
-	// Export endpoints
+	// Export endpoints. They dump the same data the dashboard shows, so they
+	// sit behind the same gate.
 	if e.config.EnableExport {
 		deps := &handlers.Deps{Collector: e.collector}
-		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps)))
-		must(router.GET(base+"/export/csv", handlers.HandleExportCSV(deps)))
-		must(router.GET(base+"/export/prometheus", handlers.HandleExportPrometheus(deps)))
+		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps), routeOpts...))
+		must(router.GET(base+"/export/csv", handlers.HandleExportCSV(deps), routeOpts...))
+		must(router.GET(base+"/export/prometheus", handlers.HandleExportPrometheus(deps), routeOpts...))
 	}
 
 	e.Logger().Debug("dashboard routes registered",
