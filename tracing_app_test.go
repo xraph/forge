@@ -357,7 +357,7 @@ func TestAppWarnsOnInvalidSampleRatio(t *testing.T) {
 	found := false
 
 	for _, e := range log.GetLogsByLevel("WARN") {
-		if v, _ := e.Field("value"); e.Message == invalidValueMsg && v == "lots" {
+		if k, _ := e.Field("key"); e.Message == invalidValueMsg && k == "tracing.sample_ratio" {
 			found = true
 		}
 	}
