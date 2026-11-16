@@ -24,6 +24,7 @@ type stuckExtension struct {
 
 func (s *stuckExtension) Stop(context.Context) error {
 	s.stopCalled.Store(true)
+
 	select {}
 }
 
@@ -282,6 +283,7 @@ func TestStop_ExpiredOrUnboundedContext(t *testing.T) {
 
 		go func() {
 			_ = a.Stop(context.Background())
+
 			close(done)
 		}()
 

@@ -56,7 +56,7 @@ func TestScrapeCache_ConcurrentScrapesShareOneRender(t *testing.T) {
 	for range 50 {
 		wg.Go(func() {
 			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_/metrics", nil))
+			h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics", nil))
 
 			if rec.Code != http.StatusOK || rec.Body.String() != "up 1\n" {
 				t.Errorf("got %d %q", rec.Code, rec.Body.String())
@@ -79,7 +79,7 @@ func TestScrapeCache_ExpiresAndKeysByEncoding(t *testing.T) {
 	c.now = func() time.Time { return now }
 
 	get := func(encoding string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics", nil)
 		if encoding != "" {
 			req.Header.Set("Accept-Encoding", encoding)
 		}
@@ -120,6 +120,7 @@ func TestScrapeCache_ExpiresAndKeysByEncoding(t *testing.T) {
 	}
 
 	now = now.Add(time.Second)
+
 	get("")
 
 	if n := next.renders.Load(); n != 3 {
@@ -135,7 +136,7 @@ func TestScrapeCache_UncachedScrapesAreCapped(t *testing.T) {
 
 	for range ScrapeMaxRequestsInFlight {
 		wg.Go(func() {
-			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/_/metrics?name[]=up", nil))
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics?name[]=up", nil))
 		})
 	}
 
@@ -145,7 +146,7 @@ func TestScrapeCache_UncachedScrapesAreCapped(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_/metrics?name[]=up", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_/metrics?name[]=up", nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("scrape over the cap = %d, want 503", rec.Code)

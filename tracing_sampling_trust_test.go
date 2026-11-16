@@ -48,12 +48,12 @@ func countSampled(t *testing.T, opts ...AppOption) (int64, string) {
 
 	for i := range n {
 		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
-		r.Header.Set("traceparent", fmt.Sprintf("00-%032x-%016x-01", i+1, i+1))
+		r.Header.Set("Traceparent", fmt.Sprintf("00-%032x-%016x-01", i+1, i+1))
 
 		w := httptest.NewRecorder()
 		a.Router().ServeHTTP(w, r)
 
-		lastTraceparent = w.Header().Get("traceparent")
+		lastTraceparent = w.Header().Get("Traceparent")
 	}
 
 	return sp.sampled.Load(), lastTraceparent

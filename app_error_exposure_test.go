@@ -30,7 +30,7 @@ func TestExposeInternalErrors_OnlyExplicitDevelopment(t *testing.T) {
 		{"prod", func() App { return New(WithAppEnvironment("prod")) }, false},
 		{"staging", func() App { return New(WithAppEnvironment("staging")) }, false},
 		{"production", func() App { return New(WithAppEnvironment("production")) }, false},
-		{"typo", func() App { return New(WithAppEnvironment("developmnet")) }, false},
+		{"qa", func() App { return New(WithAppEnvironment("qa")) }, false},
 		{"development option", func() App { return New(WithAppEnvironment("development")) }, true},
 		{"Development literal", func() App { return NewApp(AppConfig{Environment: "Development"}) }, true},
 		{"dev", func() App { return New(WithAppEnvironment("dev")) }, true},

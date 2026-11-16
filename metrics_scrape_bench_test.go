@@ -44,11 +44,11 @@ func BenchmarkMetricsScrape(b *testing.B) {
 
 			for i := range routes {
 				for _, id := range []string{"1", "e", "n"} {
-					h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, fmt.Sprintf("/r%d/%s", i, id), nil))
+					h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(b.Context(), http.MethodGet, fmt.Sprintf("/r%d/%s", i, id), nil))
 				}
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
+			req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/_/metrics", nil)
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, req)
 

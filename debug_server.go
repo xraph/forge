@@ -227,20 +227,24 @@ func (ds *debugState) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+
 		// The length is the client's to choose, up to 2^63, so it is never
 		// used to size an allocation. Payloads are discarded as they are
 		// read, and a frame over the cap ends the connection.
 		if hdr.Length > maxDebugFrame {
 			break
 		}
+
 		if hdr.Length > 0 {
 			if _, err := io.CopyN(io.Discard, conn, hdr.Length); err != nil {
 				break
 			}
 		}
+
 		if hdr.OpCode == ws.OpPing {
 			_ = ws.WriteHeader(conn, ws.Header{OpCode: ws.OpPong, Fin: true})
 		}
+
 		if hdr.OpCode == ws.OpClose {
 			break
 		}

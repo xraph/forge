@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,7 +66,7 @@ func TestWriteDeadline_SlowReaderIsCutOff(t *testing.T) {
 	const clients = 5
 
 	for range clients {
-		conn, err := net.Dial("tcp", addr)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", addr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +98,7 @@ func TestWriteDeadline_SSEKeepsStreaming(t *testing.T) {
 
 	_ = a.Router().SSE("/events", func(c Context) error {
 		for i := range 8 {
-			if err := c.WriteSSE("tick", fmt.Sprint(i)); err != nil {
+			if err := c.WriteSSE("tick", strconv.Itoa(i)); err != nil {
 				return err
 			}
 
@@ -163,7 +164,9 @@ func TestWriteDeadline_StreamAfterOrdinaryRequestOnSameConnection(t *testing.T) 
 	srv := newDeadlineServer(t, a)
 	client := srv.Client()
 
-	resp, err := client.Get(srv.URL + "/ping")
+	pingReq, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/ping", nil)
+
+	resp, err := client.Do(pingReq)
 	if err != nil {
 		t.Fatal(err)
 	}

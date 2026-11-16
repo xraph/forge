@@ -18,18 +18,18 @@ const telemetryFlushTimeout = 5 * time.Second
 // variable so tests can observe the call instead of losing the test binary.
 var forceExit = os.Exit
 
-// errStepAbandoned reports a shutdown step that did not return in time. The
+// stepAbandonedError reports a shutdown step that did not return in time. The
 // step keeps running in its goroutine; shutdown just stops waiting for it.
-type errStepAbandoned struct {
+type stepAbandonedError struct {
 	step  string
 	cause error
 }
 
-func (e *errStepAbandoned) Error() string {
+func (e *stepAbandonedError) Error() string {
 	return fmt.Sprintf("%s did not finish before the stop deadline (%v); abandoned", e.step, e.cause)
 }
 
-func (e *errStepAbandoned) Unwrap() error { return e.cause }
+func (e *stepAbandonedError) Unwrap() error { return e.cause }
 
 // runStep runs fn with ctx and waits for it only until ctx is done.
 //
@@ -67,7 +67,7 @@ func runStep(ctx context.Context, step string, fn func(context.Context) error) e
 		default:
 		}
 
-		return &errStepAbandoned{step: step, cause: context.Cause(ctx)}
+		return &stepAbandonedError{step: step, cause: context.Cause(ctx)}
 	}
 }
 

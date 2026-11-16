@@ -43,6 +43,7 @@ func TestCircuitBreaker_CallsRunConcurrently(t *testing.T) {
 		wg.Go(func() {
 			_, _ = cb.Execute(context.Background(), func() (any, error) {
 				n := running.Add(1)
+
 				for {
 					p := peak.Load()
 					if n <= p || peak.CompareAndSwap(p, n) {
@@ -53,7 +54,7 @@ func TestCircuitBreaker_CallsRunConcurrently(t *testing.T) {
 				time.Sleep(20 * time.Millisecond)
 				running.Add(-1)
 
-				return nil, nil
+				return struct{}{}, nil
 			})
 		})
 	}
@@ -116,7 +117,7 @@ func TestCircuitBreaker_HalfOpenFailureReopens(t *testing.T) {
 		t.Fatalf("state after a failed probe = %v, want open", cb.GetState())
 	}
 
-	if _, err := cb.Execute(context.Background(), func() (any, error) { return nil, nil }); err == nil {
+	if _, err := cb.Execute(context.Background(), func() (any, error) { return struct{}{}, nil }); err == nil {
 		t.Fatal("a reopened breaker should reject until the recovery timeout passes again")
 	}
 }
@@ -145,11 +146,10 @@ func TestCircuitBreaker_HalfOpenLimitsInFlightProbes(t *testing.T) {
 				admitted.Add(1)
 				<-release
 
-				return nil, nil
+				return struct{}{}, nil
 			})
 
-			var cbErr *CircuitBreakerError
-			if errors.As(err, &cbErr) {
+			if _, ok := errors.AsType[*CircuitBreakerError](err); ok {
 				rejected.Add(1)
 			}
 		})
@@ -181,11 +181,12 @@ func TestCircuitBreaker_ContextIsHonoured(t *testing.T) {
 			close(started)
 			<-release
 
-			return nil, nil
+			return struct{}{}, nil
 		})
 	}()
 
 	<-started
+
 	defer close(release)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -193,7 +194,7 @@ func TestCircuitBreaker_ContextIsHonoured(t *testing.T) {
 
 	begin := time.Now()
 
-	if _, err := cb.Execute(ctx, func() (any, error) { return nil, nil }); err != nil {
+	if _, err := cb.Execute(ctx, func() (any, error) { return struct{}{}, nil }); err != nil {
 		t.Fatalf("an unrelated call failed: %v", err)
 	}
 
@@ -205,7 +206,13 @@ func TestCircuitBreaker_ContextIsHonoured(t *testing.T) {
 	cancelDone()
 
 	ran := false
-	if _, err := cb.Execute(done, func() (any, error) { ran = true; return nil, nil }); !errors.Is(err, context.Canceled) || ran {
+	mark := func() (any, error) {
+		ran = true
+
+		return struct{}{}, nil
+	}
+
+	if _, err := cb.Execute(done, mark); !errors.Is(err, context.Canceled) || ran {
 		t.Fatalf("a done context should return its error without running fn: err=%v ran=%v", err, ran)
 	}
 }
@@ -237,7 +244,7 @@ func TestCircuitBreaker_MetricsCountChangesAndAreCached(t *testing.T) {
 	}
 
 	for range 5 {
-		_, _ = cb.Execute(context.Background(), func() (any, error) { return nil, nil })
+		_, _ = cb.Execute(context.Background(), func() (any, error) { return struct{}{}, nil })
 	}
 
 	if got := cb.GetStats().StateChanges; got != 1 {
