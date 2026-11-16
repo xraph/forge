@@ -1,12 +1,15 @@
 package router
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 
 	"github.com/xraph/forge/internal/shared"
+	"github.com/xraph/go-utils/val"
 	"github.com/xraph/vessel"
 )
 
@@ -273,7 +276,7 @@ func convertOpinionatedHandler(info *handlerInfo, container vessel.Vessel, error
 		// Bind request from all sources (path, query, header, body)
 		// BindRequest handles detection of body fields internally
 		if err := ctx.BindRequest(req.Interface()); err != nil {
-			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+			handleError(ctx, bindError(err))
 
 			return
 		}
@@ -350,7 +353,7 @@ func convertCombinedHandler(info *handlerInfo, container vessel.Vessel, errorHan
 		// Bind request from all sources (path, query, header, body)
 		// BindRequest handles detection of body fields internally
 		if err := ctx.BindRequest(req.Interface()); err != nil {
-			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+			handleError(ctx, bindError(err))
 
 			return
 		}
@@ -476,4 +479,37 @@ func handleError(ctx Context, err error) {
 		"code":    "INTERNAL_SERVER_ERROR",
 		"message": message,
 	})
+}
+
+// bindError turns a BindRequest failure into the error the client sees.
+//
+// The raw error used to be formatted into a 400 as "invalid request: %v".
+// That leaked Go type and field names ("cannot unmarshal string into Go
+// struct field transferReq.amount of type int") and answered a body over the
+// size cap with 400 instead of 413. Only what the client sent is named now: a
+// JSON field, never a Go type.
+func bindError(err error) error {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		return NewHTTPError(http.StatusRequestEntityTooLarge, "request body too large")
+	}
+
+	// Validation failures are written for the client: each names a request
+	// field and what is wrong with it.
+	if verr, ok := errors.AsType[*val.ValidationError](err); ok {
+		return BadRequest("invalid request: " + verr.Error())
+	}
+
+	if typeErr, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
+		if typeErr.Field != "" {
+			return BadRequest(fmt.Sprintf("invalid request: field %q has the wrong type (got JSON %s)", typeErr.Field, typeErr.Value))
+		}
+
+		return BadRequest(fmt.Sprintf("invalid request: a value has the wrong type (got JSON %s)", typeErr.Value))
+	}
+
+	if _, ok := errors.AsType[*json.SyntaxError](err); ok || errors.Is(err, io.ErrUnexpectedEOF) {
+		return BadRequest("invalid request: malformed JSON")
+	}
+
+	return BadRequest("invalid request")
 }
