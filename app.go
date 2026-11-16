@@ -131,8 +131,16 @@ type AppConfig struct {
 	HTTPWriteTimeout time.Duration
 
 	// Shutdown
-	ShutdownTimeout time.Duration // Default: 30s
+	ShutdownTimeout time.Duration // HTTP drain budget. Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
+
+	// StopTimeout bounds the second half of a graceful shutdown: lifecycle
+	// hooks, extension stops and the DI container. It is separate from
+	// ShutdownTimeout, which the HTTP drain spends, so a slow drain cannot
+	// leave the extensions with no time at all. A step that overruns is
+	// abandoned and logged instead of blocking shutdown forever. Zero means
+	// the same value as ShutdownTimeout.
+	StopTimeout time.Duration
 
 	// ObservabilityGuard authorizes access to the detailed observability
 	// endpoints: the per-check detail of /_/health, /_/info and /_/metrics.
@@ -536,6 +544,12 @@ func WithWebSocketOrigins(origins ...string) AppOption {
 // value to disable it.
 func WithHTTPWriteTimeout(timeout time.Duration) AppOption {
 	return func(c *AppConfig) { c.HTTPWriteTimeout = timeout }
+}
+
+// WithStopTimeout sets the budget for stopping hooks, extensions and the DI
+// container during shutdown. See AppConfig.StopTimeout.
+func WithStopTimeout(timeout time.Duration) AppOption {
+	return func(c *AppConfig) { c.StopTimeout = timeout }
 }
 
 // WithObservabilityGuard restricts the detailed observability endpoints. The

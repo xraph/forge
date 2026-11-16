@@ -70,6 +70,10 @@ type app struct {
 	started   bool
 	starting  bool
 
+	// shuttingDown is set as soon as a shutdown begins, so readiness turns
+	// 503 and load balancers stop sending traffic while requests drain.
+	shuttingDown atomic.Bool
+
 	// devEnvironment reports whether Environment was explicitly set to a
 	// development one. It gates the defaults that trade safety for debugging
 	// convenience: internal error text in 5xx bodies and health check detail.
@@ -991,6 +995,14 @@ type startableService interface {
 }
 
 // Stop stops the application.
+//
+// Hooks, the health manager, the extensions and the DI container share one
+// budget: ctx's deadline or StopTimeout, whichever comes first. A step that
+// overruns it is abandoned and logged, and the steps after it still run, so
+// one stuck Stop cannot keep the process alive. The telemetry flushes at the
+// end (metrics push, spans, profiles, logs) each get a small budget of their
+// own, since the stop budget may be spent by then and they are what explains
+// the shutdown afterwards.
 func (a *app) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -999,18 +1011,25 @@ func (a *app) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	a.shuttingDown.Store(true)
+
 	a.logger.Info("stopping application")
 
-	lctx, stopSpan := a.startLifecycleSpan(ctx, "forge.stop")
+	stopCtx, cancel := a.stopBudget(ctx)
+	defer cancel()
+
+	lctx, stopSpan := a.startLifecycleSpan(stopCtx, "forge.stop")
 
 	// Execute before stop hooks
-	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a); err != nil {
+	if err := runStep(stopCtx, "before stop hooks", func(ctx context.Context) error {
+		return a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a)
+	}); err != nil {
 		a.logger.Warn("before stop hooks failed", F("error", err))
 	}
 
 	// 1. Stop health manager
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
-		if err := healthMgr.Stop(ctx); err != nil {
+		if err := runStep(stopCtx, "health manager stop", healthMgr.Stop); err != nil {
 			a.logger.Error("failed to stop health manager", F("error", err))
 		}
 	}
@@ -1021,17 +1040,17 @@ func (a *app) Stop(ctx context.Context) error {
 	// 3. Push metrics one last time and stop pushing, while the collector
 	// still holds them: its Stop resets the registry. The drain and the
 	// extension stops are counted.
-	a.stopMetricsPush(ctx)
+	a.flush(ctx, a.stopMetricsPush)
 
 	// 4. Stop DI container (stops all services in reverse order)
-	if err := a.container.Stop(ctx); err != nil {
+	if err := runStep(stopCtx, "container stop", a.container.Stop); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
 	}
 
 	// The container stops the metrics collector only when it started it, so
 	// stop whatever Start started here.
 	if svc, ok := a.metrics.(startableService); ok && svc.IsStarted() {
-		if err := svc.Stop(ctx); err != nil {
+		if err := runStep(stopCtx, "metrics collector stop", svc.Stop); err != nil {
 			a.logger.Error("failed to stop metrics collector", F("error", err))
 		}
 	}
@@ -1041,27 +1060,41 @@ func (a *app) Stop(ctx context.Context) error {
 
 	// 5. Flush spans last, so the drain and the extension stops are exported.
 	if a.tracing != nil {
-		if err := a.tracing.Shutdown(ctx); err != nil {
-			a.logger.Warn("tracing shutdown did not finish", F("error", err))
-		}
+		a.flush(ctx, func(ctx context.Context) {
+			if err := runStep(ctx, "tracing shutdown", a.tracing.Shutdown); err != nil {
+				a.logger.Warn("tracing shutdown did not finish", F("error", err))
+			}
+		})
 	}
 
 	// 6. Stop profiling last, so shutdown shows up in the final profiles.
-	a.stopProfiler(ctx)
+	a.flush(ctx, a.stopProfiler)
 
 	a.started = false
 
 	// Execute after stop hooks
-	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStop, a); err != nil {
+	if err := runStep(stopCtx, "after stop hooks", func(ctx context.Context) error {
+		return a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStop, a)
+	}); err != nil {
 		a.logger.Warn("after stop hooks failed", F("error", err))
 	}
 
 	a.logger.Info("application stopped")
 
 	// 7. Flush logs and detach last, so every line above is exported.
-	a.stopLogsExport(ctx)
+	a.flush(ctx, a.stopLogsExport)
 
 	return nil
+}
+
+// flush runs one telemetry flush with a fresh telemetryFlushTimeout budget.
+// The flushes themselves stop at their context's deadline, so they need no
+// goroutine of their own.
+func (a *app) flush(ctx context.Context, fn func(context.Context)) {
+	fctx, cancel := flushContext(ctx)
+	defer cancel()
+
+	fn(fctx)
 }
 
 // Run starts the HTTP server and blocks until a shutdown signal is received.
@@ -1092,14 +1125,20 @@ func (a *app) Run() error {
 	// Print startup banner
 	a.printStartupBanner()
 
-	// Execute before run hooks (before HTTP server starts)
+	// Execute before run hooks (before HTTP server starts). The app is
+	// already started, so a failure here has extensions and services to stop.
 	if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseBeforeRun, a); err != nil {
+		a.stopAfterRunFailure()
+
 		return fmt.Errorf("before run hooks failed: %w", err)
 	}
 
-	// Channel for shutdown signal
-	shutdown := make(chan os.Signal, 1)
+	// Channel for shutdown signal. Two slots, so a second signal sent right
+	// after the first is not dropped while the first is being handled.
+	shutdown := make(chan os.Signal, 2)
 	signal.Notify(shutdown, a.config.ShutdownSignals...)
+
+	defer signal.Stop(shutdown)
 
 	// Channel for server errors
 	errChan := make(chan error, 1)
@@ -1113,22 +1152,63 @@ func (a *app) Run() error {
 
 	// Execute after run hooks (after HTTP server starts, non-blocking)
 	// Run in background to not block main loop
-	go func() {
-		if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseAfterRun, a); err != nil {
-			a.logger.Warn("after run hooks failed", F("error", err))
-		}
-	}()
+	go a.runAfterRunHooks()
 
 	// Wait for shutdown signal or error
 	select {
 	case err := <-errChan:
+		// Typically the address is in use. Start succeeded, so stop what
+		// it started instead of returning with extensions still running.
+		a.stopAfterRunFailure()
+
 		return fmt.Errorf("http server error: %w", err)
 	case sig := <-shutdown:
 		a.logger.Info("shutdown signal received", F("signal", sig.String()))
 	}
 
+	// A second signal means the operator has given up waiting. Graceful
+	// shutdown is bounded, but its budgets can still add up to a minute,
+	// and an ignored Ctrl-C is how people reach for kill -9.
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case sig := <-shutdown:
+			a.logger.Error("second shutdown signal received, exiting without finishing graceful shutdown",
+				F("signal", sig.String()))
+			forceExit(1)
+		case <-done:
+		}
+	}()
+
 	// Graceful shutdown
 	return a.gracefulShutdown()
+}
+
+// runAfterRunHooks runs the after-run hooks. It runs on a goroutine of its
+// own, so a panic in a hook would take the process down with no unwinding of
+// the app; it is logged instead.
+func (a *app) runAfterRunHooks() {
+	defer func() {
+		if r := recover(); r != nil {
+			a.logger.Error("after run hook panicked", F("panic", fmt.Sprint(r)))
+		}
+	}()
+
+	if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseAfterRun, a); err != nil {
+		a.logger.Warn("after run hooks failed", F("error", err))
+	}
+}
+
+// stopAfterRunFailure stops a started app when Run cannot go on.
+func (a *app) stopAfterRunFailure() {
+	ctx, cancel := context.WithTimeout(context.Background(), a.stopTimeout())
+	defer cancel()
+
+	if err := a.Stop(ctx); err != nil {
+		a.logger.Error("app shutdown error", F("error", err))
+	}
 }
 
 // defaultHTTPWriteTimeout is the write deadline for a non-streaming response
@@ -1238,11 +1318,22 @@ func liftWriteDeadlineOnStreams(next http.Handler) http.Handler {
 }
 
 // gracefulShutdown performs a graceful shutdown.
+//
+// The HTTP drain gets ShutdownTimeout and Stop gets a fresh StopTimeout. They
+// used to share one context, which the drain could spend entirely, leaving
+// Stop to run every extension stop with a context that was already done.
 func (a *app) gracefulShutdown() error {
+	// Readiness turns 503 first, so load balancers stop routing here while
+	// in-flight requests drain.
+	a.shuttingDown.Store(true)
+
 	ctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()
 
-	a.logger.Info("starting graceful shutdown", F("timeout", a.config.ShutdownTimeout))
+	a.logger.Info("starting graceful shutdown",
+		F("timeout", a.config.ShutdownTimeout),
+		F("stop_timeout", a.stopTimeout()),
+	)
 
 	// 1. End open streams, so they don't hold Shutdown for its whole timeout.
 	// Shutdown waits for every active request and an event stream never
@@ -1270,8 +1361,12 @@ func (a *app) gracefulShutdown() error {
 		a.logger.Warn("streams still open at the end of the shutdown timeout", F("error", err))
 	}
 
-	// 3. Stop the application (which stops all services)
-	if err := a.Stop(ctx); err != nil {
+	// 3. Stop the application (which stops all services), on a budget of its
+	// own rather than whatever the drain left.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), a.stopTimeout())
+	defer stopCancel()
+
+	if err := a.Stop(stopCtx); err != nil {
 		a.logger.Error("app shutdown error", F("error", err))
 	}
 
@@ -1659,18 +1754,27 @@ func (a *app) stopStartedExtensions(ctx context.Context, started []Extension) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, a.config.ShutdownTimeout)
+	ctx, cancel := context.WithTimeout(ctx, a.stopTimeout())
 	defer cancel()
 
 	for _, ext := range slices.Backward(started) {
 		a.logger.Info("stopping extension after failed start", F("extension", ext.Name()))
+		a.stopExtension(ctx, ext)
+	}
+}
 
-		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-			a.logger.Error("failed to stop extension",
-				F("extension", ext.Name()),
-				F("error", err),
-			)
-		}
+// stopExtension stops one extension within ctx's budget. An extension whose
+// Stop ignores its context is abandoned at the deadline instead of holding
+// up the rest of shutdown.
+func (a *app) stopExtension(ctx context.Context, ext Extension) {
+	err := runStep(ctx, "extension "+ext.Name()+" stop", func(ctx context.Context) error {
+		return a.traceExtension(ctx, "stop", ext, ext.Stop)
+	})
+	if err != nil {
+		a.logger.Error("failed to stop extension",
+			F("extension", ext.Name()),
+			F("error", err),
+		)
 	}
 }
 
@@ -1683,16 +1787,9 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("error", err),
 		)
 
-		for _, v := range slices.Backward(a.extensions) {
-			ext := v
+		for _, ext := range slices.Backward(a.extensions) {
 			a.logger.Info("stopping extension", F("extension", ext.Name()))
-
-			if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-				a.logger.Error("failed to stop extension",
-					F("extension", ext.Name()),
-					F("error", err),
-				)
-			}
+			a.stopExtension(ctx, ext)
 		}
 
 		return
@@ -1711,12 +1808,7 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("extension", ext.Name()),
 		)
 
-		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-			a.logger.Error("failed to stop extension",
-				F("extension", ext.Name()),
-				F("error", err),
-			)
-		}
+		a.stopExtension(ctx, ext)
 	}
 }
 
