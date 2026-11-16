@@ -14,6 +14,15 @@ import (
 // snapshotMetaKey holds the index and term of the latest snapshot.
 const snapshotMetaKey = "snapshot_meta"
 
+// snapshotMeta is stored under snapshotMetaKey.
+type snapshotMeta struct {
+	Index uint64 `json:"index"`
+	Term  uint64 `json:"term"`
+	// Config is the cluster configuration as of Index, so membership
+	// survives compaction of the configuration entries that built it.
+	Config *internal.ClusterConfiguration `json:"config,omitempty"`
+}
+
 // Log represents the replicated log.
 //
 // Every entry after the last snapshot is held in memory in a slice addressed
@@ -34,6 +43,10 @@ type Log struct {
 	// Snapshot state
 	snapshotIndex uint64
 	snapshotTerm  uint64
+
+	// snapshotConfig is the cluster configuration recorded with the snapshot
+	// that was on disk when the log was loaded.
+	snapshotConfig *internal.ClusterConfiguration
 }
 
 // NewLog creates a log and loads any entries already held in storage.
@@ -208,6 +221,32 @@ func (l *Log) SnapshotTerm() uint64 {
 	return l.snapshotTerm
 }
 
+// SnapshotConfig returns the cluster configuration recorded with the
+// snapshot found when the log was loaded, or nil.
+func (l *Log) SnapshotConfig() *internal.ClusterConfiguration {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	return l.snapshotConfig
+}
+
+// ConfigEntries returns the configuration entries after the snapshot, in
+// order.
+func (l *Log) ConfigEntries() []internal.LogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var out []internal.LogEntry
+
+	for _, e := range l.entries {
+		if e.Type == internal.EntryConfig {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
 // Count returns the number of log entries.
 func (l *Log) Count() int {
 	l.mu.RLock()
@@ -358,21 +397,18 @@ func (l *Log) InstallSnapshot(index, term uint64) error {
 
 // load reads the snapshot metadata and every contiguous entry after it.
 func (l *Log) load() error {
-	snapshotMeta, err := l.storage.Get([]byte(snapshotMetaKey))
+	metaBytes, err := l.storage.Get([]byte(snapshotMetaKey))
 
 	switch {
-	case err == nil && len(snapshotMeta) > 0:
-		var meta struct {
-			Index uint64 `json:"index"`
-			Term  uint64 `json:"term"`
-		}
-
-		if err := json.Unmarshal(snapshotMeta, &meta); err != nil {
+	case err == nil && len(metaBytes) > 0:
+		var meta snapshotMeta
+		if err := json.Unmarshal(metaBytes, &meta); err != nil {
 			return fmt.Errorf("failed to decode snapshot metadata: %w", err)
 		}
 
 		l.snapshotIndex = meta.Index
 		l.snapshotTerm = meta.Term
+		l.snapshotConfig = meta.Config
 	case err != nil && !isNotFound(err):
 		return fmt.Errorf("failed to read snapshot metadata: %w", err)
 	}

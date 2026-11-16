@@ -115,6 +115,7 @@ func (n *Node) sendSnapshot(peer *PeerState) bool {
 	index := n.log.SnapshotIndex()
 	snapshotTerm := n.log.SnapshotTerm()
 	leader := n.GetRole() == internal.RoleLeader
+	cfg := n.configAtLocked(index).Clone()
 	n.mu.RUnlock()
 
 	if !leader {
@@ -150,6 +151,7 @@ func (n *Node) sendSnapshot(peer *PeerState) bool {
 			Offset:            uint64(offset),
 			Data:              data[offset:end],
 			Done:              end == len(data),
+			Configuration:     &cfg,
 		}
 
 		ctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
@@ -312,17 +314,16 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 }
 
 // advanceCommitIndex moves commitIndex to the highest index stored on a
-// majority whose entry is from the current term. The caller holds n.mu.
+// majority of the voting members whose entry is from the current term. The
+// leader counts itself only while it is a voter. Once a configuration that
+// removes the leader commits, the leader steps down. The caller holds n.mu.
 func (n *Node) advanceCommitIndex() {
 	if n.GetRole() != internal.RoleLeader {
 		return
 	}
 
-	n.peersLock.RLock()
-	clusterSize := len(n.peers) + 1
-	n.peersLock.RUnlock()
-
-	majority := clusterSize/2 + 1
+	others, selfVotes := n.votersLocked()
+	majority := quorumSize(len(others), selfVotes)
 	lastLogIndex := n.log.LastIndex()
 	newCommit := n.commitIndex
 
@@ -334,10 +335,13 @@ func (n *Node) advanceCommitIndex() {
 			break
 		}
 
-		replicated := 1 // Count self
+		replicated := 0
+		if selfVotes {
+			replicated++
+		}
 
-		for _, matchIndex := range n.matchIndex {
-			if matchIndex >= index {
+		for _, id := range others {
+			if n.matchIndex[id] >= index {
 				replicated++
 			}
 		}
@@ -355,6 +359,15 @@ func (n *Node) advanceCommitIndex() {
 			forge.F("commit_index", n.commitIndex),
 		)
 		n.signalApply()
+	}
+
+	latest := n.configs[len(n.configs)-1]
+	if !selfVotes && latest.index <= n.commitIndex {
+		n.logger.Info("stepping down: this leader is no longer a voting member",
+			forge.F("node_id", n.id),
+			forge.F("config_index", latest.index),
+		)
+		n.stepDownLocked(n.currentTerm)
 	}
 }
 

@@ -64,9 +64,23 @@ func (n *Node) resetElectionTimerUnsafe() {
 	}
 }
 
-// startElection starts a new election.
+// startElection starts a new election after an election timeout.
 func (n *Node) startElection() {
+	n.startElectionWith(false)
+}
+
+// startElectionWith starts a new election. transfer marks an election
+// requested by the leader through TimeoutNow. Only voting members run
+// elections: learners, removed servers and servers waiting to join never do.
+func (n *Node) startElectionWith(transfer bool) {
 	n.mu.Lock()
+
+	others, selfVotes := n.votersLocked()
+	if !selfVotes {
+		n.mu.Unlock()
+
+		return
+	}
 
 	// Transition to candidate
 	n.setRole(internal.RoleCandidate)
@@ -100,22 +114,24 @@ func (n *Node) startElection() {
 		forge.F("last_log_term", lastLogTerm),
 	)
 
-	// Request votes from all peers
+	// Request votes from the other voting members.
 	n.peersLock.RLock()
 
-	peers := make([]*PeerState, 0, len(n.peers))
-	for _, peer := range n.peers {
-		peers = append(peers, peer)
+	peers := make([]*PeerState, 0, len(others))
+	for _, id := range others {
+		if peer, ok := n.peers[id]; ok {
+			peers = append(peers, peer)
+		}
 	}
 
 	n.peersLock.RUnlock()
 
 	peerCount := len(peers)
 	votes := 1 // Vote for self
-	votesNeeded := (peerCount+1)/2 + 1
+	votesNeeded := quorumSize(len(others), true)
 
-	// If we have no peers, we are the majority.
-	if peerCount == 0 {
+	// If we have no other voters, we are the majority.
+	if votesNeeded <= 1 {
 		n.becomeLeader(currentTerm)
 
 		return
@@ -126,7 +142,7 @@ func (n *Node) startElection() {
 
 	for _, peer := range peers {
 		go func(p *PeerState) {
-			voteCh <- n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm)
+			voteCh <- n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm, transfer)
 		}(peer)
 	}
 
@@ -181,13 +197,14 @@ func (n *Node) startElection() {
 
 // requestVote sends a RequestVote RPC to a peer and reports whether the peer
 // granted its vote for this term.
-func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint64) bool {
+func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint64, transfer bool) bool {
 	req := &internal.RequestVoteRequest{
 		Term:         term,
 		CandidateID:  n.id,
 		LastLogIndex: lastLogIndex,
 		LastLogTerm:  lastLogTerm,
 		PreVote:      n.config.PreVoteEnabled,
+		Transfer:     transfer,
 	}
 
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
@@ -228,6 +245,30 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 		Term:        n.currentTerm,
 		VoteGranted: false,
 		NodeID:      n.id,
+	}
+
+	// A server that is not a voting member in this node's configuration,
+	// such as one that was removed and never learned it, cannot win, and
+	// letting it bump the term would depose a working leader (section 4.2.3).
+	if !n.currentConfigLocked().IsVoter(req.CandidateID) {
+		n.logger.Debug("ignoring vote request from a non-voting server",
+			forge.F("candidate", req.CandidateID),
+			forge.F("term", req.Term),
+		)
+
+		return resp, nil
+	}
+
+	// While a leader is known to be alive, a vote request is ignored without
+	// even adopting its term, unless the leader asked for this election to
+	// transfer leadership (sections 4.2.3 and 3.10).
+	if !req.Transfer && n.heardFromLeaderLocked() {
+		n.logger.Debug("ignoring vote request while the leader is alive",
+			forge.F("candidate", req.CandidateID),
+			forge.F("term", req.Term),
+		)
+
+		return resp, nil
 	}
 
 	// Reply false if term < currentTerm
@@ -301,6 +342,27 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 	}
 
 	return resp, nil
+}
+
+// heardFromLeaderLocked reports whether this node is the leader or heard
+// from one within the minimum election timeout, less a heartbeat interval to
+// allow for followers that last heard from the leader at slightly different
+// times.
+func (n *Node) heardFromLeaderLocked() bool {
+	if n.GetRole() == internal.RoleLeader {
+		return true
+	}
+
+	if n.GetLeader() == "" || n.lastLeaderContact.IsZero() {
+		return false
+	}
+
+	window := n.config.ElectionTimeoutMin - n.config.HeartbeatInterval
+	if window <= 0 {
+		window = n.config.ElectionTimeoutMin
+	}
+
+	return time.Since(n.lastLeaderContact) < window
 }
 
 // isLogUpToDate checks if the candidate's log is at least as up-to-date as ours.
