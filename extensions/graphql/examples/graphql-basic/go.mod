@@ -95,7 +95,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.1.0 // indirect
 	github.com/xraph/go-utils v1.5.0 // indirect
-	github.com/xraph/vessel v1.0.4 // indirect
+	github.com/xraph/vessel v1.0.6 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect

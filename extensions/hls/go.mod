@@ -11,7 +11,7 @@ require (
 	github.com/xraph/forge v1.12.9
 	github.com/xraph/forge/extensions/consensus v1.12.9
 	github.com/xraph/trove v1.7.1
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/vessel v1.0.6
 )
 
 require (
