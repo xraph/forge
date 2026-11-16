@@ -168,7 +168,7 @@ func replicateAndRead(t *testing.T, services []*Service) {
 // Three services started from configuration elect a leader and replicate a
 // command over each network transport.
 func TestServiceClusterReplicates(t *testing.T) {
-	for _, kind := range []string{"tcp", "http"} {
+	for _, kind := range []string{"tcp", "http", "grpc"} {
 		t.Run(kind, func(t *testing.T) {
 			replicateAndRead(t, startServices(t, clusterConfigs(t, kind, 3)))
 		})
@@ -181,7 +181,7 @@ func TestServiceClusterReplicates(t *testing.T) {
 func TestServiceClusterReplicatesOverMTLS(t *testing.T) {
 	pki := newServicePKI(t)
 
-	for _, kind := range []string{"tcp", "http"} {
+	for _, kind := range []string{"tcp", "http", "grpc"} {
 		t.Run(kind, func(t *testing.T) {
 			cfgs := clusterConfigs(t, kind, 3)
 
@@ -239,7 +239,7 @@ func TestServiceMTLSRejectsMismatchedCertificate(t *testing.T) {
 // Settings the service cannot honour fail with a clear error.
 func TestServiceRejectsUnsupportedSettings(t *testing.T) {
 	cases := map[string]func(*internal.Config){
-		"grpc transport":   func(c *internal.Config) { c.Transport.Type = "grpc" },
+		"quic transport":   func(c *internal.Config) { c.Transport.Type = "quic" },
 		"encryption":       func(c *internal.Config) { c.Security.EnableEncryption = true },
 		"dns discovery":    func(c *internal.Config) { c.Discovery.Type = "dns" },
 		"postgres storage": func(c *internal.Config) { c.Storage.Type = "postgres" },

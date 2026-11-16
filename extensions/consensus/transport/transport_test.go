@@ -349,21 +349,6 @@ func TestTransportsDefaultToLoopback(t *testing.T) {
 	}
 }
 
-// The gRPC transport is not implemented and says so instead of pretending.
-func TestGRPCTransportFailsLoudly(t *testing.T) {
-	g := NewGRPCTransport(GRPCTransportConfig{NodeID: "a", Address: "127.0.0.1"}, forge.NewNoopLogger())
-
-	if err := g.Start(context.Background()); !errors.Is(err, ErrGRPCNotImplemented) {
-		t.Fatalf("Start returned %v", err)
-	}
-
-	_ = g.AddPeer("b", "127.0.0.1", 1)
-
-	if err := g.Send(context.Background(), "b", internal.Message{Type: internal.MessageTypeRequestVote}); !errors.Is(err, ErrGRPCNotImplemented) {
-		t.Fatalf("Send returned %v", err)
-	}
-}
-
 // testPKI writes a CA and per-node certificates (node ID as DNS SAN) to dir.
 type testPKI struct {
 	dir    string

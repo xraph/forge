@@ -84,7 +84,7 @@ type RaftConfig struct {
 
 // TransportConfig contains transport layer configuration.
 type TransportConfig struct {
-	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http (grpc is not implemented)
+	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http, grpc
 	MaxMessageSize     int           `default:"4194304" json:"max_message_size"    yaml:"max_message_size"` // 4MB
 	Timeout            time.Duration `default:"10s"     json:"timeout"             yaml:"timeout"`
 	KeepAlive          bool          `default:"true"    json:"keep_alive"          yaml:"keep_alive"`
@@ -415,9 +415,7 @@ func (c *Config) Validate() error {
 
 	// Validate transport config
 	switch c.Transport.Type {
-	case "tcp", "http":
-	case "grpc":
-		return fmt.Errorf("%w: transport type grpc is not implemented, use tcp or http", ErrInvalidConfig)
+	case "tcp", "http", "grpc":
 	default:
 		return fmt.Errorf("%w: invalid transport type: %s", ErrInvalidConfig, c.Transport.Type)
 	}

@@ -25,7 +25,7 @@ func TestDefaultConfigBindsLoopback(t *testing.T) {
 
 func TestValidateRejectsOptionsThatCannotBeHonoured(t *testing.T) {
 	cases := map[string]func(*Config){
-		"grpc transport":         func(c *Config) { c.Transport.Type = "grpc" },
+		"quic transport":         func(c *Config) { c.Transport.Type = "quic" },
 		"encryption at rest":     func(c *Config) { c.Security.EnableEncryption = true },
 		"admin auth without key": func(c *Config) { c.AdminAPI.EnableAuth = true },
 	}

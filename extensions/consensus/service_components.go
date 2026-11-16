@@ -189,8 +189,23 @@ func newTransport(cfg internal.Config, logger forge.Logger) (internal.Transport,
 			TLSConfig:           tlsConfig,
 			RequirePeerIdentity: requireIdentity,
 		}, logger), nil
+	case "grpc":
+		return transport.NewGRPCTransport(transport.GRPCTransportConfig{
+			NodeID:              cfg.NodeID,
+			Address:             cfg.BindAddr,
+			Port:                cfg.BindPort,
+			MaxConnections:      cfg.Transport.MaxConnections,
+			ConnectionTimeout:   cfg.Transport.ConnectionTimeout,
+			RequestTimeout:      cfg.Transport.Timeout,
+			KeepAliveTime:       cfg.Transport.KeepAliveInterval,
+			KeepAliveTimeout:    cfg.Transport.KeepAliveTimeout,
+			IdleTimeout:         cfg.Transport.IdleTimeout,
+			MaxMessageSize:      cfg.Transport.MaxMessageSize,
+			TLSConfig:           tlsConfig,
+			RequirePeerIdentity: requireIdentity,
+		}, logger), nil
 	default:
-		return nil, fmt.Errorf("%w: transport type %q is not implemented; use tcp or http",
+		return nil, fmt.Errorf("%w: transport type %q is not implemented; use tcp, http or grpc",
 			internal.ErrInvalidConfig, cfg.Transport.Type)
 	}
 }

@@ -38,6 +38,8 @@ func startNetworkCluster(t *testing.T, kind string, size int) []*clusterMember {
 			tr = transport.NewTCPTransport(transport.TCPTransportConfig{NodeID: id, Address: "127.0.0.1"}, lg)
 		case "http":
 			tr = transport.NewHTTPTransport(transport.HTTPTransportConfig{NodeID: id, Address: "127.0.0.1"}, lg)
+		case "grpc":
+			tr = transport.NewGRPCTransport(transport.GRPCTransportConfig{NodeID: id, Address: "127.0.0.1"}, lg)
 		}
 
 		if err := tr.Start(ctx); err != nil {
@@ -177,4 +179,9 @@ func TestClusterElectsAndReplicatesOverHTTP(t *testing.T) {
 // The same over the TCP transport.
 func TestClusterElectsAndReplicatesOverTCP(t *testing.T) {
 	testClusterOverTransport(t, "tcp")
+}
+
+// The same over the gRPC transport.
+func TestClusterElectsAndReplicatesOverGRPC(t *testing.T) {
+	testClusterOverTransport(t, "grpc")
 }
