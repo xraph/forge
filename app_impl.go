@@ -68,6 +68,11 @@ type app struct {
 	mu        sync.RWMutex
 	started   bool
 	starting  bool
+
+	// devEnvironment reports whether Environment was explicitly set to a
+	// development one. It gates the defaults that trade safety for debugging
+	// convenience: internal error text in 5xx bodies and health check detail.
+	devEnvironment bool
 }
 
 // newApp creates a new app instance.
@@ -80,6 +85,10 @@ func newApp(config AppConfig) *app {
 	if config.Version == "" {
 		config.Version = "1.0.0"
 	}
+
+	// Decide before the default below fills the field in: an unset
+	// environment must not count as a development one.
+	devEnvironment := environmentIsDevelopment(config)
 
 	if config.Environment == "" {
 		config.Environment = "development"
@@ -307,10 +316,12 @@ func newApp(config AppConfig) *app {
 		routerOpts = append(routerOpts, internalrouter.WithHTTPAddress(config.HTTPAddress))
 	}
 
-	// Internal error text is echoed to clients only outside production, where
-	// it aids debugging; in production a 500 carries no detail. Logs always have
-	// the full error either way.
-	shared.SetExposeInternalErrors(config.Environment != "production")
+	// Internal error text is echoed to clients only in an environment that
+	// was explicitly named as a development one, where it aids debugging.
+	// Anything else (unset, staging, prod, a typo) gets a 500 with no detail,
+	// because a driver error routinely carries hostnames, users and DSNs.
+	// Logs always have the full error either way.
+	shared.SetExposeInternalErrors(resolveExposeInternalErrors(config, devEnvironment))
 
 	// Cap request bodies. Zero leaves the router's own default in place.
 	if config.MaxRequestBodySize != 0 {
@@ -418,6 +429,7 @@ func newApp(config AppConfig) *app {
 		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
+		devEnvironment:   devEnvironment,
 	}
 
 	// Register extensions from config

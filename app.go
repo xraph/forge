@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -125,6 +126,12 @@ type AppConfig struct {
 	ShutdownTimeout time.Duration // Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
 
+	// ExposeInternalErrors decides whether 5xx responses carry the internal
+	// error text. Nil means it follows Environment: only an explicitly set
+	// development, dev, local or test environment exposes it. An unset or
+	// unrecognised environment, including staging and prod, redacts.
+	ExposeInternalErrors *bool
+
 	// Health
 	HealthGracePeriod time.Duration // Grace period after startup during which health endpoints always return 200. Default: 60s
 
@@ -171,6 +178,11 @@ type AppConfig struct {
 	// metricsConfigSet records a WithAppMetricsConfig call, so a config equal
 	// to the defaults still counts as set in code.
 	metricsConfigSet bool
+
+	// environmentDefaulted marks the "development" that DefaultAppConfig puts
+	// in Environment as a placeholder rather than a choice. Security defaults
+	// treat it as unset; see environmentIsDevelopment.
+	environmentDefaulted bool
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -206,6 +218,8 @@ func DefaultAppConfig() AppConfig {
 		EnableEnvConfig:  true, // Enabled by default
 		EnvSeparator:     "_",  // Standard separator
 		EnvOverridesFile: true, // Env takes precedence over files by default
+
+		environmentDefaulted: true,
 	}
 }
 
@@ -244,6 +258,7 @@ func WithAppDescription(description string) AppOption {
 func WithAppEnvironment(environment string) AppOption {
 	return func(c *AppConfig) {
 		c.Environment = environment
+		c.environmentDefaulted = false
 	}
 }
 
@@ -483,6 +498,46 @@ func WithWebSocketOrigins(origins ...string) AppOption {
 	return func(c *AppConfig) {
 		c.WebSocketOrigins = append(c.WebSocketOrigins, origins...)
 	}
+}
+
+// WithExposeInternalErrors overrides whether 5xx responses carry the internal
+// error text, whatever the environment. See AppConfig.ExposeInternalErrors.
+func WithExposeInternalErrors(expose bool) AppOption {
+	return func(c *AppConfig) { c.ExposeInternalErrors = &expose }
+}
+
+// developmentEnvironments are the Environment values that turn on the
+// debugging defaults. Compared case-insensitively.
+var developmentEnvironments = map[string]bool{
+	"development": true,
+	"dev":         true,
+	"local":       true,
+	"test":        true,
+}
+
+// environmentIsDevelopment reports whether config names a development
+// environment on purpose. An empty Environment is unset, and so is the
+// "development" placeholder DefaultAppConfig fills in when nothing replaced
+// it: an app deployed without setting its environment must get the
+// production-safe behaviour, not the debugging one.
+func environmentIsDevelopment(config AppConfig) bool {
+	env := strings.ToLower(strings.TrimSpace(config.Environment))
+	if env == "" || (config.environmentDefaulted && env == "development") {
+		return false
+	}
+
+	return developmentEnvironments[env]
+}
+
+// resolveExposeInternalErrors applies an explicit ExposeInternalErrors first
+// and otherwise exposes error text only in an explicit development
+// environment.
+func resolveExposeInternalErrors(config AppConfig, devEnvironment bool) bool {
+	if config.ExposeInternalErrors != nil {
+		return *config.ExposeInternalErrors
+	}
+
+	return devEnvironment
 }
 
 // NewApp creates a new Forge application.
