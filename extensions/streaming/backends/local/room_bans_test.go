@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,4 +63,31 @@ func TestLocalRoom_BanMethodsUseTheStore(t *testing.T) {
 	if banned, _ := room.IsBanned(ctx, "bob"); banned {
 		t.Error("expired ban still reported")
 	}
+}
+
+// IsMuted used to delete an elapsed mute while holding only the read lock,
+// which races with concurrent readers. Run with -race.
+func TestLocalRoom_IsMutedIsSafeConcurrently(t *testing.T) {
+	ctx := context.Background()
+	room := NewRoom(streaming.RoomOptions{ID: "r1", Name: "r1"})
+
+	if err := room.MuteMember(ctx, "alice", -time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
+				if muted, _ := room.IsMuted(ctx, "alice"); muted {
+					t.Error("elapsed mute reported")
+
+					return
+				}
+			}
+		})
+	}
+
+	wg.Wait()
 }

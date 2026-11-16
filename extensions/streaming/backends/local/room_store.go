@@ -990,11 +990,21 @@ func (r *LocalRoom) GetBannedMembers(ctx context.Context) ([]streaming.RoomBan, 
 	return s.GetBans(ctx, r.GetID())
 }
 
+// MuteMember mutes userID until now+duration.
 func (r *LocalRoom) MuteMember(ctx context.Context, userID string, duration time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.mutedMembers[userID] = time.Now().Add(duration)
+	// Reclaim expired entries here, under the write lock, rather than in
+	// IsMuted.
+	now := time.Now()
+	for uid, until := range r.mutedMembers {
+		if !until.After(now) {
+			delete(r.mutedMembers, uid)
+		}
+	}
+
+	r.mutedMembers[userID] = now.Add(duration)
 
 	return nil
 }
@@ -1012,12 +1022,11 @@ func (r *LocalRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// No delete of an expired entry here: this holds only the read lock, and
+	// deleting from the map under it raced with every concurrent reader.
+	// MuteMember and UnmuteMember reclaim expired entries.
 	if muteUntil, exists := r.mutedMembers[userID]; exists {
-		if muteUntil.After(time.Now()) {
-			return true, nil
-		}
-		// Mute expired, clean it up
-		delete(r.mutedMembers, userID)
+		return muteUntil.After(time.Now()), nil
 	}
 
 	return false, nil
