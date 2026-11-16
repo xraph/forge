@@ -319,6 +319,10 @@ func (r *router) Any(path string, handler any, opts ...RouteOption) error {
 // or other routers. Unlike Any(), Handle() bypasses the forge handler conversion
 // and middleware system - the handler receives requests directly.
 //
+// The router-wide body cap (WithMaxRequestBodySize) still applies, since a
+// mounted handler has no route options to set its own. A mounted upload
+// endpoint that needs more calls SetRequestBodyLimit before reading.
+//
 // Example:
 //
 //	// Mount a file server
@@ -558,6 +562,17 @@ func (r *router) Stop(ctx context.Context) error {
 
 // ServeHTTP implements http.Handler.
 func (r *router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Cap the body here, before global middleware, route matching, 404 and
+	// 405 handling or a mounted handler can read it. A route raises or
+	// lowers this cap in its own wrapper. See limitedBody.
+	if req.Body != nil && req.Body != http.NoBody {
+		if _, wrapped := req.Body.(*limitedBody); !wrapped {
+			if limit := r.resolveMaxBodySize(0); limit > 0 {
+				req.Body = newLimitedBody(w, req.Body, limit)
+			}
+		}
+	}
+
 	// Middleware is applied during route registration (see register() method),
 	// so we just delegate to the adapter which has routes with middleware already applied.
 	// This prevents double-wrapping of middleware.
@@ -1070,14 +1085,14 @@ func applyMiddlewareAndInterceptors(
 			r = r.WithContext(context.WithValue(r.Context(), forge_http.ContextKeyForSensitiveCleaning, true))
 		}
 
-		// Cap the request body before any handler, binder or middleware can
-		// read it. Without this, decoding is bounded only by what the client
-		// chooses to send, so a single unauthenticated request can drive
-		// arbitrary allocation. MaxBytesReader also signals the server to
-		// close the connection once the cap is hit.
-		if maxBodySize > 0 && r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-		}
+		// Cap the request body before any route handler, binder or route
+		// middleware can read it. Without this, decoding is bounded only by
+		// what the client chooses to send, so a single unauthenticated
+		// request can drive arbitrary allocation. The router has usually
+		// capped the body already, in ServeHTTP; this replaces that cap with
+		// the route's own, which may be higher or lower. A maxBodySize of 0
+		// means the route has no limit.
+		applyRouteBodyLimit(w, r, maxBodySize)
 
 		// Apply per-route timeout for non-streaming handlers. The server-level
 		// WriteTimeout is 0 (disabled) to support SSE/WebSocket, so regular

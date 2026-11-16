@@ -418,13 +418,21 @@ func WithStreamObserver(o shared.StreamObserver) RouterOption {
 	return &streamObserverOpt{o}
 }
 
-// WithMaxRequestBodySize caps the request body for every route on this router,
-// in bytes. Bodies exceeding the cap fail the read with a 413-shaped error
-// instead of allocating without bound.
+// WithMaxRequestBodySize caps the request body for every request this router
+// serves, in bytes. Bodies exceeding the cap fail the read with a 413-shaped
+// error instead of allocating without bound.
+//
+// The cap is installed as the request enters the router, so it also bounds
+// UseGlobal middleware, requests that match no route, and handlers mounted
+// with Handle. A route's WithMaxBodySize replaces it for that route's handler
+// and route middleware, raising or lowering it. Global middleware runs before
+// the route is known, so a global middleware that reads the whole body is
+// held to this cap even on a route that raises its own.
 //
 // Defaults to DefaultMaxRequestBodySize. Pass a negative value to disable the
 // limit entirely (not recommended on internet-facing routes); override per route
-// with WithMaxBodySize for upload endpoints.
+// with WithMaxBodySize for upload endpoints, or call SetRequestBodyLimit from a
+// mounted handler.
 func WithMaxRequestBodySize(bytes int64) RouterOption {
 	return &maxBodySizeOpt{bytes}
 }
