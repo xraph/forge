@@ -79,6 +79,11 @@ type WebTransportHandler = router.WebTransportHandler
 // WebTransportConfig configures WebTransport behavior.
 type WebTransportConfig = router.WebTransportConfig
 
+// ErrWebTransportMessageTooLarge is returned by a WebTransport stream's
+// ReadJSON when one JSON value is larger than
+// WebTransportConfig.MaxJSONValueSize.
+var ErrWebTransportMessageTooLarge = router.ErrWebTransportMessageTooLarge
+
 // StreamConfig configures streaming behavior.
 type StreamConfig = router.StreamConfig
 

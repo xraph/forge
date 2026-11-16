@@ -64,11 +64,13 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 
 		r.mu.RLock()
 		maxDatagramSize := r.webTransportConfig.MaxDatagramFrameSize
+		maxJSONValueSize := r.webTransportConfig.MaxJSONValueSize
 		r.mu.RUnlock()
 
 		wtSession := newWebTransportSession(sessionID, session, req.Context())
 		wtSession.handle = handle
 		wtSession.maxDatagramSize = maxDatagramSize
+		wtSession.maxJSONValueSize = maxJSONValueSize
 
 		defer wtSession.Close()
 

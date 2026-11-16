@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 
 	"github.com/quic-go/quic-go"
@@ -96,6 +97,10 @@ type webTransportSession struct {
 	// maxDatagramSize is WebTransportConfig.MaxDatagramFrameSize. Zero or
 	// less means no limit beyond QUIC's own. Set by the router.
 	maxDatagramSize int64
+
+	// maxJSONValueSize is WebTransportConfig.MaxJSONValueSize, handed to every
+	// stream the session opens or accepts. Set by the router.
+	maxJSONValueSize int64
 }
 
 // newWebTransportSession creates a new WebTransport session wrapper.
@@ -121,7 +126,7 @@ func (s *webTransportSession) OpenStream() (WebTransportStream, error) {
 		return nil, fmt.Errorf("failed to open stream: %w", err)
 	}
 
-	return newWebTransportStream(stream), nil
+	return newWebTransportStream(stream, s.maxJSONValueSize), nil
 }
 
 func (s *webTransportSession) OpenUniStream() (WebTransportStream, error) {
@@ -139,7 +144,7 @@ func (s *webTransportSession) AcceptStream(ctx context.Context) (WebTransportStr
 		return nil, fmt.Errorf("failed to accept stream: %w", err)
 	}
 
-	return newWebTransportStream(stream), nil
+	return newWebTransportStream(stream, s.maxJSONValueSize), nil
 }
 
 func (s *webTransportSession) AcceptUniStream(ctx context.Context) (WebTransportStream, error) {
@@ -148,7 +153,7 @@ func (s *webTransportSession) AcceptUniStream(ctx context.Context) (WebTransport
 		return nil, fmt.Errorf("failed to accept uni stream: %w", err)
 	}
 
-	return newWebTransportReceiveStream(stream), nil
+	return newWebTransportReceiveStream(stream, s.maxJSONValueSize), nil
 }
 
 // ReceiveDatagram returns the next datagram within the size limit. A larger
@@ -245,8 +250,22 @@ func (s *webTransportSession) LocalAddr() string {
 // read-ahead back to Read when the caller switches.
 //
 // Like the stream underneath, it supports one reader at a time.
+//
+// ReadJSON caps each value at maxJSON bytes. The decoder buffers a whole
+// value before it returns, and the peer chooses how long that value is, so
+// without a cap one client could make the server allocate as much memory as
+// it cared to send: a 200 MiB string cost 1.2 GiB.
 type streamReader struct {
 	r io.Reader
+
+	// maxJSON caps the bytes ReadJSON may pull from the stream for one value.
+	// Zero means DefaultMaxWebSocketMessageSize and a negative value turns
+	// the cap off.
+	maxJSON int64
+
+	// budget sits between the decoder and the stream and enforces maxJSON.
+	// ReadJSON refills it for every value.
+	budget budgetReader
 
 	// dec is the decoder ReadJSON uses, nil after a raw Read.
 	dec *json.Decoder
@@ -285,10 +304,52 @@ func (s *streamReader) ReadJSON(v any) error {
 			src = io.MultiReader(s.pending, s.r)
 		}
 
-		s.dec = json.NewDecoder(src)
+		s.budget = budgetReader{r: src}
+		s.dec = json.NewDecoder(&s.budget)
 	}
 
+	// The budget is per value. Bytes the decoder read ahead for this value
+	// were paid for by the previous one, so a value can exceed the limit by
+	// at most one read-ahead, which is itself bounded by the limit.
+	s.budget.remaining = s.limit()
+
 	return s.dec.Decode(v)
+}
+
+func (s *streamReader) limit() int64 {
+	switch {
+	case s.maxJSON < 0:
+		return math.MaxInt64
+	case s.maxJSON == 0:
+		return DefaultMaxWebSocketMessageSize
+	default:
+		return s.maxJSON
+	}
+}
+
+// ErrWebTransportMessageTooLarge is returned by ReadJSON when one JSON value
+// on a WebTransport stream is larger than the read limit.
+var ErrWebTransportMessageTooLarge = errors.New("webtransport JSON value exceeds read limit")
+
+// budgetReader reads from r until remaining runs out, then fails.
+type budgetReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (b *budgetReader) Read(p []byte) (int, error) {
+	if b.remaining <= 0 {
+		return 0, ErrWebTransportMessageTooLarge
+	}
+
+	if int64(len(p)) > b.remaining {
+		p = p[:b.remaining]
+	}
+
+	n, err := b.r.Read(p)
+	b.remaining -= int64(n)
+
+	return n, err
 }
 
 // writeJSONLine writes v and a newline in one Write. The newline keeps values
@@ -316,12 +377,21 @@ type webTransportStream struct {
 	mu sync.RWMutex
 }
 
-// newWebTransportStream creates a new WebTransport stream wrapper.
-func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
+// newWebTransportStream creates a new WebTransport stream wrapper. maxJSON
+// caps one ReadJSON value; see streamReader.
+func newWebTransportStream(stream *webtransport.Stream, maxJSON int64) *webTransportStream {
 	return &webTransportStream{
 		stream: stream,
-		reader: streamReader{r: stream},
+		reader: streamReader{r: stream, maxJSON: maxJSON},
 	}
+}
+
+// SetReadLimit overrides the largest JSON value ReadJSON accepts on this
+// stream. Zero restores DefaultMaxWebSocketMessageSize and a negative value
+// removes the cap. Raw Read calls are not limited. Call it from the goroutine
+// that reads the stream.
+func (s *webTransportStream) SetReadLimit(limit int64) {
+	s.reader.maxJSON = limit
 }
 
 func (s *webTransportStream) Read(p []byte) (n int, err error) {
@@ -399,8 +469,14 @@ type webTransportReceiveStream struct {
 	reader streamReader
 }
 
-func newWebTransportReceiveStream(stream *webtransport.ReceiveStream) *webTransportReceiveStream {
-	return &webTransportReceiveStream{stream: stream, reader: streamReader{r: stream}}
+func newWebTransportReceiveStream(stream *webtransport.ReceiveStream, maxJSON int64) *webTransportReceiveStream {
+	return &webTransportReceiveStream{stream: stream, reader: streamReader{r: stream, maxJSON: maxJSON}}
+}
+
+// SetReadLimit overrides the largest JSON value ReadJSON accepts on this
+// stream. See webTransportStream.SetReadLimit.
+func (s *webTransportReceiveStream) SetReadLimit(limit int64) {
+	s.reader.maxJSON = limit
 }
 
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {
@@ -465,6 +541,15 @@ type WebTransportConfig struct {
 	// AllowedOrigins is the list of allowed origins for WebTransport connections.
 	// If empty, only same-origin requests are allowed. "*" allows any origin.
 	AllowedOrigins []string
+
+	// MaxJSONValueSize caps, in bytes, one JSON value read with ReadJSON on a
+	// stream. The decoder buffers a whole value before returning it and the
+	// client picks its length, so the cap is what keeps one stream from
+	// asking for unbounded memory. Zero means DefaultMaxWebSocketMessageSize
+	// (1 MiB) and a negative value removes the cap. A larger value fails
+	// ReadJSON with ErrWebTransportMessageTooLarge. Individual streams can
+	// override it with SetReadLimit.
+	MaxJSONValueSize int64
 }
 
 // DefaultWebTransportConfig returns default WebTransport configuration.
@@ -478,5 +563,6 @@ func DefaultWebTransportConfig() WebTransportConfig {
 		ConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB
 		KeepAliveInterval:       30000,            // 30 seconds
 		MaxIdleTimeout:          60000,            // 60 seconds
+		MaxJSONValueSize:        DefaultMaxWebSocketMessageSize,
 	}
 }
