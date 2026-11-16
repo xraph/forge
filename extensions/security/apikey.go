@@ -99,9 +99,10 @@ func (info *APIKeyInfo) HasScope(scope string) bool {
 
 // APIKeyManager manages API keys.
 type APIKeyManager struct {
-	config APIKeyConfig
-	keys   sync.Map // map[string]*APIKeyInfo
-	logger forge.Logger
+	config  APIKeyConfig
+	keys    sync.Map // map[string]*APIKeyInfo
+	logger  forge.Logger
+	lookups []tokenSource
 }
 
 // NewAPIKeyManager creates a new API key manager.
@@ -111,8 +112,9 @@ func NewAPIKeyManager(config APIKeyConfig, logger forge.Logger) *APIKeyManager {
 	}
 
 	return &APIKeyManager{
-		config: config,
-		logger: logger,
+		config:  config,
+		logger:  logger,
+		lookups: parseTokenLookup(config.KeyLookup),
 	}
 }
 
@@ -201,7 +203,20 @@ func (m *APIKeyManager) RevokeAPIKey(key string) error {
 // DeleteAPIKey deletes an API key.
 func (m *APIKeyManager) DeleteAPIKey(key string) {
 	m.keys.Delete(key)
-	m.logger.Info("api key deleted", forge.F("key", key[:8]+"..."))
+	m.logger.Info("api key deleted", forge.F("key", redactAPIKey(key)))
+}
+
+// redactAPIKey returns a short prefix of a key that is safe to log. Short keys
+// are not shown at all, since a prefix would be most of the key. Slicing
+// key[:8] unconditionally used to panic on keys under eight bytes.
+func redactAPIKey(key string) string {
+	const shown = 6
+
+	if len(key) < 4*shown {
+		return "[redacted]"
+	}
+
+	return key[:shown] + "..."
 }
 
 // ValidateAPIKey validates an API key.
@@ -250,27 +265,16 @@ func (m *APIKeyManager) ListAPIKeys(userID string) []*APIKeyInfo {
 
 // extractKeyFromRequest extracts the API key from request based on KeyLookup config.
 func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
-	lookups := strings.SplitSeq(m.config.KeyLookup, ",")
-
-	for lookup := range lookups {
-		parts := strings.Split(strings.TrimSpace(lookup), ":")
-		if len(parts) != 2 {
-			continue
-		}
-
-		extractor := parts[0]
-		keyName := parts[1]
-
+	for _, lookup := range m.lookups {
 		var key string
 
-		switch extractor {
+		switch lookup.source {
 		case "header":
-			value := r.Header.Get(keyName)
+			value := r.Header.Get(lookup.key)
 			if value != "" {
 				// Remove prefix if specified
 				if m.config.KeyPrefix != "" {
-					prefix := m.config.KeyPrefix + " "
-					if after, ok := strings.CutPrefix(value, prefix); ok {
+					if after, ok := strings.CutPrefix(value, m.config.KeyPrefix+" "); ok {
 						key = after
 					}
 				} else {
@@ -278,9 +282,9 @@ func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
 				}
 			}
 		case "query":
-			key = r.URL.Query().Get(keyName)
+			key = r.URL.Query().Get(lookup.key)
 		case "cookie":
-			if cookie, err := r.Cookie(keyName); err == nil {
+			if cookie, err := r.Cookie(lookup.key); err == nil {
 				key = cookie.Value
 			}
 		}
@@ -339,8 +343,10 @@ func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
-			// Store key info in context
+			// Store key info in the forge context and the request context, so
+			// GetAPIKeyInfo and GetAPIKeyInfoFromStdContext both find it.
 			ctx.Set("apikey_info", info)
+			ctx.WithContext(context.WithValue(ctx.Context(), apiKeyContextKey{}, info))
 
 			manager.logger.Debug("api key authenticated",
 				forge.F("key_name", info.Name),
