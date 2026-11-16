@@ -2,7 +2,12 @@ package providers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"sync"
@@ -99,10 +104,24 @@ type ldapConnPool struct {
 
 // ldapCache caches authentication results.
 type ldapCache struct {
-	entries map[string]*cacheEntry
-	mu      sync.RWMutex
-	ttl     time.Duration
+	entries  map[string]*cacheEntry
+	mu       sync.RWMutex
+	ttl      time.Duration
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
+
+// ldapCacheSecret is a random per-process HMAC key for cache keys. Cache keys
+// are derived from the password, and a plain "user:password" key kept every
+// cached password readable in memory and in any heap dump.
+var ldapCacheSecret = sync.OnceValue(func() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("ldap: failed to generate cache key secret: %v", err))
+	}
+
+	return b
+})
 
 type cacheEntry struct {
 	authCtx   *auth.AuthContext
@@ -176,8 +195,9 @@ func NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, err
 		cache = &ldapCache{
 			entries: make(map[string]*cacheEntry),
 			ttl:     config.CacheTTL,
+			stopCh:  make(chan struct{}),
 		}
-		// Start cache cleanup goroutine
+		// Start cache cleanup goroutine; Close stops it.
 		go cache.cleanup()
 	}
 
@@ -417,8 +437,11 @@ func (p *LDAPProvider) Middleware() forge.Middleware {
 	}
 }
 
-// Close closes the LDAP connection pool.
+// Close closes the LDAP connection pool and stops the cache cleanup
+// goroutine.
 func (p *LDAPProvider) Close() error {
+	p.cache.stop()
+
 	return p.connPool.close()
 }
 
@@ -616,16 +639,42 @@ func (c *ldapCache) set(username, password string, authCtx *auth.AuthContext) {
 	}
 }
 
+// cacheKey derives the map key from the credentials with HMAC-SHA256 under a
+// per-process random secret, so the password itself is never stored. The
+// username is length-prefixed so "ab"+"c" and "a"+"bc" cannot collide.
 func (c *ldapCache) cacheKey(username, password string) string {
-	// Simple hash - in production, use proper hashing
-	return fmt.Sprintf("%s:%s", username, password)
+	h := hmac.New(sha256.New, ldapCacheSecret())
+
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], uint64(len(username)))
+	h.Write(n[:])
+	h.Write([]byte(username))
+	h.Write([]byte(password))
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// stop ends the cleanup goroutine. Safe to call more than once and on a nil
+// cache.
+func (c *ldapCache) stop() {
+	if c == nil || c.stopCh == nil {
+		return
+	}
+
+	c.stopOnce.Do(func() { close(c.stopCh) })
 }
 
 func (c *ldapCache) cleanup() {
 	ticker := time.NewTicker(c.ttl / 2)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-c.stopCh:
+			return
+		case <-ticker.C:
+		}
+
 		c.mu.Lock()
 
 		now := time.Now()
