@@ -324,6 +324,9 @@ type InstallSnapshotRequest struct {
 type InstallSnapshotResponse struct {
 	Term   uint64 `json:"term"`
 	NodeID string `json:"node_id"`
+	// Success reports that the chunk was accepted and, for the final chunk,
+	// that the snapshot was installed.
+	Success bool `json:"success"`
 }
 
 // StateMachine defines the interface for the replicated state machine.

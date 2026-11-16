@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
@@ -195,7 +194,7 @@ func (n *Node) runSnapshotManager() {
 					forge.F("last_applied", lastApplied),
 				)
 
-				if err := n.createSnapshot(lastApplied); err != nil {
+				if err := n.createSnapshot(); err != nil {
 					n.logger.Error("failed to create snapshot",
 						forge.F("error", err),
 					)
@@ -204,7 +203,7 @@ func (n *Node) runSnapshotManager() {
 
 		case msg := <-n.snapshotCh:
 			// Manual snapshot request
-			if err := n.createSnapshot(msg.Index); err != nil {
+			if err := n.createSnapshot(); err != nil {
 				n.logger.Error("failed to create snapshot",
 					forge.F("error", err),
 				)
@@ -217,34 +216,32 @@ func (n *Node) runSnapshotManager() {
 	}
 }
 
-// createSnapshot creates a snapshot up to the given index.
-func (n *Node) createSnapshot(index uint64) error {
+// createSnapshot snapshots the state machine at lastApplied and compacts the
+// log up to it. It holds applyMu so the state machine cannot move while the
+// snapshot is taken, which keeps the snapshot's index exact.
+func (n *Node) createSnapshot() error {
+	n.applyMu.Lock()
+	defer n.applyMu.Unlock()
+
 	n.mu.RLock()
-
-	if index > n.lastApplied {
-		n.mu.RUnlock()
-
-		return errors.New("cannot snapshot beyond last applied index")
-	}
-
-	// Get the entry at the snapshot index to get its term
-	entry, err := n.log.Get(index)
-	if err != nil {
-		n.mu.RUnlock()
-
-		return fmt.Errorf("failed to get log entry at index %d: %w", index, err)
-	}
-
-	term := entry.Term
-
+	index := n.lastApplied
+	snapshotIndex := n.log.SnapshotIndex()
+	term, ok := n.log.Term(index)
 	n.mu.RUnlock()
+
+	if index <= snapshotIndex {
+		return nil // Nothing new to snapshot
+	}
+
+	if !ok {
+		return fmt.Errorf("log entry %d is not available to snapshot", index)
+	}
 
 	n.logger.Info("creating snapshot",
 		forge.F("index", index),
 		forge.F("term", term),
 	)
 
-	// Create snapshot from state machine
 	snapshot, err := n.stateMachine.Snapshot()
 	if err != nil {
 		return fmt.Errorf("failed to create snapshot from state machine: %w", err)
@@ -254,21 +251,17 @@ func (n *Node) createSnapshot(index uint64) error {
 	snapshot.Term = term
 	snapshot.Created = time.Now()
 
-	// Save snapshot to storage
 	if err := n.saveSnapshot(snapshot); err != nil {
 		return fmt.Errorf("failed to save snapshot: %w", err)
 	}
 
-	// Compact the log
 	n.mu.Lock()
+	err = n.log.Compact(index, term)
+	n.mu.Unlock()
 
-	if err := n.log.Compact(index, term); err != nil {
-		n.mu.Unlock()
-
+	if err != nil {
 		return fmt.Errorf("failed to compact log: %w", err)
 	}
-
-	n.mu.Unlock()
 
 	n.snapshotCount.Add(1)
 

@@ -84,6 +84,14 @@ type Node struct {
 	applyNotify  chan struct{}
 	applyWaiters map[uint64]applyWaiter
 
+	// applyMu serialises everything that changes the state machine: applying
+	// entries, taking a snapshot of it and restoring one. Lock order is
+	// applyMu before mu.
+	applyMu sync.Mutex
+
+	// snapshotRecv assembles an incoming chunked snapshot. Guarded by mu.
+	snapshotRecv *snapshotReceive
+
 	// RPC correlation. Every outgoing request gets a fresh ID from requestSeq,
 	// which the peer echoes in its response, so a late response can never be
 	// matched to a newer request to the same peer.
@@ -112,6 +120,14 @@ type PeerState struct {
 type pendingKey struct {
 	peer string
 	id   uint64
+}
+
+// snapshotReceive is a snapshot being received from the leader in chunks.
+type snapshotReceive struct {
+	leaderTerm uint64
+	index      uint64
+	term       uint64
+	data       []byte
 }
 
 // applyWaiter is an Apply call waiting for its entry to be applied.
@@ -184,6 +200,10 @@ func NewNode(
 
 	if config.LogCacheSize == 0 {
 		config.LogCacheSize = 1024
+	}
+
+	if config.SnapshotChunkSize <= 0 {
+		config.SnapshotChunkSize = 1 << 20
 	}
 
 	if config.TrailingLogs == 0 {
@@ -492,47 +512,165 @@ func (n *Node) handleRequestVote(req internal.RequestVoteRequest) internal.Reque
 	return *resp
 }
 
-// handleInstallSnapshot handles an InstallSnapshot request.
-//
-// Installing snapshots sent by a leader is not implemented. The request still
-// updates the term and leader like any RPC from a current leader, but the
-// snapshot itself is dropped and logged as an error rather than acknowledged
-// as if it had been installed.
+// handleInstallSnapshot handles one chunk of an InstallSnapshot request
+// (section 7 of the Raft paper). Chunks must arrive in order; a chunk that does
+// not continue the snapshot being assembled is refused and the leader starts
+// again from offset 0. When the last chunk arrives the snapshot is persisted,
+// restored into the state machine, and the log prefix it covers is dropped.
 func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) internal.InstallSnapshotResponse {
 	n.mu.Lock()
-	defer n.mu.Unlock()
 
 	resp := internal.InstallSnapshotResponse{
 		Term:   n.currentTerm,
 		NodeID: n.id,
 	}
 
-	// Reply immediately if term < currentTerm
 	if req.Term < n.currentTerm {
+		n.mu.Unlock()
+
 		return resp
 	}
 
-	// Update term if needed
 	if req.Term > n.currentTerm {
 		n.currentTerm = req.Term
 		n.votedFor = ""
-		n.persistStateOrLog("install snapshot from newer term")
+		resp.Term = n.currentTerm
+
+		if err := n.persistState(); err != nil {
+			n.mu.Unlock()
+			n.logger.Error("failed to persist term from InstallSnapshot, rejecting it",
+				forge.F("node_id", n.id),
+				forge.F("error", err),
+			)
+
+			return resp
+		}
 	}
 
 	n.setRole(internal.RoleFollower)
 	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
 
-	n.logger.Error("received InstallSnapshot, which is not implemented; the snapshot was dropped",
-		forge.F("node_id", n.id),
-		forge.F("leader", req.LeaderID),
-		forge.F("last_included_index", req.LastIncludedIndex),
-		forge.F("last_included_term", req.LastIncludedTerm),
-	)
+	if req.Offset == 0 {
+		n.snapshotRecv = &snapshotReceive{
+			leaderTerm: req.Term,
+			index:      req.LastIncludedIndex,
+			term:       req.LastIncludedTerm,
+		}
+	}
 
+	recv := n.snapshotRecv
+	if recv == nil || recv.leaderTerm != req.Term || recv.index != req.LastIncludedIndex ||
+		recv.term != req.LastIncludedTerm || uint64(len(recv.data)) != req.Offset {
+		n.snapshotRecv = nil
+		n.mu.Unlock()
+
+		n.logger.Warn("rejecting out of order snapshot chunk",
+			forge.F("node_id", n.id),
+			forge.F("leader", req.LeaderID),
+			forge.F("index", req.LastIncludedIndex),
+			forge.F("offset", req.Offset),
+		)
+
+		return resp
+	}
+
+	recv.data = append(recv.data, req.Data...)
+
+	if !req.Done {
+		n.mu.Unlock()
+
+		resp.Success = true
+
+		return resp
+	}
+
+	n.snapshotRecv = nil
+	n.mu.Unlock()
+
+	err := n.installSnapshot(recv.index, recv.term, recv.data)
+	if err != nil {
+		n.logger.Error("failed to install snapshot from leader",
+			forge.F("node_id", n.id),
+			forge.F("leader", req.LeaderID),
+			forge.F("index", recv.index),
+			forge.F("error", err),
+		)
+	} else {
+		n.logger.Info("installed snapshot from leader",
+			forge.F("node_id", n.id),
+			forge.F("leader", req.LeaderID),
+			forge.F("index", recv.index),
+			forge.F("term", recv.term),
+			forge.F("size", len(recv.data)),
+		)
+	}
+
+	n.mu.RLock()
 	resp.Term = n.currentTerm
+	n.mu.RUnlock()
+
+	resp.Success = err == nil
 
 	return resp
+}
+
+// installSnapshot replaces the state machine with a snapshot covering the
+// log up to index, persists it, and drops the log entries it covers. Entries
+// after index are kept when the log agrees with the snapshot at index;
+// otherwise the whole log is discarded (section 7).
+func (n *Node) installSnapshot(index, term uint64, data []byte) error {
+	n.applyMu.Lock()
+	defer n.applyMu.Unlock()
+
+	n.mu.RLock()
+	applied := n.lastApplied
+	n.mu.RUnlock()
+
+	// The state machine already reflects this snapshot or a later point.
+	if index <= applied {
+		return nil
+	}
+
+	snapshot := &internal.Snapshot{Index: index, Term: term, Data: data, Size: int64(len(data))}
+
+	if err := n.stateMachine.Restore(snapshot); err != nil {
+		return fmt.Errorf("state machine rejected snapshot %d: %w", index, err)
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// The state machine now reflects index whatever happens below, so the
+	// applier must not apply the covered entries again.
+	n.lastApplied = index
+	n.commitIndex = max(n.commitIndex, index)
+
+	for waitIndex, waiter := range n.applyWaiters {
+		if waitIndex <= index {
+			waiter.ch <- errors.New("entry was superseded by a snapshot from the leader; its result is unknown")
+
+			delete(n.applyWaiters, waitIndex)
+		}
+	}
+
+	if err := n.saveSnapshot(snapshot); err != nil {
+		return fmt.Errorf("failed to persist snapshot %d: %w", index, err)
+	}
+
+	if err := n.log.InstallSnapshot(index, term); err != nil {
+		return fmt.Errorf("failed to drop log entries covered by snapshot %d: %w", index, err)
+	}
+
+	n.signalApply()
+
+	return nil
+}
+
+// Snapshot snapshots the state machine at the last applied entry and
+// compacts the log up to it.
+func (n *Node) Snapshot() error {
+	return n.createSnapshot()
 }
 
 // Apply appends an entry on the leader and waits until it is committed and

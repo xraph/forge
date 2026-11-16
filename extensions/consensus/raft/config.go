@@ -26,6 +26,10 @@ type Config struct {
 	SnapshotInterval  time.Duration `json:"snapshot_interval"  yaml:"snapshot_interval"`
 	SnapshotThreshold uint64        `json:"snapshot_threshold" yaml:"snapshot_threshold"`
 	EnableSnapshots   bool          `json:"enable_snapshots"   yaml:"enable_snapshots"`
+	// SnapshotChunkSize is the most snapshot data sent in one InstallSnapshot
+	// message. Messages are JSON, which base64-encodes the data, so keep it
+	// under three quarters of the transport's MaxMessageSize. Defaults to 1 MiB.
+	SnapshotChunkSize int `json:"snapshot_chunk_size" yaml:"snapshot_chunk_size"`
 
 	// Replication configuration
 	MaxAppendEntries     int           `json:"max_append_entries"     yaml:"max_append_entries"`

@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
@@ -24,9 +25,17 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 	defer peer.ReplicationMu.Unlock()
 
 	for range maxReplicationRounds {
-		req, ok := n.buildAppendEntries(peer)
+		req, needSnapshot, ok := n.buildAppendEntries(peer)
 		if !ok {
 			return
+		}
+
+		if needSnapshot {
+			if !n.sendSnapshot(peer) {
+				return
+			}
+
+			continue
 		}
 
 		resp, err := n.sendAppendEntries(peer, req)
@@ -47,29 +56,33 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 }
 
 // buildAppendEntries builds the next AppendEntries request for a peer from a
-// consistent view of the leader state. It returns false when this node is not
-// the leader or the peer needs entries that were compacted away.
-func (n *Node) buildAppendEntries(peer *PeerState) (*internal.AppendEntriesRequest, bool) {
+// consistent view of the leader state. needSnapshot is true when the peer
+// needs entries that were compacted into the snapshot; ok is false when this
+// node is not the leader or nothing can be sent.
+func (n *Node) buildAppendEntries(peer *PeerState) (req *internal.AppendEntriesRequest, needSnapshot, ok bool) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
 	if n.GetRole() != internal.RoleLeader {
-		return nil, false
+		return nil, false, false
 	}
 
 	nextIndex := max(n.nextIndex[peer.ID], 1)
 	prevLogIndex := nextIndex - 1
 
-	prevLogTerm, ok := n.log.Term(prevLogIndex)
-	if !ok {
-		n.logger.Error("peer needs log entries that are only in a snapshot; InstallSnapshot is not implemented, so it cannot catch up",
+	if prevLogIndex < n.log.SnapshotIndex() {
+		return nil, true, true
+	}
+
+	prevLogTerm, found := n.log.Term(prevLogIndex)
+	if !found {
+		n.logger.Error("no log entry to anchor replication on",
 			forge.F("node_id", n.id),
 			forge.F("peer", peer.ID),
 			forge.F("prev_index", prevLogIndex),
-			forge.F("snapshot_index", n.log.SnapshotIndex()),
 		)
 
-		return nil, false
+		return nil, false, false
 	}
 
 	entries, err := n.log.GetEntriesAfter(prevLogIndex, n.config.MaxAppendEntries)
@@ -79,7 +92,7 @@ func (n *Node) buildAppendEntries(peer *PeerState) (*internal.AppendEntriesReque
 			forge.F("error", err),
 		)
 
-		return nil, false
+		return nil, false, false
 	}
 
 	return &internal.AppendEntriesRequest{
@@ -89,7 +102,117 @@ func (n *Node) buildAppendEntries(peer *PeerState) (*internal.AppendEntriesReque
 		PrevLogTerm:  prevLogTerm,
 		Entries:      entries,
 		LeaderCommit: n.commitIndex,
-	}, true
+	}, false, true
+}
+
+// sendSnapshot sends the latest snapshot to a peer whose next entry was
+// compacted away, in chunks of at most SnapshotChunkSize bytes, and advances
+// the peer's replication state once the peer has installed it. It reports
+// whether the peer accepted the snapshot.
+func (n *Node) sendSnapshot(peer *PeerState) bool {
+	n.mu.RLock()
+	term := n.currentTerm
+	index := n.log.SnapshotIndex()
+	snapshotTerm := n.log.SnapshotTerm()
+	leader := n.GetRole() == internal.RoleLeader
+	n.mu.RUnlock()
+
+	if !leader {
+		return false
+	}
+
+	data, err := n.storage.Get(fmt.Appendf(nil, "snapshot_%d", index))
+	if err != nil {
+		n.logger.Error("cannot read snapshot to send to peer",
+			forge.F("peer", peer.ID),
+			forge.F("index", index),
+			forge.F("error", err),
+		)
+
+		return false
+	}
+
+	n.logger.Info("sending snapshot to peer",
+		forge.F("peer", peer.ID),
+		forge.F("index", index),
+		forge.F("size", len(data)),
+	)
+
+	chunkSize := n.config.SnapshotChunkSize
+
+	for offset := 0; ; {
+		end := min(offset+chunkSize, len(data))
+		req := &internal.InstallSnapshotRequest{
+			Term:              term,
+			LeaderID:          n.id,
+			LastIncludedIndex: index,
+			LastIncludedTerm:  snapshotTerm,
+			Offset:            uint64(offset),
+			Data:              data[offset:end],
+			Done:              end == len(data),
+		}
+
+		ctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
+		response, err := n.call(ctx, peer.ID, internal.MessageTypeInstallSnapshot, req)
+
+		cancel()
+
+		if err != nil {
+			n.logger.Debug("failed to send snapshot chunk",
+				forge.F("peer", peer.ID),
+				forge.F("offset", offset),
+				forge.F("error", err),
+			)
+
+			return false
+		}
+
+		resp, ok := response.(*internal.InstallSnapshotResponse)
+		if !ok {
+			return false
+		}
+
+		if resp.Term > term {
+			n.stepDown(resp.Term)
+
+			return false
+		}
+
+		if !resp.Success {
+			n.logger.Warn("peer rejected snapshot chunk",
+				forge.F("peer", peer.ID),
+				forge.F("index", index),
+				forge.F("offset", offset),
+			)
+
+			return false
+		}
+
+		if req.Done {
+			break
+		}
+
+		offset = end
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.GetRole() != internal.RoleLeader || n.currentTerm != term {
+		return false
+	}
+
+	if index > n.matchIndex[peer.ID] {
+		n.matchIndex[peer.ID] = index
+	}
+
+	if n.nextIndex[peer.ID] < index+1 {
+		n.nextIndex[peer.ID] = index + 1
+	}
+
+	n.advanceCommitIndex()
+
+	return true
 }
 
 // sendAppendEntries sends an AppendEntries RPC to a peer and waits for the
@@ -250,50 +373,60 @@ func (n *Node) signalApply() {
 // it and does not stop the applier: the entry is committed on every node, and
 // stalling here would wedge the node for good.
 func (n *Node) applyCommitted() {
-	for {
-		n.mu.RLock()
+	for n.applyNext() {
+	}
+}
 
-		if n.lastApplied >= n.commitIndex {
-			n.mu.RUnlock()
+// applyNext applies the next committed entry, if any, and reports whether it
+// did. It holds applyMu so snapshots never interleave with an apply.
+func (n *Node) applyNext() bool {
+	n.applyMu.Lock()
+	defer n.applyMu.Unlock()
 
-			return
-		}
+	n.mu.RLock()
 
-		applyIndex := n.lastApplied + 1
-		entry, err := n.log.Get(applyIndex)
+	if n.lastApplied >= n.commitIndex {
 		n.mu.RUnlock()
 
-		if err != nil {
-			n.logger.Error("failed to get committed log entry for apply",
-				forge.F("index", applyIndex),
-				forge.F("error", err),
-			)
+		return false
+	}
 
-			return
-		}
+	applyIndex := n.lastApplied + 1
+	entry, err := n.log.Get(applyIndex)
+	n.mu.RUnlock()
 
-		applyErr := n.stateMachine.Apply(entry)
-		if applyErr != nil {
-			n.logger.Error("state machine rejected committed entry",
-				forge.F("index", applyIndex),
-				forge.F("error", applyErr),
-			)
-		}
+	if err != nil {
+		n.logger.Error("failed to get committed log entry for apply",
+			forge.F("index", applyIndex),
+			forge.F("error", err),
+		)
 
-		n.mu.Lock()
-		n.lastApplied = applyIndex
-		waiter, waiting := n.applyWaiters[applyIndex]
-		delete(n.applyWaiters, applyIndex)
-		n.mu.Unlock()
+		return false
+	}
 
-		if waiting {
-			if waiter.term == entry.Term {
-				waiter.ch <- applyErr
-			} else {
-				waiter.ch <- errors.New("entry was replaced after a leadership change and was not applied")
-			}
+	applyErr := n.stateMachine.Apply(entry)
+	if applyErr != nil {
+		n.logger.Error("state machine rejected committed entry",
+			forge.F("index", applyIndex),
+			forge.F("error", applyErr),
+		)
+	}
+
+	n.mu.Lock()
+	n.lastApplied = applyIndex
+	waiter, waiting := n.applyWaiters[applyIndex]
+	delete(n.applyWaiters, applyIndex)
+	n.mu.Unlock()
+
+	if waiting {
+		if waiter.term == entry.Term {
+			waiter.ch <- applyErr
+		} else {
+			waiter.ch <- errors.New("entry was replaced after a leadership change and was not applied")
 		}
 	}
+
+	return true
 }
 
 // InstallSnapshot handles an InstallSnapshot RPC.

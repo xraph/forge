@@ -302,6 +302,60 @@ func (l *Log) Compact(index uint64, term uint64) error {
 	return nil
 }
 
+// InstallSnapshot moves the start of the log past a snapshot received from
+// the leader that covers everything up to index. Entries after index are
+// kept when the log holds index with the same term; otherwise the whole log is
+// discarded, as section 7 of the Raft paper requires. Removed entries are
+// deleted from storage first, so memory never claims less than storage.
+func (l *Log) InstallSnapshot(index, term uint64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if index <= l.snapshotIndex {
+		return nil
+	}
+
+	last := l.lastIndexLocked()
+	deleteTo := last
+
+	var keep []internal.LogEntry
+
+	if t, ok := l.termLocked(index); ok && t == term {
+		pos, _ := l.posLocked(index)
+		keep = make([]internal.LogEntry, len(l.entries)-pos-1)
+		copy(keep, l.entries[pos+1:])
+
+		deleteTo = index
+	}
+
+	if deleteTo > l.snapshotIndex {
+		ops := make([]internal.BatchOp, 0, deleteTo-l.snapshotIndex)
+		for i := deleteTo; i > l.snapshotIndex; i-- {
+			ops = append(ops, internal.BatchOp{Type: internal.BatchOpDelete, Key: logKey(i)})
+		}
+
+		if err := l.storage.Batch(ops); err != nil {
+			return fmt.Errorf("failed to delete log entries covered by snapshot: %w", err)
+		}
+	}
+
+	if keep == nil {
+		keep = make([]internal.LogEntry, 0)
+	}
+
+	l.entries = keep
+	l.snapshotIndex = index
+	l.snapshotTerm = term
+
+	l.logger.Info("log moved past installed snapshot",
+		forge.F("snapshot_index", index),
+		forge.F("snapshot_term", term),
+		forge.F("entries_kept", len(keep)),
+	)
+
+	return nil
+}
+
 // load reads the snapshot metadata and every contiguous entry after it.
 func (l *Log) load() error {
 	snapshotMeta, err := l.storage.Get([]byte(snapshotMetaKey))
