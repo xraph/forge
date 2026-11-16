@@ -153,7 +153,8 @@ This module has not run a production cluster yet. Here's what is covered by test
 | Snapshots | Nodes compact their log into snapshots, and a follower that falls behind the snapshot catches up through InstallSnapshot, sent in chunks |
 | `consensus.NewExtension` | Builds storage, transport, state machine and Raft node from config and replicates over TCP, HTTP or gRPC, with TLS and mTLS. See [the Forge extension](#the-forge-extension) |
 | Membership and leadership transfer | Servers are added (as a learner first, then promoted) and removed one at a time through the log, the leader included. `TransferLeadership` hands over to a chosen voter and gives up after an election timeout. Membership survives restarts and snapshots |
-| Not implemented | Linearizable reads, encryption at rest, and dynamic discovery in the extension (the initial members come from the static list) |
+| Encryption at rest | With `security.enable_encryption` every value the node stores (log entries, term, vote, snapshots and snapshot metadata) is sealed with AES-256-GCM. See [encryption at rest](#encryption-at-rest) |
+| Not implemented | Linearizable reads, and dynamic discovery in the extension (the initial members come from the static list) |
 
 ## Packages
 
@@ -162,7 +163,7 @@ You assemble a node from these packages yourself, the way the quick start does. 
 | Package | What's in it |
 | --- | --- |
 | [`raft`](raft/) | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, replication, snapshots, `Propose`, `AddPeer` |
-| [`storage`](storage/) | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, and a write-ahead log (`NewWAL`) |
+| [`storage`](storage/) | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, a write-ahead log (`NewWAL`), and `NewEncryptedStorage` with `LoadKeyring`, `MigrateToEncrypted` and `MigrateToPlaintext` for encryption at rest |
 | [`transport`](transport/) | `NewLocalTransport` (in process), `NewTCPTransport`, `NewHTTPTransport`, `NewGRPCTransport`, TLS helpers and serializers |
 | [`statemachine`](statemachine/) | `NewMemoryStateMachine` (a key-value map with `set`, `delete` and `increment`) and `NewPersistentStateMachine` |
 | [`discovery`](discovery/) | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery` |
@@ -207,7 +208,55 @@ All three network transports carry the same versioned JSON envelope. The gRPC tr
 
 `GetClusterManager` lists the members of the current configuration, learners included, and changes membership through the same log entries. Servers that are not voters, including removed ones that never learned of their removal, cannot disrupt the cluster: their vote requests are ignored, as are any that arrive while a leader is known to be alive.
 
-Settings the service cannot honour fail when it is created: storage `pebble` or `postgres`, any discovery type other than `static`, and `security.enable_encryption`. The container entries for `RaftNode` and `StateMachine` are resolved from the service, so resolve them after the app has started. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
+Settings the service cannot honour fail when it is created: storage `pebble` or `postgres`, and any discovery type other than `static`. The container entries for `RaftNode` and `StateMachine` are resolved from the service, so resolve them after the app has started. With `admin_api.enabled` (off by default) the admin routes are registered on the app router under `admin_api.path_prefix`; set `admin_api.enable_auth` and `api_key` whenever that router is reachable by anyone else.
+
+### Encryption at rest
+
+Turn on `security.enable_encryption` and give the node a key, and everything it writes through its storage backend is encrypted before it reaches disk: the Raft log, the current term and vote, snapshots and the snapshot metadata. It works the same on `badger`, `boltdb` and `memory`.
+
+```yaml
+security:
+  enable_encryption: true
+  encryption_key_file: /etc/consensus/raft.key   # or encryption_key_env: RAFT_KEY
+```
+
+You can make a key with `openssl rand -hex 32 > raft.key && chmod 600 raft.key`. A key is 32 bytes (AES-256), and the file can hold the 32 raw bytes, 64 hex characters or base64 text. An environment variable holds hex or base64. The key is read when the service starts, and a key of the wrong size, a missing file or an unset variable stops `Start` with `storage.ErrInvalidEncryptionKey`. Errors name the source but never print the key, and the log only ever shows key IDs. A key file that other users can read gets a warning. Inline keys (`encryption_key`, or `value` in a list entry) are refused unless you set `allow_inline_encryption_key: true`, because keys written into config files end up in version control.
+
+Each node encrypts its own disk, so each node can have its own key. Data sent between nodes (including snapshots) is not covered by this; use `enable_tls` or `enable_mtls` for that.
+
+#### Format
+
+Every stored value becomes `version (1 byte) | key ID (4 bytes) | nonce (12 bytes) | ciphertext | tag (16 bytes)`, 33 bytes more than the plaintext. The nonce is 96 random bits from `crypto/rand`, fresh on every write. The GCM additional data is the version and key ID followed by the storage key, so a value copied to another key, a flipped bit or an edited header fails with `storage.ErrDecrypt` instead of being read. Random nonces mean you should rotate a key before it has encrypted around 2^32 values (about four billion writes).
+
+#### What stays readable
+
+Storage keys are left in plaintext. The Raft node only uses names like `currentTerm`, `votedFor`, `log_<index>`, `snapshot_<index>` and `snapshot_meta`, so someone with the disk learns how many entries there are, roughly how big each one is, and nothing about their content. Keeping keys readable is what lets range scans keep working on every backend. If you build your own state machine on this storage (like `statemachine.PersistentStateMachine`, which stores `sm/<your key>`), your key names are visible, so don't put secrets in them. The write-ahead log in `storage.NewWAL` writes its own files and is not encrypted; the service does not use it. Badger's and BoltDB's own backup and compaction work on the stored bytes, so they only ever see ciphertext.
+
+#### Rotating keys
+
+List the keys with IDs. The highest ID (or `encryption_active_key_id`) encrypts new writes, and every listed key can still read:
+
+```yaml
+security:
+  enable_encryption: true
+  encryption_keys:
+    - {id: 1, file: /etc/consensus/raft-1.key}
+    - {id: 2, env: RAFT_KEY_2}
+```
+
+A single `encryption_key_file` or `encryption_key_env` is key ID 1, so you rotate by moving it into the list as ID 1 and adding ID 2. Restart the node, then call `Service.ReencryptStorage()` to rewrite everything still under the old key; it's safe while the node is serving. After that you can drop key 1 from the list. Never reuse an ID for a different key.
+
+#### Wrong key or wrong mode
+
+The store keeps a small encrypted check value per key ID under reserved keys starting with a zero byte. On start, every configured key that has a check value must decrypt it, and at least one must, so a wrong key fails at `Start` with `storage.ErrWrongKey` instead of on the first read. Turning encryption on over a store that already holds plaintext fails with `storage.ErrPlaintextStore`, and starting without encryption over an encrypted store fails with `storage.ErrEncryptedStore`. Nothing is ever mixed silently.
+
+#### Migrating an existing node
+
+To encrypt a node that already has data, start it once with `security.encryption_migrate_plaintext: true`. It encrypts every value in place, writes the check values, and starts as normal; you can leave the flag on or remove it afterwards. To go back, stop the node and run `storage.MigrateToPlaintext` on the started backend with the same keyring. Both migrations write a marker first, so if one is interrupted the node refuses to start either way with `storage.ErrMigrationIncomplete` until you run it again, and the rerun picks up where it stopped. Mind you, the old plaintext can stay in BoltDB free pages or Badger value log files until they're reused or compacted. If that matters, copy the data into a fresh store (or compact it) after migrating, or rebuild the node from an empty path with encryption on.
+
+#### Cost
+
+Sealing a value takes about 0.3 µs for 128 bytes and 4 µs for 16 KiB on an Apple M5 Max. A Raft log append to the memory backend goes from 0.6 µs to 1.1 µs at 128 bytes. On BoltDB the fsync (several milliseconds) dominates and the difference disappears in the noise. Run `go test -bench 'LogAppend|Seal' ./storage/` to measure your own hardware.
 
 ## Configuration
 
@@ -234,6 +283,9 @@ extensions:
       path: ./data/consensus
     discovery:
       type: static        # static, dns, consul, etcd or kubernetes
+    security:
+      enable_encryption: true
+      encryption_key_file: /etc/consensus/raft.key
     advanced:
       enable_auto_snapshot: false
 ```
@@ -252,7 +304,7 @@ Validation runs when the extension registers. If any of these rules fail, your a
 | `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
 | `storage.type` is `badger`, `boltdb` or `memory` (`pebble` and `postgres` are not implemented), and `storage.path` is set | `badger`, `./data/consensus` |
 | `security.cert_file` and `key_file` are set when `enable_tls` is on, and `ca_file` when `enable_mtls` is on | TLS off |
-| `security.enable_encryption` is off (encryption at rest is not implemented) | off |
+| `security.enable_encryption` has exactly one key source (`encryption_key_file`, `encryption_key_env`, or `encryption_keys` with unique IDs from 1), inline keys only with `allow_inline_encryption_key`, and `encryption_active_key_id` is a listed ID | off |
 | `admin_api.api_key` is set when `admin_api.enable_auth` is on | auth off |
 
 When you assemble a node yourself, pass `TLSConfig` (from `transport.NewTLSManager`) and `RequirePeerIdentity` to `transport.NewTCPTransport`, `transport.NewHTTPTransport` or `transport.NewGRPCTransport` to get the same protection. The admin API takes `admin.WithAPIKey` or `admin.NewAPIFromConfig` to require an API key on every route.

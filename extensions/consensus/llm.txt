@@ -20,8 +20,9 @@ helpers are aliases over `consensus/internal` (exports.go).
   (TLS/mTLS from security.*), a memory state machine and the Raft node from config.
 - Membership: single-server changes through the log (learner, then voter), leader removal, and
   TransferLeadership (TimeoutNow). Config entries take effect on append and persist in snapshots.
-- Not implemented: linearizable reads,
-  encryption at rest, non-static discovery in the extension.
+- Encryption at rest: security.enable_encryption seals every stored value (log, term, vote,
+  snapshots) with AES-256-GCM; keys from a file or env var, rotation via key IDs.
+- Not implemented: linearizable reads, non-static discovery in the extension.
 
 ## Packages and constructors
 
@@ -107,7 +108,7 @@ Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` que
 state machine; `Snapshot` compacts; `StepDown` works; AddNode (target started with join: true,
 added as learner then promoted), RemoveNode (leader included) and TransferLeadership work on the
 leader, one membership change at a time. NewConsensusService fails
-for pebble/postgres storage, non-static discovery and enable_encryption.
+for pebble/postgres storage and non-static discovery.
 admin_api.enabled (default false) registers the admin routes on the app router.
 
 ## Config
@@ -118,7 +119,7 @@ at registration: node_id set (no default); cluster_id set ("default"); bind_port
 bind_addr ("127.0.0.1"); transport.type tcp, http or grpc ("tcp"); transport.max_message_size positive (4MB); discovery.type
 static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
 ("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
-ca_file; enable_encryption is rejected (not implemented); admin_api.enable_auth needs api_key.
+ca_file; enable_encryption needs one key source (see Encryption at rest); admin_api.enable_auth needs api_key.
 enable_tls serves and dials over TLS; enable_mtls also requires client certificates and checks
 each message's sender against its certificate (node ID as a DNS SAN in each node certificate).
 
@@ -128,14 +129,36 @@ health.check_interval, observability.metrics.enabled and collection_interval,
 advanced.enable_auto_snapshot with raft.snapshot_interval, and events.enabled (adds an `events`
 dependency and publishes start and stop events when an event bus is present).
 
+## Encryption at rest
+
+security.enable_encryption wraps the storage backend in storage.EncryptedStorage (any backend).
+Every value (log entries, currentTerm, votedFor, snapshot_<index>, snapshot_meta) is sealed with
+AES-256-GCM: version(1) | key ID(4, big endian) | random 96-bit nonce(12) | ciphertext | tag(16),
+33 bytes of overhead. GCM additional data = version + key ID + storage key, so moved, edited or
+re-labelled values fail with storage.ErrDecrypt. Storage keys stay plaintext (they only carry
+indexes; range scans keep working). Not covered: storage.NewWAL files (unused by the service),
+data in transit (use TLS/mTLS), key names chosen by your own state machine.
+Keys: 32 bytes. encryption_key_file (raw 32 bytes, 64 hex chars or base64) or
+encryption_key_env (hex or base64) is key ID 1; encryption_keys: [{id, file|env|value}] for
+rotation, active = encryption_active_key_id or the highest ID. Inline keys (encryption_key,
+value) need allow_inline_encryption_key. Keys load in Start; bad size or source fails with
+storage.ErrInvalidEncryptionKey; key material is never logged or put in errors.
+Start checks a per-key-ID encrypted check value under reserved keys (prefix 0x00): a wrong key
+fails with ErrWrongKey; encryption over a plaintext store fails with ErrPlaintextStore (set
+encryption_migrate_plaintext once to encrypt in place); plaintext over an encrypted store fails
+with ErrEncryptedStore (decrypt offline with storage.MigrateToPlaintext); an interrupted
+migration fails with ErrMigrationIncomplete until rerun. Service.ReencryptStorage() rewrites
+values under the active key while the node runs; after that old keys can be removed.
+
 ## Gotchas
 
 - bind_addr defaults to 127.0.0.1. Set it explicitly for a cluster spanning hosts. It is also the
   address recorded in membership entries, so other servers must be able to reach it.
 - peers only bootstrap the cluster. After the first membership change the log is the source of
   truth; changing peers in config does nothing.
+- Migrating to or from encryption rewrites values in place; BoltDB free pages and Badger value
+  logs can keep old plaintext until compaction. Rebuild from an empty path if that matters.
 
 ## Not implemented yet
 
-- Linearizable reads,
-  encryption at rest, and discovery other than the static peer list in the extension.
+- Linearizable reads, and discovery other than the static peer list in the extension.

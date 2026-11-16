@@ -204,6 +204,17 @@ type SecurityConfig struct {
 	SkipVerify       bool   `default:"false"       json:"skip_verify"       yaml:"skip_verify"`
 	EnableEncryption bool   `default:"false"       json:"enable_encryption" yaml:"enable_encryption"`
 	EncryptionKey    string `json:"encryption_key" yaml:"encryption_key"`
+
+	// Encryption at rest keys. A single key (ID 1) comes from one of
+	// EncryptionKeyFile, EncryptionKeyEnv or, only with
+	// AllowInlineEncryptionKey, EncryptionKey. EncryptionKeys lists several
+	// keys for rotation; see EncryptionKeyConfig.
+	EncryptionKeyFile          string                `json:"encryption_key_file"          yaml:"encryption_key_file"`
+	EncryptionKeyEnv           string                `json:"encryption_key_env"           yaml:"encryption_key_env"`
+	EncryptionKeys             []EncryptionKeyConfig `json:"encryption_keys"              yaml:"encryption_keys"`
+	EncryptionActiveKeyID      uint32                `json:"encryption_active_key_id"     yaml:"encryption_active_key_id"`
+	AllowInlineEncryptionKey   bool                  `json:"allow_inline_encryption_key"  yaml:"allow_inline_encryption_key"`
+	EncryptionMigratePlaintext bool                  `json:"encryption_migrate_plaintext" yaml:"encryption_migrate_plaintext"`
 }
 
 // ResilienceConfig contains resilience configuration.
@@ -463,10 +474,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("%w: security.ca_file is required when mTLS is enabled", ErrInvalidConfig)
 	}
 
-	// Nothing encrypts consensus data at rest, so accepting the option would
-	// promise protection that does not exist.
-	if c.Security.EnableEncryption {
-		return fmt.Errorf("%w: security.enable_encryption is not implemented", ErrInvalidConfig)
+	if err := c.Security.validateEncryption(); err != nil {
+		return err
 	}
 
 	if c.AdminAPI.EnableAuth && c.AdminAPI.APIKey == "" {

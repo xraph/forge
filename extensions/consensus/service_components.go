@@ -29,6 +29,11 @@ func (s *Service) startComponents(ctx context.Context) error {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 
+	store, err = protectStorage(s.config, store, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to set up storage encryption: %w", err)
+	}
+
 	if err := store.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start %s storage: %w", s.config.Storage.Type, err)
 	}
