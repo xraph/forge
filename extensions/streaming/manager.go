@@ -1164,6 +1164,19 @@ func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Co
 		return nil // Server-originated message; not subject to client authorization.
 	}
 
+	// Membership control frames are not sends. Requiring the sender to be in
+	// the room already made a join frame impossible to pass: every client
+	// "join" was rejected here and never reached JoinRoom, so a WebSocket
+	// client had no way into a room at all.
+	switch message.Type {
+	case streaming.MessageTypeJoin:
+		return m.authorizeJoinFrame(ctx, message, userID)
+	case streaming.MessageTypeLeave:
+		// Leaving a room the connection is not in is a no-op in LeaveRoom, and
+		// leaving one it is in needs no permission.
+		return nil
+	}
+
 	switch {
 	case message.RoomID != "":
 		// Membership is the baseline check and does not depend on an authorizer
@@ -1224,6 +1237,46 @@ func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Co
 				return ErrSendDenied
 			}
 		}
+	}
+
+	return nil
+}
+
+// authorizeJoinFrame checks a client's request to join a room before it
+// reaches JoinRoom.
+//
+// JoinRoom applies the room authorizer itself, since it is also called from
+// server code. The gate asks the same question first so a refused join is
+// reported as a rejection like any other refused frame, and it also refuses a
+// user banned from the room, which CanJoin does not consider.
+func (m *manager) authorizeJoinFrame(ctx context.Context, message *Message, userID string) error {
+	if message.RoomID == "" {
+		return nil // handleMessage ignores a join with no room.
+	}
+
+	if userID == "" {
+		return fmt.Errorf("%w: anonymous connections cannot join rooms", ErrRoomAccessDenied)
+	}
+
+	if m.roomAuth != nil {
+		allowed, err := m.roomAuth.CanJoin(ctx, userID, message.RoomID)
+		if err != nil {
+			return fmt.Errorf("room join authorization failed: %w", err)
+		}
+
+		if !allowed {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.rooms.joins_denied").Inc()
+			}
+
+			return ErrRoomAccessDenied
+		}
+	}
+
+	// Asked of the store rather than the room object: the local backend keeps
+	// bans in the store, and its room's IsBanned only reports an error.
+	if banned, err := m.roomStore.IsBanned(ctx, message.RoomID, userID); err == nil && banned {
+		return ErrUserBanned
 	}
 
 	return nil
