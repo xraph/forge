@@ -80,6 +80,11 @@ type app struct {
 	// on every probe, so logging per request would repeat the same line at
 	// the probe rate; logging once per report keeps it to one per check.
 	unhealthyLogged atomic.Int64
+
+	// metricsHandler serves /_/metrics through the scrape cache. Built on
+	// first use, since the collector is only final once Start has run.
+	metricsOnce    sync.Once
+	metricsHandler http.Handler
 }
 
 // newApp creates a new app instance.
@@ -2076,7 +2081,7 @@ func (a *app) handleMetrics(ctx Context) error {
 	// promhttp handler so that content negotiation (OpenMetrics, compression,
 	// etc.) is handled correctly by the Prometheus client library.
 	if p, ok := a.metrics.(shared.PrometheusProvider); ok {
-		p.PrometheusHandler().ServeHTTP(ctx.Response(), ctx.Request())
+		a.scrapeHandler(p).ServeHTTP(ctx.Response(), ctx.Request())
 
 		return nil
 	}
@@ -2098,6 +2103,29 @@ func (a *app) handleMetrics(ctx Context) error {
 	}
 
 	return nil
+}
+
+// defaultMetricsScrapeCacheTTL is how long a rendered scrape is reused when
+// AppConfig.MetricsScrapeCacheTTL is left at zero. A second is far below any
+// sensible scrape interval, so a single scraper always sees fresh data, while
+// a burst of scrapers (several Prometheus replicas, a dashboard, a script in
+// a loop) shares one render.
+const defaultMetricsScrapeCacheTTL = time.Second
+
+// scrapeHandler returns the /_/metrics handler, wrapped in the scrape cache.
+// The bridge is fixed once the collector is built, so the wrapper is built
+// once and reused.
+func (a *app) scrapeHandler(p shared.PrometheusProvider) http.Handler {
+	a.metricsOnce.Do(func() {
+		ttl := a.config.MetricsScrapeCacheTTL
+		if ttl == 0 {
+			ttl = defaultMetricsScrapeCacheTTL
+		}
+
+		a.metricsHandler = exporters.NewScrapeCache(p.PrometheusHandler(), ttl)
+	})
+
+	return a.metricsHandler
 }
 
 // healthSummary is what /_/health shows a caller that may not see details:

@@ -142,6 +142,13 @@ type AppConfig struct {
 	// EnableInfoEndpoint registers /_/info, which lists the services,
 	// extensions, versions and Go version the app runs. Default: false.
 	EnableInfoEndpoint bool
+
+	// MetricsScrapeCacheTTL is how long a rendered /_/metrics response is
+	// reused. Concurrent scrapes inside the window share one render, so a
+	// burst of scrapers costs one gather and one encode. Zero means the
+	// default of 1s; negative disables the cache.
+	MetricsScrapeCacheTTL time.Duration
+
 	// ExposeInternalErrors decides whether 5xx responses carry the internal
 	// error text. Nil means it follows Environment: only an explicitly set
 	// development, dev, local or test environment exposes it. An unset or
@@ -533,6 +540,12 @@ func WithObservabilityGuard(guard func(*http.Request) bool) AppOption {
 // WithObservabilityGuard anywhere beyond localhost.
 func WithInfoEndpoint() AppOption {
 	return func(c *AppConfig) { c.EnableInfoEndpoint = true }
+}
+
+// WithMetricsScrapeCacheTTL sets how long a rendered /_/metrics response is
+// reused. See AppConfig.MetricsScrapeCacheTTL.
+func WithMetricsScrapeCacheTTL(ttl time.Duration) AppOption {
+	return func(c *AppConfig) { c.MetricsScrapeCacheTTL = ttl }
 }
 
 // WithExposeInternalErrors overrides whether 5xx responses carry the internal
