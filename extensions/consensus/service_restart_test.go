@@ -62,21 +62,17 @@ func TestServiceRestartKeepsDataAndMembership(t *testing.T) {
 			services := startServices(t, cfgs)
 			applySet(t, services[:3], "before", "growth")
 
-			leader := waitForServiceLeader(t, services[:3])
-
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			if err := leader.AddNode(ctx, "n4", "127.0.0.1", cfgs[3].BindPort); err != nil {
-				t.Fatalf("add n4: %v", err)
-			}
+			onLeader(t, services[:3], func(s *Service) error {
+				return s.AddNode(ctx, "n4", "127.0.0.1", cfgs[3].BindPort)
+			})
 
 			applySet(t, services, "after", "growth")
 			waitForValue(t, services, "after", "growth")
 
-			if err := waitForServiceLeader(t, services).Snapshot(ctx); err != nil {
-				t.Fatalf("snapshot: %v", err)
-			}
+			onLeader(t, services, func(s *Service) error { return s.Snapshot(ctx) })
 
 			applySet(t, services, "after", "snapshot")
 			waitForValue(t, services, "after", "snapshot")
