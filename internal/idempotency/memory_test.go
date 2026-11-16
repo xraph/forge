@@ -229,8 +229,11 @@ func TestCompleteWithoutBeginStoresTheResponse(t *testing.T) {
 	}
 }
 
+// The eviction tests use one principal to exercise the store-wide LRU, so
+// they lift the per-principal quota that would otherwise refuse its keys.
+
 func TestEvictionCountsOnlyCompletedEntries(t *testing.T) {
-	s, _ := newTestStore(WithMaxEntries(2))
+	s, _ := newTestStore(WithMaxEntries(2), WithMaxEntriesPerPrincipal(-1))
 	ctx := context.Background()
 	key := func(v string) Key { return Key{Principal: "u", Scope: "s", Value: v} }
 
@@ -271,7 +274,7 @@ func TestEvictionIsLeastRecentlyUsedNotFirstIn(t *testing.T) {
 
 	for name, touch := range cases {
 		t.Run(name, func(t *testing.T) {
-			s, _ := newTestStore(WithMaxEntries(2))
+			s, _ := newTestStore(WithMaxEntries(2), WithMaxEntriesPerPrincipal(-1))
 			ctx := context.Background()
 
 			_ = s.Complete(ctx, key("k1"), 0, Response{Status: 200})
@@ -610,7 +613,7 @@ func TestConcurrentBeginsOnOneKeyHaveExactlyOneWinner(t *testing.T) {
 // token differs from every token the key had before, so a holder of the old
 // one can neither complete nor release the new claim.
 func TestATokenStaysDistinctAcrossEvictionAndRecreation(t *testing.T) {
-	s, _ := newTestStore(WithMaxEntries(1))
+	s, _ := newTestStore(WithMaxEntries(1), WithMaxEntriesPerPrincipal(-1))
 	ctx := context.Background()
 	other := Key{Principal: "alice", Scope: "POST /orders", Value: "k2"}
 

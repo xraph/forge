@@ -16,6 +16,39 @@ type IdempotencyOption = idempotency.Option
 // type as middleware.IdempotencyStore.
 type IdempotencyStore = idempotency.Store
 
+// IdempotencyMemoryOption configures an in-memory idempotency store. It is the
+// same type as middleware.MemoryIdempotencyOption, so these options can be
+// passed to middleware.NewMemoryIdempotencyStore.
+type IdempotencyMemoryOption = idempotency.MemoryOption
+
+// ErrIdempotencyQuotaExceeded is what the in-memory store returns, wrapped,
+// when a principal already holds as many claims and stored responses as its
+// quota allows. The idempotency middleware answers it with 429.
+var ErrIdempotencyQuotaExceeded = idempotency.ErrQuotaExceeded
+
+// IdempotencyMemoryMaxBytes caps the approximate bytes the in-memory store's
+// responses take across all principals (default 256 MiB). Past it the least
+// recently used response is evicted.
+func IdempotencyMemoryMaxBytes(n int64) IdempotencyMemoryOption {
+	return idempotency.WithMaxBytes(n)
+}
+
+// IdempotencyMemoryMaxEntriesPerPrincipal caps the claims and stored responses
+// one principal may hold in the in-memory store. The default is a tenth of the
+// store-wide entry cap. A principal at the cap gets 429 for new keys until its
+// earlier responses expire, rather than pushing out other principals'
+// responses. A negative value removes the cap.
+func IdempotencyMemoryMaxEntriesPerPrincipal(n int) IdempotencyMemoryOption {
+	return idempotency.WithMaxEntriesPerPrincipal(n)
+}
+
+// IdempotencyMemoryMaxBytesPerPrincipal caps the approximate bytes one
+// principal's responses may take in the in-memory store. The default is a
+// tenth of the store-wide byte cap. A negative value removes the cap.
+func IdempotencyMemoryMaxBytesPerPrincipal(n int64) IdempotencyMemoryOption {
+	return idempotency.WithMaxBytesPerPrincipal(n)
+}
+
 // IdempotencyBackend selects the store. Without it, every route shares one
 // process-wide in-memory store, which is right for a single instance and
 // wrong behind a load balancer: use a shared store there.
@@ -41,6 +74,10 @@ func IdempotencyBackend(store IdempotencyStore) IdempotencyOption {
 //     other status is stored and replayed until the TTL (24h by default).
 //   - A response larger than middleware.IdempotencyMaxResponse (1 MiB) is sent
 //     in full and replayed without its body, marked Idempotent-Truncated: true.
+//   - A principal that already holds its quota of stored responses (in the
+//     default in-memory store, a tenth of the store) gets 429 for a new key,
+//     with Retry-After, and the handler does not run. One caller cannot push
+//     another's stored responses out of the store.
 //   - A request with no principal is not deduplicated: it runs as if it had
 //     no key, and its response carries Idempotency-Skipped: anonymous. Every
 //     anonymous caller shares the empty principal, so one could otherwise be
